@@ -1,6 +1,11 @@
 import type { ProviderFailure, ProviderFailureCategory } from '@mitzo/protocol';
 
 const MAX_RETRY_AFTER_SECONDS = 300;
+const PROJECT_ACCESS_CODE = 'not_authorized_invalid_project';
+const PROJECT_ACCESS_MESSAGE =
+  'The selected account’s project is unavailable or archived. Check its project configuration before starting a new turn.';
+const MAX_NATIVE_CODE_MESSAGE_LENGTH = 2_000;
+
 const SAFE_PROVIDER_CODES = new Set([
   'server_is_overloaded',
   'server_overloaded',
@@ -75,6 +80,24 @@ function sanitizedCode(value: unknown): string | undefined {
   return undefined;
 }
 
+/** Recognize only the native auth-code field or exact structured code, never
+ * an arbitrary mention of a code or the upstream explanation. */
+function projectAccessCode(value: unknown): string | undefined {
+  const object = record(value);
+  const error = record(object?.error);
+  if (object?.code === PROJECT_ACCESS_CODE || error?.code === PROJECT_ACCESS_CODE)
+    return PROJECT_ACCESS_CODE;
+  const messages = [typeof value === 'string' ? value : undefined, object?.message, error?.message];
+  return messages.some(
+    (message) =>
+      typeof message === 'string' &&
+      message.length <= MAX_NATIVE_CODE_MESSAGE_LENGTH &&
+      /(?:^|[,;\n])\s*auth error code:\s*not_authorized_invalid_project(?=$|[,;\s])/.test(message),
+  )
+    ? PROJECT_ACCESS_CODE
+    : undefined;
+}
+
 // Only reviewed native tags become public codes; provider-controlled payloads
 // and unknown tag details never enter messages or telemetry.
 function nativeFailure(
@@ -140,6 +163,7 @@ function retryAfterMs(value: unknown, now = Date.now()): number | undefined {
 }
 
 function categoryFor(text: string, status?: number): ProviderFailureCategory {
+  if (text === PROJECT_ACCESS_CODE) return 'authentication';
   if (
     /(?:server_is_overloaded|server_overloaded|server_error|service_unavailable_error|temporar(?:ily)? overloaded|high demand|model is at capacity)/i.test(
       text,
@@ -186,7 +210,9 @@ export function classifyProviderFailure(
 ): ProviderFailure {
   const text = diagnosticText(value);
   const native = nativeFailure(value);
-  const code = native?.code ?? sanitizedCode(value);
+  const projectCode =
+    !native || native.category === 'authentication' ? projectAccessCode(value) : undefined;
+  const code = projectCode ?? native?.code ?? sanitizedCode(value);
   const codedCategory = code ? categoryFor(code) : 'unknown';
   const category =
     native?.category ??
@@ -212,12 +238,14 @@ export function classifyProviderFailure(
     correlationId: context.correlationId,
     ...(delay ? { retryAfterMs: delay } : {}),
     message:
-      code === 'server_overloaded' ||
-      (category === 'overloaded' && /model is at capacity/i.test(text))
-        ? 'The selected model is at capacity. Wait for capacity or choose another available model. Your progress is saved.'
-        : permanentLimit && category === 'rate_limited'
-          ? 'The selected account has reached a usage or budget limit. Check its limits or choose another available account. Inspect saved work before continuing.'
-          : PUBLIC_MESSAGES[category],
+      code === PROJECT_ACCESS_CODE
+        ? PROJECT_ACCESS_MESSAGE
+        : code === 'server_overloaded' ||
+            (category === 'overloaded' && /model is at capacity/i.test(text))
+          ? 'The selected model is at capacity. Wait for capacity or choose another available model. Your progress is saved.'
+          : permanentLimit && category === 'rate_limited'
+            ? 'The selected account has reached a usage or budget limit. Check its limits or choose another available account. Inspect saved work before continuing.'
+            : PUBLIC_MESSAGES[category],
   };
 }
 
