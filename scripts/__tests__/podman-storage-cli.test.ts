@@ -2,6 +2,8 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { runStorageCommand, storageExitCode } from '../podman-storage.mjs';
 import { enrollStore } from '../lib/podman-storage-maintainer.mjs';
 const id = (n: number) => `sha256:${n.toString(16).padStart(64, '0')}`;
@@ -121,4 +123,22 @@ describe('operator storage command', () => {
     expect(storageExitCode({ plan: { blockers: [] } })).toBe(0);
     expect(storageExitCode({ status: 'complete', blockers: [] })).toBe(0);
   });
+  it('exits 2 from the actual CLI process when collection is blocked', async () =>
+    fixture(async ({ home, selection }) => {
+      // A stub executable makes this a process-boundary test with no live Podman call.
+      await writeFile(join(home, 'podman'), "#!/bin/sh\nprintf '{\\n'\n", { mode: 0o700 });
+      const result = spawnSync(
+        process.execPath,
+        [
+          fileURLToPath(new URL('../podman-storage.mjs', import.meta.url)),
+          'status',
+          '--selection',
+          selection,
+        ],
+        { encoding: 'utf8', timeout: 10000, env: { ...process.env, PATH: home } },
+      );
+      expect(result.stderr).toBe('');
+      expect(JSON.parse(result.stdout).plan.blockers.length).toBeGreaterThan(0);
+      expect(result.status).toBe(2);
+    }));
 });
