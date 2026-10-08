@@ -1870,8 +1870,15 @@ async function _startChatInner(
       },
     );
   } catch (err: unknown) {
-    options.onStartupAdmission?.(err);
     const message = err instanceof Error ? err.message : 'Unknown error';
+    const native =
+      accountBinding?.provider === 'openai-codex' || accountBinding?.provider === 'openai';
+    const publicMessage = native
+      ? publicCodexStartupError(err instanceof Error ? err : new Error(message))
+      : message;
+    // Admission rejection is also a client/span boundary. Never forward the
+    // internal exception or its cause to a second, unsanitized error path.
+    options.onStartupAdmission?.(native ? new Error(publicMessage) : err);
     terminalizeUndispatchedStartup(initialProviderAdmission);
     if (message.includes('No conversation found') && options.resume) {
       log.warn('SDK rejected resume, session expired', { sessionId: options.resume, cwd });
@@ -1880,18 +1887,19 @@ async function _startChatInner(
         error: 'Session expired. Send your message again to start fresh.',
       });
     } else {
-      const publicMessage =
-        accountBinding?.provider === 'openai-codex' || accountBinding?.provider === 'openai'
-          ? publicCodexStartupError(err instanceof Error ? err : new Error(message))
-          : message;
       log.error('startChat failed after register, cleaning up', {
         clientId,
+        sessionId: newSdkSessionId ?? session.sessionId,
         ...(accountBinding?.provider === 'openai-codex' || accountBinding?.provider === 'openai'
           ? codexRuntimeErrorTelemetry(err instanceof Error ? err : new Error(message))
           : {}),
         error: publicMessage,
       });
-      send(transport, { type: 'error', error: publicMessage });
+      send(transport, {
+        type: 'error',
+        ...(session.sessionId ? { sessionId: session.sessionId } : {}),
+        error: publicMessage,
+      });
     }
     if (newSdkSessionId) {
       // Retain its binding: the SDK may have written history before startup failed.
