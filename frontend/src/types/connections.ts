@@ -105,6 +105,6 @@ export interface ConnectionsCatalog {
 }
 
 export interface ConnectionsViewProps {
-  mode?: 'add' | 'manage' | 'personal' | 'google' | 'legacy';
+  mode?: 'add' | 'manage' | 'personal' | 'google' | 'legacy' | 'keychain';
   connectionId?: string;
 }

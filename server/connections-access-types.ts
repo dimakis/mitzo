@@ -2,6 +2,7 @@ import type { AccountSignIn } from './account-profiles.js';
 /** Nonsecret read model. Actions only navigate to existing owning controls. */
 export type AccessResourceKind =
   | 'ai-account'
+  | 'keychain-connection'
   | 'managed-connection'
   | 'personal-connection'
   | 'google-workspace'
@@ -49,7 +50,8 @@ export interface ConnectionsAccessInventory {
   generatedAt: number;
   resources: AccessResource[];
   sources: Array<{
-    id: 'accounts' | 'symposiumAccounts' | 'managed' | 'personal' | 'google' | 'legacy';
+    id:
+      'accounts' | 'symposiumAccounts' | 'managed' | 'personal' | 'google' | 'legacy' | 'keychain';
     state: 'available' | 'unavailable' | 'not-configured';
     reason: string | null;
   }>;

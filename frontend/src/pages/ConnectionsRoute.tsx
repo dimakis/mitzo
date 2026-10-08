@@ -8,7 +8,10 @@ export function ConnectionsRoute() {
   const mode =
     requested === 'service'
       ? 'manage'
-      : requested === 'personal' || requested === 'google' || requested === 'legacy'
+      : requested === 'personal' ||
+          requested === 'google' ||
+          requested === 'legacy' ||
+          requested === 'keychain'
         ? requested
         : 'add';
   const connectionId = params.get('connection') ?? undefined;

@@ -43,6 +43,10 @@ export function privateCodexRoots(extraRoots: string[] = []): string[] {
       'Library/Keychains',
     ].map((p) => join(homedir(), p)),
     join(process.cwd(), '.env'),
+    ...(process.env.MITZO_KEYCHAIN_HELPER ? [process.env.MITZO_KEYCHAIN_HELPER] : []),
+    ...(process.env.MITZO_KEYCHAIN_CONNECTIONS_DIR
+      ? [process.env.MITZO_KEYCHAIN_CONNECTIONS_DIR]
+      : []),
     ...(process.env.MITZO_ACCOUNT_PROFILES_FILE ? [process.env.MITZO_ACCOUNT_PROFILES_FILE] : []),
   ].map(canonical);
 }
