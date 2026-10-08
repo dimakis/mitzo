@@ -1,6 +1,10 @@
 import { createHash } from 'node:crypto';
 import type { CredentialReference } from './credentials.js';
-import { OpenAIKeyOperationStore, type KeyOperation } from './openai-key-operation-store.js';
+import {
+  OpenAIKeyOperationStore,
+  openAIKeyResourceBindings,
+  type KeyOperation,
+} from './openai-key-operation-store.js';
 
 export interface ManagedOpenAIAccount {
   id: string;
@@ -94,6 +98,7 @@ export class OpenAIKeyManagement {
       (this.options.managedAccountIds && !this.options.managedAccountIds.includes(id))
     )
       throw new Error('OpenAI account is not configured for key replacement');
+    this.assertResourceOwnership(account);
     if (
       accounts.some(
         (item) =>
@@ -105,6 +110,12 @@ export class OpenAIKeyManagement {
     )
       throw new Error('Shared credentials require separate configuration');
     return account;
+  }
+  private assertResourceOwnership(account: ManagedOpenAIAccount) {
+    if (this.options.store.hasOtherResourceOwner(account.id, openAIKeyResourceBindings(account)))
+      throw new Error(
+        'OpenAI credentials or provider are recorded under another account; operator reconciliation is required',
+      );
   }
   private async state(account: ManagedOpenAIAccount, signal: AbortSignal) {
     const binding = this.binding(account);
@@ -180,6 +191,8 @@ export class OpenAIKeyManagement {
   }
   /** Called while ConnectionsService holds its admission gate. Legacy unadopted keys are unchanged. */
   async assertReady(accountId: string, signal: AbortSignal) {
+    const configured = this.options.accounts().find((account) => account.id === accountId);
+    if (configured) this.assertResourceOwnership(configured);
     if (!this.options.store.latest(accountId)) return;
     const account = this.account(accountId);
     const state = await this.state(account, signal);
@@ -306,6 +319,7 @@ export class OpenAIKeyManagement {
         binding,
         gatewayVersion: gateway.version,
         keychainBeforeVersion: keychain.version,
+        ...openAIKeyResourceBindings(account),
       },
       selected.pending?.id,
     );

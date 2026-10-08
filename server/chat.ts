@@ -32,6 +32,7 @@ import {
 import { credentials } from './credentials.js';
 import { getConnectionsRuntime } from './connections-runtime.js';
 import { assertOpenAIKeyController } from './openai-key-controller.js';
+import { openAIKeyResourceBindings } from './openai-key-operation-store.js';
 import {
   getResponsesRuntime,
   openResponsesChat,
@@ -1191,14 +1192,19 @@ async function _startChatInner(
         };
         accountEnv = nativeExecutionEnv();
       } else if (accountBinding.provider === 'openai') {
+        const profile = profiles!.apiProfile(accountBinding);
         assertOpenAIKeyController(
           accountBinding.accountId,
           join(BASE_REPO, '.mitzo'),
           !!getConnectionsRuntime()?.assertOpenAIKeyReady,
+          openAIKeyResourceBindings({
+            credentialRef: profile.credentialRef,
+            providerName: profile.sandboxProvider,
+            providerId: profile.sandboxProviderId,
+          }),
         );
         if (options.images?.length)
           throw new Error('OpenAI API image attachments are not yet supported');
-        const profile = profiles!.apiProfile(accountBinding);
         if (openShellRequested) {
           if (!profile.sandboxProvider)
             throw new Error('The selected API account has no OpenShell provider binding');

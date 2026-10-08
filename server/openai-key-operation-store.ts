@@ -1,9 +1,46 @@
 import Database from 'better-sqlite3';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
+import type { CredentialReference } from './credentials.js';
+
+export interface OpenAIKeyResourceBindings {
+  credentialBinding: string | null;
+  providerIdBinding: string | null;
+  providerNameBinding: string | null;
+}
+/** Hash lookup coordinates, never credential values; property order cannot change identity. */
+export function openAIKeyResourceBindings(account: {
+  credentialRef: CredentialReference;
+  providerId?: string;
+  providerName?: string;
+}): OpenAIKeyResourceBindings {
+  const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
+  const ref = account.credentialRef;
+  return {
+    credentialBinding: hash([ref.provider, ref.service, ref.account]),
+    providerIdBinding: account.providerId ? hash(account.providerId) : null,
+    providerNameBinding: account.providerName ? hash(account.providerName) : null,
+  };
+}
+export function hasOtherOpenAIKeyResourceOwner(
+  db: Database.Database,
+  accountId: string,
+  resources: OpenAIKeyResourceBindings,
+): boolean {
+  // Older intent lacks individual coordinates. Preserve it and refuse aliases until reconciled.
+  return !!db
+    .prepare(
+      `SELECT 1 FROM openai_key_operations WHERE accountId != @accountId AND (
+    credentialBinding = @credentialBinding OR providerIdBinding = @providerIdBinding OR
+    providerNameBinding = @providerNameBinding OR credentialBinding IS NULL OR
+    providerIdBinding IS NULL OR providerNameBinding IS NULL
+  ) LIMIT 1`,
+    )
+    .get({ accountId, ...resources });
+}
 
 export type KeyOperationPhase =
   'prepared' | 'keychain_written' | 'gateway_started' | 'complete' | 'aborted';
-export interface KeyOperation {
+export interface KeyOperation extends OpenAIKeyResourceBindings {
   id: string;
   accountId: string;
   binding: string;
@@ -15,7 +52,7 @@ export interface KeyOperation {
   revision: number;
 }
 
-/** Intent and acknowledgements only. Credential values and digests never enter SQLite. */
+/** Intent, nonsecret resource coordinates and acknowledgements only. No key values or their digests. */
 export class OpenAIKeyOperationStore {
   private db: Database.Database;
   constructor(path: string) {
@@ -30,6 +67,18 @@ export class OpenAIKeyOperationStore {
     );
     CREATE UNIQUE INDEX IF NOT EXISTS openai_key_pending
       ON openai_key_operations(accountId) WHERE phase NOT IN ('complete','aborted');`);
+    const columns = new Set(
+      (this.db.prepare('PRAGMA table_info(openai_key_operations)').all() as { name: string }[]).map(
+        (column) => column.name,
+      ),
+    );
+    for (const column of ['credentialBinding', 'providerIdBinding', 'providerNameBinding']) {
+      if (!columns.has(column))
+        this.db.exec(`ALTER TABLE openai_key_operations ADD COLUMN ${column} TEXT`);
+    }
+  }
+  hasOtherResourceOwner(accountId: string, resources: OpenAIKeyResourceBindings): boolean {
+    return hasOtherOpenAIKeyResourceOwner(this.db, accountId, resources);
   }
   latest(accountId: string): KeyOperation | undefined {
     return this.db
@@ -51,7 +100,11 @@ export class OpenAIKeyOperationStore {
       .all() as KeyOperation[];
   }
   begin(
-    input: Pick<KeyOperation, 'accountId' | 'binding' | 'gatewayVersion' | 'keychainBeforeVersion'>,
+    input: Pick<
+      KeyOperation,
+      'accountId' | 'binding' | 'gatewayVersion' | 'keychainBeforeVersion'
+    > &
+      Partial<OpenAIKeyResourceBindings>,
     supersedeId?: string,
   ): KeyOperation {
     return this.db.transaction(() => {
@@ -62,6 +115,9 @@ export class OpenAIKeyOperationStore {
         this.update(pending.id, { phase: 'aborted', errorCode: 'SUPERSEDED' });
       } else if (supersedeId) throw new Error('Connection changed');
       const operation: KeyOperation = {
+        credentialBinding: null,
+        providerIdBinding: null,
+        providerNameBinding: null,
         ...input,
         id: randomUUID(),
         phase: 'prepared',
@@ -71,7 +127,9 @@ export class OpenAIKeyOperationStore {
       };
       this.db
         .prepare(
-          'INSERT INTO openai_key_operations VALUES (@id,@accountId,@binding,@phase,@gatewayVersion,@keychainBeforeVersion,@errorCode,@verifiedAt,@revision,@createdAt)',
+          `INSERT INTO openai_key_operations
+          (id,accountId,binding,phase,gatewayVersion,keychainBeforeVersion,errorCode,verifiedAt,revision,createdAt,credentialBinding,providerIdBinding,providerNameBinding)
+          VALUES (@id,@accountId,@binding,@phase,@gatewayVersion,@keychainBeforeVersion,@errorCode,@verifiedAt,@revision,@createdAt,@credentialBinding,@providerIdBinding,@providerNameBinding)`,
         )
         .run({ ...operation, createdAt: Date.now() });
       return operation;

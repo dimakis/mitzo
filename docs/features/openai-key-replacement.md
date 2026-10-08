@@ -34,6 +34,12 @@ Affected provider-attached sandboxes stop before replacement and retain their wo
 Host API requests resolve the verified canonical key for each request, including web
 searches. Known unsynchronized accounts cannot start or resume provider work. Removing UI
 enrollment or disabling Connections does not bypass previously recorded account fences.
+The journal also retains fingerprints of the nonsecret Keychain lookup coordinates and
+provider ID/name. Reusing any of those resources under another account ID requires
+operator reconciliation, even after the original profile is removed or enrollment is
+disabled. Unrelated legacy accounts retain admission. Older journals without individual
+resource coordinates retain their intent and conservatively block unproven account aliases;
+upgrading never deletes or infers ownership for those records.
 
 After interruption, recovery can complete a proven Keychain commit whose gateway update
 has not started and whose bindings and gateway revision are unchanged. The write sends the journaled provider version as a gateway compare-and-swap;

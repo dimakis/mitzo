@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.0';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.5';
 
 /** Credential synchronization changes runtime wiring without changing existing provider policies. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.1';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.2';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -40,13 +40,13 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../capability-conversation-binding.ts':
     '147a328d161f167aeeb31bf0017d5fea25cc3f22933392249a228d7bd61e89aa',
   // Secret custody and its browser/admission boundaries share the runtime review contract.
-  '../openai-key-management.ts': '40060c8deeac2255c5d079d661ac2a29f1101ca8b5cdec828f1e82da737e77cc',
+  '../openai-key-management.ts': '536bffc8e2f8f8a73326ffe753ffd60b794b3f45072bb74b82d6ab7226946ead',
   '../openai-key-operation-store.ts':
-    'b257f487cef1bb92e7368030c7d7e6a851a5bef5f73be220e2801457cb61d3e3',
+    'dcd4bfc37e6098f194e19c9a797ca70eed189b19568c0272c778ecdec49f00a9',
   '../openai-key-gateway.ts': 'c4c19388fd0bcf794ba1c2f85b9e8227668c575ba4047a8f9cd68470d023c5b6',
   '../keychain-rotation-credentials.ts':
     'c2d94ede80f5950b45568dc41c5d10c20802d4504dbcd0b6657e8de04de72d4a',
-  '../openai-key-controller.ts': '4be89d1cb3b75270d6e3d257b5d35f569e26c726e8c23c3fb697ea0cff71c6ee',
+  '../openai-key-controller.ts': '721a1c6a513fc5380e4a2222927cda025bf8cbd7e8d49d8c5d526470e2cff217',
   '../connections-router.ts': '944eeccf74aabe0684f63373272cabd861b3b596d512147d7c82b9ac87ae87bd',
   '../connections-service.ts': '8d3e89345787d9b732c98d4636e86f1b56ed1c0fffb6f5288e0d29cbf24f1ce6',
   '../connections-runtime.ts': '8bd5cb4c1772347cdd635ebab68d04b7d5cc70eaa6bd0159242dd7850ef15e8e',

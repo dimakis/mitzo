@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import Database from 'better-sqlite3';
 import { OpenAIKeyManagement, type ManagedOpenAIAccount } from '../openai-key-management.js';
 import { OpenAIKeyOperationStore } from '../openai-key-operation-store.js';
 
@@ -102,6 +103,89 @@ function fixture() {
   };
 }
 describe('OpenAI key replacement and recovery', () => {
+  it.each(['credential', 'provider id', 'provider name'])(
+    'blocks an unjournaled account reusing a recorded %s after the owning account is removed',
+    async (shared) => {
+      const f = fixture();
+      f.gateway.replace.mockRejectedValueOnce(new Error('interrupted'));
+      await f.replace();
+      const alias = {
+        ...account,
+        id: 'alias',
+        credentialRef:
+          shared === 'credential'
+            ? account.credentialRef
+            : { ...account.credentialRef, account: 'other' },
+        providerId: shared === 'provider id' ? account.providerId : 'other-id',
+        providerName: shared === 'provider name' ? account.providerName : 'other-api',
+      };
+      f.setAccounts([alias]);
+      const reopened = new OpenAIKeyOperationStore(f.path);
+      stores.push(reopened);
+      const restarted = new OpenAIKeyManagement({
+        ...f.options,
+        store: reopened,
+        managedAccountIds: [],
+      });
+      f.keychain.read.mockClear();
+      f.gateway.inspect.mockClear();
+      await expect(restarted.assertReady('alias', signal())).rejects.toThrow('recorded');
+      expect(f.keychain.read).not.toHaveBeenCalled();
+      expect(f.gateway.inspect).not.toHaveBeenCalled();
+      const enrolled = new OpenAIKeyManagement({ ...f.options, managedAccountIds: ['alias'] });
+      await expect(enrolled.resolveKey('alias', signal())).rejects.toThrow('recorded');
+    },
+  );
+  it('does not authorize a new account ID after a completed credential receipt drifts', async () => {
+    const f = fixture();
+    await f.replace();
+    f.driftKeychain();
+    f.setAccounts([{ ...account, id: 'alias' }]);
+    await expect(f.manager.assertReady('alias', signal())).rejects.toThrow('recorded');
+  });
+  it('preserves an older journal and refuses unproven aliases without deleting its intent', async () => {
+    const f = fixture();
+    const oldPath = join(f.directory, 'old.db');
+    const old = new Database(oldPath);
+    old.exec(`CREATE TABLE openai_key_operations (
+      id TEXT PRIMARY KEY, accountId TEXT NOT NULL, binding TEXT NOT NULL,
+      phase TEXT NOT NULL, gatewayVersion TEXT NOT NULL, keychainBeforeVersion TEXT,
+      errorCode TEXT, verifiedAt INTEGER, revision INTEGER NOT NULL, createdAt INTEGER NOT NULL
+    ); INSERT INTO openai_key_operations VALUES ('old-operation','removed','old-binding','gateway_started','10',NULL,'SYNC_PENDING',NULL,1,0);`);
+    old.close();
+    const migrated = new OpenAIKeyOperationStore(oldPath);
+    stores.push(migrated);
+    const manager = new OpenAIKeyManagement({ ...f.options, store: migrated });
+    await expect(manager.assertReady('work', signal())).rejects.toThrow('recorded');
+    expect(migrated.pending()).toMatchObject([
+      {
+        id: 'old-operation',
+        accountId: 'removed',
+        phase: 'gateway_started',
+        gatewayVersion: '10',
+        credentialBinding: null,
+      },
+    ]);
+    expect(f.keychain.read).not.toHaveBeenCalled();
+    expect(f.gateway.inspect).not.toHaveBeenCalled();
+  });
+  it('preserves admission for unrelated legacy accounts alongside recorded rotation intent', async () => {
+    const f = fixture();
+    f.gateway.replace.mockRejectedValueOnce(new Error('interrupted'));
+    await f.replace();
+    f.setAccounts([
+      {
+        ...account,
+        id: 'other',
+        credentialRef: { ...account.credentialRef, account: 'other' },
+        providerId: 'other-id',
+        providerName: 'other-api',
+      },
+    ]);
+    f.keychain.read.mockClear();
+    await expect(f.manager.assertReady('other', signal())).resolves.toBeUndefined();
+    expect(f.keychain.read).not.toHaveBeenCalled();
+  });
   it('does not mistake an invalidated Keychain receipt for an untouched legacy key after a write interruption', async () => {
     const f = fixture();
     const update = f.store.update.bind(f.store);
