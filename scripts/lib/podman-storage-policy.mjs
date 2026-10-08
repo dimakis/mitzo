@@ -50,7 +50,7 @@ export function planImages(s, now = Date.now()) {
     if (!reasons.has(id)) reasons.set(id, new Set());
     reasons.get(id).add(reason);
   };
-  if (!s.complete) blockers.push('partial inventory');
+  if (s.complete !== true) blockers.push('partial inventory');
   if (!e || e.version !== 1 || !e.review || digest(e.store) !== digest(s.store))
     blockers.push('store enrollment missing or changed');
   const keep = e?.policy?.keepLatest;
@@ -72,7 +72,7 @@ export function planImages(s, now = Date.now()) {
   for (const c of s.containers ?? []) protect(c.image, `container: ${c.id}`);
   for (const role of protectionRoles) {
     const source = e?.protections?.[role];
-    if (!source?.complete || !source.review || !Array.isArray(source.images))
+    if (source?.complete !== true || !source.review || !Array.isArray(source.images))
       blockers.push(`missing protection evidence: ${role}`);
     else for (const ref of source.images) protect(ref, `pin: ${role}`);
   }
@@ -82,7 +82,7 @@ export function planImages(s, now = Date.now()) {
   if (!Array.isArray(builds) || !Array.isArray(producers))
     blockers.push('missing producer evidence');
   for (const p of producers ?? [])
-    if (!p.owner || !p.family || !p.coordinated || !p.review)
+    if (!p.owner || !p.family || p.coordinated !== true || !p.review)
       blockers.push(`uncoordinated producer: ${p.owner}`);
   for (const b of builds ?? []) {
     if (b.state !== 'succeeded') {
@@ -91,14 +91,14 @@ export function planImages(s, now = Date.now()) {
     }
     if (
       !b.operation ||
-      !b.reproducible ||
+      b.reproducible !== true ||
       !b.recipeDigest ||
       !Number.isFinite(b.completedAt) ||
       b.completedAt > now ||
       !Array.isArray(b.images) ||
       !b.images.length ||
       !(producers ?? []).some(
-        (p) => p.owner === b.owner && p.family === b.family && p.coordinated && p.review,
+        (p) => p.owner === b.owner && p.family === b.family && p.coordinated === true && p.review,
       )
     ) {
       blockers.push(`missing build ownership: ${b.operation}`);
@@ -202,7 +202,7 @@ export async function applyImages(plan, adapter, { now = Date.now, signal } = {}
     try {
       const final = await adapter.collect();
       result.after = final.telemetry;
-      if (!final.complete) result.blockers.push('final inventory incomplete');
+      if (final.complete !== true) result.blockers.push('final inventory incomplete');
     } catch {
       result.blockers.push('final measurement unavailable');
     }
@@ -278,7 +278,8 @@ export async function applyImages(plan, adapter, { now = Date.now, signal } = {}
     try {
       const removal = await adapter.remove(candidate.id, signal);
       const observed = await adapter.collect();
-      const absent = observed.complete && !observed.images.some((i) => i.id === candidate.id);
+      const absent =
+        observed.complete === true && !observed.images.some((i) => i.id === candidate.id);
       outcome = {
         id: candidate.id,
         status:

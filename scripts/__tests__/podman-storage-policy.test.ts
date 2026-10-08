@@ -124,6 +124,20 @@ describe('explicit image retention', () => {
     expect(p.candidates).toEqual([]);
     expect(p.blockers).toContain(`missing protected image: ${id(8)}`);
   });
+  it.each(
+    ['inventory', 'protection', 'producer', 'build'].flatMap((field) =>
+      ['false', 1].map((value) => ({ field, value })),
+    ),
+  )('rejects non-boolean evidence $field=$value', ({ field, value }) => {
+    const s = fixture();
+    if (field === 'inventory') s.complete = value;
+    if (field === 'protection') s.enrollment.protections.supervisor.complete = value;
+    if (field === 'producer') s.enrollment.producers[0].coordinated = value;
+    if (field === 'build') s.enrollment.builds[0].reproducible = value;
+    const p = planImages(s, now);
+    expect(p.blockers.length).toBeGreaterThan(0);
+    expect(p.candidates).toEqual([]);
+  });
 });
 
 describe('revalidated exact-ID application', () => {
@@ -255,21 +269,38 @@ describe('revalidated exact-ID application', () => {
     expect(a.removed).toEqual([id(1)]);
     expect(r.blockers).toContain('collection failed: read interrupted');
   });
-  it('reports incomplete final inventory as partial despite available guest telemetry', async () => {
+  it.each([false, 'false'])(
+    'reports final inventory completeness %s as partial despite available guest telemetry',
+    async (complete) => {
+      const a = adapter();
+      const p = planImages(a.s, now);
+      const collect = a.collect;
+      let calls = 0;
+      a.collect = async () => {
+        const s = await collect();
+        if (++calls === p.candidates.length * 2 + 1) s.complete = complete;
+        return s;
+      };
+      const r = await applyImages(p, a, { now: () => now });
+      expect(a.removed).toEqual(p.candidates.map((x) => x.id));
+      expect(r.after.guest.status).toBe('available');
+      expect(r.status).toBe('partial');
+      expect(r.blockers).toContain('final inventory incomplete');
+    },
+  );
+  it('does not confirm removal using non-boolean inventory completeness', async () => {
     const a = adapter();
-    const p = planImages(a.s, now);
     const collect = a.collect;
     let calls = 0;
     a.collect = async () => {
       const s = await collect();
-      if (++calls === p.candidates.length * 2 + 1) s.complete = false;
+      if (++calls === 2) s.complete = 'false';
       return s;
     };
-    const r = await applyImages(p, a, { now: () => now });
-    expect(a.removed).toEqual(p.candidates.map((x) => x.id));
-    expect(r.after.guest.status).toBe('available');
+    const r = await applyImages(planImages(a.s, now), a, { now: () => now });
+    expect(a.removed).toEqual([id(1)]);
     expect(r.status).toBe('partial');
-    expect(r.blockers).toContain('final inventory incomplete');
+    expect(r.outcomes[0].status).toBe('failed');
   });
   it('stops a long run when the original plan expires between removals', async () => {
     const a = adapter();

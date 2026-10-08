@@ -78,6 +78,65 @@ describe('host store maintenance authority', () => {
     ).rejects.toThrow();
     expect(await readState(home, store)).toBeNull();
   });
+  it.each(
+    ['protection', 'producer', 'build'].flatMap((field) =>
+      ['false', 1].map((value) => ({ field, value })),
+    ),
+  )('refuses enrollment with non-boolean evidence $field=$value', async ({ field, value }) => {
+    const home = await root();
+    const enrollment = {
+      version: 1,
+      review: 'review',
+      store,
+      producers: [{ owner: 'owner', family: 'family', coordinated: true, review: 'review' }],
+      protections: { supervisor: { complete: true, review: 'review', images: [] } },
+      builds: [
+        {
+          operation: 'legacy',
+          owner: 'owner',
+          family: 'family',
+          state: 'succeeded',
+          reproducible: true,
+          classificationReview: 'review',
+          recipeDigest: 'digest',
+          completedAt: Date.now(),
+          images: [id],
+        },
+      ],
+    };
+    if (field === 'protection') enrollment.protections.supervisor.complete = value;
+    if (field === 'producer') enrollment.producers[0].coordinated = value;
+    if (field === 'build') enrollment.builds[0].reproducible = value;
+    await expect(enrollStore(home, store, enrollment)).rejects.toThrow();
+    expect(await readState(home, store)).toBeNull();
+  });
+  it('refuses build execution with malformed stored producer coordination', async () => {
+    const home = await root();
+    await writeState(home, store, {
+      store,
+      producers: [{ owner: 'owner', family: 'family', coordinated: 'false', review: 'review' }],
+      builds: [],
+    });
+    let invoked = false;
+    await expect(
+      managedBuild(
+        home,
+        store,
+        {
+          owner: 'owner',
+          family: 'family',
+          review: 'review',
+          reproducible: true,
+          inputsDigest: 'digest',
+        },
+        async () => {
+          invoked = true;
+          return [id];
+        },
+      ),
+    ).rejects.toThrow('producer');
+    expect(invoked).toBe(false);
+  });
   it('records in-flight and exact completed build outputs under the shared lock', async () => {
     const home = await root();
     await enrollStore(home, store, {

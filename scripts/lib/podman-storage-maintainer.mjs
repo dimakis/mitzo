@@ -172,7 +172,11 @@ export async function enrollStore(home, store, requested, signal) {
         !requested.review ||
         digest(requested.store) !== digest(store) ||
         !Array.isArray(requested.producers) ||
-        requested.producers.some((p) => !p.owner || !p.family || !p.coordinated || !p.review) ||
+        requested.producers.some(
+          (p) => !p.owner || !p.family || p.coordinated !== true || !p.review,
+        ) ||
+        (requested.protections !== undefined &&
+          Object.values(requested.protections).some((source) => source?.complete !== true)) ||
         !Array.isArray(requested.builds)
       )
         throw Error('Explicit reviewed coordinated enrollment required');
@@ -186,7 +190,7 @@ export async function enrollStore(home, store, requested, signal) {
           if (
             !b.classificationReview ||
             b.state !== 'succeeded' ||
-            !b.reproducible ||
+            b.reproducible !== true ||
             !b.recipeDigest ||
             !Number.isFinite(b.completedAt) ||
             !Array.isArray(b.images) ||
@@ -225,7 +229,10 @@ export async function managedBuild(home, store, recipe, build, signal) {
         !recipe.inputsDigest ||
         !state.producers.some(
           (p) =>
-            p.owner === recipe.owner && p.family === recipe.family && p.coordinated && p.review,
+            p.owner === recipe.owner &&
+            p.family === recipe.family &&
+            p.coordinated === true &&
+            p.review,
         )
       )
         throw Error('Reviewed reproducible producer recipe required');
