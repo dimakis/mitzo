@@ -398,6 +398,7 @@ it('does not advertise unavailable host tools to an OpenShell runtime', async ()
     expect.objectContaining({ name: 'ListConnections' }),
     expect.objectContaining({ name: 'RequestConnectionAccess' }),
     expect.objectContaining({ name: 'ConnectionRequest' }),
+    expect.objectContaining({ name: 'HomeAssistantDashboard' }),
     expect.objectContaining({ name: 'TelosCreateOutcome' }),
     expect.objectContaining({ name: 'TelosSaveArtifact' }),
     expect.objectContaining({ name: 'TelosFindArtifacts' }),
@@ -578,6 +579,7 @@ it('advertises reviewed per-chat provider grants to a managed OpenShell runtime'
       expect.objectContaining({ name: 'ListConnections' }),
       expect.objectContaining({ name: 'RequestConnectionAccess' }),
       expect.objectContaining({ name: 'ConnectionRequest' }),
+      expect.objectContaining({ name: 'HomeAssistantDashboard' }),
       expect.objectContaining({ name: 'TelosCreateOutcome' }),
       expect.objectContaining({ name: 'TelosSaveArtifact' }),
       expect.objectContaining({ name: 'TelosFindArtifacts' }),
@@ -1926,6 +1928,7 @@ it('offers Keychain connection tools inside OpenShell alongside existing host ca
         'ListConnections',
         'RequestConnectionAccess',
         'ConnectionRequest',
+        'HomeAssistantDashboard',
         'RequestWebAccess',
       ]),
     );

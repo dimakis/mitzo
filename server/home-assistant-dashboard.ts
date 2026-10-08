@@ -3,6 +3,7 @@ import { Agent, type RequestOptions } from 'node:https';
 import { isIP } from 'node:net';
 import WebSocket from 'ws';
 import { z } from 'zod';
+import { redactCredentialResponse } from './credential-redaction.js';
 import { connectionDnsLookup, isAllowedConnectionAddress } from './credential-http.js';
 
 export const DashboardAccessSchema = z.enum(['disabled', 'read', 'read-write']);
@@ -27,7 +28,11 @@ export const DashboardRequestSchema = z
 export type DashboardRequest = z.infer<typeof DashboardRequestSchema>;
 export class DashboardRequestError extends Error {
   constructor(
-    readonly code: 'DASHBOARD_CHANGED' | 'DASHBOARD_SAVE_UNCONFIRMED' | 'DASHBOARD_REQUEST_FAILED',
+    readonly code:
+      | 'DASHBOARD_CHANGED'
+      | 'DASHBOARD_SAVE_UNCONFIRMED'
+      | 'DASHBOARD_REQUEST_FAILED'
+      | 'DASHBOARD_REDACTED',
   ) {
     super(code);
   }
@@ -200,6 +205,13 @@ export function dashboardExchange(
               }),
             );
           } else if (stage === 'baseline') {
+            const original = JSON.stringify(config);
+            if (
+              redactCredentialResponse(original, input.token, {
+                Authorization: `Bearer ${input.token}`,
+              }) !== original
+            )
+              return finish(undefined, 'DASHBOARD_REDACTED');
             if (configHash !== request.expectedConfigHash)
               return finish(undefined, 'DASHBOARD_CHANGED');
             check();

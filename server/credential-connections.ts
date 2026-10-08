@@ -426,9 +426,18 @@ export class CredentialConnections {
       );
       combined.throwIfAborted();
       check();
-      const redacted = redactCredentialResponse(body, secret, {
+      let redacted = redactCredentialResponse(body, secret, {
         Authorization: `Bearer ${secret}`,
       });
+      if (request.operation === 'read' && redacted !== body) {
+        const response = JSON.parse(redacted);
+        redacted = JSON.stringify({
+          ...response,
+          configHash: null,
+          redacted: true,
+          writable: false,
+        });
+      }
       if (Buffer.byteLength(redacted) > MAX_DASHBOARD_RESPONSE_BYTES)
         throw new Error('Dashboard response too large');
       return redacted;

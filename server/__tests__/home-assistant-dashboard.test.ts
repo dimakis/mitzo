@@ -358,3 +358,48 @@ it('bounds response frames and expires stalled authentication without leaking ra
   expect(stalled.socket.sent).toEqual([]);
   expect(stalled.socket.terminate).toHaveBeenCalledOnce();
 });
+
+it('refuses to save a credential-bearing baseline even when its original hash is supplied', async () => {
+  for (const credential of [
+    'fixture-private-token',
+    'Bearer fixture-private-token',
+    'fixture-private-\\u0074oken',
+  ]) {
+    const config = JSON.parse('{"views":[],"url":"' + credential + '"}');
+    const f = exchange({
+      operation: 'save',
+      config: JSON.stringify({ views: [], url: '[redacted]' }),
+      expectedConfigHash: dashboardConfigHash(config),
+    });
+    authenticate(f.socket);
+    f.socket.result(config);
+    await expect(f.pending).rejects.toMatchObject({ code: 'DASHBOARD_REDACTED' });
+    expect(f.socket.sent.some((frame) => frame.type === 'lovelace/config/save')).toBe(false);
+  }
+});
+it('returns a redacted read as non-editable without the unredacted configuration hash', async () => {
+  const f = serviceFixture();
+  const c = await f.service.create(
+    { ...f.connection, homeAssistantDashboards: 'read-write' },
+    { secret: 'fixture-private-token' },
+  );
+  f.service.grant('a', c.id, 1);
+  const config = { views: [], secret: 'fixture-private-token' };
+  f.send.mockResolvedValue(
+    JSON.stringify({ operation: 'read', config, configHash: dashboardConfigHash(config) }),
+  );
+  const result = JSON.parse(
+    await f.service.dashboardRequest(
+      'a',
+      c.id,
+      { operation: 'read' },
+      new AbortController().signal,
+    ),
+  );
+  expect(result).toMatchObject({
+    redacted: true,
+    writable: false,
+    configHash: null,
+    config: { secret: '[redacted]' },
+  });
+});

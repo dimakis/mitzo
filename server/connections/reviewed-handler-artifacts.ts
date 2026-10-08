@@ -24,13 +24,13 @@ export function reviewedHandlerSourceFingerprint(source: string) {
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   // Keychain HTTP/WebSocket credential custody and exact-session approval handlers.
   '../home-assistant-dashboard.ts':
-    'bd1716da0ba1b4d119e3376847de90e49165acedfacda33173e34ffcd6fe7524',
+    '767708c222adf1a8dd7b0e301bd38bfe5a0546945505f6c55e80ac627a0199cb',
   '../credential-connections.ts':
-    '911b122ca40ec248f6fa87ec7b9a34f88f25dbef5f94505c4ab6537408ff4c41',
+    '683267cc520828b4e3492fbec40b93982fa344971a0e5ac2d72ea9661f2a8fff',
   '../credential-connections-router.ts':
     '3e4f8c0d4ee485e62bf35fde99e78596dd1999f5d6748df3d0588f37ea14ee00',
   '../credential-connection-tools.ts':
-    '3fd4386a76fc027ff9a6944f374279abdf3e59803bfe9ae20171f8f0dcb7d793',
+    'b2ab6e78a5ec17e9432aa220f6c4e2df622d8c2e8c9b852711565335726350f1',
   '../credential-connections-runtime.ts':
     '89a1cdf4bd50c73a0aecfb966303fb37e0f524da9fb977478602c9c198a51b4d',
   '../credential-http.ts': 'fb584d92840e2ee34167fd354d7249cfb3144b321f0d3a0a4aad3015231fa22d',

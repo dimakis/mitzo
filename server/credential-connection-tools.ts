@@ -27,7 +27,7 @@ const descriptions = {
   RequestConnectionAccess:
     'Request explicit approval to use one connection in this session. Approval persists across reconnects of this session only. The credential remains in Apple Keychain.',
   HomeAssistantDashboard:
-    'Read, list, or update Home Assistant dashboards through the approved Keychain WebSocket connection. Read returns config and configHash. Save requires the complete config as a JSON string and expectedConfigHash from that read; Mitzo checks for changes and verifies the saved configuration. Omit urlPath for the default dashboard. Never sends arbitrary WebSocket commands or exposes tokens. YAML dashboards cannot be saved through this API. A failed or unconfirmed save must be read again before retrying.',
+    'Read, list, or update Home Assistant dashboards through the approved Keychain WebSocket connection. Read returns config and configHash. A redacted read is non-editable and returns no hash; never save a redacted configuration. Save requires the complete config as a JSON string and expectedConfigHash from that read; Mitzo checks for changes and verifies the saved configuration. Omit urlPath for the default dashboard. Never sends arbitrary WebSocket commands or exposes tokens. YAML dashboards cannot be saved through this API. A failed or unconfirmed save must be read again before retrying.',
   ConnectionRequest:
     'Make an authenticated HTTPS request through a configured connection after session approval. Supply only a relative path within its permissions. Use for Home Assistant and other configured APIs. Authentication is injected by Mitzo; do not ask for or supply a password or token.',
 };
@@ -197,7 +197,9 @@ export function createCredentialConnectionTools(
                 ? 'Dashboard changed since the last read. Read it again and apply your edits to the new configuration.'
                 : error.code === 'DASHBOARD_SAVE_UNCONFIRMED'
                   ? 'Dashboard save is unconfirmed and may have applied. Read the dashboard to verify; do not automatically repeat the save.'
-                  : 'Dashboard WebSocket request failed. Check the HA account permissions and connection.',
+                  : error.code === 'DASHBOARD_REDACTED'
+                    ? 'This dashboard contains a protected credential and cannot be saved through this connection.'
+                    : 'Dashboard WebSocket request failed. Check the HA account permissions and connection.',
             isError: true,
           };
         return {
