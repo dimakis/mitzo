@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import Database from 'better-sqlite3';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -90,4 +91,65 @@ it('expires a seat access notice without a local permission-queue entry', () => 
   } finally {
     store.close();
   }
+});
+
+describe('notification archive', () => {
+  it('archives resolved requests and read updates while preserving live requests and unread updates', () => {
+    const store = new NotificationStore(':memory:');
+    try {
+      store.record(approval, 1000);
+      store.record({ ...approval, id: 'resolved', permId: 'p2' }, 1000);
+      store.resolvePermission('p2', 'allowed', 1100);
+      store.record({ id: 'read', kind: 'session', title: 'Done', body: '' }, 1000);
+      store.record({ id: 'unread', kind: 'update', title: 'New', body: '' }, 1000);
+      store.markRead('read', 1100);
+      store.queue('read', 1200);
+      expect(store.archive(approval.id, 1200)).toBe(false);
+      expect(store.archiveResolved(1200)).toBe(2);
+      expect(
+        store
+          .feed('all', 1200)
+          .items.map((i) => i.id)
+          .sort(),
+      ).toEqual([approval.id, 'unread'].sort());
+      expect(store.feed('archived', 1200).total).toBe(2);
+      expect(store.feed('all', 1200).needsYou).toBe(1);
+      expect(store.get('resolved')?.resolution).toBe('allowed');
+      expect(store.due(1300)).toEqual([]);
+      expect(store.archive('unread', 1300)).toBe(true);
+      expect(store.restore('read')).toBe(true);
+      expect(store.get('read')?.archivedAt).toBeNull();
+      expect(store.due(1400)).toEqual([]);
+      expect(store.archiveResolved(1400)).toBe(1);
+    } finally {
+      store.close();
+    }
+  });
+  it('migrates an existing database and keeps archived records across reopen', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'notification-archive-'));
+    const path = join(dir, 'state.db');
+    const legacy = new Database(path);
+    legacy.exec(`CREATE TABLE notifications (
+      id TEXT PRIMARY KEY, kind TEXT NOT NULL, perm_id TEXT, created_at INTEGER NOT NULL,
+      expires_at INTEGER, data TEXT NOT NULL, read_at INTEGER, resolved_at INTEGER, resolution TEXT,
+      delivery_at INTEGER, delivery_status TEXT, delivery_attempts INTEGER NOT NULL DEFAULT 0
+    )`);
+    legacy.close();
+    let store = new NotificationStore(path);
+    try {
+      store.record({ id: 'done', kind: 'session', title: 'Done', body: '' }, 1000);
+      expect(store.archive('done', 1100)).toBe(true);
+      store.close();
+      store = new NotificationStore(path);
+      expect(store.feed('all', 1200).total).toBe(0);
+      expect(store.feed('archived', 1200).items[0].archivedAt).toBe(1100);
+      expect(store.record({ id: 'done', kind: 'session', title: 'Replay', body: '' }, 1300)).toBe(
+        false,
+      );
+      expect(store.get('done')?.archivedAt).toBe(1100);
+    } finally {
+      store.close();
+      rmSync(dir, { recursive: true });
+    }
+  });
 });

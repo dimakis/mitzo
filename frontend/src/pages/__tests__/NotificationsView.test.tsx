@@ -281,3 +281,96 @@ describe('Notifications experience', () => {
     expect(screen.getByRole('button', { name: 'Retry' })).toBeVisible();
   });
 });
+
+it('archives finished items and restores from Archived, preserving pending requests', async () => {
+  let archived = false;
+  vi.mocked(apiFetch).mockImplementation(async (url, options) => {
+    const path = String(url);
+    if (options?.method) {
+      if (path.endsWith('/archive') || path.endsWith('/archive-resolved')) archived = true;
+      if (path.endsWith('/restore')) archived = false;
+      return new Response(JSON.stringify({ ok: true }));
+    }
+    const archiveFeed = path.includes('filter=archived');
+    const finished = {
+      ...pending,
+      id: 'done',
+      permId: undefined,
+      request: undefined,
+      kind: 'session',
+      title: 'Completed work',
+      readAt: 1,
+      archivedAt: archived ? 1 : null,
+    };
+    const items = archiveFeed
+      ? archived
+        ? [finished]
+        : []
+      : [pending, ...(!archived ? [finished] : [])];
+    return new Response(
+      JSON.stringify({
+        items,
+        needsYou: 1,
+        total: items.length,
+        preferences: prefs,
+        delivery: { configured: false, registeredDevices: 0 },
+      }),
+    );
+  });
+  show();
+  await screen.findByText('Completed work');
+  expect(screen.getAllByRole('button', { name: 'Archive' })).toHaveLength(1);
+  fireEvent.click(screen.getByRole('button', { name: 'Archive' }));
+  await waitFor(() => expect(screen.queryByText('Completed work')).toBeNull());
+  expect(screen.getByRole('button', { name: 'Review request' })).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: 'Archived' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Restore' }));
+  await waitFor(() => expect(screen.queryByText('Completed work')).toBeNull());
+  fireEvent.click(screen.getByRole('button', { name: 'All' }));
+  await screen.findByText('Completed work');
+  fireEvent.click(screen.getByRole('button', { name: 'Archive resolved' }));
+  await waitFor(() => expect(screen.queryByText('Completed work')).toBeNull());
+  expect(apiFetch).toHaveBeenCalledWith(
+    '/api/notifications/archive-resolved',
+    expect.objectContaining({ method: 'POST' }),
+  );
+  expect(vi.mocked(apiFetch).mock.calls.some(([url]) => String(url).endsWith('/respond'))).toBe(
+    false,
+  );
+});
+
+it('returns to the previous page after archiving the last item on a page', async () => {
+  let archived = false;
+  const update = { ...pending, kind: 'session', permId: undefined, request: undefined, readAt: 1 };
+  vi.mocked(apiFetch).mockImplementation(async (url, options) => {
+    if (options?.method) {
+      archived = true;
+      return new Response(JSON.stringify({ ok: true }));
+    }
+    const offset = Number(new URL(String(url), 'http://test').searchParams.get('offset'));
+    return new Response(
+      JSON.stringify({
+        items:
+          offset === 50
+            ? archived
+              ? []
+              : [{ ...update, id: 'last', title: 'Last item' }]
+            : Array.from({ length: 50 }, (_, i) => ({
+                ...update,
+                id: `u${i}`,
+                title: `Update ${i}`,
+              })),
+        needsYou: 0,
+        total: archived ? 50 : 51,
+        preferences: prefs,
+        delivery: { configured: false, registeredDevices: 0 },
+      }),
+    );
+  });
+  show();
+  fireEvent.click(await screen.findByRole('button', { name: 'Next' }));
+  await screen.findByText('Last item');
+  fireEvent.click(screen.getByRole('button', { name: 'Archive' }));
+  await screen.findByText('Update 0');
+  expect(screen.queryByText('Last item')).toBeNull();
+});

@@ -1,10 +1,11 @@
 import Database from 'better-sqlite3';
 import { createHash, randomUUID } from 'node:crypto';
 import { databaseBackupWatermark, backupOwnedDatabase } from '@mitzo/protocol/database-backup';
-import { safeKnowledgePath } from './knowledge-library-source.js';
+import { safeKnowledgeDirectory, safeKnowledgePath } from './knowledge-library-source.js';
 
 export interface KnowledgeDraftDocument {
   path: string;
+  sourcePath?: string;
   base: string;
   content: string;
 }
@@ -14,6 +15,7 @@ export interface KnowledgeDraft {
   baseRevision: string;
   version: number;
   documents: KnowledgeDraftDocument[];
+  directories?: string[];
   updatedAt: string;
   state: 'draft' | 'in-review' | 'accepted' | 'closed';
   review?: { url: string; head: string; version: number; ready?: boolean };
@@ -21,9 +23,10 @@ export interface KnowledgeDraft {
   error?: string;
 }
 export class KnowledgeDraftConflict extends Error {}
+export class KnowledgeDraftMissing extends Error {}
 export const KNOWLEDGE_RECOVERY_BUNDLE_LIMIT = 16 * 1024 * 1024;
 export type KnowledgeDraftSummary = Omit<KnowledgeDraft, 'documents' | 'publication'> & {
-  documents: { path: string }[];
+  documents: { path: string; sourcePath?: string }[];
 };
 export class KnowledgeDraftStore {
   private readonly db: Database.Database;
@@ -67,7 +70,7 @@ export class KnowledgeDraftStore {
   get(id: string): KnowledgeDraft {
     const row = this.db.prepare('SELECT value FROM knowledge_drafts WHERE id=?').get(id) as
       { value: string } | undefined;
-    if (!row) throw new Error('Draft not found');
+    if (!row) throw new KnowledgeDraftMissing('Draft not found');
     return JSON.parse(row.value) as KnowledgeDraft;
   }
   listSummaries(): KnowledgeDraftSummary[] {
@@ -112,10 +115,25 @@ export class KnowledgeDraftStore {
     if (lease) this.assertLease(id, lease);
     else this.assertIdle(id);
   }
-  private validate(documents: KnowledgeDraftDocument[]) {
+  private validate(documents: KnowledgeDraftDocument[], directories: string[] = []) {
     if (
-      !documents.length ||
-      documents.length > 20 ||
+      (!documents.length && !directories.length) ||
+      documents.length + directories.length > 20 ||
+      directories.some((d) => !safeKnowledgeDirectory(d)) ||
+      new Set(directories).size !== directories.length ||
+      new Set(documents.map((d) => d.sourcePath ?? d.path)).size !== documents.length ||
+      documents.some(
+        (d) =>
+          d.sourcePath &&
+          (!safeKnowledgePath(d.sourcePath) ||
+            d.sourcePath === d.path ||
+            documents.some((other) => other !== d && other.path === d.sourcePath)),
+      ) ||
+      documents.some(
+        (d) =>
+          directories.some((folder) => folder === d.path || folder.startsWith(d.path + '/')) ||
+          documents.some((other) => other !== d && other.path.startsWith(d.path + '/')),
+      ) ||
       new Set(documents.map((d) => d.path)).size !== documents.length ||
       documents.some(
         (d) =>
@@ -137,7 +155,11 @@ export class KnowledgeDraftStore {
       title: draft.title,
       baseRevision: draft.baseRevision,
       version: draft.version,
-      documents: draft.documents.map((d) => ({ path: d.path })),
+      documents: draft.documents.map((d) => ({
+        path: d.path,
+        ...(d.sourcePath ? { sourcePath: d.sourcePath } : {}),
+      })),
+      ...(draft.directories?.length ? { directories: draft.directories } : {}),
       state: draft.state,
       updatedAt: draft.updatedAt,
       review: draft.review,
@@ -155,8 +177,9 @@ export class KnowledgeDraftStore {
     baseRevision: string,
     documents: KnowledgeDraftDocument[],
     requestId?: string,
+    directories: string[] = [],
   ) {
-    this.validate(documents);
+    this.validate(documents, directories);
     if (!title.trim() || title.length > 200 || !/^[a-f0-9]{40,64}$/.test(baseRevision))
       throw new Error('Draft metadata is invalid');
     if (
@@ -166,7 +189,14 @@ export class KnowledgeDraftStore {
       throw new Error('Save request identity is invalid');
     const id = requestId ?? randomUUID();
     const fingerprint = createHash('sha256')
-      .update(JSON.stringify({ title: title.trim(), baseRevision, documents }))
+      .update(
+        JSON.stringify({
+          title: title.trim(),
+          baseRevision,
+          documents,
+          ...(directories.length ? { directories } : {}),
+        }),
+      )
       .digest('hex');
     return this.db.transaction(() => {
       const existing = this.db
@@ -189,6 +219,7 @@ export class KnowledgeDraftStore {
         baseRevision,
         version: 1,
         documents,
+        ...(directories.length ? { directories } : {}),
         state: 'draft',
         updatedAt: new Date().toISOString(),
       });
@@ -198,8 +229,15 @@ export class KnowledgeDraftStore {
       return draft;
     })();
   }
-  save(id: string, version: number, documents: KnowledgeDraftDocument[], baseRevision?: string) {
-    this.validate(documents);
+  save(
+    id: string,
+    version: number,
+    documents: KnowledgeDraftDocument[],
+    baseRevision?: string,
+    directories?: string[],
+  ) {
+    const folders = directories ?? this.get(id).directories ?? [];
+    this.validate(documents, folders);
     return this.db.transaction(() => {
       this.assertIdle(id);
       const draft = this.get(id);
@@ -211,6 +249,7 @@ export class KnowledgeDraftStore {
         ...draft,
         baseRevision: baseRevision ?? draft.baseRevision,
         documents,
+        directories: folders.length ? folders : undefined,
         version: version + 1,
         state: 'draft',
         error: undefined,
