@@ -53,7 +53,7 @@
   flex: 0 0 auto;
   border-radius: 50%;
   background: var(--danger, var(--color-danger));
-  color: white;
+  color: var(--color-on-status);
   font-weight: 700;
 }
 

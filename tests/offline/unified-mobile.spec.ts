@@ -466,6 +466,9 @@ test('accent-filled controls retain their paired foreground on hover and in user
   expect(css).toContain('--color-on-accent');
   await page.setContent(`<style>${css}</style>
     <span id="paired-reference" style="color:var(--color-on-accent)">Reference</span>
+    <span id="status-reference" style="color:var(--color-on-status)">Status reference</span>
+    <div class="chat-input--compact"><button class="chat-input-btn--queue">Queue</button></div>
+    <span class="codex-queue-status-attention">!</span>
     <button class="mode-pill mode-pill--active">Agent</button>
     <div class="msg-bubble-group msg-bubble-group--user"><div class="msg-bubble msg-bubble--user">
       User message<div class="msg-bubble-footer msg-bubble-footer--user">
@@ -494,6 +497,7 @@ test('accent-filled controls retain their paired foreground on hover and in user
         '.msg-timestamp--user',
         '.msg-bubble-read-aloud--user',
         '.msg-bubble-copy--user',
+        '.chat-input-btn--queue',
       ]) {
         const control = page.locator(selector);
         await expect
@@ -503,6 +507,15 @@ test('accent-filled controls retain their paired foreground on hover and in user
           .poll(() => control.evaluate((element) => getComputedStyle(element).opacity))
           .toBe('1');
       }
+      expect(
+        await page
+          .locator('.codex-queue-status-attention')
+          .evaluate((element) => getComputedStyle(element).color),
+      ).toBe(
+        await page
+          .locator('#status-reference')
+          .evaluate((element) => getComputedStyle(element).color),
+      );
     }
   }
 });

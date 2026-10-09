@@ -28,6 +28,9 @@ describe('design tokens', () => {
         expect(definition[1].trim(), file.name).toMatch(/^var\(/);
       }
       expect(source, file.name).not.toMatch(/#[\da-f]{3,8}\b|rgba?\(\s*\d/i);
+      expect(source, file.name).not.toMatch(
+        /(?:color|background(?:-color)?|fill|stroke):\s*['"]?(?:white|black)\b/i,
+      );
       for (const font of source.matchAll(/font-family:\s*([^;]+);/g)) {
         expect(font[1].trim(), file.name).toMatch(/^(var\(|inherit$)/);
       }

@@ -391,7 +391,7 @@
 }
 .chat-input--compact .chat-input-btn--queue {
   background: var(--accent);
-  color: white;
+  color: var(--color-on-accent);
 }
 .chat-input--compact .chat-input-btn--interrupt {
   background: transparent;
