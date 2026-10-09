@@ -1,0 +1,528 @@
+// @vitest-environment jsdom
+import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { useKnowledgeLibrary } from '../useKnowledgeLibrary';
+const fetch = vi.hoisted(() => vi.fn());
+vi.mock('../../lib/api-fetch', () => ({ apiFetch: fetch, getApiBaseUrl: () => '' }));
+const catalog = {
+  revision: 'base',
+  documents: [{ path: 'knowledge/a.md', title: 'A', area: 'knowledge' }],
+  directories: ['knowledge'],
+  drafts: [],
+  reviewEnabled: false,
+};
+const key = 'mitzo-knowledge-working-copy:';
+beforeEach(() => {
+  localStorage.clear();
+  fetch.mockReset().mockImplementation(async (url: string) => ({
+    ok: true,
+    json: async () => (url === '/api/knowledge' ? catalog : { content: 'original' }),
+  }));
+});
+afterEach(cleanup);
+it('reads without authoring, preserves edits through repeated moves and cancels a move back', async () => {
+  const { result } = renderHook(useKnowledgeLibrary);
+  await waitFor(() => expect(result.current.catalog).toBeTruthy());
+  await act(async () => {
+    await result.current.readDocument(catalog.documents[0]);
+  });
+  expect(localStorage.getItem(key)).toBeNull();
+  await act(async () => {
+    await result.current.openDocument(catalog.documents[0]);
+  });
+  act(() => result.current.change('edited'));
+  act(() => result.current.moveDocument('knowledge/a.md', 'knowledge/folder/a.md'));
+  expect(result.current.selected).toMatchObject({
+    path: 'knowledge/folder/a.md',
+    sourcePath: 'knowledge/a.md',
+    content: 'edited',
+  });
+  act(() => result.current.moveDocument('knowledge/folder/a.md', 'knowledge/a.md'));
+  expect(result.current.selected?.sourcePath).toBeUndefined();
+  expect(result.current.selected?.content).toBe('edited');
+});
+it('recovers directory-only changes and keeps exact uncertain creation requests through later moves', async () => {
+  const first = renderHook(useKnowledgeLibrary);
+  await waitFor(() => expect(first.result.current.catalog).toBeTruthy());
+  act(() => first.result.current.createDirectory('knowledge/empty'));
+  expect(first.result.current.canSave).toBe(true);
+  first.unmount();
+  const { result } = renderHook(useKnowledgeLibrary);
+  await waitFor(() => expect(result.current.catalog).toBeTruthy());
+  expect(result.current.pendingDirectories).toEqual(['knowledge/empty']);
+  fetch.mockImplementation(async (url: string) => {
+    if (url === '/api/knowledge/drafts') throw new Error('lost response');
+    return { ok: true, json: async () => ({ content: 'original' }) };
+  });
+  await act(async () => {
+    await result.current.save();
+  });
+  const original = JSON.parse(
+    fetch.mock.calls.find(([url]) => url === '/api/knowledge/drafts')![1].body,
+  );
+  expect(original).toMatchObject({ documents: [], directories: ['knowledge/empty'] });
+  act(() => result.current.createDirectory('knowledge/second'));
+  await act(async () => {
+    await result.current.save();
+  });
+  const retries = fetch.mock.calls.filter(([url]) => url === '/api/knowledge/drafts');
+  expect(JSON.parse(retries[1][1].body)).toEqual(original);
+});
+it('includes original source paths in a saved moved draft and recovers them', async () => {
+  const { result, unmount } = renderHook(useKnowledgeLibrary);
+  await waitFor(() => expect(result.current.catalog).toBeTruthy());
+  await act(async () => {
+    await result.current.openDocument(catalog.documents[0]);
+  });
+  act(() => result.current.moveDocument('knowledge/a.md', 'knowledge/new/a.md'));
+  fetch.mockRejectedValueOnce(new Error('lost'));
+  await act(async () => {
+    await result.current.save();
+  });
+  expect(JSON.parse(fetch.mock.calls.at(-1)![1].body).documents[0]).toMatchObject({
+    sourcePath: 'knowledge/a.md',
+    path: 'knowledge/new/a.md',
+  });
+  unmount();
+  const recovered = renderHook(useKnowledgeLibrary);
+  expect(recovered.result.current.selected?.sourcePath).toBe('knowledge/a.md');
+});
+it('adopts an acknowledged retry then saves later moves and folders with its version fence', async () => {
+  const { result } = renderHook(useKnowledgeLibrary);
+  await waitFor(() => expect(result.current.catalog).toBeTruthy());
+  await act(async () => {
+    await result.current.openDocument(catalog.documents[0]);
+  });
+  act(() => result.current.moveDocument('knowledge/a.md', 'knowledge/first/a.md'));
+  fetch.mockRejectedValueOnce(new Error('lost response'));
+  await act(async () => {
+    await result.current.save();
+  });
+  const creation = JSON.parse(fetch.mock.calls.at(-1)![1].body);
+  act(() => result.current.moveDocument('knowledge/first/a.md', 'knowledge/second/a.md'));
+  act(() => result.current.createDirectory('knowledge/empty'));
+  const draft = {
+    id: 'draft',
+    title: 'A',
+    version: 1,
+    baseRevision: 'base',
+    state: 'draft' as const,
+    documents: creation.documents.map((d: object) => ({ ...d, base: 'original' })),
+    directories: [],
+    updatedAt: '',
+  };
+  fetch.mockImplementation(async (url: string, init: RequestInit) => {
+    const body = JSON.parse(String(init.body));
+    return {
+      ok: true,
+      json: async () => ({
+        draft:
+          url === '/api/knowledge/drafts'
+            ? draft
+            : {
+                ...draft,
+                version: 2,
+                documents: body.documents.map((d: object) => ({ ...d, base: 'original' })),
+                directories: body.directories,
+              },
+      }),
+    };
+  });
+  await act(async () => {
+    await result.current.save();
+  });
+  const put = fetch.mock.calls.find(
+    ([url, init]) => url === '/api/knowledge/drafts/draft' && init.method === 'PUT',
+  );
+  expect(JSON.parse(put![1].body)).toMatchObject({
+    version: 1,
+    documents: [
+      { path: 'knowledge/second/a.md', sourcePath: 'knowledge/a.md', content: 'original' },
+    ],
+    directories: ['knowledge/empty'],
+  });
+  expect(result.current.dirty).toBe(false);
+  expect(result.current.selected?.path).toBe('knowledge/second/a.md');
+});
+it('opens saved directory-only drafts and defaults older recovered copies to no folders', async () => {
+  localStorage.setItem(
+    key,
+    JSON.stringify({
+      title: 'Old',
+      baseRevision: 'base',
+      documents: [{ path: 'knowledge/a.md', base: 'original', content: 'edited' }],
+      selected: 'knowledge/a.md',
+      saved: '[]',
+    }),
+  );
+  const { result } = renderHook(useKnowledgeLibrary);
+  expect(result.current.pendingDirectories).toEqual([]);
+  await waitFor(() => expect(result.current.catalog).toBeTruthy());
+  vi.spyOn(window, 'confirm').mockReturnValue(true);
+  const draft = {
+    id: 'folders',
+    title: 'Folders',
+    baseRevision: 'base',
+    version: 1,
+    documents: [],
+    directories: ['knowledge/empty'],
+    state: 'draft' as const,
+    updatedAt: '',
+  };
+  fetch.mockResolvedValueOnce({ ok: true, json: async () => ({ draft }) });
+  await act(async () => {
+    await result.current.openDraft(draft);
+  });
+  expect(result.current.copy?.draft?.id).toBe('folders');
+  expect(result.current.pendingDirectories).toEqual(['knowledge/empty']);
+  expect(result.current.dirty).toBe(false);
+});
+it('rejects moves between enrolled spokes and independently enrolled guidance paths', async () => {
+  fetch.mockImplementation(async (url: string) => ({
+    ok: true,
+    json: async () =>
+      url === '/api/knowledge'
+        ? {
+            ...catalog,
+            documentPaths: ['knowledge/first', 'knowledge/second', 'AGENTS.md'],
+            documents: [{ path: 'knowledge/first/a.md', title: 'A' }],
+          }
+        : { content: 'original' },
+  }));
+  const { result } = renderHook(useKnowledgeLibrary);
+  await waitFor(() => expect(result.current.catalog).toBeTruthy());
+  await act(async () => {
+    await result.current.openDocument({
+      path: 'knowledge/first/a.md',
+      title: 'A',
+      area: 'knowledge',
+    });
+  });
+  act(() => {
+    expect(result.current.moveDocument('knowledge/first/a.md', 'knowledge/second/a.md')).toBe(
+      false,
+    );
+  });
+  expect(result.current.selected?.path).toBe('knowledge/first/a.md');
+  act(() => {
+    expect(result.current.createDirectory('knowledge/third/empty')).toBe(false);
+  });
+  expect(result.current.pendingDirectories).toEqual([]);
+  expect(result.current.canMoveDocument('AGENTS.md', 'knowledge/first/AGENTS.md')).toBe(false);
+});
+it('preserves moves and folders when a saved version conflicts, then resolves using the remote fence', async () => {
+  const document = { path: 'knowledge/a.md', base: 'original', content: 'original' };
+  const draft = {
+    id: 'draft',
+    title: 'A',
+    baseRevision: 'base',
+    version: 1,
+    state: 'draft' as const,
+    documents: [document],
+    directories: [],
+    updatedAt: '',
+  };
+  localStorage.setItem(
+    key,
+    JSON.stringify({
+      title: 'A',
+      baseRevision: 'base',
+      draft,
+      documents: [document],
+      directories: [],
+      selected: document.path,
+      saved: JSON.stringify([document]),
+    }),
+  );
+  const { result } = renderHook(useKnowledgeLibrary);
+  await waitFor(() => expect(result.current.catalog).toBeTruthy());
+  act(() => result.current.change('edited'));
+  act(() => result.current.moveDocument(document.path, 'knowledge/new/a.md'));
+  act(() => result.current.createDirectory('knowledge/empty'));
+  const remote = { ...draft, version: 2 };
+  fetch.mockImplementation(async (url: string, init: RequestInit) =>
+    init.method === 'PUT'
+      ? { ok: false, status: 409, json: async () => ({ error: 'changed elsewhere' }) }
+      : { ok: true, json: async () => ({ draft: remote }) },
+  );
+  await act(async () => {
+    await result.current.save();
+  });
+  expect(result.current.selected).toMatchObject({
+    sourcePath: document.path,
+    path: 'knowledge/new/a.md',
+    content: 'edited',
+  });
+  expect(result.current.pendingDirectories).toEqual(['knowledge/empty']);
+  expect(result.current.copy?.initialSaveConflict?.version).toBe(2);
+  fetch.mockImplementation(async (_url: string, init: RequestInit) => {
+    const body = JSON.parse(String(init.body));
+    expect(body).toMatchObject({
+      version: 2,
+      documents: [{ sourcePath: document.path, path: 'knowledge/new/a.md', content: 'edited' }],
+      directories: ['knowledge/empty'],
+    });
+    return {
+      ok: true,
+      json: async () => ({
+        draft: {
+          ...remote,
+          version: 3,
+          documents: body.documents.map((d: object) => ({ ...d, base: 'original' })),
+          directories: body.directories,
+        },
+      }),
+    };
+  });
+  await act(async () => {
+    await result.current.resolveInitialSaveConflict(false);
+  });
+  expect(result.current.copy?.draft?.version).toBe(3);
+  expect(result.current.dirty).toBe(false);
+});
+it('keeps moves inside the original private boundary within a broad scope', async () => {
+  fetch.mockImplementation(async (url: string) => ({
+    ok: true,
+    json: async () =>
+      url === '/api/knowledge'
+        ? {
+            ...catalog,
+            documentPaths: ['okrs'],
+            documents: [{ path: 'okrs/private_eng_excellence/a.md', title: 'A' }],
+          }
+        : { content: 'original' },
+  }));
+  const { result } = renderHook(useKnowledgeLibrary);
+  await waitFor(() => expect(result.current.catalog).toBeTruthy());
+  await act(async () => {
+    await result.current.openDocument({
+      path: 'okrs/private_eng_excellence/a.md',
+      title: 'A',
+      area: 'okrs',
+    });
+  });
+  expect(
+    result.current.canMoveDocument(
+      'okrs/private_eng_excellence/a.md',
+      'okrs/shared_eng_excellence/a.md',
+    ),
+  ).toBe(false);
+  expect(
+    result.current.canMoveDocument('okrs/private_eng_excellence/a.md', 'okrs/private_other/a.md'),
+  ).toBe(false);
+  expect(
+    result.current.canMoveDocument(
+      'okrs/private_eng_excellence/a.md',
+      'okrs/private_eng_excellence/folder/a.md',
+    ),
+  ).toBe(true);
+});
+it('reads and reopens a staged move destination without fetching it or replacing its edits', async () => {
+  const { result } = renderHook(useKnowledgeLibrary);
+  await waitFor(() => expect(result.current.catalog).toBeTruthy());
+  await act(async () => {
+    await result.current.openDocument(catalog.documents[0]);
+  });
+  act(() => result.current.change('edited'));
+  act(() => result.current.moveDocument('knowledge/a.md', 'knowledge/new/a.md'));
+  fetch.mockClear();
+  const before = localStorage.getItem(key);
+  await act(async () => {
+    expect(
+      await result.current.readDocument({
+        path: 'knowledge/new/a.md',
+        title: 'A',
+        area: 'knowledge',
+      }),
+    ).toEqual({ content: 'edited' });
+  });
+  expect(localStorage.getItem(key)).toBe(before);
+  await act(async () => {
+    await result.current.openDocument({
+      path: 'knowledge/new/a.md',
+      title: 'A',
+      area: 'knowledge',
+    });
+  });
+  expect(result.current.selected?.content).toBe('edited');
+  expect(fetch).not.toHaveBeenCalled();
+});
+it('continues an accepted move from its proven accepted destination while retaining later edits and folders', async () => {
+  const moved = {
+    path: 'knowledge/moved/a.md',
+    sourcePath: 'knowledge/a.md',
+    base: 'original',
+    content: 'accepted text',
+  };
+  const local = { ...moved, path: 'knowledge/further/a.md', content: 'later edit' };
+  const draft = {
+    id: 'accepted',
+    title: 'A',
+    baseRevision: 'base',
+    version: 1,
+    state: 'accepted',
+    documents: [moved],
+    directories: ['knowledge/accepted-folder'],
+    updatedAt: '',
+  };
+  localStorage.setItem(
+    key,
+    JSON.stringify({
+      title: 'A',
+      baseRevision: 'base',
+      draft,
+      documents: [local],
+      directories: ['knowledge/accepted-folder', 'knowledge/new-folder'],
+      savedDirectories: draft.directories,
+      selected: local.path,
+      saved: JSON.stringify([moved]),
+    }),
+  );
+  fetch.mockImplementation(async (url: string) => ({
+    ok: true,
+    json: async () =>
+      url.includes('/document?')
+        ? { content: 'accepted text' }
+        : {
+            ...catalog,
+            revision: 'latest',
+            documents: [{ path: moved.path, title: 'A' }],
+            directories: ['knowledge', 'knowledge/accepted-folder'],
+          },
+  }));
+  const { result } = renderHook(useKnowledgeLibrary);
+  await waitFor(() => expect(result.current.catalog).toBeTruthy());
+  await act(async () => {
+    await result.current.startNewChangeWithEdits();
+  });
+  expect(result.current.selected).toMatchObject({
+    path: local.path,
+    sourcePath: moved.path,
+    content: 'later edit',
+    base: 'accepted text',
+  });
+  expect(result.current.pendingDirectories).toEqual(['knowledge/new-folder']);
+  expect(result.current.comparison?.documents[0].content).toBe('accepted text');
+});
+it('does not normalize an accepted move when its destination content no longer matches its receipt', async () => {
+  const moved = {
+    path: 'knowledge/moved/a.md',
+    sourcePath: 'knowledge/a.md',
+    base: 'original',
+    content: 'accepted text',
+  };
+  const draft = {
+    id: 'accepted',
+    title: 'A',
+    baseRevision: 'base',
+    version: 1,
+    state: 'accepted',
+    documents: [moved],
+    updatedAt: '',
+  };
+  localStorage.setItem(
+    key,
+    JSON.stringify({
+      title: 'A',
+      baseRevision: 'base',
+      draft,
+      documents: [{ ...moved, content: 'later edit' }],
+      directories: [],
+      selected: moved.path,
+      saved: JSON.stringify([moved]),
+    }),
+  );
+  fetch.mockImplementation(async (url: string) => ({
+    ok: true,
+    json: async () =>
+      url.includes('/document?')
+        ? { content: 'different accepted text' }
+        : { ...catalog, revision: 'latest', documents: [{ path: moved.path, title: 'A' }] },
+  }));
+  const { result } = renderHook(useKnowledgeLibrary);
+  await waitFor(() => expect(result.current.catalog).toBeTruthy());
+  await act(async () => {
+    await result.current.startNewChangeWithEdits();
+  });
+  expect(result.current.selected?.sourcePath).toBe('knowledge/a.md');
+  expect(result.current.selected?.content).toBe('later edit');
+  expect(result.current.comparison?.documents[0].content).toBeNull();
+});
+it('allows cancelling a pending folder after a collision blocks save', async () => {
+  const { result } = renderHook(useKnowledgeLibrary);
+  await waitFor(() => expect(result.current.catalog).toBeTruthy());
+  act(() => result.current.createDirectory('knowledge/empty'));
+  await act(async () => {
+    await result.current.removeDirectory('knowledge/empty');
+  });
+  expect(result.current.pendingDirectories).toEqual([]);
+  expect(result.current.canSave).toBe(false);
+  expect(result.current.dirty).toBe(false);
+});
+it('clears a frozen failed create only after confirming that request never saved', async () => {
+  const { result } = renderHook(useKnowledgeLibrary);
+  await waitFor(() => expect(result.current.catalog).toBeTruthy());
+  act(() => result.current.createDirectory('knowledge/invalid'));
+  act(() => result.current.createDirectory('knowledge/valid'));
+  fetch.mockResolvedValueOnce({
+    ok: false,
+    status: 409,
+    json: async () => ({ error: 'collision' }),
+  });
+  await act(async () => {
+    await result.current.save();
+  });
+  const original = result.current.copy?.pendingCreate?.requestId;
+  fetch.mockResolvedValueOnce({
+    ok: false,
+    status: 404,
+    json: async () => ({ error: 'not found' }),
+  });
+  await act(async () => {
+    await result.current.removeDirectory('knowledge/invalid');
+  });
+  expect(fetch.mock.calls.at(-1)?.[0]).toBe(`/api/knowledge/drafts/${original}`);
+  expect(result.current.copy?.pendingCreate).toBeUndefined();
+  expect(result.current.pendingDirectories).toEqual(['knowledge/valid']);
+  fetch.mockRejectedValueOnce(new Error('offline'));
+  await act(async () => {
+    await result.current.save();
+  });
+  expect(result.current.copy?.pendingCreate?.requestId).not.toBe(original);
+  expect(result.current.copy?.pendingCreate?.directories).toEqual(['knowledge/valid']);
+});
+it('preserves a frozen uncertain request when cancellation cannot prove it absent', async () => {
+  const { result } = renderHook(useKnowledgeLibrary);
+  await waitFor(() => expect(result.current.catalog).toBeTruthy());
+  act(() => result.current.createDirectory('knowledge/empty'));
+  fetch.mockRejectedValueOnce(new Error('lost response'));
+  await act(async () => {
+    await result.current.save();
+  });
+  const original = result.current.copy?.pendingCreate;
+  fetch.mockRejectedValueOnce(new Error('offline'));
+  await act(async () => {
+    expect(await result.current.removeDirectory('knowledge/empty')).toBe(false);
+  });
+  expect(result.current.copy?.pendingCreate).toEqual(original);
+  expect(result.current.pendingDirectories).toEqual(['knowledge/empty']);
+});
+it.each([
+  'knowledge/Scripts',
+  'knowledge/Worktrees',
+  'knowledge/' + '界'.repeat(200),
+  'knowledge/ padded',
+  'knowledge/bad:folder',
+])('does not stage an unsafe folder %s or call the API', async (path) => {
+  const { result } = renderHook(useKnowledgeLibrary);
+  await waitFor(() => expect(result.current.catalog).toBeTruthy());
+  fetch.mockClear();
+  act(() => {
+    expect(result.current.createDirectory(path)).toBe(false);
+  });
+  expect(result.current.copy).toBeNull();
+  expect(result.current.pendingDirectories).toEqual([]);
+  expect(result.current.error).toContain('Choose a folder');
+  expect(result.current.canSave).toBe(false);
+  expect(fetch).not.toHaveBeenCalled();
+});

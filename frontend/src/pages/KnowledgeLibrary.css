@@ -611,3 +611,15 @@
     flex-wrap: wrap;
   }
 }
+.knowledge-pending-folder {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.knowledge-pending-folder p {
+  min-width: 0;
+}
+.knowledge-pending-folder button {
+  flex-shrink: 0;
+}

@@ -35,6 +35,11 @@ const catalog = {
 function response(data: unknown, ok = true) {
   return { ok, json: async () => data } as Response;
 }
+async function findLibraryDocument(name: RegExp, folder = 'hub') {
+  const parent = await screen.findByRole('button', { name: `Folder ${folder}` });
+  if (parent.getAttribute('aria-expanded') === 'false') fireEvent.click(parent);
+  return screen.findByRole('button', { name });
+}
 function setup() {
   return render(
     <MemoryRouter>
@@ -79,7 +84,7 @@ afterEach(() => {
 });
 it('curates accepted documents by search and area and opens a read-only reader before Edit', async () => {
   setup();
-  await screen.findByRole('button', { name: /Working principles/ });
+  await findLibraryDocument(/Working principles/);
   fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'Release' } });
   expect(screen.queryByRole('button', { name: /Working principles/ })).toBeNull();
   fireEvent.change(screen.getByRole('searchbox'), { target: { value: '' } });
@@ -95,7 +100,7 @@ it('curates accepted documents by search and area and opens a read-only reader b
 });
 it('Save durably creates a draft and opens review without exposing Git workflow', async () => {
   setup();
-  fireEvent.click(await screen.findByRole('button', { name: /Working principles/ }));
+  fireEvent.click(await findLibraryDocument(/Working principles/));
   fireEvent.click(await screen.findByRole('button', { name: 'Edit' }));
   const input = await screen.findByRole('textbox', { name: 'Document source' });
   fireEvent.change(input, { target: { value: '# Revised' } });
@@ -113,7 +118,7 @@ it('Save durably creates a draft and opens review without exposing Git workflow'
 });
 it('recovers unsaved work across remounts and preserves it on a review conflict', async () => {
   const first = setup();
-  fireEvent.click(await screen.findByRole('button', { name: /Working principles/ }));
+  fireEvent.click(await findLibraryDocument(/Working principles/));
   fireEvent.click(await screen.findByRole('button', { name: 'Edit' }));
   fireEvent.change(await screen.findByRole('textbox', { name: 'Document source' }), {
     target: { value: '# Recovered' },
@@ -157,7 +162,7 @@ it('accepts only after reconciling the exact current review and reports waiting 
     return original(path, init);
   });
   setup();
-  fireEvent.click(await screen.findByRole('button', { name: /Working principles/ }));
+  fireEvent.click(await findLibraryDocument(/Working principles/));
   fireEvent.click(await screen.findByRole('button', { name: 'Edit' }));
   fireEvent.change(await screen.findByRole('textbox', { name: 'Document source' }), {
     target: { value: '# Revised' },
@@ -185,7 +190,7 @@ it('keeps a failed review draft and requires an explicit choice before rebasing'
     return original(path, init);
   });
   setup();
-  fireEvent.click(await screen.findByRole('button', { name: /Working principles/ }));
+  fireEvent.click(await findLibraryDocument(/Working principles/));
   fireEvent.click(await screen.findByRole('button', { name: 'Edit' }));
   fireEvent.change(await screen.findByRole('textbox', { name: 'Document source' }), {
     target: { value: '# Revised' },
@@ -217,7 +222,7 @@ it('keeps a failed review draft and requires an explicit choice before rebasing'
 });
 it('undoes and redoes edits, and guards unloading while changes are unsaved', async () => {
   setup();
-  fireEvent.click(await screen.findByRole('button', { name: /Working principles/ }));
+  fireEvent.click(await findLibraryDocument(/Working principles/));
   fireEvent.click(await screen.findByRole('button', { name: 'Edit' }));
   const input = (await screen.findByRole('textbox', {
     name: 'Document source',
@@ -234,7 +239,7 @@ it('undoes and redoes edits, and guards unloading while changes are unsaved', as
 });
 it('starts a new change from retained edits after explicitly comparing accepted knowledge', async () => {
   setup();
-  fireEvent.click(await screen.findByRole('button', { name: /Working principles/ }));
+  fireEvent.click(await findLibraryDocument(/Working principles/));
   fireEvent.click(await screen.findByRole('button', { name: 'Edit' }));
   fireEvent.change(await screen.findByRole('textbox', { name: 'Document source' }), {
     target: { value: '# Revised' },
@@ -260,7 +265,7 @@ it('retries an uncertain first save with the same persisted request identity', a
     return original(path, init);
   });
   const first = setup();
-  fireEvent.click(await screen.findByRole('button', { name: /Working principles/ }));
+  fireEvent.click(await findLibraryDocument(/Working principles/));
   fireEvent.click(await screen.findByRole('button', { name: 'Edit' }));
   fireEvent.change(await screen.findByRole('textbox', { name: 'Document source' }), {
     target: { value: '# Revised' },
@@ -318,7 +323,7 @@ it('sends the exact saved review draft for review, preserving its source and req
     return original(path, init);
   });
   setup();
-  fireEvent.click(await screen.findByRole('button', { name: /Working principles/ }));
+  fireEvent.click(await findLibraryDocument(/Working principles/));
   fireEvent.click(await screen.findByRole('button', { name: 'Edit' }));
   const source = (await screen.findByRole('textbox', {
     name: 'Document source',
@@ -355,7 +360,7 @@ it('preserves a saved review draft when sending for review fails', async () => {
     return original(path, init);
   });
   setup();
-  fireEvent.click(await screen.findByRole('button', { name: /Working principles/ }));
+  fireEvent.click(await findLibraryDocument(/Working principles/));
   fireEvent.click(await screen.findByRole('button', { name: 'Edit' }));
   fireEvent.change(await screen.findByRole('textbox', { name: 'Document source' }), {
     target: { value: '# Revised' },
@@ -388,7 +393,7 @@ it('requires a fresh review submission after saving newer document edits', async
     return original(path, init);
   });
   setup();
-  fireEvent.click(await screen.findByRole('button', { name: /Working principles/ }));
+  fireEvent.click(await findLibraryDocument(/Working principles/));
   fireEvent.click(await screen.findByRole('button', { name: 'Edit' }));
   fireEvent.change(await screen.findByRole('textbox', { name: 'Document source' }), {
     target: { value: '# Revised' },
@@ -411,7 +416,7 @@ it('requires a fresh review submission after saving newer document edits', async
 });
 it('does not create empty drafts or change a clean confirmed ready review on Save', async () => {
   setup();
-  fireEvent.click(await screen.findByRole('button', { name: /Working principles/ }));
+  fireEvent.click(await findLibraryDocument(/Working principles/));
   fireEvent.click(await screen.findByRole('button', { name: 'Edit' }));
   const source = (await screen.findByRole('textbox', {
     name: 'Document source',
@@ -452,7 +457,7 @@ it('retries an unconfirmed review at the same saved version without saving new d
     return original(path, init);
   });
   setup();
-  fireEvent.click(await screen.findByRole('button', { name: /Working principles/ }));
+  fireEvent.click(await findLibraryDocument(/Working principles/));
   fireEvent.click(await screen.findByRole('button', { name: 'Edit' }));
   fireEvent.change(await screen.findByRole('textbox', { name: 'Document source' }), {
     target: { value: '# Revised' },
@@ -517,7 +522,7 @@ it.each(['# Revised', '# Further local'])(
       return original(path, init);
     });
     const view = setup();
-    fireEvent.click(await screen.findByRole('button', { name: /Working principles/ }));
+    fireEvent.click(await findLibraryDocument(/Working principles/));
     fireEvent.click(await screen.findByRole('button', { name: 'Edit' }));
     fireEvent.change(await screen.findByRole('textbox', { name: 'Document source' }), {
       target: { value: '# Revised' },
@@ -653,7 +658,7 @@ it('preserves edits on an existing draft version conflict and reconciles using t
     return original(path, init);
   });
   const view = setup();
-  fireEvent.click(await screen.findByRole('button', { name: /Working principles/ }));
+  fireEvent.click(await findLibraryDocument(/Working principles/));
   fireEvent.click(await screen.findByRole('button', { name: 'Edit' }));
   fireEvent.change(await screen.findByRole('textbox', { name: 'Document source' }), {
     target: { value: '# Revised' },
@@ -711,7 +716,7 @@ it('keeps a failed saved-version fetch recoverable without allowing writes until
     return original(path, init);
   });
   const view = setup();
-  fireEvent.click(await screen.findByRole('button', { name: /Working principles/ }));
+  fireEvent.click(await findLibraryDocument(/Working principles/));
   fireEvent.click(await screen.findByRole('button', { name: 'Edit' }));
   fireEvent.change(await screen.findByRole('textbox', { name: 'Document source' }), {
     target: { value: '# Revised' },
@@ -770,7 +775,7 @@ it('recovers a lost update acknowledgement through saved comparison when the nex
     return original(path, init);
   });
   setup();
-  fireEvent.click(await screen.findByRole('button', { name: /Working principles/ }));
+  fireEvent.click(await findLibraryDocument(/Working principles/));
   fireEvent.click(await screen.findByRole('button', { name: 'Edit' }));
   fireEvent.change(await screen.findByRole('textbox', { name: 'Document source' }), {
     target: { value: '# Revised' },
@@ -951,7 +956,7 @@ it('recovers an explicitly emptied draft and adds a current document using the l
   expect(JSON.parse(localStorage.getItem('mitzo-knowledge-working-copy:')!).documents).toEqual([]);
   view.unmount();
   setup();
-  fireEvent.click(await screen.findByRole('button', { name: /Current release notes/ }));
+  fireEvent.click(await findLibraryDocument(/Current release notes/, 'teams'));
   const source = (await screen.findByRole('textbox', {
     name: 'Document source',
   })) as HTMLTextAreaElement;
@@ -1131,7 +1136,7 @@ it.each(['accepted', 'closed', 'in-review'])(
     expect(empty.pendingCreate).toBeUndefined();
     view.unmount();
     setup();
-    fireEvent.click(await screen.findByRole('button', { name: /Replacement document/ }));
+    fireEvent.click(await findLibraryDocument(/Replacement document/, 'teams'));
     const source = await screen.findByRole('textbox', { name: 'Document source' });
     fireEvent.change(source, { target: { value: '# New replacement edits' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
@@ -1227,6 +1232,7 @@ it('keeps matching documents inside their folder ancestors and expands empty fol
   expect(screen.getByRole('button', { name: 'Folder hub/context' })).toBeTruthy();
   expect(screen.getByRole('button', { name: /Voice guide/ })).toBeTruthy();
   fireEvent.change(screen.getByRole('searchbox'), { target: { value: '' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Folder hub' }));
   fireEvent.click(screen.getByRole('button', { name: 'Folder hub/empty' }));
   expect(screen.getByText('This folder is empty.')).toBeTruthy();
 });
@@ -1288,7 +1294,7 @@ it('moves a document through same-area folder choices and preserves edited conte
       : original(path, init),
   );
   setup();
-  fireEvent.click(await screen.findByRole('button', { name: /Working principles/ }));
+  fireEvent.click(await findLibraryDocument(/Working principles/));
   fireEvent.click(await screen.findByRole('button', { name: 'Edit' }));
   fireEvent.change(await screen.findByRole('textbox', { name: 'Document source' }), {
     target: { value: '# Keep edits when moved' },
@@ -1296,7 +1302,7 @@ it('moves a document through same-area folder choices and preserves edited conte
   fireEvent.click(screen.getByRole('button', { name: '← Library' }));
   fireEvent.click(screen.getByRole('button', { name: 'Options for hub/principles.md' }));
   fireEvent.click(screen.getByRole('button', { name: 'Move document' }));
-  const dialog = screen.getByRole('dialog', { name: 'Move document' });
+  const dialog = await screen.findByRole('dialog', { name: 'Move document' });
   expect(within(dialog).queryByRole('button', { name: 'Folder teams' })).toBeNull();
   fireEvent.click(within(dialog).getByRole('button', { name: 'Folder hub/context' }));
   fireEvent.click(within(dialog).getByRole('button', { name: 'Move here' }));
@@ -1306,4 +1312,79 @@ it('moves a document through same-area folder choices and preserves edited conte
     ((await screen.findByRole('textbox', { name: 'Document source' })) as HTMLTextAreaElement)
       .value,
   ).toBe('# Keep edits when moved');
+});
+
+it('lets an invalid pending folder be removed without discarding unrelated document edits', async () => {
+  const original = vi.mocked(apiFetch).getMockImplementation()!;
+  vi.mocked(apiFetch).mockImplementation(async (path, init) => {
+    if (path === '/api/knowledge') return response({ ...catalog, directories: ['hub'] });
+    return original(path, init);
+  });
+  setup();
+  fireEvent.click(await findLibraryDocument(/Working principles/));
+  fireEvent.click(await screen.findByRole('button', { name: 'Edit' }));
+  fireEvent.change(await screen.findByRole('textbox', { name: 'Document source' }), {
+    target: { value: '# Retain these edits' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: '← Library' }));
+  fireEvent.click(screen.getByRole('button', { name: 'New folder' }));
+  const dialog = screen.getByRole('dialog', { name: 'New folder' });
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Folder hub' }));
+  fireEvent.change(within(dialog).getByRole('textbox', { name: 'Folder name' }), {
+    target: { value: 'collision' },
+  });
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Create folder' }));
+  await screen.findByText('New folder: hub/collision');
+  fireEvent.click(screen.getByRole('button', { name: 'Remove new folder hub/collision' }));
+  await waitFor(() => expect(screen.queryByText('New folder: hub/collision')).toBeNull());
+  fireEvent.click(screen.getByRole('button', { name: 'Resume editing' }));
+  expect(
+    ((await screen.findByRole('textbox', { name: 'Document source' })) as HTMLTextAreaElement)
+      .value,
+  ).toBe('# Retain these edits');
+});
+
+it('starts an organization change when moving an unopened accepted document', async () => {
+  const original = vi.mocked(apiFetch).getMockImplementation()!;
+  vi.mocked(apiFetch).mockImplementation(async (path, init) =>
+    path === '/api/knowledge'
+      ? response({
+          ...catalog,
+          directories: ['hub', 'hub/context', 'teams'],
+          documentPaths: ['hub', 'teams'],
+        })
+      : original(path, init),
+  );
+  setup();
+  fireEvent.click(await screen.findByRole('button', { name: 'Folder hub' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Options for hub/principles.md' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Move document' }));
+  const dialog = await screen.findByRole('dialog', { name: 'Move document' });
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Folder hub/context' }));
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Move here' }));
+  await screen.findByText('Moved: hub/principles.md → hub/context/principles.md');
+  expect(screen.queryByRole('textbox', { name: 'Document source' })).toBeNull();
+  const stored = JSON.parse(localStorage.getItem('mitzo-knowledge-working-copy:')!);
+  expect(stored.documents).toEqual([
+    {
+      path: 'hub/context/principles.md',
+      sourcePath: 'hub/principles.md',
+      base: '# Principles',
+      content: '# Principles',
+    },
+  ]);
+});
+
+it('starts with compact collapsed areas and preserves user expansion while searching', async () => {
+  setup();
+  const hub = await screen.findByRole('button', { name: 'Folder hub' });
+  expect(hub.getAttribute('aria-expanded')).toBe('false');
+  expect(screen.queryByRole('button', { name: /Working principles/ })).toBeNull();
+  fireEvent.click(hub);
+  expect(screen.getByRole('button', { name: /Working principles/ })).toBeTruthy();
+  fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'Release' } });
+  expect(screen.getByRole('button', { name: /Release process/ })).toBeTruthy();
+  fireEvent.change(screen.getByRole('searchbox'), { target: { value: '' } });
+  expect(screen.getByRole('button', { name: /Working principles/ })).toBeTruthy();
+  expect(screen.queryByRole('button', { name: /Release process/ })).toBeNull();
 });

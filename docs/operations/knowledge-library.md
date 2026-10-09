@@ -8,6 +8,16 @@ Use **Send for review** for the explicit transition that marks the saved review 
 and lets the configured review automation begin. Saving changes after that returns
 the review to draft; send its new saved head for review again.
 
+Opening accepted documents reads their content without creating a working copy.
+Choose **Edit** to stage changes. Moves retain the original accepted source path and
+current text in the recovered working copy; moving back to the source path cancels
+that move. New folders and directory-only changes use the same draft, review and
+acceptance workflow as text edits. Moves stay within the same enrolled directory
+scope; individually enrolled guidance files cannot move. Empty folders are represented
+by reviewed `.gitkeep` markers. Saved draft versions and exact creation request IDs
+also cover structural operations, so uncertain responses can be retried without
+losing later edits or folders.
+
 Set `MITZO_KNOWLEDGE_LIBRARY_CONFIG` to an absolute physical host JSON file owned by
 the service user, with mode `0600` and a `0700` parent. Provision and independently
 review host enrollment before enabling it. A repository document cannot supply this

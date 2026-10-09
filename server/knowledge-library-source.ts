@@ -80,11 +80,12 @@ export function safeKnowledgeDirectory(path: string): boolean {
       .every(
         (p) =>
           p &&
+          Buffer.byteLength(p, 'utf8') <= 255 &&
           p.trim() === p &&
           p !== '.' &&
           p !== '..' &&
           !p.startsWith('.') &&
-          !reservedSegments.has(p),
+          !reservedSegments.has(p.toLowerCase()),
       )
   );
 }

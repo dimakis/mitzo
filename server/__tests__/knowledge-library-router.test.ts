@@ -311,3 +311,21 @@ it('allows folder-only drafts while rejecting root and uncurated folders', async
     });
   expect(result.status).toBe(201);
 });
+
+it('distinguishes authoritative missing drafts from storage failure and expired authority', async () => {
+  const path = '/api/knowledge/drafts/12345678-1234-4123-8123-123456789abc';
+  const missing = await request(app()).get(path).set('x-operator', 'yes');
+  expect(missing.status).toBe(404);
+  expect(missing.body.error).toBe('Draft not found');
+  const failed = vi.spyOn(store, 'get').mockImplementation(() => {
+    throw new Error('Storage unavailable');
+  });
+  expect((await request(app()).get(path).set('x-operator', 'yes')).status).toBe(422);
+  failed.mockRestore();
+  expect((await request(app()).get(path)).status).toBe(401);
+  const revoked = app(async () => {
+    revokeAuthSession(auth);
+    return { source, store, syncedAt: null, acceptanceEnabled: false, refresh: vi.fn() };
+  });
+  expect((await request(revoked).get(path).set('x-operator', 'yes')).status).toBe(403);
+});

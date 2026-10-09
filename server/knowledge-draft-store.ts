@@ -23,6 +23,7 @@ export interface KnowledgeDraft {
   error?: string;
 }
 export class KnowledgeDraftConflict extends Error {}
+export class KnowledgeDraftMissing extends Error {}
 export const KNOWLEDGE_RECOVERY_BUNDLE_LIMIT = 16 * 1024 * 1024;
 export type KnowledgeDraftSummary = Omit<KnowledgeDraft, 'documents' | 'publication'> & {
   documents: { path: string; sourcePath?: string }[];
@@ -69,7 +70,7 @@ export class KnowledgeDraftStore {
   get(id: string): KnowledgeDraft {
     const row = this.db.prepare('SELECT value FROM knowledge_drafts WHERE id=?').get(id) as
       { value: string } | undefined;
-    if (!row) throw new Error('Draft not found');
+    if (!row) throw new KnowledgeDraftMissing('Draft not found');
     return JSON.parse(row.value) as KnowledgeDraft;
   }
   listSummaries(): KnowledgeDraftSummary[] {

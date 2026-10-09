@@ -3,7 +3,11 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { AcceptedKnowledgeSource } from '../knowledge-library-source.js';
+import {
+  AcceptedKnowledgeSource,
+  safeKnowledgeDirectory,
+  safeKnowledgePath,
+} from '../knowledge-library-source.js';
 import { KnowledgeDraftStore } from '../knowledge-draft-store.js';
 import Database from 'better-sqlite3';
 
@@ -345,4 +349,12 @@ it('validates moves against non-Markdown entries, symlinks and directory parents
       { path: 'architecture/overview.md', sourcePath: 'architecture/overview.md' },
     ]),
   ).rejects.toThrow('outside');
+});
+
+it('bounds filesystem segment bytes and rejects case variants of runtime paths', () => {
+  expect(safeKnowledgeDirectory('architecture/' + 'é'.repeat(127))).toBe(true);
+  expect(safeKnowledgeDirectory('architecture/' + 'é'.repeat(128))).toBe(false);
+  expect(safeKnowledgePath('architecture/' + 'é'.repeat(126) + '.md')).toBe(true);
+  expect(safeKnowledgePath('architecture/' + 'é'.repeat(127) + '.md')).toBe(false);
+  expect(safeKnowledgeDirectory('architecture/Node_Modules/new')).toBe(false);
 });

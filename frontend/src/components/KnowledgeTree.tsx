@@ -84,8 +84,11 @@ export function KnowledgeTree(props: Props) {
           .sort((a, b) => a.path.localeCompare(b.path))
           .filter((folder) => all || visible(folder))
           .map((folder) => {
-            const expanded =
-              !!query || (expansion[folder.path] ?? (props.folderChoices || count(folder) > 0));
+            const onSelectedBranch =
+              !!props.selectedFolder &&
+              (props.selectedFolder === folder.path ||
+                props.selectedFolder.startsWith(folder.path + '/'));
+            const expanded = !!query || (expansion[folder.path] ?? onSelectedBranch);
             return (
               <div key={folder.path}>
                 <div
@@ -102,8 +105,7 @@ export function KnowledgeTree(props: Props) {
                     disabled={props.busy}
                     onClick={() => {
                       props.onFolder(folder.path);
-                      if (!props.folderChoices)
-                        setExpansion((previous) => ({ ...previous, [folder.path]: !expanded }));
+                      setExpansion((previous) => ({ ...previous, [folder.path]: !expanded }));
                     }}
                   >
                     {expanded ? <TreeIcon kind="down" /> : <TreeIcon kind="right" />}

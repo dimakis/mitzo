@@ -9,6 +9,7 @@ import {
 } from './knowledge-library-source.js';
 import {
   KnowledgeDraftConflict,
+  KnowledgeDraftMissing,
   KnowledgeDraftStore,
   type KnowledgeDraft,
 } from './knowledge-draft-store.js';
@@ -91,6 +92,8 @@ export function createKnowledgeLibraryRouter(
       } catch (error) {
         if (error instanceof AuthorityExpired || controller.signal.aborted)
           return res.status(403).json({ error: 'Operator authorization expired or revoked' });
+        if (error instanceof KnowledgeDraftMissing)
+          return res.status(404).json({ error: error.message });
         if (error instanceof KnowledgeDraftConflict)
           return res.status(409).json({ error: error.message });
         return res.status(422).json({

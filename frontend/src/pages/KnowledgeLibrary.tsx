@@ -88,7 +88,10 @@ export function KnowledgeLibrary() {
       {reader ? (
         <KnowledgeReader
           document={reader.document}
+          documents={catalog?.documents}
+          onOpen={(document) => void openReader(document)}
           content={reader.content}
+          workingCopy={copy?.documents.some((document) => document.path === reader.document.path)}
           busy={busy}
           onBack={() => {
             ++readRequest.current;
@@ -184,7 +187,18 @@ export function KnowledgeLibrary() {
                 <section className="knowledge-pending" aria-label="Pending organization changes">
                   <h3>Organization changes</h3>
                   {copy!.directories?.map((path) => (
-                    <p key={path}>New folder: {path}</p>
+                    <div className="knowledge-pending-folder" key={path}>
+                      <p>New folder: {path}</p>
+                      {editable && (
+                        <button
+                          disabled={busy}
+                          aria-label={`Remove new folder ${path}`}
+                          onClick={() => void library.removeDirectory(path)}
+                        >
+                          Remove
+                        </button>
+                      )}
+                    </div>
                   ))}
                   {copy!.documents
                     .filter((document) => document.sourcePath)
@@ -510,7 +524,18 @@ export function KnowledgeLibrary() {
                 </button>
               </div>
               {copy!.directories?.map((path) => (
-                <p key={path}>New folder: {path}</p>
+                <div className="knowledge-pending-folder" key={path}>
+                  <p>New folder: {path}</p>
+                  {editable && (
+                    <button
+                      disabled={busy}
+                      aria-label={`Remove new folder ${path}`}
+                      onClick={() => void library.removeDirectory(path)}
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
               ))}
               {copy!.documents
                 .filter((document) => document.sourcePath)
@@ -643,7 +668,12 @@ export function KnowledgeLibrary() {
                 library.canMoveDocument(menu.path, `${directory}/${menu.path.split('/').pop()}`),
               )
             }
-            onClick={() => setDialog('move')}
+            onClick={() => {
+              void library.openDocument(menu, true).then(() => {
+                setReading(false);
+                setDialog('move');
+              });
+            }}
           >
             Move document
           </button>
