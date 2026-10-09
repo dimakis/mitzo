@@ -124,6 +124,11 @@ function fixture(mode = 'valid') {
   json(legacy, plist);
   json(join(root, 'service/com.mitzo.staging.plist'), plist);
   cpSync('scripts', join(source, 'scripts'), { recursive: true });
+  const ordinaryCli = join(source, 'scripts/staging.mjs');
+  writeFileSync(
+    ordinaryCli,
+    readFileSync(ordinaryCli, 'utf8').replace("process.platform !== 'darwin'", 'false'),
+  );
   if (mode === 'failed-postcheck')
     writeFileSync(
       join(source, 'scripts/lib/staging-launcher-template.mjs'),
