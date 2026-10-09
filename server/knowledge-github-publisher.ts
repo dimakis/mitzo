@@ -63,13 +63,23 @@ export function finalKnowledgeApproval(
         r.user?.login.toLowerCase() === reviewer.toLowerCase() &&
         r.body?.includes('## Centaur Review'),
     );
-  const timestamp = (r: z.infer<typeof report>) => r.submitted_at || r.created_at || '';
-  // Missing chronology cannot prove which trusted verdict is final. Same-time verdicts are ambiguous.
-  if (reports.some((r) => !Number.isFinite(Date.parse(timestamp(r))))) return false;
-  reports.sort((a, b) => timestamp(a).localeCompare(timestamp(b)));
-  const latest = reports.at(-1);
-  if (!latest || (reports.length > 1 && timestamp(latest) === timestamp(reports.at(-2)!)))
-    return false;
+  const chronology = reports.map((record) => {
+    const times = [record.submitted_at, record.created_at, record.updated_at]
+      .filter((value): value is string => value !== undefined && value !== null)
+      .map((value) => Date.parse(value));
+    return {
+      record,
+      time:
+        !times.length || times.some((value) => !Number.isFinite(value)) ? NaN : Math.max(...times),
+    };
+  });
+  // An edit is a new verdict. Unknown chronology and equal effective instants
+  // cannot establish a final trusted decision and therefore block acceptance.
+  if (chronology.some(({ time }) => !Number.isFinite(time))) return false;
+  chronology.sort((a, b) => a.time - b.time);
+  const final = chronology.at(-1);
+  if (!final || chronology.at(-2)?.time === final.time) return false;
+  const latest = final.record;
   const body = latest.body || '';
   const current =
     /^[a-f0-9]{40}$/.test(head) &&

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { KnowledgeGithubPublisher } from '../knowledge-github-publisher.js';
+import { KnowledgeGithubPublisher, finalKnowledgeApproval } from '../knowledge-github-publisher.js';
 const head = 'a'.repeat(40);
 const id = 'b20c4e28-9010-441f-85a8-734ad26c7d26';
 const input = {
@@ -289,5 +289,69 @@ describe('send Knowledge draft for review', () => {
       second.publisher.sendForReview({ ...input, signal: duringRead.signal }),
     ).rejects.toThrow();
     expect(second.run.mock.calls.some((c) => c[1][1] === 'ready')).toBe(false);
+  });
+});
+
+describe('final trusted review chronology', () => {
+  const review = {
+    user: { login: 'owner' },
+    body: approved,
+    commit_id: head,
+    state: 'COMMENTED',
+    submitted_at: '2026-10-02T12:00:00Z',
+  };
+  const editedBlockingComment = {
+    user: { login: 'owner' },
+    body: approved.replace('`merge`', '`fix`'),
+    created_at: '2026-10-01T12:00:00Z',
+    updated_at: '2026-10-03T12:00:00Z',
+  };
+  it('treats a trusted older comment edited to blocking after approval as the final verdict', async () => {
+    const { publisher, run } = fixture({
+      alreadyReady: true,
+      reports: [review],
+      comments: [editedBlockingComment],
+    });
+    expect(await publisher.inspect(input)).toMatchObject({ canAccept: false });
+    await expect(publisher.accept(input)).rejects.toThrow('Centaur');
+    expect(run.mock.calls.some((call) => call[1][1] === 'merge')).toBe(false);
+  });
+  it('allows a newly edited final approval to supersede an earlier blocking verdict', () => {
+    expect(
+      finalKnowledgeApproval(
+        [
+          { ...review, body: approved.replace('`merge`', '`fix`') },
+          { ...editedBlockingComment, body: approved },
+        ],
+        head,
+        'owner',
+      ),
+    ).toBe(true);
+  });
+  it.each(['not-a-date', ''])(
+    'fails closed when a trusted report has an invalid provided edit timestamp %j',
+    (updated_at) => {
+      expect(
+        finalKnowledgeApproval([review, { ...editedBlockingComment, updated_at }], head, 'owner'),
+      ).toBe(false);
+    },
+  );
+  it('fails closed when different timestamp representations have the same effective latest instant', () => {
+    expect(
+      finalKnowledgeApproval(
+        [{ ...review, submitted_at: '2026-10-03T14:00:00+02:00' }, editedBlockingComment],
+        head,
+        'owner',
+      ),
+    ).toBe(false);
+  });
+  it('validates every provided timestamp even when another timestamp would determine recency', () => {
+    expect(
+      finalKnowledgeApproval(
+        [{ ...review, created_at: 'invalid', updated_at: '2026-10-04T12:00:00Z' }],
+        head,
+        'owner',
+      ),
+    ).toBe(false);
   });
 });
