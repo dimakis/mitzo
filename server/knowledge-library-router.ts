@@ -27,6 +27,7 @@ const document = z.strictObject({
 });
 const documents = z.array(document).min(1).max(20);
 const create = z.strictObject({
+  requestId: z.string().uuid().optional(),
   title: z.string().trim().min(1).max(200),
   baseRevision: revision,
   documents,
@@ -175,7 +176,12 @@ export function createKnowledgeLibraryRouter(
       );
       context.assert();
       return res.status(201).json({
-        draft: context.runtime.store.create(input.data.title, input.data.baseRevision, docs),
+        draft: context.runtime.store.create(
+          input.data.title,
+          input.data.baseRevision,
+          docs,
+          input.data.requestId,
+        ),
       });
     }),
   );

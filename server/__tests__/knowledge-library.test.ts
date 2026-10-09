@@ -82,6 +82,23 @@ describe('accepted knowledge', () => {
 });
 
 describe('operator drafts', () => {
+  it('recovers an initial save with the same request identity without duplicating the change', () => {
+    const requestId = '3dc71613-15ab-4f9c-a5ce-25141566f5b9';
+    const docs = [
+      { path: 'architecture/overview.md', base: '# Accepted architecture\n', content: '# Draft\n' },
+    ];
+    const first = store.create('Change', git('rev-parse', 'HEAD'), docs, requestId);
+    expect(store.create('Change', git('rev-parse', 'HEAD'), docs, requestId)).toEqual(first);
+    expect(store.list()).toHaveLength(1);
+    expect(() =>
+      store.create(
+        'Change',
+        git('rev-parse', 'HEAD'),
+        [{ ...docs[0]!, content: '# Different' }],
+        requestId,
+      ),
+    ).toThrow('request');
+  });
   it('persists one versioned change set across restart, independent of chats', () => {
     const draft = store.create('Architecture update', git('rev-parse', 'HEAD'), [
       { path: 'architecture/overview.md', base: '# Accepted architecture\n', content: '# Edit\n' },

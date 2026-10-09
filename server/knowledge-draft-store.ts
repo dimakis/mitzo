@@ -1,5 +1,5 @@
 import Database from 'better-sqlite3';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { databaseBackupWatermark, backupOwnedDatabase } from '@mitzo/protocol/database-backup';
 import { safeKnowledgePath } from './knowledge-library-source.js';
 
@@ -28,7 +28,7 @@ export class KnowledgeDraftStore {
     this.db.pragma('journal_mode = WAL');
     this.db.pragma('busy_timeout = 5000');
     this.db.exec(
-      'CREATE TABLE IF NOT EXISTS knowledge_drafts (id TEXT PRIMARY KEY, value TEXT NOT NULL); CREATE TABLE IF NOT EXISTS knowledge_draft_leases (id TEXT PRIMARY KEY, token TEXT NOT NULL, expires INTEGER NOT NULL)',
+      'CREATE TABLE IF NOT EXISTS knowledge_drafts (id TEXT PRIMARY KEY, value TEXT NOT NULL); CREATE TABLE IF NOT EXISTS knowledge_draft_leases (id TEXT PRIMARY KEY, token TEXT NOT NULL, expires INTEGER NOT NULL); CREATE TABLE IF NOT EXISTS knowledge_draft_requests (id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL)',
     );
   }
   close() {
@@ -96,19 +96,49 @@ export class KnowledgeDraftStore {
       .run(draft.id, JSON.stringify(draft));
     return draft;
   }
-  create(title: string, baseRevision: string, documents: KnowledgeDraftDocument[]) {
+  create(
+    title: string,
+    baseRevision: string,
+    documents: KnowledgeDraftDocument[],
+    requestId?: string,
+  ) {
     this.validate(documents);
     if (!title.trim() || title.length > 200 || !/^[a-f0-9]{40,64}$/.test(baseRevision))
       throw new Error('Draft metadata is invalid');
-    return this.put({
-      id: randomUUID(),
-      title: title.trim(),
-      baseRevision,
-      version: 1,
-      documents,
-      state: 'draft',
-      updatedAt: new Date().toISOString(),
-    });
+    if (
+      requestId &&
+      !/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(requestId)
+    )
+      throw new Error('Save request identity is invalid');
+    const id = requestId ?? randomUUID();
+    const fingerprint = createHash('sha256')
+      .update(JSON.stringify({ title: title.trim(), baseRevision, documents }))
+      .digest('hex');
+    return this.db.transaction(() => {
+      const existing = this.db
+        .prepare('SELECT fingerprint FROM knowledge_draft_requests WHERE id=?')
+        .get(id) as { fingerprint: string } | undefined;
+      if (existing) {
+        if (existing.fingerprint !== fingerprint)
+          throw new KnowledgeDraftConflict(
+            'This save request already created a draft with different content. Reload its saved draft before continuing.',
+          );
+        return this.get(id);
+      }
+      const draft = this.put({
+        id,
+        title: title.trim(),
+        baseRevision,
+        version: 1,
+        documents,
+        state: 'draft',
+        updatedAt: new Date().toISOString(),
+      });
+      this.db
+        .prepare('INSERT INTO knowledge_draft_requests(id,fingerprint) VALUES(?,?)')
+        .run(id, fingerprint);
+      return draft;
+    })();
   }
   save(id: string, version: number, documents: KnowledgeDraftDocument[], baseRevision?: string) {
     this.validate(documents);

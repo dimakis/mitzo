@@ -532,19 +532,20 @@ app.post(
 app.use(express.json({ limit: '10mb' }));
 
 let knowledgeLibrary: ReturnType<typeof knowledgeLibraryFromEnvironment> | undefined;
+function getKnowledgeLibraryRuntime() {
+  knowledgeLibrary ??= knowledgeLibraryFromEnvironment(process.env, {
+    workspaceRoots: [
+      BASE_REPO,
+      ...Object.values(getRepoConfig().repos),
+      ...getRepoConfig().allowedPaths,
+    ].filter(Boolean),
+  });
+  return knowledgeLibrary;
+}
 app.use(
   '/api/knowledge',
   operatorAuthMiddleware,
-  createKnowledgeLibraryRouter(() => {
-    knowledgeLibrary ??= knowledgeLibraryFromEnvironment(process.env, {
-      workspaceRoots: [
-        BASE_REPO,
-        ...Object.values(getRepoConfig().repos),
-        ...getRepoConfig().allowedPaths,
-      ].filter(Boolean),
-    });
-    return knowledgeLibrary;
-  }),
+  createKnowledgeLibraryRouter(getKnowledgeLibraryRuntime),
 );
 
 const loginLimiter = rateLimit({
@@ -1929,6 +1930,7 @@ export const captureMitzoTelosCoreBackup = bindMitzoTelosCoreCapture({
   events: eventStore,
   tasks: taskStore,
   telosPath: telosDatabasePath,
+  knowledge: async () => (await getKnowledgeLibraryRuntime())?.store,
 });
 
 app.use(
