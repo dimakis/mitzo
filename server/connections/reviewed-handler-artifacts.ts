@@ -85,6 +85,8 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'b6d4516dd289d2c40d34d32adde3aa3d3cd24405706e1b720f8dffb3ff0c32e4',
   '../repository-workspace-router.ts':
     '13b8fab1dd0f5b83abfbb06946533cfb5273d28e4a71aacd24f7076be4858905',
+  '../trusted-native-operation.ts':
+    '462b2c46748608176381c57226af618dc71d59281fb024487736e42da8a4b44e',
   '../repository-chat-startup.ts':
     'da5476aa7e43badb1809a8f52d958d5338ec921c6ab96531978f750fecf4428f',
   // Admission shares compiled connection authority with gateway provisioning.

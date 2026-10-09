@@ -188,22 +188,57 @@ async function validateRefUpdatePaths(common: string, branch: string) {
 async function linkedMetadata(cwd: string) {
   const marker = join(cwd, '.git');
   const markerInfo = await lstat(marker, { bigint: true });
-  if (!markerInfo.isFile()) throw new Error('Trusted commits require a linked Git worktree');
-  const match = /^gitdir: ([^\r\n]+)\r?\n?$/.exec(await readFile(marker, 'utf8'));
-  if (!match) throw new Error('Invalid linked-worktree marker');
-  const admin = await realpath(resolve(cwd, match[1]));
-  const common = await realpath(
-    resolve(admin, (await readFile(join(admin, 'commondir'), 'utf8')).trim()),
-  );
-  if (basename(common) !== '.git' || dirname(admin) !== join(common, 'worktrees'))
-    throw new Error('Unsupported linked-worktree metadata layout');
+  let admin: string, common: string;
+  if (markerInfo.isDirectory()) {
+    if ((await realpath(marker)) !== marker)
+      throw new Error('Standalone Git metadata must remain inside the workspace');
+    admin = common = marker;
+    // Standalone checkouts own their storage, but must not turn a commit into
+    // access to an external Git directory, object database or filesystem alias.
+    for (const name of [
+      'commondir',
+      'gitdir',
+      'objects/info/alternates',
+      'objects/info/http-alternates',
+    ]) {
+      const present = await lstat(join(marker, name)).catch((error: NodeJS.ErrnoException) => {
+        if (error.code !== 'ENOENT') throw error;
+        return null;
+      });
+      if (present) throw new Error('External standalone Git storage is unavailable');
+    }
+    let count = 0;
+    const pending = [marker];
+    while (pending.length) {
+      const directory = pending.pop()!;
+      for (const entry of await readdir(directory, { withFileTypes: true })) {
+        if (++count > 100000 || entry.isSymbolicLink())
+          throw new Error('Standalone Git metadata aliases are unavailable');
+        const path = join(directory, entry.name);
+        if (entry.isDirectory()) pending.push(path);
+        else if (!entry.isFile() || (await lstat(path)).nlink !== 1)
+          throw new Error('Standalone Git metadata aliases are unavailable');
+      }
+    }
+  } else {
+    if (!markerInfo.isFile())
+      throw new Error('Trusted commits require a regular Git repository marker');
+    const match = /^gitdir: ([^\r\n]+)\r?\n?$/.exec(await readFile(marker, 'utf8'));
+    if (!match) throw new Error('Invalid linked-worktree marker');
+    admin = await realpath(resolve(cwd, match[1]));
+    common = await realpath(
+      resolve(admin, (await readFile(join(admin, 'commondir'), 'utf8')).trim()),
+    );
+    if (basename(common) !== '.git' || dirname(admin) !== join(common, 'worktrees'))
+      throw new Error('Unsupported linked-worktree metadata layout');
+    const backlink = (await readFile(join(admin, 'gitdir'), 'utf8')).trim();
+    if (backlink !== marker || (await realpath(backlink)) !== marker)
+      throw new Error('Git worktree registration does not match the approved workspace');
+  }
   const objects = join(common, 'objects');
   const objectsInfo = await lstat(objects, { bigint: true });
   if (!objectsInfo.isDirectory() || (await realpath(objects)) !== objects)
     throw new Error('Git object store must be a real directory inside the common Git directory');
-  const backlink = (await readFile(join(admin, 'gitdir'), 'utf8')).trim();
-  if (backlink !== marker || (await realpath(backlink)) !== marker)
-    throw new Error('Git worktree registration does not match the approved workspace');
   const head = (await readFile(join(admin, 'HEAD'), 'utf8')).trim();
   const branch = /^ref: (refs\/heads\/[A-Za-z0-9._/-]+)$/.exec(head)?.[1];
   if (!branch || branch.includes('..') || branch.includes('//'))

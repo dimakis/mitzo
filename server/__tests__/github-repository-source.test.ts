@@ -1,3 +1,4 @@
+import { executeTrustedGitCommit } from '../trusted-native-operation.js';
 import { inspectHostGithubRepository, exportHostGithubBundle } from '../github-host-source.js';
 import { afterEach, expect, it, vi } from 'vitest';
 import { execFileSync } from 'node:child_process';
@@ -167,4 +168,30 @@ it('lets the independent checkout commit changes and export them through the exi
     'Mitzo Sandbox <sandbox@mitzo.invalid>',
   );
   expect(await readFile(join(f.source, 'file.txt'), 'utf8')).toBe('original\n');
+});
+
+it('supports the native approved commit tool on a prepared standalone checkout', async () => {
+  const f = await fixture();
+  const preview = await inspectGithubRepositorySource('example/repo', f.signal, f.run);
+  const target = join(f.root, 'native-task');
+  await prepareGithubRepositorySource(preview, target, 'mitzo/task-123', f.signal, f.run);
+  await writeFile(join(target, 'file.txt'), 'native task change\n');
+  await executeTrustedGitCommit(target, ['file.txt'], 'native task change', f.signal);
+  expect(f.git(target, 'rev-list', '--count', 'origin/main..HEAD')).toBe('1');
+  expect(f.git(target, 'status', '--porcelain')).toBe('');
+  expect(await readFile(join(f.source, 'file.txt'), 'utf8')).toBe('original\n');
+});
+
+it('refuses external object storage before committing an acquired standalone checkout', async () => {
+  const f = await fixture();
+  const preview = await inspectGithubRepositorySource('example/repo', f.signal, f.run);
+  const target = join(f.root, 'aliased-task');
+  await prepareGithubRepositorySource(preview, target, 'mitzo/task-123', f.signal, f.run);
+  await writeFile(join(target, 'file.txt'), 'retained task edit\n');
+  await writeFile(join(target, '.git/objects/info/alternates'), join(f.source, '.git/objects'));
+  await expect(
+    executeTrustedGitCommit(target, ['file.txt'], 'must refuse', f.signal),
+  ).rejects.toThrow('External standalone Git storage');
+  expect(f.git(target, 'rev-parse', 'HEAD')).toBe(f.oid);
+  expect(await readFile(join(target, 'file.txt'), 'utf8')).toBe('retained task edit\n');
 });
