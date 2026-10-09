@@ -72,6 +72,7 @@ import {
   type DiscoveryConfig,
   type DiscoveryOperations,
   type DiscoveryRecoveryCapability,
+  type DiscoveryOwnedReadyEvidence,
   type DiscoveryReceipt,
 } from './symposium-model-discovery.js';
 import { guardDiscoveryOperations } from './symposium-discovery-custody.js';
@@ -966,14 +967,20 @@ export async function createOwnedSymposiumHost(
             });
             let retainedReceipt: DiscoveryReceipt | undefined;
             let recovery: DiscoveryRecoveryCapability | undefined;
-            const retain = (receipt: DiscoveryReceipt) => {
+            let retainedReadyEvidence: DiscoveryOwnedReadyEvidence | undefined;
+            const retain = (receipt: DiscoveryReceipt, evidence?: DiscoveryOwnedReadyEvidence) => {
               if (!receipt.id) return;
               const observed = structuredClone(receipt);
               if (retainedReceipt && JSON.stringify(retainedReceipt) !== JSON.stringify(observed))
                 throw Error('Original diagnostic receipt changed');
-              if (!retainedReceipt) {
-                retainedReceipt = observed;
-                recovery = createSymposiumModelDiscoveryRecovery(config, observed);
+              if (!retainedReceipt) retainedReceipt = observed;
+              if (!recovery || (evidence && !retainedReadyEvidence)) {
+                retainedReadyEvidence = evidence ?? retainedReadyEvidence;
+                recovery = createSymposiumModelDiscoveryRecovery(
+                  config,
+                  observed,
+                  retainedReadyEvidence,
+                );
               }
             };
             const guarded = guardDiscoveryOperations(original, () => {
@@ -997,8 +1004,10 @@ export async function createOwnedSymposiumHost(
                 custody();
                 proof.assertCurrent();
               },
+              retain,
             );
             const result = await runSymposiumRoutingDiagnostic(config, fenced.operations, {
+              onOwnedReady: retain,
               onPhysicalCleanup(receipt) {
                 retain(receipt);
                 recovery?.confirmPhysicalCleanup(receipt);

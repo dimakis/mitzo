@@ -1693,7 +1693,7 @@ it.each(['complete', 'failed', 'reconciliation_required'] as const)(
           id: 'exact-original-id',
         };
         await operations.persistReceipt(receipt, false);
-        hooks!.onPhysicalCleanup(receipt);
+        hooks!.onPhysicalCleanup!(receipt);
         await operations.clearReceipt(receipt);
         receiptCurrent = false;
         return { status, inference: false, catalogPublication: false };
@@ -1794,6 +1794,93 @@ it('retains the observed original diagnostic identity even if the receipt guard 
     });
     expect(response.recover).toBeTypeOf('function');
     expect(persist).not.toHaveBeenCalled();
+  } finally {
+    host.stop();
+  }
+});
+it('promotes only the retained positive owned Ready identity after guarded first-ID persistence loses authority', async () => {
+  const f = diagnosticFixture(),
+    compose = vi.spyOn(personalHost, 'createPersonalSubscriptionHost');
+  let current = true,
+    present = true;
+  let journal: discoveryCore.DiscoveryReceipt | undefined;
+  let ownedRow: Record<string, unknown>;
+  let expectedReceipt: discoveryCore.DiscoveryReceipt;
+  const raw = {
+    persistReceipt: vi.fn(async (receipt) => {
+      journal = structuredClone(receipt);
+    }),
+    readReceipt: vi.fn(async () => journal),
+    clearReceipt: vi.fn(async () => {
+      journal = undefined;
+    }),
+    withExclusiveAttempt: async (run: () => Promise<unknown>) => run(),
+    verifyCustody: vi.fn(async () => {}),
+    list: vi.fn(async () => (present ? [ownedRow] : [])),
+    physicalAbsent: vi.fn(async () => !present),
+    cancel: vi.fn(async () => {}),
+    delete: vi.fn(async () => {
+      present = false;
+    }),
+    wait: vi.fn(async () => {}),
+    openClient: vi.fn(),
+    create: vi.fn(),
+  } as unknown as discoveryCore.DiscoveryOperations;
+  vi.spyOn(discoveryHost, 'createDiscoveryHostOperations').mockReturnValue(raw);
+  const fence = vi
+    .spyOn(discoveryCreation, 'fenceDiscoveryCreation')
+    .mockImplementation((operations) => ({ operations, creationUncertain: () => false }));
+  vi.spyOn(discoveryCore, 'runSymposiumRoutingDiagnostic').mockImplementation(
+    async (config, operations) => {
+      const receipt = {
+        name: 'md-' + 'a'.repeat(16),
+        claim: 'b'.repeat(64),
+        configHash: createHashForFixture(JSON.stringify(config)),
+        id: 'observed-original-id',
+      };
+      expectedReceipt = receipt;
+      journal = { name: receipt.name, claim: receipt.claim, configHash: receipt.configHash };
+      ownedRow = {
+        id: receipt.id,
+        name: receipt.name,
+        workspace: config.workspace,
+        phase: 'Ready',
+        labels: {
+          'mitzo.discovery': 'models',
+          'mitzo.discovery.claim': discoveryCore.discoveryClaimLabel(receipt.claim),
+        },
+      };
+      const evidence = discoveryCore.createDiscoveryOwnedReadyEvidence(config, receipt, ownedRow);
+      const observe = fence.mock.calls[0][4];
+      expect(observe).toBeTypeOf('function');
+      observe!(receipt, evidence);
+      current = false;
+      await expect(operations.persistReceipt(receipt, false)).rejects.toThrow('receipt guard');
+      return { status: 'reconciliation_required', inference: false, catalogPublication: false };
+    },
+  );
+  const host = await createOwnedSymposiumHost(f.options, f.launch);
+  try {
+    const response = await compose.mock.calls[0][3]!({
+      provider: { name: 'personal', id: 'id' },
+      account: { email: 'fixture@example.test', planType: 'pro' },
+      assertCurrent() {
+        if (!current) throw Error('receipt guard');
+      },
+    });
+    expect(raw.persistReceipt).not.toHaveBeenCalled();
+    await expect(response.recover!(() => {})).resolves.toMatchObject({
+      status: 'reconciled',
+      inference: false,
+    });
+    expect(raw.persistReceipt).toHaveBeenCalled();
+    for (const [receipt, exclusive] of vi.mocked(raw.persistReceipt).mock.calls) {
+      expect(receipt).toEqual(expectedReceipt);
+      expect(exclusive).toBe(false);
+    }
+    expect(raw.delete).toHaveBeenCalledOnce();
+    expect(raw.openClient).not.toHaveBeenCalled();
+    expect(raw.create).not.toHaveBeenCalled();
   } finally {
     host.stop();
   }
