@@ -40,28 +40,33 @@ export function createBackupRouter(
         // Clear the request-held copy promptly; no request/error logging gets the password.
         req.body = undefined;
         if (!req.is('application/json') || !parsed.success) {
-          res
-            .status(400)
-            .json({
-              error:
-                'Enter a password of at least 16 characters and confirm recovery. No storage paths are accepted.',
-            });
+          res.status(400).json({
+            error:
+              'Enter a password of at least 16 characters and confirm recovery. No storage paths are accepted.',
+          });
           return;
         }
         try {
-          if (path === '/setup')
-            await setup.configure(parsed.data as { password: string; recoveryConfirmed: true });
-          else await setup.prepare();
+          if (path === '/setup') {
+            if (
+              !req.secure &&
+              !['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.socket.remoteAddress ?? '')
+            ) {
+              res
+                .status(400)
+                .json({ error: 'Open Mitzo over HTTPS before entering a backup password.' });
+              return;
+            }
+            await setup.configure(BackupSetupInput.parse(parsed.data));
+          } else await setup.prepare();
           res.json(await setup.status());
         } catch (error) {
-          res
-            .status(409)
-            .json({
-              error:
-                error instanceof BackupSetupError
-                  ? error.message
-                  : 'Backup setup did not complete. Check the Mac and retry.',
-            });
+          res.status(409).json({
+            error:
+              error instanceof BackupSetupError
+                ? error.message
+                : 'Backup setup did not complete. Check the Mac and retry.',
+          });
         }
       });
     }

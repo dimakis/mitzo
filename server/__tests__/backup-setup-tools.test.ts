@@ -15,7 +15,7 @@ async function fixture() {
 }
 it('rejects a bad download checksum before any executable is extracted or installed', async () => {
   const root = await fixture();
-  const execute = vi.fn(async () => {});
+  const execute = vi.fn(async () => Buffer.alloc(0));
   await expect(
     prepareBackupTools({
       directory: root,

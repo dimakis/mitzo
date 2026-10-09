@@ -18,7 +18,13 @@ async function fixture() {
     initialize: vi.fn(async () => {}),
     backup: vi.fn(async () => 'a'.repeat(64)),
     check: vi.fn(async () => {}),
-    publish: vi.fn(async () => ({ id: 'unused', status: 'pending' as const, bytes: 1 })),
+    publish: vi.fn(async () => ({
+      id: 'unused',
+      createdAt: '2026-10-09T00:00:00Z',
+      objects: 0,
+      status: 'pending' as const,
+      bytes: 1,
+    })),
     refresh: vi.fn(),
   };
   const options = {

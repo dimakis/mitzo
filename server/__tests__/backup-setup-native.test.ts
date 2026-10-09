@@ -6,7 +6,7 @@ import {
 } from '../backup/setup-keychain.js';
 it('scopes the credential to host storage and passes the secret only through stdin', async () => {
   expect(backupKeychainService('/first/root')).not.toBe(backupKeychainService('/second/root'));
-  const run = vi.fn(async () => '{"ok":true}');
+  const run = vi.fn(async (_input: string) => '{"ok":true}');
   const read = vi.fn(async () => 'synthetic-recovery-password\n');
   const vault = new BackupKeychain('/first/root', run, read);
   await vault.save('synthetic-recovery-password');

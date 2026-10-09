@@ -71,7 +71,7 @@ export class BackupSetup {
       supported: this.options.supported,
       prepared: !!saved || configured,
       configured,
-      busy: this.busy,
+      busy: this.busy || (await this.setupLocked()),
       localFolder: this.options.root,
       cloudFolder: this.options.cloud,
     };
