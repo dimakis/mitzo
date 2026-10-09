@@ -1,9 +1,18 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef, type ComponentProps } from 'react';
 import { useCalendarData, type CalendarEvent } from '../hooks/useCalendarData';
 import { EventCard } from '../components/EventCard';
 import { SprintBar } from '../components/SprintBar';
 import { PageHeader } from '../components/PageHeader';
 import { WorkspacePageHeading } from '../components/WorkspacePageHeading';
+
+function DesktopCalendarHeader({ center, children }: ComponentProps<typeof PageHeader>) {
+  return (
+    <header className="cal-desktop-toolbar" aria-label="Calendar controls">
+      {center}
+      <div className="cal-desktop-filters">{children}</div>
+    </header>
+  );
+}
 
 function toLocalDate(isoStr: string): string {
   if (isoStr.includes('T')) {
@@ -44,6 +53,8 @@ function getToday(): string {
 const DEFAULT_VIEW_DAYS = 7;
 
 export function CalendarView({ desktop = false }: { desktop?: boolean } = {}) {
+  const agendaRef = useRef<HTMLDivElement>(null);
+  const Header = desktop ? DesktopCalendarHeader : PageHeader;
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [baseDate, setBaseDate] = useState(getToday);
   const [viewDays, setViewDays] = useState(DEFAULT_VIEW_DAYS);
@@ -122,28 +133,39 @@ export function CalendarView({ desktop = false }: { desktop?: boolean } = {}) {
     day: 'numeric',
   });
 
+  const visibleDates =
+    desktop && filterMode === 'releases'
+      ? dates.filter((date) => (eventsByDate.get(date)?.length ?? 0) > 0)
+      : dates;
   const selected = !loading ? filteredEvents.find((event) => event.id === selectedId) : undefined;
   return (
-    <div className={`cal-page${desktop ? ' collection-page calendar-desktop' : ''}`}>
+    <div
+      className={`cal-page${desktop ? ` collection-page calendar-desktop${viewDays === 7 && filterMode === 'all' ? ' calendar-week' : ' calendar-agenda'}` : ''}`}
+    >
       {desktop && (
         <WorkspacePageHeading
           className="collection-heading"
-          eyebrow="Calendar"
-          title="Make room for what matters"
+          eyebrow="Your workspace"
+          title="Calendar"
           description="Your agenda, release milestones and meeting context."
         />
       )}
-      <PageHeader
+      <Header
         title="Calendar"
         center={
           <div className="cal-header-center">
-            <button className="cal-nav-prev" onClick={handlePrev}>
+            <button className="cal-nav-prev" aria-label="Previous period" onClick={handlePrev}>
               &lsaquo;
             </button>
-            <button className="cal-header-title" onClick={handleToday}>
+            {desktop && (
+              <button className="cal-today" onClick={handleToday}>
+                Today
+              </button>
+            )}
+            <button className="cal-header-title" onClick={handleToday} title="Return to today">
               {startLabel} &ndash; {endLabel}
             </button>
-            <button className="cal-nav-next" onClick={handleNext}>
+            <button className="cal-nav-next" aria-label="Next period" onClick={handleNext}>
               &rsaquo;
             </button>
           </div>
@@ -152,6 +174,7 @@ export function CalendarView({ desktop = false }: { desktop?: boolean } = {}) {
         <div className="cal-view-toggle">
           <button
             className={`cal-view-btn${viewDays === 1 ? ' cal-view-btn--active' : ''}`}
+            aria-pressed={viewDays === 1}
             disabled={filterMode === 'releases'}
             onClick={() => {
               setSelectedId(null);
@@ -162,6 +185,7 @@ export function CalendarView({ desktop = false }: { desktop?: boolean } = {}) {
           </button>
           <button
             className={`cal-view-btn${viewDays === 7 ? ' cal-view-btn--active' : ''}`}
+            aria-pressed={viewDays === 7}
             disabled={filterMode === 'releases'}
             onClick={() => {
               setSelectedId(null);
@@ -174,18 +198,20 @@ export function CalendarView({ desktop = false }: { desktop?: boolean } = {}) {
         <div className="cal-filter-toggle cal-view-toggle">
           <button
             className={`cal-view-btn${filterMode === 'all' ? ' cal-view-btn--active' : ''}`}
+            aria-pressed={filterMode === 'all'}
             onClick={handleFilterAll}
           >
             All
           </button>
           <button
             className={`cal-view-btn${filterMode === 'releases' ? ' cal-view-btn--active' : ''}`}
+            aria-pressed={filterMode === 'releases'}
             onClick={handleFilterReleases}
           >
             Releases
           </button>
         </div>
-      </PageHeader>
+      </Header>
 
       {sprints.length > 0 && (
         <div className="cal-sprints">
@@ -203,12 +229,29 @@ export function CalendarView({ desktop = false }: { desktop?: boolean } = {}) {
       )}
 
       {!loading && (
-        <div className={desktop ? 'collection-panels' : 'collection-mobile-body'}>
-          <div className="cal-body">
-            {dates.map((dateStr) => {
+        <div
+          className={
+            desktop
+              ? `cal-desktop-panels${selected ? ' cal-desktop-panels--selected' : ''}`
+              : 'collection-mobile-body'
+          }
+        >
+          <div
+            className="cal-body"
+            ref={agendaRef}
+            tabIndex={desktop ? 0 : undefined}
+            aria-label={desktop ? 'Calendar agenda' : undefined}
+          >
+            {visibleDates.length === 0 && (
+              <p className="cal-day-empty">No releases in this period</p>
+            )}
+            {visibleDates.map((dateStr) => {
               const dayEvents = eventsByDate.get(dateStr) ?? [];
               return (
-                <div key={dateStr} className="cal-day">
+                <div
+                  key={dateStr}
+                  className={`cal-day${dateStr === getToday() ? ' cal-day--today' : ''}`}
+                >
                   <div className="cal-day-header">{formatDateHeader(dateStr)}</div>
                   {dayEvents.length === 0 && <div className="cal-day-empty">No events</div>}
                   {dayEvents.map((evt) => (
@@ -223,20 +266,35 @@ export function CalendarView({ desktop = false }: { desktop?: boolean } = {}) {
               );
             })}
           </div>
-          {desktop && (
-            <section className="collection-inspector" aria-label="Event details">
-              {selected ? (
-                <>
-                  <p className="workspace-muted">{toLocalDate(selected.start)}</p>
-                  <h2>{selected.title}</h2>
-                  <EventCard key={selected.id} event={selected} detail />
-                </>
-              ) : (
-                <div className="collection-placeholder">
-                  <h2>Select an event</h2>
-                  <p>Review its context, prepare for a meeting or join the call.</p>
-                </div>
-              )}
+          {desktop && selected && (
+            <section
+              className="collection-inspector cal-inspector"
+              aria-label="Event details"
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') {
+                  agendaRef.current
+                    ?.querySelector<HTMLButtonElement>('[aria-current="true"]')
+                    ?.focus();
+                  setSelectedId(null);
+                }
+              }}
+            >
+              <button
+                className="cal-inspector-close"
+                aria-label="Close event details"
+                autoFocus
+                onClick={() => {
+                  agendaRef.current
+                    ?.querySelector<HTMLButtonElement>('[aria-current="true"]')
+                    ?.focus();
+                  setSelectedId(null);
+                }}
+              >
+                ×
+              </button>
+              <p className="workspace-muted">{formatDateHeader(toLocalDate(selected.start))}</p>
+              <h2>{selected.title}</h2>
+              <EventCard key={selected.id} event={selected} detail />
             </section>
           )}
         </div>

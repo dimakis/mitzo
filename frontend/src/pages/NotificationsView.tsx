@@ -534,7 +534,7 @@ export function NotificationsView() {
                       }
                     />
                   </div>
-                  <div>
+                  <div className="notification-content">
                     <div className="notification-meta">
                       <span>{labels[item.kind]}</span>
                       <span>{timestamp(item.createdAt)}</span>

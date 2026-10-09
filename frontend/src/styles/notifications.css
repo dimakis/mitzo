@@ -1,8 +1,8 @@
 .notifications-page {
   height: 100dvh;
   min-height: 0;
-  max-width: 980px;
-  margin: 0 auto;
+  max-width: none;
+  margin: 0;
 }
 .notifications-heading,
 .notification-list-heading,
@@ -274,4 +274,54 @@
 .workspace-rail--collapsed .notification-badge {
   left: auto;
   right: 0;
+}
+
+@media (min-width: 768px) {
+  .workspace-shell .workspace-page.notifications-page {
+    padding: 32px 24px;
+  }
+  .notification-list {
+    gap: 0;
+    border-top: 1px solid var(--workspace-line);
+  }
+  .notification-card {
+    border: 0;
+    border-bottom: 1px solid var(--workspace-line);
+    border-radius: 0;
+    padding: 20px 16px;
+  }
+  .notification-needs {
+    border-left: 3px solid var(--workspace-accent);
+    background: var(--workspace-panel);
+  }
+  .notification-card > .notification-content {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    column-gap: 24px;
+    align-items: start;
+  }
+  .notification-content > .notification-meta,
+  .notification-content > h2,
+  .notification-content > p {
+    grid-column: 1;
+  }
+  .notification-content > .notification-actions {
+    grid-column: 2;
+    grid-row: 1 / span 3;
+    margin-top: 0;
+    align-self: center;
+    justify-content: flex-end;
+  }
+  .notification-content > p {
+    max-width: 90ch;
+  }
+}
+@media (min-width: 768px) and (max-width: 1099px) {
+  .notification-card > .notification-content {
+    display: block;
+  }
+  .notification-content > .notification-actions {
+    justify-content: flex-start;
+    margin-top: 12px;
+  }
 }
