@@ -15,16 +15,31 @@ export async function copyRepositoryTaskCheckout(source: string, destination: st
     (container.mode & 0o077) !== 0
   )
     throw new Error('Repository task copy requires a private canonical container');
-  if ((await realpath(source)) !== source || !(await lstat(source)).isDirectory())
+  const sourceIdentity = await lstat(source);
+  if ((await realpath(source)) !== source || !sourceIdentity.isDirectory())
     throw new Error('Prepared repository source identity changed');
   // mkdir is exclusive even for an existing empty directory or symlink.
   await mkdir(destination, { mode: 0o700 });
+  const destinationIdentity = await lstat(destination);
   await cp(source, destination, {
     recursive: true,
     force: false,
     errorOnExist: true,
     mode: constants.COPYFILE_FICLONE | constants.COPYFILE_EXCL,
   });
+  const copiedSource = await lstat(source),
+    copiedDestination = await lstat(destination);
+  if (
+    (await realpath(source)) !== source ||
+    (await realpath(destination)) !== destination ||
+    !copiedSource.isDirectory() ||
+    !copiedDestination.isDirectory() ||
+    copiedSource.dev !== sourceIdentity.dev ||
+    copiedSource.ino !== sourceIdentity.ino ||
+    copiedDestination.dev !== destinationIdentity.dev ||
+    copiedDestination.ino !== destinationIdentity.ino
+  )
+    throw new Error('Repository task copy identity changed');
   const retained = await lstat(parent);
   if (
     (await realpath(parent)) !== parent ||
