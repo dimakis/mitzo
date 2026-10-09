@@ -83,6 +83,22 @@ const profiles = [
     models: [{ id: 'haiku', label: 'Haiku' }],
   },
 ];
+it('supports a staged dialog without mutating aliases or browser defaults', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(new Response(JSON.stringify(profiles)));
+  const onChange = vi.fn();
+  render(
+    <AccountModelPicker sessionId={null} preferredModel="sonnet" onChange={onChange} draftOnly />,
+  );
+  await waitFor(() =>
+    expect(onChange).toHaveBeenLastCalledWith({ accountId: 'work', model: 'sonnet' }),
+  );
+  expect(screen.queryByText('Make default for new chats')).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Edit account alias' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Use Work Vertex · Sonnet' })).toBeNull();
+  fireEvent.change(screen.getByLabelText('Account'), { target: { value: 'other' } });
+  expect(onChange).toHaveBeenLastCalledWith({ accountId: 'other', model: 'haiku' });
+  expect(localStorage.getItem('mitzo-default-account-model')).toBeNull();
+});
 it('loads accounts and models from the server and emits explicit selection', async () => {
   vi.mocked(apiFetch).mockResolvedValue({ ok: true, json: async () => profiles } as Response);
   const onChange = vi.fn();

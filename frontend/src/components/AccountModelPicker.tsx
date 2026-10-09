@@ -70,7 +70,9 @@ function SessionAccountModelPicker({
   scope = 'chat',
   requireExplicitSelection = false,
   requiredSelection,
+  draftOnly = false,
 }: {
+  draftOnly?: boolean;
   scope?: 'chat' | 'symposium';
   requireExplicitSelection?: boolean;
   requiredSelection?: { accountId: string; model: string };
@@ -320,7 +322,8 @@ function SessionAccountModelPicker({
             { ...next, reasoningEffort: previous?.reasoningEffort },
             first,
           );
-          const confirm = scope === 'chat' && !legacy && (!previous || needsConfirmation);
+          const confirm =
+            !draftOnly && scope === 'chat' && !legacy && (!previous || needsConfirmation);
           setNeedsConfirmation(confirm);
           setDraftUnavailable(false);
           setSelection(selected);
@@ -369,7 +372,7 @@ function SessionAccountModelPicker({
         <button disabled={disabled} onClick={() => setAttempt((value) => value + 1)}>
           Retry accounts
         </button>
-        {scope === 'chat' && !sessionId && !legacy && !requiredSelection && (
+        {scope === 'chat' && !sessionId && !legacy && !requiredSelection && !draftOnly && (
           <button disabled={disabled} onClick={() => setLegacy(true)}>
             Use legacy server account
           </button>
@@ -452,7 +455,7 @@ function SessionAccountModelPicker({
           ))}
         </select>
       )}
-      {scope === 'chat' && !legacy && (
+      {scope === 'chat' && !legacy && !draftOnly && (
         <button
           disabled={disabled}
           aria-label="Edit account alias"
@@ -581,7 +584,7 @@ function SessionAccountModelPicker({
           {account.models.find((model) => model.id === selection.model)?.label ?? selection.model}
         </button>
       )}
-      {scope === 'chat' && !sessionId && !legacy && !requiredSelection && (
+      {scope === 'chat' && !sessionId && !legacy && !requiredSelection && !draftOnly && (
         <>
           <button
             disabled={disabled || draftUnavailable}
