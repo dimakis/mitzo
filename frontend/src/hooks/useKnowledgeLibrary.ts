@@ -18,6 +18,7 @@ interface WorkingCopy {
   draft?: KnowledgeDraft;
   pendingCreate?: DraftCreation;
   initialSaveConflict?: KnowledgeDraft;
+  savedComparisonUnavailable?: boolean;
   documents: KnowledgeDraft['documents'];
   selected: string;
   saved: string;
@@ -43,6 +44,13 @@ function recover(): WorkingCopy | null {
     return null;
   }
 }
+class KnowledgeApiError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.status = status;
+  }
+}
 async function request<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
   const response = await apiFetch(path, {
     method,
@@ -52,7 +60,10 @@ async function request<T>(path: string, method = 'GET', body?: unknown): Promise
   });
   const data = await response.json();
   if (!response.ok)
-    throw new Error(data.error || 'Knowledge could not be reached. Your changes are preserved.');
+    throw new KnowledgeApiError(
+      data.error || 'Knowledge could not be reached. Your changes are preserved.',
+      response.status,
+    );
   return data;
 }
 function needsReview(draft: KnowledgeDraft) {
@@ -274,6 +285,45 @@ export function useKnowledgeLibrary() {
     change(history[next], false);
     setPosition(next);
   }
+  async function loadSavedComparison() {
+    const old = current.current;
+    if (!old?.initialSaveConflict) return;
+    // A failed refresh must not leave stale comparison choices enabled.
+    persist({ ...old, savedComparisonUnavailable: true });
+    try {
+      const result = await request<{ draft: KnowledgeDraft }>(
+        `/api/knowledge/drafts/${encodeURIComponent(old.initialSaveConflict.id)}`,
+      );
+      persist({
+        ...current.current!,
+        initialSaveConflict: result.draft,
+        savedComparisonUnavailable: false,
+      });
+    } catch {
+      throw new Error('Could not load the saved draft. Your working copy is preserved.');
+    }
+  }
+  async function writeSavedDraft(id: string, body: unknown) {
+    try {
+      return await request<{ draft: KnowledgeDraft; reviewError?: string }>(
+        `/api/knowledge/drafts/${encodeURIComponent(id)}`,
+        'PUT',
+        body,
+      );
+    } catch (error) {
+      if (error instanceof KnowledgeApiError && error.status === 409) {
+        const old = current.current;
+        const reference = old?.initialSaveConflict || old?.draft;
+        if (old && reference) {
+          persist({ ...old, initialSaveConflict: reference, savedComparisonUnavailable: true });
+          setComparison(null);
+          setGate(null);
+          await loadSavedComparison();
+        }
+      }
+      throw error;
+    }
+  }
   async function save(
     baseRevision?: string,
     documents?: KnowledgeDraft['documents'],
@@ -305,7 +355,7 @@ export function useKnowledgeLibrary() {
       let result: { draft: KnowledgeDraft; reviewError?: string };
       if (old.draft && !newChange) {
         result = changed
-          ? await request(`/api/knowledge/drafts/${encodeURIComponent(old.draft.id)}`, 'PUT', {
+          ? await writeSavedDraft(old.draft.id, {
               version: old.draft.version,
               documents: contents,
               ...(baseRevision ? { baseRevision } : {}),
@@ -345,11 +395,10 @@ export function useKnowledgeLibrary() {
         }
         persist({ ...current.current!, draft: result.draft, pendingCreate: undefined });
         if (JSON.stringify(contents) !== JSON.stringify(creation.documents)) {
-          result = await request(
-            `/api/knowledge/drafts/${encodeURIComponent(result.draft.id)}`,
-            'PUT',
-            { version: result.draft.version, documents: contents },
-          );
+          result = await writeSavedDraft(result.draft.id, {
+            version: result.draft.version,
+            documents: contents,
+          });
           updateDraft(result.draft, result.reviewError);
           setComparison(null);
           return;
@@ -373,21 +422,21 @@ export function useKnowledgeLibrary() {
     });
   }
   async function refreshSavedComparison() {
-    await run(async () => {
-      const old = current.current;
-      if (!old?.initialSaveConflict) return;
-      const result = await request<{ draft: KnowledgeDraft }>(
-        `/api/knowledge/drafts/${encodeURIComponent(old.initialSaveConflict.id)}`,
-      );
-      persist({ ...old, initialSaveConflict: result.draft });
-    });
+    await run(loadSavedComparison);
   }
   async function resolveInitialSaveConflict(useSaved: boolean) {
     await run(async () => {
       const old = current.current;
       const remote = old?.initialSaveConflict;
-      if (!old || !remote) return;
-      if (useSaved) {
+      if (!old || !remote || old.savedComparisonUnavailable) return;
+      const matchesSaved =
+        old.documents.length === remote.documents.length &&
+        old.documents.every((document) =>
+          remote.documents.some(
+            (saved) => saved.path === document.path && saved.content === document.content,
+          ),
+        );
+      if (useSaved || matchesSaved) {
         installDraft(remote);
         setNotice('Saved draft opened');
         setError(remote.error || '');
@@ -397,20 +446,17 @@ export function useKnowledgeLibrary() {
         throw new Error(
           'This saved change is finished. Open it to start a new change with your edits.',
         );
-      const result = await request<{ draft: KnowledgeDraft; reviewError?: string }>(
-        `/api/knowledge/drafts/${encodeURIComponent(remote.id)}`,
-        'PUT',
-        {
-          version: remote.version,
-          baseRevision: remote.baseRevision,
-          documents: old.documents.map(({ path, content }) => ({ path, content })),
-        },
-      );
+      const result = await writeSavedDraft(remote.id, {
+        version: remote.version,
+        baseRevision: remote.baseRevision,
+        documents: old.documents.map(({ path, content }) => ({ path, content })),
+      });
       persist({
         ...old,
         draft: result.draft,
         pendingCreate: undefined,
         initialSaveConflict: undefined,
+        savedComparisonUnavailable: undefined,
       });
       updateDraft(result.draft, result.reviewError);
     });
@@ -440,7 +486,7 @@ export function useKnowledgeLibrary() {
   async function reconcile() {
     await run(async () => {
       const draft = current.current?.draft;
-      if (!draft) return;
+      if (!draft || current.current?.initialSaveConflict) return;
       const result = await request<{
         draft: KnowledgeDraft;
         canAccept?: boolean;
@@ -457,6 +503,7 @@ export function useKnowledgeLibrary() {
       const draft = old?.draft;
       if (
         !old ||
+        old.initialSaveConflict ||
         !draft?.review ||
         draft.review.version !== draft.version ||
         draft.review.ready ||
@@ -476,7 +523,8 @@ export function useKnowledgeLibrary() {
   async function accept() {
     await run(async () => {
       const draft = current.current?.draft;
-      if (!draft?.review || !gate?.canAccept || dirty) return;
+      if (!draft?.review || !gate?.canAccept || dirty || current.current?.initialSaveConflict)
+        return;
       const result = await request<{ draft: KnowledgeDraft }>(
         `/api/knowledge/drafts/${encodeURIComponent(draft.id)}/accept`,
         'POST',

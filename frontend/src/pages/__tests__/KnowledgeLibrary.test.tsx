@@ -607,3 +607,179 @@ it('keeps the conflict when explicit reconciliation races another save and lets 
     1,
   );
 });
+it('preserves edits on an existing draft version conflict and reconciles using the compared saved version', async () => {
+  const original = vi.mocked(apiFetch).getMockImplementation()!;
+  let writes = 0;
+  const remote = {
+    ...draft,
+    version: 2,
+    documents: [{ ...draft.documents[0], content: '# Saved by another device' }],
+    review: { ...draft.review, version: 2, head: 'h2' },
+  };
+  vi.mocked(apiFetch).mockImplementation(async (path, init) => {
+    if (init?.method === 'PUT') {
+      if (writes++ === 0)
+        return {
+          ...response({ error: 'Draft changed in another window. Reload before saving.' }, false),
+          status: 409,
+        };
+      return response({
+        draft: {
+          ...remote,
+          version: 3,
+          documents: [{ ...remote.documents[0], content: '# My local edits' }],
+          review: { ...remote.review, version: 3, ready: false },
+        },
+      });
+    }
+    if (path === '/api/knowledge/drafts/d1') return response({ draft: remote });
+    return original(path, init);
+  });
+  const view = setup();
+  fireEvent.click(await screen.findByRole('button', { name: /Working principles/ }));
+  fireEvent.change(await screen.findByRole('textbox', { name: 'Document source' }), {
+    target: { value: '# Revised' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  await screen.findByText('In review');
+  fireEvent.change(screen.getByRole('textbox', { name: 'Document source' }), {
+    target: { value: '# My local edits' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  await screen.findByRole('region', { name: 'Compare saved draft and working copy' });
+  expect(screen.getByText('# Saved by another device')).toBeTruthy();
+  const recovery = JSON.parse(localStorage.getItem('mitzo-knowledge-working-copy:')!);
+  expect(recovery.draft.version).toBe(1);
+  expect(recovery.initialSaveConflict.version).toBe(2);
+  expect(
+    (screen.getByRole('textbox', { name: 'Document source' }) as HTMLTextAreaElement).value,
+  ).toBe('# My local edits');
+  view.unmount();
+  setup();
+  await screen.findByRole('region', { name: 'Compare saved draft and working copy' });
+  expect((screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(true);
+  const before = vi.mocked(apiFetch).mock.calls.length;
+  fireEvent.keyDown(screen.getByRole('textbox', { name: 'Document source' }), {
+    key: 's',
+    ctrlKey: true,
+  });
+  expect(vi.mocked(apiFetch).mock.calls).toHaveLength(before);
+  fireEvent.click(screen.getByRole('button', { name: 'Keep my edits and update saved draft' }));
+  await screen.findByText('Review draft saved');
+  const puts = vi.mocked(apiFetch).mock.calls.filter(([, init]) => init?.method === 'PUT');
+  expect(puts).toHaveLength(2);
+  expect(JSON.parse(String(puts[1][1]?.body))).toMatchObject({
+    version: 2,
+    documents: [{ path: 'hub/principles.md', content: '# My local edits' }],
+  });
+});
+it('keeps a failed saved-version fetch recoverable without allowing writes until comparison is refreshed', async () => {
+  const original = vi.mocked(apiFetch).getMockImplementation()!;
+  let reads = 0;
+  vi.mocked(apiFetch).mockImplementation(async (path, init) => {
+    if (init?.method === 'PUT')
+      return { ...response({ error: 'Draft changed in another window.' }, false), status: 409 };
+    if (path === '/api/knowledge/drafts/d1') {
+      if (reads++ === 0) throw new Error('Offline');
+      return response({
+        draft: {
+          ...draft,
+          version: 2,
+          documents: [{ ...draft.documents[0], content: '# Current saved content' }],
+          review: { ...draft.review, version: 2 },
+        },
+      });
+    }
+    return original(path, init);
+  });
+  const view = setup();
+  fireEvent.click(await screen.findByRole('button', { name: /Working principles/ }));
+  fireEvent.change(await screen.findByRole('textbox', { name: 'Document source' }), {
+    target: { value: '# Revised' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  await screen.findByText('In review');
+  fireEvent.change(screen.getByRole('textbox', { name: 'Document source' }), {
+    target: { value: '# Keep local' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  await screen.findByText(
+    'The latest saved version is unavailable. Refresh the comparison to continue.',
+  );
+  expect(
+    (screen.getByRole('textbox', { name: 'Document source' }) as HTMLTextAreaElement).value,
+  ).toBe('# Keep local');
+  for (const name of ['Save', 'Use saved draft', 'Keep my edits and update saved draft'])
+    expect((screen.getByRole('button', { name }) as HTMLButtonElement).disabled).toBe(true);
+  view.unmount();
+  setup();
+  await screen.findByText(
+    'The latest saved version is unavailable. Refresh the comparison to continue.',
+  );
+  expect((screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh saved comparison' }));
+  await screen.findByText('# Current saved content');
+  expect(
+    (
+      screen.getByRole('button', {
+        name: 'Keep my edits and update saved draft',
+      }) as HTMLButtonElement
+    ).disabled,
+  ).toBe(false);
+  expect(
+    (screen.getByRole('textbox', { name: 'Document source' }) as HTMLTextAreaElement).value,
+  ).toBe('# Keep local');
+  expect(vi.mocked(apiFetch).mock.calls.filter(([, init]) => init?.method === 'PUT')).toHaveLength(
+    1,
+  );
+});
+it('recovers a lost update acknowledgement through saved comparison when the next write finds the same remote content', async () => {
+  const original = vi.mocked(apiFetch).getMockImplementation()!;
+  let writes = 0;
+  const remote = {
+    ...draft,
+    version: 2,
+    documents: [{ ...draft.documents[0], content: '# Saved before the connection broke' }],
+    review: { ...draft.review, version: 2, head: 'h2' },
+  };
+  vi.mocked(apiFetch).mockImplementation(async (path, init) => {
+    if (init?.method === 'PUT') {
+      if (writes++ === 0) throw new Error('Lost update acknowledgement');
+      return { ...response({ error: 'Draft changed in another window.' }, false), status: 409 };
+    }
+    if (path === '/api/knowledge/drafts/d1') return response({ draft: remote });
+    return original(path, init);
+  });
+  setup();
+  fireEvent.click(await screen.findByRole('button', { name: /Working principles/ }));
+  fireEvent.change(await screen.findByRole('textbox', { name: 'Document source' }), {
+    target: { value: '# Revised' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  await screen.findByText('In review');
+  fireEvent.change(screen.getByRole('textbox', { name: 'Document source' }), {
+    target: { value: remote.documents[0].content },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  await screen.findByText('Lost update acknowledgement');
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  await screen.findByRole('region', { name: 'Compare saved draft and working copy' });
+  expect((screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.click(screen.getByRole('button', { name: 'Keep my edits and update saved draft' }));
+  await waitFor(() =>
+    expect(
+      screen.queryByRole('region', { name: 'Compare saved draft and working copy' }),
+    ).toBeNull(),
+  );
+  expect(
+    (screen.getByRole('textbox', { name: 'Document source' }) as HTMLTextAreaElement).value,
+  ).toBe(remote.documents[0].content);
+  expect(vi.mocked(apiFetch).mock.calls.filter(([, init]) => init?.method === 'PUT')).toHaveLength(
+    2,
+  );
+  const saved = JSON.parse(localStorage.getItem('mitzo-knowledge-working-copy:')!);
+  expect(saved.draft).toMatchObject({
+    version: 2,
+    review: { version: 2, head: 'h2', ready: true },
+  });
+});

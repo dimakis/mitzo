@@ -126,6 +126,11 @@ export function KnowledgeLibrary() {
                     version to keep. Updating the saved draft replaces its contents with your
                     working copy.
                   </p>
+                  {copy!.savedComparisonUnavailable && (
+                    <p>
+                      The latest saved version is unavailable. Refresh the comparison to continue.
+                    </p>
+                  )}
                   {[
                     ...new Set([
                       ...copy!.initialSaveConflict.documents.map((d) => d.path),
@@ -138,8 +143,10 @@ export function KnowledgeLibrary() {
                         <div>
                           <h4>Saved draft</h4>
                           <pre>
-                            {copy!.initialSaveConflict!.documents.find((d) => d.path === path)
-                              ?.content ?? 'Not in the saved draft.'}
+                            {copy!.savedComparisonUnavailable
+                              ? 'Awaiting latest saved version.'
+                              : (copy!.initialSaveConflict!.documents.find((d) => d.path === path)
+                                  ?.content ?? 'Not in the saved draft.')}
                           </pre>
                         </div>
                         <div>
@@ -157,7 +164,7 @@ export function KnowledgeLibrary() {
                       Refresh saved comparison
                     </button>
                     <button
-                      disabled={busy}
+                      disabled={busy || copy!.savedComparisonUnavailable}
                       onClick={() => void library.resolveInitialSaveConflict(true)}
                     >
                       Use saved draft
@@ -165,6 +172,7 @@ export function KnowledgeLibrary() {
                     <button
                       disabled={
                         busy ||
+                        copy!.savedComparisonUnavailable ||
                         copy!.initialSaveConflict.state === 'accepted' ||
                         copy!.initialSaveConflict.state === 'closed'
                       }
@@ -272,13 +280,16 @@ export function KnowledgeLibrary() {
                     {currentReview && editable && !draft.review?.ready && (
                       <button
                         className="btn-primary"
-                        disabled={busy || dirty}
+                        disabled={busy || dirty || !!copy!.initialSaveConflict}
                         onClick={() => void library.sendForReview()}
                       >
                         Send for review
                       </button>
                     )}
-                    <button disabled={busy || dirty} onClick={() => void library.reconcile()}>
+                    <button
+                      disabled={busy || dirty || !!copy!.initialSaveConflict}
+                      onClick={() => void library.reconcile()}
+                    >
                       Check review status
                     </button>
                     <button disabled={busy} onClick={() => void library.compare(true)}>
@@ -290,6 +301,7 @@ export function KnowledgeLibrary() {
                         disabled={
                           busy ||
                           dirty ||
+                          !!copy!.initialSaveConflict ||
                           !library.gate?.canAccept ||
                           (library.gate.currentHead !== undefined &&
                             library.gate.currentHead !== draft.review?.head)
