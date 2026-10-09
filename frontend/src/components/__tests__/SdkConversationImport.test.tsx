@@ -6,7 +6,10 @@ import { cleanup, render, screen, fireEvent, waitFor, act } from '@testing-libra
 import { SdkConversationImport } from '../SdkConversationImport';
 import { SessionList } from '../../pages/SessionList';
 const apiFetch = vi.hoisted(() => vi.fn());
-vi.mock('../../lib/api-fetch', () => ({ apiFetch }));
+vi.mock('../../lib/api-fetch', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/api-fetch')>()),
+  apiFetch,
+}));
 vi.mock('../../hooks/useSessionList', () => ({
   useSessionList: () => ({
     sessions: [],
