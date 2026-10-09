@@ -18,9 +18,14 @@ export const knowledgeGitEnvironment = () => ({
   GIT_CONFIG_KEY_1: 'core.fsmonitor',
   GIT_CONFIG_VALUE_1: 'false',
 });
-export async function knowledgeGit(directory: string, args: string[], input?: string) {
+export async function knowledgeGit(
+  directory: string,
+  args: string[],
+  input?: string,
+  indexFile?: string,
+) {
   const child = exec('git', ['-C', directory, ...args], {
-    env: knowledgeGitEnvironment(),
+    env: { ...knowledgeGitEnvironment(), ...(indexFile ? { GIT_INDEX_FILE: indexFile } : {}) },
     maxBuffer: 8 * 1024 * 1024,
     timeout: 30_000,
   });

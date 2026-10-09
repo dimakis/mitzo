@@ -17,6 +17,7 @@ export interface KnowledgeDraft {
   updatedAt: string;
   state: 'draft' | 'in-review' | 'accepted' | 'closed';
   review?: { url: string; head: string; version: number };
+  publication?: { head: string; version: number };
   error?: string;
 }
 export class KnowledgeDraftConflict extends Error {}
@@ -116,6 +117,14 @@ export class KnowledgeDraftStore {
         state: 'in-review',
         error: undefined,
       });
+    })();
+  }
+  prepared(id: string, version: number, head: string) {
+    return this.db.transaction(() => {
+      const draft = this.get(id);
+      if (version !== draft.version)
+        throw new KnowledgeDraftConflict('Draft changed while preparing its review');
+      return this.put({ ...draft, publication: { version, head } });
     })();
   }
   status(id: string, state: KnowledgeDraft['state'], error?: string) {
