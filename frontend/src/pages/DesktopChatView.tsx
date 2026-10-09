@@ -372,6 +372,13 @@ export function DesktopChatView() {
           {briefingChat.isBriefing && <h1>{briefingChat.name}</h1>}
           <BriefingChatBanner
             name={briefingChat.name}
+            initialSelection={
+              accountSelection ??
+              launch?.accountSelection ??
+              (briefingChat.binding
+                ? { accountId: briefingChat.binding.accountId, model: briefingChat.binding.model }
+                : undefined)
+            }
             source={briefingChat.source}
             registrationError={registrationError}
             retryRegistration={retryRegistration}

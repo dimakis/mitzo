@@ -9,7 +9,9 @@ export function BriefingMinionPicker({
   name,
   onCancel,
   onUse,
+  initialSelection,
 }: {
+  initialSelection?: AccountSelection;
   name: string;
   onCancel: () => void;
   onUse: (selection: AccountSelection) => Promise<void>;
@@ -48,9 +50,11 @@ export function BriefingMinionPicker({
         conversation.
       </p>
       <p className="workspace-muted">
-        {getDefaultAccountModel()
-          ? 'Default: your saved account and model, when available.'
-          : 'Default preference: Work OpenAI, when configured. Review the account and model below.'}
+        {initialSelection
+          ? 'Current conversation account and model. Changes open a separate conversation.'
+          : getDefaultAccountModel()
+            ? 'Default: your saved account and model, when available.'
+            : 'Default preference: Work OpenAI, when configured. Review the account and model below.'}
       </p>
       <div className="briefing-minion-picker">
         <AccountModelPicker
@@ -58,6 +62,7 @@ export function BriefingMinionPicker({
           preferredModel={getPreferredModel()}
           onChange={setSelection}
           onSummaryChange={setSummary}
+          initialSelection={initialSelection}
           draftOnly
           preferWorkOpenAI
           disabled={saving}

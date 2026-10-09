@@ -72,9 +72,11 @@ function SessionAccountModelPicker({
   requiredSelection,
   draftOnly = false,
   preferWorkOpenAI = false,
+  initialSelection,
 }: {
   draftOnly?: boolean;
   preferWorkOpenAI?: boolean;
+  initialSelection?: AccountSelection;
   scope?: 'chat' | 'symposium';
   requireExplicitSelection?: boolean;
   requiredSelection?: { accountId: string; model: string };
@@ -300,6 +302,7 @@ function SessionAccountModelPicker({
           }
           const previous =
             (attempt ? selectionRef.current : null) ??
+            initialSelection ??
             (scope === 'chat' && !legacy ? getDefaultAccountModel() : null);
           if (
             !legacy &&

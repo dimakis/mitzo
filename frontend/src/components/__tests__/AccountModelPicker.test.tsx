@@ -147,6 +147,30 @@ it('prefers configured Work OpenAI for a briefing draft and respects an explicit
     expect(onChange).toHaveBeenLastCalledWith({ accountId: 'personal', model: 'personal-model' }),
   );
 });
+it('stages the current minion binding before general defaults while leaving account changes available', async () => {
+  vi.mocked(apiFetch).mockImplementation(async () => new Response(JSON.stringify(profiles)));
+  localStorage.setItem(
+    'mitzo-default-account-model',
+    JSON.stringify({ accountId: 'other', model: 'haiku' }),
+  );
+  const onChange = vi.fn();
+  render(
+    <AccountModelPicker
+      sessionId={null}
+      preferredModel="haiku"
+      onChange={onChange}
+      draftOnly
+      initialSelection={{ accountId: 'work', model: 'sonnet' }}
+    />,
+  );
+  await waitFor(() =>
+    expect(onChange).toHaveBeenLastCalledWith({ accountId: 'work', model: 'sonnet' }),
+  );
+  expect((screen.getByLabelText('Account') as HTMLSelectElement).disabled).toBe(false);
+  fireEvent.change(screen.getByLabelText('Account'), { target: { value: 'other' } });
+  expect(onChange).toHaveBeenLastCalledWith({ accountId: 'other', model: 'haiku' });
+  expect(localStorage.getItem('mitzo-default-account-model')).toContain('haiku');
+});
 it('loads accounts and models from the server and emits explicit selection', async () => {
   vi.mocked(apiFetch).mockResolvedValue({ ok: true, json: async () => profiles } as Response);
   const onChange = vi.fn();

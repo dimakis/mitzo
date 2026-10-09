@@ -13,7 +13,9 @@ export function BriefingChatBanner({
   source,
   registrationError,
   retryRegistration,
+  initialSelection,
 }: {
+  initialSelection?: AccountSelection;
   name: string;
   source: { date: string; revision: string } | null | undefined;
   registrationError?: string;
@@ -88,6 +90,7 @@ export function BriefingChatBanner({
       {picker && (
         <BriefingMinionPicker
           name={name}
+          initialSelection={initialSelection}
           onCancel={() => setPicker(false)}
           onUse={changeSelection}
         />
