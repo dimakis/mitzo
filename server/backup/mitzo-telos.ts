@@ -7,21 +7,24 @@ export interface MitzoTelosCoreOwners {
   events: SQLiteBackupOwner;
   tasks: SQLiteBackupOwner;
   telos: SQLiteBackupOwner;
+  knowledge?: SQLiteBackupOwner;
 }
 const active = new WeakSet<SQLiteBackupOwner>();
 /** This group's coverage is events, tasks/workload and the entire Telos database,
- * including registered artifact bytes. It never claims whole-ecosystem coverage.
+ * including registered artifact bytes and enrolled Knowledge drafts when present.
+ * It never claims whole-ecosystem coverage.
  * Application saves continue; any overlapping write invalidates the candidate.
  */
 export async function captureMitzoTelosCore(options: {
   owners: MitzoTelosCoreOwners;
   destination: string;
 }): Promise<void> {
-  const members = [
+  const members: Array<readonly [string, SQLiteBackupOwner]> = [
     ['mitzo-events', options.owners.events],
     ['mitzo-tasks', options.owners.tasks],
     ['telos', options.owners.telos],
-  ] as const;
+    ...(options.owners.knowledge ? [['knowledge-drafts', options.owners.knowledge] as const] : []),
+  ];
   for (const [, owner] of members) {
     if (
       !owner ||

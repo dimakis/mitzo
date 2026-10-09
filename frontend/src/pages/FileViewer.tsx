@@ -77,6 +77,16 @@ function FileViewerDocument() {
 
         {displayBranch && <span className="viewer-header-branch">{displayBranch}</span>}
 
+        {!state.isViewing && !state.gitInfo?.worktreesLoaded && (
+          <button
+            className="viewer-header-action"
+            onClick={() => void nav.loadWorktrees()}
+            disabled={state.worktreesLoading}
+          >
+            {state.worktreesLoading ? 'Loading worktrees…' : 'Worktrees'}
+          </button>
+        )}
+
         {state.isViewing && !editor.editing && (
           <ShareButton
             filePath={state.filePath}
@@ -174,6 +184,8 @@ function FileViewerDocument() {
             ))}
           </div>
         )}
+
+      {state.worktreesError && <p role="alert">{state.worktreesError}</p>}
 
       {editor.editing && (
         <div className="document-editor-status" role="status">
