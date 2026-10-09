@@ -196,6 +196,18 @@ it('refuses a corrupt recovery bundle without rebuilding or changing the externa
   expect(publisher.push).not.toHaveBeenCalled();
 });
 
+it('refuses mismatched stored recovery state instead of treating it as a legacy backup', async () => {
+  const d = await draft();
+  store.prepared(d.id, d.version, 'a'.repeat(40), undefined, Buffer.from('recovery bytes'));
+  const savedHead = 'b'.repeat(40);
+  // Represent a restored draft whose publication and recovery row disagree.
+  store.prepared(d.id, d.version, savedHead);
+  await expect(service().submit(d.id, d.version)).rejects.toThrow('Draft saved');
+  expect(store.get(d.id).publication?.head).toBe(savedHead);
+  expect(publisher.push).not.toHaveBeenCalled();
+  expect(publisher.create).not.toHaveBeenCalled();
+});
+
 it('atomically refuses an oversized recovery bundle without replacing the saved head or bundle', async () => {
   const d = await draft();
   const head = 'a'.repeat(40);

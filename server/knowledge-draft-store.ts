@@ -239,9 +239,16 @@ export class KnowledgeDraftStore {
   }
   recoveryBundle(id: string, head: string): Buffer | undefined {
     const row = this.db
-      .prepare('SELECT bundle FROM knowledge_draft_recovery WHERE id=? AND head=?')
-      .get(id, head) as { bundle: Buffer } | undefined;
-    if (row && (!row.bundle.length || row.bundle.length > KNOWLEDGE_RECOVERY_BUNDLE_LIMIT))
+      .prepare('SELECT head,bundle FROM knowledge_draft_recovery WHERE id=?')
+      .get(id) as { head: string; bundle: Buffer } | undefined;
+    if (row && row.head !== head)
+      throw new Error('Knowledge recovery state differs from its saved head');
+    if (
+      row &&
+      (!Buffer.isBuffer(row.bundle) ||
+        !row.bundle.length ||
+        row.bundle.length > KNOWLEDGE_RECOVERY_BUNDLE_LIMIT)
+    )
       throw new Error('Knowledge recovery bundle exceeds the limit');
     return row?.bundle;
   }
