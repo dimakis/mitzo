@@ -297,6 +297,7 @@ export class RepositoryWorkspaces {
       if (record.conversationId !== conversationId || record.sandbox !== sandbox)
         throw new Error('Repository preparation already belongs to another conversation');
       if (record.directory) await this.validateHostTask(conversationId, record.directory);
+      await this.authorize(record, binding, signal);
       // Do not verify against the original tree after launch: task edits and commits are expected.
       return { ...record, seed: this.source(record) };
     }

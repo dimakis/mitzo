@@ -306,3 +306,23 @@ it.each(['missing', 'replaced', 'metadata-replaced', 'wrong-branch', 'missing-hi
     f.service.close();
   },
 );
+
+it('rechecks access when retrying a settled host claim after asynchronous ownership validation', async () => {
+  const f = await fixture();
+  const signal = new AbortController().signal;
+  const preview = await f.service.preview(binding, 'connection', 'example/repo', signal);
+  await f.service.prepare(preview.id, binding, signal);
+  const claimed = await f.service.claim(preview.id, binding, 'conversation', f.taskRoot, false);
+  const validate = f.service.validateHostTask.bind(f.service);
+  vi.spyOn(f.service, 'validateHostTask').mockImplementation(async (...args) => {
+    const task = await validate(...args);
+    f.authorize.mockResolvedValue({ revision: 2 });
+    return task;
+  });
+  await expect(
+    f.service.claim(preview.id, binding, 'conversation', f.taskRoot, false),
+  ).rejects.toThrow('GitHub connection changed');
+  expect(f.service.getForConversation('conversation')?.directory).toBe(claimed.directory);
+  expect(await readFile(join(claimed.directory!, 'file.txt'), 'utf8')).toBe('source');
+  f.service.close();
+});
