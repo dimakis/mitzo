@@ -17,7 +17,7 @@ import {
 import type { RepositoryChatPreparation } from './repository-workspaces.js';
 
 export const REPOSITORY_CHAT_INSTRUCTIONS =
-  '\nWhen the user requests repository work, call ListRepositories to discover authorized repositories, then PrepareRepositoryChat with the repository and task prompt. The user reviews the draft and starts a separate chat through its setup link. Preparation does not grant integration access, execute the task, or publish changes. Preserve this chat and its current workspace. If a returned preparation is pending or its completion is uncertain, use GetRepositoryChatPreparation with its existing ID; do not recreate it or repeatedly poll.\n';
+  '\nWhen the user requests repository work, call ListRepositories to discover authorized repositories, then PrepareRepositoryChat with the repository and task prompt. The user reviews the draft and starts a separate chat through its setup link. Preparation does not grant integration access, execute the task, or publish changes. Preserve this chat and its current workspace. Call GetRepositoryChatPreparation once to recover a missing preparation ID after a lost response; omit preparationId to read the latest draft owned by this chat and account. For a known pending preparation, use its existing ID. Do not repeat preparation or repeatedly poll.\n';
 
 const schemas = {
   ListRepositories: z.strictObject({}),
@@ -29,7 +29,7 @@ const schemas = {
       .max(8000)
       .refine((value) => value.trim().length > 0),
   }),
-  GetRepositoryChatPreparation: z.strictObject({ preparationId: z.uuid() }),
+  GetRepositoryChatPreparation: z.strictObject({ preparationId: z.uuid().optional() }),
 };
 const descriptions = {
   ListRepositories:
@@ -37,7 +37,7 @@ const descriptions = {
   PrepareRepositoryChat:
     'Prepare a separate repository chat for a user-requested task. Supply only an authorized repository name or canonical GitHub HTTPS URL and the task prompt. Returns a draft review link; the user starts the new chat. Does not switch the current workspace, grant integration access, execute the task, or publish changes. Requires Agent or Auto mode.',
   GetRepositoryChatPreparation:
-    'Read a repository-chat draft prepared by this source chat and its current AI account. Returns public preparation status and the review link. Do not repeatedly poll.',
+    'Read a repository-chat draft prepared by this source chat and its current AI account. Omit preparationId to recover the latest owned draft after a lost response. Returns public preparation status and the review link. Do not repeat preparation or repeatedly poll.',
 };
 const definitions: ToolDefinition[] = Object.entries(schemas).map(([name, schema]) => ({
   name,

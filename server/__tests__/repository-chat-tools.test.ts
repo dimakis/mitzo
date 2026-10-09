@@ -133,6 +133,38 @@ it('reads only a preparation owned by the current source chat and binding', asyn
   expect(runtime.prepareChat).not.toHaveBeenCalled();
 });
 
+it('recovers the latest owned preparation when a lost response omitted its ID', async () => {
+  const { tools } = fixture();
+  const result = await tools.execute('GetRepositoryChatPreparation', {}, signal());
+  expect(result?.isError).toBe(false);
+  expect(JSON.parse(result!.content)).toEqual({ repositoryChat: draft });
+  expect(runtime.chatPreparation).toHaveBeenCalledWith(undefined, binding, 'session');
+  expect(runtime.prepareChat).not.toHaveBeenCalled();
+  expect(REPOSITORY_CHAT_INSTRUCTIONS).toMatch(/once.*(?:missing|lost).*ID/i);
+});
+
+it.each(['owner', 'binding', 'model', 'cancel'])(
+  'fences missing-ID recovery if %s changes while reading the owned draft',
+  async (condition) => {
+    const { tools, session, registry } = fixture();
+    runtime.chatPreparation.mockImplementation(() => {
+      if (condition === 'owner')
+        registry.register('client', {
+          sessionId: 'session',
+          abortController: new AbortController(),
+        } as never);
+      if (condition === 'binding') session.accountBinding = { ...binding, accountId: 'other' };
+      if (condition === 'model') session.model = 'different';
+      if (condition === 'cancel') session.abortController.abort();
+      return draft;
+    });
+    const result = await tools.execute('GetRepositoryChatPreparation', {}, signal());
+    expect(runtime.chatPreparation).toHaveBeenCalledWith(undefined, binding, 'session');
+    expect(result?.isError).toBe(true);
+    expect(result?.content).not.toContain(draft.setupUrl);
+  },
+);
+
 it.each(['accountId', 'connectionId', 'cwd', 'model'])(
   'refuses caller-supplied routing input %s',
   async (key) => {
@@ -244,6 +276,7 @@ it.each(['owner', 'cancel', 'skill', 'closing', 'user-close', 'suspended'])(
       ['ListRepositories', {}],
       ['PrepareRepositoryChat', { repository: 'example/repo', prompt: draft.prompt }],
       ['GetRepositoryChatPreparation', { preparationId: id }],
+      ['GetRepositoryChatPreparation', {}],
     ] as const)
       expect((await tools.execute(name, input, signal()))?.isError).toBe(true);
     expect(runtime.catalog).not.toHaveBeenCalled();
