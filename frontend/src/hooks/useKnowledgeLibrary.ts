@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiFetch, getApiBaseUrl } from '../lib/api-fetch';
 import type {
   KnowledgeCatalog,
@@ -88,6 +88,12 @@ export function useKnowledgeLibrary() {
   } | null>(null);
   const [history, setHistory] = useState<string[]>([]);
   const [position, setPosition] = useState(0);
+  const [historyResetKey, setHistoryResetKey] = useState(0);
+  const resetHistory = useCallback((content: string | null) => {
+    setHistory(content === null ? [] : [content]);
+    setPosition(0);
+    setHistoryResetKey((key) => key + 1);
+  }, []);
   const current = useRef(copy);
   current.current = copy;
   const inFlight = useRef(false);
@@ -118,9 +124,8 @@ export function useKnowledgeLibrary() {
   }, []);
   useEffect(() => {
     const active = current.current?.documents.find((d) => d.path === current.current?.selected);
-    setHistory(active ? [active.content] : []);
-    setPosition(0);
-  }, [copy?.selected]);
+    resetHistory(active?.content ?? null);
+  }, [copy?.selected, resetHistory]);
   useEffect(() => {
     if (!dirty) return;
     const unload = (event: BeforeUnloadEvent) => {
@@ -184,8 +189,7 @@ export function useKnowledgeLibrary() {
       saved: JSON.stringify(draft.documents),
     };
     persist(next);
-    setHistory([next.documents[0]?.content || '']);
-    setPosition(0);
+    resetHistory(next.documents[0]?.content ?? '');
     setGate(null);
     setComparison(null);
   }
@@ -264,8 +268,7 @@ export function useKnowledgeLibrary() {
           selected: item.path,
           saved: JSON.stringify([item]),
         });
-      setHistory([data.content]);
-      setPosition(0);
+      resetHistory(data.content);
       setNotice('');
       setComparison(null);
       setGate(null);
@@ -626,6 +629,7 @@ export function useKnowledgeLibrary() {
     selected,
     dirty,
     canSave,
+    historyResetKey,
     busy,
     error,
     storageError,
