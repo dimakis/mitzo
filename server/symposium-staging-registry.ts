@@ -75,6 +75,12 @@ export function openStagingRegistry(directory: string, capacity: number) {
     db.prepare('SELECT * FROM launches ORDER BY createdAt, launchId').all() as StagingRecord[];
   return {
     list,
+    /** Closed local refusal evidence only; never a native retirement/adoption grant. */
+    qualifiedRefusals() {
+      if (!db.prepare("SELECT name FROM sqlite_master WHERE name='qualified_cold_refusals'").get())
+        return [];
+      return db.prepare('SELECT * FROM qualified_cold_refusals ORDER BY launchId').all();
+    },
     close: () => db.close(),
     reserve(value: StagingRegistration, now = Date.now()) {
       const input = Registration.parse(value);
