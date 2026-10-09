@@ -5,11 +5,19 @@ export const ACCENTS = [
   { value: 'teal', label: 'Teal' },
   { value: 'rose', label: 'Rose' },
   { value: 'amber', label: 'Amber' },
+  { value: 'blue', label: 'Blue' },
+  { value: 'mint', label: 'Mint' },
+  { value: 'coral', label: 'Coral' },
+  { value: 'plum', label: 'Plum' },
 ] as const;
 export const FONTS = [
   { value: 'system', label: 'System' },
   { value: 'arial', label: 'Arial' },
   { value: 'georgia', label: 'Georgia' },
+  { value: 'verdana', label: 'Verdana' },
+  { value: 'trebuchet', label: 'Trebuchet MS' },
+  { value: 'palatino', label: 'Palatino' },
+  { value: 'courier', label: 'Courier New' },
 ] as const;
 type Accent = (typeof ACCENTS)[number]['value'];
 type Font = (typeof FONTS)[number]['value'];

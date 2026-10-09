@@ -39,3 +39,16 @@ it('falls back from invalid saved preferences and resets both choices', () => {
   expect(document.documentElement.dataset.accent).toBe('lavender');
   expect(document.documentElement.dataset.font).toBe('system');
 });
+
+it.each([
+  ['blue', 'verdana'],
+  ['mint', 'trebuchet'],
+  ['coral', 'palatino'],
+  ['plum', 'courier'],
+])('restores the new %s accent and %s font before rendering', (accent, font) => {
+  localStorage.setItem('mitzo-accent', accent);
+  localStorage.setItem('mitzo-font', font);
+  initAppearance();
+  expect(document.documentElement.dataset.accent).toBe(accent);
+  expect(document.documentElement.dataset.font).toBe(font);
+});
