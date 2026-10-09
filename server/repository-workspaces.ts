@@ -1,3 +1,4 @@
+import { copyRepositoryTaskCheckout } from './repository-task-copy.js';
 import {
   snapshotRepositoryTaskCheckout,
   validateRepositoryTaskCheckout,
@@ -5,8 +6,15 @@ import {
 } from './repository-task-checkout.js';
 import Database from 'better-sqlite3';
 import { createHash, randomUUID } from 'node:crypto';
-import { chmodSync, mkdirSync, realpathSync, lstatSync } from 'node:fs';
-import { cp, mkdir, realpath, rm, readdir, readFile, lstat } from 'node:fs/promises';
+import {
+  chmodSync,
+  mkdirSync,
+  realpathSync,
+  lstatSync,
+  createReadStream,
+  constants,
+} from 'node:fs';
+import { mkdir, realpath, rm, readdir, lstat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import type { AccountBinding } from '@mitzo/protocol';
@@ -71,7 +79,11 @@ export async function repositorySourceDigest(directory: string): Promise<string>
         bytes += before.size;
         if (bytes > 128 * 1024 * 1024)
           throw new Error('Repository source exceeds supported bounds');
-        hash.update(await readFile(child));
+        for await (const chunk of createReadStream(child, {
+          highWaterMark: 64 * 1024,
+          flags: constants.O_RDONLY | constants.O_NOFOLLOW,
+        }))
+          hash.update(chunk);
         const after = await lstat(child);
         if (
           before.ino !== after.ino ||
@@ -328,11 +340,7 @@ export class RepositoryWorkspaces {
     if (record.directory) {
       if ((await realpath(taskRoot)) !== taskRoot) throw new Error('Task workspace root changed');
       await mkdir(join(taskRoot, `repo-${record.id}`), { mode: 0o700 });
-      await cp(this.source(record), record.directory, {
-        recursive: true,
-        force: false,
-        errorOnExist: true,
-      });
+      await copyRepositoryTaskCheckout(this.source(record), record.directory);
       if ((await repositorySourceDigest(record.directory)) !== record.sourceDigest)
         throw new Error('Task repository copy changed');
       record.taskIdentity = await snapshotRepositoryTaskCheckout(

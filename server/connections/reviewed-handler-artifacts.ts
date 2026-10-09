@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.9';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.19';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.20';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,6 +22,7 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../repository-task-copy.ts': 'd0079abec921a03d2ed5acfb8181e5e577371fbe6e5868713baa167a20e35003',
   '../github-repository-connections.ts':
     '3917a36a0cc8b3bb73f1f4fa66e93e17be3b0ace58eff2bb3e0470bd67b7c11e',
   '../credential-websocket.ts': '87a41d7c329dccb6616726feed14a5fb25c8aefe94556c767f42618b8d995810',
@@ -93,7 +94,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../repository-task-checkout.ts':
     '32fd232781b0ba9573fa0e6a511a78ede54a8c33a80dee30f52d06283b4beab5',
   '../native-tool-executor.ts': '6bca4beb98690334e83a0a88b35c80558ed01b7485f682aca0cc0af11b6cd766',
-  '../repository-workspaces.ts': '964fcacc49cfda3175a3cf54550df1ed7010e47bab71001cf42896a6d2e03974',
+  '../repository-workspaces.ts': 'cd3ccece8bc1db2caa3173e0c42e782f8c514c3deede8953653b934bfa467673',
   '../../packages/protocol/src/event-store.ts':
     '523d22223051a09ff250d4cbfbfabb98a7ba6de309c6952a119864ca7ecb0cdb',
   '../../packages/protocol/src/types.ts':
