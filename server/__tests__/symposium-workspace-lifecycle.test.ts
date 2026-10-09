@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import {
   createDiscoveryOwnedReadyEvidence,
@@ -352,8 +352,8 @@ it('rejects forged Ready evidence and reusing the original creation scope', asyn
     ),
   ).rejects.toThrow('already used');
   const cleanup = vi.fn(async () => ({ result: undefined }));
-  await expect(scope.recover(cleanup)).rejects.toThrow('original host recovery');
-  expect(cleanup).not.toHaveBeenCalled();
+  await expect(scope.recover(cleanup)).rejects.toThrow('physical cleanup unconfirmed');
+  expect(cleanup).toHaveBeenCalledOnce();
 });
 
 it('settles only its original creation after positive core cleanup and prevents stale scope clearing another dispatch', async () => {
@@ -428,6 +428,78 @@ it('rejects genuine cleanup evidence belonging to another original native identi
     })),
   ).rejects.toThrow();
   expect(JSON.parse(readFileSync(path, 'utf8')).uncertain).toBe(true);
+});
+
+it.each(['original', 'forged', 'other-claim', 'other-config'] as const)(
+  'settles a non-Ready original dispatch only with its positive core cleanup proof (%s)',
+  async (kind) => {
+    const { fence, path } = fixture();
+    const evidence = discoveryEvidence();
+    const original = fence.retainDiscoveryCreation();
+    await expect(
+      original.create(
+        () => {},
+        async (dispatch) => {
+          bind(original, evidence);
+          dispatch();
+          throw Error('never Ready');
+        },
+      ),
+    ).rejects.toThrow('never Ready');
+    const foreign = discoveryEvidence();
+    if (kind === 'other-claim') foreign.receipt.claim = 'd'.repeat(64);
+    if (kind === 'other-config') {
+      foreign.config.provider.id = 'other-provider';
+      foreign.receipt.configHash = createHash('sha256')
+        .update(JSON.stringify(foreign.config))
+        .digest('hex');
+    }
+    foreign.ready = createDiscoveryOwnedReadyEvidence(foreign.config, foreign.receipt, {
+      ...foreign.receipt,
+      workspace: foreign.config.workspace,
+      phase: 'Ready',
+      labels: {
+        'mitzo.discovery': 'models',
+        'mitzo.discovery.claim': discoveryClaimLabel(foreign.receipt.claim),
+      },
+    });
+    const proof = await physicalCleanup(foreign);
+    const cleanup = kind === 'forged' ? structuredClone(proof) : proof;
+    const operation = vi.fn(async () => ({ result: 'reconciled', physicalCleanup: cleanup }));
+    const reopened = new SymposiumWorkspaceLifecycle(path, () => {});
+    await expect(fence.retainDiscoveryCreation().recover(operation)).rejects.toThrow(
+      'original host recovery',
+    );
+    await expect(reopened.retainDiscoveryCreation().recover(operation)).rejects.toThrow(
+      'original host recovery',
+    );
+    expect(operation).not.toHaveBeenCalled();
+    if (kind === 'original') await expect(original.recover(operation)).resolves.toBe('reconciled');
+    else await expect(original.recover(operation)).rejects.toThrow('Physical cleanup evidence');
+    expect(JSON.parse(readFileSync(path, 'utf8')).uncertain).toBe(kind !== 'original');
+  },
+);
+
+it('refuses recovery when the original dispatch recording failed before native allocation', async () => {
+  const { fence, path } = fixture();
+  mkdirSync(path);
+  const original = fence.retainDiscoveryCreation();
+  const evidence = discoveryEvidence();
+  await expect(
+    original.create(
+      () => {},
+      async (dispatch) => {
+        bind(original, evidence);
+        dispatch();
+      },
+    ),
+  ).rejects.toThrow();
+  const cleanup = vi.fn(async () => ({
+    result: 'unproven',
+    physicalCleanup: await physicalCleanup(evidence),
+  }));
+  await expect(original.recover(cleanup)).rejects.toThrow('original host recovery');
+  expect(cleanup).not.toHaveBeenCalled();
 });
 
 it('serializes queued ordinary creation behind positive original cleanup without releasing the fence early', async () => {
@@ -523,7 +595,7 @@ it('refuses genuine foreign Ready evidence before it can authorize an original c
     result: 'foreign-reconciled',
     physicalCleanup: await physicalCleanup(foreign),
   }));
-  await expect(scope.recover(cleanup)).rejects.toThrow('original host recovery');
-  expect(cleanup).not.toHaveBeenCalled();
+  await expect(scope.recover(cleanup)).rejects.toThrow('Physical cleanup evidence');
+  expect(cleanup).toHaveBeenCalledOnce();
   expect(JSON.parse(readFileSync(path, 'utf8')).uncertain).toBe(true);
 });

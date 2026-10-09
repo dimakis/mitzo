@@ -1901,6 +1901,141 @@ it('promotes only the retained positive owned Ready identity after guarded first
   }
 });
 
+it.each(['none', 'lock-release', 'journal-read', 'custody', 'orphan'] as const)(
+  'recovers only the original non-Ready diagnostic creation after positive cleanup (%s)',
+  async (failure) => {
+    const f = diagnosticFixture();
+    const adapter = {
+      activeDefinition: undefined,
+      captureDiscovery: () => ({
+        provider: { name: 'personal', id: 'real-provider-id' },
+        account: { email: 'fixture@example.test', planType: 'pro' },
+        assertCurrent() {},
+      }),
+      beginDeviceLogin: async () => ({
+        completed: Promise.resolve({ email: 'fixture@example.test', planType: 'pro' }),
+        cancel: async () => {},
+      }),
+      disconnect: vi.fn(async () => {}),
+      invalidate: vi.fn(),
+    };
+    vi.spyOn(subscriptionHost, 'createSymposiumSubscriptionHost').mockReturnValue(adapter as never);
+    let journal: discoveryCore.DiscoveryReceipt | undefined;
+    let row: unknown;
+    let recovering = false;
+    let fail = true;
+    const operations = {
+      withExclusiveAttempt: async (run: () => Promise<unknown>) => {
+        const result = await run();
+        if (recovering && fail && failure === 'lock-release') throw Error('lock release failed');
+        return result;
+      },
+      verifyCustody: async () => {
+        if (recovering && fail && failure === 'custody') throw Error('custody lost');
+      },
+      readReceipt: async () => {
+        if (recovering && fail && failure === 'journal-read') throw Error('journal unreadable');
+        return journal;
+      },
+      persistReceipt: async (receipt: discoveryCore.DiscoveryReceipt) => {
+        journal = structuredClone(receipt);
+      },
+      clearReceipt: vi.fn(async () => {
+        journal = undefined;
+      }),
+      create: vi.fn(async (receipt, config, dispatch) => {
+        dispatch();
+        row =
+          failure === 'orphan'
+            ? undefined
+            : {
+                name: receipt.name,
+                id: 'original-non-ready-id',
+                workspace: config.workspace,
+                phase: 'Pending',
+                labels: {
+                  'mitzo.discovery': 'models',
+                  'mitzo.discovery.claim': discoveryCore.discoveryClaimLabel(receipt.claim),
+                },
+              };
+      }),
+      list: async () => (row ? [row] : []),
+      wait: async () => {},
+      cancel: vi.fn(async () => {}),
+      delete: vi.fn(async () => {
+        row = undefined;
+      }),
+      physicalAbsent: vi.fn(async () => row === undefined),
+      observeRouting: async () => ({ status: 'inconclusive' }),
+      openClient: vi.fn(),
+    } as unknown as discoveryCore.DiscoveryOperations;
+    vi.spyOn(discoveryHost, 'createDiscoveryHostOperations').mockReturnValue(operations);
+    const host = await createOwnedSymposiumHost(f.options, f.launch);
+    try {
+      const original = host.personalConnections.list()[0];
+      const login = await host.beginDeviceLogin({
+        connectionId: original.id,
+        expectedRevision: original.revision,
+      });
+      await login.completed;
+      const connected = host.personalConnections.list()[0];
+      const result = await host.personalConnections.diagnoseRouting(
+        connected.id,
+        connected.revision,
+        () => {},
+      );
+      expect(result.status).toBe('reconciliation_required');
+      if (failure === 'orphan') expect(operations.delete).not.toHaveBeenCalled();
+      else expect(operations.delete).toHaveBeenCalledOnce();
+      expect(operations.physicalAbsent).toHaveBeenCalledOnce();
+      expect(operations.openClient).not.toHaveBeenCalled();
+      if (failure !== 'orphan') expect(journal).toBeUndefined();
+      const fencePath = join(f.root, 'sandbox-creation-fence.json');
+      expect(JSON.parse(readFileSync(fencePath, 'utf8')).uncertain).toBe(true);
+      const other = vi.fn(async () => {});
+      await expect(host.runSandboxCreation(() => {}, other)).rejects.toThrow('host recovery');
+      expect(other).not.toHaveBeenCalled();
+      if (failure === 'orphan') {
+        await expect(
+          host.personalConnections.recoverDiscovery(
+            result.connection.id,
+            result.connection.revision,
+            () => {},
+          ),
+        ).rejects.toThrow('unavailable');
+        expect(adapter.disconnect).not.toHaveBeenCalled();
+        expect(JSON.parse(readFileSync(fencePath, 'utf8')).uncertain).toBe(true);
+        return;
+      }
+      recovering = true;
+      if (failure !== 'none') {
+        await expect(
+          host.personalConnections.recoverDiscovery(
+            result.connection.id,
+            result.connection.revision,
+            () => {},
+          ),
+        ).rejects.toThrow('physical cleanup unconfirmed');
+        expect(JSON.parse(readFileSync(fencePath, 'utf8')).uncertain).toBe(true);
+        expect(adapter.disconnect).not.toHaveBeenCalled();
+      }
+      fail = false;
+      await expect(
+        host.personalConnections.recoverDiscovery(
+          result.connection.id,
+          result.connection.revision,
+          () => {},
+        ),
+      ).resolves.toMatchObject({ status: 'reconciled', connection: { state: 'reauth_required' } });
+      expect(JSON.parse(readFileSync(fencePath, 'utf8')).uncertain).toBe(false);
+      expect(adapter.disconnect).toHaveBeenCalledOnce();
+      expect(operations.create).toHaveBeenCalledOnce();
+      expect(operations.delete).toHaveBeenCalledOnce();
+    } finally {
+      host.stop();
+    }
+  },
+);
 it.each([
   'qualification',
   'config-read',

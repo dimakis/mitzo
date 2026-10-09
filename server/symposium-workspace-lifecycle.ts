@@ -14,6 +14,7 @@ import { dirname } from 'node:path';
 import {
   assertDiscoveryOwnedReadyEvidence,
   assertDiscoveryPhysicalCleanupEvidence,
+  assertDiscoveryOriginalPhysicalCleanupEvidence,
   type DiscoveryOwnedReadyEvidence,
   type DiscoveryPhysicalCleanupEvidence,
   type DiscoveryReceipt,
@@ -176,6 +177,7 @@ export class SymposiumWorkspaceLifecycle {
     const token = Symbol('original discovery creation');
     let invoked = false;
     let active = false;
+    let dispatched = false;
     let bound: Pick<DiscoveryReceipt, 'name' | 'claim' | 'configHash'> | undefined;
     let ready: DiscoveryOwnedReadyEvidence | undefined;
     return {
@@ -188,6 +190,7 @@ export class SymposiumWorkspaceLifecycle {
             return await operation(() => {
               if (!bound) throw new Error('Original discovery receipt was not bound');
               dispatch();
+              dispatched = true;
             }, settle);
           } finally {
             active = false;
@@ -235,7 +238,7 @@ export class SymposiumWorkspaceLifecycle {
         const result = this.tail.then(async () => {
           this.custody();
           const pending = this.uncertain;
-          if (pending && (this.pendingCreation !== token || !ready))
+          if (pending && (this.pendingCreation !== token || !dispatched || !bound))
             throw new Error('Workspace creation outcome requires original host recovery');
           const outcome = await operation();
           this.custody();
@@ -243,11 +246,13 @@ export class SymposiumWorkspaceLifecycle {
             if (
               !this.uncertain ||
               this.pendingCreation !== token ||
-              !ready ||
+              !dispatched ||
+              !bound ||
               !outcome.physicalCleanup
             )
               throw new Error('Original discovery physical cleanup unconfirmed');
-            assertDiscoveryPhysicalCleanupEvidence(ready, outcome.physicalCleanup);
+            assertDiscoveryOriginalPhysicalCleanupEvidence(bound, outcome.physicalCleanup);
+            if (ready) assertDiscoveryPhysicalCleanupEvidence(ready, outcome.physicalCleanup);
             this.custody();
             this.save(false);
             this.pendingCreation = undefined;

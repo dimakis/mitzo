@@ -110,6 +110,20 @@ export function assertDiscoveryPhysicalCleanupEvidence(
   )
     throw Error('Physical cleanup evidence changed');
 }
+/** Original dispatch binding only; this does not grant Ready or adoption authority. */
+export function assertDiscoveryOriginalPhysicalCleanupEvidence(
+  bound: Pick<DiscoveryReceipt, 'name' | 'claim' | 'configHash'>,
+  cleanup: DiscoveryPhysicalCleanupEvidence,
+): void {
+  if (
+    !physicalCleanupEvidence.has(cleanup) ||
+    !cleanup.receipt.id ||
+    cleanup.receipt.name !== bound.name ||
+    cleanup.receipt.claim !== bound.claim ||
+    cleanup.receipt.configHash !== bound.configHash
+  )
+    throw Error('Physical cleanup evidence changed');
+}
 function physicalCleanupProof(retained: DiscoveryReceipt): DiscoveryPhysicalCleanupEvidence {
   const receipt = receiptSchema.parse(retained);
   if (!receipt.id) throw Error('Physical cleanup identity unavailable');
