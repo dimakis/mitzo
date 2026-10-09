@@ -1,0 +1,33 @@
+{
+  "id": "native-ed25519-before-store-v1",
+  "sourceCommit": "1233fe67f92bf6f7126b4d79db4ce8cf7cb3a1b1",
+  "gatewaySha256": "281a4873ec62ddb384db2b495a324d5a899e27944500c309191195463cd2422e",
+  "sourceBlobs": {
+    "scripts/start-staging-custodian.mjs": "1c1c4f0dc329b100160c5497657e95b124b4ca09",
+    "server/symposium-custodian-main.ts": "06dadb24cbdf48621fff1b23d552554769e93fe6",
+    "server/symposium-owned-config.ts": "b6b8d8741513cd3a1b776123a19f6b2f7f662f12",
+    "server/symposium-owned-host.ts": "07c1c74a331365eb3f4a2a864e811908f8d315b3",
+    "server/symposium-owned-gateway.ts": "0a46b6d96f938190cdb3e8e947fc144eb6a89a0a",
+    "server/app.ts": "ab6e5159cbf4cfcffb5766431734fe057da3bdd5",
+    "server/symposium-host-issuer.ts": "acc6827a2ca6ec74e70e8ffa173ed3063b100595"
+  },
+  "compiledFiles": {
+    "dist/symposium-custodian-main.js": "41e0a0039e4b0aa8aa0e5fc7b877786d275b3bb309ce4d0693dcbf8f46b24d75",
+    "dist/symposium-owned-config.js": "2676012a8ef6f7d0ed6b78c2ad0991debc35a379d863bbcc383555e63f14cf81",
+    "dist/symposium-owned-host.js": "49ff9cb55407f388d80bebb4706351ddc55b885062121f4d855108f39390ceb1",
+    "dist/symposium-owned-gateway.js": "825aaf3facf4825346b44110f0c3867a1bb40bfde3eb8ba68a783addf1581d20",
+    "dist/app.js": "2067c3cc9ccf13d6c26c4be3a52cf1363d47ddf407b980a59cccaf8ff2f5780b",
+    "dist/symposium-host-issuer.js": "7ff24a039d552939d00e1eb0d6765461429bd8e0980cb89dedb9fd0863446b7d"
+  },
+  "nativeSource": {
+    "native-854b-server-lib.rs": {
+      "url": "https://github.com/NVIDIA/OpenShell/blob/854b2370b/crates/openshell-server/src/lib.rs",
+      "sha256": "e88d42e7ea026497dbe8f8cda9a48ba3032f88fd7712c773210a4e813ca40f8b"
+    },
+    "native-854b-sandbox-jwt.rs": {
+      "url": "https://github.com/NVIDIA/OpenShell/blob/854b2370b/crates/openshell-server/src/auth/sandbox_jwt.rs",
+      "sha256": "e4a33ba09abb5d0527269cb84b0d2da320d1f078eacb0fd401e8860af5821095"
+    }
+  },
+  "mandatoryGate": "ExtensionJwtIssuer::from_pem parses Ed25519 at sandbox_jwt.rs:323, called with frozen signing bytes by lib.rs:565 before Store::connect at640, compute build at676 or listener. RSA cannot pass. A live issuer grants no native sandbox/provider authority before host token allocation."
+}

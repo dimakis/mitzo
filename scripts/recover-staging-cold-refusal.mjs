@@ -14,6 +14,8 @@ import {
   verifyFreshRecovery,
 } from './lib/staging-cold-control.mjs';
 import { run } from './lib/staging-cold-audit.mjs';
+import { auditKeyRefusal } from './lib/staging-key-audit.mjs';
+import { prepareKeyMetadata } from './lib/staging-key-recovery.mjs';
 const root = join(homedir(), '.local/share/mitzo-staging'),
   source = dirname(dirname(fileURLToPath(import.meta.url)));
 export function acceptedSource(prepared = true) {
@@ -39,8 +41,8 @@ try {
   const args = process.argv.slice(2),
     command = args.shift();
   if (process.platform !== 'darwin') throw Error('Canonical macOS only');
-  if (command === 'audit' && !args.length) {
-    const v = await auditColdRefusal(root);
+  if (['audit', 'audit-keys'].includes(command) && !args.length) {
+    const v = await (command === 'audit-keys' ? auditKeyRefusal : auditColdRefusal)(root);
     console.log(
       JSON.stringify({
         snapshot: v.snapshot,
@@ -50,13 +52,19 @@ try {
       }),
     );
   } else if (
-    command === 'prepare' &&
+    ['prepare', 'prepare-keys'].includes(command) &&
     args.length === 2 &&
     args[0] === '--expected-audit' &&
     /^[a-f0-9]{64}$/.test(args[1])
   ) {
     acceptedSource();
-    console.log(JSON.stringify(await prepareColdMetadata(root, args[1])));
+    console.log(
+      JSON.stringify(
+        await (command === 'prepare-keys'
+          ? prepareKeyMetadata(root, args[1], auditKeyRefusal)
+          : prepareColdMetadata(root, args[1])),
+      ),
+    );
   } else if (
     command === 'prepare-release' &&
     args.length === 6 &&
@@ -71,7 +79,13 @@ try {
     )
       throw Error('Exact retained operation and accepted target required');
     console.log(
-      run(process.execPath, [join(source, 'scripts/staging.mjs'), 'prepare', ...args], source),
+      run(
+        process.execPath,
+        [join(source, 'scripts/staging.mjs'), 'prepare', ...args],
+        source,
+        undefined,
+        0,
+      ),
     );
   } else if (['plan', 'activate', 'verify'].includes(command) && !args.length) {
     const current = acceptedSource();
@@ -84,7 +98,7 @@ try {
     );
   } else
     throw Error(
-      'Use audit, prepare-release, prepare --expected-audit SHA256, plan, activate or verify',
+      'Use audit, audit-keys, prepare-release, prepare/prepare-keys --expected-audit SHA256, plan, activate or verify',
     );
 } catch (error) {
   console.error(

@@ -973,12 +973,13 @@ replacement-machine acceptance must be configured before claiming protection. Se
 
 Symposium development targets the one persistent staging app at
 `http://mitzo-staging.localhost:3190`. Reuse that environment for conversations and
-seats rather than creating a backend/custodian per session. It currently runs
-ordinary main with providers disabled; Symposium activation requires the reviewed
-integration candidate and retained-owner configuration. Follow the
+seats rather than creating a backend/custodian per session. Symposium activation
+requires accepted integration sources and retained-owner configuration; provider
+enrollment and live workflow acceptance follow runtime qualification. Follow the
 [singleton staging contract](docs/operations/symposium-singleton-staging.md).
 For an accepted owned release, `scripts/prepare-staging-service.mjs ... 3190 --canonical` prepares the fixed `com.mitzo.staging` identity and rechecks the capacity-one registration at launch. Preparation does not activate it. macOS gateway listener checks use the explicit system `lsof` path within the restricted custodian environment. The original ordinary Node launcher may use its Homebrew symlink when the resolved executable matches; changed executables or arguments still refuse the transition.
 A narrow [pre-native refusal recovery](docs/operations/canonical-staging.md#qualified-refusal-before-native-startup) preserves the failed original reservation and requires a fully verified fresh same-label owner; ordinary lost custody stays fenced.
+Gateway signing keys must form a matching Ed25519 pair; invalid keys refuse before gateway allocation. The separately bounded [RSA refusal recovery](docs/operations/canonical-staging.md#exact-rsa-refusal-before-native-resource-construction) preserves both failed histories and old keys, prepares fresh private keys, and retains the deployment lock through verified same-label activation.
 The ordinary staging deployment controller cannot replace an active Symposium
 custodian; owned custody and original-owner drain must be qualified first.
 
