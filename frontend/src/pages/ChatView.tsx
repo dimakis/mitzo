@@ -1,3 +1,7 @@
+import {
+  RepositoryChatPicker,
+  type RepositoryChatSelection,
+} from '../components/RepositoryChatPicker';
 import { usePendingLaunch } from '../hooks/usePendingLaunch';
 import { SymposiumReviewEntry } from '../components/SymposiumReviewPanel';
 import { AddAgentSheet } from '../components/AddReviewerSheet';
@@ -97,6 +101,14 @@ export function ChatView() {
   const isSymposium = workspaceSummary?.sessionType === 'symposium';
   const ordinaryControls = !activeSessionId || workspaceSummary?.sessionType === 'chat';
   const [accountSelection, setAccountSelection] = useState<AccountSelection | null>(null);
+  const repositoryScope = `${chatDraftRevision}:${accountSelection?.accountId ?? ''}:${accountSelection?.model ?? ''}`;
+  const [repositoryChoice, setRepositoryChoice] = useState<{
+    scope: string;
+    selection: RepositoryChatSelection | null;
+  } | null>(null);
+  const repositorySelection =
+    repositoryChoice?.scope === repositoryScope ? repositoryChoice.selection : null;
+
   const setModel = useCallback(
     (id: string) => {
       setModelState(id);
@@ -196,7 +208,7 @@ export function ChatView() {
     launching = false,
   ): boolean {
     if (launching && activeSessionId) return sendLaunch();
-    if (!activeSessionId && !accountSelection) return false;
+    if (!activeSessionId && (!accountSelection || repositorySelection?.blocked)) return false;
     // For new sessions (no activeSessionId) the store bootstraps a WS on
     // demand inside sendMessage(), so we must not block on connection status.
     // Only gate on connection for existing sessions where a WS should already
@@ -212,6 +224,9 @@ export function ChatView() {
       images,
       contextBlocks: ctxBlocks,
       ...(accountSelection ?? {}),
+      ...(!activeSessionId && repositorySelection?.repositoryWorkspaceId
+        ? { repositoryWorkspaceId: repositorySelection.repositoryWorkspaceId }
+        : {}),
       mode,
       cwd: searchParams.get('cwd') ?? undefined,
       extraTools: searchParams.get('extraTools') ?? undefined,
@@ -421,7 +436,9 @@ export function ChatView() {
                 </details>
                 <button
                   disabled={
-                    launchSending || (!activeSessionId && (!accountSelection || messages.running))
+                    launchSending ||
+                    (!activeSessionId &&
+                      (!accountSelection || messages.running || repositorySelection?.blocked))
                   }
                   onClick={() => handleSend(launch.prompt, undefined, undefined, true)}
                 >
@@ -429,6 +446,14 @@ export function ChatView() {
                 </button>
                 <button onClick={dismissLaunch}>Dismiss launch</button>
               </div>
+            )}
+            {!activeSessionId && accountSelection?.accountId && (
+              <RepositoryChatPicker
+                key={repositoryScope}
+                accountId={accountSelection.accountId}
+                model={accountSelection.model}
+                onChange={(selection) => setRepositoryChoice({ scope: repositoryScope, selection })}
+              />
             )}
             <CodexQueueStatus sessionId={activeSessionId} />
             <ChatInput
@@ -438,9 +463,11 @@ export function ChatView() {
               running={messages.running}
               initialText={initialPrompt}
               sendDisabledReason={
-                !activeSessionId && !accountSelection
-                  ? 'Select an account before sending.'
-                  : undefined
+                !activeSessionId && repositorySelection?.blocked
+                  ? 'Prepare or remove the repository before sending.'
+                  : !activeSessionId && !accountSelection
+                    ? 'Select an account before sending.'
+                    : undefined
               }
               voice={voice}
               branch={messages.branch || undefined}

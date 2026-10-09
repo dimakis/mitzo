@@ -1,3 +1,7 @@
+import {
+  RepositoryChatPicker,
+  type RepositoryChatSelection,
+} from '../components/RepositoryChatPicker';
 import { usePendingLaunch } from '../hooks/usePendingLaunch';
 import { SymposiumReviewEntry } from '../components/SymposiumReviewPanel';
 import { AddAgentSheet } from '../components/AddReviewerSheet';
@@ -86,6 +90,14 @@ export function DesktopChatView() {
   const isSymposium = workspaceSummary?.sessionType === 'symposium';
   const ordinaryControls = !activeSessionId || workspaceSummary?.sessionType === 'chat';
   const [accountSelection, setAccountSelection] = useState<AccountSelection | null>(null);
+  const repositoryScope = `${chatDraftRevision}:${accountSelection?.accountId ?? ''}:${accountSelection?.model ?? ''}`;
+  const [repositoryChoice, setRepositoryChoice] = useState<{
+    scope: string;
+    selection: RepositoryChatSelection | null;
+  } | null>(null);
+  const repositorySelection =
+    repositoryChoice?.scope === repositoryScope ? repositoryChoice.selection : null;
+
   const [modelState, setModelState] = useState(getPreferredModel);
   const setModel = useCallback(
     (id: string) => {
@@ -184,7 +196,7 @@ export function DesktopChatView() {
     launching = false,
   ): boolean {
     if (launching && activeSessionId) return sendLaunch();
-    if (!activeSessionId && !accountSelection) return false;
+    if (!activeSessionId && (!accountSelection || repositorySelection?.blocked)) return false;
     if (activeSessionId && connection.status !== 'connected') {
       storeDispatchMessages({ type: 'CONNECTION_LOST' });
       return false;
@@ -194,6 +206,9 @@ export function DesktopChatView() {
       images,
       contextBlocks: ctxBlocks,
       ...(accountSelection ?? {}),
+      ...(!activeSessionId && repositorySelection?.repositoryWorkspaceId
+        ? { repositoryWorkspaceId: repositorySelection.repositoryWorkspaceId }
+        : {}),
       mode,
       cwd: searchParams.get('cwd') ?? undefined,
       extraTools: searchParams.get('extraTools') ?? undefined,
@@ -394,7 +409,8 @@ export function DesktopChatView() {
                     <button
                       disabled={
                         launchSending ||
-                        (!activeSessionId && (!accountSelection || messages.running))
+                        (!activeSessionId &&
+                          (!accountSelection || messages.running || repositorySelection?.blocked))
                       }
                       onClick={() => handleSend(launch.prompt, undefined, undefined, true)}
                     >
@@ -403,12 +419,24 @@ export function DesktopChatView() {
                     <button onClick={dismissLaunch}>Dismiss launch</button>
                   </div>
                 )}
+                {!activeSessionId && accountSelection?.accountId && (
+                  <RepositoryChatPicker
+                    key={repositoryScope}
+                    accountId={accountSelection.accountId}
+                    model={accountSelection.model}
+                    onChange={(selection) =>
+                      setRepositoryChoice({ scope: repositoryScope, selection })
+                    }
+                  />
+                )}
                 <CodexQueueStatus sessionId={activeSessionId} />
                 <ChatInput
                   sendDisabledReason={
-                    !activeSessionId && !accountSelection
-                      ? 'Select an account before sending.'
-                      : undefined
+                    !activeSessionId && repositorySelection?.blocked
+                      ? 'Prepare or remove the repository before sending.'
+                      : !activeSessionId && !accountSelection
+                        ? 'Select an account before sending.'
+                        : undefined
                   }
                   onSend={handleSend}
                   onStop={handleStop}
