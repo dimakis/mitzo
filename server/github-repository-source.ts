@@ -106,6 +106,7 @@ export async function inspectGithubRepositorySource(
     .parse(JSON.parse(response.stdout));
   if (canonicalRepositorySelection(metadata.full_name) !== repository)
     throw new Error('GitHub repository identity changed');
+  if (metadata.archived) throw new Error('Archived repositories cannot be published');
   if (metadata.size * 1024 > MAX_REPOSITORY_BYTES)
     throw new Error('Repository exceeds the initial 64 MiB source limit');
   const selectedBranch = await run(

@@ -48,6 +48,7 @@ export function RepositoryChatPicker({
   );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [retainedConversationId, setRetainedConversationId] = useState<string | null>(null);
   const callback = useRef(onChange);
   callback.current = onChange;
   const operation = useRef<AbortController | null>(null);
@@ -185,7 +186,9 @@ export function RepositoryChatPicker({
     setBusy(true);
     callback.current({ blocked: true });
     try {
-      if (id) {
+      if (id && workspace?.state === 'claimed' && workspace.id === id) {
+        setRetainedConversationId(workspace.conversationId ?? null);
+      } else if (id) {
         const query = new URLSearchParams({ accountId, model });
         const response = await apiFetch(
           `/api/repository-workspaces/${encodeURIComponent(id)}?${query}`,
@@ -213,8 +216,8 @@ export function RepositoryChatPicker({
       setBusy(false);
     }
   };
-  if (!catalog?.available && !opened) return null;
-  if (!repositories.length && !opened)
+  if (!catalog?.available && !opened && !retainedConversationId) return null;
+  if (!repositories.length && !opened && !retainedConversationId)
     return (
       <p className="repository-chat-hint">
         Assign a GitHub connection with repository access to this AI account in{' '}
@@ -224,15 +227,18 @@ export function RepositoryChatPicker({
   return (
     <section className="repository-chat-picker" aria-label="Repository for new chat">
       {!opened ? (
-        <button
-          type="button"
-          onClick={() => {
-            setOpened(true);
-            callback.current({ blocked: true });
-          }}
-        >
-          Add repository
-        </button>
+        catalog?.available &&
+        repositories.length > 0 && (
+          <button
+            type="button"
+            onClick={() => {
+              setOpened(true);
+              callback.current({ blocked: true });
+            }}
+          >
+            Add repository
+          </button>
+        )
       ) : (
         <>
           <strong>
@@ -322,15 +328,19 @@ export function RepositoryChatPicker({
               )}
             </div>
           )}
-          {workspace?.state === 'claimed' && workspace.conversationId && (
-            <a href={`/chat/${workspace.conversationId}`}>Open repository conversation</a>
-          )}
           {busy && <p role="status">Preparing repository…</p>}
           {error && <p role="alert">{error}</p>}
           <button type="button" disabled={busy} onClick={() => void cancel()}>
             Continue without repository
           </button>
         </>
+      )}
+      {(workspace?.state === 'claimed' ? workspace.conversationId : retainedConversationId) && (
+        <a
+          href={`/chat/${workspace?.state === 'claimed' ? workspace.conversationId : retainedConversationId}`}
+        >
+          Open repository conversation
+        </a>
       )}
     </section>
   );

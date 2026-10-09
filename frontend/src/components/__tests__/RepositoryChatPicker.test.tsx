@@ -270,3 +270,41 @@ it.each([false, true])(
     expect(sessionStorage.getItem('mitzo-repository-draft:account:model')).toBeNull();
   },
 );
+
+it('clears a restored claimed draft locally and retains the original conversation link', async () => {
+  sessionStorage.setItem('mitzo-repository-draft:account:model', preview.id);
+  const requests: Array<{ url: string; method?: string }> = [];
+  const onChange = vi.fn();
+  api.fetch.mockImplementation(async (url: string, options?: RequestInit) => {
+    requests.push({ url, method: options?.method });
+    return new Response(
+      JSON.stringify(
+        url.includes('/catalog')
+          ? {
+              available: true,
+              repositories: [
+                { connectionId: 'github', label: 'GitHub', repository: 'example/repo' },
+              ],
+            }
+          : {
+              ...preview,
+              state: 'claimed',
+              conversationId: 'aaaaaaaa-bbbb-4ccc-8ddd-121212121212',
+            },
+      ),
+    );
+  });
+  render(<RepositoryChatPicker accountId="account" model="model" onChange={onChange} />);
+  await screen.findByRole('link', { name: 'Open repository conversation' });
+  await userEvent
+    .setup()
+    .click(screen.getByRole('button', { name: 'Continue without repository' }));
+  await vi.waitFor(() => expect(onChange).toHaveBeenLastCalledWith(null));
+  expect(sessionStorage.getItem('mitzo-repository-draft:account:model')).toBeNull();
+  expect(requests.some((request) => request.method === 'DELETE')).toBe(false);
+  expect(screen.getByRole('link', { name: 'Open repository conversation' })).toHaveProperty(
+    'href',
+    'http://localhost:3000/chat/aaaaaaaa-bbbb-4ccc-8ddd-121212121212',
+  );
+  expect(screen.getByRole('button', { name: 'Add repository' })).toBeTruthy();
+});

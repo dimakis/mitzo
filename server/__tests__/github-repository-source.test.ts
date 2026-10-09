@@ -409,3 +409,19 @@ it.each([
     }).success,
   ).toBe(false);
 });
+
+it('rejects an archived repository during preview before fetching its branch or downloading source', async () => {
+  const run = vi.fn(async () => ({
+    stdout: JSON.stringify({
+      full_name: 'example/repo',
+      default_branch: 'main',
+      size: 1,
+      archived: true,
+    }),
+    stderr: '',
+  }));
+  await expect(
+    inspectGithubRepositorySource('example/repo', new AbortController().signal, run),
+  ).rejects.toThrow('Archived repositories cannot be published');
+  expect(run).toHaveBeenCalledTimes(1);
+});
