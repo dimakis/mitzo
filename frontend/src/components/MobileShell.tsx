@@ -22,6 +22,7 @@ const COLLECTION_ROUTES = new Set([
   '/notifications',
   '/tasks',
   '/files',
+  '/knowledge',
   '/focus',
 ]);
 

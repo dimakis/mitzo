@@ -41,7 +41,7 @@ function ruleBody(styles: string, rule: string) {
 }
 
 describe('MobileShell navigation', () => {
-  it.each(['/', '/sessions', '/inbox', '/todos', '/more', '/connections-access'])(
+  it.each(['/', '/sessions', '/inbox', '/todos', '/more', '/connections-access', '/knowledge'])(
     'owns the full wordmark on %s',
     (path) => {
       const { container } = renderAt(path);

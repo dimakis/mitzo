@@ -19,6 +19,7 @@ export function MoreView() {
               ['Notifications', '/notifications', 'bell'],
               ['Calendar', '/calendar', 'calendar'],
               ['Agent taskboard', '/tasks', 'agents'],
+              ['Knowledge', '/knowledge', 'files'],
               ['Files', '/files', 'files'],
               ['All attention', '/focus', 'today'],
               ['Chat history and quick actions', '/sessions', 'chats'],

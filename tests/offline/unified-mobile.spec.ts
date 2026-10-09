@@ -104,6 +104,18 @@ const fixtures: Record<string, unknown> = {
     ext: '.md',
     content: '# Report\n\nFull document context.',
   },
+  '/api/knowledge': {
+    revision: 'fixture-revision',
+    documents: Array.from({ length: 40 }, (_, index) => ({
+      path: `hub/document-${index + 1}.md`,
+      title: `Knowledge document ${index + 1}`,
+      area: 'Hub',
+    })),
+    drafts: [],
+    reviewEnabled: false,
+    acceptanceEnabled: false,
+    syncedAt: null,
+  },
 };
 const mime: Record<string, string> = {
   '.js': 'application/javascript',
@@ -167,7 +179,7 @@ test.beforeEach(async ({ page }) => {
   });
 });
 
-const routes = ['/', '/sessions', '/inbox', '/todos', '/more', '/connections-access'];
+const routes = ['/', '/sessions', '/inbox', '/todos', '/more', '/connections-access', '/knowledge'];
 
 test('every mobile collection keeps one wordmark, one palette and reachable navigation', async ({
   page,
@@ -273,6 +285,7 @@ test('Proposals opens full context and keeps the end of each collection above th
     ['/inbox', '.inbox-scroll', '.proposal-record'],
     ['/todos', '.todo-scroll', '.todo-card'],
     ['/sessions', '.session-list-scroll', '.session-item'],
+    ['/knowledge', '.knowledge-library', '.knowledge-card'],
   ]) {
     await page.goto(route);
     await expect(page.locator(last).last()).toBeAttached();

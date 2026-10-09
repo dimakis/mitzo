@@ -12,7 +12,7 @@ const secondary = [
   { label: 'Notifications', icon: 'bell' as const, path: '/notifications', end: false },
   { label: 'Agents', icon: 'agents' as const, path: '/tasks', end: false },
   { label: 'Calendar', icon: 'calendar' as const, path: '/calendar', end: false },
-  { label: 'Files', icon: 'files' as const, path: '/files', end: false },
+  { label: 'Knowledge', icon: 'files' as const, path: '/knowledge', end: false },
   { label: 'Connections', icon: 'connections' as const, path: '/connections-access', end: false },
 ];
 export function WorkspaceNav({ desktop = false }: { desktop?: boolean }) {
@@ -43,6 +43,7 @@ export function WorkspaceNav({ desktop = false }: { desktop?: boolean }) {
               '/tasks',
               '/calendar',
               '/files',
+              '/knowledge',
               '/focus',
               '/connections',
               '/connections-access',
