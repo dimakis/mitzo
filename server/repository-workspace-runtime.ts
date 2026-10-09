@@ -1,3 +1,4 @@
+import { githubRepositoryConnections } from './github-repository-connections.js';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
@@ -23,20 +24,29 @@ export function repositoryWorkspaceBinding(accountId: string, model: string) {
 export function repositoryWorkspaceCatalog(binding: AccountBinding) {
   if (!repositoryWorkspacesEnabled()) return { available: false, repositories: [] };
   const runtime = getConnectionsRuntime();
-  const repositories =
-    runtime?.store.list('operator').flatMap((connection) =>
-      connection.templateId === 'github-readonly' &&
-      connection.status === 'active' &&
-      connection.desiredAccountIds.includes(binding.accountId) &&
-      connection.identity &&
-      Array.isArray(connection.publicConfig.allowedRepositories)
-        ? connection.publicConfig.allowedRepositories.map((repository) => ({
-            connectionId: connection.id,
-            label: connection.label,
-            repository,
-          }))
-        : [],
-    ) ?? [];
+  const connections = runtime?.store.list('operator') ?? [];
+  const repositories = connections.flatMap((connection) => {
+    if (
+      connection.templateId !== 'github-readonly' ||
+      connection.status !== 'active' ||
+      !connection.desiredAccountIds.includes(binding.accountId) ||
+      !connection.identity ||
+      !Array.isArray(connection.publicConfig.allowedRepositories)
+    )
+      return [];
+    return [
+      ...new Set(
+        connection.publicConfig.allowedRepositories
+          .filter((value): value is string => typeof value === 'string')
+          .map((value) => value.toLowerCase()),
+      ),
+    ]
+      .filter(
+        (repository) =>
+          githubRepositoryConnections(connections, binding.accountId, repository).length === 1,
+      )
+      .map((repository) => ({ connectionId: connection.id, label: connection.label, repository }));
+  });
   return { available: true, repositories };
 }
 /** Lazy, explicit enrollment: importing the app performs no source acquisition or metadata writes. */
@@ -65,13 +75,20 @@ export function getRepositoryWorkspaces(readOnly = false) {
         !connection.publicConfig.allowedRepositories.some(
           (value) => typeof value === 'string' && value.toLowerCase() === repository,
         ) ||
+        githubRepositoryConnections(runtime.store.list('operator'), binding.accountId, repository)
+          .length !== 1 ||
         !(await runtime.verifyGithubPublishingIdentity?.(connectionId, signal, connection.revision))
       )
         throw new Error(
           'Selected GitHub connection does not authorize this repository and account',
         );
       const current = runtime.store.get(connectionId);
-      if (current?.revision !== connection.revision || current.status !== 'active')
+      if (
+        current?.revision !== connection.revision ||
+        current.status !== 'active' ||
+        githubRepositoryConnections(runtime.store.list('operator'), binding.accountId, repository)
+          .length !== 1
+      )
         throw new Error('GitHub connection changed');
       return { revision: connection.revision };
     },

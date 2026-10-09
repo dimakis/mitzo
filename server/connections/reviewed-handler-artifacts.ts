@@ -7,10 +7,10 @@ import { createHash } from 'node:crypto';
  */
 export const reviewedHandlerImplementationRevision = 'v1.0.2';
 
-export const reviewedGithubPublicationImplementationRevision = 'v1.0.8';
+export const reviewedGithubPublicationImplementationRevision = 'v1.0.9';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.15';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.16';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,6 +22,8 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../github-repository-connections.ts':
+    '3917a36a0cc8b3bb73f1f4fa66e93e17be3b0ace58eff2bb3e0470bd67b7c11e',
   '../credential-websocket.ts': '87a41d7c329dccb6616726feed14a5fb25c8aefe94556c767f42618b8d995810',
   // Keychain HTTP/WebSocket credential custody and exact-session approval handlers.
   '../home-assistant-dashboard.ts':
@@ -40,7 +42,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../session-credential-tools.ts':
     '70db62d9e3c16e66c2e238351a348b82fc6afc8f3b7baba37eeaabb98d27b9c8',
   'policy-compiler.ts': '59579f9eb69a3129dd2d8e1676fa46bd21da45c07f58752183416c82c0986014',
-  'registry.ts': '84bf2c1b5f405fc3fa6b1b7936af3ab9945c86b175629c2449c798c837bf1ce6',
+  'registry.ts': 'd93c4b41cff1d0519dbdcbb466a035cc256b7bcc63d2e1440e781cda64833561',
   'iana-address-policy.ts': '899b0b5ad66f5cbe72224b34c29ff7a88e32c2a6f5b2987e4d18cfc64f862b4e',
   'iana-address-data.generated.ts':
     '58f91383fa17ab9612d24bc113d011ece63bfc06b4635ba99f108bb05aa34038',
@@ -53,7 +55,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '503c887848f3180647b6188ab65b8503bc6670291d4ce865a1b1df1504f15293',
   '../github-host-source.ts': '2720dd0fedf081780ebd64a485164ec5abc6dee7920de925d35e3e6aa647e084',
   '../github-publishing-tool.ts':
-    'db6746ef09c51d46617dc413b7faea8a0ab412b9c0c60870d18f8bd66fd94e11',
+    'a3df58f0c68bdf72433f5a88d425d35764092c6f6e1fbd62691ef865b9622326',
   '../capability-conversation-binding.ts':
     '147a328d161f167aeeb31bf0017d5fea25cc3f22933392249a228d7bd61e89aa',
   // Secret custody and its browser/admission boundaries share the runtime review contract.
@@ -91,7 +93,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/types.ts':
     'bdd789a67bbef05768a11bf471f3fb1a4ccf6af281e85d6fc4ac9a24d49963e1',
   '../repository-workspace-runtime.ts':
-    'f97ac634a40648498f7c16e0f79933238a47726d4aadccd27c78c26665c64944',
+    '15784402a9d15e6993f6422edfaf81a45acfe743ee46e4502bc9224f61b0cfe5',
   '../repository-workspace-router.ts':
     '13b8fab1dd0f5b83abfbb06946533cfb5273d28e4a71aacd24f7076be4858905',
   '../trusted-native-operation.ts':
@@ -104,7 +106,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../openshell-runtime-policy.ts':
     'efecd458bf61fecd8198ecd330e0227e2c600ab21d6d2890cd2bac254e22b75f',
   '../openshell-runtime.ts': '71e650b8114df6264ce0a5b81ae32a1907ee3562c177c9d0d59c1f4825849b0c',
-  '../codex-chat-session.ts': 'c02f0cc99dff1d5ed289941a5d25cfb7044c9a507194bebf345b7f0b422555dc',
+  '../codex-chat-session.ts': '87a46ff513212d13a7d230d821fa31d3cfc02c30542ead74e832e318f2b2981f',
   '../connections-runtime.ts': 'dbe641704a1d761d73740260fb28057054fdb34a64513fa77292d2fdb1954a84',
   'capabilities/operation-store.ts':
     '1a235f11d5578880e6dfa7ecf5779e2a011e24430774fc17429d7d22359b93f2',

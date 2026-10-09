@@ -698,6 +698,12 @@ async function openCodexChatBound(
         };
       }
       if (provisioning) options = { ...options, resume: false };
+      if (
+        options.resume &&
+        options.repositoryWorkspace &&
+        (!routedRuntime?.runtime.sandboxName || !routedRuntime.runtime.sandboxId)
+      )
+        throw new Error('Repository sandbox identity is unavailable; preserve the conversation');
     }
     const repositorySeed =
       runtimeManager && !options.resume && options.repositoryWorkspace
