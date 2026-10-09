@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { InboxView } from '../InboxView';
 
@@ -79,4 +79,27 @@ it('keeps a failed read retryable and never reviews a truncated preview', async 
   expect(screen.queryByRole('button', { name: 'Review in session' })).toBeNull();
   fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
   expect(await screen.findByText('Full proposal context')).toBeVisible();
+});
+
+it('permits only one removal while keeping the full detail visible, then allows retry after failure', async () => {
+  show('/inbox?item=one.md');
+  await screen.findByText('Full proposal context');
+  let finish!: (value: { ok: boolean }) => void;
+  mocks.fetch.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const calls = mocks.fetch.mock.calls.length;
+  fireEvent.click(screen.getByRole('button', { name: 'Archive' }));
+  expect(screen.getByRole('button', { name: 'Archive' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Discard' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Review in session' })).toBeDisabled();
+  expect(screen.getByText('Full proposal context')).toBeVisible();
+  fireEvent.click(screen.getByRole('button', { name: 'Discard' }));
+  expect(mocks.fetch).toHaveBeenCalledTimes(calls + 1);
+  await act(async () => finish({ ok: false }));
+  expect(await screen.findByRole('alert')).toHaveTextContent('Archive failed');
+  expect(screen.getByRole('button', { name: 'Archive' })).toBeEnabled();
 });

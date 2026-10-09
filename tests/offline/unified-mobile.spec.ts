@@ -378,3 +378,58 @@ test('desktop Work keeps collection actions visible while hiding its duplicate h
     ).toBeLessThanOrEqual(80);
   }
 });
+
+test('accent-filled controls retain their paired foreground on hover and in user-message utilities', async ({
+  page,
+}) => {
+  const html = await readFile(resolve('frontend/dist/index.html'), 'utf8');
+  const stylesheets = [...html.matchAll(/href="([^"\s]+\.css)"/g)];
+  const css = (
+    await Promise.all(
+      stylesheets.map((match) => readFile(resolve('frontend/dist', match[1].slice(1)), 'utf8')),
+    )
+  ).join('\n');
+  expect(css).toContain('.mode-pill--active');
+  expect(css).toContain('--color-on-accent');
+  await page.setContent(`<style>${css}</style>
+    <span id="paired-reference" style="color:var(--color-on-accent)">Reference</span>
+    <button class="mode-pill mode-pill--active">Agent</button>
+    <div class="msg-bubble-group msg-bubble-group--user"><div class="msg-bubble msg-bubble--user">
+      User message<div class="msg-bubble-footer msg-bubble-footer--user">
+        <span class="msg-timestamp msg-timestamp--user">12:00</span>
+        <button class="read-aloud-btn msg-bubble-read-aloud--user">Read aloud</button>
+        <button class="msg-bubble-copy msg-bubble-copy--user">Copy</button>
+      </div></div></div>`);
+  for (const theme of ['dark', 'light']) {
+    for (const accent of ['lavender', 'teal', 'rose', 'amber']) {
+      await page.evaluate(
+        ({ theme, accent }) => {
+          document.documentElement.dataset.theme = theme;
+          document.documentElement.dataset.accent = accent;
+        },
+        { theme, accent },
+      );
+      const color = await page
+        .locator('#paired-reference')
+        .evaluate((element) => getComputedStyle(element).color);
+      const mode = page.getByRole('button', { name: 'Agent', exact: true });
+      await mode.hover();
+      await expect
+        .poll(() => mode.evaluate((element) => getComputedStyle(element).color))
+        .toBe(color);
+      for (const selector of [
+        '.msg-timestamp--user',
+        '.msg-bubble-read-aloud--user',
+        '.msg-bubble-copy--user',
+      ]) {
+        const control = page.locator(selector);
+        await expect
+          .poll(() => control.evaluate((element) => getComputedStyle(element).color))
+          .toBe(color);
+        await expect
+          .poll(() => control.evaluate((element) => getComputedStyle(element).opacity))
+          .toBe('1');
+      }
+    }
+  }
+});

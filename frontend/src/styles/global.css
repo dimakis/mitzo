@@ -1588,7 +1588,7 @@ textarea:focus {
 
 .mode-pill--active:hover {
   background: var(--accent-hover);
-  color: var(--color-text);
+  color: var(--color-on-accent);
 }
 
 .isolation-toggle {
@@ -2043,7 +2043,7 @@ textarea:focus {
 }
 
 .msg-bubble-footer--user .msg-bubble-copy {
-  opacity: 0.7;
+  opacity: 1;
   transition: opacity 0.15s;
 }
 
@@ -2056,12 +2056,12 @@ textarea:focus {
 }
 
 .msg-bubble-copy--user {
-  color: color-mix(in srgb, var(--color-text) 70%, transparent);
+  color: var(--color-on-accent);
 }
 
 .msg-bubble-copy--user:hover {
-  color: var(--color-text);
-  background: color-mix(in srgb, var(--color-text) 12%, transparent);
+  color: var(--color-on-accent);
+  background: color-mix(in srgb, var(--color-on-accent) 12%, transparent);
 }
 
 /* ===== Read Aloud Buttons ===== */
@@ -2091,14 +2091,14 @@ textarea:focus {
 }
 
 .msg-bubble-read-aloud--user {
-  color: color-mix(in srgb, var(--color-text) 70%, transparent);
-  opacity: 0.7;
+  color: var(--color-on-accent);
+  opacity: 1;
   transition: opacity 0.15s;
 }
 
 .msg-bubble-read-aloud--user:hover {
-  color: var(--color-text);
-  background: color-mix(in srgb, var(--color-text) 12%, transparent);
+  color: var(--color-on-accent);
+  background: color-mix(in srgb, var(--color-on-accent) 12%, transparent);
 }
 
 .msg-bubble-group--user:hover .msg-bubble-read-aloud--user {
@@ -2126,7 +2126,8 @@ textarea:focus {
 }
 
 .msg-timestamp--user {
-  color: color-mix(in srgb, var(--color-text) 60%, transparent);
+  color: var(--color-on-accent);
+  opacity: 1;
   margin-top: 2px;
 }
 
@@ -2158,7 +2159,7 @@ textarea:focus {
   }
   .msg-bubble-footer--user .msg-bubble-copy,
   .msg-bubble-footer--user .msg-bubble-read-aloud--user {
-    opacity: 0.7;
+    opacity: 1;
   }
   .code-block-copy {
     opacity: 0.5;

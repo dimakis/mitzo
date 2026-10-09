@@ -13,7 +13,18 @@ export function InboxView({ desktop = false }: { desktop?: boolean } = {}) {
   const [searchParams, setSearchParams] = useSearchParams();
   const linkedFilename = searchParams.get('item');
   const [selectedFilename, setSelectedFilename] = useState<string | null>(linkedFilename);
+  const activeProposal = useRef<string | null>(linkedFilename);
+  const mounted = useRef(true);
+  const removalRequests = useRef(new Set<string>());
+  const [removingFiles, setRemovingFiles] = useState(new Set<string>());
   useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  useEffect(() => {
+    activeProposal.current = linkedFilename;
     setSelectedFilename(linkedFilename);
   }, [linkedFilename]);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -67,6 +78,9 @@ export function InboxView({ desktop = false }: { desktop?: boolean } = {}) {
   }, [storeInbox, pendingRemovals]);
 
   async function handleRemove(filename: string, archive: boolean) {
+    if (removalRequests.current.has(filename)) return;
+    removalRequests.current.add(filename);
+    setRemovingFiles(new Set(removalRequests.current));
     setActionError(null);
     setPendingRemovals((prev) => new Set(prev).add(filename));
     try {
@@ -76,7 +90,8 @@ export function InboxView({ desktop = false }: { desktop?: boolean } = {}) {
       );
       if (!res.ok) throw new Error('Request failed');
       await loadInbox();
-      if (selectedFilename === filename) {
+      if (mounted.current && activeProposal.current === filename) {
+        activeProposal.current = null;
         setSelectedFilename(null);
         setSearchParams((params) => {
           params.delete('item');
@@ -86,12 +101,16 @@ export function InboxView({ desktop = false }: { desktop?: boolean } = {}) {
       // Keep the optimistic removal until the store confirms the file is absent.
       // The synchronization effect prunes confirmed removals.
     } catch {
+      if (!mounted.current) return;
       setPendingRemovals((prev) => {
         const next = new Set(prev);
         next.delete(filename);
         return next;
       });
       setActionError(`${archive ? 'Archive' : 'Discard'} failed. Refresh and try again.`);
+    } finally {
+      removalRequests.current.delete(filename);
+      if (mounted.current) setRemovingFiles(new Set(removalRequests.current));
     }
   }
 
@@ -137,6 +156,7 @@ export function InboxView({ desktop = false }: { desktop?: boolean } = {}) {
   }, [desktop, showMobileDetail, selectedFilename]);
 
   function openProposal(filename: string) {
+    activeProposal.current = filename;
     listPosition.current = list.current?.scrollTop ?? 0;
     setSelectedFilename(filename);
     if (!desktop)
@@ -146,6 +166,7 @@ export function InboxView({ desktop = false }: { desktop?: boolean } = {}) {
       });
   }
   function closeProposal() {
+    activeProposal.current = null;
     setSelectedFilename(null);
     setSearchParams((params) => {
       params.delete('item');
@@ -274,6 +295,7 @@ export function InboxView({ desktop = false }: { desktop?: boolean } = {}) {
               <ProposalDetail
                 key={selected.filename}
                 item={selected}
+                pending={removingFiles.has(selected.filename)}
                 onArchive={handleApprove}
                 onDiscard={handleDiscard}
                 onReview={handleStartSession}
