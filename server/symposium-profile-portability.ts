@@ -15,6 +15,8 @@ export const PortableProfileDefinitionSchema = SymposiumProfileDefinitionSchema.
   (definition, ctx) => {
     const fields = [
       definition.name,
+      definition.descriptor ?? '',
+      definition.description ?? '',
       definition.instructions,
       definition.expectedOutput,
       definition.modelPolicyRole,
