@@ -1,3 +1,4 @@
+import { cleanupStaleWorktrees } from '../worktree.js';
 import { execFileSync } from 'node:child_process';
 import { afterEach, expect, it, vi } from 'vitest';
 import {
@@ -10,6 +11,7 @@ import {
   rename,
   access,
   cp,
+  utimes,
 } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -324,6 +326,30 @@ it('rechecks access when retrying a settled host claim after asynchronous owners
     f.service.claim(preview.id, binding, 'conversation', f.taskRoot, false),
   ).rejects.toThrow('GitHub connection changed');
   expect(f.service.getForConversation('conversation')?.directory).toBe(claimed.directory);
+  expect(await readFile(join(claimed.directory!, 'file.txt'), 'utf8')).toBe('source');
+  f.service.close();
+});
+
+it('preserves a settled legacy repository claim when execute cleanup scans its stale container', async () => {
+  const f = await fixture();
+  // Reproduce the primary checkout's ignored worktree root: the outer container
+  // appears clean to Git even though its nested repository owns task history.
+  execFileSync('git', ['init', '-q', '-b', 'main', f.root]);
+  f.git(f.root, 'config', 'user.name', 'Fixture');
+  f.git(f.root, 'config', 'user.email', 'fixture@example.invalid');
+  await writeFile(join(f.root, '.gitignore'), '*\n');
+  f.git(f.root, 'commit', '--allow-empty', '-qm', 'primary');
+  const legacyRoot = join(f.root, '.claude', 'worktrees');
+  await mkdir(legacyRoot, { recursive: true });
+  const signal = new AbortController().signal;
+  const preview = await f.service.preview(binding, 'connection', 'example/repo', signal);
+  await f.service.prepare(preview.id, binding, signal);
+  const claimed = await f.service.claim(preview.id, binding, 'conversation', legacyRoot, false);
+  await f.service.releaseSource(preview.id, binding, 'conversation');
+  const stale = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  await utimes(join(legacyRoot, `repo-${preview.id}`), stale, stale);
+  cleanupStaleWorktrees(f.root, undefined, new Set(['different-active-wt-id']), 'execute');
+  expect(await f.service.validateHostTask('conversation', claimed.directory!)).toBeTruthy();
   expect(await readFile(join(claimed.directory!, 'file.txt'), 'utf8')).toBe('source');
   f.service.close();
 });

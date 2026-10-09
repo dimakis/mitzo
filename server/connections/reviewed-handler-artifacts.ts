@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.0';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.6';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.11';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.12';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -80,6 +80,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   // Repository acquisition and source claims share the ordinary runtime admission review.
   '../github-repository-source.ts':
     '01ad127563ad062ff952f0dc7d7782f2ac5c6ee178214db65422fbbad222435c',
+  '../worktree.ts': 'e3fd6d93d33cb5403786c5a7da16dd229d8ba03ad06e8c3abaf6309c64adb34a',
   '../repository-task-checkout.ts':
     '32fd232781b0ba9573fa0e6a511a78ede54a8c33a80dee30f52d06283b4beab5',
   '../native-tool-executor.ts': '6bca4beb98690334e83a0a88b35c80558ed01b7485f682aca0cc0af11b6cd766',

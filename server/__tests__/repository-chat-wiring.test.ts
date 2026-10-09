@@ -95,7 +95,7 @@ it('starts a native repository chat with its claimed cwd and exact repository co
       'repository',
       expect.objectContaining({ accountId: 'fixture' }),
       'aaaaaaaa-bbbb-4ccc-8ddd-121212121212',
-      expect.any(String),
+      join(root, '.claude', 'repository-tasks'),
       false,
     );
     expect(open).toHaveBeenCalledWith(

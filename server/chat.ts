@@ -1289,7 +1289,7 @@ async function _startChatInner(
       ...options,
       initialSessionId: options.initialSessionId ?? nativeStartupSessionId(initialMessageId),
     };
-    const taskRoot = join(BASE_REPO, '.claude', 'worktrees');
+    const taskRoot = join(BASE_REPO, '.claude', 'repository-tasks');
     if (!openShellSelected) {
       if (!BASE_REPO) throw new Error('Repository task root is not configured');
       mkdirSync(taskRoot, { recursive: true, mode: 0o700 });

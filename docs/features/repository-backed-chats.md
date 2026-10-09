@@ -24,8 +24,10 @@ this endpoint.
 
 The task starts at the previewed commit on `mitzo/repo-<preparation UUID>`. Host
 chats receive an independent copy beneath the configured repository's
-`.claude/worktrees/repo-<UUID>/mgmt`; that directory is a standalone Git repository,
-not a linked worktree. OpenShell receives the independently prepared source at
+`.claude/repository-tasks/repo-<UUID>/mgmt`; that directory is a standalone Git repository,
+not a linked worktree. These durable tasks are outside automatic worktree cleanup;
+legacy `repo-<UUID>` containers are also retained by that collector, including
+interrupted claims. OpenShell receives the independently prepared source at
 its existing canonical task workdir. These internal paths are not a new global
 repository configuration or authority to change the original checkout.
 
