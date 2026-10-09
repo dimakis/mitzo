@@ -79,11 +79,16 @@ export async function repositorySourceDigest(directory: string): Promise<string>
         bytes += before.size;
         if (bytes > 128 * 1024 * 1024)
           throw new Error('Repository source exceeds supported bounds');
+        let readBytes = 0;
         for await (const chunk of createReadStream(child, {
           highWaterMark: 64 * 1024,
           flags: constants.O_RDONLY | constants.O_NOFOLLOW,
-        }))
+        })) {
+          readBytes += chunk.length;
+          if (readBytes > before.size) throw new Error('Repository source changed while reading');
           hash.update(chunk);
+        }
+        if (readBytes !== before.size) throw new Error('Repository source changed while reading');
         const after = await lstat(child);
         if (
           before.ino !== after.ino ||
