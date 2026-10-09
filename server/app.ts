@@ -3143,7 +3143,12 @@ export const terminalService = new TerminalService(new TerminalStore(taskStore.g
   ),
   resolve: createTerminalTargetResolver({
     hostCwd: homedir(),
-    session: (id) => eventStore.getSession(id),
+    session: (id) => {
+      const meta = eventStore.getSession(id);
+      return meta
+        ? { ...meta, title: meta.summary || meta.initialPrompt || 'Chat workspace' }
+        : undefined;
+    },
     allowedHost: isConfiguredAllowedPath,
     remote: isRemoteSessionArtifact,
     runtime: (id, binding) => getCodexConversationStore().readArtifactRuntime(id, binding),
@@ -3205,7 +3210,10 @@ app.use(
       eventStore
         .listSessions(200)
         .filter((meta) => meta.cwd && isRemoteSessionArtifact(meta.sessionId))
-        .map((meta) => ({ sessionId: meta.sessionId, label: meta.title || 'Untitled chat' })),
+        .map((meta) => ({
+          sessionId: meta.sessionId,
+          label: meta.summary || meta.initialPrompt || 'Untitled chat',
+        })),
   }),
 );
 

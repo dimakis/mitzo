@@ -401,6 +401,11 @@ export function ChatInput({
             }}
           >
             <ComposerTools
+              terminalHref={
+                sessionId
+                  ? `/terminal?sessionId=${encodeURIComponent(sessionId)}&returnTo=${encodeURIComponent(`/chat/${sessionId}`)}`
+                  : undefined
+              }
               onCommands={() => {
                 if (!text.trim()) setText('/');
                 setShowSlashPicker(true);

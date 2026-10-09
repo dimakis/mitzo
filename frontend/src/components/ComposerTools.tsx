@@ -1,7 +1,9 @@
+import { Link } from 'react-router-dom';
 import { useEffect, useId, useRef, useState } from 'react';
 import { UiIcon } from './UiIcon';
 
 interface Props {
+  terminalHref?: string;
   onCommands: () => void;
   commandsExpanded: boolean;
   onAttach: () => void;
@@ -25,6 +27,7 @@ export function ComposerTools({
   branch,
   isWorktree,
   wtId,
+  terminalHref,
 }: Props) {
   const [toolsExpanded, setToolsExpanded] = useState(false);
   const [workspaceExpanded, setWorkspaceExpanded] = useState(false);
@@ -90,6 +93,16 @@ export function ComposerTools({
         >
           +<span className="composer-tools-label">Attach image</span>
         </button>
+        {terminalHref && (
+          <Link
+            className="chat-input-btn"
+            to={terminalHref}
+            onClick={() => setToolsExpanded(false)}
+          >
+            <UiIcon name="terminal" />
+            <span className="composer-tools-label">Terminal</span>
+          </Link>
+        )}
         {onIsolationChange && (
           <button
             type="button"

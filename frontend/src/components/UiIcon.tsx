@@ -1,4 +1,5 @@
 const paths = {
+  terminal: 'M3 4h18v16H3Zm4 4 4 4-4 4m7 0h3',
   search: 'M10 3a7 7 0 1 0 0 14a7 7 0 0 0 0-14Zm5 12 6 6',
   bell: 'M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4',
   shield: 'M12 3 4 6v6c0 5 8 9 8 9s8-4 8-9V6Zm-4 9 3 3 5-6',

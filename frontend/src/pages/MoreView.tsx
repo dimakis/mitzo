@@ -15,6 +15,7 @@ export function MoreView() {
           {
             title: 'Workspace',
             items: [
+              ['Terminal', '/terminal', 'terminal'],
               ['Connections', '/connections-access', 'connections'],
               ['Notifications', '/notifications', 'bell'],
               ['Calendar', '/calendar', 'calendar'],

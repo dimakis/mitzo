@@ -1,3 +1,4 @@
+import { TerminalView } from './pages/TerminalView';
 import { SettingsView } from './pages/SettingsView';
 import { BackupsView } from './pages/BackupsView';
 import { NotificationProvider } from './components/NotificationProvider';
@@ -148,7 +149,7 @@ function dismissKeyboard(e: React.MouseEvent | React.TouchEvent) {
   if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable) return;
   if (
     target.closest(
-      'button, a, select, [role="button"], .chat-input, .slash-picker, .context-picker',
+      'button, a, select, [role="button"], .chat-input, .slash-picker, .context-picker, .terminal-console',
     )
   )
     return;
@@ -180,6 +181,16 @@ export function App() {
                     <ProtectedRoute>
                       <PageRoute>
                         <SettingsView />
+                      </PageRoute>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/terminal"
+                  element={
+                    <ProtectedRoute>
+                      <PageRoute>
+                        <TerminalView />
                       </PageRoute>
                     </ProtectedRoute>
                   }
