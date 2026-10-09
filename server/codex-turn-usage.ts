@@ -41,13 +41,15 @@ export function observedCodexUsage(params: unknown) {
     tokenUsage: z.object({
       total: Breakdown,
       last: Breakdown,
-      modelContextWindow: count.positive().nullable(),
+      // Capacity metadata may be absent for a new model; usage remains independently measurable.
+      modelContextWindow: z.unknown().optional(),
     }),
   }).safeParse(params);
   if (!parsed.success) return;
+  const capacity = count.positive().safeParse(parsed.data.tokenUsage.modelContextWindow);
   return {
     agentContext: parsed.data.tokenUsage.last.totalTokens,
-    contextCeiling: parsed.data.tokenUsage.modelContextWindow ?? 0,
+    contextCeiling: capacity.success ? capacity.data : 0,
     sessionTotal: parsed.data.tokenUsage.total.totalTokens,
     sessionTotalStatus: 'observed' as const,
   };
