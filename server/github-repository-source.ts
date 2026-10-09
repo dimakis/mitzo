@@ -217,24 +217,36 @@ export async function prepareGithubRepositorySource(
     if (tree.length > MAX_FILES)
       throw new Error('Repository exceeds the initial 10,000-file limit');
     let bytes = 0;
-    const names = new Set<string>();
+    const names = new Map<string, { spelling: string; kind: 'file' | 'directory' }>();
     for (const entry of tree) {
       const match = /^(100644|100755) blob ([a-f0-9]{40}) +([0-9]+)\t(.+)$/s.exec(entry);
       if (!match)
         throw new Error('Symlinks and submodules are unsupported in this initial source importer');
       const name = match[4]!;
       const parts = name.split('/');
-      const normalized = name.normalize('NFC').toLowerCase();
       if (
         [...name].some(
           (character) =>
             character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127 || character === '\\',
         ) ||
-        parts.some((p) => !p || p === '.' || p === '..' || p.toLowerCase() === '.git') ||
-        names.has(normalized)
+        parts.some((p) => !p || p === '.' || p === '..' || p.toLowerCase() === '.git')
       )
         throw new Error('Repository paths are unsupported');
-      names.add(normalized);
+      let spelling = '',
+        normalized = '';
+      for (let index = 0; index < parts.length; index++) {
+        const separator = index ? '/' : '';
+        spelling += separator + parts[index];
+        normalized += separator + parts[index].normalize('NFC').toLowerCase();
+        const kind = index === parts.length - 1 ? 'file' : 'directory';
+        const existing = names.get(normalized);
+        if (
+          existing &&
+          (existing.spelling !== spelling || existing.kind !== kind || kind === 'file')
+        )
+          throw new Error('Repository paths are unsupported');
+        names.set(normalized, { spelling, kind });
+      }
       bytes += Number(match[3]!);
       if (!Number.isSafeInteger(bytes) || bytes > MAX_REPOSITORY_BYTES)
         throw new Error('Repository exceeds the initial 64 MiB expanded source limit');

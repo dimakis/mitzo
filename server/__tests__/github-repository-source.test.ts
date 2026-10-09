@@ -261,3 +261,56 @@ it('refuses trusted commits to the primary standalone checkout without a control
   expect(f.git(f.source, 'rev-parse', 'HEAD')).toBe(before);
   expect(f.git(f.source, 'diff', '--cached')).toBe('');
 });
+
+it.each([
+  ['Foo/a', 'foo/b'],
+  ['É/a', 'E\u0301/b'],
+  ['Foo', 'foo/b'],
+])(
+  'rejects normalized ancestor collisions between %s and %s before materialization',
+  async (first, second) => {
+    const f = await fixture();
+    const preview = await inspectGithubRepositorySource('example/repo', f.signal, f.run);
+    const blob = f.git(f.source, 'hash-object', '-w', 'file.txt');
+    f.git(f.source, 'read-tree', '--empty');
+    execFileSync('git', ['-C', f.source, 'update-index', '--index-info'], {
+      input: `100644 ${blob}\t${first}\n100644 ${blob}\t${second}\n`,
+      env: { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' },
+    });
+    const tree = f.git(f.source, 'write-tree');
+    const oid = f.git(f.source, 'commit-tree', tree, '-p', f.oid, '-m', 'ambiguous paths');
+    f.git(f.source, 'update-ref', 'refs/heads/main', oid);
+    const target = join(f.root, 'colliding-task');
+    await expect(
+      prepareGithubRepositorySource(
+        { ...preview, baseOid: oid },
+        target,
+        'mitzo/task',
+        f.signal,
+        f.run,
+      ),
+    ).rejects.toThrow('Repository paths are unsupported');
+    expect(f.run.mock.calls.some(([, args]) => args.includes('checkout-index'))).toBe(false);
+    await expect(access(target)).rejects.toThrow();
+  },
+);
+
+it('allows distinct files sharing the exact same directory spelling', async () => {
+  const f = await fixture();
+  await mkdir(join(f.source, 'Foo'));
+  await writeFile(join(f.source, 'Foo', 'a'), 'one');
+  await writeFile(join(f.source, 'Foo', 'b'), 'two');
+  f.git(f.source, 'add', 'Foo');
+  f.git(f.source, 'commit', '-qm', 'shared directory');
+  const oid = f.git(f.source, 'rev-parse', 'HEAD');
+  const target = join(f.root, 'shared-task');
+  await prepareGithubRepositorySource(
+    { repository: 'example/repo', baseBranch: 'main', baseOid: oid },
+    target,
+    'mitzo/task',
+    f.signal,
+    f.run,
+  );
+  expect(await readFile(join(target, 'Foo', 'a'), 'utf8')).toBe('one');
+  expect(await readFile(join(target, 'Foo', 'b'), 'utf8')).toBe('two');
+});
