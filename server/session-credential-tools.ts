@@ -15,7 +15,7 @@ import { getCredentialConnectionsRuntime } from './credential-connections-runtim
 import { connectionGuide } from './connection-guide.js';
 
 export const CONNECTION_TOOL_INSTRUCTIONS =
-  '\nFor authenticated services, call ListConnections first. If setup or usage guidance is needed, call GetConnectionGuide. Prepare missing connections within this chat; the user enters only their credential through the secure setup card. Never ask for secrets in chat or search files for them. Request session access before use.\n' +
+  '\nFor services, call ListConnections first; GetConnectionGuide explains setup/use. Credentials belong only in secure setup cards, never chat or workspace files. Request session access before use.\n' +
   REPOSITORY_CHAT_INSTRUCTIONS;
 export function sessionCredentialTools(
   sessionId: string,

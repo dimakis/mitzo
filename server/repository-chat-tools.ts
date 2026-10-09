@@ -17,7 +17,7 @@ import {
 import type { RepositoryChatPreparation } from './repository-workspaces.js';
 
 export const REPOSITORY_CHAT_INSTRUCTIONS =
-  '\nWhen the user requests repository work, call ListRepositories to discover authorized repositories, then PrepareRepositoryChat with the repository and task prompt. The user reviews the draft and starts a separate chat through its setup link. Preparation does not grant integration access, execute the task, or publish changes. Preserve this chat and its current workspace. Call GetRepositoryChatPreparation once to recover a missing preparation ID after a lost response; omit preparationId to read the latest draft owned by this chat and account. For a known pending preparation, use its existing ID. Do not repeat preparation or repeatedly poll.\n';
+  '\nFor repository work, call ListRepositories then PrepareRepositoryChat. The user reviews the draft to start a separate chat. Call GetRepositoryChatPreparation once to recover a missing ID; omit preparationId. Never repeat preparation or repeatedly poll.\n';
 
 export const repositoryChatSchemas = {
   ListRepositories: z.strictObject({}),
