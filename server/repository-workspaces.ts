@@ -39,6 +39,14 @@ export interface RepositoryWorkspace extends GithubRepositoryPreview {
   directory?: string;
   sandbox?: boolean;
   taskIdentity?: RepositoryTaskCheckout;
+  handoff?: { sourceConversationId: string; prompt: string };
+}
+export interface RepositoryChatPreparation extends PublicRepositoryWorkspace {
+  sourceConversationId: string;
+  accountId: string;
+  model: string;
+  prompt: string;
+  setupUrl: string;
 }
 export type PublicRepositoryWorkspace = Pick<
   RepositoryWorkspace,
@@ -132,6 +140,10 @@ interface Dependencies {
 /** Durable preparations are bound to the exact selected AI account and GitHub connection revision. */
 export class RepositoryWorkspaces {
   private db: Database.Database;
+  private pendingChats = new Map<
+    string,
+    { key: string; result: Promise<RepositoryChatPreparation> }
+  >();
   constructor(
     private directory: string,
     private deps: Dependencies,
@@ -187,6 +199,109 @@ export class RepositoryWorkspaces {
     if (!isDeepStrictEqual(record.binding, binding))
       throw new Error('Repository preparation belongs to another account');
     return publicRepositoryWorkspace(record);
+  }
+  private chatRecords(sourceConversationId: string): RepositoryWorkspace[] {
+    return (
+      this.db
+        .prepare(
+          "SELECT record FROM repository_workspaces WHERE json_extract(record,'$.handoff.sourceConversationId')=? ORDER BY json_extract(record,'$.createdAt') DESC, rowid DESC",
+        )
+        .all(sourceConversationId) as Array<{ record: string }>
+    ).map((row) => JSON.parse(row.record) as RepositoryWorkspace);
+  }
+  chatPreparation(
+    id: string | undefined,
+    binding: AccountBinding,
+    sourceConversationId?: string,
+  ): RepositoryChatPreparation {
+    // An owned status read may recover a draft prepared under an earlier model.
+    // Account/provider/profile identity stays fixed; launching still requires the stored full binding.
+    const sameOwner = (value: RepositoryWorkspace) =>
+      isDeepStrictEqual(value.binding, binding) ||
+      (sourceConversationId !== undefined &&
+        isDeepStrictEqual({ ...value.binding, model: binding.model }, binding));
+    const record = id
+      ? this.get(id)
+      : sourceConversationId
+        ? this.chatRecords(sourceConversationId).find(sameOwner)
+        : undefined;
+    if (
+      !record?.handoff ||
+      !sameOwner(record) ||
+      (sourceConversationId !== undefined &&
+        record.handoff.sourceConversationId !== sourceConversationId)
+    )
+      throw new Error('Repository chat preparation unavailable for this chat and account');
+    return {
+      ...publicRepositoryWorkspace(record),
+      sourceConversationId: record.handoff.sourceConversationId,
+      accountId: record.binding.accountId,
+      model: record.binding.model,
+      prompt: record.handoff.prompt,
+      setupUrl: `/chat?repositoryPreparation=${record.id}`,
+    };
+  }
+  prepareChat(
+    binding: AccountBinding,
+    sourceConversationId: string,
+    connectionId: string,
+    selected: string,
+    prompt: string,
+    signal: AbortSignal,
+  ): Promise<RepositoryChatPreparation> {
+    const repository = canonicalRepositorySelection(selected);
+    const key = JSON.stringify([binding, connectionId, repository, prompt]);
+    const pending = this.pendingChats.get(sourceConversationId);
+    if (pending) {
+      if (pending.key !== key)
+        return Promise.reject(
+          new Error(
+            'A repository preparation is already running; inspect the original preparation before starting another task',
+          ),
+        );
+      return pending.result;
+    }
+    const result = (async () => {
+      signal.throwIfAborted();
+      const records = this.chatRecords(sourceConversationId).filter(
+        (value) => value.state !== 'discarded',
+      );
+      const matches = (value: RepositoryWorkspace) =>
+        isDeepStrictEqual(value.binding, binding) &&
+        value.connectionId === connectionId &&
+        value.repository === repository &&
+        value.handoff?.prompt === prompt;
+      const current = records.find((value) => value.state !== 'claimed');
+      if (current && !matches(current)) {
+        if (['preparing', 'claiming'].includes(current.state))
+          throw new Error(
+            'A repository preparation is running or interrupted; inspect the original preparation before starting another task',
+          );
+        throw new Error('Discard the previous preparation before choosing a different task');
+      }
+      // A current unused draft owns the handoff slot before claimed history is considered.
+      const previous = current ?? records.find(matches);
+      if (previous) {
+        await this.authorize(previous, binding, signal);
+        return this.chatPreparation(previous.id, binding, sourceConversationId);
+      }
+      const preview = await this.preview(binding, connectionId, repository, signal);
+      const record = this.get(preview.id);
+      record.handoff = { sourceConversationId, prompt };
+      this.save(record);
+      try {
+        await this.prepare(record.id, binding, signal);
+      } catch {
+        // Acquisition failures retain an addressable failed draft. Never acquire a replacement implicitly.
+        // Binding and live-session checks remain the caller's fence before returning this public receipt.
+      }
+      return this.chatPreparation(record.id, binding, sourceConversationId);
+    })().finally(() => {
+      if (this.pendingChats.get(sourceConversationId)?.result === result)
+        this.pendingChats.delete(sourceConversationId);
+    });
+    this.pendingChats.set(sourceConversationId, { key, result });
+    return result;
   }
   async discard(id: string, binding: AccountBinding) {
     const record = this.get(id);

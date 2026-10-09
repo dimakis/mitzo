@@ -1,3 +1,4 @@
+import { sessionRepositoryTools, REPOSITORY_CHAT_INSTRUCTIONS } from './repository-chat-tools.js';
 import {
   buildPermissionHandler,
   checkSkillPolicy,
@@ -14,7 +15,8 @@ import { getCredentialConnectionsRuntime } from './credential-connections-runtim
 import { connectionGuide } from './connection-guide.js';
 
 export const CONNECTION_TOOL_INSTRUCTIONS =
-  '\nFor authenticated services, call ListConnections first. If setup or usage guidance is needed, call GetConnectionGuide. Prepare missing connections within this chat; the user enters only their credential through the secure setup card. Never ask for secrets in chat or search files for them. Request session access before use.\n';
+  '\nFor services, call ListConnections first; GetConnectionGuide explains setup/use. Credentials belong only in secure setup cards, never chat or workspace files. Request session access before use.\n' +
+  REPOSITORY_CHAT_INSTRUCTIONS;
 export function sessionCredentialTools(
   sessionId: string,
   session: ManagedSession,
@@ -35,6 +37,7 @@ export function sessionCredentialTools(
     ) => Promise<{ content: string; isError: boolean }>;
   },
 ) {
+  const repositoryTools = sessionRepositoryTools(sessionId, session, registry, toolPrefix);
   const currentService = getCredentialConnectionsRuntime();
   const owner = () => registry.findBySessionId(sessionId);
   const stillAllowed = (name: string, method?: string) => {
@@ -74,8 +77,10 @@ export function sessionCredentialTools(
       )
     : undefined;
   return {
-    definitions: credentialConnectionToolDefinitions,
+    definitions: [...credentialConnectionToolDefinitions, ...repositoryTools.definitions],
     async execute(name: string, input: Record<string, unknown>, signal: AbortSignal) {
+      const repositoryResult = await repositoryTools.execute(name, input, signal);
+      if (repositoryResult) return repositoryResult;
       if (!credentialConnectionToolDefinitions.some((t) => t.name === name)) return undefined;
       if (signal.aborted || !stillAllowed(name)) return unavailable();
       const combined = AbortSignal.any([signal, session.abortController.signal]);

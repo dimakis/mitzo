@@ -19,6 +19,150 @@ const preview = {
   featureBranch: 'mitzo/task',
   state: 'preview',
 };
+it('does not consume another saved receipt when leaving an explicit claimed handoff', async () => {
+  const otherId = 'aaaaaaaa-bbbb-4ccc-8ddd-121212121212';
+  sessionStorage.setItem('mitzo-repository-draft:account:model', otherId);
+  api.fetch.mockImplementation(
+    async (url: string) =>
+      new Response(
+        JSON.stringify(
+          url.includes('/catalog')
+            ? { available: true, repositories: [] }
+            : {
+                ...preview,
+                state: 'claimed',
+                conversationId: 'aaaaaaaa-bbbb-4ccc-8ddd-121212121212',
+              },
+        ),
+      ),
+  );
+  render(
+    <RepositoryChatPicker
+      accountId="account"
+      model="model"
+      initialPreparationId={preview.id}
+      onChange={vi.fn()}
+    />,
+  );
+  await screen.findByRole('link', { name: 'Open repository conversation' });
+  await userEvent
+    .setup()
+    .click(screen.getByRole('button', { name: 'Continue without repository' }));
+  expect(sessionStorage.getItem('mitzo-repository-draft:account:model')).toBe(otherId);
+});
+it('ignores a late discard response after leaving the preparation', async () => {
+  let complete!: (response: Response) => void;
+  api.fetch.mockImplementation(async (url: string, options?: RequestInit) =>
+    options?.method === 'DELETE'
+      ? new Promise<Response>((resolve) => {
+          complete = resolve;
+        })
+      : new Response(
+          JSON.stringify(
+            url.includes('/catalog')
+              ? { available: true, repositories: [] }
+              : { ...preview, state: 'ready' },
+          ),
+        ),
+  );
+  const onChange = vi.fn();
+  const { unmount } = render(
+    <RepositoryChatPicker
+      accountId="account"
+      model="model"
+      initialPreparationId={preview.id}
+      onChange={onChange}
+    />,
+  );
+  await screen.findByText(/Ready for your first prompt/);
+  await userEvent
+    .setup()
+    .click(screen.getByRole('button', { name: 'Continue without repository' }));
+  unmount();
+  complete(new Response(null, { status: 204 }));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(onChange).not.toHaveBeenCalledWith(null);
+});
+it('restores an explicit preparation without browser storage or creating another source', async () => {
+  vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+    throw new Error('no storage');
+  });
+  const onChange = vi.fn();
+  api.fetch.mockImplementation(
+    async (url: string) =>
+      new Response(
+        JSON.stringify(
+          url.includes('/catalog')
+            ? { available: true, repositories: [] }
+            : { ...preview, state: 'ready' },
+        ),
+      ),
+  );
+  render(
+    <RepositoryChatPicker
+      accountId="account"
+      model="model"
+      initialPreparationId={preview.id}
+      onChange={onChange}
+    />,
+  );
+  await screen.findByText(/Ready for your first prompt/);
+  expect(onChange).toHaveBeenLastCalledWith({ repositoryWorkspaceId: preview.id, blocked: false });
+  expect(api.fetch.mock.calls.every(([, options]) => !options.method)).toBe(true);
+});
+it('keeps an explicit claimed preparation blocked and never deletes its original claim', async () => {
+  const onChange = vi.fn();
+  api.fetch.mockImplementation(
+    async (url: string) =>
+      new Response(
+        JSON.stringify(
+          url.includes('/catalog')
+            ? { available: true, repositories: [] }
+            : {
+                ...preview,
+                state: 'claimed',
+                conversationId: 'aaaaaaaa-bbbb-4ccc-8ddd-121212121212',
+              },
+        ),
+      ),
+  );
+  render(
+    <RepositoryChatPicker
+      accountId="account"
+      model="model"
+      initialPreparationId={preview.id}
+      onChange={onChange}
+    />,
+  );
+  await screen.findByRole('link', { name: 'Open repository conversation' });
+  expect(onChange).toHaveBeenLastCalledWith({ blocked: true });
+  await userEvent
+    .setup()
+    .click(screen.getByRole('button', { name: 'Continue without repository' }));
+  expect(api.fetch.mock.calls.some(([, options]) => options.method === 'DELETE')).toBe(false);
+});
+it('does not prepare or discard an explicit receipt when its restoration response is lost', async () => {
+  api.fetch.mockRejectedValue(new Error('offline'));
+  const onChange = vi.fn();
+  render(
+    <RepositoryChatPicker
+      accountId="account"
+      model="model"
+      initialPreparationId={preview.id}
+      onChange={onChange}
+    />,
+  );
+  await screen.findByRole('alert');
+  await userEvent
+    .setup()
+    .click(screen.getByRole('button', { name: 'Continue without repository' }));
+  expect(
+    api.fetch.mock.calls.some(
+      ([, options]) => options.method === 'DELETE' || options.method === 'POST',
+    ),
+  ).toBe(false);
+  expect(onChange.mock.calls.every(([selection]) => selection?.blocked)).toBe(true);
+});
 it('previews and prepares the selected account’s repository before enabling chat launch', async () => {
   const onChange = vi.fn();
   api.fetch.mockImplementation(

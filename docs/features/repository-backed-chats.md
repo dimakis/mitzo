@@ -39,6 +39,45 @@ ledger; a missing or mismatched ledger blocks resume before runtime admission.
 A missing or changed retained sandbox must not be replaced with the
 default MGMT seed.
 
+## Conversational preparation
+
+An ordinary agent can discover authorized repositories with `ListRepositories`,
+then call `PrepareRepositoryChat` with a repository and a focused task draft.
+Mitzo resolves the account, model and unique GitHub connection from the live chat;
+the tool cannot choose another account, credentials or host directory. Preparation
+requires Agent or Auto mode and the same deployment enrollment as the picker.
+
+The tool result renders a repository-ready card. Opening it creates a new chat
+draft with the pinned repository, editable task and required account/model.
+The user reviews and sends that draft before any new provider or sandbox starts.
+The source chat keeps its workspace, branch, permissions and provider history.
+The task draft carries the requested work; it does not copy the entire transcript.
+Existing conversation workspaces are never switched by this tool.
+
+Editable prompts use a browser draft keyed to their preparation. Reload preserves
+edits, including an intentionally empty prompt, without changing ordinary unsent
+chat drafts. Send saves the current edit before transport; only the matching new
+conversation assignment consumes it. A rejected Send retains the prompt for retry,
+while uncertain delivery keeps the existing pending-send fence.
+
+The preparation and task draft are durable. `GetRepositoryChatPreparation` reads
+a known ID, or recovers the latest preparation owned by this chat and the same
+account/provider/profile after a lost response. A source-chat model change can
+recover its old draft; the prepared model and launch binding remain unchanged. Repeated identical requests reuse the
+existing preparation; a different task waits until the previous unused draft is
+discarded. Failed acquisition is not retried automatically. Interrupted `preparing` or
+`claiming` records remain fenced for inspection of the original operation before
+any reuse or cleanup; status recovery does not prove that an old worker retired. A
+claimed draft links to its original target conversation instead of creating a
+replacement, and clearing it never deletes the claimed task.
+
+Both chat layouts block sending during draft recovery, account/model mismatch,
+missing preparation or a stale active-session transition. Only the matching
+server assignment consumes the preparation receipt and removes the handoff URL.
+Browser defaults are preserved; a prepared account/model cannot silently fall
+back to another selection. The authenticated draft endpoint derives its binding
+from stored server state and accepts no client account override.
+
 ## Acquisition and custody
 
 The controller resolves the AI binding from its current account catalog. Both

@@ -23,7 +23,7 @@ Accounts with multiple managed connections can provision new sandboxes without e
 
 ## Repository-backed chats (opt-in)
 
-With reviewed deployment configuration setting `MITZO_REPOSITORY_WORKSPACES_ENABLED=1`, a new ordinary OpenAI chat can select a repository from its assigned managed GitHub connection, preview the default branch’s exact commit, and prepare an independent feature-branch checkout before the first prompt. Mobile and desktop share the picker. Credentials stay on the controller, and the selected repository remains bound to the conversation across restart and resume.
+With reviewed deployment configuration setting `MITZO_REPOSITORY_WORKSPACES_ENABLED=1`, a new ordinary OpenAI chat can select a repository from its assigned managed GitHub connection, preview the default branch’s exact commit, and prepare an independent feature-branch checkout before the first prompt. Mobile and desktop share the picker. Agents can also discover authorized repositories and prepare a new repository-chat draft through `ListRepositories` and `PrepareRepositoryChat`; the user reviews and starts it from a chat card. Credentials stay on the controller, and the selected repository remains bound to the conversation across restart and resume.
 
 Source verification streams 64 KiB chunks instead of buffering whole files. Host task copies use pinned directory descriptors through an isolated Python helper, retaining independent checkouts without following replacement paths. Filesystem cloning, shared download caching and retained-storage quotas remain subsequent resource work.
 

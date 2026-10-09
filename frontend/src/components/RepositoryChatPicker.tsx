@@ -2,7 +2,11 @@ import { useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
 import { apiFetch } from '../lib/api-fetch';
 import './RepositoryChatPicker.css';
-import { repositoryDraftKey, savedRepositoryDraft } from '../lib/repository-draft';
+import {
+  repositoryDraftKey,
+  savedRepositoryDraft,
+  consumeRepositoryDraft,
+} from '../lib/repository-draft';
 
 export interface RepositoryChatSelection {
   repositoryWorkspaceId?: string;
@@ -14,7 +18,7 @@ const workspaceSchema = z.object({
   baseBranch: z.string(),
   baseOid: z.string().regex(/^[a-f0-9]{40}$/),
   featureBranch: z.string(),
-  state: z.enum(['preview', 'ready', 'claimed']),
+  state: z.enum(['preview', 'preparing', 'ready', 'claiming', 'claimed', 'failed', 'discarded']),
   conversationId: z.uuid().optional(),
 });
 type Workspace = z.infer<typeof workspaceSchema>;
@@ -33,18 +37,22 @@ export function RepositoryChatPicker({
   accountId,
   model,
   onChange,
+  initialPreparationId,
 }: {
   accountId: string;
   model: string;
   onChange(value: RepositoryChatSelection | null): void;
+  initialPreparationId?: string;
 }) {
   const [catalog, setCatalog] = useState<Catalog | null>(null);
-  const [opened, setOpened] = useState(() => !!savedRepositoryDraft(accountId, model));
+  const [opened, setOpened] = useState(
+    () => !!(initialPreparationId ?? savedRepositoryDraft(accountId, model)),
+  );
   const [selected, setSelected] = useState('');
   const [url, setUrl] = useState('');
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
-  const [pendingPreparationId, setPendingPreparationId] = useState(() =>
-    savedRepositoryDraft(accountId, model),
+  const [pendingPreparationId, setPendingPreparationId] = useState(
+    () => initialPreparationId ?? savedRepositoryDraft(accountId, model),
   );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -54,10 +62,15 @@ export function RepositoryChatPicker({
   const operation = useRef<AbortController | null>(null);
   const restoration = useRef<AbortController | null>(null);
   const storageKey = repositoryDraftKey(accountId, model);
+  const [restorationAttempt, setRestorationAttempt] = useState(0);
   useEffect(() => {
     const controller = new AbortController();
     restoration.current = controller;
-    const saved = savedRepositoryDraft(accountId, model);
+    const saved = initialPreparationId ?? savedRepositoryDraft(accountId, model);
+    setWorkspace(null);
+    setCatalog(null);
+    setError('');
+    setBusy(false);
     setPendingPreparationId(saved);
     callback.current(saved ? { blocked: true } : null);
     if (saved) setOpened(true);
@@ -71,13 +84,15 @@ export function RepositoryChatPicker({
         if (controller.signal.aborted) return;
         setCatalog(data);
         if (!saved) return;
-        if (!data.available) throw new Error('Repository onboarding unavailable');
+        if (!data.available && !initialPreparationId)
+          throw new Error('Repository onboarding unavailable');
         const restored = await apiFetch(
           `/api/repository-workspaces/${encodeURIComponent(saved)}?${query}`,
           {
             signal: controller.signal,
           },
         );
+        if (controller.signal.aborted) return;
         if (!restored.ok) {
           setError(
             'Saved repository preparation is unavailable. Discard it below before choosing another repository.',
@@ -85,13 +100,14 @@ export function RepositoryChatPicker({
           return;
         }
         const ready = workspaceSchema.parse(await restored.json());
-        if (controller.signal.aborted || !['ready', 'claimed'].includes(ready.state)) return;
+        if (controller.signal.aborted) return;
+        if (ready.id !== saved) throw new Error('Repository preparation identity changed');
         setWorkspace(ready);
         setOpened(true);
         callback.current(
-          ready.state === 'claimed'
-            ? { blocked: true }
-            : { repositoryWorkspaceId: ready.id, blocked: false },
+          ready.state === 'ready' && data.available
+            ? { repositoryWorkspaceId: ready.id, blocked: false }
+            : { blocked: true },
         );
       })
       .catch(() => {
@@ -104,9 +120,9 @@ export function RepositoryChatPicker({
       controller.abort();
       operation.current?.abort();
     };
-  }, [accountId, model, storageKey]);
+  }, [accountId, model, storageKey, initialPreparationId, restorationAttempt]);
   const repositories = catalog?.available ? catalog.repositories : [];
-  const savedId = savedRepositoryDraft(accountId, model);
+  const savedId = initialPreparationId ? null : savedRepositoryDraft(accountId, model);
   const pendingId = pendingPreparationId ?? savedId;
   const unresolvedSaved = !!pendingId && workspace?.id !== pendingId;
   const selection =
@@ -185,7 +201,16 @@ export function RepositoryChatPicker({
   };
   const cancel = async () => {
     if (busy) return;
+    if (
+      initialPreparationId &&
+      (!workspace || ['preparing', 'claiming'].includes(workspace.state))
+    ) {
+      setError('Refresh the original preparation status before removing it.');
+      return;
+    }
     restoration.current?.abort();
+    const controller = new AbortController();
+    operation.current = controller;
     const id = pendingId ?? workspace?.id;
     setBusy(true);
     callback.current({ blocked: true });
@@ -198,16 +223,15 @@ export function RepositoryChatPicker({
           `/api/repository-workspaces/${encodeURIComponent(id)}?${query}`,
           {
             method: 'DELETE',
+            signal: controller.signal,
             headers: { 'Content-Type': 'application/json' },
           },
         );
+        if (controller.signal.aborted) return;
         if (!response.ok) throw new Error('Discard unavailable');
       }
-      try {
-        sessionStorage.removeItem(storageKey);
-      } catch {
-        /* Storage is optional. */
-      }
+      if (controller.signal.aborted) return;
+      if (id) consumeRepositoryDraft(storageKey, id);
       setPendingPreparationId(null);
       setOpened(false);
       setWorkspace(null);
@@ -215,9 +239,10 @@ export function RepositoryChatPicker({
       setError('');
       callback.current(null);
     } catch {
-      setError('Could not discard this preparation. Retry before choosing another repository.');
+      if (!controller.signal.aborted)
+        setError('Could not discard this preparation. Retry before choosing another repository.');
     } finally {
-      setBusy(false);
+      if (!controller.signal.aborted) setBusy(false);
     }
   };
   if (!catalog?.available && !opened && !retainedConversationId) return null;
@@ -250,7 +275,7 @@ export function RepositoryChatPicker({
               ? workspace.repository
               : 'Repository for this chat'}
           </strong>
-          {(!workspace || workspace.state === 'preview') && (
+          {!initialPreparationId && (!workspace || workspace.state === 'preview') && (
             <>
               <label>
                 GitHub repository
@@ -310,7 +335,7 @@ export function RepositoryChatPicker({
               <span>
                 New branch: <code>{workspace.featureBranch}</code>
               </span>
-              {workspace.state === 'preview' ? (
+              {workspace.state === 'preview' && !initialPreparationId ? (
                 <>
                   <p>
                     Repository contents will be shared with the selected AI account when you send
@@ -329,13 +354,24 @@ export function RepositoryChatPicker({
                 <p role="status">
                   {workspace.state === 'claimed'
                     ? 'This preparation already belongs to a conversation. Open that conversation below, or continue without this repository.'
-                    : 'Ready for your first prompt. Dependency setup happens in the chat workspace.'}
+                    : workspace.state === 'ready'
+                      ? 'Ready for your first prompt. Dependency setup happens in the chat workspace.'
+                      : `Repository preparation is ${workspace.state}. Refresh its status before sending.`}
                 </p>
               )}
             </div>
           )}
           {busy && <p role="status">Preparing repository…</p>}
           {error && <p role="alert">{error}</p>}
+          {initialPreparationId && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => setRestorationAttempt((value) => value + 1)}
+            >
+              Refresh preparation status
+            </button>
+          )}
           <button type="button" disabled={busy} onClick={() => void cancel()}>
             Continue without repository
           </button>
