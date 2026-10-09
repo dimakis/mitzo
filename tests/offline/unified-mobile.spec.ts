@@ -85,7 +85,24 @@ const fixtures: Record<string, unknown> = {
   '/api/todos': { profiles: ['manual', 'personal', 'work'], items: outcomes },
   '/api/tasks': [],
   '/api/inbox': proposals,
-  '/api/briefings/latest': null,
+  '/api/briefings/latest': {
+    date: '2026-10-10',
+    generatedAt: '2026-10-10T07:00:00Z',
+    path: '/workspace/report.md',
+  },
+  '/api/home/preferences': {
+    revision: 1,
+    names: { briefing: 'Jeeves', terminal: 'Minion' },
+    pins: [{ kind: 'session', id: 'session-0', title: 'Quarterly planning review' }],
+  },
+  '/api/home/briefing-chats': [],
+  '/api/accounts': [
+    {
+      id: 'work-account',
+      label: 'Work OpenAI',
+      models: [{ id: 'luna-fixture', label: 'Luna fixture' }],
+    },
+  ],
   '/api/service-health': { services: [], checkedAt: Date.now() },
   '/api/notifications': { items: [], needsYou: 0, unread: 0, total: 0, hasMore: false },
   '/api/connections-access': { generatedAt: Date.now(), sources: [], resources: [account] },
@@ -151,6 +168,30 @@ test.beforeEach(async ({ page }) => {
               '# Full proposal context\n\nReview the original evidence before deciding on the next step.',
           },
         });
+      if (url.pathname === '/api/home/quote')
+        return route.fulfill({
+          json: {
+            date: url.searchParams.get('date'),
+            quote: JSON.parse(await readFile(resolve('content/quotes/catalog.json'), 'utf8'))[0],
+          },
+        });
+      if (url.pathname === '/api/home/briefing')
+        return route.fulfill({
+          json: {
+            date: url.searchParams.get('date'),
+            filename: 'report.md',
+            path: '/workspace/report.md',
+            revision: 'a'.repeat(64),
+            generatedAt: '2026-10-10T07:00:00Z',
+            content:
+              '# Morning briefing\n\n## Calendar updates\n\nA meeting moved to 10:00.\n\n' +
+              Array.from(
+                { length: 10 },
+                (_, index) =>
+                  `## ${9 + index}:00 Meeting ${index + 1}\n\nAgenda ${index + 1}.\n\n### Jira context\n\nSupporting issue ${index + 1}.\n`,
+              ).join('\n'),
+          },
+        });
       if (url.pathname === '/api/files/read' && url.searchParams.get('path')?.endsWith('.html'))
         return route.fulfill({
           json: {
@@ -180,6 +221,7 @@ test.beforeEach(async ({ page }) => {
 });
 
 const routes = ['/', '/sessions', '/inbox', '/todos', '/more', '/connections-access', '/knowledge'];
+const todayDetailRoutes = ['/briefings/2026-10-10', '/quotes/2026-10-10'];
 
 test('every mobile collection keeps one wordmark, one palette and reachable navigation', async ({
   page,
@@ -189,7 +231,7 @@ test('every mobile collection keeps one wordmark, one palette and reachable navi
   for (const width of [320, 390, 440]) {
     await page.setViewportSize({ width, height: 844 });
     let reference: unknown;
-    for (const route of routes) {
+    for (const route of [...routes, ...todayDetailRoutes]) {
       await page.goto(route);
       await expect(page.locator('h1').first()).toBeVisible();
       const brand = page.getByRole('link', { name: 'Mitzo home' });
@@ -228,7 +270,7 @@ test('one token change updates the accent and font on every main page', async ({
   isMobile,
 }) => {
   test.skip(!isMobile, 'Mobile theme contract');
-  for (const route of routes) {
+  for (const route of [...routes, ...todayDetailRoutes]) {
     await page.goto(route);
     await expect(page.locator('h1').first()).toBeVisible();
     await page.evaluate(() => {
@@ -260,6 +302,49 @@ test('one token change updates the accent and font on every main page', async ({
         .evaluate((element) => getComputedStyle(element).backgroundColor),
     ).toBe('rgb(250, 249, 246)');
   }
+});
+
+test('Today exposes real bookmarks, the tiny quote and all saved briefing meetings', async ({
+  page,
+}, testInfo) => {
+  await page.goto('/');
+  await expect(page.getByRole('heading', { name: 'Today', exact: true })).toBeVisible();
+  await expect(page.getByRole('searchbox', { name: 'Search sessions and messages' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'New session' })).toHaveAttribute('href', '/chat');
+  await expect(page.getByRole('heading', { name: 'Pinned to Today' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Your focus' })).toHaveCount(0);
+  const quote = page.getByRole('link', { name: /Quote of the day by/ });
+  await expect(quote).toBeVisible();
+  await quote.click();
+  await expect(page.getByRole('heading', { name: 'A thought for today' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Read the source' })).toHaveAttribute(
+    'href',
+    /^https:\/\//,
+  );
+  await page.goto('/');
+  await page.getByRole('link', { name: 'Read briefing' }).click();
+  await expect(
+    page.getByRole('heading', { name: 'Morning briefing', exact: true }).first(),
+  ).toBeVisible();
+  await expect(page.locator('summary').filter({ hasText: /^\d+:00 Meeting \d+$/ })).toHaveCount(10);
+  const calendar = page
+    .locator('details')
+    .filter({ has: page.locator('summary', { hasText: 'Calendar updates' }) })
+    .first();
+  await expect(calendar).not.toHaveAttribute('open', '');
+  await page.getByRole('button', { name: 'Expand all meetings' }).click();
+  await expect(page.getByText('Agenda 10.', { exact: true })).toBeVisible();
+  await expect(page.getByText('Supporting issue 10.', { exact: true })).toBeHidden();
+  await page.getByRole('button', { name: 'Ask Jeeves', exact: true }).click();
+  const popup = page.getByRole('dialog');
+  await expect(popup).toBeVisible();
+  await expect(popup.getByRole('combobox', { name: 'Account', exact: true })).toBeVisible();
+  await expect(popup.getByRole('combobox', { name: 'Account', exact: true })).toHaveValue(
+    'work-account',
+  );
+  await popup.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(popup).toHaveCount(0);
+  await page.screenshot({ path: testInfo.outputPath('briefing-reader.png') });
 });
 
 test('Proposals opens full context and keeps the end of each collection above the tabs', async ({
