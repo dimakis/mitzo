@@ -26,6 +26,7 @@ export interface KnowledgeReviewInspection {
   canAccept: boolean;
   reason?: string;
   mergeCommit?: string;
+  draft?: boolean;
 }
 const sha = z.string().regex(/^[a-f0-9]{40}$/);
 const pullRequest = z.object({
@@ -222,6 +223,7 @@ export class KnowledgeGithubPublisher extends GitHubCliHostPublisher {
     return {
       state: 'in-review',
       head: input.head,
+      draft: refreshed.draft,
       canAccept,
       reason: canAccept
         ? undefined
@@ -242,7 +244,8 @@ export class KnowledgeGithubPublisher extends GitHubCliHostPublisher {
     if (!status.canAccept)
       throw new Error(status.reason ?? 'Knowledge review is not ready for acceptance');
     const number = this.checked(input);
-    await this.command('gh', ['pr', 'ready', number, '--repo', input.repository], signal);
+    if (status.draft)
+      await this.command('gh', ['pr', 'ready', number, '--repo', input.repository], signal);
     const ready = await this.inspect(scoped);
     if (!ready.canAccept)
       throw new Error(ready.reason ?? 'Knowledge review changed before acceptance');

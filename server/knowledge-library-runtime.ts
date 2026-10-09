@@ -54,7 +54,7 @@ const configuration = z
     'Duplicate document scopes',
   );
 
-function physical(path: string) {
+function physical(path: string): string {
   const full = resolve(path);
   if (existsSync(full)) return realpathSync(full);
   const parent = dirname(full);

@@ -19,11 +19,12 @@ function fixture(
     identity?: string;
     mergeFails?: boolean;
     acceptanceEnabled?: boolean;
+    alreadyReady?: boolean;
     badScope?: boolean;
   } = {},
 ) {
   let merged = false;
-  let ready = false;
+  let ready = options.alreadyReady ?? false;
   let reads = 0;
   const run = vi.fn(async (_command: string, args: readonly string[]) => {
     let data: unknown;
@@ -154,6 +155,11 @@ describe('host Knowledge acceptance gate', () => {
     const { publisher, run } = fixture(options);
     await expect(publisher.accept(input)).rejects.toThrow();
     expect(run.mock.calls.some((c) => c[1][1] === 'merge')).toBe(false);
+  });
+  it('accepts an already-ready review without repeating the ready mutation', async () => {
+    const { publisher, run } = fixture({ alreadyReady: true });
+    expect(await publisher.accept(input)).toMatchObject({ state: 'accepted', head });
+    expect(run.mock.calls.some((c) => c[1][1] === 'ready')).toBe(false);
   });
   it('does not declare acceptance when merge command did not merge', async () => {
     await expect(fixture({ mergeFails: true }).publisher.accept(input)).rejects.toThrow();
