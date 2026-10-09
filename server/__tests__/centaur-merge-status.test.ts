@@ -9,7 +9,15 @@ const script = readFileSync('.github/workflows/centaur-gate.yml', 'utf8')
   .split('\n')
   .map((line) => line.slice(12))
   .join('\n');
-const review = { user: { login: 'dimakis' }, body, commit_id: head, state: 'COMMENTED' };
+const review = {
+  user: { login: 'dimakis' },
+  body,
+  commit_id: head,
+  state: 'COMMENTED',
+  submitted_at: '2026-10-09T10:00:00Z',
+  created_at: '2026-10-09T10:00:00Z',
+  updated_at: '2026-10-09T10:00:00Z',
+};
 
 async function execute(
   records: Partial<typeof review>[],
@@ -158,4 +166,28 @@ it('ignores foreign status identities when deciding whether to publish', async (
     (await execute([review], head, head, '', {}, [prior('success', 'github-actions[bot]')])).at(-1)
       ?.state,
   ).toBe('success');
+});
+
+it('revokes approval when an older trusted comment is edited to block later', async () => {
+  const records = [
+    {
+      ...review,
+      submitted_at: undefined,
+      body: body.replace('`merge`', '`fix`'),
+      created_at: '2026-10-09T09:00:00Z',
+      updated_at: '2026-10-09T11:00:00Z',
+    },
+    review,
+  ];
+  expect((await execute(records, head, head, '', {}, [prior('success')])).at(-1)?.state).toBe(
+    'failure',
+  );
+});
+
+it.each([
+  [[{ ...review, updated_at: 'invalid' }]],
+  [[{ ...review, submitted_at: undefined, created_at: undefined, updated_at: undefined }]],
+  [[{ ...review, body: body.replace('`merge`', '`fix`') }, review]],
+])('fails closed on unknown or tied trusted verdict chronology', async (records) => {
+  expect((await execute(records)).at(-1)?.state).not.toBe('success');
 });
