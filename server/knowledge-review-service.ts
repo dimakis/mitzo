@@ -118,6 +118,14 @@ export class KnowledgeReviewService {
     try {
       await knowledgeGit(this.source.directory, ['read-tree', accepted], undefined, index, signal);
       for (const document of draft.documents) {
+        if (document.sourcePath)
+          await knowledgeGit(
+            this.source.directory,
+            ['update-index', '--force-remove', '--', document.sourcePath],
+            undefined,
+            index,
+            signal,
+          );
         const sha = (
           await knowledgeGit(
             this.source.directory,
@@ -130,6 +138,31 @@ export class KnowledgeReviewService {
         await knowledgeGit(
           this.source.directory,
           ['update-index', '--add', '--cacheinfo', `100644,${sha},${document.path}`],
+          undefined,
+          index,
+          signal,
+        );
+      }
+      for (const directory of draft.directories ?? []) {
+        // Only leaf empty folders need markers; documents and child folders already
+        // preserve their ancestors in the Git tree.
+        if (
+          draft.documents.some((d) => d.path.startsWith(directory + '/')) ||
+          draft.directories?.some((d) => d !== directory && d.startsWith(directory + '/'))
+        )
+          continue;
+        const sha = (
+          await knowledgeGit(
+            this.source.directory,
+            ['hash-object', '-w', '--stdin'],
+            '',
+            undefined,
+            signal,
+          )
+        ).trim();
+        await knowledgeGit(
+          this.source.directory,
+          ['update-index', '--add', '--cacheinfo', `100644,${sha},${directory}/.gitkeep`],
           undefined,
           index,
           signal,
@@ -271,17 +304,36 @@ export class KnowledgeReviewService {
         }
       }
       const accepted = await this.source.revision(signal);
+      try {
+        await this.source.validateStructure(
+          draft.baseRevision,
+          draft.documents,
+          draft.directories,
+          signal,
+        );
+        await this.source.validateStructure(accepted, draft.documents, draft.directories, signal);
+      } catch (error) {
+        signal.throwIfAborted();
+        throw new KnowledgeDraftConflict(
+          error instanceof Error ? error.message : 'Knowledge structure changed',
+        );
+      }
       for (const document of draft.documents) {
-        const original = await this.source.read(document.path, draft.baseRevision, signal);
+        const sourcePath = document.sourcePath ?? document.path;
+        const original = await this.source.read(sourcePath, draft.baseRevision, signal);
         if (document.base !== original.content)
           throw new KnowledgeDraftConflict('Draft base differs from its accepted revision');
-        const latest = await this.source.read(document.path, accepted, signal);
+        const latest = await this.source.read(sourcePath, accepted, signal);
         if (latest.content !== document.base)
           throw new KnowledgeDraftConflict(
             `${document.path} changed since this draft started. Compare the accepted document and resolve before saving its review.`,
           );
       }
-      if (!draft.publication && draft.documents.every((d) => d.content === d.base))
+      if (
+        !draft.publication &&
+        !draft.directories?.length &&
+        draft.documents.every((d) => !d.sourcePath && d.content === d.base)
+      )
         throw new KnowledgeDraftConflict('No changes to review');
       const remote = await this.publisher.readBranch(common);
       signal.throwIfAborted();
@@ -292,7 +344,7 @@ export class KnowledgeReviewService {
       const input = {
         ...common,
         title: draft.title,
-        body: `Knowledge update from Mitzo.\n\n${draft.documents.map((d) => '- ' + d.path).join('\n')}\n\nChange: ${draft.id}. Saving this draft does not accept or publish it.`,
+        body: `Knowledge update from Mitzo.\n\n${[...draft.documents.map((d) => '- ' + (d.sourcePath ? d.sourcePath + ' → ' : '') + d.path), ...(draft.directories ?? []).map((d) => '- Folder: ' + d)].join('\n')}\n\nChange: ${draft.id}. Saving this draft does not accept or publish it.`,
         draft: true,
       };
       let confirmedDraftReview: GithubPullRequest | undefined;

@@ -2,9 +2,14 @@ import express from 'express';
 import { z } from 'zod';
 import { registerAuthSession, type AuthSession } from './auth.js';
 import { requireSameOriginJson } from './connections-router.js';
-import { AcceptedKnowledgeSource, safeKnowledgePath } from './knowledge-library-source.js';
+import {
+  AcceptedKnowledgeSource,
+  safeKnowledgeDirectory,
+  safeKnowledgePath,
+} from './knowledge-library-source.js';
 import {
   KnowledgeDraftConflict,
+  KnowledgeDraftMissing,
   KnowledgeDraftStore,
   type KnowledgeDraft,
 } from './knowledge-draft-store.js';
@@ -23,19 +28,23 @@ export interface KnowledgeLibraryDependencies {
 const revision = z.string().regex(/^[a-f0-9]{40,64}$/);
 const document = z.strictObject({
   path: z.string().refine(safeKnowledgePath),
+  sourcePath: z.string().refine(safeKnowledgePath).optional(),
   content: z.string().refine((s) => Buffer.byteLength(s) <= 5 * 1024 * 1024),
 });
-const documents = z.array(document).min(1).max(20);
+const documents = z.array(document).max(20);
+const directories = z.array(z.string().refine(safeKnowledgeDirectory)).max(20).optional();
 const create = z.strictObject({
   requestId: z.string().uuid().optional(),
   title: z.string().trim().min(1).max(200),
   baseRevision: revision,
   documents,
+  directories,
 });
 const save = z.strictObject({
   version: z.number().int().positive(),
   documents,
   baseRevision: revision.optional(),
+  directories,
 });
 class AuthorityExpired extends Error {}
 /** Browser-only, no task/session argument or client-selected credentials, paths or refs. */
@@ -83,6 +92,8 @@ export function createKnowledgeLibraryRouter(
       } catch (error) {
         if (error instanceof AuthorityExpired || controller.signal.aborted)
           return res.status(403).json({ error: 'Operator authorization expired or revoked' });
+        if (error instanceof KnowledgeDraftMissing)
+          return res.status(404).json({ error: error.message });
         if (error instanceof KnowledgeDraftConflict)
           return res.status(409).json({ error: error.message });
         return res.status(422).json({
@@ -172,11 +183,22 @@ export function createKnowledgeLibraryRouter(
         input.data.documents.some((d) => !context.runtime.source.allowed(d.path))
       )
         return res.status(400).json({ error: 'Invalid knowledge draft' });
+      await context.runtime.source.validateStructure(
+        input.data.baseRevision,
+        input.data.documents,
+        input.data.directories,
+        context.signal,
+      );
       const docs = await Promise.all(
         input.data.documents.map(async (d) => ({
           ...d,
-          base: (await context.runtime.source.read(d.path, input.data.baseRevision, context.signal))
-            .content,
+          base: (
+            await context.runtime.source.read(
+              d.sourcePath ?? d.path,
+              input.data.baseRevision,
+              context.signal,
+            )
+          ).content,
         })),
       );
       context.assert();
@@ -186,6 +208,7 @@ export function createKnowledgeLibraryRouter(
           input.data.baseRevision,
           docs,
           input.data.requestId,
+          input.data.directories,
         ),
       });
     }),
@@ -213,14 +236,28 @@ export function createKnowledgeLibraryRouter(
         throw new KnowledgeDraftConflict(
           'Accepted knowledge changed again. Refresh before resolving.',
         );
+      await context.runtime.source.validateStructure(
+        baseRevision,
+        input.data.documents,
+        input.data.directories ?? draft.directories,
+        context.signal,
+      );
       const docs = await Promise.all(
         input.data.documents.map(async (d) => ({
           ...d,
-          base: (await context.runtime.source.read(d.path, baseRevision, context.signal)).content,
+          base: (
+            await context.runtime.source.read(d.sourcePath ?? d.path, baseRevision, context.signal)
+          ).content,
         })),
       );
       context.assert();
-      const saved = context.runtime.store.save(draftId, input.data.version, docs, baseRevision);
+      const saved = context.runtime.store.save(
+        draftId,
+        input.data.version,
+        docs,
+        baseRevision,
+        input.data.directories,
+      );
       return res.json(await submit(context, saved));
     }),
   );
@@ -320,6 +357,74 @@ export function createKnowledgeLibraryRouter(
           lease,
         );
         return res.json({ draft: updated, canAccept: false });
+      } finally {
+        context.runtime.store.release(draft.id, lease);
+      }
+    }),
+  );
+  router.post(
+    '/drafts/:id/cancel',
+    route(async (req, res, context) => {
+      const input = z.strictObject({ version: z.number().int().positive() }).safeParse(req.body);
+      if (!input.success) return res.status(400).json({ error: 'Invalid cancellation request' });
+      const draft = context.runtime.store.get(id(req));
+      context.runtime.store.assertIdle(draft.id);
+      context.runtime.reviewService?.assertIdle(draft.id);
+      if (draft.version !== input.data.version)
+        throw new KnowledgeDraftConflict(
+          'Draft changed in another window. Reload before cancelling.',
+        );
+      // This action settles removal of a sole saved folder, not document reviews.
+      if (draft.documents.length || !draft.directories?.length)
+        throw new KnowledgeDraftConflict(
+          'Only folder-only changes can be cancelled through this action.',
+        );
+      if (draft.state === 'accepted')
+        throw new KnowledgeDraftConflict('This change was accepted and cannot be cancelled.');
+      if (draft.state === 'closed') return res.json({ draft });
+      if (
+        draft.publication &&
+        (!draft.review ||
+          draft.publication.version !== draft.version ||
+          draft.publication.head !== draft.review.head)
+      )
+        throw new KnowledgeDraftConflict('Recover the saved review before cancelling this change.');
+      if (draft.review && draft.review.version !== draft.version)
+        throw new KnowledgeDraftConflict(
+          'Recover the current saved review before cancelling this change.',
+        );
+      const lease = context.runtime.store.acquire(draft.id);
+      try {
+        if (draft.review) {
+          const identity = reviewIdentity(context, draft);
+          const closed = await context.runtime.publisher!.cancel({
+            ...identity,
+            beforeClose: () => {
+              context.assert();
+              context.runtime.store.assertLease(draft.id, lease);
+              const current = context.runtime.store.get(draft.id);
+              if (
+                current.version !== draft.version ||
+                current.review?.head !== draft.review?.head ||
+                current.review?.version !== draft.version ||
+                current.state === 'accepted' ||
+                current.state === 'closed'
+              )
+                throw new KnowledgeDraftConflict(
+                  'Draft changed while cancelling its review. The saved copy is retained.',
+                );
+            },
+          });
+          context.assert();
+          if (closed.state !== 'closed' || closed.head !== draft.review.head)
+            throw new KnowledgeDraftConflict(
+              'Review closure could not be confirmed. The saved copy is retained.',
+            );
+        }
+        context.assert();
+        return res.json({
+          draft: context.runtime.store.status(draft.id, 'closed', undefined, lease, draft.version),
+        });
       } finally {
         context.runtime.store.release(draft.id, lease);
       }
