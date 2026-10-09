@@ -73,3 +73,41 @@ it('requires an authenticated same-origin operator and resolves account binding 
   ).toBe(400);
   expect(prepare).not.toHaveBeenCalled();
 });
+
+it('loads a durable chat draft through operator authentication without accepting another account selection', async () => {
+  const id = '8ca30b0d-3e65-4eeb-8244-f6277350818f';
+  const chatPreparation = vi.fn(() => ({
+    repositoryChat: { id, accountId: 'bound-account', model: 'bound-model', prompt: 'Fix parser' },
+  }));
+  let authenticated = false;
+  const app = express();
+  app.use((_req, res, next) => {
+    if (authenticated) res.locals.authSession = { id: 'operator', expiresAt: Date.now() + 60000 };
+    next();
+  });
+  app.use(
+    '/repositories',
+    createRepositoryWorkspaceRouter({
+      resolveBinding: vi.fn(),
+      catalog: vi.fn(),
+      preview: vi.fn(),
+      prepare: vi.fn(),
+      chatPreparation,
+    }),
+  );
+  expect((await request(app).get(`/repositories/${id}/chat-preparation`)).status).toBe(401);
+  authenticated = true;
+  const response = await request(app).get(`/repositories/${id}/chat-preparation`);
+  expect(response.status).toBe(200);
+  expect(response.body.repositoryChat.accountId).toBe('bound-account');
+  expect(response.headers['cache-control']).toBe('no-store');
+  expect(chatPreparation).toHaveBeenCalledWith(id);
+  expect(
+    (await request(app).get(`/repositories/${id}/chat-preparation?accountId=other`)).status,
+  ).toBe(400);
+  expect((await request(app).get('/repositories/not-an-id/chat-preparation')).status).toBe(400);
+  chatPreparation.mockImplementationOnce(() => {
+    throw Error('unavailable');
+  });
+  expect((await request(app).get(`/repositories/${id}/chat-preparation`)).status).toBe(404);
+});
