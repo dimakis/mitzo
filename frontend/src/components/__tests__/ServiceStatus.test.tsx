@@ -55,7 +55,7 @@ describe('ServiceStatus', () => {
 
     const { container } = render(<ServiceStatus />);
     const dot = container.querySelector('.service-dot') as HTMLElement;
-    expect(dot.style.color).toBe('rgb(74, 222, 128)');
+    expect(dot.style.color).toBe('var(--color-success)');
   });
 
   it('shows red indicator for down services', () => {
@@ -68,7 +68,7 @@ describe('ServiceStatus', () => {
 
     const { container } = render(<ServiceStatus />);
     const dot = container.querySelector('.service-dot') as HTMLElement;
-    expect(dot.style.color).toBe('rgb(255, 109, 109)');
+    expect(dot.style.color).toBe('var(--color-danger)');
   });
 
   it('renders nothing when both services are null', () => {

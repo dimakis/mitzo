@@ -7,7 +7,6 @@ import { formatRelativeTime } from '../lib/formatTime';
 import { useLongPress } from '../hooks/useLongPress';
 import { computeSwipeState, REVEAL_WIDTH } from '../lib/swipe-reveal';
 import { selectionChanged } from '../lib/haptics';
-import { MitzoLogo } from '../components/MitzoLogo';
 import { useSessionList } from '../hooks/useSessionList';
 import type { QuickAction } from '../hooks/useSessionList';
 import { formatTokens } from '../lib/formatTokens';
@@ -18,12 +17,14 @@ import { UiIcon } from '../components/UiIcon';
 
 function SwipeableSession({
   session,
+  snippet,
   activity,
   onDismiss,
   onClick,
   onRename,
 }: {
   session: Session;
+  snippet?: string;
   activity?: SessionActivity;
   onDismiss: (id: string) => void;
   onClick: (id: string) => void;
@@ -239,6 +240,7 @@ function SwipeableSession({
               <div className="session-item-summary">
                 {session.summary || 'Untitled conversation'}
               </div>
+              {snippet && <div className="conversation-result-snippet">{snippet}</div>}
               <div className="session-item-meta">
                 {activity && (
                   <span className={`conversation-state conversation-state--${activity.state}`}>
@@ -388,7 +390,6 @@ export function SessionList() {
     <div className="session-list-page workspace-page conversation-library">
       <header className="session-list-header">
         <div className="session-list-header-title">
-          <MitzoLogo />
           <h1>Chats</h1>
         </div>
         <div className="conversation-header-actions">
@@ -487,15 +488,20 @@ export function SessionList() {
               <p className="session-list-empty">No matching conversations</p>
             )}
             {search.results.map((r) => (
-              <button
-                className="conversation-result"
+              <SwipeableSession
                 key={r.sessionId}
-                onClick={() => openSession(r.sessionId)}
-              >
-                <span className="session-item-summary">{r.summary || 'Untitled conversation'}</span>
-                <span className="conversation-result-snippet">{r.snippet}</span>
-                <span className="session-item-time">{formatRelativeTime(r.updatedAt)}</span>
-              </button>
+                session={{
+                  ...combined.get(r.sessionId),
+                  id: r.sessionId,
+                  summary: r.summary || '',
+                  lastModified: r.updatedAt,
+                }}
+                snippet={r.snippet}
+                activity={byId.get(r.sessionId)}
+                onDismiss={dismiss}
+                onClick={openSession}
+                onRename={handleRename}
+              />
             ))}
           </div>
         ) : (

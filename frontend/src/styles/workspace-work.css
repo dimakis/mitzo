@@ -218,6 +218,10 @@
   padding: 16px 0;
 }
 .workspace-work .todo-collection-heading .workspace-page-heading {
+  margin-bottom: 0;
+}
+.workspace-work .todo-collection-heading .workspace-title-row h1,
+.workspace-work .todo-collection-heading .workspace-page-heading > p {
   display: none;
 }
 .workspace-work .page-header {

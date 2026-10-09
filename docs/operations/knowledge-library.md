@@ -62,6 +62,21 @@ is no background backend, custodian, preview or automatic deployment. The mirror
 rejects changed origin/refspec, unexpected local Git configuration and alternate
 object stores. Drafts live in `stateDirectory/drafts.sqlite` with private SQLite state.
 
+Before pushing a prepared change, Save atomically stores its exact commit ID and a
+Git recovery bundle in the draft database. Core SQLite backups include those
+objects, including unpublished commits and the draft branch's ancestry. After a
+restore beside a freshly fetched source mirror, Save validates and imports the
+saved bundle before reusing the same review head or preparing further edits. The
+bundle is private database state, excluded from editor responses, and limited to
+16 MiB. Finished drafts discard it. Recovery does not restore mirror configuration
+or credentials, and corrupt or mismatched bundles block publishing.
+
+Older backups contain no recovery bundle. If the prepared commit still exists,
+Save records its bundle before publishing. If it is missing, Save can rebuild from
+saved documents only when neither a remote branch nor a saved/existing review is
+present. A known published head is never replaced as a recovery shortcut; old
+backups missing those objects still require restoring the original mirror.
+
 Sending for review checks the configured account, canonical PR repository, base
 branch, author, source branch and exact saved head. It reads the open PR immediately
 before the ready mutation and verifies the same head is ready afterward. An

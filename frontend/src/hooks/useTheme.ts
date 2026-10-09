@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { configureStatusBar } from '../lib/capacitor';
+import { themeBackgroundColor } from '../lib/theme-color';
+import { initAppearance } from './useAppearance';
 
 type Theme = 'dark' | 'light' | 'system';
 
@@ -13,11 +15,13 @@ function resolveTheme(preference: Theme): 'dark' | 'light' {
 function applyTheme(resolved: 'dark' | 'light') {
   document.documentElement.setAttribute('data-theme', resolved);
   const meta = document.getElementById('theme-color-meta') as HTMLMetaElement | null;
-  if (meta) meta.content = resolved === 'light' ? '#f5f5f7' : '#111113';
+  const color = themeBackgroundColor();
+  if (meta && color) meta.content = color;
   configureStatusBar(resolved);
 }
 
 export function initTheme() {
+  initAppearance();
   const stored = (localStorage.getItem(STORAGE_KEY) as Theme) || 'system';
   applyTheme(resolveTheme(stored));
 }
