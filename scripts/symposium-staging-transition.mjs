@@ -3,6 +3,7 @@
 import process from 'node:process';
 import console from 'node:console';
 import { join, dirname, relative } from 'node:path';
+import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import {
   constants,
@@ -21,6 +22,7 @@ import {
   unlinkSync,
 } from 'node:fs';
 import { fingerprintDirectory, assertVisibleTrackedIndex } from './lib/staging-files.mjs';
+import { assertStageRegistration, registrationDigest } from './lib/staging-registration.mjs';
 import { createHash, randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { setTimeout } from 'node:timers/promises';
@@ -48,6 +50,7 @@ const lockPath = join(service, 'deployment.lock'),
 const intentPath = join(owned, 'transition.json'),
   topologyPath = join(service, 'topology.json');
 const controllerRoot = dirname(dirname(fileURLToPath(import.meta.url)));
+const legacyPath = join(homedir(), 'Library/LaunchAgents/com.mitzo.staging.plist');
 const env = {
   PATH: '/opt/homebrew/bin:/usr/bin:/bin',
   HOME: join(root, 'home'),
@@ -135,10 +138,20 @@ function portPids(port) {
 function jobPid() {
   const text = run('/bin/launchctl', ['print', job]);
   const registration = text.match(/^\s*path = (.+)$/m)?.[1]?.trim();
-  if (registration !== join(service, 'com.mitzo.staging.plist'))
-    throw Error('Original launchd control path changed');
   const m = text.match(/^\s*pid = (\d+)$/m);
-  return m ? Number(m[1]) : null;
+  const pid = m ? Number(m[1]) : null;
+  assertStageRegistration({
+    registered: registration,
+    canonical: join(service, 'com.mitzo.staging.plist'),
+    legacy: legacyPath,
+    qualification:
+      registration === legacyPath
+        ? readCanonicalPrivateJson(join(service, 'legacy-qualification.json'))
+        : undefined,
+    pid,
+    birth: registration === legacyPath && pid ? observeCanonicalProcess(pid).birth : null,
+  });
+  return pid;
 }
 function observe() {
   const pid = jobPid();
@@ -456,6 +469,13 @@ try {
       cwd: live.cwd,
     };
   assertOrdinaryOwner(original, live);
+  const registration = run('/bin/launchctl', ['print', job])
+    .match(/^\s*path = (.+)$/m)?.[1]
+    ?.trim();
+  const legacyRegistration =
+    registration === legacyPath
+      ? { path: legacyPath, sha256: registrationDigest(legacyPath) }
+      : null;
   if (command === 'prepare') {
     exclusive(
       intentPath,
@@ -467,6 +487,7 @@ try {
         target,
         expected,
         original,
+        legacyRegistration,
         inputs,
         ordinaryFiles: ordinaryFiles(),
         receiptSha256: hash(bytes(receiptPath)),
@@ -497,6 +518,7 @@ try {
         intent.target !== target ||
         JSON.stringify(intent.controller) !== JSON.stringify(controller) ||
         intent.expected !== expected ||
+        JSON.stringify(intent.legacyRegistration ?? null) !== JSON.stringify(legacyRegistration) ||
         hash(bytes(receiptPath)) !== intent.receiptSha256 ||
         JSON.stringify(candidate.inputs) !== JSON.stringify(intent.inputs) ||
         JSON.stringify(ordinaryFiles()) !== JSON.stringify(intent.ordinaryFiles)
@@ -589,6 +611,14 @@ try {
             cpSync(join(root, name), out, { errorOnExist: true, force: false });
           }
           exclusive(join(backup, 'stopped-original.json'), JSON.stringify(intent) + '\n');
+          if (intent.legacyRegistration) {
+            if (
+              intent.legacyRegistration.path !== legacyPath ||
+              registrationDigest(legacyPath) !== intent.legacyRegistration.sha256
+            )
+              throw Error('Original legacy registration changed before preservation');
+            exclusive(join(backup, 'legacy-registration.plist'), bytes(legacyPath));
+          }
         },
         async install() {
           if (
@@ -616,6 +646,17 @@ try {
           renameSync(temporary, join(root, 'bin/staging.mjs'));
           syncParent(temporary);
           run('/bin/launchctl', ['bootout', job]);
+          if (intent.legacyRegistration) {
+            if (
+              intent.legacyRegistration.path !== legacyPath ||
+              registrationDigest(legacyPath) !== intent.legacyRegistration.sha256 ||
+              hash(bytes(join(backup, 'legacy-registration.plist'))) !==
+                intent.legacyRegistration.sha256
+            )
+              throw Error('Original legacy registration changed before retirement');
+            unlinkSync(legacyPath);
+            syncParent(legacyPath);
+          }
           const tmp = join(service, 'com.mitzo.staging.plist.' + intent.id);
           exclusive(tmp, bytes(join(owned, 'staging-custodian.plist')));
           renameSync(tmp, join(service, 'com.mitzo.staging.plist'));
