@@ -34,6 +34,7 @@ import {
 import { createGithubPublicationOperatorRouter } from './github-publication-operator-router.js';
 import { createKnowledgeLibraryRouter } from './knowledge-library-router.js';
 import { knowledgeLibraryFromEnvironment } from './knowledge-library-runtime.js';
+import { createKnowledgeLibraryLoader } from './knowledge-library-loader.js';
 import { requestOperatorGithubPublication } from './github-publishing-tool.js';
 import { createCredentialConnectionsRouter } from './credential-connections-router.js';
 import { bindConnectionSetupApplication } from './credential-setup-application.js';
@@ -531,17 +532,15 @@ app.post(
 );
 app.use(express.json({ limit: '10mb' }));
 
-let knowledgeLibrary: ReturnType<typeof knowledgeLibraryFromEnvironment> | undefined;
-function getKnowledgeLibraryRuntime() {
-  knowledgeLibrary ??= knowledgeLibraryFromEnvironment(process.env, {
+const getKnowledgeLibraryRuntime = createKnowledgeLibraryLoader(() =>
+  knowledgeLibraryFromEnvironment(process.env, {
     workspaceRoots: [
       BASE_REPO,
       ...Object.values(getRepoConfig().repos),
       ...getRepoConfig().allowedPaths,
     ].filter(Boolean),
-  });
-  return knowledgeLibrary;
-}
+  }),
+);
 app.use(
   '/api/knowledge',
   operatorAuthMiddleware,
