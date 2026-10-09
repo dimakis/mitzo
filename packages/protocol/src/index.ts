@@ -253,4 +253,5 @@ export type {
   PhilosophyQuote,
   DailyQuote,
   BriefingSnapshot,
+  BriefingChatBinding,
 } from './home.js';
