@@ -255,7 +255,7 @@ describe('SymposiumConversation', () => {
         ordinaryComposer={<button>Ordinary send</button>}
       />,
     );
-    fireEvent.click(await screen.findByRole('button', { name: 'Profiles and advanced guidance' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Reusable profile drafts' }));
     const instructions = await screen.findByRole('textbox', { name: 'Instructions' });
     expect(screen.getByText('Ordinary send')).toBeTruthy();
     expect(
@@ -323,7 +323,7 @@ describe('SymposiumConversation', () => {
       return json({ sessionId: 'session', config: null, seats: [] });
     });
     render(<SymposiumConversation sessionId="session" chat={chat} ordinaryComposer={null} />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Profiles and advanced guidance' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Reusable profile drafts' }));
     const save = await screen.findByRole('button', { name: 'Save reusable profile' });
     await waitFor(() => expect(save.hasAttribute('disabled')).toBe(false));
     fireEvent.click(save);
@@ -353,12 +353,42 @@ describe('SymposiumConversation', () => {
       ),
     );
     render(<SymposiumConversation sessionId="session" chat={chat} ordinaryComposer={null} />);
-    await screen.findByRole('button', { name: 'Profiles and advanced guidance' });
+    await screen.findByRole('button', { name: 'Reusable profile drafts' });
     expect(
       vi.mocked(apiFetch).mock.calls.some(([url]) => String(url).includes('/profile-proposals')),
     ).toBe(false);
     expect(screen.queryByText(/Codex-backed agent/)).toBeNull();
     expect(screen.queryByRole('complementary', { name: 'Reusable profile drafts' })).toBeNull();
+  });
+
+  it('opens a useful empty drafts panel and collapses it without affecting the composer', async () => {
+    vi.mocked(apiFetch).mockImplementation(async (url) =>
+      json(
+        String(url).includes('/profile-proposals')
+          ? []
+          : { sessionId: 'session', config: null, seats: [] },
+      ),
+    );
+    render(
+      <SymposiumConversation
+        sessionId="session"
+        chat={chat}
+        ordinaryComposer={<button>Ordinary send</button>}
+      />,
+    );
+    const toggle = await screen.findByRole('button', { name: 'Reusable profile drafts' });
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
+    const panel = await screen.findByRole('complementary', { name: 'Reusable profile drafts' });
+    expect(toggle.getAttribute('aria-controls')).toBe(panel.id);
+    await within(panel).findByText('No profile drafts in this chat yet.');
+    expect(within(panel).getByText(/Ask Mitzo to draft a reusable agent profile/)).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Ordinary send' })).toBeTruthy();
+    expect(vi.mocked(apiFetch).mock.calls.some(([, init]) => init?.method)).toBe(false);
+    fireEvent.click(toggle);
+    expect(screen.queryByRole('complementary', { name: 'Reusable profile drafts' })).toBeNull();
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
   });
 
   it('reuses a seat draft save key when retrying an uncertain response', async () => {
@@ -451,7 +481,7 @@ describe('SymposiumConversation', () => {
     expect(
       screen.queryByRole('button', { name: 'Draft reusable profile from this seat' }),
     ).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'Profiles and advanced guidance' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Reusable profile drafts' }));
     fireEvent.click(
       await screen.findByRole('button', { name: 'Draft reusable profile from this seat' }),
     );

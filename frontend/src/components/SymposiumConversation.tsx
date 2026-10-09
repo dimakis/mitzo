@@ -14,6 +14,7 @@ import { SeatLabel } from './SeatLabel';
 import {
   useCallback,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -146,6 +147,7 @@ export function SymposiumConversation({
   const [statusFresh, setStatusFresh] = useState(false);
   const [selected, setSelected] = useState('all');
   const [profilesOpen, setProfilesOpen] = useState(false);
+  const profilesPanelId = useId();
   const [page, setPage] = useState<PerspectivePage>({ items: [], nextSeq: null, queued: [] });
   const [pageFor, setPageFor] = useState('');
   const [error, setError] = useState('');
@@ -577,11 +579,19 @@ export function SymposiumConversation({
             <button
               type="button"
               aria-expanded={profilesOpen}
-              onClick={() => setProfilesOpen(!profilesOpen)}
+              aria-controls={profilesOpen ? profilesPanelId : undefined}
+              onClick={() => setProfilesOpen((open) => !open)}
             >
-              Profiles and advanced guidance
+              Reusable profile drafts
+              <UiIcon name={profilesOpen ? 'up' : 'down'} />
             </button>
-            {profilesOpen && <SymposiumProfileProposals key={sessionId} sessionId={sessionId} />}
+            {profilesOpen && (
+              <SymposiumProfileProposals
+                key={sessionId}
+                id={profilesPanelId}
+                sessionId={sessionId}
+              />
+            )}
           </div>
         )}
         {ordinaryComposer}
@@ -604,9 +614,11 @@ export function SymposiumConversation({
         <button
           type="button"
           aria-expanded={profilesOpen}
-          onClick={() => setProfilesOpen(!profilesOpen)}
+          aria-controls={profilesOpen ? profilesPanelId : undefined}
+          onClick={() => setProfilesOpen((open) => !open)}
         >
-          Profiles and advanced guidance
+          Reusable profile drafts
+          <UiIcon name={profilesOpen ? 'up' : 'down'} />
         </button>
         {profilesOpen && (
           <>
@@ -626,6 +638,7 @@ export function SymposiumConversation({
             {sessionId && (
               <SymposiumProfileProposals
                 key={sessionId}
+                id={profilesPanelId}
                 sessionId={sessionId}
                 seatSeed={seatSeed}
                 onSeatSeedDone={() => setSeatSeed(null)}
