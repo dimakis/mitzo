@@ -13,6 +13,30 @@ async function expectSource(source: Locator, value: string) {
   await expect.poll(() => sourceText(source)).toBe(value);
 }
 
+async function selectKnowledgeDocument(page: Page, path: string) {
+  const ancestors = path.split('/').slice(0, -1);
+  for (let index = 0; index < ancestors.length; index++) {
+    const folder = page.getByRole('button', {
+      name: `Folder ${ancestors.slice(0, index + 1).join('/')}`,
+      exact: true,
+    });
+    await expect(folder).toBeVisible();
+    if ((await folder.getAttribute('aria-expanded')) === 'false') await folder.click();
+  }
+  const row = page.locator('.knowledge-tree-row').filter({
+    has: page.getByRole('button', { name: `Options for ${path}`, exact: true }),
+  });
+  await row.locator('.knowledge-tree-entry').click();
+}
+
+async function editKnowledgeDocument(page: Page, path: string, title: string) {
+  await selectKnowledgeDocument(page, path);
+  await expect(page.getByRole('article', { name: title, exact: true })).toBeVisible();
+  await expect(page.getByRole('textbox', { name: 'Document source' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Edit', exact: true }).click();
+  await expect(page.getByRole('textbox', { name: 'Document source' })).toBeVisible();
+}
+
 async function mockDocument(page: Page, content: string) {
   const writes: Record<string, unknown>[] = [];
   await page.routeWebSocket('**/*', (socket) => socket.close());
@@ -479,6 +503,8 @@ test('Knowledge edits and saves its working copy with usable source, preview and
         json: {
           revision: 'r1',
           documents: [{ path: 'hub/principles.md', title: 'Working principles', area: 'Hub' }],
+          directories: ['hub'],
+          documentPaths: ['hub'],
           drafts: [],
           reviewEnabled: false,
           acceptanceEnabled: false,
@@ -512,7 +538,7 @@ test('Knowledge edits and saves its working copy with usable source, preview and
     return route.fulfill({ json: {} });
   });
   await page.goto('/knowledge');
-  await page.getByRole('button', { name: /Working principles/ }).click();
+  await editKnowledgeDocument(page, 'hub/principles.md', 'Working principles');
   const source = page.getByRole('textbox', { name: 'Document source' });
   if (isMobile) await expect(source).toHaveJSProperty('tagName', 'TEXTAREA');
   else await expect(source).toHaveAttribute('contenteditable', 'true');
@@ -559,6 +585,8 @@ test('adopting a same-content saved Knowledge draft clears obsolete Vim undo his
         json: {
           revision: 'r1',
           documents: [{ path, title: 'Working principles', area: 'Hub' }],
+          directories: ['hub'],
+          documentPaths: ['hub'],
           drafts: [],
           reviewEnabled: false,
           acceptanceEnabled: false,
@@ -584,7 +612,7 @@ test('adopting a same-content saved Knowledge draft clears obsolete Vim undo his
     return route.fulfill({ json: {} });
   });
   await page.goto('/knowledge');
-  await page.getByRole('button', { name: /Working principles/ }).click();
+  await editKnowledgeDocument(page, 'hub/principles.md', 'Working principles');
   const source = page.getByRole('textbox', { name: 'Document source' });
   await source.fill(content);
   await expect(page.getByRole('button', { name: 'Undo', exact: true })).toBeEnabled();
@@ -731,6 +759,8 @@ test('fullscreen Knowledge comparisons scroll independently and preserve space f
   const catalog = () => ({
     revision: comparing ? 'r2' : 'r1',
     documents,
+    directories: ['hub', 'teams'],
+    documentPaths: ['hub', 'teams'],
     drafts: [],
     reviewEnabled: false,
     acceptanceEnabled: false,
@@ -775,11 +805,11 @@ test('fullscreen Knowledge comparisons scroll independently and preserve space f
     return route.fulfill({ json: {} });
   });
   await page.goto('/knowledge');
-  await page.getByRole('button', { name: /Working principles/ }).click();
+  await editKnowledgeDocument(page, 'hub/principles.md', 'Working principles');
   const source = page.getByRole('textbox', { name: 'Document source' });
   await source.fill('# My principles draft');
   await page.getByRole('button', { name: '+ Add document', exact: true }).click();
-  await page.getByRole('button', { name: /Release process/ }).click();
+  await selectKnowledgeDocument(page, 'teams/release.md');
   await source.fill('# My release draft');
   await page.getByRole('button', { name: 'Fullscreen', exact: true }).click();
   const modal = page.getByRole('dialog', { name: 'Fullscreen document editor' });
