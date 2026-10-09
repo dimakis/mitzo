@@ -18,11 +18,18 @@ const fontShorthand = new RegExp(
 
 const ownedTokens = new Set([...css.matchAll(/(--[\w-]+):/g)].map((match) => match[1]));
 
-type InlineStyle = { property: string; value: string | null };
+type InlineStyle = { property: string; value: string | null; styleContext: boolean };
 
 function literalStyleValue(node: ts.Node): string | null {
   if (ts.isStringLiteralLike(node) || ts.isNumericLiteral(node)) return node.text;
-  if (ts.isParenthesizedExpression(node)) return literalStyleValue(node.expression);
+  if (
+    ts.isParenthesizedExpression(node) ||
+    ts.isAsExpression(node) ||
+    ts.isTypeAssertionExpression(node) ||
+    ts.isSatisfiesExpression(node) ||
+    ts.isNonNullExpression(node)
+  )
+    return literalStyleValue(node.expression);
   if (ts.isPrefixUnaryExpression(node) && ts.isNumericLiteral(node.operand)) return node.getText();
   if (ts.isTemplateExpression(node)) {
     return (
@@ -37,6 +44,53 @@ function literalStyleValue(node: ts.Node): string | null {
   return null;
 }
 
+function literalStyleAlternatives(node: ts.Node): string[] {
+  if (
+    ts.isParenthesizedExpression(node) ||
+    ts.isAsExpression(node) ||
+    ts.isTypeAssertionExpression(node) ||
+    ts.isSatisfiesExpression(node) ||
+    ts.isNonNullExpression(node)
+  )
+    return literalStyleAlternatives(node.expression);
+  if (ts.isConditionalExpression(node))
+    return [
+      ...literalStyleAlternatives(node.whenTrue),
+      ...literalStyleAlternatives(node.whenFalse),
+    ];
+  if (ts.isBinaryExpression(node)) {
+    const left = literalStyleAlternatives(node.left);
+    const right = literalStyleAlternatives(node.right);
+    if (node.operatorToken.kind === ts.SyntaxKind.PlusToken) {
+      if (!left.length && !right.length) return [];
+      return (left.length ? left : ['__dynamic_style__']).flatMap((a) =>
+        (right.length ? right : ['__dynamic_style__']).map((b) => a + b),
+      );
+    }
+    if (
+      [
+        ts.SyntaxKind.BarBarToken,
+        ts.SyntaxKind.AmpersandAmpersandToken,
+        ts.SyntaxKind.QuestionQuestionToken,
+      ].includes(node.operatorToken.kind)
+    )
+      return [...left, ...right];
+  }
+  const value = literalStyleValue(node);
+  return value === null ? [] : [value];
+}
+
+function isStyleContext(node: ts.Node): boolean {
+  for (let parent = node.parent; parent; parent = parent.parent) {
+    if (ts.isJsxAttribute(parent) && parent.name.getText() === 'style') return true;
+    if (ts.isVariableDeclaration(parent) && /style/i.test(parent.name.getText())) return true;
+    if (ts.isAsExpression(parent) && /CSSProperties/.test(parent.type.getText())) return true;
+    if (ts.isPropertyAssignment(parent) && parent.name.getText().replace(/['"]/g, '') === 'style')
+      return true;
+  }
+  return false;
+}
+
 function styleSources(source: string, filename: string): { css: string[]; inline: InlineStyle[] } {
   if (filename.endsWith('.css')) return { css: [source], inline: [] };
   const css: string[] = [];
@@ -49,7 +103,9 @@ function styleSources(source: string, filename: string): { css: string[]; inline
       ts.isPropertyAssignment(node) &&
       (ts.isIdentifier(node.name) || ts.isStringLiteralLike(node.name))
     ) {
-      inline.push({ property: node.name.text, value: literalStyleValue(node.initializer) });
+      const values = literalStyleAlternatives(node.initializer);
+      for (const value of values.length ? values : [null])
+        inline.push({ property: node.name.text, value, styleContext: isStyleContext(node) });
     }
     ts.forEachChild(node, visit);
   };
@@ -87,10 +143,17 @@ function styleViolations(source: string, filename = 'component.css'): string[] {
       if (!allowed.test(font[2].trim())) violations.push('font stack');
     }
   }
-  for (const { property, value } of sources.inline) {
+  for (const { property, value, styleContext } of sources.inline) {
     if (ownedTokens.has(property) && (value === null || !/^(var|color-mix)\(/.test(value.trim())))
       violations.push(`inline token override: ${property}`);
     if (value !== null && (property === 'fontFamily' || property === 'font')) {
+      // A preference DTO's `font: 'system'` is data, not a CSS shorthand.
+      if (
+        property === 'font' &&
+        !styleContext &&
+        !/\s|var\(|^(?:inherit|caption|icon|menu|message-box|small-caption|status-bar)$/.test(value)
+      )
+        continue;
       const allowed = property === 'font' ? fontShorthand : fontFamily;
       if (!allowed.test(value.trim())) violations.push('inline font stack');
     }
@@ -199,6 +262,24 @@ describe('design tokens', () => {
     it('exempts only the canonical token file, not feature token files', () => {
       expect(isGuardedSource(resolve(__dirname, '../tokens.css'))).toBe(false);
       expect(isGuardedSource(resolve(__dirname, '../../features/reports/tokens.css'))).toBe(true);
+    });
+
+    it.each([
+      "const element = <div style={{ fontFamily: selected ? 'Arial' : 'Georgia' }} />;",
+      "const element = <div style={{ fontFamily: ('Arial' as const) }} />;",
+      "const element = <div style={{ fontFamily: fallback ?? 'Arial' }} />;",
+      "const element = <div style={{ fontFamily: 'Arial,' + fallback }} />;",
+    ])('rejects fonts hidden in expression branches: %s', (source) => {
+      expect(styleViolations(source, 'page.tsx')).toContain('inline font stack');
+    });
+
+    it('allows conditional token fonts', () => {
+      expect(
+        styleViolations(
+          "const element = <div style={{ fontFamily: selected ? 'var(--font-ui)' : 'var(--font-mono)' }} />;",
+          'page.tsx',
+        ),
+      ).toEqual([]);
     });
 
     it('allows token-based shorthand size and family', () => {
