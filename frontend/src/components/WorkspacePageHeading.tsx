@@ -7,6 +7,7 @@ interface WorkspacePageHeadingProps {
   className?: string;
   badge?: number;
   actions?: ReactNode;
+  titleAccessory?: ReactNode;
 }
 
 export function WorkspacePageHeading({
@@ -16,15 +17,26 @@ export function WorkspacePageHeading({
   className = '',
   badge,
   actions,
+  titleAccessory,
 }: WorkspacePageHeadingProps) {
   return (
     <header className={`workspace-page-heading${className ? ` ${className}` : ''}`}>
       {eyebrow && <p className="workspace-eyebrow">{eyebrow}</p>}
       <div className="workspace-title-row">
-        <h1>
-          {title}
-          {!!badge && <span className="workspace-count">{badge}</span>}
-        </h1>
+        {titleAccessory ? (
+          <div className="workspace-title-with-accessory">
+            <h1>
+              {title}
+              {!!badge && <span className="workspace-count">{badge}</span>}
+            </h1>
+            {titleAccessory}
+          </div>
+        ) : (
+          <h1>
+            {title}
+            {!!badge && <span className="workspace-count">{badge}</span>}
+          </h1>
+        )}
         {actions && <div className="workspace-heading-actions">{actions}</div>}
       </div>
       {description && <p className="workspace-muted">{description}</p>}

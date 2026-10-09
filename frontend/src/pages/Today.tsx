@@ -1,7 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { useSessionList } from '../hooks/useSessionList';
-import { useAttentionFeed } from '../hooks/useAttentionFeed';
+import { useSessionSearch } from '../hooks/useSessionSearch';
+import { useHomePreferences } from '../hooks/useHomePreferences';
+import { HomePins } from '../components/HomePins';
+import { DailyQuoteLink } from '../components/DailyQuoteLink';
+import { recordTitle } from '../lib/record-title';
+import '../styles/home.css';
 import { formatRelativeTime } from '../lib/formatTime';
 import { formatTokens } from '../lib/formatTokens';
 import { apiFetch } from '../lib/api-fetch';
@@ -21,11 +26,10 @@ function localDate(date: Date): string {
 }
 
 export function Today() {
-  const navigate = useNavigate();
   const { sessions, loading, error: sessionsError, retry: retrySessions } = useSessionList();
-  const attention = useAttentionFeed();
+  const search = useSessionSearch();
+  const home = useHomePreferences();
   const [now, setNow] = useState(() => new Date());
-  const [prompt, setPrompt] = useState('');
   const [showTokens, setShowTokens] = useState(
     () => localStorage.getItem(TOKEN_PREFERENCE) === 'true',
   );
@@ -63,23 +67,7 @@ export function Today() {
       window.clearInterval(timer);
     };
   }, [today]);
-  const hour = now.getHours();
-  const period =
-    hour >= 5 && hour < 12 ? 'morning' : hour >= 12 && hour < 18 ? 'afternoon' : 'evening';
-  const heading =
-    period === 'morning'
-      ? 'Start with what matters.'
-      : period === 'afternoon'
-        ? 'Make room for what matters.'
-        : 'A little clarity for tomorrow.';
-  // TELOS age-derived urgency alone is not a reason to put a record in focus.
-  const focus = attention.items
-    .filter((item) => item.source !== 'telos' || item.pinned)
-    .slice(0, 3);
-  const recent = [...sessions].sort((a, b) => b.lastModified - a.lastModified).slice(0, 2);
-  const briefing = new URLSearchParams({
-    prompt: `Prepare my ${period} briefing — review calendar, email highlights and Jira. Distinguish unavailable sources from no changes.`,
-  });
+  const recent = [...sessions].sort((a, b) => b.lastModified - a.lastModified).slice(0, 3);
   return (
     <main className="workspace-page today-page">
       <WorkspacePageHeading
@@ -89,155 +77,136 @@ export function Today() {
           month: 'long',
           day: 'numeric',
         })}
-        title={heading}
-        description="A clear place to pick up your day."
+        title="Today"
+        titleAccessory={<DailyQuoteLink date={today} />}
+        actions={
+          <Link className="home-secondary" to="/chat">
+            New session <span aria-hidden="true">＋</span>
+          </Link>
+        }
       />
-      <div className="today-grid">
-        <div>
-          <section className="today-brief" aria-labelledby="brief-title">
-            <p className="workspace-eyebrow">Your {period}</p>
-            <h2 id="brief-title">Get your bearings</h2>
-            <p>Review changes across calendar, email and Jira.</p>
-            <p className="workspace-muted">
-              {briefingResult
-                ? `Briefing prepared at ${new Date(briefingResult.generatedAt).toLocaleTimeString(
-                    [],
-                    {
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    },
-                  )}.`
-                : 'Sources haven’t been checked here yet.'}
-            </p>
-            <div className="workspace-actions">
-              {briefingResult ? (
-                <Link
-                  className="workspace-primary"
-                  to={`/files?${new URLSearchParams({ path: briefingResult.path, from: '/' })}`}
-                >
-                  Open briefing
-                </Link>
-              ) : (
-                <Link className="workspace-primary" to={`/chat?${briefing}`}>
-                  Prepare my briefing
-                </Link>
-              )}
-              {briefingResult && <Link to={`/chat?${briefing}`}>Prepare another</Link>}
-              <Link to="/calendar">Open calendar</Link>
-            </div>
-          </section>
-          <section aria-labelledby="focus-title" className="today-section">
-            <div className="workspace-section-heading">
-              <h2 id="focus-title">Your focus</h2>
-              <Link to="/focus">View attention</Link>
-            </div>
-            {attention.loading ? (
-              <p role="status">Loading focus…</p>
-            ) : focus.length === 0 ? (
-              <p className="workspace-muted">
-                No focus items to show. Choose your next step in <Link to="/todos">Work</Link>.
-              </p>
-            ) : (
-              focus.map((item) => (
-                <Link className="workspace-record" key={item.id} to={item.navigateTo}>
-                  <span>
-                    <strong>{item.title}</strong>
-                    <small>
-                      {item.pinned
-                        ? 'Pinned in TELOS'
-                        : item.source === 'atb'
-                          ? 'Agent work'
-                          : 'Session'}{' '}
-                      · {item.meta}
-                    </small>
-                  </span>
-                  <span aria-hidden="true">↗</span>
-                </Link>
-              ))
-            )}
-            <Link className="workspace-text-link" to="/todos">
-              All work →
-            </Link>
-          </section>
-        </div>
-        <section className="today-section today-recent" aria-labelledby="recent-title">
-          <div className="workspace-section-heading">
-            <h2 id="recent-title">Pick up where you left off</h2>
-          </div>
-          {loading ? (
-            <p role="status">Loading recent chats…</p>
-          ) : sessionsError ? (
+      <label className="home-search today-search">
+        Search sessions and messages
+        <input
+          type="search"
+          value={search.query}
+          onChange={(event) => search.setQuery(event.target.value)}
+          placeholder="Find a conversation or something you said…"
+        />
+      </label>
+      {search.active ? (
+        <section className="today-section" aria-labelledby="today-search-title">
+          <h2 id="today-search-title">Search results</h2>
+          {search.searching ? (
+            <p role="status">Searching…</p>
+          ) : search.error ? (
             <div className="workspace-load-error" role="alert">
-              <span>{sessionsError}</span>
-              <button type="button" onClick={retrySessions}>
+              <span>{search.error}</span>
+              <button type="button" onClick={search.retry}>
                 Try again
               </button>
             </div>
-          ) : recent.length === 0 ? (
-            <p className="workspace-muted">Your conversations will appear here.</p>
-          ) : (
-            recent.map((session) => (
-              <Link className="workspace-record" key={session.id} to={`/chat/${session.id}`}>
+          ) : search.results.length ? (
+            search.results.map((result) => (
+              <Link
+                className="workspace-record home-record"
+                key={result.sessionId}
+                to={`/chat/${encodeURIComponent(result.sessionId)}`}
+              >
                 <span>
-                  <strong>{session.summary || 'Untitled session'}</strong>
-                  <small>
-                    {session.isActive ? 'Active · ' : ''}
-                    {formatRelativeTime(session.lastModified)}
-                  </small>
-                  {showTokens && session.totalTokens != null && (
-                    <small className="workspace-tokens">
-                      {formatTokens(session.totalTokens)} tokens · session
-                    </small>
-                  )}
+                  <strong>{recordTitle(result.summary || 'Untitled session')}</strong>
+                  <small>{result.snippet}</small>
                 </span>
                 <span aria-hidden="true">↗</span>
               </Link>
             ))
+          ) : (
+            <p className="workspace-muted">No matching sessions or messages.</p>
           )}
-          <Link className="workspace-text-link" to="/sessions">
-            All chats →
-          </Link>
-          <label className="today-token-toggle">
-            <input
-              type="checkbox"
-              checked={showTokens}
-              onChange={(event) => {
-                setShowTokens(event.target.checked);
-                localStorage.setItem(TOKEN_PREFERENCE, String(event.target.checked));
-              }}
-            />
-            Show session tokens on Today
-          </label>
         </section>
-      </div>
-      <form
-        className="today-composer"
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (prompt.trim()) navigate(`/chat?${new URLSearchParams({ prompt: prompt.trim() })}`);
-        }}
-      >
-        <label htmlFor="today-prompt" className="workspace-eyebrow">
-          Ask Mitzo
-        </label>
-        <div>
-          <input
-            id="today-prompt"
-            value={prompt}
-            onChange={(event) => setPrompt(event.target.value)}
-            placeholder="What would you like to move forward?"
-          />
-          <button
-            type="submit"
-            className="workspace-primary"
-            disabled={!prompt.trim()}
-            aria-label="Start chat"
-          >
-            Send ↗
-          </button>
+      ) : (
+        <div className="today-home-grid">
+          <div>
+            <HomePins sessions={sessions} />
+            <section className="today-section" aria-labelledby="recent-title">
+              <div className="workspace-section-heading">
+                <h2 id="recent-title">Recent sessions</h2>
+                <Link to="/sessions">All sessions</Link>
+              </div>
+              {loading ? (
+                <p role="status">Loading recent chats…</p>
+              ) : sessionsError ? (
+                <div className="workspace-load-error" role="alert">
+                  <span>{sessionsError}</span>
+                  <button type="button" onClick={retrySessions}>
+                    Try again
+                  </button>
+                </div>
+              ) : recent.length === 0 ? (
+                <p className="workspace-muted">Your conversations will appear here.</p>
+              ) : (
+                recent.map((session) => (
+                  <Link
+                    className="workspace-record home-record"
+                    key={session.id}
+                    to={`/chat/${encodeURIComponent(session.id)}`}
+                  >
+                    <span>
+                      <strong>{recordTitle(session.summary || 'Untitled session')}</strong>
+                      <small>
+                        {session.isActive ? 'Active · ' : ''}
+                        {formatRelativeTime(session.lastModified)}
+                      </small>
+                      {showTokens && session.totalTokens != null && (
+                        <small className="workspace-tokens">
+                          {formatTokens(session.totalTokens)} tokens · session
+                        </small>
+                      )}
+                    </span>
+                    <span aria-hidden="true">↗</span>
+                  </Link>
+                ))
+              )}
+              <label className="today-token-toggle">
+                <input
+                  type="checkbox"
+                  checked={showTokens}
+                  onChange={(event) => {
+                    setShowTokens(event.target.checked);
+                    localStorage.setItem(TOKEN_PREFERENCE, String(event.target.checked));
+                  }}
+                />
+                Show session tokens on Today
+              </label>
+            </section>
+          </div>
+          <section className="today-brief home-brief" aria-labelledby="brief-title">
+            <p className="workspace-eyebrow">Your saved daily brief</p>
+            <h2 id="brief-title">Morning briefing</h2>
+            <p>Calendar updates, meeting context and the details worth a closer look.</p>
+            <p className="workspace-muted">
+              {briefingResult
+                ? `Briefing prepared at ${new Date(briefingResult.generatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.`
+                : 'No saved briefing for today yet.'}
+            </p>
+            <div className="workspace-actions">
+              {briefingResult && (
+                <>
+                  <Link className="home-secondary" to={`/briefings/${today}`}>
+                    Read briefing
+                  </Link>
+                  <Link className="workspace-text-link" to={`/briefings/${today}?ask=1`}>
+                    Ask {home.preferences?.names.briefing || 'Minion'}
+                  </Link>
+                </>
+              )}
+              <Link className="workspace-text-link" to="/calendar">
+                Open calendar
+              </Link>
+            </div>
+          </section>
         </div>
-        <Link to="/chat">Open a new chat</Link>
-      </form>
+      )}
     </main>
   );
 }
