@@ -1,3 +1,4 @@
+import { CredentialConnectionSetups, type ConnectionSetup } from './credential-setup.js';
 import { isDeepStrictEqual } from 'node:util';
 import {
   WebSocketConfigSchema,
@@ -21,83 +22,15 @@ import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import type { CredentialVault, VaultReference } from './keychain-vault.js';
 
-const header = z
-  .string()
-  .regex(/^[A-Za-z][A-Za-z0-9-]{0,63}$/)
-  .refine(
-    (name) =>
-      ![
-        'host',
-        'cookie',
-        'proxy-authorization',
-        'content-length',
-        'transfer-encoding',
-        'connection',
-        'content-type',
-        'accept',
-        'accept-encoding',
-      ].includes(name.toLowerCase()),
-    'Reserved authentication header',
-  );
-export const ConnectionAuthSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('bearer') }).strict(),
-  z
-    .object({
-      kind: z.literal('basic'),
-      username: z
-        .string()
-        .min(1)
-        .max(256)
-        .regex(/^[^:\r\n]+$/),
-    })
-    .strict(),
-  z.object({ kind: z.literal('api-key'), headerName: header }).strict(),
-  z.object({ kind: z.literal('password'), headerName: header }).strict(),
-]);
-export const ConnectionInputSchema = z
-  .object({
-    label: z.string().trim().min(1).max(100),
-    serviceTemplate: z.enum(['custom', 'home-assistant']).optional(),
-    endpoint: z
-      .string()
-      .max(2048)
-      .refine((value) => {
-        try {
-          const u = new URL(value);
-          return (
-            u.protocol === 'https:' &&
-            !u.username &&
-            !u.password &&
-            u.pathname === '/' &&
-            !u.search &&
-            !u.hash &&
-            u.origin === value
-          );
-        } catch {
-          return false;
-        }
-      }, 'Use an HTTPS origin without a path, username or password'),
-    auth: ConnectionAuthSchema,
-    paths: z
-      .array(
-        z
-          .string()
-          .max(512)
-          .regex(/^\/[A-Za-z0-9_/-]*$/)
-          .refine((p) => !p.includes('//')),
-      )
-      .min(1)
-      .max(16),
-    methods: z
-      .array(z.enum(['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE']))
-      .min(1)
-      .max(6),
-    allowPrivateNetwork: z.boolean().default(false),
-    homeAssistantDashboards: DashboardAccessSchema.default('disabled'),
-    websocket: WebSocketConfigSchema.nullable().optional(),
-  })
-  .strict();
-export type CredentialConnectionInput = z.infer<typeof ConnectionInputSchema>;
+import {
+  ConnectionInputSchema,
+  type CredentialConnectionInput,
+} from './credential-connection-schema.js';
+export {
+  ConnectionInputSchema,
+  ConnectionAuthSchema,
+  type CredentialConnectionInput,
+} from './credential-connection-schema.js';
 export interface CredentialConnection extends CredentialConnectionInput {
   id: string;
   revision: number;
@@ -141,7 +74,8 @@ export class CredentialConnectionStore {
     this.db.pragma('journal_mode = WAL');
     this.db
       .exec(`CREATE TABLE IF NOT EXISTS credential_connections (id TEXT PRIMARY KEY, metadata TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS credential_connection_grants (session_id TEXT NOT NULL, connection_id TEXT NOT NULL, revision INTEGER NOT NULL, PRIMARY KEY(session_id, connection_id));`);
+      CREATE TABLE IF NOT EXISTS credential_connection_grants (session_id TEXT NOT NULL, connection_id TEXT NOT NULL, revision INTEGER NOT NULL, PRIMARY KEY(session_id, connection_id));
+      CREATE TABLE IF NOT EXISTS credential_connection_setups (id TEXT PRIMARY KEY, metadata TEXT NOT NULL);`);
   }
   get(id: string): CredentialConnection | undefined {
     const row = this.db
@@ -194,6 +128,38 @@ export class CredentialConnectionStore {
         'SELECT session_id AS sessionId, revision FROM credential_connection_grants WHERE connection_id=?',
       )
       .all(id) as Array<{ sessionId: string; revision: number }>;
+  }
+  deleteUnapproved(id: string, revision: number) {
+    return this.db.transaction(() => {
+      if (this.get(id)?.revision !== revision || this.grants(id).length) return false;
+      this.db.prepare('DELETE FROM credential_connections WHERE id=?').run(id);
+      return true;
+    })();
+  }
+  getSetup(id: string): ConnectionSetup | undefined {
+    const row = this.db
+      .prepare('SELECT metadata FROM credential_connection_setups WHERE id=?')
+      .get(id) as { metadata: string } | undefined;
+    return row ? JSON.parse(row.metadata) : undefined;
+  }
+  putSetup(setup: ConnectionSetup) {
+    this.db
+      .prepare('INSERT OR REPLACE INTO credential_connection_setups VALUES (?, ?)')
+      .run(setup.id, JSON.stringify(setup));
+  }
+  replaceSetupAtRevision(setup: ConnectionSetup, revision: number) {
+    return this.db.transaction(() => {
+      if (this.getSetup(setup.id)?.revision !== revision) return false;
+      this.putSetup(setup);
+      return true;
+    })();
+  }
+  listSetups(): ConnectionSetup[] {
+    return (
+      this.db.prepare('SELECT metadata FROM credential_connection_setups').all() as {
+        metadata: string;
+      }[]
+    ).map((row) => JSON.parse(row.metadata));
   }
   close() {
     this.db.close();
@@ -295,6 +261,7 @@ function credentialHeaders(
 }
 
 export class CredentialConnections {
+  readonly setups: CredentialConnectionSetups;
   private dashboardWrites = new Set<string>();
   private active = new Map<string, Set<AbortController>>();
   constructor(
@@ -303,7 +270,72 @@ export class CredentialConnections {
     private send: ConnectionSender,
     private sendDashboard: DashboardSender = sendDashboardRequest,
     private sendWebSocket: WebSocketSender = websocketRequest,
-  ) {}
+  ) {
+    this.setups = new CredentialConnectionSetups(
+      store,
+      (...args) => this.createVerified(...args),
+      async (id, revision) => {
+        const connection = this.store.get(id);
+        if (connection && this.store.deleteUnapproved(id, revision))
+          await this.removeUnusedCredential(connection.credentialRef);
+      },
+    );
+  }
+  private async createVerified(
+    input: CredentialConnectionInput,
+    secret: string,
+    path: string,
+    proof: (body: string) => boolean,
+    signal: AbortSignal,
+    stillAllowed: () => boolean,
+  ) {
+    const parsed = ConnectionInputSchema.parse(input);
+    const url = requestTarget(parsed, path);
+    const check = () => {
+      signal.throwIfAborted();
+      if (!stillAllowed()) throw new Error('Setup unavailable');
+    };
+    check();
+    const publicResponse = await this.send(
+      { url, method: 'GET', headers: {}, allowPrivateNetwork: parsed.allowPrivateNetwork },
+      signal,
+    );
+    check();
+    // A public success does not establish that the submitted credential works.
+    if (![401, 403].includes(publicResponse.status))
+      throw new Error('Protected verification endpoint required');
+    const response = await this.send(
+      {
+        url,
+        method: 'GET',
+        headers: credentialHeaders(parsed.auth, secret),
+        allowPrivateNetwork: parsed.allowPrivateNetwork,
+      },
+      signal,
+    );
+    check();
+    if (response.status < 200 || response.status >= 300 || !proof(response.body))
+      throw new Error('Authentication verification failed');
+    const id = randomUUID();
+    const credentialRef = await this.vault.save(id, secret);
+    try {
+      check();
+      const connection: CredentialConnection = {
+        ...parsed,
+        id,
+        revision: 1,
+        status: 'active',
+        credentialRef,
+        ownsCredential: true,
+        verifiedAt: Date.now(),
+      };
+      this.store.put(connection);
+      return publicCredentialConnection(connection);
+    } catch (error) {
+      await this.vault.remove(credentialRef).catch(() => {});
+      throw error;
+    }
+  }
   catalog(session?: string) {
     return this.store.list().map((c) => ({
       ...publicCredentialConnection(c),
