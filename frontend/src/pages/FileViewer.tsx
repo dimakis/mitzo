@@ -241,6 +241,7 @@ function FileViewerDocument() {
             )}
             urlTransform={artifactUrlTransform}
             fullscreenStatus={editorFeedback}
+            historyResetKey={editor.historyResetKey}
             content={editor.editContent}
             ext={state.ext}
             onChange={editor.handleEditChange}
