@@ -349,3 +349,72 @@ it('prompts for configured generic WebSocket scope and rejects model-selected de
     ).toBe(true);
   expect(websocketRequest).toHaveBeenCalledOnce();
 });
+
+it('shows the concrete request destination, methods and path prefixes in chat access approval', async () => {
+  const f = setup();
+  f.service.connection.mockReturnValue({
+    ...f.service.connection(),
+    paths: ['/api/', '/health/'],
+    methods: ['GET', 'HEAD', 'POST'],
+    homeAssistantDashboards: 'disabled',
+  });
+  await f.tools.execute(
+    'RequestConnectionAccess',
+    { connectionId: 'ha' },
+    new AbortController().signal,
+  );
+  const prompt = f.approve.mock.calls[0][2] as { description: string };
+  expect(prompt.description).toContain('Read and make changes');
+  expect(prompt.description).toContain('https://ha.example.com');
+  expect(prompt.description).toContain('Request methods: GET, HEAD, POST.');
+  expect(prompt.description).toContain('Path prefixes: /api/, /health/.');
+});
+
+it.each([
+  ['read', 'read only'],
+  ['read-write', 'read and update'],
+])(
+  'shows the exact %s Home Assistant dashboard scope in chat access approval',
+  async (access, label) => {
+    const f = setup();
+    f.service.connection.mockReturnValue({
+      ...f.service.connection(),
+      homeAssistantDashboards: access,
+    });
+    await f.tools.execute(
+      'RequestConnectionAccess',
+      { connectionId: 'ha' },
+      new AbortController().signal,
+    );
+    const prompt = f.approve.mock.calls[0][2] as { description: string };
+    expect(prompt.description).toContain(`Home Assistant dashboards: ${label} (${access}).`);
+  },
+);
+
+it('shows enabled WebSocket path and mutation risk without exposing its authentication recipe', async () => {
+  const f = setup();
+  f.service.connection.mockReturnValue({
+    ...f.service.connection(),
+    homeAssistantDashboards: 'disabled',
+    websocket: {
+      path: '/api/socket',
+      authentication: {
+        kind: 'json',
+        message: '{"type":"auth"}',
+        credentialField: 'access_token',
+        success: { field: 'type', equals: 'auth_ok' },
+      },
+    },
+  } as never);
+  await f.tools.execute(
+    'RequestConnectionAccess',
+    { connectionId: 'ha' },
+    new AbortController().signal,
+  );
+  const prompt = f.approve.mock.calls[0][2] as { description: string };
+  expect(prompt.description).toContain('Read and make changes');
+  expect(prompt.description).toContain(
+    'WebSocket commands at /api/socket may change service state.',
+  );
+  expect(prompt.description).not.toMatch(/authentication|access_token|auth_ok|credentialField/);
+});

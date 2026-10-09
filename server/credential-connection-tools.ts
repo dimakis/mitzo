@@ -78,6 +78,23 @@ export function createCredentialConnectionTools(
     )
       return { content: 'Connection is approved for this session', isError: false };
     const input = { connectionId, revision: c.revision };
+    const changesAllowed =
+      c.methods.some((method) => !['GET', 'HEAD'].includes(method)) ||
+      c.websocket ||
+      c.homeAssistantDashboards === 'read-write';
+    const scope = [
+      `${changesAllowed ? 'Read and make changes' : 'Read information'} at ${c.endpoint}.`,
+      `Request methods: ${c.methods.join(', ')}. Path prefixes: ${c.paths.join(', ')}.`,
+      ...(c.websocket
+        ? [`WebSocket commands at ${c.websocket.path} may change service state.`]
+        : []),
+      ...(['read', 'read-write'].includes(c.homeAssistantDashboards ?? 'disabled')
+        ? [
+            `Home Assistant dashboards: ${c.homeAssistantDashboards === 'read' ? 'read only' : 'read and update'} (${c.homeAssistantDashboards}).`,
+          ]
+        : []),
+      'Your key stays private. Access lasts only for this chat until you revoke it. Other chats ask separately.',
+    ].join(' ');
     const decision = await approve(
       'RequestConnectionAccess',
       { ...input },
@@ -87,7 +104,7 @@ export function createCredentialConnectionTools(
         forcePrompt: true,
         approvalScope: 'conversation',
         title: `Allow ${c.label} in this chat?`,
-        description: `${c.methods.some((method) => !['GET', 'HEAD'].includes(method)) || c.websocket || c.homeAssistantDashboards === 'read-write' ? 'Read and make changes' : 'Read information'} at ${c.endpoint}. Your key stays private. Access lasts only for this chat until you revoke it. Other chats ask separately.`,
+        description: scope,
       },
     );
     signal.throwIfAborted();
