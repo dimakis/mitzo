@@ -124,6 +124,13 @@ export function RepositoryChatPicker({
     setError('');
     callback.current({ blocked: true });
     try {
+      if (action === 'prepare' && workspace) {
+        try {
+          sessionStorage.setItem(storageKey, workspace.id);
+        } catch {
+          /* The current draft still retains its original operation ID. */
+        }
+      }
       const endpoint =
         action === 'preview'
           ? '/api/repository-workspaces/preview'
