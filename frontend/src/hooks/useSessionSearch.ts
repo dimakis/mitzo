@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import type { SessionSearchResult } from '../types/chat';
 import { apiFetch } from '../lib/api-fetch';
+import { eventBus } from '../lib/event-bus-singleton';
 
 export interface UseSessionSearchReturn {
   query: string;
@@ -60,6 +61,16 @@ export function useSessionSearch(): UseSessionSearchReturn {
       abortRef.current?.abort();
     };
   }, []);
+
+  useEffect(
+    () =>
+      eventBus.on('sessions_changed', () => {
+        if (!query.trim()) return;
+        clearTimeout(timerRef.current);
+        doSearch(query);
+      }),
+    [doSearch, query],
+  );
 
   const clear = useCallback(() => {
     setQueryState('');
