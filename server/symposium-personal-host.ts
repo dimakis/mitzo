@@ -223,7 +223,6 @@ export function createPersonalSubscriptionHost(
           check();
           const connection = connections.finishDiscoveryRecovery(id, revision);
           recoveries.delete(id);
-          if (result.status !== 'reconciliation_required') recoveries.delete(id);
           return { ...result, connection };
         } finally {
           recovering = false;
@@ -286,6 +285,7 @@ export function createPersonalSubscriptionHost(
             lease,
             result.status !== 'reconciliation_required',
           );
+          if (result.status !== 'reconciliation_required') recoveries.delete(id);
           return { ...result, connection };
         } catch {
           let released = false;
