@@ -1,5 +1,8 @@
 import { expect, it } from 'vitest';
-import { createOwnedRoutingProposal } from '../../scripts/lib/owned-stage-routing-proposal.mjs';
+import {
+  createOwnedRoutingProposal,
+  readOwnedRoutingArguments,
+} from '../../scripts/lib/owned-stage-routing-proposal.mjs';
 
 // Synthetic hashes only; this pure composer receives the source-selected build.
 const original = {
@@ -99,4 +102,21 @@ it('refuses a CLI hash mismatch, malformed supervisor identity or relative execu
       supervisorImage: 'latest',
     }),
   ).toThrow();
+});
+
+it('accepts only a complete exact known CLI argument pair before any provisioning', () => {
+  expect(readOwnedRoutingArguments({}, target.cliSha256)).toBeUndefined();
+  expect(
+    readOwnedRoutingArguments(
+      { '--routing-cli': '/public/cli', '--expected-routing-cli-sha': target.cliSha256 },
+      target.cliSha256,
+    ),
+  ).toEqual({ executable: '/public/cli', sha256: target.cliSha256 });
+  for (const args of [
+    { '--routing-cli': '/public/cli' },
+    { '--expected-routing-cli-sha': target.cliSha256 },
+    { '--routing-cli': 'relative', '--expected-routing-cli-sha': target.cliSha256 },
+    { '--routing-cli': '/public/cli', '--expected-routing-cli-sha': '9'.repeat(64) },
+  ])
+    expect(() => readOwnedRoutingArguments(args, target.cliSha256)).toThrow();
 });
