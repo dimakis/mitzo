@@ -1,3 +1,4 @@
+import process from 'node:process';
 import { describe, it, expect } from 'vitest';
 import Database from 'better-sqlite3';
 import {
@@ -260,6 +261,176 @@ it('an archive collision does not modify unrelated preserved evidence or release
     const db = new Database(join(f.root, 'registry/staging.db'), { readonly: true });
     expect(db.prepare('SELECT COUNT(*) AS n FROM launches').get().n).toBe(1);
     db.close();
+  } finally {
+    rmSync(f.root, { recursive: true, force: true });
+  }
+});
+
+import { vi } from 'vitest';
+import { prepareFreshRecovery } from '../../scripts/lib/staging-cold-control.mjs';
+import { validateRecoveryPlist } from '../../scripts/lib/staging-cold-plist.mjs';
+const osCalls = vi.hoisted(() => ({ run: vi.fn() }));
+vi.mock('node:child_process', async (original) => ({
+  ...(await original()),
+  spawnSync: osCalls.run,
+}));
+function freshFixture(f) {
+  const current = 'd'.repeat(40),
+    source = join(f.root, 'releases', current.slice(0, 12));
+  mkdirSync(source, { recursive: true, mode: 0o700 });
+  const configPath = join(f.root, 'host.json');
+  writeFileSync(configPath, JSON.stringify({ gateway: { port: 18990 } }), { mode: 0o600 });
+  f.s.plan.configPath = configPath;
+  f.s.configSha256 = hash(readFileSync(configPath));
+  // The archived audit binds this config; update its digest and database disposition consistently.
+  const archive = join(f.root, 'service/cold-refusals', f.s.operation),
+    saved = JSON.parse(readFileSync(join(archive, 'audit.json')));
+  saved.plan.configPath = configPath;
+  saved.configSha256 = f.s.configSha256;
+  const digest = hash(JSON.stringify(saved));
+  writeFileSync(join(archive, 'audit.json'), JSON.stringify(saved), { mode: 0o600 });
+  const record = JSON.parse(readFileSync(join(f.root, 'service/cold-recovery.json')));
+  record.auditSha256 = digest;
+  writeFileSync(join(f.root, 'service/cold-recovery.json'), JSON.stringify(record), {
+    mode: 0o600,
+  });
+  writeFileSync(join(f.root, 'service/deployment.lock'), JSON.stringify(saved.lock), {
+    mode: 0o600,
+  });
+  const db = new Database(join(f.root, 'registry/staging.db'));
+  db.exec('CREATE TABLE policy(id INTEGER,capacity INTEGER);INSERT INTO policy VALUES(1,1)');
+  db.prepare('UPDATE qualified_cold_refusals SET auditSha256=?').run(digest);
+  db.close();
+  const plan = {
+    releaseRoot: source,
+    sourceCommit: current,
+    acceptedMainBaseline: current,
+    planDirectory: f.owned,
+    configPath,
+    configSha256: f.s.configSha256,
+  };
+  const plist = {
+    Label: 'com.mitzo.staging',
+    ProgramArguments: [
+      process.execPath,
+      join(source, 'scripts/start-staging-custodian.mjs'),
+      join(f.owned, 'owned-release.json'),
+      join(f.root, 'symposium/settings/staging-registration.json'),
+      join(f.owned, 'staging-operator.json'),
+      '--canonical',
+    ],
+    EnvironmentVariables: { NODE_OPTIONS: '', NODE_PATH: '', DOTENV_CONFIG_PATH: '/dev/null' },
+    WorkingDirectory: source,
+    StandardOutPath: join(f.owned, 'owner.stdout.log'),
+    StandardErrorPath: join(f.owned, 'owner.stderr.log'),
+    KeepAlive: false,
+    RunAtLoad: false,
+    ExitTimeOut: 180,
+  };
+  mkdirSync(join(f.root, 'symposium/settings'), { recursive: true, mode: 0o700 });
+  writeFileSync(join(f.root, 'symposium/settings/staging-registration.json'), '{}', {
+    mode: 0o600,
+  });
+  for (const [name, value] of [
+    ['owned-release.json', plan],
+    ['staging-custodian.plist', plist],
+    ['staging-operator.json', {}],
+    ['empty-accounts.json', []],
+  ])
+    writeFileSync(join(f.owned, name), JSON.stringify(value), { mode: 0o600 });
+  saved.registrationSha256 = hash(readFileSync(join(f.root, 'service/com.mitzo.staging.plist')));
+  const d2 = hash(JSON.stringify(saved));
+  writeFileSync(join(archive, 'audit.json'), JSON.stringify(saved), { mode: 0o600 });
+  record.auditSha256 = d2;
+  writeFileSync(join(f.root, 'service/cold-recovery.json'), JSON.stringify(record), {
+    mode: 0o600,
+  });
+  const ddb = new Database(join(f.root, 'registry/staging.db'));
+  ddb.prepare('UPDATE qualified_cold_refusals SET auditSha256=?').run(d2);
+  ddb.close();
+  osCalls.run.mockImplementation((program, args) => {
+    if (program === '/bin/launchctl' && args[0] === 'print')
+      return {
+        status: 0,
+        stdout:
+          'path = ' +
+          join(f.root, 'service/com.mitzo.staging.plist') +
+          '\nstate = not running\nruns = 1\nlast exit code = 1',
+      };
+    if (program === '/usr/sbin/lsof') return { status: 1, stdout: '' };
+    if (program === '/usr/bin/plutil')
+      return { status: 0, stdout: readFileSync(args.at(-1), 'utf8') };
+    if (program === 'git') return { status: 0, stdout: current + ' refs/heads/main' };
+    return { status: 0, stdout: '' };
+  });
+  return {
+    current,
+    source,
+    plan,
+    plist,
+    tools: {
+      release: {
+        readOwnedReleasePlan: (p) => JSON.parse(readFileSync(p)),
+        verifyOwnedRelease: () => {},
+      },
+      service: {
+        assertCanonicalStagingService: () => {},
+        readStagingOperatorEnvironment: () => {},
+      },
+      verify: async () => ({ verified: true }),
+    },
+  };
+}
+it('actual cold recovery planning makes no control call and activation starts the same label once', async () => {
+  const f = filesystem();
+  try {
+    await prepareColdMetadata(f.root, f.sha, f.audit);
+    const t = freshFixture(f);
+    const result = await prepareFreshRecovery(f.root, t.source, t.current, false, t.tools);
+    expect(result.planned).toBe(true);
+    expect(
+      osCalls.run.mock.calls.filter(([p, a]) => p === '/bin/launchctl' && a[0] !== 'print'),
+    ).toEqual([]);
+    await prepareFreshRecovery(f.root, t.source, t.current, true, t.tools);
+    expect(
+      osCalls.run.mock.calls
+        .filter(([p, a]) => p === '/bin/launchctl' && a[0] !== 'print')
+        .map(([, a]) => a[0]),
+    ).toEqual(['bootout', 'bootstrap', 'kickstart']);
+    expect(existsSync(join(f.root, 'service/deployment.lock'))).toBe(true); // Only the separately tested owner verifier releases it.
+  } finally {
+    osCalls.run.mockReset();
+    rmSync(f.root, { recursive: true, force: true });
+  }
+});
+it('prepared plist drift refuses before bootout and preserves the lock', async () => {
+  const f = filesystem();
+  try {
+    await prepareColdMetadata(f.root, f.sha, f.audit);
+    const t = freshFixture(f);
+    t.plist.EnvironmentVariables.NODE_OPTIONS = '--import unreviewed';
+    writeFileSync(join(f.owned, 'staging-custodian.plist'), JSON.stringify(t.plist), {
+      mode: 0o600,
+    });
+    await expect(prepareFreshRecovery(f.root, t.source, t.current, false, t.tools)).rejects.toThrow(
+      'service changed',
+    );
+    expect(
+      osCalls.run.mock.calls.filter(([p, a]) => p === '/bin/launchctl' && a[0] !== 'print'),
+    ).toEqual([]);
+    expect(existsSync(join(f.root, 'service/deployment.lock'))).toBe(true);
+  } finally {
+    osCalls.run.mockReset();
+    rmSync(f.root, { recursive: true, force: true });
+  }
+});
+it('plist validation preserves exact environment, one service and two-stage command binding', () => {
+  const f = filesystem();
+  try {
+    const p = { releaseRoot: '/release' };
+    expect(() =>
+      validateRecoveryPlist(f.root, p, { Label: 'different' }, process.execPath),
+    ).toThrow();
   } finally {
     rmSync(f.root, { recursive: true, force: true });
   }

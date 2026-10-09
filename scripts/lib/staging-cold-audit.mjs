@@ -1,6 +1,7 @@
 import process from 'node:process';
 import { readFileSync, lstatSync, realpathSync, readdirSync } from 'node:fs';
-import { join, relative, dirname } from 'node:path';
+import { join, relative } from 'node:path';
+import { URL } from 'node:url';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import Database from 'better-sqlite3';

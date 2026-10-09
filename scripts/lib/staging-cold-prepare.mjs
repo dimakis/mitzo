@@ -7,7 +7,6 @@ import {
   closeSync,
   fsyncSync,
   writeFileSync,
-  readFileSync,
   readdirSync,
   lstatSync,
 } from 'node:fs';
