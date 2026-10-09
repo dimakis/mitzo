@@ -66,6 +66,24 @@ settles and the task workspace is independently retained, the controller seed co
 is reclaimed. Task files, Git history and conversation metadata remain intact.
 At most eight unreleased preparing/ready/claimed sources may be held per account.
 
+## Resource use
+
+Host task creation prefers filesystem copy-on-write cloning, keeping independent
+file identities and Git metadata. macOS uses a scoped native copy; other hosts
+request Node's optional reflink copy. Filesystems without cloning support fall
+back to ordinary copies. This reduces copying and transient source/task duplication
+where cloning is supported; logical file sizes do not measure physical savings.
+
+Source verification reads files in 64 KiB chunks, retaining the existing frozen
+digest format. It rejects files that change or exceed their inspected size during
+reading. Verification still reads the entire bounded source, including Git data.
+
+Each preparation still acquires its own repository history. The eight-source
+limit bounds unreleased preparations per account, and successful provider startup
+reclaims its seed. Retained tasks have no aggregate storage quota or automatic
+archiving policy yet. Shared downloads, active sandbox admission and idle runtime
+management remain subsequent resource work. Task files are preserved by default.
+
 ## Initial support and limits
 
 - Ordinary `openai` and compatible `openai-codex` accounts, using host execution or
