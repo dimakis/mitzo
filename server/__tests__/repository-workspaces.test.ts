@@ -123,3 +123,23 @@ it('serializes duplicate preparation and rechecks authorization after asynchrono
   ).rejects.toThrow();
   f.service.close();
 });
+
+it('discards only an unused preparation and preserves claimed task work', async () => {
+  const f = await fixture();
+  const signal = new AbortController().signal;
+  const first = await f.service.preview(binding, 'connection', 'example/repo', signal);
+  await f.service.prepare(first.id, binding, signal);
+  expect(f.service.status(first.id, binding)).toMatchObject({ state: 'ready' });
+  await expect(f.service.discard(first.id, { ...binding, accountId: 'other' })).rejects.toThrow();
+  await f.service.discard(first.id, binding);
+  await expect(
+    f.service.claim(first.id, binding, 'conversation', f.taskRoot, false),
+  ).rejects.toThrow();
+  const second = await f.service.preview(binding, 'connection', 'example/repo', signal);
+  await f.service.prepare(second.id, binding, signal);
+  const claimed = await f.service.claim(second.id, binding, 'conversation', f.taskRoot, false);
+  await writeFile(join(claimed.directory!, 'file.txt'), 'retained task edits');
+  await expect(f.service.discard(second.id, binding)).rejects.toThrow();
+  expect(await readFile(join(claimed.directory!, 'file.txt'), 'utf8')).toBe('retained task edits');
+  f.service.close();
+});

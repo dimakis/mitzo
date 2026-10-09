@@ -2613,6 +2613,8 @@ app.use(
     preview: (binding, connectionId, repository, signal) =>
       getRepositoryWorkspaces().preview(binding, connectionId, repository, signal),
     prepare: (id, binding, signal) => getRepositoryWorkspaces().prepare(id, binding, signal),
+    status: (id, binding) => getRepositoryWorkspaces(true).status(id, binding),
+    discard: (id, binding) => getRepositoryWorkspaces(true).discard(id, binding),
   }),
 );
 

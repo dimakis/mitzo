@@ -18,7 +18,7 @@ export interface RepositoryWorkspace extends GithubRepositoryPreview {
   connectionRevision: number;
   binding: AccountBinding;
   featureBranch: string;
-  state: 'preview' | 'preparing' | 'ready' | 'claiming' | 'claimed' | 'failed';
+  state: 'preview' | 'preparing' | 'ready' | 'claiming' | 'claimed' | 'failed' | 'discarded';
   createdAt: number;
   sourceDigest?: string;
   conversationId?: string;
@@ -121,6 +121,23 @@ export class RepositoryWorkspaces {
         'Repository workspace preparation did not complete; preserve its original claim',
       );
     return record;
+  }
+  status(id: string, binding: AccountBinding) {
+    const record = this.get(id);
+    if (!isDeepStrictEqual(record.binding, binding))
+      throw new Error('Repository preparation belongs to another account');
+    return publicRepositoryWorkspace(record);
+  }
+  async discard(id: string, binding: AccountBinding) {
+    const record = this.get(id);
+    if (
+      !isDeepStrictEqual(record.binding, binding) ||
+      !['preview', 'ready', 'failed', 'discarded'].includes(record.state)
+    )
+      throw new Error('Only an unused preparation can be discarded');
+    record.state = 'discarded';
+    this.save(record);
+    await rm(join(this.directory, id), { recursive: true, force: true });
   }
   get(id: string): RepositoryWorkspace {
     const row = this.db.prepare('SELECT record FROM repository_workspaces WHERE id=?').get(id) as
