@@ -1,7 +1,7 @@
+import { knowledgeHostCommand } from './knowledge-host-command.js';
 import { z } from 'zod';
 import {
   GitHubCliHostPublisher,
-  host,
   type GithubHostCommandRunner,
 } from './connections/capabilities/github-publish-pr-transport.js';
 
@@ -97,7 +97,7 @@ export class KnowledgeGithubPublisher extends GitHubCliHostPublisher {
   private readonly command: GithubHostCommandRunner;
   constructor(
     readonly configuration: KnowledgeGithubConfiguration,
-    runHost: GithubHostCommandRunner = host,
+    runHost: GithubHostCommandRunner = knowledgeHostCommand,
   ) {
     const command: GithubHostCommandRunner = (program, args, signal) =>
       runHost(program, args, AbortSignal.any([signal, AbortSignal.timeout(30_000)]));

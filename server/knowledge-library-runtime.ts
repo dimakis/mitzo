@@ -1,3 +1,4 @@
+import { knowledgeHostCommand } from './knowledge-host-command.js';
 import { existsSync, lstatSync, readFileSync, realpathSync } from 'node:fs';
 import { chmod, mkdir, rename, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, resolve, sep } from 'node:path';
@@ -7,10 +8,7 @@ import { AcceptedKnowledgeSource, safeKnowledgePath } from './knowledge-library-
 import { KnowledgeDraftStore } from './knowledge-draft-store.js';
 import { KnowledgeReviewService } from './knowledge-review-service.js';
 import { KnowledgeGithubPublisher } from './knowledge-github-publisher.js';
-import {
-  host,
-  type GithubHostCommandRunner,
-} from './connections/capabilities/github-publish-pr-transport.js';
+import { type GithubHostCommandRunner } from './connections/capabilities/github-publish-pr-transport.js';
 
 const branch = z
   .string()
@@ -135,7 +133,7 @@ export async function knowledgeLibraryFromEnvironment(
   const directory = join(config.stateDirectory, 'source.git');
   const expectedOrigin = `https://github.com/${config.repository}.git`;
   const refspec = `+refs/heads/${config.acceptedBranch}:refs/remotes/origin/${config.acceptedBranch}`;
-  const runner = options.runHost ?? host;
+  const runner = options.runHost ?? knowledgeHostCommand;
   const run = async (args: string[], signal: AbortSignal = AbortSignal.timeout(30_000)) =>
     runner('git', args, AbortSignal.any([signal, AbortSignal.timeout(30_000)]));
   if (!existsSync(directory)) {

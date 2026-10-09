@@ -402,7 +402,7 @@ function gitEnvironment() {
       : {}),
   };
 }
-export async function host(
+async function host(
   command: string,
   args: readonly string[],
   signal: AbortSignal,
