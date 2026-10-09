@@ -421,3 +421,16 @@ it('requires fresh key entry after a completed receipt is invalidated by an exte
   expect(f.gateway.replace).toHaveBeenCalledTimes(writes);
   expect((await f.replace('attended-key')).health).toBe('ready');
 });
+
+it('only advertises key management for configured rotation accounts, even when an enrolled ID is selected', async () => {
+  const f = fixture();
+  const manager = new OpenAIKeyManagement({
+    ...f.options,
+    managedAccountIds: ['work', 'enrolled'],
+  });
+  expect(manager.manages('work')).toBe(true);
+  expect(manager.manages('enrolled')).toBe(false);
+  expect((await manager.list(signal())).map((account) => account.accountId)).toEqual(['work']);
+  f.setAccounts([]);
+  expect(manager.manages('work')).toBe(false);
+});

@@ -3,6 +3,7 @@ export type ConnectionAuth =
   | { kind: 'basic'; username: string }
   | { kind: 'api-key' | 'password'; headerName: string };
 export type CredentialConnectionTemplate = 'home-assistant' | 'custom';
+export type DashboardAccess = 'disabled' | 'read' | 'read-write';
 export type ConnectionMethod = 'GET' | 'HEAD' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 export interface CredentialConnectionInput {
   label: string;
@@ -11,6 +12,8 @@ export interface CredentialConnectionInput {
   paths: string[];
   methods: ConnectionMethod[];
   allowPrivateNetwork: boolean;
+  homeAssistantDashboards?: DashboardAccess;
+  websocket?: ConnectionWebSocketConfig | null;
 }
 export interface CredentialConnection extends CredentialConnectionInput {
   id: string;
@@ -27,3 +30,28 @@ export type CredentialConnectionEnrollment = { connection: CredentialConnectionI
 );
 
 export type ConnectionRun = (action: () => Promise<unknown>, success: string) => Promise<void>;
+
+export interface WebSocketMatch {
+  field: string;
+  equals: string | number | boolean | null;
+}
+export type WebSocketAuthentication =
+  | { kind: 'headers' }
+  | {
+      kind: 'json';
+      message: string;
+      credentialField: string;
+      challenge?: WebSocketMatch;
+      success: WebSocketMatch;
+    };
+export interface ConnectionWebSocketConfig {
+  path: string;
+  protocols?: string[];
+  authentication: WebSocketAuthentication;
+}
+export interface WebSocketDraft {
+  mode: 'disabled' | 'headers' | 'home-assistant' | 'custom';
+  path: string;
+  protocols: string;
+  authentication: string;
+}

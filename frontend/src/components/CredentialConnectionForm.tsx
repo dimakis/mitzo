@@ -1,3 +1,5 @@
+import { CredentialWebSocketSettings } from './CredentialWebSocketSettings';
+import { websocketDraft, websocketConfiguration } from '../lib/credential-websocket-settings';
 import { useState } from 'react';
 import { createCredentialConnection } from '../lib/credential-connections-api';
 import type {
@@ -5,6 +7,7 @@ import type {
   ConnectionMethod,
   ConnectionRun,
   CredentialConnectionTemplate,
+  DashboardAccess,
 } from '../types/credential-connections';
 const methods: ConnectionMethod[] = ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE'];
 export function CredentialConnectionForm({
@@ -18,6 +21,7 @@ export function CredentialConnectionForm({
   run: ConnectionRun;
   initialTemplate?: CredentialConnectionTemplate;
 }) {
+  const [serviceTemplate, setServiceTemplate] = useState(initialTemplate);
   const [label, setLabel] = useState(initialTemplate === 'home-assistant' ? 'Home Assistant' : '');
   const [endpoint, setEndpoint] = useState('');
   const [kind, setKind] = useState<ConnectionAuth['kind']>('bearer');
@@ -29,6 +33,9 @@ export function CredentialConnectionForm({
   const [keychainAccount, setKeychainAccount] = useState('');
   const [paths, setPaths] = useState(initialTemplate === 'home-assistant' ? '/api/' : '/');
   const [selectedMethods, setSelectedMethods] = useState<ConnectionMethod[]>(['GET', 'HEAD']);
+  const [homeAssistantDashboards, setHomeAssistantDashboards] =
+    useState<DashboardAccess>('disabled');
+  const [websocket, setWebsocket] = useState(() => websocketDraft());
   const [allowPrivateNetwork, setAllowPrivateNetwork] = useState(false);
   return (
     <form
@@ -55,14 +62,21 @@ export function CredentialConnectionForm({
             .filter(Boolean),
           methods: selectedMethods,
           allowPrivateNetwork,
+          homeAssistantDashboards:
+            kind === 'bearer' && serviceTemplate === 'home-assistant'
+              ? homeAssistantDashboards
+              : 'disabled',
         };
         void run(
-          () =>
+          async () =>
             createCredentialConnection(
               source === 'new'
-                ? { connection, secret: credential }
+                ? {
+                    connection: { ...connection, websocket: websocketConfiguration(websocket) },
+                    secret: credential,
+                  }
                 : {
-                    connection,
+                    connection: { ...connection, websocket: websocketConfiguration(websocket) },
                     existing: { service: keychainService, account: keychainAccount },
                   },
               token,
@@ -78,6 +92,7 @@ export function CredentialConnectionForm({
           Service template
           <select
             onChange={(e) => {
+              setServiceTemplate(e.target.value as CredentialConnectionTemplate);
               const home = e.target.value === 'home-assistant';
               setLabel(home ? 'Home Assistant' : '');
               setKind('bearer');
@@ -86,8 +101,10 @@ export function CredentialConnectionForm({
               setHeaderName('X-API-Key');
               setPaths(home ? '/api/' : '/');
               setSelectedMethods(['GET', 'HEAD']);
+              setHomeAssistantDashboards('disabled');
+              setWebsocket(websocketDraft());
             }}
-            defaultValue={initialTemplate}
+            value={serviceTemplate}
           >
             <option value="home-assistant">Home Assistant</option>
             <option value="custom">Custom HTTPS service</option>
@@ -208,6 +225,29 @@ export function CredentialConnectionForm({
             </label>
           </>
         )}
+        {kind === 'bearer' && serviceTemplate === 'home-assistant' && (
+          <label className="connections-field">
+            Home Assistant dashboard API
+            <select
+              value={homeAssistantDashboards}
+              onChange={(e) => setHomeAssistantDashboards(e.target.value as DashboardAccess)}
+            >
+              <option value="disabled">Disabled</option>
+              <option value="read">Read dashboards</option>
+              <option value="read-write">Read and update dashboards</option>
+            </select>
+            <span>
+              Uses Home Assistant's WebSocket API. Updates require an HA administrator account. Each
+              chat approves this scope.
+            </span>
+          </label>
+        )}
+        <CredentialWebSocketSettings
+          label="new connection"
+          draft={websocket}
+          onChange={setWebsocket}
+          disabled={busy}
+        />
         <details>
           <summary>Allowed requests</summary>
           <p>

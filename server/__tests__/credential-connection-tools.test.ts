@@ -21,9 +21,12 @@ function setup(stillAllowed: (name: string, method?: string) => boolean = () => 
       paths: ['/api/'],
       methods: ['GET'],
       revision: 1,
+      auth: { kind: 'bearer' },
+      homeAssistantDashboards: 'read-write',
     })),
     grant: vi.fn(),
     request: vi.fn(async () => ({ status: 200, body: 'ok' })),
+    dashboardRequest: vi.fn(async () => '{"operation":"read","config":{},"configHash":"fixture"}'),
   };
   const approve = vi.fn(
     async (_name: string, input: Record<string, unknown>, _options: unknown) => ({
@@ -196,4 +199,96 @@ it('does not grant if skill permission is withdrawn while approval is pending', 
   );
   expect(result?.isError).toBe(true);
   expect(service.grant).not.toHaveBeenCalled();
+});
+
+it('includes dashboard scope in forced session approval and only sends validated dashboard operations', async () => {
+  const { tools, service, approve } = setup();
+  const result = await tools.execute(
+    'HomeAssistantDashboard',
+    { connectionId: 'ha', operation: 'read' },
+    new AbortController().signal,
+  );
+  expect(result?.isError).toBe(false);
+  expect(approve.mock.calls[0][2]).toMatchObject({
+    forcePrompt: true,
+    approvalScope: 'conversation',
+    description: expect.stringContaining('HA dashboard WebSocket: read-write'),
+  });
+  expect(service.dashboardRequest).toHaveBeenCalledWith(
+    'session-a',
+    'ha',
+    { operation: 'read' },
+    expect.any(AbortSignal),
+    expect.any(Function),
+  );
+  for (const input of [
+    { connectionId: 'ha', operation: 'read', secret: 'bad' },
+    { connectionId: 'ha', operation: 'auth' },
+    { connectionId: 'ha', operation: 'save', config: '{}' },
+  ]) {
+    expect(
+      (await tools.execute('HomeAssistantDashboard', input, new AbortController().signal))?.isError,
+    ).toBe(true);
+  }
+  expect(service.dashboardRequest).toHaveBeenCalledTimes(1);
+});
+it('rejects dashboard writes in read-only session mode before prompting or sending', async () => {
+  const { tools, approve, service } = setup(
+    (name, method) => name !== 'HomeAssistantDashboard' || method !== 'POST',
+  );
+  expect(
+    (
+      await tools.execute(
+        'HomeAssistantDashboard',
+        { connectionId: 'ha', operation: 'save', config: '{}', expectedConfigHash: 'a'.repeat(64) },
+        new AbortController().signal,
+      )
+    )?.isError,
+  ).toBe(true);
+  expect(approve).not.toHaveBeenCalled();
+  expect(service.dashboardRequest).not.toHaveBeenCalled();
+});
+
+it('prompts for configured generic WebSocket scope and rejects model-selected destinations or authentication', async () => {
+  const f = setup();
+  const websocketRequest = vi.fn(async () => '{"ok":true}');
+  Object.assign(f.service, { websocketRequest });
+  f.service.connection.mockReturnValue({
+    ...f.service.connection(),
+    websocket: { path: '/api/socket', authentication: { kind: 'headers' } },
+  } as never);
+  const result = await f.tools.execute(
+    'ConnectionWebSocket',
+    { connectionId: 'ha', message: '{"op":"set"}' },
+    new AbortController().signal,
+  );
+  expect(result?.isError).toBe(false);
+  expect(f.approve.mock.calls[0][2]).toMatchObject({
+    description: expect.stringContaining(
+      '/api/socket (headers authentication; commands may write)',
+    ),
+  });
+  expect(websocketRequest).toHaveBeenCalledWith(
+    'session-a',
+    'ha',
+    { message: '{"op":"set"}' },
+    expect.any(AbortSignal),
+    expect.any(Function),
+  );
+  for (const extra of [
+    { url: 'wss://attacker.example/socket' },
+    { secret: 'bad' },
+    { sessionId: 'other' },
+    { readOnly: true },
+  ])
+    expect(
+      (
+        await f.tools.execute(
+          'ConnectionWebSocket',
+          { connectionId: 'ha', message: '{}', ...extra },
+          new AbortController().signal,
+        )
+      )?.isError,
+    ).toBe(true);
+  expect(websocketRequest).toHaveBeenCalledOnce();
 });
