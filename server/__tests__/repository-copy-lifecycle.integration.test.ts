@@ -158,6 +158,7 @@ it('publishes native commits from a copied task after source release and control
     originUrl: 'https://github.com/example/repo.git',
     status: '',
   });
+  if (!inspection.sourceBranch) throw new Error('Prepared task has no publication branch');
   const bundlePath = join(root, 'task.bundle');
   await writeFile(
     bundlePath,
