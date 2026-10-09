@@ -68,12 +68,9 @@ At most eight unreleased preparing/ready/claimed sources may be held per account
 
 ## Resource use
 
-Host task creation prefers filesystem copy-on-write cloning, keeping independent
-file identities and Git metadata. Node's optional reflink copy falls back to
-ordinary copying on unsupported platforms or filesystems, including macOS
-runtimes without Node reflink support. A native cloning backend requires its own
-verified filesystem boundaries. This reduces copying and transient source/task duplication
-where cloning is supported; logical file sizes do not measure physical savings.
+Host tasks retain independent full copies of files and Git metadata. Filesystem
+cloning remains future work: a portable implementation must preserve exclusive
+ownership throughout recursive copying, including directory replacement races.
 
 Source verification reads files in 64 KiB chunks, retaining the existing frozen
 digest format. It rejects files that change or exceed their inspected size during

@@ -22,7 +22,6 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
-  '../repository-task-copy.ts': 'a297c748c549aa5c88a7be595d512f8716a0a63ee7a0add899e07883a2278e59',
   '../github-repository-connections.ts':
     '3917a36a0cc8b3bb73f1f4fa66e93e17be3b0ace58eff2bb3e0470bd67b7c11e',
   '../credential-websocket.ts': '87a41d7c329dccb6616726feed14a5fb25c8aefe94556c767f42618b8d995810',
@@ -94,7 +93,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../repository-task-checkout.ts':
     '32fd232781b0ba9573fa0e6a511a78ede54a8c33a80dee30f52d06283b4beab5',
   '../native-tool-executor.ts': '6bca4beb98690334e83a0a88b35c80558ed01b7485f682aca0cc0af11b6cd766',
-  '../repository-workspaces.ts': '573d2619c0e6beb46abfd01f75257e4441ae41f4c01b1f0e858d810a67df50bc',
+  '../repository-workspaces.ts': '2d13b9c0e3cdc8eb8e74de75300dfe77c023da05fd250840f2590f047cddb5f6',
   '../../packages/protocol/src/event-store.ts':
     '523d22223051a09ff250d4cbfbfabb98a7ba6de309c6952a119864ca7ecb0cdb',
   '../../packages/protocol/src/types.ts':
