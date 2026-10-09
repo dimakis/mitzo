@@ -86,3 +86,9 @@ describe('terminal process boundary', () => {
     ).toThrow('Sandbox terminal unavailable');
   });
 });
+
+it('never creates a fresh shell when resuming a missing persisted session', () => {
+  const spec = terminalProcessSpec(record, 'mitzo-test', 'resume');
+  expect(spec.args).toEqual(['-L', 'mitzo-test', 'attach-session', '-t', record.id]);
+  expect(spec.args).not.toContain('new-session');
+});

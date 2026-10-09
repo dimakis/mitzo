@@ -14,7 +14,7 @@ export function safeTerminalEnvironment(base: NodeJS.ProcessEnv = process.env) {
 export function terminalProcessSpec(
   record: TerminalRecord,
   namespace: string,
-  operation: 'attach' | 'check' | 'end',
+  operation: 'attach' | 'resume' | 'check' | 'end',
 ) {
   if (!/^term-[0-9a-f-]{36}$/.test(record.id) || !/^mitzo-[a-zA-Z0-9_-]+$/.test(namespace))
     throw new Error('Invalid owned terminal selector');
@@ -23,14 +23,24 @@ export function terminalProcessSpec(
     namespace,
     ...(operation === 'attach'
       ? ['new-session', '-A', '-s', record.id, '-c', record.cwd]
-      : [operation === 'check' ? 'has-session' : 'kill-session', '-t', record.id]),
+      : [
+          operation === 'resume'
+            ? 'attach-session'
+            : operation === 'check'
+              ? 'has-session'
+              : 'kill-session',
+          '-t',
+          record.id,
+        ]),
   ];
   if (record.kind === 'host') return { command: 'tmux', args, env: safeTerminalEnvironment() };
   if (!record.target?.runtime?.sandboxId) throw new Error('Sandbox terminal unavailable');
   const spec = openShellSshArgvProcessSpec(record.target.runtime, ['tmux', ...args]);
   return {
     ...spec,
-    args: spec.args.map((value) => (value === '-T' && operation === 'attach' ? '-tt' : value)),
+    args: spec.args.map((value) =>
+      value === '-T' && (operation === 'attach' || operation === 'resume') ? '-tt' : value,
+    ),
     env: { ...spec.env, TERM: 'xterm-256color', COLORTERM: 'truecolor' },
   };
 }
@@ -49,7 +59,7 @@ export class TmuxTerminalBackend implements TerminalBackend {
         maxBuffer: 64 * 1024,
       });
     }
-    const spec = terminalProcessSpec(record, this.namespace, 'attach');
+    const spec = terminalProcessSpec(record, this.namespace, resume ? 'resume' : 'attach');
     const process = pty.spawn(spec.command, spec.args, {
       name: 'xterm-256color',
       cols: 80,
