@@ -435,3 +435,94 @@ it('plist validation preserves exact environment, one service and two-stage comm
     rmSync(f.root, { recursive: true, force: true });
   }
 });
+
+import { openStagingRegistry } from '../symposium-staging-registry.js';
+it('the real capacity-one registry preserves qualified refusal history and reserves a distinct fresh owner', () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'cold-singleton-')));
+  try {
+    const registry = openStagingRegistry(root, 1),
+      input = {
+        ownerChat: 'test',
+        purpose: 'test',
+        retentionReason: 'test',
+        reviewAfter: Date.now() + 86400000,
+        planDirectory: '/stage/symposium/service',
+        sourceCommit: 'a'.repeat(40),
+        buildSha256: 'b'.repeat(64),
+        configSha256: 'c'.repeat(64),
+      };
+    const original = registry.reserve(input);
+    original.uncertain();
+    const s = snapshot();
+    s.row = registry.list()[0];
+    registry.close();
+    const db = new Database(join(root, 'staging.db'));
+    quarantineColdReservation(db, s, '/private/archive', 'd'.repeat(64));
+    db.close();
+    const fresh = openStagingRegistry(root, 1);
+    expect(fresh.qualifiedRefusals()).toHaveLength(1);
+    expect(JSON.parse(fresh.qualifiedRefusals()[0].recordJson).launchId).toBe(original.launchId);
+    const next = fresh.reserve(input);
+    expect(next.launchId).not.toBe(original.launchId);
+    expect(fresh.list()).toHaveLength(1);
+    fresh.close();
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it('unknown truthy proof values cannot qualify a cold refusal', () => {
+  const s = snapshot();
+  s.sealedSystem = 'unknown';
+  expect(() => classifyColdRefusal(s)).toThrow();
+});
+it('an input changed after the activation plan refuses without service control', async () => {
+  const f = filesystem();
+  try {
+    await prepareColdMetadata(f.root, f.sha, f.audit);
+    const t = freshFixture(f);
+    await prepareFreshRecovery(f.root, t.source, t.current, false, t.tools);
+    writeFileSync(join(f.owned, 'staging-operator.json'), '{"changed":true}', { mode: 0o600 });
+    await expect(prepareFreshRecovery(f.root, t.source, t.current, true, t.tools)).rejects.toThrow(
+      'plan changed',
+    );
+    expect(
+      osCalls.run.mock.calls.filter(([p, a]) => p === '/bin/launchctl' && a[0] !== 'print'),
+    ).toEqual([]);
+    expect(existsSync(join(f.root, 'service/deployment.lock'))).toBe(true);
+  } finally {
+    osCalls.run.mockReset();
+    rmSync(f.root, { recursive: true, force: true });
+  }
+});
+
+it('an uncertain fresh start keeps the original lock and never issues a second start', async () => {
+  const f = filesystem();
+  let clock;
+  try {
+    await prepareColdMetadata(f.root, f.sha, f.audit);
+    const t = freshFixture(f);
+    await prepareFreshRecovery(f.root, t.source, t.current, false, t.tools);
+    let now = Date.now();
+    clock = vi.spyOn(Date, 'now').mockImplementation(() => (now += 130000));
+    await expect(
+      prepareFreshRecovery(f.root, t.source, t.current, true, {
+        ...t.tools,
+        verify: async () => {
+          throw Error('unconfirmed');
+        },
+      }),
+    ).rejects.toThrow('readiness uncertain');
+    expect(
+      osCalls.run.mock.calls.filter(([p, a]) => p === '/bin/launchctl' && a[0] === 'kickstart'),
+    ).toHaveLength(1);
+    expect(existsSync(join(f.root, 'service/deployment.lock'))).toBe(true);
+    expect(
+      existsSync(join(f.root, 'service/cold-refusals', f.s.operation, 'activation-attempt.json')),
+    ).toBe(true);
+  } finally {
+    clock?.mockRestore();
+    osCalls.run.mockReset();
+    rmSync(f.root, { recursive: true, force: true });
+  }
+});

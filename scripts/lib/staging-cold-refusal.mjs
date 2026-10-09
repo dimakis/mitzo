@@ -5,15 +5,15 @@ export function classifyColdRefusal(s) {
     p = s.plan;
   if (
     s.contract !== 'sealed-macos-restricted-path-lsof-v1' ||
-    !/^[a-f0-9-]{36}$/.test(s.operation ?? '') ||
+    !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(s.operation ?? '') ||
     s.operation !== s.lock?.id ||
     s.operation !== s.transition?.id ||
     s.lock.mode !== 'ordinary-to-owned' ||
     s.lock.target !== p?.sourceCommit ||
     s.transition.target !== p?.sourceCommit ||
-    !s.sourceContractVerified ||
-    !s.sealedSystem ||
-    !s.lookupPathsAbsent ||
+    s.sourceContractVerified !== true ||
+    s.sealedSystem !== true ||
+    s.lookupPathsAbsent !== true ||
     s.restrictedProbeError !== 'ENOENT' ||
     s.job?.pid !== null ||
     s.job.state !== 'not running' ||
@@ -25,15 +25,15 @@ export function classifyColdRefusal(s) {
     r.controllerGeneration !== 0 ||
     r.completedAt !== null ||
     r.retirementStateParent !== null ||
-    !/^[a-f0-9-]{36}$/.test(r.launchId ?? '') ||
+    !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(r.launchId ?? '') ||
     r.sourceCommit !== p.sourceCommit ||
     r.buildSha256 !== p.buildSha256 ||
     r.configSha256 !== p.configSha256 ||
     r.planDirectory !== p.planDirectory ||
-    !s.originalOwnerAbsent ||
-    !s.attestationAbsent ||
-    !s.sessionArtifactLedgerAbsent ||
-    !s.artifactSchemaEmpty ||
+    s.originalOwnerAbsent !== true ||
+    s.attestationAbsent !== true ||
+    s.sessionArtifactLedgerAbsent !== true ||
+    s.artifactSchemaEmpty !== true ||
     s.eventCounts?.length !== 4 ||
     s.eventCounts.some((n) => n !== 0) ||
     !Array.isArray(s.gatewayDirectories) ||
