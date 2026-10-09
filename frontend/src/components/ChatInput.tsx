@@ -29,6 +29,8 @@ interface Props {
   onInterrupt?: (text: string, images?: ImageAttachment[], contextBlocks?: string[]) => void;
   running: boolean;
   initialText?: string;
+  /** Prompt storage ownership independent of the provider session identity. */
+  draftStorageKey?: string;
   sendDisabledReason?: string;
   cwd?: string;
   voice?: UseVoiceReturn;
@@ -55,6 +57,7 @@ export function ChatInput({
   onInterrupt,
   running,
   initialText,
+  draftStorageKey,
   sendDisabledReason,
   cwd,
   voice,
@@ -71,7 +74,7 @@ export function ChatInput({
   bootContext,
   sessionContext,
 }: Props) {
-  const [text, setText, clearDraft] = useDraft(sessionId, initialText);
+  const [text, setText, clearDraft] = useDraft(sessionId, initialText, draftStorageKey);
   const [images, setImages] = useState<ImageAttachment[]>([]);
   const [showSlashPicker, setShowSlashPicker] = useState(false);
   const [contextBlocks, setContextBlocks] = useState<string[]>([]);

@@ -1,0 +1,36 @@
+// @vitest-environment jsdom
+import { cleanup, render, screen, fireEvent, act } from '@testing-library/react';
+import { afterEach, expect, it, vi } from 'vitest';
+import { ChatInput } from '../ChatInput';
+vi.mock('../SlashPicker', () => ({ SlashPicker: () => null }));
+vi.mock('../SessionTray', () => ({ SessionTray: () => null }));
+vi.mock('../MicButton', () => ({ MicButton: () => null }));
+vi.mock('../../lib/haptics', () => ({ impactMedium: vi.fn() }));
+afterEach(() => {
+  cleanup();
+  localStorage.clear();
+  vi.useRealTimers();
+});
+it('uses a preparation-owned storage key without changing runtime session identity', () => {
+  vi.useFakeTimers();
+  localStorage.setItem('mitzo-draft-new', 'ordinary draft\n keep these bytes');
+  const onSend = vi.fn(() => true);
+  const { unmount } = render(
+    <ChatInput
+      onSend={onSend}
+      onStop={vi.fn()}
+      running={false}
+      initialText="Prepared task"
+      draftStorageKey="mitzo-repository-prompt:prep-a"
+    />,
+  );
+  fireEvent.change(screen.getByLabelText('Message Mitzo'), { target: { value: 'Reviewed task' } });
+  act(() => vi.advanceTimersByTime(500));
+  expect(localStorage.getItem('mitzo-repository-prompt:prep-a')).toBe('Reviewed task');
+  expect(localStorage.getItem('mitzo-draft-new')).toBe('ordinary draft\n keep these bytes');
+  fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+  expect(onSend).toHaveBeenCalledWith('Reviewed task', undefined, undefined);
+  unmount();
+  expect(localStorage.getItem('mitzo-repository-prompt:prep-a')).toBeNull();
+  expect(localStorage.getItem('mitzo-draft-new')).toBe('ordinary draft\n keep these bytes');
+});
