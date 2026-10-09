@@ -1,0 +1,22 @@
+{
+  "id": "sealed-macos-restricted-path-lsof-v1",
+  "sourceBlobs": {
+    "scripts/start-staging-custodian.mjs": "1c1c4f0dc329b100160c5497657e95b124b4ca09",
+    "server/symposium-staging-environment.ts": "4b95768140e0591b5966b7e28d9de5b83a64e378",
+    "server/symposium-custodian-main.ts": "06dadb24cbdf48621fff1b23d552554769e93fe6",
+    "server/symposium-owned-config.ts": "b6b8d8741513cd3a1b776123a19f6b2f7f662f12",
+    "server/symposium-owned-host.ts": "07c1c74a331365eb3f4a2a864e811908f8d315b3",
+    "server/symposium-owned-gateway.ts": "1761ba36b251c2884415688a478a19ce28505f30",
+    "server/app.ts": "ab6e5159cbf4cfcffb5766431734fe057da3bdd5"
+  },
+  "compiledFiles": {
+    "dist/symposium-staging-environment.js": "c2bd846c27cab4e39a35334dd68fab62c058d64c7ae05235c3eccfe40f8db6dd",
+    "dist/symposium-custodian-main.js": "41e0a0039e4b0aa8aa0e5fc7b877786d275b3bb309ce4d0693dcbf8f46b24d75",
+    "dist/symposium-owned-config.js": "2676012a8ef6f7d0ed6b78c2ad0991debc35a379d863bbcc383555e63f14cf81",
+    "dist/symposium-owned-host.js": "49ff9cb55407f388d80bebb4706351ddc55b885062121f4d855108f39390ceb1",
+    "dist/symposium-owned-gateway.js": "d348fb19de419222d386d4032025f051951c3b2ed7d035112eb1e7d864fd6458",
+    "dist/app.js": "2067c3cc9ccf13d6c26c4be3a52cf1363d47ddf407b980a59cccaf8ff2f5780b"
+  },
+  "path": "/usr/bin:/bin",
+  "earliestNativeGate": "synchronous listener inspection before gateway directory, issuer or process creation"
+}
