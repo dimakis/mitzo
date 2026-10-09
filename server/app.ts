@@ -1,3 +1,7 @@
+import { TerminalService, TerminalStore } from './terminal-service.js';
+import { TmuxTerminalBackend } from './terminal-backend.js';
+import { createTerminalTargetResolver } from './terminal-targets.js';
+import { createTerminalRouter } from './terminal-router.js';
 import { createPersonalRoutingDiagnosticHandler } from './symposium-routing-diagnostic-route.js';
 import { createRepositoryWorkspaceRouter } from './repository-workspace-router.js';
 import {
@@ -3130,6 +3134,49 @@ async function readRemoteSessionArtifact(
   });
   return reader(sessionId, meta.accountBinding, meta.cwd, requestedPath);
 }
+
+export const terminalService = new TerminalService(new TerminalStore(taskStore.getDatabase()), {
+  backend: new TmuxTerminalBackend(
+    `mitzo-${createHash('sha256').update(mitzoDir).digest('hex').slice(0, 16)}`,
+  ),
+  resolve: createTerminalTargetResolver({
+    hostCwd: homedir(),
+    session: (id) => eventStore.getSession(id),
+    allowedHost: isConfiguredAllowedPath,
+    remote: isRemoteSessionArtifact,
+    runtime: (id, binding) => getCodexConversationStore().readArtifactRuntime(id, binding),
+    currentRoute: (binding, id) => {
+      const profiles = loadAccountProfiles();
+      const model = eventStore.getSession(id)?.selectedModel ?? binding.model;
+      if (binding.provider === 'openai') {
+        const profile = profiles.apiProfile(binding);
+        if (!profile.sandboxProvider) throw Error('Sandbox provider unavailable');
+        return { kind: 'api', provider: profile.sandboxProvider, model };
+      }
+      return selectedOpenShellAccountRoute({
+        binding,
+        model,
+        profile: profiles.codexProfile(binding),
+      });
+    },
+    validateRuntime: (runtime) =>
+      validateSessionArtifactRuntime(runtime, openShellRuntimeConfig(process.env)),
+    inspect: (id, runtime, route) => {
+      const config = openShellRuntimeConfig(process.env);
+      if (!config) throw Error('Sandbox runtime unavailable');
+      return new OpenShellRuntimeManager({ ...config, account: route }).inspect(
+        id,
+        runtime.sandboxId,
+        AbortSignal.timeout(15000),
+        runtime.sandboxName,
+      );
+    },
+  }),
+});
+app.use(
+  '/api/terminals',
+  createTerminalRouter({ service: terminalService, authorize: operatorAuthMiddleware }),
+);
 
 function readPreviewFile(filePath: string): {
   content?: string;

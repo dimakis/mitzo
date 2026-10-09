@@ -90,6 +90,7 @@ import {
   NATIVE_COMMAND_NAMES,
   isAllowedPath,
   yapperWsProxy,
+  terminalService,
   taskStore,
   workloadStore,
 } from './app.js';
@@ -1378,6 +1379,7 @@ async function shutdown(signal: string) {
   shuttingDown = true;
   log.info(`${signal} received — shutting down gracefully`);
 
+  terminalService.detachAll();
   server.close();
   lifecycleAbort.abort();
   if (lifecycleTimer) clearInterval(lifecycleTimer);

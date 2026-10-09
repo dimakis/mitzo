@@ -45,7 +45,7 @@ export function createTerminalRouter(options: {
       unobserve();
     });
     try {
-      options.service.get(res.locals.authSession.id, req.params.id);
+      options.service.get(res.locals.authSession.id, String(req.params.id));
       res.set({
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-store',
@@ -53,7 +53,7 @@ export function createTerminalRouter(options: {
       });
       release = await options.service.subscribe(
         res.locals.authSession.id,
-        req.params.id,
+        String(req.params.id),
         (event) => {
           if (closed) return;
           if (res.writableLength > 256 * 1024) {
@@ -76,7 +76,7 @@ export function createTerminalRouter(options: {
       return;
     }
     try {
-      await options.service.write(res.locals.authSession.id, req.params.id, body.data.data);
+      await options.service.write(res.locals.authSession.id, String(req.params.id), body.data.data);
       res.json({ ok: true });
     } catch {
       res.status(409).json({ error: 'Terminal unavailable' });
@@ -91,7 +91,7 @@ export function createTerminalRouter(options: {
     try {
       await options.service.resize(
         res.locals.authSession.id,
-        req.params.id,
+        String(req.params.id),
         body.data.cols,
         body.data.rows,
       );
@@ -102,7 +102,7 @@ export function createTerminalRouter(options: {
   });
   router.post('/:id/end', requireSameOriginJson, async (req, res) => {
     try {
-      await options.service.end(res.locals.authSession.id, req.params.id);
+      await options.service.end(res.locals.authSession.id, String(req.params.id));
       res.json({ ok: true });
     } catch {
       res.status(409).json({ error: 'Terminal unavailable' });
