@@ -2,6 +2,8 @@ import { WebSocketRequestSchema, ConnectionWebSocketError } from './credential-w
 import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
+import { PrepareConnectionSetupSchema } from './credential-setup.js';
+import { connectionGuide } from './connection-guide.js';
 import {
   DashboardRequestSchema,
   validateDashboardRequest,
@@ -23,16 +25,27 @@ export const credentialConnectionSchemas = {
   ConnectionRequest: ConnectionRequestSchema.extend({ connectionId: id }).strict(),
   ConnectionWebSocket: WebSocketRequestSchema.extend({ connectionId: id }).strict(),
   HomeAssistantDashboard: DashboardRequestSchema.extend({ connectionId: id }).strict(),
+  GetConnectionGuide: z
+    .object({ topic: z.enum(['connect', 'use', 'troubleshoot']).default('connect') })
+    .strict(),
+  PrepareConnectionSetup: PrepareConnectionSetupSchema,
+  GetConnectionSetup: z.object({ setupId: id }).strict(),
 };
 const descriptions = {
   ListConnections:
-    'Discover configured service connections, approved destinations, request permissions, and access for this session. Never returns credentials. Use this before searching workspace files for passwords or tokens. If the needed service is missing, direct the user to Connections.',
+    'Discover configured service connections and access for this chat. Never returns credentials. If the needed service is missing, use GetConnectionGuide and PrepareConnectionSetup to help the user connect it within this task.',
+  GetConnectionGuide:
+    'Load current Mitzo instructions for connecting services, using approved connections, or troubleshooting. Use when service setup is needed; keeps detailed guidance out of the initial context. Returns no credentials.',
+  PrepareConnectionSetup:
+    'Prepare a service connection for this chat without credentials. For Home Assistant provide its HTTPS origin and intended read or read-write access; Mitzo configures authentication and transport. For custom services provide authentication and request scope established from official documentation, with evidenceUrl. Returns a secure setup card/link where the user enters only their credential. Never put keys, passwords, or tokens in chat or tool input. Setup does not grant session access or execute the original task.',
+  GetConnectionSetup:
+    'Read progress for a setup prepared by this chat. Returns non-secret pending, verifying, ready, cancelled, or expired status and connectionId when ready. Use once when checking secure completion; do not repeatedly poll. Continue the original task after readiness, request session access, and avoid repeating completed actions.',
   RequestConnectionAccess:
     'Request explicit approval to use one connection in this session. Approval persists across reconnects of this session only. The credential remains in Apple Keychain.',
   ConnectionWebSocket:
-    'Send one text message over a configured service WebSocket and receive its response. Supports connection-configured header or JSON authentication and subprotocols; Mitzo injects credentials privately. Never supply a token, URL, or authentication frame. Optional responseMatch selects a top-level JSON field for correlation. Generic messages may mutate the service and are blocked in Ask mode. Requests are bounded to 30 seconds and never reconnected or replayed; an unconfirmed command may have applied. Use HomeAssistantDashboard for dashboard edits with change checks.',
+    'Send one bounded command through an approved service WebSocket. Mitzo injects authentication privately; never supply credentials, destination URLs, or authentication frames. Treated as a write and never replayed. An unconfirmed command may have applied; inspect state before retrying. Load GetConnectionGuide for usage details.',
   HomeAssistantDashboard:
-    'Read, list, or update Home Assistant dashboards through the approved Keychain WebSocket connection. Read returns config and configHash. A redacted read is non-editable and returns no hash; never save a redacted configuration. Save requires the complete config as a JSON string and expectedConfigHash from that read; Mitzo checks for changes and verifies the saved configuration. Omit urlPath for the default dashboard. Never sends arbitrary WebSocket commands or exposes tokens. YAML dashboards cannot be saved through this API. A failed or unconfirmed save must be read again before retrying.',
+    'Read, list, or update Home Assistant dashboards using private authentication. Read before saving and supply returned configHash as expectedConfigHash. Never save redacted reads. Mitzo checks concurrent changes and verifies saves; after an unconfirmed save, read again before retrying. Load GetConnectionGuide for usage details.',
   ConnectionRequest:
     'Make an authenticated HTTPS request through a configured connection after session approval. Supply only a relative path within its permissions. Use for Home Assistant and other configured APIs. Authentication is injected by Mitzo; do not ask for or supply a password or token.',
 };
@@ -73,8 +86,8 @@ export function createCredentialConnectionTools(
         toolUseID: randomUUID(),
         forcePrompt: true,
         approvalScope: 'conversation',
-        title: `Allow ${c.label} in this session?`,
-        description: `${c.endpoint} · ${c.methods.join(', ')} · ${c.paths.join(', ')} · WebSocket messages: ${c.websocket ? `${c.websocket.path} (${c.websocket.authentication.kind} authentication; commands may write)` : 'disabled'} · HA dashboard WebSocket: ${c.homeAssistantDashboards ?? 'disabled'}. Access lasts for this session, including reconnects, until revoked. Other sessions require separate approval.`,
+        title: `Allow ${c.label} in this chat?`,
+        description: `${c.methods.some((method) => !['GET', 'HEAD'].includes(method)) || c.websocket || c.homeAssistantDashboards === 'read-write' ? 'Read and make changes' : 'Read information'} at ${c.endpoint}. Your key stays private. Access lasts only for this chat until you revoke it. Other chats ask separately.`,
       },
     );
     signal.throwIfAborted();
@@ -123,6 +136,31 @@ export function createCredentialConnectionTools(
         if (name === 'ListConnections')
           return {
             content: JSON.stringify({ connections: service.catalog(sessionId) }),
+            isError: false,
+          };
+        if (name === 'GetConnectionGuide')
+          return {
+            content: JSON.stringify(
+              connectionGuide(
+                credentialConnectionSchemas.GetConnectionGuide.parse(input).topic,
+                credentialConnectionToolDefinitions,
+              ),
+            ),
+            isError: false,
+          };
+        if (name === 'PrepareConnectionSetup')
+          return {
+            content: JSON.stringify({ setup: service.setups.prepare(sessionId, parsed.data) }),
+            isError: false,
+          };
+        if (name === 'GetConnectionSetup')
+          return {
+            content: JSON.stringify({
+              setup: service.setups.status(
+                sessionId,
+                credentialConnectionSchemas.GetConnectionSetup.parse(input).setupId,
+              ),
+            }),
             isError: false,
           };
         if (!('connectionId' in parsed.data))

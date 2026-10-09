@@ -2,6 +2,48 @@ import { expect, it, vi } from 'vitest';
 import { createCredentialConnectionTools } from '../credential-connection-tools.js';
 import { DashboardRequestError } from '../home-assistant-dashboard.js';
 
+it('prepares secret-free setup and reads only setup belonging to the owning chat', async () => {
+  const f = setup();
+  const draft = { id: 'setup-a', sessionId: 'session-a', status: 'pending' };
+  const setups = { prepare: vi.fn(() => draft), status: vi.fn(() => draft) };
+  Object.assign(f.service, { setups });
+  const prepared = await f.tools.execute(
+    'PrepareConnectionSetup',
+    { profile: 'home-assistant', endpoint: 'https://ha.example.com' },
+    new AbortController().signal,
+  );
+  expect(JSON.parse(prepared!.content)).toEqual({ setup: draft });
+  expect(setups.prepare).toHaveBeenCalledWith(
+    'session-a',
+    expect.objectContaining({
+      profile: 'home-assistant',
+      access: 'read',
+      allowPrivateNetwork: false,
+    }),
+  );
+  await f.tools.execute('GetConnectionSetup', { setupId: 'setup-a' }, new AbortController().signal);
+  expect(setups.status).toHaveBeenCalledWith('session-a', 'setup-a');
+  for (const extra of [{ secret: 'bad' }, { sessionId: 'other' }, { auth: { kind: 'bearer' } }]) {
+    expect(
+      (
+        await f.tools.execute(
+          'PrepareConnectionSetup',
+          {
+            profile: 'home-assistant',
+            endpoint: 'https://ha.example.com',
+            ...extra,
+          },
+          new AbortController().signal,
+        )
+      )?.isError,
+    ).toBe(true);
+  }
+  expect(setups.prepare).toHaveBeenCalledOnce();
+  expect(f.approve).not.toHaveBeenCalled();
+  expect(f.service.grant).not.toHaveBeenCalled();
+  expect(f.service.request).not.toHaveBeenCalled();
+});
+
 function setup(stillAllowed: (name: string, method?: string) => boolean = () => true) {
   const service = {
     catalog: vi.fn(() => [
@@ -213,7 +255,7 @@ it('includes dashboard scope in forced session approval and only sends validated
   expect(approve.mock.calls[0][2]).toMatchObject({
     forcePrompt: true,
     approvalScope: 'conversation',
-    description: expect.stringContaining('HA dashboard WebSocket: read-write'),
+    description: expect.stringContaining('Read and make changes'),
   });
   expect(service.dashboardRequest).toHaveBeenCalledWith(
     'session-a',
@@ -281,9 +323,7 @@ it('prompts for configured generic WebSocket scope and rejects model-selected de
   );
   expect(result?.isError).toBe(false);
   expect(f.approve.mock.calls[0][2]).toMatchObject({
-    description: expect.stringContaining(
-      '/api/socket (headers authentication; commands may write)',
-    ),
+    description: expect.stringContaining('Read and make changes'),
   });
   expect(websocketRequest).toHaveBeenCalledWith(
     'session-a',

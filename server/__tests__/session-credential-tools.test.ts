@@ -1,6 +1,46 @@
 import { expect, it, vi } from 'vitest';
 import { sessionCredentialTools } from '../session-credential-tools.js';
 import { SessionRegistry } from '@mitzo/harness';
+import * as credentialRuntime from '../credential-connections-runtime.js';
+
+it('fences captured credential handlers after runtime retirement but keeps guide and managed providers available', async () => {
+  const prepare = vi.fn();
+  const catalog = vi.fn(() => []);
+  const captured = { setups: { prepare, status: vi.fn() }, catalog };
+  const runtime = vi
+    .spyOn(credentialRuntime, 'getCredentialConnectionsRuntime')
+    .mockReturnValue(captured as never);
+  try {
+    const f = setup();
+    runtime.mockReturnValue(null);
+    for (const [name, input] of [
+      ['PrepareConnectionSetup', { profile: 'home-assistant', endpoint: 'https://ha.example.com' }],
+      ['GetConnectionSetup', { setupId: 'old' }],
+      ['ConnectionRequest', { connectionId: 'old', path: '/api/', method: 'GET' }],
+    ] as const) {
+      expect((await f.tools.execute(name, input, new AbortController().signal))?.isError).toBe(
+        true,
+      );
+    }
+    expect(prepare).not.toHaveBeenCalled();
+    expect(
+      (await f.tools.execute('GetConnectionGuide', {}, new AbortController().signal))?.isError,
+    ).toBe(false);
+    expect(
+      (
+        await f.tools.execute(
+          'RequestConnectionAccess',
+          { connectionId: 'openshell:github' },
+          new AbortController().signal,
+        )
+      )?.isError,
+    ).toBe(false);
+    await f.tools.execute('ListConnections', {}, new AbortController().signal);
+    expect(catalog).not.toHaveBeenCalled();
+  } finally {
+    runtime.mockRestore();
+  }
+});
 it('combines managed providers with Keychain discovery and reuses managed session approval', async () => {
   const request = vi.fn(async () => ({ content: 'approved', isError: false }));
   const registry = new SessionRegistry();
