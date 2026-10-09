@@ -135,15 +135,26 @@ export function DesktopChatView() {
 
   const selectAccount = useCallback(
     (selection: AccountSelection | null) => {
+      if (repositoryHandoff.present && activeSessionId) return;
       setAccountSelection(selection);
       if (selection) {
-        if (repositoryHandoff.present) {
+        if (
+          repositoryHandoff.present ||
+          (activeSessionId !== null &&
+            activeSessionId === repositoryHandoff.lastAssignedConversationId)
+        ) {
           setModelState(selection.model);
           storeSetModel(selection.model);
         } else setModel(selection.model);
       }
     },
-    [setModel, storeSetModel, repositoryHandoff.present],
+    [
+      setModel,
+      storeSetModel,
+      activeSessionId,
+      repositoryHandoff.present,
+      repositoryHandoff.lastAssignedConversationId,
+    ],
   );
 
   const mode = useMitzoStore((s) => s.config.mode);

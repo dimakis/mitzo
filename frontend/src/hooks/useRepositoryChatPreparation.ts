@@ -81,6 +81,7 @@ export function useRepositoryChatPreparation(id: string | null, sessionId?: stri
     reason,
     retry: () => setAttempt((value) => value + 1),
     assignedConversationId: assigned?.scope === scope ? assigned.conversationId : null,
+    lastAssignedConversationId: assigned?.conversationId ?? null,
     markAssigned: (conversationId: string) => {
       if (
         currentScope.current === scope &&

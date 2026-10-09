@@ -7,6 +7,7 @@ import { MitzoStoreProvider } from '@mitzo/client/hooks';
 import { createTestStore } from '../../test-utils/createTestStore';
 import { ChatView } from '../ChatView';
 import { DesktopChatView } from '../DesktopChatView';
+import { PREFERRED_MODEL_KEY } from '../../lib/model-preference';
 const api = vi.hoisted(() => ({ fetch: vi.fn() }));
 vi.mock('../../lib/api-fetch', () => ({ apiFetch: api.fetch, getApiBaseUrl: () => '' }));
 vi.mock('../../lib/keyboard', () => ({ onKeyboardToggle: () => () => {} }));
@@ -121,6 +122,7 @@ function fixture(View: typeof ChatView, active: string | null = null) {
     'mitzo-default-account-model',
     JSON.stringify({ accountId: 'other', model: 'sol' }),
   );
+  localStorage.setItem(PREFERRED_MODEL_KEY, 'remembered-model');
   render(
     <MitzoStoreProvider value={store}>
       <MemoryRouter initialEntries={[`/chat?repositoryPreparation=${id}`]}>
@@ -212,7 +214,18 @@ for (const [layout, View] of [
       async (url: string) =>
         new Response(
           JSON.stringify(
-            url.includes('/chat-preparation') ? { repositoryChat: preparation } : accounts,
+            url.includes('/chat-preparation')
+              ? { repositoryChat: preparation }
+              : url.includes('/sessions/assigned/meta')
+                ? {
+                    accountBinding: {
+                      accountId: 'prepared',
+                      accountLabel: 'Prepared',
+                      model: 'luna',
+                    },
+                    modelSelection: { model: 'luna', models: accounts[1].models },
+                  }
+                : accounts,
           ),
         ),
     );
@@ -230,17 +243,22 @@ for (const [layout, View] of [
     expect(screen.getByTestId('preparation-id').textContent).toBe(id);
     expect(send).not.toHaveBeenCalled();
     expect(localStorage.getItem('mitzo-default-account-model')).toContain('other');
+    expect(localStorage.getItem(PREFERRED_MODEL_KEY)).toBe('remembered-model');
     fireEvent.change(screen.getByLabelText('Task draft'), { target: { value: 'Edited task' } });
     fireEvent.click(screen.getByRole('button', { name: 'Send task' }));
     expect(send).toHaveBeenCalledWith(
       'Edited task',
       expect.objectContaining({ accountId: 'prepared', model: 'luna', repositoryWorkspaceId: id }),
     );
+    expect(localStorage.getItem(PREFERRED_MODEL_KEY)).toBe('remembered-model');
     act(() => {
       send.mock.calls[0][1].onSessionAssigned('assigned');
       store.setState({ sessions: { ...store.getState().sessions, active: 'assigned' } });
     });
     await waitFor(() => expect(screen.getByTestId('location').textContent).toBe('/chat/assigned'));
+    await screen.findByText('Prepared');
+    expect(localStorage.getItem(PREFERRED_MODEL_KEY)).toBe('remembered-model');
+    expect(localStorage.getItem('mitzo-default-account-model')).toContain('other');
   });
   it(`${layout}: blocks the early send handler while the old active session is being cleared`, async () => {
     api.fetch.mockImplementation(
@@ -255,8 +273,10 @@ for (const [layout, View] of [
     );
     const store = createTestStore();
     const send = vi.fn();
+    const setModel = vi.fn();
     store.setState({
       sendMessage: send,
+      setModel,
       newSession: vi.fn(),
       sessions: { ...store.getState().sessions, active: 'parent' },
       connection: { status: 'connected', clientId: 'offline' },
@@ -272,6 +292,7 @@ for (const [layout, View] of [
     await screen.findByText('example/repo');
     fireEvent.click(screen.getByRole('button', { name: 'Try send directly' }));
     expect(send).not.toHaveBeenCalled();
+    expect(setModel).not.toHaveBeenCalled();
     expect((screen.getByRole('button', { name: 'Send task' }) as HTMLButtonElement).disabled).toBe(
       true,
     );
