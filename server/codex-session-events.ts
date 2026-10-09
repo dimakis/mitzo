@@ -161,6 +161,7 @@ export class CodexSessionEvents {
           type: 'provider_turn_start',
           session_id: this.conversationId,
           turn_id: turnId,
+          model: this.model,
         });
       }
       return;
@@ -268,7 +269,7 @@ export class CodexSessionEvents {
       if (this.activeTurnId && params.turnId !== this.activeTurnId) return;
       this.usage.update(params);
       const usage = observedCodexUsage(params);
-      if (usage) this.emit({ type: 'provider_usage', ...usage });
+      if (usage) this.emit({ type: 'provider_usage', model: this.model, ...usage });
       return;
     }
     if (

@@ -14,6 +14,7 @@ interface Props {
 }
 
 export function TokenBar({ tokenState }: Props) {
+  const [, refreshExpiry] = useState(0);
   const [expanded, setExpanded] = useState(false);
   const summaryId = useId();
 
@@ -26,17 +27,35 @@ export function TokenBar({ tokenState }: Props) {
     return () => document.removeEventListener('keydown', dismiss);
   }, [expanded]);
 
+  const expiry = tokenState.tokenLimits?.expiresAt;
+  useEffect(() => {
+    if (expiry === undefined || expiry <= Date.now()) return;
+    const timer = setTimeout(
+      () => refreshExpiry((value) => value + 1),
+      Math.min(expiry - Date.now() + 1, 2 ** 31 - 1),
+    );
+    return () => clearTimeout(timer);
+  }, [expiry]);
+
   // Don't render until we have data
   if (tokenState.turnIndex === 0 && !tokenState.agentContext && !tokenState.sessionTotal)
     return null;
 
-  const ceiling = tokenState.contextCeiling ?? 0;
+  // Legacy replay events can carry the former hardcoded ceiling. Capacity must
+  // come from evidence for the model, independently of the measured count.
+  const capacities = [
+    tokenState.tokenLimits?.contextWindow,
+    tokenState.tokenLimits?.inputTokenLimit,
+  ].filter((value): value is number => Number.isSafeInteger(value) && (value ?? 0) > 0);
+  const ceiling =
+    tokenState.tokenLimits?.source !== 'unknown' && capacities.length ? Math.min(...capacities) : 0;
   const agentContext = tokenState.agentContext ?? 0;
   const sessionTotal = tokenState.sessionTotal ?? 0;
   const numCompactions = tokenState.numCompactions ?? 0;
   // Zero is also the initial/restored sentinel; it does not prove an empty window.
   const hasCount = Number.isFinite(agentContext) && agentContext > 0;
-  const hasContext = hasCount && Number.isFinite(ceiling) && ceiling > 0;
+  const stale = !!tokenState.tokenLimits?.stale || (expiry !== undefined && expiry <= Date.now());
+  const hasContext = hasCount && Number.isFinite(ceiling) && ceiling > 0 && !stale;
   const ratio = hasContext ? Math.min(1, agentContext / ceiling) : 0;
   const color = hasContext ? getContextColor(ratio) : 'unknown';
   const summary = hasContext
@@ -115,6 +134,51 @@ export function TokenBar({ tokenState }: Props) {
                 : sessionTotal.toLocaleString()}
             </span>
           </div>
+          {tokenState.tokenLimits && (
+            <>
+              <div className="token-bar-detail-row">
+                <span>Model</span>
+                <span>{tokenState.tokenLimits.model}</span>
+              </div>
+              {tokenState.tokenLimits.contextWindow && (
+                <div className="token-bar-detail-row">
+                  <span>Model window</span>
+                  <span>{tokenState.tokenLimits.contextWindow.toLocaleString()}</span>
+                </div>
+              )}
+              {tokenState.tokenLimits.inputTokenLimit && (
+                <div className="token-bar-detail-row">
+                  <span>Maximum input</span>
+                  <span>{tokenState.tokenLimits.inputTokenLimit.toLocaleString()}</span>
+                </div>
+              )}
+              {tokenState.tokenLimits.outputTokenLimit && (
+                <div className="token-bar-detail-row">
+                  <span>Maximum output</span>
+                  <span>{tokenState.tokenLimits.outputTokenLimit.toLocaleString()}</span>
+                </div>
+              )}
+              <div className="token-bar-detail-row">
+                <span>Limit source</span>
+                <span>
+                  {tokenState.tokenLimits.sourceName ??
+                    {
+                      runtime: 'Runtime',
+                      provider: 'Provider',
+                      catalog: 'Catalog',
+                      unknown: 'Not reported',
+                    }[tokenState.tokenLimits.source]}
+                  {stale ? ' (stale)' : ''}
+                </span>
+              </div>
+              {tokenState.tokenLimits.checkedAt !== undefined && (
+                <div className="token-bar-detail-row">
+                  <span>Last checked</span>
+                  <span>{new Date(tokenState.tokenLimits.checkedAt).toLocaleString()}</span>
+                </div>
+              )}
+            </>
+          )}
           {tokenState.numTurns > 0 && (
             <div className="token-bar-detail-row">
               <span>Turns</span>

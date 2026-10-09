@@ -1184,6 +1184,11 @@
     stroke-dashoffset 0.2s,
     opacity 0.2s;
 }
+.token-wheel-control .token-bar-detail-row span:last-child {
+  min-width: 0;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
 .token-wheel-control .token-bar-detail {
   right: 0;
   width: min(300px, calc(100vw - 32px));
