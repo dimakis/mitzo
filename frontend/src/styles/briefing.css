@@ -1,0 +1,79 @@
+.briefing-page {
+  max-width: 56rem;
+  margin-inline: auto;
+}
+.briefing-actions {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  flex-wrap: wrap;
+  margin-block: var(--space-4);
+}
+.briefing-page button,
+.briefing-minion-dialog button {
+  min-height: var(--control-height);
+  font: inherit;
+}
+.briefing-section {
+  border-block-start: 1px solid var(--color-border);
+  padding-block: var(--space-2);
+}
+.briefing-section summary {
+  min-height: var(--control-height);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  cursor: pointer;
+  font-weight: 600;
+}
+.briefing-section summary::before {
+  content: '›';
+  color: var(--color-muted);
+}
+.briefing-section[open] > summary::before {
+  transform: rotate(90deg);
+}
+.briefing-section .briefing-section {
+  margin-inline-start: var(--space-4);
+}
+.briefing-source {
+  overflow-wrap: anywhere;
+  line-height: 1.6;
+}
+.briefing-source p,
+.briefing-source ul,
+.briefing-source ol {
+  margin-block: var(--space-3);
+}
+.briefing-source pre {
+  overflow-x: auto;
+}
+.briefing-original {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+.briefing-minion-dialog {
+  width: min(32rem, calc(100vw - 2 * var(--page-gutter)));
+  max-height: calc(100dvh - 2 * var(--page-gutter));
+  overflow-y: auto;
+  padding: var(--space-5);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-feature);
+  color: var(--color-text);
+  background: var(--color-surface);
+  font: inherit;
+}
+.briefing-minion-dialog::backdrop {
+  background: var(--color-overlay);
+}
+.briefing-minion-picker {
+  display: grid;
+  gap: var(--space-3);
+  margin-block: var(--space-4);
+}
+.briefing-minion-picker select {
+  width: 100%;
+  min-height: var(--control-height);
+}
