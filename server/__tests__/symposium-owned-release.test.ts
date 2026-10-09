@@ -544,3 +544,30 @@ it('requires and preserves an independently selected baseline through canonical 
     verifyRetainedOwnedRelease({ ...plan, acceptedMainBaseline: 'a'.repeat(40) }, f.digest),
   ).toThrow();
 });
+
+it('pins the optional device-login program in public input verification and refuses a changed program', () => {
+  const f = fixture(),
+    program = join(f.root, 'device-codex');
+  writeFileSync(program, 'auth program', { mode: 0o500 });
+  Object.assign(f.config.personal, {
+    deviceLoginExecutable: { executable: program, sha256: hash('auth program') },
+  });
+  f.save();
+  const plan = prepareOwnedRelease(f.input, f.digest);
+  chmodSync(program, 0o700);
+  writeFileSync(program, 'changed program');
+  expect(() => verifyOwnedRelease(plan, f.digest)).toThrow();
+});
+it('rejects a device executable alias of private material before hashing it', () => {
+  const f = fixture();
+  Object.assign(f.config.personal, {
+    deviceLoginExecutable: {
+      executable: f.config.gateway.jwt.signingKey,
+      sha256: hash('synthetic'),
+    },
+  });
+  f.save();
+  const digest = vi.fn(f.digest);
+  expect(() => prepareOwnedRelease(f.input, digest)).toThrow();
+  expect(digest.mock.calls.some(([path]) => path === f.config.gateway.jwt.signingKey)).toBe(false);
+});

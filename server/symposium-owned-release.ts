@@ -272,6 +272,9 @@ function inspect(input: OwnedReleaseInput, digest: (path: string) => string, fre
     config.gateway.cliExecutable,
     config.gateway.executable,
     ...config.providerProfiles.map((profile) => profile.path),
+    ...(config.personal.deviceLoginExecutable
+      ? [config.personal.deviceLoginExecutable.executable]
+      : []),
   ];
   // Validate private references before deriving identities or reading public inputs.
   // Otherwise lstat on a private symlink describes the link, not its hard-linked target.
@@ -349,12 +352,23 @@ function inspect(input: OwnedReleaseInput, digest: (path: string) => string, fre
         fail();
     }
   }
+  const deviceLogin = config.personal.deviceLoginExecutable;
+  if (deviceLogin) {
+    const stat = pathMetadata(deviceLogin.executable);
+    if (
+      !(stat.mode & 0o111) ||
+      stat.nlink !== 1 ||
+      digest(deviceLogin.executable) !== deviceLogin.sha256
+    )
+      fail();
+  }
   // Credential/TLS contents are deliberately not read. Their owners validate them at explicit launch.
   const inputsSha256 = sha(
     JSON.stringify({
       policy: digest(config.runtime.policy),
       seed: tree(config.runtime.seed, privateIdentities),
       profiles,
+      ...(deviceLogin ? { deviceLoginExecutable: digest(deviceLogin.executable) } : {}),
     }),
   );
   for (const name of [
