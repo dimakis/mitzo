@@ -133,7 +133,7 @@ export function reviewedSymposiumOwnedRuntime(image: string) {
 /** Explicit source-qualified local build, not a claim of completed physical admission.
  * Image-only consumers retain their original catalog entry. Only trusted construction
  * can select this exact tuple before the same physical gate collects evidence. */
-export type SymposiumOwnedBuildSelection = 'local-854b-b20-v1';
+export type SymposiumOwnedBuildSelection = 'local-854b-b20-v1' | 'local-854b-routing-v1';
 export const SOURCE_QUALIFIED_SYMPOSIUM_LOCAL_B20_BUILD = Object.freeze({
   ...REVIEWED_SYMPOSIUM_CODEX_01591_IDENTITY_RUNTIME.build,
   version: '0.0.0',
@@ -158,4 +158,13 @@ export function reviewedSymposiumOwnedBuild(
   )
     throw Error('Owned full-build selection is not reviewed');
   return SOURCE_QUALIFIED_SYMPOSIUM_LOCAL_B20_BUILD;
+}
+
+/** No diagnostic construction is permitted until all native artifacts are
+ * measured and the exact source-qualified tuple is registered here. */
+export function reviewedSymposiumRoutingDiagnosticBuild(
+  _image: string,
+  _selection?: SymposiumOwnedBuildSelection,
+): ReturnType<typeof reviewedSymposiumOwnedBuild> {
+  throw Error('Routing diagnostic native build is not qualified');
 }

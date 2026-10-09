@@ -46,6 +46,15 @@ it('preserves every image-only default and requires explicit known full-build se
   expect(resolve(image).cliSha256).not.toBe(local.cliSha256);
 });
 
+it('keeps routing diagnostics closed before a measured supervisor tuple is registered', () => {
+  expect(typeof contracts.reviewedSymposiumRoutingDiagnosticBuild).toBe('function');
+  const image = contracts.REVIEWED_SYMPOSIUM_CODEX_01591_IDENTITY_RUNTIME.build.image;
+  for (const selection of [undefined, 'local-854b-b20-v1', 'local-854b-routing-v1', 'unknown'])
+    expect(() =>
+      contracts.reviewedSymposiumRoutingDiagnosticBuild(image, selection as never),
+    ).toThrow();
+});
+
 import { collectOwnedAdmissionEvidence } from '../symposium-owned-evidence.js';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
