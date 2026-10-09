@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { readFileSync, readdirSync } from 'fs';
 import { resolve } from 'path';
 import { describe, it, expect } from 'vitest';
@@ -11,6 +12,64 @@ const rootBlock = rootMatch?.[1] ?? '';
 
 // Exercise the same scanner with hostile snippets and the complete production tree.
 const ownedTokens = new Set([...css.matchAll(/(--[\w-]+)\s*:/g)].map((match) => match[1]));
+const colorProbe = document.createElement('span').style;
+const paintKeywordCache = new Map<string, boolean>();
+const neutralColorKeywords = new Set([
+  'transparent',
+  'currentcolor',
+  'inherit',
+  'initial',
+  'unset',
+  'revert',
+  'revert-layer',
+]);
+
+function parsesAsColor(value: string): boolean {
+  colorProbe.color = '';
+  colorProbe.color = value;
+  return colorProbe.color !== '';
+}
+
+function hasPaletteLiteral(value: string): boolean {
+  const clean = value.replace(/url\([\s\S]*?\)/gi, '');
+  if (/#[\da-f]{3,8}\b|(?:rgba?|hsla?|lab|lch|oklab|oklch|color)\s*\(/i.test(clean)) return true;
+  for (const word of clean.matchAll(/[-_a-zA-Z][\w-]*/g)) {
+    const keyword = word[0].toLowerCase();
+    if (neutralColorKeywords.has(keyword)) continue;
+    if (!paintKeywordCache.has(keyword)) paintKeywordCache.set(keyword, parsesAsColor(keyword));
+    if (paintKeywordCache.get(keyword)) return true;
+  }
+  return false;
+}
+
+const themeDefinitions = [...css.matchAll(/(--[\w-]+)\s*:\s*([^;}]+)/g)];
+const colorTokens = new Set(
+  themeDefinitions
+    .filter(
+      (match) =>
+        !/font/.test(match[1]) && !/var\(/.test(match[2]) && parsesAsColor(match[2].trim()),
+    )
+    .map((match) => match[1]),
+);
+for (let changed = true; changed;) {
+  changed = false;
+  for (const match of themeDefinitions) {
+    const references = [...match[2].matchAll(/var\(\s*(--[\w-]+)/g)].map(
+      (reference) => reference[1],
+    );
+    if (
+      !colorTokens.has(match[1]) &&
+      references.length &&
+      references.every((reference) => colorTokens.has(reference))
+    ) {
+      colorTokens.add(match[1]);
+      changed = true;
+    }
+  }
+}
+const paintProperty =
+  /^(?:color|fill|stroke|background.*|border.*|outline.*|box-?shadow|text-?shadow|caret-?color|accent-?color|text-?decoration-?color|--[\w-]+)$/i;
+
 const fontRoles = [...ownedTokens].filter((name) =>
   /^--font-|^--ui-font$|^--code-font$/.test(name),
 );
@@ -40,7 +99,7 @@ function allowedContextAlias(property: string, value: string | null): boolean {
   if (!contextualAliases.has(property) || value === null) return false;
   const clean = value.trim();
   const reference = clean.match(/^var\(\s*(--[\w-]+)\s*\)$/);
-  if (reference) return ownedTokens.has(reference[1]);
+  if (reference) return colorTokens.has(reference[1]);
   const role = String.raw`var\(\s*--[\w-]+\s*\)`;
   const weight = String.raw`(?:\s+\d+(?:\.\d+)?%)?`;
   const mix = new RegExp(
@@ -65,6 +124,11 @@ function literalStyleValue(node: ts.Node): string | null {
   )
     return literalStyleValue(node.expression);
   if (ts.isPrefixUnaryExpression(node) && ts.isNumericLiteral(node.operand)) return node.getText();
+  if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.PlusToken) {
+    const left = literalStyleValue(node.left);
+    const right = literalStyleValue(node.right);
+    return left === null || right === null ? null : left + right;
+  }
   if (ts.isTemplateExpression(node)) {
     return (
       node.head.text +
@@ -170,9 +234,17 @@ function styleViolations(source: string, filename = 'component.css'): string[] {
         violations.push(`token override: ${definition[1]}`);
     }
   }
-  if (/#[\da-f]{3,8}\b|(?:rgb|hsl)a?\(\s*\d/i.test(clean)) violations.push('palette literal');
+  if (/#[\da-f]{3,8}\b|(?:rgba?|hsla?)\s*\(/i.test(clean)) violations.push('palette literal');
   if (/(?:color|background(?:-color)?|fill|stroke):\s*['"]?(?:white|black)\b/i.test(clean))
     violations.push('named color');
+  for (const styleText of styleTexts) {
+    for (const declaration of styleText.matchAll(
+      /(?:^|[;{])\s*([\w-]+)\s*:\s*([^;}]+)(?=[;}]|$)/g,
+    )) {
+      if (paintProperty.test(declaration[1]) && hasPaletteLiteral(declaration[2]))
+        violations.push('palette literal');
+    }
+  }
   for (const styleText of styleTexts) {
     for (const font of styleText.matchAll(
       /(?:^|[;{])\s*(font-family|font)\s*:\s*([^;}]+)(?=[;}]|$)/g,
@@ -182,6 +254,8 @@ function styleViolations(source: string, filename = 'component.css'): string[] {
     }
   }
   for (const { property, value, styleContext } of sources.inline) {
+    if (value !== null && paintProperty.test(property) && hasPaletteLiteral(value))
+      violations.push('palette literal');
     if (ownedTokens.has(property) && !allowedContextAlias(property, value))
       violations.push(`inline token override: ${property}`);
     if (value !== null && (property === 'fontFamily' || property === 'font')) {
@@ -369,6 +443,41 @@ describe('design tokens', () => {
       '.page { font: var(--text-base) var(--private-font); }',
     ])('requires font variables to come from the shared font registry: %s', (source) => {
       expect(styleViolations(source)).toContain('font stack');
+    });
+
+    it('rejects a spacing token used as a contextual color', () => {
+      expect(styleViolations('.page { --bg: var(--space-4); }')).toContain('token override: --bg');
+    });
+
+    it.each([
+      '.page { color: rebeccapurple; }',
+      '.page { background: red; }',
+      '.page { background: linear-gradient(red, blue); }',
+      '.page { color: hsl(-30 90% 70%); }',
+      '.page { color: hsl(.5turn 90% 70%); }',
+    ])('rejects literal palette values: %s', (source) => {
+      expect(styleViolations(source).length).toBeGreaterThan(0);
+    });
+
+    it('rejects named colors in React styles', () => {
+      expect(
+        styleViolations(
+          "const element = <div style={{ color: 'rebeccapurple', background: 'red' }} />;",
+          'page.tsx',
+        ),
+      ).toContain('palette literal');
+    });
+
+    it('checks statically concatenated CSS template content', () => {
+      expect(
+        styleViolations("const styles = `.page { ${'font-family:' + 'Arial;'} }`;", 'page.tsx'),
+      ).toContain('font stack');
+    });
+
+    it('keeps image URL names and inherited colors usable', () => {
+      expect(
+        styleViolations(".page { background: url('/assets/red.png'); color: currentColor; }"),
+      ).toEqual([]);
     });
 
     it('allows token-based shorthand size and family', () => {
