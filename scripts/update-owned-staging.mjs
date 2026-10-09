@@ -204,6 +204,8 @@ function verifyArchive(p, lock) {
     !same(receipt.live, p.live) ||
     receipt.operation !== p.operation ||
     receipt.target !== p.target ||
+    receipt.retiredUse?.vmConfigSha256 !== p.empty.vmConfigSha256 ||
+    !same(receipt.retiredUse?.workspaceFiles, receipt.files?.workspace) ||
     hash(JSON.stringify(receipt)) !== lock.retiredAuditSha256
   )
     throw Error('Original retirement archive binding changed');
@@ -244,6 +246,7 @@ async function applyUpdate(current) {
   const p = privateJson(planPath);
   verifyPlan(current, p);
   let retired,
+    retiredUse,
     archiveOwned = false;
   const lock = {
     id: p.operation,
@@ -293,6 +296,21 @@ async function applyUpdate(current) {
       }
       throw Error('Original retirement uncertain; retain lock');
     },
+    async validateRetiredUse() {
+      ownLock();
+      const proof = await verifyOriginalRetirement(root, p.live, lock.requestedAt);
+      if (!same(proof, retired)) throw Error('Original retirement changed');
+      // The live check cannot cover writes before SIGTERM or during graceful
+      // shutdown. Inspect the original paths after retirement, and recheck the
+      // preserved snapshot immediately before any original-state disposition.
+      const observed = assertEmptyStagingUse(root, p.live);
+      if (
+        observed.vmConfigSha256 !== p.empty.vmConfigSha256 ||
+        (retiredUse && !same(observed, retiredUse))
+      )
+        throw Error('Retired initial stage changed; retain original state and lock');
+      retiredUse = observed;
+    },
     async preserveRetired() {
       ownLock();
       mkdirSync(join(root, 'service/owned-updates'), { recursive: true, mode: 0o700 });
@@ -332,6 +350,7 @@ async function applyUpdate(current) {
         target: p.target,
         live: p.live,
         retired,
+        retiredUse,
         files,
         requestedAt: lock.requestedAt,
         controlRecords: { ...p.controlRecords, 'deployment.lock': hash(bytes(lockPath)) },

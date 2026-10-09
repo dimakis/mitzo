@@ -8,7 +8,9 @@ export async function runOwnedStageUpgrade(effects) {
     controlAttempted = true;
     await effects.retire();
     await effects.verifyRetired();
+    await effects.validateRetiredUse();
     await effects.preserveRetired();
+    await effects.validateRetiredUse();
     await effects.qualifyRetired();
     await effects.prepareFresh();
     await effects.startFresh();
