@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { build } from 'esbuild';
 
 // Render the real composer without a backend, provider, or Vite preview.
-async function composerAssets(running = false, model = 'new-model') {
+async function composerAssets(running = false, model = 'new-model', voiceState = 'idle') {
   const result = await build({
     stdin: {
       resolveDir: process.cwd(),
@@ -15,7 +15,7 @@ async function composerAssets(running = false, model = 'new-model') {
         import './frontend/src/styles/global.css';
         import './frontend/src/styles/workspace.css';
         import './frontend/src/styles/workspace-chat.css';
-        const voice = { available: true, recording: false, transcribing: false,
+        const voice = { available: true, recording: ${voiceState === 'recording'}, transcribing: ${voiceState === 'transcribing'},
           partialTranscript: '', micBlocked: false, error: null,
           startRecording() {}, stopRecording: async () => '', cancelRecording() {} };
         createRoot(document.getElementById('root')).render(
@@ -123,8 +123,13 @@ for (const width of [320, 390, 768, 1280]) {
         await expect(wheel).toBeVisible();
         const wheelBounds = (await wheel.boundingBox())!;
         const actionBounds = (await action.boundingBox())!;
-        expect(wheelBounds.x - (actionBounds.x + actionBounds.width)).toBeGreaterThanOrEqual(0);
-        expect(wheelBounds.x - (actionBounds.x + actionBounds.width)).toBeLessThanOrEqual(6);
+        const micBounds = (await page
+          .getByRole('button', { name: 'Record voice message' })
+          .boundingBox())!;
+        expect(micBounds.x - (wheelBounds.x + wheelBounds.width)).toBeGreaterThanOrEqual(0);
+        expect(micBounds.x - (wheelBounds.x + wheelBounds.width)).toBeLessThanOrEqual(6);
+        expect(actionBounds.x - (micBounds.x + micBounds.width)).toBeGreaterThanOrEqual(0);
+        expect(actionBounds.x - (micBounds.x + micBounds.width)).toBeLessThanOrEqual(6);
         expect(
           Math.abs(
             wheelBounds.y + wheelBounds.height / 2 - (actionBounds.y + actionBounds.height / 2),
@@ -143,7 +148,7 @@ for (const width of [320, 390, 768, 1280]) {
           await page.getByRole('textbox').fill('Follow up');
           const updatedWheel = (await wheel.boundingBox())!;
           const updatedAction = (await action.boundingBox())!;
-          expect(updatedWheel.x - (updatedAction.x + updatedAction.width)).toBeLessThanOrEqual(6);
+          expect(updatedAction.x).toBeGreaterThan(updatedWheel.x + updatedWheel.width);
         }
         await wheel.click();
         const details = (await page.locator('.token-bar-detail').boundingBox())!;
@@ -173,14 +178,14 @@ for (const width of [768, 1280]) {
     const u = (await usage.boundingBox())!;
     const s = (await send.boundingBox())!;
     const toolbar = (await page.locator('.composer-toolbar').boundingBox())!;
-    expect(u.x).toBeGreaterThan(s.x + s.width);
+    expect(s.x).toBeGreaterThan(u.x + u.width);
     expect(Math.abs(u.y - s.y)).toBeLessThanOrEqual(1);
     expect(u.height).toBe(s.height);
     expect(u.width).toBe(s.width);
-    expect(Math.abs(u.x + u.width - toolbar.x - toolbar.width)).toBeLessThanOrEqual(1);
+    expect(Math.abs(s.x + s.width - toolbar.x - toolbar.width)).toBeLessThanOrEqual(1);
     await usage.click();
     const details = (await page.locator('.token-bar-detail').boundingBox())!;
-    expect(Math.abs(details.x + details.width - u.x - u.width)).toBeLessThanOrEqual(1);
+    expect(Math.abs(details.x + details.width - toolbar.x - toolbar.width)).toBeLessThanOrEqual(1);
     expect(details.y + details.height).toBeLessThanOrEqual(u.y);
   });
 }
@@ -204,4 +209,71 @@ test('pressed model-limit details fit a narrow viewport even for a long model ID
   const rect = (await details.boundingBox())!;
   expect(rect.x).toBeGreaterThanOrEqual(0);
   expect(rect.x + rect.width).toBeLessThanOrEqual(320);
+});
+
+for (const width of [320, 390, 1280]) {
+  for (const theme of ['dark', 'light']) {
+    test(`unboxed composer utilities and circular send at ${width}px in ${theme}`, async ({
+      page,
+    }, testInfo) => {
+      const assets = await composerAssets();
+      await page.setViewportSize({ width, height: 640 });
+      await page.route('**/*', (route) => route.abort());
+      await page.setContent(
+        `<html data-theme="${theme}"><meta name="viewport" content="width=device-width, initial-scale=1.0"><style>${assets.css}</style><div id="root"></div></html>`,
+      );
+      await page.addScriptTag({ content: assets.js });
+      for (const button of await page.locator('.composer-toolbar button:visible').all()) {
+        const rect = (await button.boundingBox())!;
+        expect(rect.width).toBeGreaterThanOrEqual(44);
+        expect(rect.height).toBeGreaterThanOrEqual(44);
+        if ((await button.getAttribute('aria-label')) === 'Send message') continue;
+        const style = await button.evaluate((el) => ({
+          border: getComputedStyle(el).borderTopWidth,
+          background: getComputedStyle(el).backgroundColor,
+        }));
+        expect(style.border).toBe('0px');
+        expect(style.background).toBe('rgba(0, 0, 0, 0)');
+      }
+      const send = page.getByRole('button', { name: 'Send message', exact: true });
+      await expect(send).toBeDisabled();
+      await page.getByRole('textbox').fill('Ready to send');
+      await expect(send).toBeEnabled();
+      expect(await send.evaluate((el) => getComputedStyle(el).borderRadius)).toBe('50%');
+      const mic = page.getByRole('button', { name: 'Record voice message' });
+      const usage = page.getByRole('button', { name: 'Token usage', exact: true });
+      expect((await usage.boundingBox())!.x).toBeLessThan((await mic.boundingBox())!.x);
+      expect((await mic.boundingBox())!.x).toBeLessThan((await send.boundingBox())!.x);
+      await mic.focus();
+      expect(await mic.evaluate((el) => getComputedStyle(el).outlineStyle)).toBe('solid');
+      await mic.blur();
+      if (width === 390)
+        await page
+          .locator('.chat-input')
+          .screenshot({ path: testInfo.outputPath(`composer-${theme}.png`) });
+    });
+  }
+}
+
+test('voice feedback remains distinct in the unboxed composer', async ({ page }) => {
+  await page.route('**/*', (route) => route.abort());
+  for (const state of ['recording', 'transcribing']) {
+    const assets = await composerAssets(false, 'new-model', state);
+    await page.setContent(`<style>${assets.css}</style><div id="root"></div>`);
+    await page.addScriptTag({ content: assets.js });
+    const mic = page.getByRole('button', {
+      name: state === 'recording' ? 'Stop recording' : 'Transcribing audio',
+    });
+    if (state === 'recording') {
+      await expect(mic).toHaveAttribute('aria-pressed', 'true');
+      expect(await mic.evaluate((el) => getComputedStyle(el).backgroundColor)).not.toBe(
+        'rgba(0, 0, 0, 0)',
+      );
+    } else {
+      await expect(mic).toBeDisabled();
+      expect(await mic.locator('svg').evaluate((el) => getComputedStyle(el).animationName)).toBe(
+        'mic-spin',
+      );
+    }
+  }
 });

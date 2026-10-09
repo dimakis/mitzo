@@ -349,11 +349,12 @@
   align-items: center;
   justify-content: center;
   gap: 6px;
-  width: 40px;
-  min-width: 40px;
-  height: 40px;
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
   padding: 0;
-  border-radius: 10px;
+  border: 0;
+  border-radius: 50%;
   font-size: 13px;
   line-height: 1;
 }
@@ -362,17 +363,17 @@
   padding: 0 10px;
   color: var(--text-dim);
   background: transparent;
-  border: 1px solid var(--border);
+  border: 0;
 }
 .chat-input--compact .chat-input-btn--skills > span {
   font-size: 18px;
   color: var(--accent);
 }
 .chat-input--compact .mic-btn {
-  border: 1px solid var(--border);
+  background: transparent;
 }
 .chat-input--compact .mic-btn--recording {
-  border-color: var(--danger);
+  background: var(--danger);
 }
 .chat-input--compact .mic-btn--transcribing {
   animation: none;
@@ -393,9 +394,25 @@
   color: white;
 }
 .chat-input--compact .chat-input-btn--interrupt {
-  background: var(--surface);
+  background: transparent;
   color: var(--text);
-  border: 1px solid var(--border);
+}
+/* Utility controls keep their full hit area without resting button chrome. */
+.chat-input--compact
+  :is(
+    .composer-tools-toggle,
+    .composer-session-trigger,
+    .chat-input-btn--skills,
+    .chat-input-btn--attach,
+    .chat-input-btn--worktree,
+    .chat-input-btn--interrupt,
+    .mic-btn:not(.mic-btn--recording),
+    .token-bar
+  ):is(:hover, :active):not(:disabled) {
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+}
+.chat-input--compact :is(.composer-tools-toggle, .composer-session-trigger)[aria-expanded='true'] {
+  color: var(--accent);
 }
 .chat-input--compact :is(button, summary):focus-visible,
 .workspace-controls-toggle:focus-visible {
@@ -916,7 +933,7 @@
     min-width: 44px;
     height: 44px;
     flex-shrink: 0;
-    border-radius: 9px;
+    border-radius: 50%;
   }
 
   /* Preserve labels and safe-area support while trimming excess tab-bar height. */
@@ -988,12 +1005,12 @@
   width: auto;
   padding: 0 10px;
   background: transparent;
-  border: 1px solid var(--border);
+  border: 0;
   color: var(--text);
 }
 .chat-input--compact .chat-input-btn--worktree {
   background: transparent;
-  border: 1px solid var(--border);
+  border: 0;
   color: var(--text-dim);
 }
 .chat-input--compact .chat-input-btn--worktree[aria-pressed='true'] {
@@ -1070,7 +1087,7 @@
     display: inline-flex;
     background: transparent;
     color: var(--text-dim);
-    border: 1px solid var(--border);
+    border: 0;
   }
   .chat-input--compact .composer-session-trigger {
     width: auto;
@@ -1154,17 +1171,21 @@
   flex: 0 0 auto;
   margin-left: 0;
 }
+/* Anchor composer usage details to the toolbar edge so the leading wheel stays in bounds. */
+.chat-input--compact .token-wheel-control {
+  position: static;
+}
 .chat-input .token-bar {
   display: inline-flex;
   justify-content: center;
   align-items: center;
   box-sizing: border-box;
-  width: 40px;
-  height: 40px;
+  width: 44px;
+  height: 44px;
   padding: 0;
   margin: 0;
-  border: 1px solid var(--border);
-  border-radius: 9px;
+  border: 0;
+  border-radius: 50%;
   background: transparent;
   animation: none;
 }
