@@ -69,9 +69,10 @@ At most eight unreleased preparing/ready/claimed sources may be held per account
 ## Resource use
 
 Host task creation prefers filesystem copy-on-write cloning, keeping independent
-file identities and Git metadata. macOS uses a scoped native copy; other hosts
-request Node's optional reflink copy. Filesystems without cloning support fall
-back to ordinary copies. This reduces copying and transient source/task duplication
+file identities and Git metadata. Node's optional reflink copy falls back to
+ordinary copying on unsupported platforms or filesystems. Node's current API
+does not expose native filesystem cloning on this Mac; native macOS cloning
+requires a separately verified copier with stronger filesystem boundaries. This reduces copying and transient source/task duplication
 where cloning is supported; logical file sizes do not measure physical savings.
 
 Source verification reads files in 64 KiB chunks, retaining the existing frozen

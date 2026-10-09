@@ -19,27 +19,24 @@ async function fixture() {
   await chmod(join(source, 'run.sh'), 0o755);
   return { root, source, destination };
 }
-it.each([...new Set([process.platform, 'linux' as const])])(
-  'keeps cloned work and Git metadata independent through edits and seed deletion (%s)',
-  async (platform) => {
-    const f = await fixture();
-    await copyRepositoryTaskCheckout(f.source, f.destination, platform);
-    for (const file of ['file.txt', '.git/HEAD', 'run.sh']) {
-      const source = await stat(join(f.source, file)),
-        task = await stat(join(f.destination, file));
-      expect(task.ino).not.toBe(source.ino);
-      expect(task.nlink).toBe(1);
-      expect(task.mode & 0o777).toBe(source.mode & 0o777);
-    }
-    await writeFile(join(f.destination, 'file.txt'), 'task edit');
-    await writeFile(join(f.destination, '.git', 'HEAD'), 'ref: refs/heads/task-edited\n');
-    expect((await readFile(join(f.source, 'file.txt'))).length).toBe(2 * 1024 * 1024);
-    expect(await readFile(join(f.source, '.git', 'HEAD'), 'utf8')).toContain('mitzo/task');
-    await rm(f.source, { recursive: true });
-    expect(await readFile(join(f.destination, 'file.txt'), 'utf8')).toBe('task edit');
-    expect(await readFile(join(f.destination, '.git', 'HEAD'), 'utf8')).toContain('task-edited');
-  },
-);
+it('keeps cloned work and Git metadata independent through edits and seed deletion', async () => {
+  const f = await fixture();
+  await copyRepositoryTaskCheckout(f.source, f.destination);
+  for (const file of ['file.txt', '.git/HEAD', 'run.sh']) {
+    const source = await stat(join(f.source, file)),
+      task = await stat(join(f.destination, file));
+    expect(task.ino).not.toBe(source.ino);
+    expect(task.nlink).toBe(1);
+    expect(task.mode & 0o777).toBe(source.mode & 0o777);
+  }
+  await writeFile(join(f.destination, 'file.txt'), 'task edit');
+  await writeFile(join(f.destination, '.git', 'HEAD'), 'ref: refs/heads/task-edited\n');
+  expect((await readFile(join(f.source, 'file.txt'))).length).toBe(2 * 1024 * 1024);
+  expect(await readFile(join(f.source, '.git', 'HEAD'), 'utf8')).toContain('mitzo/task');
+  await rm(f.source, { recursive: true });
+  expect(await readFile(join(f.destination, 'file.txt'), 'utf8')).toBe('task edit');
+  expect(await readFile(join(f.destination, '.git', 'HEAD'), 'utf8')).toContain('task-edited');
+});
 it('refuses an existing destination and preserves its files', async () => {
   const f = await fixture();
   await mkdir(f.destination);
