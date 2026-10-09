@@ -63,12 +63,17 @@ vi.mock('../../components/RepositoryChatPicker', () => ({
     onChange,
   }: {
     initialPreparationId?: string;
-    onChange(value: { blocked: boolean; repositoryWorkspaceId?: string }): void;
+    onChange(value: { blocked: boolean; repositoryWorkspaceId?: string } | null): void;
   }) => {
     const change = useRef(onChange);
     change.current = onChange;
     useEffect(
-      () => change.current({ blocked: false, repositoryWorkspaceId: initialPreparationId }),
+      () =>
+        change.current(
+          initialPreparationId
+            ? { blocked: false, repositoryWorkspaceId: initialPreparationId }
+            : null,
+        ),
       [initialPreparationId],
     );
     return <span data-testid="preparation-id">{initialPreparationId}</span>;
@@ -153,6 +158,61 @@ for (const [layout, View] of [
   ['mobile', ChatView],
   ['desktop', DesktopChatView],
 ] as const) {
+  it(`${layout}: preserves the handoff URL while a source chat's old account selection is clearing`, async () => {
+    let complete!: (response: Response) => void;
+    api.fetch.mockImplementation(async (url: string) =>
+      url.includes('/chat-preparation')
+        ? new Promise<Response>((resolve) => {
+            complete = resolve;
+          })
+        : new Response(
+            JSON.stringify({
+              accountBinding: { accountId: 'other', accountLabel: 'Other', model: 'sol' },
+            }),
+          ),
+    );
+    const store = createTestStore();
+    store.setState({ sessions: { ...store.getState().sessions, active: 'parent' } });
+    render(
+      <MitzoStoreProvider value={store}>
+        <MemoryRouter initialEntries={['/chat/parent']}>
+          <Routes>
+            <Route
+              path="/chat/:sessionId?"
+              element={
+                <>
+                  <View />
+                  <Location />
+                </>
+              }
+            />
+          </Routes>
+        </MemoryRouter>
+      </MitzoStoreProvider>,
+    );
+    await screen.findByText('Other');
+    fireEvent.click(screen.getByRole('button', { name: 'Other preparation' }));
+    await waitFor(() =>
+      expect(api.fetch.mock.calls.some(([url]) => url.includes('/chat-preparation'))).toBe(true),
+    );
+    expect(screen.getByTestId('location').textContent).toBe(
+      `/chat?repositoryPreparation=${otherId}`,
+    );
+    expect(screen.queryByTestId('preparation-id')).toBeNull();
+    await act(async () =>
+      complete(
+        new Response(
+          JSON.stringify({
+            repositoryChat: {
+              ...preparation,
+              id: otherId,
+              setupUrl: `/chat?repositoryPreparation=${otherId}`,
+            },
+          }),
+        ),
+      ),
+    );
+  });
   it(`${layout}: does not select a fallback account while the handoff is loading`, async () => {
     let complete!: (response: Response) => void;
     api.fetch.mockImplementation(async (url: string) =>

@@ -495,19 +495,24 @@ export function DesktopChatView() {
                     <button onClick={dismissLaunch}>Dismiss launch</button>
                   </div>
                 )}
-                {!activeSessionId && accountSelection?.accountId && (
-                  <RepositoryChatPicker
-                    key={repositoryScope}
-                    accountId={accountSelection.accountId}
-                    model={accountSelection.model}
-                    initialPreparationId={repositoryHandoff.preparation?.id}
-                    onChange={(selection) => {
-                      setRepositoryChoice({ scope: repositoryScope, selection });
-                      if (repositoryHandoff.present && !selection)
-                        navigate('/chat', { replace: true });
-                    }}
-                  />
-                )}
+                {!activeSessionId &&
+                  accountSelection?.accountId &&
+                  (!repositoryHandoff.present ||
+                    (repositoryHandoff.preparation &&
+                      accountSelection.accountId === repositoryHandoff.preparation.accountId &&
+                      accountSelection.model === repositoryHandoff.preparation.model)) && (
+                    <RepositoryChatPicker
+                      key={repositoryScope}
+                      accountId={accountSelection.accountId}
+                      model={accountSelection.model}
+                      initialPreparationId={repositoryHandoff.preparation?.id}
+                      onChange={(selection) => {
+                        setRepositoryChoice({ scope: repositoryScope, selection });
+                        if (repositoryHandoff.present && !selection)
+                          navigate('/chat', { replace: true });
+                      }}
+                    />
+                  )}
                 <CodexQueueStatus sessionId={activeSessionId} />
                 <ChatInput
                   key={
