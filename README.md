@@ -48,6 +48,8 @@ The dormant [Symposium artifact snapshot observer](docs/features/symposium-artif
 
 [Symposium mount verification](docs/operations/symposium-mount-diagnostics.md) reports bounded failure stages for configuration, physical listing, selection, inspection, identity, mount proof and image checks, while retaining the existing admission requirements.
 
+Qualified canonical staging builds expose a bounded Personal account-check diagnostic to the authenticated operator. It returns finite owned-supervisor observations without model execution or catalog publication; unavailable observations remain inconclusive. See the [staging diagnostic procedure](docs/operations/canonical-staging.md#bounded-personal-account-check-diagnostic).
+
 Vertex readiness validates the pinned CLI’s blank failure-code column and empty-error `-` marker without accepting diagnostic text.
 
 Symposium director status resolves the verified runtime once per request and reuses it for per-seat diagnostics; each later request still performs fresh verification.

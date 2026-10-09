@@ -449,3 +449,30 @@ intent, selection, lock and archived plan remain unchanged; a separate verifier
 acknowledgement records both controller identities. This grants only verification
 of that same completed metadata effect, never another plan disposition or native
 service action.
+
+## Bounded Personal account-check diagnostic
+
+Only the registered source-qualified routing build exposes the trusted native
+capability. Use the current connected Pro slot and its exact revision, with an
+interactive operator session and same-origin JSON request:
+
+```text
+POST /api/symposium/personal/connections/{id}/routing-diagnostic
+{ "expectedRevision": CURRENT_REVISION }
+```
+
+The request accepts no endpoint, logging, image, provider or model overrides. It
+fences other account changes, creates one owned sandbox, initializes the native
+client and reads account metadata. It never requests a model catalog or inference.
+Before cleanup it reads bounded console output from the exact receipt-bound
+Supervisor, projecting only the recognized account-check request ordinal, finite
+outcome, HTTP status and timestamp. Headers, bodies and raw errors are discarded.
+Normal model discovery does not enable the logging filter.
+
+HTTP 200 alone does not establish valid account JSON. Absent or ambiguous events
+remain inconclusive, including failures before the exact request is recognized.
+Confirmed cleanup preserves the connected slot and any existing catalog. An
+uncertain result quarantines the operation and retains its original cleanup
+capability. Recovery requires that same owner, fresh operator authority and
+positive native cleanup proof; it cannot resume after a process restart or clear
+a foreign workspace creation barrier from metadata or inventory absence.
