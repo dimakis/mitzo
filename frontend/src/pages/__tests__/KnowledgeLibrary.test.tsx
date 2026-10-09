@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import React from 'react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { KnowledgeLibrary } from '../KnowledgeLibrary';
 import { apiFetch } from '../../lib/api-fetch';
@@ -783,3 +783,196 @@ it('recovers a lost update acknowledgement through saved comparison when the nex
     review: { version: 2, head: 'h2', ready: true },
   });
 });
+it('explicitly excludes catalog-confirmed removed documents while preserving and rebasing surviving edits', async () => {
+  const removed = {
+    path: 'hub/principles.md',
+    base: '# Old principles',
+    content: '# Removed draft edits',
+  };
+  const surviving = {
+    path: 'teams/release.md',
+    base: '# Old release',
+    content: '# Keep release edits',
+  };
+  const change = {
+    ...draft,
+    documents: [removed, surviving],
+    error: 'Compare accepted knowledge before saving',
+  };
+  const latest = {
+    ...catalog,
+    revision: 'r2',
+    documents: [catalog.documents[1]],
+    drafts: [change],
+  };
+  vi.mocked(apiFetch).mockImplementation(async (path, init) => {
+    if (path === '/api/knowledge') return response({ ...catalog, drafts: [change] });
+    if (path === '/api/knowledge/refresh') return response(latest);
+    if (path === '/api/knowledge/drafts/d1' && init?.method === 'GET')
+      return response({ draft: change });
+    if (path.startsWith('/api/knowledge/document')) {
+      if (path.includes('hub%2Fprinciples'))
+        return { ...response({ error: 'Not found' }, false), status: 404 };
+      return response({ content: '# Latest release' });
+    }
+    if (init?.method === 'PUT')
+      return response({
+        draft: {
+          ...change,
+          error: undefined,
+          version: 2,
+          baseRevision: 'r2',
+          documents: [{ ...surviving, base: '# Latest release' }],
+          review: { ...draft.review, version: 2, ready: false },
+        },
+      });
+    return response({ draft: change });
+  });
+  const view = setup();
+  fireEvent.click(await screen.findByRole('button', { name: 'Drafts (1)' }));
+  fireEvent.click(screen.getByRole('button', { name: /Working principles/ }));
+  await screen.findByText('Compare accepted knowledge before saving');
+  const before = localStorage.getItem('mitzo-knowledge-working-copy:');
+  fireEvent.click(screen.getByRole('button', { name: 'Compare accepted version' }));
+  await screen.findByText('No longer in accepted knowledge');
+  expect(localStorage.getItem('mitzo-knowledge-working-copy:')).toBe(before);
+  expect(
+    within(screen.getByRole('region', { name: 'Compare accepted and draft' })).getByText(
+      '# Removed draft edits',
+    ),
+  ).toBeTruthy();
+  expect(screen.getByText('# Keep release edits')).toBeTruthy();
+  expect(
+    vi
+      .mocked(apiFetch)
+      .mock.calls.some(
+        ([path]) => path.startsWith('/api/knowledge/document') && path.includes('hub%2Fprinciples'),
+      ),
+  ).toBe(false);
+  view.unmount();
+  setup();
+  await screen.findByRole('textbox', { name: 'Document source' });
+  expect(JSON.parse(localStorage.getItem('mitzo-knowledge-working-copy:')!).documents).toEqual([
+    removed,
+    surviving,
+  ]);
+  fireEvent.click(screen.getByRole('button', { name: 'Review details' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Start new change' }));
+  await screen.findByText('No longer in accepted knowledge');
+  // Return to reconciliation of this draft, preserving the original change identity.
+  fireEvent.click(screen.getByRole('button', { name: 'Compare accepted version' }));
+  await screen.findByRole('button', { name: 'Exclude removed documents and save' });
+  fireEvent.click(screen.getByRole('button', { name: 'Exclude removed documents and save' }));
+  await screen.findAllByText('Review draft saved');
+  const put = vi.mocked(apiFetch).mock.calls.find(([, init]) => init?.method === 'PUT');
+  expect(JSON.parse(String(put?.[1]?.body))).toMatchObject({
+    version: 1,
+    baseRevision: 'r2',
+    documents: [{ path: 'teams/release.md', content: '# Keep release edits' }],
+  });
+  expect(
+    (screen.getByRole('textbox', { name: 'Document source' }) as HTMLTextAreaElement).value,
+  ).toBe('# Keep release edits');
+});
+it('recovers an explicitly emptied draft and adds a current document using the latest accepted base', async () => {
+  const removed = {
+    path: 'hub/principles.md',
+    base: '# Old principles',
+    content: '# Removed only edits',
+  };
+  const change = {
+    ...draft,
+    documents: [removed],
+    error: 'Compare accepted knowledge before saving',
+  };
+  let refreshed = false;
+  const currentDoc = { path: 'teams/renamed.md', title: 'Current release notes', area: 'Teams' };
+  const latest = { ...catalog, revision: 'r2', documents: [currentDoc], drafts: [change] };
+  vi.mocked(apiFetch).mockImplementation(async (path, init) => {
+    if (path === '/api/knowledge')
+      return response(refreshed ? latest : { ...catalog, drafts: [change] });
+    if (path === '/api/knowledge/refresh') {
+      refreshed = true;
+      return response(latest);
+    }
+    if (path === '/api/knowledge/drafts/d1' && init?.method === 'GET')
+      return response({ draft: change });
+    if (path.startsWith('/api/knowledge/document'))
+      return response({ content: '# Current accepted notes' });
+    if (init?.method === 'PUT')
+      return response({
+        draft: {
+          ...change,
+          error: undefined,
+          version: 2,
+          baseRevision: 'r2',
+          documents: [
+            {
+              path: currentDoc.path,
+              base: '# Current accepted notes',
+              content: '# New notes edits',
+            },
+          ],
+          review: { ...draft.review, version: 2, ready: false },
+        },
+      });
+    return response({ draft: change });
+  });
+  const view = setup();
+  fireEvent.click(await screen.findByRole('button', { name: 'Drafts (1)' }));
+  fireEvent.click(screen.getByRole('button', { name: /Working principles/ }));
+  await screen.findByText('Compare accepted knowledge before saving');
+  fireEvent.click(screen.getByRole('button', { name: 'Compare accepted version' }));
+  await screen.findByText('No longer in accepted knowledge');
+  expect(JSON.parse(localStorage.getItem('mitzo-knowledge-working-copy:')!).documents).toEqual([
+    removed,
+  ]);
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Exclude removed documents and choose a document' }),
+  );
+  expect(JSON.parse(localStorage.getItem('mitzo-knowledge-working-copy:')!).documents).toEqual([]);
+  view.unmount();
+  setup();
+  fireEvent.click(await screen.findByRole('button', { name: /Current release notes/ }));
+  const source = (await screen.findByRole('textbox', {
+    name: 'Document source',
+  })) as HTMLTextAreaElement;
+  expect(source.value).toBe('# Current accepted notes');
+  const read = vi
+    .mocked(apiFetch)
+    .mock.calls.find(([path]) => path.startsWith('/api/knowledge/document'));
+  expect(read?.[0]).toContain('revision=r2');
+  fireEvent.change(source, { target: { value: '# New notes edits' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  await screen.findByText('Review draft saved');
+  const put = vi.mocked(apiFetch).mock.calls.find(([, init]) => init?.method === 'PUT');
+  expect(JSON.parse(String(put?.[1]?.body))).toMatchObject({
+    version: 1,
+    baseRevision: 'r2',
+    documents: [{ path: 'teams/renamed.md', content: '# New notes edits' }],
+  });
+});
+it.each([404, 401])(
+  'preserves the draft when a catalog-listed document read fails with %s instead of classifying it as removed',
+  async (status) => {
+    const original = vi.mocked(apiFetch).getMockImplementation()!;
+    const change = { ...draft, error: 'Compare accepted knowledge before saving' };
+    vi.mocked(apiFetch).mockImplementation(async (path, init) => {
+      if (path === '/api/knowledge') return response({ ...catalog, drafts: [change] });
+      if (path === '/api/knowledge/drafts/d1') return response({ draft: change });
+      if (path.startsWith('/api/knowledge/document'))
+        return { ...response({ error: 'Accepted document could not be read' }, false), status };
+      return original(path, init);
+    });
+    setup();
+    fireEvent.click(await screen.findByRole('button', { name: 'Drafts (1)' }));
+    fireEvent.click(screen.getByRole('button', { name: /Working principles/ }));
+    await screen.findByText('Compare accepted knowledge before saving');
+    const before = localStorage.getItem('mitzo-knowledge-working-copy:');
+    fireEvent.click(screen.getByRole('button', { name: 'Compare accepted version' }));
+    await screen.findByText('Accepted document could not be read');
+    expect(screen.queryByText('No longer in accepted knowledge')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Exclude removed documents and save' })).toBeNull();
+    expect(localStorage.getItem('mitzo-knowledge-working-copy:')).toBe(before);
+  },
+);

@@ -33,7 +33,6 @@ function recover(): WorkingCopy | null {
       typeof value.selected === 'string' &&
       typeof value.saved === 'string' &&
       Array.isArray(value.documents) &&
-      value.documents.length &&
       value.documents.every(
         (d: KnowledgeDraft['documents'][number]) =>
           typeof d.path === 'string' && typeof d.base === 'string' && typeof d.content === 'string',
@@ -79,7 +78,7 @@ export function useKnowledgeLibrary() {
   const [comparison, setComparison] = useState<{
     revision: string;
     newChange?: boolean;
-    documents: { path: string; content: string }[];
+    documents: { path: string; content: string | null }[];
   } | null>(null);
   const [gate, setGate] = useState<{
     canAccept?: boolean;
@@ -95,6 +94,8 @@ export function useKnowledgeLibrary() {
   const dirty = !!copy && JSON.stringify(copy.documents) !== copy.saved;
   const canSave =
     !!copy &&
+    copy.documents.length > 0 &&
+    !comparison?.documents.some((document) => document.content === null) &&
     !copy.initialSaveConflict &&
     (!copy.draft || copy.draft.state === 'draft' || copy.draft.state === 'in-review') &&
     (dirty ||
@@ -193,6 +194,9 @@ export function useKnowledgeLibrary() {
       draft,
       baseRevision: draft.baseRevision,
       documents: draft.documents,
+      selected: draft.documents.some((d) => d.path === old.selected)
+        ? old.selected
+        : draft.documents[0]?.path || '',
       saved: JSON.stringify(draft.documents),
     });
     setCatalog((data) =>
@@ -240,12 +244,13 @@ export function useKnowledgeLibrary() {
       const item = { path: document.path, base: data.content, content: data.content };
       const old = current.current;
       if (add && old) {
-        if (old.baseRevision !== catalog.revision)
+        if (old.documents.length && old.baseRevision !== catalog.revision)
           throw new Error(
             'Refresh and compare this draft before adding a document from the latest library.',
           );
         persist({
           ...old,
+          baseRevision: old.documents.length ? old.baseRevision : catalog.revision,
           documents: [...old.documents.filter((d) => d.path !== item.path), item],
           selected: item.path,
         });
@@ -330,7 +335,15 @@ export function useKnowledgeLibrary() {
     newChange = false,
   ) {
     const active = current.current;
-    if (!active || active.initialSaveConflict) return;
+    if (!active || active.initialSaveConflict || !(documents || active.documents).length) return;
+    if (
+      comparison?.documents.some(
+        (d) =>
+          d.content === null &&
+          (documents || active.documents).some((candidate) => candidate.path === d.path),
+      )
+    )
+      return;
     const changed =
       JSON.stringify(documents || active.documents) !== active.saved ||
       (!!baseRevision && baseRevision !== active.baseRevision);
@@ -358,7 +371,9 @@ export function useKnowledgeLibrary() {
           ? await writeSavedDraft(old.draft.id, {
               version: old.draft.version,
               documents: contents,
-              ...(baseRevision ? { baseRevision } : {}),
+              ...(baseRevision || old.baseRevision !== old.draft.baseRevision
+                ? { baseRevision: baseRevision || old.baseRevision }
+                : {}),
             })
           : await request(
               `/api/knowledge/drafts/${encodeURIComponent(old.draft.id)}/review`,
@@ -398,6 +413,9 @@ export function useKnowledgeLibrary() {
           result = await writeSavedDraft(result.draft.id, {
             version: result.draft.version,
             documents: contents,
+            ...(baseRevision || old.baseRevision !== result.draft.baseRevision
+              ? { baseRevision: baseRevision || old.baseRevision }
+              : {}),
           });
           updateDraft(result.draft, result.reviewError);
           setComparison(null);
@@ -468,20 +486,44 @@ export function useKnowledgeLibrary() {
   }
   async function compare(newChange = false) {
     await run(async () => {
+      setComparison(null);
       const latest = await request<KnowledgeCatalog>('/api/knowledge/refresh', 'POST', {});
       setCatalog(latest);
+      const acceptedPaths = new Set(latest.documents.map((document) => document.path));
       const docs = await Promise.all(
-        (current.current?.documents || []).map(async (d) => ({
-          path: d.path,
-          content: (
-            await request<{ content: string }>(
-              `/api/knowledge/document?${new URLSearchParams({ path: d.path, revision: latest.revision })}`,
-            )
-          ).content,
+        (current.current?.documents || []).map(async (document) => ({
+          path: document.path,
+          content: acceptedPaths.has(document.path)
+            ? (
+                await request<{ content: string }>(
+                  `/api/knowledge/document?${new URLSearchParams({ path: document.path, revision: latest.revision })}`,
+                )
+              ).content
+            : null,
         })),
       );
       setComparison({ revision: latest.revision, documents: docs, newChange });
     });
+  }
+  async function excludeRemovedDocuments() {
+    const old = current.current;
+    if (!old || !comparison || old.initialSaveConflict || inFlight.current) return false;
+    const retained = old.documents.filter((document) =>
+      comparison.documents.some(
+        (accepted) => accepted.path === document.path && accepted.content !== null,
+      ),
+    );
+    if (retained.length) {
+      await save(comparison.revision, retained, comparison.newChange);
+      return false;
+    }
+    // This explicit choice keeps the remote identity/version while selecting a new accepted base.
+    persist({ ...old, baseRevision: comparison.revision, documents: [], selected: '' });
+    setComparison(null);
+    setGate(null);
+    setError('');
+    setNotice('Removed documents excluded. Add a current Library document to continue.');
+    return true;
   }
   async function reconcile() {
     await run(async () => {
@@ -553,6 +595,7 @@ export function useKnowledgeLibrary() {
     refreshSavedComparison,
     resolveInitialSaveConflict,
     compare,
+    excludeRemovedDocuments,
     reconcile,
     sendForReview,
     accept,

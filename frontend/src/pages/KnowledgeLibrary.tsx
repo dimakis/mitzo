@@ -10,7 +10,7 @@ export function KnowledgeLibrary() {
   const [area, setArea] = useState('All knowledge');
   const [reading, setReading] = useState(true);
   const [details, setDetails] = useState(false);
-  const [adding, setAdding] = useState(false);
+  const [adding, setAdding] = useState(!!copy && copy.documents.length === 0);
   const areas = [...new Set(catalog?.documents.map((d) => d.area) || [])];
   const documents =
     catalog?.documents.filter(
@@ -205,7 +205,7 @@ export function KnowledgeLibrary() {
                       <div className="knowledge-compare-panes">
                         <div>
                           <h4>Accepted</h4>
-                          <pre>{latest.content}</pre>
+                          <pre>{latest.content ?? 'No longer in accepted knowledge'}</pre>
                         </div>
                         <div>
                           <h4>Your draft</h4>
@@ -214,9 +214,41 @@ export function KnowledgeLibrary() {
                       </div>
                     </div>
                   ))}
+                  {library.comparison.documents.some((d) => d.content === null) && (
+                    <p>
+                      Documents outside accepted knowledge must be explicitly excluded. Your edits
+                      remain here until you choose.
+                    </p>
+                  )}
+                  {library.comparison.documents.every((d) => d.content === null) && (
+                    <p>
+                      Every document in this draft is outside the accepted Library. Exclude these
+                      documents to choose a current document; Save becomes available after you add
+                      one.
+                    </p>
+                  )}
                   <div className="knowledge-editor-actions">
+                    {library.comparison.documents.some((d) => d.content === null) && (
+                      <button
+                        disabled={busy}
+                        onClick={() =>
+                          void library.excludeRemovedDocuments().then((empty) => {
+                            if (empty) {
+                              setAdding(true);
+                              setReading(false);
+                            }
+                          })
+                        }
+                      >
+                        {library.comparison.documents.every((d) => d.content === null)
+                          ? 'Exclude removed documents and choose a document'
+                          : 'Exclude removed documents and save'}
+                      </button>
+                    )}
                     <button
-                      disabled={busy}
+                      disabled={
+                        busy || library.comparison.documents.some((d) => d.content === null)
+                      }
                       onClick={() =>
                         void library.save(
                           library.comparison!.revision,
@@ -230,15 +262,17 @@ export function KnowledgeLibrary() {
                         : 'Keep my draft and save'}
                     </button>
                     <button
-                      disabled={busy}
+                      disabled={
+                        busy || library.comparison.documents.some((d) => d.content === null)
+                      }
                       onClick={() =>
                         void library.save(
                           library.comparison!.revision,
                           copy!.documents.map((d) => ({
                             ...d,
-                            content: library.comparison!.documents.find(
-                              (latest) => latest.path === d.path,
-                            )!.content,
+                            content:
+                              library.comparison!.documents.find((latest) => latest.path === d.path)
+                                ?.content ?? d.content,
                           })),
                           library.comparison!.newChange,
                         )
@@ -362,7 +396,7 @@ export function KnowledgeLibrary() {
                     : 'Continue your working copy.'}
               </span>
               <button
-                disabled={busy}
+                disabled={busy || copy.documents.length === 0}
                 onClick={() => {
                   setReading(true);
                   setAdding(false);
