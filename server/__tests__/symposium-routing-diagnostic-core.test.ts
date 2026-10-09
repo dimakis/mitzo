@@ -3,6 +3,11 @@ import { expect, it, vi } from 'vitest';
 import {
   runSymposiumRoutingDiagnostic,
   createSymposiumModelDiscoveryRecovery,
+  createDiscoveryOwnedReadyEvidence,
+  assertDiscoveryOwnedReadyEvidence,
+  assertDiscoveryPhysicalCleanupEvidence,
+  type DiscoveryOwnedReadyEvidence,
+  type DiscoveryPhysicalCleanupEvidence,
   runSymposiumModelDiscovery,
   discoveryClaimLabel,
   type DiscoveryReceipt,
@@ -252,4 +257,40 @@ it('retains genuine Ready evidence before revoked durable-ID persistence', async
   expect(ready.mock.calls[0][1].receipt.id).toBe('sandbox-1');
   expect(f.receipt()?.id).toBeUndefined();
   expect(f.events).not.toContain('account/read');
+});
+it('vends opaque matching physical cleanup evidence only from the real cleanup branch', async () => {
+  const f = fixture();
+  let ready: DiscoveryOwnedReadyEvidence | undefined;
+  let cleanup: DiscoveryPhysicalCleanupEvidence | undefined;
+  let recovery: ReturnType<typeof createSymposiumModelDiscoveryRecovery> | undefined;
+  const result = await runSymposiumRoutingDiagnostic(f.config, f.ops, {
+    onOwnedReady: (receipt, evidence) => {
+      ready = evidence;
+      recovery = createSymposiumModelDiscoveryRecovery(f.config, receipt, evidence);
+    },
+    onPhysicalCleanup: (receipt, evidence) => {
+      cleanup = evidence;
+      recovery!.confirmPhysicalCleanup(receipt, evidence);
+    },
+  });
+  expect(result.status).toBe('complete');
+  expect(recovery!.physicalCleanupEvidence()).toBe(cleanup);
+  expect(() => assertDiscoveryOwnedReadyEvidence(ready!)).not.toThrow();
+  expect(() => assertDiscoveryPhysicalCleanupEvidence(ready!, cleanup!)).not.toThrow();
+  expect(() =>
+    assertDiscoveryPhysicalCleanupEvidence(ready!, { receipt: cleanup!.receipt }),
+  ).toThrow('evidence');
+  expect(() => assertDiscoveryOwnedReadyEvidence({ receipt: ready!.receipt })).toThrow('evidence');
+  const other = { ...ready!.receipt, claim: 'f'.repeat(64) };
+  const otherReady = createDiscoveryOwnedReadyEvidence(f.config, other, {
+    id: other.id,
+    name: other.name,
+    workspace: 'work',
+    phase: 'Ready',
+    labels: {
+      'mitzo.discovery': 'models',
+      'mitzo.discovery.claim': discoveryClaimLabel(other.claim),
+    },
+  });
+  expect(() => assertDiscoveryPhysicalCleanupEvidence(otherReady, cleanup!)).toThrow('evidence');
 });

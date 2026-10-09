@@ -63,6 +63,32 @@ export interface DiscoveryOwnedReadyEvidence {
   readonly receipt: Readonly<DiscoveryReceipt>;
 }
 const ownedReadyEvidence = new WeakSet<DiscoveryOwnedReadyEvidence>();
+export interface DiscoveryPhysicalCleanupEvidence {
+  readonly receipt: Readonly<DiscoveryReceipt>;
+}
+const physicalCleanupEvidence = new WeakSet<DiscoveryPhysicalCleanupEvidence>();
+export function assertDiscoveryOwnedReadyEvidence(evidence: DiscoveryOwnedReadyEvidence): void {
+  if (!ownedReadyEvidence.has(evidence)) throw Error('Owned Ready evidence unavailable');
+}
+export function assertDiscoveryPhysicalCleanupEvidence(
+  ready: DiscoveryOwnedReadyEvidence,
+  cleanup: DiscoveryPhysicalCleanupEvidence,
+): void {
+  assertDiscoveryOwnedReadyEvidence(ready);
+  if (
+    !physicalCleanupEvidence.has(cleanup) ||
+    JSON.stringify(ready.receipt) !== JSON.stringify(cleanup.receipt)
+  )
+    throw Error('Physical cleanup evidence changed');
+}
+function physicalCleanupProof(retained: DiscoveryReceipt): DiscoveryPhysicalCleanupEvidence {
+  const receipt = receiptSchema.parse(retained);
+  if (!receipt.id) throw Error('Physical cleanup identity unavailable');
+  const evidence = Object.freeze({ receipt: Object.freeze(structuredClone(receipt)) });
+  physicalCleanupEvidence.add(evidence);
+  return evidence;
+}
+
 export function createDiscoveryOwnedReadyEvidence(
   input: DiscoveryConfig,
   retained: DiscoveryReceipt,
@@ -159,7 +185,7 @@ export async function runSymposiumRoutingDiagnostic(
   input: DiscoveryConfig,
   ops: DiscoveryOperations,
   hooks?: {
-    onPhysicalCleanup?(receipt: DiscoveryReceipt): void;
+    onPhysicalCleanup?(receipt: DiscoveryReceipt, evidence: DiscoveryPhysicalCleanupEvidence): void;
     onOwnedReady?(receipt: DiscoveryReceipt, evidence: DiscoveryOwnedReadyEvidence): void;
   },
 ): Promise<RoutingDiagnosticResult> {
@@ -209,7 +235,11 @@ export async function runSymposiumRoutingDiagnostic(
 export interface DiscoveryRecoveryCapability {
   (ops: DiscoveryOperations): Promise<DiscoveryResult>;
   /** Only the original runner's positive physical-absence callback may call this. */
-  confirmPhysicalCleanup(receipt: DiscoveryReceipt): void;
+  confirmPhysicalCleanup(
+    receipt: DiscoveryReceipt,
+    evidence?: DiscoveryPhysicalCleanupEvidence,
+  ): void;
+  physicalCleanupEvidence(): DiscoveryPhysicalCleanupEvidence | undefined;
 }
 export function createSymposiumModelDiscoveryRecovery(
   input: DiscoveryConfig,
@@ -219,6 +249,7 @@ export function createSymposiumModelDiscoveryRecovery(
   const pinnedConfig = structuredClone(input);
   const pinnedReceipt = structuredClone(retained);
   let physicalCleanupProven = false;
+  let retainedPhysicalCleanup: DiscoveryPhysicalCleanupEvidence | undefined;
   const pendingAuthorized =
     !!evidence &&
     ownedReadyEvidence.has(evidence) &&
@@ -280,9 +311,10 @@ export function createSymposiumModelDiscoveryRecovery(
             },
           },
           undefined,
-          (cleaned) => {
+          (cleaned, cleanupEvidence) => {
             if (JSON.stringify(cleaned) !== JSON.stringify(expected))
               throw new Error('Discovery cleanup identity changed');
+            retainedPhysicalCleanup = cleanupEvidence;
             physicalCleanupProven = true;
           },
           !!config.routingDiagnostic,
@@ -293,7 +325,8 @@ export function createSymposiumModelDiscoveryRecovery(
     }
   };
   return Object.assign(recovery, {
-    confirmPhysicalCleanup(receipt: DiscoveryReceipt) {
+    physicalCleanupEvidence: () => retainedPhysicalCleanup,
+    confirmPhysicalCleanup(receipt: DiscoveryReceipt, evidence?: DiscoveryPhysicalCleanupEvidence) {
       const expected = receiptSchema.parse(pinnedReceipt);
       const observed = receiptSchema.parse(receipt);
       const config = configSchema.parse(pinnedConfig);
@@ -303,6 +336,14 @@ export function createSymposiumModelDiscoveryRecovery(
         expected.configHash !== createHash('sha256').update(JSON.stringify(config)).digest('hex')
       )
         throw new Error('Discovery cleanup identity changed');
+      if (evidence) {
+        if (
+          !physicalCleanupEvidence.has(evidence) ||
+          JSON.stringify(evidence.receipt) !== JSON.stringify(expected)
+        )
+          throw Error('Physical cleanup evidence changed');
+        retainedPhysicalCleanup = evidence;
+      }
       physicalCleanupProven = true;
     },
   });
@@ -319,7 +360,10 @@ async function runExclusiveDiscovery(
   input: DiscoveryConfig,
   ops: DiscoveryOperations,
   onCatalog?: (models: CatalogModel[]) => void,
-  onPhysicalCleanup?: (receipt: DiscoveryReceipt) => void,
+  onPhysicalCleanup?: (
+    receipt: DiscoveryReceipt,
+    evidence: DiscoveryPhysicalCleanupEvidence,
+  ) => void,
   routingOnly = false,
   onOwnedReady?: (receipt: DiscoveryReceipt, evidence: DiscoveryOwnedReadyEvidence) => void,
 ): Promise<DiscoveryResult> {
@@ -568,7 +612,7 @@ async function runExclusiveDiscovery(
       } else {
         // Capture positive cleanup proof before a guarded clear can delete the journal
         // and then fail its postcheck. This never authorizes credential cleanup itself.
-        onPhysicalCleanup?.(receipt);
+        onPhysicalCleanup?.(receipt, physicalCleanupProof(receipt));
         await ops.clearReceipt(receipt);
         if (result.status === 'reconciliation_required')
           result = { status: resumed ? 'reconciled' : 'failed', inference: false };
