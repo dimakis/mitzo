@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { AcceptedKnowledgeSource } from '../knowledge-library-source.js';
-import { KnowledgeDraftStore } from '../knowledge-draft-store.js';
+import { KnowledgeDraftStore, KNOWLEDGE_RECOVERY_BUNDLE_LIMIT } from '../knowledge-draft-store.js';
 import { KnowledgeReviewService } from '../knowledge-review-service.js';
 import type {
   KnowledgeReviewIdentity,
@@ -30,7 +30,7 @@ function git(...args: string[]) {
   }).trim();
 }
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), 'mitzo-review-test-'));
+  root = realpathSync(mkdtempSync(join(tmpdir(), 'mitzo-review-test-')));
   git('init', '-b', 'main');
   git('config', 'user.name', 'Test');
   git('config', 'user.email', 'test@example.com');
@@ -91,11 +91,129 @@ function service() {
     publisherLogin: 'operator',
   });
 }
+async function restoreDraftBackup() {
+  const backup = join(root, 'restored-drafts.sqlite');
+  await store.backupSnapshot(backup);
+  store.close();
+  store = new KnowledgeDraftStore(backup);
+  const mirror = join(root, 'restored-source.git');
+  execFileSync('git', [
+    'clone',
+    '--bare',
+    '--no-local',
+    '--single-branch',
+    '--branch',
+    'main',
+    root,
+    mirror,
+  ]);
+  execFileSync('git', ['-C', mirror, 'update-ref', 'refs/remotes/origin/main', 'refs/heads/main']);
+  source = new AcceptedKnowledgeSource(mirror, 'refs/remotes/origin/main', ['architecture']);
+  return (args: string[]) =>
+    execFileSync('git', ['-C', mirror, ...args], { encoding: 'utf8' }).trim();
+}
 async function draft() {
   return store.create('Architecture', await source.revision(), [
     { path: 'architecture/one.md', base: '# Old\n', content: '# Improved\n' },
   ]);
 }
+
+it.each(['before push', 'lost push acknowledgement'])(
+  'recovers the exact prepared commit from a SQLite backup after %s into a fresh mirror',
+  async (failure) => {
+    const d = await draft();
+    const push = vi.mocked(publisher.push).getMockImplementation()!;
+    vi.mocked(publisher.push).mockImplementationOnce(async (input) => {
+      if (failure === 'lost push acknowledgement') await push(input);
+      throw new Error('interrupted push');
+    });
+    await expect(service().submit(d.id, d.version)).rejects.toThrow('Draft saved');
+    const prepared = store.get(d.id).publication!.head;
+    const restoredGit = await restoreDraftBackup();
+    expect(() => restoredGit(['cat-file', '-e', `${prepared}^{commit}`])).toThrow();
+    const saved = await service().submit(d.id, d.version);
+    expect(saved.review?.head).toBe(prepared);
+    expect(remoteHead).toBe(prepared);
+    expect(restoredGit(['show', `${prepared}:architecture/one.md`])).toBe('# Improved');
+    expect(publisher.create).toHaveBeenCalledTimes(1);
+    expect(publisher.push).toHaveBeenCalledTimes(failure === 'before push' ? 2 : 1);
+  },
+);
+
+it('recovers published ancestry from backup before saving new edits, preserving the existing review', async () => {
+  const d = await draft();
+  const first = await service().submit(d.id, d.version);
+  const previousHead = first.review!.head;
+  const restoredGit = await restoreDraftBackup();
+  const next = store.save(d.id, d.version, [
+    { path: 'architecture/one.md', base: '# Old\n', content: '# After restore\n' },
+  ]);
+  const saved = await service().submit(next.id, next.version);
+  expect(saved.review?.url).toBe(first.review?.url);
+  expect(saved.review?.head).not.toBe(previousHead);
+  expect(restoredGit(['rev-parse', `${saved.review!.head}^1`])).toBe(previousHead);
+  expect(restoredGit(['show', `${saved.review!.head}:architecture/one.md`])).toBe(
+    '# After restore',
+  );
+  expect(publisher.create).toHaveBeenCalledTimes(1);
+});
+
+it('rebuilds a legacy prepared commit only when no branch or review was published', async () => {
+  const d = await draft();
+  const missing = 'a'.repeat(40);
+  store.prepared(d.id, d.version, missing);
+  const saved = await service().submit(d.id, d.version);
+  expect(saved.review?.head).not.toBe(missing);
+  expect(git('show', `${saved.review!.head}:architecture/one.md`)).toBe('# Improved');
+  expect(store.recoveryBundle(d.id, saved.review!.head)).toBeDefined();
+});
+
+it.each(['remote', 'review'])(
+  'does not replace a missing legacy head with a confirmed %s',
+  async (known) => {
+    const d = await draft();
+    const missing = 'a'.repeat(40);
+    store.prepared(d.id, d.version, missing);
+    if (known === 'remote') remoteHead = missing;
+    else
+      store.receipt(d.id, d.version, {
+        head: missing,
+        url: 'https://github.com/test/knowledge/pull/1',
+      });
+    await expect(service().submit(d.id, d.version)).rejects.toThrow('Draft saved');
+    expect(store.get(d.id).publication?.head).toBe(missing);
+    expect(publisher.push).not.toHaveBeenCalled();
+    expect(publisher.create).not.toHaveBeenCalled();
+  },
+);
+
+it('refuses a corrupt recovery bundle without rebuilding or changing the external head', async () => {
+  const d = await draft();
+  const head = 'a'.repeat(40);
+  store.prepared(d.id, d.version, head, undefined, Buffer.from('corrupt bundle'));
+  await expect(service().submit(d.id, d.version)).rejects.toThrow('Draft saved');
+  expect(store.get(d.id).publication?.head).toBe(head);
+  expect(publisher.push).not.toHaveBeenCalled();
+});
+
+it('atomically refuses an oversized recovery bundle without replacing the saved head or bundle', async () => {
+  const d = await draft();
+  const head = 'a'.repeat(40);
+  const original = Buffer.from('saved recovery bytes');
+  store.prepared(d.id, d.version, head, undefined, original);
+  expect(() =>
+    store.prepared(
+      d.id,
+      d.version,
+      'b'.repeat(40),
+      undefined,
+      Buffer.alloc(KNOWLEDGE_RECOVERY_BUNDLE_LIMIT + 1),
+    ),
+  ).toThrow('limit');
+  expect(store.get(d.id).publication?.head).toBe(head);
+  expect(store.recoveryBundle(d.id, head)).toEqual(original);
+  expect(JSON.stringify(store.get(d.id))).not.toContain('saved recovery bytes');
+});
 
 it('creates a draft review, reuses it on further saves and creates no checkout in the source', async () => {
   const d = await draft();

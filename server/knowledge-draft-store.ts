@@ -21,6 +21,7 @@ export interface KnowledgeDraft {
   error?: string;
 }
 export class KnowledgeDraftConflict extends Error {}
+export const KNOWLEDGE_RECOVERY_BUNDLE_LIMIT = 16 * 1024 * 1024;
 export type KnowledgeDraftSummary = Omit<KnowledgeDraft, 'documents' | 'publication'> & {
   documents: { path: string }[];
 };
@@ -32,6 +33,9 @@ export class KnowledgeDraftStore {
     this.db.pragma('busy_timeout = 5000');
     this.db.exec(
       'CREATE TABLE IF NOT EXISTS knowledge_drafts (id TEXT PRIMARY KEY, value TEXT NOT NULL); CREATE TABLE IF NOT EXISTS knowledge_draft_leases (id TEXT PRIMARY KEY, token TEXT NOT NULL, expires INTEGER NOT NULL); CREATE TABLE IF NOT EXISTS knowledge_draft_requests (id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL)',
+    );
+    this.db.exec(
+      'CREATE TABLE IF NOT EXISTS knowledge_draft_recovery (id TEXT PRIMARY KEY, head TEXT NOT NULL, bundle BLOB NOT NULL)',
     );
     if (
       !(this.db.pragma('table_info(knowledge_drafts)') as { name: string }[]).some(
@@ -233,12 +237,28 @@ export class KnowledgeDraftStore {
       });
     })();
   }
-  prepared(id: string, version: number, head: string, lease?: string) {
+  recoveryBundle(id: string, head: string): Buffer | undefined {
+    const row = this.db
+      .prepare('SELECT bundle FROM knowledge_draft_recovery WHERE id=? AND head=?')
+      .get(id, head) as { bundle: Buffer } | undefined;
+    if (row && (!row.bundle.length || row.bundle.length > KNOWLEDGE_RECOVERY_BUNDLE_LIMIT))
+      throw new Error('Knowledge recovery bundle exceeds the limit');
+    return row?.bundle;
+  }
+  prepared(id: string, version: number, head: string, lease?: string, bundle?: Buffer) {
     return this.db.transaction(() => {
       this.writable(id, lease);
       const draft = this.get(id);
       if (version !== draft.version)
         throw new KnowledgeDraftConflict('Draft changed while preparing its review');
+      if (!/^[a-f0-9]{40}$/.test(head)) throw new Error('Knowledge review head is invalid');
+      if (bundle) {
+        if (!bundle.length || bundle.length > KNOWLEDGE_RECOVERY_BUNDLE_LIMIT)
+          throw new Error('Knowledge recovery bundle exceeds the limit');
+        this.db
+          .prepare('INSERT OR REPLACE INTO knowledge_draft_recovery(id,head,bundle) VALUES(?,?,?)')
+          .run(id, head, bundle);
+      }
       return this.put({ ...draft, publication: { version, head } });
     })();
   }
@@ -254,6 +274,8 @@ export class KnowledgeDraftStore {
       const draft = this.get(id);
       if (version !== undefined && draft.version !== version)
         throw new KnowledgeDraftConflict('Draft changed while checking its review');
+      if (state === 'accepted' || state === 'closed')
+        this.db.prepare('DELETE FROM knowledge_draft_recovery WHERE id=?').run(id);
       return this.put({ ...draft, state, error });
     })();
   }
