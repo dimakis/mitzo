@@ -106,10 +106,18 @@ it.each([
   const prepared = preparePinnedProgram(f.root, f.input, f.sha256);
   const path = prepared.pin.executable;
   if (kind === 'hardlink') linkSync(path, join(f.root, 'alias'));
-  if (kind === 'symlink' || kind === 'replacement') {
+  if (kind === 'symlink') {
     unlinkSync(path);
-    if (kind === 'symlink') symlinkSync(f.input, path);
-    else writeFileSync(path, f.data, { mode: 0o500 });
+    symlinkSync(f.input, path);
+  }
+  if (kind === 'replacement') {
+    // Keep the original inode allocated: unlink/recreate can reuse it on Linux.
+    renameSync(path, path + '-original');
+    writeFileSync(path, f.data, { mode: 0o500 });
+    expect(lstatSync(path + '-original').ino).toBe(prepared.metadata.file.ino);
+    expect(lstatSync(path).ino).not.toBe(prepared.metadata.file.ino);
+    expect(readFileSync(path)).toEqual(f.data);
+    expect(lstatSync(path).mode & 0o7777).toBe(0o500);
   }
   if (kind === 'hash' || kind === 'size') {
     chmodSync(path, 0o700);
