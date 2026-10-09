@@ -18,42 +18,65 @@ const fontShorthand = new RegExp(
 
 const ownedTokens = new Set([...css.matchAll(/(--[\w-]+):/g)].map((match) => match[1]));
 
-function cssTextSources(source: string, filename: string): string[] {
-  if (filename.endsWith('.css')) return [source];
-  const fragments: string[] = [];
+type InlineStyle = { property: string; value: string | null };
+
+function literalStyleValue(node: ts.Node): string | null {
+  if (ts.isStringLiteralLike(node) || ts.isNumericLiteral(node)) return node.text;
+  if (ts.isParenthesizedExpression(node)) return literalStyleValue(node.expression);
+  if (ts.isPrefixUnaryExpression(node) && ts.isNumericLiteral(node.operand)) return node.getText();
+  if (ts.isTemplateExpression(node)) {
+    return (
+      node.head.text +
+      node.templateSpans
+        .map(
+          (span) => (literalStyleValue(span.expression) ?? '__dynamic_style__') + span.literal.text,
+        )
+        .join('')
+    );
+  }
+  return null;
+}
+
+function styleSources(source: string, filename: string): { css: string[]; inline: InlineStyle[] } {
+  if (filename.endsWith('.css')) return { css: [source], inline: [] };
+  const css: string[] = [];
+  const inline: InlineStyle[] = [];
   const parsed = ts.createSourceFile(filename, source, ts.ScriptTarget.Latest, true);
   const visit = (node: ts.Node) => {
-    if (ts.isStringLiteralLike(node)) fragments.push(node.text);
-    if (ts.isTemplateExpression(node)) {
-      fragments.push(
-        [
-          node.head.text,
-          ...node.templateSpans.flatMap((span) => [
-            ts.isStringLiteralLike(span.expression) ? span.expression.text : '__dynamic_style__',
-            span.literal.text,
-          ]),
-        ].join(''),
-      );
+    if (ts.isStringLiteralLike(node)) css.push(node.text);
+    if (ts.isTemplateExpression(node)) css.push(literalStyleValue(node)!);
+    if (
+      ts.isPropertyAssignment(node) &&
+      (ts.isIdentifier(node.name) || ts.isStringLiteralLike(node.name))
+    ) {
+      inline.push({ property: node.name.text, value: literalStyleValue(node.initializer) });
     }
     ts.forEachChild(node, visit);
   };
   visit(parsed);
-  return fragments;
+  return { css, inline };
+}
+
+function isGuardedSource(path: string): boolean {
+  const root = resolve(__dirname, '../..');
+  return (
+    /\.(css|tsx?)$/.test(path) &&
+    path !== resolve(__dirname, '../tokens.css') &&
+    !path.includes('/__tests__/') &&
+    !path.startsWith(resolve(root, 'preview') + '/')
+  );
 }
 
 function styleViolations(source: string, filename = 'component.css'): string[] {
   const violations: string[] = [];
   const clean = source.replace(/\/\*[\s\S]*?\*\//g, '');
-  const styleTexts = cssTextSources(clean, filename);
+  const sources = styleSources(clean, filename);
+  const styleTexts = sources.css;
   for (const styleText of styleTexts) {
     for (const definition of styleText.matchAll(/(?:^|[;{])\s*(--[\w-]+):\s*([^;}]+)(?=[;}]|$)/g)) {
       if (ownedTokens.has(definition[1]) && !/^(var|color-mix)\(/.test(definition[2].trim()))
         violations.push(`token override: ${definition[1]}`);
     }
-  }
-  for (const definition of clean.matchAll(/(['"])(--[\w-]+)\1\s*:\s*(['"`])([^'"`]+)\3/g)) {
-    if (ownedTokens.has(definition[2]) && !/^(var|color-mix)\(/.test(definition[4].trim()))
-      violations.push(`inline token override: ${definition[2]}`);
   }
   if (/#[\da-f]{3,8}\b|(?:rgb|hsl)a?\(\s*\d/i.test(clean)) violations.push('palette literal');
   if (/(?:color|background(?:-color)?|fill|stroke):\s*['"]?(?:white|black)\b/i.test(clean))
@@ -64,9 +87,13 @@ function styleViolations(source: string, filename = 'component.css'): string[] {
       if (!allowed.test(font[2].trim())) violations.push('font stack');
     }
   }
-  for (const font of clean.matchAll(/['"]?\b(fontFamily|font)['"]?\s*:\s*(['"`])([^'"`]+)\2/g)) {
-    const allowed = font[1] === 'font' ? fontShorthand : fontFamily;
-    if (!allowed.test(font[3].trim())) violations.push('inline font stack');
+  for (const { property, value } of sources.inline) {
+    if (ownedTokens.has(property) && (value === null || !/^(var|color-mix)\(/.test(value.trim())))
+      violations.push(`inline token override: ${property}`);
+    if (value !== null && (property === 'fontFamily' || property === 'font')) {
+      const allowed = property === 'font' ? fontShorthand : fontFamily;
+      if (!allowed.test(value.trim())) violations.push('inline font stack');
+    }
   }
   return violations;
 }
@@ -76,14 +103,8 @@ describe('design tokens', () => {
     const root = resolve(__dirname, '../../');
     const files = readdirSync(root, { recursive: true, withFileTypes: true });
     for (const file of files) {
-      if (
-        !file.isFile() ||
-        !/\.(css|tsx?)$/.test(file.name) ||
-        file.name === 'tokens.css' ||
-        file.parentPath.includes('__tests__') ||
-        file.parentPath.endsWith('/preview')
-      )
-        continue;
+      const path = resolve(file.parentPath, file.name);
+      if (!file.isFile() || !isGuardedSource(path)) continue;
       const source = readFileSync(resolve(file.parentPath, file.name), 'utf8');
       expect(styleViolations(source, file.name), file.name).toEqual([]);
     }
@@ -101,7 +122,9 @@ describe('design tokens', () => {
       ['page gutter override', '.new-page { --page-gutter: 27px; }'],
       ['mobile navigation override', '.new-page { --mobile-tabs-height: 91px; }'],
     ])('rejects %s', (_name, source) => {
-      expect(styleViolations(source).length).toBeGreaterThan(0);
+      expect(
+        styleViolations(source, source.startsWith('const ') ? 'page.tsx' : 'component.css').length,
+      ).toBeGreaterThan(0);
     });
 
     it.each([
@@ -156,6 +179,26 @@ describe('design tokens', () => {
           'page.tsx',
         ),
       ).toEqual([]);
+    });
+
+    it('rejects interpolated inline font stacks', () => {
+      expect(
+        styleViolations(
+          "const element = <div style={{ fontFamily: `${'Arial,'}${fallback}` }} />;",
+          'page.tsx',
+        ),
+      ).toContain('inline font stack');
+    });
+
+    it('rejects numeric inline overrides of shared tokens', () => {
+      expect(
+        styleViolations("const element = <div style={{ '--space-4': 0 }} />;", 'page.tsx'),
+      ).toContain('inline token override: --space-4');
+    });
+
+    it('exempts only the canonical token file, not feature token files', () => {
+      expect(isGuardedSource(resolve(__dirname, '../tokens.css'))).toBe(false);
+      expect(isGuardedSource(resolve(__dirname, '../../features/reports/tokens.css'))).toBe(true);
     });
 
     it('allows token-based shorthand size and family', () => {
