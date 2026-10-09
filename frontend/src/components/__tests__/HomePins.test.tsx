@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { HomePins } from '../HomePins';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 const data = vi.hoisted(() => ({
   preferences: {
     revision: 0,
@@ -55,6 +57,10 @@ function show() {
   );
 }
 describe('Today pins', () => {
+  it('preserves native modal centering against the global margin reset', () => {
+    const styles = readFileSync(resolve(process.cwd(), 'frontend/src/styles/home.css'), 'utf8');
+    expect(styles.match(/\.home-dialog\s*\{([^}]+)\}/)?.[1]).toMatch(/margin:\s*auto\s*;/);
+  });
   it('cancels reordered drafts without changing workspace preferences', () => {
     show();
     fireEvent.click(screen.getByRole('button', { name: 'Manage pins' }));
