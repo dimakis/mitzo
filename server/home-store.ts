@@ -78,11 +78,24 @@ const stateSchema = z
     revision: z.number().int().nonnegative(),
     names: namesSchema,
     pins: pinsSchema,
-    quotes: z.array(z.object({ date: z.string(), quote: quoteSchema }).strict()).max(60),
-    remaining: z.array(z.string()).max(10000),
+    quotes: z
+      .array(z.object({ date: z.string().refine(validDate), quote: quoteSchema }).strict())
+      .max(60)
+      .refine(
+        (quotes) => new Set(quotes.map((quote) => quote.date)).size === quotes.length,
+        'Duplicate quote dates',
+      ),
+    remaining: z
+      .array(text(100))
+      .max(10000)
+      .refine((ids) => new Set(ids).size === ids.length, 'Duplicate quote IDs'),
     briefingChats: z
       .array(briefingChatSchema.extend({ createdAt: z.string().datetime() }))
       .max(1000)
+      .refine(
+        (chats) => new Set(chats.map((chat) => chat.sessionId)).size === chats.length,
+        'Duplicate briefing sessions',
+      )
       .default([]),
   })
   .strict();

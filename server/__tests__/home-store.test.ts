@@ -52,6 +52,48 @@ it('refuses corrupt state instead of silently resetting it', () => {
   expect(() => new HomeStore(join(root, 'home.json')).preferences()).toThrow();
 });
 
+it.each([
+  { remaining: ['', 'quote'] },
+  { remaining: ['quote', 'quote'] },
+  { remaining: ['x'.repeat(101)] },
+  {
+    quotes: [
+      {
+        date: '2026-02-30',
+        quote: {
+          id: 'q',
+          text: 'Quote',
+          author: 'Author',
+          work: 'Work',
+          translation: 'Original',
+          explanation: 'Meaning',
+          example: 'Example',
+          biography: 'Life',
+          sourceUrl: 'https://example.org/',
+          explainerUrl: 'https://example.org/',
+          authorUrl: 'https://example.org/',
+        },
+      },
+    ],
+  },
+])('rejects corrupt cached quote identities without resetting saved preferences: %j', (patch) => {
+  const path = join(root, 'home.json');
+  const original = JSON.stringify({
+    version: 1,
+    revision: 2,
+    names: { briefing: 'Jeeves', terminal: 'Minion' },
+    pins: [],
+    remaining: [],
+    quotes: [],
+    ...patch,
+  });
+  writeFileSync(path, original);
+  const store = new HomeStore(path);
+  expect(() => store.preferences()).toThrow();
+  expect(() => store.update(2, { pins: [] })).toThrow();
+  expect(readFileSync(path, 'utf8')).toBe(original);
+});
+
 it('refuses a write beyond the byte limit before replacing the readable saved state', () => {
   const quote = {
     id: 'quote',
