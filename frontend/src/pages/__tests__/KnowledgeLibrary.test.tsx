@@ -44,13 +44,21 @@ function setup() {
 }
 beforeEach(() => {
   localStorage.clear();
+  let createdDocuments = draft.documents;
   vi.mocked(apiFetch).mockImplementation(async (path, init) => {
     if (path === '/api/knowledge' || path === '/api/knowledge/refresh') return response(catalog);
     if (path.startsWith('/api/knowledge/document'))
       return response({ path: 'hub/principles.md', revision: 'r1', content: '# Principles' });
-    if (path === '/api/knowledge/drafts')
-      return response({ draft: { ...draft, state: 'draft', review: undefined } });
-    if (path.endsWith('/review')) return response({ draft });
+    if (path === '/api/knowledge/drafts') {
+      createdDocuments = JSON.parse(String(init?.body)).documents.map(
+        (d: { path: string; content: string }) => ({ ...d, base: '# Principles' }),
+      );
+      return response({
+        draft: { ...draft, documents: createdDocuments, state: 'draft', review: undefined },
+      });
+    }
+    if (path.endsWith('/review'))
+      return response({ draft: { ...draft, documents: createdDocuments } });
     if (init?.method === 'PUT')
       return response({
         draft: {
@@ -464,4 +472,138 @@ it('does not retry a clean unconfirmed review while review publishing is disable
   const before = vi.mocked(apiFetch).mock.calls.length;
   fireEvent.keyDown(source, { key: 's', ctrlKey: true });
   expect(vi.mocked(apiFetch).mock.calls).toHaveLength(before);
+});
+it.each(['# Revised', '# Further local'])(
+  'blocks further saves after an uncertain first save finds an advanced remote draft (%s)',
+  async (ownContent) => {
+    const original = vi.mocked(apiFetch).getMockImplementation()!;
+    let attempts = 0;
+    const advanced = {
+      ...draft,
+      version: 2,
+      documents: [{ ...draft.documents[0], content: '# Other device' }],
+      review: { ...draft.review, version: 2, head: 'h2' },
+    };
+    vi.mocked(apiFetch).mockImplementation(async (path, init) => {
+      if (path === '/api/knowledge/drafts') {
+        if (attempts++ === 0) throw new Error('Lost first acknowledgement');
+        return response({ draft: advanced });
+      }
+      if (init?.method === 'PUT')
+        return response({
+          draft: {
+            ...advanced,
+            version: 3,
+            documents: [{ ...advanced.documents[0], content: ownContent }],
+            review: { ...advanced.review, version: 3, ready: false },
+          },
+        });
+      return original(path, init);
+    });
+    const view = setup();
+    fireEvent.click(await screen.findByRole('button', { name: /Working principles/ }));
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Document source' }), {
+      target: { value: '# Revised' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await screen.findByText('Lost first acknowledgement');
+    fireEvent.change(screen.getByRole('textbox', { name: 'Document source' }), {
+      target: { value: ownContent },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await screen.findByRole('region', { name: 'Compare saved draft and working copy' });
+    expect(
+      (screen.getByRole('textbox', { name: 'Document source' }) as HTMLTextAreaElement).value,
+    ).toBe(ownContent);
+    expect((screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(true);
+    const recovery = JSON.parse(localStorage.getItem('mitzo-knowledge-working-copy:')!);
+    expect(recovery.draft).toBeUndefined();
+    expect(recovery.pendingCreate).toBeTruthy();
+    const before = vi.mocked(apiFetch).mock.calls.length;
+    fireEvent.keyDown(screen.getByRole('textbox', { name: 'Document source' }), {
+      key: 's',
+      ctrlKey: true,
+    });
+    expect(vi.mocked(apiFetch).mock.calls).toHaveLength(before);
+    view.unmount();
+    setup();
+    await screen.findByRole('region', { name: 'Compare saved draft and working copy' });
+    expect((screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      (screen.getByRole('textbox', { name: 'Document source' }) as HTMLTextAreaElement).value,
+    ).toBe(ownContent);
+    expect(screen.getByText('# Other device')).toBeTruthy();
+    expect(vi.mocked(apiFetch).mock.calls.some(([, init]) => init?.method === 'PUT')).toBe(false);
+    fireEvent.click(screen.getByRole('button', { name: 'Keep my edits and update saved draft' }));
+    await screen.findByText('Review draft saved');
+    const writes = vi.mocked(apiFetch).mock.calls.filter(([, init]) => init?.method === 'PUT');
+    expect(writes).toHaveLength(1);
+    expect(JSON.parse(String(writes[0][1]?.body))).toMatchObject({
+      version: 2,
+      documents: [{ path: 'hub/principles.md', content: ownContent }],
+    });
+  },
+);
+it('keeps the conflict when explicit reconciliation races another save and lets the operator refresh and use the saved version', async () => {
+  const own = [{ ...draft.documents[0], content: '# My recovered edits' }];
+  const remote = {
+    ...draft,
+    version: 2,
+    documents: [{ ...draft.documents[0], content: '# First remote' }],
+    review: { ...draft.review, version: 2, head: 'h2' },
+  };
+  const newer = {
+    ...remote,
+    version: 3,
+    documents: [{ ...draft.documents[0], content: '# Newer remote' }],
+    review: { ...draft.review, version: 3, head: 'h3' },
+  };
+  localStorage.setItem(
+    'mitzo-knowledge-working-copy:',
+    JSON.stringify({
+      title: draft.title,
+      baseRevision: 'r1',
+      documents: own,
+      selected: own[0].path,
+      saved: JSON.stringify(draft.documents),
+      pendingCreate: {
+        requestId: '6ec86a54-f5e2-4d6e-9b0b-28ef33df97b2',
+        title: draft.title,
+        baseRevision: 'r1',
+        documents: own.map(({ path, content }) => ({ path, content })),
+      },
+      initialSaveConflict: remote,
+    }),
+  );
+  vi.mocked(apiFetch).mockImplementation(async (path, init) =>
+    init?.method === 'PUT'
+      ? response({ error: 'Draft changed in another window. Reload before saving.' }, false)
+      : path === '/api/knowledge/drafts/d1'
+        ? response({ draft: newer })
+        : response(catalog),
+  );
+  setup();
+  const source = (await screen.findByRole('textbox', {
+    name: 'Document source',
+  })) as HTMLTextAreaElement;
+  fireEvent.click(screen.getByRole('button', { name: 'Keep my edits and update saved draft' }));
+  await screen.findByText('Draft changed in another window. Reload before saving.');
+  expect(source.value).toBe('# My recovered edits');
+  expect((screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(true);
+  const before = vi.mocked(apiFetch).mock.calls.length;
+  fireEvent.keyDown(source, { key: 's', ctrlKey: true });
+  expect(vi.mocked(apiFetch).mock.calls).toHaveLength(before);
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh saved comparison' }));
+  await screen.findByText('# Newer remote');
+  expect(source.value).toBe('# My recovered edits');
+  fireEvent.click(screen.getByRole('button', { name: 'Use saved draft' }));
+  expect(source.value).toBe('# Newer remote');
+  expect(screen.queryByRole('region', { name: 'Compare saved draft and working copy' })).toBeNull();
+  const saved = JSON.parse(localStorage.getItem('mitzo-knowledge-working-copy:')!);
+  expect(saved.draft.version).toBe(3);
+  expect(saved.pendingCreate).toBeUndefined();
+  expect(saved.initialSaveConflict).toBeUndefined();
+  expect(vi.mocked(apiFetch).mock.calls.filter(([, init]) => init?.method === 'PUT')).toHaveLength(
+    1,
+  );
 });

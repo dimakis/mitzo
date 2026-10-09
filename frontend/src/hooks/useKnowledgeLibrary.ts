@@ -17,6 +17,7 @@ interface WorkingCopy {
   baseRevision: string;
   draft?: KnowledgeDraft;
   pendingCreate?: DraftCreation;
+  initialSaveConflict?: KnowledgeDraft;
   documents: KnowledgeDraft['documents'];
   selected: string;
   saved: string;
@@ -83,6 +84,7 @@ export function useKnowledgeLibrary() {
   const dirty = !!copy && JSON.stringify(copy.documents) !== copy.saved;
   const canSave =
     !!copy &&
+    !copy.initialSaveConflict &&
     (!copy.draft || copy.draft.state === 'draft' || copy.draft.state === 'in-review') &&
     (dirty ||
       !!copy.pendingCreate ||
@@ -278,7 +280,7 @@ export function useKnowledgeLibrary() {
     newChange = false,
   ) {
     const active = current.current;
-    if (!active) return;
+    if (!active || active.initialSaveConflict) return;
     const changed =
       JSON.stringify(documents || active.documents) !== active.saved ||
       (!!baseRevision && baseRevision !== active.baseRevision);
@@ -329,13 +331,20 @@ export function useKnowledgeLibrary() {
           documents: documents || old.documents,
         });
         result = await request('/api/knowledge/drafts', 'POST', creation);
+        const returned = result.draft.documents.map(({ path, content }) => ({ path, content }));
+        if (
+          result.draft.version !== 1 ||
+          JSON.stringify(returned) !== JSON.stringify(creation.documents)
+        ) {
+          // Do not adopt a newer write version until the operator compares and resolves it.
+          persist({ ...current.current!, initialSaveConflict: result.draft });
+          setComparison(null);
+          throw new Error(
+            'This saved draft changed elsewhere. Compare it with your preserved working copy before updating it.',
+          );
+        }
         persist({ ...current.current!, draft: result.draft, pendingCreate: undefined });
         if (JSON.stringify(contents) !== JSON.stringify(creation.documents)) {
-          const returned = result.draft.documents.map(({ path, content }) => ({ path, content }));
-          if (JSON.stringify(returned) !== JSON.stringify(creation.documents))
-            throw new Error(
-              'This saved draft changed elsewhere. Your working copy is preserved; compare the saved draft before updating it.',
-            );
           result = await request(
             `/api/knowledge/drafts/${encodeURIComponent(result.draft.id)}`,
             'PUT',
@@ -361,6 +370,49 @@ export function useKnowledgeLibrary() {
       }
       updateDraft(result.draft, result.reviewError);
       setComparison(null);
+    });
+  }
+  async function refreshSavedComparison() {
+    await run(async () => {
+      const old = current.current;
+      if (!old?.initialSaveConflict) return;
+      const result = await request<{ draft: KnowledgeDraft }>(
+        `/api/knowledge/drafts/${encodeURIComponent(old.initialSaveConflict.id)}`,
+      );
+      persist({ ...old, initialSaveConflict: result.draft });
+    });
+  }
+  async function resolveInitialSaveConflict(useSaved: boolean) {
+    await run(async () => {
+      const old = current.current;
+      const remote = old?.initialSaveConflict;
+      if (!old || !remote) return;
+      if (useSaved) {
+        installDraft(remote);
+        setNotice('Saved draft opened');
+        setError(remote.error || '');
+        return;
+      }
+      if (remote.state === 'accepted' || remote.state === 'closed')
+        throw new Error(
+          'This saved change is finished. Open it to start a new change with your edits.',
+        );
+      const result = await request<{ draft: KnowledgeDraft; reviewError?: string }>(
+        `/api/knowledge/drafts/${encodeURIComponent(remote.id)}`,
+        'PUT',
+        {
+          version: remote.version,
+          baseRevision: remote.baseRevision,
+          documents: old.documents.map(({ path, content }) => ({ path, content })),
+        },
+      );
+      persist({
+        ...old,
+        draft: result.draft,
+        pendingCreate: undefined,
+        initialSaveConflict: undefined,
+      });
+      updateDraft(result.draft, result.reviewError);
     });
   }
   async function refresh() {
@@ -450,6 +502,8 @@ export function useKnowledgeLibrary() {
     change,
     save,
     refresh,
+    refreshSavedComparison,
+    resolveInitialSaveConflict,
     compare,
     reconcile,
     sendForReview,

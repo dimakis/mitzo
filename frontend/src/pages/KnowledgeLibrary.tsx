@@ -115,7 +115,67 @@ export function KnowledgeLibrary() {
                 canUndo={library.canUndo}
                 canRedo={library.canRedo}
               />
-              {(library.error || library.comparison) && editable && (
+              {copy!.initialSaveConflict && (
+                <section
+                  className="knowledge-comparison"
+                  aria-label="Compare saved draft and working copy"
+                >
+                  <h3>This saved draft changed on another device</h3>
+                  <p>
+                    Your working copy is preserved. Compare every document before choosing which
+                    version to keep. Updating the saved draft replaces its contents with your
+                    working copy.
+                  </p>
+                  {[
+                    ...new Set([
+                      ...copy!.initialSaveConflict.documents.map((d) => d.path),
+                      ...copy!.documents.map((d) => d.path),
+                    ]),
+                  ].map((path) => (
+                    <div key={path}>
+                      <h4>{path}</h4>
+                      <div className="knowledge-compare-panes">
+                        <div>
+                          <h4>Saved draft</h4>
+                          <pre>
+                            {copy!.initialSaveConflict!.documents.find((d) => d.path === path)
+                              ?.content ?? 'Not in the saved draft.'}
+                          </pre>
+                        </div>
+                        <div>
+                          <h4>Your working copy</h4>
+                          <pre>
+                            {copy!.documents.find((d) => d.path === path)?.content ??
+                              'Not in your working copy.'}
+                          </pre>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  <div className="knowledge-editor-actions">
+                    <button disabled={busy} onClick={() => void library.refreshSavedComparison()}>
+                      Refresh saved comparison
+                    </button>
+                    <button
+                      disabled={busy}
+                      onClick={() => void library.resolveInitialSaveConflict(true)}
+                    >
+                      Use saved draft
+                    </button>
+                    <button
+                      disabled={
+                        busy ||
+                        copy!.initialSaveConflict.state === 'accepted' ||
+                        copy!.initialSaveConflict.state === 'closed'
+                      }
+                      onClick={() => void library.resolveInitialSaveConflict(false)}
+                    >
+                      Keep my edits and update saved draft
+                    </button>
+                  </div>
+                </section>
+              )}
+              {(library.error || library.comparison) && editable && !copy!.initialSaveConflict && (
                 <button
                   className="workspace-text-link"
                   disabled={busy}
@@ -124,7 +184,7 @@ export function KnowledgeLibrary() {
                   Compare accepted version
                 </button>
               )}
-              {library.comparison && (
+              {library.comparison && !copy!.initialSaveConflict && (
                 <section className="knowledge-comparison" aria-label="Compare accepted and draft">
                   <h3>Review the latest accepted knowledge</h3>
                   <p>
