@@ -1,3 +1,4 @@
+import { validateGatewaySigningMaterial } from './symposium-gateway-signing.js';
 import {
   isOwnedSymposiumProxyUrl,
   isOwnedSymposiumSupervisorNetwork,
@@ -336,6 +337,12 @@ export class OwnedSymposiumGateway {
       );
     if (!serverCertificate.checkIP('127.0.0.1'))
       throw new Error('Owned gateway server certificate requires a 127.0.0.1 IP SAN');
+    const jwtBytes = {
+      signingKey: regularBytes(options.jwt.signingKey),
+      publicKey: regularBytes(options.jwt.publicKey),
+      kid: regularBytes(options.jwt.kid),
+    };
+    validateGatewaySigningMaterial(jwtBytes);
     const root = mkdtempSync(join(options.stateParent, 'gateway-'));
     chmodSync(root, 0o700);
     const files = new Map<string, { sha256: string; mode: number }>();
@@ -364,9 +371,9 @@ export class OwnedSymposiumGateway {
       ]),
     );
     const jwt = Object.fromEntries(
-      Object.entries(options.jwt).map(([name, path]) => [
+      Object.keys(options.jwt).map((name) => [
         name,
-        freeze(`${name}.jwt`, regularBytes(path)),
+        freeze(`${name}.jwt`, jwtBytes[name as keyof typeof jwtBytes]),
       ]),
     );
     for (const directory of ['home', 'config', 'state', 'cache'])
