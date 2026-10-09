@@ -281,3 +281,25 @@
     align-items: flex-start;
   }
 }
+.connection-setup-documentation {
+  margin-top: 16px;
+  padding: 14px;
+  border: 1px solid var(--workspace-line);
+  border-radius: 10px;
+}
+.connection-setup-documentation .connection-setup-documentation-url {
+  margin: 8px 0 12px;
+  color: var(--workspace-text);
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.connection-setup-documentation > button {
+  min-height: 40px;
+  font: inherit;
+  padding: 0;
+  text-align: left;
+}
+.connection-setup-documentation-review {
+  margin-top: 12px;
+}

@@ -17,6 +17,44 @@ function setupAccessLabel(setup: ConnectionSetup) {
     : 'Read only';
 }
 
+function documentationUrl(value?: string) {
+  if (!value) return undefined;
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === 'https:' && !parsed.username && !parsed.password
+      ? parsed.href
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function DocumentationReference({ url }: { url: string }) {
+  const [reviewed, setReviewed] = useState(false);
+  return (
+    <div className="connection-setup-documentation">
+      <p>This reference was provided by your assistant. Enter your key only here in Mitzo.</p>
+      <p className="connection-setup-documentation-url">{url}</p>
+      <button
+        type="button"
+        className="workspace-text-link"
+        aria-expanded={reviewed}
+        onClick={() => setReviewed((current) => !current)}
+      >
+        Review service documentation
+      </button>
+      {reviewed && (
+        <div className="connection-setup-documentation-review">
+          <p>Check that this destination is documentation for the service you want to connect.</p>
+          <a href={url} target="_blank" rel="noopener noreferrer">
+            Open documentation
+          </a>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** A chat-prepared connection: the user supplies a credential, never protocol configuration. */
 export function ConnectionSetupView() {
   const { setupId = '' } = useParams();
@@ -165,7 +203,10 @@ export function ConnectionSetupView() {
   const ready = setup?.status === 'ready';
   const needsUnlock = !authorization || authorization.expiresAt <= Date.now();
   const helpUrl = setup?.credential.helpUrl;
-  const safeHelpUrl = helpUrl && /^https:\/\//i.test(helpUrl) ? helpUrl : undefined;
+  const safeHelpUrl = documentationUrl(helpUrl);
+  const trustedHomeAssistantHelp =
+    setup?.profile === 'home-assistant' &&
+    safeHelpUrl === 'https://www.home-assistant.io/docs/authentication/';
   return (
     <main className="workspace-page connection-setup-page">
       <Link className="connections-back workspace-text-link" to={back}>
@@ -263,11 +304,17 @@ export function ConnectionSetupView() {
                 </label>
                 <div className="connection-setup-guidance">
                   <p>{setup.credential.instructions}</p>
-                  {safeHelpUrl && (
-                    <a href={safeHelpUrl} target="_blank" rel="noopener noreferrer">
-                      Where to get your key ↗
-                    </a>
-                  )}
+                  {safeHelpUrl &&
+                    (trustedHomeAssistantHelp ? (
+                      <a href={safeHelpUrl} target="_blank" rel="noopener noreferrer">
+                        Where to get your key ↗
+                      </a>
+                    ) : (
+                      <DocumentationReference
+                        key={`${setup.id}:${safeHelpUrl}`}
+                        url={safeHelpUrl}
+                      />
+                    ))}
                 </div>
                 {needsUnlock && (
                   <label className="connections-field connection-setup-unlock">

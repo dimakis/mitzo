@@ -268,3 +268,47 @@ it('waits for an outstanding verification poll instead of discarding every slow 
     vi.useRealTimers();
   }
 });
+it('shows a custom reference destination as assistant-provided documentation before offering an external link', async () => {
+  const destination = 'https://docs.unrelated.example/service-auth';
+  vi.mocked(api.getConnectionSetup).mockResolvedValue({
+    ...setup,
+    profile: 'custom',
+    credential: { ...setup.credential, helpUrl: destination },
+  });
+  open();
+  await screen.findByLabelText('Home Assistant key');
+  expect(screen.getByText(destination)).toBeTruthy();
+  expect(screen.getByText(/provided by your assistant/)).toBeTruthy();
+  expect(screen.getByText(/Enter your key only here in Mitzo/)).toBeTruthy();
+  expect(screen.queryByRole('link', { name: /Where to get your key/ })).toBeNull();
+  expect(screen.queryByRole('link', { name: 'Open documentation' })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Review service documentation' }));
+  expect(screen.getByRole('link', { name: 'Open documentation' }).getAttribute('href')).toBe(
+    destination,
+  );
+});
+it('keeps the built-in Home Assistant credential guidance simple', async () => {
+  open();
+  await screen.findByLabelText('Home Assistant key');
+  expect(screen.getByRole('link', { name: /Where to get your key/ }).getAttribute('href')).toBe(
+    'https://www.home-assistant.io/docs/authentication/',
+  );
+  expect(screen.queryByRole('button', { name: 'Review service documentation' })).toBeNull();
+});
+it.each([
+  'javascript:alert(1)',
+  'http://docs.example.test',
+  'https://',
+  'https://user:password@docs.example.test/auth',
+])('does not offer an unsafe documentation URL: %s', async (helpUrl) => {
+  vi.mocked(api.getConnectionSetup).mockResolvedValue({
+    ...setup,
+    profile: 'custom',
+    credential: { ...setup.credential, helpUrl },
+  });
+  open();
+  await screen.findByLabelText('Home Assistant key');
+  expect(screen.queryByRole('link', { name: 'Open documentation' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Review service documentation' })).toBeNull();
+  expect(screen.queryByRole('link', { name: /Where to get your key/ })).toBeNull();
+});
