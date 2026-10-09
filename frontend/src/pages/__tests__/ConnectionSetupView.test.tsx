@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { Link, MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { ConnectionSetupView } from '../ConnectionSetupView';
 import * as api from '../../lib/credential-connections-api';
@@ -202,4 +202,69 @@ it('explains how to continue when the verified connection has not reached the as
   open();
   await screen.findByRole('heading', { name: 'Home Assistant is connected' });
   expect(screen.getByText(/tell your assistant the connection is ready/)).toBeTruthy();
+});
+
+it('ignores an outstanding first A response after navigating A to B and back to a newer A', async () => {
+  let finishFirstA!: (value: ConnectionSetup) => void;
+  let aRequests = 0;
+  vi.mocked(api.getConnectionSetup).mockImplementation(async (id) => {
+    if (id === 'draft-a' && ++aRequests === 1) {
+      return new Promise<ConnectionSetup>((resolve) => {
+        finishFirstA = resolve;
+      });
+    }
+    return id === 'draft-a'
+      ? { ...setup, status: 'ready', revision: 7 }
+      : { ...setup, id: 'draft-b', connection: { ...setup.connection, label: 'Other service' } };
+  });
+  render(
+    <MemoryRouter initialEntries={['/connections/setup/draft-a']}>
+      <Link to="/connections/setup/draft-b">Visit B</Link>
+      <Link to="/connections/setup/draft-a">Return to A</Link>
+      <Routes>
+        <Route path="/connections/setup/:setupId" element={<ConnectionSetupView />} />
+      </Routes>
+    </MemoryRouter>,
+  );
+  await waitFor(() => expect(api.getConnectionSetup).toHaveBeenCalledWith('draft-a'));
+  fireEvent.click(screen.getByRole('link', { name: 'Visit B' }));
+  await screen.findByRole('heading', { name: 'Connect Other service' });
+  fireEvent.click(screen.getByRole('link', { name: 'Return to A' }));
+  await screen.findByRole('heading', { name: 'Home Assistant is connected' });
+  await act(async () => {
+    finishFirstA({ ...setup, status: 'pending', revision: 1 });
+  });
+  expect(screen.getByRole('heading', { name: 'Home Assistant is connected' })).toBeTruthy();
+  expect(screen.queryByLabelText('Home Assistant key')).toBeNull();
+  expect(api.getConnectionSetup).toHaveBeenCalledTimes(3);
+});
+it('waits for an outstanding verification poll instead of discarding every slow response', async () => {
+  vi.useFakeTimers();
+  try {
+    let finishPoll!: (value: ConnectionSetup) => void;
+    vi.mocked(api.getConnectionSetup)
+      .mockResolvedValueOnce({ ...setup, status: 'verifying' })
+      .mockImplementation(
+        () =>
+          new Promise<ConnectionSetup>((resolve) => {
+            finishPoll = resolve;
+          }),
+      );
+    open();
+    await act(async () => {});
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1500);
+    });
+    expect(api.getConnectionSetup).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1500);
+    });
+    expect(api.getConnectionSetup).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      finishPoll({ ...setup, status: 'ready', revision: 2 });
+    });
+    expect(screen.getByRole('heading', { name: 'Home Assistant is connected' })).toBeTruthy();
+  } finally {
+    vi.useRealTimers();
+  }
 });

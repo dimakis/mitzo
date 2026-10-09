@@ -29,25 +29,34 @@ export function ConnectionSetupView() {
   const [authorization, setAuthorization] = useState<
     { csrf: string; expiresAt: number } | undefined
   >(getCachedCredentialAuthorization);
-  const inFlight = useRef<string | undefined>(undefined);
+  const inFlight = useRef<number | undefined>(undefined);
+  const routeGeneration = useRef(0);
+  const requestGeneration = useRef(0);
   const alive = useRef(false);
   const currentSetupId = useRef(setupId);
   currentSetupId.current = setupId;
   const load = useCallback(async () => {
+    const route = routeGeneration.current;
+    const request = ++requestGeneration.current;
+    const current = () =>
+      alive.current &&
+      currentSetupId.current === setupId &&
+      routeGeneration.current === route &&
+      requestGeneration.current === request;
     try {
       const next = await getConnectionSetup(setupId);
-      if (alive.current && currentSetupId.current === setupId) {
+      if (current()) {
         setSetup(next);
         setError(next.error ?? '');
         setUncertain(false);
       }
     } catch (reason) {
-      if (alive.current && currentSetupId.current === setupId)
-        setError(reason instanceof Error ? reason.message : 'Unable to load setup.');
+      if (current()) setError(reason instanceof Error ? reason.message : 'Unable to load setup.');
       throw reason;
     }
   }, [setupId]);
   useEffect(() => {
+    routeGeneration.current += 1;
     alive.current = true;
     setSetup(undefined);
     setSecret('');
@@ -58,6 +67,7 @@ export function ConnectionSetupView() {
     setAuthorization(getCachedCredentialAuthorization());
     void load().catch(() => undefined);
     return () => {
+      routeGeneration.current += 1;
       alive.current = false;
     };
   }, [load]);
@@ -90,47 +100,63 @@ export function ConnectionSetupView() {
   }, [setup]);
   useEffect(() => {
     if (setup?.status !== 'verifying') return;
-    const timer = setInterval(() => void load().catch(() => undefined), 1500);
+    let polling = false;
+    const timer = setInterval(() => {
+      if (polling) return;
+      polling = true;
+      void load()
+        .catch(() => undefined)
+        .finally(() => {
+          polling = false;
+        });
+    }, 1500);
     return () => clearInterval(timer);
   }, [setup, load]);
   const mutate = async (cancel = false) => {
-    if (!setup || inFlight.current === setupId || uncertain || setup.status !== 'pending') return;
+    const route = routeGeneration.current;
+    if (!setup || inFlight.current === route || uncertain || setup.status !== 'pending') return;
+    const request = ++requestGeneration.current;
+    const current = () =>
+      alive.current &&
+      currentSetupId.current === setupId &&
+      routeGeneration.current === route &&
+      requestGeneration.current === request;
     const credential = secret;
     const unlock = passphrase;
     setSecret('');
     setPassphrase('');
     setError('');
     setBusy(true);
-    inFlight.current = setupId;
+    inFlight.current = route;
     let mutationStarted = false;
     try {
       const auth =
         authorization && authorization.expiresAt > Date.now()
           ? authorization
           : await reauthorizeKeychain(unlock);
-      if (!alive.current || currentSetupId.current !== setupId) return;
+      if (!current()) return;
       setAuthorization(auth);
       mutationStarted = true;
       const next = cancel
         ? await cancelConnectionSetup(setup.id, setup.revision, auth.csrf)
         : await completeConnectionSetup(setup.id, setup.revision, credential, auth.csrf);
-      if (alive.current && currentSetupId.current === setupId) {
+      if (current()) {
         setSetup(next);
         setError(next.error ?? '');
       }
     } catch (reason) {
-      if (!alive.current || currentSetupId.current !== setupId) return;
+      if (!current()) return;
       if (mutationStarted) {
         setAuthorization(undefined);
         setUncertain(true);
         // A lost response may follow a successful save. Check before accepting another key.
         await load().catch(() => undefined);
       } else setAuthorization(undefined);
-      if (alive.current && !mutationStarted)
+      if (current() && !mutationStarted)
         setError(reason instanceof Error ? reason.message : 'Unable to authorize setup.');
     } finally {
-      if (inFlight.current === setupId) inFlight.current = undefined;
-      if (alive.current && currentSetupId.current === setupId) setBusy(false);
+      if (inFlight.current === route) inFlight.current = undefined;
+      if (alive.current && routeGeneration.current === route) setBusy(false);
     }
   };
   const back = setup ? `/chat/${encodeURIComponent(setup.sessionId)}` : '/connections-access';
