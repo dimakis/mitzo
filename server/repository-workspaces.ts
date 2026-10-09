@@ -266,23 +266,25 @@ export class RepositoryWorkspaces {
       const records = this.chatRecords(sourceConversationId).filter(
         (value) => value.state !== 'discarded',
       );
-      const previous = records.find(
-        (value) =>
-          isDeepStrictEqual(value.binding, binding) &&
-          value.connectionId === connectionId &&
-          value.repository === repository &&
-          value.handoff?.prompt === prompt,
-      );
+      const matches = (value: RepositoryWorkspace) =>
+        isDeepStrictEqual(value.binding, binding) &&
+        value.connectionId === connectionId &&
+        value.repository === repository &&
+        value.handoff?.prompt === prompt;
+      const current = records.find((value) => value.state !== 'claimed');
+      if (current && !matches(current)) {
+        if (['preparing', 'claiming'].includes(current.state))
+          throw new Error(
+            'A repository preparation is running or interrupted; inspect the original preparation before starting another task',
+          );
+        throw new Error('Discard the previous preparation before choosing a different task');
+      }
+      // A current unused draft owns the handoff slot before claimed history is considered.
+      const previous = current ?? records.find(matches);
       if (previous) {
         await this.authorize(previous, binding, signal);
         return this.chatPreparation(previous.id, binding, sourceConversationId);
       }
-      if (records.some((value) => ['preparing', 'claiming'].includes(value.state)))
-        throw new Error(
-          'A repository preparation is running or interrupted; inspect the original preparation before starting another task',
-        );
-      if (records.some((value) => value.state !== 'claimed'))
-        throw new Error('Discard the previous preparation before choosing a different task');
       const preview = await this.preview(binding, connectionId, repository, signal);
       const record = this.get(preview.id);
       record.handoff = { sourceConversationId, prompt };

@@ -297,3 +297,30 @@ it('requires inspection rather than impossible discard while an original prepara
     await pending;
   }
 });
+
+it('keeps the current unused task ahead of an older matching claimed conversation', async () => {
+  const f = await fixture();
+  const signal = new AbortController().signal;
+  const old = await f.service.prepareChat(
+    binding,
+    'origin',
+    'connection',
+    'example/repo',
+    'Task A',
+    signal,
+  );
+  await f.service.claim(old.id, binding, 'old-target', join(f.root, 'unused'), true);
+  const current = await f.service.prepareChat(
+    binding,
+    'origin',
+    'connection',
+    'example/other',
+    'Task B',
+    signal,
+  );
+  await expect(
+    f.service.prepareChat(binding, 'origin', 'connection', 'example/repo', 'Task A', signal),
+  ).rejects.toThrow('previous preparation');
+  expect(f.service.chatPreparation(undefined, binding, 'origin').id).toBe(current.id);
+  expect(f.prepare).toHaveBeenCalledTimes(2);
+});
