@@ -16,9 +16,11 @@ export function RepositoryChatDraftNotice({
           <p>
             {preparation.baseBranch} · <code>{preparation.baseOid.slice(0, 12)}</code>
           </p>
-          <p>
-            Review the editable task below. Send starts work with the prepared account and model.
-          </p>
+          {preparation.state !== 'preparing' && preparation.state !== 'claiming' && (
+            <p>
+              Review the editable task below. Send starts work with the prepared account and model.
+            </p>
+          )}
           <Link to={`/chat/${encodeURIComponent(preparation.sourceConversationId)}`}>
             Return to parent chat
           </Link>
@@ -32,7 +34,7 @@ export function RepositoryChatDraftNotice({
       )}
       {handoff.reason && !handoff.loading && (
         <button type="button" onClick={handoff.retry}>
-          Refresh repository draft
+          Refresh preparation status
         </button>
       )}
     </section>

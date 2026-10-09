@@ -158,6 +158,37 @@ for (const [layout, View] of [
   ['mobile', ChatView],
   ['desktop', DesktopChatView],
 ] as const) {
+  it.each(['preparing', 'claiming'] as const)(
+    `${layout}: explains the retained %s fence without starting another task`,
+    async (state) => {
+      api.fetch.mockImplementation(
+        async (url: string) =>
+          new Response(
+            JSON.stringify(
+              url.includes('/chat-preparation')
+                ? { repositoryChat: { ...preparation, state } }
+                : accounts,
+            ),
+          ),
+      );
+      const { send } = fixture(View);
+      expect((await screen.findByRole('alert')).textContent).toBe(
+        'This preparation is still running or interrupted. Inspect the original preparation before starting another task.',
+      );
+      expect(
+        (screen.getByRole('button', { name: 'Send task' }) as HTMLButtonElement).disabled,
+      ).toBe(true);
+      fireEvent.click(screen.getByRole('button', { name: 'Try send directly' }));
+      expect(send).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByRole('button', { name: 'Refresh preparation status' }));
+      await waitFor(() =>
+        expect(
+          api.fetch.mock.calls.filter(([url]) => url.includes('/chat-preparation')).length,
+        ).toBe(2),
+      );
+      expect(api.fetch.mock.calls.every(([, options]) => !options?.method)).toBe(true);
+    },
+  );
   it(`${layout}: preserves the handoff URL while a source chat's old account selection is clearing`, async () => {
     let complete!: (response: Response) => void;
     api.fetch.mockImplementation(async (url: string) =>

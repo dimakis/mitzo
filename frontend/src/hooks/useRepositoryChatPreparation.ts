@@ -69,9 +69,11 @@ export function useRepositoryChatPreparation(id: string | null, sessionId?: stri
           : (result?.error ??
             (preparation?.state === 'ready'
               ? undefined
-              : preparation?.state === 'claimed'
-                ? 'This preparation already belongs to a conversation.'
-                : `Repository preparation is ${preparation?.state ?? 'unavailable'}. Refresh its status before sending.`));
+              : preparation?.state === 'preparing' || preparation?.state === 'claiming'
+                ? 'This preparation is still running or interrupted. Inspect the original preparation before starting another task.'
+                : preparation?.state === 'claimed'
+                  ? 'This preparation already belongs to a conversation.'
+                  : `Repository preparation is ${preparation?.state ?? 'unavailable'}. Refresh its status before sending.`));
   return {
     present,
     id,

@@ -87,6 +87,22 @@ it.each(['failed', 'preparing', 'preview', 'claiming', 'discarded', 'claimed'] a
     expect(api.fetch.mock.calls.every(([, options]) => !options.method)).toBe(true);
   },
 );
+it.each(['preparing', 'claiming'] as const)(
+  'keeps an interrupted %s receipt fenced with original-operation guidance',
+  async (state) => {
+    api.fetch.mockResolvedValue(
+      new Response(JSON.stringify({ repositoryChat: { ...preparation, state } })),
+    );
+    const { result } = renderHook(() => useRepositoryChatPreparation(id));
+    await waitFor(() => expect(result.current.preparation?.state).toBe(state));
+    expect(result.current.reason).toBe(
+      'This preparation is still running or interrupted. Inspect the original preparation before starting another task.',
+    );
+    act(() => result.current.markAssigned('another-task'));
+    expect(result.current.assignedConversationId).toBeNull();
+    expect(api.fetch.mock.calls.every(([, options]) => !options.method)).toBe(true);
+  },
+);
 it('rejects an invalid ID without requesting another preparation', () => {
   const { result } = renderHook(() => useRepositoryChatPreparation('not-an-id'));
   expect(result.current.reason).toMatch(/Invalid/);
