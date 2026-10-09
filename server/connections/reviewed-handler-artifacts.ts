@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.0';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.6';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.6';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.9';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,6 +22,23 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../credential-websocket.ts': '87a41d7c329dccb6616726feed14a5fb25c8aefe94556c767f42618b8d995810',
+  // Keychain HTTP/WebSocket credential custody and exact-session approval handlers.
+  '../home-assistant-dashboard.ts':
+    '1053d482935af066472aedd48365af2b71cb7cf55e30ee88cc9fcf89b96e1d62',
+  '../credential-connections.ts':
+    'f09647e677e59fe361ad704cb72a0525291b81dc5036e51867f1fb0538a5c4ab',
+  '../credential-connections-router.ts':
+    'b05c419d959bb8e5b8523e603ab090a15bbd25dc9d3295bf6b1ad139a9899e65',
+  '../credential-connection-tools.ts':
+    '5834050754b87751a15a6198f5409249276d675e2d1cc2a08be2a646b8396a1c',
+  '../credential-connections-runtime.ts':
+    '89a1cdf4bd50c73a0aecfb966303fb37e0f524da9fb977478602c9c198a51b4d',
+  '../credential-http.ts': 'fb584d92840e2ee34167fd354d7249cfb3144b321f0d3a0a4aad3015231fa22d',
+  '../credential-redaction.ts': '817dda948c419deb064bc4c5298e034e5a0343972b4bf724fb6aaa869cf34403',
+  '../credential-sdk-tools.ts': 'e64cae00d86986bba78e672ad9ebf6c8c89316e2e64bb30c7d478f76fc1640c9',
+  '../session-credential-tools.ts':
+    '70db62d9e3c16e66c2e238351a348b82fc6afc8f3b7baba37eeaabb98d27b9c8',
   'policy-compiler.ts': '13a12a3182568a151247cb204792f15c374af9e5a7f401d51b954c6dd40fd538',
   'registry.ts': 'cccbb1c67d559eda923c4d0beac5e0203918e3ab2970ab90a1937bb32a09d8a4',
   'iana-address-policy.ts': '899b0b5ad66f5cbe72224b34c29ff7a88e32c2a6f5b2987e4d18cfc64f862b4e',
@@ -40,7 +57,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../capability-conversation-binding.ts':
     '147a328d161f167aeeb31bf0017d5fea25cc3f22933392249a228d7bd61e89aa',
   // Secret custody and its browser/admission boundaries share the runtime review contract.
-  '../openai-key-management.ts': '536bffc8e2f8f8a73326ffe753ffd60b794b3f45072bb74b82d6ab7226946ead',
+  '../openai-key-management.ts': '1ec5481e02e9803007d7452abd0b6167e94e54249bc633a1b5edc47054129d3b',
   '../openai-key-operation-store.ts':
     'dcd4bfc37e6098f194e19c9a797ca70eed189b19568c0272c778ecdec49f00a9',
   '../openai-enrollment-models.ts':

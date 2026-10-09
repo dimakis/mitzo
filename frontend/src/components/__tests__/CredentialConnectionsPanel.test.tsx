@@ -10,6 +10,8 @@ vi.mock('../../lib/credential-connections-api', () => ({
   reauthorizeKeychain: vi.fn(),
   createCredentialConnection: vi.fn(),
   rotateCredentialConnection: vi.fn(),
+  updateDashboardAccess: vi.fn(),
+  updateConnectionWebSocket: vi.fn(),
   testCredentialConnection: vi.fn(),
   disableCredentialConnection: vi.fn(),
   getConnectionSessions: vi.fn(),
@@ -360,3 +362,212 @@ it('disables a connection and revokes all access without retaining cached sessio
   expect(screen.queryByRole('button', { name: 'Revoke session-a' })).toBeNull();
   expect(api.disableCredentialConnection).toHaveBeenCalledWith('ha', 1, 'csrf');
 });
+
+it('requires setup authorization to expand dashboard access and clears revoked session rows', async () => {
+  vi.mocked(api.getCredentialConnections).mockResolvedValue([homeAssistant]);
+  vi.mocked(api.getConnectionSessions).mockResolvedValue([{ sessionId: 'session-a', revision: 1 }]);
+  render(<CredentialConnectionsPanel />);
+  await screen.findByLabelText('Dashboard API access for Home Assistant');
+  fireEvent.change(screen.getByLabelText('Dashboard API access for Home Assistant'), {
+    target: { value: 'read-write' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Save dashboard access' }));
+  await screen.findByText('Authorize Keychain changes before continuing.');
+  expect(api.updateDashboardAccess).not.toHaveBeenCalled();
+  await authorize();
+  fireEvent.click(screen.getByRole('button', { name: 'Session access' }));
+  await screen.findByRole('button', { name: 'Revoke session-a' });
+  vi.mocked(api.updateDashboardAccess).mockImplementation(async () => {
+    const updated = {
+      ...homeAssistant,
+      revision: 2,
+      homeAssistantDashboards: 'read-write' as const,
+    };
+    vi.mocked(api.getCredentialConnections).mockResolvedValue([updated]);
+    return updated;
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Save dashboard access' }));
+  await screen.findByText('Dashboard access updated. Each chat needs fresh approval.');
+  expect(api.updateDashboardAccess).toHaveBeenCalledWith('ha', 1, 'read-write', 'csrf');
+  expect(screen.queryByRole('button', { name: 'Revoke session-a' })).toBeNull();
+});
+
+it('enables WebSocket on a custom service with existing header auth and requires setup authorization', async () => {
+  const custom = {
+    ...homeAssistant,
+    id: 'custom',
+    label: 'Custom service',
+    auth: { kind: 'api-key' as const, headerName: 'X-API-Key' },
+    paths: ['/'],
+  };
+  vi.mocked(api.getCredentialConnections).mockResolvedValue([custom]);
+  render(<CredentialConnectionsPanel connectionId="custom" />);
+  await screen.findByLabelText('WebSocket access for Custom service');
+  fireEvent.change(screen.getByLabelText('WebSocket access for Custom service'), {
+    target: { value: 'headers' },
+  });
+  fireEvent.change(screen.getByLabelText('WebSocket path for Custom service'), {
+    target: { value: '/rpc/socket' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Save WebSocket setup' }));
+  await screen.findByText('Authorize Keychain changes before continuing.');
+  expect(api.updateConnectionWebSocket).not.toHaveBeenCalled();
+  await authorize();
+  fireEvent.click(screen.getByRole('button', { name: 'Save WebSocket setup' }));
+  await screen.findByText('WebSocket setup updated. Each chat needs fresh approval.');
+  expect(api.updateConnectionWebSocket).toHaveBeenCalledWith(
+    'custom',
+    1,
+    { path: '/rpc/socket', authentication: { kind: 'headers' } },
+    'csrf',
+  );
+});
+it('offers generic WebSocket setup during custom connection creation without a separate credential', async () => {
+  render(<CredentialConnectionsPanel />);
+  await screen.findByLabelText('Service template');
+  await authorize();
+  fireEvent.change(screen.getByLabelText('Service template'), { target: { value: 'custom' } });
+  fireEvent.change(screen.getByLabelText('Connection name'), { target: { value: 'RPC service' } });
+  fireEvent.change(screen.getByLabelText('Service address'), {
+    target: { value: 'https://rpc.example.com' },
+  });
+  fireEvent.change(screen.getByLabelText('Token or password'), {
+    target: { value: 'fixture-private-token' },
+  });
+  fireEvent.change(screen.getByLabelText('WebSocket access for new connection'), {
+    target: { value: 'headers' },
+  });
+  fireEvent.change(screen.getByLabelText('WebSocket path for new connection'), {
+    target: { value: '/rpc' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Save connection' }));
+  await waitFor(() =>
+    expect(api.createCredentialConnection).toHaveBeenCalledWith(
+      expect.objectContaining({
+        connection: expect.objectContaining({
+          websocket: { path: '/rpc', authentication: { kind: 'headers' } },
+        }),
+      }),
+      'csrf',
+    ),
+  );
+});
+
+it('preserves unsaved WebSocket edits across authorization refreshes for an enabled connection', async () => {
+  const custom = {
+    ...homeAssistant,
+    id: 'custom',
+    label: 'Custom service',
+    paths: ['/'],
+    websocket: { path: '/rpc', authentication: { kind: 'headers' as const } },
+  };
+  vi.mocked(api.getCredentialConnections).mockImplementation(async () => [structuredClone(custom)]);
+  render(<CredentialConnectionsPanel connectionId="custom" />);
+  await screen.findByLabelText('WebSocket path for Custom service');
+  fireEvent.change(screen.getByLabelText('WebSocket path for Custom service'), {
+    target: { value: '/changed' },
+  });
+  await authorize();
+  expect(
+    (screen.getByLabelText('WebSocket path for Custom service') as HTMLInputElement).value,
+  ).toBe('/changed');
+  fireEvent.click(screen.getByRole('button', { name: 'Save WebSocket setup' }));
+  await waitFor(() =>
+    expect(api.updateConnectionWebSocket).toHaveBeenCalledWith(
+      'custom',
+      1,
+      { path: '/changed', authentication: { kind: 'headers' } },
+      'csrf',
+    ),
+  );
+  vi.mocked(api.getCredentialConnections).mockResolvedValue([
+    { ...custom, revision: 2, websocket: { ...custom.websocket, path: '/saved-new-revision' } },
+  ]);
+  await screen.findByText('WebSocket setup updated. Each chat needs fresh approval.');
+  await authorize();
+  await waitFor(() =>
+    expect(
+      (screen.getByLabelText('WebSocket path for Custom service') as HTMLInputElement).value,
+    ).toBe('/saved-new-revision'),
+  );
+});
+
+it('preserves dashboard edits when refresh makes the same legacy disabled scope explicit', async () => {
+  vi.mocked(api.getCredentialConnections).mockResolvedValue([homeAssistant]);
+  render(<CredentialConnectionsPanel connectionId="ha" />);
+  await screen.findByLabelText('Dashboard API access for Home Assistant');
+  fireEvent.change(screen.getByLabelText('Dashboard API access for Home Assistant'), {
+    target: { value: 'read-write' },
+  });
+  vi.mocked(api.getCredentialConnections).mockResolvedValue([
+    { ...homeAssistant, homeAssistantDashboards: 'disabled' },
+  ]);
+  await authorize();
+  expect(
+    (screen.getByLabelText('Dashboard API access for Home Assistant') as HTMLSelectElement).value,
+  ).toBe('read-write');
+  fireEvent.click(screen.getByRole('button', { name: 'Save dashboard access' }));
+  await waitFor(() =>
+    expect(api.updateDashboardAccess).toHaveBeenCalledWith('ha', 1, 'read-write', 'csrf'),
+  );
+});
+
+it.each(['websocket', 'dashboard'])(
+  'preserves the other unsaved draft when saving %s setup',
+  async (setting) => {
+    const configured = {
+      ...homeAssistant,
+      homeAssistantDashboards: 'disabled' as const,
+      websocket: { path: '/api/socket', authentication: { kind: 'headers' as const } },
+    };
+    vi.mocked(api.getCredentialConnections).mockResolvedValue([configured]);
+    render(<CredentialConnectionsPanel connectionId="ha" />);
+    await screen.findByLabelText('WebSocket path for Home Assistant');
+    await authorize();
+    await waitFor(() =>
+      expect(
+        (screen.getByLabelText('Keychain setup passphrase') as HTMLInputElement).disabled,
+      ).toBe(false),
+    );
+    fireEvent.change(screen.getByLabelText('WebSocket path for Home Assistant'), {
+      target: { value: '/api/edited-socket' },
+    });
+    fireEvent.change(screen.getByLabelText('Dashboard API access for Home Assistant'), {
+      target: { value: 'read-write' },
+    });
+    const updated = {
+      ...configured,
+      revision: 2,
+      ...(setting === 'websocket'
+        ? { websocket: { ...configured.websocket, path: '/api/edited-socket' } }
+        : { homeAssistantDashboards: 'read-write' as const }),
+    };
+    const saved = async () => {
+      vi.mocked(api.getCredentialConnections).mockResolvedValue([updated]);
+      return updated;
+    };
+    vi.mocked(api.updateConnectionWebSocket).mockImplementation(saved);
+    vi.mocked(api.updateDashboardAccess).mockImplementation(saved);
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: setting === 'websocket' ? 'Save WebSocket setup' : 'Save dashboard access',
+      }),
+    );
+    await screen.findByText(
+      setting === 'websocket'
+        ? 'WebSocket setup updated. Each chat needs fresh approval.'
+        : 'Dashboard access updated. Each chat needs fresh approval.',
+    );
+    await waitFor(() =>
+      expect(
+        (screen.getByLabelText('Keychain setup passphrase') as HTMLInputElement).disabled,
+      ).toBe(false),
+    );
+    expect(
+      (screen.getByLabelText('WebSocket path for Home Assistant') as HTMLInputElement).value,
+    ).toBe('/api/edited-socket');
+    expect(
+      (screen.getByLabelText('Dashboard API access for Home Assistant') as HTMLSelectElement).value,
+    ).toBe('read-write');
+  },
+);

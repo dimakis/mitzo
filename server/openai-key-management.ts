@@ -218,7 +218,7 @@ export class OpenAIKeyManagement {
   }
   manages(accountId: string) {
     return (
-      this.options.managedAccountIds?.includes(accountId) ??
+      (!this.options.managedAccountIds || this.options.managedAccountIds.includes(accountId)) &&
       this.options.accounts().some((account) => account.id === accountId)
     );
   }

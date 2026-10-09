@@ -1,14 +1,19 @@
-import { useState } from 'react';
+import { CredentialWebSocketSettings } from './CredentialWebSocketSettings';
+import { websocketDraft, websocketConfiguration } from '../lib/credential-websocket-settings';
+import { useEffect, useRef, useState } from 'react';
 import {
   disableCredentialConnection,
   getConnectionSessions,
   revokeConnectionSession,
   rotateCredentialConnection,
+  updateDashboardAccess,
+  updateConnectionWebSocket,
   testCredentialConnection,
 } from '../lib/credential-connections-api';
 import type {
   CredentialConnection,
   ConnectionSessionAccess,
+  DashboardAccess,
   ConnectionRun,
 } from '../types/credential-connections';
 export function CredentialConnectionCard({
@@ -22,10 +27,28 @@ export function CredentialConnectionCard({
   csrf: () => string | undefined;
   run: ConnectionRun;
 }) {
+  const [websocket, setWebsocket] = useState(() => websocketDraft(connection.websocket));
+  const savedWebsocket = JSON.stringify(connection.websocket ?? null);
+  const lastSavedWebsocket = useRef(savedWebsocket);
+  useEffect(() => {
+    if (lastSavedWebsocket.current === savedWebsocket) return;
+    lastSavedWebsocket.current = savedWebsocket;
+    setWebsocket(websocketDraft(JSON.parse(savedWebsocket)));
+  }, [savedWebsocket]);
   const [testPath, setTestPath] = useState(connection.paths[0]);
   const [sessions, setSessions] = useState<ConnectionSessionAccess[]>();
   const [rotating, setRotating] = useState(false);
   const [secret, setSecret] = useState('');
+  const [dashboardAccess, setDashboardAccess] = useState<DashboardAccess>(
+    connection.homeAssistantDashboards ?? 'disabled',
+  );
+  const savedDashboardAccess = connection.homeAssistantDashboards ?? 'disabled';
+  const lastSavedDashboard = useRef(savedDashboardAccess);
+  useEffect(() => {
+    if (lastSavedDashboard.current === savedDashboardAccess) return;
+    lastSavedDashboard.current = savedDashboardAccess;
+    setDashboardAccess(savedDashboardAccess);
+  }, [savedDashboardAccess]);
   const loadSessions = async () => setSessions(await getConnectionSessions(connection.id));
   return (
     <article className="connections-card">
@@ -39,6 +62,77 @@ export function CredentialConnectionCard({
           ? `Verified ${new Date(connection.verifiedAt).toLocaleString()}`
           : 'Not yet verified'}
       </p>
+      {connection.status === 'active' && (
+        <>
+          <CredentialWebSocketSettings
+            label={connection.label}
+            draft={websocket}
+            onChange={setWebsocket}
+            disabled={busy}
+          />
+          <button
+            disabled={
+              busy ||
+              JSON.stringify(websocket) === JSON.stringify(websocketDraft(connection.websocket))
+            }
+            onClick={() => {
+              const token = csrf();
+              if (token)
+                void run(async () => {
+                  await updateConnectionWebSocket(
+                    connection.id,
+                    connection.revision,
+                    websocketConfiguration(websocket),
+                    token,
+                  );
+                  setSessions(undefined);
+                }, 'WebSocket setup updated. Each chat needs fresh approval.');
+            }}
+          >
+            Save WebSocket setup
+          </button>
+        </>
+      )}
+      {connection.status === 'active' && connection.auth.kind === 'bearer' && (
+        <>
+          <label className="connections-field">
+            Dashboard API access for {connection.label}
+            <select
+              disabled={busy}
+              value={dashboardAccess}
+              onChange={(e) => setDashboardAccess(e.target.value as DashboardAccess)}
+            >
+              <option value="disabled">Disabled</option>
+              <option value="read">Read dashboards</option>
+              <option value="read-write">Read and update dashboards</option>
+            </select>
+          </label>
+          <p>
+            Changing dashboard access revokes existing chat approvals. Updates use Home Assistant's
+            WebSocket API and require an HA administrator account.
+          </p>
+          <button
+            disabled={
+              busy || dashboardAccess === (connection.homeAssistantDashboards ?? 'disabled')
+            }
+            onClick={() => {
+              const token = csrf();
+              if (token)
+                void run(async () => {
+                  await updateDashboardAccess(
+                    connection.id,
+                    connection.revision,
+                    dashboardAccess,
+                    token,
+                  );
+                  setSessions(undefined);
+                }, 'Dashboard access updated. Each chat needs fresh approval.');
+            }}
+          >
+            Save dashboard access
+          </button>
+        </>
+      )}
       <>
         {connection.status === 'active' && (
           <>

@@ -1,9 +1,12 @@
+import { CredentialWebSocketSettings } from './CredentialWebSocketSettings';
+import { websocketDraft, websocketConfiguration } from '../lib/credential-websocket-settings';
 import { useState } from 'react';
 import { createCredentialConnection } from '../lib/credential-connections-api';
 import type {
   ConnectionAuth,
   ConnectionMethod,
   ConnectionRun,
+  DashboardAccess,
 } from '../types/credential-connections';
 const methods: ConnectionMethod[] = ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE'];
 export function CredentialConnectionForm({
@@ -26,6 +29,9 @@ export function CredentialConnectionForm({
   const [keychainAccount, setKeychainAccount] = useState('');
   const [paths, setPaths] = useState('/api/');
   const [selectedMethods, setSelectedMethods] = useState<ConnectionMethod[]>(['GET', 'HEAD']);
+  const [homeAssistantDashboards, setHomeAssistantDashboards] =
+    useState<DashboardAccess>('disabled');
+  const [websocket, setWebsocket] = useState(() => websocketDraft());
   const [allowPrivateNetwork, setAllowPrivateNetwork] = useState(false);
   return (
     <form
@@ -52,14 +58,18 @@ export function CredentialConnectionForm({
             .filter(Boolean),
           methods: selectedMethods,
           allowPrivateNetwork,
+          homeAssistantDashboards: kind === 'bearer' ? homeAssistantDashboards : 'disabled',
         };
         void run(
-          () =>
+          async () =>
             createCredentialConnection(
               source === 'new'
-                ? { connection, secret: credential }
+                ? {
+                    connection: { ...connection, websocket: websocketConfiguration(websocket) },
+                    secret: credential,
+                  }
                 : {
-                    connection,
+                    connection: { ...connection, websocket: websocketConfiguration(websocket) },
                     existing: { service: keychainService, account: keychainAccount },
                   },
               token,
@@ -83,6 +93,8 @@ export function CredentialConnectionForm({
               setHeaderName('X-API-Key');
               setPaths(home ? '/api/' : '/');
               setSelectedMethods(['GET', 'HEAD']);
+              setHomeAssistantDashboards('disabled');
+              setWebsocket(websocketDraft());
             }}
             defaultValue="home-assistant"
           >
@@ -203,6 +215,29 @@ export function CredentialConnectionForm({
             </label>
           </>
         )}
+        {kind === 'bearer' && (
+          <label className="connections-field">
+            Home Assistant dashboard API
+            <select
+              value={homeAssistantDashboards}
+              onChange={(e) => setHomeAssistantDashboards(e.target.value as DashboardAccess)}
+            >
+              <option value="disabled">Disabled</option>
+              <option value="read">Read dashboards</option>
+              <option value="read-write">Read and update dashboards</option>
+            </select>
+            <span>
+              Uses Home Assistant's WebSocket API. Updates require an HA administrator account. Each
+              chat approves this scope.
+            </span>
+          </label>
+        )}
+        <CredentialWebSocketSettings
+          label="new connection"
+          draft={websocket}
+          onChange={setWebsocket}
+          disabled={busy}
+        />
         <details>
           <summary>Allowed requests</summary>
           <p>
