@@ -3,6 +3,7 @@ import { beforeAll, afterEach, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { BriefingView } from '../BriefingView';
+import { apiFetch } from '../../lib/api-fetch';
 const fixtures = vi.hoisted(() => ({
   pending: vi.fn(),
   report: {
@@ -74,6 +75,31 @@ it('shows all ten meetings and calendar first, folds supporting Jira without del
   expect(jira?.open).toBe(false);
   expect(fixtures.pending).not.toHaveBeenCalled();
   expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
+  expect(screen.getByText('Briefing').tagName).toBe('P');
+});
+it('keeps all meeting rows visible inside section containers and preserves linked notes', async () => {
+  vi.mocked(apiFetch).mockResolvedValueOnce(
+    new Response(
+      JSON.stringify({
+        ...fixtures.report,
+        content:
+          '# Briefing\n## Today’s meetings\n' +
+          Array.from(
+            { length: 10 },
+            (_, index) =>
+              `### ${index + 9}:30 Meeting ${index}\n[Linked notes](meetings/team.md)\n#### Participant Jira\nIssue ${index}\n`,
+          ).join(''),
+      }),
+    ),
+  );
+  show();
+  await screen.findByText('18:30 Meeting 9');
+  const parent = screen.getByText('Today’s meetings').closest('details');
+  expect(parent?.open).toBe(true);
+  expect(screen.getAllByText(/^\d+:30 Meeting/)).toHaveLength(10);
+  expect(
+    screen.getAllByRole('link', { name: 'Linked notes', hidden: true })[0].getAttribute('href'),
+  ).toContain('/files?path=%2Fmeetings%2Fteam.md');
 });
 it('labels a regenerated report when an older conversation links to its date', async () => {
   render(

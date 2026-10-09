@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useSearchParams, useLocation } from 'react-router-dom';
 import { useMitzoStore } from '@mitzo/client/hooks';
 import type { BriefingSnapshot } from '@mitzo/protocol';
 import ReactMarkdown from 'react-markdown';
-import { remarkPlugins, rehypePlugins, markdownComponents } from '../lib/markdown-config';
-const briefingMarkdownComponents = {
-  ...markdownComponents,
-  h1: ({ children }: { children?: React.ReactNode }) => <h2>{children}</h2>,
-};
+import {
+  remarkPlugins,
+  rehypePlugins,
+  artifactMarkdownComponents,
+  artifactUrlTransform,
+} from '../lib/markdown-config';
 import { apiFetch } from '../lib/api-fetch';
 import { briefingContext, parseBriefing, type BriefingSection } from '../lib/briefing';
 import { useHomePreferences } from '../hooks/useHomePreferences';
@@ -22,21 +23,55 @@ interface SavedChat {
   model: string;
 }
 
-function Section({ section, expanded }: { section: BriefingSection; expanded: boolean }) {
+function BriefingMarkdown({ content, sourcePath }: { content: string; sourcePath: string }) {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const components = artifactMarkdownComponents(
+    sourcePath,
+    undefined,
+    location.pathname + location.search,
+    navigate,
+  );
   return (
-    <details className={`briefing-section briefing-${section.kind}`} open={expanded}>
+    <ReactMarkdown
+      remarkPlugins={remarkPlugins}
+      rehypePlugins={rehypePlugins}
+      urlTransform={artifactUrlTransform}
+      components={{
+        ...components,
+        h1: ({ children }) => <p className="briefing-captured-title workspace-muted">{children}</p>,
+      }}
+    >
+      {content}
+    </ReactMarkdown>
+  );
+}
+function containsMeeting(section: BriefingSection): boolean {
+  return section.children.some((child) => child.kind === 'meeting' || containsMeeting(child));
+}
+function Section({
+  section,
+  expanded,
+  sourcePath,
+}: {
+  section: BriefingSection;
+  expanded: boolean;
+  sourcePath: string;
+}) {
+  const container = section.kind === 'source' && containsMeeting(section);
+  return (
+    <details className={`briefing-section briefing-${section.kind}`} open={expanded || container}>
       <summary>{section.title}</summary>
       <div className="briefing-source">
-        <ReactMarkdown
-          remarkPlugins={remarkPlugins}
-          rehypePlugins={rehypePlugins}
-          components={briefingMarkdownComponents}
-        >
-          {section.body}
-        </ReactMarkdown>
+        <BriefingMarkdown content={section.body} sourcePath={sourcePath} />
       </div>
       {section.children.map((child, index) => (
-        <Section key={index} section={child} expanded={expanded && child.kind !== 'jira'} />
+        <Section
+          key={index}
+          section={child}
+          sourcePath={sourcePath}
+          expanded={expanded && child.kind !== 'jira'}
+        />
       ))}
     </details>
   );
@@ -184,18 +219,13 @@ export function BriefingView() {
             <Link to="/calendar">Open calendar</Link>
           </div>
           <div className="briefing-source">
-            <ReactMarkdown
-              remarkPlugins={remarkPlugins}
-              rehypePlugins={rehypePlugins}
-              components={briefingMarkdownComponents}
-            >
-              {outline.body}
-            </ReactMarkdown>
+            <BriefingMarkdown content={outline.body} sourcePath={snapshot.path} />
           </div>
           {outline.children.map((section, index) => (
             <Section
               key={`${snapshot.revision}:${index}:${expanded}`}
               section={section}
+              sourcePath={snapshot.path}
               expanded={expanded && section.kind !== 'calendar' && section.kind !== 'jira'}
             />
           ))}
