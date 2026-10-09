@@ -3,6 +3,13 @@ import { z } from 'zod';
 /** A closed list, not a generic HTTP/host-command tunnel. Reauthorization and
  * publication prompts stay in the current browser controller; the retained owner requests each exact approval over the inherited channel. */
 const operations = {
+  'library.list': ['GET', '/api/agent-library'],
+  'library.draft': ['POST', '/api/agent-library/drafts'],
+  'library.publish': ['POST', '/api/agent-library/publish'],
+  'library.preview': ['POST', '/api/agent-library/preview'],
+  'library.import': ['POST', '/api/agent-library/import'],
+  'library.export': ['GET', '/api/agent-library/:resourceId/:revision/export'],
+  'library.read': ['GET', '/api/agent-library/:resourceId/:revision'],
   'access.list': ['GET', '/api/sessions/:sessionId/symposium/access-requests'],
   'access.decide': [
     'POST',
