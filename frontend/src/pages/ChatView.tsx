@@ -8,6 +8,11 @@ import {
   type RepositoryChatSelection,
 } from '../components/RepositoryChatPicker';
 import { usePendingLaunch } from '../hooks/usePendingLaunch';
+import {
+  useRepositoryChatPreparation,
+  repositoryChatSendDisabledReason,
+} from '../hooks/useRepositoryChatPreparation';
+import { RepositoryChatDraftNotice } from '../components/RepositoryChatDraftNotice';
 import { SymposiumReviewEntry } from '../components/SymposiumReviewPanel';
 import { AddAgentSheet } from '../components/AddReviewerSheet';
 import { NewSymposium } from '../components/NewSymposium';
@@ -59,6 +64,8 @@ export function ChatView() {
   const sendError = useMitzoStore((s) => s.sendError);
   const sendStatus = useMitzoStore((s) => s.sendStatus);
   const activeSessionId = useMitzoStore((s) => s.sessions.active);
+  const preparationId = searchParams.get('repositoryPreparation');
+  const repositoryHandoff = useRepositoryChatPreparation(preparationId, sessionId);
   const modeChangeReady = useMitzoStore((s) => s.modeChangeReady);
 
   // Select individual action functions — stable references
@@ -106,7 +113,7 @@ export function ChatView() {
   const isSymposium = workspaceSummary?.sessionType === 'symposium';
   const ordinaryControls = !activeSessionId || workspaceSummary?.sessionType === 'chat';
   const [accountSelection, setAccountSelection] = useState<AccountSelection | null>(null);
-  const repositoryScope = `${chatDraftRevision}:${accountSelection?.accountId ?? ''}:${accountSelection?.model ?? ''}`;
+  const repositoryScope = `${repositoryHandoff.present ? repositoryHandoff.scope : ''}:${chatDraftRevision}:${accountSelection?.accountId ?? ''}:${accountSelection?.model ?? ''}`;
   const [repositoryChoice, setRepositoryChoice] = useState<{
     scope: string;
     selection: RepositoryChatSelection | null;
@@ -114,10 +121,18 @@ export function ChatView() {
   const repositorySelection =
     repositoryChoice?.scope === repositoryScope
       ? repositoryChoice.selection
-      : accountSelection?.accountId &&
-          savedRepositoryDraft(accountSelection.accountId, accountSelection.model)
+      : repositoryHandoff.present
         ? { blocked: true }
-        : null;
+        : accountSelection?.accountId &&
+            savedRepositoryDraft(accountSelection.accountId, accountSelection.model)
+          ? { blocked: true }
+          : null;
+  const repositoryHandoffReason = repositoryChatSendDisabledReason(
+    repositoryHandoff,
+    activeSessionId,
+    accountSelection,
+    repositorySelection,
+  );
 
   const setModel = useCallback(
     (id: string) => {
@@ -131,9 +146,14 @@ export function ChatView() {
   const selectAccount = useCallback(
     (selection: AccountSelection | null) => {
       setAccountSelection(selection);
-      if (selection) setModel(selection.model);
+      if (selection) {
+        if (repositoryHandoff.present) {
+          setModelState(selection.model);
+          storeSetModel(selection.model);
+        } else setModel(selection.model);
+      }
     },
-    [setModel],
+    [setModel, storeSetModel, repositoryHandoff.present],
   );
 
   const mode = useMitzoStore((s) => s.config.mode);
@@ -168,7 +188,7 @@ export function ChatView() {
       // assignment are batched without an intermediate render.
       storeNewSession();
     }
-  }, [sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [sessionId, preparationId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Persist active session to localStorage
   useEffect(() => {
@@ -195,12 +215,19 @@ export function ChatView() {
       activeSessionId &&
       activeSessionId !== clearedSessionId.current &&
       !sessionId &&
-      awaitingNewSession.current
+      awaitingNewSession.current &&
+      (!repositoryHandoff.present || repositoryHandoff.assignedConversationId === activeSessionId)
     ) {
       awaitingNewSession.current = false;
       navigate(`/chat/${activeSessionId}`, { replace: true });
     }
-  }, [activeSessionId, sessionId, navigate]);
+  }, [
+    activeSessionId,
+    sessionId,
+    navigate,
+    repositoryHandoff.present,
+    repositoryHandoff.assignedConversationId,
+  ]);
 
   // Hydrate branch/worktree/token state from persisted metadata
   useEffect(() => {
@@ -217,6 +244,7 @@ export function ChatView() {
     ctxBlocks?: string[],
     launching = false,
   ): boolean {
+    if (repositoryHandoffReason || (repositoryHandoff.present && launching)) return false;
     if (launching && activeSessionId) return sendLaunch();
     if (!activeSessionId && (!accountSelection || repositorySelection?.blocked)) return false;
     // For new sessions (no activeSessionId) the store bootstraps a WS on
@@ -237,7 +265,8 @@ export function ChatView() {
       ...(!activeSessionId && repositorySelection?.repositoryWorkspaceId
         ? {
             repositoryWorkspaceId: repositorySelection.repositoryWorkspaceId,
-            onSessionAssigned: () => {
+            onSessionAssigned: (assignedId: string) => {
+              repositoryHandoff.markAssigned(assignedId);
               if (accountSelection?.accountId)
                 consumeRepositoryDraft(
                   repositoryDraftKey(accountSelection.accountId, accountSelection.model),
@@ -257,6 +286,7 @@ export function ChatView() {
   }
 
   function handleInterrupt(text: string, images?: ImageAttachment[], ctxBlocks?: string[]): void {
+    if (repositoryHandoff.present) return;
     voice.stopSpeaking();
     // Preserve the same per-turn Codex selection when interrupting an active turn.
     storeInterruptMessage(text, { images, contextBlocks: ctxBlocks, ...(accountSelection ?? {}) });
@@ -283,7 +313,9 @@ export function ChatView() {
     storeSetMode(newMode);
   }
 
-  const initialPrompt = searchParams.get('prompt') || undefined;
+  const initialPrompt = repositoryHandoff.present
+    ? repositoryHandoff.preparation?.prompt
+    : searchParams.get('prompt') || undefined;
 
   return (
     <div className={`chat-page workspace-chat${keyboardOpen ? ' keyboard-open' : ''}`}>
@@ -320,7 +352,15 @@ export function ChatView() {
           <div className="chat-account-bar">
             <AccountModelPicker
               key={chatDraftRevision}
-              disabled={messages.running}
+              requiredSelection={
+                !activeSessionId && repositoryHandoff.preparation
+                  ? {
+                      accountId: repositoryHandoff.preparation.accountId,
+                      model: repositoryHandoff.preparation.model,
+                    }
+                  : undefined
+              }
+              disabled={messages.running || repositoryHandoff.loading}
               sessionId={activeSessionId}
               preferredModel={modelState}
               onChange={selectAccount}
@@ -444,7 +484,8 @@ export function ChatView() {
         }}
         ordinaryComposer={
           <>
-            {launch && (
+            <RepositoryChatDraftNotice handoff={repositoryHandoff} />
+            {launch && !repositoryHandoff.present && (
               <div role="status" className="chat-account-bar">
                 <p>
                   Which account and model should handle this task? Check Workspace above, then send.
@@ -471,22 +512,32 @@ export function ChatView() {
                 key={repositoryScope}
                 accountId={accountSelection.accountId}
                 model={accountSelection.model}
-                onChange={(selection) => setRepositoryChoice({ scope: repositoryScope, selection })}
+                initialPreparationId={repositoryHandoff.preparation?.id}
+                onChange={(selection) => {
+                  setRepositoryChoice({ scope: repositoryScope, selection });
+                  if (repositoryHandoff.present && !selection) navigate('/chat', { replace: true });
+                }}
               />
             )}
             <CodexQueueStatus sessionId={activeSessionId} />
             <ChatInput
+              key={
+                repositoryHandoff.present
+                  ? `${repositoryHandoff.scope}:${repositoryHandoff.preparation ? 'loaded' : 'loading'}`
+                  : undefined
+              }
               onSend={handleSend}
               onStop={handleStop}
               onInterrupt={handleInterrupt}
-              running={messages.running}
+              running={repositoryHandoff.present ? false : messages.running}
               initialText={initialPrompt}
               sendDisabledReason={
-                !activeSessionId && repositorySelection?.blocked
+                repositoryHandoffReason ??
+                (!activeSessionId && repositorySelection?.blocked
                   ? 'Prepare or remove the repository before sending.'
                   : !activeSessionId && !accountSelection
                     ? 'Select an account before sending.'
-                    : undefined
+                    : undefined)
               }
               voice={voice}
               branch={messages.branch || undefined}
@@ -494,7 +545,7 @@ export function ChatView() {
               onIsolationChange={!activeSessionId ? setIsolation : undefined}
               isWorktree={messages.isWorktree}
               wtId={messages.wtId || undefined}
-              sessionId={activeSessionId ?? undefined}
+              sessionId={repositoryHandoff.present ? undefined : (activeSessionId ?? undefined)}
               tokenState={tokens}
               messages={sessionId && sessionId !== activeSessionId ? [] : messages.messages}
               current={sessionId && sessionId !== activeSessionId ? null : messages.current}

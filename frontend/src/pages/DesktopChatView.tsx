@@ -8,6 +8,11 @@ import {
   type RepositoryChatSelection,
 } from '../components/RepositoryChatPicker';
 import { usePendingLaunch } from '../hooks/usePendingLaunch';
+import {
+  useRepositoryChatPreparation,
+  repositoryChatSendDisabledReason,
+} from '../hooks/useRepositoryChatPreparation';
+import { RepositoryChatDraftNotice } from '../components/RepositoryChatDraftNotice';
 import { SymposiumReviewEntry } from '../components/SymposiumReviewPanel';
 import { AddAgentSheet } from '../components/AddReviewerSheet';
 import { NewSymposium } from '../components/NewSymposium';
@@ -49,6 +54,8 @@ export function DesktopChatView() {
   const connection = useConnection();
   const tokens = useTokens();
   const activeSessionId = useMitzoStore((s) => s.sessions.active);
+  const preparationId = searchParams.get('repositoryPreparation');
+  const repositoryHandoff = useRepositoryChatPreparation(preparationId, sessionId);
   const modeChangeReady = useMitzoStore((s) => s.modeChangeReady);
 
   // Select individual action functions — stable references, no new-object trap
@@ -95,7 +102,7 @@ export function DesktopChatView() {
   const isSymposium = workspaceSummary?.sessionType === 'symposium';
   const ordinaryControls = !activeSessionId || workspaceSummary?.sessionType === 'chat';
   const [accountSelection, setAccountSelection] = useState<AccountSelection | null>(null);
-  const repositoryScope = `${chatDraftRevision}:${accountSelection?.accountId ?? ''}:${accountSelection?.model ?? ''}`;
+  const repositoryScope = `${repositoryHandoff.present ? repositoryHandoff.scope : ''}:${chatDraftRevision}:${accountSelection?.accountId ?? ''}:${accountSelection?.model ?? ''}`;
   const [repositoryChoice, setRepositoryChoice] = useState<{
     scope: string;
     selection: RepositoryChatSelection | null;
@@ -103,10 +110,18 @@ export function DesktopChatView() {
   const repositorySelection =
     repositoryChoice?.scope === repositoryScope
       ? repositoryChoice.selection
-      : accountSelection?.accountId &&
-          savedRepositoryDraft(accountSelection.accountId, accountSelection.model)
+      : repositoryHandoff.present
         ? { blocked: true }
-        : null;
+        : accountSelection?.accountId &&
+            savedRepositoryDraft(accountSelection.accountId, accountSelection.model)
+          ? { blocked: true }
+          : null;
+  const repositoryHandoffReason = repositoryChatSendDisabledReason(
+    repositoryHandoff,
+    activeSessionId,
+    accountSelection,
+    repositorySelection,
+  );
 
   const [modelState, setModelState] = useState(getPreferredModel);
   const setModel = useCallback(
@@ -121,9 +136,14 @@ export function DesktopChatView() {
   const selectAccount = useCallback(
     (selection: AccountSelection | null) => {
       setAccountSelection(selection);
-      if (selection) setModel(selection.model);
+      if (selection) {
+        if (repositoryHandoff.present) {
+          setModelState(selection.model);
+          storeSetModel(selection.model);
+        } else setModel(selection.model);
+      }
     },
-    [setModel],
+    [setModel, storeSetModel, repositoryHandoff.present],
   );
 
   const mode = useMitzoStore((s) => s.config.mode);
@@ -156,7 +176,7 @@ export function DesktopChatView() {
     } else if (!sessionId && (activeSessionId || resetFailedDraftOnMount.current)) {
       storeNewSession();
     }
-  }, [sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [sessionId, preparationId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Persist active session to localStorage
   useEffect(() => {
@@ -183,12 +203,19 @@ export function DesktopChatView() {
       activeSessionId &&
       activeSessionId !== clearedSessionId.current &&
       !sessionId &&
-      awaitingNewSession.current
+      awaitingNewSession.current &&
+      (!repositoryHandoff.present || repositoryHandoff.assignedConversationId === activeSessionId)
     ) {
       awaitingNewSession.current = false;
       navigate(`/chat/${activeSessionId}`, { replace: true });
     }
-  }, [activeSessionId, sessionId, navigate]);
+  }, [
+    activeSessionId,
+    sessionId,
+    navigate,
+    repositoryHandoff.present,
+    repositoryHandoff.assignedConversationId,
+  ]);
 
   // Hydrate branch/worktree/token state from persisted metadata
   useEffect(() => {
@@ -205,6 +232,7 @@ export function DesktopChatView() {
     ctxBlocks?: string[],
     launching = false,
   ): boolean {
+    if (repositoryHandoffReason || (repositoryHandoff.present && launching)) return false;
     if (launching && activeSessionId) return sendLaunch();
     if (!activeSessionId && (!accountSelection || repositorySelection?.blocked)) return false;
     if (activeSessionId && connection.status !== 'connected') {
@@ -219,7 +247,8 @@ export function DesktopChatView() {
       ...(!activeSessionId && repositorySelection?.repositoryWorkspaceId
         ? {
             repositoryWorkspaceId: repositorySelection.repositoryWorkspaceId,
-            onSessionAssigned: () => {
+            onSessionAssigned: (assignedId: string) => {
+              repositoryHandoff.markAssigned(assignedId);
               if (accountSelection?.accountId)
                 consumeRepositoryDraft(
                   repositoryDraftKey(accountSelection.accountId, accountSelection.model),
@@ -239,6 +268,7 @@ export function DesktopChatView() {
   }
 
   function handleInterrupt(text: string, images?: ImageAttachment[], ctxBlocks?: string[]): void {
+    if (repositoryHandoff.present) return;
     voice.stopSpeaking();
     storeInterruptMessage(text, { images, contextBlocks: ctxBlocks, ...(accountSelection ?? {}) });
     forceScrollToBottom();
@@ -312,11 +342,19 @@ export function DesktopChatView() {
               )}
               <AccountModelPicker
                 key={chatDraftRevision}
+                requiredSelection={
+                  !activeSessionId && repositoryHandoff.preparation
+                    ? {
+                        accountId: repositoryHandoff.preparation.accountId,
+                        model: repositoryHandoff.preparation.model,
+                      }
+                    : undefined
+                }
                 sessionId={activeSessionId}
                 preferredModel={modelState}
                 onChange={selectAccount}
                 onSummaryChange={setWorkspaceSummary}
-                disabled={messages.running}
+                disabled={messages.running || repositoryHandoff.loading}
               />
               {ordinaryControls && (
                 <>
@@ -415,7 +453,8 @@ export function DesktopChatView() {
             }}
             ordinaryComposer={
               <>
-                {launch && (
+                <RepositoryChatDraftNotice handoff={repositoryHandoff} />
+                {launch && !repositoryHandoff.present && (
                   <div role="status" className="chat-account-bar">
                     <p>
                       Which account and model should handle this task? Check Workspace above, then
@@ -443,32 +482,45 @@ export function DesktopChatView() {
                     key={repositoryScope}
                     accountId={accountSelection.accountId}
                     model={accountSelection.model}
-                    onChange={(selection) =>
-                      setRepositoryChoice({ scope: repositoryScope, selection })
-                    }
+                    initialPreparationId={repositoryHandoff.preparation?.id}
+                    onChange={(selection) => {
+                      setRepositoryChoice({ scope: repositoryScope, selection });
+                      if (repositoryHandoff.present && !selection)
+                        navigate('/chat', { replace: true });
+                    }}
                   />
                 )}
                 <CodexQueueStatus sessionId={activeSessionId} />
                 <ChatInput
+                  key={
+                    repositoryHandoff.present
+                      ? `${repositoryHandoff.scope}:${repositoryHandoff.preparation ? 'loaded' : 'loading'}`
+                      : undefined
+                  }
                   sendDisabledReason={
-                    !activeSessionId && repositorySelection?.blocked
+                    repositoryHandoffReason ??
+                    (!activeSessionId && repositorySelection?.blocked
                       ? 'Prepare or remove the repository before sending.'
                       : !activeSessionId && !accountSelection
                         ? 'Select an account before sending.'
-                        : undefined
+                        : undefined)
                   }
                   onSend={handleSend}
                   onStop={handleStop}
                   onInterrupt={handleInterrupt}
-                  running={messages.running}
-                  initialText={searchParams.get('prompt') || undefined}
+                  running={repositoryHandoff.present ? false : messages.running}
+                  initialText={
+                    repositoryHandoff.present
+                      ? repositoryHandoff.preparation?.prompt
+                      : searchParams.get('prompt') || undefined
+                  }
                   voice={voice}
                   branch={messages.branch || undefined}
                   isolation={isolation}
                   onIsolationChange={!activeSessionId ? setIsolation : undefined}
                   isWorktree={messages.isWorktree}
                   wtId={messages.wtId || undefined}
-                  sessionId={activeSessionId ?? undefined}
+                  sessionId={repositoryHandoff.present ? undefined : (activeSessionId ?? undefined)}
                   tokenState={tokens}
                   messages={sessionId && sessionId !== activeSessionId ? [] : messages.messages}
                   current={sessionId && sessionId !== activeSessionId ? null : messages.current}
