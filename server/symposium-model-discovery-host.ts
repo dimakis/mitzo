@@ -527,18 +527,10 @@ export function createDiscoveryHostOperations(
             environment,
             5000,
           ),
-        imageDigest: (id) =>
+        imageId: (id) =>
           jsonCommand(
             options.podman,
-            [
-              '--url',
-              config.podmanUrl,
-              'container',
-              'inspect',
-              '--format',
-              '{{json .ImageDigest}}',
-              id,
-            ],
+            ['--url', config.podmanUrl, 'container', 'inspect', '--format', '{{json .Image}}', id],
             environment,
             5000,
           ),

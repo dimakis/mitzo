@@ -694,7 +694,7 @@ it.each(['L', 'RL'] as const)(
       const argv = args[1] as string[];
       const callback = args[3] as (error: null, stdout: string, stderr: string) => void;
       if (argv.includes('ps')) callback(null, JSON.stringify([row]), '');
-      else if (argv.includes('{{json .ImageDigest}}')) callback(null, JSON.stringify(image), '');
+      else if (argv.includes('{{json .Image}}')) callback(null, JSON.stringify(image), '');
       else if (argv.includes('inspect')) callback(null, marker + '\n', '');
       else if (argv.includes('logs'))
         callback(

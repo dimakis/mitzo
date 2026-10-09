@@ -30,7 +30,7 @@ function fixture() {
     supervisorImage: image,
     assertCurrent: vi.fn(async () => {}),
     inventory: vi.fn(async () => [row]),
-    imageDigest: vi.fn(async () => image),
+    imageId: vi.fn(async () => image),
     loggingFilter: vi.fn(async () => 'L'),
     readConsole: vi.fn(
       async () =>
@@ -45,14 +45,14 @@ it('reads only exact claimed supervisor ID and rechecks custody/container/image 
   expect(result.observations[0].statusCode).toBe(403);
   expect(f.input.readConsole).toHaveBeenCalledExactlyOnceWith(f.row.Id);
   expect(f.input.inventory).toHaveBeenCalledTimes(2);
-  expect(f.input.imageDigest).toHaveBeenCalledTimes(2);
+  expect(f.input.imageId).toHaveBeenCalledTimes(2);
   expect(f.input.assertCurrent).toHaveBeenCalledTimes(14);
 });
 it.each(['claim', 'namespace', 'workspace', 'role', 'id', 'name', 'image', 'ambiguous'] as const)(
   'refuses %s drift before reading console',
   async (kind) => {
     const f = fixture();
-    if (kind === 'image') f.input.imageDigest = vi.fn(async () => `sha256:${'f'.repeat(64)}`);
+    if (kind === 'image') f.input.imageId = vi.fn(async () => `sha256:${'f'.repeat(64)}`);
     else if (kind === 'ambiguous')
       f.input.inventory = vi.fn(async () => [f.row, { ...f.row, Id: 'f'.repeat(64) }]);
     else {
@@ -95,3 +95,10 @@ it.each(['', 'R', 'RL', 'LL'])(
     expect(f.input.readConsole).not.toHaveBeenCalled();
   },
 );
+it('binds selected OCI config identity when container manifest digest differs', async () => {
+  const f = fixture();
+  f.input.imageId.mockResolvedValue('d'.repeat(64));
+  expect((await captureRoutingConsole(f.input)).availability).toBe('captured');
+  f.input.imageId.mockResolvedValue(`sha256:${'f'.repeat(64)}`);
+  await expect(captureRoutingConsole(f.input)).rejects.toThrow('image changed');
+});

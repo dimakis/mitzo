@@ -43,7 +43,7 @@ export interface RoutingCaptureInput {
   supervisorImage: string;
   assertCurrent(): Promise<void>;
   inventory(): Promise<unknown>;
-  imageDigest(containerId: string): Promise<unknown>;
+  imageId(containerId: string): Promise<unknown>;
   loggingFilter(containerId: string): Promise<unknown>;
   readConsole(containerId: string): Promise<string>;
 }
@@ -102,8 +102,12 @@ export async function captureRoutingConsole(
       Object.entries(expected).some(([key, value]) => labels[key] !== value)
     )
       throw Error('Routing observation identity changed');
-    const digest = await checked(() => input.imageDigest(row.Id));
-    if (digest !== input.supervisorImage || !/^sha256:[a-f0-9]{64}$/.test(input.supervisorImage))
+    const observed = await checked(() => input.imageId(row.Id));
+    const imageId =
+      typeof observed === 'string' && /^[a-f0-9]{64}$/.test(observed)
+        ? `sha256:${observed}`
+        : observed;
+    if (imageId !== input.supervisorImage || !/^sha256:[a-f0-9]{64}$/.test(input.supervisorImage))
       throw Error('Routing observation image changed');
     if ((await checked(() => input.loggingFilter(row.Id))) !== 'L')
       throw Error('Routing observation logging filter changed');
