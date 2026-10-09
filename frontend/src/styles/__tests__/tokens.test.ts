@@ -18,6 +18,34 @@ const fontShorthand = new RegExp(
 
 const ownedTokens = new Set([...css.matchAll(/(--[\w-]+):/g)].map((match) => match[1]));
 
+// Legacy collection/chat scopes remap these roles to the common workspace theme.
+// Shared scales, font roles and canonical colors are never redefined by a page.
+const contextualAliases = new Set([
+  '--bg',
+  '--surface',
+  '--text',
+  '--text-dim',
+  '--border',
+  '--accent',
+  '--bg-primary',
+  '--bg-secondary',
+  '--text-primary',
+  '--text-secondary',
+]);
+
+function allowedContextAlias(property: string, value: string | null): boolean {
+  if (!contextualAliases.has(property) || value === null) return false;
+  const clean = value.trim();
+  if (/^var\(\s*--[\w-]+\s*\)$/.test(clean)) return true;
+  if (!clean.startsWith('color-mix(')) return false;
+  let depth = 0;
+  for (let i = clean.indexOf('('); i < clean.length; i++) {
+    if (clean[i] === '(') depth++;
+    if (clean[i] === ')' && --depth === 0) return i === clean.length - 1;
+  }
+  return false;
+}
+
 type InlineStyle = { property: string; value: string | null; styleContext: boolean };
 
 function literalStyleValue(node: ts.Node): string | null {
@@ -130,7 +158,7 @@ function styleViolations(source: string, filename = 'component.css'): string[] {
   const styleTexts = sources.css;
   for (const styleText of styleTexts) {
     for (const definition of styleText.matchAll(/(?:^|[;{])\s*(--[\w-]+):\s*([^;}]+)(?=[;}]|$)/g)) {
-      if (ownedTokens.has(definition[1]) && !/^(var|color-mix)\(/.test(definition[2].trim()))
+      if (ownedTokens.has(definition[1]) && !allowedContextAlias(definition[1], definition[2]))
         violations.push(`token override: ${definition[1]}`);
     }
   }
@@ -144,7 +172,7 @@ function styleViolations(source: string, filename = 'component.css'): string[] {
     }
   }
   for (const { property, value, styleContext } of sources.inline) {
-    if (ownedTokens.has(property) && (value === null || !/^(var|color-mix)\(/.test(value.trim())))
+    if (ownedTokens.has(property) && !allowedContextAlias(property, value))
       violations.push(`inline token override: ${property}`);
     if (value !== null && (property === 'fontFamily' || property === 'font')) {
       // A preference DTO's `font: 'system'` is data, not a CSS shorthand.
@@ -280,6 +308,22 @@ describe('design tokens', () => {
           'page.tsx',
         ),
       ).toEqual([]);
+    });
+
+    it.each(['.page { --space-4: var(--space-1); }', '.page { --font-ui: var(--font-mono); }'])(
+      'keeps shared scales and font roles owned centrally: %s',
+      (source) => {
+        expect(styleViolations(source).length).toBeGreaterThan(0);
+      },
+    );
+
+    it('rejects inline aliases that override shared spacing', () => {
+      expect(
+        styleViolations(
+          "const element = <div style={{ '--space-4': 'var(--space-1)' }} />;",
+          'page.tsx',
+        ),
+      ).toContain('inline token override: --space-4');
     });
 
     it('allows token-based shorthand size and family', () => {
