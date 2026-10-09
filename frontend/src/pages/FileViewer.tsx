@@ -52,6 +52,45 @@ function FileViewerDocument() {
     state.gitInfo?.branch ||
     '';
 
+  const editorFeedback = (
+    <>
+      {
+        <div className="document-editor-status" role="status">
+          {editor.error ||
+            (editor.saving
+              ? 'Saving…'
+              : editor.dirty
+                ? editor.draftStorageError
+                  ? 'Unsaved changes'
+                  : 'Unsaved changes · draft kept in this tab'
+                : 'All changes saved')}
+          {editor.draftStorageError && <span role="alert">{editor.draftStorageError}</span>}
+          {editor.error && (
+            <button
+              type="button"
+              onClick={editor.reviewLatest}
+              disabled={editor.saving || editor.reviewing}
+            >
+              {editor.reviewing ? 'Loading…' : 'Review latest version'}
+            </button>
+          )}
+        </div>
+      }
+      {editor.latestContent !== null && editor.latestContent !== undefined && (
+        <section className="document-conflict" aria-label="Latest saved version">
+          <strong>Latest saved version</strong>
+          <pre>{editor.latestContent}</pre>
+          <button type="button" onClick={() => editor.resolveConflict(true, nav.setContent)}>
+            Use latest version
+          </button>
+          <button type="button" onClick={() => editor.resolveConflict(false, nav.setContent)}>
+            Keep my draft for next save
+          </button>
+        </section>
+      )}
+    </>
+  );
+
   return (
     <div className="viewer-page" ref={viewportRef}>
       <header className="viewer-header">
@@ -187,40 +226,7 @@ function FileViewerDocument() {
 
       {state.worktreesError && <p role="alert">{state.worktreesError}</p>}
 
-      {editor.editing && (
-        <div className="document-editor-status" role="status">
-          {editor.error ||
-            (editor.saving
-              ? 'Saving…'
-              : editor.dirty
-                ? editor.draftStorageError
-                  ? 'Unsaved changes'
-                  : 'Unsaved changes · draft kept in this tab'
-                : 'All changes saved')}
-          {editor.draftStorageError && <span role="alert">{editor.draftStorageError}</span>}
-          {editor.error && (
-            <button
-              type="button"
-              onClick={editor.reviewLatest}
-              disabled={editor.saving || editor.reviewing}
-            >
-              {editor.reviewing ? 'Loading…' : 'Review latest version'}
-            </button>
-          )}
-        </div>
-      )}
-      {editor.editing && editor.latestContent !== null && editor.latestContent !== undefined && (
-        <section className="document-conflict" aria-label="Latest saved version">
-          <strong>Latest saved version</strong>
-          <pre>{editor.latestContent}</pre>
-          <button type="button" onClick={() => editor.resolveConflict(true, nav.setContent)}>
-            Use latest version
-          </button>
-          <button type="button" onClick={() => editor.resolveConflict(false, nav.setContent)}>
-            Keep my draft for next save
-          </button>
-        </section>
-      )}
+      {editor.editing && editorFeedback}
       <div className={`viewer-content${editor.editing ? ' viewer-content--editing' : ''}`}>
         {state.loading && <p className="viewer-status">Loading...</p>}
         {state.error && <p className="viewer-status viewer-status--error">{state.error}</p>}
@@ -234,6 +240,8 @@ function FileViewerDocument() {
               routerNavigate,
             )}
             urlTransform={artifactUrlTransform}
+            fullscreenStatus={editorFeedback}
+            historyResetKey={editor.historyResetKey}
             content={editor.editContent}
             ext={state.ext}
             onChange={editor.handleEditChange}

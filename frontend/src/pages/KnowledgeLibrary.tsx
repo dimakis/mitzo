@@ -22,6 +22,197 @@ export function KnowledgeLibrary() {
   const editable = !draft || draft.state === 'draft' || draft.state === 'in-review';
   const currentReview = !!draft?.review && draft.review.version === draft.version;
   const showEditor = !!selected && reading;
+  const editorComparisons = showEditor ? (
+    <>
+      {copy!.initialSaveConflict && (
+        <section className="knowledge-comparison" aria-label="Compare saved draft and working copy">
+          <h3>This saved draft changed on another device</h3>
+          <p>
+            Your working copy is preserved. Compare every document before choosing which version to
+            keep. Updating the saved draft replaces its contents with your working copy.
+          </p>
+          {copy!.savedComparisonUnavailable && (
+            <p>The latest saved version is unavailable. Refresh the comparison to continue.</p>
+          )}
+          {[
+            ...new Set([
+              ...copy!.initialSaveConflict.documents.map((d) => d.path),
+              ...copy!.documents.map((d) => d.path),
+            ]),
+          ].map((path) => (
+            <div key={path}>
+              <h4>{path}</h4>
+              <div className="knowledge-compare-panes">
+                <div>
+                  <h4>Saved draft</h4>
+                  <pre>
+                    {copy!.savedComparisonUnavailable
+                      ? 'Awaiting latest saved version.'
+                      : (copy!.initialSaveConflict!.documents.find((d) => d.path === path)
+                          ?.content ?? 'Not in the saved draft.')}
+                  </pre>
+                </div>
+                <div>
+                  <h4>Your working copy</h4>
+                  <pre>
+                    {copy!.documents.find((d) => d.path === path)?.content ??
+                      'Not in your working copy.'}
+                  </pre>
+                </div>
+              </div>
+            </div>
+          ))}
+          <div className="knowledge-editor-actions">
+            <button disabled={busy} onClick={() => void library.refreshSavedComparison()}>
+              Refresh saved comparison
+            </button>
+            <button
+              disabled={busy || copy!.savedComparisonUnavailable}
+              onClick={() => void library.resolveInitialSaveConflict(true)}
+            >
+              Use saved draft
+            </button>
+            {(copy!.initialSaveConflict.state === 'accepted' ||
+              copy!.initialSaveConflict.state === 'closed') && (
+              <button
+                disabled={busy || copy!.savedComparisonUnavailable}
+                onClick={() => void library.startNewChangeWithEdits()}
+              >
+                Start new change with my edits
+              </button>
+            )}
+            <button
+              disabled={
+                busy ||
+                copy!.savedComparisonUnavailable ||
+                copy!.initialSaveConflict.state === 'accepted' ||
+                copy!.initialSaveConflict.state === 'closed'
+              }
+              onClick={() => void library.resolveInitialSaveConflict(false)}
+            >
+              Keep my edits and update saved draft
+            </button>
+          </div>
+        </section>
+      )}
+      {(library.error || library.comparison || copy!.forkNeedsComparison) &&
+        editable &&
+        !copy!.initialSaveConflict && (
+          <button
+            className="workspace-text-link"
+            disabled={busy}
+            onClick={() => void library.compare()}
+          >
+            Compare accepted version
+          </button>
+        )}
+      {library.comparison && !copy!.initialSaveConflict && (
+        <section className="knowledge-comparison" aria-label="Compare accepted and draft">
+          <h3>Review the latest accepted knowledge</h3>
+          <p>
+            Your draft is preserved. Choose how to reconcile every document, then Save updates its
+            review.
+          </p>
+          {library.comparison.documents.map((latest) => (
+            <div key={latest.path}>
+              <h4>{latest.path}</h4>
+              <div className="knowledge-compare-panes">
+                <div>
+                  <h4>Accepted</h4>
+                  <pre>{latest.content ?? 'No longer in accepted knowledge'}</pre>
+                </div>
+                <div>
+                  <h4>Your draft</h4>
+                  <pre>{copy!.documents.find((d) => d.path === latest.path)?.content}</pre>
+                </div>
+              </div>
+            </div>
+          ))}
+          {library.comparison.documents.some((d) => d.content === null) && (
+            <p>
+              Documents outside accepted knowledge must be explicitly excluded. Your edits remain
+              here until you choose.
+            </p>
+          )}
+          {library.comparison.documents.every((d) => d.content === null) && (
+            <p>
+              Every document in this draft is outside the accepted Library. Exclude these documents
+              to choose a current document; Save becomes available after you add one.
+            </p>
+          )}
+          <div className="knowledge-editor-actions">
+            {library.comparison.documents.some((d) => d.content === null) && (
+              <button
+                disabled={busy}
+                onClick={() =>
+                  void library.excludeRemovedDocuments().then((empty) => {
+                    if (empty) {
+                      setAdding(true);
+                      setReading(false);
+                    }
+                  })
+                }
+              >
+                {library.comparison.documents.every((d) => d.content === null)
+                  ? 'Exclude removed documents and choose a document'
+                  : 'Exclude removed documents and save'}
+              </button>
+            )}
+            <button
+              disabled={busy || library.comparison.documents.some((d) => d.content === null)}
+              onClick={() =>
+                void library.save(
+                  library.comparison!.revision,
+                  copy!.documents,
+                  library.comparison!.newChange,
+                )
+              }
+            >
+              {library.comparison.newChange
+                ? 'Keep my edits in a new change'
+                : 'Keep my draft and save'}
+            </button>
+            <button
+              disabled={busy || library.comparison.documents.some((d) => d.content === null)}
+              onClick={() =>
+                void library.save(
+                  library.comparison!.revision,
+                  copy!.documents.map((d) => ({
+                    ...d,
+                    content:
+                      library.comparison!.documents.find((latest) => latest.path === d.path)
+                        ?.content ?? d.content,
+                  })),
+                  library.comparison!.newChange,
+                )
+              }
+            >
+              Use accepted versions and save
+            </button>
+          </div>
+        </section>
+      )}
+    </>
+  ) : null;
+  const fullscreenStatus = (
+    <>
+      <div className="document-editor-status" role="status">
+        {busy ? 'Saving…' : dirty ? 'Unsaved changes' : library.notice || 'Accepted version'}
+      </div>
+      {library.error && (
+        <div className="knowledge-alert" role="alert">
+          {library.error}
+        </div>
+      )}
+      {library.storageError && (
+        <div className="knowledge-alert" role="alert">
+          {library.storageError}
+        </div>
+      )}
+      {editorComparisons}
+    </>
+  );
+
   return (
     <main
       className={`workspace-page knowledge-library${showEditor ? ' knowledge-library--editing' : ''}`}
@@ -103,7 +294,9 @@ export function KnowledgeLibrary() {
             <div className="knowledge-editor-body">
               <DocumentEditor
                 key={selected.path}
+                fullscreenStatus={fullscreenStatus}
                 content={selected.content}
+                historyResetKey={library.historyResetKey}
                 ext={selected.path.match(/\.[^.]+$/)?.[0] || '.md'}
                 onChange={library.change}
                 saving={busy || !editable}
@@ -115,185 +308,7 @@ export function KnowledgeLibrary() {
                 canUndo={library.canUndo}
                 canRedo={library.canRedo}
               />
-              {copy!.initialSaveConflict && (
-                <section
-                  className="knowledge-comparison"
-                  aria-label="Compare saved draft and working copy"
-                >
-                  <h3>This saved draft changed on another device</h3>
-                  <p>
-                    Your working copy is preserved. Compare every document before choosing which
-                    version to keep. Updating the saved draft replaces its contents with your
-                    working copy.
-                  </p>
-                  {copy!.savedComparisonUnavailable && (
-                    <p>
-                      The latest saved version is unavailable. Refresh the comparison to continue.
-                    </p>
-                  )}
-                  {[
-                    ...new Set([
-                      ...copy!.initialSaveConflict.documents.map((d) => d.path),
-                      ...copy!.documents.map((d) => d.path),
-                    ]),
-                  ].map((path) => (
-                    <div key={path}>
-                      <h4>{path}</h4>
-                      <div className="knowledge-compare-panes">
-                        <div>
-                          <h4>Saved draft</h4>
-                          <pre>
-                            {copy!.savedComparisonUnavailable
-                              ? 'Awaiting latest saved version.'
-                              : (copy!.initialSaveConflict!.documents.find((d) => d.path === path)
-                                  ?.content ?? 'Not in the saved draft.')}
-                          </pre>
-                        </div>
-                        <div>
-                          <h4>Your working copy</h4>
-                          <pre>
-                            {copy!.documents.find((d) => d.path === path)?.content ??
-                              'Not in your working copy.'}
-                          </pre>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                  <div className="knowledge-editor-actions">
-                    <button disabled={busy} onClick={() => void library.refreshSavedComparison()}>
-                      Refresh saved comparison
-                    </button>
-                    <button
-                      disabled={busy || copy!.savedComparisonUnavailable}
-                      onClick={() => void library.resolveInitialSaveConflict(true)}
-                    >
-                      Use saved draft
-                    </button>
-                    {(copy!.initialSaveConflict.state === 'accepted' ||
-                      copy!.initialSaveConflict.state === 'closed') && (
-                      <button
-                        disabled={busy || copy!.savedComparisonUnavailable}
-                        onClick={() => void library.startNewChangeWithEdits()}
-                      >
-                        Start new change with my edits
-                      </button>
-                    )}
-                    <button
-                      disabled={
-                        busy ||
-                        copy!.savedComparisonUnavailable ||
-                        copy!.initialSaveConflict.state === 'accepted' ||
-                        copy!.initialSaveConflict.state === 'closed'
-                      }
-                      onClick={() => void library.resolveInitialSaveConflict(false)}
-                    >
-                      Keep my edits and update saved draft
-                    </button>
-                  </div>
-                </section>
-              )}
-              {(library.error || library.comparison || copy!.forkNeedsComparison) &&
-                editable &&
-                !copy!.initialSaveConflict && (
-                  <button
-                    className="workspace-text-link"
-                    disabled={busy}
-                    onClick={() => void library.compare()}
-                  >
-                    Compare accepted version
-                  </button>
-                )}
-              {library.comparison && !copy!.initialSaveConflict && (
-                <section className="knowledge-comparison" aria-label="Compare accepted and draft">
-                  <h3>Review the latest accepted knowledge</h3>
-                  <p>
-                    Your draft is preserved. Choose how to reconcile every document, then Save
-                    updates its review.
-                  </p>
-                  {library.comparison.documents.map((latest) => (
-                    <div key={latest.path}>
-                      <h4>{latest.path}</h4>
-                      <div className="knowledge-compare-panes">
-                        <div>
-                          <h4>Accepted</h4>
-                          <pre>{latest.content ?? 'No longer in accepted knowledge'}</pre>
-                        </div>
-                        <div>
-                          <h4>Your draft</h4>
-                          <pre>{copy!.documents.find((d) => d.path === latest.path)?.content}</pre>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                  {library.comparison.documents.some((d) => d.content === null) && (
-                    <p>
-                      Documents outside accepted knowledge must be explicitly excluded. Your edits
-                      remain here until you choose.
-                    </p>
-                  )}
-                  {library.comparison.documents.every((d) => d.content === null) && (
-                    <p>
-                      Every document in this draft is outside the accepted Library. Exclude these
-                      documents to choose a current document; Save becomes available after you add
-                      one.
-                    </p>
-                  )}
-                  <div className="knowledge-editor-actions">
-                    {library.comparison.documents.some((d) => d.content === null) && (
-                      <button
-                        disabled={busy}
-                        onClick={() =>
-                          void library.excludeRemovedDocuments().then((empty) => {
-                            if (empty) {
-                              setAdding(true);
-                              setReading(false);
-                            }
-                          })
-                        }
-                      >
-                        {library.comparison.documents.every((d) => d.content === null)
-                          ? 'Exclude removed documents and choose a document'
-                          : 'Exclude removed documents and save'}
-                      </button>
-                    )}
-                    <button
-                      disabled={
-                        busy || library.comparison.documents.some((d) => d.content === null)
-                      }
-                      onClick={() =>
-                        void library.save(
-                          library.comparison!.revision,
-                          copy!.documents,
-                          library.comparison!.newChange,
-                        )
-                      }
-                    >
-                      {library.comparison.newChange
-                        ? 'Keep my edits in a new change'
-                        : 'Keep my draft and save'}
-                    </button>
-                    <button
-                      disabled={
-                        busy || library.comparison.documents.some((d) => d.content === null)
-                      }
-                      onClick={() =>
-                        void library.save(
-                          library.comparison!.revision,
-                          copy!.documents.map((d) => ({
-                            ...d,
-                            content:
-                              library.comparison!.documents.find((latest) => latest.path === d.path)
-                                ?.content ?? d.content,
-                          })),
-                          library.comparison!.newChange,
-                        )
-                      }
-                    >
-                      Use accepted versions and save
-                    </button>
-                  </div>
-                </section>
-              )}
+              {editorComparisons}
             </div>
             {details && (
               <aside className="knowledge-review" aria-label="Review details">
