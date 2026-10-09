@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { describe, it, expect, afterEach } from 'vitest';
-import { render, screen, fireEvent, cleanup } from '@testing-library/react';
+import { describe, it, expect, afterEach, vi } from 'vitest';
+import { act, render, screen, fireEvent, cleanup } from '@testing-library/react';
 import { TokenBar } from '../TokenBar';
 import type { TokensState as TokenState } from '@mitzo/client';
 
@@ -12,6 +12,15 @@ function makeState(overrides: Partial<TokenState> = {}): TokenState {
     numTurns: 0,
     turnIndex: 0,
     numCompactions: 0,
+    tokenLimits:
+      (overrides.contextCeiling ?? 200000) > 0
+        ? {
+            model: 'reported-model',
+            source: 'runtime',
+            contextWindow: overrides.contextCeiling ?? 200000,
+            stale: false,
+          }
+        : null,
     ...overrides,
   };
 }
@@ -23,10 +32,15 @@ describe('TokenBar', () => {
     expect(container.querySelector('.token-bar')).toBeNull();
   });
 
-  it('describes context occupancy without a visible text badge', () => {
+  it('keeps the control icon-only and reveals figures only when pressed', () => {
     render(<TokenBar tokenState={makeState({ agentContext: 87204, turnIndex: 1 })} />);
-    // Should show formatted token count
-    expect(screen.getByText(/87k/).className).toBe('sr-only');
+    expect(document.querySelector('.token-bar-label')).toBeNull();
+    expect(screen.queryByText('87,204 / 200,000')).toBeNull();
+    const button = screen.getByRole('button', { name: 'Token usage' });
+    expect(button.title).toBe('Token usage — press for details');
+    fireEvent.click(button);
+    expect(screen.getByText('87,204 / 200,000')).toBeTruthy();
+    expect(screen.getByText(/Context 87k\/200k/).className).toBe('sr-only');
     expect(document.querySelector('.token-wheel')).toBeTruthy();
   });
 
@@ -128,6 +142,18 @@ describe('TokenBar', () => {
 describe('context wheel', () => {
   afterEach(cleanup);
 
+  it('retains legacy replayed counts without trusting a ceiling that has no capacity evidence', () => {
+    const { container } = render(
+      <TokenBar
+        tokenState={makeState({ agentContext: 12000, turnIndex: 1, tokenLimits: undefined })}
+      />,
+    );
+    expect(container.querySelector('.token-wheel-fill')).toBeNull();
+    expect(container.querySelector('.token-bar--unknown')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Token usage' }));
+    expect(screen.getByText('12,000 / limit not reported')).toBeTruthy();
+  });
+
   it.each([
     [50000, 75],
     [100000, 50],
@@ -151,7 +177,11 @@ describe('context wheel', () => {
       expect(container.querySelector('.token-bar--unknown')).toBeTruthy();
       expect(container.querySelector('.token-wheel-fill')).toBeNull();
       fireEvent.click(screen.getByRole('button', { name: 'Token usage' }));
-      expect(screen.getByText('Not reported')).toBeTruthy();
+      expect(
+        screen.getByText(
+          overrides.agentContext > 0 ? '12,000 / limit not reported' : 'Not reported',
+        ),
+      ).toBeTruthy();
       expect(screen.queryByText('0 / 200,000')).toBeNull();
     },
   );
@@ -172,4 +202,99 @@ describe('context wheel', () => {
     expect(button.getAttribute('aria-expanded')).toBe('false');
     expect(screen.queryByText('Agent context')).toBeNull();
   });
+});
+
+describe('measured native usage', () => {
+  afterEach(cleanup);
+  it('shows measured values without depending on a synthetic renderer turn', () => {
+    render(
+      <TokenBar
+        tokenState={makeState({
+          agentContext: 12300,
+          contextCeiling: 128000,
+          sessionTotal: 24600,
+          sessionTotalStatus: 'observed',
+        })}
+      />,
+    );
+    expect(screen.getByRole('button', { name: 'Token usage' })).toBeTruthy();
+    expect(document.querySelector('.token-bar-label')).toBeNull();
+    expect(screen.queryByText('12,300 / 128,000')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Token usage' }));
+    expect(screen.getByText('Session tokens (reported so far)')).toBeTruthy();
+    expect(screen.getByText('24,600')).toBeTruthy();
+  });
+  it('retains a measured context count when the ceiling is unavailable', () => {
+    render(
+      <TokenBar tokenState={makeState({ agentContext: 12300, contextCeiling: 0, turnIndex: 1 })} />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Token usage' }));
+    expect(screen.getByText('12,300 / limit not reported')).toBeTruthy();
+  });
+  it('does not display unknown session usage as a measured zero', () => {
+    render(<TokenBar tokenState={makeState({ turnIndex: 1, sessionTotalStatus: 'unknown' })} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Token usage' }));
+    expect(screen.getAllByText('Not reported')).toHaveLength(2);
+  });
+});
+
+it('keeps limit provenance in pressed details and does not use stale capacities for occupancy', () => {
+  const { container } = render(
+    <TokenBar
+      tokenState={makeState({
+        agentContext: 12000,
+        turnIndex: 1,
+        contextCeiling: 1000000,
+        tokenLimits: {
+          model: 'new-model',
+          source: 'catalog',
+          sourceName: 'Models.dev',
+          contextWindow: 1000000,
+          outputTokenLimit: 64000,
+          checkedAt: 100,
+          stale: true,
+        },
+      })}
+    />,
+  );
+  expect(container.querySelector('.token-wheel-fill')).toBeNull();
+  expect(screen.queryByText('Models.dev (stale)')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Token usage' }));
+  expect(screen.getByText('Models.dev (stale)')).toBeTruthy();
+  expect(screen.getByText('64,000')).toBeTruthy();
+  expect(screen.getByText('new-model')).toBeTruthy();
+  cleanup();
+});
+
+it('expires a catalog limit while the chat remains open', () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(1000);
+  try {
+    const { container } = render(
+      <TokenBar
+        tokenState={makeState({
+          agentContext: 1000,
+          turnIndex: 1,
+          contextCeiling: 64000,
+          tokenLimits: {
+            model: 'm',
+            source: 'catalog',
+            sourceName: 'Models.dev',
+            contextWindow: 64000,
+            checkedAt: 1000,
+            expiresAt: 2000,
+            stale: false,
+          },
+        })}
+      />,
+    );
+    expect(container.querySelector('.token-wheel-fill')).toBeTruthy();
+    act(() => vi.advanceTimersByTime(1001));
+    expect(container.querySelector('.token-wheel-fill')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Token usage' }));
+    expect(screen.getByText('Models.dev (stale)')).toBeTruthy();
+  } finally {
+    cleanup();
+    vi.useRealTimers();
+  }
 });

@@ -15,7 +15,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import ts from 'typescript';
@@ -58,6 +58,7 @@ function fixture(mode = 'ok') {
     'scripts/lib/symposium-staging-transition.mjs',
     'scripts/lib/symposium-staging-router.mjs',
     'scripts/lib/staging-files.mjs',
+    'scripts/lib/staging-registration.mjs',
   ])
     cpSync(n, join(release, n));
   let cli = join(release, 'scripts/symposium-staging-transition.mjs');
@@ -105,6 +106,16 @@ function fixture(mode = 'ok') {
   json(join(owned, 'staging-operator.json'), {});
   writeFileSync(join(owned, 'staging-custodian.plist'), 'prepared', { mode: 0o600 });
   writeFileSync(join(service, 'com.mitzo.staging.plist'), 'old', { mode: 0o600 });
+  const legacy = join(home, 'Library/LaunchAgents/com.mitzo.staging.plist');
+  if (mode.startsWith('legacy')) {
+    mkdirSync(join(home, 'Library/LaunchAgents'), { recursive: true });
+    writeFileSync(legacy, 'old', { mode: 0o600 });
+    json(join(service, 'legacy-qualification.json'), {
+      version: 1,
+      legacyRegistration: { path: legacy, sha256: hash('old') },
+      original: { pid: 42, birth: 'old birth' },
+    });
+  }
   writeFileSync(join(service, 'start.mjs'), 'old start', { mode: 0o600 });
   writeFileSync(join(root, 'bin/staging.mjs'), 'old controller', { mode: 0o600 });
   writeFileSync(join(root, 'bin/mitzo-staging'), 'old wrapper', { mode: 0o700 });
@@ -137,12 +148,20 @@ function fixture(mode = 'ok') {
     compiledArtifacts: artifacts,
     dependencyFingerprint: fp,
   });
+  const ordinaryExecutable =
+    mode.includes('node-alias') || mode.includes('wrong-node')
+      ? join(home, 'operator-node')
+      : mode.includes('relative-node')
+        ? relative(process.cwd(), process.execPath)
+        : process.execPath;
+  if (mode.includes('node-alias')) symlinkSync(process.execPath, ordinaryExecutable);
+  else if (mode.includes('wrong-node')) writeFileSync(ordinaryExecutable, 'different executable');
   const calls = join(home, 'calls.json');
   json(calls, []);
   const prelude = join(release, 'fixture.mjs');
   writeFileSync(
     prelude,
-    `import cp from 'node:child_process';import {syncBuiltinESMExports} from 'node:module';import {readFileSync,writeFileSync} from 'node:fs';import Database from 'better-sqlite3';
+    `import cp from 'node:child_process';import os from 'node:os';os.homedir=()=>${JSON.stringify(home)};import {syncBuiltinESMExports} from 'node:module';import {readFileSync,writeFileSync} from 'node:fs';import Database from 'better-sqlite3';
 const root=${JSON.stringify(root)},oldRelease=${JSON.stringify(oldRelease)},release=${JSON.stringify(release)},owned=${JSON.stringify(owned)},mode=${JSON.stringify(mode)},calls=${JSON.stringify(calls)};let stopped=false,booted=false,started=false,tick=Date.now();if(mode==='uncertain')Date.now=()=>{tick+=200000;return tick;};
 function record(program,args){const c=JSON.parse(readFileSync(calls));c.push([program,...args]);writeFileSync(calls,JSON.stringify(c));}
 cp.execFileSync=(program,args)=>{if(program==='/bin/ps')return args.includes('lstart=')?(args[1]==='42'?'old birth':args[1]==='111'?'parent birth':'app birth'):(args[1]==='112'?'111':'1');if(program==='/usr/sbin/lsof')return 'p'+args[3]+'\\nfcwd\\nn'+(args[2]==='42'?oldRelease:release);throw Error('Unmocked OS execution '+program);};
@@ -157,11 +176,11 @@ cp.spawnSync=(program,args,options)=>{
      .update('// Synthetic qualified target launcher; no native execution.\n')
      .digest('hex'),
  )}};if(args[0]==='rev-parse')return {status:0,stdout:args[1]==='HEAD'?(options?.cwd===oldRelease?${JSON.stringify(old)}:${JSON.stringify(controllerCommit)}):'e'.repeat(40)};if(args[0]==='ls-files'&&args[1]==='--error-unmatch'&&mode==='untracked-launcher'&&args.includes('scripts/start-staging-custodian.mjs'))return {status:1,stdout:''};if(args[0]==='ls-files'&&args[1]==='-v')return {status:0,stdout:(mode==='split-hidden-index'||mode==='ordinary-hidden-assume'&&options?.cwd===oldRelease?'h ':mode==='ordinary-hidden-skip'&&options?.cwd===oldRelease?'S ':'H ')+'scripts/symposium-staging-transition.mjs'};if(args[0]==='remote')return {status:0,stdout:'https://github.com/dimakis/mitzo.git'};return {status:0,stdout:''};}
- if(program==='/usr/bin/plutil'){const canonical=args.at(-1).includes('/symposium/');const plist=canonical?{Label:'com.mitzo.staging',ProgramArguments:[process.execPath,release+'/scripts/start-staging-custodian.mjs',owned+'/owned-release.json',root+'/symposium/settings/staging-registration.json',owned+'/staging-operator.json','--canonical'],EnvironmentVariables:{NODE_OPTIONS:'',NODE_PATH:'',DOTENV_CONFIG_PATH:'/dev/null'},WorkingDirectory:release,StandardOutPath:owned+'/owner.stdout.log',StandardErrorPath:owned+'/owner.stderr.log',KeepAlive:false,RunAtLoad:false,ExitTimeOut:180}:{Label:'com.mitzo.staging',KeepAlive:false,WorkingDirectory:oldRelease,ProgramArguments:[process.execPath,root+'/service/start.mjs']};if(mode==='unsafe-plist'&&canonical)plist.EnvironmentVariables.NODE_OPTIONS='--import /production/hook.mjs';return {status:0,stdout:JSON.stringify(plist)};}
+ if(program==='/usr/bin/plutil'){const canonical=args.at(-1).includes('/symposium/');const plist=canonical?{Label:'com.mitzo.staging',ProgramArguments:[process.execPath,release+'/scripts/start-staging-custodian.mjs',owned+'/owned-release.json',root+'/symposium/settings/staging-registration.json',owned+'/staging-operator.json','--canonical'],EnvironmentVariables:{NODE_OPTIONS:'',NODE_PATH:'',DOTENV_CONFIG_PATH:'/dev/null'},WorkingDirectory:release,StandardOutPath:owned+'/owner.stdout.log',StandardErrorPath:owned+'/owner.stderr.log',KeepAlive:false,RunAtLoad:false,ExitTimeOut:180}:{Label:'com.mitzo.staging',KeepAlive:false,WorkingDirectory:oldRelease,ProgramArguments:[${JSON.stringify(ordinaryExecutable)},root+'/service/start.mjs',...(mode.includes('extra-node-arg')?['--unexpected']:[])]};if(mode==='unsafe-plist'&&canonical)plist.EnvironmentVariables.NODE_OPTIONS='--import /production/hook.mjs';return {status:0,stdout:JSON.stringify(plist)};}
  if(program==='/usr/sbin/lsof'){const port=args.find(x=>x.startsWith('-iTCP:')).split(':')[1],pids=port==='3190'?(started?[112]:stopped?[]:[42]):port==='3100'?(mode==='production'?[42]:[900]):[];return {status:pids.length?0:1,stdout:pids.join('\\n')};}
  if(program==='/bin/ps')return {status:stopped&&mode!=='uncertain'?1:0,stdout:stopped?'':'42'};
  if(program==='/bin/launchctl'){
-  if(args[0]==='print')return {status:0,stdout:'path = '+root+'/service/com.mitzo.staging.plist'+(mode==='suffixed-registration'?'.unreviewed':'')+'\\n'+(started?'pid = 111':stopped?'state = not running':'pid = 42')};
+  if(args[0]==='print')return {status:0,stdout:'path = '+(mode.startsWith('legacy')&&!booted?${JSON.stringify(legacy)}:root+'/service/com.mitzo.staging.plist')+(mode==='suffixed-registration'?'.unreviewed':'')+'\\n'+(started?'pid = 111':stopped?'state = not running':'pid = 42')};
   record(program,args);if(args[0]==='kill')stopped=true;if(args[0]==='bootstrap')booted=true;if(args[0]==='kickstart'){if(!booted)throw Error('not bootstrapped');started=true;const db=new Database(root+'/registry/staging.db');db.exec('CREATE TABLE policy(id INTEGER,capacity INTEGER);INSERT INTO policy VALUES(1,1);CREATE TABLE launches(planDirectory TEXT,sourceCommit TEXT,configSha256 TEXT,buildSha256 TEXT,state TEXT,instanceId TEXT,controllerGeneration INTEGER,createdAt INTEGER)');db.prepare('INSERT INTO launches VALUES(?,?,?,?,?,?,?,?)').run(owned,${JSON.stringify(target)},'c'.repeat(64),'d'.repeat(64),'active','original',1,1);db.close();const {chmodSync}=awaitNo();chmodSync(root+'/registry/staging.db',0o600);writeFileSync(owned+'/original-owner.json',JSON.stringify({version:1,sourceCommit:${JSON.stringify(target)},configSha256:'c'.repeat(64),buildSha256:'d'.repeat(64),instanceId:'original',epoch:1,capturedAt:2,parent:{pid:111,birth:'parent birth',cwd:release},app:{pid:112,birth:'app birth',cwd:release,parentPid:111}}),{mode:0o600});}return {status:0,stdout:''};}
  throw Error('Unmocked OS execution '+program);
 };import {chmodSync} from 'node:fs';function awaitNo(){return {chmodSync};}globalThis.fetch=async()=>({ok:true});syncBuiltinESMExports();`,
@@ -233,6 +252,34 @@ it('actual CLI prepare and plan do not signal; tampered private input refuses ap
   expect(f.run('plan').status).toBe(0);
   writeFileSync(join(f.owned, 'staging-custodian.plist'), 'changed');
   expect(f.run('apply').status).not.toBe(0);
+  expect(JSON.parse(readFileSync(f.calls, 'utf8'))).toEqual([]);
+});
+it('a qualified legacy registration is archived and removed only during the same original-owner transition', () => {
+  const f = fixture('legacy');
+  const prepared = f.run('prepare');
+  expect(prepared.status, prepared.stderr).toBe(0);
+  const legacy = join(f.home, 'Library/LaunchAgents/com.mitzo.staging.plist');
+  expect(readFileSync(legacy, 'utf8')).toBe('old');
+  const applied = f.run('apply');
+  expect(applied.status, applied.stderr).toBe(0);
+  const output = JSON.parse(applied.stdout);
+  expect(readFileSync(join(output.backup, 'legacy-registration.plist'), 'utf8')).toBe('old');
+  expect(existsSync(legacy)).toBe(false);
+  expect(JSON.parse(readFileSync(f.calls, 'utf8')).map((x: string[]) => x[1])).toEqual([
+    'kill',
+    'bootout',
+    'bootstrap',
+    'kickstart',
+  ]);
+});
+it('a legacy registration changed after the plan is retained and refuses before original service control', () => {
+  const f = fixture('legacy');
+  const prepared = f.run('prepare');
+  expect(prepared.status, prepared.stderr).toBe(0);
+  const legacy = join(f.home, 'Library/LaunchAgents/com.mitzo.staging.plist');
+  writeFileSync(legacy, 'changed');
+  expect(f.run('apply').status).not.toBe(0);
+  expect(readFileSync(legacy, 'utf8')).toBe('changed');
   expect(JSON.parse(readFileSync(f.calls, 'utf8'))).toEqual([]);
 });
 it('exact main mismatch refuses before original control', () => {
@@ -452,4 +499,41 @@ it('target launcher byte drift or alias after preparation refuses apply before S
     expect(result.status).not.toBe(0);
     expect(JSON.parse(readFileSync(f.calls, 'utf8'))).toEqual([]);
   }
+});
+
+it('the original Homebrew-style Node alias qualifies the same executable for a legacy transition', () => {
+  const f = fixture('legacy-node-alias');
+  const p = f.run('prepare');
+  expect(p.status, p.stderr).toBe(0);
+  expect(f.run('plan').status).toBe(0);
+  const applied = f.run('apply');
+  expect(applied.status, applied.stderr).toBe(0);
+  expect(JSON.parse(readFileSync(f.calls, 'utf8')).map((x: string[]) => x[1])).toEqual([
+    'kill',
+    'bootout',
+    'bootstrap',
+    'kickstart',
+  ]);
+});
+it.each(['legacy-wrong-node', 'legacy-extra-node-arg', 'legacy-relative-node'])(
+  'a different executable or extra launcher argument refuses %s before control',
+  (mode) => {
+    const f = fixture(mode);
+    expect(f.run('prepare').status).not.toBe(0);
+    expect(existsSync(join(f.owned, 'transition.json'))).toBe(false);
+    expect(JSON.parse(readFileSync(f.calls, 'utf8'))).toEqual([]);
+  },
+);
+it('a Node alias redirected after preparation refuses before original service control', () => {
+  const f = fixture('legacy-node-alias');
+  const p = f.run('prepare');
+  expect(p.status, p.stderr).toBe(0);
+  const alias = join(f.home, 'operator-node'),
+    other = join(f.home, 'different-node');
+  writeFileSync(other, 'different executable');
+  rmSync(alias);
+  symlinkSync(other, alias);
+  expect(f.run('apply').status).not.toBe(0);
+  expect(JSON.parse(readFileSync(f.calls, 'utf8'))).toEqual([]);
+  expect(existsSync(join(f.service, 'deployment.lock'))).toBe(false);
 });

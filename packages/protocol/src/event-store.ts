@@ -2024,6 +2024,14 @@ export class EventStore {
     return typeof row?.path === 'string' ? row.path : null;
   }
 
+  /** Read one durable observation without loading the entire transcript. */
+  getLatestEvent(sessionId: string, type: string): StoredEvent | null {
+    const row = this.db!.prepare(
+      'SELECT * FROM events WHERE session_id = ? AND type = ? ORDER BY seq DESC LIMIT 1',
+    ).get(sessionId, type) as EventRow | undefined;
+    return row ? rowToEvent(row) : null;
+  }
+
   getEventsAfter(sessionId: string, afterSeq: number, limit?: number): StoredEvent[] {
     const rows =
       limit != null

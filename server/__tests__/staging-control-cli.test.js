@@ -35,6 +35,8 @@ function fixture(mode = 'valid') {
     'staging-job',
     'staging-operations',
     'staging-launcher-template',
+    'staging-registration',
+    'staging-dependency-source',
   ])
     cpSync('scripts/lib/' + name + '.mjs', join(root, 'bin/lib', name + '.mjs'));
   const receipt = (release, source) => {
@@ -74,6 +76,8 @@ function fixture(mode = 'valid') {
     'staging-job',
     'staging-operations',
     'staging-launcher-template',
+    'staging-registration',
+    'staging-dependency-source',
   ])
     cpSync(join(root, 'bin/lib', name + '.mjs'), join(next, 'scripts/lib', name + '.mjs'));
   const calls = join(home, 'calls.json');

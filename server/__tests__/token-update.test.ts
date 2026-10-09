@@ -112,9 +112,270 @@ describe('token_update emission', () => {
     const first = tokenUpdates[0];
     expect(first).toMatchObject({
       agentContext: 87204, // 1 + 80000 + 7203
-      contextCeiling: 200_000,
+      contextCeiling: 0,
     });
   });
+
+  it('uses the matching Claude runtime window and ignores subagent model limits', async () => {
+    await runQueryLoop(
+      eventStream([
+        {
+          type: 'stream_event',
+          parent_tool_use_id: null,
+          event: {
+            type: 'message_start',
+            message: { id: 'm', model: 'new-claude', usage: { input_tokens: 12000 } },
+          },
+        },
+        {
+          type: 'result',
+          session_id: 's',
+          modelUsage: {
+            'new-claude': { contextWindow: 1000000, maxOutputTokens: 64000 },
+            'child-model': { contextWindow: 32000 },
+          },
+        },
+      ]),
+      clientId,
+      registry,
+      abortController,
+      undefined,
+      undefined,
+      {
+        resolveTokenLimits: async (_provider, model) => ({
+          model,
+          source: 'unknown',
+          stale: false,
+        }),
+      },
+    );
+    expect(transport.sent.filter((e) => e.type === 'token_update').at(-1)).toMatchObject({
+      contextCeiling: 1000000,
+      tokenLimits: { model: 'new-claude', source: 'runtime', outputTokenLimit: 64000 },
+    });
+  });
+  it('does not wait for catalog requests and ignores lookups after the loop ends', async () => {
+    let resolve!: (value: {
+      model: string;
+      source: 'catalog';
+      contextWindow: number;
+      stale: boolean;
+    }) => void;
+    const pending = new Promise<{
+      model: string;
+      source: 'catalog';
+      contextWindow: number;
+      stale: boolean;
+    }>((r) => {
+      resolve = r;
+    });
+    await runQueryLoop(
+      eventStream([
+        {
+          type: 'stream_event',
+          event: {
+            type: 'message_start',
+            message: { model: 'new-api', usage: { input_tokens: 1000 } },
+          },
+        },
+      ]),
+      clientId,
+      registry,
+      abortController,
+      undefined,
+      undefined,
+      { resolveTokenLimits: () => pending },
+    );
+    const before = transport.sent.length;
+    resolve({ model: 'new-api', source: 'catalog', contextWindow: 1000000, stale: false });
+    await Promise.resolve();
+    expect(transport.sent).toHaveLength(before);
+  });
+  it('discards late metadata from the previous model when the active model changes', async () => {
+    const resolvers = new Map<
+      string,
+      (value: { model: string; source: 'catalog'; contextWindow: number; stale: boolean }) => void
+    >();
+    const load = vi.fn(
+      (_provider: string, model: string) =>
+        new Promise<{ model: string; source: 'catalog'; contextWindow: number; stale: boolean }>(
+          (r) => {
+            resolvers.set(model, r);
+          },
+        ),
+    );
+    async function* models() {
+      yield {
+        type: 'stream_event',
+        event: { type: 'message_start', message: { model: 'old', usage: { input_tokens: 1000 } } },
+      };
+      yield {
+        type: 'stream_event',
+        event: { type: 'message_start', message: { model: 'new', usage: { input_tokens: 2000 } } },
+      };
+      resolvers.get('new')!({
+        model: 'new',
+        source: 'catalog',
+        contextWindow: 1000000,
+        stale: false,
+      });
+      await Promise.resolve();
+      resolvers.get('old')!({
+        model: 'old',
+        source: 'catalog',
+        contextWindow: 32000,
+        stale: false,
+      });
+      await Promise.resolve();
+      yield { type: 'result', session_id: 's' };
+    }
+    await runQueryLoop(models(), clientId, registry, abortController, undefined, undefined, {
+      resolveTokenLimits: load,
+    });
+    const updates = transport.sent.filter((e) => e.type === 'token_update');
+    expect(updates.some((e) => e.contextCeiling === 32000)).toBe(false);
+    expect(updates.at(-1)).toMatchObject({
+      contextCeiling: 1000000,
+      agentContext: 2000,
+      tokenLimits: { model: 'new' },
+    });
+  });
+
+  it('discards metadata when the provider account changes under the same model ID', async () => {
+    let resolve!: (value: {
+      model: string;
+      source: 'catalog';
+      contextWindow: number;
+      stale: boolean;
+    }) => void;
+    const load = () =>
+      new Promise<{ model: string; source: 'catalog'; contextWindow: number; stale: boolean }>(
+        (r) => {
+          resolve = r;
+        },
+      );
+    async function* events() {
+      registry.get(clientId)!.accountBinding = {
+        accountId: 'first',
+        accountLabel: 'First',
+        provider: 'openai',
+        profileRevision: 'a',
+        model: 'same',
+      };
+      yield {
+        type: 'stream_event',
+        event: { type: 'message_start', message: { model: 'same', usage: { input_tokens: 1000 } } },
+      };
+      registry.get(clientId)!.accountBinding = {
+        accountId: 'second',
+        accountLabel: 'Second',
+        provider: 'google-vertex',
+        profileRevision: 'b',
+        model: 'same',
+      };
+      resolve({ model: 'same', source: 'catalog', contextWindow: 1000000, stale: false });
+      await Promise.resolve();
+      yield { type: 'result', session_id: 's' };
+    }
+    await runQueryLoop(events(), clientId, registry, abortController, undefined, undefined, {
+      resolveTokenLimits: load,
+    });
+    expect(
+      transport.sent.filter((e) => e.type === 'token_update').every((e) => e.contextCeiling === 0),
+    ).toBe(true);
+  });
+
+  it('does not discover limits from renderer-only model selections', async () => {
+    const resolveTokenLimits = vi.fn().mockResolvedValue({
+      model: 'selected-only',
+      source: 'catalog',
+      contextWindow: 1000000,
+      stale: false,
+    });
+    await runQueryLoop(
+      eventStream([
+        {
+          type: 'stream_event',
+          renderer_only: true,
+          event: {
+            type: 'message_start',
+            message: { model: 'selected-only', usage: { input_tokens: 0, output_tokens: 0 } },
+          },
+        },
+      ]),
+      clientId,
+      registry,
+      abortController,
+      undefined,
+      undefined,
+      { resolveTokenLimits },
+    );
+    expect(resolveTokenLimits).not.toHaveBeenCalled();
+  });
+
+  it.each(['model', 'account'])(
+    'clears occupancy immediately on a zero-usage %s transition',
+    async (change) => {
+      let before: Record<string, unknown> | undefined;
+      let whilePending: Record<string, unknown> | undefined;
+      const resolveTokenLimits = vi
+        .fn()
+        .mockResolvedValueOnce({
+          model: 'old',
+          source: 'catalog',
+          contextWindow: 100000,
+          stale: false,
+        })
+        .mockImplementation(() => new Promise(() => {}));
+      async function* events() {
+        registry.get(clientId)!.accountBinding = {
+          accountId: 'first',
+          accountLabel: 'First',
+          provider: 'openai',
+          profileRevision: 'a',
+          model: 'old',
+        };
+        yield {
+          type: 'stream_event',
+          event: {
+            type: 'message_start',
+            message: { model: 'old', usage: { input_tokens: 1000 } },
+          },
+        };
+        await Promise.resolve();
+        before = transport.sent.filter((e) => e.type === 'token_update').at(-1);
+        if (change === 'account')
+          registry.get(clientId)!.accountBinding = {
+            accountId: 'second',
+            accountLabel: 'Second',
+            provider: 'openai',
+            profileRevision: 'b',
+            model: 'old',
+          };
+        yield {
+          type: 'stream_event',
+          event: {
+            type: 'message_start',
+            message: {
+              model: change === 'model' ? 'new' : 'old',
+              usage: { input_tokens: 0, output_tokens: 0 },
+            },
+          },
+        };
+        whilePending = transport.sent.filter((e) => e.type === 'token_update').at(-1);
+        yield { type: 'result', session_id: 's' };
+      }
+      await runQueryLoop(events(), clientId, registry, abortController, undefined, undefined, {
+        resolveTokenLimits,
+      });
+      expect(before).toMatchObject({
+        agentContext: 1000,
+        contextCeiling: 100000,
+        tokenLimits: { model: 'old' },
+      });
+      expect(whilePending).toMatchObject({ agentContext: 0, contextCeiling: 0, tokenLimits: null });
+    },
+  );
 
   it('includes all token types in session total', async () => {
     const events: Record<string, unknown>[] = [
@@ -154,7 +415,7 @@ describe('token_update emission', () => {
     const last = tokenUpdates[tokenUpdates.length - 1];
     expect(last).toMatchObject({
       sessionTotal: 20000, // 5000 + 2000 + 10000 + 3000
-      contextCeiling: 200_000,
+      contextCeiling: 0,
     });
     // costUsd should not be present
     expect(last).not.toHaveProperty('costUsd');

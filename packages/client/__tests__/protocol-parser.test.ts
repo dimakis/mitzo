@@ -1262,3 +1262,43 @@ it('preserves structured questions and the server deadline', () => {
     payload: expect.objectContaining({ questions, expiresAt: 1234, sessionId: 's1' }),
   });
 });
+
+it('retains native usage provenance in partial token updates', () => {
+  const result = parseServerMessage(
+    {
+      type: 'token_update',
+      agentContext: 12300,
+      contextCeiling: 128000,
+      turnIndex: 1,
+      sessionTotal: 24600,
+      sessionTotalStatus: 'observed',
+    },
+    makeState(),
+    makeCallbacks(),
+    POOL_KEY,
+  );
+  expect(result.tokensUpdate).toMatchObject({
+    sessionTotal: 24600,
+    sessionTotalStatus: 'observed',
+  });
+});
+
+it('hydrates validated model limit evidence and supports explicitly clearing it', () => {
+  const limits = {
+    model: 'new-model',
+    source: 'catalog',
+    contextWindow: 1000000,
+    checkedAt: 100,
+    stale: false,
+  };
+  const parse = (tokenLimits: unknown) =>
+    parseServerMessage(
+      { type: 'token_update', agentContext: 1000, turnIndex: 1, tokenLimits },
+      makeState(),
+      makeCallbacks(),
+      POOL_KEY,
+    ).tokensUpdate;
+  expect(parse(limits)?.tokenLimits).toEqual(limits);
+  expect(parse(null)?.tokenLimits).toBeNull();
+  expect(parse({ ...limits, contextWindow: -1 })?.tokenLimits).toBeNull();
+});

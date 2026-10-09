@@ -659,6 +659,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         sessions: { ...get().sessions, active: null },
         chatDraftRevision: get().chatDraftRevision + 1,
         messages: INITIAL_MESSAGES_STATE,
+        tokens: INITIAL_TOKENS_STATE,
         sendError: null,
         sendStatus: null,
         permissions: INITIAL_PERMISSIONS_STATE,
@@ -883,7 +884,9 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
           set((s) => ({
             tokens: {
               ...s.tokens,
-              sessionTotal: meta.totalTokens ?? s.tokens.sessionTotal,
+              sessionTotal: s.tokens.sessionTotalStatus
+                ? s.tokens.sessionTotal
+                : (meta.totalTokens ?? s.tokens.sessionTotal),
               numTurns: meta.numTurns ?? s.tokens.numTurns,
               turnIndex: meta.numTurns ?? s.tokens.turnIndex,
             },
@@ -1157,11 +1160,12 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       store.setState((s) => ({
         tokens: {
           ...s.tokens,
-          sessionTotal:
-            ((tokens.input as number) ?? 0) +
-            ((tokens.output as number) ?? 0) +
-            ((tokens.cacheRead as number) ?? 0) +
-            ((tokens.cacheCreation as number) ?? 0),
+          sessionTotal: s.tokens.sessionTotalStatus
+            ? s.tokens.sessionTotal
+            : ((tokens.input as number) ?? 0) +
+              ((tokens.output as number) ?? 0) +
+              ((tokens.cacheRead as number) ?? 0) +
+              ((tokens.cacheCreation as number) ?? 0),
         },
       }));
     },

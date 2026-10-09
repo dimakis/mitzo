@@ -19,4 +19,5 @@ export const SESSION_MESSAGES_LIMIT = 100;
 export const MAX_OBSERVERS_PER_SESSION = 10;
 
 // --- Token tracking ---
-export const CONTEXT_CEILING_TOKENS = 200_000;
+// Compatibility sentinel: capacities must come from model/runtime evidence.
+export const CONTEXT_CEILING_TOKENS = 0;

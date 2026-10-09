@@ -90,6 +90,124 @@ the original dependency closure is rechecked before and after copying/building.
 
 Historical link-text-only fingerprints are deliberately refused. Do not regenerate
 or overwrite a live receipt to make it pass: migration or requalification requires
-a separately reviewed source/dependency audit. This source change performs no
-private-state migration, restart or fallback. Missing dependency proof refuses
-candidate validation before any original service control.
+a separately reviewed source/dependency audit. Default verification performs no
+migration, restart or fallback. The explicit qualification procedure below is
+separate; missing dependency proof still refuses candidate validation before
+any original service control.
+
+## Explicit legacy qualification
+
+The original configured stage has a link-text-only dependency receipt and was
+registered through the user's `Library/LaunchAgents/com.mitzo.staging.plist`.
+Accepted controllers refuse either historical form until the source/dependency
+audit is separately reviewed. Run the following from an independent accepted
+source checkout; the audit performs no service control or inference:
+
+```sh
+node scripts/requalify-staging.mjs audit
+```
+
+The audit verifies the original source/tree and visible Git index, complete
+recorded compiled inventory, historical dependency fingerprint, original
+controller file hashes and exclusive staging process/listener. It accounts for
+every omitted workspace payload against the original published Git blobs or
+compiled receipt. Unknown payloads, aliases, drift, existing operations and
+unconfigured-provider violations refuse qualification. The legacy and private
+plists must be private regular files with identical bytes, the original label,
+launcher, working directory and no crash restart. The report binds their exact
+hash to the original PID and birth identity.
+
+After separate review, select the printed original source and `auditSha256`:
+
+```sh
+node scripts/requalify-staging.mjs apply \
+  --expected-current ORIGINAL_SOURCE_SHA --expected-audit AUDIT_SHA256
+```
+
+Apply requires the executing checkout to be clean, visible, tracked source at
+fresh exact accepted main. Under the shared deployment lock it rechecks all
+original inputs, creates a private exclusive archive of the receipt, controller,
+startup files and login plist, and requalifies only the dependency fingerprint.
+It installs unchanged accepted controller/startup guards and records the exact
+qualification. It does not stop, start or replace the existing service, configure
+providers, or launch a model. It verifies both the migrated guards and unchanged
+original process before releasing the lock. A partial metadata write or uncertain
+check retains its archive and lock; investigate instead of deleting or retrying.
+
+### Verifying a completed retained metadata operation
+
+The startup guard determines the canonical root from the actual user's HOME.
+Qualification invokes its read-only `--check` in that operator context; the guard
+then constructs the separate staging HOME for application launch. A historical
+qualification command mistakenly supplied application HOME to this outer guard.
+Its completed metadata writes are intact, but the failed acknowledgement retains
+the operation's lock. Do not rerun migration, restore old files or delete the lock.
+
+After investigating the named operation, the verification-only command is:
+
+```sh
+node scripts/verify-staging-qualification.mjs \
+  --operation ORIGINAL_OPERATION_UUID --expected-audit ORIGINAL_AUDIT_SHA256
+```
+
+It requires fresh exact accepted main and the same retained lock, qualification,
+original private archive and audit pin. The current receipt must be byte-for-byte
+the original receipt with only its proven v2 fingerprint changed; installed
+controller/startup bytes must match that original accepted controller commit.
+Source, dependency closure, every archived file, original registration and live
+process are checked again, with no other retained operation or native ownership.
+The startup check uses operator HOME and performs no launch. The command repeats
+verification, records completion of the original operation and releases only its
+matching lock. It does not rewrite metadata, retry migration, create a successor,
+start/stop an app or supply provider/model authority. Partial migration, drift or
+unavailable evidence continues to retain the lock and archive.
+
+The qualified legacy registration permits read-only checks, release preparation
+and the existing ordinary-to-owned transition. Ordinary deploy refuses it. That
+transition pins the qualification and original login-plist bytes, preserves the
+plist, confirms original process/listener exit through the original service
+handle, then removes only that recorded login plist before installing the same
+canonical label. This prevents a later login from resurrecting the old ordinary
+launcher. Changing either plist, the original PID/birth or qualification refuses
+control. The ordinary launcher executable may use the original Homebrew symlink only when its resolved path is the executing Node binary; the exact two arguments, startup script, plist bytes and process pins remain checked. A redirected executable or extra argument refuses before control. The owned service continues to require the private canonical path.
+
+For a changed package lock, provision and audit dependencies separately in an
+isolated checkout of the exact target, with no provider configuration. Keep its
+source clean and pin its actual closure with the accepted `fingerprintDirectory`
+helper. The paired preparation arguments are:
+
+```sh
+~/.local/share/mitzo-staging/bin/mitzo-staging prepare --commit TARGET_SHA \
+  --dependency-source ABSOLUTE_CHECKOUT_PATH \
+  --expected-dependency-fingerprint AUDITED_CLOSURE_SHA256
+```
+
+Preparation verifies that checkout's exact source, public origin, visible index,
+matching target lock and explicit closure before copying. It independently builds
+the selected target, verifies the copy checksum and unchanged dependency source,
+and creates a fresh v2 release receipt. It never runs npm install, chooses versions,
+changes the live receipt or controls a service. Missing provisioning still refuses
+a changed lock. Native runtime/configuration qualification and provider enrollment
+remain separate from this migration.
+
+The original VM supervisor remains `com.mitzo.staging.vm`, with no automatic
+restart. Resume that same registered supervisor after confirming a stopped VM,
+its recorded rootless resource/mount boundary and no retained native operation.
+A foreground `podman machine start` in an agent command does not establish
+persistent supervision. Its stable API socket uses the supervisor's finite
+`TMPDIR=/private/tmp`; review the [socket-only proposal](evidence/canonical-staging-socket-proposal.json)
+before changing the historical gateway socket location. Preserve the original
+private configuration, verify the approved old/new hashes and schema, and
+reprepare superseded unlaunched bundles. This changes no account/model policy or
+credentials and grants no native runtime or inference admission.
+
+The canonical custodian keeps its restricted `PATH=/usr/bin:/bin`. Gateway
+listener observation selects `/usr/sbin/lsof` explicitly on macOS for both sync
+startup and async custody checks. This fixes executable discovery without
+inheriting a broader shell environment. A historical launch failure still keeps
+its registry reservation, launch intent and transition lock; applying this source
+fix does not grant retry, original-owner recovery or retirement authority.
+
+See the [bounded failed-launch record](evidence/canonical-staging-activation-refusal.json)
+for the named original operation. An empty observed native inventory is not an
+original-owner retirement receipt or permission to reclaim the reserved slot.
