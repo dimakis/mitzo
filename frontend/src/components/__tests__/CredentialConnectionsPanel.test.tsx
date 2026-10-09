@@ -452,3 +452,42 @@ it('offers generic WebSocket setup during custom connection creation without a s
     ),
   );
 });
+
+it('preserves unsaved WebSocket edits across authorization refreshes for an enabled connection', async () => {
+  const custom = {
+    ...homeAssistant,
+    id: 'custom',
+    label: 'Custom service',
+    paths: ['/'],
+    websocket: { path: '/rpc', authentication: { kind: 'headers' as const } },
+  };
+  vi.mocked(api.getCredentialConnections).mockImplementation(async () => [structuredClone(custom)]);
+  render(<CredentialConnectionsPanel connectionId="custom" />);
+  await screen.findByLabelText('WebSocket path for Custom service');
+  fireEvent.change(screen.getByLabelText('WebSocket path for Custom service'), {
+    target: { value: '/changed' },
+  });
+  await authorize();
+  expect(
+    (screen.getByLabelText('WebSocket path for Custom service') as HTMLInputElement).value,
+  ).toBe('/changed');
+  fireEvent.click(screen.getByRole('button', { name: 'Save WebSocket setup' }));
+  await waitFor(() =>
+    expect(api.updateConnectionWebSocket).toHaveBeenCalledWith(
+      'custom',
+      1,
+      { path: '/changed', authentication: { kind: 'headers' } },
+      'csrf',
+    ),
+  );
+  vi.mocked(api.getCredentialConnections).mockResolvedValue([
+    { ...custom, revision: 2, websocket: { ...custom.websocket, path: '/saved-new-revision' } },
+  ]);
+  await screen.findByText('WebSocket setup updated. Each chat needs fresh approval.');
+  await authorize();
+  await waitFor(() =>
+    expect(
+      (screen.getByLabelText('WebSocket path for Custom service') as HTMLInputElement).value,
+    ).toBe('/saved-new-revision'),
+  );
+});

@@ -28,9 +28,10 @@ export function CredentialConnectionCard({
   run: ConnectionRun;
 }) {
   const [websocket, setWebsocket] = useState(() => websocketDraft(connection.websocket));
+  const savedWebsocket = JSON.stringify(connection.websocket ?? null);
   useEffect(
-    () => setWebsocket(websocketDraft(connection.websocket)),
-    [connection.websocket, connection.revision],
+    () => setWebsocket(websocketDraft(JSON.parse(savedWebsocket))),
+    [savedWebsocket, connection.revision],
   );
   const [testPath, setTestPath] = useState(connection.paths[0]);
   const [sessions, setSessions] = useState<ConnectionSessionAccess[]>();
