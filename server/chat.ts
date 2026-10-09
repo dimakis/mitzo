@@ -1789,7 +1789,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
         env: sessionEnv,
         mcpServers: allMcpServers,
         eventStore,
-        onDemandCreate: buildOnDemandCreate(wtId, clientId),
+        onDemandCreate: repositoryWorkspace ? undefined : buildOnDemandCreate(wtId, clientId),
         publishingGitStorageRoots: [BASE_REPO, ...Object.values(getRepoConfig().repos)]
           .filter(Boolean)
           .map((root) => join(root, '.git')),
@@ -1844,7 +1844,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
         systemPrompt: systemPromptAppend,
         env: sessionEnv,
         mcpServers: allMcpServers,
-        onDemandCreate: buildOnDemandCreate(wtId, clientId),
+        onDemandCreate: repositoryWorkspace ? undefined : buildOnDemandCreate(wtId, clientId),
         publishingGitStorageRoots: [BASE_REPO, ...Object.values(getRepoConfig().repos)]
           .filter(Boolean)
           .map((root) => join(root, '.git')),
@@ -1870,7 +1870,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
     } else {
       const existingDecision = webAccessSdkPermission(
         buildPermissionHandler(clientId, registry, {
-          onDemandCreate: buildOnDemandCreate(wtId, clientId),
+          onDemandCreate: repositoryWorkspace ? undefined : buildOnDemandCreate(wtId, clientId),
         }),
       );
       const connectionServer = createCredentialSdkServer(

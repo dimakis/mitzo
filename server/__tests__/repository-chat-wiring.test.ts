@@ -99,6 +99,7 @@ it('starts a native repository chat with its claimed cwd and exact repository co
         prompt: expect.stringContaining('example/repo'),
         repositoryWorkspace: expect.objectContaining({ id: 'repository' }),
         systemPrompt: expect.stringContaining('independent checkout'),
+        onDemandCreate: undefined,
       }),
     );
     expect(chat.eventStore.getSession('aaaaaaaa-bbbb-4ccc-8ddd-121212121212')?.cwd).toBe(root);
