@@ -6,6 +6,28 @@ import { eventBus } from '../lib/event-bus-singleton';
 const LOCAL_CHANGE = 'mitzo-home-preferences-changed';
 export type HomePreferencePatch = Partial<Pick<HomePreferences, 'names' | 'pins'>>;
 
+function readPreferences(value: unknown): HomePreferences {
+  if (!value || typeof value !== 'object') throw new Error('Invalid preferences');
+  const result = value as HomePreferences;
+  if (
+    !Number.isInteger(result.revision) ||
+    result.revision < 0 ||
+    typeof result.names?.briefing !== 'string' ||
+    typeof result.names?.terminal !== 'string' ||
+    !Array.isArray(result.pins) ||
+    !result.pins.every(
+      (pin) =>
+        pin &&
+        (pin.kind === 'session' || pin.kind === 'telos') &&
+        typeof pin.id === 'string' &&
+        /^[\w.:-]{1,200}$/.test(pin.id) &&
+        typeof pin.title === 'string',
+    )
+  )
+    throw new Error('Invalid preferences');
+  return result;
+}
+
 /** Workspace preferences are server-owned. Revision checks protect edits on other devices. */
 export function useHomePreferences() {
   const [preferences, setPreferences] = useState<HomePreferences | null>(null);
@@ -23,7 +45,7 @@ export function useHomePreferences() {
     try {
       const response = await apiFetch('/api/home/preferences');
       if (!response.ok) throw new Error('Preferences unavailable');
-      const result: HomePreferences = await response.json();
+      const result = readPreferences(await response.json());
       if (mounted.current && id === request.current) setPreferences(result);
     } catch {
       if (mounted.current && id === request.current)
@@ -71,7 +93,7 @@ export function useHomePreferences() {
           return false;
         }
         if (!response.ok) throw new Error('Save failed');
-        const result: HomePreferences = await response.json();
+        const result = readPreferences(await response.json());
         if (mounted.current) setPreferences(result);
         current.current = result;
         window.dispatchEvent(new Event(LOCAL_CHANGE));

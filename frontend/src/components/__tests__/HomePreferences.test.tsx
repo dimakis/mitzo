@@ -31,6 +31,14 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 describe('home preferences', () => {
+  it('rejects malformed successful responses before rendering pin controls', async () => {
+    data.fetch.mockResolvedValue({ ok: true, json: async () => [] });
+    render(<HomePinButton pin={{ kind: 'session', id: 'session-1', title: 'Recovery' }} />);
+    expect((await screen.findByRole('alert')).textContent).toContain('Couldn’t load');
+    expect(
+      (screen.getByRole('button', { name: 'Pin to Today' }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+  });
   it('saves separate briefing and terminal nicknames through the shared workspace API', async () => {
     render(<MinionNameSettings />);
     await waitFor(() =>
