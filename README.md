@@ -21,6 +21,12 @@ Ordinary OpenShell Codex chats reserve their account-bound native ledger before 
 
 Accounts with multiple managed connections can provision new sandboxes without exceeding the gateway's 63-character label-value limit. Oversized provider-policy fingerprints use a stable bounded hash; valid historical labels and connection assignments are preserved. New runtimes prefer an assigned managed GitHub connection over the legacy GitHub fallback, avoiding duplicate `GITHUB_TOKEN` credentials. Retained runtimes keep their existing automatic grants; conflicting GitHub attachments require recovery before startup.
 
+## Repository-backed chats (opt-in)
+
+With reviewed deployment configuration setting `MITZO_REPOSITORY_WORKSPACES_ENABLED=1`, a new ordinary OpenAI chat can select a repository from its assigned managed GitHub connection, preview the default branch’s exact commit, and prepare an independent feature-branch checkout before the first prompt. Mobile and desktop share the picker. Credentials stay on the controller, and the selected repository remains bound to the conversation across restart and resume.
+
+Initial support covers regular-file GitHub projects up to 10,000 files and 64 MiB of Git storage/current-tree content. Dependency automation, local repository attachment and other hosting providers are subsequent slices. The feature is disabled by default and requires separate canonical-staging provider enrollment and live acceptance before rollout. See [repository-backed chats](docs/features/repository-backed-chats.md) for configuration, custody and acceptance gates.
+
 ## Features
 
 - **Connections with clear account evidence** — setup, authentication checks and last successful use are shown separately. Services show identity, configured permissions and scope; older credential checks do not imply a broken connection. Distinct GitHub providers are labelled, unused integrations produce no warning cards, and web access is explained separately. See [Connections](docs/features/connections.md).
