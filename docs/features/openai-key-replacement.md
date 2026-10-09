@@ -1,7 +1,11 @@
 # OpenAI API key replacement in Connections
 
 Enrolled accounts appear in **More → Connections → the enrolled AI account → Manage API key**. The operator
-reauthorizes, selects **Replace API key**, enters a masked replacement once, and confirms
+reauthorizes and selects **Replace API key**. If macOS has not authorized the signed
+Mitzo Keychain helper for this item, this explicit action opens native authorization on
+the Mac. **Always Allow** retains access for that signed helper and item; it is never
+requested for Python or another interpreter. Once authorized, the operator selects
+**Replace API key**, enters a masked replacement once, and confirms
 that it belongs to the same work OpenAI project. The browser clears the key before waiting
 for the response and does not put it in browser storage.
 
@@ -20,7 +24,7 @@ change their billing selection, or change network policy.
 
 An atomic Keychain update writes the secret and an operation receipt together, preserving
 the existing item's access controls. The receipt includes an integrity check kept inside
-Keychain so a password-only external edit invalidates readiness. The native helper rejects
+Keychain so a password-only external edit invalidates readiness. The signed native helper rejects
 duplicate items, malformed coordinates and unfamiliar metadata. Values pass through its
 stdin and the authenticated gateway API, never credential-bearing command arguments or
 temporary credential files. Errors do not forward native or upstream response bodies.
@@ -92,7 +96,15 @@ skip_serializing_if = "is_false")` for `request_body_credential_rewrite` and
 null or nonboolean values are rejected. Requiring explicit false fields would
 reject the canonical export of the reviewed policy.
 
-System Python and normal macOS Keychain authorization must be available. A locked,
+The accepted signed helper must be rebuilt and installed with the existing Apple
+Developer identity before enabling this release, using `scripts/build-keychain-helper.sh`.
+The configured `MITZO_KEYCHAIN_HELPER`, `MITZO_KEYCHAIN_TEAM_ID` and controller namespace
+are shared with the existing service-connection helper. There is no Python fallback.
+OpenAI rotation coordinates are registered separately in the private controller record;
+service-connection items cannot be rotated by this adapter. Reads, writes, status checks
+and recovery disable native interaction. Only the separately browser-reauthorized
+authorization action may open a prompt; it cannot change a key or invoke a model.
+Normal macOS Keychain authorization must be available. A locked,
 inaccessible or ambiguous item remains unavailable; the helper does not create items or
 weaken access controls. Any required OS authorization is attended enrollment.
 

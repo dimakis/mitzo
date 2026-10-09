@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { expect, it, vi } from 'vitest';
 import {
-  CREATE_OPENAI_ENROLLMENT_KEYCHAIN_HELPER,
   OpenAIEnrollmentKeychainCredentials,
   openAIEnrollmentCredentialReference,
 } from '../openai-account-enrollment-keychain.js';
@@ -19,10 +18,6 @@ it('creates a new unique item through stdin and never updates an existing item',
     service: 'mitzo.openai.enrollment.' + id,
     account: 'api-key',
   });
-  expect(CREATE_OPENAI_ENROLLMENT_KEYCHAIN_HELPER).toContain('SecItemAdd');
-  expect(CREATE_OPENAI_ENROLLMENT_KEYCHAIN_HELPER).not.toMatch(
-    /SecItemUpdate|SecItemDelete|security.*add-generic-password/,
-  );
 });
 it('refuses an uncertain native creation without leaking its diagnostic or reusing a reference', async () => {
   const run = vi.fn(async () => {

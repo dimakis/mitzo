@@ -1034,3 +1034,10 @@ Managed producers and pin updates share the host maintenance lock and durable
 audit. See [storage reclamation operations](docs/operations/podman-storage-reclamation.md)
 for enrollment, plan/output arguments and real-run acceptance. Periodic cleanup,
 allocation admission and conversation-retention activation are separate changes.
+
+OpenAI key replacement uses the existing signed Mitzo Keychain helper, rather than
+a Python interpreter. Viewing status never opens a native authorization prompt.
+An account awaiting Keychain approval keeps **Replace API key** available and requests
+Mitzo passphrase reauthorization before the explicit Mac authorization step. Rebuild
+and install the helper from the accepted release with its existing signing identity
+before enabling replacement; see [OpenAI key replacement](docs/features/openai-key-replacement.md).
