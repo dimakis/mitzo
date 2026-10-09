@@ -59,11 +59,11 @@ it('requires the exact measured routing tuple and explicit trusted diagnostic se
     'local-854b-routing-v1',
   );
   expect(qualified).toMatchObject({
-    version: '0.0.1-dev.2+ga8ad99243',
+    version: '0.0.1-dev.3+g9472cc767',
     gatewayVersion: '0.0.117-dev.292+g854b2370b',
-    cliSha256: '86153f4bff90b7a20bb01c53e3b1aaf4bb11fa1a456652e06ba8fbe5b69491bc',
+    cliSha256: 'a66f3eb90cef5d39073800f4f287cbe0dd137d754faeac218db52325a713e836',
     gatewaySha256: contracts.REVIEWED_SYMPOSIUM_OWNED_RUNTIME.build.gatewaySha256,
-    supervisorImage: 'sha256:70a6be5fe9ffbae4f6ad152fb5f2092acb034e4148d8027faabf522d1ed25f51',
+    supervisorImage: 'sha256:602585a9a550d5c8650bb10f2c80002b2d31e56fbef27f799c50d21ad26a6a89',
   });
   expect(contracts.reviewedSymposiumOwnedBuild(image)).not.toBe(qualified);
   expect(contracts.reviewedSymposiumOwnedBuild(image, 'local-854b-routing-v1')).toBe(qualified);

@@ -148,10 +148,10 @@ export const SOURCE_QUALIFIED_SYMPOSIUM_LOCAL_B20_BUILD = Object.freeze({
  * bounded account-check observation; physical admission still uses the full gate. */
 export const SOURCE_QUALIFIED_SYMPOSIUM_ROUTING_BUILD = Object.freeze({
   ...REVIEWED_SYMPOSIUM_CODEX_01591_IDENTITY_RUNTIME.build,
-  version: '0.0.1-dev.2+ga8ad99243',
+  version: '0.0.1-dev.3+g9472cc767',
   gatewayVersion: REVIEWED_SYMPOSIUM_OWNED_RUNTIME.build.version,
-  cliSha256: '86153f4bff90b7a20bb01c53e3b1aaf4bb11fa1a456652e06ba8fbe5b69491bc',
-  supervisorImage: 'sha256:70a6be5fe9ffbae4f6ad152fb5f2092acb034e4148d8027faabf522d1ed25f51',
+  cliSha256: 'a66f3eb90cef5d39073800f4f287cbe0dd137d754faeac218db52325a713e836',
+  supervisorImage: 'sha256:602585a9a550d5c8650bb10f2c80002b2d31e56fbef27f799c50d21ad26a6a89',
   nativeArtifacts: Object.freeze({
     ...REVIEWED_SYMPOSIUM_CODEX_01591_IDENTITY_RUNTIME.build.nativeArtifacts,
   }),

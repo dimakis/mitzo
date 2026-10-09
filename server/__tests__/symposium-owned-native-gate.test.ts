@@ -34,7 +34,7 @@ vi.mock('node:crypto', async (original) => {
         digest(format: 'hex') {
           const bytes = Buffer.concat(parts);
           return bytes.toString() === 'routing-test-cli'
-            ? '86153f4bff90b7a20bb01c53e3b1aaf4bb11fa1a456652e06ba8fbe5b69491bc'
+            ? 'a66f3eb90cef5d39073800f4f287cbe0dd137d754faeac218db52325a713e836'
             : bytes.toString() === 'local-b20-test-cli'
               ? '6ed96b7aa13655d6ecaeb822aee7526bc2170d85bd00f4506b13330703cb5dff'
               : bytes.toString() === 'owned-native-test-cli'
