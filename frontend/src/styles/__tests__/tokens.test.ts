@@ -64,8 +64,9 @@ function styleViolations(source: string, filename = 'component.css'): string[] {
       if (!allowed.test(font[2].trim())) violations.push('font stack');
     }
   }
-  for (const font of clean.matchAll(/\bfontFamily\s*:\s*(['"`])([^'"`]+)\1/g)) {
-    if (!fontFamily.test(font[2].trim())) violations.push('inline font stack');
+  for (const font of clean.matchAll(/['"]?\b(fontFamily|font)['"]?\s*:\s*(['"`])([^'"`]+)\2/g)) {
+    const allowed = font[1] === 'font' ? fontShorthand : fontFamily;
+    if (!allowed.test(font[3].trim())) violations.push('inline font stack');
   }
   return violations;
 }
@@ -136,6 +137,22 @@ describe('design tokens', () => {
       expect(
         styleViolations(
           "const styles = `.page { font-family: ${'var(--font-ui)'}; }`;",
+          'page.tsx',
+        ),
+      ).toEqual([]);
+    });
+
+    it.each([
+      "const element = <div style={{ font: '16px Arial, sans-serif' }} />;",
+      "const element = <div style={{ 'font': 'var(--text-base) Arial' }} />;",
+    ])('rejects inline font shorthand stacks: %s', (source) => {
+      expect(styleViolations(source, 'page.tsx')).toContain('inline font stack');
+    });
+
+    it('allows token-based React font shorthand', () => {
+      expect(
+        styleViolations(
+          "const element = <div style={{ font: '600 var(--text-base)/1.4 var(--font-ui)' }} />;",
           'page.tsx',
         ),
       ).toEqual([]);
