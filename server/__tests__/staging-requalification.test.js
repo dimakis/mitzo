@@ -43,3 +43,14 @@ it('retains the lock on an uncertain metadata migration, without automatic rollb
   expect(e.check).not.toHaveBeenCalled();
   expect(e.audit).toHaveBeenCalledWith('uncertain');
 });
+it('retains the uncertainty fence when archiving fails after creating partial evidence', async () => {
+  const e = effects({
+    preserve: vi.fn(async () => {
+      throw Error('partial archive');
+    }),
+  });
+  await expect(requalifyStage(e)).rejects.toThrow('partial archive');
+  expect(e.migrate).not.toHaveBeenCalled();
+  expect(e.unlock).not.toHaveBeenCalled();
+  expect(e.audit).toHaveBeenCalledWith('uncertain');
+});

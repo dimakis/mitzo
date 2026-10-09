@@ -4,8 +4,8 @@ export async function requalifyStage(effects) {
   let mutationAttempted = false;
   try {
     await effects.verify();
-    await effects.preserve();
     mutationAttempted = true;
+    await effects.preserve();
     await effects.migrate();
     await effects.check();
     await effects.audit('verified');

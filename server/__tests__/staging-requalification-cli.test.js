@@ -145,6 +145,18 @@ function fixture(mode = 'valid') {
     preload,
     `import os from 'node:os';import cp from 'node:child_process';import {syncBuiltinESMExports} from 'node:module';const original=cp.spawnSync;os.homedir=()=>${JSON.stringify(home)};cp.spawnSync=(program,args,options)=>{if(program==='git'&&args.includes('ls-remote'))return {status:0,stdout:${JSON.stringify(mode === 'unaccepted' ? 'f'.repeat(40) : accepted)}+' refs/heads/main'};if(program==='launchctl'){if(args[0]!=='print')throw Error('Service control attempted');return {status:0,stdout:'path = '+${JSON.stringify(legacy)}+'\\npid = 42'};}if(program==='/bin/ps')return {status:0,stdout:'original birth'};if(program==='/usr/sbin/lsof'){if(args.includes('cwd'))return {status:0,stdout:'p42\\nn'+${JSON.stringify(release)}};return args.includes('-iTCP:3190')?{status:0,stdout:'42'}:{status:1,stdout:''};}if(program==='/usr/bin/plutil')return {status:0,stdout:${JSON.stringify(JSON.stringify(plist))}};if(program===process.execPath)return original(program,['--import',${JSON.stringify(preload)},...args],options);return original(program,args,options);};syncBuiltinESMExports();`,
   );
+  if (mode === 'partial-archive')
+    writeFileSync(
+      preload,
+      readFileSync(preload, 'utf8') +
+        `
+import fs from 'node:fs';
+const originalOpen=fs.openSync,originalWrite=fs.writeFileSync,archiveFds=new Set();let archiveWrites=0;
+fs.openSync=(p,...a)=>{const fd=originalOpen(p,...a);if(typeof p==='string'&&p.includes('/service/requalifications/'))archiveFds.add(fd);return fd;};
+fs.writeFileSync=(p,...a)=>{if(archiveFds.has(p)&&++archiveWrites===2)throw Error('synthetic partial archive');return originalWrite(p,...a);};
+syncBuiltinESMExports();
+`,
+    );
   const run = (...args) =>
     spawnSync(process.execPath, ['--import', preload, cli, ...args], {
       encoding: 'utf8',
@@ -223,6 +235,26 @@ it('a failed migrated guard keeps the archive and lock instead of restarting or 
   ).not.toBe(0);
   expect(existsSync(join(f.root, 'service/deployment.lock'))).toBe(true);
   expect(existsSync(join(f.root, 'service/legacy-qualification.json'))).toBe(true);
+  expect(readFileSync(join(f.root, 'service/deployment-audit.jsonl'), 'utf8')).toContain(
+    'uncertain',
+  );
+});
+it('an actual partial archive write retains the lock and original receipt before any controller migration', () => {
+  const f = fixture('partial-archive'),
+    original = readFileSync(f.receiptPath);
+  const report = JSON.parse(f.run('audit').stdout);
+  const result = f.run(
+    'apply',
+    '--expected-current',
+    f.old,
+    '--expected-audit',
+    report.auditSha256,
+  );
+  expect(result.status).not.toBe(0);
+  expect(result.stderr).toContain('synthetic partial archive');
+  expect(readFileSync(f.receiptPath)).toEqual(original);
+  expect(existsSync(join(f.root, 'service/deployment.lock'))).toBe(true);
+  expect(existsSync(join(f.root, 'service/legacy-qualification.json'))).toBe(false);
   expect(readFileSync(join(f.root, 'service/deployment-audit.jsonl'), 'utf8')).toContain(
     'uncertain',
   );
