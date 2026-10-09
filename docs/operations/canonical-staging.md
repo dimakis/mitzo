@@ -370,8 +370,25 @@ locked without escalation, restart or rollback.
 The completed retirement and full service/workspace/gateway/registry state are
 archived and checked before disposition. The raw retired launch and receipt are
 preserved in `retired_owned_launches`; the earlier qualified refusal histories
-remain. The fresh configuration changes only the selected Personal device-login
-executable. Old keys and VM supervision remain retained. Fresh empty app paths
+remain. The default proposal changes only the selected Personal device-login executable.
+A separately source-qualified routing diagnostic successor may also change the
+CLI path/hash and Supervisor image, using this exact optional argument pair:
+
+```sh
+node scripts/update-owned-staging.mjs plan --expected-source ORIGINAL_SOURCE \
+  --instance ORIGINAL_INSTANCE --epoch ORIGINAL_EPOCH \
+  --device-executable SELECTED_NATIVE_CODEX --expected-device-sha CODEX_SHA256 \
+  --routing-cli MEASURED_NATIVE_CLI --expected-routing-cli-sha REGISTERED_CLI_SHA256
+```
+
+The accepted controller derives the Supervisor identity from its measured public
+catalog; the command cannot supply another image or build. It freezes the CLI at
+a separate private executable path and checks its full metadata and hash both
+when validating the plan and immediately before normal retirement. The Gateway,
+workload, runtime image, provider profiles, policy, keys and network inputs remain
+bound to the original tuple. A connected Personal slot must first be disconnected
+through the supported owner API; credentials and provisioning receipts are not
+migrated across owner lifetimes. Old keys and VM supervision remain retained. Fresh empty app paths
 and a same-label bundle are prepared at the accepted baseline, then started once.
 The new actual original parent/app identity, singleton row, immutable inputs and
 loopback HTTP readiness must verify before the matching operation unlocks.

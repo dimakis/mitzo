@@ -25,6 +25,14 @@ import { verifyPreparedController } from './lib/staging-cold-control.mjs';
 import { runOwnedStageUpgrade, archiveRetiredReservation } from './lib/owned-stage-upgrade.mjs';
 import { preparePinnedProgram, assertPinnedProgram } from './lib/owned-stage-program.mjs';
 import {
+  createOwnedRoutingProposal,
+  readOwnedRoutingArguments,
+} from './lib/owned-stage-routing-proposal.mjs';
+import {
+  reviewedSymposiumRoutingDiagnosticBuild,
+  reviewedSymposiumOwnedRuntime,
+} from '../dist/symposium-owned-runtime-contract.js';
+import {
   createFreshActivationIntent,
   verifyFreshActivationBinding,
 } from './lib/owned-stage-activation.mjs';
@@ -89,17 +97,28 @@ function verifyControls(path, expected) {
   if (!same(controls(path), expected)) throw Error('Exact original control records changed');
 }
 
-function minimalConfig(old, pin) {
+function minimalConfig(old, pin, routing) {
+  if (routing !== undefined)
+    return createOwnedRoutingProposal(
+      old,
+      pin,
+      routing.pin,
+      reviewedSymposiumOwnedRuntime(old.gateway.workloadImage).build,
+      reviewedSymposiumRoutingDiagnosticBuild(old.gateway.workloadImage, 'local-854b-routing-v1'),
+    );
   return { ...old, personal: { ...old.personal, deviceLoginExecutable: pin } };
 }
 async function planUpdate(current, args) {
   noLock();
+  const routingRequested =
+    args['--routing-cli'] !== undefined || args['--expected-routing-cli-sha'] !== undefined;
   exactKeys(args, [
     '--expected-source',
     '--instance',
     '--epoch',
     '--device-executable',
     '--expected-device-sha',
+    ...(routingRequested ? ['--routing-cli', '--expected-routing-cli-sha'] : []),
   ]);
   const live = await observeLiveOwner(root);
   if (
@@ -109,13 +128,24 @@ async function planUpdate(current, args) {
     current === live.plan.sourceCommit
   )
     throw Error('Exact distinct original owner/target required');
+  // Select the public tuple and reject incomplete/unknown input before copying either program.
+  const routingBuild = routingRequested
+    ? reviewedSymposiumRoutingDiagnosticBuild(
+        live.config.gateway.workloadImage,
+        'local-854b-routing-v1',
+      )
+    : undefined;
+  const routingInput = readOwnedRoutingArguments(args, routingBuild?.cliSha256);
   const empty = assertEmptyStagingUse(root, live),
     program = preparePinnedProgram(
       root,
       args['--device-executable'],
       args['--expected-device-sha'],
     ),
-    proposal = minimalConfig(live.config, program.pin),
+    routingProgram = routingInput
+      ? preparePinnedProgram(root, routingInput.executable, routingInput.sha256, 'routing-cli')
+      : undefined,
+    proposal = minimalConfig(live.config, program.pin, routingProgram),
     operation = randomUUID(),
     archive = join(root, 'service/owned-updates', operation);
   const value = {
@@ -128,6 +158,7 @@ async function planUpdate(current, args) {
     controlRecords: controls(join(root, 'service')),
     proposal,
     programMetadata: program.metadata,
+    ...(routingProgram ? { routingProgram } : {}),
     proposalSha256: hash(JSON.stringify(proposal, null, 2) + '\n'),
     archive,
   };
@@ -143,6 +174,12 @@ async function planUpdate(current, args) {
     instanceId: live.owner.instanceId,
     epoch: live.owner.epoch,
     deviceExecutableSha256: program.pin.sha256,
+    ...(routingProgram
+      ? {
+          routingCliSha256: routingProgram.pin.sha256,
+          supervisorImage: proposal.gateway.supervisorImage,
+        }
+      : {}),
     serviceControl: false,
     modelCalls: 0,
     productionActions: [],
@@ -162,11 +199,19 @@ function verifyPlan(current, p) {
     p.target !== current ||
     p.archive !== join(root, 'service/owned-updates', p.operation) ||
     hash(bytes(join(source, 'staging-release.json'))) !== p.controllerReceiptSha256 ||
-    !same(p.proposal, minimalConfig(p.live.config, p.proposal.personal.deviceLoginExecutable)) ||
+    !same(
+      p.proposal,
+      minimalConfig(p.live.config, p.proposal.personal.deviceLoginExecutable, p.routingProgram),
+    ) ||
     hash(JSON.stringify(p.proposal, null, 2) + '\n') !== p.proposalSha256
   )
     throw Error('Exact prepared update drift');
   assertPinnedProgram(root, p.proposal.personal.deviceLoginExecutable, p.programMetadata);
+  if (p.routingProgram !== undefined) {
+    if (!same(Object.keys(p.routingProgram).sort(), ['metadata', 'pin']))
+      throw Error('Exact routing program record required');
+    assertPinnedProgram(root, p.routingProgram.pin, p.routingProgram.metadata, 'routing-cli');
+  }
 }
 async function readFreshPrepared(p, started = false) {
   const { readOwnedReleasePlan, verifyOwnedRelease, verifyRetainedOwnedRelease } =
@@ -369,7 +414,7 @@ async function applyUpdate(current) {
       if (!same(await observeLiveOwner(root), p.live))
         throw Error('Original owner changed before retirement');
       if (accepted() !== current) throw Error('Main changed before control');
-      assertPinnedProgram(root, p.proposal.personal.deviceLoginExecutable, p.programMetadata);
+      verifyPlan(current, p);
       run('/bin/launchctl', ['kill', 'SIGTERM', 'gui/' + process.getuid() + '/com.mitzo.staging']);
     },
     async verifyRetired() {
