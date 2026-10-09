@@ -3,6 +3,11 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useMitzoStore } from '@mitzo/client/hooks';
 import type { BriefingSnapshot } from '@mitzo/protocol';
 import ReactMarkdown from 'react-markdown';
+import { remarkPlugins, rehypePlugins, markdownComponents } from '../lib/markdown-config';
+const briefingMarkdownComponents = {
+  ...markdownComponents,
+  h1: ({ children }: { children?: React.ReactNode }) => <h2>{children}</h2>,
+};
 import { apiFetch } from '../lib/api-fetch';
 import { briefingContext, parseBriefing, type BriefingSection } from '../lib/briefing';
 import { useHomePreferences } from '../hooks/useHomePreferences';
@@ -22,7 +27,13 @@ function Section({ section, expanded }: { section: BriefingSection; expanded: bo
     <details className={`briefing-section briefing-${section.kind}`} open={expanded}>
       <summary>{section.title}</summary>
       <div className="briefing-source">
-        <ReactMarkdown>{section.body}</ReactMarkdown>
+        <ReactMarkdown
+          remarkPlugins={remarkPlugins}
+          rehypePlugins={rehypePlugins}
+          components={briefingMarkdownComponents}
+        >
+          {section.body}
+        </ReactMarkdown>
       </div>
       {section.children.map((child, index) => (
         <Section key={index} section={child} expanded={expanded && child.kind !== 'jira'} />
@@ -158,6 +169,12 @@ export function BriefingView() {
         <p role="status">Loading saved briefing…</p>
       ) : (
         <>
+          {searchParams.get('revision') && searchParams.get('revision') !== snapshot.revision && (
+            <p role="status" className="workspace-muted">
+              This report is newer than the snapshot in your conversation. That conversation keeps
+              its original captured context.
+            </p>
+          )}
           <p className="workspace-muted">
             Assembled by the scheduled briefing job. {name} can help you explore this dated report.
           </p>
@@ -167,7 +184,13 @@ export function BriefingView() {
             <Link to="/calendar">Open calendar</Link>
           </div>
           <div className="briefing-source">
-            <ReactMarkdown>{outline.body}</ReactMarkdown>
+            <ReactMarkdown
+              remarkPlugins={remarkPlugins}
+              rehypePlugins={rehypePlugins}
+              components={briefingMarkdownComponents}
+            >
+              {outline.body}
+            </ReactMarkdown>
           </div>
           {outline.children.map((section, index) => (
             <Section

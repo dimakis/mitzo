@@ -73,6 +73,17 @@ it('shows all ten meetings and calendar first, folds supporting Jira without del
   const jira = screen.getAllByText('Participant Jira')[0].closest('details');
   expect(jira?.open).toBe(false);
   expect(fixtures.pending).not.toHaveBeenCalled();
+  expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
+});
+it('labels a regenerated report when an older conversation links to its date', async () => {
+  render(
+    <MemoryRouter initialEntries={['/briefings/2026-10-09?revision=older']}>
+      <Routes>
+        <Route path="/briefings/:date" element={<BriefingView />} />
+      </Routes>
+    </MemoryRouter>,
+  );
+  await waitFor(() => expect(screen.getByRole('status').textContent).toContain('newer'));
 });
 it('cancel leaves chat untouched; Use selection stages the exact report without sending', async () => {
   show();
