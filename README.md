@@ -993,8 +993,16 @@ no live upload schedule. See the [backup contract](docs/operations/icloud-ecosys
 
 Backups is available under Settings on desktop and More → Settings on mobile. It shows setup,
 coverage, durable recent runs and separately verified local capture and iCloud upload.
-The iCloud destination card opens a host setup guide for storage, encryption/recovery
-and verification; disabled actions explain their prerequisites.
+“Set up backups” opens an actionable wizard that prepares dedicated local/iCloud
+storage and verified backup tools on the Mac running Mitzo. Save a unique recovery
+password in Apple Passwords or your preferred manager, paste it into Mitzo, and
+confirm that you can retrieve it without this Mac. Mitzo stores its encryption copy
+in a repository-scoped Keychain entry; secrets never enter setup receipts or agent
+tools. Completing setup enables manual actions immediately and persists across
+restarts without editing environment variables. Remote password entry requires
+HTTPS. iCloud Drive and Swift command-line tools must be available on the Mac.
+Existing configured backups and retained locks are preserved; setup cannot replace
+an existing repository password. Disabled actions explain their prerequisites.
 An interactive operator can manually capture the Mitzo/Telos database group, encrypt
 and verify it with Restic, export it to iCloud and later check upload evidence.
 Host configuration and independent recovery confirmation are required before actions
