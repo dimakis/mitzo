@@ -115,6 +115,13 @@ it('registers only actual session account/model bindings and returns exact repor
   expect((await request(api).post('/api/home/briefing-chats').send(binding)).status).toBe(201);
   const query = `/api/home/briefing-chats?date=${binding.date}&revision=${binding.revision}`;
   expect((await request(api).get(query)).body).toEqual([expect.objectContaining(binding)]);
+  expect((await request(api).get('/api/home/briefing-chats?sessionId=registered')).body).toEqual([
+    expect.objectContaining(binding),
+  ]);
+  expect((await request(api).get('/api/home/briefing-chats?sessionId=missing')).body).toEqual([]);
+  expect((await request(api).get('/api/home/briefing-chats?sessionId=..%2Fescape')).status).toBe(
+    400,
+  );
   expect((await request(api).get(query.replace(binding.revision, 'b'.repeat(64)))).body).toEqual(
     [],
   );

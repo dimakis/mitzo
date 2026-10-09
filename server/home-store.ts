@@ -151,6 +151,10 @@ export class HomeStore {
       (chat) => chat.date === date && chat.revision === revision,
     );
   }
+  briefingChatForSession(sessionId: string): BriefingChatBinding[] {
+    if (!/^[\w.:-]{1,200}$/.test(sessionId)) throw new Error('Invalid session identity');
+    return this.read().briefingChats.filter((chat) => chat.sessionId === sessionId);
+  }
   registerBriefingChat(input: Omit<BriefingChatBinding, 'createdAt'>): BriefingChatBinding {
     const binding = briefingChatSchema.parse(input);
     const state = this.read();

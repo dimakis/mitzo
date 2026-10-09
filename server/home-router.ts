@@ -20,9 +20,7 @@ export function createHomeRouter(deps: {
   catalog: () => PhilosophyQuote[];
   briefing: (date: string) => BriefingSnapshot | null;
   changed?: () => void;
-  session?: (
-    id: string,
-  ) =>
+  session?: (id: string) =>
     | (Pick<SessionMeta, 'sessionType' | 'selectedModel'> & {
         accountBinding?: Pick<AccountBinding, 'accountId' | 'model'> | null;
       })
@@ -59,6 +57,19 @@ export function createHomeRouter(deps: {
     }
   });
   router.get('/briefing-chats', (req, res) => {
+    if (req.query.sessionId !== undefined) {
+      const sessionId = typeof req.query.sessionId === 'string' ? req.query.sessionId : '';
+      if (!/^[\w.:-]{1,200}$/.test(sessionId)) {
+        res.status(400).json({ error: 'Invalid session identity.' });
+        return;
+      }
+      try {
+        res.json(deps.session?.(sessionId) ? deps.store.briefingChatForSession(sessionId) : []);
+      } catch {
+        res.status(503).json({ error: 'Briefing conversation is unavailable. Retry.' });
+      }
+      return;
+    }
     const date = typeof req.query.date === 'string' ? req.query.date : '';
     const revision = typeof req.query.revision === 'string' ? req.query.revision : '';
     if (!validDate(date) || !/^[a-f0-9]{64}$/.test(revision)) {
@@ -95,14 +106,12 @@ export function createHomeRouter(deps: {
       }
       res.status(201).json(deps.store.registerBriefingChat(binding));
     } catch (error) {
-      res
-        .status(error instanceof ZodError ? 400 : 503)
-        .json({
-          error:
-            error instanceof ZodError
-              ? 'Invalid briefing conversation.'
-              : 'Could not save briefing conversation. Retry.',
-        });
+      res.status(error instanceof ZodError ? 400 : 503).json({
+        error:
+          error instanceof ZodError
+            ? 'Invalid briefing conversation.'
+            : 'Could not save briefing conversation. Retry.',
+      });
     }
   });
   router.get(['/quote', '/briefing'], (req, res) => {
