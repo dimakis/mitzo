@@ -26,7 +26,13 @@ function cssTextSources(source: string, filename: string): string[] {
     if (ts.isStringLiteralLike(node)) fragments.push(node.text);
     if (ts.isTemplateExpression(node)) {
       fragments.push(
-        [node.head.text, ...node.templateSpans.map((span) => span.literal.text)].join(' '),
+        [
+          node.head.text,
+          ...node.templateSpans.flatMap((span) => [
+            ts.isStringLiteralLike(span.expression) ? span.expression.text : '__dynamic_style__',
+            span.literal.text,
+          ]),
+        ].join(''),
       );
     }
     ts.forEachChild(node, visit);
@@ -115,6 +121,24 @@ describe('design tokens', () => {
       expect(
         styleViolations('const styles = `.page { font: var(--text-base) Arial; }`;', 'page.tsx'),
       ).toContain('font stack');
+    });
+
+    it('rejects literal font families supplied by template interpolation', () => {
+      expect(
+        styleViolations(
+          "const styles = `.page { font-family: ${'Arial,'} var(--font-ui); }`;",
+          'page.tsx',
+        ),
+      ).toContain('font stack');
+    });
+
+    it('allows an interpolated static token font family', () => {
+      expect(
+        styleViolations(
+          "const styles = `.page { font-family: ${'var(--font-ui)'}; }`;",
+          'page.tsx',
+        ),
+      ).toEqual([]);
     });
 
     it('allows token-based shorthand size and family', () => {
