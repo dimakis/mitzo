@@ -42,6 +42,7 @@ export interface RoutingCaptureInput {
   namespace: string;
   supervisorImage: string;
   assertCurrent(): Promise<void>;
+  gatewayInventory(): Promise<unknown>;
   inventory(): Promise<unknown>;
   imageId(containerId: string): Promise<unknown>;
   loggingFilter(containerId: string): Promise<unknown>;
@@ -67,6 +68,22 @@ export async function captureRoutingConsole(
     return result;
   };
   const select = async () => {
+    const gateway = await checked(input.gatewayInventory);
+    if (!Array.isArray(gateway) || !receipt.id)
+      throw Error('Routing observation gateway identity unavailable');
+    const gatewayMatches = gateway.filter(
+      (row) => row?.id === receipt.id || row?.name === receipt.name,
+    );
+    if (gatewayMatches.length !== 1) throw Error('Routing observation gateway identity ambiguous');
+    const sandbox = gatewayMatches[0];
+    if (
+      sandbox.id !== receipt.id ||
+      sandbox.name !== receipt.name ||
+      sandbox.workspace !== input.workspace ||
+      sandbox.labels?.['mitzo.discovery'] !== 'models' ||
+      sandbox.labels?.['mitzo.discovery.claim'] !== discoveryClaimLabel(receipt.claim)
+    )
+      throw Error('Routing observation gateway identity changed');
     const inventory = await checked(input.inventory);
     if (!Array.isArray(inventory) || !receipt.id)
       throw Error('Routing observation identity unavailable');
@@ -85,9 +102,7 @@ export async function captureRoutingConsole(
       'openshell.ai/sandbox-workspace': input.workspace,
       'openshell.ai/sandbox-namespace': input.namespace,
       'openshell.ai/isolation-role': 'supervisor',
-      'openshell.ai/managed': 'true',
-      'mitzo.discovery': 'models',
-      'mitzo.discovery.claim': discoveryClaimLabel(receipt.claim),
+      'openshell.managed': 'true',
     };
     const names = Array.isArray(row.Names)
       ? row.Names
