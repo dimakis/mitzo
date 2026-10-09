@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { EventEmitter } from 'node:events';
 import { execFileSync, type ChildProcess } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { createHash, generateKeyPairSync } from 'node:crypto';
 import {
   chmodSync,
+  readdirSync,
   linkSync,
   lstatSync,
   symlinkSync,
@@ -73,6 +74,9 @@ function fixture(
     },
     jwt: { signingKey: file('jwt-key'), publicKey: file('jwt-pub'), kid: file('jwt-kid') },
   };
+  const jwt = generateKeyPairSync('ed25519');
+  writeFileSync(options.jwt.signingKey, jwt.privateKey.export({ type: 'pkcs8', format: 'pem' }));
+  writeFileSync(options.jwt.publicKey, jwt.publicKey.export({ type: 'spki', format: 'pem' }));
   execFileSync(
     'openssl',
     [
@@ -664,4 +668,39 @@ it('the default macOS listener probes work in the canonical restricted PATH with
     systemProbe.async.mockReset();
     systemProbe.start.mockReset();
   }
+});
+
+describe('gateway signing key admission', () => {
+  it.each(['rsa', 'mismatch', 'malformed', 'empty-kid'])(
+    'refuses %s before allocating gateway material, issuer or child',
+    async (kind) => {
+      const f = fixture();
+      if (kind === 'rsa') {
+        const pair = generateKeyPairSync('rsa', { modulusLength: 2048 });
+        writeFileSync(
+          f.options.jwt.signingKey,
+          pair.privateKey.export({ type: 'pkcs8', format: 'pem' }),
+        );
+        writeFileSync(
+          f.options.jwt.publicKey,
+          pair.publicKey.export({ type: 'spki', format: 'pem' }),
+        );
+      } else if (kind === 'mismatch') {
+        writeFileSync(
+          f.options.jwt.publicKey,
+          generateKeyPairSync('ed25519').publicKey.export({ type: 'spki', format: 'pem' }),
+        );
+      } else if (kind === 'malformed')
+        writeFileSync(f.options.jwt.signingKey, 'private-bearer-secret');
+      else writeFileSync(f.options.jwt.kid, '  \n');
+      await expect(OwnedSymposiumGateway.launch(f.options, f.operations)).rejects.toThrow(
+        'Gateway signing material must be a matching Ed25519 pair with a nonempty key ID',
+      );
+      expect(f.operations.startIssuer).not.toHaveBeenCalled();
+      expect(f.operations.start).not.toHaveBeenCalled();
+      expect(readdirSync(f.options.stateParent).filter((n) => n.startsWith('gateway-'))).toEqual(
+        [],
+      );
+    },
+  );
 });
