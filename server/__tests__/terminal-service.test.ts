@@ -147,4 +147,11 @@ describe('operator terminals', () => {
     expect(backend.end).toHaveBeenCalledWith(expect.objectContaining({ id: next.id }));
     expect(service.get('operator-a', next.id).state).toBe('ended');
   });
+  it('does not exhaust running-shell capacity after failed starts', async () => {
+    for (let attempt = 0; attempt < 6; attempt++) {
+      vi.mocked(backend.start).mockRejectedValueOnce(Error('tmux missing'));
+      await expect(service.open('operator-a', {})).rejects.toThrow('could not be opened');
+    }
+    expect((await service.open('operator-a', {})).state).toBe('running');
+  });
 });

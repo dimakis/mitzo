@@ -124,8 +124,8 @@ export class TerminalService {
       return this.get(owner, existing.id);
     }
     if (
-      this.store.list(owner).filter((record) => record.state !== 'ended').length >= 5 ||
-      this.store.list().filter((record) => record.state !== 'ended').length >= 50
+      this.store.list(owner).filter((record) => record.state === 'running').length >= 5 ||
+      this.store.list().filter((record) => record.state === 'running').length >= 50
     )
       throw new Error('Terminal limit reached');
     const record: TerminalRecord = {
