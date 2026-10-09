@@ -14,7 +14,7 @@ import {
   createReadStream,
   constants,
 } from 'node:fs';
-import { mkdir, realpath, rm, readdir, lstat } from 'node:fs/promises';
+import { mkdir, realpath, rm, readdir, lstat, open } from 'node:fs/promises';
 import { join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import type { AccountBinding } from '@mitzo/protocol';
@@ -79,16 +79,30 @@ export async function repositorySourceDigest(directory: string): Promise<string>
         bytes += before.size;
         if (bytes > 128 * 1024 * 1024)
           throw new Error('Repository source exceeds supported bounds');
-        let readBytes = 0;
-        for await (const chunk of createReadStream(child, {
-          highWaterMark: 64 * 1024,
-          flags: constants.O_RDONLY | constants.O_NOFOLLOW,
-        })) {
-          readBytes += chunk.length;
-          if (readBytes > before.size) throw new Error('Repository source changed while reading');
-          hash.update(chunk);
+        const file = await open(child, constants.O_RDONLY | constants.O_NOFOLLOW);
+        try {
+          const opened = await file.stat();
+          if (
+            opened.dev !== before.dev ||
+            opened.ino !== before.ino ||
+            opened.size !== before.size ||
+            opened.mtimeMs !== before.mtimeMs
+          )
+            throw new Error('Repository source changed while reading');
+          let readBytes = 0;
+          for await (const chunk of createReadStream(child, {
+            highWaterMark: 64 * 1024,
+            fd: file.fd,
+            autoClose: false,
+          })) {
+            readBytes += chunk.length;
+            if (readBytes > before.size) throw new Error('Repository source changed while reading');
+            hash.update(chunk);
+          }
+          if (readBytes !== before.size) throw new Error('Repository source changed while reading');
+        } finally {
+          await file.close();
         }
-        if (readBytes !== before.size) throw new Error('Repository source changed while reading');
         const after = await lstat(child);
         if (
           before.ino !== after.ino ||
