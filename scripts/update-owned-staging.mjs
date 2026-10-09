@@ -18,6 +18,7 @@ import { bytes, hash, directory, inventory, git, run } from './lib/staging-cold-
 import { exclusive, sync, sealTree } from './lib/staging-cold-prepare.mjs';
 import { verifyPreparedController } from './lib/staging-cold-control.mjs';
 import { runOwnedStageUpgrade, archiveRetiredReservation } from './lib/owned-stage-upgrade.mjs';
+import { preparePinnedProgram, assertPinnedProgram } from './lib/owned-stage-program.mjs';
 import {
   observeLiveOwner,
   assertEmptyStagingUse,
@@ -82,27 +83,6 @@ function verifyControls(path, expected) {
 function minimalConfig(old, pin) {
   return { ...old, personal: { ...old.personal, deviceLoginExecutable: pin } };
 }
-async function prepareProgram(input, expected) {
-  if (!/^[a-f0-9]{64}$/.test(expected)) throw Error('Pinned public executable digest required');
-  const data = bytes(input),
-    s = lstatSync(input);
-  if (!(s.mode & 0o111) || s.size > 256 * 1024 * 1024 || hash(data) !== expected)
-    throw Error('Selected native sign-in program changed');
-  const parent = join(root, 'symposium/bin');
-  directory(parent);
-  const target = join(parent, 'codex-device-auth-' + expected.slice(0, 12));
-  if (lstatSync(target, { throwIfNoEntry: false })) {
-    if (hash(bytes(target)) !== expected || (lstatSync(target).mode & 0o777) !== 0o500)
-      throw Error('Private program collision');
-  } else {
-    exclusive(target, data);
-    const { chmodSync } = await import('node:fs');
-    chmodSync(target, 0o500);
-    sealTree(target);
-    sync(parent);
-  }
-  return { executable: target, sha256: expected };
-}
 async function planUpdate(current, args) {
   noLock();
   exactKeys(args, [
@@ -121,8 +101,12 @@ async function planUpdate(current, args) {
   )
     throw Error('Exact distinct original owner/target required');
   const empty = assertEmptyStagingUse(root, live),
-    pin = await prepareProgram(args['--device-executable'], args['--expected-device-sha']),
-    proposal = minimalConfig(live.config, pin),
+    program = preparePinnedProgram(
+      root,
+      args['--device-executable'],
+      args['--expected-device-sha'],
+    ),
+    proposal = minimalConfig(live.config, program.pin),
     operation = randomUUID(),
     archive = join(root, 'service/owned-updates', operation);
   const value = {
@@ -134,6 +118,7 @@ async function planUpdate(current, args) {
     empty,
     controlRecords: controls(join(root, 'service')),
     proposal,
+    programMetadata: program.metadata,
     proposalSha256: hash(JSON.stringify(proposal, null, 2) + '\n'),
     archive,
   };
@@ -148,7 +133,7 @@ async function planUpdate(current, args) {
     source: live.plan.sourceCommit,
     instanceId: live.owner.instanceId,
     epoch: live.owner.epoch,
-    deviceExecutableSha256: pin.sha256,
+    deviceExecutableSha256: program.pin.sha256,
     serviceControl: false,
     modelCalls: 0,
     productionActions: [],
@@ -169,11 +154,10 @@ function verifyPlan(current, p) {
     p.archive !== join(root, 'service/owned-updates', p.operation) ||
     hash(bytes(join(source, 'staging-release.json'))) !== p.controllerReceiptSha256 ||
     !same(p.proposal, minimalConfig(p.live.config, p.proposal.personal.deviceLoginExecutable)) ||
-    hash(JSON.stringify(p.proposal, null, 2) + '\n') !== p.proposalSha256 ||
-    hash(bytes(p.proposal.personal.deviceLoginExecutable.executable)) !==
-      p.proposal.personal.deviceLoginExecutable.sha256
+    hash(JSON.stringify(p.proposal, null, 2) + '\n') !== p.proposalSha256
   )
     throw Error('Exact prepared update drift');
+  assertPinnedProgram(root, p.proposal.personal.deviceLoginExecutable, p.programMetadata);
 }
 async function freshOwner(p) {
   const { readOwnedReleasePlan, verifyRetainedOwnedRelease } =
@@ -293,6 +277,7 @@ async function applyUpdate(current) {
       if (!same(await observeLiveOwner(root), p.live))
         throw Error('Original owner changed before retirement');
       if (accepted() !== current) throw Error('Main changed before control');
+      assertPinnedProgram(root, p.proposal.personal.deviceLoginExecutable, p.programMetadata);
       run('/bin/launchctl', ['kill', 'SIGTERM', 'gui/' + process.getuid() + '/com.mitzo.staging']);
     },
     async verifyRetired() {
