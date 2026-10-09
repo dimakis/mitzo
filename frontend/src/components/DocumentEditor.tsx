@@ -11,6 +11,7 @@ const DocumentSourceEditor = lazy(async () => ({
 
 interface Props {
   fullscreenStatus?: React.ReactNode;
+  historyResetKey?: number;
   markdownComponents?: Components;
   urlTransform?: UrlTransform;
   content: string;
@@ -251,7 +252,9 @@ export function DocumentEditor(props: Props) {
             )}
           </div>
         </div>
-        {fullscreen && props.fullscreenStatus}
+        {fullscreen && props.fullscreenStatus && (
+          <div className="document-editor-fullscreen-status">{props.fullscreenStatus}</div>
+        )}
         <div className="document-editor-panes">
           <div ref={sourcePane} className="document-editor-source" hidden={mode === 'preview'}>
             {useKeyboard ? (
@@ -259,6 +262,7 @@ export function DocumentEditor(props: Props) {
                 <DocumentSourceEditor
                   ref={source}
                   content={content}
+                  historyResetKey={props.historyResetKey}
                   ext={ext}
                   onChange={onChange}
                   saving={saving}

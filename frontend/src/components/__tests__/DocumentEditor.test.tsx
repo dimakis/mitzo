@@ -287,3 +287,58 @@ it('focuses keyboard source after Vim, view and fullscreen controls without movi
   fireEvent.click(screen.getByRole('button', { name: 'Exit fullscreen' }));
   expect(document.activeElement).toBe(fullscreen);
 });
+
+it('contains long fullscreen feedback in the scrolling status area with accessible recovery actions', () => {
+  const resolve = vi.fn();
+  render(
+    <DocumentEditor
+      content="my draft"
+      ext=".md"
+      onChange={vi.fn()}
+      saving={false}
+      onSave={vi.fn()}
+      undo={vi.fn()}
+      redo={vi.fn()}
+      canUndo={false}
+      canRedo={false}
+      fullscreenStatus={
+        <section aria-label="Latest saved version">
+          <pre>{'Latest saved document\n'.repeat(500)}</pre>
+          <button onClick={resolve}>Keep my draft for next save</button>
+        </section>
+      }
+    />,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Fullscreen' }));
+  const feedback = screen.getByRole('region', { name: 'Latest saved version' });
+  expect(feedback.parentElement?.className).toBe('document-editor-fullscreen-status');
+  expect(screen.getByRole('textbox', { name: 'Document source' })).toBeTruthy();
+  fireEvent.click(within(feedback).getByRole('button', { name: 'Keep my draft for next save' }));
+  expect(resolve).toHaveBeenCalledOnce();
+});
+
+it('passes an explicit history reset through even when document content is unchanged', async () => {
+  keyboardDevice();
+  const props = {
+    content: 'hello',
+    ext: '.md',
+    onChange: vi.fn(),
+    saving: false,
+    onSave: vi.fn(),
+    undo: vi.fn(),
+    redo: vi.fn(),
+    canUndo: false,
+    canRedo: false,
+    historyResetKey: 0,
+  };
+  const { rerender } = render(<DocumentEditor {...props} />);
+  const input = await screen.findByRole('textbox', { name: 'Document source' });
+  const view = EditorView.findFromDOM(input)!;
+  act(() => view.dispatch({ selection: { anchor: 0, head: 5 } }));
+  fireEvent.click(screen.getByRole('button', { name: 'Bold' }));
+  rerender(<DocumentEditor {...props} content="**hello**" />);
+  expect((screen.getByRole('button', { name: 'Undo' }) as HTMLButtonElement).disabled).toBe(false);
+  rerender(<DocumentEditor {...props} content="**hello**" historyResetKey={1} />);
+  expect(view.state.doc.toString()).toBe('**hello**');
+  expect((screen.getByRole('button', { name: 'Undo' }) as HTMLButtonElement).disabled).toBe(true);
+});
