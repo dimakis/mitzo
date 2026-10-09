@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer';
 import { generateKeyPairSync, randomUUID } from 'node:crypto';
 import { join, dirname, isAbsolute } from 'node:path';
 import { lstatSync, renameSync } from 'node:fs';
