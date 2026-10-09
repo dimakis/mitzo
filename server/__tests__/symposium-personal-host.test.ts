@@ -597,3 +597,29 @@ it('refuses stale routing selections before calling the diagnostic runner', asyn
   expect(diagnose).not.toHaveBeenCalled();
   expect(host.personalConnections.list()[0]).toEqual(row);
 });
+it.each([
+  { rawResponse: 'private response' },
+  { headers: { authorization: 'private token' } },
+  { diagnostic: { stage: 'account-read', rawError: 'private error' } },
+  {
+    networkObservation: {
+      source: 'owned-supervisor-console-v1',
+      availability: 'captured',
+      observations: [{ body: 'private body' }],
+    },
+  },
+])('rejects unexpected or malformed routing result before claiming cleanup: %j', async (extra) => {
+  const host = fixture(
+    undefined,
+    async () =>
+      ({ status: 'failed', inference: false, catalogPublication: false, ...extra }) as never,
+  );
+  const row = await connected(host, 'pro');
+  await expect(
+    host.personalConnections.diagnoseRouting(row.id, row.revision, () => {}),
+  ).rejects.toThrow('requires recovery');
+  expect(host.personalConnections.list()[0]).toMatchObject({
+    state: 'recovery_required',
+    modelDiscovery: 'reconciliation_required',
+  });
+});

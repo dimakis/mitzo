@@ -140,3 +140,26 @@ it('ends request authority after a completed response', async () => {
   ).toBe(422);
   expect(retained).toThrow('unavailable');
 });
+it.each([
+  { rawResponse: 'private response' },
+  { headers: { authorization: 'private token' } },
+  { diagnostic: { stage: 'account-read', rawError: 'private error' } },
+  {
+    connection: { id: 'pro-slot', revision: 7, state: 'connected', refreshToken: 'private token' },
+  },
+])('never serializes extra or malformed trusted diagnostic fields: %j', async (extra) => {
+  const { app, diagnose, cookie } = await fixture();
+  diagnose.mockResolvedValueOnce({
+    status: 'failed',
+    inference: false,
+    catalogPublication: false,
+    ...extra,
+  } as never);
+  const response = await request(app)
+    .post(path)
+    .set('Cookie', cookie)
+    .send({ expectedRevision: 7 });
+  expect(response.status).toBe(409);
+  expect(JSON.stringify(response.body)).not.toContain('private');
+  expect(response.body).not.toHaveProperty('status');
+});

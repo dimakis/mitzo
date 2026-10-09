@@ -1,6 +1,10 @@
 import type { SubscriptionLaunchIdentity } from './symposium-subscription-identity.js';
 import type { CatalogModel } from './model-catalog.js';
-import type { DiscoveryResult, RoutingDiagnosticResult } from './symposium-model-discovery.js';
+import {
+  RoutingDiagnosticResultSchema,
+  type DiscoveryResult,
+  type RoutingDiagnosticResult,
+} from './symposium-model-discovery.js';
 import { AccountProfiles } from './account-profiles.js';
 import { DeviceLoginCleanupError } from './symposium-device-login.js';
 import { PersonalConnections, type ConnectionSelection } from './symposium-personal-connections.js';
@@ -243,7 +247,7 @@ export function createPersonalSubscriptionHost(
           if (proof.account.planType !== 'pro')
             throw new Error('A live Personal Pro receipt is required');
           entered = true;
-          const result = await diagnose({
+          const rawResult = await diagnose({
             provider: proof.provider,
             account: proof.account,
             launchIdentity: () => {
@@ -260,12 +264,7 @@ export function createPersonalSubscriptionHost(
             assertCurrent,
           });
           assertCurrent();
-          if (
-            !['complete', 'failed', 'reconciliation_required'].includes(result.status) ||
-            result.inference !== false ||
-            result.catalogPublication !== false
-          )
-            throw new Error('Invalid routing diagnostic outcome');
+          const result = RoutingDiagnosticResultSchema.parse(rawResult);
           const connection = connections.finishDiscovery(
             lease,
             result.status !== 'reconciliation_required',
