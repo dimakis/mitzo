@@ -511,3 +511,63 @@ it('preserves dashboard edits when refresh makes the same legacy disabled scope 
     expect(api.updateDashboardAccess).toHaveBeenCalledWith('ha', 1, 'read-write', 'csrf'),
   );
 });
+
+it.each(['websocket', 'dashboard'])(
+  'preserves the other unsaved draft when saving %s setup',
+  async (setting) => {
+    const configured = {
+      ...homeAssistant,
+      homeAssistantDashboards: 'disabled' as const,
+      websocket: { path: '/api/socket', authentication: { kind: 'headers' as const } },
+    };
+    vi.mocked(api.getCredentialConnections).mockResolvedValue([configured]);
+    render(<CredentialConnectionsPanel connectionId="ha" />);
+    await screen.findByLabelText('WebSocket path for Home Assistant');
+    await authorize();
+    await waitFor(() =>
+      expect(
+        (screen.getByLabelText('Keychain setup passphrase') as HTMLInputElement).disabled,
+      ).toBe(false),
+    );
+    fireEvent.change(screen.getByLabelText('WebSocket path for Home Assistant'), {
+      target: { value: '/api/edited-socket' },
+    });
+    fireEvent.change(screen.getByLabelText('Dashboard API access for Home Assistant'), {
+      target: { value: 'read-write' },
+    });
+    const updated = {
+      ...configured,
+      revision: 2,
+      ...(setting === 'websocket'
+        ? { websocket: { ...configured.websocket, path: '/api/edited-socket' } }
+        : { homeAssistantDashboards: 'read-write' as const }),
+    };
+    const saved = async () => {
+      vi.mocked(api.getCredentialConnections).mockResolvedValue([updated]);
+      return updated;
+    };
+    vi.mocked(api.updateConnectionWebSocket).mockImplementation(saved);
+    vi.mocked(api.updateDashboardAccess).mockImplementation(saved);
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: setting === 'websocket' ? 'Save WebSocket setup' : 'Save dashboard access',
+      }),
+    );
+    await screen.findByText(
+      setting === 'websocket'
+        ? 'WebSocket setup updated. Each chat needs fresh approval.'
+        : 'Dashboard access updated. Each chat needs fresh approval.',
+    );
+    await waitFor(() =>
+      expect(
+        (screen.getByLabelText('Keychain setup passphrase') as HTMLInputElement).disabled,
+      ).toBe(false),
+    );
+    expect(
+      (screen.getByLabelText('WebSocket path for Home Assistant') as HTMLInputElement).value,
+    ).toBe('/api/edited-socket');
+    expect(
+      (screen.getByLabelText('Dashboard API access for Home Assistant') as HTMLSelectElement).value,
+    ).toBe('read-write');
+  },
+);

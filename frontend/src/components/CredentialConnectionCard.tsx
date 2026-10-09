@@ -29,17 +29,12 @@ export function CredentialConnectionCard({
 }) {
   const [websocket, setWebsocket] = useState(() => websocketDraft(connection.websocket));
   const savedWebsocket = JSON.stringify(connection.websocket ?? null);
-  const lastSavedWebsocket = useRef({
-    configuration: savedWebsocket,
-    revision: connection.revision,
-  });
+  const lastSavedWebsocket = useRef(savedWebsocket);
   useEffect(() => {
-    const previous = lastSavedWebsocket.current;
-    if (previous.configuration === savedWebsocket && previous.revision === connection.revision)
-      return;
-    lastSavedWebsocket.current = { configuration: savedWebsocket, revision: connection.revision };
+    if (lastSavedWebsocket.current === savedWebsocket) return;
+    lastSavedWebsocket.current = savedWebsocket;
     setWebsocket(websocketDraft(JSON.parse(savedWebsocket)));
-  }, [savedWebsocket, connection.revision]);
+  }, [savedWebsocket]);
   const [testPath, setTestPath] = useState(connection.paths[0]);
   const [sessions, setSessions] = useState<ConnectionSessionAccess[]>();
   const [rotating, setRotating] = useState(false);
@@ -48,17 +43,12 @@ export function CredentialConnectionCard({
     connection.homeAssistantDashboards ?? 'disabled',
   );
   const savedDashboardAccess = connection.homeAssistantDashboards ?? 'disabled';
-  const lastSavedDashboard = useRef({
-    access: savedDashboardAccess,
-    revision: connection.revision,
-  });
+  const lastSavedDashboard = useRef(savedDashboardAccess);
   useEffect(() => {
-    const previous = lastSavedDashboard.current;
-    if (previous.access === savedDashboardAccess && previous.revision === connection.revision)
-      return;
-    lastSavedDashboard.current = { access: savedDashboardAccess, revision: connection.revision };
+    if (lastSavedDashboard.current === savedDashboardAccess) return;
+    lastSavedDashboard.current = savedDashboardAccess;
     setDashboardAccess(savedDashboardAccess);
-  }, [savedDashboardAccess, connection.revision]);
+  }, [savedDashboardAccess]);
   const loadSessions = async () => setSessions(await getConnectionSessions(connection.id));
   return (
     <article className="connections-card">

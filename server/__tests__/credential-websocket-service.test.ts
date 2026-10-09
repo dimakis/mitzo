@@ -120,6 +120,17 @@ it('checks pending mode and cancellation again after asynchronous secret resolut
       new AbortController().signal,
       () => allowed,
     ),
-  ).rejects.toThrow();
+  ).rejects.toMatchObject({ mayHaveApplied: false });
+  expect(f.send).not.toHaveBeenCalled();
+});
+
+it('reports credential-resolution failures as unsent without leaking their error text', async () => {
+  const f = fixture();
+  const c = await f.service.create({ ...f.input, websocket: f.websocket }, { secret: 'fixture' });
+  f.service.grant('a', c.id, 1);
+  f.vault.read.mockRejectedValueOnce(new Error('fixture-private-token'));
+  await expect(
+    f.service.websocketRequest('a', c.id, { message: '{}' }, new AbortController().signal),
+  ).rejects.toMatchObject({ mayHaveApplied: false, message: 'WebSocket request failed' });
   expect(f.send).not.toHaveBeenCalled();
 });

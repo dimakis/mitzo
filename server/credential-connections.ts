@@ -437,11 +437,13 @@ export class CredentialConnections {
     const controllers = this.active.get(key) ?? new Set();
     controllers.add(controller);
     this.active.set(key, controllers);
+    let dispatched = false;
     try {
       const secret = await this.vault.read(c.credentialRef);
       check();
       if (!secret || /[\r\n]/.test(secret)) throw new Error('Credential unavailable');
       const headers = credentialHeaders(c.auth, secret);
+      dispatched = true;
       const body = await this.sendWebSocket(
         {
           url,
@@ -466,7 +468,7 @@ export class CredentialConnections {
       )
         throw error;
 
-      throw new ConnectionWebSocketError(true);
+      throw new ConnectionWebSocketError(dispatched);
     } finally {
       controllers.delete(controller);
       if (!controllers.size) this.active.delete(key);
