@@ -51,10 +51,14 @@ describe('useDraft', () => {
   });
   it('does not migrate an ordinary draft into the assigned repository conversation', () => {
     localStorage.setItem('mitzo-draft-new', 'ordinary unsent task');
+    const initialProps: { sessionId?: string; scope?: string } = {
+      sessionId: undefined,
+      scope: 'mitzo-repository-prompt:prep-a',
+    };
     const { result, rerender } = renderHook(
       ({ sessionId, scope }: { sessionId?: string; scope?: string }) =>
         useDraft(sessionId, 'Prepared task', scope),
-      { initialProps: { sessionId: undefined, scope: 'mitzo-repository-prompt:prep-a' } },
+      { initialProps },
     );
     act(() => result.current[2]());
     rerender({ sessionId: 'repository-chat', scope: undefined });

@@ -15,7 +15,7 @@ it('uses a preparation-owned storage key without changing runtime session identi
   vi.useFakeTimers();
   localStorage.setItem('mitzo-draft-new', 'ordinary draft\n keep these bytes');
   const onSend = vi.fn(() => true);
-  const { unmount } = render(
+  const { unmount, rerender } = render(
     <ChatInput
       onSend={onSend}
       onStop={vi.fn()}
@@ -30,6 +30,11 @@ it('uses a preparation-owned storage key without changing runtime session identi
   expect(localStorage.getItem('mitzo-draft-new')).toBe('ordinary draft\n keep these bytes');
   fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
   expect(onSend).toHaveBeenCalledWith('Reviewed task', undefined, undefined);
+  rerender(<ChatInput onSend={onSend} onStop={vi.fn()} running sessionId="assigned" />);
+  expect((screen.getByLabelText('Message Mitzo') as HTMLTextAreaElement).value).toBe('');
+  rerender(<ChatInput onSend={onSend} onStop={vi.fn()} running={false} sessionId="assigned" />);
+  expect(onSend).toHaveBeenCalledTimes(1);
+  expect(localStorage.getItem('mitzo-draft-assigned')).toBeNull();
   unmount();
   expect(localStorage.getItem('mitzo-repository-prompt:prep-a')).toBeNull();
   expect(localStorage.getItem('mitzo-draft-new')).toBe('ordinary draft\n keep these bytes');

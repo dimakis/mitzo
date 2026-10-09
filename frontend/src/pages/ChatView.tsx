@@ -2,6 +2,7 @@ import {
   savedRepositoryDraft,
   repositoryDraftKey,
   consumeRepositoryDraft,
+  repositoryPromptDraftKey,
 } from '../lib/repository-draft';
 import {
   RepositoryChatPicker,
@@ -555,6 +556,11 @@ export function ChatView() {
               onInterrupt={handleInterrupt}
               running={repositoryHandoff.present ? false : messages.running}
               initialText={initialPrompt}
+              draftStorageKey={
+                repositoryHandoff.present
+                  ? repositoryPromptDraftKey(repositoryHandoff.id ?? '')
+                  : undefined
+              }
               sendDisabledReason={
                 repositoryHandoffReason ??
                 (!activeSessionId && repositorySelection?.blocked

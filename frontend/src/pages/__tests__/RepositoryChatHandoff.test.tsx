@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { afterEach, expect, it, vi } from 'vitest';
@@ -8,6 +8,7 @@ import { createTestStore } from '../../test-utils/createTestStore';
 import { ChatView } from '../ChatView';
 import { DesktopChatView } from '../DesktopChatView';
 import { PREFERRED_MODEL_KEY } from '../../lib/model-preference';
+import { useDraft } from '../../hooks/useDraft';
 const api = vi.hoisted(() => ({ fetch: vi.fn() }));
 vi.mock('../../lib/api-fetch', () => ({ apiFetch: api.fetch, getApiBaseUrl: () => '' }));
 vi.mock('../../lib/keyboard', () => ({ onKeyboardToggle: () => () => {} }));
@@ -35,12 +36,16 @@ vi.mock('../../components/ChatInput', () => ({
     initialText,
     onSend,
     sendDisabledReason,
+    draftStorageKey,
+    sessionId,
   }: {
     initialText?: string;
     onSend(text: string): boolean;
     sendDisabledReason?: string;
+    draftStorageKey?: string;
+    sessionId?: string;
   }) => {
-    const [text, setText] = useState(initialText ?? '');
+    const [text, setText, clearDraft] = useDraft(sessionId, initialText, draftStorageKey);
     return (
       <>
         <input
@@ -49,10 +54,21 @@ vi.mock('../../components/ChatInput', () => ({
           onChange={(event) => setText(event.target.value)}
         />
         <span>{sendDisabledReason}</span>
-        <button disabled={!!sendDisabledReason} onClick={() => onSend(text)}>
+        <button
+          disabled={!!sendDisabledReason}
+          onClick={() => {
+            if (onSend(text)) clearDraft();
+          }}
+        >
           Send task
         </button>
-        <button onClick={() => onSend(text)}>Try send directly</button>
+        <button
+          onClick={() => {
+            if (onSend(text)) clearDraft();
+          }}
+        >
+          Try send directly
+        </button>
       </>
     );
   },
@@ -81,6 +97,7 @@ vi.mock('../../components/RepositoryChatPicker', () => ({
 }));
 const id = '8ca30b0d-3e65-4eeb-8244-f6277350818f';
 const otherId = 'aaaaaaaa-bbbb-4ccc-8ddd-121212121212';
+const ordinaryDraft = 'Unsent ordinary task\n  preserve these bytes';
 const preparation = {
   id,
   sourceConversationId: 'parent',
@@ -128,7 +145,8 @@ function fixture(View: typeof ChatView, active: string | null = null) {
     JSON.stringify({ accountId: 'other', model: 'sol' }),
   );
   localStorage.setItem(PREFERRED_MODEL_KEY, 'remembered-model');
-  render(
+  localStorage.setItem('mitzo-draft-new', ordinaryDraft);
+  const rendered = render(
     <MitzoStoreProvider value={store}>
       <MemoryRouter initialEntries={[`/chat?repositoryPreparation=${id}`]}>
         <Routes>
@@ -145,7 +163,7 @@ function fixture(View: typeof ChatView, active: string | null = null) {
       </MemoryRouter>
     </MitzoStoreProvider>,
   );
-  return { store, send, newSession };
+  return { store, send, newSession, unmount: rendered.unmount };
 }
 afterEach(() => {
   cleanup();
@@ -158,6 +176,76 @@ for (const [layout, View] of [
   ['mobile', ChatView],
   ['desktop', DesktopChatView],
 ] as const) {
+  it(`${layout}: restores edited preparation text after reload without consuming the ordinary draft`, async () => {
+    api.fetch.mockImplementation(
+      async (url: string) =>
+        new Response(
+          JSON.stringify(
+            url.includes('/chat-preparation') ? { repositoryChat: preparation } : accounts,
+          ),
+        ),
+    );
+    const first = fixture(View);
+    await waitFor(() =>
+      expect((screen.getByLabelText('Task draft') as HTMLInputElement).value).toBe(
+        preparation.prompt,
+      ),
+    );
+    fireEvent.change(screen.getByLabelText('Task draft'), {
+      target: { value: 'Edited before reload' },
+    });
+    first.unmount();
+    expect(localStorage.getItem('mitzo-draft-new')).toBe(ordinaryDraft);
+    const reopened = fixture(View);
+    await screen.findByText('example/repo');
+    expect((screen.getByLabelText('Task draft') as HTMLInputElement).value).toBe(
+      'Edited before reload',
+    );
+    expect(localStorage.getItem('mitzo-draft-new')).toBe(ordinaryDraft);
+    expect(reopened.send).not.toHaveBeenCalled();
+  });
+  it(`${layout}: isolates two preparation drafts while a previous route response arrives late`, async () => {
+    let complete!: (response: Response) => void;
+    api.fetch.mockImplementation(async (url: string) =>
+      url.includes('/chat-preparation') && !url.includes(otherId)
+        ? new Promise<Response>((resolve) => {
+            complete = resolve;
+          })
+        : new Response(
+            JSON.stringify(
+              url.includes('/chat-preparation')
+                ? {
+                    repositoryChat: {
+                      ...preparation,
+                      id: otherId,
+                      setupUrl: `/chat?repositoryPreparation=${otherId}`,
+                    },
+                  }
+                : accounts,
+            ),
+          ),
+    );
+    localStorage.setItem(`mitzo-repository-prompt:${id}`, 'Saved A');
+    localStorage.setItem(`mitzo-repository-prompt:${otherId}`, 'Saved B');
+    const { send } = fixture(View);
+    await waitFor(() => expect(api.fetch).toHaveBeenCalled());
+    expect((screen.getByLabelText('Task draft') as HTMLInputElement).value).toBe('Saved A');
+    fireEvent.change(screen.getByLabelText('Task draft'), { target: { value: 'Edit A' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Other preparation' }));
+    await screen.findByText('example/repo');
+    expect((screen.getByLabelText('Task draft') as HTMLInputElement).value).toBe('Saved B');
+    fireEvent.change(screen.getByLabelText('Task draft'), { target: { value: 'Edit B' } });
+    await act(async () => complete(new Response(JSON.stringify({ repositoryChat: preparation }))));
+    await waitFor(() =>
+      expect(localStorage.getItem(`mitzo-repository-prompt:${otherId}`)).toBe('Edit B'),
+    );
+    expect(localStorage.getItem(`mitzo-repository-prompt:${id}`)).toBe('Edit A');
+    expect(localStorage.getItem('mitzo-draft-new')).toBe(ordinaryDraft);
+    expect(screen.getByTestId('location').textContent).toBe(
+      `/chat?repositoryPreparation=${otherId}`,
+    );
+    expect(send).not.toHaveBeenCalled();
+  });
   it.each(['preparing', 'claiming'] as const)(
     `${layout}: explains the retained %s fence without starting another task`,
     async (state) => {
@@ -335,19 +423,30 @@ for (const [layout, View] of [
     expect(send).not.toHaveBeenCalled();
     expect(localStorage.getItem('mitzo-default-account-model')).toContain('other');
     expect(localStorage.getItem(PREFERRED_MODEL_KEY)).toBe('remembered-model');
+    expect(localStorage.getItem('mitzo-draft-new')).toBe(ordinaryDraft);
     fireEvent.change(screen.getByLabelText('Task draft'), { target: { value: 'Edited task' } });
+    await waitFor(() =>
+      expect(localStorage.getItem(`mitzo-repository-prompt:${id}`)).toBe('Edited task'),
+    );
+    expect(localStorage.getItem('mitzo-draft-new')).toBe(ordinaryDraft);
     fireEvent.click(screen.getByRole('button', { name: 'Send task' }));
     expect(send).toHaveBeenCalledWith(
       'Edited task',
       expect.objectContaining({ accountId: 'prepared', model: 'luna', repositoryWorkspaceId: id }),
     );
     expect(localStorage.getItem(PREFERRED_MODEL_KEY)).toBe('remembered-model');
+    expect(localStorage.getItem(`mitzo-repository-prompt:${id}`)).toBeNull();
+    expect(localStorage.getItem('mitzo-draft-new')).toBe(ordinaryDraft);
     act(() => {
       send.mock.calls[0][1].onSessionAssigned('assigned');
       store.setState({ sessions: { ...store.getState().sessions, active: 'assigned' } });
     });
     await waitFor(() => expect(screen.getByTestId('location').textContent).toBe('/chat/assigned'));
     await screen.findByText('Prepared');
+    expect((screen.getByLabelText('Task draft') as HTMLInputElement).value).toBe('');
+    expect(localStorage.getItem('mitzo-draft-new')).toBe(ordinaryDraft);
+    expect(localStorage.getItem('mitzo-draft-assigned')).toBeNull();
+    expect(send).toHaveBeenCalledTimes(1);
     expect(localStorage.getItem(PREFERRED_MODEL_KEY)).toBe('remembered-model');
     expect(localStorage.getItem('mitzo-default-account-model')).toContain('other');
   });

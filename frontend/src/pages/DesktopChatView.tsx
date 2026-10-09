@@ -2,6 +2,7 @@ import {
   savedRepositoryDraft,
   repositoryDraftKey,
   consumeRepositoryDraft,
+  repositoryPromptDraftKey,
 } from '../lib/repository-draft';
 import {
   RepositoryChatPicker,
@@ -532,6 +533,11 @@ export function DesktopChatView() {
                   onStop={handleStop}
                   onInterrupt={handleInterrupt}
                   running={repositoryHandoff.present ? false : messages.running}
+                  draftStorageKey={
+                    repositoryHandoff.present
+                      ? repositoryPromptDraftKey(repositoryHandoff.id ?? '')
+                      : undefined
+                  }
                   initialText={
                     repositoryHandoff.present
                       ? repositoryHandoff.preparation?.prompt
