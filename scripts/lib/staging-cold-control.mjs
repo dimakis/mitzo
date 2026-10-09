@@ -44,6 +44,10 @@ export function failedJob(root, s) {
 }
 export async function preparedCold(root, vacant = true) {
   const recovery = privateJson(join(root, 'service/cold-recovery.json'));
+  if (recovery.version === 2) {
+    const { verifyKeyRecovery } = await import('./staging-key-recovery.mjs');
+    return verifyKeyRecovery(root, recovery, vacant);
+  }
   if (
     recovery.version !== 1 ||
     recovery.archive !== join(root, 'service/cold-refusals', recovery.operation) ||

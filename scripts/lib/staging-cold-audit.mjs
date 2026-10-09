@@ -48,12 +48,13 @@ export function run(
     GIT_CONFIG_NOSYSTEM: '1',
     GIT_OPTIONAL_LOCKS: '0',
   },
+  timeout = 30000,
 ) {
   const p = spawnSync(program, args, {
     cwd,
     env,
     encoding: 'utf8',
-    timeout: 30000,
+    timeout,
     maxBuffer: 16 * 1024 * 1024,
   });
   if (p.status !== 0) throw Error('Read-only qualification refused: ' + program);
@@ -76,7 +77,7 @@ export function inventory(root) {
   walk(root);
   return out;
 }
-function counts(path, names, emptySchema = false) {
+export function counts(path, names, emptySchema = false) {
   const db = new Database(path, { readonly: true, fileMustExist: true });
   try {
     if (emptySchema) return db.prepare('SELECT name FROM sqlite_master').all().length === 0;

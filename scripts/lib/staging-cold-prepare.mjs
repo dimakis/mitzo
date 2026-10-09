@@ -31,7 +31,7 @@ export function sync(path) {
     closeSync(fd);
   }
 }
-function sealTree(path) {
+export function sealTree(path) {
   const s = lstatSync(path);
   if (s.isDirectory()) {
     for (const n of readdirSync(path)) sealTree(join(path, n));
