@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { CodexTurnUsage } from './codex-turn-usage.js';
+import { CodexTurnUsage, observedCodexUsage } from './codex-turn-usage.js';
 import type { StreamEvent } from '@mitzo/harness';
 import type { ProviderFailure } from '@mitzo/protocol';
 type ObjectValue = Record<string, unknown>;
@@ -21,6 +21,7 @@ export class CodexSessionEvents {
   private replayingReasoning = false;
   private reasoningReplayOffsets = new Map<string, number>();
   private turnFinished = false;
+  private activeTurnId?: string;
   private usage: CodexTurnUsage;
   constructor(
     private conversationId: string,
@@ -153,6 +154,7 @@ export class CodexSessionEvents {
       this.turnFinished = false;
       const turnId = object(params.turn).id;
       if (typeof turnId === 'string' && !this.startedTurns.has(turnId)) {
+        this.activeTurnId = turnId;
         this.startedTurns.add(turnId);
         this.usage.start(turnId);
         this.emit({
@@ -263,7 +265,10 @@ export class CodexSessionEvents {
       return;
     }
     if (method === 'thread/tokenUsage/updated') {
+      if (this.activeTurnId && params.turnId !== this.activeTurnId) return;
       this.usage.update(params);
+      const usage = observedCodexUsage(params);
+      if (usage) this.emit({ type: 'provider_usage', ...usage });
       return;
     }
     if (

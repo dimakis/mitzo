@@ -103,6 +103,7 @@ function mockTransport(): SessionTransport & { sent: Record<string, unknown>[] }
 function mockEventStore() {
   const store = {
     getEventsAfter: vi.fn().mockReturnValue([]),
+    getLatestEvent: vi.fn().mockReturnValue(null),
     getSessionPredecessorSeq: vi.fn().mockReturnValue(0),
     captureReconnectState: vi.fn(),
     getSession: vi.fn().mockReturnValue(null),
@@ -849,6 +850,37 @@ describe('handleUnwatch', () => {
 // ─── handleSwitchSession ─────────────────────────────────────────────────────
 
 describe('handleSwitchSession', () => {
+  it('rehydrates observed usage after the transcript boundary without advancing its cursor', async () => {
+    const eventStore = mockEventStore();
+    eventStore.getSession.mockReturnValue({ sessionId: 's1', mode: 'agent' });
+    eventStore.getLatestEvent.mockReturnValue({
+      seq: 10,
+      payload: {
+        v: 2,
+        type: 'token_update',
+        sessionId: 's1',
+        agentContext: 12300,
+        contextCeiling: 128000,
+        sessionTotal: 24600,
+        sessionTotalStatus: 'observed',
+        turnIndex: 1,
+      },
+    });
+    const ctx = createContext({
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+    await handleSwitchSession('c1', { type: 'switch_session', sessionId: 's1' }, ctx);
+    const usage = transport.sent.find((event) => event.type === 'token_update');
+    expect(usage).toMatchObject({
+      sessionId: 's1',
+      sessionTotal: 24600,
+      sessionTotalStatus: 'observed',
+    });
+    expect(usage).not.toHaveProperty('seq');
+  });
+
   it.each(['removed', 'closed'])(
     'restores approval ownership after switching away and reconnecting with a %s owner',
     async (oldOwner) => {

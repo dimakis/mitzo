@@ -23,10 +23,15 @@ describe('TokenBar', () => {
     expect(container.querySelector('.token-bar')).toBeNull();
   });
 
-  it('describes context occupancy without a visible text badge', () => {
+  it('keeps the control icon-only and reveals figures only when pressed', () => {
     render(<TokenBar tokenState={makeState({ agentContext: 87204, turnIndex: 1 })} />);
-    // Should show formatted token count
-    expect(screen.getByText(/87k/).className).toBe('sr-only');
+    expect(document.querySelector('.token-bar-label')).toBeNull();
+    expect(screen.queryByText('87,204 / 200,000')).toBeNull();
+    const button = screen.getByRole('button', { name: 'Token usage' });
+    expect(button.title).toBe('Token usage — press for details');
+    fireEvent.click(button);
+    expect(screen.getByText('87,204 / 200,000')).toBeTruthy();
+    expect(screen.getByText(/Context 87k\/200k/).className).toBe('sr-only');
     expect(document.querySelector('.token-wheel')).toBeTruthy();
   });
 
@@ -151,7 +156,11 @@ describe('context wheel', () => {
       expect(container.querySelector('.token-bar--unknown')).toBeTruthy();
       expect(container.querySelector('.token-wheel-fill')).toBeNull();
       fireEvent.click(screen.getByRole('button', { name: 'Token usage' }));
-      expect(screen.getByText('Not reported')).toBeTruthy();
+      expect(
+        screen.getByText(
+          overrides.agentContext > 0 ? '12,000 / limit not reported' : 'Not reported',
+        ),
+      ).toBeTruthy();
       expect(screen.queryByText('0 / 200,000')).toBeNull();
     },
   );
@@ -171,5 +180,39 @@ describe('context wheel', () => {
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(button.getAttribute('aria-expanded')).toBe('false');
     expect(screen.queryByText('Agent context')).toBeNull();
+  });
+});
+
+describe('measured native usage', () => {
+  afterEach(cleanup);
+  it('shows measured values without depending on a synthetic renderer turn', () => {
+    render(
+      <TokenBar
+        tokenState={makeState({
+          agentContext: 12300,
+          contextCeiling: 128000,
+          sessionTotal: 24600,
+          sessionTotalStatus: 'observed',
+        })}
+      />,
+    );
+    expect(screen.getByRole('button', { name: 'Token usage' })).toBeTruthy();
+    expect(document.querySelector('.token-bar-label')).toBeNull();
+    expect(screen.queryByText('12,300 / 128,000')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Token usage' }));
+    expect(screen.getByText('Session tokens (reported so far)')).toBeTruthy();
+    expect(screen.getByText('24,600')).toBeTruthy();
+  });
+  it('retains a measured context count when the ceiling is unavailable', () => {
+    render(
+      <TokenBar tokenState={makeState({ agentContext: 12300, contextCeiling: 0, turnIndex: 1 })} />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Token usage' }));
+    expect(screen.getByText('12,300 / limit not reported')).toBeTruthy();
+  });
+  it('does not display unknown session usage as a measured zero', () => {
+    render(<TokenBar tokenState={makeState({ turnIndex: 1, sessionTotalStatus: 'unknown' })} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Token usage' }));
+    expect(screen.getAllByText('Not reported')).toHaveLength(2);
   });
 });

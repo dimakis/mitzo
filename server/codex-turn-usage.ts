@@ -33,6 +33,26 @@ const Snapshot = z.object({
   tokenUsage: z.object({ total: Breakdown }),
 });
 
+/** Display-only observations. Neither a cumulative notification nor turn/completed
+ * proves a final turn charge. Cached input is already included in inputTokens.
+ */
+export function observedCodexUsage(params: unknown) {
+  const parsed = Snapshot.extend({
+    tokenUsage: z.object({
+      total: Breakdown,
+      last: Breakdown,
+      modelContextWindow: count.positive().nullable(),
+    }),
+  }).safeParse(params);
+  if (!parsed.success) return;
+  return {
+    agentContext: parsed.data.tokenUsage.last.totalTokens,
+    contextCeiling: parsed.data.tokenUsage.modelContextWindow ?? 0,
+    sessionTotal: parsed.data.tokenUsage.total.totalTokens,
+    sessionTotalStatus: 'observed' as const,
+  };
+}
+
 /** Upstream TokenUsageInfo appends completed response usage into total; last is
  * only one response. A resumed/forked thread has no trustworthy zero baseline.
  * This is accounting evidence only, never a native budget enforcement proof.

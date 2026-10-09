@@ -1146,24 +1146,32 @@
   white-space: pre-wrap;
 }
 
-/* A fixed touch target with a clockwise occupancy arc; details float above it. */
+/* Usage shares the trailing controls; narrow composers keep a touch-sized wheel. */
 .token-wheel-control {
-  position: static;
-  flex: 0 0 44px;
-  margin-left: auto;
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  margin-left: 0;
 }
 .chat-input .token-bar {
   display: inline-flex;
   justify-content: center;
   align-items: center;
-  width: 44px;
-  height: 44px;
+  box-sizing: border-box;
+  width: 40px;
+  height: 40px;
   padding: 0;
   margin: 0;
-  border: 0;
-  border-radius: 50%;
+  border: 1px solid var(--border);
+  border-radius: 9px;
   background: transparent;
   animation: none;
+}
+.token-wheel {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
 }
 .token-wheel-track {
   opacity: 0.18;
@@ -1178,17 +1186,34 @@
 }
 .token-wheel-control .token-bar-detail {
   right: 0;
-  width: min(260px, 100%);
+  width: min(300px, calc(100vw - 32px));
   min-width: 0;
   box-sizing: border-box;
 }
 @container (max-width: 520px) {
+  .chat-input--compact .token-bar {
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+  }
+  .token-wheel {
+    width: 24px;
+    height: 24px;
+  }
   .chat-input--compact .composer-session-trigger {
     width: 44px;
     padding: 0;
   }
   .composer-session-trigger .composer-toolbar-label {
     display: none;
+  }
+}
+@media (pointer: coarse) {
+  .chat-input .token-bar {
+    width: 44px;
+    height: 44px;
   }
 }
 @media (prefers-reduced-motion: reduce) {

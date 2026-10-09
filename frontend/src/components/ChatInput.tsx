@@ -427,7 +427,6 @@ export function ChatInput({
               />
             )}
           </div>
-          {tokenState && <TokenBar tokenState={tokenState} />}
           <div className="composer-actions">
             {micProps && <MicButton {...micProps} />}
             {running ? (
@@ -471,6 +470,7 @@ export function ChatInput({
                 <UiIcon name="send" />
               </button>
             )}
+            {tokenState && <TokenBar tokenState={tokenState} />}
           </div>
         </div>
       </div>

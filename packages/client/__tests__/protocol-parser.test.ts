@@ -1262,3 +1262,23 @@ it('preserves structured questions and the server deadline', () => {
     payload: expect.objectContaining({ questions, expiresAt: 1234, sessionId: 's1' }),
   });
 });
+
+it('retains native usage provenance in partial token updates', () => {
+  const result = parseServerMessage(
+    {
+      type: 'token_update',
+      agentContext: 12300,
+      contextCeiling: 128000,
+      turnIndex: 1,
+      sessionTotal: 24600,
+      sessionTotalStatus: 'observed',
+    },
+    makeState(),
+    makeCallbacks(),
+    POOL_KEY,
+  );
+  expect(result.tokensUpdate).toMatchObject({
+    sessionTotal: 24600,
+    sessionTotalStatus: 'observed',
+  });
+});

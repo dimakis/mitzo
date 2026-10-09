@@ -401,6 +401,7 @@ export function ConnectionsAccessView() {
   const connectedRow = useRef<HTMLElement>(null);
   const revealedId = useRef<string | null>(null);
   const opener = useRef<HTMLButtonElement | null>(null);
+  const restoreFocusPending = useRef(false);
   const refreshButton = useRef<HTMLButtonElement>(null);
   const addConnection = useRef<HTMLAnchorElement>(null);
   const [selectedResourceId, setSelectedResourceId] = useState<string | null>(null);
@@ -425,7 +426,13 @@ export function ConnectionsAccessView() {
     connectedRow.current.scrollIntoView?.({ block: 'center' });
   }, [connected]);
   useEffect(() => {
-    if (drawerOpen || !opener.current) return;
+    if (drawerOpen) {
+      restoreFocusPending.current = true;
+      return;
+    }
+    // A pending inventory effect can run after a click captures the opener but
+    // before the drawer opens. Only consume it after an actual open drawer.
+    if (!restoreFocusPending.current || !opener.current) return;
     if (!opener.current.isConnected && loading) return;
     // The page is no longer inert. Preserve the click target even when opening
     // the drawer caused the browser to blur it before the drawer mounted.
@@ -436,6 +443,7 @@ export function ConnectionsAccessView() {
         : addConnection.current;
     target?.focus();
     opener.current = null;
+    restoreFocusPending.current = false;
   }, [drawerOpen, loading]);
   useEffect(() => {
     if (selectedResourceId && inventory && !selection) setSelectedResourceId(null);

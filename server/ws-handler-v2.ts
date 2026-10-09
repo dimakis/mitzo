@@ -210,6 +210,13 @@ export function detectStateMismatch(
  * Hot path: in-memory ManagedSession cache.
  * Cold path: serialized JSON from EventStore (ended/restarted sessions).
  */
+/** Rehydrate display observations independently of the transcript cursor. */
+function sendTokenUsage(connectionId: string, sessionId: string, ctx: V2HandlerContext): void {
+  const latest = ctx.eventStore.getLatestEvent(sessionId, 'token_update');
+  if (!latest) return;
+  ctx.connRegistry.get(connectionId)?.transport.send({ ...latest.payload, sessionId });
+}
+
 function sendBootContext(connectionId: string, sessionId: string, ctx: V2HandlerContext): void {
   const conn = ctx.connRegistry.get(connectionId);
   if (!conn) return;
@@ -472,6 +479,7 @@ export function handleReconnect(
         // Re-send boot_context so pills reappear after reconnect.
         // Uses shared helper with hot (in-memory) + cold (EventStore) paths.
         sendBootContext(connectionId, entry.sessionId, ctx);
+        sendTokenUsage(connectionId, entry.sessionId, ctx);
 
         log.info('reconnect replay', {
           connectionId,
@@ -624,6 +632,7 @@ export async function handleSwitchSession(
       // Re-send boot_context so pills appear on session switch.
       // Uses shared helper with hot (in-memory) + cold (EventStore) paths.
       sendBootContext(connectionId, msg.sessionId, ctx);
+      sendTokenUsage(connectionId, msg.sessionId, ctx);
 
       log.info('switch_session', { connectionId, sessionId: msg.sessionId });
     },
