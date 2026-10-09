@@ -31,8 +31,12 @@ The gateway must already contain the reviewed `mitzo-openai-keychain-spike` prov
 The accepted CLI's create-only provider operation suffices: this path never updates an
 existing provider, and does not require the pending conditional-update CLI extension.
 New gateway providers and Keychain items receive unique names derived from a server-generated
-operation ID. The native Keychain helper uses create-only insertion; it cannot replace an
-existing entry. Normal macOS Keychain authorization may require an attended prompt.
+operation ID. The configured signed Mitzo Keychain helper uses create-only insertion; it cannot
+replace an existing entry. The same signed identity creates the item and verifies its
+receipt, so verification does not introduce a second Python-to-helper authorization
+step. The helper must be rebuilt from accepted source before this rollout. Creation
+and verification do not open desktop prompts; a locked Keychain requires attended
+unlocking on the Mac.
 
 Leave the database configured when disabling new enrollments. Its retained accounts and
 credential checks remain active independently of the browser switch. Missing, corrupt,

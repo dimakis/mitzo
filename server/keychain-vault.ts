@@ -37,7 +37,14 @@ export class KeychainUnavailableError extends Error {
 }
 type HelperRequest = VaultReference & {
   operation:
-    'save' | 'link' | 'read' | 'remove' | 'rotation-read' | 'rotation-write' | 'rotation-authorize';
+    | 'save'
+    | 'link'
+    | 'read'
+    | 'remove'
+    | 'rotation-read'
+    | 'rotation-write'
+    | 'rotation-authorize'
+    | 'rotation-create';
   secret?: string;
   authorization?: string;
   namespace?: string;
@@ -128,7 +135,7 @@ export class MacKeychainVault implements CredentialVault {
   }
   async rotateOpenAI(
     reference: { service: string; account: string },
-    operation: 'rotation-read' | 'rotation-write' | 'rotation-authorize',
+    operation: 'rotation-read' | 'rotation-write' | 'rotation-authorize' | 'rotation-create',
     extra: { secret?: string; version?: string; expectedVersion?: string | null } = {},
     signal?: AbortSignal,
   ) {

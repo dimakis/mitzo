@@ -71,6 +71,14 @@ with tempfile.TemporaryDirectory(prefix="mitzo-keychain-test-") as folder:
         assert call("read", service=external_service)["code"] == "item_missing", "linked credential changes require explicit re-enrollment"
         assert call("link", service=external_service)["persistentRef"] != pinned_ref
         # OpenAI rotation is authenticated separately and never searches the login Keychain.
+        enrollment_version = "1723ad40-4b97-41f4-902b-b01e39c9cd7d"
+        enrollment_service = "mitzo.openai.enrollment." + enrollment_version
+        controller["rotationItems"] = [{"service": enrollment_service, "account": "api-key"}]
+        controller_path.write_text(json.dumps(controller))
+        assert call("rotation-create", service=enrollment_service, account="api-key", secret="ENROLLMENT_KEY", version=enrollment_version) == {"ok": True}
+        assert call("rotation-read", service=enrollment_service, account="api-key") == {"ok": True, "value": "ENROLLMENT_KEY", "version": enrollment_version, "managed": True}
+        assert call("rotation-create", service=enrollment_service, account="api-key", secret="DUPLICATE", version=enrollment_version)["ok"] is False
+        assert call("rotation-read", service=enrollment_service, account="api-key")["value"] == "ENROLLMENT_KEY"
         rotation_service = "com.mitzo.openai.synthetic"
         subprocess.run(["security", "add-generic-password", "-a", "credential", "-s", rotation_service, "-w", "ROTATION_OLD", "-A", keychain], check=True, capture_output=True, timeout=30)
         pinned_ref = None

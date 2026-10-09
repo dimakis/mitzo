@@ -42,18 +42,22 @@ const nativeRun: Run = async (stdin, signal) => {
   try {
     const result = await vault.rotateOpenAI(
       { service: request.service, account: request.account },
-      request.action === 'read'
-        ? 'rotation-read'
-        : request.action === 'authorize'
-          ? 'rotation-authorize'
-          : 'rotation-write',
-      request.action === 'write'
-        ? {
-            secret: request.value,
-            version: request.version,
-            expectedVersion: request.expectedVersion,
-          }
-        : {},
+      request.action === 'create'
+        ? 'rotation-create'
+        : request.action === 'read'
+          ? 'rotation-read'
+          : request.action === 'authorize'
+            ? 'rotation-authorize'
+            : 'rotation-write',
+      request.action === 'create'
+        ? { secret: request.value, version: request.version }
+        : request.action === 'write'
+          ? {
+              secret: request.value,
+              version: request.version,
+              expectedVersion: request.expectedVersion,
+            }
+          : {},
       signal,
     );
     signal.throwIfAborted();
@@ -78,7 +82,7 @@ export class KeychainRotationCredentials implements VersionedKeychain {
   constructor(private readonly run: Run = nativeRun) {}
   private async request(
     reference: CredentialReference,
-    action: 'read' | 'write' | 'authorize',
+    action: 'read' | 'write' | 'authorize' | 'create',
     signal: AbortSignal,
     extra: Record<string, string | null> = {},
   ) {
@@ -95,6 +99,17 @@ export class KeychainRotationCredentials implements VersionedKeychain {
       if (error instanceof OpenAIKeychainAuthorizationRequired) throw error;
       throw new Error('Keychain unavailable');
     }
+  }
+  async create(
+    reference: CredentialReference,
+    value: string,
+    version: string,
+    signal: AbortSignal,
+  ) {
+    SecretValue.parse({ value, version });
+    z.object({ ok: z.literal(true) })
+      .strict()
+      .parse(await this.request(reference, 'create', signal, { value, version }));
   }
   async authorize(reference: CredentialReference, signal: AbortSignal) {
     z.object({ ok: z.literal(true) })

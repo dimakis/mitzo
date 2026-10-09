@@ -22,7 +22,7 @@ let data = FileHandle.standardInput.readData(ofLength: 65537)
 guard data.count <= 65536,
       let input = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
       let operation = input["operation"] as? String,
-      ["save", "link", "read", "remove", "rotation-read", "rotation-write", "rotation-authorize"].contains(operation),
+      ["save", "link", "read", "remove", "rotation-read", "rotation-write", "rotation-authorize", "rotation-create"].contains(operation),
       let service = input["service"] as? String, !service.isEmpty, service.count <= 256,
       let account = input["account"] as? String, !account.isEmpty, account.count <= 256
 else { reply(["ok": false, "code": "invalid_request"]) }
@@ -33,8 +33,8 @@ allowed.insert("testKeychain")
 allowed.insert("testController")
 #endif
 guard Set(input.keys).isSubset(of: allowed),
-      operation == "rotation-write" || (input["version"] == nil && input["expectedVersion"] == nil),
-      ["save", "rotation-write"].contains(operation) || input["secret"] == nil
+      ["rotation-write", "rotation-create"].contains(operation) || (input["version"] == nil && input["expectedVersion"] == nil),
+      ["save", "rotation-write", "rotation-create"].contains(operation) || input["secret"] == nil
 else { reply(["ok": false, "code": "invalid_request"]) }
 if ["save", "remove"].contains(operation) && !service.hasPrefix("mitzo.connection.") {
     reply(["ok": false, "code": "invalid_request"])
@@ -94,6 +94,27 @@ if operation.hasPrefix("rotation-") {
     query[kSecMatchSearchList as String] = [keychain]
     SecKeychainSetUserInteractionAllowed(false)
     #endif
+    if operation == "rotation-create" {
+        guard input["expectedVersion"] == nil,
+              let version = input["version"] as? String, let uuid = UUID(uuidString: version),
+              uuid.uuidString.lowercased() == version, service == "mitzo.openai.enrollment." + version,
+              account == "api-key", let secret = input["secret"] as? String,
+              !secret.isEmpty, secret.utf8.count <= 16384
+        else { reply(["ok": false, "code": "invalid_request"]) }
+        let value = Data(secret.utf8)
+        let fingerprint = SHA256.hash(data: value).map { String(format: "%02x", $0) }.joined()
+        var attributes = query
+        attributes[kSecValueData as String] = value
+        attributes[kSecAttrGeneric as String] = Data(("mitzo-openai-key-v1:" + version + ":" + fingerprint).utf8)
+        #if KEYCHAIN_TESTING
+        attributes.removeValue(forKey: kSecMatchSearchList as String)
+        attributes[kSecUseKeychain as String] = keychain
+        #endif
+        // The same signed identity creates and later reads this new item. Never overwrite a duplicate.
+        let status = SecItemAdd(attributes as CFDictionary, nil)
+        guard status == errSecSuccess else { failed(status) }
+        reply(["ok": true])
+    }
     var metadataQuery = query
     metadataQuery[kSecReturnAttributes as String] = true
     metadataQuery[kSecReturnPersistentRef as String] = true

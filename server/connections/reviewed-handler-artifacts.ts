@@ -65,7 +65,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../openai-account-enrollment.ts':
     '610827421850db26976f2e9a6c8552ea984e0b9bbd61621573fdb0f8fb0847f6',
   '../openai-account-enrollment-keychain.ts':
-    '2e75b1031b0006ef98334deef8a53890627af337c0fef8602de6e15b72c3b9d5',
+    '8bd52d66fc18bb9a573b3602f20eff4fdbdd9194ced1f30246d39584f4076cbe',
   '../openai-provider-enrollment-gateway.ts':
     '55f91240860c2f15d60a9fa491374cf74f30e06a4dbf75ec5ce6f321b9815991',
   '../openshell-key-api.ts': '45164e44c19a0d1c845a847ea3ccae625445d75c3d09fa32ca5ec86dd53e26a3',
@@ -73,13 +73,13 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '3ebca322e76e76771aaffbccabeda9ea1bb2945d672d9f9879d2665b584ca423',
   '../openai-key-gateway.ts': '995b4baf93843de1bc3e12b8a6be34d40f3937a5ffaea8b4f6cef2a64ab475c1',
   '../keychain-rotation-credentials.ts':
-    'e87293f92225402c4b1cd197f3a3fc7eb847c16c564d2150b5a42fa36a02acd2',
-  '../keychain-vault.ts': 'b654e1f1ab901395b7edec2249abae6374185b9c1131922a5ddd361632e8f12e',
+    '4c36d9edaca72c0fc2009032656cf2254b4f3c2fafbd4cf771fbe980944c0ba2',
+  '../keychain-vault.ts': '17a32a4e63621d623937033237cb10b6f1f87a30b0d88db5cd31888cbc4ce5a4',
   '../keychain-controller.ts': 'f5ecb380e2d6381ef8a0aedbb5e13ef2b5e551f8a245732a15dbd935abb8d449',
   '../keychain-helper-authority.ts':
     '1cdbc860589a90c531a9af779282c062bfcd4c1fb47f247374d0ca964593686d',
   '../../native/keychain-helper/main.swift':
-    '314159538e8ab9084ab8fb62a94871071a5c9f8d1ddf308fabe35208bfb952fb',
+    '316b7aaac1027f7f94d26e093edbe39a3ccac64236bd61702c32c47419f6edb1',
   '../openai-key-controller.ts': '721a1c6a513fc5380e4a2222927cda025bf8cbd7e8d49d8c5d526470e2cff217',
   '../connections-router.ts': 'cd0d3f49c776faa7f6f5adaa49c36ba2017703a47ce3fa9d51901e099d6adb5c',
   '../connections-service.ts': '1aae9d2c0da483ae798ba03d5804bfb0e81316f3f69666c6595befec3179c314',
