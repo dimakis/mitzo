@@ -978,6 +978,7 @@ ordinary main with providers disabled; Symposium activation requires the reviewe
 integration candidate and retained-owner configuration. Follow the
 [singleton staging contract](docs/operations/symposium-singleton-staging.md).
 For an accepted owned release, `scripts/prepare-staging-service.mjs ... 3190 --canonical` prepares the fixed `com.mitzo.staging` identity and rechecks the capacity-one registration at launch. Preparation does not activate it. macOS gateway listener checks use the explicit system `lsof` path within the restricted custodian environment. The original ordinary Node launcher may use its Homebrew symlink when the resolved executable matches; changed executables or arguments still refuse the transition.
+A narrow [pre-native refusal recovery](docs/operations/canonical-staging.md#qualified-refusal-before-native-startup) preserves the failed original reservation and requires a fully verified fresh same-label owner; ordinary lost custody stays fenced.
 The ordinary staging deployment controller cannot replace an active Symposium
 custodian; owned custody and original-owner drain must be qualified first.
 

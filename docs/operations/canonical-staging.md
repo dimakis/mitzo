@@ -211,3 +211,73 @@ fix does not grant retry, original-owner recovery or retirement authority.
 See the [bounded failed-launch record](evidence/canonical-staging-activation-refusal.json)
 for the named original operation. An empty observed native inventory is not an
 original-owner retirement receipt or permission to reclaim the reserved slot.
+
+## Qualified refusal before native startup
+
+The cold-refusal recovery is deliberately narrower than lost-custodian retirement.
+Its recognized historical source/compiled contract sets the parent's PATH to
+`/usr/bin:/bin` and synchronously invokes `lsof` before allocating a gateway
+launch directory, issuer, or process. On the same macOS boot, both lookup
+directories must reside on the sealed read-only root, contain no `lsof`, and the
+exact restricted probe must fail with `ENOENT`. That mandatory gate cannot pass.
+Empty inventory alone never qualifies recovery.
+
+The audit additionally requires the original failed transition, immutable source,
+complete prepared build/dependency receipt, exact non-running same-label job with
+one run and exit1, and a single zero-generation reservation without an instance.
+There must be no original owner, attestation, gateway launch directory, session
+artifact ledger, membership, sandbox, creation fence, native container or volume.
+The empty initial artifact file must have no schema. The private VM connection
+and sole canonical-root mount are verified. Any different source, later bootstrap
+footprint, reboot, extra job run, drift or ambiguous lookup remains fenced.
+
+From clean current accepted source, prepare an independent recovery controller:
+
+```sh
+node scripts/recover-staging-cold-refusal.mjs prepare-release \
+  --commit ACCEPTED_SHA --dependency-source AUDITED_CHECKOUT \
+  --expected-dependency-fingerprint AUDITED_CLOSURE_SHA256
+```
+
+This delegates only the accepted pure release builder while the original operation
+remains locked; it creates no backend. Run subsequent commands from that prepared
+canonical release, whose full source, compiled output and dependency receipt are
+verified before mutation:
+
+```sh
+node scripts/recover-staging-cold-refusal.mjs audit
+node scripts/recover-staging-cold-refusal.mjs prepare --expected-audit AUDIT_SHA256
+```
+
+Preparation exclusively preserves the complete service/workspace/gateway/registry
+evidence. Under the retained original lock it atomically moves the entire original
+reservation into `qualified_cold_refusals`, classified `pre_native_refused`, with
+its audit and archive binding. It does not fabricate an instance or native
+retirement. The original record remains available through the registry's read-only
+`qualifiedRefusals()` history. Partial preservation or transaction failure retains
+evidence and the lock; an existing archive is never overwritten.
+
+The old launch files and initial workspace/gateway state are retained in that
+private archive, leaving fresh canonical paths. VM supervision, Podman HOME,
+keys, configuration, original ordinary backup and production remain retained.
+Prepare fresh owned/service bundles through the existing canonical commands at
+that accepted source and independently selected baseline, then run:
+
+```sh
+node scripts/recover-staging-cold-refusal.mjs plan
+node scripts/recover-staging-cold-refusal.mjs activate
+```
+
+Plan checks exact new plist/environment, immutable inputs, empty fresh state,
+capacity-one disposition and the original stopped registration. Activate rechecks
+fresh accepted main and the plan, unloads only that stopped registration, installs
+the new same-label plist and starts once. It never kills a discovered PID, force
+restarts, restores an old launch, or repeats an uncertain start. Only the fresh
+original callback's parent/app identity, registry instance/epoch and loopback HTTP
+readiness permit release of the matching original lock. A failed new start stays
+fenced. Provider enrollment and Luna workflow acceptance remain separate.
+
+This recognized pre-native contradiction grants no generic recovery, adoption,
+cleanup or capacity reclamation for a launch that could have reached native
+creation. Historical sources outside the explicit contract and all repaired
+sources with a reachable listener probe remain subject to the lost-custody fence.
