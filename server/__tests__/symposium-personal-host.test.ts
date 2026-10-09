@@ -2,6 +2,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { RoutingDiagnosticResult } from '../symposium-model-discovery.js';
 import type { SymposiumSubscriptionHostOptions } from '../symposium-subscription-host.js';
 type FakeAdapter = {
   complete(plan?: 'plus' | 'pro'): void;
@@ -90,7 +91,12 @@ afterEach(() => {
 });
 function fixture(
   discover?: Parameters<typeof createPersonalSubscriptionHost>[2],
-  diagnose?: Parameters<typeof createPersonalSubscriptionHost>[3],
+  diagnose?: (
+    proof: Parameters<NonNullable<Parameters<typeof createPersonalSubscriptionHost>[3]>>[0],
+  ) => Promise<
+    | RoutingDiagnosticResult
+    | Awaited<ReturnType<NonNullable<Parameters<typeof createPersonalSubscriptionHost>[3]>>>
+  >,
 ) {
   const root = mkdtempSync(join(tmpdir(), 'personal-host-'));
   roots.push(root);
@@ -106,7 +112,12 @@ function fixture(
     },
     join(root, 'slots.json'),
     discover,
-    diagnose,
+    diagnose
+      ? async (proof) => {
+          const response = await diagnose(proof);
+          return 'result' in response ? response : { result: response };
+        }
+      : undefined,
   );
 }
 it('connects two independent accounts, rotates only explicit reconnect and fences removed account', async () => {
@@ -622,4 +633,68 @@ it.each([
     state: 'recovery_required',
     modelDiscovery: 'reconciliation_required',
   });
+});
+it('retains the exact diagnostic cleanup capability before invalidating admission and recovers without retrying diagnostics', async () => {
+  let clean = false;
+  const recover = vi.fn(async (assertCurrent: () => void) => {
+    assertCurrent();
+    return {
+      status: clean ? ('reconciled' as const) : ('reconciliation_required' as const),
+      inference: false as const,
+    };
+  });
+  const diagnose = vi.fn(
+    async () =>
+      ({
+        result: { status: 'reconciliation_required', inference: false, catalogPublication: false },
+        recover,
+      }) as never,
+  );
+  const host = fixture(undefined, diagnose),
+    row = await connected(host, 'pro');
+  expect(
+    (await host.personalConnections.diagnoseRouting(row.id, row.revision, () => {})).status,
+  ).toBe('reconciliation_required');
+  const pending = host.personalConnections.list()[0];
+  expect(pending).toMatchObject({ state: 'recovery_required', discoveryRecoveryAvailable: true });
+  expect(diagnose).toHaveBeenCalledOnce();
+  expect(recover).not.toHaveBeenCalled();
+  expect(
+    (await host.personalConnections.recoverDiscovery(row.id, pending.revision, () => {})).status,
+  ).toBe('reconciliation_required');
+  expect(state.adapters.get(row.id)!.disconnect).not.toHaveBeenCalled();
+  clean = true;
+  expect(
+    (await host.personalConnections.recoverDiscovery(row.id, pending.revision, () => {}))
+      .connection,
+  ).toMatchObject({ state: 'reauth_required' });
+  expect(recover).toHaveBeenCalledTimes(2);
+  expect(diagnose).toHaveBeenCalledOnce();
+  expect(state.adapters.get(row.id)!.disconnect).toHaveBeenCalledOnce();
+});
+it('retains diagnostic recovery even when operator authority expires after the native result returns', async () => {
+  let authorized = true;
+  const recover = vi.fn(async (check: () => void) => {
+    check();
+    return { status: 'reconciled' as const, inference: false as const };
+  });
+  const host = fixture(undefined, async () => {
+    authorized = false;
+    return {
+      result: { status: 'reconciliation_required', inference: false, catalogPublication: false },
+      recover,
+    } as never;
+  });
+  const row = await connected(host, 'pro');
+  await expect(
+    host.personalConnections.diagnoseRouting(row.id, row.revision, () => {
+      if (!authorized) throw new Error('revoked');
+    }),
+  ).rejects.toThrow('recovery');
+  const pending = host.personalConnections.list()[0];
+  expect(pending.discoveryRecoveryAvailable).toBe(true);
+  expect(
+    (await host.personalConnections.recoverDiscovery(row.id, pending.revision, () => {})).status,
+  ).toBe('reconciled');
+  expect(recover).toHaveBeenCalledOnce();
 });

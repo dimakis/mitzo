@@ -14,6 +14,10 @@ import {
 } from './symposium-subscription-host.js';
 import type { VerifySymposiumSubscriptionAuth } from './symposium-subscription-native.js';
 type DiscoveryRecovery = (assertCurrent: () => void) => Promise<DiscoveryResult>;
+export interface PersonalRoutingDiagnosticOutcome {
+  result: RoutingDiagnosticResult;
+  recover?: DiscoveryRecovery;
+}
 export interface PersonalDiscoveryProof {
   provider: { name: string; id: string };
   account: { email: string; planType: string };
@@ -30,7 +34,7 @@ export function createPersonalSubscriptionHost(
     models?: CatalogModel[];
     recover?: DiscoveryRecovery;
   }>,
-  diagnose?: (proof: PersonalDiscoveryProof) => Promise<RoutingDiagnosticResult>,
+  diagnose?: (proof: PersonalDiscoveryProof) => Promise<PersonalRoutingDiagnosticOutcome>,
 ) {
   const recoveries = new Map<
     string,
@@ -263,8 +267,20 @@ export function createPersonalSubscriptionHost(
             },
             assertCurrent,
           });
+          const result = RoutingDiagnosticResultSchema.parse(rawResult.result);
+          // The same-process cleanup closure is retained before admission
+          // invalidation, including a late operator revocation after return.
+          if (result.status === 'reconciliation_required' && rawResult.recover) {
+            if (typeof rawResult.recover !== 'function')
+              throw new Error('Invalid diagnostic recovery');
+            recoveries.set(id, {
+              revision: lease.revision + 1,
+              recover: rawResult.recover,
+              cleanupCredentials: () => lease.adapter.disconnect(),
+              discoveryClean: false,
+            });
+          }
           assertCurrent();
-          const result = RoutingDiagnosticResultSchema.parse(rawResult);
           const connection = connections.finishDiscovery(
             lease,
             result.status !== 'reconciliation_required',
