@@ -93,6 +93,7 @@ function PinEditor({
   onClose: () => void;
 }) {
   const [pins, setPins] = useState(initialPins);
+  const [revision, setRevision] = useState(home.preferences!.revision);
   const todos = useTodoData();
   const search = useSessionSearch();
   const [kind, setKind] = useState<'session' | 'telos'>('session');
@@ -120,7 +121,7 @@ function PinEditor({
     });
   }
   async function save(next: HomePin[]) {
-    if (await home.update({ pins: next })) onClose();
+    if (await home.update({ pins: next }, revision)) onClose();
   }
   return (
     <HomeDialog title={mode === 'manage' ? 'Manage pins' : 'Add pin'} onClose={onClose}>
@@ -232,7 +233,23 @@ function PinEditor({
           )}
         </>
       )}
-      {home.error && <p role="alert">{home.error}</p>}
+      {home.error && (
+        <div role="alert">
+          <p>{home.error}</p>
+          <button
+            type="button"
+            className="home-secondary"
+            onClick={() => {
+              if (home.preferences) {
+                setPins(home.preferences.pins);
+                setRevision(home.preferences.revision);
+              }
+            }}
+          >
+            Review current pins
+          </button>
+        </div>
+      )}
       <footer>
         <button className="home-secondary" type="button" onClick={onClose}>
           Cancel

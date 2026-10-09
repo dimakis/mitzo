@@ -69,9 +69,12 @@ describe('Today pins', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Remove First' }));
     fireEvent.click(screen.getByRole('button', { name: 'Save pins' }));
     await waitFor(() =>
-      expect(data.update).toHaveBeenCalledWith({
-        pins: [{ kind: 'telos', id: 'b', title: 'Second' }],
-      }),
+      expect(data.update).toHaveBeenCalledWith(
+        {
+          pins: [{ kind: 'telos', id: 'b', title: 'Second' }],
+        },
+        0,
+      ),
     );
   });
   it('lets Add pin choose a real existing session', async () => {
@@ -79,9 +82,12 @@ describe('Today pins', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Add pin' }));
     fireEvent.click(screen.getByRole('button', { name: 'Pin Third' }));
     await waitFor(() =>
-      expect(data.update).toHaveBeenCalledWith({
-        pins: [...data.preferences.pins, { kind: 'session', id: 'c', title: 'Third' }],
-      }),
+      expect(data.update).toHaveBeenCalledWith(
+        {
+          pins: [...data.preferences.pins, { kind: 'session', id: 'c', title: 'Third' }],
+        },
+        0,
+      ),
     );
   });
 });

@@ -31,6 +31,41 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 describe('home preferences', () => {
+  it('keeps a newer remote edit when the save response arrives after its refresh', async () => {
+    const original = data.preferences;
+    let reads = 0;
+    let resolveSave!: (value: unknown) => void;
+    data.fetch.mockImplementation(async (_url: string, options?: RequestInit) => {
+      if (options?.method === 'PUT')
+        return new Promise((resolve) => {
+          resolveSave = resolve;
+        });
+      if (++reads > 2) return new Promise(() => {});
+      return { ok: true, json: async () => data.preferences };
+    });
+    render(<HomePinButton pin={{ kind: 'session', id: 'session-1', title: 'Recovery' }} />);
+    await waitFor(() =>
+      expect(
+        (screen.getByRole('button', { name: 'Pin to Today' }) as HTMLButtonElement).disabled,
+      ).toBe(false),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Pin to Today' }));
+    data.preferences = { ...original, revision: 2, pins: [] };
+    await act(async () => {
+      window.dispatchEvent(new Event('mitzo-home-preferences-changed'));
+    });
+    await act(async () => {
+      resolveSave({
+        ok: true,
+        json: async () => ({
+          ...original,
+          revision: 1,
+          pins: [{ kind: 'session', id: 'session-1', title: 'Recovery' }],
+        }),
+      });
+    });
+    expect(screen.getByRole('button', { name: 'Pin to Today' })).toBeTruthy();
+  });
   it('clears a load error after a successful explicit retry', async () => {
     data.fetch.mockResolvedValueOnce({ ok: false });
     render(<MinionNameSettings />);

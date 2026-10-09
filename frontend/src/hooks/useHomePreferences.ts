@@ -78,7 +78,7 @@ export function useHomePreferences() {
   }, [reload]);
 
   const update = useCallback(
-    async (patch: HomePreferencePatch): Promise<boolean> => {
+    async (patch: HomePreferencePatch, expectedRevision?: number): Promise<boolean> => {
       if (!current.current || busy.current) return false;
       busy.current = true;
       setSaving(true);
@@ -89,7 +89,10 @@ export function useHomePreferences() {
         const response = await apiFetch('/api/home/preferences', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ revision: current.current.revision, ...patch }),
+          body: JSON.stringify({
+            revision: expectedRevision ?? current.current.revision,
+            ...patch,
+          }),
         });
         if (response.status === 409) {
           await reload();
@@ -99,8 +102,10 @@ export function useHomePreferences() {
         }
         if (!response.ok) throw new Error('Save failed');
         const result = readPreferences(await response.json());
-        if (mounted.current) setPreferences(result);
-        current.current = result;
+        if (!current.current || result.revision >= current.current.revision) {
+          current.current = result;
+          if (mounted.current) setPreferences(result);
+        }
         window.dispatchEvent(new Event(LOCAL_CHANGE));
         return true;
       } catch {
