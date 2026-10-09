@@ -173,7 +173,10 @@ export function DesktopChatView() {
     clearedSessionId.current = !sessionId ? activeSessionId : null;
     if (sessionId && sessionId !== activeSessionId) {
       storeSwitchSession(sessionId);
-    } else if (!sessionId && (activeSessionId || resetFailedDraftOnMount.current)) {
+    } else if (
+      !sessionId &&
+      (preparationId !== null || activeSessionId || resetFailedDraftOnMount.current)
+    ) {
       storeNewSession();
     }
   }, [sessionId, preparationId]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -313,7 +316,7 @@ export function DesktopChatView() {
       center={
         <div className="desktop-chat-center workspace-chat">
           <WorkspaceControls
-            attention={!!launch}
+            attention={!!launch || repositoryHandoff.present}
             summary={workspaceSummary}
             status={
               isSymposium
@@ -340,22 +343,26 @@ export function DesktopChatView() {
                   !
                 </span>
               )}
-              <AccountModelPicker
-                key={chatDraftRevision}
-                requiredSelection={
-                  !activeSessionId && repositoryHandoff.preparation
-                    ? {
-                        accountId: repositoryHandoff.preparation.accountId,
-                        model: repositoryHandoff.preparation.model,
-                      }
-                    : undefined
-                }
-                sessionId={activeSessionId}
-                preferredModel={modelState}
-                onChange={selectAccount}
-                onSummaryChange={setWorkspaceSummary}
-                disabled={messages.running || repositoryHandoff.loading}
-              />
+              {!repositoryHandoff.present || activeSessionId || repositoryHandoff.preparation ? (
+                <AccountModelPicker
+                  key={chatDraftRevision}
+                  requiredSelection={
+                    !activeSessionId && repositoryHandoff.preparation
+                      ? {
+                          accountId: repositoryHandoff.preparation.accountId,
+                          model: repositoryHandoff.preparation.model,
+                        }
+                      : undefined
+                  }
+                  sessionId={activeSessionId}
+                  preferredModel={modelState}
+                  onChange={selectAccount}
+                  onSummaryChange={setWorkspaceSummary}
+                  disabled={messages.running || repositoryHandoff.loading}
+                />
+              ) : (
+                <span>Waiting for repository preparation…</span>
+              )}
               {ordinaryControls && (
                 <>
                   <PermissionModePicker

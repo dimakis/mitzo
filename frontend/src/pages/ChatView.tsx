@@ -183,7 +183,10 @@ export function ChatView() {
     clearedSessionId.current = !sessionId ? activeSessionId : null;
     if (sessionId && sessionId !== activeSessionId) {
       storeSwitchSession(sessionId);
-    } else if (!sessionId && (activeSessionId || resetFailedDraftOnMount.current)) {
+    } else if (
+      !sessionId &&
+      (preparationId !== null || activeSessionId || resetFailedDraftOnMount.current)
+    ) {
       // Ignore the old ID while waiting for the new one, even when reset and
       // assignment are batched without an intermediate render.
       storeNewSession();
@@ -335,7 +338,7 @@ export function ChatView() {
           </button>
         </div>
         <WorkspaceControls
-          attention={!!launch}
+          attention={!!launch || repositoryHandoff.present}
           summary={workspaceSummary}
           status={
             isSymposium
@@ -350,22 +353,26 @@ export function ChatView() {
           }
         >
           <div className="chat-account-bar">
-            <AccountModelPicker
-              key={chatDraftRevision}
-              requiredSelection={
-                !activeSessionId && repositoryHandoff.preparation
-                  ? {
-                      accountId: repositoryHandoff.preparation.accountId,
-                      model: repositoryHandoff.preparation.model,
-                    }
-                  : undefined
-              }
-              disabled={messages.running || repositoryHandoff.loading}
-              sessionId={activeSessionId}
-              preferredModel={modelState}
-              onChange={selectAccount}
-              onSummaryChange={setWorkspaceSummary}
-            />
+            {!repositoryHandoff.present || activeSessionId || repositoryHandoff.preparation ? (
+              <AccountModelPicker
+                key={chatDraftRevision}
+                requiredSelection={
+                  !activeSessionId && repositoryHandoff.preparation
+                    ? {
+                        accountId: repositoryHandoff.preparation.accountId,
+                        model: repositoryHandoff.preparation.model,
+                      }
+                    : undefined
+                }
+                disabled={messages.running || repositoryHandoff.loading}
+                sessionId={activeSessionId}
+                preferredModel={modelState}
+                onChange={selectAccount}
+                onSummaryChange={setWorkspaceSummary}
+              />
+            ) : (
+              <span>Waiting for repository preparation…</span>
+            )}
           </div>
           <header className="chat-header">
             {!connected && (

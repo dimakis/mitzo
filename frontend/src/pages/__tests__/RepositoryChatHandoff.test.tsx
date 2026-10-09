@@ -108,8 +108,10 @@ function Location() {
 function fixture(View: typeof ChatView, active: string | null = null) {
   const store = createTestStore();
   const send = vi.fn();
+  const newSession = vi.fn(store.getState().newSession);
   store.setState({
     sendMessage: send,
+    newSession,
     sessions: { ...store.getState().sessions, active },
     connection: { status: 'connected', clientId: 'offline' },
   });
@@ -134,7 +136,7 @@ function fixture(View: typeof ChatView, active: string | null = null) {
       </MemoryRouter>
     </MitzoStoreProvider>,
   );
-  return { store, send };
+  return { store, send, newSession };
 }
 afterEach(() => {
   cleanup();
@@ -147,6 +149,62 @@ for (const [layout, View] of [
   ['mobile', ChatView],
   ['desktop', DesktopChatView],
 ] as const) {
+  it(`${layout}: does not select a fallback account while the handoff is loading`, async () => {
+    let complete!: (response: Response) => void;
+    api.fetch.mockImplementation(async (url: string) =>
+      url.includes('/chat-preparation')
+        ? new Promise<Response>((resolve) => {
+            complete = resolve;
+          })
+        : new Response(JSON.stringify(accounts)),
+    );
+    const { send } = fixture(View);
+    await waitFor(() => expect(api.fetch).toHaveBeenCalled());
+    expect(api.fetch.mock.calls.some(([url]) => url === '/api/accounts')).toBe(false);
+    fireEvent.click(screen.getByRole('button', { name: 'Try send directly' }));
+    expect(send).not.toHaveBeenCalled();
+    await act(async () => complete(new Response(JSON.stringify({ repositoryChat: preparation }))));
+  });
+  it(`${layout}: resets an unassigned draft on receipt navigation and ignores its late assignment`, async () => {
+    api.fetch.mockImplementation(
+      async (url: string) =>
+        new Response(
+          JSON.stringify(
+            url.includes('/chat-preparation')
+              ? {
+                  repositoryChat: url.includes(otherId)
+                    ? {
+                        ...preparation,
+                        id: otherId,
+                        prompt: 'Other saved task',
+                        setupUrl: `/chat?repositoryPreparation=${otherId}`,
+                      }
+                    : preparation,
+                }
+              : accounts,
+          ),
+        ),
+    );
+    const { send, newSession } = fixture(View);
+    await waitFor(() =>
+      expect(
+        (screen.getByRole('button', { name: 'Send task' }) as HTMLButtonElement).disabled,
+      ).toBe(false),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Send task' }));
+    const previous = newSession.mock.calls.length;
+    fireEvent.click(screen.getByRole('button', { name: 'Other preparation' }));
+    await waitFor(() =>
+      expect((screen.getByLabelText('Task draft') as HTMLInputElement).value).toBe(
+        'Other saved task',
+      ),
+    );
+    expect(newSession.mock.calls.length).toBe(previous + 1);
+    act(() => send.mock.calls[0][1].onSessionAssigned('stale-target'));
+    expect(screen.getByTestId('location').textContent).toBe(
+      `/chat?repositoryPreparation=${otherId}`,
+    );
+  });
   it(`${layout}: recovers the editable task and sends only the prepared binding after explicit Send`, async () => {
     api.fetch.mockImplementation(
       async (url: string) =>
