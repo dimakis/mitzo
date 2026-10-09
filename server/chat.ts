@@ -4222,6 +4222,26 @@ export function replayEventsToMessages(
         }
         break;
 
+      case 'error':
+        if (p.providerFailure) {
+          if (currentMsg && currentMsg.blocks.length > 0) messages.push(currentMsg);
+          currentMsg = null;
+          messages.push({
+            messageId: `provider-error-${evt.seq}`,
+            role: 'assistant',
+            timestamp: evt.createdAt,
+            startedSeq: evt.seq,
+            blocks: [
+              {
+                blockId: `provider-error-text-${evt.seq}`,
+                blockType: 'text',
+                content: `**Error:** ${publicProviderFailureMessage(p.providerFailure)}`,
+              },
+            ],
+          });
+        }
+        break;
+
       case 'message_end':
         if (currentMsg && currentMsg.blocks.length > 0) {
           messages.push(currentMsg);

@@ -1402,26 +1402,79 @@ it.each(['fetch', 'search'])('restores the error flag for a failed legacy web %s
   expect(messages[0].blocks[0]).toMatchObject({ toolError: true });
 });
 
-it('restores a safe account failure even when no assistant reply was produced', () => {
+it.each(['transcript', 'default history'] as const)(
+  'restores a safe account failure in %s even when no assistant reply was produced',
+  (path) => {
+    const events = [
+      { seq: 1, type: 'user_message', payload: { messageId: 'user-test', text: 'test' } },
+      {
+        seq: 2,
+        type: 'error',
+        payload: {
+          error: 'PRIVATE_UPSTREAM_TEXT',
+          providerFailure: {
+            category: 'authentication',
+            code: 'not_authorized_invalid_project',
+            message: 'PRIVATE_UPSTREAM_TEXT',
+          },
+        },
+      },
+      { seq: 3, type: 'session_end', payload: { terminalReason: 'failed' } },
+    ].map((event) => ({
+      ...event,
+      sessionId: 'failure-session',
+      createdAt: 1000,
+    })) as StoredEvent[];
+    const messages =
+      path === 'transcript'
+        ? replayEventsToTranscript(events).messages
+        : replayEventsToMessages(events);
+    expect(messages).toHaveLength(2);
+    expect(messages[1].blocks[0].content).toContain('project is unavailable or archived');
+    expect(JSON.stringify(messages)).not.toContain('PRIVATE_UPSTREAM_TEXT');
+  },
+);
+
+it('keeps a partial reply before its safe failure in default history without duplicating it', () => {
   const events = [
-    { seq: 1, type: 'user_message', payload: { messageId: 'user-test', text: 'test' } },
+    { seq: 1, type: 'user_message', payload: { messageId: 'u1', text: 'test' } },
+    { seq: 2, type: 'message_start', payload: { messageId: 'a1' } },
+    { seq: 3, type: 'block_start', payload: { messageId: 'a1', blockId: 'b1', blockType: 'text' } },
     {
-      seq: 2,
+      seq: 4,
+      type: 'block_delta',
+      payload: { messageId: 'a1', blockId: 'b1', delta: 'Partial reply' },
+    },
+    { seq: 5, type: 'block_end', payload: { messageId: 'a1', blockId: 'b1', blockType: 'text' } },
+    {
+      seq: 6,
       type: 'error',
       payload: {
         error: 'PRIVATE_UPSTREAM_TEXT',
-        providerFailure: {
-          category: 'authentication',
-          code: 'not_authorized_invalid_project',
-          message: 'PRIVATE_UPSTREAM_TEXT',
-        },
+        providerFailure: { category: 'transport', message: 'PRIVATE_UPSTREAM_TEXT' },
       },
     },
-    { seq: 3, type: 'session_end', payload: { terminalReason: 'failed' } },
+    { seq: 7, type: 'session_end', payload: { terminalReason: 'failed' } },
+    { seq: 8, type: 'user_message', payload: { messageId: 'u2', text: 'follow-up' } },
   ].map((event) => ({ ...event, sessionId: 'failure-session', createdAt: 1000 })) as StoredEvent[];
-  const restored = replayEventsToTranscript(events);
-  expect(restored.current).toBeNull();
-  expect(restored.messages).toHaveLength(2);
-  expect(restored.messages[1].blocks[0].content).toContain('project is unavailable or archived');
-  expect(JSON.stringify(restored)).not.toContain('PRIVATE_UPSTREAM_TEXT');
+  const messages = replayEventsToMessages(events);
+  expect(messages.map((message) => message.messageId)).toEqual([
+    'u1',
+    'a1',
+    'provider-error-6',
+    'u2',
+  ]);
+  expect(messages[1].blocks[0].content).toBe('Partial reply');
+  expect(messages[2]).toMatchObject({
+    role: 'assistant',
+    timestamp: 1000,
+    startedSeq: 6,
+    blocks: [
+      {
+        content:
+          '**Error:** The provider connection ended before the turn completed. This turn is saved.',
+      },
+    ],
+  });
+  expect(JSON.stringify(messages)).not.toContain('PRIVATE_UPSTREAM_TEXT');
 });
