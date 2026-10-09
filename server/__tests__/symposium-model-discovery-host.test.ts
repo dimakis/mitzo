@@ -685,7 +685,14 @@ it.each(['L', 'RL'] as const)(
         'openshell.ai/sandbox-workspace': 'work',
         'openshell.ai/sandbox-namespace': 'default',
         'openshell.ai/isolation-role': 'supervisor',
-        'openshell.ai/managed': 'true',
+        'openshell.managed': 'true',
+      },
+    };
+    const gatewayRow = {
+      id: receipt.id,
+      name: receipt.name,
+      workspace: config.workspace,
+      labels: {
         'mitzo.discovery': 'models',
         'mitzo.discovery.claim': discoveryClaimLabel(receipt.claim),
       },
@@ -693,7 +700,9 @@ it.each(['L', 'RL'] as const)(
     vi.mocked(execFile).mockImplementation(((...args: unknown[]) => {
       const argv = args[1] as string[];
       const callback = args[3] as (error: null, stdout: string, stderr: string) => void;
-      if (argv.includes('ps')) callback(null, JSON.stringify([row]), '');
+      if (argv[0] === 'sandbox' && argv.includes('list'))
+        callback(null, JSON.stringify({ sandboxes: [gatewayRow], next_page_token: '' }), '');
+      else if (argv.includes('ps')) callback(null, JSON.stringify([row]), '');
       else if (argv.includes('{{json .Image}}')) callback(null, JSON.stringify(image), '');
       else if (argv.includes('inspect')) callback(null, marker + '\n', '');
       else if (argv.includes('logs'))
@@ -719,8 +728,16 @@ it.each(['L', 'RL'] as const)(
     });
     const calls = vi.mocked(execFile).mock.calls;
     for (const call of calls) {
-      expect(call[0]).toBe(f.options.podman);
-      expect((call[1] as string[]).slice(0, 2)).toEqual(['--url', config.podmanUrl]);
+      const argv = call[1] as string[];
+      if (argv[0] === 'sandbox') {
+        expect(call[0]).toBe(f.options.cli);
+        expect(argv).toEqual(
+          expect.arrayContaining(['--gateway', config.gateway, '--workspace', config.workspace]),
+        );
+      } else {
+        expect(call[0]).toBe(f.options.podman);
+        expect(argv.slice(0, 2)).toEqual(['--url', config.podmanUrl]);
+      }
       expect(call[2]).toMatchObject({ env: f.options.environment });
     }
     const logs = calls.filter((call) => (call[1] as string[]).includes('logs'));

@@ -47,7 +47,18 @@ function setup() {
     </MemoryRouter>,
   );
 }
+const originalRangeRects = Object.getOwnPropertyDescriptor(Range.prototype, 'getClientRects');
+const originalRangeBounds = Object.getOwnPropertyDescriptor(
+  Range.prototype,
+  'getBoundingClientRect',
+);
 beforeEach(() => {
+  // CodeMirror measures ranges; jsdom provides no geometry implementation.
+  Object.defineProperty(Range.prototype, 'getClientRects', { configurable: true, value: () => [] });
+  Object.defineProperty(Range.prototype, 'getBoundingClientRect', {
+    configurable: true,
+    value: () => new DOMRect(),
+  });
   localStorage.clear();
   let createdDocuments = draft.documents;
   vi.mocked(apiFetch).mockImplementation(async (path, init) => {
@@ -81,6 +92,14 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  vi.unstubAllGlobals();
+  for (const [name, descriptor] of [
+    ['getClientRects', originalRangeRects],
+    ['getBoundingClientRect', originalRangeBounds],
+  ] as const) {
+    if (descriptor) Object.defineProperty(Range.prototype, name, descriptor);
+    else Reflect.deleteProperty(Range.prototype, name);
+  }
 });
 it('curates accepted documents by search and area and opens a read-only reader before Edit', async () => {
   setup();
@@ -115,6 +134,24 @@ it('Save durably creates a draft and opens review without exposing Git workflow'
     draft.review.url,
   );
   expect(screen.getByRole('button', { name: 'Accept changes' })).toBeTruthy();
+});
+it('shows save errors inside fullscreen while preserving the working copy', async () => {
+  const original = vi.mocked(apiFetch).getMockImplementation()!;
+  vi.mocked(apiFetch).mockImplementation(async (path, init) => {
+    if (path === '/api/knowledge/drafts') return response({ error: 'Could not save draft' }, false);
+    return original(path, init);
+  });
+  setup();
+  fireEvent.click(await findLibraryDocument(/Working principles/));
+  fireEvent.click(await screen.findByRole('button', { name: 'Edit' }));
+  fireEvent.change(await screen.findByRole('textbox', { name: 'Document source' }), {
+    target: { value: '# Keep my changes' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Fullscreen' }));
+  const fullscreen = within(screen.getByRole('dialog', { name: 'Fullscreen document editor' }));
+  fireEvent.click(fullscreen.getByRole('button', { name: 'Save' }));
+  await fullscreen.findByText('Could not save draft');
+  expect((fullscreen.getByRole('textbox') as HTMLTextAreaElement).value).toBe('# Keep my changes');
 });
 it('recovers unsaved work across remounts and preserves it on a review conflict', async () => {
   const first = setup();
@@ -1751,4 +1788,74 @@ it('cancels an unopened document Move without adding it to the existing working 
   expect(
     vi.mocked(apiFetch).mock.calls.some(([path]) => path.startsWith('/api/knowledge/document')),
   ).toBe(false);
+});
+it('clears keyboard undo when the saved conflict is adopted with matching selected text', async () => {
+  vi.stubGlobal(
+    'matchMedia',
+    vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+  );
+  const local = [{ ...draft.documents[0], content: '# Principles' }];
+  const remote = {
+    ...draft,
+    version: 2,
+    documents: [{ ...local[0], content: '**# Principles**' }],
+    review: { ...draft.review, version: 2, head: 'h2' },
+  };
+  localStorage.setItem(
+    'mitzo-knowledge-working-copy:',
+    JSON.stringify({
+      title: draft.title,
+      baseRevision: 'r1',
+      documents: local,
+      selected: local[0].path,
+      saved: JSON.stringify(local),
+      initialSaveConflict: remote,
+    }),
+  );
+  setup();
+  const input = await screen.findByRole('textbox', { name: 'Document source' });
+  const { EditorView } = await import('@codemirror/view');
+  const view = EditorView.findFromDOM(input)!;
+  act(() => view.dispatch({ selection: { anchor: 0, head: view.state.doc.length } }));
+  fireEvent.click(screen.getByRole('button', { name: 'Bold' }));
+  expect(view.state.doc.toString()).toBe(remote.documents[0].content);
+  expect((screen.getByRole('button', { name: 'Undo' }) as HTMLButtonElement).disabled).toBe(false);
+  fireEvent.click(screen.getByRole('button', { name: 'Keep my edits and update saved draft' }));
+  await waitFor(() =>
+    expect(
+      screen.queryByRole('region', { name: 'Compare saved draft and working copy' }),
+    ).toBeNull(),
+  );
+  expect(screen.getByRole('textbox', { name: 'Document source' })).toBe(input);
+  expect(view.state.doc.toString()).toBe(remote.documents[0].content);
+  expect((screen.getByRole('button', { name: 'Undo' }) as HTMLButtonElement).disabled).toBe(true);
+});
+
+it('reads first on a keyboard device and mounts the proper CodeMirror editor only after Edit', async () => {
+  vi.stubGlobal(
+    'matchMedia',
+    vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+  );
+  const { container } = setup();
+  fireEvent.click(await findLibraryDocument(/Working principles/));
+  await screen.findByRole('article', { name: 'Working principles' });
+  expect(container.querySelector('.cm-editor')).toBeNull();
+  expect(screen.queryByRole('textbox', { name: 'Document source' })).toBeNull();
+  expect(localStorage.getItem('mitzo-knowledge-working-copy:')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+  const input = await screen.findByRole('textbox', { name: 'Document source' });
+  expect(input.tagName).not.toBe('TEXTAREA');
+  expect(container.querySelector('.cm-editor')).toBeTruthy();
+  const { EditorView } = await import('@codemirror/view');
+  const editor = EditorView.findFromDOM(input)!;
+  expect(editor.state.doc.toString()).toBe('# Principles');
+  act(() => editor.dispatch({ selection: { anchor: 2, head: editor.state.doc.length } }));
+  fireEvent.click(screen.getByRole('button', { name: 'Bold' }));
+  expect(editor.state.doc.toString()).toBe('# **Principles**');
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  await screen.findByText('In review');
+  const saved = vi.mocked(apiFetch).mock.calls.find(([path]) => path === '/api/knowledge/drafts');
+  expect(JSON.parse(String(saved?.[1]?.body)).documents).toEqual([
+    { path: 'hub/principles.md', content: '# **Principles**' },
+  ]);
 });

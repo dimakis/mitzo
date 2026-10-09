@@ -240,6 +240,20 @@
   display: flex;
   min-width: 0;
 }
+.knowledge-library .document-editor-source {
+  min-height: 430px;
+}
+.knowledge-library .document-editor--fullscreen {
+  min-height: 0;
+  height: 100%;
+  border: 0;
+  border-radius: 0;
+}
+.knowledge-library .document-editor--fullscreen .document-editor-panes,
+.knowledge-library .document-editor--fullscreen .document-editor-source,
+.knowledge-library .document-editor--fullscreen .viewer-editor {
+  min-height: 0;
+}
 .knowledge-library .viewer-editor {
   flex: 1;
   width: 100%;

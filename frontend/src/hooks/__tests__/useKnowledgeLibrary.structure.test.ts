@@ -1016,3 +1016,35 @@ it('preserves the frozen creation and folders if an exact replay acknowledges a 
   expect(result.current.copy?.initialSaveConflict?.version).toBe(2);
   expect(fetch.mock.calls.some(([url]) => url.endsWith('/cancel'))).toBe(false);
 });
+it('resets editor history when explicitly reopening a moved document while retaining text and folder operations', async () => {
+  const { result } = renderHook(useKnowledgeLibrary);
+  await waitFor(() => expect(result.current.catalog).toBeTruthy());
+  await act(async () => {
+    await result.current.openDocument(catalog.documents[0]);
+  });
+  act(() => result.current.change('first edit'));
+  act(() => result.current.moveDocument('knowledge/a.md', 'knowledge/new/a.md'));
+  act(() => result.current.change('retained edit'));
+  act(() => result.current.createDirectory('knowledge/empty'));
+  const initial = result.current.historyResetKey;
+  expect(result.current.canUndo).toBe(true);
+  fetch.mockClear();
+  await act(async () => {
+    expect(
+      await result.current.openDocument({
+        path: 'knowledge/new/a.md',
+        title: 'A',
+        area: 'knowledge',
+      }),
+    ).toBe(true);
+  });
+  expect(result.current.historyResetKey).toBeGreaterThan(initial);
+  expect(result.current.canUndo).toBe(false);
+  expect(result.current.selected).toMatchObject({
+    path: 'knowledge/new/a.md',
+    sourcePath: 'knowledge/a.md',
+    content: 'retained edit',
+  });
+  expect(result.current.pendingDirectories).toEqual(['knowledge/empty']);
+  expect(fetch).not.toHaveBeenCalled();
+});
