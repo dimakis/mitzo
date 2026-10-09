@@ -95,6 +95,8 @@ it('supports a staged dialog without mutating aliases or browser defaults', asyn
   expect(screen.queryByText('Make default for new chats')).toBeNull();
   expect(screen.queryByRole('button', { name: 'Edit account alias' })).toBeNull();
   expect(screen.queryByRole('button', { name: 'Use Work Vertex · Sonnet' })).toBeNull();
+  expect(screen.getByText('Account').tagName).toBe('SPAN');
+  expect(screen.getByText('Model').tagName).toBe('SPAN');
   fireEvent.change(screen.getByLabelText('Account'), { target: { value: 'other' } });
   expect(onChange).toHaveBeenLastCalledWith({ accountId: 'other', model: 'haiku' });
   expect(localStorage.getItem('mitzo-default-account-model')).toBeNull();

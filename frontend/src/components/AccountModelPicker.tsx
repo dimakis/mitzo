@@ -1,6 +1,6 @@
 import { getDefaultAccountModel, setDefaultAccountModel } from '../lib/account-preference';
 import { SymposiumPersonalConnections } from './SymposiumPersonalConnections';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { z } from 'zod';
 import { apiFetch } from '../lib/api-fetch';
 import type { WorkspaceSummary } from '../types/workspace';
@@ -52,6 +52,26 @@ function withThinking(selection: AccountSelection, account: Account): AccountSel
     model: selection.model,
     ...(effort && model?.reasoningEfforts?.includes(effort) ? { reasoningEffort: effort } : {}),
   };
+}
+
+/** Visible form labels belong to staged dialogs; inline chat controls keep their geometry. */
+function PickerField({
+  label,
+  visible,
+  children,
+}: {
+  label: string;
+  visible: boolean;
+  children: ReactNode;
+}) {
+  return visible ? (
+    <label className="account-model-field">
+      <span>{label}</span>
+      {children}
+    </label>
+  ) : (
+    <>{children}</>
+  );
 }
 
 /** Catalog refreshes and draft confirmation belong to one conversation. */
@@ -435,35 +455,37 @@ function SessionAccountModelPicker({
       ) : legacy ? (
         <span>Legacy server account</span>
       ) : (
-        <select
-          disabled={disabled || !!requiredSelection}
-          aria-label="Account"
-          className="chat-model-select"
-          value={account.id}
-          onChange={(e) => {
-            setEditingAlias(false);
-            const nextAccount = accounts.find((a) => a.id === e.target.value)!;
-            const next = withThinking(
-              { accountId: nextAccount.id, model: nextAccount.models[0].id },
-              nextAccount,
-            );
-            setDraftUnavailable(false);
-            setNeedsConfirmation(false);
-            setSelection(next);
-            onChange(explicitSelection ? null : next);
-          }}
-        >
-          {!accounts.some((a) => a.id === account.id) && (
-            <option value={account.id} disabled>
-              {account.label}
-            </option>
-          )}
-          {accounts.map((a) => (
-            <option key={a.id} value={a.id}>
-              {a.label}
-            </option>
-          ))}
-        </select>
+        <PickerField label="Account" visible={draftOnly}>
+          <select
+            disabled={disabled || !!requiredSelection}
+            aria-label="Account"
+            className="chat-model-select"
+            value={account.id}
+            onChange={(e) => {
+              setEditingAlias(false);
+              const nextAccount = accounts.find((a) => a.id === e.target.value)!;
+              const next = withThinking(
+                { accountId: nextAccount.id, model: nextAccount.models[0].id },
+                nextAccount,
+              );
+              setDraftUnavailable(false);
+              setNeedsConfirmation(false);
+              setSelection(next);
+              onChange(explicitSelection ? null : next);
+            }}
+          >
+            {!accounts.some((a) => a.id === account.id) && (
+              <option value={account.id} disabled>
+                {account.label}
+              </option>
+            )}
+            {accounts.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.label}
+              </option>
+            ))}
+          </select>
+        </PickerField>
       )}
       {scope === 'chat' && !legacy && !draftOnly && (
         <button
@@ -523,54 +545,58 @@ function SessionAccountModelPicker({
           {aliasError && <span role="alert">{aliasError}</span>}
         </form>
       )}
-      <select
-        disabled={disabled || !!requiredSelection}
-        aria-label="Model"
-        className="chat-model-select"
-        value={selection.model}
-        onChange={(e) => {
-          const next = withThinking(
-            { accountId: selection.accountId, model: e.target.value },
-            account,
-          );
-          setDraftUnavailable(false);
-          setSelection(next);
-          onChange(explicitSelection || needsConfirmation ? null : next);
-        }}
-      >
-        {!account.models.some((m) => m.id === selection.model) && (
-          <option value={selection.model} disabled>
-            {selection.model} (unavailable)
-          </option>
-        )}
-        {account.models.map((m) => (
-          <option key={m.id} value={m.id}>
-            {m.label}
-          </option>
-        ))}
-      </select>
-      {!!account.models.find((m) => m.id === selection.model)?.reasoningEfforts?.length && (
+      <PickerField label="Model" visible={draftOnly}>
         <select
-          aria-label="Thinking"
+          disabled={disabled || !!requiredSelection}
+          aria-label="Model"
           className="chat-model-select"
-          disabled={disabled}
-          value={selection.reasoningEffort ?? ''}
+          value={selection.model}
           onChange={(e) => {
-            const next = { ...selection };
-            next.reasoningEffort = e.target.value || null;
+            const next = withThinking(
+              { accountId: selection.accountId, model: e.target.value },
+              account,
+            );
+            setDraftUnavailable(false);
             setSelection(next);
             onChange(explicitSelection || needsConfirmation ? null : next);
           }}
         >
-          <option value="">Model default</option>
-          {account.models
-            .find((m) => m.id === selection.model)
-            ?.reasoningEfforts?.map((effort) => (
-              <option key={effort} value={effort}>
-                Thinking: {effort}
-              </option>
-            ))}
+          {!account.models.some((m) => m.id === selection.model) && (
+            <option value={selection.model} disabled>
+              {selection.model} (unavailable)
+            </option>
+          )}
+          {account.models.map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.label}
+            </option>
+          ))}
         </select>
+      </PickerField>
+      {!!account.models.find((m) => m.id === selection.model)?.reasoningEfforts?.length && (
+        <PickerField label="Thinking" visible={draftOnly}>
+          <select
+            aria-label="Thinking"
+            className="chat-model-select"
+            disabled={disabled}
+            value={selection.reasoningEffort ?? ''}
+            onChange={(e) => {
+              const next = { ...selection };
+              next.reasoningEffort = e.target.value || null;
+              setSelection(next);
+              onChange(explicitSelection || needsConfirmation ? null : next);
+            }}
+          >
+            <option value="">Model default</option>
+            {account.models
+              .find((m) => m.id === selection.model)
+              ?.reasoningEfforts?.map((effort) => (
+                <option key={effort} value={effort}>
+                  Thinking: {effort}
+                </option>
+              ))}
+          </select>
+        </PickerField>
       )}
       {account.modelDiscovery?.stale && (
         <span role="status">Model refresh failed. Showing the last available list.</span>

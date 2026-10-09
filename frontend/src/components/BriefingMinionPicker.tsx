@@ -57,16 +57,18 @@ export function BriefingMinionPicker({
             : 'Default preference: Work OpenAI, when configured. Review the account and model below.'}
       </p>
       <div className="briefing-minion-picker">
-        <AccountModelPicker
-          sessionId={null}
-          preferredModel={getPreferredModel()}
-          onChange={setSelection}
-          onSummaryChange={setSummary}
-          initialSelection={initialSelection}
-          draftOnly
-          preferWorkOpenAI
-          disabled={saving}
-        />
+        <div className="account-model-picker">
+          <AccountModelPicker
+            sessionId={null}
+            preferredModel={getPreferredModel()}
+            onChange={setSelection}
+            onSummaryChange={setSummary}
+            initialSelection={initialSelection}
+            draftOnly
+            preferWorkOpenAI
+            disabled={saving}
+          />
+        </div>
       </div>
       {summary && (
         <p className="workspace-muted">
@@ -76,10 +78,11 @@ export function BriefingMinionPicker({
       )}
       {error && <p role="alert">{error}</p>}
       <div className="briefing-actions">
-        <button disabled={saving} onClick={onCancel}>
+        <button className="briefing-minion-cancel" disabled={saving} onClick={onCancel}>
           Cancel
         </button>
         <button
+          className="btn-primary"
           disabled={!selection?.accountId || saving}
           onClick={async () => {
             if (!selection?.accountId) return;

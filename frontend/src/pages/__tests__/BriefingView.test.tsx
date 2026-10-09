@@ -115,6 +115,9 @@ it('cancel leaves chat untouched; Use selection stages the exact report without 
   show();
   fireEvent.click(await screen.findByRole('button', { name: 'Ask Jeeves' }));
   fireEvent.click(screen.getByRole('button', { name: 'Choose Work OpenAI · Luna' }));
+  expect(
+    screen.getByRole('button', { name: 'Use selection' }).classList.contains('btn-primary'),
+  ).toBe(true);
   fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
   expect(fixtures.pending).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button', { name: 'Ask Jeeves' }));
