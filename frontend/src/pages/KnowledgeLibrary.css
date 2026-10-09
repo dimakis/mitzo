@@ -518,7 +518,7 @@
   align-items: center;
   justify-content: center;
   padding: 20px;
-  background: #0008;
+  background: var(--color-overlay);
 }
 .knowledge-dialog {
   background: var(--bg-primary);
@@ -571,7 +571,7 @@
   border: 1px solid var(--border);
   border-radius: 12px;
   background: var(--bg-primary);
-  box-shadow: 0 8px 30px #0003;
+  box-shadow: 0 8px 30px var(--color-shadow);
 }
 .knowledge-file-menu p {
   overflow-wrap: anywhere;
