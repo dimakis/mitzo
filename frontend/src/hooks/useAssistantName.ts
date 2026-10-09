@@ -26,8 +26,11 @@ export function useAssistantName() {
     name,
     setName(value: string) {
       const name =
-        value
-          .replace(/[\u0000-\u001f\u007f]/g, '')
+        Array.from(value)
+          .filter(
+            (character) => character.codePointAt(0)! >= 32 && character.codePointAt(0) !== 127,
+          )
+          .join('')
           .trim()
           .slice(0, 40) || 'Minion';
       localStorage.setItem(KEY, name);

@@ -35,6 +35,7 @@ export function TerminalView() {
     [attempt, setAttempt] = useState(0);
   const [controls, setControls] = useState(true),
     [adviserOpen, setAdviserOpen] = useState(false),
+    [adviserVisited, setAdviserVisited] = useState(false),
     [optionsOpen, setOptionsOpen] = useState(false),
     [destinationOpen, setDestinationOpen] = useState(false);
   const [destinations, setDestinations] = useState<{ sessionId: string; label: string }[]>([]),
@@ -271,168 +272,170 @@ export function TerminalView() {
           <p className="workspace-muted">Closing this page keeps your shell running.</p>
         </div>
       )}
-      {controls && (
-        <section className="terminal-controls" aria-label="Terminal controls">
-          <button
-            type="button"
-            className="terminal-adviser-toggle"
-            aria-label={`${adviserOpen ? 'Hide' : 'Show'} ${assistant.name}`}
-            aria-expanded={adviserOpen}
-            onClick={() => setAdviserOpen((value) => !value)}
-          >
-            <UiIcon name="agents" />
-            <span>
-              <strong>
-                {assistant.name}
-                {summary?.profile ? ` · ${summary.profile}` : ''}
-              </strong>
-              <small>
-                {summary?.model
-                  ? `${summary.model} · ${summary.thinking || 'Model default'}`
-                  : 'Terminal adviser · Suggestions only'}
-              </small>
-            </span>
-            <UiIcon name={adviserOpen ? 'up' : 'down'} />
-          </button>
-          {adviserOpen && (
-            <div className="terminal-adviser-panel">
-              <div className="terminal-adviser-pickers">
-                {contextReady ? (
-                  <AccountModelPicker
-                    scope="adviser"
-                    sessionId={null}
-                    preferredModel={seed?.model ?? ''}
-                    initialSelection={seed}
-                    requireExplicitSelection={!seed}
-                    disabled={asking}
-                    onChange={chooseAccount}
-                    onSummaryChange={setSummary}
-                  />
-                ) : (
-                  <span>Loading adviser preferences…</span>
-                )}
-              </div>
-              <p className="workspace-muted terminal-adviser-boundary">
-                Suggestions only. You run commands. API and Vertex accounts are supported; personal
-                ChatGPT needs an isolated adviser runtime.
-              </p>
-              {reply && (
-                <div className="terminal-adviser-response">
-                  <ReactMarkdown>{reply.text}</ReactMarkdown>
-                  {reply.commands.map((value, index) => (
-                    <button
-                      key={index}
-                      type="button"
-                      className="terminal-suggestion"
-                      aria-label={`Use ${value}`}
-                      onClick={() => stage(value)}
-                    >
-                      <code>{value}</code>
-                      <span>Use command ↘</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-              {review !== null && (
-                <label className="terminal-reviewed">
-                  Reviewed output
-                  <textarea
-                    aria-label="Reviewed output"
-                    value={review}
-                    maxLength={16384}
-                    onChange={(event) => setReview(event.target.value)}
-                  />
-                  <small>Remove secrets before sending.</small>
-                  <button type="button" onClick={() => setReview(null)}>
-                    Remove output
-                  </button>
-                </label>
-              )}
-              <form
-                className="terminal-adviser-input"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  void ask();
-                }}
-              >
-                <input
-                  aria-label={`Ask ${assistant.name}`}
-                  placeholder={`Ask ${assistant.name}…`}
-                  maxLength={8192}
-                  value={question}
-                  onChange={(event) => setQuestion(event.target.value)}
+      <section className="terminal-controls" aria-label="Terminal controls" hidden={!controls}>
+        <button
+          type="button"
+          className="terminal-adviser-toggle"
+          aria-label={`${adviserOpen ? 'Hide' : 'Show'} ${assistant.name}`}
+          aria-expanded={adviserOpen}
+          onClick={() => {
+            setAdviserVisited(true);
+            setAdviserOpen((value) => !value);
+          }}
+        >
+          <UiIcon name="agents" />
+          <span>
+            <strong>
+              {assistant.name}
+              {summary?.profile ? ` · ${summary.profile}` : ''}
+            </strong>
+            <small>
+              {summary?.model
+                ? `${summary.model} · ${summary.thinking || 'Model default'}`
+                : 'Terminal adviser · Suggestions only'}
+            </small>
+          </span>
+          <UiIcon name={adviserOpen ? 'up' : 'down'} />
+        </button>
+        {adviserVisited && (
+          <div className="terminal-adviser-panel" hidden={!adviserOpen}>
+            <div className="terminal-adviser-pickers">
+              {contextReady ? (
+                <AccountModelPicker
+                  scope="adviser"
+                  sessionId={null}
+                  preferredModel={seed?.model ?? ''}
+                  initialSelection={seed}
+                  requireExplicitSelection={!seed}
+                  disabled={asking}
+                  onChange={chooseAccount}
+                  onSummaryChange={setSummary}
                 />
-                <button
-                  className="workspace-primary"
-                  aria-label="Ask adviser"
-                  disabled={!selection || asking || !question.trim()}
-                >
-                  {asking ? 'Thinking…' : 'Ask'}
-                </button>
-              </form>
-              {adviceError && <p role="alert">{adviceError}</p>}
+              ) : (
+                <span>Loading adviser preferences…</span>
+              )}
             </div>
-          )}
-          <div className="terminal-destination-row">
-            <button
-              type="button"
-              aria-label="Choose terminal destination"
-              aria-expanded={destinationOpen}
-              onClick={() => void openDestinations()}
-            >
-              <UiIcon name={terminal?.kind === 'sandbox' ? 'files' : 'panel'} />
-              <span>
-                <strong>{terminal?.label ?? (sessionId ? 'Chat environment' : 'Your Mac')}</strong>
-                <small>{terminal?.cwd ?? 'Connecting…'}</small>
-              </span>
-              <UiIcon name="down" />
-            </button>
-            <button
-              type="button"
-              aria-label="Share output"
-              disabled={!terminal}
-              onClick={() => {
-                setReview(console.current?.reviewOutput() ?? '');
-                setAdviserOpen(true);
+            <p className="workspace-muted terminal-adviser-boundary">
+              Suggestions only. You run commands. API and Vertex accounts are supported; personal
+              ChatGPT needs an isolated adviser runtime.
+            </p>
+            {reply && (
+              <div className="terminal-adviser-response">
+                <ReactMarkdown>{reply.text}</ReactMarkdown>
+                {reply.commands.map((value, index) => (
+                  <button
+                    key={index}
+                    type="button"
+                    className="terminal-suggestion"
+                    aria-label={`Use ${value}`}
+                    onClick={() => stage(value)}
+                  >
+                    <code>{value}</code>
+                    <span>Use command ↘</span>
+                  </button>
+                ))}
+              </div>
+            )}
+            {review !== null && (
+              <label className="terminal-reviewed">
+                Reviewed output
+                <textarea
+                  aria-label="Reviewed output"
+                  value={review}
+                  maxLength={16384}
+                  onChange={(event) => setReview(event.target.value)}
+                />
+                <small>Remove secrets before sending.</small>
+                <button type="button" onClick={() => setReview(null)}>
+                  Remove output
+                </button>
+              </label>
+            )}
+            <form
+              className="terminal-adviser-input"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void ask();
               }}
             >
-              <UiIcon name="send" />
-            </button>
-          </div>
-          {destinationOpen && (
-            <div className="terminal-destination-picker">
-              <button type="button" onClick={() => chooseDestination()}>
-                Your Mac
+              <input
+                aria-label={`Ask ${assistant.name}`}
+                placeholder={`Ask ${assistant.name}…`}
+                maxLength={8192}
+                value={question}
+                onChange={(event) => setQuestion(event.target.value)}
+              />
+              <button
+                className="workspace-primary"
+                aria-label="Ask adviser"
+                disabled={!selection || asking || !question.trim()}
+              >
+                {asking ? 'Thinking…' : 'Ask'}
               </button>
-              <label>
-                Choose a chat’s sandbox
-                <input
-                  aria-label="Find chat sandbox"
-                  placeholder="Search by chat name…"
-                  value={search}
-                  onChange={(event) => setSearch(event.target.value)}
-                />
-              </label>
-              <div>
-                {destinations
-                  .filter((item) => item.label.toLowerCase().includes(search.toLowerCase()))
-                  .map((item) => (
-                    <button
-                      key={item.sessionId}
-                      type="button"
-                      onClick={() => chooseDestination(item.sessionId)}
-                    >
-                      {item.label}
-                    </button>
-                  ))}
-                {!destinations.length && (
-                  <p className="workspace-muted">No chat sandboxes available.</p>
-                )}
-              </div>
+            </form>
+            {adviceError && <p role="alert">{adviceError}</p>}
+          </div>
+        )}
+        <div className="terminal-destination-row">
+          <button
+            type="button"
+            aria-label="Choose terminal destination"
+            aria-expanded={destinationOpen}
+            onClick={() => void openDestinations()}
+          >
+            <UiIcon name={terminal?.kind === 'sandbox' ? 'files' : 'panel'} />
+            <span>
+              <strong>{terminal?.label ?? (sessionId ? 'Chat environment' : 'Your Mac')}</strong>
+              <small>{terminal?.cwd ?? 'Connecting…'}</small>
+            </span>
+            <UiIcon name="down" />
+          </button>
+          <button
+            type="button"
+            aria-label="Share output"
+            disabled={!terminal}
+            onClick={() => {
+              setReview(console.current?.reviewOutput() ?? '');
+              setAdviserVisited(true);
+              setAdviserOpen(true);
+            }}
+          >
+            <UiIcon name="send" />
+          </button>
+        </div>
+        {destinationOpen && (
+          <div className="terminal-destination-picker">
+            <button type="button" onClick={() => chooseDestination()}>
+              Your Mac
+            </button>
+            <label>
+              Choose a chat’s sandbox
+              <input
+                aria-label="Find chat sandbox"
+                placeholder="Search by chat name…"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+              />
+            </label>
+            <div>
+              {destinations
+                .filter((item) => item.label.toLowerCase().includes(search.toLowerCase()))
+                .map((item) => (
+                  <button
+                    key={item.sessionId}
+                    type="button"
+                    onClick={() => chooseDestination(item.sessionId)}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              {!destinations.length && (
+                <p className="workspace-muted">No chat sandboxes available.</p>
+              )}
             </div>
-          )}
-        </section>
-      )}
+          </div>
+        )}
+      </section>
       <div className="terminal-output">
         {terminal ? (
           <TerminalConsole

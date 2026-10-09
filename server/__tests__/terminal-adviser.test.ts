@@ -1,7 +1,7 @@
 import { it, expect, vi } from 'vitest';
 import { TerminalAdviser, AdviserBody } from '../terminal-adviser.js';
 it('sends only deliberately supplied context with no tools and never executes suggestions', async () => {
-  const factory = vi.fn(async (config) => ({
+  const factory = vi.fn(async (_config) => ({
     provider: 'fake',
     async *turn(messages: unknown) {
       expect(messages).toEqual([

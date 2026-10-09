@@ -14,18 +14,21 @@ vi.mock('../../components/TerminalConsole', () => ({
       reviewOutput: mocks.review,
       focus: vi.fn(),
     }));
-    useEffect(() => props.onStatus('connected'), []);
+    useEffect(() => props.onStatus('connected'), [props.onStatus]);
     return <div>Shell output</div>;
   }),
 }));
 vi.mock('../../components/AccountModelPicker', () => ({
-  AccountModelPicker: (props: { onChange: (value: unknown) => void }) => (
-    <button
-      onClick={() => props.onChange({ accountId: 'work', model: 'luna', reasoningEffort: 'low' })}
-    >
-      Use Work Luna Low
-    </button>
-  ),
+  AccountModelPicker: function MockPicker({ onChange }: { onChange: (value: unknown) => void }) {
+    useEffect(() => onChange(null), [onChange]);
+    return (
+      <button
+        onClick={() => onChange({ accountId: 'work', model: 'luna', reasoningEffort: 'low' })}
+      >
+        Use Work Luna Low
+      </button>
+    );
+  },
 }));
 vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
 import { apiFetch } from '../../lib/api-fetch';
@@ -100,4 +103,19 @@ it('reviews output before sharing and stages an adviser suggestion without runni
   fireEvent.click(screen.getByRole('button', { name: 'Use ls -la' }));
   expect((screen.getByLabelText('Command') as HTMLInputElement).value).toBe('ls -la');
   expect(mocks.send).not.toHaveBeenCalled();
+});
+
+it('preserves the adviser selection when its panel and all controls are collapsed', async () => {
+  setup();
+  await screen.findByText('Shell output');
+  fireEvent.click(screen.getByRole('button', { name: 'Show Minion' }));
+  fireEvent.click(screen.getByText('Use Work Luna Low'));
+  fireEvent.click(screen.getByRole('button', { name: 'Hide Minion' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Collapse controls' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Show controls' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Show Minion' }));
+  fireEvent.change(screen.getByLabelText('Ask Minion'), { target: { value: 'help' } });
+  expect((screen.getByRole('button', { name: 'Ask adviser' }) as HTMLButtonElement).disabled).toBe(
+    false,
+  );
 });
