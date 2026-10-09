@@ -1677,9 +1677,13 @@ async function _startChatInner(
   }
 
   // Build the system prompt append string (used by both query and comparison)
-  const workspacePrompt = openShellWorkdir
-    ? buildOpenShellWorkspaceSystemPrompt(openShellWorkdir, wtId)
-    : buildWorktreeSystemPrompt(repoWorktrees);
+  const workspacePrompt = repositoryWorkspace
+    ? `# Repository task workspace
+This is an independent checkout with its own Git storage, not a linked worktree. Work inside ${cwd} for code edits, dependency setup and tests. Use the dedicated Mitzo integrations for network access and publication. Do not switch to the configured default repository.
+`
+    : openShellWorkdir
+      ? buildOpenShellWorkspaceSystemPrompt(openShellWorkdir, wtId)
+      : buildWorktreeSystemPrompt(repoWorktrees);
   const systemPromptAppend =
     repositoryChatContext(repositoryWorkspace) +
     'This is Mitzo, a mobile chat interface. The user is on their phone.\n' +
