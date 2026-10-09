@@ -87,7 +87,34 @@ const fixtures: Record<string, unknown> = {
   '/api/inbox': proposals,
   '/api/briefings/latest': null,
   '/api/service-health': { services: [], checkedAt: Date.now() },
-  '/api/notifications': { items: [], needsYou: 0, unread: 0, total: 0, hasMore: false },
+  '/api/notifications': {
+    items: Array.from({ length: 12 }, (_, index) => ({
+      id: `notification-${index}`,
+      kind: 'session',
+      title: `Session update ${index + 1}`,
+      body:
+        index === 0
+          ? 'The selected account’s project is unavailable or archived. Check its project configuration before starting a new turn.'
+          : 'Agent finished its turn.',
+      createdAt: Date.now() - index * 3600000,
+      readAt: Date.now(),
+    })),
+    needsYou: 0,
+    unread: 0,
+    total: 12,
+    hasMore: false,
+    preferences: {
+      approvals: true,
+      questions: true,
+      completion: 'unattended',
+      quietHours: false,
+      quietStart: '22:00',
+      quietEnd: '08:00',
+      timezone: 'UTC',
+      sensitivePreviews: false,
+    },
+    delivery: { configured: false, registeredDevices: 0 },
+  },
   '/api/connections-access': { generatedAt: Date.now(), sources: [], resources: [account] },
   '/api/git/info': { branch: 'main', repoPath: '/workspace', worktrees: [] },
   '/api/files/roots': [],
@@ -144,6 +171,40 @@ test.beforeEach(async ({ page }) => {
       // No app mutation or model request can leave this fixture suite.
       if (route.request().method() !== 'GET')
         return route.fulfill({ status: 405, json: { error: 'Offline UI test' } });
+      if (url.pathname === '/api/calendar') {
+        const base = url.searchParams.get('date')!;
+        const days = Number(url.searchParams.get('days'));
+        return route.fulfill({
+          json: {
+            startDate: base,
+            endDate: base,
+            events: Array.from({ length: days === 1 ? 12 : 18 }, (_, index) => {
+              const date = new Date(base + 'T10:00:00Z');
+              date.setUTCDate(date.getUTCDate() + (index < 12 ? 0 : index - 11));
+              if (index < 12) date.setUTCMinutes(index * 30);
+              const start = date.toISOString();
+              const end = new Date(date.getTime() + 30 * 60000).toISOString();
+              return {
+                id: `event-${index}`,
+                type: index === 17 ? 'milestone' : 'meeting',
+                title:
+                  index === 0
+                    ? 'Planning review with a long meeting title and team context'
+                    : `Meeting ${index + 1}`,
+                start,
+                end,
+                allDay: index === 17,
+                attendeeCount: 3,
+                location: 'Studio',
+                hangoutLink: 'https://meet.example.com/review',
+              };
+            }),
+            sprints: [
+              { id: 'sprint', title: 'Sprint 2026-20 (estimated)', start: base, end: base },
+            ],
+          },
+        });
+      }
       if (url.pathname.startsWith('/api/inbox/'))
         return route.fulfill({
           json: {
@@ -587,4 +648,213 @@ test('accent-filled controls retain their paired foreground on hover and in user
       ).toBe('rgb(255, 255, 255)');
     }
   }
+});
+
+test('desktop Calendar uses the week canvas and dismissible event details', async ({
+  page,
+  isMobile,
+}, testInfo) => {
+  test.skip(isMobile, 'Desktop calendar');
+  for (const width of [900, 1440, 1920]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await page.goto('/calendar');
+    const agenda = page.locator('.cal-body');
+    await expect(agenda.locator('.cal-day')).toHaveCount(7);
+    await expect(page.locator('.calendar-desktop .mitzo-logo')).toHaveCount(0);
+    await expect(page.getByRole('region', { name: 'Event details' })).toHaveCount(0);
+    const canvas = (await page.locator('.calendar-desktop').boundingBox())!;
+    const box = (await agenda.boundingBox())!;
+    expect(box.width).toBeGreaterThan(canvas.width - 60);
+    const first = (await agenda.locator('.cal-day').nth(0).boundingBox())!;
+    const second = (await agenda.locator('.cal-day').nth(1).boundingBox())!;
+    expect(second.y).toBeCloseTo(first.y, 0);
+    expect(second.x).toBeGreaterThan(first.x);
+    expect(await agenda.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+    await expect(agenda.locator('.cal-day').last().locator('.cal-day-header')).toBeInViewport();
+    const meeting = page.getByRole('button', {
+      name: 'Planning review with a long meeting title and team context',
+    });
+    await meeting.click();
+    const details = page.getByRole('region', { name: 'Event details' });
+    await expect(details.getByRole('link', { name: 'Join video call' })).toBeVisible();
+    await expect(details.getByRole('button', { name: 'Close event details' })).toBeFocused();
+    expect(await agenda.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+    await page.keyboard.press('Escape');
+    await expect(details).toHaveCount(0);
+    await expect(meeting).toBeFocused();
+    await agenda.evaluate((element) => {
+      element.scrollTop = element.scrollHeight;
+    });
+    await expect(page.getByRole('button', { name: 'Meeting 12', exact: true })).toBeInViewport();
+    await page.getByRole('button', { name: 'Day', exact: true }).click();
+    await expect(agenda.locator('.cal-day')).toHaveCount(1);
+    await page.getByRole('button', { name: 'Releases', exact: true }).click();
+    await expect(agenda.locator('.cal-day')).toHaveCount(1);
+    await expect(agenda.getByText('No events')).toHaveCount(0);
+    await page.getByRole('button', { name: 'All', exact: true }).click();
+    await page.getByRole('button', { name: 'Week', exact: true }).click();
+    await expect(agenda.locator('.cal-day')).toHaveCount(7);
+    expect(
+      await page.locator('.calendar-desktop').evaluate((el) => el.scrollWidth <= el.clientWidth),
+    ).toBe(true);
+    await expect(page.locator('.cal-loading')).toHaveCount(0);
+    await expect(agenda.getByRole('button', { name: 'Meeting 18', exact: true })).toBeAttached();
+    if (width === 1440)
+      await page.screenshot({
+        path: testInfo.outputPath('calendar-desktop.png'),
+        animations: 'disabled',
+      });
+  }
+});
+
+test('desktop Notifications fills the workspace with compact activity rows', async ({
+  page,
+  isMobile,
+}, testInfo) => {
+  test.skip(isMobile, 'Desktop notifications');
+  for (const width of [900, 1440, 1920]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await page.goto('/notifications');
+    const canvas = (await page.locator('.desktop-center').boundingBox())!;
+    const content = (await page.locator('.notifications-page').boundingBox())!;
+    expect(content.x).toBeCloseTo(canvas.x, 0);
+    expect(content.width).toBeCloseTo(canvas.width, 0);
+    const card = page.locator('.notification-card').first();
+    await expect(card).toBeVisible();
+    expect((await card.boundingBox())!.width).toBeGreaterThan(content.width - 60);
+    if (width >= 1440) {
+      expect((await card.boundingBox())!.height).toBeLessThan(160);
+      const action = (await card.getByRole('button', { name: 'View update' }).boundingBox())!;
+      const title = (await card.locator('h2').boundingBox())!;
+      expect(action.x).toBeGreaterThan(title.x + title.width);
+    }
+    if (width === 1440)
+      await page.screenshot({
+        path: testInfo.outputPath('notifications-desktop.png'),
+        animations: 'disabled',
+      });
+    await page.getByRole('button', { name: 'Preferences', exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'What reaches you' })).toBeVisible();
+    expect(
+      await page.locator('.notifications-page').evaluate((el) => el.scrollWidth <= el.clientWidth),
+    ).toBe(true);
+  }
+});
+
+test('mobile Calendar and Notifications remain bounded and scrollable', async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(!isMobile, 'Mobile calendar and notifications');
+  for (const route of ['/calendar', '/notifications']) {
+    await page.goto(route);
+    const body = page.locator('.mobile-workspace-body');
+    expect(await body.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+    const scroller = page.locator(route === '/calendar' ? '.cal-body' : '.notifications-page');
+    await expect(
+      page.getByText(route === '/calendar' ? 'Meeting 12' : 'Session update 12', { exact: true }),
+    ).toBeAttached();
+    await scroller.evaluate((el) => {
+      el.scrollTop = el.scrollHeight;
+    });
+    const end = (await page
+      .getByText(route === '/calendar' ? 'Meeting 18' : 'Session update 12', { exact: true })
+      .boundingBox())!;
+    expect(end.y + end.height).toBeLessThanOrEqual(
+      (await page.locator('.workspace-tabs').boundingBox())!.y,
+    );
+  }
+});
+
+test('short desktop Calendar keeps event details and actions reachable', async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(isMobile, 'Desktop calendar');
+  for (const width of [800, 1024, 1440]) {
+    await page.setViewportSize({ width, height: 500 });
+    await page.goto('/calendar');
+    await page
+      .getByRole('button', { name: 'Planning review with a long meeting title and team context' })
+      .click();
+    const details = page.getByRole('region', { name: 'Event details' });
+    const bounds = (await details.boundingBox())!;
+    expect(bounds.y + bounds.height).toBeLessThanOrEqual(500);
+    expect(bounds.height).toBeGreaterThan(40);
+    await details.getByRole('link', { name: 'Join video call' }).scrollIntoViewIfNeeded();
+    await expect(details.getByRole('link', { name: 'Join video call' })).toBeInViewport();
+    await expect(details.getByRole('button', { name: 'Prep for this meeting' })).toBeInViewport();
+    await details.getByRole('button', { name: 'Close event details' }).click();
+    await expect(details).toHaveCount(0);
+  }
+});
+
+test('notification archive actions stay usable on desktop and mobile', async ({
+  page,
+}, testInfo) => {
+  const items = [
+    {
+      id: 'done',
+      kind: 'session',
+      title: 'Finished work',
+      body: 'Agent finished its turn.',
+      createdAt: Date.now(),
+      readAt: 1,
+      resolution: null,
+      archivedAt: null as number | null,
+    },
+    {
+      id: 'live',
+      kind: 'approval',
+      title: 'Pending approval',
+      body: 'Needs your decision',
+      permId: 'live',
+      createdAt: Date.now(),
+      readAt: null,
+      resolution: null,
+      archivedAt: null as number | null,
+    },
+  ];
+  await page.route('**/api/notifications**', async (route) => {
+    const url = new URL(route.request().url());
+    const path = url.pathname;
+    if (route.request().method() === 'POST') {
+      if (path === '/api/notifications/archive-resolved') items[0].archivedAt = Date.now();
+      else if (path === '/api/notifications/done/archive') items[0].archivedAt = Date.now();
+      else if (path === '/api/notifications/done/restore') items[0].archivedAt = null;
+      else return route.fulfill({ status: 400, json: { error: 'Unexpected test action' } });
+      return route.fulfill({ json: { ok: true } });
+    }
+    const archived = url.searchParams.get('filter') === 'archived';
+    const visible = items.filter((item) =>
+      archived ? item.archivedAt !== null : item.archivedAt === null,
+    );
+    return route.fulfill({
+      json: {
+        ...(fixtures['/api/notifications'] as object),
+        items: visible,
+        total: visible.length,
+        needsYou: 1,
+      },
+    });
+  });
+  await page.goto('/notifications');
+  const finished = page.getByRole('article').filter({ hasText: 'Finished work' });
+  const pending = page.getByRole('article').filter({ hasText: 'Pending approval' });
+  await expect(pending.getByRole('button', { name: 'Archive', exact: true })).toHaveCount(0);
+  await finished.getByRole('button', { name: 'Archive', exact: true }).click();
+  await expect(finished).toHaveCount(0);
+  await expect(pending).toBeVisible();
+  await page.getByRole('button', { name: 'Archived', exact: true }).click();
+  await finished.getByRole('button', { name: 'Restore', exact: true }).click();
+  await expect(finished).toHaveCount(0);
+  await page.getByRole('button', { name: 'All', exact: true }).click();
+  await expect(finished).toBeVisible();
+  await page.getByRole('button', { name: 'Archive resolved', exact: true }).click();
+  await expect(finished).toHaveCount(0);
+  await expect(pending).toBeVisible();
+  await page.screenshot({
+    path: testInfo.outputPath('notification-archive.png'),
+    animations: 'disabled',
+  });
 });

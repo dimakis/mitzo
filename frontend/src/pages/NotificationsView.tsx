@@ -17,6 +17,7 @@ const filters: [NotificationFilter, string][] = [
   ['sessions', 'Sessions'],
   ['updates', 'Updates'],
   ['history', 'History'],
+  ['archived', 'Archived'],
 ];
 const labels = {
   approval: 'Session approval',
@@ -32,6 +33,9 @@ function timestamp(at: number) {
     hour: '2-digit',
     minute: '2-digit',
   });
+}
+function canArchive(item: MitzoNotification) {
+  return (item.kind !== 'approval' && item.kind !== 'question') || !!item.resolution;
 }
 function actionable(item: MitzoNotification) {
   return (
@@ -403,10 +407,22 @@ export function NotificationsView() {
     setNotice('');
     try {
       await notifications!.mutate(path, body, method);
-      setNotice(path === '/test' ? 'Test alert queued. Check your iPhone and Watch.' : 'Saved.');
+      setNotice(
+        path === '/test'
+          ? 'Test alert queued. Check your iPhone and Watch.'
+          : path === '/archive-resolved'
+            ? 'Resolved requests and read updates archived.'
+            : path.endsWith('/archive')
+              ? 'Notification archived.'
+              : path.endsWith('/restore')
+                ? 'Notification restored.'
+                : 'Saved.',
+      );
+      return true;
     } catch (err) {
       setActionError(err instanceof Error ? err.message : 'Cannot save this change.');
       await notifications!.refresh();
+      return false;
     } finally {
       setBusy(false);
     }
@@ -474,18 +490,36 @@ export function NotificationsView() {
             ← All notifications
           </button>
           {selected?.id === id && (
-            <RequestDetail
-              key={selected.id}
-              item={selected}
-              busy={busy}
-              onRespond={(decision, answers) =>
-                void act(`/${encodeURIComponent(selected.id)}/respond`, {
-                  sessionId: selected.sessionId,
-                  decision,
-                  ...(answers ? { answers } : {}),
-                })
-              }
-            />
+            <>
+              <RequestDetail
+                key={selected.id}
+                item={selected}
+                busy={busy}
+                onRespond={(decision, answers) =>
+                  void act(`/${encodeURIComponent(selected.id)}/respond`, {
+                    sessionId: selected.sessionId,
+                    decision,
+                    ...(answers ? { answers } : {}),
+                  })
+                }
+              />
+              {(selected.archivedAt != null || canArchive(selected)) && (
+                <button
+                  className="notification-button"
+                  disabled={busy}
+                  onClick={async () => {
+                    if (
+                      await act(
+                        `/${encodeURIComponent(selected.id)}/${selected.archivedAt != null ? 'restore' : 'archive'}`,
+                      )
+                    )
+                      setParams({});
+                  }}
+                >
+                  {selected.archivedAt != null ? 'Restore' : 'Archive'}
+                </button>
+              )}
+            </>
           )}
         </>
       ) : (
@@ -506,14 +540,27 @@ export function NotificationsView() {
               ))}
             </div>
             <div className="notification-list-heading">
-              <span className="workspace-muted">Recent activity</span>
-              <button
-                className="workspace-text-link"
-                disabled={busy}
-                onClick={() => void act('/read-updates')}
-              >
-                Mark updates read
-              </button>
+              <span className="workspace-muted">
+                {notifications.filter === 'archived' ? 'Archived activity' : 'Recent activity'}
+              </span>
+              {notifications.filter !== 'archived' && (
+                <div className="notification-list-tools">
+                  <button
+                    className="workspace-text-link"
+                    disabled={busy}
+                    onClick={() => void act('/read-updates')}
+                  >
+                    Mark updates read
+                  </button>
+                  <button
+                    className="notification-button"
+                    disabled={busy}
+                    onClick={() => void act('/archive-resolved')}
+                  >
+                    Archive resolved
+                  </button>
+                </div>
+              )}
             </div>
             <div className="notification-list">
               {feed.items.map((item) => (
@@ -534,7 +581,7 @@ export function NotificationsView() {
                       }
                     />
                   </div>
-                  <div>
+                  <div className="notification-content">
                     <div className="notification-meta">
                       <span>{labels[item.kind]}</span>
                       <span>{timestamp(item.createdAt)}</span>
@@ -573,6 +620,19 @@ export function NotificationsView() {
                           Mark read
                         </button>
                       )}
+                      {(item.archivedAt != null || canArchive(item)) && (
+                        <button
+                          className="workspace-text-link"
+                          disabled={busy}
+                          onClick={() =>
+                            void act(
+                              `/${encodeURIComponent(item.id)}/${item.archivedAt != null ? 'restore' : 'archive'}`,
+                            )
+                          }
+                        >
+                          {item.archivedAt != null ? 'Restore' : 'Archive'}
+                        </button>
+                      )}
                     </div>
                   </div>
                 </article>
@@ -582,14 +642,18 @@ export function NotificationsView() {
               <section className="notification-empty">
                 <UiIcon name="check" />
                 <h2>
-                  {notifications.filter === 'needs'
-                    ? 'You’re all caught up'
-                    : 'No notifications here yet'}
+                  {notifications.filter === 'archived'
+                    ? 'No archived notifications'
+                    : notifications.filter === 'needs'
+                      ? 'You’re all caught up'
+                      : 'No notifications here yet'}
                 </h2>
                 <p className="workspace-muted">
-                  {notifications.filter === 'needs'
-                    ? 'No requests need your attention.'
-                    : 'New session activity will appear here.'}
+                  {notifications.filter === 'archived'
+                    ? 'Archived items stay here until you restore them.'
+                    : notifications.filter === 'needs'
+                      ? 'No requests need your attention.'
+                      : 'New session activity will appear here.'}
                 </p>
               </section>
             )}
@@ -617,7 +681,8 @@ export function NotificationsView() {
             )}
             <p className="notification-footnote">
               The badge counts requests that need you. Reading an update does not resolve an
-              approval.
+              approval. Archive resolved moves resolved requests and read updates to Archived, where
+              you can restore them.
             </p>
           </>
         )
