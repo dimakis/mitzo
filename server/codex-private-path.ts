@@ -1,3 +1,4 @@
+import { configuredKnowledgeLibraryPrivatePaths } from './knowledge-library-private-paths.js';
 import { realpathSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { homedir } from 'node:os';
@@ -25,6 +26,7 @@ export function protectCodexProfileRoots(roots: string[]) {
 }
 
 export function privateCodexRoots(extraRoots: string[] = []): string[] {
+  protectCodexProfileRoots(configuredKnowledgeLibraryPrivatePaths());
   return [
     codexPrivateDirectory(),
     process.env.CODEX_HOME || join(homedir(), '.codex'),
@@ -69,6 +71,13 @@ export function isPrivateCodexPath(path: string, extraRoots: string[] = []) {
 export function createCodexPathProtection(loadRoots: () => string[]) {
   let knownRoots: Set<string> | undefined;
   return () => {
+    // A newly malformed Library enrollment may contain an unknown state root.
+    // Fail closed even when account-profile roots were observed previously.
+    try {
+      protectCodexProfileRoots(configuredKnowledgeLibraryPrivatePaths());
+    } catch {
+      return () => true;
+    }
     try {
       const roots = loadRoots().map(canonical);
       knownRoots ??= new Set<string>();

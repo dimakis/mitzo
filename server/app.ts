@@ -32,6 +32,9 @@ import {
   selectSymposiumApplicationClaim,
 } from './symposium-application-dispatch.js';
 import { createGithubPublicationOperatorRouter } from './github-publication-operator-router.js';
+import { createKnowledgeLibraryRouter } from './knowledge-library-router.js';
+import { knowledgeLibraryFromEnvironment } from './knowledge-library-runtime.js';
+import { createKnowledgeLibraryLoader } from './knowledge-library-loader.js';
 import { requestOperatorGithubPublication } from './github-publishing-tool.js';
 import { createCredentialConnectionsRouter } from './credential-connections-router.js';
 import { bindConnectionSetupApplication } from './credential-setup-application.js';
@@ -170,7 +173,7 @@ import {
   statSync,
 } from 'fs';
 import { join, dirname, resolve, extname, basename, relative, isAbsolute, sep } from 'path';
-import { execFileSync, execFile } from 'child_process';
+import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { createHash, randomUUID } from 'crypto';
 import { fileURLToPath } from 'url';
@@ -218,7 +221,8 @@ import {
   createSessionWorktrees as createAllWorktrees,
   listWorktrees,
 } from './worktree.js';
-import { DEFAULT_AGENT_NAME, GIT_BRANCH_TIMEOUT_MS } from './constants.js';
+import { DEFAULT_AGENT_NAME } from './constants.js';
+import { createGitInfoDiscovery, createGitInfoHandler } from './git-discovery.js';
 import { isValidInternalToken } from './internal-token.js';
 import { createConnectionsRouter } from './connections-router.js';
 import { createConnectionsAccessRouter } from './connections-access-router.js';
@@ -527,6 +531,21 @@ app.post(
   express.json({ limit: '8mb' }),
 );
 app.use(express.json({ limit: '10mb' }));
+
+const getKnowledgeLibraryRuntime = createKnowledgeLibraryLoader(() =>
+  knowledgeLibraryFromEnvironment(process.env, {
+    workspaceRoots: [
+      BASE_REPO,
+      ...Object.values(getRepoConfig().repos),
+      ...getRepoConfig().allowedPaths,
+    ].filter(Boolean),
+  }),
+);
+app.use(
+  '/api/knowledge',
+  operatorAuthMiddleware,
+  createKnowledgeLibraryRouter(getKnowledgeLibraryRuntime),
+);
 
 const loginLimiter = rateLimit({
   windowMs: 60_000,
@@ -1910,6 +1929,7 @@ export const captureMitzoTelosCoreBackup = bindMitzoTelosCoreCapture({
   events: eventStore,
   tasks: taskStore,
   telosPath: telosDatabasePath,
+  knowledge: async () => (await getKnowledgeLibraryRuntime())?.store,
 });
 
 app.use(
@@ -3302,41 +3322,13 @@ function resolveRoot(
   return resolved;
 }
 
-function getGitBranch(cwd: string): string {
-  try {
-    return execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
-      cwd,
-      stdio: 'pipe',
-      timeout: GIT_BRANCH_TIMEOUT_MS,
-    })
-      .toString()
-      .trim();
-  } catch {
-    return 'unknown';
-  }
-}
-
-app.get('/api/git/info', (_req, res) => {
-  const branch = getGitBranch(BASE_REPO);
-  const worktrees = listWorktrees(BASE_REPO).map((wt) => ({
-    ...wt,
-    branch: getGitBranch(wt.path),
-    repo: 'primary',
-  }));
-  for (const [name, repoPath] of Object.entries(getRepoConfig().repos)) {
-    try {
-      const repoWts = listWorktrees(repoPath).map((wt) => ({
-        ...wt,
-        branch: getGitBranch(wt.path),
-        repo: name,
-      }));
-      worktrees.push(...repoWts);
-    } catch {
-      // Repo path may not exist yet
-    }
-  }
-  res.json({ branch, repoPath: BASE_REPO, worktrees });
-});
+app.get(
+  '/api/git/info',
+  createGitInfoHandler(createGitInfoDiscovery(), () => ({
+    repoPath: BASE_REPO,
+    repos: getRepoConfig().repos,
+  })),
+);
 
 app.get('/api/files/roots', (_req, res) => {
   res.json(getRepoConfig().roots);

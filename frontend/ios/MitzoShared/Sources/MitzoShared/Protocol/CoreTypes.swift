@@ -148,7 +148,7 @@ public struct FinishedMessage: Codable, Sendable {
 
 // MARK: - Permission
 
-public struct PermissionRequest: Codable, Sendable {
+public struct PermissionRequest: Codable, Sendable, Equatable {
     public let permId: String
     public let toolName: String
     public let toolInput: String

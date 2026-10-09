@@ -100,6 +100,12 @@ npm run build && npm start
 
 Access from your phone: install [Tailscale](https://tailscale.com/download) on server and phone, then open `http://<tailscale-ip>:3100`. No HTTPS needed — Tailscale encrypts via WireGuard.
 
+### Knowledge Library
+
+Open **Knowledge** for curated documents from the host-enrolled accepted Git source. Browsing is independent of chats and sandboxes. The Markdown editor has source, preview and split modes, formatting, undo/redo and working-copy recovery. **Save** preserves a durable change set and creates or updates its draft PR; **Send for review** submits the exact saved version. **Accept** requires current-head Centaur approval and passing required checks. Source acceptance, ContexGin publication and adoption by a chat remain separate.
+
+The Library requires independently reviewed private host enrollment through `MITZO_KNOWLEDGE_LIBRARY_CONFIG`, including explicit document scopes and optional publishing identity. Acceptance is disabled by default. See [Knowledge Library enrollment](docs/operations/knowledge-library.md). Drafts join core SQLite backups. **More → Workspace tools** retains the raw Files browser and existing artifact links; its worktree list loads only on request, with cached, bounded discovery.
+
 ### Managed Connections
 
 Apple Keychain HTTPS connections support Home Assistant and custom APIs with tokens, API keys or username/password authentication. Open **More → API connections** or **Connections → Add connection → Authenticated API** to configure any HTTPS API with its own origin, paths and methods. The generic entry starts with a blank custom service; Home Assistant is an optional template. The selected template is saved with the connection, and both the UI and controller restrict Home Assistant dashboard scope to that integration. Deploy the updated backend before distributing the new frontend, which submits this template metadata. Agents discover configured connections and request approval for each session. The new mobile navigation requires distributing an updated iOS bundle; a backend update alone does not update installed app assets. Credentials stay in Keychain and are supplied only by the trusted request client. A signed Mac helper and explicit configuration are required; this feature is disabled by default. Apple Passwords records are not automatically browsed or synced. Any Keychain service connection can enable bounded authenticated text WebSocket requests through `ConnectionWebSocket`, using its configured path, header or JSON authentication, and optional subprotocols. Credentials stay private, generic commands require session approval and are blocked in Ask mode, and unconfirmed commands are never replayed automatically. Home Assistant connections can also enable dashboard list/read/save over authenticated WebSocket API calls. Dashboard writes require explicit scope and session approval, check the last-read configuration hash before saving, and verify the saved configuration by reading it back. Ask mode permits dashboard reads only; storage dashboards can be updated, while YAML dashboards remain owned by their source. See [Keychain setup and session access](docs/keychain-connections.md).
@@ -497,9 +503,22 @@ and Watch mirroring settings determine what reaches the wrist.
 The Watch app's **Notifications** entry loads the latest ten items through the
 paired iPhone's authenticated relay, shows full request details, and supports
 ordinary one-shot approval or denial. Questions and conversation access grants
-are reviewed on iPhone. Oversized relay payloads fail with a request to review on
+are reviewed on iPhone. Tapping **Review request**, **View**, or the notification
+on Apple Watch opens that exact item, even when it is older than the latest ten.
+The detail screen rechecks the current request before submitting an approval.
+Inline **Reply** preserves Watch dictation and sends it through the paired iPhone;
+an unconfirmed reply remains visible without automatically sending it again.
+Eligible **Allow once**/**Deny** banner actions run in the background on the iPhone,
+including when its web view is closed. Notification REST requests use the origin
+configured by the authenticated iPhone app independently of its chat connection;
+they never guess a server on a cold launch. Oversized relay payloads fail with a request to review on
 iPhone, rather than truncating approval details. A reachable paired iPhone is
-required. Ship an updated iOS/Watch binary for the new native entry and badge
+required. The iPhone target embeds the Watch companion; native CI builds both
+apps and verifies the embedded identity, executable, and matching versions.
+The app explicitly registers its local notification bridge at startup; an offline
+smoke test exercises the real JavaScript-to-native configuration call in a
+disposable simulator, without contacting a backend or reusing credentials.
+Ship an updated iOS/Watch binary for the native notification handlers and badge
 bridge; a web deployment alone cannot update installed native code.
 
 | File                     | Purpose                                                                   |

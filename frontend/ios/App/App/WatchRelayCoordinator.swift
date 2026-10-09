@@ -17,7 +17,10 @@ final class WatchRelayCoordinator: @unchecked Sendable {
     }
 
     init() {
-        watchRelay = WatchRelayHost(authManager: authManager)
+        watchRelay = WatchRelayHost(authManager: authManager, notificationAPIProvider: {
+            guard let url = notificationServerURL(UserDefaults.standard.string(forKey: "mitzo_notification_server_url")) else { return nil }
+            return MitzoAPIClient(baseURL: url, authManager: AuthManager())
+        })
         // Activate WCSession immediately so watch can reach us even before login
         watchRelay.activate(wsClient: nil, apiClient: nil)
     }

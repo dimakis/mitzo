@@ -37,7 +37,7 @@ public struct NotificationResponse: Encodable, Sendable {
 }
 
 
-public struct NotificationQuestion: Codable, Sendable, Identifiable {
+public struct NotificationQuestion: Codable, Sendable, Identifiable, Equatable {
     public let id: String
     public let question: String
     public let options: [Option]
@@ -45,7 +45,7 @@ public struct NotificationQuestion: Codable, Sendable, Identifiable {
     public let allowFreeform: Bool?
     public let isSecret: Bool?
 
-    public struct Option: Codable, Sendable {
+    public struct Option: Codable, Sendable, Equatable {
         public let label: String
         public let description: String?
     }

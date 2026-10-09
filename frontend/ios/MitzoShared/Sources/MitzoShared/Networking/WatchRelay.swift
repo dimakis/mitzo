@@ -20,8 +20,10 @@ import Foundation
 public final class WatchRelayHost: NSObject, WCSessionDelegate, Sendable {
     private let state = WatchRelayHostState()
     private let authManager: AuthManager
+    private let notificationAPIProvider: (@Sendable () -> MitzoAPIClient?)?
 
-    public init(authManager: AuthManager) {
+    public init(authManager: AuthManager, notificationAPIProvider: (@Sendable () -> MitzoAPIClient?)? = nil) {
+        self.notificationAPIProvider = notificationAPIProvider
         self.authManager = authManager
         super.init()
     }
@@ -73,9 +75,16 @@ public final class WatchRelayHost: NSObject, WCSessionDelegate, Sendable {
         let reply = UnsafeSendable(replyHandler)
         let capturedState = state
         let capturedAuthManager = authManager
+        let notificationAPIProvider = self.notificationAPIProvider
+        let userText = message["userText"] as? String ?? ""
 
         Task { @Sendable in
             do {
+                // Resolve REST independently of the foreground chat connection.
+                // A fresh client also observes a logout performed by the web app.
+                let notificationAPI: MitzoAPIClient?
+                if let notificationAPIProvider { notificationAPI = notificationAPIProvider() }
+                else { notificationAPI = capturedState.getAPIClient() }
                 switch type {
                 case "send":
                     guard let msg = clientMsg.value else {
@@ -120,7 +129,7 @@ public final class WatchRelayHost: NSObject, WCSessionDelegate, Sendable {
                     }
 
                 case "list_notifications":
-                    guard let api = capturedState.getAPIClient() else {
+                    guard let api = notificationAPI else {
                         reply.value(["error": "Open Mitzo on your iPhone first."])
                         return
                     }
@@ -134,8 +143,27 @@ public final class WatchRelayHost: NSObject, WCSessionDelegate, Sendable {
                     }
                     reply.value(["_payload": dict])
 
+                case "get_notification":
+                    guard let api = notificationAPI else { throw MitzoAPIClient.APIError.invalidResponse }
+                    let item = try await api.getNotification(id: notificationId)
+                    let data = try JSONEncoder().encode(item)
+                    guard data.count < 55000,
+                          let dict = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                        reply.value(["error": "These details are too large. Review on your iPhone."])
+                        return
+                    }
+                    reply.value(["_payload": dict])
+
+                case "reply_notification":
+                    guard let api = notificationAPI, !sessionId.isEmpty,
+                          !userText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                        throw MitzoAPIClient.APIError.invalidResponse
+                    }
+                    try await api.replyToNotification(sessionID: sessionId, text: userText)
+                    reply.value(["ok": true])
+
                 case "respond_notification":
-                    guard let api = capturedState.getAPIClient(), let decision, !sessionId.isEmpty else {
+                    guard let api = notificationAPI, let decision, !sessionId.isEmpty else {
                         reply.value(["error": "Cannot respond. Open Mitzo on your iPhone."])
                         return
                     }
@@ -384,6 +412,20 @@ public final class WatchRelayClient: NSObject, WCSessionDelegate, Sendable {
         }
         let data = try JSONSerialization.data(withJSONObject: payload)
         return try JSONDecoder().decode(NotificationFeed.self, from: data)
+    }
+
+    public func requestNotification(id: String) async throws -> MitzoNotification {
+        let reply = try await notificationRelay(["_relay": "get_notification", "notificationId": id])
+        guard let payload = reply["_payload"] as? [String: Any] else { throw WatchRelayError.invalidResponse }
+        let data = try JSONSerialization.data(withJSONObject: payload)
+        let item = try JSONDecoder().decode(MitzoNotification.self, from: data)
+        guard item.id == id else { throw WatchRelayError.invalidResponse }
+        return item
+    }
+
+    public func replyToNotification(sessionID: String, text: String) async throws {
+        let reply = try await notificationRelay(["_relay": "reply_notification", "sessionId": sessionID, "userText": text])
+        guard reply["ok"] as? Bool == true else { throw WatchRelayError.invalidResponse }
     }
 
     public func respondNotification(id: String, sessionId: String, decision: NotificationResponse.Decision) async throws {
