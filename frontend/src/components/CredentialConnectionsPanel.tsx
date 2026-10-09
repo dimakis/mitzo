@@ -61,7 +61,7 @@ export function CredentialConnectionsPanel({
   };
   return (
     <section
-      className="today-section connections-card"
+      className="today-section connections-card credential-connections-panel"
       aria-labelledby="keychain-connections-heading"
     >
       <h2 id="keychain-connections-heading">
@@ -69,15 +69,9 @@ export function CredentialConnectionsPanel({
           ? 'Authenticated API connections'
           : 'Apple Keychain connections'}
       </h2>
-      {initialTemplate === 'custom' && (
-        <p>
-          Connect any HTTPS API using a bearer token, username and password, or an authentication
-          header. Choose the destination, allowed paths and methods for each connection.
-        </p>
-      )}
-      <p>
-        Keep tokens and passwords in Apple Keychain. Each chat asks for its own approval before
-        using a connection.
+      <p className="credential-connections-intro">
+        Ask your assistant to connect a service in chat. It prepares the setup and brings you here
+        only to add your key.
       </p>
       {message && (
         <p role="status" className="connections-notice">
@@ -133,12 +127,15 @@ export function CredentialConnectionsPanel({
             </button>
           </details>
           {!connectionId && (
-            <CredentialConnectionForm
-              busy={busy}
-              csrf={csrf}
-              run={run}
-              initialTemplate={initialTemplate}
-            />
+            <details className="credential-manual-setup">
+              <summary>Advanced manual setup</summary>
+              <CredentialConnectionForm
+                busy={busy}
+                csrf={csrf}
+                run={run}
+                initialTemplate={initialTemplate}
+              />
+            </details>
           )}
           {connectionId && !connections.some((connection) => connection.id === connectionId) && (
             <p>

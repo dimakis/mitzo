@@ -8,7 +8,7 @@ import { apiFetch } from '../../lib/api-fetch';
 import * as api from '../../lib/connections-api';
 import type { ConnectionsCatalog, ConnectionTemplateCatalog } from '../../types/connections';
 
-vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
+vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn(), AUTH_LOST_EVENT: 'mitzo:auth-lost' }));
 vi.mock('../../lib/connections-api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../lib/connections-api')>()),
   getConnections: vi.fn(),

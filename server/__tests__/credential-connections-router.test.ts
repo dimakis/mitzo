@@ -197,3 +197,103 @@ it('updates generic WebSocket setup only through recent browser authorization at
   expect((await send({ revision: 2, websocket: { ...websocket, token: 'bad' } })).status).toBe(400);
   expect((await send({ revision: 2, websocket: null })).body.connection.websocket).toBeNull();
 });
+
+it('exposes a prepared setup only to browser auth and accepts only the key at the exact setup revision', async () => {
+  const { app, service, vault } = setup();
+  const draft = service.setups.prepare('origin-chat', {
+    profile: 'home-assistant',
+    endpoint: 'https://ha.example.com',
+  });
+  const route = `/api/credential-connections/setups/${draft.id}`;
+  expect((await request(app).get(route)).status).toBe(401);
+  const loaded = await request(app).get(route).set('x-browser', 'yes');
+  expect(loaded.status).toBe(200);
+  expect(loaded.body.setup.sessionId).toBe('origin-chat');
+  expect(
+    (
+      await request(app)
+        .post(route + '/complete')
+        .set('x-browser', 'yes')
+        .send({ revision: 1, secret: 'private-token' })
+    ).status,
+  ).toBe(403);
+  const auth = await request(app)
+    .post('/api/credential-connections/reauthorize')
+    .set('x-browser', 'yes')
+    .send({ passphrase: 'correct' });
+  expect(
+    (
+      await request(app)
+        .post(route + '/complete')
+        .set('x-browser', 'yes')
+        .set('x-csrf-token', auth.body.csrf)
+        .send({ revision: 1, secret: 'private-token', sessionId: 'other-chat' })
+    ).status,
+  ).toBe(400);
+  expect(vault.save).not.toHaveBeenCalled();
+  const submitted = await request(app)
+    .post(route + '/complete')
+    .set('x-browser', 'yes')
+    .set('x-csrf-token', auth.body.csrf)
+    .send({ revision: 1, secret: 'private-token' });
+  expect(submitted.status).toBe(200);
+  expect(submitted.body.setup).toMatchObject({ status: 'pending', revision: 3 });
+  expect(JSON.stringify(submitted.body)).not.toContain('private-token');
+});
+it('notifies only ready setup and records successful delivery', async () => {
+  const { service } = setup();
+  // This route test isolates enrollment networking from notification delivery.
+  const draft = service.setups.prepare('origin-chat', {
+    profile: 'home-assistant',
+    endpoint: 'https://ha.example.com',
+  });
+  const complete = vi.spyOn(service.setups, 'complete').mockResolvedValue({
+    ...draft,
+    status: 'ready',
+    revision: 3,
+    connectionId: 'verified-id',
+    connectionRevision: 1,
+    delivery: 'pending',
+  });
+  const onReady = vi.fn(async () => true);
+  const mark = vi.spyOn(service.setups, 'markDelivered');
+  const app = express();
+  app.use((_req, res, next) => {
+    res.locals.authSession = { id: 'notify-browser', expiresAt: Date.now() + 60_000 };
+    next();
+  });
+  app.use('/api/credential-connections', createCredentialConnectionsRouter(service, { onReady }));
+  const auth = await request(app)
+    .post('/api/credential-connections/reauthorize')
+    .send({ passphrase: 'correct' });
+  const result = await request(app)
+    .post(`/api/credential-connections/setups/${draft.id}/complete`)
+    .set('x-csrf-token', auth.body.csrf)
+    .send({ revision: 1, secret: 'private-token' });
+  expect(result.status).toBe(200);
+  expect(onReady).toHaveBeenCalledWith(
+    expect.objectContaining({ sessionId: 'origin-chat', connectionId: 'verified-id' }),
+  );
+  expect(mark).toHaveBeenCalledWith(draft.id);
+  expect(complete).toHaveBeenCalledOnce();
+});
+it('cancels setup through browser authorization and never reads a credential', async () => {
+  const { app, service, vault } = setup();
+  const draft = service.setups.prepare('chat-a', {
+    profile: 'home-assistant',
+    endpoint: 'https://ha.example.com',
+  });
+  const auth = await request(app)
+    .post('/api/credential-connections/reauthorize')
+    .set('x-browser', 'yes')
+    .send({ passphrase: 'correct' });
+  const result = await request(app)
+    .post(`/api/credential-connections/setups/${draft.id}/cancel`)
+    .set('x-browser', 'yes')
+    .set('x-csrf-token', auth.body.csrf)
+    .send({ revision: 1 });
+  expect(result.status).toBe(200);
+  expect(result.body.setup.status).toBe('cancelled');
+  expect(vault.read).not.toHaveBeenCalled();
+  expect(vault.save).not.toHaveBeenCalled();
+});
