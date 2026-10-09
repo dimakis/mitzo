@@ -1,0 +1,70 @@
+# Host Knowledge Library enrollment
+
+The Library is an operator surface for a curated accepted GitHub source. Its source is
+an independent private bare mirror. It never reads the application's task checkout,
+dirty files, model sandbox, or other worktrees. Accepted documents are Git objects on
+the explicitly enrolled accepted branch; saving a draft creates a draft review.
+
+Set `MITZO_KNOWLEDGE_LIBRARY_CONFIG` to an absolute physical host JSON file owned by
+the service user, with mode `0600` and a `0700` parent. Provision and independently
+review host enrollment before enabling it. A repository document cannot supply this
+configuration or select credentials. The state directory must be absolute, physical,
+owned by the service user and mode `0700`, outside every Git checkout and workspace
+root, including `REPO_PATH`. Existing state with broader permissions is refused.
+The file and state are protected from the application file tools even before the
+Library is opened; removing enrollment does not remove previously observed guards.
+An unreadable or malformed enrollment makes those tools fail closed.
+
+```json
+{
+  "repository": "your-owner/your-knowledge-repository",
+  "acceptedBranch": "main",
+  "documentPaths": ["essentials", "people", "teams", "strategy", "README.md"],
+  "stateDirectory": "/absolute/private/host/knowledge-library",
+  "publisherLogin": "your-publishing-account",
+  "trustedReviewer": "your-centaur-account",
+  "acceptanceEnabled": false
+}
+```
+
+Every field is host controlled; unknown fields are rejected. Repository identifiers
+must be lowercase `owner/name` on github.com. `documentPaths` is an explicit list of
+curated Markdown directories or individual Markdown files, not an entire repository.
+The accepted branch defaults to `main`; the trusted reviewer defaults to the repository
+owner. Omit `publisherLogin` for a read-only Library. Acceptance requires both explicit
+publisher enrollment and `acceptanceEnabled: true`; its default is disabled.
+
+The existing GitHub CLI host transport supplies GitHub authentication. Its account is
+verified against `publisherLogin` before saving, inspecting or accepting a review.
+Use a separately reviewed service account and credential configuration for this
+host deployment. Never borrow production credentials/configuration for staging, or
+fall back to production. No provider or real model call is needed for Library reads,
+draft editing, source review inspection or acceptance.
+
+On first enrollment, Git initializes `stateDirectory/source.git` without templates
+or a worktree, enrolls exactly `https://github.com/owner/name.git`, and fetches only
+`refs/heads/acceptedBranch` into `refs/remotes/origin/acceptedBranch`. Subsequent
+starts use the validated cached mirror immediately. Explicit refresh fetches the
+accepted branch and persists `synchronization.json` with its successful synchronization
+time; a failed refresh retains drafts and the previous synchronization time. There
+is no background backend, custodian, preview or automatic deployment. The mirror
+rejects changed origin/refspec, unexpected local Git configuration and alternate
+object stores. Drafts live in `stateDirectory/drafts.sqlite` with private SQLite state.
+
+Acceptance checks the canonical PR repository, base branch, author, source branch
+`knowledge/draft-id`, and exact saved head. It combines trusted-author reviews and
+comments in chronological order, using the same strict final Centaur report format
+as the default-branch `Centaur merge gate` workflow. Missing, stale, dismissed,
+ambiguous, blocking, `fix` or `human_decision` reports block acceptance. Every required
+GitHub check must pass; an empty required-check list also blocks. After approval it
+marks the PR ready, repeats inspection and merges with `--squash` and
+`--match-head-commit`, without an admin bypass. Acceptance is recorded only after
+GitHub confirms that exact PR was merged. The existing dedicated Centaur status App
+and branch protection provisioning remain mandatory; see
+[MGMT knowledge publication](mgmt-knowledge-publication.md).
+
+Acceptance is source acceptance. ContexGin publication and per-chat consumer adoption
+remain separate, with their existing source/runtime verification and receipts. The
+Library cannot fabricate publication or adoption receipts. There is no staging or
+production deployment action in this workflow. Production activation always requires
+a separate explicit operator action.
