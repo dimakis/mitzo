@@ -285,7 +285,10 @@ import {
   discardInboxItem,
   createInboxItem,
 } from './inbox.js';
-import { getLatestMorningBriefing } from './briefings.js';
+import { getLatestMorningBriefing, readMorningBriefing } from './briefings.js';
+import { createHomeRouter } from './home-router.js';
+import { HomeStore } from './home-store.js';
+import { readQuoteCatalog } from './quote-catalog.js';
 import { registerToken, removeToken, setTokenStorePath } from './apns.js';
 import { SkillRegistry } from './skills.js';
 import type { SkillWatcher } from './skill-watcher.js';
@@ -3641,6 +3644,15 @@ app.put('/api/files/write', async (req, res) => {
 });
 
 // --- Inbox API ---
+
+app.use(
+  '/api/home',
+  createHomeRouter({
+    store: new HomeStore(join(BASE_REPO || '.', '.mitzo', 'home.json')),
+    catalog: readQuoteCatalog,
+    briefing: (date) => readMorningBriefing(BASE_REPO || '.', date),
+  }),
+);
 
 app.get('/api/briefings/latest', (req, res) => {
   const date = typeof req.query.date === 'string' ? req.query.date : '';

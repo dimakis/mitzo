@@ -1,0 +1,41 @@
+[
+  {
+    "id": "epictetus-enchiridion-5-carter",
+    "text": "Men are disturbed, not by things, but by the principles and notions which they form concerning things.",
+    "author": "Epictetus",
+    "work": "Enchiridion, chapter 5",
+    "translation": "Elizabeth Carter",
+    "explanation": "One way to read this passage: examine the judgement you bring to an event. Your first interpretation can be tested before it guides your response.",
+    "example": "A colleague hasn’t replied. The late reply is an observation; ‘they’re ignoring me’ is an interpretation. Check that interpretation before acting.",
+    "biography": "A Greek Stoic philosopher of the first and early second centuries CE, who taught in Rome and later Nicopolis. His teaching focused on ethical judgement and the choices we make.",
+    "sourceUrl": "https://classics.mit.edu/Epictetus/epicench.html",
+    "explainerUrl": "https://dcc.dickinson.edu/epictetus-encheiridion/chapter-5",
+    "authorUrl": "https://plato.stanford.edu/entries/epictetus/"
+  },
+  {
+    "id": "socrates-apology-38a-jowett",
+    "text": "the life which is unexamined is not worth living",
+    "author": "Socrates, as portrayed by Plato",
+    "work": "Plato, Apology, 38a",
+    "translation": "Benjamin Jowett · excerpt",
+    "explanation": "In Plato’s account of his trial, Socrates treats examining our beliefs and conduct as central to living well. One practical reading is to make room for questioning the reasons behind your choices.",
+    "example": "Before repeating a familiar routine, ask what it serves and whether that purpose still matters to you.",
+    "biography": "An Athenian philosopher famous for questioning people about their beliefs. He left no written works; Plato and other ancient writers provide differing portraits of him.",
+    "sourceUrl": "https://classics.mit.edu/Plato/apology.html",
+    "explainerUrl": "https://plato.stanford.edu/entries/socrates/",
+    "authorUrl": "https://plato.stanford.edu/entries/socrates/"
+  },
+  {
+    "id": "laozi-daodejing-64-legge",
+    "text": "the journey of a thousand li commenced with a single step.",
+    "author": "Laozi · traditional attribution",
+    "work": "Daodejing, chapter 64",
+    "translation": "James Legge · excerpt",
+    "explanation": "The surrounding passage describes large things growing from small beginnings. A practical interpretation is to attend to beginnings while a situation is still manageable, and let progress develop step by step.",
+    "example": "For a daunting project, choose one concrete first action and give it your attention.",
+    "biography": "Traditionally credited with the Daodejing, a foundational Daoist text. The historical identity of Laozi and the text’s authorship remain subjects of debate.",
+    "sourceUrl": "https://www.gutenberg.org/files/216/216-h/216-h.htm",
+    "explainerUrl": "https://plato.stanford.edu/entries/laozi/",
+    "authorUrl": "https://plato.stanford.edu/entries/laozi/"
+  }
+]
