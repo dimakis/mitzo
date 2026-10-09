@@ -161,6 +161,9 @@ export function ChatView() {
       setAccountSelection(selection);
       if (selection) {
         if (
+          !!launch?.briefing ||
+          briefingChat.isBriefing ||
+          briefingChat.loading ||
           repositoryHandoff.present ||
           (activeSessionId !== null &&
             activeSessionId === repositoryHandoff.lastAssignedConversationId &&
@@ -180,6 +183,9 @@ export function ChatView() {
       activeSessionId,
       repositoryHandoff.present,
       repositoryHandoff.lastAssignedConversationId,
+      launch?.briefing,
+      briefingChat.isBriefing,
+      briefingChat.loading,
     ],
   );
 
@@ -426,11 +432,7 @@ export function ChatView() {
                       ? launch?.accountSelection
                       : undefined
                 }
-                disabled={
-                  messages.running ||
-                  repositoryHandoff.loading ||
-                  (briefingChat.isBriefing && !!activeSessionId)
-                }
+                disabled={messages.running || repositoryHandoff.loading || briefingChat.isBriefing}
                 sessionId={activeSessionId}
                 preferredModel={modelState}
                 onChange={selectAccount}

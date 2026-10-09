@@ -112,13 +112,27 @@ afterEach(() => {
 });
 
 it('keeps the reviewed briefing account locked and labels the rich chat with the configured minion name', async () => {
+  localStorage.setItem('mitzo-preferred-model', 'saved-general-model');
   vi.mocked(apiFetch).mockImplementation(
     async (url) =>
       new Response(
         JSON.stringify(
           String(url).includes('/home/preferences')
             ? { revision: 1, names: { briefing: 'Jeeves', terminal: 'Minion' }, pins: [] }
-            : [{ id: 'work', label: 'Work OpenAI', models: [{ id: 'luna', label: 'Luna' }] }],
+            : [
+                {
+                  id: 'work',
+                  label: 'Work OpenAI',
+                  models: [
+                    {
+                      id: 'luna',
+                      label: 'Luna',
+                      reasoningEfforts: ['low', 'high'],
+                      defaultReasoningEffort: 'low',
+                    },
+                  ],
+                },
+              ],
         ),
       ),
   );
@@ -142,6 +156,8 @@ it('keeps the reviewed briefing account locked and labels the rich chat with the
   await screen.findByRole('heading', { name: 'Jeeves' });
   expect((screen.getByLabelText('Account') as HTMLSelectElement).disabled).toBe(true);
   expect((screen.getByLabelText('Model') as HTMLSelectElement).disabled).toBe(true);
+  expect((screen.getByLabelText('Thinking') as HTMLSelectElement).disabled).toBe(true);
+  expect(localStorage.getItem('mitzo-preferred-model')).toBe('saved-general-model');
   expect(screen.getByRole('link', { name: /Read briefing/ }).getAttribute('href')).toContain(
     '/briefings/2026-10-09',
   );

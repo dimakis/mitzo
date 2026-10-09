@@ -151,6 +151,9 @@ export function DesktopChatView() {
       setAccountSelection(selection);
       if (selection) {
         if (
+          !!launch?.briefing ||
+          briefingChat.isBriefing ||
+          briefingChat.loading ||
           repositoryHandoff.present ||
           (activeSessionId !== null &&
             activeSessionId === repositoryHandoff.lastAssignedConversationId &&
@@ -170,6 +173,9 @@ export function DesktopChatView() {
       activeSessionId,
       repositoryHandoff.present,
       repositoryHandoff.lastAssignedConversationId,
+      launch?.briefing,
+      briefingChat.isBriefing,
+      briefingChat.loading,
     ],
   );
 
@@ -416,9 +422,7 @@ export function DesktopChatView() {
                   onChange={selectAccount}
                   onSummaryChange={setWorkspaceSummary}
                   disabled={
-                    messages.running ||
-                    repositoryHandoff.loading ||
-                    (briefingChat.isBriefing && !!activeSessionId)
+                    messages.running || repositoryHandoff.loading || briefingChat.isBriefing
                   }
                 />
               ) : (
