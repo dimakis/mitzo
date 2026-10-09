@@ -18,6 +18,7 @@ export const BackupSetupInput = z
 const receipt = z
   .object({ version: z.literal(1), prepared: z.literal(true), recoveryConfirmed: z.boolean() })
   .strict();
+export class BackupSetupError extends Error {}
 export interface BackupSetupOptions {
   root: string;
   cloud: string;
@@ -39,18 +40,20 @@ export class BackupSetup {
       const path = join(this.options.root, 'setup.json');
       const info = await lstat(path);
       if (!info.isFile() || info.uid !== process.getuid?.() || (info.mode & 0o077) !== 0)
-        throw Error();
+        throw new BackupSetupError();
       return receipt.parse(JSON.parse(await readSmall(path, 4096)));
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
-      throw Error('Backup setup needs a host check. Existing configuration was preserved.');
+      throw new BackupSetupError(
+        'Backup setup needs a host check. Existing configuration was preserved.',
+      );
     }
   }
   private async privateRoot(create = false) {
     await safeDirectory(this.options.root, create);
     const info = await lstat(this.options.root);
     if (info.uid !== process.getuid?.() || (info.mode & 0o077) !== 0)
-      throw Error('Backup storage must be private.');
+      throw new BackupSetupError('Backup storage must be private.');
   }
   private async current() {
     if (this.options.legacyService && (await this.options.legacyService.overview()).ready)
@@ -87,16 +90,17 @@ export class BackupSetup {
     return { ...view, busy: view.busy || (await this.setupLocked()) };
   }
   async start() {
-    if (await this.setupLocked()) throw Error('Backup setup is busy.');
+    if (await this.setupLocked()) throw new BackupSetupError('Backup setup is busy.');
     return (await this.current()).start();
   }
   async refresh() {
-    if (await this.setupLocked()) throw Error('Backup setup is busy.');
+    if (await this.setupLocked()) throw new BackupSetupError('Backup setup is busy.');
     return (await this.current()).refresh();
   }
   private async mutate(work: () => Promise<void>) {
-    if (!this.options.supported) throw Error('Backup setup requires the Mac running Mitzo.');
-    if (this.busy) throw Error('Backup setup is already running.');
+    if (!this.options.supported)
+      throw new BackupSetupError('Backup setup requires the Mac running Mitzo.');
+    if (this.busy) throw new BackupSetupError('Backup setup is already running.');
     this.busy = true;
     let owned = false;
     const lock = join(this.options.root, 'setup.lock');
@@ -111,7 +115,9 @@ export class BackupSetup {
           if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue;
           throw error;
         }
-        throw Error('Backup storage has a retained writer lock. A host check is required.');
+        throw new BackupSetupError(
+          'Backup storage has a retained writer lock. A host check is required.',
+        );
       }
       await work();
     } finally {
@@ -136,15 +142,21 @@ export class BackupSetup {
   async configure(input: { password: string; recoveryConfirmed: boolean }) {
     const parsed = BackupSetupInput.safeParse(input);
     if (!parsed.success)
-      throw Error('Use a password of at least 16 characters and confirm its recovery copy.');
+      throw new BackupSetupError(
+        'Use a password of at least 16 characters and confirm its recovery copy.',
+      );
     await this.mutate(async () => {
       const saved = await this.read();
       if (!saved || (await this.status()).configured)
-        throw Error('Prepare storage first. A configured backup password cannot be replaced here.');
+        throw new BackupSetupError(
+          'Prepare storage first. A configured backup password cannot be replaced here.',
+        );
       try {
         await this.options.savePassword(parsed.data.password);
       } catch {
-        throw Error('Backup password could not be saved. Unlock Keychain on the Mac and retry.');
+        throw new BackupSetupError(
+          'Backup password could not be saved. Unlock Keychain on the Mac and retry.',
+        );
       }
       await durableJson(join(this.options.root, 'setup.json'), {
         version: 1,

@@ -51,3 +51,75 @@ it('requires interactive authentication for reads and actions; accepts no paths 
   expect(failed.status).toBe(409);
   expect(failed.text).not.toContain('/secret');
 });
+it('admits interactive setup only, rejects extra paths and protects passwords in error responses', async () => {
+  const setup = {
+    status: vi.fn(async () => ({
+      supported: true,
+      prepared: false,
+      configured: false,
+      busy: false,
+      localFolder: '/local',
+      cloudFolder: '/cloud',
+    })),
+    prepare: vi.fn(async () => {}),
+    configure: vi.fn(async (_input: unknown) => {}),
+  };
+  const service = { overview: vi.fn(), start: vi.fn(), refresh: vi.fn() };
+  const app = express();
+  app.use(express.json());
+  app.use(
+    '/api/backups',
+    createBackupRouter(
+      service,
+      (req, res, next) => {
+        if (req.headers.authorization === 'operator') res.locals.authSession = { id: 'operator' };
+        next();
+      },
+      setup,
+    ),
+  );
+  expect((await request(app).get('/api/backups/setup')).status).toBe(403);
+  expect(
+    (
+      await request(app)
+        .post('/api/backups/setup')
+        .send({ password: 'synthetic-recovery-password', recoveryConfirmed: true })
+    ).status,
+  ).toBe(403);
+  expect(
+    (
+      await request(app)
+        .post('/api/backups/setup')
+        .set('Authorization', 'operator')
+        .send({
+          password: 'synthetic-recovery-password',
+          recoveryConfirmed: true,
+          root: '/untrusted',
+        })
+    ).status,
+  ).toBe(400);
+  expect(setup.configure).not.toHaveBeenCalled();
+  const accepted = await request(app)
+    .post('/api/backups/setup')
+    .set('Authorization', 'operator')
+    .send({ password: 'synthetic-recovery-password', recoveryConfirmed: true });
+  expect(accepted.status).toBe(200);
+  expect(accepted.headers['cache-control']).toBe('no-store');
+  expect(accepted.text).not.toContain('synthetic-recovery-password');
+  setup.configure.mockRejectedValueOnce(Error('synthetic-recovery-password /private/path'));
+  const failed = await request(app)
+    .post('/api/backups/setup')
+    .set('Authorization', 'operator')
+    .send({ password: 'synthetic-recovery-password', recoveryConfirmed: true });
+  expect(failed.status).toBe(409);
+  expect(failed.text).not.toContain('synthetic-recovery-password');
+  expect(
+    (
+      await request(app)
+        .post('/api/backups/setup/prepare')
+        .set('Authorization', 'operator')
+        .send({})
+    ).status,
+  ).toBe(200);
+  expect(setup.prepare).toHaveBeenCalledTimes(1);
+});

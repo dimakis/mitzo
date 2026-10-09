@@ -1,9 +1,10 @@
 import { execFile } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
-import { chmod, link, lstat, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, link, lstat, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { z } from 'zod';
+import { BackupSetupError } from './setup.js';
 import { digestFile, durableJson, readSmall, safeDirectory } from './files.js';
 
 const hashes: Record<string, string> = {
@@ -125,7 +126,7 @@ export async function prepareBackupTools(options: {
     await durableJson(manifestPath, values);
     return paths;
   } catch {
-    throw Error(
+    throw new BackupSetupError(
       'Backup tools could not be prepared. Check internet access and the Mac’s Swift command-line tools, then retry. Existing files were preserved.',
     );
   } finally {
