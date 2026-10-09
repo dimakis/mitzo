@@ -34,7 +34,15 @@ const voiceMocks = vi.hoisted(() => ({
   stopSpeaking: vi.fn(),
 }));
 
-vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn(), getApiBaseUrl: () => '' }));
+vi.mock('../../lib/api-fetch', () => ({
+  apiFetch: vi.fn(),
+  getApiBaseUrl: () => '',
+  AUTH_LOST_EVENT: 'auth-lost',
+  AUTH_RESTORED_EVENT: 'auth-restored',
+}));
+vi.mock('../../hooks/useHomePreferences', () => ({
+  useHomePreferences: () => ({ preferences: { names: { briefing: 'Jeeves' } } }),
+}));
 vi.mock('../../hooks/useProgress', () => ({ useProgressByToolId: () => new Map() }));
 vi.mock('../../lib/keyboard', () => ({ onKeyboardToggle: () => () => {} }));
 vi.mock('../../hooks/useVoice', () => ({
@@ -101,6 +109,43 @@ afterEach(() => {
   cleanup();
   sessionStorage.clear();
   vi.resetAllMocks();
+});
+
+it('keeps the reviewed briefing account locked and labels the rich chat with the configured minion name', async () => {
+  vi.mocked(apiFetch).mockImplementation(
+    async (url) =>
+      new Response(
+        JSON.stringify(
+          String(url).includes('/home/preferences')
+            ? { revision: 1, names: { briefing: 'Jeeves', terminal: 'Minion' }, pins: [] }
+            : [{ id: 'work', label: 'Work OpenAI', models: [{ id: 'luna', label: 'Luna' }] }],
+        ),
+      ),
+  );
+  const store = createTestStore();
+  store.setState({
+    pendingSession: {
+      prompt: 'Discuss this report',
+      context: 'Briefing',
+      briefing: { date: '2026-10-09', revision: 'a'.repeat(64) },
+      accountSelection: { accountId: 'work', model: 'luna' },
+      contextBlocks: ['Exact saved report'],
+    },
+  });
+  render(
+    <MitzoStoreProvider value={store}>
+      <MemoryRouter>
+        <ChatView />
+      </MemoryRouter>
+    </MitzoStoreProvider>,
+  );
+  await screen.findByRole('heading', { name: 'Jeeves' });
+  expect((screen.getByLabelText('Account') as HTMLSelectElement).disabled).toBe(true);
+  expect((screen.getByLabelText('Model') as HTMLSelectElement).disabled).toBe(true);
+  expect(screen.getByRole('link', { name: /Read briefing/ }).getAttribute('href')).toContain(
+    '/briefings/2026-10-09',
+  );
+  expect(screen.getByRole('button', { name: 'Test send' }).hasAttribute('disabled')).toBe(true);
 });
 
 it('updates web-search consent when the connection ID changes without a status change', () => {

@@ -1,3 +1,5 @@
+import { useBriefingChat } from '../hooks/useBriefingChat';
+import { BriefingChatBanner } from '../components/BriefingChatBanner';
 import {
   savedRepositoryDraft,
   repositoryDraftKey,
@@ -55,6 +57,7 @@ export function DesktopChatView() {
   const connection = useConnection();
   const tokens = useTokens();
   const activeSessionId = useMitzoStore((s) => s.sessions.active);
+  const briefingChat = useBriefingChat(activeSessionId);
   const preparationId = searchParams.get('repositoryPreparation');
   const repositoryHandoff = useRepositoryChatPreparation(preparationId, sessionId);
   const repositoryDraftControl = useRef<ChatInputDraftControl | null>(null);
@@ -84,6 +87,8 @@ export function DesktopChatView() {
     dismissLaunch,
     sendMessage: storeSendMessage,
     sendLaunch,
+    registrationError,
+    retryRegistration,
   } = usePendingLaunch();
 
   const connected = connection.status === 'connected';
@@ -258,6 +263,7 @@ export function DesktopChatView() {
     launching = false,
   ): boolean {
     if (repositoryHandoffReason || (repositoryHandoff.present && launching)) return false;
+    if (launch?.briefing && !launching) return false;
     if (launching && activeSessionId) return sendLaunch();
     if (!activeSessionId && (!accountSelection || repositorySelection?.blocked)) return false;
     if (activeSessionId && connection.status !== 'connected') {
@@ -357,6 +363,13 @@ export function DesktopChatView() {
       }
       center={
         <div className="desktop-chat-center workspace-chat">
+          {briefingChat.isBriefing && <h1>{briefingChat.name}</h1>}
+          <BriefingChatBanner
+            name={briefingChat.name}
+            source={briefingChat.source}
+            registrationError={registrationError}
+            retryRegistration={retryRegistration}
+          />
           <WorkspaceControls
             attention={!!launch || repositoryHandoff.present}
             summary={workspaceSummary}
@@ -394,13 +407,19 @@ export function DesktopChatView() {
                           accountId: repositoryHandoff.preparation.accountId,
                           model: repositoryHandoff.preparation.model,
                         }
-                      : undefined
+                      : !activeSessionId
+                        ? launch?.accountSelection
+                        : undefined
                   }
                   sessionId={activeSessionId}
                   preferredModel={modelState}
                   onChange={selectAccount}
                   onSummaryChange={setWorkspaceSummary}
-                  disabled={messages.running || repositoryHandoff.loading}
+                  disabled={
+                    messages.running ||
+                    repositoryHandoff.loading ||
+                    (briefingChat.isBriefing && !!activeSessionId)
+                  }
                 />
               ) : (
                 <span>Waiting for repository preparation…</span>
@@ -552,6 +571,9 @@ export function DesktopChatView() {
                       : undefined
                   }
                   sendDisabledReason={
+                    (launch?.briefing
+                      ? 'Send the reviewed briefing prompt first, then ask a follow-up.'
+                      : undefined) ??
                     repositoryHandoffReason ??
                     (!activeSessionId && repositorySelection?.blocked
                       ? 'Prepare or remove the repository before sending.'

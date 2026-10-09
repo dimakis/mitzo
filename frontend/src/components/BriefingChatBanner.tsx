@@ -1,0 +1,97 @@
+import { useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { useMitzoStore } from '@mitzo/client/hooks';
+import type { BriefingSnapshot } from '@mitzo/protocol';
+import { apiFetch } from '../lib/api-fetch';
+import { briefingContext } from '../lib/briefing';
+import { BriefingMinionPicker } from './BriefingMinionPicker';
+import type { AccountSelection } from './AccountModelPicker';
+import '../styles/briefing.css';
+
+export function BriefingChatBanner({
+  name,
+  source,
+  registrationError,
+  retryRegistration,
+}: {
+  name: string;
+  source: { date: string; revision: string } | null | undefined;
+  registrationError?: string;
+  retryRegistration?: () => void;
+}) {
+  const [picker, setPicker] = useState(false);
+  const navigate = useNavigate();
+  const stage = useMitzoStore((store) => store.setPendingSession);
+  const launch = useMitzoStore((store) => store.pendingSession);
+  const messages = useMitzoStore((store) => store.messages.messages);
+  if (!source && !registrationError) return null;
+  async function changeSelection(selection: AccountSelection) {
+    if (!source || !selection.accountId) return;
+    const response = await apiFetch(
+      `/api/home/briefing-chats?date=${source.date}&revision=${source.revision}`,
+    );
+    if (!response.ok) throw new Error('Could not find saved conversation');
+    const saved: { accountId: string; model: string; sessionId: string }[] = await response.json();
+    const existing = saved.find(
+      (entry) => entry.accountId === selection.accountId && entry.model === selection.model,
+    );
+    if (existing) {
+      setPicker(false);
+      navigate(`/chat/${encodeURIComponent(existing.sessionId)}`);
+      return;
+    }
+    const prefix = `Saved morning briefing: ${source.date}\nRevision: ${source.revision}\n`;
+    let context = [
+      ...(launch?.contextBlocks ?? []),
+      ...messages.flatMap((message) => message.contextBlocks ?? []),
+    ].find((entry) => entry.startsWith(prefix));
+    if (!context) {
+      const report = await apiFetch(`/api/home/briefing?date=${source.date}`);
+      if (!report.ok) throw new Error('Original source unavailable');
+      const snapshot: BriefingSnapshot = await report.json();
+      if (snapshot.revision !== source.revision)
+        throw new Error(
+          'This briefing has changed; open the new report to start a new conversation.',
+        );
+      context = briefingContext(snapshot);
+    }
+    stage({
+      prompt:
+        'Help me explore this saved morning briefing. Start with its calendar changes and main preparation points.',
+      context: `Morning briefing · ${source.date}`,
+      contextBlocks: [context],
+      briefing: source,
+      accountSelection: { ...selection, accountId: selection.accountId },
+    });
+    setPicker(false);
+    navigate('/chat');
+  }
+  return (
+    <aside className="briefing-chat-banner">
+      {source && (
+        <>
+          <span>
+            {name} · {source.date}
+          </span>
+          <Link to={`/briefings/${source.date}?revision=${encodeURIComponent(source.revision)}`}>
+            Read briefing
+          </Link>
+          <button onClick={() => setPicker(true)}>Change account or model</button>
+        </>
+      )}
+      {registrationError && (
+        <p role="alert">
+          {registrationError}{' '}
+          <button onClick={retryRegistration}>Retry saving briefing link</button>
+        </p>
+      )}
+      {picker && (
+        <BriefingMinionPicker
+          name={name}
+          onCancel={() => setPicker(false)}
+          onUse={changeSelection}
+        />
+      )}
+    </aside>
+  );
+}

@@ -1,3 +1,5 @@
+import { useBriefingChat } from '../hooks/useBriefingChat';
+import { BriefingChatBanner } from '../components/BriefingChatBanner';
 import {
   savedRepositoryDraft,
   repositoryDraftKey,
@@ -65,6 +67,7 @@ export function ChatView() {
   const sendError = useMitzoStore((s) => s.sendError);
   const sendStatus = useMitzoStore((s) => s.sendStatus);
   const activeSessionId = useMitzoStore((s) => s.sessions.active);
+  const briefingChat = useBriefingChat(activeSessionId);
   const preparationId = searchParams.get('repositoryPreparation');
   const repositoryHandoff = useRepositoryChatPreparation(preparationId, sessionId);
   const repositoryDraftControl = useRef<ChatInputDraftControl | null>(null);
@@ -94,6 +97,8 @@ export function ChatView() {
     dismissLaunch,
     sendMessage: storeSendMessage,
     sendLaunch,
+    registrationError,
+    retryRegistration,
   } = usePendingLaunch();
 
   const connected = connection.status === 'connected';
@@ -270,6 +275,7 @@ export function ChatView() {
     launching = false,
   ): boolean {
     if (repositoryHandoffReason || (repositoryHandoff.present && launching)) return false;
+    if (launch?.briefing && !launching) return false;
     if (launching && activeSessionId) return sendLaunch();
     if (!activeSessionId && (!accountSelection || repositorySelection?.blocked)) return false;
     // For new sessions (no activeSessionId) the store bootstraps a WS on
@@ -369,7 +375,13 @@ export function ChatView() {
           <Link to="/sessions" aria-label="Back to chats">
             ← Chats
           </Link>
-          <h1>{activeSessionId ? 'Conversation' : 'New chat'}</h1>
+          <h1>
+            {briefingChat.isBriefing
+              ? briefingChat.name
+              : activeSessionId
+                ? 'Conversation'
+                : 'New chat'}
+          </h1>
           <button
             onClick={() => {
               storeNewSession();
@@ -379,6 +391,12 @@ export function ChatView() {
             New chat
           </button>
         </div>
+        <BriefingChatBanner
+          name={briefingChat.name}
+          source={briefingChat.source}
+          registrationError={registrationError}
+          retryRegistration={retryRegistration}
+        />
         <WorkspaceControls
           attention={!!launch || repositoryHandoff.present}
           summary={workspaceSummary}
@@ -404,9 +422,15 @@ export function ChatView() {
                         accountId: repositoryHandoff.preparation.accountId,
                         model: repositoryHandoff.preparation.model,
                       }
-                    : undefined
+                    : !activeSessionId
+                      ? launch?.accountSelection
+                      : undefined
                 }
-                disabled={messages.running || repositoryHandoff.loading}
+                disabled={
+                  messages.running ||
+                  repositoryHandoff.loading ||
+                  (briefingChat.isBriefing && !!activeSessionId)
+                }
                 sessionId={activeSessionId}
                 preferredModel={modelState}
                 onChange={selectAccount}
@@ -593,6 +617,9 @@ export function ChatView() {
                   : undefined
               }
               sendDisabledReason={
+                (launch?.briefing
+                  ? 'Send the reviewed briefing prompt first, then ask a follow-up.'
+                  : undefined) ??
                 repositoryHandoffReason ??
                 (!activeSessionId && repositorySelection?.blocked
                   ? 'Prepare or remove the repository before sending.'
