@@ -29,10 +29,11 @@ function styleViolations(source: string, filename = 'component.css'): string[] {
   if (/#[\da-f]{3,8}\b|(?:rgb|hsl)a?\(\s*\d/i.test(clean)) violations.push('palette literal');
   if (/(?:color|background(?:-color)?|fill|stroke):\s*['"]?(?:white|black)\b/i.test(clean))
     violations.push('named color');
-  if (filename.endsWith('.css')) {
-    for (const font of clean.matchAll(/\b(?:font-family|font):\s*([^;]+);/g)) {
-      if (!/^(var\(|inherit$)/.test(font[1].trim())) violations.push('font stack');
-    }
+  const fontPattern = filename.endsWith('.css')
+    ? /\b(?:font-family|font):\s*([^;}]+)(?=[;}]|$)/g
+    : /\bfont-family:\s*([^;}]+)(?=[;}]|$)/g;
+  for (const font of clean.matchAll(fontPattern)) {
+    if (!/^(var\(|inherit$)/.test(font[1].trim())) violations.push('font stack');
   }
   for (const font of clean.matchAll(/\bfontFamily\s*:\s*(['"`])([^'"`]+)\1/g)) {
     if (!/^(var\(|inherit$)/.test(font[2].trim())) violations.push('inline font stack');
@@ -71,6 +72,12 @@ describe('design tokens', () => {
       ['mobile navigation override', '.new-page { --mobile-tabs-height: 91px; }'],
     ])('rejects %s', (_name, source) => {
       expect(styleViolations(source).length).toBeGreaterThan(0);
+    });
+
+    it('rejects CSS font-family literals embedded in TSX', () => {
+      expect(
+        styleViolations('const styles = `.page { font-family: Arial; }`;', 'page.tsx'),
+      ).toContain('font stack');
     });
 
     it('does not confuse adapter token lookup expressions with CSS declarations', () => {
