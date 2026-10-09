@@ -6,11 +6,13 @@ import { SubagentCard } from './SubagentCard';
 import { CodeBlock } from './CodeBlock';
 import { artifactViewerUrl } from '../lib/file-paths';
 import { webAccessOutcome, webAccessSummary } from '../lib/web-access-outcome';
+import { ConnectionSetupCard } from './ConnectionSetupCard';
 import { GoogleSearchResult } from './GoogleSearchResult';
 
 interface Props {
   block: ToolBlock;
   sessionId?: string;
+  showSetupCard?: boolean;
 }
 
 function RawInputDetail({
@@ -132,7 +134,7 @@ function ToolResult({
   );
 }
 
-export function ToolPill({ block, sessionId }: Props) {
+export function ToolPill({ block, sessionId, showSetupCard = true }: Props) {
   const navigate = useNavigate();
   const location = useLocation();
   const [expanded, setExpanded] = useState(false);
@@ -176,6 +178,7 @@ export function ToolPill({ block, sessionId }: Props) {
         )}
         <span className="tool-pill-chevron">{expanded ? '▾' : '▸'}</span>
       </button>
+      {showSetupCard && <ConnectionSetupCard block={block} sessionId={sessionId} />}
       {['RequestWebAccess', 'mcp__mitzo-web-access__RequestWebAccess'].includes(
         block.toolName ?? '',
       ) &&
