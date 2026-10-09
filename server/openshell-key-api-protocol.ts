@@ -2,7 +2,7 @@ import { fromJSON, type ServiceDefinition } from '@grpc/proto-loader';
 
 /** Narrow wire contract, pinned to OpenShell b4c459f92446167afcb0a2dcf7d9fa6c8945e59c.
  * Field numbers come from proto/datamodel.proto and proto/openshell.proto.
- * Only provider reads and conditional updates are exposed; no API discovery or fallback. */
+ * Only provider reads, conditional updates and immutable-ID SSH grants are exposed; no API discovery or fallback. */
 const protocol = {
   nested: {
     openshell: {
@@ -36,8 +36,24 @@ const protocol = {
               },
             },
             ProviderResponse: { fields: { provider: { type: 'Provider', id: 1 } } },
+            CreateSshSessionRequest: { fields: { sandbox_id: { type: 'string', id: 1 } } },
+            CreateSshSessionResponse: {
+              fields: {
+                sandbox_id: { type: 'string', id: 1 },
+                token: { type: 'string', id: 2 },
+                gateway_host: { type: 'string', id: 3 },
+                gateway_port: { type: 'uint32', id: 4 },
+                gateway_scheme: { type: 'string', id: 5 },
+                host_key_fingerprint: { type: 'string', id: 7 },
+                expires_at_ms: { type: 'int64', id: 8 },
+              },
+            },
             OpenShell: {
               methods: {
+                CreateSshSession: {
+                  requestType: 'CreateSshSessionRequest',
+                  responseType: 'CreateSshSessionResponse',
+                },
                 GetProvider: {
                   comment: 'Read the current pinned provider.',
                   requestType: 'GetProviderRequest',

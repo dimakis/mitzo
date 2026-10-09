@@ -69,6 +69,11 @@ describe('terminal process boundary', () => {
       },
       'mitzo-test',
       'attach',
+      {
+        sandboxId: 'original-id',
+        proxyUrl: 'https://gateway.test:9443/proxy/connect',
+        token: 'ephemeral-token',
+      },
     );
     expect(spec.command).toBe('ssh');
     expect(spec.args[0]).toBe('-tt');
@@ -91,4 +96,36 @@ it('never creates a fresh shell when resuming a missing persisted session', () =
   const spec = terminalProcessSpec(record, 'mitzo-test', 'resume');
   expect(spec.args).toEqual(['-L', 'mitzo-test', 'attach-session', '-t', record.id]);
   expect(spec.args).not.toContain('new-session');
+});
+
+it('pins the SSH proxy to an immutable sandbox ID and never resolves a recycled name', () => {
+  const runtime = {
+    sandboxName: 'chat-original',
+    sandboxId: 'original-id',
+    workdir: '/sandbox/workspaces/task',
+    appServerCommand: '/sandbox/run-mitzo-app-server' as const,
+    cli: 'openshell',
+    gateway: 'staging',
+    workspace: 'default',
+    gatewayInsecure: false,
+  };
+  const sandbox = {
+    ...record,
+    kind: 'sandbox' as const,
+    cwd: runtime.workdir,
+    target: { ...record.target!, kind: 'sandbox' as const, cwd: runtime.workdir, runtime },
+  };
+  const grant = {
+    sandboxId: 'original-id',
+    proxyUrl: 'https://gateway.test:9443/proxy/connect',
+    token: 'ephemeral-token',
+  };
+  const spec = terminalProcessSpec(sandbox, 'mitzo-test', 'attach', grant);
+  const proxy = spec.args.find((value) => value.startsWith('ProxyCommand='))!;
+  expect(proxy).toContain("--sandbox-id 'original-id'");
+  expect(proxy).not.toContain('--name');
+  expect(() =>
+    terminalProcessSpec(sandbox, 'mitzo-test', 'attach', { ...grant, sandboxId: 'replacement' }),
+  ).toThrow();
+  expect(() => terminalProcessSpec(sandbox, 'mitzo-test', 'attach')).toThrow('SSH');
 });

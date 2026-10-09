@@ -128,7 +128,7 @@ export class OpenShellProviderKeyApi implements Pick<OpenAIKeyGateway, 'inspect'
   }
   private async unary(
     connection: Connection,
-    method: 'GetProvider' | 'UpdateProvider',
+    method: 'GetProvider' | 'UpdateProvider' | 'CreateSshSession',
     request: object,
     signal: AbortSignal,
   ): Promise<unknown> {
@@ -178,6 +178,39 @@ export class OpenShellProviderKeyApi implements Pick<OpenAIKeyGateway, 'inspect'
       });
     } finally {
       client.close();
+    }
+  }
+  /** The gateway mints a short-lived grant for the persisted physical ID, never a name. */
+  async createTerminalSsh(sandboxId: string, signal: AbortSignal) {
+    try {
+      if (!/^[A-Za-z0-9._-]{1,128}$/.test(sandboxId)) throw Error();
+      const connection = this.connection();
+      const grant = z
+        .object({
+          sandbox_id: z.literal(sandboxId),
+          token: z
+            .string()
+            .min(1)
+            .max(4096)
+            .regex(/^[A-Za-z0-9._~+/=-]+$/),
+          gateway_host: z
+            .string()
+            .min(1)
+            .max(253)
+            .regex(/^[A-Za-z0-9.:[\]_-]+$/),
+          gateway_port: z.number().int().min(1).max(65535),
+          gateway_scheme: z.literal('https'),
+          expires_at_ms: z.string().regex(/^[0-9]+$/),
+        })
+        .parse(await this.unary(connection, 'CreateSshSession', { sandbox_id: sandboxId }, signal));
+      const origin = new URL(
+        `${grant.gateway_scheme}://${grant.gateway_host}:${grant.gateway_port}`,
+      ).origin;
+      if (origin !== connection.endpoint || Number(grant.expires_at_ms) <= Date.now())
+        throw Error();
+      return { sandboxId, token: grant.token, proxyUrl: `${origin}/proxy/connect` };
+    } catch {
+      throw Error('Terminal SSH identity unavailable');
     }
   }
   private checked(value: unknown, account: ManagedOpenAIAccount) {
