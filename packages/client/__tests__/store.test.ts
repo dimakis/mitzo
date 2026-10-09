@@ -1660,11 +1660,9 @@ describe('reconnect recovery', () => {
 describe('sendMessage', () => {
   it('sends a prepared repository receipt only when creating a new conversation', async () => {
     const store = createReadyStore();
-    store
-      .getState()
-      .sendMessage('start repository task', {
-        repositoryWorkspaceId: '8ca30b0d-3e65-4eeb-8244-f6277350818f',
-      });
+    store.getState().sendMessage('start repository task', {
+      repositoryWorkspaceId: '8ca30b0d-3e65-4eeb-8244-f6277350818f',
+    });
     expect(lastWs.parsedSent().find((message) => message.type === 'send')).toMatchObject({
       sessionId: null,
       repositoryWorkspaceId: '8ca30b0d-3e65-4eeb-8244-f6277350818f',
