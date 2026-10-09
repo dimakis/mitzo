@@ -895,6 +895,38 @@ describe('EventStore', () => {
     ]);
   });
 
+  it('excludes hidden and internal SDK title records before limits without modifying usage', () => {
+    store.upsertSession({ sessionId: 'visible', summary: 'Needle title', updatedAt: 1 });
+    store.recordUsage('visible', {
+      inputTokens: 100,
+      outputTokens: 200,
+      cacheReadTokens: 300,
+      cacheCreationTokens: 400,
+      totalCostUsd: 1.25,
+      numTurns: 3,
+      durationMs: 20,
+      durationApiMs: 10,
+    });
+    const before = store.getSession('visible');
+    store.registerInternalSdkExecution({
+      sdkSessionId: 'internal',
+      parentSessionId: 'visible',
+      operationId: 'lookup',
+      purpose: 'web_search',
+      cwd: '/private/tool-workspace',
+    });
+    // A retained legacy/provider row must not turn a tool-owned identity into a conversation.
+    const db = (store as unknown as { db: { exec(sql: string): void } }).db;
+    db.exec(
+      "INSERT INTO sessions (session_id, summary, conversation_source, updated_at) VALUES ('internal', 'Needle title', 'mitzo', 9999999999999)",
+    );
+    store.upsertSession({ sessionId: 'hidden', summary: 'Needle title', updatedAt: 9999999999999 });
+    store.hideSession('hidden');
+    expect(store.searchSessions('needle', 1).map((match) => match.sessionId)).toEqual(['visible']);
+    expect(store.getSession('visible')).toEqual(before);
+    expect(store.getSession('internal')).toBeNull();
+  });
+
   describe('upsertSession', () => {
     it('persists verified SDK history across reopen without changing usage or prompts', () => {
       const root = mkdtempSync(join(tmpdir(), 'verified-sdk-history-'));
