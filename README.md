@@ -36,6 +36,8 @@ Initial support covers regular-file GitHub projects up to 10,000 files and 64 Mi
 
 Experimental [Symposium conversations](docs/features/symposium-integrated-acceptance.md) combine implementer and independently configured read-only reviewer seats with selected context, attributed results and explicit Stop controls. Provider sign-in, physical runtime admission and live workflow acceptance remain required. Use the [canonical singleton staging procedure](docs/operations/symposium-singleton-staging.md) for qualification; production activation is separate.
 
+The **Reusable profile drafts** control in a chat expands a panel for reviewing, editing and explicitly saving proposed agent profiles. When no drafts exist, it explains how to request one; loading and connection errors remain visible. Saving a profile does not apply it to an agent. See [reusable profiles](docs/features/symposium.md#profiles-and-reusable-reviewer-recipes).
+
 The dormant [Symposium artifact snapshot observer](docs/features/symposium-artifact-snapshots.md) records bounded host observations; it does not yet enable automated review or publication.
 
 [Symposium admission candidates](docs/features/symposium-owned-evidence.md) can resolve an explicitly selected Personal connection and ready session volume inside the retained host, without installing or activating admission.
