@@ -2,12 +2,15 @@ import { createHash } from 'node:crypto';
 import { expect, it, vi } from 'vitest';
 import {
   runSymposiumRoutingDiagnostic,
+  DiscoveryNotDispatchedError,
   createSymposiumModelDiscoveryRecovery,
   createDiscoveryOwnedReadyEvidence,
   assertDiscoveryOwnedReadyEvidence,
   assertDiscoveryPhysicalCleanupEvidence,
   type DiscoveryOwnedReadyEvidence,
   type DiscoveryPhysicalCleanupEvidence,
+  type DiscoveryNotDispatchedEvidence,
+  assertDiscoveryNotDispatchedEvidence,
   runSymposiumModelDiscovery,
   discoveryClaimLabel,
   type DiscoveryReceipt,
@@ -293,4 +296,115 @@ it('vends opaque matching physical cleanup evidence only from the real cleanup b
     },
   });
   expect(() => assertDiscoveryPhysicalCleanupEvidence(otherReady, cleanup!)).toThrow('evidence');
+});
+it('vends invocation-bound nondispatch evidence only after exact intent cleanup and lock acknowledgement', async () => {
+  const f = fixture();
+  const origin = {};
+  const captured: DiscoveryNotDispatchedEvidence[] = [];
+  let checks = 0;
+  f.ops.verifyCustody = async () => {
+    if (++checks === 2) throw Error('revoked before create');
+  };
+  f.ops.withExclusiveAttempt = async (fn) => {
+    const value = await fn();
+    f.events.push('lock-released');
+    return value;
+  };
+  const result = await runSymposiumRoutingDiagnostic(f.config, f.ops, {
+    notDispatchedOrigin: origin,
+    onNotDispatched: (evidence) => {
+      f.events.push('nondispatch');
+      captured.push(evidence);
+    },
+  });
+  expect(result.status).toBe('failed');
+  expect(f.receipt()).toBeUndefined();
+  expect(f.ops.create).not.toHaveBeenCalled();
+  expect(captured).toHaveLength(1);
+  expect(f.events.slice(-2)).toEqual(['lock-released', 'nondispatch']);
+  expect(() => assertDiscoveryNotDispatchedEvidence(f.config, captured[0], origin)).not.toThrow();
+  expect(() => assertDiscoveryNotDispatchedEvidence(f.config, captured[0], {})).toThrow('evidence');
+  expect(() => assertDiscoveryNotDispatchedEvidence(f.config, { ...captured[0] }, origin)).toThrow(
+    'evidence',
+  );
+  expect(() =>
+    assertDiscoveryNotDispatchedEvidence(
+      { ...f.config, policySha256: 'f'.repeat(64) },
+      captured[0],
+      origin,
+    ),
+  ).toThrow('evidence');
+});
+it.each(['clear-fails', 'release-fails', 'possibly-dispatched', 'resumed'] as const)(
+  'never vends nondispatch evidence for %s',
+  async (kind) => {
+    const f = fixture();
+    const hook = vi.fn();
+    if (kind === 'clear-fails' || kind === 'release-fails') {
+      let checks = 0;
+      f.ops.verifyCustody = async () => {
+        if (++checks === 2) throw Error('preflight');
+      };
+      if (kind === 'clear-fails')
+        f.ops.clearUndispatchedReceipt = async () => {
+          throw Error('retained intent');
+        };
+      else
+        f.ops.withExclusiveAttempt = async (fn) => {
+          await fn();
+          throw Error('release failed');
+        };
+    }
+    if (kind === 'possibly-dispatched')
+      f.ops.create = vi.fn(async () => {
+        throw Error('unproven dispatch');
+      });
+    if (kind === 'resumed')
+      f.ops.readReceipt = async () => ({
+        name: `md-${'a'.repeat(16)}`,
+        claim: 'b'.repeat(64),
+        configHash: createHash('sha256').update(JSON.stringify(f.config)).digest('hex'),
+        id: 'sandbox-1',
+      });
+    await runSymposiumRoutingDiagnostic(f.config, f.ops, {
+      notDispatchedOrigin: {},
+      onNotDispatched: hook,
+    });
+    expect(hook).not.toHaveBeenCalled();
+  },
+);
+it('refuses reused invocation origins even for a second genuine clean nondispatch result', async () => {
+  const origin = {};
+  const evidence: DiscoveryNotDispatchedEvidence[] = [];
+  for (let i = 0; i < 2; i++) {
+    const f = fixture();
+    delete f.ops.observeRouting;
+    expect(
+      (
+        await runSymposiumRoutingDiagnostic(f.config, f.ops, {
+          notDispatchedOrigin: origin,
+          onNotDispatched: (value) => evidence.push(value),
+        })
+      ).status,
+    ).toBe('failed');
+  }
+  expect(evidence).toHaveLength(1);
+});
+it('does not trust a misplaced nondispatch error after a native allocation', async () => {
+  const f = fixture();
+  const hook = vi.fn();
+  f.ops.openClient = async () => ({
+    initialize: async () => {},
+    request: async () => {
+      throw new DiscoveryNotDispatchedError('misplaced host classification');
+    },
+    close: () => {},
+  });
+  const result = await runSymposiumRoutingDiagnostic(f.config, f.ops, {
+    notDispatchedOrigin: {},
+    onNotDispatched: hook,
+  });
+  expect(result.status).toBe('failed');
+  expect(f.events).toContain('delete');
+  expect(hook).not.toHaveBeenCalled();
 });

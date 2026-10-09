@@ -63,6 +63,34 @@ export interface DiscoveryOwnedReadyEvidence {
   readonly receipt: Readonly<DiscoveryReceipt>;
 }
 const ownedReadyEvidence = new WeakSet<DiscoveryOwnedReadyEvidence>();
+/** Private clean disposition for one positively undispatched invocation. */
+export interface DiscoveryNotDispatchedEvidence {
+  readonly kind: 'not-dispatched';
+}
+const notDispatchedEvidence = new WeakMap<
+  DiscoveryNotDispatchedEvidence,
+  { origin: object; configHash: string }
+>();
+const notDispatchedOrigins = new WeakSet<object>();
+export function assertDiscoveryNotDispatchedEvidence(
+  input: DiscoveryConfig,
+  evidence: DiscoveryNotDispatchedEvidence,
+  origin: object,
+): void {
+  try {
+    const retained = notDispatchedEvidence.get(evidence);
+    const config = configSchema.parse(input);
+    if (
+      !retained ||
+      retained.origin !== origin ||
+      retained.configHash !== createHash('sha256').update(JSON.stringify(config)).digest('hex')
+    )
+      throw Error('changed');
+  } catch {
+    throw Error('Not-dispatched evidence changed');
+  }
+}
+
 export interface DiscoveryPhysicalCleanupEvidence {
   readonly receipt: Readonly<DiscoveryReceipt>;
 }
@@ -187,8 +215,14 @@ export async function runSymposiumRoutingDiagnostic(
   hooks?: {
     onPhysicalCleanup?(receipt: DiscoveryReceipt, evidence: DiscoveryPhysicalCleanupEvidence): void;
     onOwnedReady?(receipt: DiscoveryReceipt, evidence: DiscoveryOwnedReadyEvidence): void;
+    notDispatchedOrigin?: object;
+    onNotDispatched?(evidence: DiscoveryNotDispatchedEvidence): void;
   },
 ): Promise<RoutingDiagnosticResult> {
+  const origin = hooks?.notDispatchedOrigin;
+  const freshOrigin = !!origin && !notDispatchedOrigins.has(origin);
+  if (origin) notDispatchedOrigins.add(origin);
+  let cleanConfigHash: string | undefined;
   let attempt: DiscoveryResult | undefined;
   try {
     const result = await ops.withExclusiveAttempt(async () => {
@@ -199,9 +233,23 @@ export async function runSymposiumRoutingDiagnostic(
         hooks?.onPhysicalCleanup,
         true,
         hooks?.onOwnedReady,
+        (hash) => {
+          cleanConfigHash = hash;
+        },
       );
       return attempt;
     });
+    if (
+      result.status === 'failed' &&
+      freshOrigin &&
+      origin &&
+      cleanConfigHash &&
+      hooks?.onNotDispatched
+    ) {
+      const evidence = Object.freeze({ kind: 'not-dispatched' as const });
+      notDispatchedEvidence.set(evidence, { origin, configHash: cleanConfigHash });
+      hooks.onNotDispatched(evidence);
+    }
     return RoutingDiagnosticResultSchema.parse({
       status: result.status === 'reconciled' ? 'failed' : result.status,
       inference: false,
@@ -366,9 +414,12 @@ async function runExclusiveDiscovery(
   ) => void,
   routingOnly = false,
   onOwnedReady?: (receipt: DiscoveryReceipt, evidence: DiscoveryOwnedReadyEvidence) => void,
+  onNotDispatched?: (configHash: string) => void,
 ): Promise<DiscoveryResult> {
   let receipt: DiscoveryReceipt | undefined;
   let journalAbsenceConfirmed = false;
+  let notDispatchedClean = false;
+  let attemptConfigHash: string | undefined;
   let config: DiscoveryConfig;
   let client: DiscoveryReadClient | undefined;
   let result: DiscoveryResult;
@@ -411,6 +462,7 @@ async function runExclusiveDiscovery(
       throw new DiscoveryNotDispatchedError('Diagnostic capability required');
     await verify();
     const configHash = createHash('sha256').update(JSON.stringify(config)).digest('hex');
+    attemptConfigHash = configHash;
     const previous = await ops.readReceipt();
     if (previous !== undefined) {
       const parsed = receiptSchema.parse(previous);
@@ -531,12 +583,21 @@ async function runExclusiveDiscovery(
       }
     } else result = { status: 'reconciled', inference: false };
   } catch (error) {
-    if (error instanceof DiscoveryNotDispatchedError && !resumed) {
+    if (
+      error instanceof DiscoveryNotDispatchedError &&
+      !resumed &&
+      !creationConfirmed &&
+      !receipt?.id &&
+      !client &&
+      (stage === 'preflight' || stage === 'create')
+    ) {
       try {
         if (receipt && ops.clearUndispatchedReceipt) await ops.clearUndispatchedReceipt(receipt);
         else if (receipt) await ops.clearReceipt(receipt);
-        else throw new Error('Missing journal identity', { cause: error });
+        else if (!journalAbsenceConfirmed)
+          throw new Error('Missing journal identity', { cause: error });
         receipt = undefined;
+        notDispatchedClean = journalAbsenceConfirmed;
       } catch {
         /* retain reconciliation if journal cleanup fails */
       }
@@ -635,5 +696,7 @@ async function runExclusiveDiscovery(
       return { status: 'failed', inference: false, ...(await diagnose(error)) };
     }
   }
+  if (result.status === 'failed' && notDispatchedClean && !receipt && attemptConfigHash)
+    onNotDispatched?.(attemptConfigHash);
   return { ...result, ...failureDetails, ...(networkObservation ? { networkObservation } : {}) };
 }
