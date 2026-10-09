@@ -39,6 +39,7 @@ import {
 } from './lib/staging-files.mjs';
 import { assertStageJob } from './lib/staging-job.mjs';
 import { assertStageRegistration } from './lib/staging-registration.mjs';
+import { verifyDependencySource } from './lib/staging-dependency-source.mjs';
 const repo = 'https://github.com/dimakis/mitzo.git',
   root = join(homedir(), '.local/share/mitzo-staging'),
   label = 'com.mitzo.staging';
@@ -47,7 +48,7 @@ const args = process.argv.slice(2),
   command = args.shift();
 if (command === '--help' || !command) {
   console.log(
-    'staging check [--offline]\nstaging prepare --commit SHA\nstaging deploy --commit SHA --expected-current SHA [--apply]',
+    'staging check [--offline]\nstaging prepare --commit SHA [--dependency-source PATH --expected-dependency-fingerprint SHA256]\nstaging deploy --commit SHA --expected-current SHA [--apply]',
   );
   process.exit(0);
 }
@@ -55,10 +56,25 @@ if (!['check', 'prepare', 'deploy'].includes(command)) throw Error('Unsupported 
 const flags = {};
 for (let i = 0; i < args.length; i++) {
   if (['--offline', '--apply'].includes(args[i])) flags[args[i]] = true;
-  else if (['--commit', '--expected-current'].includes(args[i]) && args[i + 1])
+  else if (
+    [
+      '--commit',
+      '--expected-current',
+      '--dependency-source',
+      '--expected-dependency-fingerprint',
+    ].includes(args[i]) &&
+    args[i + 1]
+  )
     flags[args[i]] = args[++i];
   else throw Error('Unknown staging argument');
 }
+if (
+  (flags['--dependency-source'] || flags['--expected-dependency-fingerprint']) &&
+  (command !== 'prepare' ||
+    !flags['--dependency-source'] ||
+    !flags['--expected-dependency-fingerprint'])
+)
+  throw Error('Dependency source and fingerprint are paired preparation-only arguments');
 if (process.platform !== 'darwin') throw Error('This host controller supports macOS launchd only');
 if (realpathSync(root) !== root) throw Error('Canonical staging root required');
 for (const name of ['service', 'settings', 'workspace', 'state', 'home', 'releases'])
@@ -257,24 +273,40 @@ async function prepare() {
   audit({ phase: 'build_intent', target, attempt });
   run('git', ['clone', '--no-checkout', repo, attempt]);
   run('git', ['checkout', '--detach', target], attempt);
+  const dependencySource = flags['--dependency-source'] ?? active.release;
+  const lockSha256 = hash(readFileSync(join(attempt, 'package-lock.json')));
   if (
-    hash(readFileSync(join(active.release, 'package-lock.json'))) !==
-    hash(readFileSync(join(attempt, 'package-lock.json')))
+    !flags['--dependency-source'] &&
+    hash(readFileSync(join(active.release, 'package-lock.json'))) !== lockSha256
   )
     throw Error(
       'Dependency lock changed; independently provision audited dependencies before preparation',
     );
-  const before = fingerprintDirectory(active.release, 'node_modules');
-  const copied = fingerprintDependencyCopy(active.release);
-  cpSync(join(active.release, 'node_modules'), join(attempt, 'node_modules'), {
+  if (flags['--dependency-source'])
+    verifyDependencySource(
+      dependencySource,
+      target,
+      lockSha256,
+      flags['--expected-dependency-fingerprint'],
+    );
+  const before = fingerprintDirectory(dependencySource, 'node_modules');
+  const copied = fingerprintDependencyCopy(dependencySource);
+  cpSync(join(dependencySource, 'node_modules'), join(attempt, 'node_modules'), {
     recursive: true,
     verbatimSymlinks: true,
   });
   if (fingerprintDependencyCopy(attempt) !== copied) throw Error('Dependency copy changed');
   run('npm', ['run', 'build:server'], attempt);
   run('npm', ['run', 'build'], attempt);
-  if (fingerprintDirectory(active.release, 'node_modules') !== before)
+  if (fingerprintDirectory(dependencySource, 'node_modules') !== before)
     throw Error('Dependency source changed during preparation');
+  if (flags['--dependency-source'])
+    verifyDependencySource(
+      dependencySource,
+      target,
+      lockSha256,
+      flags['--expected-dependency-fingerprint'],
+    );
   if (main() !== target) throw Error('Main advanced during build; preserve candidate and re-plan');
   const tree = run('git', ['rev-parse', 'HEAD^{tree}'], attempt);
   writeFileSync(
@@ -332,6 +364,7 @@ async function deploy() {
     'scripts/lib/staging-job.mjs',
     'scripts/lib/staging-launcher-template.mjs',
     'scripts/lib/staging-registration.mjs',
+    'scripts/lib/staging-dependency-source.mjs',
   ]) {
     const installed = new URL(name.replace('scripts/', ''), import.meta.url);
     const p = fileURLToPath(installed);

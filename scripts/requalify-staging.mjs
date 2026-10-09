@@ -51,6 +51,7 @@ const names = [
   'lib/staging-job.mjs',
   'lib/staging-launcher-template.mjs',
   'lib/staging-registration.mjs',
+  'lib/staging-dependency-source.mjs',
 ];
 function run(program, args, cwd = root) {
   const result = spawnSync(program, args, {
@@ -170,7 +171,7 @@ function inspect(ownLock = false) {
     job = originalJob(r),
     files = {};
   for (const name of [
-    ...names.filter((n) => n !== 'lib/staging-registration.mjs').map((n) => 'bin/' + n),
+    ...names.slice(0, 5).map((n) => 'bin/' + n),
     'service/start.mjs',
     'service/control-lib/staging-files.mjs',
     'service/control-lib/staging-operations.mjs',
@@ -190,7 +191,7 @@ function inspect(ownLock = false) {
     files[name] = fileHash(p);
   }
   const historical = privateJson(join(root, 'service/control-tool.json'));
-  for (const name of names.filter((n) => n !== 'lib/staging-registration.mjs'))
+  for (const name of names.slice(0, 5))
     if (historical.controllerFiles['scripts/' + name] !== files['bin/' + name])
       throw Error('Historical controller drift');
   if (JSON.stringify(privateJson(receiptPath)) !== JSON.stringify(r))
