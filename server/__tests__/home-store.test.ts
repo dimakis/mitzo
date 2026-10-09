@@ -52,6 +52,30 @@ it('refuses corrupt state instead of silently resetting it', () => {
   expect(() => new HomeStore(join(root, 'home.json')).preferences()).toThrow();
 });
 
+it('preserves earlier home files that predate briefing conversation bindings', () => {
+  const path = join(root, 'home.json');
+  writeFileSync(
+    path,
+    JSON.stringify({
+      version: 1,
+      revision: 7,
+      names: { briefing: 'Jeeves', terminal: 'Alfred' },
+      pins: [{ kind: 'telos', id: 'one', title: 'Saved task' }],
+      quotes: [],
+      remaining: [],
+    }),
+  );
+  const store = new HomeStore(path);
+  expect(store.briefingChats('2026-10-10', 'a'.repeat(64))).toEqual([]);
+  expect(store.preferences()).toMatchObject({
+    revision: 7,
+    names: { briefing: 'Jeeves', terminal: 'Alfred' },
+    pins: [{ id: 'one' }],
+  });
+  store.update(7, { names: { terminal: '' } });
+  expect(store.preferences().names).toEqual({ briefing: 'Jeeves', terminal: 'Minion' });
+});
+
 it.each([
   { remaining: ['', 'quote'] },
   { remaining: ['quote', 'quote'] },

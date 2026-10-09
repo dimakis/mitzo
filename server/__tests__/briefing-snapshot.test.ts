@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync, linkSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { readMorningBriefing } from '../briefings.js';
@@ -28,5 +28,30 @@ it('does not read symlinks or oversized reports outside the briefing boundary', 
   const outside = join(root, 'private.md');
   writeFileSync(outside, 'private');
   symlinkSync(outside, join(root, 'command_center/briefings/morning_2026-10-09_0700.md'));
+  expect(() => readMorningBriefing(root, '2026-10-09')).toThrow();
+});
+
+it.each(['oversized', 'hardlinked', 'invalid-utf8'] as const)(
+  'refuses %s saved reports',
+  (kind) => {
+    const path = join(root, 'command_center/briefings/morning_2026-10-09_0700.md');
+    if (kind === 'oversized') writeFileSync(path, Buffer.alloc(2 * 1024 * 1024 + 1));
+    else if (kind === 'invalid-utf8') writeFileSync(path, Buffer.from([0xff]));
+    else {
+      const original = join(root, 'other.md');
+      writeFileSync(original, 'Other document');
+      linkSync(original, path);
+    }
+    expect(() => readMorningBriefing(root, '2026-10-09')).toThrow();
+  },
+);
+
+it('refuses a symlinked briefing directory', () => {
+  const directory = join(root, 'command_center/briefings');
+  const outside = join(root, 'outside');
+  mkdirSync(outside);
+  writeFileSync(join(outside, 'morning_2026-10-09_0700.md'), 'Other document');
+  rmSync(directory, { recursive: true });
+  symlinkSync(outside, directory);
   expect(() => readMorningBriefing(root, '2026-10-09')).toThrow();
 });
