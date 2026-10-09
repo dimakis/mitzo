@@ -997,6 +997,11 @@ export async function createOwnedSymposiumHost(
             });
             const operations: DiscoveryOperations = {
               ...guarded,
+              async withExclusiveAttempt(operation) {
+                // The first guarded core check precedes journal/native work.
+                // Preserve its private disposition after original lock release.
+                return original.withExclusiveAttempt(operation);
+              },
               async create(receipt, config, markDispatched) {
                 originalCreation.bindReceipt(receipt);
                 await guarded.create(receipt, config, markDispatched);

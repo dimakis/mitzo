@@ -2036,7 +2036,13 @@ it('releases the Personal lease after positively undispatched real core failure 
     host.stop();
   }
 });
-it.each(['current-operator', 'late-expiry'] as const)(
+it.each([
+  'current-operator',
+  'late-expiry',
+  'before-core-expiry',
+  'in-core-expiry',
+  'lock-release-failure',
+] as const)(
   'releases only this Personal lease when first core custody fails before reading any prior journal (%s)',
   async (authority) => {
     const f = diagnosticFixture();
@@ -2057,8 +2063,13 @@ it.each(['current-operator', 'late-expiry'] as const)(
     };
     vi.spyOn(subscriptionHost, 'createSymposiumSubscriptionHost').mockReturnValue(adapter as never);
     const operations = {
-      withExclusiveAttempt: async (run: () => Promise<unknown>) => run(),
+      withExclusiveAttempt: async (run: () => Promise<unknown>) => {
+        const result = await run();
+        if (authority === 'lock-release-failure') throw Error('original lock release failed');
+        return result;
+      },
       verifyCustody: vi.fn(async () => {
+        if (authority === 'in-core-expiry') authorized = false;
         throw Error('first custody unavailable');
       }),
       readReceipt: vi.fn(),
@@ -2075,6 +2086,7 @@ it.each(['current-operator', 'late-expiry'] as const)(
     vi.spyOn(discoveryHost, 'createDiscoveryHostOperations').mockReturnValue(operations);
     const realRunner = discoveryCore.runSymposiumRoutingDiagnostic;
     vi.spyOn(discoveryCore, 'runSymposiumRoutingDiagnostic').mockImplementation(async (...args) => {
+      if (authority === 'before-core-expiry') authorized = false;
       const result = await realRunner(...args);
       if (authority === 'late-expiry') authorized = false;
       return result;
@@ -2109,15 +2121,28 @@ it.each(['current-operator', 'late-expiry'] as const)(
           if (!authorized) throw Error('operator expired');
         },
       );
-      if (authority === 'late-expiry') await expect(diagnostic).rejects.toThrow('preflight');
-      else expect((await diagnostic).status).toBe('failed');
+      if (
+        authority === 'late-expiry' ||
+        authority === 'before-core-expiry' ||
+        authority === 'in-core-expiry'
+      )
+        await expect(diagnostic).rejects.toThrow('preflight');
+      else
+        expect((await diagnostic).status).toBe(
+          authority === 'lock-release-failure' ? 'reconciliation_required' : 'failed',
+        );
       expect(host.personalConnections.list()[0]).toMatchObject({
-        state: 'connected',
+        state: authority === 'lock-release-failure' ? 'recovery_required' : 'connected',
         account: connected.account,
         revision: connected.revision + 2,
       });
-      expect(host.personalConnections.list()[0].modelDiscovery).toBeUndefined();
-      expect(adapter.invalidate).not.toHaveBeenCalled();
+      if (authority === 'lock-release-failure') {
+        expect(host.personalConnections.list()[0].modelDiscovery).toBe('reconciliation_required');
+        expect(adapter.invalidate).toHaveBeenCalledOnce();
+      } else {
+        expect(host.personalConnections.list()[0].modelDiscovery).toBeUndefined();
+        expect(adapter.invalidate).not.toHaveBeenCalled();
+      }
       expect(readFileSync(journalPath, 'utf8')).toBe(priorJournal);
       expect(readFileSync(fencePath, 'utf8')).toBe(priorFence);
       for (const name of [
