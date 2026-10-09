@@ -13,6 +13,15 @@ describe('EventStore', () => {
     store.close();
   });
 
+  it('returns the latest event of a requested type within one session', () => {
+    expect(store.getLatestEvent('s1', 'token_update')).toBeNull();
+    store.append('s1', 'token_update', { sessionTotal: 120 });
+    store.append('s1', 'token_update', { sessionTotal: 240 });
+    store.append('s2', 'token_update', { sessionTotal: 999 });
+    store.append('s1', 'message_end', { messageId: 'last' });
+    expect(store.getLatestEvent('s1', 'token_update')?.payload).toEqual({ sessionTotal: 240 });
+  });
+
   describe('constructor', () => {
     it('creates tables on initialization', () => {
       // If we got here without throwing, tables were created.

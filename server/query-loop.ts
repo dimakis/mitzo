@@ -323,6 +323,18 @@ async function _runQueryLoopInner(
 
   // Token tracking state for live token_update events
   let agentContextTokens = 0; // full context window size (input + cached) from parent message_start
+  let contextCeiling = CONTEXT_CEILING_TOKENS;
+  let nativeUsage = false;
+  let observedSessionTokens: number | undefined;
+  const emitTokenUpdate = (data: Record<string, unknown>) =>
+    emit(nativeUsage ? v2('token_update', data) : { type: 'token_update', ...data });
+  const nativeUsageFields = () =>
+    nativeUsage
+      ? {
+          sessionTotal: observedSessionTokens ?? 0,
+          sessionTotalStatus: observedSessionTokens === undefined ? 'unknown' : 'observed',
+        }
+      : {};
   let turnIndex = 0; // increments on each parent message_start (excludes sub-agents)
   let numCompactions = 0; // counts successful compaction events from SDK
   let liveSessionTokens = 0; // cumulative total across all API calls in this query
@@ -637,6 +649,27 @@ async function _runQueryLoopInner(
           // explicit turn start once, including when no renderable block arrives.
           doneSent = false;
           turnIndex++;
+          nativeUsage = true;
+          if (observedSessionTokens === undefined) contextCeiling = 0;
+          emitTokenUpdate({
+            agentContext: agentContextTokens,
+            contextCeiling,
+            turnIndex,
+            ...nativeUsageFields(),
+            ...compactionFields(),
+          });
+        } else if (msg.type === 'provider_usage') {
+          nativeUsage = true;
+          agentContextTokens = msg.agentContext as number;
+          contextCeiling = msg.contextCeiling as number;
+          observedSessionTokens = msg.sessionTotal as number;
+          emitTokenUpdate({
+            agentContext: agentContextTokens,
+            contextCeiling,
+            turnIndex,
+            ...nativeUsageFields(),
+            ...compactionFields(),
+          });
         } else if (msg.type === 'result') {
           log.info('result received', { clientId, sessionId: msg.session_id });
           // Capture snapshot blocks before flush (forceFlush nulls the snapshot).
@@ -721,11 +754,11 @@ async function _runQueryLoopInner(
           currentSession.cumulativeSessionTokens = Math.max(sdkTokens, liveSessionTokens);
           currentSession.cumulativeCostUsd = usageData.totalCostUsd;
 
-          emit({
-            type: 'token_update',
+          emitTokenUpdate({
             agentContext: agentContextTokens,
-            contextCeiling: CONTEXT_CEILING_TOKENS,
+            contextCeiling,
             sessionTotal: currentSession.cumulativeSessionTokens,
+            ...nativeUsageFields(),
             numTurns: usageData.numTurns,
             turnIndex,
             ...compactionFields(),
@@ -987,10 +1020,9 @@ async function _runQueryLoopInner(
               const totalContext = msgInput + msgCacheRead + msgCacheCreation;
               if (totalContext > 0) {
                 agentContextTokens = totalContext;
-                emit({
-                  type: 'token_update',
+                emitTokenUpdate({
                   agentContext: agentContextTokens,
-                  contextCeiling: CONTEXT_CEILING_TOKENS,
+                  contextCeiling,
                   turnIndex,
                   ...compactionFields(),
                 });
@@ -1023,10 +1055,9 @@ async function _runQueryLoopInner(
               if (contextTokens > 0) agentContextTokens = contextTokens;
               if (contextTokens > 0 || output > 0) {
                 liveSessionTokens = agentContextTokens + cumulativeOutputTokens;
-                emit({
-                  type: 'token_update',
+                emitTokenUpdate({
                   agentContext: agentContextTokens,
-                  contextCeiling: CONTEXT_CEILING_TOKENS,
+                  contextCeiling,
                   turnIndex,
                   ...compactionFields(),
                 });
@@ -1433,12 +1464,12 @@ async function _runQueryLoopInner(
           if (subtype === 'status' && compactResult === 'success') {
             numCompactions++;
             log.info('compaction completed', { clientId, numCompactions });
-            emit({
-              type: 'token_update',
+            emitTokenUpdate({
               agentContext: agentContextTokens,
-              contextCeiling: CONTEXT_CEILING_TOKENS,
+              contextCeiling,
               turnIndex,
               numCompactions,
+              ...nativeUsageFields(),
             });
           }
 

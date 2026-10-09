@@ -93,3 +93,31 @@ test('running controls stay reachable with a draft at 320px', async ({ page }) =
     true,
   );
 });
+
+for (const width of [768, 1280]) {
+  test(`desktop usage is flush with the trailing controls at ${width}px`, async ({ page }) => {
+    const assets = await composerAssets();
+    await page.setViewportSize({ width, height: 800 });
+    await page.route('**/*', (route) => route.abort());
+    await page.setContent(
+      `<meta name="viewport" content="width=device-width, initial-scale=1.0"><style>${assets.css}</style><div id="root"></div>`,
+    );
+    await page.addScriptTag({ content: assets.js });
+    const usage = page.getByRole('button', { name: 'Token usage', exact: true });
+    const send = page.getByRole('button', { name: 'Send message', exact: true });
+    await expect(page.locator('.token-bar-label')).toHaveCount(0);
+    await expect(page.locator('.token-bar-detail')).toHaveCount(0);
+    const u = (await usage.boundingBox())!;
+    const s = (await send.boundingBox())!;
+    const toolbar = (await page.locator('.composer-toolbar').boundingBox())!;
+    expect(u.x).toBeGreaterThan(s.x + s.width);
+    expect(Math.abs(u.y - s.y)).toBeLessThanOrEqual(1);
+    expect(u.height).toBe(s.height);
+    expect(u.width).toBe(s.width);
+    expect(Math.abs(u.x + u.width - toolbar.x - toolbar.width)).toBeLessThanOrEqual(1);
+    await usage.click();
+    const details = (await page.locator('.token-bar-detail').boundingBox())!;
+    expect(Math.abs(details.x + details.width - u.x - u.width)).toBeLessThanOrEqual(1);
+    expect(details.y + details.height).toBeLessThanOrEqual(u.y);
+  });
+}

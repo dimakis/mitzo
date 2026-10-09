@@ -27,20 +27,23 @@ export function TokenBar({ tokenState }: Props) {
   }, [expanded]);
 
   // Don't render until we have data
-  if (tokenState.turnIndex === 0) return null;
+  if (tokenState.turnIndex === 0 && !tokenState.agentContext && !tokenState.sessionTotal)
+    return null;
 
   const ceiling = tokenState.contextCeiling ?? 0;
   const agentContext = tokenState.agentContext ?? 0;
   const sessionTotal = tokenState.sessionTotal ?? 0;
   const numCompactions = tokenState.numCompactions ?? 0;
   // Zero is also the initial/restored sentinel; it does not prove an empty window.
-  const hasContext =
-    Number.isFinite(agentContext) && agentContext > 0 && Number.isFinite(ceiling) && ceiling > 0;
+  const hasCount = Number.isFinite(agentContext) && agentContext > 0;
+  const hasContext = hasCount && Number.isFinite(ceiling) && ceiling > 0;
   const ratio = hasContext ? Math.min(1, agentContext / ceiling) : 0;
   const color = hasContext ? getContextColor(ratio) : 'unknown';
   const summary = hasContext
     ? `Context ${formatTokens(agentContext)}/${formatTokens(ceiling)} (${Math.round(ratio * 100)}%)`
-    : 'Context usage not reported';
+    : hasCount
+      ? `Context ${formatTokens(agentContext)}; limit not reported`
+      : 'Context usage not reported';
 
   return (
     <div className="token-wheel-control">
@@ -50,7 +53,7 @@ export function TokenBar({ tokenState }: Props) {
         aria-label="Token usage"
         aria-expanded={expanded}
         aria-describedby={summaryId}
-        title={`${summary} — tap for details`}
+        title="Token usage — press for details"
       >
         <svg className="token-wheel" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
           <circle
@@ -95,12 +98,22 @@ export function TokenBar({ tokenState }: Props) {
             <span>
               {hasContext
                 ? `${agentContext.toLocaleString()} / ${ceiling.toLocaleString()}`
-                : 'Not reported'}
+                : hasCount
+                  ? `${agentContext.toLocaleString()} / limit not reported`
+                  : 'Not reported'}
             </span>
           </div>
           <div className="token-bar-detail-row">
-            <span>Session tokens</span>
-            <span>{sessionTotal.toLocaleString()}</span>
+            <span>
+              {tokenState.sessionTotalStatus === 'observed'
+                ? 'Session tokens (reported so far)'
+                : 'Session tokens'}
+            </span>
+            <span>
+              {tokenState.sessionTotalStatus === 'unknown'
+                ? 'Not reported'
+                : sessionTotal.toLocaleString()}
+            </span>
           </div>
           {tokenState.numTurns > 0 && (
             <div className="token-bar-detail-row">

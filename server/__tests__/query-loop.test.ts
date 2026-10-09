@@ -137,6 +137,59 @@ describe('runQueryLoop', () => {
   const clientId = 'test-client';
   let abortController: AbortController;
 
+  it('keeps native observed usage through completion and late updates without billing it', async () => {
+    const sessionId = 'native-usage';
+    registry.get(clientId)!.sessionId = sessionId;
+    const store = new EventStore(':memory:');
+    store.upsertSession({ sessionId, cwd: '/tmp' });
+    await runQueryLoop(
+      eventStream([
+        { type: 'provider_turn_start', session_id: sessionId, turn_id: 'turn' },
+        {
+          type: 'provider_usage',
+          agentContext: 12300,
+          contextCeiling: 128000,
+          sessionTotal: 24600,
+          sessionTotalStatus: 'observed',
+        },
+        { type: 'result', session_id: sessionId, is_error: false, usage_status: 'unknown' },
+        {
+          type: 'provider_usage',
+          agentContext: 12400,
+          contextCeiling: 128000,
+          sessionTotal: 24800,
+          sessionTotalStatus: 'observed',
+        },
+      ]),
+      clientId,
+      registry,
+      abortController,
+      store,
+    );
+    const updates = transport.sent.filter((e) => e.type === 'token_update');
+    expect(updates.at(-1)).toMatchObject({
+      agentContext: 12400,
+      contextCeiling: 128000,
+      sessionTotal: 24800,
+      sessionTotalStatus: 'observed',
+      turnIndex: 1,
+    });
+    expect(updates.find((e) => e.sessionTotal === 24600)).toBeTruthy();
+    expect(updates.every((e) => e.contextCeiling !== 200000)).toBe(true);
+    expect(
+      store
+        .getSessionEvents(sessionId)
+        .filter((e) => e.type === 'token_update')
+        .at(-1)?.payload,
+    ).toMatchObject({ agentContext: 12400, sessionTotal: 24800, sessionTotalStatus: 'observed' });
+    expect(store.getSession(sessionId)).toMatchObject({
+      inputTokens: 0,
+      outputTokens: 0,
+      numTurns: 1,
+    });
+    store.close();
+  });
+
   it('separates completed account use from selected, synthetic and subagent models', async () => {
     const binding = {
       accountId: 'work',

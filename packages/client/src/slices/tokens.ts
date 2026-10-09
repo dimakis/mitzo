@@ -2,6 +2,8 @@ export interface TokensState {
   agentContext: number;
   contextCeiling: number;
   sessionTotal: number;
+  /** Observed native snapshots are display evidence, not finalized turn billing. */
+  sessionTotalStatus?: 'observed' | 'unknown';
   numTurns: number;
   turnIndex: number;
   numCompactions: number;
