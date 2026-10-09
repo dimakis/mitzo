@@ -255,3 +255,9 @@ export type {
   BriefingSnapshot,
   BriefingChatBinding,
 } from './home.js';
+
+export {
+  SourceSnapshotSchema,
+  SourceSnapshotsSchema,
+  type SourceSnapshot,
+} from './source-snapshot.js';

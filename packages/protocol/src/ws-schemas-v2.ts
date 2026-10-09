@@ -13,6 +13,7 @@
  */
 
 import { z } from 'zod';
+import { SourceSnapshotsSchema } from './source-snapshot.js';
 
 const ImageSchema = z.object({
   data: z.string(),
@@ -107,6 +108,7 @@ export const V2SendMessage = z.object({
   isolation: z.boolean().optional(),
   images: z.array(ImageSchema).optional(),
   contextBlocks: z.array(z.string()).optional(),
+  sourceSnapshots: SourceSnapshotsSchema.optional(),
   telosTaskId: z.string().optional(),
   agentName: z
     .string()
@@ -124,6 +126,7 @@ export const V2InterruptMessage = z.object({
   reasoningEffort: z.string().min(1).max(32).nullable().optional(),
   images: z.array(ImageSchema).optional(),
   contextBlocks: z.array(z.string()).optional(),
+  sourceSnapshots: SourceSnapshotsSchema.optional(),
 });
 
 export const V2StopMessage = z.object({

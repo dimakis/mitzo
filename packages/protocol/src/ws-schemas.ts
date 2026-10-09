@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { SourceSnapshotsSchema } from './source-snapshot.js';
 
 const ImageSchema = z.object({
   data: z.string(),
@@ -32,6 +33,7 @@ export const SendMessage = z.object({
   isolation: z.boolean().optional(),
   images: z.array(ImageSchema).optional(),
   contextBlocks: z.array(z.string()).optional(),
+  sourceSnapshots: SourceSnapshotsSchema.optional(),
   traceparent,
 });
 
@@ -41,6 +43,7 @@ export const InterruptMessage = z.object({
   clientMsgId: z.string().min(1).max(512),
   images: z.array(ImageSchema).optional(),
   contextBlocks: z.array(z.string()).optional(),
+  sourceSnapshots: SourceSnapshotsSchema.optional(),
   traceparent,
 });
 
