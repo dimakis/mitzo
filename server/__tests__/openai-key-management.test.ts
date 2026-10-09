@@ -221,6 +221,11 @@ describe('OpenAI key replacement and recovery', () => {
     expect(f.gateway.replace).not.toHaveBeenCalled();
     expect(result.health).toBe('needs_attention');
     expect(result.canSynchronize).toBe(false);
+    expect(f.store.latest('work')).toMatchObject({
+      phase: 'aborted',
+      errorCode: 'ACCOUNT_CHANGED',
+    });
+    await expect(f.manager.resolveKey('work', signal())).rejects.toThrow('need attention');
   });
   it('returns the same verified Keychain snapshot for host requests without a second unchecked read', async () => {
     const f = fixture();
@@ -525,4 +530,33 @@ it('returns the journaled not-saved result when the deadline expires during chat
     phase: 'aborted',
     errorCode: 'CHAT_PAUSE_FAILED',
   });
+});
+
+it('returns a definite not-saved result if the deadline expires in the Keychain read after drain', async () => {
+  const f = fixture();
+  const controller = new AbortController();
+  f.gateway.pause.mockImplementationOnce(async () => {
+    f.keychain.read.mockImplementationOnce(async () => {
+      controller.abort();
+      controller.signal.throwIfAborted();
+      return f.saved();
+    });
+  });
+  f.gateway.inspect.mockImplementation(async (_account, signal) => {
+    signal.throwIfAborted();
+    return { version: '10' };
+  });
+  const result = await f.manager.replace(
+    { accountId: 'work', revision: await f.revision(), apiKey: 'new-key' },
+    controller.signal,
+  );
+  expect(result).toMatchObject({
+    errorCode: 'ACCOUNT_CHANGED',
+    revision: '',
+    canSynchronize: false,
+  });
+  expect(f.store.latest('work')).toMatchObject({ phase: 'aborted', errorCode: 'ACCOUNT_CHANGED' });
+  expect(f.store.pending()).toHaveLength(0);
+  expect(f.keychain.write).not.toHaveBeenCalled();
+  expect(f.gateway.replace).not.toHaveBeenCalled();
 });

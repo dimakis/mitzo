@@ -236,28 +236,32 @@ it('continues the explicitly requested replacement after browser reauthorization
   }
 });
 
-it('does not report successful replacement when only the previous key remains ready', async () => {
-  const f = await mount();
-  vi.mocked(api.replaceOpenAIKey).mockResolvedValue({
-    ...initial,
-    revision: 'v2',
-    health: 'ready',
-    errorCode: 'CHAT_PAUSE_FAILED',
-  } as never);
-  try {
-    await act(async () => fireEvent.click(f.button('Replace API key')));
-    await act(async () =>
-      fireEvent.change(f.node.querySelector('input[type=password]')!, {
-        target: { value: 'SYNTHETIC_KEY' },
-      }),
-    );
-    await act(async () => fireEvent.click(f.button('Save API key')));
-    expect(f.node.textContent).toContain('replacement was not saved');
-    expect(f.node.textContent).not.toContain('API key updated.');
-  } finally {
-    await act(async () => f.root.unmount());
-  }
-});
+it.each(['CHAT_PAUSE_FAILED', 'ACCOUNT_CHANGED'])(
+  'does not report successful replacement when only the previous key remains ready (%s)',
+  async (code) => {
+    const f = await mount();
+    vi.mocked(api.replaceOpenAIKey).mockResolvedValue({
+      ...initial,
+      revision: 'v2',
+      health: 'ready',
+      errorCode: code,
+    } as never);
+    try {
+      await act(async () => fireEvent.click(f.button('Replace API key')));
+      await act(async () =>
+        fireEvent.change(f.node.querySelector('input[type=password]')!, {
+          target: { value: 'SYNTHETIC_KEY' },
+        }),
+      );
+      await act(async () => fireEvent.click(f.button('Save API key')));
+      expect(f.node.textContent).toContain('replacement was not saved');
+      expect(f.node.textContent).toContain('New key not saved');
+      expect(f.node.textContent).not.toContain('API key updated.');
+    } finally {
+      await act(async () => f.root.unmount());
+    }
+  },
+);
 
 it('hides previous failure during a save and stops save progress before refreshing an uncertain result', async () => {
   vi.mocked(api.getOpenAIKeyStatus).mockResolvedValueOnce([
@@ -302,3 +306,35 @@ it('hides previous failure during a save and stops save progress before refreshi
     await act(async () => f.root.unmount());
   }
 });
+
+it.each([true, false])(
+  'reconciles a refreshed ready key after a lost save response (new receipt: %s)',
+  async (newReceipt) => {
+    const ready = { ...initial, health: 'ready', verifiedAt: 100 };
+    vi.mocked(api.getOpenAIKeyStatus).mockResolvedValueOnce([ready as never]);
+    const f = await mount();
+    vi.mocked(api.replaceOpenAIKey).mockRejectedValueOnce(new Error('PRIVATE transport failure'));
+    vi.mocked(api.getOpenAIKeyStatus).mockResolvedValueOnce([
+      { ...ready, revision: newReceipt ? 'v2' : 'v1', verifiedAt: newReceipt ? 200 : 100 } as never,
+    ]);
+    try {
+      await act(async () => fireEvent.click(f.button('Replace API key')));
+      await act(async () =>
+        fireEvent.change(f.node.querySelector('input[type=password]')!, {
+          target: { value: 'SYNTHETIC_KEY' },
+        }),
+      );
+      await act(async () => fireEvent.click(f.button('Save API key')));
+      expect(f.node.textContent).toContain(
+        newReceipt
+          ? 'The saved key is ready to use.'
+          : 'The previous key is still ready to use. The replacement was not confirmed.',
+      );
+      expect(f.node.textContent).not.toContain('may already have been saved');
+      expect(f.node.textContent).not.toContain('API key updated.');
+      expect(f.node.textContent).not.toContain('PRIVATE');
+    } finally {
+      await act(async () => f.root.unmount());
+    }
+  },
+);

@@ -16,7 +16,7 @@ const updateExplanation = (code: string | null, canFinish = false) => {
     case 'CHAT_PAUSE_FAILED':
       return 'The replacement was not saved because Mitzo could not pause all chats using this connection. Your previous key is unchanged.';
     case 'ACCOUNT_CHANGED':
-      return 'The account changed during the update. Refresh its status before trying again.';
+      return 'The replacement was not saved because the connection changed or its saved key could not be read. Refresh status before trying again.';
     case 'KEYCHAIN_WRITE_UNCONFIRMED':
       return 'Mitzo could not confirm whether the new key was saved on this Mac. Refresh status before trying again.';
     case 'CHAT_UPDATE_UNCONFIRMED':
@@ -294,12 +294,26 @@ function OpenAIKeyCard({
       setBusy(null);
       const refreshed = await refresh();
       const current = refreshed?.find((item) => item.accountId === account.accountId);
+      if (code === 'UPDATE_UNCONFIRMED' && current?.health === 'ready' && !current.errorCode) {
+        accept(current);
+        const newReceipt =
+          current.revision !== account.revision &&
+          current.verifiedAt !== null &&
+          current.verifiedAt !== account.verifiedAt;
+        setSuccess(newReceipt);
+        setMessage(
+          newReceipt
+            ? 'The saved key is ready to use.'
+            : 'The previous key is still ready to use. The replacement was not confirmed.',
+        );
+      }
       if (
         code === 'UPDATE_UNCONFIRMED' &&
         current?.errorCode &&
         [
           'NOT_APPLIED',
           'CHAT_PAUSE_FAILED',
+          'ACCOUNT_CHANGED',
           'KEYCHAIN_WRITE_UNCONFIRMED',
           'CHAT_UPDATE_UNCONFIRMED',
           'SYNC_PENDING',
@@ -318,7 +332,9 @@ function OpenAIKeyCard({
           ? busy === 'authorize'
             ? 'Approve Keychain access on the Mac'
             : 'Saving your new key'
-          : ['NOT_APPLIED', 'CHAT_PAUSE_FAILED'].includes(account.errorCode ?? '')
+          : ['NOT_APPLIED', 'CHAT_PAUSE_FAILED', 'ACCOUNT_CHANGED'].includes(
+                account.errorCode ?? '',
+              )
             ? 'New key not saved'
             : account.health === 'ready'
               ? 'Ready to use'

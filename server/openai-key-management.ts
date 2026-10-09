@@ -149,8 +149,10 @@ export class OpenAIKeyManagement {
       keychain: keychain.version,
       gateway: gateway.version,
     });
+    const bindingChanged = !!latest && latest.binding !== binding;
     const ready =
       !pending &&
+      !bindingChanged &&
       completed?.binding === binding &&
       keychain.version === completed.id &&
       gateway.version === completed.gatewayVersion;
@@ -159,19 +161,24 @@ export class OpenAIKeyManagement {
       (keychain.version !== null ||
         keychain.managed === true ||
         (latest?.phase === 'aborted' && latest.keychainBeforeVersion !== null));
-    const needsAttention = !!pending || (!!completed && !ready) || knownUnpairedKey;
+    const needsAttention =
+      !!pending || (!!completed && !ready) || knownUnpairedKey || bindingChanged;
     const status: OpenAIKeyHealth = {
       accountId: account.id,
       label: account.label,
       revision,
       health: ready ? 'ready' : needsAttention ? 'needs_attention' : 'not_verified',
-      canSynchronize: pending
-        ? pending.binding === binding && keychain.version === pending.id
-        : completed
-          ? completed.binding === binding && keychain.version === completed.id
-          : keychain.version === null && keychain.managed !== true,
+      canSynchronize: bindingChanged
+        ? false
+        : pending
+          ? pending.binding === binding && keychain.version === pending.id
+          : completed
+            ? completed.binding === binding && keychain.version === completed.id
+            : keychain.version === null && keychain.managed !== true,
       errorCode: needsAttention
-        ? (pending?.errorCode ?? 'CREDENTIAL_DRIFT')
+        ? (pending?.errorCode ??
+          (bindingChanged && latest?.phase === 'aborted' ? latest.errorCode : null) ??
+          'CREDENTIAL_DRIFT')
         : latest?.phase === 'aborted'
           ? latest.errorCode
           : null,
@@ -406,14 +413,14 @@ export class OpenAIKeyManagement {
       failure = 'CHAT_UPDATE_UNCONFIRMED';
       await this.finish(operation, account, value, signal);
     } catch {
-      const notSaved = !writeStarted && failure === 'CHAT_PAUSE_FAILED' && !selected.pending;
+      const notSaved = !writeStarted && !selected.pending;
       this.options.store.update(operation.id, {
         ...(notSaved ? { phase: 'aborted' as const } : {}),
         errorCode: failure,
       });
       if (notSaved && signal.aborted) {
-        // The journal proves no credential write started. Do not lose that
-        // outcome by rereading Keychain/gateway with the expired drain signal.
+        // The journal proves no credential write started, including failure in
+        // the post-drain Keychain read. Do not reread with the expired signal.
         // A fresh status check must establish a revision before another mutation.
         return {
           ...selected.status,
