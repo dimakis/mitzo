@@ -107,7 +107,16 @@ export interface ConnectionsCatalog {
 }
 
 export interface ConnectionsViewProps {
-  mode?: 'add' | 'manage' | 'personal' | 'google' | 'legacy' | 'openai' | 'openai-add' | 'keychain';
+  mode?:
+    | 'add'
+    | 'manage'
+    | 'personal'
+    | 'google'
+    | 'legacy'
+    | 'openai'
+    | 'openai-add'
+    | 'keychain'
+    | 'api';
   connectionId?: string;
 }
 

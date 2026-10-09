@@ -6,6 +6,7 @@ import type {
   ConnectionAuth,
   ConnectionMethod,
   ConnectionRun,
+  CredentialConnectionTemplate,
   DashboardAccess,
 } from '../types/credential-connections';
 const methods: ConnectionMethod[] = ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE'];
@@ -13,12 +14,15 @@ export function CredentialConnectionForm({
   busy,
   csrf,
   run,
+  initialTemplate = 'home-assistant',
 }: {
   busy: boolean;
   csrf: () => string | undefined;
   run: ConnectionRun;
+  initialTemplate?: CredentialConnectionTemplate;
 }) {
-  const [label, setLabel] = useState('Home Assistant');
+  const [serviceTemplate, setServiceTemplate] = useState(initialTemplate);
+  const [label, setLabel] = useState(initialTemplate === 'home-assistant' ? 'Home Assistant' : '');
   const [endpoint, setEndpoint] = useState('');
   const [kind, setKind] = useState<ConnectionAuth['kind']>('bearer');
   const [username, setUsername] = useState('');
@@ -27,7 +31,7 @@ export function CredentialConnectionForm({
   const [secret, setSecret] = useState('');
   const [keychainService, setKeychainService] = useState('');
   const [keychainAccount, setKeychainAccount] = useState('');
-  const [paths, setPaths] = useState('/api/');
+  const [paths, setPaths] = useState(initialTemplate === 'home-assistant' ? '/api/' : '/');
   const [selectedMethods, setSelectedMethods] = useState<ConnectionMethod[]>(['GET', 'HEAD']);
   const [homeAssistantDashboards, setHomeAssistantDashboards] =
     useState<DashboardAccess>('disabled');
@@ -50,6 +54,7 @@ export function CredentialConnectionForm({
               : { kind, headerName };
         const connection = {
           label,
+          serviceTemplate,
           endpoint: endpoint.trim().replace(/\/$/, ''),
           auth,
           paths: paths
@@ -58,7 +63,10 @@ export function CredentialConnectionForm({
             .filter(Boolean),
           methods: selectedMethods,
           allowPrivateNetwork,
-          homeAssistantDashboards: kind === 'bearer' ? homeAssistantDashboards : 'disabled',
+          homeAssistantDashboards:
+            kind === 'bearer' && serviceTemplate === 'home-assistant'
+              ? homeAssistantDashboards
+              : 'disabled',
         };
         void run(
           async () =>
@@ -85,6 +93,7 @@ export function CredentialConnectionForm({
           Service template
           <select
             onChange={(e) => {
+              setServiceTemplate(e.target.value as CredentialConnectionTemplate);
               const home = e.target.value === 'home-assistant';
               setLabel(home ? 'Home Assistant' : '');
               setKind('bearer');
@@ -96,7 +105,7 @@ export function CredentialConnectionForm({
               setHomeAssistantDashboards('disabled');
               setWebsocket(websocketDraft());
             }}
-            defaultValue="home-assistant"
+            value={serviceTemplate}
           >
             <option value="home-assistant">Home Assistant</option>
             <option value="custom">Custom HTTPS service</option>
@@ -117,7 +126,9 @@ export function CredentialConnectionForm({
             required
             type="url"
             autoComplete="url"
-            placeholder="https://ha.example.com"
+            placeholder={
+              initialTemplate === 'custom' ? 'https://api.example.com' : 'https://ha.example.com'
+            }
             value={endpoint}
             onChange={(e) => setEndpoint(e.target.value)}
           />
@@ -215,7 +226,7 @@ export function CredentialConnectionForm({
             </label>
           </>
         )}
-        {kind === 'bearer' && (
+        {kind === 'bearer' && serviceTemplate === 'home-assistant' && (
           <label className="connections-field">
             Home Assistant dashboard API
             <select

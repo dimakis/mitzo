@@ -30,6 +30,49 @@ afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
 });
+
+it('enrolls any HTTPS API from the generic entry with explicit scope and no chat grant', async () => {
+  render(<CredentialConnectionsPanel initialTemplate="custom" />);
+  await screen.findByLabelText('Service address');
+  expect((screen.getByLabelText('Service template') as HTMLSelectElement).value).toBe('custom');
+  expect((screen.getByLabelText('Connection name') as HTMLInputElement).value).toBe('');
+  expect(screen.queryByLabelText(/Home Assistant dashboard API/)).toBeNull();
+  await authorize();
+  fireEvent.change(screen.getByLabelText('Connection name'), { target: { value: 'Example data' } });
+  fireEvent.change(screen.getByLabelText('Service address'), {
+    target: { value: 'https://data.example.com' },
+  });
+  fireEvent.change(screen.getByLabelText('Authentication'), { target: { value: 'api-key' } });
+  fireEvent.change(screen.getByLabelText('Authentication header', { exact: false }), {
+    target: { value: 'X-Service-Key' },
+  });
+  fireEvent.change(screen.getByLabelText('Allowed path prefixes', { exact: false }), {
+    target: { value: '/v2/records/' },
+  });
+  fireEvent.change(screen.getByLabelText('Token or password'), {
+    target: { value: 'fixture-key' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Save connection' }));
+  await screen.findByText('Connection saved. Chats will request approval when they need it.');
+  expect(api.createCredentialConnection).toHaveBeenCalledWith(
+    {
+      connection: {
+        label: 'Example data',
+        serviceTemplate: 'custom',
+        endpoint: 'https://data.example.com',
+        auth: { kind: 'api-key', headerName: 'X-Service-Key' },
+        paths: ['/v2/records/'],
+        methods: ['GET', 'HEAD'],
+        allowPrivateNetwork: false,
+        homeAssistantDashboards: 'disabled',
+        websocket: null,
+      },
+      secret: 'fixture-key',
+    },
+    'csrf',
+  );
+  expect(api.getConnectionSessions).not.toHaveBeenCalled();
+});
 async function authorize() {
   fireEvent.change(screen.getByLabelText('Keychain setup passphrase'), {
     target: { value: 'password' },
@@ -38,6 +81,16 @@ async function authorize() {
   await waitFor(() => expect(api.reauthorizeKeychain).toHaveBeenCalledWith('password'));
   await screen.findByText('Keychain changes authorized.');
 }
+it('shows Home Assistant dashboard controls only when its template is selected', async () => {
+  render(<CredentialConnectionsPanel initialTemplate="custom" />);
+  await screen.findByLabelText('Service template');
+  fireEvent.change(screen.getByLabelText('Service template'), {
+    target: { value: 'home-assistant' },
+  });
+  expect(screen.getByLabelText(/Home Assistant dashboard API/)).toBeTruthy();
+  fireEvent.change(screen.getByLabelText('Service template'), { target: { value: 'custom' } });
+  expect(screen.queryByLabelText(/Home Assistant dashboard API/)).toBeNull();
+});
 it('limits focused management to its connection and hides the setup form', async () => {
   vi.mocked(api.getCredentialConnections).mockResolvedValue([
     homeAssistant,
@@ -140,6 +193,7 @@ it('shows session access and revokes the selected session only', async () => {
 const homeAssistant = {
   id: 'ha',
   label: 'Home Assistant',
+  serviceTemplate: 'home-assistant' as const,
   endpoint: 'https://ha.example.com',
   auth: { kind: 'bearer' as const },
   paths: ['/api/'],
@@ -149,6 +203,21 @@ const homeAssistant = {
   revision: 1,
   verifiedAt: null,
 };
+it('keeps saved custom bearer API connections free of Home Assistant dashboard controls', async () => {
+  vi.mocked(api.getCredentialConnections).mockResolvedValue([
+    {
+      ...homeAssistant,
+      id: 'generic',
+      label: 'Example API',
+      serviceTemplate: 'custom',
+      paths: ['/api/'],
+    },
+  ]);
+  render(<CredentialConnectionsPanel initialTemplate="custom" />);
+  await screen.findByRole('heading', { name: 'Example API' });
+  expect(screen.queryByLabelText(/Dashboard API access for Example API/)).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Save dashboard access' })).toBeNull();
+});
 it('clears a submitted credential when authorization has expired', async () => {
   render(<CredentialConnectionsPanel />);
   await screen.findByLabelText('Service address');

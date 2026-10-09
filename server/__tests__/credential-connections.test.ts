@@ -32,6 +32,59 @@ function setup() {
 afterEach(() => stores.splice(0).forEach((s) => s.close()));
 
 describe('credential connections', () => {
+  it('persists the custom template and rejects dashboard scope expansion before credential access', async () => {
+    const { store, vault, service } = setup();
+    const c = await service.create({ ...input, serviceTemplate: 'custom' }, { secret: 'fixture' });
+    expect(store.get(c.id)?.serviceTemplate).toBe('custom');
+    expect(service.catalog()[0].serviceTemplate).toBe('custom');
+    expect(() => service.updateDashboardAccess(c.id, c.revision, 'read')).toThrow(/Home Assistant/);
+    expect(service.catalog()[0].homeAssistantDashboards).toBe('disabled');
+    expect(service.connection(c.id).revision).toBe(c.revision);
+    expect(vault.read).not.toHaveBeenCalled();
+  });
+  it('rejects enrollment of a custom API with Home Assistant dashboard scope before saving its credential', async () => {
+    const { vault, service } = setup();
+    await expect(
+      service.create(
+        { ...input, serviceTemplate: 'custom', homeAssistantDashboards: 'read' },
+        { secret: 'fixture' },
+      ),
+    ).rejects.toThrow(/Home Assistant/);
+    expect(vault.save).not.toHaveBeenCalled();
+  });
+  it('allows dashboard scope changes only for an explicitly selected Home Assistant template', async () => {
+    const { store, service } = setup();
+    const c = await service.create(
+      { ...input, serviceTemplate: 'home-assistant' },
+      { secret: 'fixture' },
+    );
+    const changed = service.updateDashboardAccess(c.id, c.revision, 'read');
+    expect(changed.serviceTemplate).toBe('home-assistant');
+    expect(store.get(c.id)?.homeAssistantDashboards).toBe('read');
+  });
+  it('blocks dashboard dispatch for a custom template even if stored scope is inconsistent', async () => {
+    const { store, vault, service } = setup();
+    const c = await service.create({ ...input, serviceTemplate: 'custom' }, { secret: 'fixture' });
+    store.put({ ...store.get(c.id)!, homeAssistantDashboards: 'read' });
+    service.grant('a', c.id, c.revision);
+    await expect(
+      service.dashboardRequest('a', c.id, { operation: 'read' }, new AbortController().signal),
+    ).rejects.toThrow(/Home Assistant/);
+    expect(vault.read).not.toHaveBeenCalled();
+  });
+  it('preserves explicitly enabled legacy dashboard scope but keeps legacy REST-only records generic', async () => {
+    const { store, service } = setup();
+    const c = await service.create(input, { secret: 'fixture' });
+    const legacy = { ...store.get(c.id)! };
+    delete legacy.serviceTemplate;
+    store.put(legacy);
+    expect(service.catalog()[0].serviceTemplate).toBe('custom');
+    expect(() => service.updateDashboardAccess(c.id, c.revision, 'read')).toThrow(/Home Assistant/);
+    store.put({ ...legacy, homeAssistantDashboards: 'read' });
+    expect(service.catalog()[0].serviceTemplate).toBe('home-assistant');
+    const disabled = service.updateDashboardAccess(c.id, c.revision, 'disabled');
+    expect(disabled.serviceTemplate).toBe('home-assistant');
+  });
   it('stores references, exposes only metadata, and never resolves during discovery', async () => {
     const { store, vault, service } = setup();
     const connection = await service.create(input, { secret: 'very-private-token' });

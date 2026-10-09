@@ -1,4 +1,5 @@
 import type { ConnectionCredentialField, ConnectionTemplate } from '../types/connections';
+import { Link } from 'react-router-dom';
 import { riskCopy, templateKey, singleChoiceCustomFields } from '../lib/connections-form';
 
 export function ServiceCatalog({
@@ -37,6 +38,10 @@ export function ServiceCatalog({
             <button className="access-row-action" type="button" onClick={() => onChoose(template)}>
               Choose {template.label}
             </button>
+          ) : template.id === 'custom-rest-readonly' ? (
+            <Link className="access-row-action" to="/connections?manage=api">
+              Choose {template.label}
+            </Link>
           ) : (
             <span className="connections-unavailable">Coming soon</span>
           )}

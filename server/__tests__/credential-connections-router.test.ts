@@ -115,7 +115,10 @@ it('tests via a temporary administrative grant without authorizing any agent ses
 
 it('reauthorizes dashboard scope changes, revokes old grants, and rejects stale or invalid changes', async () => {
   const { app, service, vault } = setup();
-  const c = await service.create(connection, { secret: 'private-token' });
+  const c = await service.create(
+    { ...connection, serviceTemplate: 'home-assistant' },
+    { secret: 'private-token' },
+  );
   service.grant('chat-a', c.id, 1);
   const route = `/api/credential-connections/${c.id}/dashboard-access`;
   expect(
@@ -142,6 +145,28 @@ it('reauthorizes dashboard scope changes, revokes old grants, and rejects stale 
   expect(vault.read).not.toHaveBeenCalled();
   expect((await send({ revision: 1, access: 'disabled' })).status).toBe(409);
   expect((await send({ revision: 2, access: 'all-commands' })).status).toBe(400);
+});
+
+it('rejects dashboard scope expansion for a custom API even after browser reauthorization', async () => {
+  const { app, service, vault } = setup();
+  const c = await service.create(
+    { ...connection, serviceTemplate: 'custom' },
+    { secret: 'private-token' },
+  );
+  service.grant('chat-a', c.id, c.revision);
+  const auth = await request(app)
+    .post('/api/credential-connections/reauthorize')
+    .set('x-browser', 'yes')
+    .send({ passphrase: 'correct' });
+  const result = await request(app)
+    .post(`/api/credential-connections/${c.id}/dashboard-access`)
+    .set('x-browser', 'yes')
+    .set('x-csrf-token', auth.body.csrf)
+    .send({ revision: c.revision, access: 'read' });
+  expect(result.status).toBe(422);
+  expect(service.connection(c.id).revision).toBe(c.revision);
+  expect(service.catalog('chat-a')[0].access).toBe('approved');
+  expect(vault.read).not.toHaveBeenCalled();
 });
 
 it('updates generic WebSocket setup only through recent browser authorization at the exact revision', async () => {
