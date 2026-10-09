@@ -3,7 +3,7 @@ import { act } from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import { readFileSync } from 'node:fs';
 import { createRoot } from 'react-dom/client';
-import { fireEvent } from '@testing-library/react';
+import { fireEvent, getByLabelText } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ConnectionsRoute } from '../ConnectionsRoute';
@@ -13,7 +13,7 @@ import { apiFetch } from '../../lib/api-fetch';
 import * as connections from '../../lib/connections-api';
 import type { ConnectionTemplateCatalog, ConnectionsCatalog } from '../../types/connections';
 
-vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
+vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn(), AUTH_LOST_EVENT: 'mitzo:auth-lost' }));
 
 vi.mock('../../lib/connections-api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../lib/connections-api')>()),
@@ -1074,7 +1074,7 @@ it('opens enrolled API controls from the account management link and requires re
   expect(input('Passphrase')).toBeTruthy();
   expect(container.querySelectorAll('input[type=password]')).toHaveLength(1);
   await reauthorize();
-  await act(async () => button('Replace API key').click());
-  expect(container.querySelector('input[type=password]')).toBeTruthy();
+  expect(button('Replace API key')).toBeUndefined();
+  expect(getByLabelText(container, 'New API key')).toHaveProperty('type', 'password');
   expect(container.textContent).toContain('gpt-6-luna');
 });

@@ -264,6 +264,7 @@ interface SessionRow {
   account_binding: string | null;
   selected_model: string | null;
   reasoning_effort: string | null;
+  repository_workspace_id: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -908,6 +909,10 @@ export class EventStore {
   private migrateModelSelection(db: Database.Database): void {
     const columns = db.prepare("PRAGMA table_info('sessions')").all() as Array<{ name: string }>;
     const columnNames = new Set(columns.map((c) => c.name));
+    if (!columnNames.has('repository_workspace_id')) {
+      db.exec('ALTER TABLE sessions ADD COLUMN repository_workspace_id TEXT');
+      this.log.info('migrated sessions table: added repository_workspace_id');
+    }
     if (!columnNames.has('selected_model')) {
       db.exec('ALTER TABLE sessions ADD COLUMN selected_model TEXT');
       this.log.info('migrated sessions table: added selected_model');
@@ -2219,7 +2224,7 @@ export class EventStore {
   getSessionClientState(sessionId: string): ClientSessionState | null {
     const session = this.getSession(sessionId);
     if (!session?.state) return null;
-    if (session.state !== 'ACTIVE' && session.state !== 'STARTING')
+    if (!['ACTIVE', 'STARTING', 'DETACHED', 'SUSPENDED'].includes(session.state))
       return toClientState(session.state);
     const turn = this.db!.prepare(
       `SELECT type, json_extract(payload, '$.clientState') AS client_state FROM events
@@ -6061,6 +6066,15 @@ export class EventStore {
     if (existing) {
       const fields: string[] = [];
       const values: unknown[] = [];
+      if (meta.repositoryWorkspaceId !== undefined) {
+        if (
+          existing.repository_workspace_id &&
+          existing.repository_workspace_id !== meta.repositoryWorkspaceId
+        )
+          throw new Error('Repository conversation identity cannot be replaced');
+        fields.push('repository_workspace_id = ?');
+        values.push(meta.repositoryWorkspaceId);
+      }
       if (meta.conversationSource !== undefined) {
         fields.push('conversation_source = ?');
         values.push(meta.conversationSource);
@@ -6159,6 +6173,7 @@ export class EventStore {
         'account_binding',
         'selected_model',
         'reasoning_effort',
+        'repository_workspace_id',
       ];
       const vals: unknown[] = [
         meta.sessionId,
@@ -6179,6 +6194,7 @@ export class EventStore {
         meta.accountBinding ? JSON.stringify(meta.accountBinding) : null,
         meta.selectedModel ?? null,
         meta.reasoningEffort ?? null,
+        meta.repositoryWorkspaceId ?? null,
       ];
       if (meta.updatedAt !== undefined) {
         cols.push('updated_at');
@@ -6666,6 +6682,7 @@ function extractSnippet(payloadStr: string, query: string, contextChars = 80): s
 
 function rowToSession(row: SessionRow): SessionMeta {
   return {
+    ...(row.repository_workspace_id ? { repositoryWorkspaceId: row.repository_workspace_id } : {}),
     sessionId: row.session_id,
     conversationSource: row.conversation_source,
     summary: row.summary,

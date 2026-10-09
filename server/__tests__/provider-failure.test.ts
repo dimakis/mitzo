@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { classifyProviderFailure, providerFailureTelemetry } from '../provider-failure.js';
+import {
+  classifyProviderFailure,
+  providerFailureTelemetry,
+  publicProviderFailureMessage,
+} from '../provider-failure.js';
 
 describe('classifyProviderFailure', () => {
   it('classifies temporary OpenAI overload without retaining provider text', () => {
@@ -301,4 +305,20 @@ it('preserves unrelated authoritative native failure categories over project tex
     retryable: true,
     ambiguous: true,
   });
+});
+
+it.each([
+  { codex_error_info: 'usageLimitExceeded' },
+  { codex_error_info: 'sessionBudgetExceeded' },
+  { code: 'insufficient_quota' },
+  { message: 'model is at capacity' },
+  { codex_error_info: 'serverOverloaded' },
+  { code: 'rate_limit_error' },
+  { code: 'not_authorized_invalid_project' },
+])('restores the same actionable public failure from persisted metadata: %j', (input) => {
+  const live = classifyProviderFailure(input, { correlationId: 'restore-test' });
+  expect(publicProviderFailureMessage(live)).toBe(live.message);
+  expect(
+    publicProviderFailureMessage({ ...live, message: 'Bearer sk-secret https://private.example' }),
+  ).not.toContain('sk-secret');
 });

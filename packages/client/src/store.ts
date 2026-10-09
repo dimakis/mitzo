@@ -52,6 +52,8 @@ import { messageIdentity } from './message-identity.js';
 // ─── Store state ─────────────────────────────────────────────────────────────
 
 export interface SendMessageOptions {
+  /** Local assignment observer; never included in the wire payload. */
+  onSessionAssigned?: (sessionId: string) => void;
   /** Local delivery observer; never included in the wire payload. */
   onDelivery?: (status: 'accepted' | 'failed' | 'uncertain') => void;
   accountId?: string;
@@ -61,6 +63,7 @@ export interface SendMessageOptions {
   reasoningEffort?: string | null;
   mode?: MitzoMode;
   cwd?: string;
+  repositoryWorkspaceId?: string;
   extraTools?: string;
   isolation?: boolean;
   telosTaskId?: string;
@@ -261,6 +264,10 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
   let recoveryInFlight = false;
   const pendingOptimisticMessageIds = new Set<string>();
   const deliveryObservers = new Map<string, NonNullable<SendMessageOptions['onDelivery']>>();
+  const assignmentObservers = new Map<
+    string,
+    NonNullable<SendMessageOptions['onSessionAssigned']>
+  >();
   let launchGeneration = 0;
   const deliverySessions = new Map<string, string>();
   // Keep recent command origins after receipts settle so duplicate errors stay scoped.
@@ -289,7 +296,10 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     }
 
     if (status !== 'uncertain') {
-      if (status === 'failed') unassignedDeliveries.delete(id);
+      if (status === 'failed') {
+        unassignedDeliveries.delete(id);
+        assignmentObservers.delete(id);
+      }
       deliveryObservers.delete(id);
       deliverySessions.delete(id);
     }
@@ -676,8 +686,9 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     sendMessage(text: string, opts?: SendMessageOptions) {
       const clientMsgId = `user-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       pendingOptimisticMessageIds.add(clientMsgId);
-      if (opts?.onDelivery) {
-        deliveryObservers.set(clientMsgId, opts.onDelivery);
+      if (opts?.onDelivery || opts?.onSessionAssigned) {
+        deliveryObservers.set(clientMsgId, opts.onDelivery ?? (() => {}));
+        if (opts.onSessionAssigned) assignmentObservers.set(clientMsgId, opts.onSessionAssigned);
         deliveryOrigins.set(clientMsgId, {
           historyRequest,
           launchGeneration,
@@ -685,7 +696,10 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         });
         for (const id of deliveryOrigins.keys()) {
           if (deliveryOrigins.size <= 256) break;
-          if (!deliveryObservers.has(id)) deliveryOrigins.delete(id);
+          if (!deliveryObservers.has(id)) {
+            deliveryOrigins.delete(id);
+            assignmentObservers.delete(id);
+          }
         }
 
         if (parserState.currentSessionId)
@@ -711,6 +725,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
           msg.images = opts.images.map((img) => ({ data: img.data, mediaType: img.mediaType }));
         }
         if (opts?.cwd) msg.cwd = opts.cwd;
+        if (opts?.repositoryWorkspaceId && !parserState.currentSessionId)
+          msg.repositoryWorkspaceId = opts.repositoryWorkspaceId;
         if (opts?.extraTools) msg.extraTools = opts.extraTools;
         if (opts?.isolation !== undefined) msg.isolation = opts.isolation;
         if (opts?.telosTaskId !== undefined) msg.telosTaskId = opts.telosTaskId;
@@ -1100,6 +1116,9 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     if (errorOrigin) errorOrigin.sessionId = sessionId;
 
     connection.trackSeq(sessionId, connection.getLastSeq(sessionId));
+    const assigned = assignmentObservers.get(id);
+    assignmentObservers.delete(id);
+    assigned?.(sessionId);
     return foreground;
   }
 

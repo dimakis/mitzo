@@ -1,3 +1,7 @@
+import {
+  getRepositoryWorkspaces,
+  readRepositoryWorkspaceForConversation,
+} from './repository-workspace-runtime.js';
 import { executeSandboxedCommand } from './sandboxed-command.js';
 import { executeNativeFileOperation } from './native-file-operation.js';
 import {
@@ -234,6 +238,12 @@ export function createNativeToolExecutor(
           checkSkillPolicy(registry, clientId, block.name) === 'deny'
         )
           return result('Session permissions changed; retry the tool', true);
+        const repositoryTask = session.sessionId
+          ? readRepositoryWorkspaceForConversation(session.sessionId)
+          : undefined;
+        const task = repositoryTask
+          ? await getRepositoryWorkspaces(true).validateHostTask(session.sessionId!, root)
+          : undefined;
         return result(
           await executeTrustedGitCommit(
             root,
@@ -243,6 +253,7 @@ export function createNativeToolExecutor(
             options.timeoutMs,
             options.maxOutputBytes,
             new Map(input.files.map((file) => [file, approvedIdentities.get(file) ?? null])),
+            task,
           ),
         );
       }

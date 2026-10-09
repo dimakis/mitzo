@@ -1,3 +1,4 @@
+import { isGitBranchName } from '../../git-branch.js';
 import { Buffer } from 'node:buffer';
 import { posix as path } from 'node:path';
 import type { JsonValue } from '../types.js';
@@ -174,24 +175,13 @@ type Input = Readonly<{
   draft: boolean;
 }>;
 
-const branch = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,254}$/;
 const repository =
   /^[a-z0-9](?:[a-z0-9._-]{0,98}[a-z0-9])?\/[a-z0-9](?:[a-z0-9._-]{0,98}[a-z0-9])?$/;
 
 function reject(message: string): never {
   throw new Error(message);
 }
-function validBranch(value: string) {
-  return (
-    branch.test(value) &&
-    !value.includes('..') &&
-    !value.includes('//') &&
-    !value.endsWith('.') &&
-    !value.endsWith('/') &&
-    !value.endsWith('.lock') &&
-    !value.includes('@{')
-  );
-}
+const validBranch = isGitBranchName;
 function inputOf(value: Readonly<Record<string, string | boolean>>): Input {
   const fields = ['connectionId', 'repositoryPath', 'baseBranch', 'title', 'body'] as const;
   if (fields.some((field) => typeof value[field] !== 'string') || typeof value.draft !== 'boolean')

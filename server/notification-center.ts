@@ -175,6 +175,25 @@ export class NotificationCenter {
       prefs.completion === 'all' || (prefs.completion === 'unattended' && unattended),
     );
   }
+  turnFailed(
+    sessionId: string,
+    seq: number,
+    explanation: string,
+    title: string | undefined,
+    unattended: boolean,
+  ): void {
+    const prefs = this.store.preferences();
+    this.publish(
+      {
+        id: `turn:${sessionId}:${seq}`,
+        kind: 'session',
+        title: title ? `${title}: request failed` : 'Chat request failed',
+        body: explanation,
+        sessionId,
+      },
+      prefs.completion === 'all' || (prefs.completion === 'unattended' && unattended),
+    );
+  }
   update(id: string, title: string, body: string, inboxFilename: string): void {
     this.publish({ id: `inbox:${id}`, kind: 'update', title, body, inboxFilename }, false);
   }
@@ -313,6 +332,19 @@ export function recordTurnNotification(
     current?.turnComplete(sessionId, seq, snippet, title, unattended);
   } catch (err) {
     log.warn('could not record notification', { error: String(err) });
+  }
+}
+export function recordTurnFailureNotification(
+  sessionId: string,
+  seq: number,
+  explanation: string,
+  title: string | undefined,
+  unattended: boolean,
+): void {
+  try {
+    current?.turnFailed(sessionId, seq, explanation, title, unattended);
+  } catch (err) {
+    log.warn('could not record failure notification', { error: String(err) });
   }
 }
 

@@ -719,6 +719,8 @@ export function handleSendV2(
           storedMeta,
           accountBinding,
         );
+        if (msg.repositoryWorkspaceId && msg.sessionId)
+          throw new Error('Repository selection requires a new conversation');
         const requestedCwd = msg.cwd;
         const validatedCwd = requestedCwd
           ? isAllowedPath(requestedCwd)
@@ -728,6 +730,10 @@ export function handleSendV2(
         const cwd = validatedCwd ?? storedMeta?.cwd ?? BASE_REPO;
         const skillRegistry = buildSkillRegistry(cwd);
         const resolution = resolveSlashCommand(msg.prompt, skillRegistry, NATIVE_COMMAND_NAMES);
+        if (msg.repositoryWorkspaceId && resolution.type === 'native')
+          throw new Error(
+            'Native commands cannot launch a repository chat. Send an ordinary first prompt.',
+          );
         const paidReasoning =
           resolution.type === 'native' &&
           paidReasoningCommand(resolution.name, resolution.arguments);
@@ -1098,8 +1104,9 @@ export function handleSendV2(
           );
           applySkillPolicy(sessionClientId);
         } else {
-          const startupSessionId =
-            delivery?.initialSessionId ?? nativeStartupSessionId(msg.clientMsgId);
+          const startupSessionId = msg.repositoryWorkspaceId
+            ? nativeStartupSessionId(`repository:${msg.repositoryWorkspaceId}`)
+            : (delivery?.initialSessionId ?? nativeStartupSessionId(msg.clientMsgId));
           const duplicate = preflightStartupProviderCommand(ctx.eventStore, {
             sessionId: startupSessionId,
             clientMsgId: msg.clientMsgId,
@@ -1131,7 +1138,10 @@ export function handleSendV2(
             ctx.connRegistry.setActive(connectionId, resolvedId);
           };
           startChat(startupTransport, sessionClientId, prompt, {
-            initialSessionId: delivery?.initialSessionId,
+            initialSessionId: msg.repositoryWorkspaceId
+              ? startupSessionId
+              : delivery?.initialSessionId,
+            repositoryWorkspaceId: msg.repositoryWorkspaceId,
             cwd: validatedCwd,
             model: effectiveSelection.model,
             reasoningEffort: effectiveSelection.reasoningEffort,

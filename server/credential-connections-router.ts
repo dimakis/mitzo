@@ -1,3 +1,4 @@
+import type { ConnectionSetup } from './credential-setup.js';
 import { WebSocketConfigSchema } from './credential-websocket.js';
 import express from 'express';
 import rateLimit from 'express-rate-limit';
@@ -5,6 +6,7 @@ import { z } from 'zod';
 import type { AuthSession } from './auth.js';
 import {
   recentAppReauthorizationHandlers,
+  recentAuthorizationExpiry,
   requireRecentConnectionAuthorization,
   requireSameOriginJson,
 } from './connections-router.js';
@@ -24,7 +26,13 @@ const create = z.union([
 ]);
 const revision = z.object({ revision: z.number().int().positive() }).strict();
 /** Browser-only control plane. Model tools can discover/request access, but cannot enroll or rotate credentials. */
-export function createCredentialConnectionsRouter(service: CredentialConnections) {
+export function createCredentialConnectionsRouter(
+  service: CredentialConnections,
+  options: {
+    onReady?: (setup: ConnectionSetup) => Promise<boolean>;
+    canComplete?: (setup: ConnectionSetup) => boolean;
+  } = {},
+) {
   const router = express.Router();
   router.use((_req, res, next) => {
     res.set('Cache-Control', 'no-store');
@@ -36,6 +44,13 @@ export function createCredentialConnectionsRouter(service: CredentialConnections
   router.get('/', (_req, res) =>
     res.json({ connections: service.catalog(), storage: 'apple-keychain' }),
   );
+  router.get('/setups/:id', (req, res) => {
+    try {
+      return res.json({ setup: service.setups.browserStatus(req.params.id) });
+    } catch {
+      return res.status(404).json({ error: 'Setup unavailable' });
+    }
+  });
   router.get('/:id/sessions', (req, res) =>
     res.json({ sessions: service.sessions(req.params.id) }),
   );
@@ -47,6 +62,48 @@ export function createCredentialConnectionsRouter(service: CredentialConnections
   router.use(express.json({ limit: '24kb' }));
   router.use((req, res, next) => {
     if (requireRecentConnectionAuthorization(res, req.header('x-csrf-token') ?? '')) next();
+  });
+  router.post('/setups/:id/complete', async (req, res) => {
+    const body = revision.extend({ secret }).strict().safeParse(req.body);
+    if (!body.success) return res.status(400).json({ error: 'Invalid setup request' });
+    try {
+      const csrf = req.header('x-csrf-token') ?? '';
+      const authorizedUntil = recentAuthorizationExpiry(res, csrf) ?? 0;
+      const draft = service.setups.browserStatus(req.params.id);
+      const allowed = () => authorizedUntil > Date.now() && (options.canComplete?.(draft) ?? true);
+      if (!allowed())
+        return res
+          .status(409)
+          .json({ error: 'The originating chat is unavailable. Return to that chat and retry.' });
+      let setup = await service.setups.complete(
+        req.params.id,
+        body.data.revision,
+        body.data.secret,
+        AbortSignal.timeout(30_000),
+        allowed,
+      );
+      if (setup.status === 'ready' && setup.delivery !== 'delivered' && options.onReady) {
+        // Failed delivery leaves a durable pending receipt, never replays enrollment.
+        try {
+          if (await options.onReady(setup)) service.setups.markDelivered(setup.id);
+        } catch {
+          /* retry on return */
+        }
+        setup = service.setups.browserStatus(setup.id);
+      }
+      return res.json({ setup });
+    } catch (error) {
+      return failure(res, error);
+    }
+  });
+  router.post('/setups/:id/cancel', (req, res) => {
+    const body = revision.safeParse(req.body);
+    if (!body.success) return res.status(400).json({ error: 'Invalid cancellation request' });
+    try {
+      return res.json({ setup: service.setups.cancel(req.params.id, body.data.revision) });
+    } catch (error) {
+      return failure(res, error);
+    }
   });
   router.post('/', async (req, res) => {
     const body = create.safeParse(req.body);
@@ -154,7 +211,9 @@ export function createCredentialConnectionsRouter(service: CredentialConnections
 }
 function failure(res: express.Response, error: unknown) {
   const keychain = error instanceof Error && error.name === 'KeychainUnavailableError';
-  const conflict = error instanceof Error && error.message.startsWith('Connection changed');
+  const conflict =
+    error instanceof Error &&
+    (error.message.startsWith('Connection changed') || error.message.startsWith('Setup changed'));
   return res.status(conflict ? 409 : 422).json({
     error: keychain
       ? error.message

@@ -745,6 +745,16 @@ describe('connection template registry', () => {
     ).toThrow('implementation does not match reviewed behavior');
   });
 
+  it('retains exact configured GitHub scopes for valid symbolic and Unicode branches', () => {
+    const allowedBaseBranches = ['release+fix', 'release@2026', 'résumé/next+patch'];
+    const policy = connectionTemplateRegistry.compileProviderPolicy({
+      templateId: 'github-readonly',
+      templateVersion: 1,
+      fields: { allowedRepositories: ['acme/widget'], allowedBaseBranches },
+    });
+    expect(policy.publicConfig.allowedBaseBranches).toEqual(allowedBaseBranches);
+  });
+
   it('binds handler source outside golden inputs to reviewed artifacts', async () => {
     const sources = Object.fromEntries(
       await Promise.all(

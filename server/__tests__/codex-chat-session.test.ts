@@ -400,6 +400,9 @@ it('does not advertise unavailable host tools to an OpenShell runtime', async ()
     expect.objectContaining({ name: 'ConnectionRequest' }),
     expect.objectContaining({ name: 'ConnectionWebSocket' }),
     expect.objectContaining({ name: 'HomeAssistantDashboard' }),
+    expect.objectContaining({ name: 'GetConnectionGuide' }),
+    expect.objectContaining({ name: 'PrepareConnectionSetup' }),
+    expect.objectContaining({ name: 'GetConnectionSetup' }),
     expect.objectContaining({ name: 'TelosCreateOutcome' }),
     expect.objectContaining({ name: 'TelosSaveArtifact' }),
     expect.objectContaining({ name: 'TelosFindArtifacts' }),
@@ -582,6 +585,9 @@ it('advertises reviewed per-chat provider grants to a managed OpenShell runtime'
       expect.objectContaining({ name: 'ConnectionRequest' }),
       expect.objectContaining({ name: 'ConnectionWebSocket' }),
       expect.objectContaining({ name: 'HomeAssistantDashboard' }),
+      expect.objectContaining({ name: 'GetConnectionGuide' }),
+      expect.objectContaining({ name: 'PrepareConnectionSetup' }),
+      expect.objectContaining({ name: 'GetConnectionSetup' }),
       expect.objectContaining({ name: 'TelosCreateOutcome' }),
       expect.objectContaining({ name: 'TelosSaveArtifact' }),
       expect.objectContaining({ name: 'TelosFindArtifacts' }),
@@ -1932,11 +1938,63 @@ it('offers Keychain connection tools inside OpenShell alongside existing host ca
         'ConnectionRequest',
         'ConnectionWebSocket',
         'HomeAssistantDashboard',
+        'GetConnectionGuide',
+        'PrepareConnectionSetup',
+        'GetConnectionSetup',
         'RequestWebAccess',
       ]),
     );
     chat.close();
   } finally {
     vi.unstubAllEnvs();
+  }
+});
+
+it('refuses cold repository resume without its artifact identity before ensuring a sandbox', async () => {
+  vi.clearAllMocks();
+  vi.stubEnv('MITZO_OPENSHELL_ENABLED', '1');
+  vi.stubEnv('MITZO_OPENSHELL_IMAGE', 'mitzo-runtime:1');
+  vi.stubEnv('MITZO_OPENSHELL_POLICY', '/config/policy.yaml');
+  vi.stubEnv('MITZO_OPENSHELL_SEED', '/seed/mgmt');
+  const ensure = vi
+    .spyOn(OpenShellRuntimeManager.prototype, 'ensure')
+    .mockRejectedValue(new Error('must not ensure'));
+  const base = options(new AbortController());
+  try {
+    await expect(
+      openCodexChat({
+        ...base,
+        resume: true,
+        conversationId: 'missing-repository-runtime',
+        binding: {
+          accountId: 'work',
+          accountLabel: 'Work',
+          provider: 'openai',
+          model: 'test-model',
+          profileRevision: '1',
+        },
+        profile: {
+          accountId: 'work',
+          accountLabel: 'Work',
+          email: 'work@example.invalid',
+          planType: 'api',
+          model: 'test-model',
+          sandboxProvider: 'openai-work',
+        },
+        repositoryWorkspace: {
+          id: 'repository',
+          repository: 'example/repo',
+          baseBranch: 'main',
+          baseOid: 'a'.repeat(40),
+          featureBranch: 'mitzo/task',
+          sandbox: true,
+        },
+      }),
+    ).rejects.toThrow('Repository sandbox identity is unavailable');
+    expect(ensure).not.toHaveBeenCalled();
+    expect(mocks.initialize).not.toHaveBeenCalled();
+    expect(mocks.send).not.toHaveBeenCalled();
+  } finally {
+    ensure.mockRestore();
   }
 });

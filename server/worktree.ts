@@ -712,6 +712,13 @@ export function cleanupStaleWorktrees(
 
   for (const entry of readdirSync(dir)) {
     summary.scanned++;
+    // Repository claims own durable task data independently of linked worktrees.
+    // Preserve their legacy containers, including interrupted or damaged claims;
+    // newer claims live outside this collector's root.
+    if (/^repo-[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(entry)) {
+      summary.protected++;
+      continue;
+    }
     if (activeSessionIds?.has(entry)) {
       summary.protected++;
       summary.protectedActive++;

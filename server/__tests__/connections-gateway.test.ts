@@ -29,6 +29,31 @@ const githubPolicy: ProviderPolicy = {
   ],
 };
 describe('OpenShellConnectionGateway', () => {
+  it('inventories the pinned Work inference provider without relaxing service mutation ownership', async () => {
+    const runner = vi
+      .fn()
+      .mockResolvedValueOnce(JSON.stringify([{ name: 'work-chat' }, { name: 'other-chat' }]))
+      .mockResolvedValueOnce(
+        'NAME TYPE CREDENTIAL_KEYS CONFIG_KEYS\nmitzo-keychain-v2 mitzo-openai-keychain-spike 1 0\n',
+      )
+      .mockResolvedValueOnce(
+        'NAME TYPE CREDENTIAL_KEYS CONFIG_KEYS\nmitzo-keychain-v2-extra mitzo-openai-keychain-spike 1 0\n',
+      );
+    const gateway = new OpenShellConnectionGateway(runner, {
+      workspace: 'default',
+      probeImage: 'image',
+    });
+    expect(await gateway.attachments('mitzo-keychain-v2', signal)).toEqual(['work-chat']);
+    runner.mockClear();
+    await expect(gateway.delete('mitzo-keychain-v2', signal)).rejects.toThrow(
+      'Invalid managed provider name',
+    );
+    await expect(gateway.attachments('--bad-name', signal)).rejects.toThrow(
+      'Invalid provider name',
+    );
+    expect(runner).not.toHaveBeenCalled();
+  });
+
   const customPolicy = (): ProviderPolicy => ({
     templateId: 'custom-rest-readonly',
     templateVersion: 1,

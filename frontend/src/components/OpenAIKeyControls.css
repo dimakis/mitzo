@@ -1,0 +1,94 @@
+.openai-key-management {
+  width: 100%;
+  max-width: 760px;
+  font-family: var(--ui-font);
+  font-size: 14px;
+  line-height: 1.5;
+}
+.openai-key-management .openai-key-intro {
+  margin: 0 0 20px;
+}
+.openai-key-management .openai-key-card {
+  padding: 24px;
+  margin-bottom: 16px;
+}
+.openai-key-management h2 {
+  margin: 0 0 4px;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+.openai-key-management p {
+  margin: 0 0 16px;
+}
+.openai-key-management .openai-key-health {
+  color: var(--workspace-muted);
+}
+.openai-key-management .connections-field {
+  display: grid;
+  gap: 8px;
+  margin-top: 24px;
+  font-size: 14px;
+}
+.openai-key-management input[type='password'] {
+  font-family: inherit;
+  font-size: 16px;
+  min-width: 0;
+}
+.openai-key-management .connections-key-confirmation {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  margin: 20px 0;
+  font-size: 14px;
+  cursor: pointer;
+}
+.openai-key-management .connections-key-confirmation input[type='checkbox'] {
+  appearance: auto;
+  width: 20px;
+  height: 20px;
+  min-width: 20px;
+  flex: 0 0 20px;
+  margin: 1px 0 0;
+  padding: 0;
+  accent-color: var(--workspace-accent);
+}
+.openai-key-management .connections-key-confirmation span {
+  flex: 1;
+  min-width: 0;
+}
+.openai-key-management button {
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  min-height: 44px;
+}
+.openai-key-management .connections-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 20px;
+}
+.openai-key-management .openai-key-feedback {
+  padding: 12px 16px;
+  border: 1px solid var(--workspace-line);
+  border-radius: 8px;
+  overflow-wrap: anywhere;
+}
+.openai-key-management .openai-key-refresh {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  color: var(--workspace-muted);
+  font-size: 13px;
+}
+.openai-key-management :focus-visible {
+  outline: 2px solid var(--workspace-accent);
+  outline-offset: 3px;
+}
+@media (max-width: 480px) {
+  .openai-key-management .openai-key-card {
+    padding: 16px;
+  }
+}

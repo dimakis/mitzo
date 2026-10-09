@@ -127,6 +127,7 @@ export class OpenShellOpenAIKeyGateway implements OpenAIKeyGateway {
     await this.inspect(account, signal);
     try {
       for (const sandbox of await this.sandboxes.attachments(account.providerName, signal)) {
+        if (await this.sandboxes.sandboxStopped(sandbox, signal)) continue;
         await this.sandboxes.stopSandbox(sandbox, signal);
         if (!(await this.sandboxes.sandboxStopped(sandbox, signal))) throw new Error();
       }

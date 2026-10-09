@@ -40,3 +40,27 @@ it('exposes proposed recipe fields for editing before explicit save', async () =
   const call = vi.mocked(apiFetch).mock.calls.find(([, init]) => init?.method === 'POST')!;
   expect(JSON.parse(call[1]!.body as string).definition.recipe.skillRefs).toEqual(['risk-scan']);
 });
+
+it('shows loading feedback before an empty response, then explains how to create a draft', async () => {
+  let finish!: (response: Response) => void;
+  vi.mocked(apiFetch).mockReturnValue(
+    new Promise((resolve) => {
+      finish = resolve;
+    }),
+  );
+  render(<SymposiumProfileProposals sessionId="chat" />);
+  expect(screen.getByRole('status').textContent).toBe('Loading profile drafts…');
+  expect(screen.queryByText('No profile drafts in this chat yet.')).toBeNull();
+  finish(new Response(JSON.stringify([])));
+  await screen.findByText('No profile drafts in this chat yet.');
+  expect(screen.queryByRole('status')).toBeNull();
+  expect(screen.getByText(/Ask Mitzo to draft a reusable agent profile/)).toBeTruthy();
+});
+
+it('shows fetch errors instead of claiming there are no drafts', async () => {
+  vi.mocked(apiFetch).mockRejectedValue(new Error('Connection unavailable'));
+  render(<SymposiumProfileProposals sessionId="chat" />);
+  expect((await screen.findByRole('alert')).textContent).toBe('Connection unavailable');
+  expect(screen.queryByText('No profile drafts in this chat yet.')).toBeNull();
+  expect(screen.queryByRole('status')).toBeNull();
+});

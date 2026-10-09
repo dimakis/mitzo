@@ -202,11 +202,11 @@ async function assertCriterionComposition(family: 'file-sha256' | 'python-json-c
         status: 'delivered',
         providerThreadId: 'thread',
         providerTurnId: 'turn',
-        completedAt: seal.completedAt - 10,
+        completedAt: intent.capturedAt,
       },
       observation: {
         status: 'completed',
-        terminalAt: seal.completedAt - 10,
+        terminalAt: intent.capturedAt,
         terminalConflict: false,
         identity: {
           claimToken: 'claim',
