@@ -2,7 +2,11 @@ import { useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
 import { apiFetch } from '../lib/api-fetch';
 import './RepositoryChatPicker.css';
-import { repositoryDraftKey, savedRepositoryDraft } from '../lib/repository-draft';
+import {
+  repositoryDraftKey,
+  savedRepositoryDraft,
+  consumeRepositoryDraft,
+} from '../lib/repository-draft';
 
 export interface RepositoryChatSelection {
   repositoryWorkspaceId?: string;
@@ -205,6 +209,8 @@ export function RepositoryChatPicker({
       return;
     }
     restoration.current?.abort();
+    const controller = new AbortController();
+    operation.current = controller;
     const id = pendingId ?? workspace?.id;
     setBusy(true);
     callback.current({ blocked: true });
@@ -217,16 +223,15 @@ export function RepositoryChatPicker({
           `/api/repository-workspaces/${encodeURIComponent(id)}?${query}`,
           {
             method: 'DELETE',
+            signal: controller.signal,
             headers: { 'Content-Type': 'application/json' },
           },
         );
+        if (controller.signal.aborted) return;
         if (!response.ok) throw new Error('Discard unavailable');
       }
-      try {
-        sessionStorage.removeItem(storageKey);
-      } catch {
-        /* Storage is optional. */
-      }
+      if (controller.signal.aborted) return;
+      if (id) consumeRepositoryDraft(storageKey, id);
       setPendingPreparationId(null);
       setOpened(false);
       setWorkspace(null);
@@ -234,9 +239,10 @@ export function RepositoryChatPicker({
       setError('');
       callback.current(null);
     } catch {
-      setError('Could not discard this preparation. Retry before choosing another repository.');
+      if (!controller.signal.aborted)
+        setError('Could not discard this preparation. Retry before choosing another repository.');
     } finally {
-      setBusy(false);
+      if (!controller.signal.aborted) setBusy(false);
     }
   };
   if (!catalog?.available && !opened && !retainedConversationId) return null;
