@@ -3651,6 +3651,8 @@ app.use(
     store: new HomeStore(join(BASE_REPO || '.', '.mitzo', 'home.json')),
     catalog: readQuoteCatalog,
     briefing: (date) => readMorningBriefing(BASE_REPO || '.', date),
+    session: (id) => eventStore.getSession(id),
+    changed: () => sseRegistry.broadcast('home_preferences', {}),
   }),
 );
 
