@@ -275,15 +275,17 @@ function ProposalEditor({
 
 /** Inline in the existing chat view, including before Symposium is enabled. */
 export function SymposiumProfileProposals({
+  id,
   sessionId,
   seatSeed,
   onSeatSeedDone,
 }: {
+  id?: string;
   sessionId: string;
   seatSeed?: SeatProfileSeed | null;
   onSeatSeedDone?(): void;
 }) {
-  const [proposals, setProposals] = useState<Proposal[]>([]);
+  const [proposals, setProposals] = useState<Proposal[] | null>(null);
   const [error, setError] = useState('');
   useEffect(() => {
     let live = true;
@@ -309,10 +311,19 @@ export function SymposiumProfileProposals({
     };
   }, [sessionId]);
   const remove = (proposalId: string) =>
-    setProposals((current) => current.filter((row) => row.proposalId !== proposalId));
-  if (!seatSeed && proposals.length === 0 && !error) return null;
+    setProposals((current) => current?.filter((row) => row.proposalId !== proposalId) ?? null);
   return (
-    <aside className="symposium-profile-proposals" aria-label="Reusable profile drafts">
+    <aside id={id} className="symposium-profile-proposals" aria-label="Reusable profile drafts">
+      {!seatSeed && !error && proposals === null && <p role="status">Loading profile drafts…</p>}
+      {!seatSeed && !error && proposals?.length === 0 && (
+        <div className="symposium-profile-empty">
+          <p>No profile drafts in this chat yet.</p>
+          <p>
+            Ask Mitzo to draft a reusable agent profile with a role, instructions, and expected
+            output. Drafts appear here for you to edit and save.
+          </p>
+        </div>
+      )}
       {error && <p role="alert">{error}</p>}
       {seatSeed && (
         <ProposalEditor
@@ -322,7 +333,7 @@ export function SymposiumProfileProposals({
           onDone={() => onSeatSeedDone?.()}
         />
       )}
-      {proposals.map((proposal) => (
+      {proposals?.map((proposal) => (
         <ProposalEditor
           key={proposal.proposalId}
           sessionId={sessionId}

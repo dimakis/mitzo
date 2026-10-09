@@ -4,7 +4,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { CredentialConnectionsPanel } from '../CredentialConnectionsPanel';
 import * as api from '../../lib/credential-connections-api';
 import { apiFetch } from '../../lib/api-fetch';
-vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
+vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn(), AUTH_LOST_EVENT: 'mitzo:auth-lost' }));
 vi.mock('../../lib/credential-connections-api', () => ({
   getCredentialConnections: vi.fn(),
   reauthorizeKeychain: vi.fn(),
@@ -640,3 +640,15 @@ it.each(['websocket', 'dashboard'])(
     ).toBe('read-write');
   },
 );
+
+it('keeps manual setup and connection controls collapsed behind explicit actions', async () => {
+  vi.mocked(api.getCredentialConnections).mockResolvedValue([homeAssistant]);
+  render(<CredentialConnectionsPanel />);
+  await screen.findByRole('heading', { name: 'Home Assistant' });
+  const manage = screen.getByText('Manage connection').closest('details');
+  const manual = screen.getByText('Advanced manual setup').closest('details');
+  expect(manage?.open).toBe(false);
+  expect(manual?.open).toBe(false);
+  expect(screen.getByText('Needs verification')).toBeTruthy();
+  expect(screen.getByText(/Ask your assistant to connect a service in chat/)).toBeTruthy();
+});

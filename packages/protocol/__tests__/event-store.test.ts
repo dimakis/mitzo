@@ -36,6 +36,22 @@ describe('EventStore', () => {
     expect(store.captureReconnectState('completed', 0).clientState).toBe('idle');
   });
 
+  it.each(['DETACHED', 'SUSPENDED'] as const)(
+    'keeps a failed request idle while its process is %s',
+    (state) => {
+      store.upsertSession({ sessionId: 'failed' });
+      store.setSessionState('failed', 'ACTIVE');
+      store.append('failed', 'user_message', { messageId: 'input' });
+      store.append('failed', 'error', { error: 'Account unavailable' });
+      store.append('failed', 'session_end', { terminalReason: 'failed' });
+      store.setSessionState('failed', state);
+      expect(store.captureReconnectState('failed', 0).clientState).toBe('idle');
+      expect(store.getSessionEvents('failed').at(-1)?.payload.state).toBe('idle');
+      store.append('failed', 'user_message', { messageId: 'next-input' });
+      expect(store.captureReconnectState('failed', 0).clientState).toBe('running');
+    },
+  );
+
   describe('constructor', () => {
     it('creates tables on initialization', () => {
       const seq = store.append('sess-1', 'message_start', { messageId: 'm1' });

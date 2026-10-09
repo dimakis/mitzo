@@ -35,6 +35,8 @@ import {
 import { createGithubPublicationOperatorRouter } from './github-publication-operator-router.js';
 import { requestOperatorGithubPublication } from './github-publishing-tool.js';
 import { createCredentialConnectionsRouter } from './credential-connections-router.js';
+import { bindConnectionSetupApplication } from './credential-setup-application.js';
+import { getResponsesRuntime } from './responses-chat-session.js';
 import {
   getCredentialConnectionsRuntime,
   setCredentialConnectionsRuntime as setActiveCredentialConnectionsRuntime,
@@ -469,9 +471,30 @@ export function setConnectionsRuntime(runtime: ConnectionsRuntime | null): void 
     : null;
 }
 let credentialConnectionsRouter: express.Router | null = null;
+let credentialSetupApplication: ReturnType<typeof bindConnectionSetupApplication> | undefined;
 export function setCredentialConnectionsRuntime(service: CredentialConnections | null) {
+  credentialSetupApplication?.dispose();
   setActiveCredentialConnectionsRuntime(service);
-  credentialConnectionsRouter = service ? createCredentialConnectionsRouter(service) : null;
+  credentialSetupApplication = service
+    ? bindConnectionSetupApplication(service, {
+        registry,
+        send: (clientId, prompt, messageId) =>
+          sendToChat(clientId, prompt, undefined, undefined, messageId),
+        isBusy: (session) => {
+          const codex = getCodexRuntime(session);
+          return (
+            !!session.currentSnapshot ||
+            !!codex?.queue().some((command) => ['queued', 'running'].includes(command.status)) ||
+            !!codex?.isPaused() ||
+            !!codex?.isRecovering() ||
+            !!getResponsesRuntime(session)?.isRunning()
+          );
+        },
+      })
+    : undefined;
+  credentialConnectionsRouter = service
+    ? createCredentialConnectionsRouter(service, credentialSetupApplication)
+    : null;
 }
 app.use('/api/credential-connections', operatorAuthMiddleware, (req, res, next) => {
   if (!res.locals.authSession)

@@ -9,6 +9,7 @@ import { mkdtemp, realpath, rm, writeFile, readFile, access, mkdir } from 'node:
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
+  runGithubRepositoryCommand,
   canonicalRepositorySelection,
   GithubRepositoryPreviewSchema,
   inspectGithubRepositorySource,
@@ -425,3 +426,26 @@ it('rejects an archived repository during preview before fetching its branch or 
   ).rejects.toThrow('Archived repositories cannot be published');
   expect(run).toHaveBeenCalledTimes(1);
 });
+
+it('reads long-path tree metadata above 2 MiB while Git storage and content remain below 64 MiB', async () => {
+  const f = await fixture();
+  // A shared parent keeps this fixture cheap while its repeated tree paths exceed
+  // the former stdout cap. No network, credential access or model calls occur.
+  const longDirectory = 'directory-'.padEnd(220, 'x');
+  await mkdir(join(f.source, longDirectory));
+  for (let start = 0; start < 9998; start += 100)
+    await Promise.all(
+      Array.from({ length: Math.min(100, 9998 - start) }, (_, offset) =>
+        writeFile(join(f.source, longDirectory, `file-${start + offset}`), 'x'),
+      ),
+    );
+  f.git(f.source, 'add', '.');
+  f.git(f.source, 'commit', '-qm', 'long paths');
+  const result = await runGithubRepositoryCommand(
+    'git',
+    ['-C', f.source, 'ls-tree', '-r', '-l', '-z', '--full-tree', 'HEAD'],
+    f.signal,
+  );
+  expect(Buffer.byteLength(result.stdout)).toBeGreaterThan(2 * 1024 * 1024);
+  expect(result.stdout.split('\0').filter(Boolean)).toHaveLength(10000);
+}, 30000);

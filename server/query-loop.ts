@@ -13,7 +13,7 @@ import type { EventStore } from './event-store.js';
 import { updateSessionSdkId } from './session-index.js';
 import { sendTurnCompleteNotification as ntfyTurnComplete } from './notify.js';
 import { sendTurnCompleteNotification as pushoverTurnComplete } from './pushover.js';
-import { recordTurnNotification } from './notification-center.js';
+import { recordTurnNotification, recordTurnFailureNotification } from './notification-center.js';
 import { extractSnippet } from './notification-helpers.js';
 import { NOTIFY_SNIPPET_MAX_CHARS } from './constants.js';
 import { createGoal, reportUsage, deriveGoalTitle } from './goal-client.js';
@@ -912,10 +912,14 @@ async function _runQueryLoopInner(
           );
           const resultSid = (msg.session_id as string) || currentSession.sessionId;
           if (resultSid) {
-            recordTurnNotification(
+            const record = isError ? recordTurnFailureNotification : recordTurnNotification;
+            record(
               resultSid,
               completionSeq ?? Date.now(),
-              extractSnippet(snapshotBlocks, NOTIFY_SNIPPET_MAX_CHARS),
+              isError
+                ? (providerFailure?.message ??
+                    'The request failed. Open the chat to review its status.')
+                : extractSnippet(snapshotBlocks, NOTIFY_SNIPPET_MAX_CHARS),
               store?.getSession(resultSid)?.summary ?? undefined,
               !registry.isAttached(clientId) && !connRegistry?.hasOpenWatchers(resultSid),
             );
@@ -931,7 +935,7 @@ async function _runQueryLoopInner(
               }
             }
           }
-          if (!registry.isAttached(clientId)) {
+          if (!isError && !registry.isAttached(clientId)) {
             const snippet = extractSnippet(snapshotBlocks, NOTIFY_SNIPPET_MAX_CHARS);
             const sid = (msg.session_id as string) || currentSession.sessionId;
             const sessionTitle = sid ? (store?.getSession(sid)?.summary ?? undefined) : undefined;

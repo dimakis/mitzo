@@ -1,3 +1,4 @@
+import { publicProviderFailureMessage } from './provider-failure.js';
 import {
   getRepositoryWorkspaces,
   readRepositoryWorkspaceForConversation,
@@ -3877,6 +3878,24 @@ function replaySingleEventsToTranscript(
       case 'message_end':
         if (turn && payload.messageId === turn.messageId) finishTurn();
         break;
+      case 'error':
+        if (payload.providerFailure) {
+          finishTurn();
+          messages.push({
+            messageId: `provider-error-${event.seq}`,
+            role: 'assistant',
+            timestamp: event.createdAt,
+            startedSeq: event.seq,
+            blocks: [
+              {
+                blockId: `provider-error-text-${event.seq}`,
+                blockType: 'text',
+                content: `**Error:** ${publicProviderFailureMessage(payload.providerFailure)}`,
+              },
+            ],
+          });
+        }
+        break;
       case 'session_end':
         finishTurn();
         break;
@@ -4200,6 +4219,26 @@ export function replayEventsToMessages(
             ...(tr ? { toolResult: tr.result, toolError: tr.isError } : {}),
           });
           blockContent.delete(p.blockId as string);
+        }
+        break;
+
+      case 'error':
+        if (p.providerFailure) {
+          if (currentMsg && currentMsg.blocks.length > 0) messages.push(currentMsg);
+          currentMsg = null;
+          messages.push({
+            messageId: `provider-error-${evt.seq}`,
+            role: 'assistant',
+            timestamp: evt.createdAt,
+            startedSeq: evt.seq,
+            blocks: [
+              {
+                blockId: `provider-error-text-${evt.seq}`,
+                blockType: 'text',
+                content: `**Error:** ${publicProviderFailureMessage(p.providerFailure)}`,
+              },
+            ],
+          });
         }
         break;
 
