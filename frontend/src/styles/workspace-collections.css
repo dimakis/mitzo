@@ -228,10 +228,12 @@
   gap: 16px;
 }
 .cal-desktop-panels--selected {
-  grid-template-columns: minmax(0, 1fr) 340px;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) minmax(0, 0.8fr);
 }
 .calendar-desktop .cal-body {
   display: block;
+  max-height: none;
   padding: 0;
   border: 1px solid var(--workspace-line);
   border-radius: 12px;
@@ -240,11 +242,12 @@
 }
 .calendar-week .cal-body {
   display: grid;
-  grid-template-columns: repeat(7, minmax(150px, 1fr));
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   align-content: stretch;
 }
 .calendar-desktop .cal-day {
   min-height: 0;
+  min-width: 0;
   padding: 0 10px 16px;
   background: var(--workspace-bg);
 }
@@ -279,6 +282,8 @@
 .calendar-desktop .cal-event-time {
   font-size: 12px;
   min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .calendar-desktop .cal-event-row {
   flex-wrap: wrap;
@@ -301,7 +306,9 @@
   outline: 2px solid var(--workspace-accent);
   outline-offset: -2px;
 }
-.cal-inspector {
+.calendar-desktop .cal-inspector {
+  min-height: 0;
+  max-height: none;
   position: relative;
   padding: 20px;
 }
@@ -315,17 +322,10 @@
   font-size: 22px;
   padding: 0;
 }
-@media (max-width: 1099px) {
+@media (min-width: 1600px) {
   .cal-desktop-panels--selected {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: minmax(220px, 1fr) minmax(200px, 0.8fr);
-  }
-  .calendar-desktop {
-    overflow: hidden;
-  }
-  .calendar-desktop .cal-body,
-  .calendar-desktop .cal-inspector {
-    max-height: none;
+    grid-template-columns: minmax(0, 1fr) 340px;
+    grid-template-rows: minmax(0, 1fr);
   }
 }
 .proposal-body pre {

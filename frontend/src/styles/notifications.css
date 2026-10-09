@@ -325,3 +325,10 @@
     margin-top: 12px;
   }
 }
+
+.notification-list-tools {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+}

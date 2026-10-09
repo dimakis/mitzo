@@ -245,7 +245,7 @@ export class NotificationCenter {
         // An earlier APNs await can allow this batch entry to change underneath us.
         if (this.store.reconcilePermissions(hasPending)) this.changed();
         const item = this.store.get(queued.id);
-        if (!item || item.resolvedAt !== null) continue;
+        if (!item || item.resolvedAt !== null || item.archivedAt != null) continue;
         const age = Date.now() - item.createdAt;
         const stale =
           (item.kind === 'session' && age >= COMPLETION_PUSH_MAX_AGE_MS) ||

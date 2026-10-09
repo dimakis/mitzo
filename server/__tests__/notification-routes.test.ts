@@ -167,3 +167,55 @@ describe('notification API', () => {
     s.close();
   });
 });
+
+it('archives and restores for operators without hiding a live approval or granting consent', async () => {
+  const s = await setup();
+  const resolver = vi.fn();
+  const permId = 'archive-live';
+  try {
+    registerPending(permId, 'Bash', resolver, {}, 'elevated', 's1', {
+      permId,
+      toolName: 'Bash',
+      toolInput: 'npm test',
+      sessionId: 's1',
+      expiresAt: Date.now() + 60000,
+    });
+    s.store.record({ id: 'done', kind: 'session', title: 'Done', body: '' });
+    s.store.markRead('done');
+    for (const path of ['/archive-resolved', '/done/archive', '/done/restore']) {
+      expect((await request(s.app).post('/api/notifications' + path)).status).toBe(401);
+      expect(
+        (
+          await request(s.app)
+            .post('/api/notifications' + path)
+            .set('X-Internal-Token', INTERNAL_TOKEN)
+        ).status,
+      ).toBe(403);
+    }
+    const auth = { Authorization: `Bearer ${s.token}` };
+    expect(
+      (await request(s.app).post(`/api/notifications/permission:${permId}/archive`).set(auth))
+        .status,
+    ).toBe(409);
+    expect((await request(s.app).post('/api/notifications/missing/archive').set(auth)).status).toBe(
+      404,
+    );
+    expect(
+      (await request(s.app).post('/api/notifications/archive-resolved').set(auth)).body.archived,
+    ).toBe(1);
+    const feed = await request(s.app).get('/api/notifications?filter=archived').set(auth);
+    expect(feed.status).toBe(200);
+    expect(feed.body.items.map((i: { id: string }) => i.id)).toEqual(['done']);
+    expect((await request(s.app).get('/api/notifications/done').set(auth)).body.archivedAt).toEqual(
+      expect.any(Number),
+    );
+    expect((await request(s.app).post('/api/notifications/done/restore').set(auth)).status).toBe(
+      200,
+    );
+    expect(s.store.feed().items.some((i) => i.id === 'done')).toBe(true);
+    expect(resolver).not.toHaveBeenCalled();
+  } finally {
+    removePending(permId);
+    s.close();
+  }
+});

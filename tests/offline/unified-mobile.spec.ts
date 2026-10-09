@@ -669,6 +669,8 @@ test('desktop Calendar uses the week canvas and dismissible event details', asyn
     const second = (await agenda.locator('.cal-day').nth(1).boundingBox())!;
     expect(second.y).toBeCloseTo(first.y, 0);
     expect(second.x).toBeGreaterThan(first.x);
+    expect(await agenda.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+    await expect(agenda.locator('.cal-day').last().locator('.cal-day-header')).toBeInViewport();
     const meeting = page.getByRole('button', {
       name: 'Planning review with a long meeting title and team context',
     });
@@ -676,6 +678,7 @@ test('desktop Calendar uses the week canvas and dismissible event details', asyn
     const details = page.getByRole('region', { name: 'Event details' });
     await expect(details.getByRole('link', { name: 'Join video call' })).toBeVisible();
     await expect(details.getByRole('button', { name: 'Close event details' })).toBeFocused();
+    expect(await agenda.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
     await page.keyboard.press('Escape');
     await expect(details).toHaveCount(0);
     await expect(meeting).toBeFocused();
@@ -761,4 +764,97 @@ test('mobile Calendar and Notifications remain bounded and scrollable', async ({
       (await page.locator('.workspace-tabs').boundingBox())!.y,
     );
   }
+});
+
+test('short desktop Calendar keeps event details and actions reachable', async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(isMobile, 'Desktop calendar');
+  for (const width of [800, 1024, 1440]) {
+    await page.setViewportSize({ width, height: 500 });
+    await page.goto('/calendar');
+    await page
+      .getByRole('button', { name: 'Planning review with a long meeting title and team context' })
+      .click();
+    const details = page.getByRole('region', { name: 'Event details' });
+    const bounds = (await details.boundingBox())!;
+    expect(bounds.y + bounds.height).toBeLessThanOrEqual(500);
+    expect(bounds.height).toBeGreaterThan(40);
+    await details.getByRole('link', { name: 'Join video call' }).scrollIntoViewIfNeeded();
+    await expect(details.getByRole('link', { name: 'Join video call' })).toBeInViewport();
+    await expect(details.getByRole('button', { name: 'Prep for this meeting' })).toBeInViewport();
+    await details.getByRole('button', { name: 'Close event details' }).click();
+    await expect(details).toHaveCount(0);
+  }
+});
+
+test('notification archive actions stay usable on desktop and mobile', async ({
+  page,
+}, testInfo) => {
+  const items = [
+    {
+      id: 'done',
+      kind: 'session',
+      title: 'Finished work',
+      body: 'Agent finished its turn.',
+      createdAt: Date.now(),
+      readAt: 1,
+      resolution: null,
+      archivedAt: null as number | null,
+    },
+    {
+      id: 'live',
+      kind: 'approval',
+      title: 'Pending approval',
+      body: 'Needs your decision',
+      permId: 'live',
+      createdAt: Date.now(),
+      readAt: null,
+      resolution: null,
+      archivedAt: null as number | null,
+    },
+  ];
+  await page.route('**/api/notifications**', async (route) => {
+    const url = new URL(route.request().url());
+    const path = url.pathname;
+    if (route.request().method() === 'POST') {
+      if (path === '/api/notifications/archive-resolved') items[0].archivedAt = Date.now();
+      else if (path === '/api/notifications/done/archive') items[0].archivedAt = Date.now();
+      else if (path === '/api/notifications/done/restore') items[0].archivedAt = null;
+      else return route.fulfill({ status: 400, json: { error: 'Unexpected test action' } });
+      return route.fulfill({ json: { ok: true } });
+    }
+    const archived = url.searchParams.get('filter') === 'archived';
+    const visible = items.filter((item) =>
+      archived ? item.archivedAt !== null : item.archivedAt === null,
+    );
+    return route.fulfill({
+      json: {
+        ...(fixtures['/api/notifications'] as object),
+        items: visible,
+        total: visible.length,
+        needsYou: 1,
+      },
+    });
+  });
+  await page.goto('/notifications');
+  const finished = page.getByRole('article').filter({ hasText: 'Finished work' });
+  const pending = page.getByRole('article').filter({ hasText: 'Pending approval' });
+  await expect(pending.getByRole('button', { name: 'Archive', exact: true })).toHaveCount(0);
+  await finished.getByRole('button', { name: 'Archive', exact: true }).click();
+  await expect(finished).toHaveCount(0);
+  await expect(pending).toBeVisible();
+  await page.getByRole('button', { name: 'Archived', exact: true }).click();
+  await finished.getByRole('button', { name: 'Restore', exact: true }).click();
+  await expect(finished).toHaveCount(0);
+  await page.getByRole('button', { name: 'All', exact: true }).click();
+  await expect(finished).toBeVisible();
+  await page.getByRole('button', { name: 'Archive resolved', exact: true }).click();
+  await expect(finished).toHaveCount(0);
+  await expect(pending).toBeVisible();
+  await page.screenshot({
+    path: testInfo.outputPath('notification-archive.png'),
+    animations: 'disabled',
+  });
 });
