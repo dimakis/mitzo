@@ -73,6 +73,10 @@ export interface SendMessageOptions {
 export interface PendingSession {
   prompt: string;
   context: string;
+  /** Reviewed source snapshots, delivered as context rather than a replacement system prompt. */
+  contextBlocks?: string[];
+  accountSelection?: { accountId: string; model: string; reasoningEffort?: string | null };
+  briefing?: { date: string; revision: string };
   telosTaskId?: string;
   agentName?: string;
 }
@@ -1062,8 +1066,10 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       }
       const selection = {
         ...opts,
-        model: opts?.model ?? get().config.modelId ?? undefined,
+        ...pending.accountSelection,
+        model: pending.accountSelection?.model ?? opts?.model ?? get().config.modelId ?? undefined,
         mode: opts?.mode ?? get().config.mode,
+        contextBlocks: [...(pending.contextBlocks ?? []), ...(opts?.contextBlocks ?? [])],
       };
       // Each attempt has a distinct identity, so stale receipts cannot dismiss a replacement.
       const launch = { ...pending };

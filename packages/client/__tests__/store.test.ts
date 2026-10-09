@@ -3136,6 +3136,32 @@ it.each(['new', 'switch'] as const)(
   },
 );
 
+it('sends an approved briefing snapshot and account without replacing either with draft defaults', () => {
+  const store = createReadyStore();
+  store.getState().setPendingSession({
+    prompt: 'Discuss this briefing',
+    context: 'Briefing 2026-10-09',
+    contextBlocks: ['Exact saved report'],
+    accountSelection: { accountId: 'work', model: 'luna', reasoningEffort: 'low' },
+  });
+  const assigned = vi.fn();
+  store.getState().sendPendingSession({
+    accountId: 'personal',
+    model: 'other',
+    contextBlocks: ['Extra context'],
+    onSessionAssigned: assigned,
+  });
+  const sent = lastWs.parsedSent().find((message) => message.type === 'send');
+  expect(sent).toMatchObject({
+    accountId: 'work',
+    model: 'luna',
+    reasoningEffort: 'low',
+    contextBlocks: ['Exact saved report', 'Extra context'],
+  });
+  lastWs.simulateMessage({ type: 'session_id', sessionId: 'briefing-chat' });
+  expect(assigned).toHaveBeenCalledWith('briefing-chat');
+});
+
 it('releases a navigated launch for retry on its matching startup rejection', () => {
   const store = createReadyStore();
   store.getState().setPendingSession({ prompt: 'Launch', context: 'Telos' });
