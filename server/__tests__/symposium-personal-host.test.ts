@@ -672,29 +672,32 @@ it('retains the exact diagnostic cleanup capability before invalidating admissio
   expect(diagnose).toHaveBeenCalledOnce();
   expect(state.adapters.get(row.id)!.disconnect).toHaveBeenCalledOnce();
 });
-it('retains diagnostic recovery even when operator authority expires after the native result returns', async () => {
-  let authorized = true;
-  const recover = vi.fn(async (check: () => void) => {
-    check();
-    return { status: 'reconciled' as const, inference: false as const };
-  });
-  const host = fixture(undefined, async () => {
-    authorized = false;
-    return {
-      result: { status: 'reconciliation_required', inference: false, catalogPublication: false },
-      recover,
-    } as never;
-  });
-  const row = await connected(host, 'pro');
-  await expect(
-    host.personalConnections.diagnoseRouting(row.id, row.revision, () => {
-      if (!authorized) throw new Error('revoked');
-    }),
-  ).rejects.toThrow('recovery');
-  const pending = host.personalConnections.list()[0];
-  expect(pending.discoveryRecoveryAvailable).toBe(true);
-  expect(
-    (await host.personalConnections.recoverDiscovery(row.id, pending.revision, () => {})).status,
-  ).toBe('reconciled');
-  expect(recover).toHaveBeenCalledOnce();
-});
+it.each(['complete', 'failed', 'reconciliation_required'] as const)(
+  'retains diagnostic recovery after operator expiry following native %s',
+  async (status) => {
+    let authorized = true;
+    const recover = vi.fn(async (check: () => void) => {
+      check();
+      return { status: 'reconciled' as const, inference: false as const };
+    });
+    const host = fixture(undefined, async () => {
+      authorized = false;
+      return {
+        result: { status, inference: false, catalogPublication: false },
+        recover,
+      } as never;
+    });
+    const row = await connected(host, 'pro');
+    await expect(
+      host.personalConnections.diagnoseRouting(row.id, row.revision, () => {
+        if (!authorized) throw new Error('revoked');
+      }),
+    ).rejects.toThrow('recovery');
+    const pending = host.personalConnections.list()[0];
+    expect(pending.discoveryRecoveryAvailable).toBe(true);
+    expect(
+      (await host.personalConnections.recoverDiscovery(row.id, pending.revision, () => {})).status,
+    ).toBe('reconciled');
+    expect(recover).toHaveBeenCalledOnce();
+  },
+);

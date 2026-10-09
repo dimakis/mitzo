@@ -223,6 +223,7 @@ export function createPersonalSubscriptionHost(
           check();
           const connection = connections.finishDiscoveryRecovery(id, revision);
           recoveries.delete(id);
+          if (result.status !== 'reconciliation_required') recoveries.delete(id);
           return { ...result, connection };
         } finally {
           recovering = false;
@@ -270,7 +271,7 @@ export function createPersonalSubscriptionHost(
           const result = RoutingDiagnosticResultSchema.parse(rawResult.result);
           // The same-process cleanup closure is retained before admission
           // invalidation, including a late operator revocation after return.
-          if (result.status === 'reconciliation_required' && rawResult.recover) {
+          if (rawResult.recover) {
             if (typeof rawResult.recover !== 'function')
               throw new Error('Invalid diagnostic recovery');
             recoveries.set(id, {
