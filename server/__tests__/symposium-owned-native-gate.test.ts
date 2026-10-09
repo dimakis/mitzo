@@ -1,4 +1,7 @@
-import { SOURCE_QUALIFIED_SYMPOSIUM_LOCAL_B20_BUILD as localBuild } from '../symposium-owned-runtime-contract.js';
+import {
+  SOURCE_QUALIFIED_SYMPOSIUM_LOCAL_B20_BUILD as localBuild,
+  SOURCE_QUALIFIED_SYMPOSIUM_ROUTING_BUILD as routingBuild,
+} from '../symposium-owned-runtime-contract.js';
 import { assertSymposiumAttestedClaudeProvider } from '../symposium-production-gate.js';
 import { collectOwnedAdmissionEvidence } from '../symposium-owned-evidence.js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -30,11 +33,13 @@ vi.mock('node:crypto', async (original) => {
         },
         digest(format: 'hex') {
           const bytes = Buffer.concat(parts);
-          return bytes.toString() === 'local-b20-test-cli'
-            ? '6ed96b7aa13655d6ecaeb822aee7526bc2170d85bd00f4506b13330703cb5dff'
-            : bytes.toString() === 'owned-native-test-cli'
-              ? '5a02cb78ef641da6badec1901677d4478c059a0080dbf4de13a6bbc503588dc8'
-              : actual.createHash(algorithm).update(bytes).digest(format);
+          return bytes.toString() === 'routing-test-cli'
+            ? '86153f4bff90b7a20bb01c53e3b1aaf4bb11fa1a456652e06ba8fbe5b69491bc'
+            : bytes.toString() === 'local-b20-test-cli'
+              ? '6ed96b7aa13655d6ecaeb822aee7526bc2170d85bd00f4506b13330703cb5dff'
+              : bytes.toString() === 'owned-native-test-cli'
+                ? '5a02cb78ef641da6badec1901677d4478c059a0080dbf4de13a6bbc503588dc8'
+                : actual.createHash(algorithm).update(bytes).digest(format);
         },
       };
     },
@@ -737,4 +742,70 @@ it('requires explicit trusted selection for exact local full tuple and rejects m
       ),
     ).toThrow();
   }
+});
+
+it('requires the exact routing build plus physical evidence and independently measured native versions', () => {
+  const f = fixture();
+  writeFileSync(f.config.cli, 'routing-test-cli');
+  f.config.image = routingBuild.image;
+  const candidate = {
+    ...f.attestation,
+    cliVersion: routingBuild.version,
+    gatewayVersion: routingBuild.gatewayVersion,
+    cliSha256: routingBuild.cliSha256,
+    gatewaySha256: routingBuild.gatewaySha256,
+    image: routingBuild.image,
+    imageDigest: routingBuild.imageDigest,
+    sandboxRuntimeImage: routingBuild.sandboxRuntimeImage,
+    supervisorImage: routingBuild.supervisorImage,
+    controllerSha256: routingBuild.nativeArtifacts['/usr/bin/codex'],
+    nativeArtifacts: { ...routingBuild.nativeArtifacts },
+  };
+  const invoke = vi.fn((_cli: string, args: string[]) =>
+    args[0] === '--version'
+      ? `openshell ${routingBuild.version}`
+      : JSON.stringify({
+          gateway: f.config.gateway,
+          server: candidate.gatewayEndpoint,
+          version: routingBuild.gatewayVersion,
+          status: 'healthy',
+          compute_drivers: [
+            { name: 'podman', capabilities: { driver_version: routingBuild.gatewayVersion } },
+          ],
+        }),
+  );
+  expect(() => verifySymposiumProductionGate(f.config, candidate, f.physical, invoke)).toThrow();
+  expect(invoke).not.toHaveBeenCalled();
+  expect(
+    verifySymposiumProductionGate(f.config, candidate, f.physical, invoke, 'local-854b-routing-v1')
+      .readOnlyEnforced,
+  ).toBe(true);
+  expect(f.physical.verifyOwnedNativeHost).toHaveBeenCalledWith(
+    expect.objectContaining({
+      supervisorImage: routingBuild.supervisorImage,
+      cliSha256: routingBuild.cliSha256,
+    }),
+  );
+  for (const changed of [
+    { cliSha256: build.cliSha256 },
+    { gatewaySha256: localBuild.gatewaySha256 },
+    { supervisorImage: build.supervisorImage },
+    { gatewayVersion: routingBuild.version },
+    { cliVersion: build.version },
+    { image: build.image },
+    { nativeArtifacts: build.nativeArtifacts },
+  ])
+    expect(() =>
+      verifySymposiumProductionGate(
+        f.config,
+        { ...candidate, ...changed } as never,
+        f.physical,
+        invoke,
+        'local-854b-routing-v1',
+      ),
+    ).toThrow();
+  delete f.physical.verifyOwnedNativeHost;
+  expect(() =>
+    verifySymposiumProductionGate(f.config, candidate, f.physical, invoke, 'local-854b-routing-v1'),
+  ).toThrow();
 });

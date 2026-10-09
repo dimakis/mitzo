@@ -9,6 +9,7 @@ import {
   reviewedSymposiumOwnedBuild,
   symposiumOwnedBuildVersions,
   SOURCE_QUALIFIED_SYMPOSIUM_LOCAL_B20_BUILD,
+  SOURCE_QUALIFIED_SYMPOSIUM_ROUTING_BUILD,
   type SymposiumOwnedBuildSelection,
 } from './symposium-owned-runtime-contract.js';
 import {
@@ -75,8 +76,12 @@ const codex01591Reviewed = REVIEWED_SYMPOSIUM_CODEX_01591_RUNTIME.build;
 const codexIdentityReviewed = REVIEWED_SYMPOSIUM_CODEX_01591_IDENTITY_RUNTIME.build;
 const OwnedAttestation = LegacyAttestation.extend({
   contract: z.literal('openshell-v0.1-owned-native-seats'),
-  cliVersion: z.enum([reviewed.version, '0.0.0']),
-  cliSha256: z.enum([reviewed.cliSha256, SOURCE_QUALIFIED_SYMPOSIUM_LOCAL_B20_BUILD.cliSha256]),
+  cliVersion: z.enum([reviewed.version, '0.0.0', SOURCE_QUALIFIED_SYMPOSIUM_ROUTING_BUILD.version]),
+  cliSha256: z.enum([
+    reviewed.cliSha256,
+    SOURCE_QUALIFIED_SYMPOSIUM_LOCAL_B20_BUILD.cliSha256,
+    SOURCE_QUALIFIED_SYMPOSIUM_ROUTING_BUILD.cliSha256,
+  ]),
   gatewayVersion: z.enum([reviewed.version, '0.0.0']),
   gatewaySha256: z.enum([
     reviewed.gatewaySha256,
@@ -109,6 +114,7 @@ const OwnedAttestation = LegacyAttestation.extend({
   supervisorImage: z.enum([
     reviewed.supervisorImage,
     SOURCE_QUALIFIED_SYMPOSIUM_LOCAL_B20_BUILD.supervisorImage,
+    SOURCE_QUALIFIED_SYMPOSIUM_ROUTING_BUILD.supervisorImage,
   ]),
   nativeArtifacts: z
     .object({
@@ -169,9 +175,16 @@ const OwnedAttestation = LegacyAttestation.extend({
       value.cliSha256 === SOURCE_QUALIFIED_SYMPOSIUM_LOCAL_B20_BUILD.cliSha256 ||
       value.gatewaySha256 === SOURCE_QUALIFIED_SYMPOSIUM_LOCAL_B20_BUILD.gatewaySha256 ||
       value.supervisorImage === SOURCE_QUALIFIED_SYMPOSIUM_LOCAL_B20_BUILD.supervisorImage;
+    const routing =
+      value.cliVersion === SOURCE_QUALIFIED_SYMPOSIUM_ROUTING_BUILD.version ||
+      value.cliSha256 === SOURCE_QUALIFIED_SYMPOSIUM_ROUTING_BUILD.cliSha256 ||
+      value.supervisorImage === SOURCE_QUALIFIED_SYMPOSIUM_ROUTING_BUILD.supervisorImage;
     let expected: ReturnType<typeof reviewedSymposiumOwnedBuild>;
     try {
-      expected = reviewedSymposiumOwnedBuild(value.image, local ? 'local-854b-b20-v1' : undefined);
+      expected = reviewedSymposiumOwnedBuild(
+        value.image,
+        routing ? 'local-854b-routing-v1' : local ? 'local-854b-b20-v1' : undefined,
+      );
     } catch {
       context.addIssue({
         code: 'custom',

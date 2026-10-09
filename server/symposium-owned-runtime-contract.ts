@@ -187,11 +187,14 @@ export function reviewedSymposiumRoutingDiagnosticBuild(
 
 /** Keep historical serialized build records verbatim. Only a separately
  * qualified successor may declare a different measured gateway version. */
+type OwnedBuildVersions<T> = T extends { version: infer V extends string }
+  ? { cliVersion: V; gatewayVersion: T extends { gatewayVersion: infer G extends string } ? G : V }
+  : never;
 export function symposiumOwnedBuildVersions<
   const T extends { version: string; gatewayVersion?: string },
->(build: T) {
-  return { cliVersion: build.version, gatewayVersion: build.gatewayVersion ?? build.version } as {
-    cliVersion: T['version'];
-    gatewayVersion: T['version'] | Exclude<T['gatewayVersion'], undefined>;
-  };
+>(build: T): OwnedBuildVersions<T> {
+  return {
+    cliVersion: build.version,
+    gatewayVersion: build.gatewayVersion ?? build.version,
+  } as OwnedBuildVersions<T>;
 }
