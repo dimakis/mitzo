@@ -340,10 +340,11 @@ export function createKnowledgeLibraryRouter(
         draft.state !== 'in-review' ||
         draft.version !== input.data.version ||
         draft.review?.version !== draft.version ||
-        draft.review.head !== input.data.head
+        draft.review.head !== input.data.head ||
+        draft.review.ready !== true
       )
         throw new KnowledgeDraftConflict(
-          'Save the current draft and refresh its review before accepting',
+          'Save the current draft, send it for review and refresh its review before accepting',
         );
       const lease = context.runtime.store.acquire(draft.id);
       try {

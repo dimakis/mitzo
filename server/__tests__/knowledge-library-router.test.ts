@@ -164,6 +164,41 @@ it('fences revoked authentication after slow source initialization', async () =>
   expect((await response).status).toBe(403);
 });
 
+it('requires a confirmed ready receipt before accepting the exact saved review', async () => {
+  const revision = await source.revision();
+  const draft = store.create('Change', revision, [
+    { path: 'architecture/one.md', base: '# Accepted\n', content: '# Draft\n' },
+  ]);
+  const head = 'a'.repeat(40);
+  const receipt = { url: 'https://github.com/test/knowledge/pull/1', head };
+  store.receipt(draft.id, draft.version, receipt);
+  const accept = vi.fn(async () => undefined);
+  const a = app(async () => ({
+    source,
+    store,
+    syncedAt: null,
+    acceptanceEnabled: true,
+    refresh: vi.fn(),
+    reviewService: {
+      config: { repository: 'test/knowledge', baseBranch: 'main' },
+      assertIdle: (id: string) => store.assertIdle(id),
+    } as unknown as KnowledgeReviewService,
+    publisher: { accept } as unknown as KnowledgeGithubPublisher,
+  }));
+  const perform = () =>
+    request(a)
+      .post(`/api/knowledge/drafts/${draft.id}/accept`)
+      .set('x-operator', 'yes')
+      .send({ version: draft.version, head });
+  expect((await perform()).status).toBe(409);
+  expect(accept).not.toHaveBeenCalled();
+  expect(store.get(draft.id).state).toBe('in-review');
+  store.receipt(draft.id, draft.version, { ...receipt, ready: true });
+  expect((await perform()).status).toBe(200);
+  expect(accept).toHaveBeenCalledOnce();
+  expect(store.get(draft.id).state).toBe('accepted');
+});
+
 it('sends only the current saved review for review and preserves its source', async () => {
   const revision = await source.revision();
   const draft = store.create('Change', revision, [
