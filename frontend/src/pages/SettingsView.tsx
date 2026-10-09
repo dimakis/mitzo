@@ -1,3 +1,4 @@
+import { useAssistantName } from '../hooks/useAssistantName';
 import { Link } from 'react-router-dom';
 import { useTheme } from '../hooks/useTheme';
 import { WorkspacePageHeading } from '../components/WorkspacePageHeading';
@@ -5,6 +6,7 @@ import { ACCENTS, FONTS, useAppearance } from '../hooks/useAppearance';
 export function SettingsView() {
   const { preference, setTheme } = useTheme();
   const appearance = useAppearance();
+  const assistant = useAssistantName();
   return (
     <main className="workspace-page settings-page">
       <WorkspacePageHeading title="Settings" description="Your preferences and data protection." />
@@ -56,6 +58,22 @@ export function SettingsView() {
               ))}
             </select>
           </label>
+          <label className="workspace-setting">
+            Assistant name
+            <input
+              key={assistant.name}
+              aria-label="Assistant name"
+              defaultValue={assistant.name}
+              maxLength={40}
+              onBlur={(event) => assistant.setName(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') event.currentTarget.blur();
+              }}
+            />
+          </label>
+          <p className="workspace-muted">
+            Used by advisers and companion assistants throughout Mitzo.
+          </p>
           <div className="appearance-preview" aria-label="Appearance preview">
             <p className="workspace-eyebrow">Your Mitzo</p>
             <h3>A little more room for what matters.</h3>
