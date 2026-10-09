@@ -186,8 +186,8 @@ const OwnedAttestation = LegacyAttestation.extend({
           value.providerInstances.some(
             (p) => p.type !== 'openai' || p.profileName !== 'openai',
           ))) ||
-      value.cliVersion !== expected.version ||
-      value.gatewayVersion !== expected.version ||
+      value.cliVersion !== expected.cliVersion ||
+      value.gatewayVersion !== expected.gatewayVersion ||
       value.cliSha256 !== expected.cliSha256 ||
       value.gatewaySha256 !== expected.gatewaySha256 ||
       value.supervisorImage !== expected.supervisorImage ||
@@ -389,8 +389,8 @@ export function verifySymposiumProductionGate(
   if (owned) {
     const selectedBuild = reviewedSymposiumOwnedBuild(expected.image, buildSelection);
     if (
-      expected.cliVersion !== selectedBuild.version ||
-      expected.gatewayVersion !== selectedBuild.version ||
+      expected.cliVersion !== selectedBuild.cliVersion ||
+      expected.gatewayVersion !== selectedBuild.gatewayVersion ||
       expected.cliSha256 !== selectedBuild.cliSha256 ||
       expected.gatewaySha256 !== selectedBuild.gatewaySha256 ||
       expected.supervisorImage !== selectedBuild.supervisorImage

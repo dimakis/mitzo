@@ -252,9 +252,9 @@ export function collectOwnedAdmissionEvidence(
   );
   const candidate: SymposiumProductionAttestation = {
     contract: 'openshell-v0.1-owned-native-seats',
-    cliVersion: build.version,
+    cliVersion: build.cliVersion,
     cliSha256: build.cliSha256,
-    gatewayVersion: build.version,
+    gatewayVersion: build.gatewayVersion,
     gatewaySha256: build.gatewaySha256,
     gateway: config.gateway,
     workspace: config.workspace,
