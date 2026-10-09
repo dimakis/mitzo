@@ -246,3 +246,335 @@ it('sends only the current saved review for review and preserves its source', as
     ]).version,
   ).toBe(2);
 });
+
+it('captures move bases from accepted original paths and persists new folders', async () => {
+  const created = await request(app())
+    .post('/api/knowledge/drafts')
+    .set('x-operator', 'yes')
+    .send({
+      title: 'Organize',
+      baseRevision: await source.revision(),
+      directories: ['architecture/new'],
+      documents: [
+        {
+          path: 'architecture/new/one.md',
+          sourcePath: 'architecture/one.md',
+          content: '# Accepted\n',
+        },
+      ],
+    });
+  expect(created.status).toBe(201);
+  expect(created.body.draft.documents[0]).toEqual({
+    path: 'architecture/new/one.md',
+    sourcePath: 'architecture/one.md',
+    base: '# Accepted\n',
+    content: '# Accepted\n',
+  });
+  const saved = await request(app())
+    .put('/api/knowledge/drafts/' + created.body.draft.id)
+    .set('x-operator', 'yes')
+    .send({
+      version: 1,
+      documents: [{ path: 'architecture/one.md', content: '# Accepted\n' }],
+      directories: [],
+    });
+  expect(saved.status).toBe(200);
+  expect(saved.body.draft.documents[0].sourcePath).toBeUndefined();
+});
+it('allows folder-only drafts while rejecting root and uncurated folders', async () => {
+  for (const folder of [
+    'new',
+    'architecture',
+    'scripts/new',
+    'architecture/../outside',
+    'architecture/.secret',
+  ]) {
+    const result = await request(app())
+      .post('/api/knowledge/drafts')
+      .set('x-operator', 'yes')
+      .send({
+        title: 'Folder',
+        baseRevision: await source.revision(),
+        documents: [],
+        directories: [folder],
+      });
+    expect(result.status).not.toBe(201);
+  }
+  const result = await request(app())
+    .post('/api/knowledge/drafts')
+    .set('x-operator', 'yes')
+    .send({
+      title: 'Folder',
+      baseRevision: await source.revision(),
+      documents: [],
+      directories: ['architecture/new'],
+    });
+  expect(result.status).toBe(201);
+});
+
+it('distinguishes authoritative missing drafts from storage failure and expired authority', async () => {
+  const path = '/api/knowledge/drafts/12345678-1234-4123-8123-123456789abc';
+  const missing = await request(app()).get(path).set('x-operator', 'yes');
+  expect(missing.status).toBe(404);
+  expect(missing.body.error).toBe('Draft not found');
+  const failed = vi.spyOn(store, 'get').mockImplementation(() => {
+    throw new Error('Storage unavailable');
+  });
+  expect((await request(app()).get(path).set('x-operator', 'yes')).status).toBe(422);
+  failed.mockRestore();
+  expect((await request(app()).get(path)).status).toBe(401);
+  const revoked = app(async () => {
+    revokeAuthSession(auth);
+    return { source, store, syncedAt: null, acceptanceEnabled: false, refresh: vi.fn() };
+  });
+  expect((await request(revoked).get(path).set('x-operator', 'yes')).status).toBe(403);
+});
+
+it('cancels a sole saved folder with a current version, review identity and exclusive lease', async () => {
+  const draft = store.create('Folder', await source.revision(), [], undefined, [
+    'architecture/new',
+  ]);
+  const head = 'a'.repeat(40);
+  store.receipt(draft.id, draft.version, { url: 'https://github.com/test/knowledge/pull/1', head });
+  const cancel = vi.fn(async (identity) => {
+    expect(identity).toMatchObject({
+      draftId: draft.id,
+      head,
+      repository: 'test/knowledge',
+      baseBranch: 'main',
+    });
+    expect(() =>
+      store.save(draft.id, draft.version, [], undefined, ['architecture/other']),
+    ).toThrow('saving its review');
+    return { state: 'closed', head, canAccept: false };
+  });
+  const a = app(async () => ({
+    source,
+    store,
+    syncedAt: null,
+    acceptanceEnabled: false,
+    refresh: vi.fn(),
+    reviewService: {
+      config: { repository: 'test/knowledge', baseBranch: 'main' },
+      assertIdle: (id: string) => store.assertIdle(id),
+    } as unknown as KnowledgeReviewService,
+    publisher: { cancel } as unknown as KnowledgeGithubPublisher,
+  }));
+  const endpoint = '/api/knowledge/drafts/' + draft.id + '/cancel';
+  expect(
+    (await request(a).post(endpoint).set('x-operator', 'yes').send({ version: 2 })).status,
+  ).toBe(409);
+  expect(cancel).not.toHaveBeenCalled();
+  const response = await request(a).post(endpoint).set('x-operator', 'yes').send({ version: 1 });
+  expect(response.status).toBe(200);
+  expect(response.body.draft).toMatchObject({
+    state: 'closed',
+    version: 1,
+    documents: [],
+    directories: ['architecture/new'],
+  });
+  const retry = await request(a).post(endpoint).set('x-operator', 'yes').send({ version: 1 });
+  expect(retry.body.draft).toEqual(response.body.draft);
+  expect(cancel).toHaveBeenCalledOnce();
+});
+it('preserves folder and review copies on ambiguous or mismatching close responses', async () => {
+  const draft = store.create('Folder', await source.revision(), [], undefined, [
+    'architecture/new',
+  ]);
+  const head = 'a'.repeat(40);
+  store.receipt(draft.id, draft.version, { url: 'https://github.com/test/knowledge/pull/1', head });
+  const cancel = vi
+    .fn()
+    .mockRejectedValueOnce(new Error('Lost close response'))
+    .mockResolvedValueOnce({ state: 'accepted', head })
+    .mockResolvedValueOnce({ state: 'closed', head: 'b'.repeat(40) })
+    .mockResolvedValue({ state: 'closed', head, canAccept: false });
+  const a = app(async () => ({
+    source,
+    store,
+    syncedAt: null,
+    acceptanceEnabled: false,
+    refresh: vi.fn(),
+    reviewService: {
+      config: { repository: 'test/knowledge', baseBranch: 'main' },
+      assertIdle: (id: string) => store.assertIdle(id),
+    } as unknown as KnowledgeReviewService,
+    publisher: { cancel } as unknown as KnowledgeGithubPublisher,
+  }));
+  const perform = () =>
+    request(a)
+      .post('/api/knowledge/drafts/' + draft.id + '/cancel')
+      .set('x-operator', 'yes')
+      .send({ version: 1 });
+  for (let i = 0; i < 3; i++) {
+    expect((await perform()).status).not.toBe(200);
+    expect(store.get(draft.id)).toMatchObject({
+      state: 'in-review',
+      version: 1,
+      directories: ['architecture/new'],
+    });
+    store.assertIdle(draft.id);
+  }
+  expect((await perform()).body.draft.state).toBe('closed');
+});
+it('cancels never-published folders locally but refuses ambiguous prepared and finished changes', async () => {
+  const local = store.create('Local', await source.revision(), [], undefined, [
+    'architecture/local',
+  ]);
+  const a = app();
+  const cancel = (id: string, version: number) =>
+    request(a)
+      .post('/api/knowledge/drafts/' + id + '/cancel')
+      .set('x-operator', 'yes')
+      .send({ version });
+  expect((await cancel(local.id, 1)).body.draft).toMatchObject({
+    state: 'closed',
+    directories: ['architecture/local'],
+  });
+  const uncertain = store.create('Uncertain', await source.revision(), [], undefined, [
+    'architecture/uncertain',
+  ]);
+  store.prepared(uncertain.id, 1, 'a'.repeat(40));
+  expect((await cancel(uncertain.id, 1)).status).toBe(409);
+  expect(store.get(uncertain.id).state).toBe('draft');
+  const accepted = store.create('Accepted', await source.revision(), [], undefined, [
+    'architecture/accepted',
+  ]);
+  store.status(accepted.id, 'accepted');
+  expect((await cancel(accepted.id, 1)).status).toBe(409);
+});
+
+it('refuses cancellation of an older saved review or a mismatching prepared head', async () => {
+  const draft = store.create('Folder', await source.revision(), [], undefined, [
+    'architecture/new',
+  ]);
+  const head = 'a'.repeat(40);
+  store.receipt(draft.id, 1, { url: 'https://github.com/test/knowledge/pull/1', head });
+  const cancel = vi.fn();
+  const a = app(async () => ({
+    source,
+    store,
+    syncedAt: null,
+    acceptanceEnabled: false,
+    refresh: vi.fn(),
+    reviewService: {
+      config: { repository: 'test/knowledge', baseBranch: 'main' },
+      assertIdle: (id: string) => store.assertIdle(id),
+    } as unknown as KnowledgeReviewService,
+    publisher: { cancel } as unknown as KnowledgeGithubPublisher,
+  }));
+  const perform = (version: number) =>
+    request(a)
+      .post('/api/knowledge/drafts/' + draft.id + '/cancel')
+      .set('x-operator', 'yes')
+      .send({ version });
+  store.prepared(draft.id, 1, 'b'.repeat(40));
+  expect((await perform(1)).status).toBe(409);
+  store.save(draft.id, 1, [], undefined, ['architecture/changed']);
+  expect((await perform(2)).status).toBe(409);
+  expect(cancel).not.toHaveBeenCalled();
+  expect(store.get(draft.id)).toMatchObject({
+    state: 'draft',
+    version: 2,
+    directories: ['architecture/changed'],
+  });
+});
+it('blocks remote close after the cancellation lease expires during inspection', async () => {
+  auth.expiresAt = Date.now() + 3600000;
+  const draft = store.create('Folder', await source.revision(), [], undefined, [
+    'architecture/new',
+  ]);
+  const head = 'a'.repeat(40);
+  store.receipt(draft.id, 1, { url: 'https://github.com/test/knowledge/pull/1', head });
+  const now = Date.now();
+  let clock: ReturnType<typeof vi.spyOn> | undefined;
+  let remoteClosed = false;
+  const cancel = vi.fn(async (identity) => {
+    clock = vi.spyOn(Date, 'now').mockReturnValue(now + 181000);
+    store.save(draft.id, 1, [], undefined, ['architecture/newer']);
+    identity.beforeClose();
+    remoteClosed = true;
+    return { state: 'closed', head, canAccept: false };
+  });
+  const a = app(async () => ({
+    source,
+    store,
+    syncedAt: null,
+    acceptanceEnabled: false,
+    refresh: vi.fn(),
+    reviewService: {
+      config: { repository: 'test/knowledge', baseBranch: 'main' },
+      assertIdle: (id: string) => store.assertIdle(id),
+    } as unknown as KnowledgeReviewService,
+    publisher: { cancel } as unknown as KnowledgeGithubPublisher,
+  }));
+  try {
+    const response = await request(a)
+      .post('/api/knowledge/drafts/' + draft.id + '/cancel')
+      .set('x-operator', 'yes')
+      .send({ version: 1 });
+    expect(response.status).toBe(409);
+    expect(remoteClosed).toBe(false);
+    expect(store.get(draft.id)).toMatchObject({
+      state: 'draft',
+      version: 2,
+      directories: ['architecture/newer'],
+    });
+  } finally {
+    clock?.mockRestore();
+  }
+});
+
+it.each([
+  ['draft', false],
+  ['draft', true],
+  ['in-review', false],
+  ['in-review', true],
+  ['closed', false],
+  ['closed', true],
+] as const)(
+  'restricts folder cancellation before any mutation for %s document drafts (folders: %s)',
+  async (state, withFolders) => {
+    const draft = store.create(
+      'Document change',
+      await source.revision(),
+      [
+        {
+          path: 'architecture/one.md',
+          base: '# Accepted\n',
+          content: '# Edited\n',
+        },
+      ],
+      undefined,
+      withFolders ? ['architecture/new'] : [],
+    );
+    const head = 'a'.repeat(40);
+    if (state !== 'draft')
+      store.receipt(draft.id, 1, { url: 'https://github.com/test/knowledge/pull/1', head });
+    if (state === 'closed') store.status(draft.id, 'closed');
+    const original = store.get(draft.id);
+    const cancel = vi.fn(async () => ({ state: 'closed', head, canAccept: false }));
+    const a = app(async () => ({
+      source,
+      store,
+      syncedAt: null,
+      acceptanceEnabled: false,
+      refresh: vi.fn(),
+      reviewService: {
+        config: { repository: 'test/knowledge', baseBranch: 'main' },
+        assertIdle: (id: string) => store.assertIdle(id),
+      } as unknown as KnowledgeReviewService,
+      publisher: { cancel } as unknown as KnowledgeGithubPublisher,
+    }));
+    const response = await request(a)
+      .post('/api/knowledge/drafts/' + draft.id + '/cancel')
+      .set('x-operator', 'yes')
+      .send({ version: 1 });
+    expect(response.status).toBe(409);
+    expect(response.body.error).toBe(
+      'Only folder-only changes can be cancelled through this action.',
+    );
+    expect(cancel).not.toHaveBeenCalled();
+    expect(store.get(draft.id)).toEqual(original);
+  },
+);
