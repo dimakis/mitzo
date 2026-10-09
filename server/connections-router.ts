@@ -3,7 +3,7 @@ import express from 'express';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { z } from 'zod';
 import type { GoogleWorkspaceManagement } from './google-workspace-management.js';
-import type { OpenAIKeyManagement } from './openai-key-management.js';
+import { OpenAIKeyRequestError, type OpenAIKeyManagement } from './openai-key-management.js';
 import {
   OpenAIEnrollmentUnresolvedError,
   type OpenAIAccountEnrollment,
@@ -387,8 +387,9 @@ export function createConnectionsRouter(options: {
                   )
                 : await options.openAIKeys.synchronize({ ...input, sameProject: true }, signal),
           );
-        } catch {
+        } catch (error) {
           return res.status(422).json({
+            code: error instanceof OpenAIKeyRequestError ? error.code : 'UPDATE_UNCONFIRMED',
             error:
               'OpenAI key replacement could not be confirmed. Check the work project and Luna 6 access, then refresh the connection status.',
           });

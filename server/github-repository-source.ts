@@ -8,6 +8,8 @@ import { z } from 'zod';
 const exec = promisify(execFile);
 const MAX_REPOSITORY_BYTES = 64 * 1024 * 1024;
 const MAX_FILES = 10000;
+// Tree metadata grows with path lengths independently of file contents/Git storage.
+const MAX_TREE_METADATA_BYTES = 64 * 1024 * 1024;
 const oid = z.string().regex(/^[a-f0-9]{40}$/);
 const branch = z.string().min(1).refine(isGitBranchName);
 export const GithubRepositoryPreviewSchema = z.strictObject({
@@ -32,7 +34,8 @@ export const runGithubRepositoryCommand: GithubRepositoryCommand = async (
     return await exec(command, [...args], {
       signal,
       timeout: 120000,
-      maxBuffer: 2 * 1024 * 1024,
+      maxBuffer:
+        command === 'git' && args.includes('ls-tree') ? MAX_TREE_METADATA_BYTES : 2 * 1024 * 1024,
       env: {
         PATH: process.env.PATH ?? '/usr/bin:/bin',
         HOME: process.env.HOME ?? '',

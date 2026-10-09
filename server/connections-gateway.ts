@@ -630,6 +630,10 @@ export class OpenShellConnectionGateway implements ConnectionGateway {
     if (await this.get(managedName, signal)) throw new Error('Managed provider remains present');
   }
   async attachments(providerName: string, signal: AbortSignal) {
+    // Existing inference providers have catalog names, not the service-provider
+    // creation prefix. This read-only inventory still requires an exact identifier.
+    if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,62}$/.test(providerName))
+      throw new Error('Invalid provider name');
     const attached: string[] = [];
     for (let offset = 0; ; offset += 100) {
       const sandboxes = z
@@ -659,7 +663,7 @@ export class OpenShellConnectionGateway implements ConnectionGateway {
           signal,
           { NO_COLOR: '1' },
         );
-        if (parseProviderAttachments(table, sandbox.name).includes(safeName(providerName)))
+        if (parseProviderAttachments(table, sandbox.name).includes(providerName))
           attached.push(sandbox.name);
       }
       if (sandboxes.length < 100) return attached;

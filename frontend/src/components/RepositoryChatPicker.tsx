@@ -88,7 +88,11 @@ export function RepositoryChatPicker({
         if (controller.signal.aborted || !['ready', 'claimed'].includes(ready.state)) return;
         setWorkspace(ready);
         setOpened(true);
-        callback.current({ repositoryWorkspaceId: ready.id, blocked: false });
+        callback.current(
+          ready.state === 'claimed'
+            ? { blocked: true }
+            : { repositoryWorkspaceId: ready.id, blocked: false },
+        );
       })
       .catch(() => {
         if (!controller.signal.aborted && saved)
@@ -323,7 +327,9 @@ export function RepositoryChatPicker({
                 </>
               ) : (
                 <p role="status">
-                  Ready for your first prompt. Dependency setup happens in the chat workspace.
+                  {workspace.state === 'claimed'
+                    ? 'This preparation already belongs to a conversation. Open that conversation below, or continue without this repository.'
+                    : 'Ready for your first prompt. Dependency setup happens in the chat workspace.'}
                 </p>
               )}
             </div>

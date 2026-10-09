@@ -73,6 +73,8 @@ At most eight unreleased preparing/ready/claimed sources may be held per account
   excluded.
 - GitHub's default branch and complete reachable history; no user-selected refs,
   local-path attachment, GitLab, forks or submodule/LFS provisioning in this slice.
+- Tree metadata has a separate 64 MiB command-output bound; short-content files with long paths do not share the 2 MiB diagnostic-output cap.
+- A claimed preparation links to its existing conversation and cannot start another first send.
 - At most 10,000 current-tree files, 64 MiB of Git storage and 64 MiB of expanded
   current-tree content. GitHub's advertised repository size is checked before
   cloning; actual storage/content checks follow acquisition. This is not an OS
