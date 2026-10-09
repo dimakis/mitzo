@@ -105,7 +105,7 @@ function PinEditor({
               id: session.id,
               title: session.summary || 'Untitled session',
             }))
-        ).map((item) => ({ ...item, kind, title: recordTitle(item.title) }))
+        ).map((item) => ({ ...item, kind, title: recordTitle(item.title || 'Untitled session') }))
       : flatten(todos.items)
           .filter((item) => item.summary.toLowerCase().includes(workQuery.toLowerCase()))
           .map((item) => ({ kind, id: item.id, title: recordTitle(item.summary) }));

@@ -35,8 +35,7 @@ export function useHomePreferences() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const request = useRef(0);
-  const current = useRef(preferences);
-  current.current = preferences;
+  const current = useRef<HomePreferences | null>(null);
   const busy = useRef(false);
   const mounted = useRef(false);
 
@@ -46,7 +45,13 @@ export function useHomePreferences() {
       const response = await apiFetch('/api/home/preferences');
       if (!response.ok) throw new Error('Preferences unavailable');
       const result = readPreferences(await response.json());
-      if (mounted.current && id === request.current) setPreferences(result);
+      if (mounted.current && id === request.current) {
+        if (!current.current || result.revision >= current.current.revision) {
+          current.current = result;
+          setPreferences(result);
+        }
+        setError((previous) => (previous?.startsWith('Couldn’t load') ? null : previous));
+      }
     } catch {
       if (mounted.current && id === request.current)
         setError('Couldn’t load your home preferences. Try again.');

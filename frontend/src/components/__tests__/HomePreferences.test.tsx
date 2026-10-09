@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { HomePinButton } from '../HomePinButton';
 import { MinionNameSettings } from '../MinionNameSettings';
 import type { HomePreferences } from '@mitzo/protocol';
@@ -31,6 +31,61 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 describe('home preferences', () => {
+  it('clears a load error after a successful explicit retry', async () => {
+    data.fetch.mockResolvedValueOnce({ ok: false });
+    render(<MinionNameSettings />);
+    await screen.findByRole('alert');
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
+  });
+  it('preserves unsaved names when an unrelated pin refresh arrives', async () => {
+    render(<MinionNameSettings />);
+    await waitFor(() =>
+      expect((screen.getByLabelText('Briefing minion name') as HTMLInputElement).value).toBe(
+        'Minion',
+      ),
+    );
+    fireEvent.change(screen.getByLabelText('Briefing minion name'), {
+      target: { value: 'Jeeves' },
+    });
+    data.preferences = {
+      ...data.preferences,
+      revision: 1,
+      pins: [{ kind: 'session', id: 'new', title: 'New' }],
+    };
+    await act(async () => {
+      window.dispatchEvent(new Event('mitzo-home-preferences-changed'));
+    });
+    expect((screen.getByLabelText('Briefing minion name') as HTMLInputElement).value).toBe(
+      'Jeeves',
+    );
+  });
+  it('never applies a stale revision fetched after a successful save', async () => {
+    const old = data.preferences;
+    let reads = 0;
+    data.fetch.mockImplementation(async (_url: string, options?: RequestInit) => {
+      if (options?.method === 'PUT')
+        return {
+          ok: true,
+          json: async () => ({
+            ...old,
+            revision: 1,
+            pins: [{ kind: 'session', id: 'session-1', title: 'Recovery' }],
+          }),
+        };
+      reads++;
+      return { ok: true, json: async () => old };
+    });
+    render(<HomePinButton pin={{ kind: 'session', id: 'session-1', title: 'Recovery' }} />);
+    await waitFor(() =>
+      expect(
+        (screen.getByRole('button', { name: 'Pin to Today' }) as HTMLButtonElement).disabled,
+      ).toBe(false),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Pin to Today' }));
+    await waitFor(() => expect(reads).toBe(2));
+    expect(screen.getByRole('button', { name: 'Unpin from Today' })).toBeTruthy();
+  });
   it('rejects malformed successful responses before rendering pin controls', async () => {
     data.fetch.mockResolvedValue({ ok: true, json: async () => [] });
     render(<HomePinButton pin={{ kind: 'session', id: 'session-1', title: 'Recovery' }} />);
