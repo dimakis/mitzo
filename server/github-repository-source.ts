@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process';
+import { execFile, spawnSync } from 'node:child_process';
 import { mkdir, readdir, rm, stat, realpath } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
@@ -11,16 +11,20 @@ const oid = z.string().regex(/^[a-f0-9]{40}$/);
 const branch = z
   .string()
   .min(1)
-  .max(200)
-  .refine(
-    (value) =>
-      /^[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(value) &&
-      !value.includes('..') &&
-      !value.includes('//') &&
-      value
-        .split('/')
-        .every((part) => !part.startsWith('.') && !part.endsWith('.') && !part.endsWith('.lock')),
-  );
+  .refine((value) => {
+    // Git owns ref syntax. A fixed refs/heads prefix prevents option interpretation
+    // and the branch-expression expansion performed by check-ref-format --branch.
+    const result = spawnSync('git', ['check-ref-format', `refs/heads/${value}`], {
+      env: {
+        PATH: process.env.PATH ?? '/usr/bin:/bin',
+        GIT_CONFIG_SYSTEM: '/dev/null',
+        GIT_CONFIG_GLOBAL: '/dev/null',
+      },
+      timeout: 5000,
+      stdio: 'ignore',
+    });
+    return result.status === 0;
+  });
 export const GithubRepositoryPreviewSchema = z.strictObject({
   repository: z.string(),
   baseBranch: branch,
@@ -201,8 +205,7 @@ export async function prepareGithubRepositorySource(
         '--no-hardlinks',
         '--single-branch',
         '--template=',
-        '--branch',
-        preview.baseBranch,
+        `--branch=${preview.baseBranch}`,
         `https://github.com/${preview.repository}.git`,
         gitdir,
       ],

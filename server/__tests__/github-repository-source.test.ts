@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   canonicalRepositorySelection,
+  GithubRepositoryPreviewSchema,
   inspectGithubRepositorySource,
   prepareGithubRepositorySource,
 } from '../github-repository-source.js';
@@ -313,4 +314,55 @@ it('allows distinct files sharing the exact same directory spelling', async () =
   );
   expect(await readFile(join(target, 'Foo', 'a'), 'utf8')).toBe('one');
   expect(await readFile(join(target, 'Foo', 'b'), 'utf8')).toBe('two');
+});
+
+it.each(['release+fix', 'release@2026', 'résumé/next+patch'])(
+  'previews and prepares a valid Git default branch %s',
+  async (baseBranch) => {
+    const f = await fixture();
+    f.git(f.source, 'branch', '-m', baseBranch);
+    const runGit = f.run.getMockImplementation()!;
+    f.run.mockImplementation(async (command, args) =>
+      command === 'gh'
+        ? {
+            stdout: JSON.stringify(
+              args.at(-1)!.includes('/branches/')
+                ? { name: baseBranch, commit: { sha: f.oid } }
+                : {
+                    full_name: 'example/repo',
+                    default_branch: baseBranch,
+                    size: 1,
+                    archived: false,
+                  },
+            ),
+            stderr: '',
+          }
+        : runGit(command, args),
+    );
+    const preview = await inspectGithubRepositorySource('example/repo', f.signal, f.run);
+    expect(preview.baseBranch).toBe(baseBranch);
+    const target = join(f.root, 'special-branch-task');
+    await prepareGithubRepositorySource(preview, target, 'mitzo/task', f.signal, f.run);
+    expect(f.git(target, 'rev-parse', `refs/remotes/origin/${baseBranch}`)).toBe(f.oid);
+    expect(await readFile(join(target, 'file.txt'), 'utf8')).toBe('original\n');
+  },
+);
+
+it.each([
+  'bad..branch',
+  'bad@{branch',
+  '.hidden',
+  'bad.lock',
+  'bad branch',
+  'bad\\branch',
+  'bad//branch',
+  'bad:branch',
+])('rejects invalid Git ref syntax %s', (baseBranch) => {
+  expect(
+    GithubRepositoryPreviewSchema.safeParse({
+      repository: 'example/repo',
+      baseBranch,
+      baseOid: 'a'.repeat(40),
+    }).success,
+  ).toBe(false);
 });
