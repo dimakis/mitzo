@@ -61,3 +61,14 @@ it('does not offer password entry on unsupported hosts or already configured bac
   expect(screen.queryByLabelText('Backup password')).toBeNull();
   expect(screen.queryByRole('button', { name: 'Prepare storage' })).toBeNull();
 });
+it('refreshes tools for a configured backup without requesting or submitting a password', async () => {
+  vi.mocked(getBackupSetup).mockResolvedValue({ ...status, prepared: true, configured: true });
+  vi.mocked(prepareBackups).mockResolvedValue({ ...status, prepared: true, configured: true });
+  const onConfigured = vi.fn();
+  render(<BackupSetup onConfigured={onConfigured} onClose={vi.fn()} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Refresh backup tools' }));
+  await waitFor(() => expect(prepareBackups).toHaveBeenCalledTimes(1));
+  await waitFor(() => expect(onConfigured).toHaveBeenCalledTimes(1));
+  expect(configureBackups).not.toHaveBeenCalled();
+  expect(screen.queryByLabelText('Backup password')).toBeNull();
+});

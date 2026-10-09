@@ -169,6 +169,9 @@ export function BackupSetup({
                 A confirmed upload still needs a restore rehearsal before you rely on it for
                 recovery.
               </p>
+              <button disabled={busy || status.busy} onClick={() => void act('prepare')}>
+                {busy ? 'Refreshing backup tools…' : 'Refresh backup tools'}
+              </button>
             </>
           )}
         </div>
