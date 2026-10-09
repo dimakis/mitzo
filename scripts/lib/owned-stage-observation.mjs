@@ -1,3 +1,4 @@
+import { assertInitialStagingFacts } from './owned-stage-empty.mjs';
 import process from 'node:process';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -120,24 +121,18 @@ export function assertEmptyStagingUse(root, live) {
     lstatSync(c.attestationPath, { throwIfNoEntry: false })
   )
     throw Error('Only initial unconfigured stage update is supported');
-  if (
+  assertInitialStagingFacts(
     counts(join(live.plan.repositoryPath, '.mitzo/events.db'), [
+      'sessions',
+      'events',
       'symposium_membership',
       'symposium_seat_sandboxes',
       'symposium_creation_recoveries',
       'symposium_seat_lifecycle_fences',
-    ]).some((n) => n !== 0) ||
-    counts(join(live.plan.repositoryPath, '.mitzo/tasks.db'), ['tasks']).some((n) => n !== 0)
-  )
-    throw Error('Existing task/session work prevents fresh stage update');
-  const connections = privateJson(join(c.gateway.stateParent, 'personal-connections.json'));
-  // Metadata schema is validated by the runtime; any active or uncertain slot fences replacement.
-  const text = JSON.stringify(connections);
-  if (
-    /"(?:connected|login_pending|recovery_required|disconnecting)"/.test(text) ||
-    /"modelDiscovery"/.test(text)
-  )
-    throw Error('Personal provisioning must be settled and disconnected');
+    ]),
+    counts(join(live.plan.repositoryPath, '.mitzo/tasks.db'), ['tasks']),
+    privateJson(join(c.gateway.stateParent, 'personal-connections.json')),
+  );
   const native = (args) => JSON.parse(run(c.podman.executable, args, root, c.podman.environment));
   if (
     native(['ps', '--all', '--format', 'json']).length ||
