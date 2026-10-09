@@ -374,6 +374,11 @@ export function createKnowledgeLibraryRouter(
         throw new KnowledgeDraftConflict(
           'Draft changed in another window. Reload before cancelling.',
         );
+      // This action settles removal of a sole saved folder, not document reviews.
+      if (draft.documents.length || !draft.directories?.length)
+        throw new KnowledgeDraftConflict(
+          'Only folder-only changes can be cancelled through this action.',
+        );
       if (draft.state === 'accepted')
         throw new KnowledgeDraftConflict('This change was accepted and cannot be cancelled.');
       if (draft.state === 'closed') return res.json({ draft });

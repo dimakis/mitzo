@@ -27,6 +27,12 @@ the server checks the head both before and after that mutation and preserves the
 saved receipt if the outcome is uncertain. Cancellation does not delete the branch
 or change accepted knowledge.
 
+An uncertain initial Save is settled by replaying its exact frozen request ID and
+payload before folders are changed. A missing draft read does not prove that the
+original request finished. Ambiguous or conflicting replay responses preserve the
+request and working copy for recovery. The cancellation route accepts only saved
+folder-only drafts; document and mixed changes cannot use it.
+
 Set `MITZO_KNOWLEDGE_LIBRARY_CONFIG` to an absolute physical host JSON file owned by
 the service user, with mode `0600` and a `0700` parent. Provision and independently
 review host enrollment before enabling it. A repository document cannot supply this

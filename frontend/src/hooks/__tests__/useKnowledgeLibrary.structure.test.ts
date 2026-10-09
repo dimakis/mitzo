@@ -459,37 +459,60 @@ it('allows cancelling a pending folder after a collision blocks save', async () 
   expect(result.current.canSave).toBe(false);
   expect(result.current.dirty).toBe(false);
 });
-it('clears a frozen failed create only after confirming that request never saved', async () => {
+it('settles an uncertain creation by replaying its exact request instead of treating an early 404 as completion', async () => {
   const { result } = renderHook(useKnowledgeLibrary);
   await waitFor(() => expect(result.current.catalog).toBeTruthy());
-  act(() => result.current.createDirectory('knowledge/invalid'));
-  act(() => result.current.createDirectory('knowledge/valid'));
-  fetch.mockResolvedValueOnce({
-    ok: false,
-    status: 409,
-    json: async () => ({ error: 'collision' }),
-  });
+  act(() => result.current.createDirectory('knowledge/empty'));
+  fetch.mockRejectedValueOnce(new Error('lost response while original POST continues'));
   await act(async () => {
     await result.current.save();
   });
-  const original = result.current.copy?.pendingCreate?.requestId;
-  fetch.mockResolvedValueOnce({
-    ok: false,
-    status: 404,
-    json: async () => ({ error: 'not found' }),
+  const original = result.current.copy!.pendingCreate!;
+  const saved = {
+    id: original.requestId,
+    title: original.title,
+    baseRevision: original.baseRevision,
+    version: 1,
+    state: 'draft',
+    documents: [],
+    directories: original.directories,
+    updatedAt: '',
+  };
+  let settle!: (value: unknown) => void;
+  fetch.mockImplementation(async (url: string, init: RequestInit) => {
+    if (init.method === 'GET')
+      return {
+        ok: false,
+        status: 404,
+        json: async () => ({ error: 'original POST not yet stored' }),
+      };
+    if (url === '/api/knowledge/drafts')
+      return new Promise((done) => {
+        settle = done;
+      });
+    return { ok: true, json: async () => ({ draft: { ...saved, state: 'closed' } }) };
   });
+  let cancellation!: Promise<boolean>;
+  act(() => {
+    cancellation = result.current.removeDirectory('knowledge/empty');
+  });
+  expect(result.current.copy?.pendingCreate).toEqual(original);
+  expect(result.current.pendingDirectories).toEqual(['knowledge/empty']);
+  expect(fetch.mock.calls.at(-1)?.[0]).toBe('/api/knowledge/drafts');
+  expect(JSON.parse(fetch.mock.calls.at(-1)![1].body)).toEqual(original);
   await act(async () => {
-    await result.current.removeDirectory('knowledge/invalid');
+    settle({ ok: true, json: async () => ({ draft: saved }) });
+    expect(await cancellation).toBe(true);
   });
-  expect(fetch.mock.calls.at(-1)?.[0]).toBe(`/api/knowledge/drafts/${original}`);
+  expect(
+    fetch.mock.calls.some(
+      ([url, init]) => url.startsWith('/api/knowledge/drafts/') && init.method === 'GET',
+    ),
+  ).toBe(false);
+  expect(fetch.mock.calls.at(-1)?.[0]).toBe(`/api/knowledge/drafts/${original.requestId}/cancel`);
+  expect(result.current.copy?.draft?.state).toBe('closed');
   expect(result.current.copy?.pendingCreate).toBeUndefined();
-  expect(result.current.pendingDirectories).toEqual(['knowledge/valid']);
-  fetch.mockRejectedValueOnce(new Error('offline'));
-  await act(async () => {
-    await result.current.save();
-  });
-  expect(result.current.copy?.pendingCreate?.requestId).not.toBe(original);
-  expect(result.current.copy?.pendingCreate?.directories).toEqual(['knowledge/valid']);
+  expect(result.current.pendingDirectories).toEqual([]);
 });
 it('preserves a frozen uncertain request when cancellation cannot prove it absent', async () => {
   const { result } = renderHook(useKnowledgeLibrary);
@@ -960,4 +983,36 @@ it('moves an already staged accepted source without fetching or losing its edits
     sourcePath: 'knowledge/a.md',
     content: 'local edit',
   });
+});
+it('preserves the frozen creation and folders if an exact replay acknowledges a newer remote version', async () => {
+  const { result } = renderHook(useKnowledgeLibrary);
+  await waitFor(() => expect(result.current.catalog).toBeTruthy());
+  act(() => result.current.createDirectory('knowledge/empty'));
+  fetch.mockRejectedValueOnce(new Error('lost response'));
+  await act(async () => {
+    await result.current.save();
+  });
+  const original = result.current.copy!.pendingCreate!;
+  fetch.mockResolvedValueOnce({
+    ok: true,
+    json: async () => ({
+      draft: {
+        id: original.requestId,
+        title: original.title,
+        baseRevision: original.baseRevision,
+        version: 2,
+        state: 'draft',
+        documents: [],
+        directories: original.directories,
+        updatedAt: '',
+      },
+    }),
+  });
+  await act(async () => {
+    expect(await result.current.removeDirectory('knowledge/empty')).toBe(false);
+  });
+  expect(result.current.copy?.pendingCreate).toEqual(original);
+  expect(result.current.pendingDirectories).toEqual(original.directories);
+  expect(result.current.copy?.initialSaveConflict?.version).toBe(2);
+  expect(fetch.mock.calls.some(([url]) => url.endsWith('/cancel'))).toBe(false);
 });

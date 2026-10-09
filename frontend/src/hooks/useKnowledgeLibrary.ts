@@ -531,18 +531,39 @@ export function useKnowledgeLibrary() {
     await run(async () => {
       let active = current.current!;
       if (active.pendingCreate) {
-        try {
-          const result = await request<{ draft: KnowledgeDraft }>(
-            `/api/knowledge/drafts/${encodeURIComponent(active.pendingCreate.requestId)}`,
-          );
+        const creation = active.pendingCreate;
+        const result = await request<{ draft: KnowledgeDraft }>(
+          '/api/knowledge/drafts',
+          'POST',
+          creation,
+        );
+        const returned = result.draft.documents.map(({ path, sourcePath, content }) => ({
+          path,
+          ...(sourcePath ? { sourcePath } : {}),
+          content,
+        }));
+        if (
+          result.draft.id !== creation.requestId ||
+          result.draft.version !== 1 ||
+          result.draft.title !== creation.title ||
+          result.draft.baseRevision !== creation.baseRevision ||
+          JSON.stringify(returned) !== JSON.stringify(creation.documents) ||
+          JSON.stringify(result.draft.directories || []) !==
+            JSON.stringify(creation.directories || [])
+        ) {
           persist({ ...active, initialSaveConflict: result.draft });
           throw new Error(
-            'The initial draft was saved. Compare it before changing its pending folders.',
+            'This saved draft changed elsewhere. Compare it before removing folders.',
           );
-        } catch (error) {
-          if (!(error instanceof KnowledgeApiError) || error.status !== 404) throw error;
-          active = { ...active, pendingCreate: undefined };
         }
+        active = {
+          ...active,
+          draft: result.draft,
+          pendingCreate: undefined,
+          saved: JSON.stringify(result.draft.documents),
+          savedDirectories: result.draft.directories || [],
+        };
+        persist(active);
       }
       const remaining = active.directories.filter((directory) => directory !== path);
       if (active.draft && !active.documents.length && !remaining.length) {

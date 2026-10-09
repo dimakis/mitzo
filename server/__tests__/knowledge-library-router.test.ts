@@ -524,3 +524,57 @@ it('blocks remote close after the cancellation lease expires during inspection',
     clock?.mockRestore();
   }
 });
+
+it.each([
+  ['draft', false],
+  ['draft', true],
+  ['in-review', false],
+  ['in-review', true],
+  ['closed', false],
+  ['closed', true],
+] as const)(
+  'restricts folder cancellation before any mutation for %s document drafts (folders: %s)',
+  async (state, withFolders) => {
+    const draft = store.create(
+      'Document change',
+      await source.revision(),
+      [
+        {
+          path: 'architecture/one.md',
+          base: '# Accepted\n',
+          content: '# Edited\n',
+        },
+      ],
+      undefined,
+      withFolders ? ['architecture/new'] : [],
+    );
+    const head = 'a'.repeat(40);
+    if (state !== 'draft')
+      store.receipt(draft.id, 1, { url: 'https://github.com/test/knowledge/pull/1', head });
+    if (state === 'closed') store.status(draft.id, 'closed');
+    const original = store.get(draft.id);
+    const cancel = vi.fn(async () => ({ state: 'closed', head, canAccept: false }));
+    const a = app(async () => ({
+      source,
+      store,
+      syncedAt: null,
+      acceptanceEnabled: false,
+      refresh: vi.fn(),
+      reviewService: {
+        config: { repository: 'test/knowledge', baseBranch: 'main' },
+        assertIdle: (id: string) => store.assertIdle(id),
+      } as unknown as KnowledgeReviewService,
+      publisher: { cancel } as unknown as KnowledgeGithubPublisher,
+    }));
+    const response = await request(a)
+      .post('/api/knowledge/drafts/' + draft.id + '/cancel')
+      .set('x-operator', 'yes')
+      .send({ version: 1 });
+    expect(response.status).toBe(409);
+    expect(response.body.error).toBe(
+      'Only folder-only changes can be cancelled through this action.',
+    );
+    expect(cancel).not.toHaveBeenCalled();
+    expect(store.get(draft.id)).toEqual(original);
+  },
+);
