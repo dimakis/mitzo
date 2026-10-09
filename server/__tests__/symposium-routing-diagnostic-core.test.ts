@@ -1,6 +1,8 @@
+import { createHash } from 'node:crypto';
 import { expect, it, vi } from 'vitest';
 import {
   runSymposiumRoutingDiagnostic,
+  createSymposiumModelDiscoveryRecovery,
   runSymposiumModelDiscovery,
   discoveryClaimLabel,
   type DiscoveryReceipt,
@@ -193,4 +195,38 @@ it('retains finite capture when cleanup is uncertain and never publishes availab
   expect(result.networkObservation?.observations[0].statusCode).toBe(403);
   expect(result.catalogPublication).toBe(false);
   expect(f.receipt()).toBeDefined();
+});
+it('retains exact positive cleanup capability before journal clear for late acknowledgement loss', async () => {
+  const f = fixture();
+  let recovery: ReturnType<typeof createSymposiumModelDiscoveryRecovery> | undefined;
+  const persist = f.ops.persistReceipt;
+  f.ops.persistReceipt = async (receipt, exclusive) => {
+    await persist(receipt, exclusive);
+    if (receipt.id && !recovery)
+      recovery = createSymposiumModelDiscoveryRecovery(f.config, structuredClone(receipt));
+  };
+  const result = await runSymposiumRoutingDiagnostic(f.config, f.ops, {
+    onPhysicalCleanup: (receipt) => recovery!.confirmPhysicalCleanup(receipt),
+  });
+  expect(result.status).toBe('complete');
+  expect(f.receipt()).toBeUndefined();
+  const creates = vi.mocked(f.ops.create).mock.calls.length;
+  expect(await recovery!(f.ops)).toEqual({ status: 'reconciled', inference: false });
+  expect(vi.mocked(f.ops.create).mock.calls).toHaveLength(creates);
+  expect(f.events.filter((x) => x === 'account/read')).toHaveLength(1);
+});
+it('rejects forged cleanup identity and never treats missing journal as positive cleanup', async () => {
+  const f = fixture();
+  const receipt = {
+    name: `md-${'a'.repeat(16)}`,
+    id: 'sandbox-1',
+    claim: 'b'.repeat(64),
+    configHash: createHash('sha256').update(JSON.stringify(f.config)).digest('hex'),
+  };
+  const recovery = createSymposiumModelDiscoveryRecovery(f.config, receipt);
+  expect(() => recovery.confirmPhysicalCleanup({ ...receipt, id: 'replacement' })).toThrow(
+    'identity',
+  );
+  expect(await recovery(f.ops)).toMatchObject({ status: 'reconciliation_required' });
+  expect(f.ops.create).not.toHaveBeenCalled();
 });

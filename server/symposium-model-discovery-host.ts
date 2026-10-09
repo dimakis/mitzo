@@ -1,4 +1,8 @@
 import {
+  captureRoutingConsole,
+  ROUTING_LOGGING_FILTER_TEMPLATE,
+} from './symposium-routing-console.js';
+import {
   subscriptionIdentityRequired,
   subscriptionIdentityFrame,
   createSubscriptionIdentityClient,
@@ -42,6 +46,11 @@ export interface DiscoveryHostOptions {
   /** Attest the running owned gateway, its effective config/TLS and exact selected provider custody. */
   attestGateway(config: DiscoveryConfig): Promise<void>;
   launchIdentity?(): SubscriptionLaunchIdentity;
+  /** Retained constructor capability from the independently selected measured native tuple. */
+  routingDiagnostic?: {
+    supervisorImage: string;
+    assertSupported(config: DiscoveryConfig): Promise<void>;
+  };
 }
 function jsonCommand(
   command: string,
@@ -85,6 +94,24 @@ function jsonCommand(
     }
   });
 }
+/** Fixed selected supervisor console only. Never retains/returns subprocess Error text. */
+function consoleCommand(
+  command: string,
+  args: string[],
+  env: Record<string, string>,
+): Promise<{ stdout: string; stderr: string }> {
+  return new Promise((resolve, reject) => {
+    const child = execFile(
+      command,
+      args,
+      { env, timeout: 5000, maxBuffer: 65536, encoding: 'utf8', shell: false },
+      (error, stdout, stderr) => {
+        if (error) reject(classifyDiscoveryCommandFailure(error, child?.pid));
+        else resolve({ stdout, stderr });
+      },
+    );
+  });
+}
 async function syncDirectory(path: string) {
   const directory = await open(path, 'r');
   try {
@@ -117,9 +144,19 @@ function pin(path: string, digest: string, mode?: number) {
 }
 /** ESM host adapter. Caller must supply the retained owned-gateway attestation capability. */
 export function createDiscoveryHostOperations(
-  config: DiscoveryConfig,
+  initialConfig: DiscoveryConfig,
   options: DiscoveryHostOptions,
 ): DiscoveryOperations {
+  const config = structuredClone(initialConfig);
+  const capability = options.routingDiagnostic;
+  if (
+    config.routingDiagnostic &&
+    (!capability ||
+      capability.supervisorImage !== config.routingDiagnostic.supervisorImage ||
+      config.routingDiagnostic.format !== 'owned-supervisor-console-v1' ||
+      config.routingDiagnostic.logLevel !== 'off,openshell.routing_http=debug')
+  )
+    throw new Error('Selected native diagnostic capability required');
   if (
     ![options.cli, options.podman, options.policy, options.journal].every(isAbsolute) ||
     !options.configPins.length ||
@@ -134,9 +171,13 @@ export function createDiscoveryHostOperations(
     required.slice(1).some((key) => !isAbsolute(environment[key]))
   )
     throw new Error('Private management environment required');
+  const attest = async () => {
+    await options.attestGateway(config);
+    if (config.routingDiagnostic) await capability!.assertSupported(config);
+  };
   const base = ['--gateway', config.gateway, '--workspace', config.workspace];
   const cli = async (args: string[], timeout?: number, beforeDispatch?: () => void) => {
-    await options.attestGateway(config);
+    await attest();
     const result = await jsonCommand(
       options.cli,
       args,
@@ -145,7 +186,7 @@ export function createDiscoveryHostOperations(
       false,
       beforeDispatch,
     );
-    await options.attestGateway(config);
+    await attest();
     return result;
   };
   const inventory = async (args: string[], key: string): Promise<unknown[]> => {
@@ -278,7 +319,8 @@ export function createDiscoveryHostOperations(
         expected.gateway !== config.gateway ||
         expected.workspace !== config.workspace ||
         expected.provider.id !== config.provider.id ||
-        expected.provider.name !== config.provider.name
+        expected.provider.name !== config.provider.name ||
+        JSON.stringify(expected.routingDiagnostic) !== JSON.stringify(config.routingDiagnostic)
       )
         throw new Error('Discovery config changed');
       privateDirectory(dirname(options.journal));
@@ -286,7 +328,7 @@ export function createDiscoveryHostOperations(
       pin(options.cli, config.cliSha256);
       pin(options.policy, config.policySha256);
       options.configPins.forEach((item) => pin(item.path, item.sha256, item.mode));
-      await options.attestGateway(config);
+      await attest();
     },
     async readReceipt() {
       try {
@@ -351,6 +393,7 @@ export function createDiscoveryHostOperations(
           '--memory',
           '1Gi',
           '--detach',
+          ...(config.routingDiagnostic ? ['--log-level', config.routingDiagnostic.logLevel] : []),
           '--output',
           'json',
           '--',
@@ -462,5 +505,68 @@ export function createDiscoveryHostOperations(
     },
     wait: () => new Promise((resolve) => setTimeout(resolve, 1000)),
   };
+  if (config.routingDiagnostic)
+    operations.observeRouting = async (receipt) =>
+      captureRoutingConsole({
+        receipt,
+        workspace: config.workspace,
+        namespace: options.namespace,
+        supervisorImage: config.routingDiagnostic!.supervisorImage,
+        assertCurrent: async () => {
+          if (!activeAttempt || !assertAttemptLock)
+            throw Error('Routing observation lock unavailable');
+          await assertAttemptLock();
+          await operations.verifyCustody(config);
+          if (JSON.stringify(await operations.readReceipt()) !== JSON.stringify(receipt))
+            throw Error('Routing observation journal changed');
+        },
+        inventory: () =>
+          jsonCommand(
+            options.podman,
+            ['--url', config.podmanUrl, 'ps', '--all', '--format', 'json'],
+            environment,
+            5000,
+          ),
+        imageDigest: (id) =>
+          jsonCommand(
+            options.podman,
+            [
+              '--url',
+              config.podmanUrl,
+              'container',
+              'inspect',
+              '--format',
+              '{{json .ImageDigest}}',
+              id,
+            ],
+            environment,
+            5000,
+          ),
+        loggingFilter: async (id) => {
+          const value = await consoleCommand(
+            options.podman,
+            [
+              '--url',
+              config.podmanUrl,
+              'container',
+              'inspect',
+              '--format',
+              ROUTING_LOGGING_FILTER_TEMPLATE,
+              id,
+            ],
+            environment,
+          );
+          if (value.stderr) throw Error('Routing observation filter unavailable');
+          return value.stdout.replace(/\n$/, '');
+        },
+        readConsole: async (id) => {
+          const value = await consoleCommand(
+            options.podman,
+            ['--url', config.podmanUrl, 'logs', '--tail', '64', id],
+            environment,
+          );
+          return value.stdout + '\n' + value.stderr;
+        },
+      });
   return operations;
 }

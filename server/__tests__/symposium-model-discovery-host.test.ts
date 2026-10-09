@@ -11,7 +11,7 @@ import { createHash } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { PassThrough, Writable } from 'node:stream';
 import { execFile, spawn } from 'node:child_process';
-import { runSymposiumModelDiscovery } from '../symposium-model-discovery.js';
+import { runSymposiumModelDiscovery, discoveryClaimLabel } from '../symposium-model-discovery.js';
 import { guardDiscoveryOperations } from '../symposium-discovery-custody.js';
 import { createDiscoveryHostOperations } from '../symposium-model-discovery-host.js';
 vi.mock('node:child_process', () => ({ execFile: vi.fn(), spawn: vi.fn() }));
@@ -580,5 +580,152 @@ it.each(['synthetic-receipt-account', 'different-account', undefined])(
     ]);
     client.close();
     expect(killChild).toHaveBeenCalled();
+  },
+);
+it('requires an independently selected native diagnostic capability before any command', () => {
+  const f = fixture();
+  const config = {
+    ...f.config,
+    routingDiagnostic: {
+      format: 'owned-supervisor-console-v1' as const,
+      logLevel: 'off,openshell.routing_http=debug' as const,
+      supervisorImage: `sha256:${'d'.repeat(64)}`,
+    },
+  };
+  expect(() => createDiscoveryHostOperations(config, f.options)).toThrow('diagnostic capability');
+  expect(execFile).not.toHaveBeenCalled();
+});
+it('passes only the fixed diagnostic filter and attests measured supervisor capability', async () => {
+  const f = fixture();
+  const config = {
+    ...f.config,
+    routingDiagnostic: {
+      format: 'owned-supervisor-console-v1' as const,
+      logLevel: 'off,openshell.routing_http=debug' as const,
+      supervisorImage: `sha256:${'d'.repeat(64)}`,
+    },
+  };
+  const assertSupported = vi.fn(async () => {});
+  vi.mocked(execFile).mockImplementation(((...args: unknown[]) => {
+    (args[3] as (error: null, stdout: string) => void)(null, '{}');
+  }) as typeof execFile);
+  const ops = createDiscoveryHostOperations(config, {
+    ...f.options,
+    routingDiagnostic: {
+      supervisorImage: config.routingDiagnostic.supervisorImage,
+      assertSupported,
+    },
+  });
+  await ops.create(
+    { name: `md-${'a'.repeat(16)}`, claim: 'b'.repeat(64), configHash: 'c'.repeat(64) },
+    config,
+  );
+  const args = vi.mocked(execFile).mock.calls[0][1] as string[];
+  expect(args.slice(args.indexOf('--log-level'), args.indexOf('--log-level') + 2)).toEqual([
+    '--log-level',
+    'off,openshell.routing_http=debug',
+  ]);
+  expect(assertSupported).toHaveBeenCalledTimes(2);
+  expect(ops.observeRouting).toBeTypeOf('function');
+});
+it('rejects diagnostic config drift through custody before management dispatch', async () => {
+  const f = fixture();
+  const config = {
+    ...f.config,
+    routingDiagnostic: {
+      format: 'owned-supervisor-console-v1' as const,
+      logLevel: 'off,openshell.routing_http=debug' as const,
+      supervisorImage: `sha256:${'d'.repeat(64)}`,
+    },
+  };
+  const ops = createDiscoveryHostOperations(config, {
+    ...f.options,
+    routingDiagnostic: {
+      supervisorImage: config.routingDiagnostic.supervisorImage,
+      assertSupported: async () => {},
+    },
+  });
+  await expect(
+    ops.verifyCustody({
+      ...config,
+      routingDiagnostic: {
+        ...config.routingDiagnostic,
+        supervisorImage: `sha256:${'e'.repeat(64)}`,
+      },
+    }),
+  ).rejects.toThrow('config changed');
+  expect(execFile).not.toHaveBeenCalled();
+});
+it.each(['L', 'RL'] as const)(
+  'captures only exact supervisor console under owned lock with effective filter %s',
+  async (marker) => {
+    const f = fixture();
+    const image = `sha256:${'d'.repeat(64)}`;
+    const config = {
+      ...f.config,
+      routingDiagnostic: {
+        format: 'owned-supervisor-console-v1' as const,
+        logLevel: 'off,openshell.routing_http=debug' as const,
+        supervisorImage: image,
+      },
+    };
+    const receipt = {
+      name: `md-${'a'.repeat(16)}`,
+      id: 'sandbox-1',
+      claim: 'b'.repeat(64),
+      configHash: 'c'.repeat(64),
+    };
+    const containerId = 'e'.repeat(64);
+    const row = {
+      Id: containerId,
+      Names: ['openshell-supervisor-sandbox-1'],
+      Labels: {
+        'openshell.ai/sandbox-id': receipt.id,
+        'openshell.ai/sandbox-name': receipt.name,
+        'openshell.ai/sandbox-workspace': 'work',
+        'openshell.ai/sandbox-namespace': 'default',
+        'openshell.ai/isolation-role': 'supervisor',
+        'openshell.ai/managed': 'true',
+        'mitzo.discovery': 'models',
+        'mitzo.discovery.claim': discoveryClaimLabel(receipt.claim),
+      },
+    };
+    vi.mocked(execFile).mockImplementation(((...args: unknown[]) => {
+      const argv = args[1] as string[];
+      const callback = args[3] as (error: null, stdout: string, stderr: string) => void;
+      if (argv.includes('ps')) callback(null, JSON.stringify([row]), '');
+      else if (argv.includes('{{json .ImageDigest}}')) callback(null, JSON.stringify(image), '');
+      else if (argv.includes('inspect')) callback(null, marker + '\n', '');
+      else if (argv.includes('logs'))
+        callback(
+          null,
+          '',
+          `PRIVATE-body\n2026-10-09T00:00:00.000Z DEBUG openshell.routing_http: routing diagnostic v1 kind=account_check method=GET outcome=response request_ordinal=1 status_code=403\n`,
+        );
+      else throw Error('Unexpected command');
+    }) as typeof execFile);
+    const ops = createDiscoveryHostOperations(config, {
+      ...f.options,
+      routingDiagnostic: { supervisorImage: image, assertSupported: async () => {} },
+    });
+    await expect(ops.observeRouting!(receipt)).rejects.toThrow('custody');
+    await ops.withExclusiveAttempt(async () => {
+      await ops.persistReceipt(receipt, true);
+      if (marker === 'L') {
+        const result = await ops.observeRouting!(receipt);
+        expect(result).toMatchObject({ observations: [{ statusCode: 403 }] });
+        expect(JSON.stringify(result)).not.toContain('PRIVATE');
+      } else await expect(ops.observeRouting!(receipt)).rejects.toThrow('logging filter');
+    });
+    const calls = vi.mocked(execFile).mock.calls;
+    for (const call of calls) {
+      expect(call[0]).toBe(f.options.podman);
+      expect((call[1] as string[]).slice(0, 2)).toEqual(['--url', config.podmanUrl]);
+      expect(call[2]).toMatchObject({ env: f.options.environment });
+    }
+    const logs = calls.filter((call) => (call[1] as string[]).includes('logs'));
+    expect(logs).toHaveLength(marker === 'L' ? 1 : 0);
+    if (logs.length)
+      expect(logs[0][1]).toEqual(['--url', config.podmanUrl, 'logs', '--tail', '64', containerId]);
   },
 );

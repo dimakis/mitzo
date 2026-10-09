@@ -130,11 +130,12 @@ export async function runSymposiumModelDiscovery(
 export async function runSymposiumRoutingDiagnostic(
   input: DiscoveryConfig,
   ops: DiscoveryOperations,
+  hooks?: { onPhysicalCleanup(receipt: DiscoveryReceipt): void },
 ): Promise<RoutingDiagnosticResult> {
   let attempt: DiscoveryResult | undefined;
   try {
     const result = await ops.withExclusiveAttempt(async () => {
-      attempt = await runExclusiveDiscovery(input, ops, undefined, undefined, true);
+      attempt = await runExclusiveDiscovery(input, ops, undefined, hooks?.onPhysicalCleanup, true);
       return attempt;
     });
     return RoutingDiagnosticResultSchema.parse({
@@ -167,14 +168,19 @@ export async function runSymposiumRoutingDiagnostic(
 /** Same-process cleanup capability, pinned to one exact known sandbox and config.
  * Physical cleanup proof survives a later journal-clear/postcheck/lock-release failure.
  * Every retry still requires fresh custody checks and acquisition of the attempt lock. */
+export interface DiscoveryRecoveryCapability {
+  (ops: DiscoveryOperations): Promise<DiscoveryResult>;
+  /** Only the original runner's positive physical-absence callback may call this. */
+  confirmPhysicalCleanup(receipt: DiscoveryReceipt): void;
+}
 export function createSymposiumModelDiscoveryRecovery(
   input: DiscoveryConfig,
   retained: DiscoveryReceipt,
-): (ops: DiscoveryOperations) => Promise<DiscoveryResult> {
+): DiscoveryRecoveryCapability {
   const pinnedConfig = structuredClone(input);
   const pinnedReceipt = structuredClone(retained);
   let physicalCleanupProven = false;
-  return async (ops) => {
+  const recovery = async (ops: DiscoveryOperations): Promise<DiscoveryResult> => {
     try {
       const expected = receiptSchema.parse(pinnedReceipt);
       const config = configSchema.parse(pinnedConfig);
@@ -217,6 +223,20 @@ export function createSymposiumModelDiscoveryRecovery(
       return { status: 'reconciliation_required', inference: false };
     }
   };
+  return Object.assign(recovery, {
+    confirmPhysicalCleanup(receipt: DiscoveryReceipt) {
+      const expected = receiptSchema.parse(pinnedReceipt);
+      const observed = receiptSchema.parse(receipt);
+      const config = configSchema.parse(pinnedConfig);
+      if (
+        !expected.id ||
+        JSON.stringify(expected) !== JSON.stringify(observed) ||
+        expected.configHash !== createHash('sha256').update(JSON.stringify(config)).digest('hex')
+      )
+        throw new Error('Discovery cleanup identity changed');
+      physicalCleanupProven = true;
+    },
+  });
 }
 /** Stateless cleanup rejects missing journals. Retain the factory capability for retries. */
 export async function recoverSymposiumModelDiscovery(
