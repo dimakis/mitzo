@@ -67,6 +67,19 @@ public actor MitzoAPIClient {
 
     private struct NotificationResponseResult: Decodable { let ok: Bool }
 
+    public func replyToNotification(sessionID: String, text: String) async throws {
+        struct Reply: Encodable {
+            let sessionId: String
+            let actionId = "REPLY_ACTION"
+            let userText: String
+        }
+        let result: NotificationResponseResult = try await get(
+            path: "/api/push/notification-action", method: "POST",
+            body: JSONEncoder().encode(Reply(sessionId: sessionID, userText: text)), timeout: 10
+        )
+        guard result.ok else { throw APIError.invalidResponse }
+    }
+
     // MARK: - Generic Request
 
     private func get<T: Decodable>(path: String, query: [URLQueryItem]? = nil, method: String = "GET", body: Data? = nil, timeout: TimeInterval = 60) async throws -> T {

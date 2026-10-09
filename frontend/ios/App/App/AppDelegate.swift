@@ -120,6 +120,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 class MitzoBridgeViewController: CAPBridgeViewController {
     override func capacitorDidLoad() {
         super.capacitorDidLoad()
+        // App-local plugins are absent from Capacitor's generated package list.
+        // Export the header before the web app creates its registerPlugin proxy.
+        bridge?.registerPluginInstance(WatchAuthBridge())
         guard let router = bridge?.notificationRouter else { return }
         (UIApplication.shared.delegate as? AppDelegate)?.attachNotificationRouter(router)
     }
@@ -174,8 +177,7 @@ private class BackgroundApprovalDelegate: NSObject, UNUserNotificationCenterDele
             do {
                 guard let id = info["notificationId"] as? String,
                       let sessionID = info["sessionId"] as? String,
-                      let configured = UserDefaults.standard.string(forKey: "mitzo_notification_server_url"),
-                      let server = URL(string: configured) else { throw MitzoAPIClient.APIError.invalidResponse }
+                      let server = notificationServerURL(UserDefaults.standard.string(forKey: "mitzo_notification_server_url")) else { throw MitzoAPIClient.APIError.invalidResponse }
                 // A fresh manager reads the shared Keychain and respects logout.
                 let api = MitzoAPIClient(baseURL: server, authManager: AuthManager())
                 let item = try await api.getNotification(id: id)
