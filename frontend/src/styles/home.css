@@ -168,3 +168,53 @@
     padding: 18px;
   }
 }
+.workspace-title-with-accessory {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.home-daily-quote {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  min-height: 44px;
+  max-width: 150px;
+  font-size: 11px;
+  text-decoration: none;
+}
+.home-daily-quote > span:first-child {
+  font-size: 26px;
+  line-height: 1;
+}
+.home-daily-quote > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.quote-page > article {
+  max-width: 720px;
+}
+.quote-page blockquote {
+  margin: 24px 0;
+  padding: 8px 0 8px 24px;
+  border-left: 2px solid var(--workspace-accent);
+}
+.quote-page blockquote p {
+  font-size: clamp(22px, 3vw, 28px);
+  line-height: 1.5;
+}
+.quote-page blockquote footer {
+  color: var(--workspace-muted);
+  font-size: 13px;
+}
+.quote-page section {
+  margin: 32px 0;
+}
+.quote-page section > a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  font-size: 13px;
+}
