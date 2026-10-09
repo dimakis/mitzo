@@ -3,6 +3,7 @@ import Database from 'better-sqlite3';
 import type { DurableSymposiumReviewToolObservation } from '../symposium-codex-native.js';
 import { EventStore } from '../event-store.js';
 import { PhysicalArtifactSealer } from '../symposium-physical-artifact-seal.js';
+import * as runtimeContract from '../symposium-owned-runtime-contract.js';
 import * as discoveryCore from '../symposium-model-discovery.js';
 import * as discoveryCreation from '../symposium-discovery-creation.js';
 import * as evidenceCollector from '../symposium-owned-evidence-async.js';
@@ -24,6 +25,7 @@ import {
   chmodSync,
 } from 'node:fs';
 import { join } from 'node:path';
+import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import {
   createOwnedSymposiumHost,
@@ -1611,6 +1613,187 @@ it('captures validated diagnostic selection before asynchronous gateway setup', 
   const host = await createOwnedSymposiumHost(options, f.launch);
   try {
     expect(host.observeNativeTurnInput).toBe(true);
+  } finally {
+    host.stop();
+  }
+});
+
+it('keeps routing diagnostic construction absent for ordinary and unqualified owned builds', async () => {
+  const f = fixture(),
+    compose = vi.spyOn(personalHost, 'createPersonalSubscriptionHost');
+  const host = await createOwnedSymposiumHost(f.options, f.launch);
+  expect(compose.mock.calls[0][3]).toBeUndefined();
+  host.stop();
+  const unsupported = fixture();
+  unsupported.options.admissionBuildSelection = 'local-854b-routing-v1';
+  await expect(createOwnedSymposiumHost(unsupported.options, unsupported.launch)).rejects.toThrow();
+  expect(unsupported.launch).not.toHaveBeenCalled();
+});
+function diagnosticFixture() {
+  const f = fixture();
+  const build = {
+    ...runtimeContract.REVIEWED_SYMPOSIUM_CODEX_01591_IDENTITY_RUNTIME.build,
+    cliSha256: '1'.repeat(64),
+    gatewaySha256: '2'.repeat(64),
+    supervisorImage: 'sha256:' + '3'.repeat(64),
+  };
+  vi.spyOn(runtimeContract, 'reviewedSymposiumRoutingDiagnosticBuild').mockImplementation(
+    (image, selection) => {
+      if (image !== build.image || selection !== 'local-854b-routing-v1')
+        throw Error('Unqualified diagnostic tuple');
+      return build as never;
+    },
+  );
+  f.options.admissionBuildSelection = 'local-854b-routing-v1';
+  Object.assign(f.options.gateway, {
+    workloadImage: build.image,
+    cliSha256: build.cliSha256,
+    executableSha256: build.gatewaySha256,
+    supervisorImage: build.supervisorImage,
+    sandboxRuntimeImage: build.sandboxRuntimeImage,
+    podmanSocket: '/private/podman.sock',
+  });
+  const verifyNative = vi.fn();
+  Object.assign(f.gateway, { verifyOwnedNativeHost: verifyNative });
+  writeFileSync(join(f.root, 'gateway.toml'), 'owned config', { mode: 0o400 });
+  return { ...f, build, verifyNative };
+}
+it.each(['complete', 'failed', 'reconciliation_required'] as const)(
+  'wires only the qualified routing mode and retains positive original cleanup for %s before a late receipt change',
+  async (status) => {
+    const f = diagnosticFixture(),
+      compose = vi.spyOn(personalHost, 'createPersonalSubscriptionHost');
+    let journal: discoveryCore.DiscoveryReceipt | undefined;
+    const raw = {
+      persistReceipt: vi.fn(async (receipt) => {
+        journal = structuredClone(receipt);
+      }),
+      readReceipt: vi.fn(async () => journal),
+      clearReceipt: vi.fn(async () => {
+        journal = undefined;
+      }),
+      withExclusiveAttempt: async (run: () => Promise<unknown>) => run(),
+      verifyCustody: vi.fn(async () => {}),
+      openClient: vi.fn(),
+      create: vi.fn(),
+    } as unknown as discoveryCore.DiscoveryOperations;
+    const factory = vi.spyOn(discoveryHost, 'createDiscoveryHostOperations').mockReturnValue(raw);
+    vi.spyOn(discoveryCreation, 'fenceDiscoveryCreation').mockImplementation((operations) => ({
+      operations,
+      creationUncertain: () => false,
+    }));
+    let receiptCurrent = true;
+    const runner = vi
+      .spyOn(discoveryCore, 'runSymposiumRoutingDiagnostic')
+      .mockImplementation(async (config, operations, hooks) => {
+        const receipt = {
+          name: 'md-' + 'a'.repeat(16),
+          claim: 'b'.repeat(64),
+          configHash: createHashForFixture(JSON.stringify(config)),
+          id: 'exact-original-id',
+        };
+        await operations.persistReceipt(receipt, false);
+        hooks!.onPhysicalCleanup(receipt);
+        await operations.clearReceipt(receipt);
+        receiptCurrent = false;
+        return { status, inference: false, catalogPublication: false };
+      });
+    const models = vi.spyOn(discoveryCore, 'runSymposiumModelDiscovery');
+    const host = await createOwnedSymposiumHost(f.options, f.launch);
+    try {
+      const callback = compose.mock.calls[0][3];
+      expect(callback).toBeTypeOf('function');
+      const result = await callback!({
+        provider: { name: 'personal', id: 'physical-id' },
+        account: { email: 'fixture@example.test', planType: 'pro' },
+        assertCurrent() {
+          if (!receiptCurrent) throw Error('late receipt change');
+        },
+      });
+      expect(result.result).toEqual({ status, inference: false, catalogPublication: false });
+      expect(result.recover).toBeTypeOf('function');
+      expect(runner).toHaveBeenCalledOnce();
+      expect(models).not.toHaveBeenCalled();
+      expect(f.verifyNative).toHaveBeenCalledWith(
+        expect.objectContaining({
+          cli: f.gateway.cli,
+          gateway: f.gateway.gateway,
+          workspace: f.gateway.workspace,
+          gatewayEndpoint: f.gateway.endpoint,
+          cliSha256: f.build.cliSha256,
+          gatewaySha256: f.build.gatewaySha256,
+          image: f.build.image,
+          sandboxRuntimeImage: f.build.sandboxRuntimeImage,
+          supervisorImage: f.build.supervisorImage,
+        }),
+      );
+      expect(factory.mock.calls[0][0].routingDiagnostic).toEqual({
+        format: 'owned-supervisor-console-v1',
+        logLevel: 'off,openshell.routing_http=debug',
+        supervisorImage: f.build.supervisorImage,
+      });
+      expect(factory.mock.calls[0][1].routingDiagnostic).toMatchObject({
+        supervisorImage: f.build.supervisorImage,
+        assertSupported: expect.any(Function),
+      });
+      await expect(result.recover!(() => {})).resolves.toMatchObject({
+        status: 'reconciled',
+        inference: false,
+      });
+      expect(raw.openClient).not.toHaveBeenCalled();
+      expect(raw.create).not.toHaveBeenCalled();
+    } finally {
+      host.stop();
+    }
+  },
+);
+function createHashForFixture(data: string) {
+  return createHash('sha256').update(data).digest('hex');
+}
+it('rejects a contradictory qualified diagnostic tuple before native host launch', async () => {
+  const f = diagnosticFixture();
+  f.options.gateway.supervisorImage = 'sha256:' + '9'.repeat(64);
+  await expect(createOwnedSymposiumHost(f.options, f.launch)).rejects.toThrow('tuple');
+  expect(f.launch).not.toHaveBeenCalled();
+});
+it('retains the observed original diagnostic identity even if the receipt guard fails immediately before journal persistence', async () => {
+  const f = diagnosticFixture(),
+    compose = vi.spyOn(personalHost, 'createPersonalSubscriptionHost');
+  let current = true;
+  const persist = vi.fn(async () => {});
+  const raw = {
+    persistReceipt: persist,
+    readReceipt: async () => undefined,
+  } as unknown as discoveryCore.DiscoveryOperations;
+  vi.spyOn(discoveryHost, 'createDiscoveryHostOperations').mockReturnValue(raw);
+  vi.spyOn(discoveryCreation, 'fenceDiscoveryCreation').mockImplementation((operations) => ({
+    operations,
+    creationUncertain: () => false,
+  }));
+  vi.spyOn(discoveryCore, 'runSymposiumRoutingDiagnostic').mockImplementation(
+    async (config, operations) => {
+      const receipt = {
+        name: 'md-' + 'a'.repeat(16),
+        claim: 'b'.repeat(64),
+        configHash: createHashForFixture(JSON.stringify(config)),
+        id: 'observed-original-id',
+      };
+      current = false;
+      await expect(operations.persistReceipt(receipt, false)).rejects.toThrow('receipt guard');
+      return { status: 'reconciliation_required', inference: false, catalogPublication: false };
+    },
+  );
+  const host = await createOwnedSymposiumHost(f.options, f.launch);
+  try {
+    const response = await compose.mock.calls[0][3]!({
+      provider: { name: 'personal', id: 'id' },
+      account: { email: 'fixture@example.test', planType: 'pro' },
+      assertCurrent() {
+        if (!current) throw Error('receipt guard');
+      },
+    });
+    expect(response.recover).toBeTypeOf('function');
+    expect(persist).not.toHaveBeenCalled();
   } finally {
     host.stop();
   }
