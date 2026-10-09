@@ -14,6 +14,10 @@
   --accent-teal: #78d9bf;
   --accent-rose: #f3a6bf;
   --accent-amber: #eac080;
+  --accent-blue: #91bfff;
+  --accent-mint: #b2dea1;
+  --accent-coral: #f6ad94;
+  --accent-plum: #d6a6eb;
   --color-accent: var(--accent-lavender);
   --color-on-accent: #171320;
   --color-panel: color-mix(in srgb, var(--color-accent) 10%, var(--color-bg));
@@ -122,6 +126,10 @@
   --accent-teal: #166b58;
   --accent-rose: #a43c65;
   --accent-amber: #805600;
+  --accent-blue: #245db8;
+  --accent-mint: #386629;
+  --accent-coral: #a3422d;
+  --accent-plum: #80469b;
   --color-on-accent: #ffffff;
   --color-success: #187744;
   --color-warning: #805600;
@@ -144,9 +152,34 @@
 [data-accent='amber'] {
   --color-accent: var(--accent-amber);
 }
+[data-accent='blue'] {
+  --color-accent: var(--accent-blue);
+}
+[data-accent='mint'] {
+  --color-accent: var(--accent-mint);
+}
+[data-accent='coral'] {
+  --color-accent: var(--accent-coral);
+}
+[data-accent='plum'] {
+  --color-accent: var(--accent-plum);
+}
 [data-font='arial'] {
   --font-ui: Arial, Helvetica, sans-serif;
 }
 [data-font='georgia'] {
   --font-ui: Georgia, 'Times New Roman', serif;
+}
+
+[data-font='verdana'] {
+  --font-ui: Verdana, Geneva, sans-serif;
+}
+[data-font='trebuchet'] {
+  --font-ui: 'Trebuchet MS', 'Segoe UI', sans-serif;
+}
+[data-font='palatino'] {
+  --font-ui: Palatino, 'Palatino Linotype', 'Book Antiqua', Georgia, serif;
+}
+[data-font='courier'] {
+  --font-ui: 'Courier New', Courier, monospace;
 }
