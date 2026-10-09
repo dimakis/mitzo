@@ -3409,12 +3409,10 @@ it.each(['foreground', 'offscreen'] as const)(
 it('preserves the unassigned repository receipt when startup fails before assignment', () => {
   const store = createReadyStore();
   const assigned = vi.fn();
-  store
-    .getState()
-    .sendMessage('Edit repo', {
-      repositoryWorkspaceId: '8ca30b0d-3e65-4eeb-8244-f6277350818f',
-      onSessionAssigned: assigned,
-    });
+  store.getState().sendMessage('Edit repo', {
+    repositoryWorkspaceId: '8ca30b0d-3e65-4eeb-8244-f6277350818f',
+    onSessionAssigned: assigned,
+  });
   const id = store.getState().messages.messages.at(-1)!.messageId;
   lastWs.simulateMessage({ type: 'error', clientMsgId: id, error: 'Startup rejected' });
   lastWs.simulateMessage({ type: 'session_id', sessionId: 'unrelated', clientMsgId: 'different' });
