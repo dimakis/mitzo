@@ -75,12 +75,18 @@ function sync(path) {
     closeSync(fd);
   }
 }
-function canonicalTarget(root, sha256) {
+function canonicalTarget(root, sha256, kind) {
+  if (kind !== 'device-login' && kind !== 'routing-cli')
+    throw Error('Known public program kind required');
   if (!/^[a-f0-9]{64}$/.test(sha256 ?? '')) throw Error('Pinned public executable digest required');
-  return join(root, 'symposium/bin', 'codex-device-auth-' + sha256.slice(0, 12));
+  return join(
+    root,
+    'symposium/bin',
+    (kind === 'device-login' ? 'codex-device-auth-' : 'openshell-routing-') + sha256.slice(0, 12),
+  );
 }
-function inspectPinnedProgram(root, pin) {
-  if (pin?.executable !== canonicalTarget(root, pin?.sha256))
+function inspectPinnedProgram(root, pin, kind) {
+  if (pin?.executable !== canonicalTarget(root, pin?.sha256, kind))
     throw Error('Exact canonical program pin required');
   const directories = {
     ...programDirectories(root),
@@ -92,8 +98,8 @@ function inspectPinnedProgram(root, pin) {
 }
 
 /** Provision only the public program. Never repair an existing unsafe directory or file. */
-export function preparePinnedProgram(root, input, sha256) {
-  const target = canonicalTarget(root, sha256);
+export function preparePinnedProgram(root, input, sha256, kind = 'device-login') {
+  const target = canonicalTarget(root, sha256, kind);
   const { data } = readProgram(input);
   if (hash(data) !== sha256) throw Error('Selected native sign-in program changed');
   const before = programDirectories(root);
@@ -120,11 +126,11 @@ export function preparePinnedProgram(root, input, sha256) {
     sync(parent);
   }
   const pin = { executable: target, sha256 };
-  return { pin, metadata: inspectPinnedProgram(root, pin) };
+  return { pin, metadata: inspectPinnedProgram(root, pin, kind) };
 }
 
 /** Recheck full private metadata and planned identities before retiring the original owner. */
-export function assertPinnedProgram(root, pin, expected) {
-  if (!same(inspectPinnedProgram(root, pin), expected))
+export function assertPinnedProgram(root, pin, expected, kind = 'device-login') {
+  if (!same(inspectPinnedProgram(root, pin, kind), expected))
     throw Error('Exact planned executable or directory identity changed');
 }
