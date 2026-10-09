@@ -82,8 +82,9 @@ it('sanitizes command errors and diagnostic output while retaining a safe cause'
     ),
   );
   const error = await knowledgeHostCommand('gh', ['api', 'user'], AbortSignal.timeout(1000)).catch(
-    (error) => error as Error,
+    (error: unknown) => error,
   );
+  if (!(error instanceof Error)) throw new Error('Expected the host command to reject');
   expect(error.message).toBe('GitHub host operation failed');
   expect(error.cause).toBeDefined();
   expect(String(error.cause)).not.toContain('TEST-HOST-SECRET');
