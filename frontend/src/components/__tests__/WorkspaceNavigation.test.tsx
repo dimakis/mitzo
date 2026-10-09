@@ -18,7 +18,16 @@ it('desktop keeps every collection reachable and marks Today as current', () => 
       <DesktopNav />
     </MemoryRouter>,
   );
-  for (const name of ['Today', 'Chats', 'Proposals', 'Work', 'Agents', 'Calendar', 'Files', 'More'])
+  for (const name of [
+    'Today',
+    'Chats',
+    'Proposals',
+    'Work',
+    'Agents',
+    'Calendar',
+    'Knowledge',
+    'More',
+  ])
     expect(screen.getByRole('link', { name })).toBeTruthy();
   expect(screen.getByRole('link', { name: 'Today' }).getAttribute('aria-current')).toBe('page');
 });
@@ -93,4 +102,13 @@ it('keeps mobile More selected inside Settings and Backups', () => {
   );
   expect(screen.getByRole('link', { name: 'More' }).getAttribute('aria-current')).toBe('page');
   expect(screen.getAllByRole('link')).toHaveLength(5);
+});
+
+it('keeps mobile More selected inside Knowledge and preserves Files as a secondary tool', () => {
+  render(
+    <MemoryRouter initialEntries={['/knowledge']}>
+      <TabBar />
+    </MemoryRouter>,
+  );
+  expect(screen.getByRole('link', { name: 'More' }).getAttribute('aria-current')).toBe('page');
 });

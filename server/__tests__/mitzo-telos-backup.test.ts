@@ -158,3 +158,84 @@ it('does not create a missing Telos database or leak its configured path', async
   await expect(access(missing)).rejects.toThrow();
   await expect(access(f.destination)).rejects.toThrow();
 });
+
+it('covers and restores enrolled Knowledge drafts using the running native owner', async () => {
+  const f = await fixture();
+  const { KnowledgeDraftStore } = await import('../knowledge-draft-store.js');
+  const knowledge = new KnowledgeDraftStore(join(f.root, 'knowledge.db'));
+  cleanup.push(async () => knowledge.close());
+  const draft = knowledge.create('Retained knowledge', 'a'.repeat(40), [
+    { path: 'essentials/identity.md', base: 'Accepted', content: 'Unsaved review work' },
+  ]);
+  const { bindMitzoTelosCoreCapture } = await import('../backup/mitzo-telos-binding.js');
+  const owner = vi.fn(async () => knowledge);
+  const capture = bindMitzoTelosCoreCapture({
+    events: f.owners.events,
+    tasks: f.owners.tasks,
+    telosPath: () => f.path,
+    knowledge: owner,
+  });
+  expect(owner).not.toHaveBeenCalled();
+  await capture(f.destination);
+  expect(owner).toHaveBeenCalledOnce();
+  const coverage = JSON.parse(await readFile(join(f.destination, 'coverage.json'), 'utf8'));
+  expect(coverage.required).toEqual(['mitzo-events', 'mitzo-tasks', 'telos', 'knowledge-drafts']);
+  const restored = new KnowledgeDraftStore(join(f.destination, 'knowledge-drafts', 'store.db'));
+  try {
+    expect(restored.get(draft.id)).toEqual(draft);
+  } finally {
+    restored.close();
+  }
+});
+
+it('invalidates backup when Knowledge draft watermark changes during capture', async () => {
+  const f = await fixture();
+  const { KnowledgeDraftStore } = await import('../knowledge-draft-store.js');
+  const knowledge = new KnowledgeDraftStore(join(f.root, 'knowledge.db'));
+  cleanup.push(async () => knowledge.close());
+  const draft = knowledge.create('Concurrent change', 'a'.repeat(40), [
+    { path: 'README.md', base: 'Base', content: 'Before capture' },
+  ]);
+  const original = knowledge.backupSnapshot.bind(knowledge);
+  vi.spyOn(knowledge, 'backupSnapshot').mockImplementation(async (destination) => {
+    await original(destination);
+    knowledge.save(draft.id, draft.version, [
+      { path: 'README.md', base: 'Base', content: 'Changed during capture' },
+    ]);
+  });
+  await expect(
+    captureMitzoTelosCore({ owners: { ...f.owners, knowledge }, destination: f.destination }),
+  ).rejects.toThrow('capture');
+  await expect(access(f.destination)).rejects.toThrow();
+  expect(knowledge.get(draft.id).documents[0].content).toBe('Changed during capture');
+});
+
+it('omits absent Knowledge enrollment but fails closed when configured owner initialization fails', async () => {
+  const f = await fixture();
+  const { bindMitzoTelosCoreCapture } = await import('../backup/mitzo-telos-binding.js');
+  const absent = vi.fn(async () => undefined);
+  await bindMitzoTelosCoreCapture({
+    events: f.owners.events,
+    tasks: f.owners.tasks,
+    telosPath: () => f.path,
+    knowledge: absent,
+  })(f.destination);
+  expect(absent).toHaveBeenCalledOnce();
+  expect(
+    JSON.parse(await readFile(join(f.destination, 'coverage.json'), 'utf8')).required,
+  ).toHaveLength(3);
+  const broken = vi.fn(async () => {
+    throw new Error('private configured owner unavailable');
+  });
+  const destination = join(f.root, 'broken-capture');
+  await expect(
+    bindMitzoTelosCoreCapture({
+      events: f.owners.events,
+      tasks: f.owners.tasks,
+      telosPath: () => f.path,
+      knowledge: broken,
+    })(destination),
+  ).rejects.toThrow('Mitzo/Telos backup unavailable');
+  expect(broken).toHaveBeenCalledOnce();
+  await expect(access(destination)).rejects.toThrow();
+});

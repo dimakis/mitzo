@@ -9,16 +9,20 @@ export function bindMitzoTelosCoreCapture(options: {
   events: SQLiteBackupOwner;
   tasks: SQLiteBackupOwner;
   telosPath(): string;
+  knowledge?(): Promise<SQLiteBackupOwner | undefined>;
 }): (destination: string) => Promise<void> {
   return async (destination) => {
     let telos: TelosArtifactStore | undefined;
     try {
+      // Resolve enrollment once before the group's watermark snapshot. A configured
+      // owner initialization failure must not silently omit its durable drafts.
+      const knowledge = await options.knowledge?.();
       // Same canonical owner and configured path as Telos artifact operations.
       // fileMustExist prevents inventing an empty database as successful coverage.
       telos = new TelosArtifactStore(options.telosPath());
       await captureMitzoTelosCore({
         destination,
-        owners: { events: options.events, tasks: options.tasks, telos },
+        owners: { events: options.events, tasks: options.tasks, telos, knowledge },
       });
     } catch {
       throw Error('Mitzo/Telos backup unavailable');
