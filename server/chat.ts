@@ -1,3 +1,12 @@
+import {
+  getRepositoryWorkspaces,
+  readRepositoryWorkspaceForConversation,
+} from './repository-workspace-runtime.js';
+import {
+  selectRepositoryChatWorkspace,
+  repositoryChatContext,
+  type RepositoryChatWorkspace,
+} from './repository-chat-startup.js';
 import { credentialSdkBoundary } from './credential-sdk-boundary.js';
 import { createCredentialSdkServer, credentialSdkPermission } from './credential-sdk-tools.js';
 import { CONNECTION_TOOL_INSTRUCTIONS } from './session-credential-tools.js';
@@ -1021,6 +1030,7 @@ export async function startChat(
   options: {
     resume?: string;
     initialSessionId?: string;
+    repositoryWorkspaceId?: string;
     cwd?: string;
     model?: string;
     accountId?: string;
@@ -1082,6 +1092,7 @@ async function _startChatInner(
   options: {
     resume?: string;
     initialSessionId?: string;
+    repositoryWorkspaceId?: string;
     cwd?: string;
     model?: string;
     accountId?: string;
@@ -1266,7 +1277,42 @@ async function _startChatInner(
       'agent')
     : (options.mode ?? 'agent');
 
-  const baseCwd = openShellWorkdir ?? resolveResumeCwd(options);
+  let baseCwd = openShellWorkdir ?? resolveResumeCwd(options);
+  let repositoryWorkspace: RepositoryChatWorkspace | undefined;
+  if (options.repositoryWorkspaceId) {
+    if (
+      options.resume ||
+      !accountBinding ||
+      !['openai', 'openai-codex'].includes(accountBinding.provider)
+    )
+      throw new Error('Repository-backed startup requires a new ordinary OpenAI conversation');
+    options = {
+      ...options,
+      initialSessionId: options.initialSessionId ?? nativeStartupSessionId(initialMessageId),
+    };
+    const taskRoot = join(BASE_REPO, '.claude', 'worktrees');
+    if (!openShellSelected) {
+      if (!BASE_REPO) throw new Error('Repository task root is not configured');
+      mkdirSync(taskRoot, { recursive: true, mode: 0o700 });
+    }
+    repositoryWorkspace = await selectRepositoryChatWorkspace(
+      {
+        repositoryWorkspaceId: options.repositoryWorkspaceId,
+        conversationId: options.initialSessionId!,
+        binding: accountBinding,
+        sandbox: openShellSelected,
+        taskRoot,
+      },
+      getRepositoryWorkspaces(),
+    );
+  } else if (options.resume) {
+    repositoryWorkspace = readRepositoryWorkspaceForConversation(options.resume);
+  }
+  if (repositoryWorkspace?.directory && !openShellSelected) {
+    baseCwd = repositoryWorkspace.directory;
+    options = { ...options, cwd: baseCwd };
+  }
+  prompt = repositoryChatContext(repositoryWorkspace) + prompt;
   const nativeProviderSelected = !!apiCredentialRef || !!gemini;
 
   if (
@@ -1426,6 +1472,10 @@ async function _startChatInner(
       }
     : createSessionWorktrees(transport, baseCwd, wtId, options);
 
+  if (repositoryWorkspace?.directory && !openShellSelected) {
+    repoWorktrees.set('primary', { path: repositoryWorkspace.directory, wtId });
+  }
+
   // On resume, rebuild worktreePaths from disk so the system prompt and guard
   // have the full map even after server restart (Phase 2d).
   // Merge discovered entries — the map may already have the primary but be
@@ -1520,7 +1570,7 @@ async function _startChatInner(
     session.worktreePaths.set(name, info);
   }
 
-  const branch = getBranch(cwd);
+  const branch = repositoryWorkspace?.featureBranch ?? getBranch(cwd);
   session.branch = branch;
   send(transport, { type: 'session_info', branch, cwd, worktree: !!worktreePath, wtId });
 
@@ -1618,6 +1668,7 @@ async function _startChatInner(
     ? buildOpenShellWorkspaceSystemPrompt(openShellWorkdir, wtId)
     : buildWorktreeSystemPrompt(repoWorktrees);
   const systemPromptAppend =
+    repositoryChatContext(repositoryWorkspace) +
     'This is Mitzo, a mobile chat interface. The user is on their phone.\n' +
     SESSION_PERMISSION_INSTRUCTIONS +
     TELOS_ARTIFACT_INSTRUCTIONS +
@@ -1708,6 +1759,7 @@ async function _startChatInner(
         conversationId,
         binding: accountBinding!,
         profile: codexProfile,
+        repositoryWorkspace,
         session,
         registry,
         prompt: fullPrompt,

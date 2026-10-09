@@ -97,7 +97,7 @@ export class RepositoryWorkspaces {
     chmodSync(database, 0o600);
     this.db.pragma('journal_mode = WAL');
     this.db.exec(
-      'CREATE TABLE IF NOT EXISTS repository_workspaces (id TEXT PRIMARY KEY, record TEXT NOT NULL)',
+      'CREATE TABLE IF NOT EXISTS repository_workspaces (id TEXT PRIMARY KEY, record TEXT NOT NULL, conversation_id TEXT UNIQUE)',
     );
   }
   close() {
@@ -106,9 +106,21 @@ export class RepositoryWorkspaces {
   private save(record: RepositoryWorkspace) {
     this.db
       .prepare(
-        'INSERT INTO repository_workspaces (id,record) VALUES (?,?) ON CONFLICT(id) DO UPDATE SET record=excluded.record',
+        'INSERT INTO repository_workspaces (id,record,conversation_id) VALUES (?,?,?) ON CONFLICT(id) DO UPDATE SET record=excluded.record,conversation_id=excluded.conversation_id',
       )
-      .run(record.id, JSON.stringify(record));
+      .run(record.id, JSON.stringify(record), record.conversationId ?? null);
+  }
+  getForConversation(conversationId: string) {
+    const row = this.db
+      .prepare('SELECT record FROM repository_workspaces WHERE conversation_id=?')
+      .get(conversationId) as { record: string } | undefined;
+    if (!row) return undefined;
+    const record = JSON.parse(row.record) as RepositoryWorkspace;
+    if (record.state !== 'claimed')
+      throw new Error(
+        'Repository workspace preparation did not complete; preserve its original claim',
+      );
+    return record;
   }
   get(id: string): RepositoryWorkspace {
     const row = this.db.prepare('SELECT record FROM repository_workspaces WHERE id=?').get(id) as

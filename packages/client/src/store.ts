@@ -61,6 +61,7 @@ export interface SendMessageOptions {
   reasoningEffort?: string | null;
   mode?: MitzoMode;
   cwd?: string;
+  repositoryWorkspaceId?: string;
   extraTools?: string;
   isolation?: boolean;
   telosTaskId?: string;
@@ -711,6 +712,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
           msg.images = opts.images.map((img) => ({ data: img.data, mediaType: img.mediaType }));
         }
         if (opts?.cwd) msg.cwd = opts.cwd;
+        if (opts?.repositoryWorkspaceId && !parserState.currentSessionId)
+          msg.repositoryWorkspaceId = opts.repositoryWorkspaceId;
         if (opts?.extraTools) msg.extraTools = opts.extraTools;
         if (opts?.isolation !== undefined) msg.isolation = opts.isolation;
         if (opts?.telosTaskId !== undefined) msg.telosTaskId = opts.telosTaskId;

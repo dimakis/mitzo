@@ -1,3 +1,4 @@
+import type { RepositoryChatWorkspace } from './repository-chat-startup.js';
 import {
   sessionCredentialTools,
   CONNECTION_TOOL_INSTRUCTIONS,
@@ -476,6 +477,7 @@ export function readCodexLifecycleQueue(conversationId: string, binding: Account
   return store().lifecycleQueue(conversationId, binding);
 }
 interface Options {
+  repositoryWorkspace?: RepositoryChatWorkspace;
   publishingGitStorageRoots?: readonly string[];
   resume?: boolean;
   conversationId: string;
@@ -698,7 +700,14 @@ async function openCodexChatBound(
     }
     managedOpenShell = runtimeManager
       ? await duringCodexStartup('sandbox_preparation', () =>
-          runtimeManager!.ensure(options.conversationId, options.session.abortController.signal),
+          runtimeManager!.ensure(
+            options.conversationId,
+            options.session.abortController.signal,
+            undefined,
+            !options.resume && options.repositoryWorkspace?.seed
+              ? { seed: options.repositoryWorkspace.seed, cleanup: () => {} }
+              : undefined,
+          ),
         )
       : undefined;
   } catch (error) {
@@ -954,7 +963,7 @@ async function openCodexChatBound(
       // Enrolled sessions receive accepted guidance through prepareSystemPrompt
       // on each turn. A retained writable checkout can contain older guidance;
       // never install that context as persistent thread developer instructions.
-      if (configuredRuntime?.knowledgeStore) {
+      if (configuredRuntime?.knowledgeStore || options.repositoryWorkspace) {
         startup = {};
       } else {
         const context = await runtimeManager!.compileContext(managedOpenShell!, signal);

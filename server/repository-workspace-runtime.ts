@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import type { AccountBinding } from '@mitzo/protocol';
@@ -39,7 +40,7 @@ export function repositoryWorkspaceCatalog(binding: AccountBinding) {
   return { available: true, repositories };
 }
 /** Lazy, explicit enrollment: importing the app performs no source acquisition or metadata writes. */
-export function getRepositoryWorkspaces() {
+export function getRepositoryWorkspaces(readOnly = false) {
   if (!repositoryWorkspacesEnabled()) throw new Error('Repository-backed chats are not enabled');
   service ??= new RepositoryWorkspaces(join(codexPrivateDirectory(), 'repository-sources'), {
     authorize: async (binding, connectionId, repository, signal) => {
@@ -69,4 +70,10 @@ export function getRepositoryWorkspaces() {
     },
   });
   return service;
+}
+
+export function readRepositoryWorkspaceForConversation(conversationId: string) {
+  const directory = join(codexPrivateDirectory(), 'repository-sources');
+  if (!service && !existsSync(join(directory, 'workspaces.db'))) return undefined;
+  return getRepositoryWorkspaces(true).getForConversation(conversationId);
 }

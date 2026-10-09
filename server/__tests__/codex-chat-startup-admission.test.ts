@@ -398,3 +398,34 @@ it('reattach-only leaves reserved provisioning available for the next explicit s
     await sharedOpenShellLifecycleCoordinator.admit(f.id, async () => {});
   }
 });
+
+it('uploads the controller-selected repository seed and avoids the MGMT task compiler for a repository chat', async () => {
+  const f = fixture();
+  const repositoryWorkspace = {
+    id: 'source-fixture',
+    repository: 'example/repo',
+    baseBranch: 'main',
+    baseOid: 'a'.repeat(40),
+    featureBranch: 'mitzo/task',
+    seed: join(root, 'repository-seed', 'mgmt'),
+  };
+  mkdirSync(repositoryWorkspace.seed, { recursive: true });
+  const compile = vi.spyOn(OpenShellRuntimeManager.prototype, 'compileContext');
+  let chat: Awaited<ReturnType<typeof openCodexChat>> | undefined;
+  try {
+    chat = await openCodexChat({ ...f.options, repositoryWorkspace });
+    expect(
+      native.cli.mock.calls.some(
+        ([args]) =>
+          args.includes('--upload') &&
+          args.includes(repositoryWorkspace.seed + ':/sandbox/workspaces'),
+      ),
+    ).toBe(true);
+    expect(compile).not.toHaveBeenCalled();
+    expect(f.requests.filter((method) => method === 'turn/start')).toHaveLength(1);
+  } finally {
+    compile.mockRestore();
+    chat?.close();
+    await sharedOpenShellLifecycleCoordinator.admit(f.id, async () => {});
+  }
+});

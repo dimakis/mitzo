@@ -719,6 +719,8 @@ export function handleSendV2(
           storedMeta,
           accountBinding,
         );
+        if (msg.repositoryWorkspaceId && msg.sessionId)
+          throw new Error('Repository selection requires a new conversation');
         const requestedCwd = msg.cwd;
         const validatedCwd = requestedCwd
           ? isAllowedPath(requestedCwd)
@@ -1132,6 +1134,7 @@ export function handleSendV2(
           };
           startChat(startupTransport, sessionClientId, prompt, {
             initialSessionId: delivery?.initialSessionId,
+            repositoryWorkspaceId: msg.repositoryWorkspaceId,
             cwd: validatedCwd,
             model: effectiveSelection.model,
             reasoningEffort: effectiveSelection.reasoningEffort,

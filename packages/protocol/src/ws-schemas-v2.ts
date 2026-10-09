@@ -102,6 +102,7 @@ export const V2SendMessage = z.object({
   reasoningEffort: z.string().min(1).max(32).nullable().optional(),
   mode: z.enum(['ask', 'agent', 'auto']).optional(),
   cwd: z.string().optional(),
+  repositoryWorkspaceId: z.uuid().optional(),
   extraTools: z.string().optional(),
   isolation: z.boolean().optional(),
   images: z.array(ImageSchema).optional(),
