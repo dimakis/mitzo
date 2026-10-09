@@ -9,6 +9,15 @@ function fixture() {
     configHash: 'c'.repeat(64),
   };
   const image = `sha256:${'d'.repeat(64)}`;
+  const gatewayRow = {
+    id: receipt.id,
+    name: receipt.name,
+    workspace: 'work',
+    labels: {
+      'mitzo.discovery': 'models',
+      'mitzo.discovery.claim': discoveryClaimLabel(receipt.claim),
+    },
+  };
   // Qualified native Podman build_container_labels sets openshell.managed=true;
   // the isolated supervisor inherits those common labels (native commit 9472cc767).
   const row = {
@@ -21,8 +30,6 @@ function fixture() {
       'openshell.ai/sandbox-namespace': 'default',
       'openshell.ai/isolation-role': 'supervisor',
       'openshell.managed': 'true',
-      'mitzo.discovery': 'models',
-      'mitzo.discovery.claim': discoveryClaimLabel(receipt.claim),
     },
   };
   const input = {
@@ -31,6 +38,7 @@ function fixture() {
     namespace: 'default',
     supervisorImage: image,
     assertCurrent: vi.fn(async () => {}),
+    gatewayInventory: vi.fn(async () => [gatewayRow]),
     inventory: vi.fn(async () => [row]),
     imageId: vi.fn(async () => image),
     loggingFilter: vi.fn(async () => 'L'),
@@ -39,7 +47,7 @@ function fixture() {
         `2026-10-09T00:00:00.000Z DEBUG openshell.routing_http: routing diagnostic v1 kind=account_check method=GET outcome=response request_ordinal=1 status_code=403`,
     ),
   };
-  return { input, row };
+  return { input, row, gatewayRow };
 }
 it('reads only exact claimed supervisor ID and rechecks custody/container/image around capture', async () => {
   const f = fixture();
@@ -47,10 +55,11 @@ it('reads only exact claimed supervisor ID and rechecks custody/container/image 
   expect(result.observations[0].statusCode).toBe(403);
   expect(f.input.readConsole).toHaveBeenCalledExactlyOnceWith(f.row.Id);
   expect(f.input.inventory).toHaveBeenCalledTimes(2);
+  expect(f.input.gatewayInventory).toHaveBeenCalledTimes(2);
   expect(f.input.imageId).toHaveBeenCalledTimes(2);
-  expect(f.input.assertCurrent).toHaveBeenCalledTimes(14);
+  expect(f.input.assertCurrent).toHaveBeenCalledTimes(18);
 });
-it.each(['claim', 'namespace', 'workspace', 'role', 'id', 'name', 'image', 'ambiguous'] as const)(
+it.each(['namespace', 'workspace', 'role', 'id', 'name', 'image', 'ambiguous'] as const)(
   'refuses %s drift before reading console',
   async (kind) => {
     const f = fixture();
@@ -59,7 +68,6 @@ it.each(['claim', 'namespace', 'workspace', 'role', 'id', 'name', 'image', 'ambi
       f.input.inventory = vi.fn(async () => [f.row, { ...f.row, Id: 'f'.repeat(64) }]);
     else {
       const keys = {
-        claim: 'mitzo.discovery.claim',
         namespace: 'openshell.ai/sandbox-namespace',
         workspace: 'openshell.ai/sandbox-workspace',
         role: 'openshell.ai/isolation-role',
@@ -70,6 +78,38 @@ it.each(['claim', 'namespace', 'workspace', 'role', 'id', 'name', 'image', 'ambi
     }
     await expect(captureRoutingConsole(f.input)).rejects.toThrow();
     expect(f.input.readConsole).not.toHaveBeenCalled();
+  },
+);
+it.each(['id', 'name', 'workspace', 'claim', 'discovery', 'duplicate', 'missing'] as const)(
+  'requires the exact gateway claim binding before reading console (%s)',
+  async (kind) => {
+    const f = fixture();
+    // Even custom physical labels cannot replace the gateway metadata proof.
+    Object.assign(f.row.Labels, f.gatewayRow.labels);
+    if (kind === 'duplicate')
+      f.input.gatewayInventory.mockResolvedValue([f.gatewayRow, { ...f.gatewayRow }]);
+    else if (kind === 'missing') f.input.gatewayInventory.mockResolvedValue([]);
+    else if (kind === 'claim' || kind === 'discovery')
+      f.gatewayRow.labels[kind === 'claim' ? 'mitzo.discovery.claim' : 'mitzo.discovery'] =
+        'changed';
+    else f.gatewayRow[kind] = 'changed';
+    await expect(captureRoutingConsole(f.input)).rejects.toThrow();
+    expect(f.input.readConsole).not.toHaveBeenCalled();
+    expect(f.input.inventory).not.toHaveBeenCalled();
+  },
+);
+it.each(['id', 'name', 'workspace', 'claim', 'duplicate'] as const)(
+  'discards read console when the gateway binding drifts (%s)',
+  async (kind) => {
+    const f = fixture();
+    const changed = structuredClone(f.gatewayRow);
+    if (kind === 'claim') changed.labels['mitzo.discovery.claim'] = 'changed';
+    else if (kind !== 'duplicate') changed[kind] = 'changed';
+    f.input.gatewayInventory
+      .mockResolvedValueOnce([f.gatewayRow])
+      .mockResolvedValueOnce(kind === 'duplicate' ? [changed, { ...changed }] : [changed]);
+    await expect(captureRoutingConsole(f.input)).rejects.toThrow();
+    expect(f.input.readConsole).toHaveBeenCalledOnce();
   },
 );
 it('discards already read console when original resource is replaced', async () => {
