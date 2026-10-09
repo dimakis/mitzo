@@ -29,12 +29,12 @@ export function parseBriefing(content: string): BriefingSection {
       const level = heading[1].length;
       while (stack.length > 1 && stack.at(-1)!.level >= level) stack.pop();
       const title = heading[2];
-      const kind = /jira|sprint items/i.test(title)
-        ? 'jira'
-        : /calendar|holiday|manager|site|workspace health|agent ops/i.test(title)
-          ? 'calendar'
-          : /\b\d{1,2}:\d{2}\b/.test(title)
-            ? 'meeting'
+      const kind = /\b\d{1,2}:\d{2}\b/.test(title)
+        ? 'meeting'
+        : /jira|sprint items/i.test(title)
+          ? 'jira'
+          : /notices|calendar|holiday|manager|site|workspace health|agent ops/i.test(title)
+            ? 'calendar'
             : 'source';
       const section: BriefingSection = { title, level, kind, raw: line, body: '', children: [] };
       stack.at(-1)!.children.push(section);

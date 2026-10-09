@@ -2,6 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { parseBriefing, briefingContext } from '../briefing';
 
 describe('saved briefing structure', () => {
+  it('treats timed manager meetings as meetings and the notice block as collapsible calendar context', () => {
+    const report = parseBriefing(
+      '## Notices\n### Manager actions\nNotice\n## 15:30 — Platform Managers Sync\nAgenda',
+    );
+    expect(report.children[0].kind).toBe('calendar');
+    expect(report.children[1].kind).toBe('meeting');
+  });
   it('retains every line including unfamiliar sections and headings inside code fences', () => {
     const content =
       '# Morning briefing\nPrepared at 07:00\n\n## Calendar updates\nChanged event\n\n## 09:30 Team meeting\n**Attendees:** a, b\n\n### Notes\nAgenda\n\n### Participant Jira\nIssue one\n```md\n## Not a section\n```\n\n## Unknown source\nLast detail\n';
