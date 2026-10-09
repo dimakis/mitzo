@@ -88,14 +88,11 @@ it('admits interactive setup only, rejects extra paths and protects passwords in
   ).toBe(403);
   expect(
     (
-      await request(app)
-        .post('/api/backups/setup')
-        .set('Authorization', 'operator')
-        .send({
-          password: 'synthetic-recovery-password',
-          recoveryConfirmed: true,
-          root: '/untrusted',
-        })
+      await request(app).post('/api/backups/setup').set('Authorization', 'operator').send({
+        password: 'synthetic-recovery-password',
+        recoveryConfirmed: true,
+        root: '/untrusted',
+      })
     ).status,
   ).toBe(400);
   expect(setup.configure).not.toHaveBeenCalled();
@@ -122,4 +119,27 @@ it('admits interactive setup only, rejects extra paths and protects passwords in
     ).status,
   ).toBe(200);
   expect(setup.prepare).toHaveBeenCalledTimes(1);
+});
+it('refuses password submission over cleartext remote hostnames even behind loopback proxies', async () => {
+  const setup = { status: vi.fn(), prepare: vi.fn(), configure: vi.fn() };
+  const app = express();
+  app.use(express.json());
+  app.use(
+    '/api/backups',
+    createBackupRouter(
+      { overview: vi.fn(), start: vi.fn(), refresh: vi.fn() },
+      (_req, res, next) => {
+        res.locals.authSession = { id: 'operator' };
+        next();
+      },
+      setup,
+    ),
+  );
+  const result = await request(app)
+    .post('/api/backups/setup')
+    .set('Host', 'mitzo.example.com')
+    .send({ password: 'synthetic-recovery-password', recoveryConfirmed: true });
+  expect(result.status).toBe(400);
+  expect(result.text).toContain('HTTPS');
+  expect(setup.configure).not.toHaveBeenCalled();
 });

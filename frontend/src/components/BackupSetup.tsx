@@ -67,6 +67,11 @@ export function BackupSetup({
           {error}
         </p>
       )}
+      {status?.busy && !busy && (
+        <p role="status">
+          Backup setup is running or has retained a safety lock. Check the Mac before continuing.
+        </p>
+      )}
       {!status && !error && <p role="status">Checking the Mac running Mitzo…</p>}
       {status && !status.supported && (
         <p>

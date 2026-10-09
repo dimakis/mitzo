@@ -48,10 +48,10 @@ export function createBackupRouter(
         }
         try {
           if (path === '/setup') {
-            if (
-              !req.secure &&
-              !['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.socket.remoteAddress ?? '')
-            ) {
+            const loopback =
+              ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.socket.remoteAddress ?? '') &&
+              /^(localhost|127\.0\.0\.1|\[?::1\]?|[a-z0-9.-]+\.localhost)$/i.test(req.hostname);
+            if (!req.secure && !loopback) {
               res
                 .status(400)
                 .json({ error: 'Open Mitzo over HTTPS before entering a backup password.' });
