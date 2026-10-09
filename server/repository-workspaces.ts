@@ -217,8 +217,8 @@ export class RepositoryWorkspaces {
     const record = id
       ? this.get(id)
       : sourceConversationId
-        ? this.chatRecords(sourceConversationId).find(
-            (value) => value.state !== 'discarded' && isDeepStrictEqual(value.binding, binding),
+        ? this.chatRecords(sourceConversationId).find((value) =>
+            isDeepStrictEqual(value.binding, binding),
           )
         : undefined;
     if (

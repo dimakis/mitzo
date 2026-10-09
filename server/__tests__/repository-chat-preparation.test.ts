@@ -209,3 +209,31 @@ it('retains the claimed target link and permits a different subsequent task with
   expect(next.id).not.toBe(first.id);
   expect(f.service.getForConversation('target')?.repository).toBe('example/repo');
 });
+
+it('recovers the latest discarded draft instead of falling back to an older claimed task', async () => {
+  const f = await fixture();
+  const signal = new AbortController().signal;
+  const first = await f.service.prepareChat(
+    binding,
+    'origin',
+    'connection',
+    'example/repo',
+    'Old task',
+    signal,
+  );
+  await f.service.claim(first.id, binding, 'target', join(f.root, 'unused'), true);
+  const latest = await f.service.prepareChat(
+    binding,
+    'origin',
+    'connection',
+    'example/other',
+    'New task',
+    signal,
+  );
+  await f.service.discard(latest.id, binding);
+  expect(f.service.chatPreparation(undefined, binding, 'origin')).toMatchObject({
+    id: latest.id,
+    state: 'discarded',
+    prompt: 'New task',
+  });
+});
