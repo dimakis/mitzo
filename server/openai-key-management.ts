@@ -32,6 +32,11 @@ export class OpenAIKeychainAuthorizationRequired extends Error {
     super('Authorize Apple Keychain access on the Mac');
   }
 }
+export class OpenAIKeyRequestError extends Error {
+  constructor(readonly code: 'KEY_VALIDATION_FAILED' | 'ACCOUNT_CHANGED') {
+    super(code);
+  }
+}
 export interface OpenAIKeyGateway {
   inspect(account: ManagedOpenAIAccount, signal: AbortSignal): Promise<{ version: string }>;
   pause(account: ManagedOpenAIAccount, signal: AbortSignal): Promise<void>;
@@ -162,8 +167,8 @@ export class OpenAIKeyManagement {
           : keychain.version === null && keychain.managed !== true,
       errorCode: needsAttention
         ? (pending?.errorCode ?? 'CREDENTIAL_DRIFT')
-        : latest?.phase === 'aborted' && latest.errorCode === 'NOT_APPLIED'
-          ? 'NOT_APPLIED'
+        : latest?.phase === 'aborted'
+          ? latest.errorCode
           : null,
       verifiedAt: ready ? completed!.verifiedAt : null,
     };
@@ -232,7 +237,7 @@ export class OpenAIKeyManagement {
         !input.revision ||
         input.revision !== (await this.authorizationRevision(account, signal))
       )
-        throw new Error('Connection changed; refresh and try again.');
+        throw new OpenAIKeyRequestError('ACCOUNT_CHANGED');
       await this.options.keychain.authorize(account.credentialRef, signal);
       return (await this.state(this.account(input.accountId), signal)).status;
     });
@@ -290,15 +295,16 @@ export class OpenAIKeyManagement {
     const account = this.account(input.accountId);
     const state = await this.state(account, signal);
     if (!input.revision || state.status.revision !== input.revision)
-      throw new Error('Connection changed; refresh and try again.');
+      throw new OpenAIKeyRequestError('ACCOUNT_CHANGED');
     return { account, ...state };
   }
   private async validate(value: string, signal: AbortSignal) {
-    if (!value.trim() || value.length > 16384) throw new Error('OpenAI key validation failed');
+    if (!value.trim() || value.length > 16384)
+      throw new OpenAIKeyRequestError('KEY_VALIDATION_FAILED');
     try {
       await this.options.validateKey(value, signal);
     } catch {
-      throw new Error('OpenAI key validation failed');
+      throw new OpenAIKeyRequestError('KEY_VALIDATION_FAILED');
     }
   }
   private async finish(
@@ -360,7 +366,7 @@ export class OpenAIKeyManagement {
       this.binding(this.account(account.id)) !== binding ||
       (await this.options.gateway.inspect(account, signal)).version !== gateway.version
     )
-      throw new Error('Connection changed; refresh and try again.');
+      throw new OpenAIKeyRequestError('ACCOUNT_CHANGED');
     const operation = this.options.store.begin(
       {
         accountId: account.id,
@@ -371,8 +377,11 @@ export class OpenAIKeyManagement {
       },
       selected.pending?.id,
     );
+    let failure = 'CHAT_PAUSE_FAILED';
+    let writeStarted = false;
     try {
       await this.options.gateway.pause(account, signal);
+      failure = 'ACCOUNT_CHANGED';
       const current = await this.options.keychain.read(account.credentialRef, signal);
       if (
         current.version !== keychain.version ||
@@ -380,6 +389,8 @@ export class OpenAIKeyManagement {
         this.binding(this.account(account.id)) !== binding
       )
         throw new Error('Keychain changed');
+      failure = 'KEYCHAIN_WRITE_UNCONFIRMED';
+      writeStarted = true;
       await this.options.keychain.write(
         account.credentialRef,
         value,
@@ -388,9 +399,15 @@ export class OpenAIKeyManagement {
         keychain.version,
       );
       this.options.store.update(operation.id, { phase: 'keychain_written' });
+      failure = 'CHAT_UPDATE_UNCONFIRMED';
       await this.finish(operation, account, value, signal);
     } catch {
-      this.options.store.update(operation.id, { errorCode: 'SYNC_PENDING' });
+      this.options.store.update(operation.id, {
+        ...(!writeStarted && failure === 'CHAT_PAUSE_FAILED' && !selected.pending
+          ? { phase: 'aborted' as const }
+          : {}),
+        errorCode: failure,
+      });
     }
     return (await this.state(this.account(account.id), signal)).status;
   }
