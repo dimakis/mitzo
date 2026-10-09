@@ -24,6 +24,7 @@ function fixture(
     closed?: boolean;
     changedAfterReady?: boolean;
     readyFails?: boolean;
+    draftOnRead?: number;
     onRead?: (count: number) => void;
   } = {},
 ) {
@@ -65,7 +66,8 @@ function fixture(
         html_url: input.url,
         number: 7,
         user: { login: 'publisher' },
-        draft: !ready,
+        draft:
+          !ready || (options.draftOnRead !== undefined && metadataReads >= options.draftOnRead),
         state: merged || options.closed ? 'closed' : 'open',
         merged,
         merge_commit_sha: merged ? 'c'.repeat(40) : null,
@@ -96,11 +98,11 @@ function fixture(
 }
 describe('host Knowledge acceptance gate', () => {
   it('merges only final current-head approval and required passing checks, verifies receipt', async () => {
-    const { publisher, run } = fixture();
+    const { publisher, run } = fixture({ alreadyReady: true });
     const result = await publisher.accept(input);
     expect(result).toMatchObject({ state: 'accepted', head, mergeCommit: 'c'.repeat(40) });
     const commands = run.mock.calls.map((c) => c[1]);
-    expect(commands).toContainEqual(['pr', 'ready', '7', '--repo', input.repository]);
+    expect(commands.some((command) => command[1] === 'ready')).toBe(false);
     expect(commands).toContainEqual([
       'pr',
       'merge',
@@ -163,17 +165,37 @@ describe('host Knowledge acceptance gate', () => {
     { acceptanceEnabled: false },
     { badScope: true },
   ])('fails closed without merge for unsafe review/configuration: %j', async (options) => {
-    const { publisher, run } = fixture(options);
+    const { publisher, run } = fixture({ alreadyReady: true, ...options });
     await expect(publisher.accept(input)).rejects.toThrow();
     expect(run.mock.calls.some((c) => c[1][1] === 'merge')).toBe(false);
   });
+  it('requires explicit review readiness even when a draft already has approval and passing checks', async () => {
+    const { publisher, run } = fixture();
+    expect(await publisher.inspect(input)).toMatchObject({
+      state: 'in-review',
+      draft: true,
+      canAccept: false,
+    });
+    await expect(publisher.accept(input)).rejects.toThrow('Send');
+    expect(run.mock.calls.some((call) => ['ready', 'merge'].includes(call[1][1]))).toBe(false);
+  });
+  it.each([2, 4])(
+    'blocks acceptance when readiness is withdrawn at metadata read %s',
+    async (draftOnRead) => {
+      const { publisher, run } = fixture({ alreadyReady: true, draftOnRead });
+      await expect(publisher.accept(input)).rejects.toThrow('Send');
+      expect(run.mock.calls.some((call) => ['ready', 'merge'].includes(call[1][1]))).toBe(false);
+    },
+  );
   it('accepts an already-ready review without repeating the ready mutation', async () => {
     const { publisher, run } = fixture({ alreadyReady: true });
     expect(await publisher.accept(input)).toMatchObject({ state: 'accepted', head });
     expect(run.mock.calls.some((c) => c[1][1] === 'ready')).toBe(false);
   });
   it('does not declare acceptance when merge command did not merge', async () => {
-    await expect(fixture({ mergeFails: true }).publisher.accept(input)).rejects.toThrow();
+    await expect(
+      fixture({ mergeFails: true, alreadyReady: true }).publisher.accept(input),
+    ).rejects.toThrow();
   });
   it('rejects user-controlled repository, branch, URL, and draft identity before any call', async () => {
     for (const patch of [

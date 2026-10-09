@@ -219,7 +219,8 @@ export class KnowledgeGithubPublisher extends GitHubCliHostPublisher {
     const refreshed = await this.readExact(input, number, signal);
     if (refreshed.head.sha !== input.head || refreshed.state !== 'open')
       throw new Error('Knowledge review changed during inspection');
-    const canAccept = this.configuration.acceptanceEnabled && approved && checks;
+    const canAccept =
+      this.configuration.acceptanceEnabled && !refreshed.draft && approved && checks;
     return {
       state: 'in-review',
       head: input.head,
@@ -229,9 +230,11 @@ export class KnowledgeGithubPublisher extends GitHubCliHostPublisher {
         ? undefined
         : !this.configuration.acceptanceEnabled
           ? 'Acceptance is disabled by host configuration'
-          : !approved
-            ? 'Final current-head Centaur LGTM is required'
-            : 'All required checks must pass; missing required checks block acceptance',
+          : refreshed.draft
+            ? 'Send the saved change for review before accepting'
+            : !approved
+              ? 'Final current-head Centaur LGTM is required'
+              : 'All required checks must pass; missing required checks block acceptance',
     };
   }
   /** Explicit operator transition: request review without claiming acceptance. */
@@ -273,14 +276,20 @@ export class KnowledgeGithubPublisher extends GitHubCliHostPublisher {
     const scoped = { ...input, signal };
     const status = await this.inspect(scoped);
     if (status.state === 'accepted') return status;
-    if (!status.canAccept)
-      throw new Error(status.reason ?? 'Knowledge review is not ready for acceptance');
+    if (status.draft !== false || !status.canAccept)
+      throw new Error(
+        status.draft !== false
+          ? 'Send the saved change for review before accepting'
+          : (status.reason ?? 'Knowledge review is not ready for acceptance'),
+      );
     const number = this.checked(input);
-    if (status.draft)
-      await this.command('gh', ['pr', 'ready', number, '--repo', input.repository], signal);
     const ready = await this.inspect(scoped);
-    if (!ready.canAccept)
-      throw new Error(ready.reason ?? 'Knowledge review changed before acceptance');
+    if (ready.draft !== false || !ready.canAccept)
+      throw new Error(
+        ready.draft !== false
+          ? 'Send the saved change for review before accepting'
+          : (ready.reason ?? 'Knowledge review changed before acceptance'),
+      );
     await this.command(
       'gh',
       [

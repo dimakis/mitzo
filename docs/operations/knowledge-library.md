@@ -67,8 +67,9 @@ Acceptance checks the canonical PR repository, base branch, author, source branc
 comments in chronological order, using the same strict final Centaur report format
 as the default-branch `Centaur merge gate` workflow. Missing, stale, dismissed,
 ambiguous, blocking, `fix` or `human_decision` reports block acceptance. Every required
-GitHub check must pass; an empty required-check list also blocks. After approval it
-marks the PR ready, repeats inspection and merges with `--squash` and
+GitHub check must pass; an empty required-check list also blocks. Acceptance requires
+the PR to be already ready through the explicit review transition. It repeats
+inspection and merges with `--squash` and
 `--match-head-commit`, without an admin bypass. Acceptance is recorded only after
 GitHub confirms that exact PR was merged. The existing dedicated Centaur status App
 and branch protection provisioning remain mandatory; see
