@@ -179,6 +179,7 @@ export class RepositoryWorkspaces {
     await this.authorize(record, binding, signal);
     if ((await repositorySourceDigest(this.source(record))) !== record.sourceDigest)
       throw new Error('Prepared repository source changed before sandbox upload');
+    await this.authorize(record, binding, signal);
     return this.source(record);
   }
   private async authorize(
@@ -272,7 +273,8 @@ export class RepositoryWorkspaces {
     sandbox: boolean,
   ) {
     const record = this.get(id);
-    await this.authorize(record, binding, AbortSignal.timeout(30000));
+    const signal = AbortSignal.timeout(30000);
+    await this.authorize(record, binding, signal);
     if (record.state === 'claimed') {
       if (record.conversationId !== conversationId || record.sandbox !== sandbox)
         throw new Error('Repository preparation already belongs to another conversation');
@@ -283,6 +285,7 @@ export class RepositoryWorkspaces {
     if ((await repositorySourceDigest(this.source(record))) !== record.sourceDigest)
       throw new Error('Prepared repository source changed');
     await this.deps.verify?.(record, this.source(record));
+    await this.authorize(record, binding, signal);
     // Reserve ownership before any task copy. A failed copy retains this conversation's identity.
     if (this.get(id).state !== 'ready') throw new Error('Repository preparation already reserved');
     record.state = 'claiming';
@@ -301,6 +304,7 @@ export class RepositoryWorkspaces {
       if ((await repositorySourceDigest(record.directory)) !== record.sourceDigest)
         throw new Error('Task repository copy changed');
     }
+    await this.authorize(record, binding, signal);
     record.state = 'claimed';
     this.save(record);
     return { ...record, seed: this.source(record) };

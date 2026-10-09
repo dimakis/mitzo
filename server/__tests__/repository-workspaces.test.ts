@@ -180,3 +180,41 @@ it('releases only settled controller seed copies while retaining task metadata a
   await expect(f.service.discard(preview.id, binding)).rejects.toThrow();
   f.service.close();
 });
+
+it('rejects a connection change during verification before reserving a claim', async () => {
+  const f = await fixture();
+  const signal = new AbortController().signal;
+  const preview = await f.service.preview(binding, 'connection', 'example/repo', signal);
+  await f.service.prepare(preview.id, binding, signal);
+  f.verify.mockImplementation(async () => {
+    f.authorize.mockResolvedValue({ revision: 2 });
+  });
+  await expect(
+    f.service.claim(preview.id, binding, 'conversation', f.taskRoot, true),
+  ).rejects.toThrow('GitHub connection changed');
+  expect(f.service.status(preview.id, binding).state).toBe('ready');
+  expect(f.service.getForConversation('conversation')).toBeUndefined();
+  f.service.close();
+});
+
+it('rechecks access after the host copy and preserves an interrupted claim', async () => {
+  const f = await fixture();
+  const signal = new AbortController().signal;
+  const preview = await f.service.preview(binding, 'connection', 'example/repo', signal);
+  await f.service.prepare(preview.id, binding, signal);
+  const copied = join(f.taskRoot, `repo-${preview.id}`, 'mgmt', 'file.txt');
+  f.authorize.mockImplementation(async () => {
+    const present = await readFile(copied).then(
+      () => true,
+      () => false,
+    );
+    return { revision: present ? 2 : 1 };
+  });
+  await expect(
+    f.service.claim(preview.id, binding, 'conversation', f.taskRoot, false),
+  ).rejects.toThrow('GitHub connection changed');
+  expect(f.service.status(preview.id, binding).state).toBe('claiming');
+  expect(() => f.service.getForConversation('conversation')).toThrow('preserve its original claim');
+  expect(await readFile(copied, 'utf8')).toBe('source');
+  f.service.close();
+});
