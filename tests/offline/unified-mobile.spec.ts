@@ -399,8 +399,8 @@ test('Settings previews and persists every accent and font across navigation and
     const palette = await swatches.evaluateAll((elements) =>
       elements.map((element) => getComputedStyle(element).backgroundColor),
     );
-    expect(new Set(palette).size).toBe(4);
-    for (const label of ['Lavender', 'Teal', 'Rose', 'Amber']) {
+    expect(new Set(palette).size).toBe(8);
+    for (const label of ['Lavender', 'Teal', 'Rose', 'Amber', 'Blue', 'Mint', 'Coral', 'Plum']) {
       await page.getByRole('radio', { name: label, exact: true }).check();
       expect(
         await swatches.evaluateAll((elements) =>
@@ -430,7 +430,15 @@ test('Settings previews and persists every accent and font across navigation and
   }
   await theme.selectOption('dark');
   await page.getByRole('radio', { name: 'Teal', exact: true }).check();
-  for (const value of ['system', 'arial', 'georgia']) {
+  for (const [value, family] of [
+    ['system', ''],
+    ['arial', 'Arial'],
+    ['verdana', 'Verdana'],
+    ['trebuchet', 'Trebuchet MS'],
+    ['palatino', 'Palatino'],
+    ['courier', 'Courier New'],
+    ['georgia', 'Georgia'],
+  ]) {
     await page.getByRole('combobox', { name: 'Font' }).selectOption(value);
     const stored = await page.evaluate(() => localStorage.getItem('mitzo-font'));
     expect(stored).toBe(value);
@@ -438,7 +446,7 @@ test('Settings previews and persists every accent and font across navigation and
       .locator('h1')
       .first()
       .evaluate((element) => getComputedStyle(element).fontFamily);
-    if (value !== 'system') expect(font.toLowerCase()).toContain(value);
+    if (family) expect(font).toContain(family);
     if (isMobile)
       expect(
         await page
@@ -533,7 +541,7 @@ test('accent-filled controls retain their paired foreground on hover and in user
         <button class="msg-bubble-copy msg-bubble-copy--user">Copy</button>
       </div></div></div>`);
   for (const theme of ['dark', 'light']) {
-    for (const accent of ['lavender', 'teal', 'rose', 'amber']) {
+    for (const accent of ['lavender', 'teal', 'rose', 'amber', 'blue', 'mint', 'coral', 'plum']) {
       await page.evaluate(
         ({ theme, accent }) => {
           document.documentElement.dataset.theme = theme;

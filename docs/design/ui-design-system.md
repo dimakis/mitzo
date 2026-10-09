@@ -17,7 +17,7 @@ Stable agent identity colors use `--seat-color-*` in the same file. Persisted pr
 
 ## Appearance preferences
 
-Settings exposes four curated accents and three locally available UI font stacks. Preset values live in the same token file, including the light/dark accent shades. The preference hook stores validated preset IDs in local storage and applies root data attributes immediately; startup restores them before React renders. The UI says these choices are saved on the current device. Code remains monospace, and Reset appearance restores Lavender/System. Browser tests verify every accent pair meets 4.5:1 contrast for filled controls and that selections survive route changes and reloads.
+Settings exposes eight curated accents and seven locally available UI font stacks. Preset values live in the same token file, including the light/dark accent shades. The preference hook stores validated preset IDs in local storage and applies root data attributes immediately; startup restores them before React renders. The UI says these choices are saved on the current device. Code remains monospace, and Reset appearance restores Lavender/System. Browser tests verify every accent pair meets 4.5:1 contrast for filled controls and that selections survive route changes and reloads.
 
 ## Mobile composition
 

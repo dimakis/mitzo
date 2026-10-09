@@ -41,3 +41,31 @@ it.each(['light', 'dark'])('resets the theme, accent and UI font from %s', (them
   expect(document.documentElement.dataset.accent).toBe('lavender');
   expect(document.documentElement.dataset.font).toBe('system');
 });
+
+it.each([
+  ['Blue', 'blue', 'Verdana', 'verdana'],
+  ['Mint', 'mint', 'Trebuchet MS', 'trebuchet'],
+  ['Coral', 'coral', 'Palatino', 'palatino'],
+  ['Plum', 'plum', 'Courier New', 'courier'],
+])('selects and restores expanded picker choice %s', (label, accent, fontLabel, font) => {
+  localStorage.clear();
+  const view = render(
+    <MemoryRouter>
+      <SettingsView />
+    </MemoryRouter>,
+  );
+  fireEvent.click(screen.getByRole('radio', { name: label }));
+  const fontOption = screen.getByRole('option', { name: fontLabel });
+  expect(fontOption.getAttribute('value')).toBe(font);
+  fireEvent.change(screen.getByRole('combobox', { name: 'Font' }), { target: { value: font } });
+  expect(document.documentElement.dataset.accent).toBe(accent);
+  expect(document.documentElement.dataset.font).toBe(font);
+  view.unmount();
+  render(
+    <MemoryRouter>
+      <SettingsView />
+    </MemoryRouter>,
+  );
+  expect((screen.getByRole('radio', { name: label }) as HTMLInputElement).checked).toBe(true);
+  expect((screen.getByRole('combobox', { name: 'Font' }) as HTMLSelectElement).value).toBe(font);
+});
