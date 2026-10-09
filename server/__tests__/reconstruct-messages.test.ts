@@ -1401,3 +1401,27 @@ it.each(['fetch', 'search'])('restores the error flag for a failed legacy web %s
   ]);
   expect(messages[0].blocks[0]).toMatchObject({ toolError: true });
 });
+
+it('restores a safe account failure even when no assistant reply was produced', () => {
+  const events = [
+    { seq: 1, type: 'user_message', payload: { messageId: 'user-test', text: 'test' } },
+    {
+      seq: 2,
+      type: 'error',
+      payload: {
+        error: 'PRIVATE_UPSTREAM_TEXT',
+        providerFailure: {
+          category: 'authentication',
+          code: 'not_authorized_invalid_project',
+          message: 'PRIVATE_UPSTREAM_TEXT',
+        },
+      },
+    },
+    { seq: 3, type: 'session_end', payload: { terminalReason: 'failed' } },
+  ].map((event) => ({ ...event, sessionId: 'failure-session', createdAt: 1000 })) as StoredEvent[];
+  const restored = replayEventsToTranscript(events);
+  expect(restored.current).toBeNull();
+  expect(restored.messages).toHaveLength(2);
+  expect(restored.messages[1].blocks[0].content).toContain('project is unavailable or archived');
+  expect(JSON.stringify(restored)).not.toContain('PRIVATE_UPSTREAM_TEXT');
+});

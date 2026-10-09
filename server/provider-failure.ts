@@ -204,6 +204,16 @@ function categoryFor(text: string, status?: number): ProviderFailureCategory {
   return 'unknown';
 }
 
+/** Render persisted failure metadata from reviewed messages, never upstream text. */
+export function publicProviderFailureMessage(value: unknown): string {
+  const failure = record(value);
+  if (failure?.category === 'authentication' && failure.code === PROJECT_ACCESS_CODE)
+    return PROJECT_ACCESS_MESSAGE;
+  return typeof failure?.category === 'string' && Object.hasOwn(PUBLIC_MESSAGES, failure.category)
+    ? PUBLIC_MESSAGES[failure.category as ProviderFailureCategory]
+    : PUBLIC_MESSAGES.unknown;
+}
+
 export function classifyProviderFailure(
   value: unknown,
   context: { correlationId: string; attempt?: number },

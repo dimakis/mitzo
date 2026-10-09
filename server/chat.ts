@@ -1,3 +1,4 @@
+import { publicProviderFailureMessage } from './provider-failure.js';
 import { credentialSdkBoundary } from './credential-sdk-boundary.js';
 import { createCredentialSdkServer, credentialSdkPermission } from './credential-sdk-tools.js';
 import { CONNECTION_TOOL_INSTRUCTIONS } from './session-credential-tools.js';
@@ -3755,6 +3756,24 @@ function replaySingleEventsToTranscript(
       }
       case 'message_end':
         if (turn && payload.messageId === turn.messageId) finishTurn();
+        break;
+      case 'error':
+        if (payload.providerFailure) {
+          finishTurn();
+          messages.push({
+            messageId: `provider-error-${event.seq}`,
+            role: 'assistant',
+            timestamp: event.createdAt,
+            startedSeq: event.seq,
+            blocks: [
+              {
+                blockId: `provider-error-text-${event.seq}`,
+                blockType: 'text',
+                content: `**Error:** ${publicProviderFailureMessage(payload.providerFailure)}`,
+              },
+            ],
+          });
+        }
         break;
       case 'session_end':
         finishTurn();

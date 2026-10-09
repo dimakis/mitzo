@@ -142,6 +142,7 @@ describe('OpenShell OpenAI credential adapter', () => {
   it('pins provider identity and policy, stops retained workloads, and keeps credential writes out of CLI argv/env', async () => {
     const f = gatewayFixture();
     expect(await f.gateway.inspect(account, signal())).toEqual({ version: '10' });
+    f.sandboxes.sandboxStopped.mockResolvedValueOnce(false);
     await f.gateway.pause(account, signal());
     expect(f.sandboxes.stopSandbox).toHaveBeenCalledWith('retained-chat', expect.any(AbortSignal));
     expect(await f.gateway.replace(account, 'PRIVATE_KEY', '10', signal())).toEqual({
@@ -158,6 +159,11 @@ describe('OpenShell OpenAI credential adapter', () => {
     ).toBe(true);
     expect(f.run.mock.calls.some(([args]) => args[1] === 'update')).toBe(false);
   });
+  it('does not stop an already stopped retained sandbox', async () => {
+    const f = gatewayFixture();
+    await f.gateway.pause(account, signal());
+    expect(f.sandboxes.stopSandbox).not.toHaveBeenCalled();
+  });
   it('refuses provider substitution and policy changes before credentials are submitted', async () => {
     for (const drift of ['driftId', 'driftPolicy'] as const) {
       const f = gatewayFixture();
@@ -172,7 +178,7 @@ describe('OpenShell OpenAI credential adapter', () => {
   });
   it('refuses credential replacement when a retained sandbox cannot be confirmed stopped', async () => {
     const f = gatewayFixture();
-    f.sandboxes.sandboxStopped.mockResolvedValueOnce(false);
+    f.sandboxes.sandboxStopped.mockResolvedValue(false);
     await expect(f.gateway.pause(account, signal())).rejects.toThrow(
       'OpenAI chats could not be paused',
     );

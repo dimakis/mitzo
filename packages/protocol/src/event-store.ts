@@ -2219,7 +2219,7 @@ export class EventStore {
   getSessionClientState(sessionId: string): ClientSessionState | null {
     const session = this.getSession(sessionId);
     if (!session?.state) return null;
-    if (session.state !== 'ACTIVE' && session.state !== 'STARTING')
+    if (!['ACTIVE', 'STARTING', 'DETACHED', 'SUSPENDED'].includes(session.state))
       return toClientState(session.state);
     const turn = this.db!.prepare(
       `SELECT type, json_extract(payload, '$.clientState') AS client_state FROM events
