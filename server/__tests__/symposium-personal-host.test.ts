@@ -2,7 +2,12 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { RoutingDiagnosticResult } from '../symposium-model-discovery.js';
+import {
+  runSymposiumRoutingDiagnostic,
+  type DiscoveryOperations,
+  type DiscoveryConfig,
+  type RoutingDiagnosticResult,
+} from '../symposium-model-discovery.js';
 import type { SymposiumSubscriptionHostOptions } from '../symposium-subscription-host.js';
 type FakeAdapter = {
   complete(plan?: 'plus' | 'pro'): void;
@@ -82,7 +87,11 @@ vi.mock('../symposium-subscription-host.js', () => ({
     return adapter;
   },
 }));
-import { createPersonalSubscriptionHost } from '../symposium-personal-host.js';
+import {
+  createPersonalSubscriptionHost,
+  preparePersonalRoutingDiagnostic,
+  createPersonalRoutingDiagnosticDispatchWitness,
+} from '../symposium-personal-host.js';
 import { AccountProfiles } from '../account-profiles.js';
 const roots: string[] = [];
 afterEach(() => {
@@ -699,5 +708,121 @@ it.each(['complete', 'failed', 'reconciliation_required'] as const)(
       (await host.personalConnections.recoverDiscovery(row.id, pending.revision, () => {})).status,
     ).toBe('reconciled');
     expect(recover).toHaveBeenCalledOnce();
+  },
+);
+
+it('rejects replaying a genuine preflight failure from an earlier diagnostic lease', async () => {
+  let retainedError: unknown;
+  let calls = 0;
+  const host = fixture(undefined, async (proof) => {
+    if (++calls === 1) {
+      try {
+        await preparePersonalRoutingDiagnostic(proof, async () => {
+          throw Error('private config');
+        });
+      } catch (error) {
+        retainedError = error;
+        throw error;
+      }
+    }
+    throw retainedError;
+  });
+  const row = await connected(host, 'pro');
+  const catalog = host.currentProfiles.catalog();
+  await expect(
+    host.personalConnections.diagnoseRouting(row.id, row.revision, () => {}),
+  ).rejects.toThrow('preflight');
+  const current = host.personalConnections.list()[0];
+  expect(current.state).toBe('connected');
+  expect(current.modelDiscovery).toBeUndefined();
+  expect(host.currentProfiles.catalog()[0].models).toEqual(catalog[0].models);
+  await expect(
+    host.personalConnections.diagnoseRouting(current.id, current.revision, () => {}),
+  ).rejects.toThrow('requires recovery');
+  expect(host.personalConnections.list()[0]).toMatchObject({
+    state: 'recovery_required',
+    modelDiscovery: 'reconciliation_required',
+  });
+});
+it('does not treat a named undispatched error or forged preflight marker as trusted evidence', async () => {
+  const host = fixture(undefined, async () => {
+    const error = new Error('Owned routing diagnostic preflight failed');
+    Object.assign(error, { name: 'DiscoveryNotDispatchedError', undispatched: true });
+    throw error;
+  });
+  const row = await connected(host, 'pro');
+  await expect(
+    host.personalConnections.diagnoseRouting(row.id, row.revision, () => {}),
+  ).rejects.toThrow('requires recovery');
+  expect(host.personalConnections.list()[0].state).toBe('recovery_required');
+});
+
+async function undispatchedOutcome(
+  proof: Parameters<typeof createPersonalRoutingDiagnosticDispatchWitness>[0],
+) {
+  const config: DiscoveryConfig = {
+    cliSha256: 'a'.repeat(64),
+    workloadImage: 'sha256:' + 'b'.repeat(64),
+    policySha256: 'c'.repeat(64),
+    podmanUrl: 'unix:///mock.sock',
+    gateway: 'gateway',
+    workspace: 'workspace',
+    provider: proof.provider,
+    routingDiagnostic: {
+      format: 'owned-supervisor-console-v1',
+      logLevel: 'off,openshell.routing_http=debug',
+      supervisorImage: 'sha256:' + 'd'.repeat(64),
+    },
+  };
+  const witness = createPersonalRoutingDiagnosticDispatchWitness(proof);
+  const ops = {
+    withExclusiveAttempt: async (run: () => Promise<unknown>) => run(),
+    verifyCustody: async () => {},
+    readReceipt: async () => undefined,
+  } as unknown as DiscoveryOperations;
+  const result = await runSymposiumRoutingDiagnostic(config, ops, {
+    notDispatchedOrigin: witness.origin,
+    onNotDispatched: (evidence) => witness.confirm(config, evidence),
+  });
+  expect(result.status).toBe('failed');
+  expect(witness.disposition()).toBeDefined();
+  return { result, undispatched: witness.disposition()! };
+}
+it('rejects genuine nondispatch disposition replay from another Personal invocation', async () => {
+  let prior: Awaited<ReturnType<typeof undispatchedOutcome>> | undefined;
+  const host = fixture(undefined, async (proof) => {
+    if (prior) return prior;
+    prior = await undispatchedOutcome(proof);
+    return prior;
+  });
+  const row = await connected(host, 'pro');
+  expect(
+    (await host.personalConnections.diagnoseRouting(row.id, row.revision, () => {})).status,
+  ).toBe('failed');
+  const next = host.personalConnections.list()[0];
+  await expect(
+    host.personalConnections.diagnoseRouting(next.id, next.revision, () => {}),
+  ).rejects.toThrow('requires recovery');
+  expect(host.personalConnections.list()[0].state).toBe('recovery_required');
+});
+it.each(['forged', 'malformed', 'complete', 'reconciliation_required'] as const)(
+  'quarantines %s diagnostic results rather than misusing a nondispatch disposition',
+  async (failure) => {
+    const host = fixture(undefined, async (proof) => {
+      const outcome = await undispatchedOutcome(proof);
+      if (failure === 'forged')
+        return { ...outcome, undispatched: { kind: 'owned-routing-undispatched' as const } };
+      if (failure === 'malformed')
+        return { ...outcome, result: { ...outcome.result, rawResponse: 'private' } };
+      return { ...outcome, result: { ...outcome.result, status: failure } };
+    });
+    const row = await connected(host, 'pro');
+    await expect(
+      host.personalConnections.diagnoseRouting(row.id, row.revision, () => {}),
+    ).rejects.toThrow('requires recovery');
+    expect(host.personalConnections.list()[0]).toMatchObject({
+      state: 'recovery_required',
+      modelDiscovery: 'reconciliation_required',
+    });
   },
 );

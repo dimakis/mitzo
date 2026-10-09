@@ -10,6 +10,7 @@ import * as evidenceCollector from '../symposium-owned-evidence-async.js';
 import { SymposiumPerSeatSandboxOwner } from '../symposium-session-runtime.js';
 import { sandboxNameForConversation } from '../openshell-runtime.js';
 import * as personalHost from '../symposium-personal-host.js';
+import * as subscriptionHost from '../symposium-subscription-host.js';
 import * as discoveryHost from '../symposium-model-discovery-host.js';
 import * as sourceSeal from '../symposium-source-artifact-seal.js';
 import { readSymposiumProductionAttestation } from '../symposium-production-gate.js';
@@ -1895,6 +1896,142 @@ it('promotes only the retained positive owned Ready identity after guarded first
     expect(JSON.parse(readFileSync(durableFence, 'utf8')).uncertain).toBe(false);
     expect(raw.openClient).not.toHaveBeenCalled();
     expect(raw.create).toHaveBeenCalledOnce();
+  } finally {
+    host.stop();
+  }
+});
+
+it.each([
+  'qualification',
+  'config-read',
+  'adapter-construction',
+  'late-preflight-revocation',
+] as const)(
+  'releases the exact Personal lease after actual owned diagnostic %s fails before allocation',
+  async (failure) => {
+    const f = diagnosticFixture();
+    let authorized = true;
+    const adapter = {
+      activeDefinition: undefined,
+      captureDiscovery: () => ({
+        provider: { name: 'personal', id: 'real-provider-id' },
+        account: { email: 'fixture@example.test', planType: 'pro' },
+        assertCurrent() {},
+      }),
+      beginDeviceLogin: async () => ({
+        completed: Promise.resolve({ email: 'fixture@example.test', planType: 'pro' }),
+        cancel: async () => {},
+      }),
+      disconnect: vi.fn(async () => {}),
+      invalidate: vi.fn(),
+    };
+    vi.spyOn(subscriptionHost, 'createSymposiumSubscriptionHost').mockReturnValue(adapter as never);
+    const factory = vi.spyOn(discoveryHost, 'createDiscoveryHostOperations');
+    const runner = vi.spyOn(discoveryCore, 'runSymposiumRoutingDiagnostic');
+    const host = await createOwnedSymposiumHost(f.options, f.launch);
+    try {
+      const original = host.personalConnections.list()[0];
+      const login = await host.beginDeviceLogin({
+        connectionId: original.id,
+        expectedRevision: original.revision,
+      });
+      await login.completed;
+      const connected = host.personalConnections.list()[0];
+      if (failure === 'qualification')
+        f.verifyNative.mockImplementation(() => {
+          throw Error('tuple unavailable');
+        });
+      if (failure === 'config-read') rmSync(join(f.root, 'gateway.toml'));
+      if (failure === 'adapter-construction')
+        factory.mockImplementation(() => {
+          throw Error('private adapter preflight unavailable');
+        });
+      if (failure === 'late-preflight-revocation')
+        f.verifyNative.mockImplementation(() => {
+          authorized = false;
+        });
+      await expect(
+        host.personalConnections.diagnoseRouting(connected.id, connected.revision, () => {
+          if (!authorized) throw Error('operator expired');
+        }),
+      ).rejects.toThrow('preflight');
+      const settled = host.personalConnections.list()[0];
+      expect(settled).toMatchObject({
+        state: 'connected',
+        account: connected.account,
+        revision: connected.revision + 2,
+      });
+      expect(settled.modelDiscovery).toBeUndefined();
+      expect(adapter.invalidate).not.toHaveBeenCalled();
+      expect(runner).not.toHaveBeenCalled();
+      expect(existsSync(join(f.root, 'routing-diagnostic.json'))).toBe(false);
+      await expect(
+        host.personalConnections.disconnect(settled.id, settled.revision),
+      ).resolves.toMatchObject({ state: 'disconnected' });
+    } finally {
+      host.stop();
+    }
+  },
+);
+
+it('releases the Personal lease after positively undispatched real core failure even if operator expiry follows its return', async () => {
+  const f = diagnosticFixture();
+  let authorized = true;
+  const adapter = {
+    activeDefinition: undefined,
+    captureDiscovery: () => ({
+      provider: { name: 'personal', id: 'real-provider-id' },
+      account: { email: 'fixture@example.test', planType: 'pro' },
+      assertCurrent() {},
+    }),
+    beginDeviceLogin: async () => ({
+      completed: Promise.resolve({ email: 'fixture@example.test', planType: 'pro' }),
+      cancel: async () => {},
+    }),
+    disconnect: vi.fn(async () => {}),
+    invalidate: vi.fn(),
+  };
+  vi.spyOn(subscriptionHost, 'createSymposiumSubscriptionHost').mockReturnValue(adapter as never);
+  const operations = {
+    withExclusiveAttempt: async (run: () => Promise<unknown>) => run(),
+    verifyCustody: vi.fn(async () => {}),
+    readReceipt: vi.fn(async () => undefined),
+    create: vi.fn(),
+    openClient: vi.fn(),
+    persistReceipt: vi.fn(),
+    clearReceipt: vi.fn(),
+  } as unknown as discoveryCore.DiscoveryOperations;
+  vi.spyOn(discoveryHost, 'createDiscoveryHostOperations').mockReturnValue(operations);
+  const realRunner = discoveryCore.runSymposiumRoutingDiagnostic;
+  vi.spyOn(discoveryCore, 'runSymposiumRoutingDiagnostic').mockImplementation(async (...args) => {
+    const result = await realRunner(...args);
+    expect(result.status).toBe('failed');
+    authorized = false;
+    return result;
+  });
+  const host = await createOwnedSymposiumHost(f.options, f.launch);
+  try {
+    const original = host.personalConnections.list()[0];
+    const login = await host.beginDeviceLogin({
+      connectionId: original.id,
+      expectedRevision: original.revision,
+    });
+    await login.completed;
+    const connected = host.personalConnections.list()[0];
+    await expect(
+      host.personalConnections.diagnoseRouting(connected.id, connected.revision, () => {
+        if (!authorized) throw Error('operator expired');
+      }),
+    ).rejects.toThrow('preflight');
+    expect(host.personalConnections.list()[0]).toMatchObject({
+      state: 'connected',
+      revision: connected.revision + 2,
+    });
+    expect(host.personalConnections.list()[0].modelDiscovery).toBeUndefined();
+    expect(adapter.invalidate).not.toHaveBeenCalled();
+    expect(operations.create).not.toHaveBeenCalled();
+    expect(operations.openClient).not.toHaveBeenCalled();
+    expect(operations.persistReceipt).not.toHaveBeenCalled();
   } finally {
     host.stop();
   }

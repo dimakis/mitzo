@@ -2,6 +2,9 @@ import type { SubscriptionLaunchIdentity } from './symposium-subscription-identi
 import type { CatalogModel } from './model-catalog.js';
 import {
   RoutingDiagnosticResultSchema,
+  assertDiscoveryNotDispatchedEvidence,
+  type DiscoveryNotDispatchedEvidence,
+  type DiscoveryConfig,
   type DiscoveryResult,
   type RoutingDiagnosticResult,
 } from './symposium-model-discovery.js';
@@ -17,12 +20,53 @@ type DiscoveryRecovery = (assertCurrent: () => void) => Promise<DiscoveryResult>
 export interface PersonalRoutingDiagnosticOutcome {
   result: RoutingDiagnosticResult;
   recover?: DiscoveryRecovery;
+  undispatched?: PersonalRoutingDiagnosticUndispatchedDisposition;
 }
 export interface PersonalDiscoveryProof {
   provider: { name: string; id: string };
   account: { email: string; planType: string };
   launchIdentity?(): SubscriptionLaunchIdentity;
   assertCurrent(): void;
+}
+
+export interface PersonalRoutingDiagnosticUndispatchedDisposition {
+  readonly kind: 'owned-routing-undispatched';
+}
+const undispatchedOutcomes = new WeakMap<object, PersonalDiscoveryProof>();
+/** Retained only inside one owned diagnostic callback, never restored from metadata. */
+export function createPersonalRoutingDiagnosticDispatchWitness(proof: PersonalDiscoveryProof) {
+  const origin = Object.freeze({});
+  let disposition: PersonalRoutingDiagnosticUndispatchedDisposition | undefined;
+  return {
+    origin,
+    confirm(config: DiscoveryConfig, evidence: DiscoveryNotDispatchedEvidence) {
+      assertDiscoveryNotDispatchedEvidence(config, evidence, origin);
+      if (
+        disposition ||
+        config.provider.name !== proof.provider.name ||
+        config.provider.id !== proof.provider.id
+      )
+        throw new Error('Original diagnostic nondispatch evidence changed');
+      disposition = Object.freeze({ kind: 'owned-routing-undispatched' });
+      undispatchedOutcomes.set(disposition, proof);
+    },
+    disposition: () => disposition,
+  };
+}
+const undispatchedPreflightFailures = new WeakMap<object, PersonalDiscoveryProof>();
+/** Trusted owned-factory preparation only: this boundary must end before the runner
+ * or any native allocation capability is invoked. Evidence belongs to one exact proof. */
+export async function preparePersonalRoutingDiagnostic<T>(
+  proof: PersonalDiscoveryProof,
+  prepare: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await prepare();
+  } catch {
+    const error = new Error('Owned routing diagnostic preflight failed');
+    undispatchedPreflightFailures.set(error, proof);
+    throw error;
+  }
 }
 
 /** Slots retain display metadata only; each live adapter owns an independent receipt. */
@@ -238,6 +282,8 @@ export function createPersonalSubscriptionHost(
           throw new Error('Account change is pending');
         const lease = connections.beginDiscovery(id, revision);
         let entered = false;
+        let diagnosticProof: PersonalDiscoveryProof | undefined;
+        let cleanUndispatchedOutcome = false;
         try {
           options.gateway.verifyCustody();
           const proof = lease.adapter.captureDiscovery();
@@ -251,7 +297,7 @@ export function createPersonalSubscriptionHost(
           if (proof.account.planType !== 'pro')
             throw new Error('A live Personal Pro receipt is required');
           entered = true;
-          const rawResult = await diagnose({
+          diagnosticProof = {
             provider: proof.provider,
             account: proof.account,
             launchIdentity: () => {
@@ -266,8 +312,18 @@ export function createPersonalSubscriptionHost(
               };
             },
             assertCurrent,
-          });
+          };
+          const rawResult = await diagnose(diagnosticProof);
           const result = RoutingDiagnosticResultSchema.parse(rawResult.result);
+          if (rawResult.undispatched !== undefined) {
+            if (
+              result.status !== 'failed' ||
+              rawResult.recover !== undefined ||
+              undispatchedOutcomes.get(rawResult.undispatched) !== diagnosticProof
+            )
+              throw new Error('Invalid original diagnostic nondispatch disposition');
+            cleanUndispatchedOutcome = true;
+          }
           // The same-process cleanup closure is retained before admission
           // invalidation, including a late operator revocation after return.
           if (rawResult.recover) {
@@ -287,14 +343,22 @@ export function createPersonalSubscriptionHost(
           );
           if (result.status !== 'reconciliation_required') recoveries.delete(id);
           return { ...result, connection };
-        } catch {
+        } catch (error) {
+          const undispatched =
+            cleanUndispatchedOutcome ||
+            !entered ||
+            (!!diagnosticProof &&
+              typeof error === 'object' &&
+              error !== null &&
+              undispatchedPreflightFailures.get(error) === diagnosticProof);
           let released = false;
           try {
-            connections.finishDiscovery(lease, !entered);
-            released = !entered;
+            connections.finishDiscovery(lease, undispatched);
+            released = undispatched;
           } catch {
             /* Preserve unresolved owned operation. */
           }
+          // eslint-disable-next-line preserve-caught-error -- Public errors omit private native/configuration details.
           throw new Error(
             released
               ? 'Personal routing diagnostic preflight failed'

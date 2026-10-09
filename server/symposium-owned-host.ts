@@ -79,7 +79,11 @@ import { guardDiscoveryOperations } from './symposium-discovery-custody.js';
 import { createDiscoveryHostOperations } from './symposium-model-discovery-host.js';
 import type { CatalogModel } from './model-catalog.js';
 import { SymposiumWorkspaceLifecycle } from './symposium-workspace-lifecycle.js';
-import { createPersonalSubscriptionHost } from './symposium-personal-host.js';
+import {
+  createPersonalSubscriptionHost,
+  preparePersonalRoutingDiagnostic,
+  createPersonalRoutingDiagnosticDispatchWitness,
+} from './symposium-personal-host.js';
 import type { ConnectionSelection } from './symposium-personal-connections.js';
 import { SymposiumConfigSchema } from '@mitzo/protocol';
 import {
@@ -921,49 +925,52 @@ export async function createOwnedSymposiumHost(
                 supervisorImage: diagnosticBuild.supervisorImage,
               });
             };
-            custody();
-            proof.assertCurrent();
-            const gatewayConfigPath = join(gateway.stateDirectory, 'gateway.toml');
-            const config: DiscoveryConfig = {
-              cliSha256: options.gateway.cliSha256,
-              workloadImage: options.gateway.workloadImage,
-              policySha256: policyDigest,
-              podmanUrl: `unix://${options.gateway.podmanSocket}`,
-              gateway: gateway.gateway,
-              workspace: gateway.workspace,
-              provider: proof.provider,
-              routingDiagnostic: {
-                format: 'owned-supervisor-console-v1',
-                logLevel: 'off,openshell.routing_http=debug',
-                supervisorImage: diagnosticBuild.supervisorImage,
-              },
-            };
-            await assertSupported(config);
-            proof.assertCurrent();
-            const original = createDiscoveryHostOperations(config, {
-              cli: gateway.cli,
-              podman: options.podman.executable,
-              policy: options.runtime.policy,
-              journal: join(gateway.stateDirectory, 'routing-diagnostic.json'),
-              namespace: options.podman.sandboxNamespace,
-              environment: { ...gateway.managementEnvironment },
-              configPins: [
-                {
-                  path: gatewayConfigPath,
-                  sha256: createHash('sha256')
-                    .update(readFileSync(gatewayConfigPath))
-                    .digest('hex'),
-                  mode: 0o400,
+            const { config, original } = await preparePersonalRoutingDiagnostic(proof, async () => {
+              custody();
+              proof.assertCurrent();
+              const gatewayConfigPath = join(gateway.stateDirectory, 'gateway.toml');
+              const config: DiscoveryConfig = {
+                cliSha256: options.gateway.cliSha256,
+                workloadImage: options.gateway.workloadImage,
+                policySha256: policyDigest,
+                podmanUrl: `unix://${options.gateway.podmanSocket}`,
+                gateway: gateway.gateway,
+                workspace: gateway.workspace,
+                provider: proof.provider,
+                routingDiagnostic: {
+                  format: 'owned-supervisor-console-v1',
+                  logLevel: 'off,openshell.routing_http=debug',
+                  supervisorImage: diagnosticBuild.supervisorImage,
                 },
-              ],
-              launchIdentity: proof.launchIdentity,
-              attestGateway: async () => {
-                custody();
-              },
-              routingDiagnostic: {
-                supervisorImage: diagnosticBuild.supervisorImage,
-                assertSupported,
-              },
+              };
+              await assertSupported(config);
+              proof.assertCurrent();
+              const original = createDiscoveryHostOperations(config, {
+                cli: gateway.cli,
+                podman: options.podman.executable,
+                policy: options.runtime.policy,
+                journal: join(gateway.stateDirectory, 'routing-diagnostic.json'),
+                namespace: options.podman.sandboxNamespace,
+                environment: { ...gateway.managementEnvironment },
+                configPins: [
+                  {
+                    path: gatewayConfigPath,
+                    sha256: createHash('sha256')
+                      .update(readFileSync(gatewayConfigPath))
+                      .digest('hex'),
+                    mode: 0o400,
+                  },
+                ],
+                launchIdentity: proof.launchIdentity,
+                attestGateway: async () => {
+                  custody();
+                },
+                routingDiagnostic: {
+                  supervisorImage: diagnosticBuild.supervisorImage,
+                  assertSupported,
+                },
+              });
+              return { config, original };
             });
             const originalCreation = workspaceLifecycle.retainDiscoveryCreation();
             let retainedReceipt: DiscoveryReceipt | undefined;
@@ -1014,7 +1021,12 @@ export async function createOwnedSymposiumHost(
                 retain(receipt, evidence);
               },
             );
+            const nondispatch = createPersonalRoutingDiagnosticDispatchWitness(proof);
             const result = await runSymposiumRoutingDiagnostic(config, fenced.operations, {
+              notDispatchedOrigin: nondispatch.origin,
+              onNotDispatched(evidence) {
+                nondispatch.confirm(config, evidence);
+              },
               onOwnedReady: retain,
               onPhysicalCleanup(receipt, evidence) {
                 retain(receipt);
@@ -1046,6 +1058,13 @@ export async function createOwnedSymposiumHost(
                 ? { ...result, status: 'reconciliation_required' as const }
                 : result,
               ...(recover ? { recover } : {}),
+              ...(result.status === 'failed' &&
+              !retainedReceipt &&
+              !recovery &&
+              !fenced.creationUncertain() &&
+              nondispatch.disposition()
+                ? { undispatched: nondispatch.disposition() }
+                : {}),
             };
           }
         : undefined,
