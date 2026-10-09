@@ -1222,7 +1222,23 @@ async function openCodexChatBound(
           },
           beforeReconnect: async () => {
             await sharedOpenShellLifecycleCoordinator.admit(options.conversationId, async () => {
-              let recovered = await runtimeManager!.ensure(options.conversationId, signal);
+              const retained = options.repositoryWorkspace
+                ? privateStorage.readArtifactRuntime(options.conversationId, options.binding)
+                : undefined;
+              if (options.repositoryWorkspace && !retained)
+                throw new Error(
+                  'Repository sandbox identity is unavailable; preserve the conversation',
+                );
+              let recovered = await runtimeManager!.ensure(
+                options.conversationId,
+                signal,
+                retained
+                  ? {
+                      sandboxName: retained.runtime.sandboxName,
+                      sandboxId: retained.runtime.sandboxId,
+                    }
+                  : undefined,
+              );
               if (recovered.sandboxId && configuredRuntime) {
                 const selected = await prepareRetainedRuntimeMigration({
                   conversationId: options.conversationId,

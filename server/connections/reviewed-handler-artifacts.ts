@@ -95,7 +95,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../openshell-runtime-policy.ts':
     'efecd458bf61fecd8198ecd330e0227e2c600ab21d6d2890cd2bac254e22b75f',
   '../openshell-runtime.ts': '71e650b8114df6264ce0a5b81ae32a1907ee3562c177c9d0d59c1f4825849b0c',
-  '../codex-chat-session.ts': 'cb3abdb89152674678c0a4914f9ee7e966412b64f53b2c7d902d0548911bba99',
+  '../codex-chat-session.ts': 'c02f0cc99dff1d5ed289941a5d25cfb7044c9a507194bebf345b7f0b422555dc',
   '../connections-runtime.ts': 'dbe641704a1d761d73740260fb28057054fdb34a64513fa77292d2fdb1954a84',
   'capabilities/operation-store.ts':
     '1a235f11d5578880e6dfa7ecf5779e2a011e24430774fc17429d7d22359b93f2',
