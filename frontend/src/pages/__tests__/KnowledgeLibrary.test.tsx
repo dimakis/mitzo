@@ -956,6 +956,7 @@ it('recovers an explicitly emptied draft and adds a current document using the l
   expect(JSON.parse(localStorage.getItem('mitzo-knowledge-working-copy:')!).documents).toEqual([]);
   view.unmount();
   setup();
+  fireEvent.click(await screen.findByRole('button', { name: '+ Add document' }));
   fireEvent.click(await findLibraryDocument(/Current release notes/, 'teams'));
   const source = (await screen.findByRole('textbox', {
     name: 'Document source',
@@ -1136,6 +1137,7 @@ it.each(['accepted', 'closed', 'in-review'])(
     expect(empty.pendingCreate).toBeUndefined();
     view.unmount();
     setup();
+    fireEvent.click(await screen.findByRole('button', { name: '+ Add document' }));
     fireEvent.click(await findLibraryDocument(/Replacement document/, 'teams'));
     const source = await screen.findByRole('textbox', { name: 'Document source' });
     fireEvent.change(source, { target: { value: '# New replacement edits' } });
@@ -1664,4 +1666,52 @@ it('clears empty-copy add intent when a folder becomes the pending change', asyn
   await screen.findByRole('article', { name: 'Working principles' });
   expect(screen.queryByRole('textbox', { name: 'Document source' })).toBeNull();
   expect(localStorage.getItem('mitzo-knowledge-working-copy:')).toBe(before);
+});
+
+it('opens an accepted file in the reader from a recovered empty change without changing its receipt', async () => {
+  const empty = {
+    title: 'Retained change',
+    baseRevision: 'r1',
+    documents: [],
+    directories: [],
+    selected: '',
+    saved: '[]',
+    savedDirectories: [],
+    draft: { ...draft, state: 'draft', documents: [], review: undefined },
+  };
+  localStorage.setItem('mitzo-knowledge-working-copy:', JSON.stringify(empty));
+  setup();
+  await screen.findByRole('button', { name: 'Folder hub' });
+  const before = localStorage.getItem('mitzo-knowledge-working-copy:');
+  fireEvent.click(await findLibraryDocument(/Working principles/));
+  await screen.findByRole('article', { name: 'Working principles' });
+  expect(screen.queryByRole('textbox', { name: 'Document source' })).toBeNull();
+  expect(localStorage.getItem('mitzo-knowledge-working-copy:')).toBe(before);
+});
+it('explicitly adds a document to the same recovered empty change and keeps its draft receipt', async () => {
+  const empty = {
+    title: 'Retained change',
+    baseRevision: 'r1',
+    documents: [],
+    directories: [],
+    selected: '',
+    saved: '[]',
+    savedDirectories: [],
+    draft: { ...draft, state: 'draft', documents: [], review: undefined },
+  };
+  localStorage.setItem('mitzo-knowledge-working-copy:', JSON.stringify(empty));
+  setup();
+  fireEvent.click(await screen.findByRole('button', { name: '+ Add document' }));
+  fireEvent.click(await findLibraryDocument(/Working principles/));
+  await screen.findByRole('textbox', { name: 'Document source' });
+  const copy = JSON.parse(localStorage.getItem('mitzo-knowledge-working-copy:')!);
+  expect(copy.title).toBe('Retained change');
+  expect(copy.draft.id).toBe('d1');
+  expect(copy.baseRevision).toBe('r1');
+  expect(copy.documents).toEqual([
+    { path: 'hub/principles.md', base: '# Principles', content: '# Principles' },
+  ]);
+  expect(vi.mocked(apiFetch).mock.calls.some(([path]) => path === '/api/knowledge/drafts')).toBe(
+    false,
+  );
 });

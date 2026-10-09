@@ -14,9 +14,7 @@ export function KnowledgeLibrary() {
   const [area, setArea] = useState('All knowledge');
   const [reading, setReading] = useState(true);
   const [details, setDetails] = useState(false);
-  const [adding, setAdding] = useState(
-    !!copy && copy.documents.length === 0 && !copy.directories?.length,
-  );
+  const [adding, setAdding] = useState(false);
   const [reader, setReader] = useState<{ document: KnowledgeDocument; content: string }>();
   const readRequest = useRef(0);
   const [readerFailure, setReaderFailure] = useState<{
@@ -548,6 +546,19 @@ export function KnowledgeLibrary() {
               {closedEmpty ? (
                 <button disabled={busy} onClick={library.discard}>
                   Discard working copy
+                </button>
+              ) : !copy.documents.length && !copy.directories?.length && editable ? (
+                <button
+                  disabled={busy}
+                  onClick={() => {
+                    ++readRequest.current;
+                    setReaderFailure(undefined);
+                    setReader(undefined);
+                    setAdding(true);
+                    setReading(false);
+                  }}
+                >
+                  + Add document
                 </button>
               ) : (
                 <button
