@@ -67,9 +67,11 @@ jobs:
             const reports = [...reviews, ...comments].filter(r =>
               r.user?.login?.toLowerCase() === reviewer && r.body?.includes('## Centaur Review'));
             const timestamp = r => {
-              const original = Date.parse(r.submitted_at || r.created_at || '');
-              const edited = r.updated_at === undefined ? original : Date.parse(r.updated_at);
-              return Math.max(original, edited);
+              const times = [r.submitted_at, r.created_at, r.updated_at]
+                .filter(value => value !== undefined && value !== null)
+                .map(value => Date.parse(value));
+              return !times.length || times.some(value => !Number.isFinite(value)) ?
+                NaN : Math.max(...times);
             };
             const chronologyKnown = reports.every(r => Number.isFinite(timestamp(r)));
             reports.sort((a, b) => timestamp(a) - timestamp(b));

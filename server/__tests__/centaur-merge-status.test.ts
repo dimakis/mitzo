@@ -186,6 +186,7 @@ it('revokes approval when an older trusted comment is edited to block later', as
 
 it.each([
   [[{ ...review, updated_at: 'invalid' }]],
+  [[{ ...review, created_at: 'invalid' }]],
   [[{ ...review, submitted_at: undefined, created_at: undefined, updated_at: undefined }]],
   [[{ ...review, body: body.replace('`merge`', '`fix`') }, review]],
 ])('fails closed on unknown or tied trusted verdict chronology', async (records) => {
