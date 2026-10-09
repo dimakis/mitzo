@@ -2297,6 +2297,43 @@ describe('handleSendV2 routing', () => {
     expect(startChat).not.toHaveBeenCalled();
   });
 
+  it.each(['test-cmd', 'deliberate', 'fuse'])(
+    'refuses a repository receipt before native %s dispatch',
+    async (name) => {
+      vi.mocked(startChat).mockClear();
+      vi.mocked(resolveSlashCommand).mockReturnValueOnce({
+        type: 'native',
+        name,
+        arguments: 'reason about code',
+      });
+      const ctx = createContext();
+      const transport = mockTransport();
+      ctx.connRegistry.register('c1', transport);
+      const execute = vi.spyOn(ctx.nativeCommands, 'execute');
+      await handleSendV2(
+        'c1',
+        transport,
+        {
+          type: 'send',
+          sessionId: null,
+          prompt: `/${name} reason about code`,
+          clientMsgId: `repo-${name}`,
+          repositoryWorkspaceId: '8ca30b0d-3e65-4eeb-8244-f6277350818f',
+        },
+        ctx,
+      );
+      expect(transport.sent).toContainEqual(
+        expect.objectContaining({
+          type: 'error',
+          error: 'Native commands cannot launch a repository chat. Send an ordinary first prompt.',
+        }),
+      );
+      expect(transport.sent.some((event) => event.type === 'session_id')).toBe(false);
+      expect(execute).not.toHaveBeenCalled();
+      expect(startChat).not.toHaveBeenCalled();
+    },
+  );
+
   it('returns early for native commands without calling startChat', () => {
     (startChat as ReturnType<typeof vi.fn>).mockClear();
     (resolveSlashCommand as ReturnType<typeof vi.fn>).mockReturnValueOnce({

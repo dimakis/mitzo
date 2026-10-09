@@ -199,3 +199,28 @@ it('requires reclaiming the saved source before preparing a replacement after fa
   expect(api.fetch.mock.calls.some(([url]) => url.endsWith('/preview'))).toBe(false);
   expect(sessionStorage.getItem('mitzo-repository-draft:account:model')).toBe(preview.id);
 });
+
+it('restores a settled claim after startup fails before assignment, and offers its original conversation', async () => {
+  sessionStorage.setItem('mitzo-repository-draft:account:model', preview.id);
+  const onChange = vi.fn();
+  api.fetch.mockImplementation(
+    async (url: string) =>
+      new Response(
+        JSON.stringify(
+          url.includes('/catalog?')
+            ? { available: true, repositories: [] }
+            : {
+                ...preview,
+                state: 'claimed',
+                conversationId: 'aaaaaaaa-bbbb-4ccc-8ddd-121212121212',
+              },
+        ),
+      ),
+  );
+  render(<RepositoryChatPicker accountId="account" model="model" onChange={onChange} />);
+  expect(await screen.findByRole('link', { name: 'Open repository conversation' })).toHaveProperty(
+    'href',
+    'http://localhost:3000/chat/aaaaaaaa-bbbb-4ccc-8ddd-121212121212',
+  );
+  expect(onChange).toHaveBeenLastCalledWith({ repositoryWorkspaceId: preview.id, blocked: false });
+});

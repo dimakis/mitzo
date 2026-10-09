@@ -78,7 +78,27 @@ it('starts a native repository chat with its claimed cwd and exact repository co
     seed: '/private/prepared/mgmt',
   });
   const chat = await import('../chat.js');
+  const startupId = chat.nativeStartupSessionId('repository:repository');
   try {
+    repositories.validateHostTask.mockRejectedValueOnce(
+      new Error('fixture failure after settling claim'),
+    );
+    await expect(
+      chat.startChat(
+        { send: vi.fn(), isOpen: () => true },
+        'first-failed-launch',
+        'first attempt',
+        {
+          accountId: 'fixture',
+          model: 'offline-model',
+          accountProfiles: profiles,
+          clientMsgId: 'first-attempt',
+          repositoryWorkspaceId: 'repository',
+        },
+      ),
+    ).rejects.toThrow('fixture failure after settling claim');
+    expect(chat.eventStore.getSession(startupId)).toBeNull();
+    expect(repositories.claim.mock.calls.at(-1)?.[2]).toBe(startupId);
     await chat.startChat(
       { send: vi.fn(), isOpen: () => true },
       'repository-fixture',
@@ -87,14 +107,14 @@ it('starts a native repository chat with its claimed cwd and exact repository co
         accountId: 'fixture',
         model: 'offline-model',
         accountProfiles: profiles,
-        initialSessionId: 'aaaaaaaa-bbbb-4ccc-8ddd-121212121212',
+        initialSessionId: startupId,
         repositoryWorkspaceId: 'repository',
       },
     );
     expect(repositories.claim).toHaveBeenCalledWith(
       'repository',
       expect.objectContaining({ accountId: 'fixture' }),
-      'aaaaaaaa-bbbb-4ccc-8ddd-121212121212',
+      startupId,
       join(root, '.claude', 'repository-tasks'),
       false,
     );
@@ -107,7 +127,17 @@ it('starts a native repository chat with its claimed cwd and exact repository co
         onDemandCreate: undefined,
       }),
     );
-    expect(chat.eventStore.getSession('aaaaaaaa-bbbb-4ccc-8ddd-121212121212')).toMatchObject({
+    // A completed/failed provider startup must use resume rather than another initial launch.
+    await expect(
+      chat.startChat({ send: vi.fn(), isOpen: () => true }, 'duplicate-startup', 'new prompt', {
+        accountId: 'fixture',
+        model: 'offline-model',
+        accountProfiles: profiles,
+        repositoryWorkspaceId: 'repository',
+        clientMsgId: 'different-command',
+      }),
+    ).rejects.toThrow('Resume its original conversation');
+    expect(chat.eventStore.getSession(startupId)).toMatchObject({
       cwd: root,
       repositoryWorkspaceId: 'repository',
     });
@@ -188,14 +218,14 @@ it('starts a native repository chat with its claimed cwd and exact repository co
     open.mockClear();
     await expect(
       chat.startChat({ send: vi.fn(), isOpen: () => true }, 'lost-ledger-fixture', 'continue', {
-        resume: 'aaaaaaaa-bbbb-4ccc-8ddd-121212121212',
+        resume: startupId,
         accountId: 'fixture',
         model: 'offline-model',
         accountProfiles: profiles,
       }),
     ).rejects.toThrow('Repository claim ledger is unavailable');
     expect(open).not.toHaveBeenCalled();
-    expect(chat.eventStore.getSession('aaaaaaaa-bbbb-4ccc-8ddd-121212121212')?.cwd).toBe(root);
+    expect(chat.eventStore.getSession(startupId)?.cwd).toBe(root);
   } finally {
     chat.registry.dispose();
     chat.eventStore.close();

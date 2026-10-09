@@ -1023,6 +1023,8 @@ export function nativeStartupSessionId(clientMsgId: string): string {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-8${hex.slice(13, 16)}-${variant}${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
 }
 
+const repositoryStartups = new Set<string>();
+
 export async function startChat(
   transport: SessionTransport,
   clientId: string,
@@ -1054,6 +1056,23 @@ export async function startChat(
     reattachOnly?: boolean;
   },
 ) {
+  const repositoryStartupId =
+    options.repositoryWorkspaceId && !options.resume
+      ? nativeStartupSessionId(`repository:${options.repositoryWorkspaceId}`)
+      : undefined;
+  if (repositoryStartupId) {
+    if (repositoryStartups.has(repositoryStartupId))
+      throw new Error('Repository conversation startup is already in progress');
+    if (
+      eventStore.getSessionState(repositoryStartupId) ||
+      registry.findBySessionId(repositoryStartupId)
+    )
+      throw new Error(
+        'This repository already has a conversation. Resume its original conversation.',
+      );
+    options = { ...options, initialSessionId: repositoryStartupId };
+    repositoryStartups.add(repositoryStartupId);
+  }
   const startupGuard: { admission?: ProviderDispatchAdmission } = {};
   let releaseOrdinaryStartup: (() => void) | undefined;
   return withSpanAsync(
@@ -1081,6 +1100,7 @@ export async function startChat(
         cleanupUndispatchedStartup(startupGuard.admission, clientId);
       } finally {
         releaseOrdinaryStartup?.();
+        if (repositoryStartupId) repositoryStartups.delete(repositoryStartupId);
       }
     });
 }

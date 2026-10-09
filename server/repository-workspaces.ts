@@ -34,11 +34,21 @@ export interface RepositoryWorkspace extends GithubRepositoryPreview {
 }
 export type PublicRepositoryWorkspace = Pick<
   RepositoryWorkspace,
-  'id' | 'repository' | 'baseBranch' | 'baseOid' | 'featureBranch' | 'state'
+  'id' | 'repository' | 'baseBranch' | 'baseOid' | 'featureBranch' | 'state' | 'conversationId'
 >;
 export function publicRepositoryWorkspace(value: RepositoryWorkspace): PublicRepositoryWorkspace {
   const { id, repository, baseBranch, baseOid, featureBranch, state } = value;
-  return { id, repository, baseBranch, baseOid, featureBranch, state };
+  return {
+    id,
+    repository,
+    baseBranch,
+    baseOid,
+    featureBranch,
+    state,
+    ...(value.state === 'claimed' && value.conversationId
+      ? { conversationId: value.conversationId }
+      : {}),
+  };
 }
 
 /** Includes Git config and objects as well as content. Prepared sources are not agent workspaces. */

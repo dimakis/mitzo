@@ -14,7 +14,8 @@ const workspaceSchema = z.object({
   baseBranch: z.string(),
   baseOid: z.string().regex(/^[a-f0-9]{40}$/),
   featureBranch: z.string(),
-  state: z.enum(['preview', 'ready']),
+  state: z.enum(['preview', 'ready', 'claimed']),
+  conversationId: z.uuid().optional(),
 });
 type Workspace = z.infer<typeof workspaceSchema>;
 const catalogSchema = z.object({
@@ -79,7 +80,7 @@ export function RepositoryChatPicker({
           return;
         }
         const ready = workspaceSchema.parse(await restored.json());
-        if (controller.signal.aborted || ready.state !== 'ready') return;
+        if (controller.signal.aborted || !['ready', 'claimed'].includes(ready.state)) return;
         setWorkspace(ready);
         setOpened(true);
         callback.current({ repositoryWorkspaceId: ready.id, blocked: false });
@@ -228,9 +229,11 @@ export function RepositoryChatPicker({
       ) : (
         <>
           <strong>
-            {workspace?.state === 'ready' ? workspace.repository : 'Repository for this chat'}
+            {workspace && workspace.state !== 'preview'
+              ? workspace.repository
+              : 'Repository for this chat'}
           </strong>
-          {workspace?.state !== 'ready' && (
+          {(!workspace || workspace.state === 'preview') && (
             <>
               <label>
                 GitHub repository
@@ -311,6 +314,9 @@ export function RepositoryChatPicker({
                 </p>
               )}
             </div>
+          )}
+          {workspace?.state === 'claimed' && workspace.conversationId && (
+            <a href={`/chat/${workspace.conversationId}`}>Open repository conversation</a>
           )}
           {busy && <p role="status">Preparing repository…</p>}
           {error && <p role="alert">{error}</p>}

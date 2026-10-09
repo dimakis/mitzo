@@ -1,16 +1,20 @@
-import { spawnSync } from 'node:child_process';
-
-/** Git branch syntax, with expression expansion excluded before invoking Git. */
+/** Literal Git branch syntax (check-ref-format --branch), without process effects.
+ * Revision expressions and previous-checkout expansion are deliberately excluded.
+ */
 export function isGitBranchName(value: string): boolean {
-  if (!value || value.startsWith('-') || value.includes('@{') || value.includes('\0')) return false;
-  const result = spawnSync('git', ['check-ref-format', '--branch', value], {
-    env: {
-      PATH: '/usr/bin:/bin:/opt/homebrew/bin:/usr/local/bin',
-      GIT_CONFIG_SYSTEM: '/dev/null',
-      GIT_CONFIG_GLOBAL: '/dev/null',
-    },
-    timeout: 5000,
-    stdio: 'ignore',
-  });
-  return result.status === 0;
+  if (
+    !value ||
+    value === 'HEAD' ||
+    value.startsWith('-') ||
+    value.endsWith('.') ||
+    value.includes('..') ||
+    value.includes('@{') ||
+    /[\x00-\x20\x7f~^:?*\[\\]/.test(value)
+  )
+    return false;
+  return value
+    .split('/')
+    .every(
+      (component) => !!component && !component.startsWith('.') && !component.endsWith('.lock'),
+    );
 }

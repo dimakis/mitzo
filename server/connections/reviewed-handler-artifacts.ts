@@ -5,12 +5,12 @@ import { createHash } from 'node:crypto';
  * verifies the two source artifacts below, so modifying a validator/helper
  * outside a golden input cannot silently retain this implementation revision.
  */
-export const reviewedHandlerImplementationRevision = 'v1.0.1';
+export const reviewedHandlerImplementationRevision = 'v1.0.2';
 
-export const reviewedGithubPublicationImplementationRevision = 'v1.0.7';
+export const reviewedGithubPublicationImplementationRevision = 'v1.0.8';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.14';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.15';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -40,7 +40,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../session-credential-tools.ts':
     '70db62d9e3c16e66c2e238351a348b82fc6afc8f3b7baba37eeaabb98d27b9c8',
   'policy-compiler.ts': '59579f9eb69a3129dd2d8e1676fa46bd21da45c07f58752183416c82c0986014',
-  'registry.ts': '6d7407cae812ccc270ebfc6ab827430aa9f88af17e6e4d7e7bc3197d255d9801',
+  'registry.ts': '84bf2c1b5f405fc3fa6b1b7936af3ab9945c86b175629c2449c798c837bf1ce6',
   'iana-address-policy.ts': '899b0b5ad66f5cbe72224b34c29ff7a88e32c2a6f5b2987e4d18cfc64f862b4e',
   'iana-address-data.generated.ts':
     '58f91383fa17ab9612d24bc113d011ece63bfc06b4635ba99f108bb05aa34038',
@@ -78,14 +78,14 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../connections-router.ts': 'db03601e5f09080ad370621d2fcbd5879f744c9b272a930b296c20cd47f82979',
   '../connections-service.ts': '1aae9d2c0da483ae798ba03d5804bfb0e81316f3f69666c6595befec3179c314',
   // Repository acquisition and source claims share the ordinary runtime admission review.
-  '../git-branch.ts': '6a839922766c5fcb35272793eac4c0ee1f9a1438b2e7a7cd5ca807846324f8ab',
+  '../git-branch.ts': '905072a6928b56a28b2029f128a54df9b26cbd0365a3c1f2bf360e183e630032',
   '../github-repository-source.ts':
     'da17db978a7374c79b693f62a7bda82c34218db10e5e6e4dcc72267c6fe462a8',
   '../worktree.ts': 'e3fd6d93d33cb5403786c5a7da16dd229d8ba03ad06e8c3abaf6309c64adb34a',
   '../repository-task-checkout.ts':
     '32fd232781b0ba9573fa0e6a511a78ede54a8c33a80dee30f52d06283b4beab5',
   '../native-tool-executor.ts': '6bca4beb98690334e83a0a88b35c80558ed01b7485f682aca0cc0af11b6cd766',
-  '../repository-workspaces.ts': '36875ad74d8c31111003201c684bf9db98b999e36ff4ebc3e36ddfcd91d80617',
+  '../repository-workspaces.ts': '06c83c4ae0fbec1008bf9eb69a6eafcef9c08f6dd0bd29e1d09d78f036799274',
   '../../packages/protocol/src/event-store.ts':
     '523d22223051a09ff250d4cbfbfabb98a7ba6de309c6952a119864ca7ecb0cdb',
   '../../packages/protocol/src/types.ts':
