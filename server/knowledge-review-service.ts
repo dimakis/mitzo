@@ -28,6 +28,7 @@ export class KnowledgeReviewService {
     readonly config: KnowledgeReviewConfiguration,
   ) {}
   assertIdle(id: string) {
+    this.store.assertIdle(id);
     if (this.busy.has(id))
       throw new KnowledgeDraftConflict(
         'This draft is saving its review. Try again when it finishes.',
@@ -95,11 +96,15 @@ export class KnowledgeReviewService {
       await rm(temporary, { recursive: true, force: true });
     }
   }
-  async submit(id: string, version: number) {
+  async submit(id: string, version: number, authorizationSignal?: AbortSignal) {
     this.assertIdle(id);
+    const lease = this.store.acquire(id);
     this.busy.add(id);
     let cleanup: string | undefined;
-    const signal = AbortSignal.timeout(120_000);
+    const signal = AbortSignal.any([
+      AbortSignal.timeout(120_000),
+      ...(authorizationSignal ? [authorizationSignal] : []),
+    ]);
     try {
       const draft = this.store.get(id);
       if (draft.version !== version)
@@ -129,6 +134,16 @@ export class KnowledgeReviewService {
       if (existing) {
         this.scope(existing, branch);
         if (existing.state === 'closed') {
+          if (draft.review && draft.version !== draft.review.version) {
+            this.store.status(
+              id,
+              'draft',
+              'Previous review finished. Start a new change with your remaining edits.',
+            );
+            throw new KnowledgeDraftConflict(
+              'Previous review finished. Start a new change with your remaining edits.',
+            );
+          }
           this.store.status(id, existing.merged ? 'accepted' : 'closed');
           throw new KnowledgeDraftConflict('This change is finished. Start a new draft.');
         }
@@ -147,6 +162,7 @@ export class KnowledgeReviewService {
       if (!draft.publication && draft.documents.every((d) => d.content === d.base))
         throw new KnowledgeDraftConflict('No changes to review');
       const remote = await this.publisher.readBranch(common);
+      signal.throwIfAborted();
       if (remote && remote !== draft.publication?.head && remote !== draft.review?.head)
         throw new KnowledgeDraftConflict(
           'This review changed elsewhere. Reload its review before continuing.',
@@ -172,6 +188,7 @@ export class KnowledgeReviewService {
             bundle: await readFile(path),
           });
           cleanup = reconstructed.cleanupDirectory ?? reconstructed.directory;
+          signal.throwIfAborted();
           await this.publisher.push({ ...common, directory: reconstructed.directory });
         } finally {
           await rm(temporary, { recursive: true, force: true });
@@ -183,6 +200,7 @@ export class KnowledgeReviewService {
         body: `Knowledge update from Mitzo.\n\n${draft.documents.map((d) => '- ' + d.path).join('\n')}\n\nChange: ${draft.id}. Saving this draft does not accept or publish it.`,
         draft: true,
       };
+      signal.throwIfAborted();
       const result = this.scope(
         existing
           ? await this.publisher.update({ ...input, pullRequest: existing })
@@ -195,6 +213,7 @@ export class KnowledgeReviewService {
       if (!verified || verified.state !== 'open' || !verified.draft)
         throw new Error('Review verification failed');
       this.scope(verified, branch);
+      signal.throwIfAborted();
       return this.store.receipt(id, version, { url: verified.url, head });
     } catch (error) {
       if (error instanceof KnowledgeDraftConflict) throw error;
@@ -205,6 +224,7 @@ export class KnowledgeReviewService {
       );
       throw new Error(
         'Draft saved. Its review could not be confirmed. Retry Save to recover the same change.',
+        { cause: error },
       );
     } finally {
       if (cleanup)
@@ -212,6 +232,7 @@ export class KnowledgeReviewService {
           /* The owned transport retains its cleanup fence. */
         });
       this.busy.delete(id);
+      this.store.release(id, lease);
     }
   }
 }

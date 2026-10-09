@@ -28,7 +28,7 @@ export class KnowledgeDraftStore {
     this.db.pragma('journal_mode = WAL');
     this.db.pragma('busy_timeout = 5000');
     this.db.exec(
-      'CREATE TABLE IF NOT EXISTS knowledge_drafts (id TEXT PRIMARY KEY, value TEXT NOT NULL)',
+      'CREATE TABLE IF NOT EXISTS knowledge_drafts (id TEXT PRIMARY KEY, value TEXT NOT NULL); CREATE TABLE IF NOT EXISTS knowledge_draft_leases (id TEXT PRIMARY KEY, token TEXT NOT NULL, expires INTEGER NOT NULL)',
     );
   }
   close() {
@@ -52,6 +52,28 @@ export class KnowledgeDraftStore {
       { value: string } | undefined;
     if (!row) throw new Error('Draft not found');
     return JSON.parse(row.value) as KnowledgeDraft;
+  }
+  assertIdle(id: string) {
+    const lease = this.db
+      .prepare('SELECT expires FROM knowledge_draft_leases WHERE id=?')
+      .get(id) as { expires: number } | undefined;
+    if (lease && lease.expires > Date.now())
+      throw new KnowledgeDraftConflict(
+        'This draft is saving its review. Try again when it finishes.',
+      );
+  }
+  acquire(id: string) {
+    return this.db.transaction(() => {
+      this.assertIdle(id);
+      const token = randomUUID();
+      this.db
+        .prepare('INSERT OR REPLACE INTO knowledge_draft_leases(id,token,expires) VALUES(?,?,?)')
+        .run(id, token, Date.now() + 180_000);
+      return token;
+    })();
+  }
+  release(id: string, token: string) {
+    this.db.prepare('DELETE FROM knowledge_draft_leases WHERE id=? AND token=?').run(id, token);
   }
   private validate(documents: KnowledgeDraftDocument[]) {
     if (
@@ -88,9 +110,10 @@ export class KnowledgeDraftStore {
       updatedAt: new Date().toISOString(),
     });
   }
-  save(id: string, version: number, documents: KnowledgeDraftDocument[]) {
+  save(id: string, version: number, documents: KnowledgeDraftDocument[], baseRevision?: string) {
     this.validate(documents);
     return this.db.transaction(() => {
+      this.assertIdle(id);
       const draft = this.get(id);
       if (draft.version !== version)
         throw new KnowledgeDraftConflict('Draft changed in another window. Reload before saving.');
@@ -98,6 +121,7 @@ export class KnowledgeDraftStore {
         throw new KnowledgeDraftConflict('This change is finished. Start a new draft.');
       return this.put({
         ...draft,
+        baseRevision: baseRevision ?? draft.baseRevision,
         documents,
         version: version + 1,
         state: 'draft',

@@ -32,6 +32,8 @@ import {
   selectSymposiumApplicationClaim,
 } from './symposium-application-dispatch.js';
 import { createGithubPublicationOperatorRouter } from './github-publication-operator-router.js';
+import { createKnowledgeLibraryRouter } from './knowledge-library-router.js';
+import { knowledgeLibraryFromEnvironment } from './knowledge-library-runtime.js';
 import { requestOperatorGithubPublication } from './github-publishing-tool.js';
 import { createCredentialConnectionsRouter } from './credential-connections-router.js';
 import { bindConnectionSetupApplication } from './credential-setup-application.js';
@@ -528,6 +530,22 @@ app.post(
   express.json({ limit: '8mb' }),
 );
 app.use(express.json({ limit: '10mb' }));
+
+let knowledgeLibrary: ReturnType<typeof knowledgeLibraryFromEnvironment> | undefined;
+app.use(
+  '/api/knowledge',
+  operatorAuthMiddleware,
+  createKnowledgeLibraryRouter(() => {
+    knowledgeLibrary ??= knowledgeLibraryFromEnvironment(process.env, {
+      workspaceRoots: [
+        BASE_REPO,
+        ...Object.values(getRepoConfig().repos),
+        ...getRepoConfig().allowedPaths,
+      ].filter(Boolean),
+    });
+    return knowledgeLibrary;
+  }),
+);
 
 const loginLimiter = rateLimit({
   windowMs: 60_000,

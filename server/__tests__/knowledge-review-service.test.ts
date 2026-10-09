@@ -13,7 +13,7 @@ import type {
 
 let root: string, store: KnowledgeDraftStore, source: AcceptedKnowledgeSource;
 let review: GithubPullRequest | null, remoteHead: string | null;
-let publisher: GithubHostPublisher & { identity: ReturnType<typeof vi.fn> };
+let publisher: GithubHostPublisher & { identity: ReturnType<typeof vi.fn<() => Promise<string>>> };
 function git(...args: string[]) {
   return execFileSync('git', ['-C', root, ...args], {
     encoding: 'utf8',
@@ -139,4 +139,30 @@ it('fails closed for changed publisher identity, outside scopes, or finished rev
   review = { ...review!, state: 'closed', merged: true };
   await expect(service().submit(d.id, d.version)).rejects.toThrow('finished');
   expect(store.get(d.id).state).toBe('accepted');
+});
+
+it('fences concurrent saves through another store connection and cancels revoked authority before pushing', async () => {
+  const d = await draft();
+  let release!: () => void;
+  const pending = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  publisher.identity.mockImplementationOnce(async () => {
+    await pending;
+    return 'operator';
+  });
+  const controller = new AbortController();
+  const submission = service().submit(d.id, d.version, controller.signal);
+  const other = new KnowledgeDraftStore(join(root, 'drafts.sqlite'));
+  try {
+    expect(() => other.save(d.id, d.version, d.documents)).toThrow('saving');
+    controller.abort();
+    release();
+    await expect(submission).rejects.toThrow('Draft saved');
+    expect(publisher.push).not.toHaveBeenCalled();
+    expect(other.save(d.id, d.version, d.documents).version).toBe(2);
+  } finally {
+    other.close();
+    release();
+  }
 });
