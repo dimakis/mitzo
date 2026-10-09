@@ -4,6 +4,8 @@ import {
   DiscoveryNativeMetadataFailure,
   DiscoveryDiagnosticSchema,
   RoutingDiagnosticResultSchema,
+  RoutingNetworkObservationSchema,
+  type RoutingNetworkObservation,
   type DiscoveryDiagnostic,
 } from './symposium-discovery-diagnostics.js';
 import { createHash, randomBytes } from 'node:crypto';
@@ -20,6 +22,13 @@ const configSchema = z
     gateway: identifier,
     workspace: identifier,
     provider: z.object({ name: identifier, id: identifier }),
+    routingDiagnostic: z
+      .strictObject({
+        format: z.literal('owned-supervisor-console-v1'),
+        logLevel: z.literal('off,openshell.routing_http=debug'),
+        supervisorImage: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+      })
+      .optional(),
   })
   .strict();
 export type DiscoveryConfig = z.infer<typeof configSchema>;
@@ -59,6 +68,7 @@ export interface DiscoveryReadClient {
 export class DiscoveryNotDispatchedError extends Error {}
 export interface DiscoveryOperations {
   recordDiagnostic?(diagnostic: DiscoveryDiagnostic): Promise<void>;
+  observeRouting?(receipt: DiscoveryReceipt): Promise<unknown>;
   withExclusiveAttempt<T>(operation: () => Promise<T>): Promise<T>;
   verifyCustody(config: DiscoveryConfig): Promise<void>;
   readReceipt(): Promise<unknown>;
@@ -80,14 +90,15 @@ export interface DiscoveryOperations {
   physicalAbsent(receipt: DiscoveryReceipt): Promise<boolean>;
   wait(): Promise<void>;
 }
-export type DiscoveryResult =
+export type DiscoveryResult = (
   | { status: 'complete'; inference: false; modelCount: number; lunaModels: string[] }
   | {
       status: 'failed' | 'reconciliation_required' | 'reconciled';
       inference: false;
       diagnostic?: DiscoveryDiagnostic;
       diagnosticPersisted?: boolean;
-    };
+    }
+) & { networkObservation?: RoutingNetworkObservation };
 /** Routing metadata only; completion never publishes a model catalog. */
 export { RoutingDiagnosticResultSchema } from './symposium-discovery-diagnostics.js';
 export type RoutingDiagnosticResult = z.infer<typeof RoutingDiagnosticResultSchema>;
@@ -112,6 +123,45 @@ export async function runSymposiumModelDiscovery(
         ? { diagnostic: attempt.diagnostic, diagnosticPersisted: attempt.diagnosticPersisted }
         : {}),
     };
+  }
+}
+/** Explicit operator-only routing read. Uses the original allocation and cleanup fences;
+ * no model list or catalog callback can be supplied to this entry point. */
+export async function runSymposiumRoutingDiagnostic(
+  input: DiscoveryConfig,
+  ops: DiscoveryOperations,
+): Promise<RoutingDiagnosticResult> {
+  let attempt: DiscoveryResult | undefined;
+  try {
+    const result = await ops.withExclusiveAttempt(async () => {
+      attempt = await runExclusiveDiscovery(input, ops, undefined, undefined, true);
+      return attempt;
+    });
+    return RoutingDiagnosticResultSchema.parse({
+      status: result.status === 'reconciled' ? 'failed' : result.status,
+      inference: false,
+      catalogPublication: false,
+      ...('diagnostic' in result && result.diagnostic
+        ? {
+            diagnostic: result.diagnostic,
+            diagnosticPersisted: result.diagnosticPersisted,
+          }
+        : {}),
+      ...(result.networkObservation ? { networkObservation: result.networkObservation } : {}),
+    });
+  } catch {
+    return RoutingDiagnosticResultSchema.parse({
+      status: 'reconciliation_required',
+      inference: false,
+      catalogPublication: false,
+      ...(attempt?.networkObservation ? { networkObservation: attempt.networkObservation } : {}),
+      ...(attempt && 'diagnostic' in attempt && attempt.diagnostic
+        ? {
+            diagnostic: attempt.diagnostic,
+            diagnosticPersisted: attempt.diagnosticPersisted,
+          }
+        : {}),
+    });
   }
 }
 /** Same-process cleanup capability, pinned to one exact known sandbox and config.
@@ -160,6 +210,7 @@ export function createSymposiumModelDiscoveryRecovery(
               throw new Error('Discovery cleanup identity changed');
             physicalCleanupProven = true;
           },
+          !!config.routingDiagnostic,
         );
       });
     } catch {
@@ -180,6 +231,7 @@ async function runExclusiveDiscovery(
   ops: DiscoveryOperations,
   onCatalog?: (models: CatalogModel[]) => void,
   onPhysicalCleanup?: (receipt: DiscoveryReceipt) => void,
+  routingOnly = false,
 ): Promise<DiscoveryResult> {
   let receipt: DiscoveryReceipt | undefined;
   let journalAbsenceConfirmed = false;
@@ -188,6 +240,7 @@ async function runExclusiveDiscovery(
   let result: DiscoveryResult;
   let discovered: CatalogModel[] | undefined;
   let resumed = false;
+  let networkObservation: RoutingNetworkObservation | undefined;
   let creationConfirmed = false;
   let stage: DiscoveryDiagnostic['stage'] = 'preflight';
   let createDispatch: DiscoveryDiagnostic['createDispatch'] = 'not-entered';
@@ -220,6 +273,8 @@ async function runExclusiveDiscovery(
     (!expected.id || row.id === expected.id);
   try {
     config = configSchema.parse(input);
+    if (routingOnly !== !!config.routingDiagnostic)
+      throw new DiscoveryNotDispatchedError('Diagnostic capability required');
     await verify();
     const configHash = createHash('sha256').update(JSON.stringify(config)).digest('hex');
     const previous = await ops.readReceipt();
@@ -233,6 +288,8 @@ async function runExclusiveDiscovery(
       creationConfirmed = !!receipt.id;
     } else {
       journalAbsenceConfirmed = true;
+      if (routingOnly && !ops.observeRouting)
+        throw new DiscoveryNotDispatchedError('Diagnostic observer required');
       receipt = {
         name: `md-${randomBytes(8).toString('hex')}`,
         claim: randomBytes(32).toString('hex'),
@@ -299,38 +356,43 @@ async function runExclusiveDiscovery(
         .object({ account: z.object({ type: z.literal('chatgpt') }) })
         .safeParse(await client.request('account/read', { refreshToken: false }));
       if (!account.success) throw new DiscoveryNativeMetadataFailure('account_schema');
-      stage = 'model-list';
-      let pages = 0;
-      let expired = false;
-      let timeout: ReturnType<typeof setTimeout> | undefined;
-      const deadline = new Promise<never>((_resolve, reject) => {
-        timeout = setTimeout(() => {
+      if (!routingOnly) {
+        stage = 'model-list';
+        let pages = 0;
+        let expired = false;
+        let timeout: ReturnType<typeof setTimeout> | undefined;
+        const deadline = new Promise<never>((_resolve, reject) => {
+          timeout = setTimeout(() => {
+            expired = true;
+            reject(new Error('Model discovery deadline exceeded'));
+          }, 60_000);
+        });
+        let models;
+        try {
+          models = await Promise.race([
+            readCodexModels({
+              request: (method, params) => {
+                if (method !== 'model/list' || expired || ++pages > 100)
+                  throw new Error('Bounded read-only discovery');
+                return client!.request(method, params);
+              },
+            }),
+            deadline,
+          ]);
+        } finally {
           expired = true;
-          reject(new Error('Model discovery deadline exceeded'));
-        }, 60_000);
-      });
-      let models;
-      try {
-        models = await Promise.race([
-          readCodexModels({
-            request: (method, params) => {
-              if (method !== 'model/list' || expired || ++pages > 100)
-                throw new Error('Bounded read-only discovery');
-              return client!.request(method, params);
-            },
-          }),
-          deadline,
-        ]);
-      } finally {
-        expired = true;
-        clearTimeout(timeout);
+          clearTimeout(timeout);
+        }
+        discovered = models;
+        const lunaModels = models
+          .map((model) => model.id)
+          .filter((id) => /^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$/.test(id) && /luna/i.test(id));
+        await verify();
+        result = { status: 'complete', inference: false, modelCount: models.length, lunaModels };
+      } else {
+        await verify();
+        result = { status: 'complete', inference: false, modelCount: 0, lunaModels: [] };
       }
-      discovered = models;
-      const lunaModels = models
-        .map((model) => model.id)
-        .filter((id) => /^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$/.test(id) && /luna/i.test(id));
-      await verify();
-      result = { status: 'complete', inference: false, modelCount: models.length, lunaModels };
     } else result = { status: 'reconciled', inference: false };
   } catch (error) {
     if (error instanceof DiscoveryNotDispatchedError && !resumed) {
@@ -349,6 +411,24 @@ async function runExclusiveDiscovery(
       inference: false,
       ...(await diagnose(error)),
     };
+  }
+  // Read the exact owned console while the sandbox still exists. Never let observation
+  // failures bypass the original cancellation/deletion/physical-absence protocol.
+  if (routingOnly && receipt?.id && !resumed) {
+    try {
+      await verify();
+      const rows = z.array(sandboxSchema).parse(await ops.list());
+      const matches = rows.filter((row) => row.name === receipt!.name || row.id === receipt!.id);
+      if (matches.length !== 1 || !owned(matches[0], receipt))
+        throw new Error('Diagnostic owner changed');
+      networkObservation = RoutingNetworkObservationSchema.parse(
+        await ops.observeRouting!(receipt),
+      );
+      await verify();
+    } catch (error) {
+      result = { status: 'reconciliation_required', inference: false };
+      if (!failureDetails) await diagnose(error);
+    }
   }
   stage = 'cleanup';
   try {
@@ -419,5 +499,5 @@ async function runExclusiveDiscovery(
       return { status: 'failed', inference: false, ...(await diagnose(error)) };
     }
   }
-  return { ...result, ...failureDetails };
+  return { ...result, ...failureDetails, ...(networkObservation ? { networkObservation } : {}) };
 }
