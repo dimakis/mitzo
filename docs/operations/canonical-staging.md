@@ -134,6 +134,34 @@ providers, or launch a model. It verifies both the migrated guards and unchanged
 original process before releasing the lock. A partial metadata write or uncertain
 check retains its archive and lock; investigate instead of deleting or retrying.
 
+### Verifying a completed retained metadata operation
+
+The startup guard determines the canonical root from the actual user's HOME.
+Qualification invokes its read-only `--check` in that operator context; the guard
+then constructs the separate staging HOME for application launch. A historical
+qualification command mistakenly supplied application HOME to this outer guard.
+Its completed metadata writes are intact, but the failed acknowledgement retains
+the operation's lock. Do not rerun migration, restore old files or delete the lock.
+
+After investigating the named operation, the verification-only command is:
+
+```sh
+node scripts/verify-staging-qualification.mjs \
+  --operation ORIGINAL_OPERATION_UUID --expected-audit ORIGINAL_AUDIT_SHA256
+```
+
+It requires fresh exact accepted main and the same retained lock, qualification,
+original private archive and audit pin. The current receipt must be byte-for-byte
+the original receipt with only its proven v2 fingerprint changed; installed
+controller/startup bytes must match that original accepted controller commit.
+Source, dependency closure, every archived file, original registration and live
+process are checked again, with no other retained operation or native ownership.
+The startup check uses operator HOME and performs no launch. The command repeats
+verification, records completion of the original operation and releases only its
+matching lock. It does not rewrite metadata, retry migration, create a successor,
+start/stop an app or supply provider/model authority. Partial migration, drift or
+unavailable evidence continues to retain the lock and archive.
+
 The qualified legacy registration permits read-only checks, release preparation
 and the existing ordinary-to-owned transition. Ordinary deploy refuses it. That
 transition pins the qualification and original login-plist bytes, preserves the
