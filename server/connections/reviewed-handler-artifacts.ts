@@ -80,13 +80,16 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   // Repository acquisition and source claims share the ordinary runtime admission review.
   '../github-repository-source.ts':
     '01ad127563ad062ff952f0dc7d7782f2ac5c6ee178214db65422fbbad222435c',
-  '../repository-workspaces.ts': '89e84bafdaafc51460dd637c260ac7050d2da0bd21dd713ab24f878679a3d700',
+  '../repository-task-checkout.ts':
+    '0a2dcbd1bd178096f7da64064c9da0e544b67620dcdafb50e42704f2ac16d08a',
+  '../native-tool-executor.ts': '6bca4beb98690334e83a0a88b35c80558ed01b7485f682aca0cc0af11b6cd766',
+  '../repository-workspaces.ts': 'e1e122ffc9c7556d679e8a50f7651c43d16303171aaa800e1d5d92c6925e938b',
   '../repository-workspace-runtime.ts':
     'b6d4516dd289d2c40d34d32adde3aa3d3cd24405706e1b720f8dffb3ff0c32e4',
   '../repository-workspace-router.ts':
     '13b8fab1dd0f5b83abfbb06946533cfb5273d28e4a71aacd24f7076be4858905',
   '../trusted-native-operation.ts':
-    '462b2c46748608176381c57226af618dc71d59281fb024487736e42da8a4b44e',
+    '0e8afb3b0968881d542850c68b5bc3cb362becffb47e354eccf8375e52ff0038',
   '../repository-chat-startup.ts':
     'da5476aa7e43badb1809a8f52d958d5338ec921c6ab96531978f750fecf4428f',
   // Admission shares compiled connection authority with gateway provisioning.

@@ -1,5 +1,16 @@
+import { execFileSync } from 'node:child_process';
 import { afterEach, expect, it, vi } from 'vitest';
-import { mkdtemp, realpath, rm, mkdir, writeFile, readFile } from 'node:fs/promises';
+import {
+  mkdtemp,
+  realpath,
+  rm,
+  mkdir,
+  writeFile,
+  readFile,
+  rename,
+  access,
+  cp,
+} from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { RepositoryWorkspaces } from '../repository-workspaces.js';
@@ -18,14 +29,35 @@ async function fixture() {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'mitzo-repository-workspaces-')));
   roots.push(root);
   const authorize = vi.fn(async () => ({ revision: 1 }));
+  const git = (directory: string, ...args: string[]) =>
+    execFileSync(
+      'git',
+      ['-C', directory, '-c', 'commit.gpgsign=false', '-c', 'core.hooksPath=/dev/null', ...args],
+      {
+        encoding: 'utf8',
+        env: {
+          PATH: process.env.PATH,
+          GIT_CONFIG_GLOBAL: '/dev/null',
+          GIT_CONFIG_SYSTEM: '/dev/null',
+        },
+      },
+    ).trim();
+  const source = join(root, 'source');
+  execFileSync('git', ['init', '-q', '-b', 'main', source]);
+  git(source, 'config', 'user.name', 'Offline fixture');
+  git(source, 'config', 'user.email', 'fixture@example.invalid');
+  await writeFile(join(source, 'file.txt'), 'source');
+  git(source, 'add', 'file.txt');
+  git(source, 'commit', '-qm', 'base');
+  const oid = git(source, 'rev-parse', 'HEAD');
   const inspect = vi.fn(async () => ({
     repository: 'example/repo',
     baseBranch: 'main',
-    baseOid: 'a'.repeat(40),
+    baseOid: oid,
   }));
   const prepare = vi.fn(async (_preview, directory: string, featureBranch: string) => {
-    await mkdir(directory);
-    await writeFile(join(directory, 'file.txt'), 'source');
+    await cp(source, directory, { recursive: true });
+    git(directory, 'checkout', '-qb', featureBranch);
     return { ...(await inspect()), directory, featureBranch };
   });
   const verify = vi.fn(async () => {});
@@ -37,7 +69,7 @@ async function fixture() {
   });
   const taskRoot = join(root, 'tasks');
   await mkdir(taskRoot);
-  return { root, taskRoot, service, authorize, inspect, prepare, verify };
+  return { root, taskRoot, service, authorize, inspect, prepare, verify, git };
 }
 it('persists a pinned preparation across restart and claims it for only one conversation', async () => {
   const f = await fixture();
@@ -51,7 +83,7 @@ it('persists a pinned preparation across restart and claims it for only one conv
   expect(ready).toMatchObject({
     state: 'ready',
     repository: 'example/repo',
-    baseOid: 'a'.repeat(40),
+    baseOid: expect.stringMatching(/^[a-f0-9]{40}$/),
   });
   f.service.close();
   const restored = new RepositoryWorkspaces(join(f.root, 'private'), {
@@ -218,3 +250,59 @@ it('rechecks access after the host copy and preserves an interrupted claim', asy
   expect(await readFile(copied, 'utf8')).toBe('source');
   f.service.close();
 });
+
+it('validates retained task ownership across restart while preserving edits and commits', async () => {
+  const f = await fixture();
+  const signal = new AbortController().signal;
+  const preview = await f.service.preview(binding, 'connection', 'example/repo', signal);
+  await f.service.prepare(preview.id, binding, signal);
+  const claimed = await f.service.claim(preview.id, binding, 'conversation', f.taskRoot, false);
+  await writeFile(join(claimed.directory!, 'file.txt'), 'task edits');
+  f.git(claimed.directory!, 'add', 'file.txt');
+  f.git(claimed.directory!, 'commit', '-qm', 'task edit');
+  await f.service.releaseSource(preview.id, binding, 'conversation');
+  f.service.close();
+  const restored = new RepositoryWorkspaces(join(f.root, 'private'), { authorize: f.authorize });
+  expect(await restored.validateHostTask('conversation', claimed.directory!)).toMatchObject({
+    directory: claimed.directory,
+  });
+  await expect(restored.validateHostTask('conversation', f.root)).rejects.toThrow();
+  await expect(restored.validateHostTask('unknown', claimed.directory!)).rejects.toThrow();
+  expect(await readFile(join(claimed.directory!, 'file.txt'), 'utf8')).toBe('task edits');
+  restored.close();
+});
+
+it.each(['missing', 'replaced', 'metadata-replaced', 'wrong-branch', 'missing-history'] as const)(
+  'refuses a %s retained host checkout without recreating or overwriting it',
+  async (condition) => {
+    const f = await fixture();
+    const signal = new AbortController().signal;
+    const preview = await f.service.preview(binding, 'connection', 'example/repo', signal);
+    await f.service.prepare(preview.id, binding, signal);
+    const claimed = await f.service.claim(preview.id, binding, 'conversation', f.taskRoot, false);
+    const cwd = claimed.directory!;
+    await writeFile(join(cwd, 'file.txt'), 'preserved edits');
+    if (condition === 'missing' || condition === 'replaced') {
+      await rename(cwd, cwd + '-retained');
+      if (condition === 'replaced') await mkdir(cwd);
+    } else if (condition === 'metadata-replaced') {
+      await rename(join(cwd, '.git'), join(cwd, '.git-retained'));
+      await mkdir(join(cwd, '.git'));
+    } else if (condition === 'missing-history')
+      await rm(join(cwd, '.git', 'objects'), { recursive: true });
+    else await writeFile(join(cwd, '.git', 'HEAD'), 'ref: refs/heads/main\n');
+    await expect(f.service.validateHostTask('conversation', cwd)).rejects.toThrow();
+    if (condition === 'missing') await expect(access(cwd)).rejects.toThrow();
+    expect(
+      await readFile(
+        join(
+          condition === 'missing' || condition === 'replaced' ? cwd + '-retained' : cwd,
+          'file.txt',
+        ),
+        'utf8',
+      ),
+    ).toBe('preserved edits');
+    expect(f.service.getForConversation('conversation')?.directory).toBe(cwd);
+    f.service.close();
+  },
+);

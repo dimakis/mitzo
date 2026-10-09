@@ -1277,7 +1277,6 @@ async function _startChatInner(
       'agent')
     : (options.mode ?? 'agent');
 
-  let baseCwd = openShellWorkdir ?? resolveResumeCwd(options);
   let repositoryWorkspace: RepositoryChatWorkspace | undefined;
   if (options.repositoryWorkspaceId) {
     if (
@@ -1321,10 +1320,16 @@ async function _startChatInner(
       repositoryWorkspace.binding.profileRevision !== accountBinding.profileRevision)
   )
     throw new Error('Repository workspace account binding changed');
-  if (repositoryWorkspace?.directory && !openShellSelected) {
-    baseCwd = repositoryWorkspace.directory;
-    options = { ...options, cwd: baseCwd };
+  if (repositoryWorkspace && !openShellSelected) {
+    if (!repositoryWorkspace.directory)
+      throw new Error('Retained repository task directory is unavailable');
+    await getRepositoryWorkspaces(true).validateHostTask(
+      options.resume ?? options.initialSessionId!,
+      repositoryWorkspace.directory,
+    );
+    options = { ...options, cwd: repositoryWorkspace.directory };
   }
+  const baseCwd = openShellWorkdir ?? resolveResumeCwd(options);
   prompt = repositoryChatContext(repositoryWorkspace) + prompt;
   const nativeProviderSelected = !!apiCredentialRef || !!gemini;
 

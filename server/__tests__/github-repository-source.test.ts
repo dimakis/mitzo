@@ -1,8 +1,10 @@
+import { RepositoryWorkspaces } from '../repository-workspaces.js';
+import type { AccountBinding } from '@mitzo/protocol';
 import { executeTrustedGitCommit } from '../trusted-native-operation.js';
 import { inspectHostGithubRepository, exportHostGithubBundle } from '../github-host-source.js';
 import { afterEach, expect, it, vi } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { mkdtemp, realpath, rm, writeFile, readFile, access } from 'node:fs/promises';
+import { mkdtemp, realpath, rm, writeFile, readFile, access, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -12,7 +14,9 @@ import {
 } from '../github-repository-source.js';
 
 const roots: string[] = [];
+const services: RepositoryWorkspaces[] = [];
 afterEach(async () => {
+  services.splice(0).forEach((service) => service.close());
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 async function fixture() {
@@ -170,28 +174,90 @@ it('lets the independent checkout commit changes and export them through the exi
   expect(await readFile(join(f.source, 'file.txt'), 'utf8')).toBe('original\n');
 });
 
-it('supports the native approved commit tool on a prepared standalone checkout', async () => {
+async function claimedFixture() {
   const f = await fixture();
-  const preview = await inspectGithubRepositorySource('example/repo', f.signal, f.run);
-  const target = join(f.root, 'native-task');
-  await prepareGithubRepositorySource(preview, target, 'mitzo/task-123', f.signal, f.run);
+  const binding = {
+    accountId: 'offline',
+    provider: 'openai',
+    model: 'fixture',
+    profileRevision: 'v1',
+  } as AccountBinding;
+  const service = new RepositoryWorkspaces(join(f.root, 'private'), {
+    authorize: async () => ({ revision: 1 }),
+    inspect: (repository, signal) => inspectGithubRepositorySource(repository, signal, f.run),
+    prepare: (preview, directory, branch, signal) =>
+      prepareGithubRepositorySource(preview, directory, branch, signal, f.run),
+  });
+  services.push(service);
+  const tasks = join(f.root, 'tasks');
+  await mkdir(tasks);
+  const preview = await service.preview(binding, 'github', 'example/repo', f.signal);
+  await service.prepare(preview.id, binding, f.signal);
+  const claimed = await service.claim(preview.id, binding, 'conversation', tasks, false);
+  const task = await service.validateHostTask('conversation', claimed.directory!);
+  return { ...f, service, target: claimed.directory!, task };
+}
+
+it('supports the native approved commit tool on a prepared standalone checkout', async () => {
+  const f = await claimedFixture();
+  const target = f.target;
   await writeFile(join(target, 'file.txt'), 'native task change\n');
-  await executeTrustedGitCommit(target, ['file.txt'], 'native task change', f.signal);
+  await executeTrustedGitCommit(
+    target,
+    ['file.txt'],
+    'native task change',
+    f.signal,
+    undefined,
+    undefined,
+    undefined,
+    f.task,
+  );
   expect(f.git(target, 'rev-list', '--count', 'origin/main..HEAD')).toBe('1');
   expect(f.git(target, 'status', '--porcelain')).toBe('');
+  expect(await f.service.validateHostTask('conversation', target)).toEqual(f.task);
+  await expect(
+    executeTrustedGitCommit(
+      f.source,
+      ['file.txt'],
+      'wrong workspace',
+      f.signal,
+      undefined,
+      undefined,
+      undefined,
+      f.task,
+    ),
+  ).rejects.toThrow('verified repository task');
   expect(await readFile(join(f.source, 'file.txt'), 'utf8')).toBe('original\n');
 });
 
 it('refuses external object storage before committing an acquired standalone checkout', async () => {
-  const f = await fixture();
-  const preview = await inspectGithubRepositorySource('example/repo', f.signal, f.run);
-  const target = join(f.root, 'aliased-task');
-  await prepareGithubRepositorySource(preview, target, 'mitzo/task-123', f.signal, f.run);
+  const f = await claimedFixture();
+  const target = f.target;
   await writeFile(join(target, 'file.txt'), 'retained task edit\n');
   await writeFile(join(target, '.git/objects/info/alternates'), join(f.source, '.git/objects'));
   await expect(
-    executeTrustedGitCommit(target, ['file.txt'], 'must refuse', f.signal),
+    executeTrustedGitCommit(
+      target,
+      ['file.txt'],
+      'must refuse',
+      f.signal,
+      undefined,
+      undefined,
+      undefined,
+      f.task,
+    ),
   ).rejects.toThrow('External standalone Git storage');
   expect(f.git(target, 'rev-parse', 'HEAD')).toBe(f.oid);
   expect(await readFile(join(target, 'file.txt'), 'utf8')).toBe('retained task edit\n');
+});
+
+it('refuses trusted commits to the primary standalone checkout without a controller task claim', async () => {
+  const f = await fixture();
+  const before = f.git(f.source, 'rev-parse', 'HEAD');
+  await writeFile(join(f.source, 'file.txt'), 'primary checkout edit\n');
+  await expect(
+    executeTrustedGitCommit(f.source, ['file.txt'], 'must refuse', f.signal),
+  ).rejects.toThrow('verified repository task');
+  expect(f.git(f.source, 'rev-parse', 'HEAD')).toBe(before);
+  expect(f.git(f.source, 'diff', '--cached')).toBe('');
 });

@@ -1,9 +1,13 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { mkdtemp, rm, realpath } from 'node:fs/promises';
+import { mkdtemp, rm, realpath, access } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AccountProfiles } from '../account-profiles.js';
-const repositories = vi.hoisted(() => ({ claim: vi.fn(), getForConversation: vi.fn() }));
+const repositories = vi.hoisted(() => ({
+  claim: vi.fn(),
+  getForConversation: vi.fn(),
+  validateHostTask: vi.fn(),
+}));
 vi.mock('../repository-workspace-runtime.js', () => ({
   getRepositoryWorkspaces: () => repositories,
   repositoryWorkspacesEnabled: () => true,
@@ -63,6 +67,7 @@ it('starts a native repository chat with its claimed cwd and exact repository co
   const open = vi
     .spyOn(codex, 'openCodexChat')
     .mockRejectedValue(new Error('offline fixture stops before provider dispatch'));
+  repositories.validateHostTask.mockResolvedValue(undefined);
   repositories.claim.mockResolvedValue({
     id: 'repository',
     repository: 'example/repo',
@@ -103,6 +108,39 @@ it('starts a native repository chat with its claimed cwd and exact repository co
       }),
     );
     expect(chat.eventStore.getSession('aaaaaaaa-bbbb-4ccc-8ddd-121212121212')?.cwd).toBe(root);
+
+    open.mockClear();
+    const missing = join(root, 'missing-retained-task');
+    const resumeId = 'retained-host-chat';
+    chat.eventStore.upsertSession({
+      sessionId: resumeId,
+      cwd: missing,
+      accountBinding: profiles.resolve('fixture', 'offline-model'),
+      selectedModel: 'offline-model',
+    });
+    repositories.getForConversation.mockReturnValue({
+      id: 'repository',
+      repository: 'example/repo',
+      baseBranch: 'main',
+      baseOid: 'a'.repeat(40),
+      featureBranch: 'mitzo/task',
+      directory: missing,
+      sandbox: false,
+    });
+    repositories.validateHostTask.mockRejectedValue(
+      new Error('Retained repository task is unavailable'),
+    );
+    await expect(
+      chat.startChat({ send: vi.fn(), isOpen: () => true }, 'resume-fixture', 'continue', {
+        resume: resumeId,
+        accountId: 'fixture',
+        model: 'offline-model',
+        accountProfiles: profiles,
+      }),
+    ).rejects.toThrow('Retained repository task is unavailable');
+    expect(open).not.toHaveBeenCalled();
+    await expect(access(missing)).rejects.toThrow();
+    expect(chat.eventStore.getSession(resumeId)?.cwd).toBe(missing);
   } finally {
     chat.registry.dispose();
     chat.eventStore.close();

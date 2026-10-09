@@ -1,3 +1,7 @@
+import {
+  validateRepositoryTaskCheckout,
+  type RepositoryTaskCheckout,
+} from './repository-task-checkout.js';
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { constants } from 'node:fs';
@@ -185,11 +189,16 @@ async function validateRefUpdatePaths(common: string, branch: string) {
   ]);
 }
 
-async function linkedMetadata(cwd: string) {
+async function linkedMetadata(cwd: string, task?: RepositoryTaskCheckout) {
   const marker = join(cwd, '.git');
   const markerInfo = await lstat(marker, { bigint: true });
   let admin: string, common: string;
+  if (task && !markerInfo.isDirectory())
+    throw new Error('Retained repository task metadata changed');
   if (markerInfo.isDirectory()) {
+    await validateRepositoryTaskCheckout(cwd, task);
+    if (markerInfo.dev !== BigInt(task!.git.dev) || markerInfo.ino !== BigInt(task!.git.ino))
+      throw new Error('Retained repository task metadata changed');
     if ((await realpath(marker)) !== marker)
       throw new Error('Standalone Git metadata must remain inside the workspace');
     admin = common = marker;
@@ -243,6 +252,8 @@ async function linkedMetadata(cwd: string) {
   const branch = /^ref: (refs\/heads\/[A-Za-z0-9._/-]+)$/.exec(head)?.[1];
   if (!branch || branch.includes('..') || branch.includes('//'))
     throw new Error('Trusted commits require a valid symbolic branch');
+  if (markerInfo.isDirectory() && branch !== `refs/heads/${task!.featureBranch}`)
+    throw new Error('Repository task branch changed');
   await validateRefUpdatePaths(common, branch);
   return {
     marker,
@@ -290,10 +301,11 @@ export async function executeTrustedGitCommit(
   timeoutMs = 30_000,
   maxOutputBytes = 64 * 1024,
   approvedIdentities?: ReadonlyMap<string, ApprovedGitFileIdentity>,
+  task?: RepositoryTaskCheckout,
 ): Promise<string> {
   cwd = await realpath(cwd);
   validateCommitFiles(files);
-  const metadata = await linkedMetadata(cwd);
+  const metadata = await linkedMetadata(cwd, task);
   const indexLock = metadata.index + '.lock';
   const lock = await open(indexLock, 'wx', 0o600).catch(() => {
     throw new Error('Git index is busy; retry after the other operation finishes');

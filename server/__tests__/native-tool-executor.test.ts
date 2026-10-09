@@ -17,6 +17,11 @@ import { SessionRegistry, resolvePending } from '@mitzo/harness';
 import { loadAccountProfiles } from '../account-profiles.js';
 import { executeSandboxedCommand } from '../sandboxed-command.js';
 import { executeTrustedGitCommit, executeTrustedGitHubRead } from '../trusted-native-operation.js';
+const repositoryTasks = vi.hoisted(() => ({ read: vi.fn(), validate: vi.fn() }));
+vi.mock('../repository-workspace-runtime.js', () => ({
+  readRepositoryWorkspaceForConversation: repositoryTasks.read,
+  getRepositoryWorkspaces: () => ({ validateHostTask: repositoryTasks.validate }),
+}));
 vi.mock('../sandboxed-command.js', () => ({
   executeSandboxedCommand: vi.fn().mockResolvedValue({ content: 'done', isError: false }),
 }));
@@ -33,6 +38,8 @@ describe('native tool execution through session permissions', () => {
   let abort: AbortController;
   let sent: Record<string, unknown>[];
   beforeEach(async () => {
+    repositoryTasks.read.mockReset();
+    repositoryTasks.validate.mockReset();
     root = await mkdtemp(join(tmpdir(), 'mitzo-native-'));
     await mkdir(join(root, 'worktree'));
     registry = new SessionRegistry();
@@ -153,6 +160,7 @@ describe('native tool execution through session permissions', () => {
           },
         ],
       ]),
+      undefined,
     );
   });
   it('pins the approved file identity across the approval wait', async () => {
@@ -185,7 +193,48 @@ describe('native tool execution through session permissions', () => {
           },
         ],
       ]),
+      undefined,
     );
+  });
+  it('derives standalone commit authority from the controller claim after approval', async () => {
+    await writeFile(join(root, 'worktree/change.txt'), 'change');
+    const task = {
+      directory: await realpath(join(root, 'worktree')),
+      featureBranch: 'mitzo/task',
+      root: { dev: 1, ino: 2 },
+      git: { dev: 1, ino: 3 },
+    };
+    repositoryTasks.read.mockReturnValue({ id: 'private-controller-claim' });
+    repositoryTasks.validate.mockResolvedValue(task);
+    const pending = executor()(
+      call('GitCommit', { files: ['change.txt'], message: 'test: task commit' }),
+      abort.signal,
+    );
+    await vi.waitFor(() => expect(sent.some((e) => e.type === 'permission_request')).toBe(true));
+    resolvePending(sent.find((e) => e.type === 'permission_request')!.permId as string, 'once');
+    expect(await pending).toMatchObject({ is_error: false });
+    expect(repositoryTasks.validate).toHaveBeenCalledWith(
+      'application-conversation',
+      task.directory,
+    );
+    expect(vi.mocked(executeTrustedGitCommit).mock.calls.at(-1)?.[7]).toEqual(task);
+
+    sent.length = 0;
+    vi.mocked(executeTrustedGitCommit).mockClear();
+    repositoryTasks.validate.mockRejectedValue(
+      new Error('Retained repository task identity changed'),
+    );
+    const refused = executor()(
+      call('GitCommit', { files: ['change.txt'], message: 'test: refuse' }),
+      abort.signal,
+    );
+    await vi.waitFor(() => expect(sent.some((e) => e.type === 'permission_request')).toBe(true));
+    resolvePending(sent.find((e) => e.type === 'permission_request')!.permId as string, 'once');
+    expect(await refused).toMatchObject({
+      is_error: true,
+      content: 'Retained repository task identity changed',
+    });
+    expect(executeTrustedGitCommit).not.toHaveBeenCalled();
   });
   it('rejects GitCommit directories before approval or recursive staging', async () => {
     await mkdir(join(root, 'worktree/changes'));

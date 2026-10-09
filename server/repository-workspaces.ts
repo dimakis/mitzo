@@ -1,3 +1,8 @@
+import {
+  snapshotRepositoryTaskCheckout,
+  validateRepositoryTaskCheckout,
+  type RepositoryTaskCheckout,
+} from './repository-task-checkout.js';
 import Database from 'better-sqlite3';
 import { createHash, randomUUID } from 'node:crypto';
 import { chmodSync, mkdirSync, realpathSync, lstatSync } from 'node:fs';
@@ -25,6 +30,7 @@ export interface RepositoryWorkspace extends GithubRepositoryPreview {
   conversationId?: string;
   directory?: string;
   sandbox?: boolean;
+  taskIdentity?: RepositoryTaskCheckout;
 }
 export type PublicRepositoryWorkspace = Pick<
   RepositoryWorkspace,
@@ -122,6 +128,18 @@ export class RepositoryWorkspaces {
         'Repository workspace preparation did not complete; preserve its original claim',
       );
     return { ...record, ...(!record.sourceReleased ? { seed: this.source(record) } : {}) };
+  }
+  async validateHostTask(conversationId: string, directory: string) {
+    const record = this.getForConversation(conversationId);
+    if (
+      !record ||
+      record.sandbox ||
+      record.directory !== directory ||
+      !record.taskIdentity ||
+      record.taskIdentity.featureBranch !== record.featureBranch
+    )
+      throw new Error('Retained repository task claim is unavailable');
+    return validateRepositoryTaskCheckout(directory, record.taskIdentity);
   }
   status(id: string, binding: AccountBinding) {
     const record = this.get(id);
@@ -248,7 +266,7 @@ export class RepositoryWorkspaces {
     try {
       await mkdir(join(this.directory, id), { mode: 0o700 });
       await (this.deps.prepare ?? prepareGithubRepositorySource)(
-        record,
+        { repository: record.repository, baseBranch: record.baseBranch, baseOid: record.baseOid },
         this.source(record),
         record.featureBranch,
         signal,
@@ -278,6 +296,7 @@ export class RepositoryWorkspaces {
     if (record.state === 'claimed') {
       if (record.conversationId !== conversationId || record.sandbox !== sandbox)
         throw new Error('Repository preparation already belongs to another conversation');
+      if (record.directory) await this.validateHostTask(conversationId, record.directory);
       // Do not verify against the original tree after launch: task edits and commits are expected.
       return { ...record, seed: this.source(record) };
     }
@@ -303,6 +322,10 @@ export class RepositoryWorkspaces {
       });
       if ((await repositorySourceDigest(record.directory)) !== record.sourceDigest)
         throw new Error('Task repository copy changed');
+      record.taskIdentity = await snapshotRepositoryTaskCheckout(
+        record.directory,
+        record.featureBranch,
+      );
     }
     await this.authorize(record, binding, signal);
     record.state = 'claimed';
