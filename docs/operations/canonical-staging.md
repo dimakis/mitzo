@@ -333,3 +333,55 @@ remain required after canonical HTTP ownership is established.
 Pure recovery release preparation is allowed to complete without the read-only
 probe's 30-second timeout. Other read-only probes keep their bounded timeout;
 release construction performs no service control.
+
+## Controlled update of an initial owned stage
+
+`update-owned-staging.mjs` is limited to an initial unconfigured stage with no
+conversation/task/native workload state or active Personal provisioning. It does
+not migrate existing conversations or connected credentials. It requires the
+actual original callback identity and uses the same canonical job and capacity-one
+registry. Production and VM supervision remain excluded from control.
+
+Prepare the current accepted controller with an independently audited dependency
+closure while the original owner stays running:
+
+```sh
+node scripts/update-owned-staging.mjs prepare-release --commit ACCEPTED_SHA \
+  --dependency-source AUDITED_CHECKOUT --expected-dependency-fingerprint CLOSURE_SHA256
+```
+
+From that prepared canonical release, plan with the current check's exact source,
+instance and epoch, and an independently selected native Codex executable/hash:
+
+```sh
+node scripts/update-owned-staging.mjs plan --expected-source ORIGINAL_SOURCE \
+  --instance ORIGINAL_INSTANCE --epoch ORIGINAL_EPOCH \
+  --device-executable SELECTED_NATIVE_CODEX --expected-device-sha CODEX_SHA256
+node scripts/update-owned-staging.mjs apply
+```
+
+Planning freezes the public executable at a separate private path, leaves the
+original configuration unchanged and creates no backend. Apply locks the exact
+plan, rechecks the actual original owner, sends one normal SIGTERM through the
+same job, and waits for its native retirement receipt and matching retired row.
+Process/inventory absence alone cannot authorize replacement. Uncertainty stays
+locked without escalation, restart or rollback.
+
+The completed retirement and full service/workspace/gateway/registry state are
+archived and checked before disposition. The raw retired launch and receipt are
+preserved in `retired_owned_launches`; the earlier qualified refusal histories
+remain. The fresh configuration changes only the selected Personal device-login
+executable. Old keys and VM supervision remain retained. Fresh empty app paths
+and a same-label bundle are prepared at the accepted baseline, then started once.
+The new actual original parent/app identity, singleton row, immutable inputs and
+loopback HTTP readiness must verify before the matching operation unlocks.
+An interrupted acknowledgement can use `verify` for the same operation, with no
+additional retirement or startup.
+
+Personal configuration may select `deviceLoginExecutable: {executable, sha256}`.
+Preparation verifies this public program and rejects aliases of private inputs.
+Device login freezes the exact pinned bytes into its new private home and invokes
+them directly with isolated file credentials. It does not expand the custodian's
+PATH, reuse cached host authentication or send model/thread requests. Ordinary
+unconfigured callers retain their existing launcher behavior. Live inference
+still requires fresh Personal sign-in and an explicit supported Luna selection.
