@@ -269,6 +269,7 @@ export function DesktopChatView() {
     launching = false,
   ): boolean {
     if (repositoryHandoffReason || (repositoryHandoff.present && launching)) return false;
+    if (!activeSessionId && agentProfileBlocked) return false;
     if (launching && activeSessionId) return sendLaunch();
     if (!activeSessionId && (!accountSelection || repositorySelection?.blocked)) return false;
     if (activeSessionId && connection.status !== 'connected') {
@@ -417,13 +418,6 @@ export function DesktopChatView() {
               ) : (
                 <span>Waiting for repository preparation…</span>
               )}
-              <ChatAgentProfilePicker
-                key={chatDraftRevision}
-                sessionId={activeSessionId}
-                search={searchParams.toString()}
-                onChange={onAgentProfileChange}
-                disabled={messages.running}
-              />
               {ordinaryControls && (
                 <>
                   <PermissionModePicker
@@ -463,7 +457,7 @@ export function DesktopChatView() {
 
             <div className="workspace-session-settings">
               <ChatAgentProfilePicker
-                key={chatDraftRevision}
+                key={`agent-profile:${chatDraftRevision}`}
                 sessionId={activeSessionId}
                 search={searchParams.toString()}
                 onChange={onAgentProfileChange}

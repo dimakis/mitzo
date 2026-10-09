@@ -281,6 +281,7 @@ export function ChatView() {
     launching = false,
   ): boolean {
     if (repositoryHandoffReason || (repositoryHandoff.present && launching)) return false;
+    if (!activeSessionId && agentProfileBlocked) return false;
     if (launching && activeSessionId) return sendLaunch();
     if (!activeSessionId && (!accountSelection || repositorySelection?.blocked)) return false;
     // For new sessions (no activeSessionId) the store bootstraps a WS on
@@ -428,7 +429,7 @@ export function ChatView() {
               <span>Waiting for repository preparation…</span>
             )}
             <ChatAgentProfilePicker
-              key={chatDraftRevision}
+              key={`agent-profile:${chatDraftRevision}`}
               sessionId={activeSessionId}
               search={searchParams.toString()}
               onChange={onAgentProfileChange}
