@@ -142,12 +142,28 @@ export const SOURCE_QUALIFIED_SYMPOSIUM_LOCAL_B20_BUILD = Object.freeze({
     ...REVIEWED_SYMPOSIUM_CODEX_01591_IDENTITY_RUNTIME.build.nativeArtifacts,
   }),
 } as const);
+
+/** Public source patch and locked dependency receipt are retained in
+ * docs/spikes/openshell-codex/routing-diagnostic-native. This exact tuple enables
+ * bounded account-check observation; physical admission still uses the full gate. */
+export const SOURCE_QUALIFIED_SYMPOSIUM_ROUTING_BUILD = Object.freeze({
+  ...REVIEWED_SYMPOSIUM_CODEX_01591_IDENTITY_RUNTIME.build,
+  version: '0.0.1-dev.2+ga8ad99243',
+  gatewayVersion: REVIEWED_SYMPOSIUM_OWNED_RUNTIME.build.version,
+  cliSha256: '86153f4bff90b7a20bb01c53e3b1aaf4bb11fa1a456652e06ba8fbe5b69491bc',
+  supervisorImage: 'sha256:70a6be5fe9ffbae4f6ad152fb5f2092acb034e4148d8027faabf522d1ed25f51',
+  nativeArtifacts: Object.freeze({
+    ...REVIEWED_SYMPOSIUM_CODEX_01591_IDENTITY_RUNTIME.build.nativeArtifacts,
+  }),
+} as const);
 export function reviewedSymposiumOwnedBuild(
   image: string,
   selection?: SymposiumOwnedBuildSelection,
 ) {
   const original = reviewedSymposiumOwnedRuntime(image).build;
   if (selection === undefined) return original;
+  if (selection === 'local-854b-routing-v1')
+    return reviewedSymposiumRoutingDiagnosticBuild(image, selection);
   if (
     selection !== 'local-854b-b20-v1' ||
     image !== SOURCE_QUALIFIED_SYMPOSIUM_LOCAL_B20_BUILD.image
@@ -156,17 +172,26 @@ export function reviewedSymposiumOwnedBuild(
   return SOURCE_QUALIFIED_SYMPOSIUM_LOCAL_B20_BUILD;
 }
 
-/** No diagnostic construction is permitted until all native artifacts are
- * measured and the exact source-qualified tuple is registered here. */
+/** A caller or persisted configuration cannot supply an arbitrary proof/build. */
 export function reviewedSymposiumRoutingDiagnosticBuild(
-  _image: string,
-  _selection?: SymposiumOwnedBuildSelection,
-): ReturnType<typeof reviewedSymposiumOwnedBuild> {
-  throw Error('Routing diagnostic native build is not qualified');
+  image: string,
+  selection?: SymposiumOwnedBuildSelection,
+) {
+  if (
+    selection !== 'local-854b-routing-v1' ||
+    image !== SOURCE_QUALIFIED_SYMPOSIUM_ROUTING_BUILD.image
+  )
+    throw Error('Routing diagnostic native build is not qualified');
+  return SOURCE_QUALIFIED_SYMPOSIUM_ROUTING_BUILD;
 }
 
 /** Keep historical serialized build records verbatim. Only a separately
  * qualified successor may declare a different measured gateway version. */
-export function symposiumOwnedBuildVersions(build: { version: string; gatewayVersion?: string }) {
-  return { cliVersion: build.version, gatewayVersion: build.gatewayVersion ?? build.version };
+export function symposiumOwnedBuildVersions<
+  const T extends { version: string; gatewayVersion?: string },
+>(build: T) {
+  return { cliVersion: build.version, gatewayVersion: build.gatewayVersion ?? build.version } as {
+    cliVersion: T['version'];
+    gatewayVersion: T['version'] | Exclude<T['gatewayVersion'], undefined>;
+  };
 }

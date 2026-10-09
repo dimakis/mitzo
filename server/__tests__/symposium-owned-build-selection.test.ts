@@ -52,13 +52,40 @@ it('preserves every image-only default and requires explicit known full-build se
   expect(resolve(image).cliSha256).not.toBe(local.cliSha256);
 });
 
-it('keeps routing diagnostics closed before a measured supervisor tuple is registered', () => {
-  expect(typeof contracts.reviewedSymposiumRoutingDiagnosticBuild).toBe('function');
+it('requires the exact measured routing tuple and explicit trusted diagnostic selection', () => {
   const image = contracts.REVIEWED_SYMPOSIUM_CODEX_01591_IDENTITY_RUNTIME.build.image;
-  for (const selection of [undefined, 'local-854b-b20-v1', 'local-854b-routing-v1', 'unknown'])
+  const qualified = contracts.reviewedSymposiumRoutingDiagnosticBuild(
+    image,
+    'local-854b-routing-v1',
+  );
+  expect(qualified).toMatchObject({
+    version: '0.0.1-dev.2+ga8ad99243',
+    gatewayVersion: '0.0.117-dev.292+g854b2370b',
+    cliSha256: '86153f4bff90b7a20bb01c53e3b1aaf4bb11fa1a456652e06ba8fbe5b69491bc',
+    gatewaySha256: contracts.REVIEWED_SYMPOSIUM_OWNED_RUNTIME.build.gatewaySha256,
+    supervisorImage: 'sha256:70a6be5fe9ffbae4f6ad152fb5f2092acb034e4148d8027faabf522d1ed25f51',
+  });
+  expect(contracts.reviewedSymposiumOwnedBuild(image)).not.toBe(qualified);
+  expect(contracts.reviewedSymposiumOwnedBuild(image, 'local-854b-routing-v1')).toBe(qualified);
+  expect(contracts.symposiumOwnedBuildVersions(qualified)).toEqual({
+    cliVersion: qualified.version,
+    gatewayVersion: qualified.gatewayVersion,
+  });
+  expect(qualified.nativeArtifacts).toEqual(
+    contracts.REVIEWED_SYMPOSIUM_CODEX_01591_IDENTITY_RUNTIME.build.nativeArtifacts,
+  );
+  expect(Object.isFrozen(qualified)).toBe(true);
+  expect(Object.isFrozen(qualified.nativeArtifacts)).toBe(true);
+  for (const selection of [undefined, 'local-854b-b20-v1', 'unknown'])
     expect(() =>
       contracts.reviewedSymposiumRoutingDiagnosticBuild(image, selection as never),
     ).toThrow();
+  expect(() =>
+    contracts.reviewedSymposiumRoutingDiagnosticBuild(
+      contracts.REVIEWED_SYMPOSIUM_OWNED_RUNTIME.build.image,
+      'local-854b-routing-v1',
+    ),
+  ).toThrow();
 });
 
 import { collectOwnedAdmissionEvidence } from '../symposium-owned-evidence.js';
