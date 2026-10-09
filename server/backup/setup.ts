@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { z } from 'zod';
 import type { BackupSetupOverview } from '@mitzo/protocol';
 import { BackupService } from './service.js';
-import { durableJson, readSmall, safeDirectory } from './files.js';
+import { durableJson, readSmall, safeDirectory, syncDirectory } from './files.js';
 
 export const BackupSetupInput = z
   .object({
@@ -23,15 +23,16 @@ export interface BackupSetupOptions {
   root: string;
   cloud: string;
   supported: boolean;
-  prepareTools(): Promise<void>;
+  prepareTools(configured: boolean): Promise<void>;
   savePassword(password: string): Promise<void>;
-  createService(): BackupService;
+  createService(): BackupService | Promise<BackupService>;
   legacyService?: BackupService;
 }
 /** Operator-only setup. Paths and executables come from the host, never a request.
  * The durable receipt contains no secret. Setup never starts a private capture. */
 export class BackupSetup {
   private service?: BackupService;
+  private loading?: Promise<BackupService>;
   private busy = false;
   constructor(private readonly options: BackupSetupOptions) {}
   private async read() {
@@ -59,7 +60,15 @@ export class BackupSetup {
     if (this.options.legacyService && (await this.options.legacyService.overview()).ready)
       return this.options.legacyService;
     if ((await this.read())?.recoveryConfirmed) {
-      this.service ??= this.options.createService();
+      if (!this.service) {
+        this.loading ??= Promise.resolve().then(() => this.options.createService());
+        try {
+          this.service = await this.loading;
+        } catch (error) {
+          this.loading = undefined;
+          throw error;
+        }
+      }
       return this.service;
     }
     return new BackupService(undefined, ['Complete backup setup in Mitzo.']);
@@ -103,12 +112,17 @@ export class BackupSetup {
     if (this.busy) throw new BackupSetupError('Backup setup is already running.');
     this.busy = true;
     let owned = false;
+    let admissionOwned = false;
     const lock = join(this.options.root, 'setup.lock');
+    const admission = join(this.options.root, 'admission.lock');
     try {
       await this.privateRoot(true);
       await mkdir(lock, { mode: 0o700 });
       owned = true;
-      for (const name of ['writer.lock', 'admission.lock']) {
+      await mkdir(admission, { mode: 0o700 });
+      admissionOwned = true;
+      await syncDirectory(this.options.root);
+      for (const name of ['writer.lock']) {
         try {
           await lstat(join(this.options.root, name));
         } catch (error) {
@@ -122,6 +136,7 @@ export class BackupSetup {
       await work();
     } finally {
       try {
+        if (admissionOwned) await rmdir(admission);
         if (owned) await rmdir(lock);
       } finally {
         this.busy = false;
@@ -130,13 +145,16 @@ export class BackupSetup {
   }
   async prepare() {
     await this.mutate(async () => {
-      if ((await this.status()).configured) return;
-      await this.options.prepareTools();
-      await durableJson(join(this.options.root, 'setup.json'), {
-        version: 1,
-        prepared: true,
-        recoveryConfirmed: false,
-      });
+      const configured = (await this.status()).configured;
+      await this.options.prepareTools(configured);
+      this.service = undefined;
+      this.loading = undefined;
+      if (!configured)
+        await durableJson(join(this.options.root, 'setup.json'), {
+          version: 1,
+          prepared: true,
+          recoveryConfirmed: false,
+        });
     });
   }
   async configure(input: { password: string; recoveryConfirmed: boolean }) {

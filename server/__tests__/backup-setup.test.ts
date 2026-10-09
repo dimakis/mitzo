@@ -101,3 +101,24 @@ it('rejects shared storage and unsupported hosts without repairing them', async 
   expect(options.prepareTools).not.toHaveBeenCalled();
   await expect(new BackupSetup({ ...options, supported: false }).prepare()).rejects.toThrow();
 });
+it('refreshes configured tools without losing readiness, touching the password, or retaining an old service', async () => {
+  const { setup, options, root } = await fixture();
+  await setup.prepare();
+  await setup.configure({ password: 'synthetic-recovery-password', recoveryConfirmed: true });
+  await setup.overview();
+  options.createService.mockClear();
+  await setup.prepare();
+  expect(options.prepareTools).toHaveBeenLastCalledWith(true);
+  expect((await setup.overview()).ready).toBe(true);
+  expect(options.createService).toHaveBeenCalledTimes(1);
+  expect(options.savePassword).toHaveBeenCalledTimes(1);
+  expect(JSON.parse(await readFile(join(root, 'setup.json'), 'utf8')).recoveryConfirmed).toBe(true);
+});
+it('holds the backup admission fence while replacing tools', async () => {
+  const { setup, options, capture } = await fixture();
+  options.prepareTools.mockImplementation(async () => {
+    await expect(options.createService().start()).rejects.toThrow('Backup unavailable or busy');
+  });
+  await setup.prepare();
+  expect(capture).not.toHaveBeenCalled();
+});
