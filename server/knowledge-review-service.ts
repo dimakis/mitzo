@@ -1,10 +1,11 @@
-import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { AcceptedKnowledgeSource, knowledgeGit } from './knowledge-library-source.js';
 import {
   KnowledgeDraftConflict,
   KnowledgeDraftStore,
+  KNOWLEDGE_RECOVERY_BUNDLE_LIMIT,
   type KnowledgeDraft,
 } from './knowledge-draft-store.js';
 import type {
@@ -58,9 +59,60 @@ export class KnowledgeReviewService {
     branch: string,
     signal: AbortSignal,
     lease: string,
+    rebuildUnpublished: boolean,
   ) {
-    if (draft.publication?.version === draft.version) return draft.publication.head;
-    const parent = draft.publication?.head ?? accepted;
+    let parent = draft.publication?.head ?? accepted;
+    if (draft.publication) {
+      const recovery = this.store.recoveryBundle(draft.id, parent);
+      if (recovery) {
+        const temporary = await mkdtemp(join(tmpdir(), 'mitzo-knowledge-recovery-'));
+        try {
+          const path = join(temporary, 'change.bundle');
+          await writeFile(path, recovery, { mode: 0o600 });
+          const heads = (
+            await knowledgeGit(
+              this.source.directory,
+              ['bundle', 'list-heads', path],
+              undefined,
+              undefined,
+              signal,
+            )
+          ).trim();
+          if (heads !== `${parent} refs/heads/${branch}`)
+            throw new Error('Knowledge recovery bundle differs from its saved head');
+          this.store.assertLease(draft.id, lease);
+          await knowledgeGit(
+            this.source.directory,
+            ['bundle', 'unbundle', path],
+            undefined,
+            undefined,
+            signal,
+          );
+        } finally {
+          await rm(temporary, { recursive: true, force: true });
+        }
+      } else {
+        try {
+          await knowledgeGit(
+            this.source.directory,
+            ['cat-file', '-e', `${parent}^{commit}`],
+            undefined,
+            undefined,
+            signal,
+          );
+        } catch (error) {
+          signal.throwIfAborted();
+          // Legacy backups contain no bundle. Only a confirmed unpublished change
+          // can receive a new identity; a remote/review head must stay exact.
+          if (!rebuildUnpublished) throw error;
+          parent = accepted;
+        }
+      }
+      if (parent === draft.publication.head && draft.publication.version === draft.version) {
+        await this.prepare(draft, accepted, branch, parent, signal, lease);
+        return parent;
+      }
+    }
     const temporary = await mkdtemp(join(tmpdir(), 'mitzo-knowledge-index-'));
     const index = join(temporary, 'index');
     try {
@@ -106,17 +158,43 @@ export class KnowledgeReviewService {
           signal,
         )
       ).trim();
-      this.store.assertLease(draft.id, lease);
+      await this.prepare(draft, accepted, branch, head, signal, lease);
+      return head;
+    } finally {
+      await rm(temporary, { recursive: true, force: true });
+    }
+  }
+  private async prepare(
+    draft: KnowledgeDraft,
+    accepted: string,
+    branch: string,
+    head: string,
+    signal: AbortSignal,
+    lease: string,
+  ) {
+    this.store.assertLease(draft.id, lease);
+    await knowledgeGit(
+      this.source.directory,
+      ['update-ref', `refs/heads/${branch}`, head],
+      undefined,
+      undefined,
+      signal,
+    );
+    const temporary = await mkdtemp(join(tmpdir(), 'mitzo-knowledge-prepared-'));
+    try {
+      const path = join(temporary, 'change.bundle');
       await knowledgeGit(
         this.source.directory,
-        ['update-ref', `refs/heads/${branch}`, head],
+        ['bundle', 'create', path, `refs/heads/${branch}`, '--not', accepted],
         undefined,
         undefined,
         signal,
       );
-      // Persist before the first network mutation: a retry recovers this exact commit.
-      this.store.prepared(draft.id, draft.version, head, lease);
-      return head;
+      if ((await stat(path)).size > KNOWLEDGE_RECOVERY_BUNDLE_LIMIT)
+        throw new Error('Change exceeds review export limit');
+      // The commit and its recoverable objects enter the same SQLite transaction,
+      // before any push. Core database backups therefore preserve both identities.
+      this.store.prepared(draft.id, draft.version, head, lease, await readFile(path));
     } finally {
       await rm(temporary, { recursive: true, force: true });
     }
@@ -218,7 +296,14 @@ export class KnowledgeReviewService {
         draft: true,
       };
       let confirmedDraftReview: GithubPullRequest | undefined;
-      const head = await this.projection(draft, accepted, branch, signal, lease);
+      const head = await this.projection(
+        draft,
+        accepted,
+        branch,
+        signal,
+        lease,
+        !remote && !existing && !draft.review,
+      );
       if (remote !== head) {
         const temporary = await mkdtemp(join(tmpdir(), 'mitzo-knowledge-bundle-'));
         try {
@@ -230,7 +315,7 @@ export class KnowledgeReviewService {
             undefined,
             signal,
           );
-          if ((await stat(path)).size > 16 * 1024 * 1024)
+          if ((await stat(path)).size > KNOWLEDGE_RECOVERY_BUNDLE_LIMIT)
             throw new Error('Change exceeds review export limit');
           const reconstructed = await this.publisher.reconstruct({
             ...common,
