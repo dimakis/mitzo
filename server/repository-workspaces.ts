@@ -214,16 +214,20 @@ export class RepositoryWorkspaces {
     binding: AccountBinding,
     sourceConversationId?: string,
   ): RepositoryChatPreparation {
+    // An owned status read may recover a draft prepared under an earlier model.
+    // Account/provider/profile identity stays fixed; launching still requires the stored full binding.
+    const sameOwner = (value: RepositoryWorkspace) =>
+      isDeepStrictEqual(value.binding, binding) ||
+      (sourceConversationId !== undefined &&
+        isDeepStrictEqual({ ...value.binding, model: binding.model }, binding));
     const record = id
       ? this.get(id)
       : sourceConversationId
-        ? this.chatRecords(sourceConversationId).find((value) =>
-            isDeepStrictEqual(value.binding, binding),
-          )
+        ? this.chatRecords(sourceConversationId).find(sameOwner)
         : undefined;
     if (
       !record?.handoff ||
-      !isDeepStrictEqual(record.binding, binding) ||
+      !sameOwner(record) ||
       (sourceConversationId !== undefined &&
         record.handoff.sourceConversationId !== sourceConversationId)
     )

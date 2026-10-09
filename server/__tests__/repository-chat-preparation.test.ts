@@ -237,3 +237,26 @@ it('recovers the latest discarded draft instead of falling back to an older clai
     prompt: 'New task',
   });
 });
+
+it('recovers an owned draft after the source chat changes model without changing its prepared model', async () => {
+  const f = await fixture();
+  const prepared = await f.service.prepareChat(
+    binding,
+    'origin',
+    'connection',
+    'example/repo',
+    'Fix parser',
+    new AbortController().signal,
+  );
+  const current = { ...binding, model: 'another-supported-model' };
+  expect(f.service.chatPreparation(undefined, current, 'origin')).toEqual(prepared);
+  expect(f.service.chatPreparation(prepared.id, current, 'origin').model).toBe('fixture');
+  expect(() =>
+    f.service.chatPreparation(
+      prepared.id,
+      { ...current, profileRevision: 'another-profile' },
+      'origin',
+    ),
+  ).toThrow();
+  expect(() => f.service.chatPreparation(prepared.id, current)).toThrow();
+});
