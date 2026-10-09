@@ -545,6 +545,7 @@ export class CredentialConnections {
     controllers.add(controller);
     this.active.set(key, controllers);
     const combined = AbortSignal.any([signal, controller.signal, AbortSignal.timeout(30_000)]);
+    let dispatched = false;
     try {
       combined.throwIfAborted();
       check();
@@ -552,6 +553,7 @@ export class CredentialConnections {
       combined.throwIfAborted();
       check();
       if (!secret || /[\r\n]/.test(secret)) throw new Error('Credential unavailable');
+      dispatched = true;
       const body = await this.sendDashboard(
         {
           url,
@@ -588,6 +590,8 @@ export class CredentialConnections {
         (error instanceof Error && error.name === 'KeychainUnavailableError')
       )
         throw error;
+      if (dispatched && request.operation === 'save')
+        throw new DashboardRequestError('DASHBOARD_SAVE_UNCONFIRMED');
       // eslint-disable-next-line preserve-caught-error -- Transport/Keychain failures can carry credentials.
       throw new Error(
         'Dashboard request failed; if a save was attempted, read the dashboard before retrying',

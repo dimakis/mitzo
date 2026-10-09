@@ -345,6 +345,37 @@ it('cancels active dashboard calls when access is changed and rejects concurrent
   expect(f.service.sessions(c.id)).toEqual([]);
 });
 
+it.each(['grant', 'revision', 'policy', 'abort'] as const)(
+  'preserves an unconfirmed save when %s changes after dispatch',
+  async (change) => {
+    const f = serviceFixture();
+    const c = await f.service.create(
+      { ...f.connection, homeAssistantDashboards: 'read-write' },
+      { secret: 'fixture-private-token' },
+    );
+    f.service.grant('a', c.id, 1);
+    const controller = new AbortController();
+    let allowed = true;
+    f.send.mockImplementation(async () => {
+      if (change === 'grant') f.store.revokeAll(c.id);
+      if (change === 'revision') f.service.updateDashboardAccess(c.id, 1, 'read');
+      if (change === 'policy') allowed = false;
+      if (change === 'abort') controller.abort();
+      return '{"operation":"save","verified":true}';
+    });
+    await expect(
+      f.service.dashboardRequest(
+        'a',
+        c.id,
+        { operation: 'save', config: '{}', expectedConfigHash: 'a'.repeat(64) },
+        controller.signal,
+        () => allowed,
+      ),
+    ).rejects.toMatchObject({ code: 'DASHBOARD_SAVE_UNCONFIRMED' });
+    expect(f.send).toHaveBeenCalledOnce();
+  },
+);
+
 it('bounds response frames and expires stalled authentication without leaking raw failures', async () => {
   const oversized = exchange();
   authenticate(oversized.socket);

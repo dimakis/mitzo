@@ -1,5 +1,6 @@
 import { expect, it, vi } from 'vitest';
 import { createCredentialConnectionTools } from '../credential-connection-tools.js';
+import { DashboardRequestError } from '../home-assistant-dashboard.js';
 
 function setup(stillAllowed: (name: string, method?: string) => boolean = () => true) {
   const service = {
@@ -247,6 +248,22 @@ it('rejects dashboard writes in read-only session mode before prompting or sendi
   ).toBe(true);
   expect(approve).not.toHaveBeenCalled();
   expect(service.dashboardRequest).not.toHaveBeenCalled();
+});
+
+it('warns the agent to verify an unconfirmed dashboard save without repeating it', async () => {
+  const { tools, service } = setup();
+  service.dashboardRequest.mockRejectedValue(
+    new DashboardRequestError('DASHBOARD_SAVE_UNCONFIRMED'),
+  );
+  const result = await tools.execute(
+    'HomeAssistantDashboard',
+    { connectionId: 'ha', operation: 'save', config: '{}', expectedConfigHash: 'a'.repeat(64) },
+    new AbortController().signal,
+  );
+  expect(result?.isError).toBe(true);
+  expect(result?.content).toContain('may have applied');
+  expect(result?.content).toContain('do not automatically repeat the save');
+  expect(service.dashboardRequest).toHaveBeenCalledOnce();
 });
 
 it('prompts for configured generic WebSocket scope and rejects model-selected destinations or authentication', async () => {
