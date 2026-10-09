@@ -15,6 +15,7 @@ import {
   assertDiscoveryOwnedReadyEvidence,
   assertDiscoveryPhysicalCleanupEvidence,
   assertDiscoveryOriginalPhysicalCleanupEvidence,
+  createDiscoveryOriginalDispatchAuthority,
   type DiscoveryOwnedReadyEvidence,
   type DiscoveryPhysicalCleanupEvidence,
   type DiscoveryReceipt,
@@ -178,9 +179,26 @@ export class SymposiumWorkspaceLifecycle {
     let invoked = false;
     let active = false;
     let dispatched = false;
+    let recoveryActive = false;
     let bound: Pick<DiscoveryReceipt, 'name' | 'claim' | 'configHash'> | undefined;
     let ready: DiscoveryOwnedReadyEvidence | undefined;
+    const pendingRecoveryAuthority = createDiscoveryOriginalDispatchAuthority((receipt) => {
+      this.custody();
+      if (
+        !recoveryActive ||
+        !this.uncertain ||
+        this.pendingCreation !== token ||
+        !dispatched ||
+        !bound ||
+        receipt.name !== bound.name ||
+        receipt.claim !== bound.claim ||
+        receipt.configHash !== bound.configHash ||
+        (ready && JSON.stringify(receipt) !== JSON.stringify(ready.receipt))
+      )
+        throw new Error('Original discovery dispatch authority changed');
+    });
     return {
+      pendingRecoveryAuthority,
       create: ((verify, operation) => {
         if (invoked) return Promise.reject(new Error('Original discovery creation already used'));
         invoked = true;
@@ -240,24 +258,29 @@ export class SymposiumWorkspaceLifecycle {
           const pending = this.uncertain;
           if (pending && (this.pendingCreation !== token || !dispatched || !bound))
             throw new Error('Workspace creation outcome requires original host recovery');
-          const outcome = await operation();
-          this.custody();
-          if (pending) {
-            if (
-              !this.uncertain ||
-              this.pendingCreation !== token ||
-              !dispatched ||
-              !bound ||
-              !outcome.physicalCleanup
-            )
-              throw new Error('Original discovery physical cleanup unconfirmed');
-            assertDiscoveryOriginalPhysicalCleanupEvidence(bound, outcome.physicalCleanup);
-            if (ready) assertDiscoveryPhysicalCleanupEvidence(ready, outcome.physicalCleanup);
+          recoveryActive = true;
+          try {
+            const outcome = await operation();
             this.custody();
-            this.save(false);
-            this.pendingCreation = undefined;
+            if (pending) {
+              if (
+                !this.uncertain ||
+                this.pendingCreation !== token ||
+                !dispatched ||
+                !bound ||
+                !outcome.physicalCleanup
+              )
+                throw new Error('Original discovery physical cleanup unconfirmed');
+              assertDiscoveryOriginalPhysicalCleanupEvidence(bound, outcome.physicalCleanup);
+              if (ready) assertDiscoveryPhysicalCleanupEvidence(ready, outcome.physicalCleanup);
+              this.custody();
+              this.save(false);
+              this.pendingCreation = undefined;
+            }
+            return outcome.result;
+          } finally {
+            recoveryActive = false;
           }
-          return outcome.result;
         });
         this.tail = result.catch(() => undefined);
         return result;

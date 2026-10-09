@@ -306,10 +306,26 @@ export interface DiscoveryRecoveryCapability {
   ): void;
   physicalCleanupEvidence(): DiscoveryPhysicalCleanupEvidence | undefined;
 }
+export interface DiscoveryOriginalDispatchAuthority {
+  readonly kind: 'original-dispatch-recovery';
+}
+const originalDispatchAuthorities = new WeakMap<
+  DiscoveryOriginalDispatchAuthority,
+  (receipt: DiscoveryReceipt) => void
+>();
+/** Trusted workspace constructor only; the validator requires its active original scope. */
+export function createDiscoveryOriginalDispatchAuthority(
+  assertOriginal: (receipt: DiscoveryReceipt) => void,
+): DiscoveryOriginalDispatchAuthority {
+  const authority = Object.freeze({ kind: 'original-dispatch-recovery' as const });
+  originalDispatchAuthorities.set(authority, assertOriginal);
+  return authority;
+}
 export function createSymposiumModelDiscoveryRecovery(
   input: DiscoveryConfig,
   retained: DiscoveryReceipt,
   evidence?: DiscoveryOwnedReadyEvidence,
+  originalAuthority?: DiscoveryOriginalDispatchAuthority,
 ): DiscoveryRecoveryCapability {
   const pinnedConfig = structuredClone(input);
   const pinnedReceipt = structuredClone(retained);
@@ -341,8 +357,13 @@ export function createSymposiumModelDiscoveryRecovery(
             claim: expected.claim,
             configHash: expected.configHash,
           };
-          if (!pendingAuthorized || JSON.stringify(current) !== JSON.stringify(pending))
+          if (JSON.stringify(current) !== JSON.stringify(pending))
             throw new Error('Discovery journal changed');
+          const assertOriginal =
+            originalAuthority && originalDispatchAuthorities.get(originalAuthority);
+          if (!pendingAuthorized && !assertOriginal)
+            throw new Error('Original dispatch unavailable');
+          assertOriginal?.(expected);
           const rows = z.array(sandboxSchema).parse(await ops.list());
           const matches = rows.filter(
             (row) => row.name === expected.name || row.id === expected.id,
@@ -356,6 +377,7 @@ export function createSymposiumModelDiscoveryRecovery(
             matches[0].labels['mitzo.discovery.claim'] !== discoveryClaimLabel(expected.claim)
           )
             throw new Error('Discovery pending identity changed');
+          assertOriginal?.(expected);
           await ops.verifyCustody(config);
           await ops.persistReceipt(expected, false);
           await ops.verifyCustody(config);

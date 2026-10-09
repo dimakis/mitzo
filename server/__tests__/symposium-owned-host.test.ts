@@ -1901,7 +1901,17 @@ it('promotes only the retained positive owned Ready identity after guarded first
   }
 });
 
-it.each(['none', 'lock-release', 'journal-read', 'custody', 'orphan'] as const)(
+it.each([
+  'none',
+  'lock-release',
+  'journal-read',
+  'custody',
+  'orphan',
+  'first-id-write',
+  'wrong-id',
+  'wrong-label',
+  'wrong-config',
+] as const)(
   'recovers only the original non-Ready diagnostic creation after positive cleanup (%s)',
   async (failure) => {
     const f = diagnosticFixture();
@@ -1921,9 +1931,23 @@ it.each(['none', 'lock-release', 'journal-read', 'custody', 'orphan'] as const)(
     };
     vi.spyOn(subscriptionHost, 'createSymposiumSubscriptionHost').mockReturnValue(adapter as never);
     let journal: discoveryCore.DiscoveryReceipt | undefined;
-    let row: unknown;
+    let row:
+      | {
+          id: string;
+          name: string;
+          workspace: string;
+          phase: string;
+          labels: Record<string, string>;
+        }
+      | undefined;
     let recovering = false;
     let fail = true;
+    const firstIdWriteFailure = [
+      'first-id-write',
+      'wrong-id',
+      'wrong-label',
+      'wrong-config',
+    ].includes(failure);
     const operations = {
       withExclusiveAttempt: async (run: () => Promise<unknown>) => {
         const result = await run();
@@ -1938,6 +1962,8 @@ it.each(['none', 'lock-release', 'journal-read', 'custody', 'orphan'] as const)(
         return journal;
       },
       persistReceipt: async (receipt: discoveryCore.DiscoveryReceipt) => {
+        if (firstIdWriteFailure && !recovering && receipt.id)
+          throw Error('first ID write failed before persistence');
         journal = structuredClone(receipt);
       },
       clearReceipt: vi.fn(async () => {
@@ -1985,11 +2011,15 @@ it.each(['none', 'lock-release', 'journal-read', 'custody', 'orphan'] as const)(
         () => {},
       );
       expect(result.status).toBe('reconciliation_required');
-      if (failure === 'orphan') expect(operations.delete).not.toHaveBeenCalled();
+      if (failure === 'orphan' || firstIdWriteFailure)
+        expect(operations.delete).not.toHaveBeenCalled();
       else expect(operations.delete).toHaveBeenCalledOnce();
-      expect(operations.physicalAbsent).toHaveBeenCalledOnce();
+      if (firstIdWriteFailure) expect(operations.physicalAbsent).not.toHaveBeenCalled();
+      else expect(operations.physicalAbsent).toHaveBeenCalledOnce();
       expect(operations.openClient).not.toHaveBeenCalled();
-      if (failure !== 'orphan') expect(journal).toBeUndefined();
+      if (firstIdWriteFailure) expect(journal).toBeDefined();
+      else if (failure !== 'orphan') expect(journal).toBeUndefined();
+      if (firstIdWriteFailure) expect(journal?.id).toBeUndefined();
       const fencePath = join(f.root, 'sandbox-creation-fence.json');
       expect(JSON.parse(readFileSync(fencePath, 'utf8')).uncertain).toBe(true);
       const other = vi.fn(async () => {});
@@ -2008,7 +2038,12 @@ it.each(['none', 'lock-release', 'journal-read', 'custody', 'orphan'] as const)(
         return;
       }
       recovering = true;
-      if (failure !== 'none') {
+      const originalRow = structuredClone(row);
+      const originalJournal = structuredClone(journal);
+      if (failure === 'wrong-id') row!.id = 'foreign-id';
+      if (failure === 'wrong-label') row!.labels['mitzo.discovery.claim'] = 'foreign-claim';
+      if (failure === 'wrong-config') journal!.configHash = 'f'.repeat(64);
+      if (failure !== 'none' && failure !== 'first-id-write') {
         await expect(
           host.personalConnections.recoverDiscovery(
             result.connection.id,
@@ -2018,8 +2053,11 @@ it.each(['none', 'lock-release', 'journal-read', 'custody', 'orphan'] as const)(
         ).rejects.toThrow('physical cleanup unconfirmed');
         expect(JSON.parse(readFileSync(fencePath, 'utf8')).uncertain).toBe(true);
         expect(adapter.disconnect).not.toHaveBeenCalled();
+        if (firstIdWriteFailure) expect(operations.delete).not.toHaveBeenCalled();
       }
       fail = false;
+      row = originalRow;
+      journal = originalJournal;
       await expect(
         host.personalConnections.recoverDiscovery(
           result.connection.id,

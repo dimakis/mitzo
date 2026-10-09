@@ -502,6 +502,100 @@ it('refuses recovery when the original dispatch recording failed before native a
   expect(cleanup).not.toHaveBeenCalled();
 });
 
+it.each(['original', 'inactive', 'foreign-scope', 'reopened', 'forged'] as const)(
+  'authorizes a pending journal only inside its active original recovery scope (%s)',
+  async (kind) => {
+    const { fence, path } = fixture();
+    const evidence = discoveryEvidence();
+    const scope = fence.retainDiscoveryCreation();
+    await expect(
+      scope.create(
+        () => {},
+        async (dispatch) => {
+          bind(scope, evidence);
+          dispatch();
+          throw Error('first ID write failed');
+        },
+      ),
+    ).rejects.toThrow('first ID write failed');
+    const pending = {
+      name: evidence.receipt.name,
+      claim: evidence.receipt.claim,
+      configHash: evidence.receipt.configHash,
+    };
+    let journal: typeof pending | undefined = pending;
+    let exists = true;
+    const ops = {
+      withExclusiveAttempt: async (run: () => Promise<unknown>) => run(),
+      verifyCustody: async () => {},
+      readReceipt: async () => journal,
+      list: vi.fn(async () =>
+        exists
+          ? [
+              {
+                ...evidence.receipt,
+                workspace: evidence.config.workspace,
+                phase: 'Pending',
+                labels: {
+                  'mitzo.discovery': 'models',
+                  'mitzo.discovery.claim': discoveryClaimLabel(evidence.receipt.claim),
+                },
+              },
+            ]
+          : [],
+      ),
+      persistReceipt: vi.fn(async (value) => {
+        journal = value;
+      }),
+      cancel: vi.fn(async () => {}),
+      delete: vi.fn(async () => {
+        exists = false;
+      }),
+      physicalAbsent: async () => !exists,
+      wait: async () => {},
+      clearReceipt: async () => {
+        journal = undefined;
+      },
+      create: vi.fn(),
+      openClient: vi.fn(),
+    } as unknown as DiscoveryOperations;
+    const authority =
+      kind === 'foreign-scope'
+        ? fence.retainDiscoveryCreation().pendingRecoveryAuthority
+        : kind === 'reopened'
+          ? new SymposiumWorkspaceLifecycle(path, () => {}).retainDiscoveryCreation()
+              .pendingRecoveryAuthority
+          : kind === 'forged'
+            ? structuredClone(scope.pendingRecoveryAuthority)
+            : scope.pendingRecoveryAuthority;
+    const recovery = createSymposiumModelDiscoveryRecovery(
+      evidence.config,
+      evidence.receipt,
+      undefined,
+      authority,
+    );
+    if (kind === 'inactive') expect((await recovery(ops)).status).toBe('reconciliation_required');
+    else {
+      const operation = () =>
+        recovery(ops).then((result) => ({
+          result,
+          physicalCleanup: recovery.physicalCleanupEvidence(),
+        }));
+      if (kind === 'original')
+        await expect(scope.recover(operation)).resolves.toMatchObject({ status: 'reconciled' });
+      else await expect(scope.recover(operation)).rejects.toThrow('physical cleanup unconfirmed');
+    }
+    if (kind !== 'original') {
+      expect(ops.list).not.toHaveBeenCalled();
+      expect(ops.persistReceipt).not.toHaveBeenCalled();
+      expect(ops.delete).not.toHaveBeenCalled();
+    }
+    expect(ops.create).not.toHaveBeenCalled();
+    expect(ops.openClient).not.toHaveBeenCalled();
+    expect(JSON.parse(readFileSync(path, 'utf8')).uncertain).toBe(kind !== 'original');
+  },
+);
+
 it('serializes queued ordinary creation behind positive original cleanup without releasing the fence early', async () => {
   const { fence, path } = fixture();
   const evidence = discoveryEvidence(),

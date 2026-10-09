@@ -988,6 +988,7 @@ export async function createOwnedSymposiumHost(
                   config,
                   observed,
                   retainedReadyEvidence,
+                  originalCreation.pendingRecoveryAuthority,
                 );
               }
             };
