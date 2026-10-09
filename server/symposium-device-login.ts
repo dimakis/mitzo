@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import {
   mkdtempSync,
@@ -9,9 +10,12 @@ import {
   closeSync,
   rmSync,
   constants,
+  writeFileSync,
+  fsyncSync,
+  lstatSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, isAbsolute } from 'node:path';
 import { CodexAppServerClient } from './codex-app-server-client.js';
 import type {
   SubscriptionTokens,
@@ -34,9 +38,61 @@ export interface DeviceLogin {
 }
 
 /** Only the login process gets this fresh home; no host environment is mutated. */
-export function deviceLoginProcessSpec(home: string, path: string | undefined) {
+export interface DeviceLoginExecutable {
+  executable: string;
+  sha256: string;
+}
+function frozenDeviceExecutable(home: string, pin: DeviceLoginExecutable): string {
+  if (!isAbsolute(pin.executable) || !/^[a-f0-9]{64}$/.test(pin.sha256))
+    throw Error('Pinned device executable required');
+  const parent = lstatSync(home);
+  if (
+    !parent.isDirectory() ||
+    parent.isSymbolicLink() ||
+    parent.uid !== process.getuid?.() ||
+    (parent.mode & 0o777) !== 0o700
+  )
+    throw Error('Private device-login home required');
+  const fd = openSync(pin.executable, constants.O_RDONLY | constants.O_NOFOLLOW);
+  let bytes: Buffer;
+  try {
+    const stat = fstatSync(fd);
+    if (
+      !stat.isFile() ||
+      stat.nlink !== 1 ||
+      ![0, process.getuid?.()].includes(stat.uid) ||
+      stat.mode & 0o022 ||
+      !(stat.mode & 0o111) ||
+      stat.size > 256 * 1024 * 1024
+    )
+      throw Error('Pinned device executable metadata changed');
+    bytes = readFileSync(fd);
+    if (createHash('sha256').update(bytes).digest('hex') !== pin.sha256)
+      throw Error('Pinned device executable digest changed');
+  } finally {
+    closeSync(fd);
+  }
+  const target = join(home, 'codex-device-auth'),
+    out = openSync(
+      target,
+      constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW,
+      0o500,
+    );
+  try {
+    writeFileSync(out, bytes);
+    fsyncSync(out);
+  } finally {
+    closeSync(out);
+  }
+  return target;
+}
+export function deviceLoginProcessSpec(
+  home: string,
+  path: string | undefined,
+  executable?: DeviceLoginExecutable,
+) {
   return {
-    command: 'codex',
+    command: executable ? frozenDeviceExecutable(home, executable) : 'codex',
     args: [
       'app-server',
       '--stdio',
@@ -97,15 +153,16 @@ export async function beginDeviceLogin(
   service: SymposiumSubscriptionProvisioner,
   launch: typeof spawn = spawn,
   removeHome: (path: string) => void = (path) => rmSync(path, { recursive: true, force: true }),
+  executable?: DeviceLoginExecutable,
 ): Promise<DeviceLogin> {
   const expiresAt = Date.now() + DEVICE_LOGIN_WINDOW_MS;
   const importTokens = service.beginDevice(expiresAt);
   const home = mkdtempSync(join(tmpdir(), 'mitzo-device-login-'));
   chmodSync(home, 0o700);
   mkdirSync(join(home, 'codex'), { mode: 0o700 });
-  const spec = deviceLoginProcessSpec(home, process.env.PATH);
   let child: ReturnType<typeof spawn>;
   try {
+    const spec = deviceLoginProcessSpec(home, process.env.PATH, executable);
     child = launch(spec.command, spec.args, {
       env: spec.env,
       cwd: home,
