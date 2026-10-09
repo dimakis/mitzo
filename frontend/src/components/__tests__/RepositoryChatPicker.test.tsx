@@ -111,3 +111,34 @@ it('keeps a lost saved repository preparation blocked rather than silently launc
   );
   expect(onChange).toHaveBeenLastCalledWith({ blocked: true });
 });
+
+it('blocks saved repository launch while the catalog is pending and keeps cancellation available on failure', async () => {
+  sessionStorage.setItem('mitzo-repository-draft:account:model', preview.id);
+  let reject!: (error: Error) => void;
+  api.fetch.mockReturnValue(
+    new Promise((_resolve, r) => {
+      reject = r;
+    }),
+  );
+  const onChange = vi.fn();
+  render(<RepositoryChatPicker accountId="account" model="model" onChange={onChange} />);
+  expect(onChange).toHaveBeenLastCalledWith({ blocked: true });
+  reject(new Error('catalog offline'));
+  await screen.findByRole('alert');
+  expect(onChange.mock.calls.every(([selection]) => selection?.blocked)).toBe(true);
+  await userEvent
+    .setup()
+    .click(screen.getByRole('button', { name: 'Continue without repository' }));
+  expect(onChange).toHaveBeenLastCalledWith(null);
+  expect(sessionStorage.getItem('mitzo-repository-draft:account:model')).toBeNull();
+});
+
+it('preserves a saved selection when onboarding becomes unavailable', async () => {
+  sessionStorage.setItem('mitzo-repository-draft:account:model', preview.id);
+  api.fetch.mockResolvedValue(new Response(JSON.stringify({ available: false, repositories: [] })));
+  const onChange = vi.fn();
+  render(<RepositoryChatPicker accountId="account" model="model" onChange={onChange} />);
+  await screen.findByRole('alert');
+  expect(onChange).toHaveBeenLastCalledWith({ blocked: true });
+  expect(screen.getByRole('button', { name: 'Continue without repository' })).toBeTruthy();
+});

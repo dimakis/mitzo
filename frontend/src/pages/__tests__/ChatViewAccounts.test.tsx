@@ -99,6 +99,7 @@ vi.mock('../../components/ChatInput', () => ({
 }));
 afterEach(() => {
   cleanup();
+  sessionStorage.clear();
   vi.resetAllMocks();
 });
 
@@ -535,4 +536,34 @@ it('blocks an unprepared repository and forwards its receipt with the first prom
     'hello',
     expect.objectContaining({ repositoryWorkspaceId: '8ca30b0d-3e65-4eeb-8244-f6277350818f' }),
   );
+});
+
+it('blocks a saved repository before the picker reports any selection', async () => {
+  vi.mocked(apiFetch).mockResolvedValue({
+    ok: true,
+    json: async () => [{ id: 'work', label: 'Work', models: [{ id: 'sonnet', label: 'Sonnet' }] }],
+  } as Response);
+  sessionStorage.setItem(
+    'mitzo-repository-draft:work:sonnet',
+    '8ca30b0d-3e65-4eeb-8244-f6277350818f',
+  );
+  const store = createTestStore();
+  const sendMessage = vi.fn();
+  store.setState({ sendMessage });
+  render(
+    <MemoryRouter>
+      <MitzoStoreProvider value={store}>
+        <ChatView />
+      </MitzoStoreProvider>
+    </MemoryRouter>,
+  );
+  if (screen.getByRole('button', { name: /^Workspace/ }).getAttribute('aria-expanded') === 'false')
+    fireEvent.click(screen.getByRole('button', { name: /^Workspace/ }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Use Work · Sonnet' }));
+
+  expect((screen.getByRole('button', { name: 'Test send' }) as HTMLButtonElement).disabled).toBe(
+    true,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Test send' }));
+  expect(sendMessage).not.toHaveBeenCalled();
 });

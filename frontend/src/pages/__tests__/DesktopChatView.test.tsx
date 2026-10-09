@@ -239,6 +239,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  sessionStorage.clear();
   vi.clearAllMocks();
 });
 
@@ -803,4 +804,30 @@ it('blocks an unprepared repository and forwards its receipt with the first prom
     'hello',
     expect.objectContaining({ repositoryWorkspaceId: '8ca30b0d-3e65-4eeb-8244-f6277350818f' }),
   );
+});
+
+it('blocks a saved repository before the picker reports any selection', async () => {
+  sessionStorage.setItem(
+    'mitzo-repository-draft:test:luna',
+    '8ca30b0d-3e65-4eeb-8244-f6277350818f',
+  );
+  const store = createMockStore();
+  const sendMessage = vi.fn();
+  store.setState({ sendMessage });
+  render(
+    <MemoryRouter>
+      <MitzoStoreProvider value={store}>
+        <DesktopChatView />
+      </MitzoStoreProvider>
+    </MemoryRouter>,
+  );
+  if (screen.getByRole('button', { name: /^Workspace/ }).getAttribute('aria-expanded') === 'false')
+    fireEvent.click(screen.getByRole('button', { name: /^Workspace/ }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Use Test account · Luna' }));
+
+  expect((screen.getByRole('button', { name: 'Test send' }) as HTMLButtonElement).disabled).toBe(
+    true,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Test send' }));
+  expect(sendMessage).not.toHaveBeenCalled();
 });

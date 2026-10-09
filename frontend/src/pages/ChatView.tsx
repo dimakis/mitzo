@@ -1,3 +1,4 @@
+import { savedRepositoryDraft } from '../lib/repository-draft';
 import {
   RepositoryChatPicker,
   type RepositoryChatSelection,
@@ -107,7 +108,11 @@ export function ChatView() {
     selection: RepositoryChatSelection | null;
   } | null>(null);
   const repositorySelection =
-    repositoryChoice?.scope === repositoryScope ? repositoryChoice.selection : null;
+    repositoryChoice?.scope === repositoryScope
+      ? repositoryChoice.selection
+      : accountSelection && savedRepositoryDraft(accountSelection.accountId, accountSelection.model)
+        ? { blocked: true }
+        : null;
 
   const setModel = useCallback(
     (id: string) => {

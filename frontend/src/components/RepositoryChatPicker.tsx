@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { z } from 'zod';
 import { apiFetch } from '../lib/api-fetch';
 import './RepositoryChatPicker.css';
+import { repositoryDraftKey, savedRepositoryDraft } from '../lib/repository-draft';
 
 export interface RepositoryChatSelection {
   repositoryWorkspaceId?: string;
@@ -37,7 +38,7 @@ export function RepositoryChatPicker({
   onChange(value: RepositoryChatSelection | null): void;
 }) {
   const [catalog, setCatalog] = useState<Catalog | null>(null);
-  const [opened, setOpened] = useState(false);
+  const [opened, setOpened] = useState(() => !!savedRepositoryDraft(accountId, model));
   const [selected, setSelected] = useState('');
   const [url, setUrl] = useState('');
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
@@ -46,30 +47,25 @@ export function RepositoryChatPicker({
   const callback = useRef(onChange);
   callback.current = onChange;
   const operation = useRef<AbortController | null>(null);
-  const storageKey = `mitzo-repository-draft:${accountId}:${model}`;
+  const restoration = useRef<AbortController | null>(null);
+  const storageKey = repositoryDraftKey(accountId, model);
   useEffect(() => {
     const controller = new AbortController();
-    callback.current(null);
-    let restoring = false;
+    restoration.current = controller;
+    const saved = savedRepositoryDraft(accountId, model);
+    callback.current(saved ? { blocked: true } : null);
+    if (saved) setOpened(true);
     const query = new URLSearchParams({ accountId, model });
     void Promise.resolve(
       apiFetch(`/api/repository-workspaces/catalog?${query}`, { signal: controller.signal }),
     )
       .then(async (response) => {
-        if (!response?.ok) return;
+        if (!response?.ok) throw new Error('Repository catalog unavailable');
         const data = catalogSchema.parse(await response.json());
         if (controller.signal.aborted) return;
         setCatalog(data);
-        let saved: string | null = null;
-        try {
-          saved = sessionStorage.getItem(storageKey);
-        } catch {
-          /* Storage is optional. */
-        }
-        if (!data.available || !saved) return;
-        restoring = true;
-        setOpened(true);
-        callback.current({ blocked: true });
+        if (!saved) return;
+        if (!data.available) throw new Error('Repository onboarding unavailable');
         const restored = await apiFetch(`/api/repository-workspaces/${saved}?${query}`, {
           signal: controller.signal,
         });
@@ -86,7 +82,7 @@ export function RepositoryChatPicker({
         callback.current({ repositoryWorkspaceId: ready.id, blocked: false });
       })
       .catch(() => {
-        if (!controller.signal.aborted && restoring)
+        if (!controller.signal.aborted && saved)
           setError(
             'Repository preparation unavailable. Preview again or continue without a repository.',
           );
@@ -96,26 +92,17 @@ export function RepositoryChatPicker({
       operation.current?.abort();
     };
   }, [accountId, model, storageKey]);
-  if (!catalog?.available) return null;
-  if (!catalog.repositories.length)
-    return (
-      <p className="repository-chat-hint">
-        Assign a GitHub connection with repository access to this AI account in{' '}
-        <a href="/connections">Connections</a>.
-      </p>
-    );
+  const repositories = catalog?.available ? catalog.repositories : [];
   const selection =
     selected === 'url'
-      ? catalog.repositories.find((entry) => {
+      ? repositories.find((entry) => {
           const normalized = url
             .replace(/^https:\/\/github\.com\//, '')
             .replace(/\.git$/, '')
             .toLowerCase();
           return entry.repository.toLowerCase() === normalized;
         })
-      : catalog.repositories.find(
-          (entry) => `${entry.connectionId}:${entry.repository}` === selected,
-        );
+      : repositories.find((entry) => `${entry.connectionId}:${entry.repository}` === selected);
   async function requestWorkspace(action: 'preview' | 'prepare') {
     if (!selection || busy) return;
     const controller = new AbortController();
@@ -192,6 +179,7 @@ export function RepositoryChatPicker({
         return;
       }
     }
+    restoration.current?.abort();
     try {
       sessionStorage.removeItem(storageKey);
     } catch {
@@ -203,6 +191,14 @@ export function RepositoryChatPicker({
     setError('');
     callback.current(null);
   };
+  if (!catalog?.available && !opened) return null;
+  if (!repositories.length && !opened)
+    return (
+      <p className="repository-chat-hint">
+        Assign a GitHub connection with repository access to this AI account in{' '}
+        <a href="/connections">Connections</a>.
+      </p>
+    );
   return (
     <section className="repository-chat-picker" aria-label="Repository for new chat">
       {!opened ? (
@@ -226,11 +222,11 @@ export function RepositoryChatPicker({
                 GitHub repository
                 <select
                   value={selected}
-                  disabled={busy}
+                  disabled={busy || !catalog?.available}
                   onChange={(event) => changeSource(event.target.value)}
                 >
                   <option value="">Select repository</option>
-                  {catalog.repositories.map((entry) => (
+                  {repositories.map((entry) => (
                     <option
                       key={`${entry.connectionId}:${entry.repository}`}
                       value={`${entry.connectionId}:${entry.repository}`}
