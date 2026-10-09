@@ -11,7 +11,7 @@ export interface KnowledgeDraft {
   documents: { path: string; base: string; content: string }[];
   updatedAt: string;
   state: 'draft' | 'in-review' | 'accepted' | 'closed';
-  review?: { url: string; head: string; version: number };
+  review?: { url: string; head: string; version: number; ready?: boolean };
   error?: string;
   publication?: unknown;
 }

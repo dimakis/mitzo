@@ -180,7 +180,9 @@ export function useKnowledgeLibrary() {
       draft.state === 'accepted'
         ? 'Accepted · Waiting for publication'
         : draft.review?.version === draft.version
-          ? 'Saved · In review'
+          ? draft.review.ready
+            ? 'In review'
+            : 'Review draft saved'
           : 'Draft saved',
     );
     setError(reviewError || draft.error || '');
@@ -363,6 +365,28 @@ export function useKnowledgeLibrary() {
       setGate(result);
     });
   }
+  async function sendForReview() {
+    await run(async () => {
+      const old = current.current;
+      const draft = old?.draft;
+      if (
+        !old ||
+        !draft?.review ||
+        draft.review.version !== draft.version ||
+        draft.review.ready ||
+        (draft.state !== 'draft' && draft.state !== 'in-review') ||
+        JSON.stringify(old.documents) !== old.saved
+      )
+        return;
+      const result = await request<{ draft: KnowledgeDraft }>(
+        `/api/knowledge/drafts/${encodeURIComponent(draft.id)}/ready`,
+        'POST',
+        { version: draft.version, head: draft.review.head },
+      );
+      updateDraft(result.draft);
+      setNotice('Sent for review');
+    });
+  }
   async function accept() {
     await run(async () => {
       const draft = current.current?.draft;
@@ -393,6 +417,7 @@ export function useKnowledgeLibrary() {
     refresh,
     compare,
     reconcile,
+    sendForReview,
     accept,
     select: (path: string) => {
       if (copy && !busy) persist({ ...copy, selected: path });

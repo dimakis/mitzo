@@ -190,7 +190,9 @@ export function KnowledgeLibrary() {
                         : draft.state === 'closed'
                           ? 'Review closed'
                           : currentReview
-                            ? 'In review'
+                            ? draft.review?.ready
+                              ? 'In review'
+                              : 'Review draft saved'
                             : 'Draft saved'}
                     </p>
                     {draft.review && (
@@ -202,6 +204,15 @@ export function KnowledgeLibrary() {
                       >
                         Open review ↗
                       </a>
+                    )}
+                    {currentReview && editable && !draft.review?.ready && (
+                      <button
+                        className="btn-primary"
+                        disabled={busy || dirty}
+                        onClick={() => void library.sendForReview()}
+                      >
+                        Send for review
+                      </button>
                     )}
                     <button disabled={busy || dirty} onClick={() => void library.reconcile()}>
                       Check review status
@@ -381,8 +392,10 @@ export function KnowledgeLibrary() {
                       {item.documents.length} documents ·{' '}
                       {item.state === 'accepted'
                         ? 'Accepted · Waiting for publication'
-                        : item.state === 'in-review'
-                          ? 'In review'
+                        : item.review?.version === item.version
+                          ? item.review.ready
+                            ? 'In review'
+                            : 'Review draft saved'
                           : item.state === 'closed'
                             ? 'Closed'
                             : 'Draft'}{' '}
