@@ -106,6 +106,23 @@ it('Save durably creates a draft and opens review without exposing Git workflow'
   );
   expect(screen.getByRole('button', { name: 'Accept changes' })).toBeTruthy();
 });
+it('shows save errors inside fullscreen while preserving the working copy', async () => {
+  const original = vi.mocked(apiFetch).getMockImplementation()!;
+  vi.mocked(apiFetch).mockImplementation(async (path, init) => {
+    if (path === '/api/knowledge/drafts') return response({ error: 'Could not save draft' }, false);
+    return original(path, init);
+  });
+  setup();
+  fireEvent.click(await screen.findByRole('button', { name: /Working principles/ }));
+  fireEvent.change(await screen.findByRole('textbox', { name: 'Document source' }), {
+    target: { value: '# Keep my changes' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Fullscreen' }));
+  const fullscreen = within(screen.getByRole('dialog', { name: 'Fullscreen document editor' }));
+  fireEvent.click(fullscreen.getByRole('button', { name: 'Save' }));
+  await fullscreen.findByText('Could not save draft');
+  expect((fullscreen.getByRole('textbox') as HTMLTextAreaElement).value).toBe('# Keep my changes');
+});
 it('recovers unsaved work across remounts and preserves it on a review conflict', async () => {
   const first = setup();
   fireEvent.click(await screen.findByRole('button', { name: /Working principles/ }));
