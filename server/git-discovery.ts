@@ -132,15 +132,20 @@ export function createGitInfoDiscovery(options: DiscoveryOptions = {}) {
                   ),
                 ),
               ]);
-              return browserWorktrees(output, allowedParents, name);
+              return { worktrees: browserWorktrees(output, allowedParents, name), loaded: true };
             } catch {
-              return [];
+              return { worktrees: [], loaded: false };
             }
           }),
-        ).then((results) => results.flat())
+        )
       : Promise.resolve([]);
-    const [branch, worktrees] = await Promise.all([branchPromise, worktreesPromise]);
-    return { branch, repoPath, worktrees, worktreesLoaded: loadWorktrees };
+    const [branch, results] = await Promise.all([branchPromise, worktreesPromise]);
+    return {
+      branch,
+      repoPath,
+      worktrees: results.flatMap((result) => result.worktrees),
+      worktreesLoaded: loadWorktrees && results.every((result) => result.loaded),
+    };
   }
   return { getInfo };
 }

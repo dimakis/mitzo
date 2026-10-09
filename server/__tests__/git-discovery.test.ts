@@ -118,6 +118,35 @@ describe('lazy Git browser discovery', () => {
     expect(peak).toBeLessThanOrEqual(3);
   });
 
+  it('retains partial choices and retries failed repositories without rescanning successful ones', async () => {
+    let secondaryAttempts = 0;
+    const runGit = vi.fn(async (repo: string, args: string[]) => {
+      if (args[0] === 'rev-parse') return 'main';
+      if (repo === '/secondary' && ++secondaryAttempts === 1) throw new Error('transient failure');
+      return record(`${repo}/.claude/worktrees/chat`, 'chat');
+    });
+    const discovery = createGitInfoDiscovery({ runGit });
+    const partial = await discovery.getInfo('/primary', { secondary: '/secondary' }, true);
+    expect(partial.worktreesLoaded).toBe(false);
+    expect(partial.worktrees.map((w) => w.repo)).toEqual(['primary']);
+    const complete = await discovery.getInfo('/primary', { secondary: '/secondary' }, true);
+    expect(complete.worktreesLoaded).toBe(true);
+    expect(complete.worktrees.map((w) => w.repo)).toEqual(['primary', 'secondary']);
+    expect(
+      runGit.mock.calls.filter(([repo, args]) => repo === '/primary' && args[0] === 'worktree'),
+    ).toHaveLength(1);
+    expect(secondaryAttempts).toBe(2);
+  });
+
+  it('marks a successful empty result complete rather than making it a retryable failure', async () => {
+    const runGit = vi.fn(async (repo: string, args: string[]) =>
+      args[0] === 'rev-parse' ? 'main' : record(repo, 'main'),
+    );
+    const result = await createGitInfoDiscovery({ runGit }).getInfo('/repo', {}, true);
+    expect(result.worktrees).toEqual([]);
+    expect(result.worktreesLoaded).toBe(true);
+  });
+
   it('keeps unavailable repos nonfatal and retries failed discovery', async () => {
     const runGit = vi
       .fn()
@@ -129,7 +158,7 @@ describe('lazy Git browser discovery', () => {
       branch: 'unknown',
       repoPath: '/repo',
       worktrees: [],
-      worktreesLoaded: true,
+      worktreesLoaded: false,
     });
     await discovery.getInfo('/repo', {}, true);
     expect(runGit).toHaveBeenCalledTimes(4);

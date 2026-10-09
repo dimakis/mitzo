@@ -66,6 +66,79 @@ describe('lazy file navigation worktrees', () => {
     expect(setParams).toHaveBeenCalledWith({ root: '/secondary', sessionId: 'chat' });
   });
 
+  it('preserves partial choices when initial Git metadata arrives after discovery', async () => {
+    const original = vi.mocked(apiFetch).getMockImplementation()!;
+    let finishMetadata!: () => void;
+    vi.mocked(apiFetch).mockImplementation((url) => {
+      if (url === '/api/git/info')
+        return new Promise((resolve) => {
+          finishMetadata = () =>
+            resolve({
+              ok: true,
+              json: async () => ({
+                branch: 'main',
+                repoPath: '/repo',
+                worktrees: [],
+                worktreesLoaded: false,
+              }),
+            } as never);
+        });
+      if (String(url).includes('worktrees=1'))
+        return response({
+          branch: 'main',
+          repoPath: '/repo',
+          worktreesLoaded: false,
+          worktrees: [
+            {
+              name: 'partial',
+              path: '/repo/.claude/worktrees/partial',
+              branch: 'partial',
+              age: 'unknown',
+            },
+          ],
+        }) as never;
+      return original(url);
+    });
+    const { result } = renderHook(() => useFileNavigation(new URLSearchParams(), vi.fn()));
+    await waitFor(() => expect(result.current.state.loading).toBe(false));
+    await act(() => result.current.loadWorktrees());
+    await act(async () => finishMetadata());
+    expect(result.current.state.gitInfo?.worktrees[0]?.name).toBe('partial');
+  });
+
+  it('shows incomplete discovery guidance while retaining choices and allowing a retry', async () => {
+    const original = vi.mocked(apiFetch).getMockImplementation()!;
+    let attempts = 0;
+    vi.mocked(apiFetch).mockImplementation((url) => {
+      if (String(url).includes('worktrees=1') && ++attempts === 1)
+        return response({
+          branch: 'main',
+          repoPath: '/repo',
+          worktreesLoaded: false,
+          worktrees: [
+            {
+              name: 'partial',
+              path: '/repo/.claude/worktrees/partial',
+              branch: 'partial',
+              age: 'unknown',
+            },
+          ],
+        }) as never;
+      return original(url);
+    });
+    const { result } = renderHook(() => useFileNavigation(new URLSearchParams(), vi.fn()));
+    await waitFor(() => expect(result.current.state.loading).toBe(false));
+    await act(() => result.current.loadWorktrees());
+    expect(result.current.state.gitInfo?.worktrees[0]?.name).toBe('partial');
+    expect(result.current.state.worktreesError).toBe(
+      'Some worktrees could not be loaded. Try again.',
+    );
+    await act(() => result.current.loadWorktrees());
+    expect(attempts).toBe(2);
+    expect(result.current.state.worktreesError).toBe('');
+    expect(result.current.state.gitInfo?.worktreesLoaded).toBe(true);
+  });
+
   it('shows worktree errors and allows another request', async () => {
     const original = vi.mocked(apiFetch).getMockImplementation()!;
     vi.mocked(apiFetch).mockImplementation((url) =>

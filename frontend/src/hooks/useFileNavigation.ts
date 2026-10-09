@@ -88,7 +88,7 @@ export function useFileNavigation(
       .then((r) => (r.ok ? r.json() : null))
       .then((data: GitInfo | null) => {
         if (data && !disposed) {
-          setGitInfo((current) => (current?.worktreesLoaded ? current : data));
+          setGitInfo((current) => current ?? data);
         }
       })
       .catch(() => {
@@ -178,7 +178,9 @@ export function useFileNavigation(
         if (!response.ok) throw new Error('Failed to load worktrees');
         const data: GitInfo = await response.json();
         setGitInfo(data);
-        worktreesLoaded.current = true;
+        worktreesLoaded.current = data.worktreesLoaded === true;
+        if (!worktreesLoaded.current)
+          setWorktreesError('Some worktrees could not be loaded. Try again.');
       })
       .catch(() => setWorktreesError('Failed to load worktrees'))
       .finally(() => {
