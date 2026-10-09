@@ -360,3 +360,21 @@ test('Settings previews and persists every accent and font across navigation and
   if (isMobile) await page.setViewportSize({ width: 390, height: 844 });
   await page.screenshot({ path: testInfo.outputPath('settings.png') });
 });
+
+test('desktop Work keeps collection actions visible while hiding its duplicate heading', async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(isMobile, 'Desktop Work collection');
+  await page.goto('/todos');
+  for (const width of [1280, 820]) {
+    await page.setViewportSize({ width, height: 900 });
+    const list = page.getByRole('region', { name: 'Work items', exact: true });
+    await expect(list.getByRole('button', { name: 'Add outcome' })).toBeVisible();
+    await expect(list.getByRole('button', { name: 'Refresh Telos' })).toBeVisible();
+    await expect(list.getByRole('heading', { name: 'Work', exact: true })).toBeHidden();
+    expect(
+      (await list.locator('.todo-collection-heading').boundingBox())!.height,
+    ).toBeLessThanOrEqual(80);
+  }
+});

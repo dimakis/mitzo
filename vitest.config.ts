@@ -33,6 +33,7 @@ export default defineConfig({
       '**/.claude/worktrees/**',
       '**/.cursor/worktrees/**',
       'tests/browser/**',
+      'tests/offline/**',
     ],
     env: {
       NODE_ENV: 'test',

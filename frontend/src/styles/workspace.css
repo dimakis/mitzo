@@ -999,7 +999,11 @@
 @media (max-width: 600px) {
   .access-page-heading {
     gap: 14px;
-    flex-wrap: wrap;
+    flex-direction: column;
+  }
+  .access-page-heading .workspace-page-heading {
+    width: 100%;
+    min-width: 0;
   }
   .access-add-connection {
     margin-top: 0;
