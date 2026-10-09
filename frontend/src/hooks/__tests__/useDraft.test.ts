@@ -12,6 +12,22 @@ afterEach(() => {
 });
 
 describe('useDraft', () => {
+  it('flushes a preparation edit before confirmation and cancels a pending dirty flush on confirmed clear', () => {
+    vi.useFakeTimers();
+    const draft = renderHook(() =>
+      useDraft(undefined, 'Server task', 'mitzo-repository-prompt:prep-a'),
+    );
+    act(() => draft.result.current[1]('Edited immediately before Send'));
+    act(() => draft.result.current[3]());
+    expect(localStorage.getItem('mitzo-repository-prompt:prep-a')).toBe(
+      'Edited immediately before Send',
+    );
+    act(() => draft.result.current[1]('Edited while Send is pending'));
+    act(() => draft.result.current[2]());
+    draft.unmount();
+    act(() => vi.advanceTimersByTime(500));
+    expect(localStorage.getItem('mitzo-repository-prompt:prep-a')).toBeNull();
+  });
   it('restores an explicitly empty preparation draft after a debounced user edit and reload', () => {
     vi.useFakeTimers();
     const first = renderHook(() =>

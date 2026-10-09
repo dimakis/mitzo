@@ -28,7 +28,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { SymposiumConversation } from '../components/SymposiumConversation';
 import { SymposiumDirectorPanel } from '../components/SymposiumDirectorPanel';
-import { ChatInput } from '../components/ChatInput';
+import { ChatInput, type ChatInputDraftControl } from '../components/ChatInput';
 import { VoiceSettings } from '../components/VoiceSettings';
 import { useMessages, useConnection, useTokens, useMitzoStore } from '@mitzo/client/hooks';
 import { LAST_SESSION_KEY } from '../lib/constants';
@@ -67,6 +67,7 @@ export function ChatView() {
   const activeSessionId = useMitzoStore((s) => s.sessions.active);
   const preparationId = searchParams.get('repositoryPreparation');
   const repositoryHandoff = useRepositoryChatPreparation(preparationId, sessionId);
+  const repositoryDraftControl = useRef<ChatInputDraftControl | null>(null);
   const modeChangeReady = useMitzoStore((s) => s.modeChangeReady);
 
   // Select individual action functions — stable references
@@ -128,12 +129,16 @@ export function ChatView() {
             savedRepositoryDraft(accountSelection.accountId, accountSelection.model)
           ? { blocked: true }
           : null;
-  const repositoryHandoffReason = repositoryChatSendDisabledReason(
-    repositoryHandoff,
-    activeSessionId,
-    accountSelection,
-    repositorySelection,
-  );
+  const repositoryHandoffReason =
+    (repositoryHandoff.present && (messages.running || sendStatus)
+      ? 'Waiting for repository conversation confirmation…'
+      : undefined) ??
+    repositoryChatSendDisabledReason(
+      repositoryHandoff,
+      activeSessionId,
+      accountSelection,
+      repositorySelection,
+    );
 
   const setModel = useCallback(
     (id: string) => {
@@ -281,7 +286,19 @@ export function ChatView() {
         ? {
             repositoryWorkspaceId: repositorySelection.repositoryWorkspaceId,
             onSessionAssigned: (assignedId: string) => {
-              repositoryHandoff.markAssigned(assignedId);
+              if (repositoryHandoff.present) {
+                if (!repositoryHandoff.markAssigned(assignedId)) return;
+                const promptKey = repositoryPromptDraftKey(repositoryHandoff.id!);
+                if (repositoryDraftControl.current?.storageKey === promptKey)
+                  repositoryDraftControl.current.clear();
+                else {
+                  try {
+                    localStorage.removeItem(promptKey);
+                  } catch {
+                    /* Optional browser storage. */
+                  }
+                }
+              }
               if (accountSelection?.accountId)
                 consumeRepositoryDraft(
                   repositoryDraftKey(accountSelection.accountId, accountSelection.model),
@@ -295,9 +312,17 @@ export function ChatView() {
       extraTools: searchParams.get('extraTools') ?? undefined,
       ...(!activeSessionId && !isolation ? { isolation: false } : {}),
     };
-    const queued = launching ? sendLaunch(options) : storeSendMessage(text, options);
-    forceScrollToBottom();
-    return queued;
+    try {
+      const queued = launching ? sendLaunch(options) : storeSendMessage(text, options);
+      forceScrollToBottom();
+      // The legacy wrapper reports queued even when the transport rejects it.
+      // Keep the reviewed prompt until this exact launch assigns a conversation.
+      return repositoryHandoff.present ? false : queued;
+    } catch (error) {
+      if (!repositoryHandoff.present) throw error;
+      // A thrown transport may already have sent bytes; retain its pending fence.
+      return false;
+    }
   }
 
   function handleInterrupt(text: string, images?: ImageAttachment[], ctxBlocks?: string[]): void {
@@ -556,6 +581,7 @@ export function ChatView() {
               onInterrupt={handleInterrupt}
               running={repositoryHandoff.present ? false : messages.running}
               initialText={initialPrompt}
+              draftControl={repositoryHandoff.present ? repositoryDraftControl : undefined}
               draftStorageKey={
                 repositoryHandoff.present
                   ? repositoryPromptDraftKey(repositoryHandoff.id ?? '')

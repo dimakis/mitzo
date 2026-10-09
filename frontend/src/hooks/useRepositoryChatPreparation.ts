@@ -90,8 +90,11 @@ export function useRepositoryChatPreparation(id: string | null, sessionId?: stri
         currentAttempt.current === attempt &&
         preparation?.state === 'ready' &&
         !reason
-      )
+      ) {
         setAssigned({ scope, conversationId });
+        return true;
+      }
+      return false;
     },
   };
 }

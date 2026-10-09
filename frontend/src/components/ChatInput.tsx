@@ -3,6 +3,8 @@ import {
   useRef,
   useEffect,
   useCallback,
+  useImperativeHandle,
+  type RefObject,
   type KeyboardEvent,
   type ChangeEvent,
 } from 'react';
@@ -23,6 +25,11 @@ import type { TokensState as TokenState } from '@mitzo/client';
 import { useDraft } from '../hooks/useDraft';
 import { useQueuedMessages } from '../hooks/useQueuedMessages';
 
+export interface ChatInputDraftControl {
+  storageKey: string | undefined;
+  clear: () => void;
+}
+
 interface Props {
   onSend: (text: string, images?: ImageAttachment[], contextBlocks?: string[]) => boolean;
   onStop: () => void;
@@ -31,6 +38,7 @@ interface Props {
   initialText?: string;
   /** Prompt storage ownership independent of the provider session identity. */
   draftStorageKey?: string;
+  draftControl?: RefObject<ChatInputDraftControl | null>;
   sendDisabledReason?: string;
   cwd?: string;
   voice?: UseVoiceReturn;
@@ -58,6 +66,7 @@ export function ChatInput({
   running,
   initialText,
   draftStorageKey,
+  draftControl,
   sendDisabledReason,
   cwd,
   voice,
@@ -74,7 +83,11 @@ export function ChatInput({
   bootContext,
   sessionContext,
 }: Props) {
-  const [text, setText, clearDraft] = useDraft(sessionId, initialText, draftStorageKey);
+  const [text, setText, clearDraft, flushDraft] = useDraft(sessionId, initialText, draftStorageKey);
+  useImperativeHandle(draftControl, () => ({ storageKey: draftStorageKey, clear: clearDraft }), [
+    draftStorageKey,
+    clearDraft,
+  ]);
   const [images, setImages] = useState<ImageAttachment[]>([]);
   const [showSlashPicker, setShowSlashPicker] = useState(false);
   const [contextBlocks, setContextBlocks] = useState<string[]>([]);
@@ -155,6 +168,7 @@ export function ChatInput({
     const trimmed = text.trim();
     if (!trimmed && images.length === 0) return;
     sendGuard.current = true;
+    if (draftStorageKey !== undefined) flushDraft();
     const sent = onSend(
       trimmed || 'What do you see in this image?',
       images.length > 0 ? images : undefined,

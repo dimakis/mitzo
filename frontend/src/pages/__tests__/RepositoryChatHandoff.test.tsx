@@ -1,15 +1,17 @@
 // @vitest-environment jsdom
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useImperativeHandle } from 'react';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { afterEach, expect, it, vi } from 'vitest';
+import { MitzoConnection } from '@mitzo/client';
+import type { ChatInputDraftControl } from '../../components/ChatInput';
 import { MitzoStoreProvider } from '@mitzo/client/hooks';
 import { createTestStore } from '../../test-utils/createTestStore';
 import { ChatView } from '../ChatView';
 import { DesktopChatView } from '../DesktopChatView';
 import { PREFERRED_MODEL_KEY } from '../../lib/model-preference';
 import { useDraft } from '../../hooks/useDraft';
-const api = vi.hoisted(() => ({ fetch: vi.fn() }));
+const api = vi.hoisted(() => ({ fetch: vi.fn(), realComposer: false }));
 vi.mock('../../lib/api-fetch', () => ({ apiFetch: api.fetch, getApiBaseUrl: () => '' }));
 vi.mock('../../lib/keyboard', () => ({ onKeyboardToggle: () => () => {} }));
 vi.mock('../../hooks/useProgress', () => ({ useProgressByToolId: () => new Map() }));
@@ -31,21 +33,31 @@ vi.mock('../../components/SymposiumConversation', () => ({
     <>{ordinaryComposer}</>
   ),
 }));
-vi.mock('../../components/ChatInput', () => ({
-  ChatInput: ({
+vi.mock('../../components/ChatInput', async () => {
+  const actual = await vi.importActual<typeof import('../../components/ChatInput')>(
+    '../../components/ChatInput',
+  );
+  const MockChatInput = ({
     initialText,
     onSend,
     sendDisabledReason,
     draftStorageKey,
     sessionId,
+    draftControl,
   }: {
     initialText?: string;
     onSend(text: string): boolean;
     sendDisabledReason?: string;
     draftStorageKey?: string;
     sessionId?: string;
+    draftControl?: React.RefObject<ChatInputDraftControl | null>;
   }) => {
-    const [text, setText, clearDraft] = useDraft(sessionId, initialText, draftStorageKey);
+    const [text, setText, clearDraft, flushDraft] = useDraft(
+      sessionId,
+      initialText,
+      draftStorageKey,
+    );
+    useImperativeHandle(draftControl, () => ({ storageKey: draftStorageKey, clear: clearDraft }));
     return (
       <>
         <input
@@ -57,6 +69,7 @@ vi.mock('../../components/ChatInput', () => ({
         <button
           disabled={!!sendDisabledReason}
           onClick={() => {
+            if (draftStorageKey) flushDraft();
             if (onSend(text)) clearDraft();
           }}
         >
@@ -64,6 +77,7 @@ vi.mock('../../components/ChatInput', () => ({
         </button>
         <button
           onClick={() => {
+            if (draftStorageKey) flushDraft();
             if (onSend(text)) clearDraft();
           }}
         >
@@ -71,8 +85,12 @@ vi.mock('../../components/ChatInput', () => ({
         </button>
       </>
     );
-  },
-}));
+  };
+  return {
+    ChatInput: (props: React.ComponentProps<typeof actual.ChatInput>) =>
+      api.realComposer ? <actual.ChatInput {...props} /> : <MockChatInput {...props} />,
+  };
+});
 vi.mock('../../components/RepositoryChatPicker', () => ({
   RepositoryChatPicker: ({
     initialPreparationId,
@@ -130,9 +148,9 @@ function Location() {
     </>
   );
 }
-function fixture(View: typeof ChatView, active: string | null = null) {
+function fixture(View: typeof ChatView, active: string | null = null, realSend = false) {
   const store = createTestStore();
-  const send = vi.fn();
+  const send = realSend ? vi.fn(store.getState().sendMessage) : vi.fn();
   const newSession = vi.fn(store.getState().newSession);
   store.setState({
     sendMessage: send,
@@ -167,6 +185,8 @@ function fixture(View: typeof ChatView, active: string | null = null) {
 }
 afterEach(() => {
   cleanup();
+  vi.restoreAllMocks();
+  api.realComposer = false;
   api.fetch.mockReset();
   localStorage.clear();
   sessionStorage.clear();
@@ -176,6 +196,119 @@ for (const [layout, View] of [
   ['mobile', ChatView],
   ['desktop', DesktopChatView],
 ] as const) {
+  it.each(['rejected', 'throwing'] as const)(
+    `${layout}: preserves immediate Send edits after a %s real transport and reload`,
+    async (failure) => {
+      api.realComposer = true;
+      api.fetch.mockImplementation(
+        async (url: string) =>
+          new Response(
+            JSON.stringify(
+              url.includes('/chat-preparation') ? { repositoryChat: preparation } : accounts,
+            ),
+          ),
+      );
+      const original = MitzoConnection.prototype.send;
+      vi.spyOn(MitzoConnection.prototype, 'send').mockImplementation(function (
+        this: MitzoConnection,
+        message,
+      ) {
+        if (message.type === 'send') {
+          if (failure === 'throwing') throw new Error('Offline transport failure');
+          return false;
+        }
+        return original.call(this, message);
+      });
+      const first = fixture(View, null, true);
+      await waitFor(() =>
+        expect((screen.getByLabelText('Message Mitzo') as HTMLTextAreaElement).value).toBe(
+          preparation.prompt,
+        ),
+      );
+      await waitFor(() =>
+        expect(
+          (screen.getByRole('button', { name: 'Send message' }) as HTMLButtonElement).disabled,
+        ).toBe(false),
+      );
+      fireEvent.change(screen.getByLabelText('Message Mitzo'), {
+        target: { value: 'Reviewed immediately before Send' },
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+      expect(first.send).toHaveBeenCalledTimes(1);
+      expect(localStorage.getItem(`mitzo-repository-prompt:${id}`)).toBe(
+        'Reviewed immediately before Send',
+      );
+      expect((screen.getByLabelText('Message Mitzo') as HTMLTextAreaElement).value).toBe(
+        'Reviewed immediately before Send',
+      );
+      await waitFor(() =>
+        expect(
+          (screen.getByRole('button', { name: 'Send message' }) as HTMLButtonElement).disabled,
+        ).toBe(failure === 'throwing'),
+      );
+      first.unmount();
+      const reopened = fixture(View, null, true);
+      await screen.findByText('example/repo');
+      expect((screen.getByLabelText('Message Mitzo') as HTMLTextAreaElement).value).toBe(
+        'Reviewed immediately before Send',
+      );
+      expect(reopened.send).not.toHaveBeenCalled();
+      expect(localStorage.getItem('mitzo-draft-new')).toBe(ordinaryDraft);
+    },
+  );
+  it(`${layout}: keeps a queued real transport fenced until matching assignment clears the dirty prompt`, async () => {
+    api.realComposer = true;
+    api.fetch.mockImplementation(
+      async (url: string) =>
+        new Response(
+          JSON.stringify(
+            url.includes('/chat-preparation') ? { repositoryChat: preparation } : accounts,
+          ),
+        ),
+    );
+    const original = MitzoConnection.prototype.send;
+    vi.spyOn(MitzoConnection.prototype, 'send').mockImplementation(function (
+      this: MitzoConnection,
+      message,
+    ) {
+      return message.type === 'send' ? true : original.call(this, message);
+    });
+    const { store, send } = fixture(View, null, true);
+    await waitFor(() =>
+      expect(
+        (screen.getByRole('button', { name: 'Send message' }) as HTMLButtonElement).disabled,
+      ).toBe(false),
+    );
+    fireEvent.change(screen.getByLabelText('Message Mitzo'), {
+      target: { value: 'Queued reviewed task' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+    await waitFor(() =>
+      expect(
+        (screen.getByRole('button', { name: 'Send message' }) as HTMLButtonElement).disabled,
+      ).toBe(true),
+    );
+    act(() => {
+      store.getState().dispatchMessages({ type: 'SESSION_STATE_CHANGED', state: 'idle' });
+      store.setState({ sendStatus: 'Delivery uncertain. Waiting for confirmation.' });
+    });
+    expect(
+      (screen.getByRole('button', { name: 'Send message' }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+    fireEvent.keyDown(screen.getByLabelText('Message Mitzo'), { key: 'Enter' });
+    expect(send).toHaveBeenCalledTimes(1);
+    fireEvent.change(screen.getByLabelText('Message Mitzo'), {
+      target: { value: 'Edit while pending assignment' },
+    });
+    act(() => {
+      send.mock.calls[0][1]?.onSessionAssigned?.('assigned');
+      store.setState({ sessions: { ...store.getState().sessions, active: 'assigned' } });
+    });
+    await waitFor(() => expect(screen.getByTestId('location').textContent).toBe('/chat/assigned'));
+    expect(localStorage.getItem(`mitzo-repository-prompt:${id}`)).toBeNull();
+    expect(localStorage.getItem('mitzo-draft-assigned')).toBeNull();
+    expect(localStorage.getItem('mitzo-draft-new')).toBe(ordinaryDraft);
+  });
   it(`${layout}: restores edited preparation text after reload without consuming the ordinary draft`, async () => {
     api.fetch.mockImplementation(
       async (url: string) =>
@@ -383,7 +516,14 @@ for (const [layout, View] of [
       ),
     );
     expect(newSession.mock.calls.length).toBe(previous + 1);
+    fireEvent.change(screen.getByLabelText('Task draft'), {
+      target: { value: 'Other edited task' },
+    });
     act(() => send.mock.calls[0][1].onSessionAssigned('stale-target'));
+    expect(localStorage.getItem(`mitzo-repository-prompt:${id}`)).toBe(preparation.prompt);
+    expect((screen.getByLabelText('Task draft') as HTMLInputElement).value).toBe(
+      'Other edited task',
+    );
     expect(screen.getByTestId('location').textContent).toBe(
       `/chat?repositoryPreparation=${otherId}`,
     );
@@ -435,7 +575,10 @@ for (const [layout, View] of [
       expect.objectContaining({ accountId: 'prepared', model: 'luna', repositoryWorkspaceId: id }),
     );
     expect(localStorage.getItem(PREFERRED_MODEL_KEY)).toBe('remembered-model');
-    expect(localStorage.getItem(`mitzo-repository-prompt:${id}`)).toBeNull();
+    expect(localStorage.getItem(`mitzo-repository-prompt:${id}`)).toBe('Edited task');
+    fireEvent.change(screen.getByLabelText('Task draft'), {
+      target: { value: 'Edit while pending' },
+    });
     expect(localStorage.getItem('mitzo-draft-new')).toBe(ordinaryDraft);
     act(() => {
       send.mock.calls[0][1].onSessionAssigned('assigned');
@@ -446,6 +589,7 @@ for (const [layout, View] of [
     expect((screen.getByLabelText('Task draft') as HTMLInputElement).value).toBe('');
     expect(localStorage.getItem('mitzo-draft-new')).toBe(ordinaryDraft);
     expect(localStorage.getItem('mitzo-draft-assigned')).toBeNull();
+    expect(localStorage.getItem(`mitzo-repository-prompt:${id}`)).toBeNull();
     expect(send).toHaveBeenCalledTimes(1);
     expect(localStorage.getItem(PREFERRED_MODEL_KEY)).toBe('remembered-model');
     expect(localStorage.getItem('mitzo-default-account-model')).toContain('other');
@@ -519,9 +663,15 @@ for (const [layout, View] of [
     );
     const { store, send } = fixture(View);
     await screen.findByText('example/repo');
+    fireEvent.change(screen.getByLabelText('Task draft'), {
+      target: { value: 'Retain for own assignment' },
+    });
     act(() => store.setState({ sessions: { ...store.getState().sessions, active: 'unrelated' } }));
     expect(screen.getByTestId('location').textContent).toBe(`/chat?repositoryPreparation=${id}`);
     fireEvent.click(screen.getByRole('button', { name: 'Try send directly' }));
     expect(send).not.toHaveBeenCalled();
+    expect((screen.getByLabelText('Task draft') as HTMLInputElement).value).toBe(
+      'Retain for own assignment',
+    );
   });
 }

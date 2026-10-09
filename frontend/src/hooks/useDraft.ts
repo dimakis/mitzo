@@ -37,7 +37,7 @@ export function useDraft(
   sessionId: string | undefined,
   initialText?: string,
   draftStorageKey?: string,
-): [string, Dispatch<SetStateAction<string>>, () => void] {
+): [string, Dispatch<SetStateAction<string>>, () => void, () => void] {
   const key = draftStorageKey ?? draftKey(sessionId);
   const scoped = draftStorageKey !== undefined;
   const [text, setTextRaw] = useState(() => readDraft(key, initialText, scoped));
@@ -134,5 +134,11 @@ export function useDraft(
     saveDraft(storageRef.current.key, '');
   }, []);
 
-  return [text, setText, clearDraft];
+  const flushDraft = useCallback(() => {
+    clearTimeout(timerRef.current);
+    saveDraft(storageRef.current.key, textRef.current, storageRef.current.scoped);
+    dirty.current = false;
+  }, []);
+
+  return [text, setText, clearDraft, flushDraft];
 }
