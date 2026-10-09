@@ -241,6 +241,9 @@ test('Proposals opens full context and keeps the end of each collection above th
   ).toBeVisible();
   await expect(page.getByRole('button', { name: 'Review in session' })).toBeVisible();
   await page.getByRole('button', { name: 'Back to proposals' }).click();
+  await page.goBack();
+  await expect(page).toHaveURL(/\/inbox$/);
+  await expect(page.getByRole('region', { name: 'Proposal details' })).toHaveCount(0);
   await page.getByRole('searchbox', { name: 'Search proposals' }).fill('Proposal 12');
   await expect(page.locator('.proposal-record')).toHaveCount(1);
   for (const [route, scroll, last] of [

@@ -2,7 +2,7 @@
 import '@testing-library/jest-dom/vitest';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom';
 import { InboxView } from '../InboxView';
 
 const mocks = vi.hoisted(() => ({ fetch: vi.fn(), pending: vi.fn(), load: vi.fn() }));
@@ -38,10 +38,21 @@ beforeEach(() => {
   });
 });
 afterEach(cleanup);
+function BrowserHistoryControls() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  return (
+    <>
+      <button onClick={() => navigate(-1)}>Browser Back</button>
+      <output aria-label="Current location">{location.pathname + location.search}</output>
+    </>
+  );
+}
 function show(path = '/inbox') {
   render(
-    <MemoryRouter initialEntries={[path]}>
+    <MemoryRouter initialEntries={['/more', path]} initialIndex={1}>
       <InboxView />
+      <BrowserHistoryControls />
     </MemoryRouter>,
   );
 }
@@ -124,4 +135,30 @@ it('restores focus to search when removal leaves no matching rows', async () => 
   await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Archive' })));
   expect(screen.queryByRole('button', { name: 'Second proposal' })).toBeNull();
   expect(await screen.findByRole('searchbox', { name: 'Search proposals' })).toHaveFocus();
+});
+
+it.each(['Back to proposals', 'Archive', 'Discard'])(
+  'does not reopen a closed detail through browser history after %s',
+  async (action) => {
+    show();
+    fireEvent.click(await screen.findByRole('button', { name: 'First proposal' }));
+    await screen.findByText('Full proposal context');
+    expect(screen.getByLabelText('Current location')).toHaveTextContent('/inbox?item=one.md');
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: action })));
+    expect(screen.queryByRole('region', { name: 'Proposal details' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Browser Back' }));
+    expect(screen.getByLabelText('Current location').textContent).toBe('/inbox');
+    expect(screen.queryByRole('region', { name: 'Proposal details' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Browser Back' }));
+    expect(screen.getByLabelText('Current location').textContent).toBe('/more');
+  },
+);
+
+it('replaces a directly linked detail when closing it', async () => {
+  show('/inbox?item=one.md');
+  await screen.findByText('Full proposal context');
+  fireEvent.click(screen.getByRole('button', { name: 'Back to proposals' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Browser Back' }));
+  expect(screen.getByLabelText('Current location').textContent).toBe('/more');
+  expect(screen.queryByRole('region', { name: 'Proposal details' })).toBeNull();
 });

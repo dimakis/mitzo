@@ -94,10 +94,13 @@ export function InboxView({ desktop = false }: { desktop?: boolean } = {}) {
       if (mounted.current && activeProposal.current === filename) {
         activeProposal.current = null;
         setSelectedFilename(null);
-        setSearchParams((params) => {
-          params.delete('item');
-          return params;
-        });
+        setSearchParams(
+          (params) => {
+            params.delete('item');
+            return params;
+          },
+          { replace: true },
+        );
       }
       // Keep the optimistic removal until the store confirms the file is absent.
       // The synchronization effect prunes confirmed removals.
@@ -178,10 +181,13 @@ export function InboxView({ desktop = false }: { desktop?: boolean } = {}) {
   function closeProposal() {
     activeProposal.current = null;
     setSelectedFilename(null);
-    setSearchParams((params) => {
-      params.delete('item');
-      return params;
-    });
+    setSearchParams(
+      (params) => {
+        params.delete('item');
+        return params;
+      },
+      { replace: true },
+    );
   }
 
   return (
