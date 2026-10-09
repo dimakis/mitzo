@@ -108,6 +108,7 @@ vi.mock('../../components/ChatInput', () => ({
 afterEach(() => {
   cleanup();
   sessionStorage.clear();
+  localStorage.clear();
   vi.resetAllMocks();
 });
 
@@ -162,6 +163,15 @@ it('keeps the reviewed briefing account locked and labels the rich chat with the
     '/briefings/2026-10-09',
   );
   expect(screen.getByRole('button', { name: 'Test send' }).hasAttribute('disabled')).toBe(true);
+  localStorage.setItem(
+    'mitzo-default-account-model',
+    JSON.stringify({ accountId: 'other', model: 'unavailable' }),
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Change account or model' }));
+  const dialog = screen.getByRole('dialog', { hidden: true });
+  await waitFor(() =>
+    expect((within(dialog).getByLabelText('Account') as HTMLSelectElement).value).toBe('work'),
+  );
 });
 
 it('updates web-search consent when the connection ID changes without a status change', () => {
