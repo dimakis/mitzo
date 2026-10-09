@@ -8,6 +8,10 @@ import {
   type KnowledgeDraft,
 } from './knowledge-draft-store.js';
 import type {
+  KnowledgeReviewIdentity,
+  KnowledgeReviewInspection,
+} from './knowledge-github-publisher.js';
+import type {
   GithubHostPublisher,
   GithubPullRequest,
 } from './connections/capabilities/github-publish-pr.js';
@@ -17,7 +21,10 @@ export interface KnowledgeReviewConfiguration {
   baseBranch: string;
   publisherLogin: string;
 }
-type Publisher = GithubHostPublisher & { identity(signal: AbortSignal): Promise<string> };
+type Publisher = GithubHostPublisher & {
+  identity(signal: AbortSignal): Promise<string>;
+  inspect?(input: KnowledgeReviewIdentity): Promise<KnowledgeReviewInspection>;
+};
 /** Operator saves use a host-owned source and publisher, independent of provider/chat authority. */
 export class KnowledgeReviewService {
   private readonly busy = new Set<string>();
@@ -144,6 +151,23 @@ export class KnowledgeReviewService {
               'Previous review finished. Start a new change with your remaining edits.',
             );
           }
+          if (!draft.review || existing.url !== draft.review.url)
+            throw new Error('Finished review has no confirmed saved receipt');
+          if (existing.merged) {
+            if (!this.publisher.inspect)
+              throw new Error('Exact merged review inspection unavailable');
+            const inspected = await this.publisher.inspect({
+              draftId: draft.id,
+              url: draft.review.url,
+              head: draft.review.head,
+              repository: this.config.repository,
+              baseBranch: this.config.baseBranch,
+              signal,
+            });
+            if (inspected.state !== 'accepted' || inspected.head !== draft.review.head)
+              throw new Error('Merged review differs from the saved review head');
+          }
+          signal.throwIfAborted();
           this.store.status(id, existing.merged ? 'accepted' : 'closed');
           throw new KnowledgeDraftConflict('This change is finished. Start a new draft.');
         }

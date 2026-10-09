@@ -7,13 +7,22 @@ import { AcceptedKnowledgeSource } from '../knowledge-library-source.js';
 import { KnowledgeDraftStore } from '../knowledge-draft-store.js';
 import { KnowledgeReviewService } from '../knowledge-review-service.js';
 import type {
+  KnowledgeReviewIdentity,
+  KnowledgeReviewInspection,
+} from '../knowledge-github-publisher.js';
+import type {
   GithubHostPublisher,
   GithubPullRequest,
 } from '../connections/capabilities/github-publish-pr.js';
 
 let root: string, store: KnowledgeDraftStore, source: AcceptedKnowledgeSource;
 let review: GithubPullRequest | null, remoteHead: string | null;
-let publisher: GithubHostPublisher & { identity: ReturnType<typeof vi.fn<() => Promise<string>>> };
+let publisher: GithubHostPublisher & {
+  identity: ReturnType<typeof vi.fn<() => Promise<string>>>;
+  inspect?: ReturnType<
+    typeof vi.fn<(input: KnowledgeReviewIdentity) => Promise<KnowledgeReviewInspection>>
+  >;
+};
 function git(...args: string[]) {
   return execFileSync('git', ['-C', root, ...args], {
     encoding: 'utf8',
@@ -36,6 +45,10 @@ beforeEach(() => {
   remoteHead = null;
   publisher = {
     identity: vi.fn(async () => 'operator'),
+    inspect: vi.fn(async (input) => {
+      if (remoteHead !== input.head) throw new Error('Merged head changed');
+      return { state: 'accepted', head: input.head, canAccept: false, mergeCommit: 'b'.repeat(40) };
+    }),
     policy: vi.fn(async () => ({ defaultBranch: 'main', sourceBranchProtected: false })),
     read: vi.fn(async () => review),
     readBranch: vi.fn(async () => remoteHead),
@@ -139,6 +152,15 @@ it('fails closed for changed publisher identity, outside scopes, or finished rev
   review = { ...review!, state: 'closed', merged: true };
   await expect(service().submit(d.id, d.version)).rejects.toThrow('finished');
   expect(store.get(d.id).state).toBe('accepted');
+  expect(publisher.inspect).toHaveBeenCalledWith(
+    expect.objectContaining({
+      draftId: d.id,
+      head: store.get(d.id).review?.head,
+      url: 'https://github.com/test/knowledge/pull/1',
+      repository: 'test/knowledge',
+      baseBranch: 'main',
+    }),
+  );
 });
 
 it('fences concurrent saves through another store connection and cancels revoked authority before pushing', async () => {
@@ -165,4 +187,59 @@ it('fences concurrent saves through another store connection and cancels revoked
     other.close();
     release();
   }
+});
+
+it('retains a saved draft when an externally merged review has a different head', async () => {
+  const d = await draft();
+  await service().submit(d.id, d.version);
+  review = { ...review!, state: 'closed', merged: true };
+  publisher.inspect!.mockResolvedValue({
+    state: 'accepted',
+    head: 'a'.repeat(40),
+    canAccept: false,
+  });
+  await expect(service().submit(d.id, d.version)).rejects.toThrow('Draft saved');
+  expect(store.get(d.id).state).toBe('draft');
+  expect(store.get(d.id).documents[0]?.content).toBe('# Improved\n');
+});
+
+it('does not accept a closed review recovered after a lost acknowledgement without a saved receipt', async () => {
+  const d = await draft();
+  const create = vi.mocked(publisher.create).getMockImplementation()!;
+  vi.mocked(publisher.create).mockImplementationOnce(async (input) => {
+    await create(input);
+    throw new Error('lost acknowledgement');
+  });
+  await expect(service().submit(d.id, d.version)).rejects.toThrow('Draft saved');
+  expect(store.get(d.id).review).toBeUndefined();
+  review = { ...review!, state: 'closed', merged: true };
+  await expect(service().submit(d.id, d.version)).rejects.toThrow('Draft saved');
+  expect(store.get(d.id).state).toBe('draft');
+  expect(publisher.inspect).not.toHaveBeenCalled();
+});
+
+it('requires an exact-head inspector before marking a review accepted', async () => {
+  const d = await draft();
+  await service().submit(d.id, d.version);
+  review = { ...review!, state: 'closed', merged: true };
+  publisher.inspect = undefined;
+  await expect(service().submit(d.id, d.version)).rejects.toThrow('Draft saved');
+  expect(store.get(d.id).state).toBe('draft');
+});
+
+it('keeps newer unpublished content editable when its previous review was merged', async () => {
+  const d = await draft();
+  const reviewed = await service().submit(d.id, d.version);
+  const edited = store.save(d.id, reviewed.version, [
+    {
+      path: 'architecture/one.md',
+      base: '# Old\n',
+      content: '# Unpublished changes\n',
+    },
+  ]);
+  review = { ...review!, state: 'closed', merged: true };
+  await expect(service().submit(d.id, edited.version)).rejects.toThrow('remaining edits');
+  expect(store.get(d.id).state).toBe('draft');
+  expect(store.get(d.id).documents[0]?.content).toBe('# Unpublished changes\n');
+  expect(publisher.inspect).not.toHaveBeenCalled();
 });

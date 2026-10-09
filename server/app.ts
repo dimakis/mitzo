@@ -172,7 +172,7 @@ import {
   statSync,
 } from 'fs';
 import { join, dirname, resolve, extname, basename, relative, isAbsolute, sep } from 'path';
-import { execFileSync, execFile } from 'child_process';
+import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { createHash, randomUUID } from 'crypto';
 import { fileURLToPath } from 'url';
