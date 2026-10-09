@@ -36,7 +36,8 @@ const contextualAliases = new Set([
 function allowedContextAlias(property: string, value: string | null): boolean {
   if (!contextualAliases.has(property) || value === null) return false;
   const clean = value.trim();
-  if (/^var\(\s*--[\w-]+\s*\)$/.test(clean)) return true;
+  const reference = clean.match(/^var\(\s*(--[\w-]+)\s*\)$/);
+  if (reference) return ownedTokens.has(reference[1]);
   const role = String.raw`var\(\s*--[\w-]+\s*\)`;
   const weight = String.raw`(?:\s+\d+(?:\.\d+)?%)?`;
   const mix = new RegExp(
@@ -340,6 +341,12 @@ describe('design tokens', () => {
           '.page { --bg-secondary: color-mix(in srgb, var(--workspace-bg) 96%, var(--workspace-text)); }',
         ),
       ).toEqual([]);
+    });
+
+    it('requires direct contextual aliases to reference a registered token', () => {
+      expect(styleViolations('.page { --bg: var(--private-palette); }')).toContain(
+        'token override: --bg',
+      );
     });
 
     it('allows token-based shorthand size and family', () => {
