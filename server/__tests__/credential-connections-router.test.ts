@@ -143,3 +143,32 @@ it('reauthorizes dashboard scope changes, revokes old grants, and rejects stale 
   expect((await send({ revision: 1, access: 'disabled' })).status).toBe(409);
   expect((await send({ revision: 2, access: 'all-commands' })).status).toBe(400);
 });
+
+it('updates generic WebSocket setup only through recent browser authorization at the exact revision', async () => {
+  const { app, service, vault } = setup();
+  const c = await service.create(connection, { secret: 'private-token' });
+  service.grant('chat-a', c.id, 1);
+  const route = `/api/credential-connections/${c.id}/websocket`;
+  const websocket = { path: '/api/socket', authentication: { kind: 'headers' } };
+  expect(
+    (await request(app).post(route).set('x-browser', 'yes').send({ revision: 1, websocket }))
+      .status,
+  ).toBe(403);
+  const auth = await request(app)
+    .post('/api/credential-connections/reauthorize')
+    .set('x-browser', 'yes')
+    .send({ passphrase: 'correct' });
+  const send = (body: Record<string, unknown>) =>
+    request(app).post(route).set('x-browser', 'yes').set('x-csrf-token', auth.body.csrf).send(body);
+  const result = await send({ revision: 1, websocket });
+  expect(result.status).toBe(200);
+  expect(result.body.connection).toMatchObject({ revision: 2, websocket });
+  expect(service.sessions(c.id)).toEqual([]);
+  expect(vault.read).not.toHaveBeenCalled();
+  expect((await send({ revision: 1, websocket: null })).status).toBe(409);
+  expect((await send({ revision: 2, websocket: { ...websocket, path: '/outside' } })).status).toBe(
+    422,
+  );
+  expect((await send({ revision: 2, websocket: { ...websocket, token: 'bad' } })).status).toBe(400);
+  expect((await send({ revision: 2, websocket: null })).body.connection.websocket).toBeNull();
+});

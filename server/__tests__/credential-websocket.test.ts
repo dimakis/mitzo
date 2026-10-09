@@ -149,3 +149,35 @@ it('rejects unsafe authentication templates and reserved credential fields', () 
       }),
     ).toThrow();
 });
+
+it('negotiates configured subprotocols and rejects duplicate or invalid names', async () => {
+  const socket = new Socket();
+  let options!: ConnectionSocketOptions;
+  const config = WebSocketConfigSchema.parse({
+    path: '/rpc',
+    protocols: ['json-rpc'],
+    authentication: { kind: 'headers' },
+  });
+  const pending = websocketRequest(
+    {
+      url: new URL('wss://rpc.example.com/rpc'),
+      token: 'fixture',
+      headers: { 'X-API-Key': 'fixture' },
+      allowPrivateNetwork: false,
+      config,
+      request: { message: 'ping' },
+      check() {},
+    },
+    new AbortController().signal,
+    (_url, o) => {
+      options = o;
+      return socket as unknown as WebSocket;
+    },
+  );
+  expect(options.protocols).toEqual(['json-rpc']);
+  socket.emit('open');
+  socket.receive('pong');
+  expect(await pending).toBe('pong');
+  for (const protocols of [['json', 'json'], ['bad protocol']])
+    expect(() => WebSocketConfigSchema.parse({ ...config, protocols })).toThrow();
+});
