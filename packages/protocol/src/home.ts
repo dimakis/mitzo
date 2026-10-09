@@ -34,3 +34,11 @@ export interface BriefingSnapshot {
   revision: string;
   content: string;
 }
+export interface BriefingChatBinding {
+  date: string;
+  revision: string;
+  sessionId: string;
+  accountId: string;
+  model: string;
+  createdAt: string;
+}

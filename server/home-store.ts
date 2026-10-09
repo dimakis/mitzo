@@ -12,7 +12,12 @@ import {
 import { dirname } from 'node:path';
 import { randomInt, randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import type { DailyQuote, HomePreferences, PhilosophyQuote } from '@mitzo/protocol';
+import type {
+  BriefingChatBinding,
+  DailyQuote,
+  HomePreferences,
+  PhilosophyQuote,
+} from '@mitzo/protocol';
 
 const text = (max: number) => z.string().trim().min(1).max(max);
 const url = z.string().url().startsWith('https://').max(2000);
@@ -55,6 +60,15 @@ export const homeUpdateSchema = z
     pins: pinsSchema.optional(),
   })
   .strict();
+export const briefingChatSchema = z
+  .object({
+    date: z.string().refine(validDate, 'Invalid date'),
+    revision: z.string().regex(/^[a-f0-9]{64}$/),
+    sessionId: z.string().regex(/^[\w.:-]{1,200}$/),
+    accountId: text(200),
+    model: text(200),
+  })
+  .strict();
 const stateSchema = z
   .object({
     version: z.literal(1),
@@ -63,6 +77,10 @@ const stateSchema = z
     pins: pinsSchema,
     quotes: z.array(z.object({ date: z.string(), quote: quoteSchema }).strict()).max(60),
     remaining: z.array(z.string()).max(10000),
+    briefingChats: z
+      .array(briefingChatSchema.extend({ createdAt: z.string().datetime() }))
+      .max(1000)
+      .default([]),
   })
   .strict();
 type State = z.infer<typeof stateSchema>;
@@ -95,12 +113,13 @@ export class HomeStore {
           pins: [],
           quotes: [],
           remaining: [],
+          briefingChats: [],
         };
       throw error;
     }
     try {
       const stat = fstatSync(fd);
-      if (!stat.isFile() || stat.nlink !== 1 || stat.size > 1024 * 1024)
+      if (!stat.isFile() || stat.nlink !== 1 || stat.size > 4 * 1024 * 1024)
         throw new Error('Invalid home preferences file');
       return stateSchema.parse(JSON.parse(readFileSync(fd, 'utf8')));
     } finally {
@@ -124,6 +143,33 @@ export class HomeStore {
   preferences(): HomePreferences {
     const { revision, names, pins } = this.read();
     return { revision, names, pins };
+  }
+  briefingChats(date: string, revision: string): BriefingChatBinding[] {
+    if (!validDate(date) || !/^[a-f0-9]{64}$/.test(revision))
+      throw new Error('Invalid report identity');
+    return this.read().briefingChats.filter(
+      (chat) => chat.date === date && chat.revision === revision,
+    );
+  }
+  registerBriefingChat(input: Omit<BriefingChatBinding, 'createdAt'>): BriefingChatBinding {
+    const binding = briefingChatSchema.parse(input);
+    const state = this.read();
+    const previous = state.briefingChats.find((chat) => chat.sessionId === binding.sessionId);
+    if (previous) {
+      if (
+        previous.date !== binding.date ||
+        previous.revision !== binding.revision ||
+        previous.accountId !== binding.accountId ||
+        previous.model !== binding.model
+      )
+        throw new Error('Session already belongs to another briefing or selection');
+      return previous;
+    }
+    if (state.briefingChats.length >= 1000) throw new Error('Briefing chat history is full');
+    const entry = { ...binding, createdAt: new Date().toISOString() };
+    state.briefingChats.push(entry);
+    this.write(state);
+    return entry;
   }
   update(
     revision: number,

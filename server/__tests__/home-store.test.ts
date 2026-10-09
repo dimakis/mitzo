@@ -52,6 +52,32 @@ it('refuses corrupt state instead of silently resetting it', () => {
   expect(() => new HomeStore(join(root, 'home.json')).preferences()).toThrow();
 });
 
+it('retains separate briefing chats by exact report revision and selection without changing preferences', () => {
+  const store = new HomeStore(join(root, 'home.json'));
+  store.update(0, { names: { briefing: 'Jeeves' } });
+  const binding = {
+    date: '2026-10-10',
+    revision: 'a'.repeat(64),
+    sessionId: 'session-1',
+    accountId: 'work',
+    model: 'luna',
+  };
+  const first = store.registerBriefingChat(binding);
+  expect(store.registerBriefingChat(binding)).toEqual(first);
+  store.registerBriefingChat({ ...binding, sessionId: 'session-2', model: 'other-model' });
+  store.registerBriefingChat({ ...binding, sessionId: 'session-3', revision: 'b'.repeat(64) });
+  const reopened = new HomeStore(join(root, 'home.json'));
+  expect(
+    reopened.briefingChats(binding.date, binding.revision).map((item) => item.sessionId),
+  ).toEqual(['session-1', 'session-2']);
+  expect(reopened.preferences()).toMatchObject({ revision: 1, names: { briefing: 'Jeeves' } });
+  expect(() => store.registerBriefingChat({ ...binding, date: '2026-02-30' })).toThrow();
+  expect(() => store.registerBriefingChat({ ...binding, revision: '../escape' })).toThrow();
+  expect(() => store.registerBriefingChat({ ...binding, accountId: 'personal' })).toThrow(
+    /already/,
+  );
+});
+
 it('pins a daily quote snapshot across reloads and catalogue updates and avoids immediate repeats', () => {
   const store = new HomeStore(join(root, 'home.json'));
   const entry = (id: string) => ({
