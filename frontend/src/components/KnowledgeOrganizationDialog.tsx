@@ -20,12 +20,16 @@ export function KnowledgeOrganizationDialog({
   error?: string;
   canChoose(path: string): boolean;
   canChooseParent?(path: string): boolean;
-  onSubmit(path: string): boolean;
+  onSubmit(path: string): boolean | Promise<boolean>;
   onClose(): void;
 }) {
   const [parent, setParent] = useState(initialParent);
   const [name, setName] = useState('');
   const ref = useRef<HTMLDivElement>(null);
+  const submittingRef = useRef(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState('');
+  const working = busy || submitting;
   const title = mode === 'folder' ? 'New folder' : 'Move document';
   const leaf = mode === 'folder' ? name.trim() : source!.split('/').pop()!;
   const destination = parent ? `${parent}/${leaf}` : '';
@@ -51,7 +55,7 @@ export function KnowledgeOrganizationDialog({
     <div
       className="knowledge-dialog-overlay"
       onClick={(event) => {
-        if (event.target === event.currentTarget && !busy) onClose();
+        if (event.target === event.currentTarget && !working) onClose();
       }}
     >
       <div
@@ -62,7 +66,7 @@ export function KnowledgeOrganizationDialog({
         ref={ref}
         tabIndex={-1}
         onKeyDown={(event) => {
-          if (event.key === 'Escape' && !busy) onClose();
+          if (event.key === 'Escape' && !working) onClose();
           if (event.key === 'Tab') {
             const controls = ref.current?.querySelectorAll<HTMLElement>(
               'button:not(:disabled), input:not(:disabled)',
@@ -92,7 +96,7 @@ export function KnowledgeOrganizationDialog({
           folderChoices
           canSelectFolder={eligibleParent}
           selectedFolder={parent}
-          busy={busy}
+          busy={working}
           onFolder={setParent}
         />
         {!choices.length && <p className="workspace-muted">No eligible folders are available.</p>}
@@ -104,22 +108,38 @@ export function KnowledgeOrganizationDialog({
             Folder name
             <input
               aria-label="Folder name"
+              disabled={working}
               value={name}
               onChange={(event) => setName(event.target.value)}
               maxLength={200}
             />
           </label>
         )}
-        {error && <p role="alert">{error}</p>}
+        {(error || submitError) && <p role="alert">{error || submitError}</p>}
         <div className="knowledge-editor-actions">
-          <button disabled={busy} onClick={onClose}>
+          <button disabled={working} onClick={onClose}>
             Cancel
           </button>
           <button
             className="btn-primary"
-            disabled={busy || !valid}
-            onClick={() => {
-              if (onSubmit(destination)) onClose();
+            disabled={working || !valid}
+            onClick={async () => {
+              if (working || submittingRef.current || !valid) return;
+              submittingRef.current = true;
+              setSubmitting(true);
+              setSubmitError('');
+              try {
+                if (await onSubmit(destination)) onClose();
+              } catch (error: unknown) {
+                setSubmitError(
+                  error instanceof Error
+                    ? error.message
+                    : 'The change could not be completed. Please try again.',
+                );
+              } finally {
+                submittingRef.current = false;
+                setSubmitting(false);
+              }
             }}
           >
             {mode === 'folder' ? 'Create folder' : 'Move here'}

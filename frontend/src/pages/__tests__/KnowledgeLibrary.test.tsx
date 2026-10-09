@@ -1439,7 +1439,7 @@ it('keeps the requested reader when replacing an unrelated edited document is ca
     confirm.mockRestore();
   }
 });
-it('does not open a Move chooser when the source could not be added to an older working copy', async () => {
+it('keeps Move open without partial edits when confirming a move into an older working copy fails', async () => {
   const own = [{ path: 'hub/principles.md', base: '# Principles', content: '# Keep older edits' }];
   localStorage.setItem(
     'mitzo-knowledge-working-copy:',
@@ -1467,11 +1467,11 @@ it('does not open a Move chooser when the source could not be added to an older 
   await findLibraryDocument(/Release process/, 'teams');
   fireEvent.click(screen.getByRole('button', { name: 'Options for teams/release.md' }));
   fireEvent.click(screen.getByRole('button', { name: 'Move document' }));
-  await screen.findAllByText(
-    'Refresh and compare this draft before adding a document from the latest library.',
-  );
-  expect(screen.queryByRole('dialog', { name: 'Move document' })).toBeNull();
-  expect(screen.getByRole('dialog', { name: 'Document options' })).toBeTruthy();
+  const dialog = await screen.findByRole('dialog', { name: 'Move document' });
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Folder teams/context' }));
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Move here' }));
+  await screen.findAllByText(/Refresh and compare this draft before/);
+  expect(screen.getByRole('dialog', { name: 'Move document' })).toBeTruthy();
   expect(JSON.parse(localStorage.getItem('mitzo-knowledge-working-copy:')!).documents).toEqual(own);
 });
 it('retains a matching empty folder under the selected area when no documents match search', async () => {
@@ -1714,4 +1714,41 @@ it('explicitly adds a document to the same recovered empty change and keeps its 
   expect(vi.mocked(apiFetch).mock.calls.some(([path]) => path === '/api/knowledge/drafts')).toBe(
     false,
   );
+});
+
+it('cancels an unopened document Move without adding it to the existing working copy', async () => {
+  const own = [{ path: 'hub/principles.md', base: '# Principles', content: '# Keep edits' }];
+  localStorage.setItem(
+    'mitzo-knowledge-working-copy:',
+    JSON.stringify({
+      title: 'Working principles',
+      baseRevision: 'r1',
+      documents: own,
+      selected: own[0].path,
+      saved: JSON.stringify(draft.documents),
+    }),
+  );
+  const original = vi.mocked(apiFetch).getMockImplementation()!;
+  vi.mocked(apiFetch).mockImplementation(async (path, init) =>
+    path === '/api/knowledge'
+      ? response({
+          ...catalog,
+          directories: ['hub', 'teams', 'teams/context'],
+          documentPaths: ['hub', 'teams'],
+        })
+      : original(path, init),
+  );
+  setup();
+  await screen.findByRole('textbox', { name: 'Document source' });
+  fireEvent.click(screen.getByRole('button', { name: '← Library' }));
+  await findLibraryDocument(/Release process/, 'teams');
+  const before = localStorage.getItem('mitzo-knowledge-working-copy:');
+  fireEvent.click(screen.getByRole('button', { name: 'Options for teams/release.md' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Move document' }));
+  const dialog = await screen.findByRole('dialog', { name: 'Move document' });
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+  expect(localStorage.getItem('mitzo-knowledge-working-copy:')).toBe(before);
+  expect(
+    vi.mocked(apiFetch).mock.calls.some(([path]) => path.startsWith('/api/knowledge/document')),
+  ).toBe(false);
 });

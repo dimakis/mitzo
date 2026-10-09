@@ -848,3 +848,116 @@ it('allows a valid folder parent even when its new-folder child is occupied, wit
   expect(result.current.canCreateInDirectory('knowledge')).toBe(false);
   expect(result.current.canCreateInDirectory('knowledge/enrolled/a.md')).toBe(false);
 });
+it('atomically stages a confirmed accepted move while preserving existing edits and receipts', async () => {
+  const existing = { path: 'knowledge/other.md', base: 'before', content: 'local edit' };
+  const draft = {
+    id: 'draft',
+    title: 'Existing',
+    baseRevision: 'base',
+    version: 3,
+    state: 'draft',
+    documents: [existing],
+    updatedAt: '',
+  };
+  const pendingCreate = {
+    requestId: 'existing-request',
+    title: 'Existing',
+    baseRevision: 'base',
+    documents: [{ path: existing.path, content: 'before' }],
+    directories: [],
+  };
+  localStorage.setItem(
+    key,
+    JSON.stringify({
+      title: draft.title,
+      baseRevision: 'base',
+      draft,
+      pendingCreate,
+      documents: [existing],
+      directories: [],
+      selected: existing.path,
+      saved: JSON.stringify([existing]),
+    }),
+  );
+  const { result } = renderHook(useKnowledgeLibrary);
+  await waitFor(() => expect(result.current.catalog).toBeTruthy());
+  const before = localStorage.getItem(key);
+  let resolve!: (value: unknown) => void;
+  fetch.mockImplementationOnce(
+    () =>
+      new Promise((done) => {
+        resolve = done;
+      }),
+  );
+  let move!: Promise<boolean>;
+  act(() => {
+    move = result.current.moveAcceptedDocument(catalog.documents[0], 'knowledge/new/a.md');
+  });
+  expect(localStorage.getItem(key)).toBe(before);
+  expect(result.current.busy).toBe(true);
+  await act(async () => {
+    resolve({ ok: true, json: async () => ({ content: 'original' }) });
+    expect(await move).toBe(true);
+  });
+  expect(result.current.copy?.documents).toEqual([
+    existing,
+    {
+      path: 'knowledge/new/a.md',
+      sourcePath: 'knowledge/a.md',
+      base: 'original',
+      content: 'original',
+    },
+  ]);
+  expect(result.current.copy?.draft).toEqual(draft);
+  expect(result.current.copy?.pendingCreate).toEqual(pendingCreate);
+  expect(result.current.selected?.path).toBe('knowledge/new/a.md');
+});
+it('preserves the entire working copy on failed accepted-move reads and rejects older bases before fetching', async () => {
+  const { result } = renderHook(useKnowledgeLibrary);
+  await waitFor(() => expect(result.current.catalog).toBeTruthy());
+  await act(async () => {
+    await result.current.openDocument(catalog.documents[0]);
+  });
+  act(() => result.current.change('local edit'));
+  const before = localStorage.getItem(key);
+  const another = { path: 'knowledge/other.md', title: 'Other', area: 'knowledge' };
+  fetch.mockRejectedValueOnce(new Error('offline'));
+  await act(async () => {
+    expect(await result.current.moveAcceptedDocument(another, 'knowledge/new/other.md')).toBe(
+      false,
+    );
+  });
+  expect(localStorage.getItem(key)).toBe(before);
+  fetch.mockResolvedValueOnce({ ok: true, json: async () => ({ ...catalog, revision: 'newer' }) });
+  await act(async () => {
+    await result.current.refresh();
+  });
+  fetch.mockClear();
+  await act(async () => {
+    expect(await result.current.moveAcceptedDocument(another, 'knowledge/new/other.md')).toBe(
+      false,
+    );
+  });
+  expect(fetch).not.toHaveBeenCalled();
+  expect(localStorage.getItem(key)).toBe(before);
+});
+it('moves an already staged accepted source without fetching or losing its edits', async () => {
+  const { result } = renderHook(useKnowledgeLibrary);
+  await waitFor(() => expect(result.current.catalog).toBeTruthy());
+  await act(async () => {
+    await result.current.openDocument(catalog.documents[0]);
+  });
+  act(() => result.current.change('local edit'));
+  fetch.mockClear();
+  await act(async () => {
+    expect(
+      await result.current.moveAcceptedDocument(catalog.documents[0], 'knowledge/new/a.md'),
+    ).toBe(true);
+  });
+  expect(fetch).not.toHaveBeenCalled();
+  expect(result.current.selected).toMatchObject({
+    path: 'knowledge/new/a.md',
+    sourcePath: 'knowledge/a.md',
+    content: 'local edit',
+  });
+});

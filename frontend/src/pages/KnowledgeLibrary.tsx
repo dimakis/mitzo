@@ -733,15 +733,11 @@ export function KnowledgeLibrary() {
               )
             }
             onClick={() => {
-              void library.openDocument(menu, true).then((opened) => {
-                if (opened) {
-                  ++readRequest.current;
-                  setReaderFailure(undefined);
-                  setReader(undefined);
-                  setReading(false);
-                  setDialog('move');
-                }
-              });
+              ++readRequest.current;
+              setReaderFailure(undefined);
+              setReader(undefined);
+              setReading(false);
+              setDialog('move');
             }}
           >
             Move document
@@ -765,11 +761,11 @@ export function KnowledgeLibrary() {
               ? library.canCreateDirectory(path)
               : library.canMoveDocument(menu!.path, path)
           }
-          onSubmit={(path) => {
+          onSubmit={async (path) => {
             const applied =
               dialog === 'folder'
                 ? library.createDirectory(path)
-                : library.moveDocument(menu!.path, path);
+                : await library.moveAcceptedDocument(menu!, path);
             if (applied) {
               setAdding(false);
               ++readRequest.current;

@@ -429,6 +429,66 @@ export function useKnowledgeLibrary() {
     setGate(null);
     return true;
   }
+  async function moveAcceptedDocument(document: KnowledgeDocument, target: string) {
+    if (!catalog || inFlight.current) return false;
+    const staged = current.current?.documents.find(
+      (item) => item.path === document.path || item.sourcePath === document.path,
+    );
+    if (staged) return moveDocument(staged.path, target);
+    if (document.path === target || !canMoveDocument(document.path, target)) {
+      setError('Choose an unused document path in the same knowledge scope.');
+      return false;
+    }
+    let moved = false;
+    await run(async () => {
+      const old = current.current;
+      if (
+        old &&
+        (old.documents.length || old.directories.length) &&
+        old.baseRevision !== catalog.revision
+      )
+        throw new Error(
+          'Refresh and compare this draft before moving a document from the latest library.',
+        );
+      const data = await request<{ content: string }>(
+        `/api/knowledge/document?${new URLSearchParams({ path: document.path, revision: catalog.revision })}`,
+      );
+      const item = {
+        path: target,
+        sourcePath: document.path,
+        base: data.content,
+        content: data.content,
+      };
+      persist(
+        old
+          ? {
+              ...old,
+              documents: [...old.documents, item],
+              selected: target,
+              baseRevision:
+                old.documents.length || old.directories.length
+                  ? old.baseRevision
+                  : catalog.revision,
+            }
+          : {
+              title: document.title,
+              baseRevision: catalog.revision,
+              documents: [item],
+              directories: [],
+              selected: target,
+              saved: JSON.stringify([
+                { path: document.path, base: data.content, content: data.content },
+              ]),
+            },
+      );
+      setHistory([data.content]);
+      setPosition(0);
+      setComparison(null);
+      setGate(null);
+      moved = true;
+    });
+    return moved;
+  }
   function createDirectory(path: string) {
     if (!catalog || inFlight.current) return false;
     if (directoryOccupied(path)) {
@@ -961,6 +1021,7 @@ export function useKnowledgeLibrary() {
     openDocument,
     readDocument,
     moveDocument,
+    moveAcceptedDocument,
     canMoveDocument,
     canCreateDirectory,
     canCreateInDirectory,
