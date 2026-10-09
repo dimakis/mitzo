@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "observedAt": "2026-10-09T00:28:58.963Z",
+  "scope": "Sanitized source/dependency audit of the original ordinary stage; no migration or service control",
+  "acceptedBaseline": "b808561bcb70ad5ab80696d24dc8abf8ec4cc0d3",
+  "originalSource": "8e115c6e98b641a3e867c31385f71cec77cea385",
+  "originalTree": "4a7f9fe16760ccce890d97e890033a823715ab08",
+  "originalReceiptSha256": "cdeacc7ca944675a51df1817d861d95afed1a91c1a476b92eaf3346b9390fe78",
+  "legacyDependencyFingerprint": "3f00d5fef8724240aa1c9ed0d48f8131a381d1f6eee7e6a6564d8d2873890a36",
+  "verifiedClosureV2Fingerprint": "591caefda2b78761d77ac860df58c4e36104007e4a3e52d785255667eb7d9e04",
+  "workspaceTargetCoverage": {
+    "publishedSourceFiles": 594,
+    "recordedArtifacts": 249,
+    "uncoveredFiles": 0
+  },
+  "originalArtifacts": 550,
+  "dependencyLinks": 70,
+  "installedControllerMatchesHistoricalRecord": true,
+  "legacyAndPrivatePlistSha256": "602d7c9579588e64a420e508bd737fc03938be267caccda3ea003f862e9d26d7",
+  "legacyRegistrationLocation": "user Library/LaunchAgents; regular private file",
+  "originalProcessAndExclusiveListenerVerified": true,
+  "deploymentLocksAbsent": true,
+  "registryEmpty": true,
+  "sourceLandingIsNotRuntimeActivation": true,
+  "qualificationApplied": false,
+  "serviceControlPerformed": false,
+  "modelCalls": 0,
+  "productionActions": []
+}

@@ -1,3 +1,4 @@
+import type { ModelTokenLimits } from '@mitzo/protocol';
 import type { BlockType, FinishedBlock, ToolTier, RawToolInput } from './chat';
 import type { Task } from './task';
 import type { ProgressItem, ProgressItemStatus } from '@mitzo/protocol';
@@ -312,6 +313,7 @@ export interface InboxUpdatedMsg {
 }
 
 export interface TokenUpdateMsg {
+  tokenLimits?: ModelTokenLimits | null;
   type: 'token_update';
   agentContext: number;
   contextCeiling?: number;

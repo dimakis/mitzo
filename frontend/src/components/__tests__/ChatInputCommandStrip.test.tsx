@@ -123,6 +123,7 @@ describe('ChatInput command strip', () => {
     );
     const usage = screen.getByRole('button', { name: 'Token usage' });
     expect(usage.closest('.composer-actions')).toBeTruthy();
+    expect(usage.closest('.composer-actions')?.lastElementChild?.contains(usage)).toBe(true);
     expect(container.querySelector('.composer-info')).toBeNull();
     fireEvent.click(usage);
     expect(screen.getByText('Agent context').closest('.token-wheel-control')).toBeTruthy();

@@ -38,6 +38,8 @@ import {
   appendAudit,
 } from './lib/staging-files.mjs';
 import { assertStageJob } from './lib/staging-job.mjs';
+import { assertStageRegistration } from './lib/staging-registration.mjs';
+import { verifyDependencySource } from './lib/staging-dependency-source.mjs';
 const repo = 'https://github.com/dimakis/mitzo.git',
   root = join(homedir(), '.local/share/mitzo-staging'),
   label = 'com.mitzo.staging';
@@ -46,7 +48,7 @@ const args = process.argv.slice(2),
   command = args.shift();
 if (command === '--help' || !command) {
   console.log(
-    'staging check [--offline]\nstaging prepare --commit SHA\nstaging deploy --commit SHA --expected-current SHA [--apply]',
+    'staging check [--offline]\nstaging prepare --commit SHA [--dependency-source PATH --expected-dependency-fingerprint SHA256]\nstaging deploy --commit SHA --expected-current SHA [--apply]',
   );
   process.exit(0);
 }
@@ -54,10 +56,25 @@ if (!['check', 'prepare', 'deploy'].includes(command)) throw Error('Unsupported 
 const flags = {};
 for (let i = 0; i < args.length; i++) {
   if (['--offline', '--apply'].includes(args[i])) flags[args[i]] = true;
-  else if (['--commit', '--expected-current'].includes(args[i]) && args[i + 1])
+  else if (
+    [
+      '--commit',
+      '--expected-current',
+      '--dependency-source',
+      '--expected-dependency-fingerprint',
+    ].includes(args[i]) &&
+    args[i + 1]
+  )
     flags[args[i]] = args[++i];
   else throw Error('Unknown staging argument');
 }
+if (
+  (flags['--dependency-source'] || flags['--expected-dependency-fingerprint']) &&
+  (command !== 'prepare' ||
+    !flags['--dependency-source'] ||
+    !flags['--expected-dependency-fingerprint'])
+)
+  throw Error('Dependency source and fingerprint are paired preparation-only arguments');
 if (process.platform !== 'darwin') throw Error('This host controller supports macOS launchd only');
 if (realpathSync(root) !== root) throw Error('Canonical staging root required');
 for (const name of ['service', 'settings', 'workspace', 'state', 'home', 'releases'])
@@ -108,18 +125,29 @@ function portPids(port) {
 function job() {
   const text = run('launchctl', ['print', 'gui/' + process.getuid() + '/' + label]);
   const path = text.match(/^\s*path = (.+)$/m)?.[1];
-  if (path !== join(root, 'service/com.mitzo.staging.plist'))
-    throw Error('Original staging service control path changed');
   const match = text.match(/^\s*pid = (\d+)$/m);
-  if (!match) return { pid: null };
-  const pid = Number(match[1]);
+  const pid = match ? Number(match[1]) : null;
+  const birth = pid ? run('/bin/ps', ['-p', String(pid), '-o', 'lstart=']) : null;
+  const registration = assertStageRegistration({
+    registered: path,
+    canonical: join(root, 'service/com.mitzo.staging.plist'),
+    legacy: join(homedir(), 'Library/LaunchAgents/com.mitzo.staging.plist'),
+    qualification:
+      path === join(root, 'service/com.mitzo.staging.plist')
+        ? undefined
+        : privateJson(join(root, 'service/legacy-qualification.json')),
+    pid,
+    birth,
+  });
+  if (!pid) return { pid: null, registration };
   const names = run('/usr/sbin/lsof', ['-a', '-p', String(pid), '-d', 'cwd', '-Fn'])
     .split('\n')
     .filter((v) => v.startsWith('n'));
   if (names.length !== 1) throw Error('Stage process directory unavailable');
   return {
     pid,
-    birth: run('/bin/ps', ['-p', String(pid), '-o', 'lstart=']),
+    birth,
+    registration,
     cwd: names[0].slice(1),
     portPids: portPids(3190),
     protectedPids: [...portPids(3100), ...portPids(3101)],
@@ -245,24 +273,40 @@ async function prepare() {
   audit({ phase: 'build_intent', target, attempt });
   run('git', ['clone', '--no-checkout', repo, attempt]);
   run('git', ['checkout', '--detach', target], attempt);
+  const dependencySource = flags['--dependency-source'] ?? active.release;
+  const lockSha256 = hash(readFileSync(join(attempt, 'package-lock.json')));
   if (
-    hash(readFileSync(join(active.release, 'package-lock.json'))) !==
-    hash(readFileSync(join(attempt, 'package-lock.json')))
+    !flags['--dependency-source'] &&
+    hash(readFileSync(join(active.release, 'package-lock.json'))) !== lockSha256
   )
     throw Error(
       'Dependency lock changed; independently provision audited dependencies before preparation',
     );
-  const before = fingerprintDirectory(active.release, 'node_modules');
-  const copied = fingerprintDependencyCopy(active.release);
-  cpSync(join(active.release, 'node_modules'), join(attempt, 'node_modules'), {
+  if (flags['--dependency-source'])
+    verifyDependencySource(
+      dependencySource,
+      target,
+      lockSha256,
+      flags['--expected-dependency-fingerprint'],
+    );
+  const before = fingerprintDirectory(dependencySource, 'node_modules');
+  const copied = fingerprintDependencyCopy(dependencySource);
+  cpSync(join(dependencySource, 'node_modules'), join(attempt, 'node_modules'), {
     recursive: true,
     verbatimSymlinks: true,
   });
   if (fingerprintDependencyCopy(attempt) !== copied) throw Error('Dependency copy changed');
   run('npm', ['run', 'build:server'], attempt);
   run('npm', ['run', 'build'], attempt);
-  if (fingerprintDirectory(active.release, 'node_modules') !== before)
+  if (fingerprintDirectory(dependencySource, 'node_modules') !== before)
     throw Error('Dependency source changed during preparation');
+  if (flags['--dependency-source'])
+    verifyDependencySource(
+      dependencySource,
+      target,
+      lockSha256,
+      flags['--expected-dependency-fingerprint'],
+    );
   if (main() !== target) throw Error('Main advanced during build; preserve candidate and re-plan');
   const tree = run('git', ['rev-parse', 'HEAD^{tree}'], attempt);
   writeFileSync(
@@ -296,6 +340,8 @@ async function deploy() {
   assertStageCandidate(next, target, path);
   validateRelease(next, main());
   const originalJob = job();
+  if (originalJob.registration === 'qualified-legacy')
+    throw Error('Qualified legacy service requires the original ordinary-to-owned transition');
   assertStageJob(originalJob, active);
   if (active.sourceCommit !== expected) throw Error('Current stage changed since plan');
   const id = randomUUID(),
@@ -317,6 +363,8 @@ async function deploy() {
     'scripts/lib/staging-files.mjs',
     'scripts/lib/staging-job.mjs',
     'scripts/lib/staging-launcher-template.mjs',
+    'scripts/lib/staging-registration.mjs',
+    'scripts/lib/staging-dependency-source.mjs',
   ]) {
     const installed = new URL(name.replace('scripts/', ''), import.meta.url);
     const p = fileURLToPath(installed);

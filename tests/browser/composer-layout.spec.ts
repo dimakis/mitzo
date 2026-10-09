@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { build } from 'esbuild';
 
 // Render the real composer without a backend, provider, or Vite preview.
-async function composerAssets(running = false) {
+async function composerAssets(running = false, model = 'new-model') {
   const result = await build({
     stdin: {
       resolveDir: process.cwd(),
@@ -21,7 +21,10 @@ async function composerAssets(running = false) {
           <div className="workspace-chat" style={{paddingTop: 200}}>
             <ChatInput onSend={() => true} onStop={() => {}} onInterrupt={() => true} running={${running}} voice={voice}
               tokenState={{agentContext: 50000, contextCeiling: 200000, sessionTotal: 90000,
-                numTurns: 3, turnIndex: 1, numCompactions: 1}} />
+                numTurns: 3, turnIndex: 1, numCompactions: 1,
+                tokenLimits: {model: ${JSON.stringify(model)}, source: 'catalog', sourceName: 'Models.dev',
+                  contextWindow: 200000, outputTokenLimit: 32000, checkedAt: Date.now(),
+                  expiresAt: Date.now() + 3600000, stale: false}}} />
           </div>
         );`,
     },
@@ -112,14 +115,19 @@ for (const width of [320, 390, 768, 1280]) {
         );
         await page.addScriptTag({ content: assets.js });
         const wheel = page.getByRole('button', { name: 'Token usage', exact: true });
-        const mic = page.getByRole('button', { name: 'Record voice message', exact: true });
+        const action = page.getByRole('button', {
+          name: running ? 'Stop generation' : 'Send message',
+          exact: true,
+        });
         await expect(wheel).toBeVisible();
         const wheelBounds = (await wheel.boundingBox())!;
-        const micBounds = (await mic.boundingBox())!;
-        expect(micBounds.x - (wheelBounds.x + wheelBounds.width)).toBeGreaterThanOrEqual(0);
-        expect(micBounds.x - (wheelBounds.x + wheelBounds.width)).toBeLessThanOrEqual(6);
+        const actionBounds = (await action.boundingBox())!;
+        expect(wheelBounds.x - (actionBounds.x + actionBounds.width)).toBeGreaterThanOrEqual(0);
+        expect(wheelBounds.x - (actionBounds.x + actionBounds.width)).toBeLessThanOrEqual(6);
         expect(
-          Math.abs(wheelBounds.y + wheelBounds.height / 2 - (micBounds.y + micBounds.height / 2)),
+          Math.abs(
+            wheelBounds.y + wheelBounds.height / 2 - (actionBounds.y + actionBounds.height / 2),
+          ),
         ).toBeLessThanOrEqual(1);
         const palette = await wheel.evaluate((el) => {
           const probe = document.createElement('span');
@@ -133,8 +141,8 @@ for (const width of [320, 390, 768, 1280]) {
         if (running) {
           await page.getByRole('textbox').fill('Follow up');
           const updatedWheel = (await wheel.boundingBox())!;
-          const updatedMic = (await mic.boundingBox())!;
-          expect(updatedMic.x - (updatedWheel.x + updatedWheel.width)).toBeLessThanOrEqual(6);
+          const updatedAction = (await action.boundingBox())!;
+          expect(updatedWheel.x - (updatedAction.x + updatedAction.width)).toBeLessThanOrEqual(6);
         }
         await wheel.click();
         const details = (await page.locator('.token-bar-detail').boundingBox())!;
@@ -147,3 +155,52 @@ for (const width of [320, 390, 768, 1280]) {
     }
   }
 }
+
+for (const width of [768, 1280]) {
+  test(`desktop usage is flush with the trailing controls at ${width}px`, async ({ page }) => {
+    const assets = await composerAssets();
+    await page.setViewportSize({ width, height: 800 });
+    await page.route('**/*', (route) => route.abort());
+    await page.setContent(
+      `<meta name="viewport" content="width=device-width, initial-scale=1.0"><style>${assets.css}</style><div id="root"></div>`,
+    );
+    await page.addScriptTag({ content: assets.js });
+    const usage = page.getByRole('button', { name: 'Token usage', exact: true });
+    const send = page.getByRole('button', { name: 'Send message', exact: true });
+    await expect(page.locator('.token-bar-label')).toHaveCount(0);
+    await expect(page.locator('.token-bar-detail')).toHaveCount(0);
+    const u = (await usage.boundingBox())!;
+    const s = (await send.boundingBox())!;
+    const toolbar = (await page.locator('.composer-toolbar').boundingBox())!;
+    expect(u.x).toBeGreaterThan(s.x + s.width);
+    expect(Math.abs(u.y - s.y)).toBeLessThanOrEqual(1);
+    expect(u.height).toBe(s.height);
+    expect(u.width).toBe(s.width);
+    expect(Math.abs(u.x + u.width - toolbar.x - toolbar.width)).toBeLessThanOrEqual(1);
+    await usage.click();
+    const details = (await page.locator('.token-bar-detail').boundingBox())!;
+    expect(Math.abs(details.x + details.width - u.x - u.width)).toBeLessThanOrEqual(1);
+    expect(details.y + details.height).toBeLessThanOrEqual(u.y);
+  });
+}
+
+test('pressed model-limit details fit a narrow viewport even for a long model ID', async ({
+  page,
+}) => {
+  const assets = await composerAssets(false, 'preview-' + 'model'.repeat(25));
+  await page.setViewportSize({ width: 320, height: 640 });
+  await page.route('**/*', (route) => route.abort());
+  await page.setContent(
+    `<meta name="viewport" content="width=device-width, initial-scale=1.0"><style>${assets.css}</style><div id="root"></div>`,
+  );
+  await page.addScriptTag({ content: assets.js });
+  await expect(page.getByText('Limit source', { exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Token usage', exact: true }).click();
+  const details = page.locator('.token-bar-detail');
+  await expect(details.getByText('Models.dev', { exact: true })).toBeVisible();
+  await expect(details.getByText('Maximum output', { exact: true })).toBeVisible();
+  expect(await details.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+  const rect = (await details.boundingBox())!;
+  expect(rect.x).toBeGreaterThanOrEqual(0);
+  expect(rect.x + rect.width).toBeLessThanOrEqual(320);
+});

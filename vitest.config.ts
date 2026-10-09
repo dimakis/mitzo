@@ -33,6 +33,11 @@ export default defineConfig({
     ],
     env: {
       NODE_ENV: 'test',
+      // Model metadata is offline test data; tests never fetch the public catalog.
+      MITZO_MODEL_LIMITS_CATALOG_FILE: resolve(
+        __dirname,
+        'server/__tests__/fixtures/empty-model-limits.json',
+      ),
       AUTH_PASSPHRASE: 'test-passphrase-for-vitest',
       AUTH_SECRET: 'test-secret-that-is-definitely-long-enough-for-hs256',
       COOKIE_MAX_AGE_HOURS: '1',
