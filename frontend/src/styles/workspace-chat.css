@@ -742,6 +742,9 @@
   overflow: hidden;
   overflow-wrap: anywhere;
 }
+.session-item-navigation > .conversation-result-snippet {
+  margin-top: 6px;
+}
 @media (pointer: coarse) {
   .conversation-library button,
   .conversation-library summary {
