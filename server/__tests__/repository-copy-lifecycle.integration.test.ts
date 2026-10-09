@@ -91,7 +91,7 @@ it('publishes native commits from a copied task after source release and control
   await mkdir(taskRoot);
   const preview = await service.preview(binding, 'github', 'example/repo', signal);
   await service.prepare(preview.id, binding, signal);
-  // Exercise the real platform's clone-preferred copier through the controller claim.
+  // Exercise the descriptor-anchored platform copier through the controller claim.
   const claimed = await service.claim(preview.id, binding, 'conversation', taskRoot, false);
   const task = claimed.directory!;
   const frozenDigest = service.get(preview.id).sourceDigest;

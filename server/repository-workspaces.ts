@@ -1,3 +1,4 @@
+import { copyRepositoryTaskCheckout } from './repository-task-copy.js';
 import {
   snapshotRepositoryTaskCheckout,
   validateRepositoryTaskCheckout,
@@ -13,7 +14,7 @@ import {
   createReadStream,
   constants,
 } from 'node:fs';
-import { cp, mkdir, realpath, rm, readdir, lstat, open } from 'node:fs/promises';
+import { mkdir, realpath, rm, readdir, lstat, open } from 'node:fs/promises';
 import { join } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import type { AccountBinding } from '@mitzo/protocol';
@@ -358,11 +359,7 @@ export class RepositoryWorkspaces {
     if (record.directory) {
       if ((await realpath(taskRoot)) !== taskRoot) throw new Error('Task workspace root changed');
       await mkdir(join(taskRoot, `repo-${record.id}`), { mode: 0o700 });
-      await cp(this.source(record), record.directory, {
-        recursive: true,
-        force: false,
-        errorOnExist: true,
-      });
+      await copyRepositoryTaskCheckout(this.source(record), record.directory, signal);
       if ((await repositorySourceDigest(record.directory)) !== record.sourceDigest)
         throw new Error('Task repository copy changed');
       record.taskIdentity = await snapshotRepositoryTaskCheckout(
