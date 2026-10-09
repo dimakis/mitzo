@@ -560,3 +560,24 @@ it('returns a definite not-saved result if the deadline expires in the Keychain 
   expect(f.keychain.write).not.toHaveBeenCalled();
   expect(f.gateway.replace).not.toHaveBeenCalled();
 });
+
+it('keeps a legacy key changed outside Mitzo blocked after a definite pre-write abort', async () => {
+  const f = fixture();
+  f.gateway.pause.mockImplementationOnce(async () => {
+    f.keychain.read.mockResolvedValue({
+      value: 'externally-changed',
+      version: null,
+      managed: false,
+    });
+  });
+  const result = await f.replace();
+  expect(result).toMatchObject({
+    health: 'needs_attention',
+    errorCode: 'ACCOUNT_CHANGED',
+    canSynchronize: false,
+  });
+  expect(f.store.latest('work')).toMatchObject({ phase: 'aborted' });
+  expect(f.keychain.write).not.toHaveBeenCalled();
+  expect(f.gateway.replace).not.toHaveBeenCalled();
+  await expect(f.manager.resolveKey('work', signal())).rejects.toThrow('need attention');
+});

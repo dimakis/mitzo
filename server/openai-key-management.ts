@@ -150,6 +150,11 @@ export class OpenAIKeyManagement {
       gateway: gateway.version,
     });
     const bindingChanged = !!latest && latest.binding !== binding;
+    // A pre-write abort proves this candidate was not installed, but an
+    // unversioned legacy value may have changed outside the controller. Do not
+    // reopen consumers or offer to copy that unrecognized saved value.
+    const unresolvedLegacyChange =
+      !completed && latest?.phase === 'aborted' && latest.errorCode === 'ACCOUNT_CHANGED';
     const ready =
       !pending &&
       !bindingChanged &&
@@ -162,21 +167,27 @@ export class OpenAIKeyManagement {
         keychain.managed === true ||
         (latest?.phase === 'aborted' && latest.keychainBeforeVersion !== null));
     const needsAttention =
-      !!pending || (!!completed && !ready) || knownUnpairedKey || bindingChanged;
+      !!pending ||
+      (!!completed && !ready) ||
+      knownUnpairedKey ||
+      bindingChanged ||
+      unresolvedLegacyChange;
     const status: OpenAIKeyHealth = {
       accountId: account.id,
       label: account.label,
       revision,
       health: ready ? 'ready' : needsAttention ? 'needs_attention' : 'not_verified',
-      canSynchronize: bindingChanged
-        ? false
-        : pending
-          ? pending.binding === binding && keychain.version === pending.id
-          : completed
-            ? completed.binding === binding && keychain.version === completed.id
-            : keychain.version === null && keychain.managed !== true,
+      canSynchronize:
+        bindingChanged || unresolvedLegacyChange
+          ? false
+          : pending
+            ? pending.binding === binding && keychain.version === pending.id
+            : completed
+              ? completed.binding === binding && keychain.version === completed.id
+              : keychain.version === null && keychain.managed !== true,
       errorCode: needsAttention
         ? (pending?.errorCode ??
+          (unresolvedLegacyChange ? latest.errorCode : null) ??
           (bindingChanged && latest?.phase === 'aborted' ? latest.errorCode : null) ??
           'CREDENTIAL_DRIFT')
         : latest?.phase === 'aborted'
