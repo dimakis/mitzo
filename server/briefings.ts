@@ -4,7 +4,6 @@ import {
   existsSync,
   fstatSync,
   openSync,
-  readFileSync,
   realpathSync,
   readdirSync,
   statSync,
@@ -13,6 +12,7 @@ import { join, resolve } from 'path';
 import { createHash } from 'node:crypto';
 import type { BriefingSnapshot } from '@mitzo/protocol';
 import { validDate } from './home-store.js';
+import { readBoundedFile } from './bounded-file-read.js';
 
 export interface MorningBriefingSummary {
   filename: string;
@@ -69,8 +69,7 @@ export function readMorningBriefing(repoPath: string, date: string): BriefingSna
     const stat = fstatSync(fd);
     if (!stat.isFile() || stat.nlink !== 1 || stat.size > 2 * 1024 * 1024)
       throw new Error('Briefing is unavailable or too large');
-    const bytes = readFileSync(fd);
-    if (bytes.length > 2 * 1024 * 1024) throw new Error('Briefing is too large');
+    const bytes = readBoundedFile(fd, 2 * 1024 * 1024);
     const content = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
     return {
       ...latest,

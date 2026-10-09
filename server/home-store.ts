@@ -5,7 +5,6 @@ import {
   fsyncSync,
   mkdirSync,
   openSync,
-  readFileSync,
   renameSync,
   unlinkSync,
   writeFileSync,
@@ -19,6 +18,7 @@ import type {
   HomePreferences,
   PhilosophyQuote,
 } from '@mitzo/protocol';
+import { readBoundedFile } from './bounded-file-read.js';
 
 const MAX_STATE_BYTES = 4 * 1024 * 1024;
 
@@ -137,7 +137,10 @@ export class HomeStore {
       const stat = fstatSync(fd);
       if (!stat.isFile() || stat.nlink !== 1 || stat.size > MAX_STATE_BYTES)
         throw new Error('Invalid home preferences file');
-      return stateSchema.parse(JSON.parse(readFileSync(fd, 'utf8')));
+      const content = new TextDecoder('utf-8', { fatal: true }).decode(
+        readBoundedFile(fd, MAX_STATE_BYTES),
+      );
+      return stateSchema.parse(JSON.parse(content));
     } finally {
       closeSync(fd);
     }
