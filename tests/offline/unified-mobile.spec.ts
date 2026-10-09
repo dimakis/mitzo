@@ -427,9 +427,21 @@ test('Settings previews and persists every accent and font across navigation and
   await page.goto('/settings');
   await expect(page.getByRole('radio', { name: 'Teal', exact: true })).toBeChecked();
   await expect(page.getByRole('combobox', { name: 'Font' })).toHaveValue('georgia');
-  await page.getByRole('button', { name: 'Reset appearance' }).click();
-  await expect(page.getByRole('radio', { name: 'Lavender', exact: true })).toBeChecked();
-  await expect(page.getByRole('combobox', { name: 'Font' })).toHaveValue('system');
+  for (const mode of ['light', 'dark']) {
+    await theme.selectOption(mode);
+    await page.getByRole('radio', { name: 'Teal', exact: true }).check();
+    await page.getByRole('combobox', { name: 'Font' }).selectOption('georgia');
+    await page.getByRole('button', { name: 'Reset appearance' }).click();
+    await expect(theme).toHaveValue('system');
+    await expect(page.getByRole('radio', { name: 'Lavender', exact: true })).toBeChecked();
+    await expect(page.getByRole('combobox', { name: 'Font' })).toHaveValue('system');
+    expect(await page.evaluate(() => localStorage.getItem('mitzo-theme'))).toBe('system');
+    expect(await page.evaluate(() => document.documentElement.dataset.theme)).toBe(
+      await page.evaluate(() =>
+        window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark',
+      ),
+    );
+  }
   if (isMobile) await page.setViewportSize({ width: 390, height: 844 });
   await page.screenshot({ path: testInfo.outputPath('settings.png') });
 });

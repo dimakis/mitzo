@@ -22,7 +22,7 @@ it('offers backup management and retains the existing appearance preference', ()
   expect(setTheme).toHaveBeenCalledWith('dark');
 });
 
-it('lets the user change the shared accent and UI font without navigating away', () => {
+it.each(['light', 'dark'])('resets the theme, accent and UI font from %s', (theme) => {
   localStorage.clear();
   render(
     <MemoryRouter>
@@ -35,7 +35,9 @@ it('lets the user change the shared accent and UI font without navigating away',
   });
   expect(document.documentElement.dataset.accent).toBe('teal');
   expect(document.documentElement.dataset.font).toBe('georgia');
+  fireEvent.change(screen.getByRole('combobox', { name: 'Theme' }), { target: { value: theme } });
   fireEvent.click(screen.getByRole('button', { name: 'Reset appearance' }));
+  expect(setTheme).toHaveBeenLastCalledWith('system');
   expect(document.documentElement.dataset.accent).toBe('lavender');
   expect(document.documentElement.dataset.font).toBe('system');
 });

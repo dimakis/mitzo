@@ -62,7 +62,13 @@ export function SettingsView() {
             <p>Your conversations, ideas and next steps, in one clear place.</p>
             <span className="appearance-preview-action">Ready when you are</span>
           </div>
-          <button className="appearance-reset" onClick={appearance.reset}>
+          <button
+            className="appearance-reset"
+            onClick={() => {
+              appearance.reset();
+              setTheme('system');
+            }}
+          >
             Reset appearance
           </button>
         </div>
