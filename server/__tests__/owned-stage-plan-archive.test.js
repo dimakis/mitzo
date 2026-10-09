@@ -8,6 +8,8 @@ import {
   existsSync,
   rmSync,
   symlinkSync,
+  lstatSync,
+  linkSync,
 } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -43,6 +45,126 @@ function fixture() {
   const proof = { currentOwner: selection.instanceId, fullCompletion: true };
   return { root, archive, planPath, selection, proof, verify: async () => proof };
 }
+async function leavePreparedRetry(f) {
+  let calls = 0;
+  await expect(
+    archiveCompletedOwnedPlan(f.root, f.selection, async () => {
+      if (++calls === 2) throw Error('transient current-owner observation');
+      return f.proof;
+    }),
+  ).rejects.toThrow('transient');
+  expect(existsSync(f.planPath)).toBe(true);
+  expect(existsSync(join(f.root, 'service/deployment.lock'))).toBe(false);
+}
+it('retries an unchanged original pre-disposition checkpoint without replacing its evidence', async () => {
+  const f = fixture();
+  await leavePreparedRetry(f);
+  const paths = ['completed-plan.json', 'completed-plan-intent.json'].map((name) =>
+    join(f.archive, name),
+  );
+  const saved = paths.map((path) => ({ bytes: readFileSync(path), ino: lstatSync(path).ino }));
+  expect((await archiveCompletedOwnedPlan(f.root, f.selection, f.verify)).archived).toBe(true);
+  for (let i = 0; i < paths.length; i++) {
+    expect(readFileSync(paths[i])).toEqual(saved[i].bytes);
+    expect(lstatSync(paths[i]).ino).toBe(saved[i].ino);
+  }
+  expect(existsSync(f.planPath)).toBe(false);
+});
+it('reuses an exact copied plan when initial intent creation was interrupted', async () => {
+  const f = fixture();
+  writeFileSync(join(f.archive, 'completed-plan.json'), readFileSync(f.planPath), { mode: 0o600 });
+  const ino = lstatSync(join(f.archive, 'completed-plan.json')).ino;
+  expect((await archiveCompletedOwnedPlan(f.root, f.selection, f.verify)).archived).toBe(true);
+  expect(lstatSync(join(f.archive, 'completed-plan.json')).ino).toBe(ino);
+});
+it('qualifies a newer accepted controller for retry while preserving the original disposition selection', async () => {
+  const f = fixture();
+  await leavePreparedRetry(f);
+  const oldIntent = readFileSync(join(f.archive, 'completed-plan-intent.json'));
+  const newer = {
+    ...f.selection,
+    controllerSource: 'd'.repeat(40),
+    controllerReceiptSha256: 'e'.repeat(64),
+  };
+  const qualification = {
+    version: 1,
+    originalControllerSource: f.selection.controllerSource,
+    originalControllerReceiptSha256: f.selection.controllerReceiptSha256,
+    originalControllerTree: '1'.repeat(40),
+    verifierSource: newer.controllerSource,
+    verifierReceiptSha256: newer.controllerReceiptSha256,
+    verifierTree: '2'.repeat(40),
+  };
+  let calls = 0;
+  expect(
+    (
+      await archiveCompletedOwnedPlan(f.root, newer, f.verify, async (old, current) => {
+        calls++;
+        expect(old).toEqual(f.selection);
+        expect(current).toEqual(newer);
+        return qualification;
+      })
+    ).archived,
+  ).toBe(true);
+  expect(calls).toBeGreaterThanOrEqual(2);
+  expect(readFileSync(join(f.archive, 'completed-plan-intent.json'))).toEqual(oldIntent);
+  expect(
+    JSON.parse(readFileSync(join(f.archive, 'completed-plan-receipt.json'))).selection,
+  ).toEqual(f.selection);
+  expect(
+    JSON.parse(
+      readFileSync(
+        join(f.archive, 'completed-plan-verification-' + newer.controllerSource + '.json'),
+      ),
+    ).verifier,
+  ).toEqual(qualification);
+});
+it.each([
+  'owner',
+  'intent',
+  'copy',
+  'copy-symlink',
+  'copy-hardlink',
+  'intent-only',
+  'foreign-receipt',
+  'unqualified-controller',
+])('refuses %s retry drift without vacating the original plan', async (failure) => {
+  const f = fixture();
+  await leavePreparedRetry(f);
+  const copy = join(f.archive, 'completed-plan.json'),
+    intent = join(f.archive, 'completed-plan-intent.json');
+  if (failure === 'intent') {
+    const value = JSON.parse(readFileSync(intent));
+    value.selection.epoch++;
+    writeFileSync(intent, JSON.stringify(value));
+  }
+  if (failure === 'copy') writeFileSync(copy, 'changed');
+  if (failure === 'copy-symlink') {
+    rmSync(copy);
+    symlinkSync(f.planPath, copy);
+  }
+  if (failure === 'copy-hardlink') {
+    rmSync(copy);
+    linkSync(f.planPath, copy);
+  }
+  if (failure === 'intent-only') rmSync(copy);
+  if (failure === 'foreign-receipt')
+    writeFileSync(join(f.archive, 'completed-plan-receipt.json'), '{}', { mode: 0o600 });
+  const selection =
+    failure === 'unqualified-controller'
+      ? {
+          ...f.selection,
+          controllerSource: 'd'.repeat(40),
+          controllerReceiptSha256: 'e'.repeat(64),
+        }
+      : f.selection;
+  await expect(
+    archiveCompletedOwnedPlan(f.root, selection, async () =>
+      failure === 'owner' ? { ...f.proof, currentOwner: 'foreign' } : f.proof,
+    ),
+  ).rejects.toThrow();
+  expect(existsSync(f.planPath)).toBe(true);
+});
 it('archives only the exact completed plan after repeated original-current-owner proof, retaining private intent and receipt', async () => {
   const f = fixture();
   let calls = 0;

@@ -737,21 +737,19 @@ try {
           root,
           selection,
           (p, selected, planBytes) => completedPlanProof(current, p, selected, planBytes),
-          command === 'verify-completed-plan'
-            ? (original, verifier) =>
-                qualifyCompletedPlanVerifier(
-                  root,
-                  {
-                    controllerSource: original.controllerSource,
-                    controllerReceiptSha256: original.controllerReceiptSha256,
-                  },
-                  {
-                    controllerSource: verifier.controllerSource,
-                    controllerReceiptSha256: verifier.controllerReceiptSha256,
-                  },
-                  () => accepted(),
-                )
-            : undefined,
+          (original, verifier) =>
+            qualifyCompletedPlanVerifier(
+              root,
+              {
+                controllerSource: original.controllerSource,
+                controllerReceiptSha256: original.controllerReceiptSha256,
+              },
+              {
+                controllerSource: verifier.controllerSource,
+                controllerReceiptSha256: verifier.controllerReceiptSha256,
+              },
+              () => accepted(),
+            ),
         ),
       ),
     );
