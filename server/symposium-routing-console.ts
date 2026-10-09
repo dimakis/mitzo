@@ -85,7 +85,7 @@ export async function captureRoutingConsole(
       'openshell.ai/sandbox-workspace': input.workspace,
       'openshell.ai/sandbox-namespace': input.namespace,
       'openshell.ai/isolation-role': 'supervisor',
-      'openshell.ai/managed': 'true',
+      'openshell.managed': 'true',
       'mitzo.discovery': 'models',
       'mitzo.discovery.claim': discoveryClaimLabel(receipt.claim),
     };

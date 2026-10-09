@@ -685,7 +685,7 @@ it.each(['L', 'RL'] as const)(
         'openshell.ai/sandbox-workspace': 'work',
         'openshell.ai/sandbox-namespace': 'default',
         'openshell.ai/isolation-role': 'supervisor',
-        'openshell.ai/managed': 'true',
+        'openshell.managed': 'true',
         'mitzo.discovery': 'models',
         'mitzo.discovery.claim': discoveryClaimLabel(receipt.claim),
       },

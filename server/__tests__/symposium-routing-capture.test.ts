@@ -9,6 +9,8 @@ function fixture() {
     configHash: 'c'.repeat(64),
   };
   const image = `sha256:${'d'.repeat(64)}`;
+  // Qualified native Podman build_container_labels sets openshell.managed=true;
+  // the isolated supervisor inherits those common labels (native commit 9472cc767).
   const row = {
     Id: 'e'.repeat(64),
     Names: ['openshell-supervisor-sandbox-1'],
@@ -18,7 +20,7 @@ function fixture() {
       'openshell.ai/sandbox-workspace': 'work',
       'openshell.ai/sandbox-namespace': 'default',
       'openshell.ai/isolation-role': 'supervisor',
-      'openshell.ai/managed': 'true',
+      'openshell.managed': 'true',
       'mitzo.discovery': 'models',
       'mitzo.discovery.claim': discoveryClaimLabel(receipt.claim),
     },
@@ -102,3 +104,16 @@ it('binds selected OCI config identity when container manifest digest differs', 
   f.input.imageId.mockResolvedValue(`sha256:${'f'.repeat(64)}`);
   await expect(captureRoutingConsole(f.input)).rejects.toThrow('image changed');
 });
+
+it.each(['missing', 'false', 'legacy-key-only'] as const)(
+  'refuses a supervisor without the actual native managed proof (%s)',
+  async (kind) => {
+    const f = fixture();
+    const labels = f.row.Labels as Record<string, string>;
+    if (kind === 'false') labels['openshell.managed'] = 'false';
+    else delete labels['openshell.managed'];
+    if (kind === 'legacy-key-only') labels['openshell.ai/managed'] = 'true';
+    await expect(captureRoutingConsole(f.input)).rejects.toThrow('identity changed');
+    expect(f.input.readConsole).not.toHaveBeenCalled();
+  },
+);
