@@ -507,6 +507,9 @@ they never guess a server on a cold launch. Oversized relay payloads fail with a
 iPhone, rather than truncating approval details. A reachable paired iPhone is
 required. The iPhone target embeds the Watch companion; native CI builds both
 apps and verifies the embedded identity, executable, and matching versions.
+The app explicitly registers its local notification bridge at startup; an offline
+smoke test exercises the real JavaScript-to-native configuration call in a
+disposable simulator, without contacting a backend or reusing credentials.
 Ship an updated iOS/Watch binary for the native notification handlers and badge
 bridge; a web deployment alone cannot update installed native code.
 
