@@ -48,6 +48,8 @@ export function createConnectionSetupContinuation(options: Options) {
         currentOwner?.clientId !== owner.clientId ||
         !options.registry.isAttached(owner.clientId) ||
         options.registry.isSuspended(owner.clientId) ||
+        options.registry.isClosingOut(owner.clientId) ||
+        options.registry.isUserClose(owner.clientId) ||
         owner.session.abortController.signal.aborted
       )
         return false;

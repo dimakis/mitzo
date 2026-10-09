@@ -148,3 +148,30 @@ it('retains suspended chat readiness until it resumes and does not acknowledge s
   expect(f.markDelivered).not.toHaveBeenCalled();
   f.registry.resume('client-a');
 });
+
+it.each(['isClosingOut', 'isUserClose'] as const)(
+  'retains readiness when %s begins during dispatch and retries its stable message after lifecycle recovery',
+  async (predicate) => {
+    const f = fixture();
+    let closing = false;
+    const lifecycle = vi.spyOn(f.registry, predicate).mockImplementation(() => closing);
+    f.send.mockImplementationOnce(async () => {
+      closing = true;
+      return true;
+    });
+    expect(await f.continuation.notify(f.setup)).toBe(false);
+    expect(f.setup.delivery).toBe('pending');
+    expect(f.markDelivered).not.toHaveBeenCalled();
+    await f.continuation.flush();
+    expect(f.send).toHaveBeenCalledOnce();
+
+    closing = false;
+    await f.continuation.flush();
+    expect(f.send.mock.calls.map((call) => call[2])).toEqual([
+      'connection-setup:setup-a',
+      'connection-setup:setup-a',
+    ]);
+    expect(f.markDelivered).toHaveBeenCalledOnce();
+    lifecycle.mockRestore();
+  },
+);
