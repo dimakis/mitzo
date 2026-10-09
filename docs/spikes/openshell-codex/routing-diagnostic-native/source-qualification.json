@@ -1,0 +1,69 @@
+{
+  "format": "routing-diagnostic-native-source-v1",
+  "upstreamRepository": "https://github.com/NVIDIA/OpenShell.git",
+  "upstreamCommit": "854b2370b8740b67f6481d3015272fc37aaf9427",
+  "nativeCommit": "9472cc767d569bf74c986a2412443988cc4e937f",
+  "patchSha256": "862ab4272435dc7f9d958b2ebd96004403a33b15b01deab9b9a61cc4f75e77f3",
+  "cargoLockSha256": "ea10e2922eece4077a2c1be17cac83214aa5f79f39fd6c5cc830e1a2cf9d459a",
+  "sourceArchiveSha256": "3c5123709742560893abe352943e5c61e95bab5599da0e72c47a766a84400f5d",
+  "sourceTree": "24c059d570b1a512d241e3b1f5ec785f9338b02d",
+  "compiler": {
+    "rustc": "1.95.0 (59807616e 2026-04-14)",
+    "cargo": "1.95.0 (f2d3ce0bd 2026-03-21)",
+    "zig": "0.16.0",
+    "cargoZigbuild": "0.22.3"
+  },
+  "supervisor": {
+    "sha256": "16d5a76279cbefb16ed80d078107183296f2f58807ab6c7a59ccc82fc8665e71",
+    "target": "aarch64-unknown-linux-gnu.2.28",
+    "format": "ELF64-LE-AArch64-PIE",
+    "interpreter": "/lib/ld-linux-aarch64.so.1",
+    "needed": ["libm.so.6", "libc.so.6", "ld-linux-aarch64.so.1", "libpthread.so.0", "libdl.so.2"],
+    "versionBuildMetadata": "0.0.1-dev.3+g9472cc767",
+    "versionExecuted": "openshell-supervisor 0.0.1-dev.3+g9472cc767",
+    "buildElapsedSeconds": 124,
+    "qualificationCleanupConfirmed": true,
+    "imageConfigId": "sha256:602585a9a550d5c8650bb10f2c80002b2d31e56fbef27f799c50d21ad26a6a89",
+    "imageManifestDigest": "sha256:f55fd2c720c065f7046310f0c015b6bddbb7b07f30316dc1027602eed16efdcc"
+  },
+  "tests": {
+    "cliParser": 1,
+    "supervisorFocused": 7,
+    "productionShorthand": true,
+    "goTemplateFixtures": 6,
+    "modelCalls": 0,
+    "focusedClippy": {
+      "supervisorNetwork": "passed -D warnings",
+      "cli": "passed -D warnings"
+    },
+    "publicSourceReconstruction": {
+      "qualified": true,
+      "reachableCommitCount": 3,
+      "archiveBytes": 34590720
+    }
+  },
+  "limits": {
+    "jobs": 2,
+    "timeoutSeconds": 900,
+    "network": "offline-locked-after-exact-public-checksum-qualification",
+    "liveOperations": 0
+  },
+  "fullNativePrecommit": "attempted; unavailable scrubbed toolchain task; focused checks only",
+  "adopted": false,
+  "unchangedGatewayVersion": "0.0.117-dev.292+g854b2370b",
+  "sourceRegistrationRequired": true,
+  "nativeParentCommit": "a8ad9924324dde0442627e6eb100860deef31cae",
+  "nativeParentTree": "5d972c034ae1e4b6019f3ff5ace583ef0b154cd4",
+  "cli": {
+    "sha256": "a66f3eb90cef5d39073800f4f287cbe0dd137d754faeac218db52325a713e836",
+    "versionExecuted": "openshell 0.0.1-dev.3+g9472cc767",
+    "format": "Mach-O64-arm64",
+    "loaderDependencies": [
+      "/System/Library/Frameworks/Security.framework/Versions/A/Security",
+      "/System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation",
+      "/usr/lib/libiconv.2.dylib",
+      "/usr/lib/libSystem.B.dylib"
+    ],
+    "buildElapsedSeconds": 93
+  }
+}

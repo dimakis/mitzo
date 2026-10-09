@@ -1,0 +1,3 @@
+# Artifact qualification only. The base is the exact selected original Supervisor.
+FROM sha256:8df2e97c2b25b75031b4c00cb49e4cd487ba2384ebe7d884a0aa12095be20937
+COPY --chmod=0555 openshell-supervisor /openshell-supervisor

@@ -1,0 +1,14 @@
+{
+  "format": "routing-supervisor-version-qualification-v1",
+  "imageConfigId": "sha256:602585a9a550d5c8650bb10f2c80002b2d31e56fbef27f799c50d21ad26a6a89",
+  "elfSha256": "16d5a76279cbefb16ed80d078107183296f2f58807ab6c7a59ccc82fc8665e71",
+  "version": "openshell-supervisor 0.0.1-dev.3+g9472cc767",
+  "cleanupConfirmed": true,
+  "network": "none",
+  "readOnly": true,
+  "nonRoot": true,
+  "logDriver": "none",
+  "providerCredentials": false,
+  "modelCalls": 0,
+  "adopted": false
+}

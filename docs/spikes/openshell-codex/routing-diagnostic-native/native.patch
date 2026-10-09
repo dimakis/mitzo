@@ -1,0 +1,768 @@
+diff --git a/architecture/sandbox.md b/architecture/sandbox.md
+index b1169ca..3976b7f 100644
+--- a/architecture/sandbox.md
++++ b/architecture/sandbox.md
+@@ -927,3 +927,15 @@ broker as its sender, not the original calling agent's `SI_USER` identity.
+ Queued signals preserve permitted application siginfo payloads; they cannot
+ forge kernel-generated or `SI_TKILL` codes. Programs requiring original sender
+ identity must account for this mediation boundary.
++
++### Explicit routing diagnostic target
++
++The optional creation-time `SandboxSpec.log_level` remains empty by default.
++The CLI exposes a validated `--log-level` pass-through for direct creates;
++workload templates keep their own immutable specification. A dedicated
++`openshell.routing_http` DEBUG target recognizes only the exact account-check
++GET without a query. It retains no request values after recognition and emits
++one finite terminal observation per ordinal after final response parsing.
++Normal forwarding and errors remain unchanged; no broad HTTP logger is enabled.
++This observation cannot classify account JSON decoding or failures that occur
++before exact L7 endpoint recognition.
+diff --git a/crates/openshell-cli/src/main.rs b/crates/openshell-cli/src/main.rs
+index e5f1059..179c7ca 100644
+--- a/crates/openshell-cli/src/main.rs
++++ b/crates/openshell-cli/src/main.rs
+@@ -125,6 +125,19 @@ fn resolve_gateway(
+     })
+ }
+ 
++fn parse_sandbox_log_level(value: &str) -> std::result::Result<String, String> {
++    if value.is_empty()
++        || value.len() > 32
++        || !value.is_ascii()
++        || value.bytes().any(|byte| byte.is_ascii_control())
++    {
++        return Err("Sandbox log filter must contain 1 to 32 printable ASCII bytes".to_string());
++    }
++    tracing_subscriber::EnvFilter::try_new(value)
++        .map_err(|_| "Invalid sandbox log filter".to_string())?;
++    Ok(value.to_string())
++}
++
+ fn parse_gpu_request(value: &str) -> std::result::Result<GpuCliRequest, String> {
+     if value.is_empty() {
+         return Ok(GpuCliRequest::DriverDefault);
+@@ -1426,9 +1439,14 @@ enum SandboxCommands {
+         name: Option<String>,
+ 
+         /// Create the sandbox from a named sandbox template.
+-        #[arg(long, conflicts_with_all = ["from", "gpu", "cpu", "memory", "driver_config_json", "envs"])]
++        #[arg(long, conflicts_with_all = ["from", "gpu", "cpu", "memory", "driver_config_json", "envs", "log_level"])]
+         template: Option<String>,
+ 
++        /// Optional sandbox supervisor log filter (at most 32 ASCII bytes).
++        /// Omission preserves the supervisor's default logging behavior.
++        #[arg(long, value_parser = parse_sandbox_log_level)]
++        log_level: Option<String>,
++
+         /// Sandbox source: a rootfs tar archive (`.tar`, `.tar.gz`, or `.tgz`)
+         /// or a container image reference (e.g., `myregistry.com/img:tag`).
+         ///
+@@ -3297,6 +3315,7 @@ async fn run_async() -> Result<()> {
+                 SandboxCommands::Create {
+                     name,
+                     template,
++                    log_level,
+                     from,
+                     upload,
+                     no_git_ignore,
+@@ -3395,6 +3414,7 @@ async fn run_async() -> Result<()> {
+                         run::SandboxCreateConfig {
+                             name: name.as_deref(),
+                             template: template.as_deref(),
++                            log_level: log_level.as_deref(),
+                             from: from.as_deref(),
+                             uploads: &upload_specs,
+                             keep,
+@@ -6008,6 +6028,50 @@ mod tests {
+         }
+     }
+ 
++    #[test]
++    fn sandbox_create_explicit_log_level_parses_and_preserves_default() {
++        let filter = "off,openshell.routing_http=debug";
++        assert_eq!(filter.len(), 32);
++        let cli =
++            Cli::try_parse_from(["openshell", "sandbox", "create", "--log-level", filter]).unwrap();
++        match cli.command {
++            Some(Commands::Sandbox {
++                command: Some(SandboxCommands::Create { log_level, .. }),
++            }) => assert_eq!(log_level.as_deref(), Some(filter)),
++            _ => panic!("expected sandbox create"),
++        }
++        let cli = Cli::try_parse_from(["openshell", "sandbox", "create"]).unwrap();
++        match cli.command {
++            Some(Commands::Sandbox {
++                command: Some(SandboxCommands::Create { log_level, .. }),
++            }) => assert_eq!(log_level, None),
++            _ => panic!("expected sandbox create"),
++        }
++        for invalid in [
++            "",
++            "this-is-an-overlong-log-filter-which-exceeds-32",
++            "warn\nprivate-token",
++            "off,broken=level",
++        ] {
++            assert!(
++                Cli::try_parse_from(["openshell", "sandbox", "create", "--log-level", invalid])
++                    .is_err()
++            );
++        }
++        assert!(
++            Cli::try_parse_from([
++                "openshell",
++                "sandbox",
++                "create",
++                "--template",
++                "template",
++                "--log-level",
++                filter
++            ])
++            .is_err()
++        );
++    }
++
+     #[test]
+     fn sandbox_create_detach_parses_with_main_command() {
+         let cli = Cli::try_parse_from([
+diff --git a/crates/openshell-cli/src/run.rs b/crates/openshell-cli/src/run.rs
+index 15d91b5..fc6a45c 100644
+--- a/crates/openshell-cli/src/run.rs
++++ b/crates/openshell-cli/src/run.rs
+@@ -431,6 +431,7 @@ async fn finalize_sandbox_create_session(
+ pub struct SandboxCreateConfig<'a> {
+     pub name: Option<&'a str>,
+     pub template: Option<&'a str>,
++    pub log_level: Option<&'a str>,
+     pub from: Option<&'a str>,
+     pub uploads: &'a [(String, Option<String>, bool)],
+     pub keep: bool,
+@@ -459,6 +460,7 @@ impl Default for SandboxCreateConfig<'_> {
+         Self {
+             name: None,
+             template: None,
++            log_level: None,
+             from: None,
+             uploads: &[],
+             keep: false,
+@@ -495,6 +497,7 @@ pub async fn sandbox_create(
+     let SandboxCreateConfig {
+         name,
+         template,
++        log_level,
+         from,
+         uploads,
+         keep,
+@@ -659,6 +662,7 @@ pub async fn sandbox_create(
+     let request = CreateSandboxRequest {
+         request_id: String::new(),
+         spec: Some(SandboxSpec {
++            log_level: log_level.unwrap_or_default().to_string(),
+             resource_requirements,
+             environment: if template.is_none() {
+                 environment
+diff --git a/crates/openshell-supervisor-network/src/l7/rest.rs b/crates/openshell-supervisor-network/src/l7/rest.rs
+index 4592600..36b7a77 100644
+--- a/crates/openshell-supervisor-network/src/l7/rest.rs
++++ b/crates/openshell-supervisor-network/src/l7/rest.rs
+@@ -8,6 +8,12 @@
+ //! and chunked transfer encoding for body framing.
+ 
+ mod http_response;
++#[path = "routing_diagnostic.rs"]
++mod routing_diagnostic;
++#[cfg(test)]
++#[path = "routing_diagnostic_tests.rs"]
++mod routing_diagnostic_tests;
++use routing_diagnostic::{RoutingCapture, RoutingEvent, RoutingFailure};
+ 
+ pub(crate) use http_response::{
+     DEFAULT_HTTP_RESPONSE_WHOLE_BODY_TIMEOUT, HttpResponseMiddlewareRelay,
+@@ -864,6 +870,70 @@ pub(crate) async fn relay_http_request_with_response_middleware_guarded_observed
+     response_middleware: Option<HttpResponseMiddlewareRelay<'_>>,
+     observer: Option<&EndpointObserver>,
+ ) -> Result<RelayOutcome>
++where
++    C: AsyncRead + AsyncWrite + Unpin,
++    U: AsyncRead + AsyncWrite + Unpin,
++{
++    let request_target = std::str::from_utf8(&req.raw_header)
++        .ok()
++        .and_then(|header| header.lines().next())
++        .and_then(|line| line.split_whitespace().nth(1))
++        .unwrap_or("");
++    let capture = if tracing::enabled!(target: "openshell.routing_http", tracing::Level::DEBUG) {
++        RoutingCapture::new(
++            options.host,
++            options.port,
++            &req.action,
++            request_target,
++            req.query_params.is_empty(),
++        )
++    } else {
++        None
++    };
++    let result = relay_http_request_with_routing_capture(
++        req,
++        client,
++        upstream,
++        options,
++        response_middleware,
++        observer,
++        capture.as_ref(),
++    )
++    .await;
++    if let (Some(capture), Err(error)) = (capture.as_ref(), &result) {
++        let failure = if error.downcast_ref::<CredentialUnavailableError>().is_some()
++            || error
++                .downcast_ref::<openshell_core::secrets::UnresolvedPlaceholderError>()
++                .is_some()
++        {
++            RoutingFailure::Credential
++        } else {
++            RoutingFailure::Relay
++        };
++        emit_routing_diagnostic(capture.failure(failure));
++    }
++    result
++}
++
++fn emit_routing_diagnostic(event: Option<RoutingEvent>) {
++    if let Some(event) = event {
++        if let Some(status_code) = event.status_code() {
++            tracing::debug!(target: "openshell.routing_http", kind = event.kind(), method = event.method(), outcome = event.outcome(), request_ordinal = event.ordinal(), status_code, "routing diagnostic v1 kind={} method={} outcome={} request_ordinal={} status_code={}", event.kind(), event.method(), event.outcome(), event.ordinal(), status_code);
++        } else {
++            tracing::debug!(target: "openshell.routing_http", kind = event.kind(), method = event.method(), outcome = event.outcome(), request_ordinal = event.ordinal(), "routing diagnostic v1 kind={} method={} outcome={} request_ordinal={}", event.kind(), event.method(), event.outcome(), event.ordinal());
++        }
++    }
++}
++
++async fn relay_http_request_with_routing_capture<C, U>(
++    req: &L7Request,
++    client: &mut C,
++    upstream: &mut U,
++    options: RelayRequestOptions<'_>,
++    response_middleware: Option<HttpResponseMiddlewareRelay<'_>>,
++    observer: Option<&EndpointObserver>,
++    routing_capture: Option<&RoutingCapture>,
++) -> Result<RelayOutcome>
+ where
+     C: AsyncRead + AsyncWrite + Unpin,
+     U: AsyncRead + AsyncWrite + Unpin,
+@@ -1220,6 +1290,7 @@ where
+             websocket: websocket_response,
+             client_requested_upgrade,
+             observer,
++            routing_capture,
+         },
+         response_middleware,
+     )
+@@ -3637,6 +3708,91 @@ fn is_benign_close(err: &std::io::Error) -> bool {
+ )]
+ mod tests {
+     use super::*;
++    #[derive(Clone)]
++    struct RoutingLogWriter(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
++    impl std::io::Write for RoutingLogWriter {
++        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
++            self.0.lock().unwrap().extend_from_slice(bytes);
++            Ok(bytes.len())
++        }
++        fn flush(&mut self) -> std::io::Result<()> {
++            Ok(())
++        }
++    }
++
++    #[tokio::test(flavor = "current_thread")]
++    async fn routing_diagnostic_final_response_preserves_bytes_and_excludes_secrets() {
++        use tracing_subscriber::{EnvFilter, Layer, layer::SubscriberExt};
++        for final_status in [403, 600] {
++            let body = "private-response-body";
++            let response = format!(
++                "HTTP/1.1 100 Continue\r\n\r\nHTTP/1.1 {final_status} Final\r\nSet-Cookie: private-cookie\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
++                body.len()
++            );
++            for filter in ["off", "off,openshell.routing_http=debug"] {
++                let buffer = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
++                let writer = RoutingLogWriter(buffer.clone());
++                let subscriber = tracing_subscriber::registry().with(
++                    openshell_ocsf::OcsfShorthandLayer::new(writer)
++                        .with_non_ocsf(true)
++                        .with_filter(EnvFilter::try_new(filter).unwrap()),
++                );
++                let _subscriber = tracing::subscriber::set_default(subscriber);
++                let req = L7Request {
++                action: "GET".into(), target: "/backend-api/wham/accounts/check".into(),
++                query_params: HashMap::new(),
++                raw_header: b"GET /backend-api/wham/accounts/check HTTP/1.1\r\nHost: chatgpt.com\r\nAuthorization: Bearer private-request-token\r\n\r\n".to_vec(),
++                body_length: BodyLength::None,
++            };
++                let (mut client, mut proxy_client) = tokio::io::duplex(8192);
++                let (mut proxy_upstream, mut upstream) = tokio::io::duplex(8192);
++                upstream.write_all(response.as_bytes()).await.unwrap();
++                upstream.shutdown().await.unwrap();
++                relay_http_request_with_response_middleware_guarded_observed(
++                    &req,
++                    &mut proxy_client,
++                    &mut proxy_upstream,
++                    RelayRequestOptions {
++                        host: "chatgpt.com",
++                        port: 443,
++                        ..Default::default()
++                    },
++                    None,
++                    None,
++                )
++                .await
++                .unwrap();
++                drop(proxy_client);
++                let mut received = Vec::new();
++                client.read_to_end(&mut received).await.unwrap();
++                assert_eq!(received, response.as_bytes());
++                let output = String::from_utf8(buffer.lock().unwrap().clone()).unwrap();
++                if filter == "off" {
++                    assert!(output.is_empty());
++                } else {
++                    assert_eq!(output.matches("routing diagnostic").count(), 1);
++                    if final_status == 403 {
++                        assert!(output.contains("status_code=403"));
++                    } else {
++                        assert!(output.contains("outcome=malformed_response"));
++                        assert!(!output.contains("status_code=600"));
++                    }
++                    assert!(!output.contains("status_code=100"));
++                    for forbidden in [
++                        "private-request-token",
++                        "private-cookie",
++                        body,
++                        "Authorization",
++                        "Set-Cookie",
++                        "backend-api",
++                        "chatgpt.com",
++                    ] {
++                        assert!(!output.contains(forbidden));
++                    }
++                }
++            }
++        }
++    }
+     use crate::opa::OpaEngine;
+     use flate2::{Compress, Compression, Decompress, FlushCompress, FlushDecompress, Status};
+     use openshell_core::endpoint_status::{EndpointStatusCommand, EndpointStatusReceiver};
+diff --git a/crates/openshell-supervisor-network/src/l7/rest/http_response.rs b/crates/openshell-supervisor-network/src/l7/rest/http_response.rs
+index 8b637ef..89caa5f 100644
+--- a/crates/openshell-supervisor-network/src/l7/rest/http_response.rs
++++ b/crates/openshell-supervisor-network/src/l7/rest/http_response.rs
+@@ -26,6 +26,7 @@ pub(super) struct RelayResponseOptions<'a> {
+     pub(super) client_requested_upgrade: bool,
+     pub(super) websocket: Option<WebSocketResponseValidation>,
+     pub(super) observer: Option<&'a EndpointObserver>,
++    pub(super) routing_capture: Option<&'a RoutingCapture>,
+ }
+ 
+ impl Default for RelayResponseOptions<'_> {
+@@ -35,6 +36,7 @@ impl Default for RelayResponseOptions<'_> {
+             client_requested_upgrade: true,
+             websocket: None,
+             observer: None,
++            routing_capture: None,
+         }
+     }
+ }
+@@ -90,8 +92,19 @@ where
+             break header_end;
+         }
+ 
+-        let n = upstream.read(&mut tmp).await.into_diagnostic()?;
++        let n = match upstream.read(&mut tmp).await {
++            Ok(n) => n,
++            Err(error) => {
++                if let Some(capture) = options.routing_capture {
++                    emit_routing_diagnostic(capture.failure(RoutingFailure::Transport));
++                }
++                return Err(error).into_diagnostic();
++            }
++        };
+         if n == 0 {
++            if let Some(capture) = options.routing_capture {
++                emit_routing_diagnostic(capture.failure(RoutingFailure::Transport));
++            }
+             if let Some(observer) = options.observer.as_ref() {
+                 observer.observe(EndpointResult::TransportFailed);
+             }
+@@ -106,6 +119,12 @@ where
+     // Parse response framing
+     let header_str = String::from_utf8_lossy(&buf[..header_end]);
+     let observed_status = parse_observed_http_status_code(&header_str);
++    if let Some(capture) = options.routing_capture {
++        emit_routing_diagnostic(match observed_status {
++            Some(status) if (100..=599).contains(&status) => capture.response(status),
++            _ => capture.failure(RoutingFailure::MalformedResponse),
++        });
++    }
+     if let Some(observer) = options.observer.as_ref() {
+         match observed_status {
+             Some(status_code) if status_code < 400 => {
+diff --git a/crates/openshell-supervisor-network/src/l7/routing_diagnostic.rs b/crates/openshell-supervisor-network/src/l7/routing_diagnostic.rs
+new file mode 100644
+index 0000000..e5443fa
+--- /dev/null
++++ b/crates/openshell-supervisor-network/src/l7/routing_diagnostic.rs
+@@ -0,0 +1,115 @@
++// SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
++// SPDX-License-Identifier: Apache-2.0
++
++//! Opt-in account-check diagnostics. No request data survives endpoint recognition.
++
++use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
++
++static NEXT_ORDINAL: AtomicU64 = AtomicU64::new(1);
++
++pub fn reserve_ordinal(counter: &AtomicU64) -> Option<u64> {
++    counter
++        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
++            if value == 0 {
++                None
++            } else {
++                value.checked_add(1)
++            }
++        })
++        .ok()
++}
++
++#[derive(Clone, Copy, Debug)]
++pub enum RoutingFailure {
++    Credential,
++    Transport,
++    Relay,
++    MalformedResponse,
++}
++
++impl RoutingFailure {
++    fn name(self) -> &'static str {
++        match self {
++            Self::Credential => "credential_unavailable",
++            Self::Transport => "transport_failed",
++            Self::Relay => "relay_failed",
++            Self::MalformedResponse => "malformed_response",
++        }
++    }
++}
++
++#[derive(Debug)]
++pub struct RoutingEvent {
++    ordinal: u64,
++    kind: &'static str,
++    method: &'static str,
++    outcome: &'static str,
++    status_code: Option<u16>,
++}
++
++impl RoutingEvent {
++    pub fn kind(&self) -> &'static str {
++        self.kind
++    }
++    pub fn method(&self) -> &'static str {
++        self.method
++    }
++    pub fn outcome(&self) -> &'static str {
++        self.outcome
++    }
++    pub fn status_code(&self) -> Option<u16> {
++        self.status_code
++    }
++    pub fn ordinal(&self) -> u64 {
++        self.ordinal
++    }
++}
++
++pub struct RoutingCapture {
++    ordinal: u64,
++    finished: AtomicBool,
++}
++
++impl RoutingCapture {
++    pub fn new(host: &str, port: u16, method: &str, target: &str, no_query: bool) -> Option<Self> {
++        if !host.eq_ignore_ascii_case("chatgpt.com")
++            || port != 443
++            || method != "GET"
++            || target != "/backend-api/wham/accounts/check"
++            || !no_query
++        {
++            return None;
++        }
++        let ordinal = reserve_ordinal(&NEXT_ORDINAL)?;
++        Some(Self {
++            ordinal,
++            finished: AtomicBool::new(false),
++        })
++    }
++
++    pub fn response(&self, status_code: u16) -> Option<RoutingEvent> {
++        if !(100..=599).contains(&status_code) || self.finished.swap(true, Ordering::Relaxed) {
++            return None;
++        }
++        Some(RoutingEvent {
++            ordinal: self.ordinal,
++            kind: "account_check",
++            method: "GET",
++            outcome: "response",
++            status_code: Some(status_code),
++        })
++    }
++
++    pub fn failure(&self, failure: RoutingFailure) -> Option<RoutingEvent> {
++        if self.finished.swap(true, Ordering::Relaxed) {
++            return None;
++        }
++        Some(RoutingEvent {
++            ordinal: self.ordinal,
++            kind: "account_check",
++            method: "GET",
++            outcome: failure.name(),
++            status_code: None,
++        })
++    }
++}
+diff --git a/crates/openshell-supervisor-network/src/l7/routing_diagnostic_tests.rs b/crates/openshell-supervisor-network/src/l7/routing_diagnostic_tests.rs
+new file mode 100644
+index 0000000..ad9f165
+--- /dev/null
++++ b/crates/openshell-supervisor-network/src/l7/routing_diagnostic_tests.rs
+@@ -0,0 +1,193 @@
++// SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
++// SPDX-License-Identifier: Apache-2.0
++
++// This focused harness can run with rustc --test without allocating a gateway.
++#[path = "routing_diagnostic.rs"]
++mod routing_diagnostic;
++
++use routing_diagnostic::{RoutingCapture, RoutingFailure};
++
++#[test]
++fn exact_account_check_only_and_no_private_values_retained() {
++    let capture = RoutingCapture::new(
++        "chatgpt.com",
++        443,
++        "GET",
++        "/backend-api/wham/accounts/check",
++        true,
++    )
++    .unwrap();
++    let event = capture.response(403).unwrap();
++    assert_eq!(event.kind(), "account_check");
++    assert_eq!(event.method(), "GET");
++    assert_eq!(event.outcome(), "response");
++    assert_eq!(event.status_code(), Some(403));
++    assert!(event.ordinal() > 0);
++    let output = format!("{event:?}");
++    for private in [
++        "chatgpt.com",
++        "backend-api",
++        "Authorization",
++        "secret-token",
++        "Cookie",
++    ] {
++        assert!(!output.contains(private));
++    }
++}
++
++#[test]
++fn reject_wrong_host_port_method_path_and_queries_without_an_event() {
++    for (host, port, method, path, no_query) in [
++        (
++            "other.example",
++            443,
++            "GET",
++            "/backend-api/wham/accounts/check",
++            true,
++        ),
++        (
++            "chatgpt.com.evil",
++            443,
++            "GET",
++            "/backend-api/wham/accounts/check",
++            true,
++        ),
++        (
++            "chatgpt.com",
++            80,
++            "GET",
++            "/backend-api/wham/accounts/check",
++            true,
++        ),
++        (
++            "chatgpt.com",
++            443,
++            "POST",
++            "/backend-api/wham/accounts/check",
++            true,
++        ),
++        ("chatgpt.com", 443, "GET", "/backend-api/models", true),
++        (
++            "chatgpt.com",
++            443,
++            "GET",
++            "https://chatgpt.com/backend-api/wham/accounts/check",
++            true,
++        ),
++        (
++            "chatgpt.com",
++            443,
++            "GET",
++            "/backend-api/wham/accounts/check?secret-token",
++            false,
++        ),
++        (
++            "chatgpt.com",
++            443,
++            "GET",
++            "/backend-api/wham/accounts/check",
++            false,
++        ),
++    ] {
++        assert!(RoutingCapture::new(host, port, method, path, no_query).is_none());
++    }
++}
++
++#[test]
++fn response_status_is_bounded_and_each_request_has_one_terminal_event() {
++    for status in [100, 200, 401, 403, 500, 599] {
++        let capture = RoutingCapture::new(
++            "chatgpt.com",
++            443,
++            "GET",
++            "/backend-api/wham/accounts/check",
++            true,
++        )
++        .unwrap();
++        assert_eq!(
++            capture.response(status).unwrap().status_code(),
++            Some(status)
++        );
++        assert!(capture.response(200).is_none());
++        assert!(capture.failure(RoutingFailure::Transport).is_none());
++    }
++    for status in [0, 99, 600, u16::MAX] {
++        let capture = RoutingCapture::new(
++            "chatgpt.com",
++            443,
++            "GET",
++            "/backend-api/wham/accounts/check",
++            true,
++        )
++        .unwrap();
++        assert!(capture.response(status).is_none());
++        assert_eq!(
++            capture
++                .failure(RoutingFailure::MalformedResponse)
++                .unwrap()
++                .outcome(),
++            "malformed_response"
++        );
++    }
++}
++
++#[test]
++fn finite_failure_does_not_accept_or_format_arbitrary_errors() {
++    for (kind, expected) in [
++        (RoutingFailure::Credential, "credential_unavailable"),
++        (RoutingFailure::Transport, "transport_failed"),
++        (RoutingFailure::Relay, "relay_failed"),
++        (RoutingFailure::MalformedResponse, "malformed_response"),
++    ] {
++        let capture = RoutingCapture::new(
++            "chatgpt.com",
++            443,
++            "GET",
++            "/backend-api/wham/accounts/check",
++            true,
++        )
++        .unwrap();
++        let event = capture.failure(kind).unwrap();
++        assert_eq!(event.outcome(), expected);
++        assert_eq!(event.status_code(), None);
++    }
++}
++
++#[test]
++fn distinct_requests_have_distinct_ordinals_and_do_not_share_terminal_state() {
++    let first = RoutingCapture::new(
++        "chatgpt.com",
++        443,
++        "GET",
++        "/backend-api/wham/accounts/check",
++        true,
++    )
++    .unwrap();
++    let second = RoutingCapture::new(
++        "chatgpt.com",
++        443,
++        "GET",
++        "/backend-api/wham/accounts/check",
++        true,
++    )
++    .unwrap();
++    let a = first.response(200).unwrap();
++    let b = second.failure(RoutingFailure::Transport).unwrap();
++    assert_ne!(a.ordinal(), b.ordinal());
++}
++
++#[test]
++fn ordinal_exhaustion_refuses_without_wrap_or_zero() {
++    use std::sync::atomic::{AtomicU64, Ordering};
++    let counter = AtomicU64::new(u64::MAX - 1);
++    assert_eq!(
++        routing_diagnostic::reserve_ordinal(&counter),
++        Some(u64::MAX - 1)
++    );
++    assert_eq!(routing_diagnostic::reserve_ordinal(&counter), None);
++    assert_eq!(counter.load(Ordering::Relaxed), u64::MAX);
++    assert_eq!(
++        routing_diagnostic::reserve_ordinal(&AtomicU64::new(0)),
++        None
++    );
++}
+diff --git a/docs/observability/accessing-logs.mdx b/docs/observability/accessing-logs.mdx
+index e5981c9..ce46f20 100644
+--- a/docs/observability/accessing-logs.mdx
++++ b/docs/observability/accessing-logs.mdx
+@@ -29,6 +29,22 @@ OCSF structured events show `OCSF` as the level. Standard tracing events show `I
+ 
+ Gateway-originated policy mutations also appear in this stream. When the gateway merges `openshell policy update` operations or approves or removes draft policy chunks, it emits `gateway` `OCSF` `CONFIG:*` lines for the affected sandbox so you can see the exact logical change that produced a new policy revision.
+ 
++## Opt-in account routing diagnostics
++
++A newly created sandbox can use `--log-level off,openshell.routing_http=debug`
++to enable a dedicated supervisor console diagnostic. The default is unchanged.
++Only the exact GET account-check endpoint at `chatgpt.com:443` is recognized;
++queries and absolute request targets are excluded. Each recognized request emits
++at most one terminal event with a bounded ordinal, fixed kind/method/outcome,
++and an optional final HTTP status. Headers, bodies, addresses, paths, credential
++values, and formatted errors are never included in this event.
++
++These DEBUG events may be absent from the gateway's INFO push stream. Observe
++the exact owned supervisor console before deleting its sandbox. A missing event
++is inconclusive. HTTP 200 does not prove valid account JSON or account routing;
++multiple events must retain their distinct ordinals. This diagnostic does not
++issue requests, refresh credentials, test inference, or establish model availability.
++
+ ## TUI
+ 
+ The TUI dashboard displays sandbox logs in real time. Logs appear in the log panel with the same format as the CLI.
+diff --git a/skills/openshell-cli/SKILL.md b/skills/openshell-cli/SKILL.md
+index a2c548c..ae627dc 100644
+--- a/skills/openshell-cli/SKILL.md
++++ b/skills/openshell-cli/SKILL.md
+@@ -92,6 +92,11 @@ drains, or `--detach` for a long-running service. Combine
+ `--detach --no-keep` when the gateway should run the service without a host
+ attachment and delete its sandbox after the service exits.
+ 
++`sandbox create --log-level FILTER` sets the supervisor console filter at creation.
++The filter must be a valid ASCII tracing EnvFilter of at most 32 bytes; omitted
++values preserve the runtime default. This flag cannot override a workload
++template. Prefer a reviewed target filter to broad DEBUG logging.
++
+ When supplying `--name`, use a portable DNS-1123 label: at most 63 lowercase alphanumeric or `-` characters, beginning and ending with an alphanumeric character. The Kubernetes driver rejects uppercase letters, underscores, dots, and other names that cannot become Kubernetes resource labels.
+ 
+ Provider attachment is explicit. Name each provider with `--provider`; the

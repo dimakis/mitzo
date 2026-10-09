@@ -1,0 +1,70 @@
+{
+  "records": [
+    {
+      "name": "gloo-timers",
+      "version": "0.4.0",
+      "sha256": "482ce8a491a501da4cd806bd190275363d674f2845005c6ddbd5d3e1dd54495d",
+      "crateUrl": "https://static.crates.io/crates/gloo-timers/gloo-timers-0.4.0.crate",
+      "indexUrl": "https://index.crates.io/gl/oo/gloo-timers",
+      "indexResponseSha256": "333758a5680168f5231af7bfb99099d3b24d692af735a10206fc8209dba58c68"
+    },
+    {
+      "name": "js-sys",
+      "version": "0.3.105",
+      "sha256": "ce57d20d1ea864ce2ac172ab472d409214f4fd359f0b2a2775abdf522e2af99e",
+      "crateUrl": "https://static.crates.io/crates/js-sys/js-sys-0.3.105.crate",
+      "indexUrl": "https://index.crates.io/js/-s/js-sys",
+      "indexResponseSha256": "2b05cf8e1fe7e6b2c1f8567e58d68c701223543dd4ae77fa45d2b556f7c5c1f5"
+    },
+    {
+      "name": "wasm-bindgen",
+      "version": "0.2.128",
+      "sha256": "aecb87a33d3b0c5e3b7aa46336eaf486cffafbd281b195e4c8b80d50df2351bf",
+      "crateUrl": "https://static.crates.io/crates/wasm-bindgen/wasm-bindgen-0.2.128.crate",
+      "indexUrl": "https://index.crates.io/wa/sm/wasm-bindgen",
+      "indexResponseSha256": "98b6d50b16e8c36053afa93b42c589ab73fe458d9a4737d4539134dae5fda0c5"
+    },
+    {
+      "name": "wasm-bindgen-futures",
+      "version": "0.4.78",
+      "sha256": "6ef4c5d3d2cdf5c54f4231181768f5510842e350db025faf1f7163b1030ed928",
+      "crateUrl": "https://static.crates.io/crates/wasm-bindgen-futures/wasm-bindgen-futures-0.4.78.crate",
+      "indexUrl": "https://index.crates.io/wa/sm/wasm-bindgen-futures",
+      "indexResponseSha256": "4402c7e7bf172f3244918415472414c0b68366f92e30c8555ca53dfd1c9d59ea"
+    },
+    {
+      "name": "wasm-bindgen-macro",
+      "version": "0.2.128",
+      "sha256": "a690d511e3c1a8b3a55e33511e3c2c00c78415cd23650f32b808627f5696b9ed",
+      "crateUrl": "https://static.crates.io/crates/wasm-bindgen-macro/wasm-bindgen-macro-0.2.128.crate",
+      "indexUrl": "https://index.crates.io/wa/sm/wasm-bindgen-macro",
+      "indexResponseSha256": "7b20a6f288e7cf5296d2386c98307ae4376c0e62828d8ce2bc39e1509df0375e"
+    },
+    {
+      "name": "wasm-bindgen-macro-support",
+      "version": "0.2.128",
+      "sha256": "411e4887f0071ef2d2164a9d5fdf2d20efbef78fccd3a78b0c10a1dc5295e48a",
+      "crateUrl": "https://static.crates.io/crates/wasm-bindgen-macro-support/wasm-bindgen-macro-support-0.2.128.crate",
+      "indexUrl": "https://index.crates.io/wa/sm/wasm-bindgen-macro-support",
+      "indexResponseSha256": "47cdd1e9db53fb68e291246d8e841ac85d424add24b220864db41c3d3c24b735"
+    },
+    {
+      "name": "wasm-bindgen-shared",
+      "version": "0.2.128",
+      "sha256": "81941cd78d0c92026c33e5e01312845a4cb1e9af3407f9134b100dd03144103e",
+      "crateUrl": "https://static.crates.io/crates/wasm-bindgen-shared/wasm-bindgen-shared-0.2.128.crate",
+      "indexUrl": "https://index.crates.io/wa/sm/wasm-bindgen-shared",
+      "indexResponseSha256": "4953ed24bc9e869b95ec81cc79bf668ce7740e141fdc53ee3b45d40a6a5cfe8a"
+    },
+    {
+      "name": "web-sys",
+      "version": "0.3.105",
+      "sha256": "9fbddc4a036f00ec4f18c83445bd3115cb306a91da554919a099d9222fe4a7f8",
+      "crateUrl": "https://static.crates.io/crates/web-sys/web-sys-0.3.105.crate",
+      "indexUrl": "https://index.crates.io/we/b-/web-sys",
+      "indexResponseSha256": "a0c6f54644fa2f4435d180429a87af941b9d86e2894c6cccbaf8f492c30c1cb7"
+    }
+  ],
+  "modelCalls": 0,
+  "credentialEnvironmentInherited": false
+}
