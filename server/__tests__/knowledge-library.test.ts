@@ -38,6 +38,29 @@ afterEach(() => {
 });
 
 describe('accepted knowledge', () => {
+  it('preserves valid UTF-8 replacement characters and byte order marks', async () => {
+    const content = '\uFEFF# Literal replacement \uFFFD\n';
+    writeFileSync(join(root, 'architecture/overview.md'), content);
+    git('add', 'architecture/overview.md');
+    git('commit', '-m', 'accepted Unicode text');
+    git('update-ref', 'refs/remotes/origin/main', 'HEAD');
+    const revision = await source.revision();
+    expect((await source.read('architecture/overview.md', revision)).content).toBe(content);
+  });
+  it.each([
+    Buffer.from([0xff]),
+    Buffer.from([0xc0, 0xaf]),
+    Buffer.from([0xe2, 0x82]),
+    Buffer.from('NUL\0text'),
+  ])('rejects malformed UTF-8 or NUL blobs without lossy decoding: %j', async (bytes) => {
+    writeFileSync(join(root, 'architecture/overview.md'), bytes);
+    git('add', 'architecture/overview.md');
+    git('commit', '-m', 'invalid text fixture');
+    git('update-ref', 'refs/remotes/origin/main', 'HEAD');
+    await expect(source.read('architecture/overview.md', await source.revision())).rejects.toThrow(
+      'not UTF-8 text',
+    );
+  });
   it('cancels Git reads when the operation authority expires', async () => {
     await expect(
       source.read('architecture/overview.md', git('rev-parse', 'HEAD'), AbortSignal.abort()),

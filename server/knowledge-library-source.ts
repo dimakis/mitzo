@@ -39,6 +39,26 @@ export async function knowledgeGit(
     throw new Error('Knowledge Git operation failed');
   }
 }
+async function knowledgeGitBlob(
+  directory: string,
+  blob: string,
+  signal?: AbortSignal,
+): Promise<Buffer> {
+  signal?.throwIfAborted();
+  try {
+    return (
+      await exec('git', ['-C', directory, 'cat-file', 'blob', blob], {
+        env: knowledgeGitEnvironment(),
+        encoding: 'buffer',
+        maxBuffer: 8 * 1024 * 1024,
+        timeout: 30_000,
+        signal,
+      })
+    ).stdout;
+  } catch {
+    throw new Error('Knowledge Git operation failed');
+  }
+}
 export function safeKnowledgePath(path: string): boolean {
   return (
     path.length <= 512 &&
@@ -146,15 +166,16 @@ export class AcceptedKnowledgeSource {
     );
     if (!Number.isSafeInteger(size) || size > 5 * 1024 * 1024)
       throw new Error('Document exceeds the editor limit');
-    const content = await knowledgeGit(
-      this.directory,
-      ['cat-file', 'blob', blob],
-      undefined,
-      undefined,
-      signal,
-    );
-    if (content.includes('\0') || content.includes('\uFFFD'))
+    const bytes = await knowledgeGitBlob(this.directory, blob, signal);
+    let content: string;
+    try {
+      // Decode the original bytes strictly. Literal U+FFFD and a BOM are valid text;
+      // only malformed byte sequences and NUL fail the editor's text contract.
+      content = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes);
+      if (content.includes('\0')) throw new Error('NUL text');
+    } catch {
       throw new Error('Document is not UTF-8 text');
+    }
     return { path, revision, content };
   }
 }
