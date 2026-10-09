@@ -1,9 +1,19 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { renderHook, act } from '@testing-library/react';
+import { renderHook, act, cleanup } from '@testing-library/react';
 
 vi.mock('../../lib/api-fetch', () => ({
   apiFetch: vi.fn(),
+}));
+
+const sessionChanges = vi.hoisted(() => new Set<() => void>());
+vi.mock('../../lib/event-bus-singleton', () => ({
+  eventBus: {
+    on: (_event: string, listener: () => void) => {
+      sessionChanges.add(listener);
+      return () => sessionChanges.delete(listener);
+    },
+  },
 }));
 
 import { apiFetch } from '../../lib/api-fetch';
@@ -22,6 +32,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  cleanup();
   vi.useRealTimers();
   vi.restoreAllMocks();
 });
@@ -176,4 +187,52 @@ describe('useSessionSearch', () => {
     unmount();
     expect(abortSpy).toHaveBeenCalled();
   });
+});
+
+it('refreshes active results after confirmed rename and deletion events', async () => {
+  const original = {
+    sessionId: 'one',
+    summary: 'Old title',
+    snippet: 'match',
+    matchedAt: 1,
+    updatedAt: 1,
+  };
+  mockSearchResponse([original]);
+  const { result } = renderHook(() => useSessionSearch());
+  act(() => result.current.setQuery('match'));
+  await act(async () => vi.advanceTimersByTime(300));
+
+  const renamed = { ...original, summary: 'New title' };
+  mockSearchResponse([renamed]);
+  await act(async () => sessionChanges.forEach((listener) => listener()));
+  expect(result.current.results).toEqual([renamed]);
+  expect(result.current.query).toBe('match');
+
+  mockSearchResponse([]);
+  await act(async () => sessionChanges.forEach((listener) => listener()));
+  expect(result.current.results).toEqual([]);
+  expect(result.current.active).toBe(true);
+});
+
+it('uses the latest typed query for refresh and cancels its pending debounce', async () => {
+  const { result } = renderHook(() => useSessionSearch());
+  act(() => result.current.setQuery('latest'));
+  await act(async () => sessionChanges.forEach((listener) => listener()));
+  expect(apiFetch).toHaveBeenCalledExactlyOnceWith(
+    '/api/sessions/search?q=latest',
+    expect.any(Object),
+  );
+  await act(async () => vi.advanceTimersByTime(300));
+  expect(apiFetch).toHaveBeenCalledTimes(1);
+});
+
+it('does not refresh after search is cleared or unmounted', async () => {
+  const { result, unmount } = renderHook(() => useSessionSearch());
+  act(() => result.current.setQuery('match'));
+  await act(async () => vi.advanceTimersByTime(300));
+  act(() => result.current.clear());
+  await act(async () => sessionChanges.forEach((listener) => listener()));
+  expect(apiFetch).toHaveBeenCalledTimes(1);
+  unmount();
+  expect(sessionChanges.size).toBe(0);
 });
