@@ -44,7 +44,9 @@ Readiness is sent with a stable message identity through the existing provider
 dispatch, preserving its command deduplication. The notifier coalesces callbacks,
 checks the exact owning chat and verified connection revision, and defers busy,
 detached, suspended, closing, or aborted chats. Reconnecting retries the same
-pending delivery. The notice contains generated identifiers only, never the
+pending delivery within the setup's 30-minute continuation window. After that,
+the verified connection remains available and the user can continue manually;
+the application does not keep retrying indefinitely. The notice contains generated identifiers only, never the
 credential, service response, or service-controlled instructions. It is context
 information: follow the latest user instructions and never repeat completed or
 unconfirmed actions.
