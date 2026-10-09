@@ -367,8 +367,10 @@ test('one token change updates the accent and font on every main page', async ({
 
 test('Today exposes real bookmarks, the tiny quote and all saved briefing meetings', async ({
   page,
+  isMobile,
 }, testInfo) => {
   await page.goto('/');
+  if (isMobile) await expect(page.getByRole('link', { name: 'Mitzo home' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Today', exact: true })).toBeVisible();
   await expect(page.getByRole('searchbox', { name: 'Search sessions and messages' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'New session' })).toHaveAttribute('href', '/chat');
