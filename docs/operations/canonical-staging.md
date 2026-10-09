@@ -281,3 +281,55 @@ This recognized pre-native contradiction grants no generic recovery, adoption,
 cleanup or capacity reclamation for a launch that could have reached native
 creation. Historical sources outside the explicit contract and all repaired
 sources with a reachable listener probe remain subject to the lost-custody fence.
+
+## Exact RSA refusal before native resource construction
+
+The second qualification is limited to the first cold-recovery attempt at source
+`1233fe67f92bf6f7126b4d79db4ce8cf7cb3a1b1` and the original reviewed upstream
+gateway SHA256 `281a4873ec62ddb384db2b495a324d5a899e27944500c309191195463cd2422e`.
+The official native source at `854b2370b` parses an Ed25519 signing key in
+[`ExtensionJwtIssuer::from_pem`](https://github.com/NVIDIA/OpenShell/blob/854b2370b/crates/openshell-server/src/auth/sandbox_jwt.rs#L323),
+called by [`run_server`](https://github.com/NVIDIA/OpenShell/blob/854b2370b/crates/openshell-server/src/lib.rs#L565)
+before the store, extension transports, compute driver or listener are constructed.
+The exact frozen configuration enables this mandatory gate. A matching RSA pair
+cannot pass it. Configuration preflight alone does not parse signing keys.
+
+`audit-keys` binds the historical source/compiled modules and complete prepared
+receipt, original recovery plan/attempt, first preserved refusal, exact stopped
+job, same-boot reservation, and sole private VM scope. It verifies the entire
+frozen native configuration and file set; alternate keys, unknown sections,
+extra files/directories, gateway database, token cache, owner, attestation, session
+ledger, application membership or native workload state refuse qualification.
+Native inventory absence remains supplemental, never the authority. The native
+process may have been created; the classification is **pre_resource_refused**,
+not pre-native, retired or adopted.
+
+From the independently prepared current accepted controller:
+
+```sh
+node scripts/recover-staging-cold-refusal.mjs audit-keys
+node scripts/recover-staging-cold-refusal.mjs prepare-keys --expected-audit AUDIT_SHA256
+```
+
+Preparation exclusively archives the complete second service/workspace/gateway/
+registry evidence and original configuration under the first preserved operation.
+It atomically preserves the second row beside the first history before vacating
+the operational reservation. Original private keys are retained. A fresh matching
+Ed25519 pair and key ID are generated at distinct private paths named for the
+second launch, and only the gateway JWT references change. Every byte of the new
+configuration and keys is bound into the new private recovery receipt. Partial
+failure remains locked and retains evidence; there is no generic replay.
+
+Prepare fresh owned/service bundles at the current accepted source/baseline, then
+use the existing `plan`, single `activate` and original-owner verification. The
+second history, complete archived registries, original lock, minimal configuration
+change and fresh key bytes remain checked before control and unlock. This does
+not authorize another recovery for an unrelated failure or create another backend.
+Runtime signing validation now rejects invalid or nonmatching keys before gateway
+material, issuer or child allocation; preparation retains its metadata-only private
+reference contract. Provider enrollment and explicit supported-Luna live acceptance
+remain required after canonical HTTP ownership is established.
+
+Pure recovery release preparation is allowed to complete without the read-only
+probe's 30-second timeout. Other read-only probes keep their bounded timeout;
+release construction performs no service control.
