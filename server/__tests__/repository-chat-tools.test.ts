@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { AccountBinding } from '@mitzo/protocol';
 import { SessionRegistry } from '@mitzo/harness';
+import { z } from 'zod';
 
 const runtime = vi.hoisted(() => ({
   enabled: vi.fn(),
@@ -16,7 +17,12 @@ vi.mock('../repository-workspace-runtime.js', () => ({
   repositoryWorkspaceCatalog: runtime.catalog,
   getRepositoryWorkspaces: runtime.service,
 }));
-import { REPOSITORY_CHAT_INSTRUCTIONS, sessionRepositoryTools } from '../repository-chat-tools.js';
+import {
+  REPOSITORY_CHAT_INSTRUCTIONS,
+  repositoryChatSchemas,
+  repositoryChatToolDefinitions,
+  sessionRepositoryTools,
+} from '../repository-chat-tools.js';
 
 const binding = {
   accountId: 'offline-account',
@@ -69,6 +75,20 @@ function fixture(prefix = '') {
   return { session, registry, tools: sessionRepositoryTools('session', session, registry, prefix) };
 }
 const signal = () => new AbortController().signal;
+
+it('exports the strict SDK schemas and matching runtime definitions', () => {
+  const { tools } = fixture();
+  expect(tools.definitions).toBe(repositoryChatToolDefinitions);
+  expect(repositoryChatToolDefinitions.map((tool) => tool.name)).toEqual(
+    Object.keys(repositoryChatSchemas),
+  );
+  for (const definition of repositoryChatToolDefinitions) {
+    const schema = repositoryChatSchemas[definition.name as keyof typeof repositoryChatSchemas];
+    expect(definition.input_schema).toEqual(z.toJSONSchema(schema));
+    expect(schema.safeParse({ unexpected: 'forged-routing' }).success).toBe(false);
+  }
+  expect(repositoryChatSchemas.GetRepositoryChatPreparation.safeParse({}).success).toBe(true);
+});
 
 it('exposes strict tool definitions and concise separate-chat review instructions', () => {
   const { tools } = fixture();

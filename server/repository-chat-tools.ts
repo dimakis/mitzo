@@ -19,7 +19,7 @@ import type { RepositoryChatPreparation } from './repository-workspaces.js';
 export const REPOSITORY_CHAT_INSTRUCTIONS =
   '\nWhen the user requests repository work, call ListRepositories to discover authorized repositories, then PrepareRepositoryChat with the repository and task prompt. The user reviews the draft and starts a separate chat through its setup link. Preparation does not grant integration access, execute the task, or publish changes. Preserve this chat and its current workspace. Call GetRepositoryChatPreparation once to recover a missing preparation ID after a lost response; omit preparationId to read the latest draft owned by this chat and account. For a known pending preparation, use its existing ID. Do not repeat preparation or repeatedly poll.\n';
 
-const schemas = {
+export const repositoryChatSchemas = {
   ListRepositories: z.strictObject({}),
   PrepareRepositoryChat: z.strictObject({
     repository: z.string().min(1).max(512),
@@ -39,7 +39,9 @@ const descriptions = {
   GetRepositoryChatPreparation:
     'Read a repository-chat draft prepared by this source chat and its current AI account. Omit preparationId to recover the latest owned draft after a lost response. Returns public preparation status and the review link. Do not repeat preparation or repeatedly poll.',
 };
-const definitions: ToolDefinition[] = Object.entries(schemas).map(([name, schema]) => ({
+export const repositoryChatToolDefinitions: ToolDefinition[] = Object.entries(
+  repositoryChatSchemas,
+).map(([name, schema]) => ({
   name,
   description: descriptions[name as keyof typeof descriptions],
   input_schema: z.toJSONSchema(schema),
@@ -105,22 +107,22 @@ export function sessionRepositoryTools(
     isError: true,
   });
   return {
-    definitions,
+    definitions: repositoryChatToolDefinitions,
     async execute(
       name: string,
       input: Record<string, unknown>,
       signal: AbortSignal,
     ): Promise<{ content: string; isError: boolean } | undefined> {
-      if (!Object.hasOwn(schemas, name)) return undefined;
+      if (!Object.hasOwn(repositoryChatSchemas, name)) return undefined;
       if (signal.aborted || !allowed(name)) return unavailable();
-      const parsed = schemas[name as keyof typeof schemas].safeParse(input);
+      const parsed =
+        repositoryChatSchemas[name as keyof typeof repositoryChatSchemas].safeParse(input);
       if (!parsed.success) return { content: 'Invalid repository tool input', isError: true };
       if (name === 'PrepareRepositoryChat' && effectivePermissionMode(session) === 'ask')
         return askRemedy();
       if (!repositoryWorkspacesEnabled())
         return {
-          content:
-            'Repository-backed chats are not enabled. Enable repository chats in the host configuration before preparing a draft.',
+          content: 'Repository chats are unavailable in this deployment.',
           isError: true,
         };
       if (!session.accountBinding)
@@ -181,7 +183,9 @@ export function sessionRepositoryTools(
           return current() ? { content: JSON.stringify(catalog), isError: false } : unavailable();
         }
         if (name === 'GetRepositoryChatPreparation') {
-          const { preparationId } = schemas.GetRepositoryChatPreparation.parse(parsed.data);
+          const { preparationId } = repositoryChatSchemas.GetRepositoryChatPreparation.parse(
+            parsed.data,
+          );
           const preparation = getRepositoryWorkspaces().chatPreparation(
             preparationId,
             binding,
@@ -194,7 +198,9 @@ export function sessionRepositoryTools(
               }
             : unavailable();
         }
-        const { repository: selected, prompt } = schemas.PrepareRepositoryChat.parse(parsed.data);
+        const { repository: selected, prompt } = repositoryChatSchemas.PrepareRepositoryChat.parse(
+          parsed.data,
+        );
         const repository = canonicalRepositorySelection(selected);
         const connectionId = selectConnection(repository);
         if (!current()) return unavailable();
