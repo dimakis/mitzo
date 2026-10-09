@@ -10,13 +10,16 @@ const rootMatch = css.match(/:root\s*\{([^}]+)\}/);
 const rootBlock = rootMatch?.[1] ?? '';
 
 // Exercise the same scanner with hostile snippets and the complete production tree.
-const fontVariable = String.raw`var\(\s*--[\w-]+(?:,\s*(?:monospace|serif|sans-serif|system-ui))?\s*\)`;
+const ownedTokens = new Set([...css.matchAll(/(--[\w-]+)\s*:/g)].map((match) => match[1]));
+const fontRoles = [...ownedTokens].filter((name) =>
+  /^--font-|^--ui-font$|^--code-font$/.test(name),
+);
+const fontVariable = String.raw`var\(\s*(?:${fontRoles.join('|')})(?:,\s*(?:monospace|serif|sans-serif|system-ui))?\s*\)`;
+const sharedVariable = String.raw`var\(\s*(?:${[...ownedTokens].join('|')})\s*\)`;
 const fontFamily = new RegExp(`^(?:${fontVariable}|inherit)$`);
 const fontShorthand = new RegExp(
-  `^(?:inherit|(?:(?:${fontVariable}|[\\d.]+(?:px|rem|em|%)?|normal|italic|oblique|bold|bolder|lighter|small-caps)[\\s/]+)*${fontVariable})$`,
+  `^(?:inherit|(?:(?:${sharedVariable}|[\\d.]+(?:px|rem|em|%)?|normal|italic|oblique|bold|bolder|lighter|small-caps)[\\s/]+)*${fontVariable})$`,
 );
-
-const ownedTokens = new Set([...css.matchAll(/(--[\w-]+)\s*:/g)].map((match) => match[1]));
 
 // Legacy collection/chat scopes remap these roles to the common workspace theme.
 // Shared scales, font roles and canonical colors are never redefined by a page.
@@ -171,7 +174,9 @@ function styleViolations(source: string, filename = 'component.css'): string[] {
   if (/(?:color|background(?:-color)?|fill|stroke):\s*['"]?(?:white|black)\b/i.test(clean))
     violations.push('named color');
   for (const styleText of styleTexts) {
-    for (const font of styleText.matchAll(/\b(font-family|font)\s*:\s*([^;}]+)(?=[;}]|$)/g)) {
+    for (const font of styleText.matchAll(
+      /(?:^|[;{])\s*(font-family|font)\s*:\s*([^;}]+)(?=[;}]|$)/g,
+    )) {
       const allowed = font[1] === 'font' ? fontShorthand : fontFamily;
       if (!allowed.test(font[2].trim())) violations.push('font stack');
     }
@@ -357,6 +362,13 @@ describe('design tokens', () => {
       '.page { font : var(--text-base) Arial; }',
     ])('handles CSS whitespace before a declaration colon: %s', (source) => {
       expect(styleViolations(source).length).toBeGreaterThan(0);
+    });
+
+    it.each([
+      '.page { --private-font: Arial; font-family: var(--private-font); }',
+      '.page { font: var(--text-base) var(--private-font); }',
+    ])('requires font variables to come from the shared font registry: %s', (source) => {
+      expect(styleViolations(source)).toContain('font stack');
     });
 
     it('allows token-based shorthand size and family', () => {
