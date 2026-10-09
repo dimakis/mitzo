@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import type { SetURLSearchParams } from 'react-router-dom';
 import { apiFetch } from '../lib/api-fetch';
 import { artifactApiUrl } from '../lib/file-paths';
@@ -19,6 +19,7 @@ interface GitInfo {
   branch: string;
   repoPath: string;
   worktrees: WorktreeInfo[];
+  worktreesLoaded?: boolean;
 }
 
 interface FileRoot {
@@ -35,6 +36,8 @@ export interface FileNavState {
   loading: boolean;
   error: string;
   gitInfo: GitInfo | null;
+  worktreesLoading: boolean;
+  worktreesError: string;
   roots: FileRoot[];
   activeRoot: string;
   isViewing: boolean;
@@ -65,6 +68,10 @@ export function useFileNavigation(
   const [error, setError] = useState('');
   const [gitInfo, setGitInfo] = useState<GitInfo | null>(null);
   const [roots, setRoots] = useState<FileRoot[]>([]);
+  const [worktreesLoading, setWorktreesLoading] = useState(false);
+  const [worktreesError, setWorktreesError] = useState('');
+  const worktreeRequest = useRef<Promise<void> | null>(null);
+  const worktreesLoaded = useRef(false);
   // With session authority the server defaults to that session's workspace.
   // Only an explicitly selected root should override it.
   const activeRoot = rootParam || (sessionId ? '' : gitInfo?.repoPath || '');
@@ -76,11 +83,12 @@ export function useFileNavigation(
   );
 
   useEffect(() => {
+    let disposed = false;
     apiFetch('/api/git/info')
       .then((r) => (r.ok ? r.json() : null))
       .then((data: GitInfo | null) => {
-        if (data) {
-          setGitInfo(data);
+        if (data && !disposed) {
+          setGitInfo((current) => (current?.worktreesLoaded ? current : data));
         }
       })
       .catch(() => {
@@ -90,11 +98,14 @@ export function useFileNavigation(
     apiFetch('/api/files/roots')
       .then((r) => (r.ok ? r.json() : []))
       .then((data: FileRoot[]) => {
-        if (Array.isArray(data)) setRoots(data);
+        if (!disposed && Array.isArray(data)) setRoots(data);
       })
       .catch(() => {
         // Network error loading roots — non-fatal
       });
+    return () => {
+      disposed = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -156,6 +167,27 @@ export function useFileNavigation(
       disposed = true;
     };
   }, [identity, filePath, dirPath, isViewing, activeRoot, sessionId]);
+
+  function loadWorktrees(): Promise<void> {
+    if (worktreesLoaded.current) return Promise.resolve();
+    if (worktreeRequest.current) return worktreeRequest.current;
+    setWorktreesLoading(true);
+    setWorktreesError('');
+    const request = apiFetch('/api/git/info?worktrees=1')
+      .then(async (response) => {
+        if (!response.ok) throw new Error('Failed to load worktrees');
+        const data: GitInfo = await response.json();
+        setGitInfo(data);
+        worktreesLoaded.current = true;
+      })
+      .catch(() => setWorktreesError('Failed to load worktrees'))
+      .finally(() => {
+        setWorktreesLoading(false);
+        worktreeRequest.current = null;
+      });
+    worktreeRequest.current = request;
+    return request;
+  }
 
   function navigationParams(): Record<string, string> {
     const params: Record<string, string> = {};
@@ -221,6 +253,8 @@ export function useFileNavigation(
     loading,
     error,
     gitInfo,
+    worktreesLoading,
+    worktreesError,
     roots,
     activeRoot,
     isViewing,
@@ -237,5 +271,6 @@ export function useFileNavigation(
     goUp,
     handleBack,
     handleRootChange,
+    loadWorktrees,
   };
 }

@@ -218,7 +218,8 @@ import {
   createSessionWorktrees as createAllWorktrees,
   listWorktrees,
 } from './worktree.js';
-import { DEFAULT_AGENT_NAME, GIT_BRANCH_TIMEOUT_MS } from './constants.js';
+import { DEFAULT_AGENT_NAME } from './constants.js';
+import { createGitInfoDiscovery, createGitInfoHandler } from './git-discovery.js';
 import { isValidInternalToken } from './internal-token.js';
 import { createConnectionsRouter } from './connections-router.js';
 import { createConnectionsAccessRouter } from './connections-access-router.js';
@@ -3296,41 +3297,13 @@ function resolveRoot(
   return resolved;
 }
 
-function getGitBranch(cwd: string): string {
-  try {
-    return execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], {
-      cwd,
-      stdio: 'pipe',
-      timeout: GIT_BRANCH_TIMEOUT_MS,
-    })
-      .toString()
-      .trim();
-  } catch {
-    return 'unknown';
-  }
-}
-
-app.get('/api/git/info', (_req, res) => {
-  const branch = getGitBranch(BASE_REPO);
-  const worktrees = listWorktrees(BASE_REPO).map((wt) => ({
-    ...wt,
-    branch: getGitBranch(wt.path),
-    repo: 'primary',
-  }));
-  for (const [name, repoPath] of Object.entries(getRepoConfig().repos)) {
-    try {
-      const repoWts = listWorktrees(repoPath).map((wt) => ({
-        ...wt,
-        branch: getGitBranch(wt.path),
-        repo: name,
-      }));
-      worktrees.push(...repoWts);
-    } catch {
-      // Repo path may not exist yet
-    }
-  }
-  res.json({ branch, repoPath: BASE_REPO, worktrees });
-});
+app.get(
+  '/api/git/info',
+  createGitInfoHandler(createGitInfoDiscovery(), () => ({
+    repoPath: BASE_REPO,
+    repos: getRepoConfig().repos,
+  })),
+);
 
 app.get('/api/files/roots', (_req, res) => {
   res.json(getRepoConfig().roots);
