@@ -107,7 +107,7 @@ it('keeps a lost saved repository preparation blocked rather than silently launc
   render(<RepositoryChatPicker accountId="account" model="model" onChange={onChange} />);
   expect(await screen.findByRole('alert')).toHaveProperty(
     'textContent',
-    'Saved repository preparation is unavailable. Preview again or continue without a repository.',
+    'Saved repository preparation is unavailable. Discard it below before choosing another repository.',
   );
   expect(onChange).toHaveBeenLastCalledWith({ blocked: true });
 });
@@ -126,11 +126,16 @@ it('blocks saved repository launch while the catalog is pending and keeps cancel
   reject(new Error('catalog offline'));
   await screen.findByRole('alert');
   expect(onChange.mock.calls.every(([selection]) => selection?.blocked)).toBe(true);
+  api.fetch.mockResolvedValue(new Response(null, { status: 204 }));
   await userEvent
     .setup()
     .click(screen.getByRole('button', { name: 'Continue without repository' }));
   expect(onChange).toHaveBeenLastCalledWith(null);
   expect(sessionStorage.getItem('mitzo-repository-draft:account:model')).toBeNull();
+  expect(api.fetch).toHaveBeenLastCalledWith(
+    `/api/repository-workspaces/${preview.id}?accountId=account&model=model`,
+    expect.objectContaining({ method: 'DELETE' }),
+  );
 });
 
 it('preserves a saved selection when onboarding becomes unavailable', async () => {
@@ -141,4 +146,56 @@ it('preserves a saved selection when onboarding becomes unavailable', async () =
   await screen.findByRole('alert');
   expect(onChange).toHaveBeenLastCalledWith({ blocked: true });
   expect(screen.getByRole('button', { name: 'Continue without repository' })).toBeTruthy();
+});
+
+it('preserves a saved preparation after failed discard and reclaims it on retry', async () => {
+  sessionStorage.setItem('mitzo-repository-draft:account:model', preview.id);
+  api.fetch.mockImplementation(async (url: string) =>
+    url.includes('/catalog')
+      ? new Response(JSON.stringify({ available: true, repositories: [] }))
+      : new Response(JSON.stringify({ error: 'status unavailable' }), { status: 503 }),
+  );
+  const onChange = vi.fn();
+  render(<RepositoryChatPicker accountId="account" model="model" onChange={onChange} />);
+  await screen.findByRole('alert');
+  api.fetch.mockRejectedValueOnce(new Error('delete offline'));
+  const user = userEvent.setup();
+  await user.click(screen.getByRole('button', { name: 'Continue without repository' }));
+  await vi.waitFor(() =>
+    expect(screen.getByRole('alert').textContent).toContain('Could not discard'),
+  );
+  expect(sessionStorage.getItem('mitzo-repository-draft:account:model')).toBe(preview.id);
+  expect(onChange).toHaveBeenLastCalledWith({ blocked: true });
+  api.fetch.mockResolvedValueOnce(new Response(JSON.stringify({ discarded: true })));
+  await user.click(screen.getByRole('button', { name: 'Continue without repository' }));
+  await vi.waitFor(() => expect(onChange).toHaveBeenLastCalledWith(null));
+  expect(api.fetch).toHaveBeenLastCalledWith(
+    `/api/repository-workspaces/${preview.id}?accountId=account&model=model`,
+    expect.objectContaining({ method: 'DELETE' }),
+  );
+  expect(sessionStorage.getItem('mitzo-repository-draft:account:model')).toBeNull();
+});
+
+it('requires reclaiming the saved source before preparing a replacement after failed restoration', async () => {
+  sessionStorage.setItem('mitzo-repository-draft:account:model', preview.id);
+  api.fetch.mockImplementation(async (url: string) =>
+    url.includes('/catalog')
+      ? new Response(
+          JSON.stringify({
+            available: true,
+            repositories: [{ connectionId: 'github', label: 'GitHub', repository: 'example/repo' }],
+          }),
+        )
+      : new Response(JSON.stringify({ error: 'unavailable' }), { status: 503 }),
+  );
+  render(<RepositoryChatPicker accountId="account" model="model" onChange={vi.fn()} />);
+  await screen.findByRole('alert');
+  await userEvent
+    .setup()
+    .selectOptions(screen.getByLabelText('GitHub repository'), 'github:example/repo');
+  expect(
+    (screen.getByRole('button', { name: 'Preview repository' }) as HTMLButtonElement).disabled,
+  ).toBe(true);
+  expect(api.fetch.mock.calls.some(([url]) => url.endsWith('/preview'))).toBe(false);
+  expect(sessionStorage.getItem('mitzo-repository-draft:account:model')).toBe(preview.id);
 });

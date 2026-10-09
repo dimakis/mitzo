@@ -66,12 +66,15 @@ export function RepositoryChatPicker({
         setCatalog(data);
         if (!saved) return;
         if (!data.available) throw new Error('Repository onboarding unavailable');
-        const restored = await apiFetch(`/api/repository-workspaces/${saved}?${query}`, {
-          signal: controller.signal,
-        });
+        const restored = await apiFetch(
+          `/api/repository-workspaces/${encodeURIComponent(saved)}?${query}`,
+          {
+            signal: controller.signal,
+          },
+        );
         if (!restored.ok) {
           setError(
-            'Saved repository preparation is unavailable. Preview again or continue without a repository.',
+            'Saved repository preparation is unavailable. Discard it below before choosing another repository.',
           );
           return;
         }
@@ -84,7 +87,7 @@ export function RepositoryChatPicker({
       .catch(() => {
         if (!controller.signal.aborted && saved)
           setError(
-            'Repository preparation unavailable. Preview again or continue without a repository.',
+            'Repository preparation unavailable. Discard it below before choosing another repository.',
           );
       });
     return () => {
@@ -93,6 +96,8 @@ export function RepositoryChatPicker({
     };
   }, [accountId, model, storageKey]);
   const repositories = catalog?.available ? catalog.repositories : [];
+  const savedId = savedRepositoryDraft(accountId, model);
+  const unresolvedSaved = !!savedId && workspace?.id !== savedId;
   const selection =
     selected === 'url'
       ? repositories.find((entry) => {
@@ -104,7 +109,7 @@ export function RepositoryChatPicker({
         })
       : repositories.find((entry) => `${entry.connectionId}:${entry.repository}` === selected);
   async function requestWorkspace(action: 'preview' | 'prepare') {
-    if (!selection || busy) return;
+    if (!selection || busy || unresolvedSaved) return;
     const controller = new AbortController();
     operation.current = controller;
     setBusy(true);
@@ -168,28 +173,37 @@ export function RepositoryChatPicker({
   };
   const cancel = async () => {
     if (busy) return;
-    if (workspace) {
-      const query = new URLSearchParams({ accountId, model });
-      const response = await apiFetch(`/api/repository-workspaces/${workspace.id}?${query}`, {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-      });
-      if (!response.ok) {
-        setError('Could not discard this preparation. Retry before choosing another repository.');
-        return;
-      }
-    }
     restoration.current?.abort();
+    const id = workspace?.id ?? savedRepositoryDraft(accountId, model);
+    setBusy(true);
+    callback.current({ blocked: true });
     try {
-      sessionStorage.removeItem(storageKey);
+      if (id) {
+        const query = new URLSearchParams({ accountId, model });
+        const response = await apiFetch(
+          `/api/repository-workspaces/${encodeURIComponent(id)}?${query}`,
+          {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+          },
+        );
+        if (!response.ok) throw new Error('Discard unavailable');
+      }
+      try {
+        sessionStorage.removeItem(storageKey);
+      } catch {
+        /* Storage is optional. */
+      }
+      setOpened(false);
+      setWorkspace(null);
+      setSelected('');
+      setError('');
+      callback.current(null);
     } catch {
-      /* Storage is optional. */
+      setError('Could not discard this preparation. Retry before choosing another repository.');
+    } finally {
+      setBusy(false);
     }
-    setOpened(false);
-    setWorkspace(null);
-    setSelected('');
-    setError('');
-    callback.current(null);
   };
   if (!catalog?.available && !opened) return null;
   if (!repositories.length && !opened)
@@ -261,7 +275,7 @@ export function RepositoryChatPicker({
               )}
               <button
                 type="button"
-                disabled={busy || !selection}
+                disabled={busy || !selection || unresolvedSaved}
                 onClick={() => void requestWorkspace('preview')}
               >
                 Preview repository
