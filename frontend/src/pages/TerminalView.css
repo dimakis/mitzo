@@ -1,0 +1,323 @@
+.terminal-page {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+  gap: 12px;
+}
+.terminal-heading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+  min-height: 44px;
+}
+.terminal-heading h1 {
+  flex: 1;
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+.terminal-heading :is(button, a) {
+  display: grid;
+  place-items: center;
+  min-width: 44px;
+  min-height: 44px;
+  color: var(--color-accent);
+  background: transparent;
+}
+.terminal-controls {
+  flex-shrink: 0;
+  position: relative;
+}
+.terminal-adviser-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 48px;
+  padding: 8px 10px;
+  border-radius: var(--radius-control);
+  background: var(--color-panel);
+  color: var(--color-text);
+  text-align: left;
+}
+.terminal-adviser-toggle > svg:first-child {
+  color: var(--color-accent);
+}
+.terminal-adviser-toggle > svg:last-child {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+.terminal-adviser-toggle span,
+.terminal-destination-row span {
+  min-width: 0;
+}
+.terminal-adviser-toggle :is(strong, small),
+.terminal-destination-row :is(strong, small) {
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.terminal-adviser-toggle strong,
+.terminal-destination-row strong {
+  font-size: 13px;
+  font-weight: 550;
+}
+.terminal-adviser-toggle small,
+.terminal-destination-row small {
+  font-size: 12px;
+  color: var(--color-muted);
+  margin-top: 3px;
+}
+.terminal-adviser-panel {
+  max-height: 42dvh;
+  overflow-y: auto;
+  padding: 12px 0;
+}
+.terminal-adviser-pickers {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.terminal-adviser-pickers select {
+  flex: 1;
+  min-width: 90px;
+  max-width: 100%;
+  min-height: 44px;
+}
+.terminal-adviser-boundary {
+  font-size: 12px;
+  margin: 10px 0;
+}
+.terminal-adviser-response {
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.terminal-adviser-response pre {
+  white-space: pre-wrap;
+}
+.terminal-suggestion {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 12px;
+  margin: 8px 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  color: var(--color-text);
+  text-align: left;
+}
+.terminal-suggestion code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.terminal-suggestion span {
+  color: var(--color-accent);
+  flex-shrink: 0;
+  font-size: 12px;
+}
+.terminal-reviewed {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 12px 0;
+  font-size: 12px;
+}
+.terminal-reviewed textarea {
+  min-height: 96px;
+  max-height: 180px;
+  resize: vertical;
+  font-family: var(--font-mono);
+}
+.terminal-reviewed small {
+  color: var(--color-muted);
+}
+.terminal-adviser-input,
+.terminal-command-form {
+  display: flex;
+  gap: 8px;
+}
+.terminal-page :is(input, textarea) {
+  min-width: 0;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  color: var(--color-text);
+  background: var(--color-bg);
+  font: inherit;
+  font-size: 16px;
+}
+.terminal-page button {
+  font: inherit;
+}
+.terminal-page button:disabled {
+  opacity: 0.45;
+}
+.terminal-page .workspace-primary {
+  min-height: 44px;
+  flex-shrink: 0;
+  padding: 10px 16px;
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+  border-radius: var(--radius-control);
+}
+.terminal-destination-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 60px;
+  margin: 8px 0 0;
+  border-bottom: 1px solid var(--color-border);
+}
+.terminal-destination-row button:first-child {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+  min-height: 56px;
+  background: transparent;
+  color: var(--color-text);
+  text-align: left;
+}
+.terminal-destination-row button:last-child {
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  color: var(--color-accent);
+  background: transparent;
+}
+.terminal-destination-picker,
+.terminal-history,
+.terminal-options {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-panel);
+  background: var(--color-surface);
+  padding: 12px;
+}
+.terminal-destination-picker {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 100%;
+  z-index: 5;
+}
+.terminal-destination-picker label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+  margin: 12px 0;
+}
+.terminal-destination-picker > div {
+  max-height: 200px;
+  overflow: auto;
+}
+.terminal-destination-picker button,
+.terminal-history button,
+.terminal-options button {
+  width: 100%;
+  min-height: 44px;
+  text-align: left;
+  color: var(--color-text);
+  padding: 8px;
+  background: transparent;
+}
+.terminal-options p {
+  font-size: 12px;
+  margin: 4px 8px;
+}
+.terminal-output {
+  flex: 1;
+  min-height: 100px;
+  overflow: hidden;
+  position: relative;
+}
+.terminal-console {
+  position: absolute;
+  inset: 0;
+}
+.terminal-console .xterm {
+  height: 100%;
+  padding: 0;
+}
+.terminal-command-area {
+  position: relative;
+  flex-shrink: 0;
+}
+.terminal-input-caption {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+  color: var(--color-muted);
+  font-size: 12px;
+}
+.terminal-command-form input {
+  font-family: var(--font-mono);
+}
+.terminal-keybar {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+.terminal-keybar button {
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
+  padding: 6px 2px;
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  color: var(--color-text);
+  font-size: 12px;
+}
+.terminal-history {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  right: 0;
+  max-height: 40dvh;
+  overflow: auto;
+  margin-bottom: 8px;
+  z-index: 5;
+}
+.terminal-history h2 {
+  font-size: 14px;
+  margin: 0 0 8px;
+}
+.terminal-history code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.terminal-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 26px;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--color-muted);
+}
+.terminal-status button {
+  color: var(--color-accent);
+  min-height: 32px;
+  background: transparent;
+}
+.terminal-error {
+  font-size: 12px;
+  color: var(--color-danger);
+  margin: 4px 0;
+}
+@media (max-width: 767px) {
+  .mobile-workspace-body .terminal-page {
+    padding-bottom: 8px;
+    gap: 8px;
+  }
+}
