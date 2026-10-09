@@ -88,6 +88,30 @@ it('broadcasts saved preferences only after a successful write', async () => {
   await request(api).put('/api/home/preferences').send({ revision: 0, pins: [] });
   expect(changed).toHaveBeenCalledTimes(1);
 });
+it('keeps a durable preference write successful when notification delivery fails', async () => {
+  const api = app(
+    vi.fn(() => {
+      throw new Error('Notification unavailable');
+    }),
+  );
+  const errors: unknown[] = [];
+  api.use(
+    (
+      error: unknown,
+      _req: express.Request,
+      _res: express.Response,
+      _next: express.NextFunction,
+    ) => {
+      errors.push(error);
+    },
+  );
+  const saved = await request(api)
+    .put('/api/home/preferences')
+    .send({ revision: 0, names: { briefing: 'Jeeves' } });
+  expect(saved.status).toBe(200);
+  expect(errors).toEqual([]);
+  expect((await request(api).get('/api/home/preferences')).body.names.briefing).toBe('Jeeves');
+});
 it('registers only actual session account/model bindings and returns exact report conversations', async () => {
   const api = app();
   const binding = {

@@ -44,7 +44,11 @@ export function createHomeRouter(deps: {
     try {
       const { revision, ...patch } = homeUpdateSchema.parse(req.body);
       res.json(deps.store.update(revision, patch));
-      deps.changed?.();
+      try {
+        deps.changed?.();
+      } catch {
+        // The saved revision is authoritative even when a notification cannot be delivered.
+      }
     } catch (error) {
       res.status(error instanceof HomeConflict ? 409 : error instanceof ZodError ? 400 : 503).json({
         error:
