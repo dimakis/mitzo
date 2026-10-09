@@ -107,7 +107,7 @@ function allowedContextAlias(property: string, value: string | null): boolean {
   );
   return (
     mix.test(clean) &&
-    [...clean.matchAll(/var\(\s*(--[\w-]+)\s*\)/g)].every((match) => ownedTokens.has(match[1]))
+    [...clean.matchAll(/var\(\s*(--[\w-]+)\s*\)/g)].every((match) => colorTokens.has(match[1]))
   );
 }
 
@@ -478,6 +478,12 @@ describe('design tokens', () => {
       expect(
         styleViolations(".page { background: url('/assets/red.png'); color: currentColor; }"),
       ).toEqual([]);
+    });
+
+    it('rejects non-color tokens inside a contextual color mix', () => {
+      expect(
+        styleViolations('.page { --bg: color-mix(in srgb, var(--space-4), var(--font-ui)); }'),
+      ).toContain('token override: --bg');
     });
 
     it('allows token-based shorthand size and family', () => {
