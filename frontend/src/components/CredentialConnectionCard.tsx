@@ -43,6 +43,9 @@ export function CredentialConnectionCard({
     connection.homeAssistantDashboards ?? 'disabled',
   );
   const savedDashboardAccess = connection.homeAssistantDashboards ?? 'disabled';
+  const isHomeAssistant =
+    connection.serviceTemplate === 'home-assistant' ||
+    (connection.serviceTemplate === undefined && savedDashboardAccess !== 'disabled');
   const lastSavedDashboard = useRef(savedDashboardAccess);
   useEffect(() => {
     if (lastSavedDashboard.current === savedDashboardAccess) return;
@@ -93,7 +96,7 @@ export function CredentialConnectionCard({
           </button>
         </>
       )}
-      {connection.status === 'active' && connection.auth.kind === 'bearer' && (
+      {connection.status === 'active' && connection.auth.kind === 'bearer' && isHomeAssistant && (
         <>
           <label className="connections-field">
             Dashboard API access for {connection.label}

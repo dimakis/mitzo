@@ -251,10 +251,12 @@ describe('focused connection setup', () => {
     await click('Continue');
     expect((screen.getByLabelText('work') as HTMLInputElement).checked).toBe(true);
   });
-  it('marks unavailable choices without an action that looks usable', async () => {
+  it('routes custom REST setup to generic authenticated APIs when the sandbox template is unavailable', async () => {
     await start();
-    expect(screen.getByText('Coming soon')).toBeTruthy();
-    expect(screen.queryByRole('button', { name: 'Coming soon' })).toBeNull();
+    expect(screen.getByRole('link', { name: 'Choose Custom REST API' }).getAttribute('href')).toBe(
+      '/connections?manage=api',
+    );
+    expect(screen.queryByText('Coming soon')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Choose Custom REST API' })).toBeNull();
   });
   it('opens only the selected service for management and never mounts setup or personal-account forms', async () => {

@@ -13,7 +13,8 @@ export function ConnectionsRoute() {
           requested === 'legacy' ||
           requested === 'openai' ||
           requested === 'openai-add' ||
-          requested === 'keychain'
+          requested === 'keychain' ||
+          requested === 'api'
         ? requested
         : 'add';
   const connectionId = params.get('connection') ?? undefined;
