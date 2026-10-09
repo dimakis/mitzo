@@ -20,6 +20,10 @@ import { verifyPreparedController } from './lib/staging-cold-control.mjs';
 import { runOwnedStageUpgrade, archiveRetiredReservation } from './lib/owned-stage-upgrade.mjs';
 import { preparePinnedProgram, assertPinnedProgram } from './lib/owned-stage-program.mjs';
 import {
+  createFreshActivationIntent,
+  verifyFreshActivationBinding,
+} from './lib/owned-stage-activation.mjs';
+import {
   observeLiveOwner,
   assertEmptyStagingUse,
   verifyOriginalRetirement,
@@ -159,32 +163,37 @@ function verifyPlan(current, p) {
     throw Error('Exact prepared update drift');
   assertPinnedProgram(root, p.proposal.personal.deviceLoginExecutable, p.programMetadata);
 }
-async function freshOwner(p) {
-  const { readOwnedReleasePlan, verifyRetainedOwnedRelease } =
-      await import('../dist/symposium-owned-release.js'),
-    { assertCanonicalOwnerRuntime } = await import('../dist/symposium-canonical-control.js'),
-    { observeCanonicalProcess } = await import('../dist/symposium-canonical-owner-record.js');
+async function readFreshPrepared(p, started = false) {
+  const { readOwnedReleasePlan, verifyOwnedRelease, verifyRetainedOwnedRelease } =
+    await import('../dist/symposium-owned-release.js');
+  const { assertCanonicalStagingService, readStagingOperatorEnvironment } =
+    await import('../dist/symposium-staging-service.js');
+  const { validateRecoveryPlist } = await import('./lib/staging-cold-plist.mjs');
   const plan = readOwnedReleasePlan(join(owned, 'owned-release.json'));
-  verifyRetainedOwnedRelease(plan);
-  if (
-    plan.releaseRoot !== source ||
-    plan.sourceCommit !== p.target ||
-    plan.acceptedMainBaseline !== p.target ||
-    plan.configSha256 !== p.proposalSha256
-  )
-    throw Error('Exact new owner target required');
+  if (started) verifyRetainedOwnedRelease(plan);
+  else verifyOwnedRelease(plan);
+  readStagingOperatorEnvironment(plan, join(owned, 'staging-operator.json'), {});
+  assertCanonicalStagingService(
+    plan,
+    join(root, 'symposium/settings/staging-registration.json'),
+    root,
+  );
+  const plist = JSON.parse(
+    run('/usr/bin/plutil', ['-convert', 'json', '-o', '-', join(owned, 'staging-custodian.plist')]),
+  );
+  validateRecoveryPlist(root, plan, plist, process.execPath);
+  createFreshActivationIntent(root, source, p, plan);
+  return plan;
+}
+async function freshOwner(p, lock) {
+  const { assertCanonicalOwnerRuntime } = await import('../dist/symposium-canonical-control.js'),
+    { observeCanonicalProcess } = await import('../dist/symposium-canonical-owner-record.js');
+  const plan = await readFreshPrepared(p, true);
   const owner = privateJson(join(owned, 'original-owner.json')),
     rows = stageRows(root);
   if (rows.length !== 1 || owner.instanceId === p.live.owner.instanceId)
     throw Error('Distinct original fresh owner required');
-  const intent = privateJson(join(p.archive, 'fresh-activation.json'));
-  for (const [name, expected] of Object.entries(intent.inputs))
-    if (hash(bytes(join(owned, name))) !== expected) throw Error('Fresh prepared input changed');
-  if (
-    hash(bytes(join(root, 'service/com.mitzo.staging.plist'))) !== intent.plistSha256 ||
-    hash(bytes(join(source, 'staging-release.json'))) !== p.controllerReceiptSha256
-  )
-    throw Error('Fresh canonical registration or controller changed');
+  verifyFreshActivationBinding(root, source, p, plan, lock, { started: true, registered: true });
   assertCanonicalOwnerRuntime(plan, owner, rows[0], {
     jobPid: stageJob(root).pid,
     parent: observeCanonicalProcess(owner.parent.pid),
@@ -196,6 +205,7 @@ async function freshOwner(p) {
     signal: globalThis.AbortSignal.timeout(3000),
   });
   if (!response.ok) throw Error('Fresh canonical HTTP unavailable');
+  verifyFreshActivationBinding(root, source, p, plan, lock, { started: true, registered: true });
   return { owner, row: rows[0], source: p.target, verified: true };
 }
 function verifyArchive(p, lock) {
@@ -445,37 +455,20 @@ async function applyUpdate(current) {
         ],
         source,
       );
-      const { readOwnedReleasePlan, verifyOwnedRelease } =
-        await import('../dist/symposium-owned-release.js');
-      verifyOwnedRelease(readOwnedReleasePlan(join(owned, 'owned-release.json')));
-      const { validateRecoveryPlist } = await import('./lib/staging-cold-plist.mjs'),
-        plan = readOwnedReleasePlan(join(owned, 'owned-release.json')),
-        plist = JSON.parse(
-          run('/usr/bin/plutil', [
-            '-convert',
-            'json',
-            '-o',
-            '-',
-            join(owned, 'staging-custodian.plist'),
-          ]),
-        );
-      validateRecoveryPlist(root, plan, plist, process.execPath);
+      const plan = await readFreshPrepared(p);
       exclusive(
         join(p.archive, 'fresh-activation.json'),
-        JSON.stringify({
-          target: current,
-          inputs: Object.fromEntries(
-            [
-              'owned-release.json',
-              'staging-custodian.plist',
-              'staging-operator.json',
-              'empty-accounts.json',
-            ].map((n) => [n, hash(bytes(join(owned, n)))]),
-          ),
-          plistSha256: hash(bytes(join(owned, 'staging-custodian.plist'))),
-          configSha256: hash(bytes(p.live.plan.configPath)),
-        }) + '\n',
+        JSON.stringify(createFreshActivationIntent(root, source, p, plan)) + '\n',
       );
+      ownLock();
+      const next = {
+        ...lock,
+        freshActivationSha256: hash(bytes(join(p.archive, 'fresh-activation.json'))),
+      };
+      replacePrivateJson(lockPath, next);
+      Object.assign(lock, next);
+      ownLock();
+      verifyFreshActivationBinding(root, source, p, plan, lock);
     },
     async startFresh() {
       ownLock();
@@ -488,11 +481,27 @@ async function applyUpdate(current) {
         listeners(p.live.config.gateway.port).length
       )
         throw Error('Exact accepted vacant canonical job required');
+      const plan = await readFreshPrepared(p);
+      ownLock();
+      const intent = verifyFreshActivationBinding(root, source, p, plan, lock);
       const job = 'gui/' + process.getuid() + '/com.mitzo.staging';
-      exclusive(
-        join(p.archive, 'start-attempt.json'),
-        JSON.stringify({ target: current, operation: p.operation, at: Date.now() }) + '\n',
-      );
+      exclusive(join(p.archive, 'start-attempt.json'), JSON.stringify(intent) + '\n');
+      ownLock();
+      const next = {
+        ...lock,
+        startAttemptSha256: hash(bytes(join(p.archive, 'start-attempt.json'))),
+      };
+      replacePrivateJson(lockPath, next);
+      Object.assign(lock, next);
+      ownLock();
+      if (
+        accepted() !== current ||
+        stageJob(root).pid ||
+        listeners(3190).length ||
+        listeners(p.live.config.gateway.port).length
+      )
+        throw Error('Exact accepted vacant canonical job changed before control');
+      verifyFreshActivationBinding(root, source, p, plan, lock, { started: true });
       run('/bin/launchctl', ['bootout', job]);
       const temporary = join(root, 'service/com.mitzo.staging.plist.owned-update');
       exclusive(temporary, bytes(join(owned, 'staging-custodian.plist')));
@@ -511,11 +520,22 @@ async function applyUpdate(current) {
         join(root, 'service/topology.json'),
       );
       sync(join(root, 'service'));
+      ownLock();
+      if (accepted() !== current) throw Error('Accepted main changed before fresh bootstrap');
+      verifyFreshActivationBinding(root, source, p, plan, lock, {
+        started: true,
+        registered: true,
+      });
       run('/bin/launchctl', [
         'bootstrap',
         'gui/' + process.getuid(),
         join(root, 'service/com.mitzo.staging.plist'),
       ]);
+      ownLock();
+      verifyFreshActivationBinding(root, source, p, plan, lock, {
+        started: true,
+        registered: true,
+      });
       run('/bin/launchctl', ['kickstart', job]);
     },
     async verifyFresh() {
@@ -525,8 +545,10 @@ async function applyUpdate(current) {
       const until = Date.now() + 120000;
       while (Date.now() < until) {
         try {
-          const result = await freshOwner(p);
+          const result = await freshOwner(p, lock);
+          ownLock();
           recordOrVerifyFreshOwnerReceipt(join(p.archive, 'fresh-owner-verified.json'), result);
+          ownLock();
           return;
         } catch {
           /* One start only; no adoption or restart. */
@@ -591,7 +613,8 @@ try {
     )
       throw Error('Exact interrupted update required');
     verifyRetiredHistory(p, lock);
-    const result = await freshOwner(p);
+    const result = await freshOwner(p, lock);
+    if (!same(privateJson(lockPath), lock)) throw Error('Interrupted operation changed');
     recordOrVerifyFreshOwnerReceipt(join(p.archive, 'fresh-owner-verified.json'), result);
     if (!same(privateJson(lockPath), lock)) throw Error('Interrupted operation changed');
     unlinkSync(lockPath);
