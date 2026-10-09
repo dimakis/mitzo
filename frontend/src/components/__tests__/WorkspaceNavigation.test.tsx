@@ -112,3 +112,15 @@ it('keeps mobile More selected inside Knowledge and preserves Files as a seconda
   );
   expect(screen.getByRole('link', { name: 'More' }).getAttribute('aria-current')).toBe('page');
 });
+
+it('adds Agent Library alongside the existing Agents taskboard', () => {
+  render(
+    <MemoryRouter initialEntries={['/agent-library']}>
+      <DesktopNav />
+    </MemoryRouter>,
+  );
+  expect(screen.getByRole('link', { name: 'Agents' }).getAttribute('href')).toBe('/tasks');
+  const library = screen.getByRole('link', { name: 'Agent Library' });
+  expect(library.getAttribute('href')).toBe('/agent-library');
+  expect(library.getAttribute('aria-current')).toBe('page');
+});
