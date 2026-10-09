@@ -169,6 +169,15 @@ export function KnowledgeLibrary() {
                     >
                       Use saved draft
                     </button>
+                    {(copy!.initialSaveConflict.state === 'accepted' ||
+                      copy!.initialSaveConflict.state === 'closed') && (
+                      <button
+                        disabled={busy || copy!.savedComparisonUnavailable}
+                        onClick={() => void library.startNewChangeWithEdits()}
+                      >
+                        Start new change with my edits
+                      </button>
+                    )}
                     <button
                       disabled={
                         busy ||
@@ -183,15 +192,17 @@ export function KnowledgeLibrary() {
                   </div>
                 </section>
               )}
-              {(library.error || library.comparison) && editable && !copy!.initialSaveConflict && (
-                <button
-                  className="workspace-text-link"
-                  disabled={busy}
-                  onClick={() => void library.compare()}
-                >
-                  Compare accepted version
-                </button>
-              )}
+              {(library.error || library.comparison || copy!.forkNeedsComparison) &&
+                editable &&
+                !copy!.initialSaveConflict && (
+                  <button
+                    className="workspace-text-link"
+                    disabled={busy}
+                    onClick={() => void library.compare()}
+                  >
+                    Compare accepted version
+                  </button>
+                )}
               {library.comparison && !copy!.initialSaveConflict && (
                 <section className="knowledge-comparison" aria-label="Compare accepted and draft">
                   <h3>Review the latest accepted knowledge</h3>
@@ -326,7 +337,7 @@ export function KnowledgeLibrary() {
                     >
                       Check review status
                     </button>
-                    <button disabled={busy} onClick={() => void library.compare(true)}>
+                    <button disabled={busy} onClick={() => void library.startNewChangeWithEdits()}>
                       Start new change
                     </button>
                     {library.gate?.reason && <p role="status">{library.gate.reason}</p>}

@@ -19,6 +19,7 @@ interface WorkingCopy {
   pendingCreate?: DraftCreation;
   initialSaveConflict?: KnowledgeDraft;
   savedComparisonUnavailable?: boolean;
+  forkNeedsComparison?: boolean;
   documents: KnowledgeDraft['documents'];
   selected: string;
   saved: string;
@@ -71,7 +72,7 @@ function needsReview(draft: KnowledgeDraft) {
 export function useKnowledgeLibrary() {
   const [catalog, setCatalog] = useState<KnowledgeCatalog | null>(null);
   const [copy, setCopy] = useState<WorkingCopy | null>(recover);
-  const [error, setError] = useState('');
+  const [error, setError] = useState(copy?.draft?.error || '');
   const [storageError, setStorageError] = useState('');
   const [notice, setNotice] = useState(copy ? 'Recovered your working copy.' : '');
   const [busy, setBusy] = useState(false);
@@ -95,6 +96,7 @@ export function useKnowledgeLibrary() {
   const canSave =
     !!copy &&
     copy.documents.length > 0 &&
+    !copy.forkNeedsComparison &&
     !comparison?.documents.some((document) => document.content === null) &&
     !copy.initialSaveConflict &&
     (!copy.draft || copy.draft.state === 'draft' || copy.draft.state === 'in-review') &&
@@ -336,6 +338,7 @@ export function useKnowledgeLibrary() {
   ) {
     const active = current.current;
     if (!active || active.initialSaveConflict || !(documents || active.documents).length) return;
+    if (active.forkNeedsComparison && !(newChange && baseRevision && documents)) return;
     if (
       comparison?.documents.some(
         (d) =>
@@ -391,6 +394,7 @@ export function useKnowledgeLibrary() {
         persist({
           ...old,
           draft: undefined,
+          forkNeedsComparison: undefined,
           pendingCreate: creation,
           baseRevision: creation.baseRevision,
           documents: documents || old.documents,
@@ -479,6 +483,43 @@ export function useKnowledgeLibrary() {
       updateDraft(result.draft, result.reviewError);
     });
   }
+  function freshWorkingCopy(
+    old: WorkingCopy,
+    baseRevision: string,
+    documents: WorkingCopy['documents'],
+    needsComparison: boolean,
+  ) {
+    // Copy only local authoring state; remote receipts and pending request identities belong to the old change.
+    persist({
+      title: old.title,
+      baseRevision,
+      documents,
+      selected: documents.some((d) => d.path === old.selected)
+        ? old.selected
+        : documents[0]?.path || '',
+      saved: old.saved,
+      forkNeedsComparison: needsComparison,
+    });
+    setComparison(null);
+    setGate(null);
+    setError('');
+  }
+  async function startNewChangeWithEdits() {
+    const old = current.current;
+    const remote = old?.initialSaveConflict;
+    if (
+      !old ||
+      old.savedComparisonUnavailable ||
+      inFlight.current ||
+      (remote ? remote.state !== 'accepted' && remote.state !== 'closed' : !old.draft)
+    )
+      return;
+    freshWorkingCopy(old, old.baseRevision, old.documents, true);
+    setNotice(
+      'Your edits are preserved in a new change. Compare accepted knowledge before saving.',
+    );
+    await compare(true);
+  }
   async function refresh() {
     await run(async () => {
       setCatalog(await request('/api/knowledge/refresh', 'POST', {}));
@@ -502,7 +543,11 @@ export function useKnowledgeLibrary() {
             : null,
         })),
       );
-      setComparison({ revision: latest.revision, documents: docs, newChange });
+      setComparison({
+        revision: latest.revision,
+        documents: docs,
+        newChange: newChange || !!current.current?.forkNeedsComparison,
+      });
     });
   }
   async function excludeRemovedDocuments() {
@@ -517,8 +562,8 @@ export function useKnowledgeLibrary() {
       await save(comparison.revision, retained, comparison.newChange);
       return false;
     }
-    // This explicit choice keeps the remote identity/version while selecting a new accepted base.
-    persist({ ...old, baseRevision: comparison.revision, documents: [], selected: '' });
+    if (comparison.newChange) freshWorkingCopy(old, comparison.revision, [], false);
+    else persist({ ...old, baseRevision: comparison.revision, documents: [], selected: '' });
     setComparison(null);
     setGate(null);
     setError('');
@@ -594,6 +639,7 @@ export function useKnowledgeLibrary() {
     refresh,
     refreshSavedComparison,
     resolveInitialSaveConflict,
+    startNewChangeWithEdits,
     compare,
     excludeRemovedDocuments,
     reconcile,

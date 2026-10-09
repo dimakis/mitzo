@@ -856,11 +856,9 @@ it('explicitly excludes catalog-confirmed removed documents while preserving and
     removed,
     surviving,
   ]);
-  fireEvent.click(screen.getByRole('button', { name: 'Review details' }));
-  fireEvent.click(screen.getByRole('button', { name: 'Start new change' }));
-  await screen.findByText('No longer in accepted knowledge');
-  // Return to reconciliation of this draft, preserving the original change identity.
+  // Recover the stored review error and reconcile this draft without changing its identity.
   fireEvent.click(screen.getByRole('button', { name: 'Compare accepted version' }));
+  await screen.findByText('No longer in accepted knowledge');
   await screen.findByRole('button', { name: 'Exclude removed documents and save' });
   fireEvent.click(screen.getByRole('button', { name: 'Exclude removed documents and save' }));
   await screen.findAllByText('Review draft saved');
@@ -976,3 +974,218 @@ it.each([404, 401])(
     expect(localStorage.getItem('mitzo-knowledge-working-copy:')).toBe(before);
   },
 );
+it.each(['accepted', 'closed'])(
+  'forks retained local edits from a terminal %s saved conflict after accepted comparison and reload',
+  async (state) => {
+    const own = [{ ...draft.documents[0], content: '# My unfinished edits' }];
+    const terminal = {
+      ...draft,
+      state,
+      version: 2,
+      documents: [{ ...draft.documents[0], content: '# Finished remote' }],
+      review: { ...draft.review, version: 2, head: 'h2' },
+    };
+    const oldRequest = '6ec86a54-f5e2-4d6e-9b0b-28ef33df97b2';
+    localStorage.setItem(
+      'mitzo-knowledge-working-copy:',
+      JSON.stringify({
+        title: draft.title,
+        baseRevision: 'r1',
+        draft,
+        documents: own,
+        selected: own[0].path,
+        saved: JSON.stringify(draft.documents),
+        pendingCreate: {
+          requestId: oldRequest,
+          title: draft.title,
+          baseRevision: 'r1',
+          documents: own.map(({ path, content }) => ({ path, content })),
+        },
+        initialSaveConflict: terminal,
+      }),
+    );
+    let created: typeof draft | undefined;
+    vi.mocked(apiFetch).mockImplementation(async (path, init) => {
+      if (path === '/api/knowledge' || path === '/api/knowledge/refresh')
+        return response({ ...catalog, revision: 'r2' });
+      if (path.startsWith('/api/knowledge/document'))
+        return response({ content: '# Current accepted principles' });
+      if (path === '/api/knowledge/drafts') {
+        const body = JSON.parse(String(init?.body));
+        created = {
+          ...draft,
+          id: body.requestId,
+          baseRevision: body.baseRevision,
+          documents: body.documents.map((document: { path: string; content: string }) => ({
+            ...document,
+            base: '# Current accepted principles',
+          })),
+        };
+        return response({ draft: { ...created, state: 'draft', review: undefined } });
+      }
+      if (path.endsWith('/review'))
+        return response({
+          draft: { ...created, review: { ...draft.review, head: 'new-head', ready: false } },
+        });
+      return response({ draft: terminal });
+    });
+    const view = setup();
+    await screen.findByRole('region', { name: 'Compare saved draft and working copy' });
+    fireEvent.click(screen.getByRole('button', { name: 'Start new change with my edits' }));
+    await screen.findByText('# Current accepted principles');
+    let recovery = JSON.parse(localStorage.getItem('mitzo-knowledge-working-copy:')!);
+    expect(recovery.documents).toEqual(own);
+    expect(recovery.draft).toBeUndefined();
+    expect(recovery.pendingCreate).toBeUndefined();
+    expect(recovery.initialSaveConflict).toBeUndefined();
+    view.unmount();
+    setup();
+    await screen.findByRole('textbox', { name: 'Document source' });
+    expect((screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Compare accepted version' }));
+    await screen.findByText('# Current accepted principles');
+    fireEvent.click(screen.getByRole('button', { name: 'Keep my edits in a new change' }));
+    await screen.findByText('Review draft saved');
+    const post = vi.mocked(apiFetch).mock.calls.find(([path]) => path === '/api/knowledge/drafts');
+    const body = JSON.parse(String(post?.[1]?.body));
+    expect(body).toMatchObject({
+      baseRevision: 'r2',
+      documents: [{ path: 'hub/principles.md', content: '# My unfinished edits' }],
+    });
+    expect(body.requestId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(body.requestId).not.toBe(oldRequest);
+    expect(vi.mocked(apiFetch).mock.calls.some(([, init]) => init?.method === 'PUT')).toBe(false);
+    recovery = JSON.parse(localStorage.getItem('mitzo-knowledge-working-copy:')!);
+    expect(recovery.draft.id).toBe(body.requestId);
+  },
+);
+it.each(['accepted', 'closed', 'in-review'])(
+  'keeps fork intent when a %s change loses all accepted documents before a replacement is selected',
+  async (state) => {
+    const removed = {
+      path: 'hub/principles.md',
+      base: '# Old principles',
+      content: '# Removed retained edits',
+    };
+    const finished = { ...draft, state, documents: [removed] };
+    const currentDoc = { path: 'teams/renamed.md', title: 'Replacement document', area: 'Teams' };
+    const latest = { ...catalog, revision: 'r2', documents: [currentDoc], drafts: [finished] };
+    let created: typeof draft | undefined;
+    vi.mocked(apiFetch).mockImplementation(async (path, init) => {
+      if (path === '/api/knowledge' || path === '/api/knowledge/refresh') return response(latest);
+      if (path === '/api/knowledge/drafts/d1') return response({ draft: finished });
+      if (path.startsWith('/api/knowledge/document'))
+        return response({ content: '# Current replacement' });
+      if (path === '/api/knowledge/drafts') {
+        const body = JSON.parse(String(init?.body));
+        created = {
+          ...draft,
+          id: body.requestId,
+          baseRevision: body.baseRevision,
+          documents: body.documents.map((document: { path: string; content: string }) => ({
+            ...document,
+            base: '# Current replacement',
+          })),
+        };
+        return response({ draft: { ...created, state: 'draft', review: undefined } });
+      }
+      if (path.endsWith('/review'))
+        return response({
+          draft: { ...created, review: { ...draft.review, head: 'new-head', ready: false } },
+        });
+      return response({ draft: finished });
+    });
+    const view = setup();
+    fireEvent.click(await screen.findByRole('button', { name: 'Drafts (1)' }));
+    fireEvent.click(screen.getByRole('button', { name: /Working principles/ }));
+    await screen.findByRole('textbox', { name: 'Document source' });
+    fireEvent.click(screen.getByRole('button', { name: 'Review details' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Start new change' }));
+    await screen.findByText('No longer in accepted knowledge');
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Exclude removed documents and choose a document' }),
+    );
+    const empty = JSON.parse(localStorage.getItem('mitzo-knowledge-working-copy:')!);
+    expect(empty.documents).toEqual([]);
+    expect(empty.draft).toBeUndefined();
+    expect(empty.pendingCreate).toBeUndefined();
+    view.unmount();
+    setup();
+    fireEvent.click(await screen.findByRole('button', { name: /Replacement document/ }));
+    const source = await screen.findByRole('textbox', { name: 'Document source' });
+    fireEvent.change(source, { target: { value: '# New replacement edits' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await screen.findByText('Review draft saved');
+    const post = vi.mocked(apiFetch).mock.calls.find(([path]) => path === '/api/knowledge/drafts');
+    const body = JSON.parse(String(post?.[1]?.body));
+    expect(body.baseRevision).toBe('r2');
+    expect(body.requestId).not.toBe('d1');
+    expect(body.documents).toEqual([{ path: currentDoc.path, content: '# New replacement edits' }]);
+    expect(vi.mocked(apiFetch).mock.calls.some(([, init]) => init?.method === 'PUT')).toBe(false);
+  },
+);
+it('preserves an ordinary new-change intent across reload and retries its lost acknowledgement with one fresh request identity', async () => {
+  let attempts = 0;
+  let created: typeof draft | undefined;
+  vi.mocked(apiFetch).mockImplementation(async (path, init) => {
+    if (path === '/api/knowledge' || path === '/api/knowledge/refresh')
+      return response({ ...catalog, drafts: [draft] });
+    if (path === '/api/knowledge/drafts/d1') return response({ draft });
+    if (path.startsWith('/api/knowledge/document')) return response({ content: '# Principles' });
+    if (path === '/api/knowledge/drafts') {
+      const body = JSON.parse(String(init?.body));
+      created = {
+        ...draft,
+        id: body.requestId,
+        baseRevision: body.baseRevision,
+        documents: body.documents.map((document: { path: string; content: string }) => ({
+          ...document,
+          base: '# Principles',
+        })),
+      };
+      if (attempts++ === 0) throw new Error('New draft acknowledgement lost');
+      return response({ draft: { ...created, state: 'draft', review: undefined } });
+    }
+    if (path.endsWith('/review'))
+      return response({
+        draft: { ...created, review: { ...draft.review, ready: false, head: 'fresh-head' } },
+      });
+    return response({ draft });
+  });
+  let view = setup();
+  fireEvent.click(await screen.findByRole('button', { name: 'Drafts (1)' }));
+  fireEvent.click(screen.getByRole('button', { name: /Working principles/ }));
+  fireEvent.change(await screen.findByRole('textbox', { name: 'Document source' }), {
+    target: { value: '# Forked local edits' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Review details' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Start new change' }));
+  await screen.findByText('# Principles');
+  view.unmount();
+  view = setup();
+  const source = await screen.findByRole('textbox', { name: 'Document source' });
+  expect((screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(true);
+  const before = vi.mocked(apiFetch).mock.calls.length;
+  fireEvent.keyDown(source, { key: 's', ctrlKey: true });
+  expect(vi.mocked(apiFetch).mock.calls).toHaveLength(before);
+  fireEvent.click(screen.getByRole('button', { name: 'Compare accepted version' }));
+  await screen.findByText('# Principles');
+  fireEvent.click(screen.getByRole('button', { name: 'Keep my edits in a new change' }));
+  await screen.findByText('New draft acknowledgement lost');
+  const pending = JSON.parse(localStorage.getItem('mitzo-knowledge-working-copy:')!);
+  expect(pending.draft).toBeUndefined();
+  expect(pending.pendingCreate.requestId).toMatch(/^[0-9a-f-]{36}$/);
+  view.unmount();
+  setup();
+  await screen.findByRole('textbox', { name: 'Document source' });
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  await screen.findByText('Review draft saved');
+  const bodies = vi
+    .mocked(apiFetch)
+    .mock.calls.filter(([path]) => path === '/api/knowledge/drafts')
+    .map(([, init]) => JSON.parse(String(init?.body)));
+  expect(bodies).toHaveLength(2);
+  expect(bodies[1]).toEqual(bodies[0]);
+  expect(bodies[0].requestId).toBe(pending.pendingCreate.requestId);
+  expect(vi.mocked(apiFetch).mock.calls.some(([, init]) => init?.method === 'PUT')).toBe(false);
+});
