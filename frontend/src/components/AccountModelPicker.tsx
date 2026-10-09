@@ -71,8 +71,10 @@ function SessionAccountModelPicker({
   requireExplicitSelection = false,
   requiredSelection,
   draftOnly = false,
+  preferWorkOpenAI = false,
 }: {
   draftOnly?: boolean;
+  preferWorkOpenAI?: boolean;
   scope?: 'chat' | 'symposium';
   requireExplicitSelection?: boolean;
   requiredSelection?: { accountId: string; model: string };
@@ -311,7 +313,12 @@ function SessionAccountModelPicker({
             callbacks.current.onUnavailable?.();
             return;
           }
-          const first = catalog.find((a) => a.id === previous?.accountId) ?? catalog[0];
+          const first =
+            catalog.find((a) => a.id === previous?.accountId) ??
+            (preferWorkOpenAI
+              ? catalog.find((a) => /\bwork\b/i.test(a.label) && /openai/i.test(a.label))
+              : undefined) ??
+            catalog[0];
           const next = {
             ...(!legacy ? { accountId: first.id } : {}),
             model: first.models.some((m) => m.id === (previous?.model ?? preferredModel))

@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AccountModelPicker, type AccountSelection } from './AccountModelPicker';
 import type { WorkspaceSummary } from '../types/workspace';
+import { getDefaultAccountModel } from '../lib/account-preference';
 import { getPreferredModel } from '../lib/model-preference';
 
 export function BriefingMinionPicker({
@@ -46,6 +47,11 @@ export function BriefingMinionPicker({
         Choose the account and model for this briefing. A different selection starts a separate
         conversation.
       </p>
+      <p className="workspace-muted">
+        {getDefaultAccountModel()
+          ? 'Default: your saved account and model, when available.'
+          : 'Default preference: Work OpenAI, when configured. Review the account and model below.'}
+      </p>
       <div className="briefing-minion-picker">
         <AccountModelPicker
           sessionId={null}
@@ -53,6 +59,7 @@ export function BriefingMinionPicker({
           onChange={setSelection}
           onSummaryChange={setSummary}
           draftOnly
+          preferWorkOpenAI
           disabled={saving}
         />
       </div>
