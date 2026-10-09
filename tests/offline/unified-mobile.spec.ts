@@ -89,6 +89,21 @@ const fixtures: Record<string, unknown> = {
   '/api/service-health': { services: [], checkedAt: Date.now() },
   '/api/notifications': { items: [], needsYou: 0, unread: 0, total: 0, hasMore: false },
   '/api/connections-access': { generatedAt: Date.now(), sources: [], resources: [account] },
+  '/api/git/info': { branch: 'main', repoPath: '/workspace', worktrees: [] },
+  '/api/files/roots': [],
+  '/api/files': {
+    dir: '/workspace',
+    root: '/workspace',
+    entries: Array.from({ length: 40 }, (_, index) => ({
+      name: `Report ${index + 1}.md`,
+      isDir: false,
+    })),
+  },
+  '/api/files/read': {
+    path: '/workspace/report.md',
+    ext: '.md',
+    content: '# Report\n\nFull document context.',
+  },
 };
 const mime: Record<string, string> = {
   '.js': 'application/javascript',
@@ -281,6 +296,49 @@ test('desktop collections inherit the same theme without the mobile masthead', a
         .evaluate((element) => getComputedStyle(element).getPropertyValue('--accent').trim()),
     ).toBe('#36d6b7');
   }
+});
+
+test('Files keeps the last row and editor controls inside the shell and resized visual viewport', async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(!isMobile, 'Mobile file viewport');
+  await page.goto('/files');
+  const viewer = page.locator('.viewer-page');
+  const body = page.locator('.mobile-workspace-body');
+  const tabs = page.locator('.workspace-tabs');
+  await expect(page.getByRole('button', { name: 'Report 40.md' })).toBeAttached();
+  expect((await viewer.boundingBox())!.height).toBeLessThanOrEqual(
+    (await body.boundingBox())!.height,
+  );
+  await page.locator('.viewer-content').evaluate((element) => {
+    element.scrollTop = element.scrollHeight;
+  });
+  const last = (await page.getByRole('button', { name: 'Report 40.md' }).boundingBox())!;
+  expect(last.y + last.height).toBeLessThanOrEqual((await tabs.boundingBox())!.y);
+  await page.goto('/files?path=report.md');
+  await page.getByRole('button', { name: 'Edit', exact: true }).click();
+  await expect(page.getByRole('textbox', { name: 'Document source' })).toBeVisible();
+  for (const offsetTop of [0, 100]) {
+    await page.evaluate((offset) => {
+      const viewport = window.visualViewport!;
+      Object.defineProperty(viewport, 'height', { configurable: true, get: () => 450 });
+      Object.defineProperty(viewport, 'offsetTop', { configurable: true, get: () => offset });
+      viewport.dispatchEvent(new Event('resize'));
+      viewport.dispatchEvent(new Event('scroll'));
+    }, offsetTop);
+    const bounds = (await viewer.boundingBox())!;
+    expect(bounds.y).toBeGreaterThanOrEqual(offsetTop);
+    expect(bounds.y + bounds.height).toBeLessThanOrEqual(450 + offsetTop);
+    const footer = (await page.locator('.document-editor-footer').boundingBox())!;
+    expect(footer.y + footer.height).toBeLessThanOrEqual(bounds.y + bounds.height);
+    expect(
+      (await page.getByRole('textbox', { name: 'Document source' }).boundingBox())!.height,
+    ).toBeGreaterThan(44);
+    await expect(page.getByRole('button', { name: 'Done', exact: true })).toBeVisible();
+  }
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Edit', exact: true })).toBeVisible();
 });
 
 test('Settings previews and persists every accent and font across navigation and reload', async ({
