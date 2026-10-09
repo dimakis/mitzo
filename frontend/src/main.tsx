@@ -16,6 +16,7 @@ import './styles/workspace-chat.css';
 import './styles/workspace-work.css';
 import './styles/workspace-agents.css';
 import './styles/workspace-collections.css';
+import './pages/KnowledgeLibrary.css';
 
 initTheme();
 

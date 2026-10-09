@@ -13,7 +13,7 @@ export function MoreView() {
         ['Notifications', '/notifications'],
         ['Calendar', '/calendar'],
         ['Agent taskboard', '/tasks'],
-        ['Files', '/files'],
+        ['Knowledge', '/knowledge'],
         ['Settings', '/settings'],
         ['All attention', '/focus'],
         ['Chat history and quick actions', '/sessions'],
@@ -25,6 +25,12 @@ export function MoreView() {
           <span aria-hidden="true">↗</span>
         </Link>
       ))}
+      <section className="today-section">
+        <h2>Workspace tools</h2>
+        <Link className="workspace-record" to="/files">
+          Files <span aria-hidden="true">↗</span>
+        </Link>
+      </section>
       <section className="today-section">
         <h2>Connections</h2>
         <p className="workspace-muted">

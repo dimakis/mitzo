@@ -66,14 +66,23 @@ jobs:
             const reviewer = (process.env.CENTAUR_REVIEWER_LOGIN?.trim() || context.repo.owner).toLowerCase();
             const reports = [...reviews, ...comments].filter(r =>
               r.user?.login?.toLowerCase() === reviewer && r.body?.includes('## Centaur Review'));
-            reports.sort((a, b) => (a.submitted_at || a.created_at || '')
-              .localeCompare(b.submitted_at || b.created_at || ''));
+            const timestamp = r => {
+              const times = [r.submitted_at, r.created_at, r.updated_at]
+                .filter(value => value !== undefined && value !== null)
+                .map(value => Date.parse(value));
+              return !times.length || times.some(value => !Number.isFinite(value)) ?
+                NaN : Math.max(...times);
+            };
+            const chronologyKnown = reports.every(r => Number.isFinite(timestamp(r)));
+            reports.sort((a, b) => timestamp(a) - timestamp(b));
             const latest = reports.at(-1);
+            const unambiguous = chronologyKnown && latest &&
+              (reports.length === 1 || timestamp(latest) !== timestamp(reports.at(-2)));
             const body = latest?.body || '';
             const current = /^[a-f0-9]{40}$/.test(head) &&
               body.includes(`<!-- centaur:sha:${head} -->`) &&
               (latest.commit_id === undefined || latest.commit_id === head);
-            const approved = current && latest.state !== 'DISMISSED' &&
+            const approved = unambiguous && current && latest.state !== 'DISMISSED' &&
               new RegExp(`^<!-- centaur:sha:${head} -->\\s*## Centaur Review\\s*` +
                 'LGTM — no issues found\\.\\s*### Convergence\\s*' +
                 '\\*\\*Recommendation:\\*\\* `merge`[^\\n]*\\n').test(body) &&
