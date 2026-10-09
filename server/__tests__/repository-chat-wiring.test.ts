@@ -107,7 +107,10 @@ it('starts a native repository chat with its claimed cwd and exact repository co
         onDemandCreate: undefined,
       }),
     );
-    expect(chat.eventStore.getSession('aaaaaaaa-bbbb-4ccc-8ddd-121212121212')?.cwd).toBe(root);
+    expect(chat.eventStore.getSession('aaaaaaaa-bbbb-4ccc-8ddd-121212121212')).toMatchObject({
+      cwd: root,
+      repositoryWorkspaceId: 'repository',
+    });
 
     const retained = join(
       root,
@@ -180,6 +183,19 @@ it('starts a native repository chat with its claimed cwd and exact repository co
     expect(open).not.toHaveBeenCalled();
     await expect(access(missing)).rejects.toThrow();
     expect(chat.eventStore.getSession(resumeId)?.cwd).toBe(missing);
+
+    repositories.getForConversation.mockReturnValue(undefined);
+    open.mockClear();
+    await expect(
+      chat.startChat({ send: vi.fn(), isOpen: () => true }, 'lost-ledger-fixture', 'continue', {
+        resume: 'aaaaaaaa-bbbb-4ccc-8ddd-121212121212',
+        accountId: 'fixture',
+        model: 'offline-model',
+        accountProfiles: profiles,
+      }),
+    ).rejects.toThrow('Repository claim ledger is unavailable');
+    expect(open).not.toHaveBeenCalled();
+    expect(chat.eventStore.getSession('aaaaaaaa-bbbb-4ccc-8ddd-121212121212')?.cwd).toBe(root);
   } finally {
     chat.registry.dispose();
     chat.eventStore.close();

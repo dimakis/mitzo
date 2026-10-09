@@ -1305,7 +1305,12 @@ async function _startChatInner(
       getRepositoryWorkspaces(),
     );
   } else if (options.resume) {
-    repositoryWorkspace = readRepositoryWorkspaceForConversation(options.resume);
+    const marker = eventStore.getSession(options.resume)?.repositoryWorkspaceId;
+    repositoryWorkspace = readRepositoryWorkspaceForConversation(options.resume, marker);
+    if (marker && repositoryWorkspace?.id !== marker)
+      throw new Error(
+        'Repository claim ledger is unavailable or changed; preserve the conversation',
+      );
   }
   if (
     repositoryWorkspace?.sandbox !== undefined &&
@@ -1330,6 +1335,17 @@ async function _startChatInner(
     options = { ...options, cwd: repositoryWorkspace.directory };
   }
   const baseCwd = openShellWorkdir ?? resolveResumeCwd(options);
+  if (repositoryWorkspace) {
+    eventStore.upsertSession({
+      sessionId: options.resume ?? options.initialSessionId!,
+      repositoryWorkspaceId: repositoryWorkspace.id,
+      cwd: baseCwd,
+      mode,
+      ...(accountBinding ? { accountBinding } : {}),
+      selectedModel: options.model ?? accountBinding?.model ?? null,
+      reasoningEffort: options.reasoningEffort ?? null,
+    });
+  }
   prompt = repositoryChatContext(repositoryWorkspace) + prompt;
   const nativeProviderSelected = !!apiCredentialRef || !!gemini;
 

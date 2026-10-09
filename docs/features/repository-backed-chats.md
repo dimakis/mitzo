@@ -34,7 +34,9 @@ repository configuration or authority to change the original checkout.
 Repository chats do not run the MGMT task compiler against arbitrary source.
 Enrolled published knowledge keeps its existing separate acquisition, runtime
 attestation and adoption path. Resuming preserves task edits, branches and provider
-history; a missing or changed retained sandbox must not be replaced with the
+history. The conversation stores its repository identity separately from the claim
+ledger; a missing or mismatched ledger blocks resume before runtime admission.
+A missing or changed retained sandbox must not be replaced with the
 default MGMT seed.
 
 ## Acquisition and custody

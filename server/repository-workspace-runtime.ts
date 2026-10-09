@@ -79,8 +79,18 @@ export function getRepositoryWorkspaces(readOnly = false) {
   return service;
 }
 
-export function readRepositoryWorkspaceForConversation(conversationId: string) {
+export function readRepositoryWorkspaceForConversation(
+  conversationId: string,
+  expectedWorkspaceId?: string | null,
+) {
   const directory = join(codexPrivateDirectory(), 'repository-sources');
-  if (!service && !existsSync(join(directory, 'workspaces.db'))) return undefined;
-  return getRepositoryWorkspaces(true).getForConversation(conversationId);
+  if (!existsSync(join(directory, 'workspaces.db'))) {
+    if (expectedWorkspaceId)
+      throw new Error('Repository claim ledger is unavailable; preserve the conversation');
+    return undefined;
+  }
+  const record = getRepositoryWorkspaces(true).getForConversation(conversationId);
+  if (expectedWorkspaceId && record?.id !== expectedWorkspaceId)
+    throw new Error('Repository claim ledger is unavailable or changed; preserve the conversation');
+  return record;
 }
