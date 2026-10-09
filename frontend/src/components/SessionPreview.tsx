@@ -6,6 +6,8 @@ import { apiFetch } from '../lib/api-fetch';
 import { copyToClipboard } from '../lib/clipboard';
 import { formatRelativeTime } from '../lib/formatTime';
 import { UiIcon } from './UiIcon';
+import { HomePinButton } from './HomePinButton';
+import { recordTitle } from '../lib/record-title';
 import './SessionPreview.css';
 
 interface Props {
@@ -26,7 +28,7 @@ export function SessionPreview({ session, onClose, onOpen, onRename, onDelete }:
   );
   const [error, setError] = useState(false);
   const [copyStatus, setCopyStatus] = useState('');
-  const title = session.summary || 'Untitled conversation';
+  const title = session.summary ? recordTitle(session.summary) : 'Untitled conversation';
 
   useEffect(() => {
     const dialog = dialogRef.current!;
@@ -88,8 +90,9 @@ export function SessionPreview({ session, onClose, onOpen, onRename, onDelete }:
       onKeyDown={(event) => {
         if (event.key !== 'Tab') return;
         const buttons = Array.from(
-          event.currentTarget.querySelectorAll<HTMLButtonElement>('button'),
+          event.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'),
         );
+        if (buttons.length === 0) return;
         const current = buttons.findIndex((button) => button === document.activeElement);
         const next = event.shiftKey
           ? (current - 1 + buttons.length) % buttons.length
@@ -159,6 +162,7 @@ export function SessionPreview({ session, onClose, onOpen, onRename, onDelete }:
             <UiIcon name="edit" />
             Rename
           </button>
+          <HomePinButton pin={{ kind: 'session', id: session.id, title }} />
           <button type="button" onClick={() => void copyId()}>
             <UiIcon name="copy" />
             Copy session ID

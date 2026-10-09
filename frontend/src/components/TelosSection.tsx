@@ -4,6 +4,7 @@ import { useTodoData } from '../hooks/useTodoData';
 import { sourceIcon } from '../lib/todo-utils';
 import { CollapsibleSection } from './CollapsibleSection';
 import type { TodoItem } from '../types/todo';
+import { recordTitle } from '../lib/record-title';
 
 const STATUS_ICONS: Record<string, string> = {
   active: '\u25CF', // ●
@@ -57,7 +58,7 @@ function TelosCard({
         {icon}
       </span>
       <div className="cc-card-content">
-        <div className="cc-card-title">{item.summary}</div>
+        <div className="cc-card-title">{recordTitle(item.summary)}</div>
         <div className="cc-card-meta">
           {source && <span>{sourceIcon(source.type)}</span>}
           <span>{ageLabel}</span>

@@ -2,6 +2,7 @@ import { useRef, useEffect, useState } from 'react';
 import type { TodoItem } from '../types/todo';
 import { sourceIcon } from '../lib/todo-utils';
 import { notifySuccess, impactLight } from '../lib/haptics';
+import { recordTitle } from '../lib/record-title';
 
 interface TodoCardProps {
   item: TodoItem;
@@ -169,7 +170,7 @@ export function TodoCard({
               onTouchEnd={(e) => e.preventDefault()}
               onClick={() => onTap(item)}
             >
-              <span className="todo-card-title">{item.summary}</span>
+              <span className="todo-card-title">{recordTitle(item.summary)}</span>
             </button>
             {hasChildren && (
               <button

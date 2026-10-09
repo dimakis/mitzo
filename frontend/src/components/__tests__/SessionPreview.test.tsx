@@ -2,6 +2,13 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { SessionPreview } from '../SessionPreview';
+vi.mock('../HomePinButton', () => ({
+  HomePinButton: ({ pin }: { pin: { kind: string; id: string; title: string } }) => (
+    <button data-kind={pin.kind} data-id={pin.id} data-title={pin.title}>
+      Pin to Today
+    </button>
+  ),
+}));
 
 const session = { id: 'one', summary: 'Review UI', lastModified: 30 };
 const props = { session, onClose: vi.fn(), onOpen: vi.fn(), onRename: vi.fn(), onDelete: vi.fn() };
@@ -18,6 +25,19 @@ beforeEach(() => {
   HTMLDialogElement.prototype.close = function () {
     this.open = false;
   };
+});
+it('offers a separate Today pin using the saved session identity and compact title', () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(() => new Promise(() => {})),
+  );
+  render(
+    <SessionPreview {...props} session={{ ...session, summary: '# Recovery\n\nSaved context' }} />,
+  );
+  const pin = screen.getByRole('button', { name: 'Pin to Today' });
+  expect(pin.dataset.kind).toBe('session');
+  expect(pin.dataset.id).toBe('one');
+  expect(pin.dataset.title).toBe('Recovery');
 });
 afterEach(() => {
   cleanup();

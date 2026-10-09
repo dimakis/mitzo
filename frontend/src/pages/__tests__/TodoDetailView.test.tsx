@@ -3,6 +3,13 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { shareTelosArtifact } from '../../lib/share-file';
+vi.mock('../../components/HomePinButton', () => ({
+  HomePinButton: ({ pin }: { pin: { kind: string; id: string; title: string } }) => (
+    <button data-kind={pin.kind} data-id={pin.id} data-title={pin.title}>
+      Pin to Today
+    </button>
+  ),
+}));
 vi.mock('../../lib/share-file', () => ({ shareTelosArtifact: vi.fn().mockResolvedValue(true) }));
 vi.mock('../../components/WorkOutputs', () => ({
   WorkOutputs: ({ itemId }: { itemId: string }) => (
@@ -90,6 +97,22 @@ beforeEach(() => {
 });
 
 describe('TodoDetailView', () => {
+  it('offers a Today pin without changing the TELOS item or hiding its saved summary', () => {
+    const item = { ...fullItem, summary: '# Canonical recovery\n\nFull handover details' };
+    mockLocation.mockReturnValue({ state: { item } });
+    render(
+      <MemoryRouter>
+        <TodoDetailView />
+      </MemoryRouter>,
+    );
+    const pin = screen.getByRole('button', { name: 'Pin to Today' });
+    expect(pin.dataset.kind).toBe('telos');
+    expect(pin.dataset.id).toBe(item.id);
+    expect(pin.dataset.title).toBe('Canonical recovery');
+    expect(screen.getByText(/Full handover details/)).toBeTruthy();
+    expect(item.starred).toBe(false);
+    expect(item.status).toBe('active');
+  });
   it('renders the item summary', () => {
     render(
       <MemoryRouter>

@@ -7,6 +7,8 @@ import { WorkOutputs } from '../components/WorkOutputs';
 import { PageHeader } from '../components/PageHeader';
 import { apiFetch } from '../lib/api-fetch';
 import { shareTelosArtifact } from '../lib/share-file';
+import { HomePinButton } from '../components/HomePinButton';
+import { recordTitle } from '../lib/record-title';
 
 function urgencyLabel(urgency: number): string {
   if (urgency >= 0.8) return 'high';
@@ -167,6 +169,7 @@ export function TodoDetailView() {
     <div className="todo-detail-page">
       <PageHeader title="Task" onBack={handleBack}>
         <div className="todo-detail-actions">
+          <HomePinButton pin={{ kind: 'telos', id: item.id, title: recordTitle(item.summary) }} />
           <button className="todo-detail-chat-btn" onClick={handleOpenChat}>
             Open in Chat
           </button>
