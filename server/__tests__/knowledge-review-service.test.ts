@@ -47,7 +47,13 @@ beforeEach(() => {
     identity: vi.fn(async () => 'operator'),
     inspect: vi.fn(async (input) => {
       if (remoteHead !== input.head) throw new Error('Merged head changed');
-      return { state: 'accepted', head: input.head, canAccept: false, mergeCommit: 'b'.repeat(40) };
+      return {
+        state: review?.merged ? 'accepted' : 'in-review',
+        draft: review?.draft,
+        head: input.head,
+        canAccept: false,
+        mergeCommit: 'b'.repeat(40),
+      };
     }),
     policy: vi.fn(async () => ({ defaultBranch: 'main', sourceBranchProtected: false })),
     read: vi.fn(async () => review),
@@ -71,7 +77,7 @@ beforeEach(() => {
           merged: false,
         }),
     ),
-    update: vi.fn(async () => review!),
+    update: vi.fn(async (input) => (review = { ...review!, draft: input.draft })),
   };
 });
 afterEach(() => {
@@ -243,3 +249,163 @@ it('keeps newer unpublished content editable when its previous review was merged
   expect(store.get(d.id).documents[0]?.content).toBe('# Unpublished changes\n');
   expect(publisher.inspect).not.toHaveBeenCalled();
 });
+
+async function readyReviewWithNewEdits() {
+  const initial = await draft();
+  await service().submit(initial.id, initial.version);
+  review = { ...review!, draft: false };
+  return store.save(initial.id, initial.version, [
+    {
+      path: 'architecture/one.md',
+      base: '# Old\n',
+      content: '# New saved edits\n',
+    },
+  ]);
+}
+
+it('confirms a ready review is draft at its exact old head before pushing saved edits', async () => {
+  const edited = await readyReviewWithNewEdits();
+  const oldHead = remoteHead;
+  const order: string[] = [];
+  const update = vi.mocked(publisher.update).getMockImplementation()!;
+  vi.mocked(publisher.update).mockImplementation(async (input) => {
+    order.push('draft');
+    expect(remoteHead).toBe(oldHead);
+    return update(input);
+  });
+  const inspect = publisher.inspect!.getMockImplementation()!;
+  publisher.inspect!.mockImplementation(async (input) => {
+    order.push('inspect');
+    expect(input.head).toBe(oldHead);
+    expect(review?.draft).toBe(true);
+    return inspect(input);
+  });
+  vi.mocked(publisher.push).mockImplementation(async ({ directory }) => {
+    order.push('push');
+    expect(review?.draft).toBe(true);
+    expect(order).toEqual(['draft', 'inspect', 'push']);
+    remoteHead = directory;
+  });
+  const saved = await service().submit(edited.id, edited.version);
+  expect(saved.state).toBe('in-review');
+  expect(saved.review?.head).not.toBe(oldHead);
+  expect(publisher.create).toHaveBeenCalledTimes(1);
+});
+
+it.each([
+  'conversion',
+  'ready-state',
+  'wrong-head',
+  'wrong-scope',
+  'closed-state',
+  'missing-inspector',
+])(
+  'keeps edits and the external head unchanged when draft confirmation fails: %s',
+  async (failure) => {
+    const edited = await readyReviewWithNewEdits();
+    const oldHead = remoteHead;
+    vi.mocked(publisher.push).mockClear();
+    if (failure === 'conversion')
+      vi.mocked(publisher.update).mockRejectedValue(new Error('failed'));
+    if (failure === 'ready-state')
+      publisher.inspect!.mockResolvedValue({
+        state: 'in-review',
+        draft: false,
+        head: oldHead!,
+        canAccept: false,
+      });
+    if (failure === 'wrong-head')
+      publisher.inspect!.mockResolvedValue({
+        state: 'in-review',
+        draft: true,
+        head: 'a'.repeat(40),
+        canAccept: false,
+      });
+    if (failure === 'wrong-scope')
+      vi.mocked(publisher.update).mockResolvedValue({
+        ...review!,
+        draft: true,
+        sourceBranch: 'knowledge/another',
+      });
+    if (failure === 'closed-state')
+      vi.mocked(publisher.update).mockResolvedValue({
+        ...review!,
+        draft: true,
+        state: 'closed',
+      });
+    if (failure === 'missing-inspector') publisher.inspect = undefined;
+    await expect(service().submit(edited.id, edited.version)).rejects.toThrow('Draft saved');
+    expect(publisher.push).not.toHaveBeenCalled();
+    expect(remoteHead).toBe(oldHead);
+    expect(store.get(edited.id).documents[0]?.content).toBe('# New saved edits\n');
+    expect(store.get(edited.id).state).toBe('draft');
+  },
+);
+
+it('recovers a lost draft conversion acknowledgement without pushing while ready or duplicating reviews', async () => {
+  const edited = await readyReviewWithNewEdits();
+  const oldHead = remoteHead;
+  const update = vi.mocked(publisher.update).getMockImplementation()!;
+  vi.mocked(publisher.update).mockImplementationOnce(async (input) => {
+    await update(input);
+    throw new Error('lost acknowledgement');
+  });
+  vi.mocked(publisher.push).mockClear();
+  await expect(service().submit(edited.id, edited.version)).rejects.toThrow('Draft saved');
+  expect(publisher.push).not.toHaveBeenCalled();
+  expect(remoteHead).toBe(oldHead);
+  expect(review?.draft).toBe(true);
+  const preparedHead = store.get(edited.id).publication?.head;
+  await service().submit(edited.id, edited.version);
+  expect(remoteHead).toBe(preparedHead);
+  expect(publisher.push).toHaveBeenCalledTimes(1);
+  expect(publisher.create).toHaveBeenCalledTimes(1);
+});
+
+it('fences revoked authority before changing a ready review or pushing its new head', async () => {
+  const edited = await readyReviewWithNewEdits();
+  const controller = new AbortController();
+  const reconstruct = vi.mocked(publisher.reconstruct).getMockImplementation()!;
+  vi.mocked(publisher.reconstruct).mockImplementationOnce(async (input) => {
+    const result = await reconstruct(input);
+    controller.abort();
+    return result;
+  });
+  vi.mocked(publisher.update).mockClear();
+  vi.mocked(publisher.push).mockClear();
+  await expect(service().submit(edited.id, edited.version, controller.signal)).rejects.toThrow(
+    'Draft saved',
+  );
+  expect(publisher.update).not.toHaveBeenCalled();
+  expect(publisher.push).not.toHaveBeenCalled();
+  expect(review?.draft).toBe(false);
+});
+
+it.each(['revoked', 'expired'])(
+  'fences %s ownership during draft conversion before pushing',
+  async (failure) => {
+    const edited = await readyReviewWithNewEdits();
+    const oldHead = remoteHead;
+    const controller = new AbortController();
+    const update = vi.mocked(publisher.update).getMockImplementation()!;
+    let clock: ReturnType<typeof vi.spyOn> | undefined;
+    vi.mocked(publisher.update).mockImplementationOnce(async (input) => {
+      const result = await update(input);
+      if (failure === 'revoked') controller.abort();
+      else clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 181_000);
+      return result;
+    });
+    vi.mocked(publisher.push).mockClear();
+    try {
+      await expect(
+        service().submit(edited.id, edited.version, controller.signal),
+      ).rejects.toThrow();
+      expect(publisher.push).not.toHaveBeenCalled();
+      expect(publisher.inspect).not.toHaveBeenCalled();
+      expect(remoteHead).toBe(oldHead);
+      expect(store.get(edited.id).documents[0]?.content).toBe('# New saved edits\n');
+    } finally {
+      clock?.mockRestore();
+    }
+  },
+);

@@ -211,6 +211,13 @@ export class KnowledgeReviewService {
         throw new KnowledgeDraftConflict(
           'This review changed elsewhere. Reload its review before continuing.',
         );
+      const input = {
+        ...common,
+        title: draft.title,
+        body: `Knowledge update from Mitzo.\n\n${draft.documents.map((d) => '- ' + d.path).join('\n')}\n\nChange: ${draft.id}. Saving this draft does not accept or publish it.`,
+        draft: true,
+      };
+      let confirmedDraftReview: GithubPullRequest | undefined;
       const head = await this.projection(draft, accepted, branch, signal, lease);
       if (remote !== head) {
         const temporary = await mkdtemp(join(tmpdir(), 'mitzo-knowledge-bundle-'));
@@ -233,23 +240,47 @@ export class KnowledgeReviewService {
           cleanup = reconstructed.cleanupDirectory ?? reconstructed.directory;
           signal.throwIfAborted();
           this.store.assertLease(id, lease);
+          if (existing && !existing.draft) {
+            if (!remote || !this.publisher.inspect)
+              throw new Error('Exact ready review inspection unavailable');
+            // Keep the old head in place until Save has returned the PR to draft.
+            // Otherwise synchronize can start another review of unpublished edits.
+            const redrafted = this.scope(
+              await this.publisher.update({ ...input, pullRequest: existing }),
+              branch,
+            );
+            signal.throwIfAborted();
+            this.store.assertLease(id, lease);
+            if (redrafted.url !== existing.url || redrafted.state !== 'open' || !redrafted.draft)
+              throw new Error('Review draft conversion could not be confirmed');
+            const inspected = await this.publisher.inspect({
+              draftId: draft.id,
+              url: existing.url,
+              head: remote,
+              repository: this.config.repository,
+              baseBranch: this.config.baseBranch,
+              signal,
+            });
+            if (inspected.state !== 'in-review' || !inspected.draft || inspected.head !== remote)
+              throw new Error('Review draft conversion differs from its saved head');
+            if ((await this.publisher.readBranch(common)) !== remote)
+              throw new Error('Review head changed during draft conversion');
+            signal.throwIfAborted();
+            this.store.assertLease(id, lease);
+            confirmedDraftReview = redrafted;
+          }
           await this.publisher.push({ ...common, directory: reconstructed.directory });
         } finally {
           await rm(temporary, { recursive: true, force: true });
         }
       }
-      const input = {
-        ...common,
-        title: draft.title,
-        body: `Knowledge update from Mitzo.\n\n${draft.documents.map((d) => '- ' + d.path).join('\n')}\n\nChange: ${draft.id}. Saving this draft does not accept or publish it.`,
-        draft: true,
-      };
       signal.throwIfAborted();
       this.store.assertLease(id, lease);
       const result = this.scope(
-        existing
-          ? await this.publisher.update({ ...input, pullRequest: existing })
-          : await this.publisher.create(input),
+        confirmedDraftReview ??
+          (existing
+            ? await this.publisher.update({ ...input, pullRequest: existing })
+            : await this.publisher.create(input)),
         branch,
       );
       if ((await this.publisher.readBranch(common)) !== head)
