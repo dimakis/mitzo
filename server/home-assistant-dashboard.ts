@@ -1,10 +1,14 @@
 import { createHash } from 'node:crypto';
-import { Agent, type RequestOptions } from 'node:https';
 import { isIP } from 'node:net';
-import WebSocket from 'ws';
 import { z } from 'zod';
 import { redactCredentialResponse } from './credential-redaction.js';
-import { connectionDnsLookup, isAllowedConnectionAddress } from './credential-http.js';
+import { isAllowedConnectionAddress } from './credential-http.js';
+import {
+  connectionWebSocketExchange,
+  type ConnectionSocketOptions,
+  type ConnectionSocketFactory,
+  type WebSocketExchange,
+} from './credential-websocket.js';
 
 export const DashboardAccessSchema = z.enum(['disabled', 'read', 'read-write']);
 export type DashboardAccess = z.infer<typeof DashboardAccessSchema>;
@@ -94,9 +98,8 @@ export type DashboardSender = (
   input: DashboardTransportInput,
   signal: AbortSignal,
 ) => Promise<string>;
-export type DashboardSocketOptions = WebSocket.ClientOptions & Pick<RequestOptions, 'lookup'>;
-export type DashboardSocketFactory = (url: URL, options: DashboardSocketOptions) => WebSocket;
-const socketFactory: DashboardSocketFactory = (url, options) => new WebSocket(url, options);
+export type DashboardSocketOptions = ConnectionSocketOptions;
+export type DashboardSocketFactory = ConnectionSocketFactory;
 
 /** One authenticated exchange. Never reconnects, subscribes, or forwards arbitrary HA commands. */
 export const sendDashboardRequest: DashboardSender = (input, signal) =>
@@ -104,7 +107,7 @@ export const sendDashboardRequest: DashboardSender = (input, signal) =>
 export function dashboardExchange(
   input: DashboardTransportInput,
   signal: AbortSignal,
-  createSocket: DashboardSocketFactory = socketFactory,
+  createSocket?: DashboardSocketFactory,
 ): Promise<string> {
   signal.throwIfAborted();
   input.check();
@@ -120,136 +123,119 @@ export function dashboardExchange(
     (isIP(hostname) && !isAllowedConnectionAddress(hostname, input.allowPrivateNetwork))
   )
     throw new Error('Dashboard destination is unavailable');
-  return new Promise((resolve, reject) => {
-    const agent = new Agent({ keepAlive: false });
-    const socket = createSocket(input.url, {
-      agent,
-      rejectUnauthorized: true,
-      followRedirects: false,
-      perMessageDeflate: false,
-      maxPayload: MAX_DASHBOARD_RESPONSE_BYTES,
-      handshakeTimeout: 15_000,
-      lookup: connectionDnsLookup(input.allowPrivateNetwork),
-    });
-    let settled = false;
-    let writeSent = false;
-    let receivedBytes = 0;
-    let stage: 'auth-required' | 'auth-ok' | 'list' | 'read' | 'baseline' | 'save' | 'verify' =
-      'auth-required';
-    let commandId = 0;
-    const target = request.urlPath === undefined ? {} : { url_path: request.urlPath };
-    const desired = request.operation === 'save' ? JSON.parse(request.config!) : undefined;
-    const finish = (body?: string, code?: DashboardRequestError['code']) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      signal.removeEventListener('abort', abort);
-      socket.removeAllListeners();
-      socket.on('error', () => {}); // A late close/handshake error must never escape to controller logs.
-      socket.terminate();
-      agent.destroy();
-      if (code) reject(new DashboardRequestError(writeSent ? 'DASHBOARD_SAVE_UNCONFIRMED' : code));
-      else resolve(body!);
-    };
-    const abort = () => finish(undefined, 'DASHBOARD_REQUEST_FAILED');
-    const timer = setTimeout(abort, 30_000);
-    signal.addEventListener('abort', abort, { once: true });
-    const check = () => {
-      signal.throwIfAborted();
-      input.check();
-    };
-    const read = () =>
-      socket.send(
-        JSON.stringify({ id: ++commandId, type: 'lovelace/config', force: true, ...target }),
-      );
-    socket.on('error', abort);
-    socket.on('close', abort);
-    socket.on('message', (data, binary) => {
-      try {
-        check();
-        if (binary) return abort();
-        const body = data.toString();
-        if (Buffer.byteLength(body) > MAX_DASHBOARD_RESPONSE_BYTES) return abort();
-        receivedBytes += Buffer.byteLength(body);
-        if (receivedBytes > MAX_DASHBOARD_RESPONSE_BYTES * 3) return abort();
-        const message = JSON.parse(body);
-        if (!message || Array.isArray(message) || typeof message !== 'object') return abort();
-        if (stage === 'auth-required') {
-          if (message.type !== 'auth_required') return abort();
-          stage = 'auth-ok';
-          socket.send(JSON.stringify({ type: 'auth', access_token: input.token }));
-          return;
-        }
-        if (stage === 'auth-ok') {
-          if (message.type !== 'auth_ok') return abort();
-          if (request.operation === 'list') {
-            stage = 'list';
-            socket.send(JSON.stringify({ id: ++commandId, type: 'lovelace/dashboards/list' }));
-          } else {
-            stage = request.operation === 'save' ? 'baseline' : 'read';
+  let writeSent = false;
+  let stage: 'auth-required' | 'auth-ok' | 'list' | 'read' | 'baseline' | 'save' | 'verify' =
+    'auth-required';
+  let commandId = 0;
+  const target = request.urlPath === undefined ? {} : { url_path: request.urlPath };
+  const desired = request.operation === 'save' ? JSON.parse(request.config!) : undefined;
+  let failureCode: DashboardRequestError['code'] = 'DASHBOARD_REQUEST_FAILED';
+  let channel: WebSocketExchange;
+  return connectionWebSocketExchange(
+    input,
+    signal,
+    {
+      open() {},
+      message(body, currentChannel) {
+        channel = currentChannel;
+        const finish = (body?: string, code?: DashboardRequestError['code']) => {
+          if (code) {
+            failureCode = code;
+            channel.fail();
+          } else channel.finish(body!);
+        };
+        const abort = () => finish(undefined, 'DASHBOARD_REQUEST_FAILED');
+        const check = () => {
+          signal.throwIfAborted();
+          input.check();
+        };
+        const read = () =>
+          channel.send(
+            JSON.stringify({ id: ++commandId, type: 'lovelace/config', force: true, ...target }),
+          );
+        try {
+          check();
+          const message = JSON.parse(body);
+          if (!message || Array.isArray(message) || typeof message !== 'object') return abort();
+          if (stage === 'auth-required') {
+            if (message.type !== 'auth_required') return abort();
+            stage = 'auth-ok';
+            channel.send(JSON.stringify({ type: 'auth', access_token: input.token }), false);
+            return;
+          }
+          if (stage === 'auth-ok') {
+            if (message.type !== 'auth_ok') return abort();
+            if (request.operation === 'list') {
+              stage = 'list';
+              channel.send(JSON.stringify({ id: ++commandId, type: 'lovelace/dashboards/list' }));
+            } else {
+              stage = request.operation === 'save' ? 'baseline' : 'read';
+              read();
+            }
+            return;
+          }
+          if (message.type !== 'result' || message.id !== commandId || message.success !== true)
+            return abort();
+          if (stage === 'list') {
+            if (!Array.isArray(message.result)) return abort();
+            finish(JSON.stringify({ operation: 'list', dashboards: message.result }));
+          } else if (stage === 'read' || stage === 'baseline' || stage === 'verify') {
+            const config = message.result;
+            if (!config || Array.isArray(config) || typeof config !== 'object') return abort();
+            const configHash = dashboardConfigHash(config);
+            if (stage === 'read') {
+              finish(
+                JSON.stringify({
+                  operation: 'read',
+                  urlPath: request.urlPath ?? null,
+                  config,
+                  configHash,
+                }),
+              );
+            } else if (stage === 'baseline') {
+              const original = JSON.stringify(config);
+              if (
+                redactCredentialResponse(original, input.token, {
+                  Authorization: `Bearer ${input.token}`,
+                }) !== original
+              )
+                return finish(undefined, 'DASHBOARD_REDACTED');
+              if (configHash !== request.expectedConfigHash)
+                return finish(undefined, 'DASHBOARD_CHANGED');
+              check();
+              stage = 'save';
+              writeSent = true;
+              channel.send(
+                JSON.stringify({
+                  id: ++commandId,
+                  type: 'lovelace/config/save',
+                  config: desired,
+                  ...target,
+                }),
+              );
+            } else {
+              if (configHash !== dashboardConfigHash(desired)) return abort();
+              finish(
+                JSON.stringify({
+                  operation: 'save',
+                  urlPath: request.urlPath ?? null,
+                  configHash,
+                  verified: true,
+                }),
+              );
+            }
+          } else if (stage === 'save') {
+            check();
+            stage = 'verify';
             read();
           }
-          return;
+        } catch {
+          abort();
         }
-        if (message.type !== 'result' || message.id !== commandId || message.success !== true)
-          return abort();
-        if (stage === 'list') {
-          if (!Array.isArray(message.result)) return abort();
-          finish(JSON.stringify({ operation: 'list', dashboards: message.result }));
-        } else if (stage === 'read' || stage === 'baseline' || stage === 'verify') {
-          const config = message.result;
-          if (!config || Array.isArray(config) || typeof config !== 'object') return abort();
-          const configHash = dashboardConfigHash(config);
-          if (stage === 'read') {
-            finish(
-              JSON.stringify({
-                operation: 'read',
-                urlPath: request.urlPath ?? null,
-                config,
-                configHash,
-              }),
-            );
-          } else if (stage === 'baseline') {
-            const original = JSON.stringify(config);
-            if (
-              redactCredentialResponse(original, input.token, {
-                Authorization: `Bearer ${input.token}`,
-              }) !== original
-            )
-              return finish(undefined, 'DASHBOARD_REDACTED');
-            if (configHash !== request.expectedConfigHash)
-              return finish(undefined, 'DASHBOARD_CHANGED');
-            check();
-            stage = 'save';
-            writeSent = true;
-            socket.send(
-              JSON.stringify({
-                id: ++commandId,
-                type: 'lovelace/config/save',
-                config: desired,
-                ...target,
-              }),
-            );
-          } else {
-            if (configHash !== dashboardConfigHash(desired)) return abort();
-            finish(
-              JSON.stringify({
-                operation: 'save',
-                urlPath: request.urlPath ?? null,
-                configHash,
-                verified: true,
-              }),
-            );
-          }
-        } else if (stage === 'save') {
-          check();
-          stage = 'verify';
-          read();
-        }
-      } catch {
-        abort();
-      }
-    });
-    if (signal.aborted) abort();
+      },
+    },
+    createSocket,
+  ).catch(() => {
+    throw new DashboardRequestError(writeSent ? 'DASHBOARD_SAVE_UNCONFIRMED' : failureCode);
   });
 }

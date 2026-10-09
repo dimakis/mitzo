@@ -91,9 +91,11 @@ export class ConnectionWebSocketError extends Error {
     super('WebSocket request failed');
   }
 }
-export type ConnectionSocketOptions = WebSocket.ClientOptions & Pick<RequestOptions, 'lookup'>;
+export type ConnectionSocketOptions = WebSocket.ClientOptions &
+  Pick<RequestOptions, 'lookup'> & { protocols?: string[] };
 export type ConnectionSocketFactory = (url: URL, options: ConnectionSocketOptions) => WebSocket;
-const socketFactory: ConnectionSocketFactory = (url, options) => new WebSocket(url, options);
+const socketFactory: ConnectionSocketFactory = (url, options) =>
+  new WebSocket(url, options.protocols ?? [], options);
 export interface ConnectionWebSocketInput {
   url: URL;
   headers?: Record<string, string>;

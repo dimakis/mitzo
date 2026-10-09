@@ -1,3 +1,4 @@
+import { WebSocketConfigSchema } from './credential-websocket.js';
 import express from 'express';
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
@@ -73,6 +74,20 @@ export function createCredentialConnectionsRouter(service: CredentialConnections
           AbortSignal.timeout(30_000),
         ),
       );
+    } catch (error) {
+      return failure(res, error);
+    }
+  });
+  router.post('/:id/websocket', (req, res) => {
+    const body = revision
+      .extend({ websocket: WebSocketConfigSchema.nullable() })
+      .strict()
+      .safeParse(req.body);
+    if (!body.success) return res.status(400).json({ error: 'Invalid WebSocket setup request' });
+    try {
+      return res.json({
+        connection: service.updateWebSocket(req.params.id, body.data.revision, body.data.websocket),
+      });
     } catch (error) {
       return failure(res, error);
     }

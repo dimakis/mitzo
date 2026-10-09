@@ -1,3 +1,4 @@
+import { WebSocketRequestSchema, ConnectionWebSocketError } from './credential-websocket.js';
 import { randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
@@ -12,6 +13,7 @@ import {
   ConnectionRequestSchema,
   requestTarget,
   dashboardRequestTarget,
+  websocketRequestTarget,
 } from './credential-connections.js';
 
 const id = z.string().min(1).max(128);
@@ -19,6 +21,7 @@ export const credentialConnectionSchemas = {
   ListConnections: z.object({}).strict(),
   RequestConnectionAccess: z.object({ connectionId: id }).strict(),
   ConnectionRequest: ConnectionRequestSchema.extend({ connectionId: id }).strict(),
+  ConnectionWebSocket: WebSocketRequestSchema.extend({ connectionId: id }).strict(),
   HomeAssistantDashboard: DashboardRequestSchema.extend({ connectionId: id }).strict(),
 };
 const descriptions = {
@@ -26,6 +29,8 @@ const descriptions = {
     'Discover configured service connections, approved destinations, request permissions, and access for this session. Never returns credentials. Use this before searching workspace files for passwords or tokens. If the needed service is missing, direct the user to Connections.',
   RequestConnectionAccess:
     'Request explicit approval to use one connection in this session. Approval persists across reconnects of this session only. The credential remains in Apple Keychain.',
+  ConnectionWebSocket:
+    'Send one text message over a configured service WebSocket and receive its response. Supports connection-configured header or JSON authentication and subprotocols; Mitzo injects credentials privately. Never supply a token, URL, or authentication frame. Optional responseMatch selects a top-level JSON field for correlation. Generic messages may mutate the service and are blocked in Ask mode. Requests are bounded to 30 seconds and never reconnected or replayed; an unconfirmed command may have applied. Use HomeAssistantDashboard for dashboard edits with change checks.',
   HomeAssistantDashboard:
     'Read, list, or update Home Assistant dashboards through the approved Keychain WebSocket connection. Read returns config and configHash. A redacted read is non-editable and returns no hash; never save a redacted configuration. Save requires the complete config as a JSON string and expectedConfigHash from that read; Mitzo checks for changes and verifies the saved configuration. Omit urlPath for the default dashboard. Never sends arbitrary WebSocket commands or exposes tokens. YAML dashboards cannot be saved through this API. A failed or unconfirmed save must be read again before retrying.',
   ConnectionRequest:
@@ -69,7 +74,7 @@ export function createCredentialConnectionTools(
         forcePrompt: true,
         approvalScope: 'conversation',
         title: `Allow ${c.label} in this session?`,
-        description: `${c.endpoint} · ${c.methods.join(', ')} · ${c.paths.join(', ')} · HA dashboard WebSocket: ${c.homeAssistantDashboards ?? 'disabled'}. Access lasts for this session, including reconnects, until revoked. Other sessions require separate approval.`,
+        description: `${c.endpoint} · ${c.methods.join(', ')} · ${c.paths.join(', ')} · WebSocket messages: ${c.websocket ? `${c.websocket.path} (${c.websocket.authentication.kind} authentication; commands may write)` : 'disabled'} · HA dashboard WebSocket: ${c.homeAssistantDashboards ?? 'disabled'}. Access lasts for this session, including reconnects, until revoked. Other sessions require separate approval.`,
       },
     );
     signal.throwIfAborted();
@@ -95,13 +100,15 @@ export function createCredentialConnectionTools(
         if (
           !stillAllowed(
             name,
-            name === 'HomeAssistantDashboard'
-              ? input.operation === 'save'
-                ? 'POST'
-                : 'GET'
-              : typeof input.method === 'string'
-                ? input.method
-                : 'GET',
+            name === 'ConnectionWebSocket'
+              ? 'POST'
+              : name === 'HomeAssistantDashboard'
+                ? input.operation === 'save'
+                  ? 'POST'
+                  : 'GET'
+                : typeof input.method === 'string'
+                  ? input.method
+                  : 'GET',
           )
         )
           return {
@@ -140,6 +147,16 @@ export function createCredentialConnectionTools(
                   : { expectedConfigHash: input.expectedConfigHash }),
               })
             : undefined;
+        const websocket =
+          name === 'ConnectionWebSocket'
+            ? WebSocketRequestSchema.parse({
+                message: input.message,
+                ...(input.responseMatch === undefined
+                  ? {}
+                  : { responseMatch: input.responseMatch }),
+              })
+            : undefined;
+        if (websocket) websocketRequestTarget(service.connection(connectionId));
         if (dashboard)
           dashboardRequestTarget(service.connection(connectionId), dashboard.operation);
         if (request) {
@@ -164,17 +181,29 @@ export function createCredentialConnectionTools(
           if (pending.get(connectionId) === approval) pending.delete(connectionId);
         }
         signal.throwIfAborted();
-        const method = dashboard
-          ? dashboard.operation === 'save'
-            ? 'POST'
-            : 'GET'
-          : request?.method;
+        const method = websocket
+          ? 'POST'
+          : dashboard
+            ? dashboard.operation === 'save'
+              ? 'POST'
+              : 'GET'
+            : request?.method;
         if (!stillAllowed(name, method))
           return {
             content: 'Connection tool is unavailable under current session permissions',
             isError: true,
           };
-        if (access.isError || (!request && !dashboard)) return access;
+        if (access.isError || (!request && !dashboard && !websocket)) return access;
+        if (websocket) {
+          const content = await service.websocketRequest(
+            sessionId,
+            connectionId,
+            websocket,
+            signal,
+            () => stillAllowed(name, 'POST'),
+          );
+          return { content, isError: false };
+        }
         if (dashboard) {
           const content = await service.dashboardRequest(
             sessionId,
@@ -190,6 +219,13 @@ export function createCredentialConnectionTools(
         );
         return { content: JSON.stringify(response), isError: false };
       } catch (error) {
+        if (error instanceof ConnectionWebSocketError)
+          return {
+            content: error.mayHaveApplied
+              ? 'WebSocket command is unconfirmed and may have applied. Verify service state before retrying; do not automatically repeat it.'
+              : 'WebSocket request failed before sending the command. Check connection authentication and service availability.',
+            isError: true,
+          };
         if (error instanceof DashboardRequestError)
           return {
             content:

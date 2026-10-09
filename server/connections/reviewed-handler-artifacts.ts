@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.0';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.6';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.7';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.8';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,22 +22,23 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../credential-websocket.ts': '87a41d7c329dccb6616726feed14a5fb25c8aefe94556c767f42618b8d995810',
   // Keychain HTTP/WebSocket credential custody and exact-session approval handlers.
   '../home-assistant-dashboard.ts':
-    'aaee0cd70be342a0e28641758d5ff88efc60c73a55a49199ef431a65a6bdd51e',
+    '1053d482935af066472aedd48365af2b71cb7cf55e30ee88cc9fcf89b96e1d62',
   '../credential-connections.ts':
-    '683267cc520828b4e3492fbec40b93982fa344971a0e5ac2d72ea9661f2a8fff',
+    'dbd58f3eb7267034f47d6c021f81e6d52793560cf3c41dcd70edb88d0524cd4c',
   '../credential-connections-router.ts':
-    '3e4f8c0d4ee485e62bf35fde99e78596dd1999f5d6748df3d0588f37ea14ee00',
+    'b05c419d959bb8e5b8523e603ab090a15bbd25dc9d3295bf6b1ad139a9899e65',
   '../credential-connection-tools.ts':
-    'b2ab6e78a5ec17e9432aa220f6c4e2df622d8c2e8c9b852711565335726350f1',
+    '5834050754b87751a15a6198f5409249276d675e2d1cc2a08be2a646b8396a1c',
   '../credential-connections-runtime.ts':
     '89a1cdf4bd50c73a0aecfb966303fb37e0f524da9fb977478602c9c198a51b4d',
   '../credential-http.ts': 'fb584d92840e2ee34167fd354d7249cfb3144b321f0d3a0a4aad3015231fa22d',
   '../credential-redaction.ts': '817dda948c419deb064bc4c5298e034e5a0343972b4bf724fb6aaa869cf34403',
-  '../credential-sdk-tools.ts': '0855e3a96e79de5f293ad7c72a35a145a014a48578723cc88acea33db628a80c',
+  '../credential-sdk-tools.ts': 'e64cae00d86986bba78e672ad9ebf6c8c89316e2e64bb30c7d478f76fc1640c9',
   '../session-credential-tools.ts':
-    '1fd3b0564d53fa8ddb6875c100bdf0bad50f0532421cc1973d00c07116056402',
+    '70db62d9e3c16e66c2e238351a348b82fc6afc8f3b7baba37eeaabb98d27b9c8',
   'policy-compiler.ts': '13a12a3182568a151247cb204792f15c374af9e5a7f401d51b954c6dd40fd538',
   'registry.ts': 'cccbb1c67d559eda923c4d0beac5e0203918e3ab2970ab90a1937bb32a09d8a4',
   'iana-address-policy.ts': '899b0b5ad66f5cbe72224b34c29ff7a88e32c2a6f5b2987e4d18cfc64f862b4e',

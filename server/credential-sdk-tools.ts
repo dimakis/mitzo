@@ -38,7 +38,8 @@ export function credentialSdkPermission(
     ((short === 'ConnectionRequest' &&
       input.method !== undefined &&
       !['GET', 'HEAD'].includes(String(input.method))) ||
-      (short === 'HomeAssistantDashboard' && input.operation === 'save'))
+      (short === 'HomeAssistantDashboard' && input.operation === 'save') ||
+      short === 'ConnectionWebSocket')
   )
     return { behavior: 'deny' as const, message: 'Ask mode only permits connection reads' };
   return { behavior: 'allow' as const, updatedInput: input };

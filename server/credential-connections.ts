@@ -1,3 +1,12 @@
+import { isDeepStrictEqual } from 'node:util';
+import {
+  WebSocketConfigSchema,
+  WebSocketRequestSchema,
+  websocketRequest,
+  ConnectionWebSocketError,
+  MAX_WEBSOCKET_RESPONSE_BYTES,
+  type WebSocketSender,
+} from './credential-websocket.js';
 import { redactCredentialResponse } from './credential-redaction.js';
 import {
   DashboardAccessSchema,
@@ -84,6 +93,7 @@ export const ConnectionInputSchema = z
       .max(6),
     allowPrivateNetwork: z.boolean().default(false),
     homeAssistantDashboards: DashboardAccessSchema.default('disabled'),
+    websocket: WebSocketConfigSchema.nullable().optional(),
   })
   .strict();
 export type CredentialConnectionInput = z.infer<typeof ConnectionInputSchema>;
@@ -106,6 +116,7 @@ export const publicCredentialConnection = ({
 }: CredentialConnection): PublicCredentialConnection => ({
   ...connection,
   homeAssistantDashboards: connection.homeAssistantDashboards ?? 'disabled',
+  websocket: connection.websocket ?? null,
 });
 
 /** Metadata and exact-session grants only. No credential values or request bodies enter SQLite. */
@@ -239,6 +250,32 @@ export function dashboardRequestTarget(
   return url;
 }
 
+export function websocketRequestTarget(
+  c: Pick<CredentialConnectionInput, 'endpoint' | 'paths' | 'auth' | 'websocket'>,
+) {
+  if (!c.websocket) throw new Error('Enable WebSocket access in Connections');
+  const config = WebSocketConfigSchema.parse(c.websocket);
+  if (
+    config.authentication.kind === 'headers' &&
+    'headerName' in c.auth &&
+    /^(sec-websocket-|proxy-)|^(upgrade|connection)$/i.test(c.auth.headerName)
+  )
+    throw new Error('Reserved WebSocket authentication header');
+  const url = requestTarget(c, config.path);
+  url.protocol = 'wss:';
+  return url;
+}
+function credentialHeaders(
+  auth: CredentialConnectionInput['auth'],
+  secret: string,
+): Record<string, string> {
+  return auth.kind === 'basic'
+    ? { Authorization: `Basic ${Buffer.from(`${auth.username}:${secret}`).toString('base64')}` }
+    : auth.kind === 'bearer'
+      ? { Authorization: `Bearer ${secret}` }
+      : { [auth.headerName]: secret };
+}
+
 export class CredentialConnections {
   private dashboardWrites = new Set<string>();
   private active = new Map<string, Set<AbortController>>();
@@ -247,6 +284,7 @@ export class CredentialConnections {
     private vault: CredentialVault,
     private send: ConnectionSender,
     private sendDashboard: DashboardSender = sendDashboardRequest,
+    private sendWebSocket: WebSocketSender = websocketRequest,
   ) {}
   catalog(session?: string) {
     return this.store.list().map((c) => ({
@@ -269,6 +307,7 @@ export class CredentialConnections {
   async create(input: unknown, source: { secret: string } | { existing: VaultReference }) {
     const parsed = ConnectionInputSchema.parse(input);
     if (parsed.homeAssistantDashboards !== 'disabled') dashboardRequestTarget(parsed, 'read');
+    if (parsed.websocket) websocketRequestTarget(parsed);
     const id = randomUUID();
     const credentialRef =
       'secret' in source
@@ -360,6 +399,80 @@ export class CredentialConnections {
       );
     if (!shared) await this.vault.remove(ref).catch(() => {});
   }
+  updateWebSocket(id: string, revision: number, input: unknown) {
+    const c = this.connection(id, revision);
+    const websocket = WebSocketConfigSchema.nullable().parse(input);
+    if (websocket) websocketRequestTarget({ ...c, websocket });
+    if (isDeepStrictEqual(c.websocket ?? null, websocket)) return publicCredentialConnection(c);
+    const updated = { ...c, websocket, revision: revision + 1 };
+    if (!this.store.replaceAtRevision(updated, revision))
+      throw new Error('Connection changed; refresh and try again');
+    this.store.revokeAll(id);
+    this.cancel(id);
+    return publicCredentialConnection(updated);
+  }
+  async websocketRequest(
+    session: string,
+    id: string,
+    input: unknown,
+    signal: AbortSignal,
+    stillAllowed: () => boolean = () => true,
+  ) {
+    const c = this.connection(id);
+    const request = WebSocketRequestSchema.parse(input);
+    const url = websocketRequestTarget(c);
+    const controller = new AbortController();
+    const combined = AbortSignal.any([signal, controller.signal, AbortSignal.timeout(30_000)]);
+    const check = () => {
+      combined.throwIfAborted();
+      if (
+        !stillAllowed() ||
+        this.connection(id).revision !== c.revision ||
+        !this.store.hasGrant(session, c)
+      )
+        throw new Error('Session approval required');
+    };
+    check();
+    const key = `${session}:${id}`;
+    const controllers = this.active.get(key) ?? new Set();
+    controllers.add(controller);
+    this.active.set(key, controllers);
+    try {
+      const secret = await this.vault.read(c.credentialRef);
+      check();
+      if (!secret || /[\r\n]/.test(secret)) throw new Error('Credential unavailable');
+      const headers = credentialHeaders(c.auth, secret);
+      const body = await this.sendWebSocket(
+        {
+          url,
+          token: secret,
+          headers,
+          allowPrivateNetwork: c.allowPrivateNetwork,
+          config: c.websocket!,
+          request,
+          check,
+        },
+        combined,
+      );
+      check();
+      const redacted = redactCredentialResponse(body, secret, headers);
+      if (Buffer.byteLength(redacted) > MAX_WEBSOCKET_RESPONSE_BYTES)
+        throw new Error('Response too large');
+      return redacted;
+    } catch (error) {
+      if (
+        error instanceof ConnectionWebSocketError ||
+        (error instanceof Error && error.name === 'KeychainUnavailableError')
+      )
+        throw error;
+
+      throw new ConnectionWebSocketError(true);
+    } finally {
+      controllers.delete(controller);
+      if (!controllers.size) this.active.delete(key);
+    }
+  }
+
   updateDashboardAccess(id: string, revision: number, input: unknown) {
     const c = this.connection(id, revision);
     const homeAssistantDashboards = DashboardAccessSchema.parse(input);
@@ -494,14 +607,7 @@ export class CredentialConnections {
       combined.throwIfAborted();
       check();
       if (!secret || /[\r\n]/.test(secret)) throw new Error('Credential unavailable');
-      const headers: Record<string, string> =
-        c.auth.kind === 'basic'
-          ? {
-              Authorization: `Basic ${Buffer.from(`${c.auth.username}:${secret}`).toString('base64')}`,
-            }
-          : c.auth.kind === 'bearer'
-            ? { Authorization: `Bearer ${secret}` }
-            : { [c.auth.headerName]: secret };
+      const headers = credentialHeaders(c.auth, secret);
       const response = await this.send(
         {
           url,

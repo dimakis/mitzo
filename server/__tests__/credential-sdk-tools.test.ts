@@ -29,6 +29,7 @@ it('exposes the same discovery, session approval and request tools to SDK sessio
     'ListConnections',
     'RequestConnectionAccess',
     'ConnectionRequest',
+    'ConnectionWebSocket',
     'HomeAssistantDashboard',
   ]);
   const result = await mocked.tools[0].handler({});
@@ -181,4 +182,30 @@ it('blocks dashboard saves in Ask mode while allowing dashboard reads', () => {
     );
     expect(result?.behavior).toBe(operation === 'save' ? 'deny' : 'allow');
   }
+});
+
+it('treats generic WebSocket messages as writes even when the agent labels their contents as reads', () => {
+  const registry = new SessionRegistry();
+  registry.register('client', { mode: 'ask', abortController: new AbortController() } as never);
+  const session = registry.get('client')!;
+  const input = { connectionId: 'service', message: '{"operation":"read"}' };
+  expect(
+    credentialSdkPermission(
+      'mcp__mitzo-connections__ConnectionWebSocket',
+      input,
+      'client',
+      registry,
+      session,
+    )?.behavior,
+  ).toBe('deny');
+  session.mode = 'agent';
+  expect(
+    credentialSdkPermission(
+      'mcp__mitzo-connections__ConnectionWebSocket',
+      input,
+      'client',
+      registry,
+      session,
+    )?.behavior,
+  ).toBe('allow');
 });

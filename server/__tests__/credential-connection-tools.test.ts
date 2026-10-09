@@ -248,3 +248,47 @@ it('rejects dashboard writes in read-only session mode before prompting or sendi
   expect(approve).not.toHaveBeenCalled();
   expect(service.dashboardRequest).not.toHaveBeenCalled();
 });
+
+it('prompts for configured generic WebSocket scope and rejects model-selected destinations or authentication', async () => {
+  const f = setup();
+  const websocketRequest = vi.fn(async () => '{"ok":true}');
+  Object.assign(f.service, { websocketRequest });
+  f.service.connection.mockReturnValue({
+    ...f.service.connection(),
+    websocket: { path: '/api/socket', authentication: { kind: 'headers' } },
+  } as never);
+  const result = await f.tools.execute(
+    'ConnectionWebSocket',
+    { connectionId: 'ha', message: '{"op":"set"}' },
+    new AbortController().signal,
+  );
+  expect(result?.isError).toBe(false);
+  expect(f.approve.mock.calls[0][2]).toMatchObject({
+    description: expect.stringContaining(
+      '/api/socket (headers authentication; commands may write)',
+    ),
+  });
+  expect(websocketRequest).toHaveBeenCalledWith(
+    'session-a',
+    'ha',
+    { message: '{"op":"set"}' },
+    expect.any(AbortSignal),
+    expect.any(Function),
+  );
+  for (const extra of [
+    { url: 'wss://attacker.example/socket' },
+    { secret: 'bad' },
+    { sessionId: 'other' },
+    { readOnly: true },
+  ])
+    expect(
+      (
+        await f.tools.execute(
+          'ConnectionWebSocket',
+          { connectionId: 'ha', message: '{}', ...extra },
+          new AbortController().signal,
+        )
+      )?.isError,
+    ).toBe(true);
+  expect(websocketRequest).toHaveBeenCalledOnce();
+});
