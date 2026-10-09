@@ -5,6 +5,8 @@ export type {
   AgentLibraryCatalog,
 } from './agent-library.js';
 export { agentProfileLabel } from './agent-library.js';
+export { AgentProfileSelectionSchema, AgentLibraryVersionSchema } from './agent-library.js';
+export type { AgentProfileSelection } from './agent-library.js';
 
 // Types
 export type {

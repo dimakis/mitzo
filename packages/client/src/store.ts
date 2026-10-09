@@ -52,6 +52,7 @@ import { messageIdentity } from './message-identity.js';
 // ─── Store state ─────────────────────────────────────────────────────────────
 
 export interface SendMessageOptions {
+  agentProfile?: import('@mitzo/protocol').AgentProfileSelection;
   /** Local assignment observer; never included in the wire payload. */
   onSessionAssigned?: (sessionId: string) => void;
   /** Local delivery observer; never included in the wire payload. */
@@ -731,6 +732,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         if (opts?.isolation !== undefined) msg.isolation = opts.isolation;
         if (opts?.telosTaskId !== undefined) msg.telosTaskId = opts.telosTaskId;
         if (opts?.agentName !== undefined) msg.agentName = opts.agentName;
+        if (opts?.agentProfile && !parserState.currentSessionId)
+          msg.agentProfile = opts.agentProfile;
         return msg;
       };
 

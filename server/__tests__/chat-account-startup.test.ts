@@ -23,6 +23,65 @@ afterEach(() => {
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
 });
+
+it('injects and persists the selected Library profile before an offline SDK dispatch', async () => {
+  vi.resetModules();
+  const root = await mkdtemp(join(tmpdir(), 'mitzo-library-startup-'));
+  vi.stubEnv('REPO_PATH', root);
+  vi.stubEnv('WORKTREE_ENABLED', 'false');
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => new Response(JSON.stringify({ boot: {} }))),
+  );
+  const { createHash } = await import('node:crypto');
+  const definition = {
+    name: 'Bob',
+    descriptor: 'The architect',
+    role: 'agent',
+    instructions: 'Challenge architecture assumptions.',
+    expectedOutput: 'Decision brief',
+    acceptanceCriteria: ['Use evidence'],
+    modelPolicyRole: 'agent',
+  };
+  const snapshot = {
+    profileId: 'bob',
+    revision: 3,
+    definition,
+    contentHash: createHash('sha256').update(JSON.stringify(definition)).digest('hex'),
+  };
+  const transport = await import('../agent-library-transport.js');
+  const read = vi.spyOn(transport, 'readAgentLibraryProfile').mockResolvedValue(snapshot);
+  const chat = await import('../chat.js');
+  const { query } = await import('@anthropic-ai/claude-agent-sdk');
+  let dispatched = false;
+  vi.mocked(query).mockImplementation((args) => {
+    expect(args.options?.systemPrompt).toMatchObject({
+      append: expect.stringContaining('Bob · The architect'),
+    });
+    expect(args.options?.systemPrompt).toMatchObject({
+      append: expect.stringContaining('Challenge architecture assumptions.'),
+    });
+    expect(chat.eventStore.getSession(args.options!.sessionId!)?.agentProfile).toEqual(snapshot);
+    dispatched = true;
+    throw Error('Offline SDK dispatch intercepted');
+  });
+  try {
+    await chat.startChat({ send: () => {}, isOpen: () => true }, 'library-startup', 'hello', {
+      cwd: root,
+      isolation: false,
+      model: 'luna',
+      agentProfile: { profileId: 'bob', revision: 3 },
+      operatorConnectionId: 'verified-transport',
+    });
+    expect(dispatched).toBe(true);
+    expect(read).toHaveBeenCalledWith({ profileId: 'bob', revision: 3 }, 'verified-transport');
+  } finally {
+    read.mockRestore();
+    chat.eventStore.close();
+    chat.registry.dispose();
+    await rm(root, { recursive: true, force: true });
+  }
+});
 it('links a startup error to safe logged diagnostics and the saved session', async () => {
   vi.resetModules();
   const root = await mkdtemp(join(tmpdir(), 'mitzo-startup-error-reference-'));
