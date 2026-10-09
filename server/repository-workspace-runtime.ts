@@ -90,7 +90,12 @@ export function getRepositoryWorkspaces(readOnly = false) {
           .length !== 1
       )
         throw new Error('GitHub connection changed');
-      return { revision: connection.revision };
+      return {
+        revision: connection.revision,
+        allowedBaseBranches: Array.isArray(current.publicConfig.allowedBaseBranches)
+          ? current.publicConfig.allowedBaseBranches
+          : [],
+      };
     },
   });
   return service;

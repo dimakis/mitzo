@@ -7,6 +7,7 @@ const api = vi.hoisted(() => ({ fetch: vi.fn() }));
 vi.mock('../../lib/api-fetch', () => ({ apiFetch: api.fetch }));
 afterEach(() => {
   cleanup();
+  vi.restoreAllMocks();
   api.fetch.mockReset();
   sessionStorage.clear();
 });
@@ -224,3 +225,48 @@ it('restores a settled claim after startup fails before assignment, and offers i
   );
   expect(onChange).toHaveBeenLastCalledWith({ repositoryWorkspaceId: preview.id, blocked: false });
 });
+
+it.each([false, true])(
+  'preserves the original source after a lost prepare response (storage unavailable: %s)',
+  async (storageUnavailable) => {
+    const requests: Array<{ url: string; method?: string }> = [];
+    api.fetch.mockImplementation(async (url: string, options?: RequestInit) => {
+      requests.push({ url, method: options?.method });
+      if (url.includes('/catalog'))
+        return new Response(
+          JSON.stringify({
+            available: true,
+            repositories: [{ connectionId: 'github', label: 'GitHub', repository: 'example/repo' }],
+          }),
+        );
+      if (url.endsWith('/preview')) return new Response(JSON.stringify(preview));
+      if (url.endsWith('/prepare')) throw new Error('response lost after server prepared source');
+      if (options?.method === 'DELETE') return new Response(JSON.stringify({ discarded: true }));
+      throw new Error('unexpected request');
+    });
+    if (storageUnavailable)
+      vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+        throw new Error('storage unavailable');
+      });
+    const onChange = vi.fn();
+    render(<RepositoryChatPicker accountId="account" model="model" onChange={onChange} />);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole('button', { name: 'Add repository' }));
+    await user.selectOptions(screen.getByLabelText('GitHub repository'), 'github:example/repo');
+    await user.click(screen.getByRole('button', { name: 'Preview repository' }));
+    await user.click(await screen.findByRole('button', { name: 'Prepare repository' }));
+    await screen.findByRole('alert');
+    expect(
+      (screen.getByRole('button', { name: 'Preview repository' }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+    await user.click(screen.getByRole('button', { name: 'Preview repository' }));
+    expect(requests.filter((request) => request.url.endsWith('/preview'))).toHaveLength(1);
+    await user.click(screen.getByRole('button', { name: 'Continue without repository' }));
+    await vi.waitFor(() => expect(onChange).toHaveBeenLastCalledWith(null));
+    expect(requests.at(-1)).toEqual({
+      url: `/api/repository-workspaces/${preview.id}?accountId=account&model=model`,
+      method: 'DELETE',
+    });
+    expect(sessionStorage.getItem('mitzo-repository-draft:account:model')).toBeNull();
+  },
+);

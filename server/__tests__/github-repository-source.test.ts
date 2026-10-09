@@ -185,7 +185,7 @@ async function claimedFixture() {
     profileRevision: 'v1',
   } as AccountBinding;
   const service = new RepositoryWorkspaces(join(f.root, 'private'), {
-    authorize: async () => ({ revision: 1 }),
+    authorize: async () => ({ revision: 1, allowedBaseBranches: ['main'] }),
     inspect: (repository, signal) => inspectGithubRepositorySource(repository, signal, f.run),
     prepare: (preview, directory, branch, signal) =>
       prepareGithubRepositorySource(preview, directory, branch, signal, f.run),

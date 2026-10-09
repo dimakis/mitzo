@@ -93,7 +93,7 @@ interface Dependencies {
     connectionId: string,
     repository: string,
     signal: AbortSignal,
-  ): Promise<{ revision: number }>;
+  ): Promise<{ revision: number; allowedBaseBranches: readonly string[] }>;
   inspect?: typeof inspectGithubRepositorySource;
   prepare?: typeof prepareGithubRepositorySource;
   verify?: (record: RepositoryWorkspace, directory: string) => Promise<void>;
@@ -225,6 +225,8 @@ export class RepositoryWorkspaces {
     );
     if (current.revision !== record.connectionRevision)
       throw new Error('GitHub connection changed; preview the repository again');
+    if (!current.allowedBaseBranches.includes(record.baseBranch))
+      throw new Error('Base branch is not allowed by the selected GitHub connection');
     signal.throwIfAborted();
   }
   async preview(

@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.9';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.16';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.17';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -87,13 +87,13 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../repository-task-checkout.ts':
     '32fd232781b0ba9573fa0e6a511a78ede54a8c33a80dee30f52d06283b4beab5',
   '../native-tool-executor.ts': '6bca4beb98690334e83a0a88b35c80558ed01b7485f682aca0cc0af11b6cd766',
-  '../repository-workspaces.ts': '06c83c4ae0fbec1008bf9eb69a6eafcef9c08f6dd0bd29e1d09d78f036799274',
+  '../repository-workspaces.ts': '964fcacc49cfda3175a3cf54550df1ed7010e47bab71001cf42896a6d2e03974',
   '../../packages/protocol/src/event-store.ts':
     '523d22223051a09ff250d4cbfbfabb98a7ba6de309c6952a119864ca7ecb0cdb',
   '../../packages/protocol/src/types.ts':
     'bdd789a67bbef05768a11bf471f3fb1a4ccf6af281e85d6fc4ac9a24d49963e1',
   '../repository-workspace-runtime.ts':
-    '15784402a9d15e6993f6422edfaf81a45acfe743ee46e4502bc9224f61b0cfe5',
+    '13db6d8d468d3e5ff4a9c8feaa06e5abbbb040196e8cf5b94b145297a5393a99',
   '../repository-workspace-router.ts':
     '13b8fab1dd0f5b83abfbb06946533cfb5273d28e4a71aacd24f7076be4858905',
   '../trusted-native-operation.ts':

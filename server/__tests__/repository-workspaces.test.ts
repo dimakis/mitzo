@@ -30,7 +30,7 @@ afterEach(async () => {
 async function fixture() {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'mitzo-repository-workspaces-')));
   roots.push(root);
-  const authorize = vi.fn(async () => ({ revision: 1 }));
+  const authorize = vi.fn(async () => ({ revision: 1, allowedBaseBranches: ['main'] }));
   const git = (directory: string, ...args: string[]) =>
     execFileSync(
       'git',
@@ -112,7 +112,7 @@ it('refuses revoked or changed connection revisions before cloning or granting a
     'example/repo',
     new AbortController().signal,
   );
-  f.authorize.mockResolvedValue({ revision: 2 });
+  f.authorize.mockResolvedValue({ revision: 2, allowedBaseBranches: ['main'] });
   await expect(
     f.service.prepare(preview.id, binding, new AbortController().signal),
   ).rejects.toThrow();
@@ -149,7 +149,7 @@ it('serializes duplicate preparation and rechecks authorization after asynchrono
   const first = f.service.prepare(preview.id, binding, signal);
   await vi.waitFor(() => expect(f.prepare).toHaveBeenCalledOnce());
   await expect(f.service.prepare(preview.id, binding, signal)).rejects.toThrow();
-  f.authorize.mockResolvedValue({ revision: 2 });
+  f.authorize.mockResolvedValue({ revision: 2, allowedBaseBranches: ['main'] });
   release();
   await expect(first).rejects.toThrow();
   await expect(
@@ -221,7 +221,7 @@ it('rejects a connection change during verification before reserving a claim', a
   const preview = await f.service.preview(binding, 'connection', 'example/repo', signal);
   await f.service.prepare(preview.id, binding, signal);
   f.verify.mockImplementation(async () => {
-    f.authorize.mockResolvedValue({ revision: 2 });
+    f.authorize.mockResolvedValue({ revision: 2, allowedBaseBranches: ['main'] });
   });
   await expect(
     f.service.claim(preview.id, binding, 'conversation', f.taskRoot, true),
@@ -242,7 +242,7 @@ it('rechecks access after the host copy and preserves an interrupted claim', asy
       () => true,
       () => false,
     );
-    return { revision: present ? 2 : 1 };
+    return { revision: present ? 2 : 1, allowedBaseBranches: ['main'] };
   });
   await expect(
     f.service.claim(preview.id, binding, 'conversation', f.taskRoot, false),
@@ -319,7 +319,7 @@ it('rechecks access when retrying a settled host claim after asynchronous owners
   const validate = f.service.validateHostTask.bind(f.service);
   vi.spyOn(f.service, 'validateHostTask').mockImplementation(async (...args) => {
     const task = await validate(...args);
-    f.authorize.mockResolvedValue({ revision: 2 });
+    f.authorize.mockResolvedValue({ revision: 2, allowedBaseBranches: ['main'] });
     return task;
   });
   await expect(
@@ -352,4 +352,30 @@ it('preserves a settled legacy repository claim when execute cleanup scans its s
   expect(await f.service.validateHostTask('conversation', claimed.directory!)).toBeTruthy();
   expect(await readFile(join(claimed.directory!, 'file.txt'), 'utf8')).toBe('source');
   f.service.close();
+});
+
+it('rejects a preview whose default branch cannot be published, before acquiring source or consuming quota', async () => {
+  const f = await fixture();
+  f.authorize.mockResolvedValue({ revision: 1, allowedBaseBranches: ['release'] });
+  try {
+    await expect(
+      f.service.preview(binding, 'connection', 'example/repo', new AbortController().signal),
+    ).rejects.toThrow('Base branch is not allowed');
+    expect(f.prepare).not.toHaveBeenCalled();
+    f.authorize.mockResolvedValue({ revision: 1, allowedBaseBranches: ['main'] });
+    const preview = await f.service.preview(
+      binding,
+      'connection',
+      'example/repo',
+      new AbortController().signal,
+    );
+    f.authorize.mockResolvedValue({ revision: 1, allowedBaseBranches: [] });
+    await expect(
+      f.service.prepare(preview.id, binding, new AbortController().signal),
+    ).rejects.toThrow('Base branch is not allowed');
+    expect(f.service.status(preview.id, binding).state).toBe('preview');
+    expect(f.prepare).not.toHaveBeenCalled();
+  } finally {
+    f.service.close();
+  }
 });

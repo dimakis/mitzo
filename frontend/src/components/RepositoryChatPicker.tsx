@@ -43,6 +43,9 @@ export function RepositoryChatPicker({
   const [selected, setSelected] = useState('');
   const [url, setUrl] = useState('');
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
+  const [pendingPreparationId, setPendingPreparationId] = useState(() =>
+    savedRepositoryDraft(accountId, model),
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const callback = useRef(onChange);
@@ -54,6 +57,7 @@ export function RepositoryChatPicker({
     const controller = new AbortController();
     restoration.current = controller;
     const saved = savedRepositoryDraft(accountId, model);
+    setPendingPreparationId(saved);
     callback.current(saved ? { blocked: true } : null);
     if (saved) setOpened(true);
     const query = new URLSearchParams({ accountId, model });
@@ -98,7 +102,8 @@ export function RepositoryChatPicker({
   }, [accountId, model, storageKey]);
   const repositories = catalog?.available ? catalog.repositories : [];
   const savedId = savedRepositoryDraft(accountId, model);
-  const unresolvedSaved = !!savedId && workspace?.id !== savedId;
+  const pendingId = pendingPreparationId ?? savedId;
+  const unresolvedSaved = !!pendingId && workspace?.id !== pendingId;
   const selection =
     selected === 'url'
       ? repositories.find((entry) => {
@@ -110,7 +115,7 @@ export function RepositoryChatPicker({
         })
       : repositories.find((entry) => `${entry.connectionId}:${entry.repository}` === selected);
   async function requestWorkspace(action: 'preview' | 'prepare') {
-    if (!selection || busy || unresolvedSaved) return;
+    if (!selection || busy || unresolvedSaved || (action === 'preview' && pendingId)) return;
     const controller = new AbortController();
     operation.current = controller;
     setBusy(true);
@@ -118,6 +123,7 @@ export function RepositoryChatPicker({
     callback.current({ blocked: true });
     try {
       if (action === 'prepare' && workspace) {
+        setPendingPreparationId(workspace.id);
         try {
           sessionStorage.setItem(storageKey, workspace.id);
         } catch {
@@ -175,7 +181,7 @@ export function RepositoryChatPicker({
   const cancel = async () => {
     if (busy) return;
     restoration.current?.abort();
-    const id = workspace?.id ?? savedRepositoryDraft(accountId, model);
+    const id = pendingId ?? workspace?.id;
     setBusy(true);
     callback.current({ blocked: true });
     try {
@@ -195,6 +201,7 @@ export function RepositoryChatPicker({
       } catch {
         /* Storage is optional. */
       }
+      setPendingPreparationId(null);
       setOpened(false);
       setWorkspace(null);
       setSelected('');
@@ -278,7 +285,7 @@ export function RepositoryChatPicker({
               )}
               <button
                 type="button"
-                disabled={busy || !selection || unresolvedSaved}
+                disabled={busy || !selection || unresolvedSaved || !!pendingId}
                 onClick={() => void requestWorkspace('preview')}
               >
                 Preview repository
