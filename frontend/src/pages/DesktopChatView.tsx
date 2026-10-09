@@ -99,7 +99,8 @@ export function DesktopChatView() {
   const repositorySelection =
     repositoryChoice?.scope === repositoryScope
       ? repositoryChoice.selection
-      : accountSelection && savedRepositoryDraft(accountSelection.accountId, accountSelection.model)
+      : accountSelection?.accountId &&
+          savedRepositoryDraft(accountSelection.accountId, accountSelection.model)
         ? { blocked: true }
         : null;
 
