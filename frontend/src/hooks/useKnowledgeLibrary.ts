@@ -382,14 +382,26 @@ export function useKnowledgeLibrary() {
       (!catalog?.documents.some((d) => d.path === to) || to === source || to === from)
     );
   }
+  function directoryOccupied(path: string) {
+    const inside = (candidate: string) => candidate === path || candidate.startsWith(path + '/');
+    return (
+      !!catalog?.directories?.some(inside) ||
+      !!current.current?.directories.some(inside) ||
+      !!catalog?.documents.some((document) => inside(document.path)) ||
+      !!current.current?.documents.some((document) => inside(document.path))
+    );
+  }
+  function canCreateInDirectory(parent: string) {
+    return (
+      validPath(parent) &&
+      !!directoryScope(parent + '/document.md') &&
+      !catalog?.documents.some((document) => document.path === parent) &&
+      !current.current?.documents.some((document) => document.path === parent)
+    );
+  }
   function canCreateDirectory(path: string) {
     const scope = directoryScope(path + '/document.md');
-    return (
-      validPath(path) &&
-      !!scope &&
-      path !== scope &&
-      !catalog?.documents.some((document) => document.path === path)
-    );
+    return validPath(path) && !!scope && path !== scope && !directoryOccupied(path);
   }
   function moveDocument(from: string, to: string) {
     const old = current.current;
@@ -419,12 +431,15 @@ export function useKnowledgeLibrary() {
   }
   function createDirectory(path: string) {
     if (!catalog || inFlight.current) return false;
+    if (directoryOccupied(path)) {
+      setError('This folder or path already exists. Choose a new folder name.');
+      return false;
+    }
     if (!canCreateDirectory(path)) {
       setError('Choose a folder inside an existing knowledge scope.');
       return false;
     }
     const old = current.current;
-    if (catalog.directories?.includes(path) || old?.directories.includes(path)) return true;
     persist(
       old
         ? { ...old, directories: [...old.directories, path] }
@@ -948,6 +963,7 @@ export function useKnowledgeLibrary() {
     moveDocument,
     canMoveDocument,
     canCreateDirectory,
+    canCreateInDirectory,
     createDirectory,
     removeDirectory,
     removePendingDirectory: removeDirectory,

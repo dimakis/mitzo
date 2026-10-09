@@ -623,3 +623,17 @@
 .knowledge-pending-folder button {
   flex-shrink: 0;
 }
+.knowledge-library .knowledge-tree-toggle {
+  min-height: 44px;
+  width: 28px;
+  padding: 0 !important;
+  margin-left: calc(var(--tree-depth, 0) * 18px);
+  display: grid;
+  place-items: center;
+  border: 0 !important;
+  background: transparent !important;
+  flex-shrink: 0;
+}
+.knowledge-library .knowledge-tree-entry--choice {
+  padding-left: 6px !important;
+}

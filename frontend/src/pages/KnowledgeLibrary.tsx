@@ -14,7 +14,9 @@ export function KnowledgeLibrary() {
   const [area, setArea] = useState('All knowledge');
   const [reading, setReading] = useState(true);
   const [details, setDetails] = useState(false);
-  const [adding, setAdding] = useState(!!copy && copy.documents.length === 0);
+  const [adding, setAdding] = useState(
+    !!copy && copy.documents.length === 0 && !copy.directories?.length,
+  );
   const [reader, setReader] = useState<{ document: KnowledgeDocument; content: string }>();
   const readRequest = useRef(0);
   const [readerFailure, setReaderFailure] = useState<{
@@ -746,6 +748,7 @@ export function KnowledgeLibrary() {
           source={dialog === 'move' ? menu?.path : undefined}
           busy={busy}
           error={library.error}
+          canChooseParent={library.canCreateInDirectory}
           canChoose={(path) =>
             dialog === 'folder'
               ? library.canCreateDirectory(path)
@@ -757,6 +760,7 @@ export function KnowledgeLibrary() {
                 ? library.createDirectory(path)
                 : library.moveDocument(menu!.path, path);
             if (applied) {
+              setAdding(false);
               ++readRequest.current;
               setReaderFailure(undefined);
               setReader(undefined);

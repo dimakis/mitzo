@@ -798,3 +798,53 @@ it('requires saving excluded documents before last-folder cancellation can close
   expect(fetch.mock.calls.at(-1)?.[0]).toBe('/api/knowledge/drafts/document-and-folder/cancel');
   expect(JSON.parse(fetch.mock.calls.at(-1)![1].body)).toEqual({ version: 4 });
 });
+it('rejects an occupied accepted directory rather than reporting an unstaged creation', async () => {
+  fetch.mockImplementation(async () => ({
+    ok: true,
+    json: async () => ({ ...catalog, directories: ['knowledge', 'knowledge/existing'] }),
+  }));
+  const { result } = renderHook(useKnowledgeLibrary);
+  await waitFor(() => expect(result.current.catalog).toBeTruthy());
+  fetch.mockClear();
+  expect(result.current.canCreateDirectory('knowledge/existing')).toBe(false);
+  act(() => {
+    expect(result.current.createDirectory('knowledge/existing')).toBe(false);
+  });
+  expect(result.current.error).toContain('already exists');
+  expect(result.current.copy).toBeNull();
+  expect(localStorage.getItem(key)).toBeNull();
+  expect(result.current.canSave).toBe(false);
+  expect(fetch).not.toHaveBeenCalled();
+});
+it('rejects duplicate pending folders while preserving the existing operation', async () => {
+  const { result } = renderHook(useKnowledgeLibrary);
+  await waitFor(() => expect(result.current.catalog).toBeTruthy());
+  act(() => {
+    expect(result.current.createDirectory('knowledge/new')).toBe(true);
+  });
+  const before = localStorage.getItem(key);
+  expect(result.current.canCreateDirectory('knowledge/new')).toBe(false);
+  act(() => {
+    expect(result.current.createDirectory('knowledge/new')).toBe(false);
+  });
+  expect(result.current.error).toContain('already exists');
+  expect(result.current.pendingDirectories).toEqual(['knowledge/new']);
+  expect(localStorage.getItem(key)).toBe(before);
+});
+it('allows a valid folder parent even when its new-folder child is occupied, without accepting outside scopes or files', async () => {
+  fetch.mockImplementation(async () => ({
+    ok: true,
+    json: async () => ({
+      ...catalog,
+      documentPaths: ['knowledge/enrolled'],
+      directories: ['knowledge', 'knowledge/enrolled', 'knowledge/enrolled/new-folder'],
+      documents: [{ path: 'knowledge/enrolled/a.md', title: 'A', area: 'knowledge' }],
+    }),
+  }));
+  const { result } = renderHook(useKnowledgeLibrary);
+  await waitFor(() => expect(result.current.catalog).toBeTruthy());
+  expect(result.current.canCreateInDirectory('knowledge/enrolled')).toBe(true);
+  expect(result.current.canCreateDirectory('knowledge/enrolled/new-folder')).toBe(false);
+  expect(result.current.canCreateInDirectory('knowledge')).toBe(false);
+  expect(result.current.canCreateInDirectory('knowledge/enrolled/a.md')).toBe(false);
+});

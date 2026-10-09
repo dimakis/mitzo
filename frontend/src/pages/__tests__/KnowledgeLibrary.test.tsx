@@ -1582,3 +1582,86 @@ it('ignores an older linked read after explicitly switching the current reader t
   expect(screen.getByRole('textbox', { name: 'Document source' })).toBeTruthy();
   expect(screen.queryByRole('article', { name: 'Release process' })).toBeNull();
 });
+
+it('reads accepted documents after returning from a recovered folder-only working copy', async () => {
+  const recovered = {
+    title: 'Organize knowledge',
+    baseRevision: 'r1',
+    documents: [],
+    directories: ['hub/new-guides'],
+    selected: '',
+    saved: '[]',
+    savedDirectories: [],
+  };
+  localStorage.setItem('mitzo-knowledge-working-copy:', JSON.stringify(recovered));
+  const original = vi.mocked(apiFetch).getMockImplementation()!;
+  vi.mocked(apiFetch).mockImplementation(async (path, init) =>
+    path === '/api/knowledge'
+      ? response({ ...catalog, directories: ['hub'] })
+      : original(path, init),
+  );
+  setup();
+  await screen.findByText('New folder: hub/new-guides');
+  fireEvent.click(screen.getByRole('button', { name: '← Library' }));
+  const before = localStorage.getItem('mitzo-knowledge-working-copy:');
+  fireEvent.click(await findLibraryDocument(/Working principles/));
+  await screen.findByRole('article', { name: 'Working principles' });
+  expect(screen.queryByRole('textbox', { name: 'Document source' })).toBeNull();
+  expect(localStorage.getItem('mitzo-knowledge-working-copy:')).toBe(before);
+  expect(JSON.parse(before!).documents).toEqual([]);
+});
+it('keeps New folder open and preserves the working copy when the name is already occupied', async () => {
+  const original = vi.mocked(apiFetch).getMockImplementation()!;
+  vi.mocked(apiFetch).mockImplementation(async (path, init) =>
+    path === '/api/knowledge'
+      ? response({ ...catalog, directories: ['hub', 'hub/guides'] })
+      : original(path, init),
+  );
+  setup();
+  fireEvent.click(await screen.findByRole('button', { name: 'Folder hub' }));
+  fireEvent.click(screen.getByRole('button', { name: 'New folder' }));
+  const before = localStorage.getItem('mitzo-knowledge-working-copy:');
+  fireEvent.change(screen.getByRole('textbox', { name: 'Folder name' }), {
+    target: { value: 'guides' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Create folder' }));
+  expect(screen.getByRole('dialog', { name: 'New folder' })).toBeTruthy();
+  expect(
+    (screen.getByRole('button', { name: 'Create folder' }) as HTMLButtonElement).disabled,
+  ).toBe(true);
+  expect(localStorage.getItem('mitzo-knowledge-working-copy:')).toBe(before);
+});
+
+it('clears empty-copy add intent when a folder becomes the pending change', async () => {
+  localStorage.setItem(
+    'mitzo-knowledge-working-copy:',
+    JSON.stringify({
+      title: 'New change',
+      baseRevision: 'r1',
+      documents: [],
+      directories: [],
+      selected: '',
+      saved: '[]',
+      savedDirectories: [],
+    }),
+  );
+  const original = vi.mocked(apiFetch).getMockImplementation()!;
+  vi.mocked(apiFetch).mockImplementation(async (path, init) =>
+    path === '/api/knowledge'
+      ? response({ ...catalog, directories: ['hub'] })
+      : original(path, init),
+  );
+  setup();
+  fireEvent.click(await screen.findByRole('button', { name: 'Folder hub' }));
+  fireEvent.click(screen.getByRole('button', { name: 'New folder' }));
+  fireEvent.change(screen.getByRole('textbox', { name: 'Folder name' }), {
+    target: { value: 'guides' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Create folder' }));
+  await screen.findByText('New folder: hub/guides');
+  const before = localStorage.getItem('mitzo-knowledge-working-copy:');
+  fireEvent.click(await findLibraryDocument(/Working principles/));
+  await screen.findByRole('article', { name: 'Working principles' });
+  expect(screen.queryByRole('textbox', { name: 'Document source' })).toBeNull();
+  expect(localStorage.getItem('mitzo-knowledge-working-copy:')).toBe(before);
+});

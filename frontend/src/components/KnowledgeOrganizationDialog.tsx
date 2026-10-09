@@ -8,6 +8,7 @@ export function KnowledgeOrganizationDialog({
   busy,
   error,
   canChoose,
+  canChooseParent,
   onSubmit,
   onClose,
 }: {
@@ -18,6 +19,7 @@ export function KnowledgeOrganizationDialog({
   busy: boolean;
   error?: string;
   canChoose(path: string): boolean;
+  canChooseParent?(path: string): boolean;
   onSubmit(path: string): boolean;
   onClose(): void;
 }) {
@@ -29,6 +31,7 @@ export function KnowledgeOrganizationDialog({
   const destination = parent ? `${parent}/${leaf}` : '';
   const valid =
     !!parent &&
+    (mode !== 'folder' || (canChooseParent?.(parent) ?? true)) &&
     !!leaf &&
     !leaf.includes('/') &&
     !leaf.includes('\\') &&
@@ -36,9 +39,9 @@ export function KnowledgeOrganizationDialog({
     leaf !== '..' &&
     canChoose(destination) &&
     destination !== source;
-  const choices = directories.filter((directory) =>
-    canChoose(`${directory}/${mode === 'move' ? leaf : 'new-folder'}`),
-  );
+  const eligibleParent = (directory: string) =>
+    mode === 'folder' ? (canChooseParent?.(directory) ?? true) : canChoose(`${directory}/${leaf}`);
+  const choices = directories.filter(eligibleParent);
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
     ref.current?.focus();
@@ -87,6 +90,7 @@ export function KnowledgeOrganizationDialog({
           documents={[]}
           directories={choices}
           folderChoices
+          canSelectFolder={eligibleParent}
           selectedFolder={parent}
           busy={busy}
           onFolder={setParent}

@@ -35,6 +35,7 @@ interface Props {
   onOpen?(document: KnowledgeDocument): void;
   onMore?(document: KnowledgeDocument): void;
   folderChoices?: boolean;
+  canSelectFolder?(path: string): boolean;
 }
 interface Node {
   path: string;
@@ -89,26 +90,46 @@ export function KnowledgeTree(props: Props) {
               (props.selectedFolder === folder.path ||
                 props.selectedFolder.startsWith(folder.path + '/'));
             const expanded = !!query || (expansion[folder.path] ?? onSelectedBranch);
+            const selectable =
+              !props.folderChoices || (props.canSelectFolder?.(folder.path) ?? true);
             return (
               <div key={folder.path}>
                 <div
                   className={`knowledge-tree-row${props.selectedFolder === folder.path ? ' knowledge-tree-row--current' : ''}`}
                   style={{ '--tree-depth': depth } as CSSProperties}
                 >
+                  {props.folderChoices && (
+                    <button
+                      className="knowledge-tree-toggle"
+                      aria-label={`${expanded ? 'Collapse' : 'Expand'} folder ${folder.path}`}
+                      aria-expanded={expanded}
+                      disabled={props.busy}
+                      onClick={() =>
+                        setExpansion((previous) => ({ ...previous, [folder.path]: !expanded }))
+                      }
+                    >
+                      {expanded ? <TreeIcon kind="down" /> : <TreeIcon kind="right" />}
+                    </button>
+                  )}
                   <button
-                    className="knowledge-tree-entry"
+                    className={`knowledge-tree-entry${props.folderChoices ? ' knowledge-tree-entry--choice' : ''}`}
                     aria-label={`Folder ${folder.path}`}
-                    aria-expanded={expanded}
+                    aria-expanded={props.folderChoices ? undefined : expanded}
                     aria-pressed={
                       props.folderChoices ? props.selectedFolder === folder.path : undefined
                     }
-                    disabled={props.busy}
+                    disabled={props.busy || !selectable}
+                    aria-disabled={!selectable || undefined}
                     onClick={() => {
                       props.onFolder(folder.path);
-                      setExpansion((previous) => ({ ...previous, [folder.path]: !expanded }));
+                      setExpansion((previous) => ({
+                        ...previous,
+                        [folder.path]: props.folderChoices ? true : !expanded,
+                      }));
                     }}
                   >
-                    {expanded ? <TreeIcon kind="down" /> : <TreeIcon kind="right" />}
+                    {!props.folderChoices &&
+                      (expanded ? <TreeIcon kind="down" /> : <TreeIcon kind="right" />)}
                     <TreeIcon kind="folder" />
                     <span className="knowledge-tree-title">{folder.path.split('/').pop()}</span>
                     {!props.folderChoices && (
