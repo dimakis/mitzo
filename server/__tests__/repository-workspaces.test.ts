@@ -143,3 +143,22 @@ it('discards only an unused preparation and preserves claimed task work', async 
   expect(await readFile(join(claimed.directory!, 'file.txt'), 'utf8')).toBe('retained task edits');
   f.service.close();
 });
+
+it('rechecks the exact frozen sandbox seed before upload and rejects changed source or account access', async () => {
+  const f = await fixture();
+  const signal = new AbortController().signal;
+  const preview = await f.service.preview(binding, 'connection', 'example/repo', signal);
+  await f.service.prepare(preview.id, binding, signal);
+  const claimed = await f.service.claim(preview.id, binding, 'conversation', f.taskRoot, true);
+  expect(await f.service.startupSeed(preview.id, binding, 'conversation', signal)).toBe(
+    claimed.seed,
+  );
+  await writeFile(join(claimed.seed, 'file.txt'), 'tampered source');
+  await expect(
+    f.service.startupSeed(preview.id, binding, 'conversation', signal),
+  ).rejects.toThrow();
+  await expect(
+    f.service.startupSeed(preview.id, binding, 'other-conversation', signal),
+  ).rejects.toThrow();
+  f.service.close();
+});

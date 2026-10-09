@@ -148,6 +148,20 @@ export class RepositoryWorkspaces {
   private source(record: RepositoryWorkspace) {
     return join(this.directory, record.id, 'mgmt');
   }
+  async startupSeed(
+    id: string,
+    binding: AccountBinding,
+    conversationId: string,
+    signal: AbortSignal,
+  ) {
+    const record = this.get(id);
+    if (record.state !== 'claimed' || !record.sandbox || record.conversationId !== conversationId)
+      throw new Error('Repository sandbox seed claim is unavailable');
+    await this.authorize(record, binding, signal);
+    if ((await repositorySourceDigest(this.source(record))) !== record.sourceDigest)
+      throw new Error('Prepared repository source changed before sandbox upload');
+    return this.source(record);
+  }
   private async authorize(
     record: RepositoryWorkspace,
     binding: AccountBinding,

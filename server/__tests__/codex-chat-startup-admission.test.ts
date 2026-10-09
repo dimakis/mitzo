@@ -6,6 +6,10 @@ import { randomUUID } from 'node:crypto';
 import { SessionRegistry, type ManagedSession } from '@mitzo/harness';
 import { EventStore } from '@mitzo/protocol/event-store';
 import type { AccountBinding } from '@mitzo/protocol';
+const repositorySeeds = vi.hoisted(() => ({ verify: vi.fn() }));
+vi.mock('../repository-workspace-runtime.js', () => ({
+  getRepositoryWorkspaces: () => ({ startupSeed: repositorySeeds.verify }),
+}));
 const native = vi.hoisted(() => ({ cli: vi.fn(), ssh: vi.fn(), launch: vi.fn() }));
 // Only the native CLI and RPC boundaries are substituted. Conversation, send,
 // queue, lifecycle coordinator, artifact mapping and lifecycle records are real.
@@ -410,6 +414,7 @@ it('uploads the controller-selected repository seed and avoids the MGMT task com
     seed: join(root, 'repository-seed', 'mgmt'),
   };
   mkdirSync(repositoryWorkspace.seed, { recursive: true });
+  repositorySeeds.verify.mockResolvedValue(repositoryWorkspace.seed);
   const compile = vi.spyOn(OpenShellRuntimeManager.prototype, 'compileContext');
   let chat: Awaited<ReturnType<typeof openCodexChat>> | undefined;
   try {

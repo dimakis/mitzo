@@ -41,7 +41,14 @@ export function repositoryWorkspaceCatalog(binding: AccountBinding) {
 }
 /** Lazy, explicit enrollment: importing the app performs no source acquisition or metadata writes. */
 export function getRepositoryWorkspaces(readOnly = false) {
-  if (!repositoryWorkspacesEnabled()) throw new Error('Repository-backed chats are not enabled');
+  if (!repositoryWorkspacesEnabled() && !readOnly)
+    throw new Error('Repository-backed chats are not enabled');
+  if (
+    readOnly &&
+    !service &&
+    !existsSync(join(codexPrivateDirectory(), 'repository-sources', 'workspaces.db'))
+  )
+    throw new Error('Repository preparation state is unavailable');
   service ??= new RepositoryWorkspaces(join(codexPrivateDirectory(), 'repository-sources'), {
     authorize: async (binding, connectionId, repository, signal) => {
       if (!isDeepStrictEqual(repositoryWorkspaceBinding(binding.accountId, binding.model), binding))

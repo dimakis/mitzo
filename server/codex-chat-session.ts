@@ -1,4 +1,5 @@
 import type { RepositoryChatWorkspace } from './repository-chat-startup.js';
+import { getRepositoryWorkspaces } from './repository-workspace-runtime.js';
 import {
   sessionCredentialTools,
   CONNECTION_TOOL_INSTRUCTIONS,
@@ -698,15 +699,22 @@ async function openCodexChatBound(
       }
       if (provisioning) options = { ...options, resume: false };
     }
+    const repositorySeed =
+      runtimeManager && !options.resume && options.repositoryWorkspace?.seed
+        ? await getRepositoryWorkspaces().startupSeed(
+            options.repositoryWorkspace.id,
+            options.binding,
+            options.conversationId,
+            options.session.abortController.signal,
+          )
+        : undefined;
     managedOpenShell = runtimeManager
       ? await duringCodexStartup('sandbox_preparation', () =>
           runtimeManager!.ensure(
             options.conversationId,
             options.session.abortController.signal,
             undefined,
-            !options.resume && options.repositoryWorkspace?.seed
-              ? { seed: options.repositoryWorkspace.seed, cleanup: () => {} }
-              : undefined,
+            repositorySeed ? { seed: repositorySeed, cleanup: () => {} } : undefined,
           ),
         )
       : undefined;
