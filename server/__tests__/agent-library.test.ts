@@ -156,7 +156,9 @@ it.each(['descriptor', 'description'])(
   },
 );
 it('retains legacy identity and hashes when descriptor fields are absent', () => {
-  const { descriptor: _descriptor, description: _description, ...legacy } = definition;
+  const legacy = Object.fromEntries(
+    Object.entries(definition).filter(([key]) => !['descriptor', 'description'].includes(key)),
+  );
   const saved = draft({ definition: legacy });
   expect(saved.definition).toEqual(legacy);
   expect(

@@ -16,6 +16,7 @@ import {
 } from '../lib/agent-library';
 import { WorkspacePageHeading } from '../components/WorkspacePageHeading';
 import { AgentProfileEditor } from '../components/AgentProfileEditor';
+import { AgentReviewerLauncher } from '../components/AgentReviewerLauncher';
 import '../styles/agent-library.css';
 
 type Editor = {
@@ -492,9 +493,13 @@ export function AgentLibrary() {
                     >
                       Export profile
                     </button>
-                    <Link to="/sessions" className="workspace-text-link">
-                      Choose a chat to add a reviewer
-                    </Link>
+                    <AgentReviewerLauncher
+                      key={`${editor.profileId}:${editor.publishedRevision}`}
+                      selection={{
+                        profileId: editor.profileId,
+                        revision: editor.publishedRevision!,
+                      }}
+                    />
                   </div>
                 )}
                 {portable && (
