@@ -320,6 +320,46 @@ describe('runQueryLoop', () => {
     },
   );
 
+  it('notifies failure instead of completion when the provider rejects a request without a reply', async () => {
+    const completed = vi
+      .spyOn(notificationCenter, 'recordTurnNotification')
+      .mockImplementation(() => {});
+    const failed = vi
+      .spyOn(notificationCenter, 'recordTurnFailureNotification')
+      .mockImplementation(() => {});
+    const failure = classifyProviderFailure(
+      { code: 'not_authorized_invalid_project' },
+      { correlationId: 'test-failure' },
+    );
+    try {
+      await runQueryLoop(
+        eventStream([
+          { type: 'result', session_id: 'failed-chat', is_error: true, provider_failure: failure },
+        ]),
+        clientId,
+        registry,
+        abortController,
+      );
+      expect(completed).not.toHaveBeenCalled();
+      expect(failed).toHaveBeenCalledWith(
+        'failed-chat',
+        expect.any(Number),
+        failure.message,
+        undefined,
+        false,
+      );
+      expect(transport.sent).toContainEqual(
+        expect.objectContaining({ type: 'error', error: failure.message }),
+      );
+      expect(transport.sent).toContainEqual(
+        expect.objectContaining({ type: 'session_end', terminalReason: 'failed' }),
+      );
+    } finally {
+      completed.mockRestore();
+      failed.mockRestore();
+    }
+  });
+
   it('reports a provider failure before its first event exactly once', async () => {
     const failingStream: AsyncIterable<Record<string, unknown>> = {
       [Symbol.asyncIterator]: () => ({

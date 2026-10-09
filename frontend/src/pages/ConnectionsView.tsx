@@ -212,18 +212,22 @@ export function ConnectionsView({ mode = 'add', connectionId }: ConnectionsViewP
       setBusy(null);
     }
   };
-  const requireReauthorization = () => {
+  const requireReauthorization = (force = false) => {
     if (connectionsRefreshing || loadError) {
       setMessage('Refresh connection details before changing access.');
       setFailed(true);
       return false;
     }
-    if (csrf && csrfExpiresAt > Date.now()) return true;
+    if (!force && csrf && csrfExpiresAt > Date.now()) return true;
     setCsrf('');
     setCsrfExpiresAt(0);
     setAuthorizationOpen(true);
     setPassphrase('');
-    setMessage('Confirm your identity, then retry the change.');
+    setMessage(
+      mode === 'openai'
+        ? 'Confirm your identity to continue.'
+        : 'Confirm your identity, then retry the change.',
+    );
     setFailed(false);
     return false;
   };
@@ -239,7 +243,7 @@ export function ConnectionsView({ mode = 'add', connectionId }: ConnectionsViewP
         setPassphrase('');
         setAuthorizationOpen(false);
       },
-      'Identity confirmed. You can retry the change.',
+      mode === 'openai' ? '' : 'Identity confirmed. You can retry the change.',
     );
   const toggle = (id: string, values: string[], setter: (next: string[]) => void) =>
     setter(values.includes(id) ? values.filter((value) => value !== id) : [...values, id]);
@@ -710,7 +714,7 @@ export function ConnectionsView({ mode = 'add', connectionId }: ConnectionsViewP
                 accountId={connectionId}
                 csrf={csrf}
                 authorized={!!csrf && csrfExpiresAt > Date.now()}
-                onReauthorizationNeeded={requireReauthorization}
+                onReauthorizationNeeded={() => requireReauthorization(true)}
               />
             ) : (
               <p>OpenAI API key management is not configured.</p>

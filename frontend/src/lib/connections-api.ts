@@ -62,10 +62,29 @@ export async function enrollOpenAIAccount(input: {
   );
   return result.account;
 }
+export class OpenAIKeyFailure extends Error {
+  constructor(readonly code: string) {
+    super(code);
+  }
+}
+async function keyResult(response: Response): Promise<OpenAIKeyHealth> {
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const safeCodes = ['KEY_VALIDATION_FAILED', 'ACCOUNT_CHANGED'];
+    throw new OpenAIKeyFailure(
+      response.status === 403
+        ? 'AUTHORIZATION_REQUIRED'
+        : safeCodes.includes(body?.code)
+          ? body.code
+          : 'UPDATE_UNCONFIRMED',
+    );
+  }
+  return body;
+}
 export async function getOpenAIKeyStatus(): Promise<OpenAIKeyHealth[]> {
   return (
     await bodyOrError<{ accounts: OpenAIKeyHealth[] }>(
-      await apiFetch('/api/connections/openai-keys'),
+      await apiFetch('/api/connections/openai-keys', { signal: AbortSignal.timeout(35000) }),
     )
   ).accounts;
 }
@@ -81,31 +100,31 @@ export async function authorizeOpenAIKey(input: {
   csrf: string;
 }): Promise<OpenAIKeyHealth> {
   const { accountId, ...body } = input;
-  return bodyOrError(
-    await apiFetch(
-      `/api/connections/openai-keys/${encodeURIComponent(accountId)}/authorize`,
-      json('POST', body, input.csrf),
-    ),
+  return keyResult(
+    await apiFetch(`/api/connections/openai-keys/${encodeURIComponent(accountId)}/authorize`, {
+      ...json('POST', body, input.csrf),
+      signal: AbortSignal.timeout(125000),
+    }),
   );
 }
 export async function replaceOpenAIKey(
   input: OpenAIKeySelection & { apiKey: string },
 ): Promise<OpenAIKeyHealth> {
   const { accountId, ...body } = input;
-  return bodyOrError(
-    await apiFetch(
-      `/api/connections/openai-keys/${encodeURIComponent(accountId)}/replace`,
-      json('POST', body, input.csrf),
-    ),
+  return keyResult(
+    await apiFetch(`/api/connections/openai-keys/${encodeURIComponent(accountId)}/replace`, {
+      ...json('POST', body, input.csrf),
+      signal: AbortSignal.timeout(125000),
+    }),
   );
 }
 export async function synchronizeOpenAIKey(input: OpenAIKeySelection): Promise<OpenAIKeyHealth> {
   const { accountId, ...body } = input;
-  return bodyOrError(
-    await apiFetch(
-      `/api/connections/openai-keys/${encodeURIComponent(accountId)}/synchronize`,
-      json('POST', body, input.csrf),
-    ),
+  return keyResult(
+    await apiFetch(`/api/connections/openai-keys/${encodeURIComponent(accountId)}/synchronize`, {
+      ...json('POST', body, input.csrf),
+      signal: AbortSignal.timeout(125000),
+    }),
   );
 }
 export async function getGoogleWorkspaceStatus(): Promise<GoogleWorkspaceHealth> {
