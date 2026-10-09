@@ -3,7 +3,11 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import Database from 'better-sqlite3';
-import { OpenAIKeyManagement, type ManagedOpenAIAccount } from '../openai-key-management.js';
+import {
+  OpenAIKeyManagement,
+  OpenAIKeychainAuthorizationRequired,
+  type ManagedOpenAIAccount,
+} from '../openai-key-management.js';
 import { OpenAIKeyOperationStore } from '../openai-key-operation-store.js';
 
 const signal = () => AbortSignal.timeout(5000);
@@ -433,4 +437,38 @@ it('only advertises key management for configured rotation accounts, even when a
   expect((await manager.list(signal())).map((account) => account.accountId)).toEqual(['work']);
   f.setAccounts([]);
   expect(manager.manages('work')).toBe(false);
+});
+
+it('lists an authorization-needed account without invoking interactive Keychain access, and fences stale authorization', async () => {
+  const f = fixture();
+  let authorized = false;
+  const authorize = vi.fn(async () => {
+    authorized = true;
+  });
+  f.keychain.read.mockImplementation(async () => {
+    if (!authorized) throw new OpenAIKeychainAuthorizationRequired();
+    return { value: 'old-key', version: null };
+  });
+  const manager = new OpenAIKeyManagement({ ...f.options, keychain: { ...f.keychain, authorize } });
+  const [status] = await manager.list(signal());
+  expect(status).toMatchObject({
+    health: 'unavailable',
+    errorCode: 'KEYCHAIN_AUTHORIZATION_REQUIRED',
+    canSynchronize: false,
+  });
+  expect(status!.revision).not.toBe('');
+  expect(authorize).not.toHaveBeenCalled();
+  await expect(
+    manager.authorize({ accountId: 'work', revision: 'stale' }, signal()),
+  ).rejects.toThrow('Connection changed');
+  expect(authorize).not.toHaveBeenCalled();
+  const result = await manager.authorize(
+    { accountId: 'work', revision: status!.revision },
+    signal(),
+  );
+  expect(result.health).toBe('not_verified');
+  expect(authorize).toHaveBeenCalledExactlyOnceWith(account.credentialRef, expect.any(AbortSignal));
+  expect(f.validateKey).not.toHaveBeenCalled();
+  expect(f.keychain.write).not.toHaveBeenCalled();
+  expect(f.gateway.pause).not.toHaveBeenCalled();
 });

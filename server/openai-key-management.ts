@@ -14,6 +14,7 @@ export interface ManagedOpenAIAccount {
   providerId: string;
 }
 export interface VersionedKeychain {
+  authorize?(reference: CredentialReference, signal: AbortSignal): Promise<void>;
   read(
     reference: CredentialReference,
     signal: AbortSignal,
@@ -25,6 +26,11 @@ export interface VersionedKeychain {
     signal: AbortSignal,
     expectedVersion?: string | null,
   ): Promise<void>;
+}
+export class OpenAIKeychainAuthorizationRequired extends Error {
+  constructor() {
+    super('Authorize Apple Keychain access on the Mac');
+  }
 }
 export interface OpenAIKeyGateway {
   inspect(account: ManagedOpenAIAccount, signal: AbortSignal): Promise<{ version: string }>;
@@ -174,7 +180,27 @@ export class OpenAIKeyManagement {
           continue;
         try {
           results.push((await this.state(this.account(configured.id), signal)).status);
-        } catch {
+        } catch (error) {
+          if (
+            error instanceof OpenAIKeychainAuthorizationRequired &&
+            this.options.keychain.authorize
+          ) {
+            try {
+              const account = this.account(configured.id);
+              results.push({
+                accountId: account.id,
+                label: account.label,
+                health: 'unavailable',
+                revision: await this.authorizationRevision(account, signal),
+                canSynchronize: false,
+                errorCode: 'KEYCHAIN_AUTHORIZATION_REQUIRED',
+                verifiedAt: null,
+              });
+              continue;
+            } catch {
+              /* Other binding failures remain unavailable. */
+            }
+          }
           results.push({
             accountId: configured.id,
             label: configured.label,
@@ -187,6 +213,28 @@ export class OpenAIKeyManagement {
         }
       }
       return results;
+    });
+  }
+  private async authorizationRevision(account: ManagedOpenAIAccount, signal: AbortSignal) {
+    return digest({
+      binding: this.binding(account),
+      latest: this.options.store.latest(account.id)?.revision ?? 0,
+      gateway: (await this.options.gateway.inspect(account, signal)).version,
+      purpose: 'keychain-authorization',
+    });
+  }
+  /** The router requires recent browser reauthorization; listing, recovery and consumers never call this. */
+  async authorize(input: { accountId: string; revision: string }, signal: AbortSignal) {
+    return this.serial(async () => {
+      const account = this.account(input.accountId);
+      if (
+        !this.options.keychain.authorize ||
+        !input.revision ||
+        input.revision !== (await this.authorizationRevision(account, signal))
+      )
+        throw new Error('Connection changed; refresh and try again.');
+      await this.options.keychain.authorize(account.credentialRef, signal);
+      return (await this.state(this.account(input.accountId), signal)).status;
     });
   }
   /** Called while ConnectionsService holds its admission gate. Legacy unadopted keys are unchanged. */

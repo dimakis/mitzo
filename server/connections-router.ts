@@ -338,7 +338,7 @@ export function createConnectionsRouter(options: {
       return res.status(503).json({ error: 'OpenAI connection status is unavailable' });
     }
   });
-  for (const action of ['replace', 'synchronize'] as const) {
+  for (const action of ['replace', 'synchronize', 'authorize'] as const) {
     router.post(
       `/openai-keys/:accountId/${action}`,
       mutate,
@@ -348,12 +348,15 @@ export function createConnectionsRouter(options: {
         const common = z.object({
           csrf: z.string().min(1),
           revision: z.string().min(1).max(128),
-          sameProject: z.literal(true),
         });
         const schema =
           action === 'replace'
-            ? common.extend({ apiKey: z.string().min(1).max(16384) }).strict()
-            : common.strict();
+            ? common
+                .extend({ sameProject: z.literal(true), apiKey: z.string().min(1).max(16384) })
+                .strict()
+            : action === 'synchronize'
+              ? common.extend({ sameProject: z.literal(true) }).strict()
+              : common.strict();
         const parsed = schema.safeParse(req.body);
         if (!parsed.success) return res.status(400).json({ error: 'Invalid OpenAI key request' });
         // Model/custodian authority cannot replace inference credentials. Require this browser's reauthorization.
@@ -364,23 +367,25 @@ export function createConnectionsRouter(options: {
         const input = {
           accountId: String(req.params.accountId),
           revision: parsed.data.revision,
-          sameProject: parsed.data.sameProject,
         };
         try {
           const signal = AbortSignal.timeout(120000);
           return res.json(
-            action === 'replace'
-              ? await options.openAIKeys.replace(
-                  {
-                    ...input,
-                    apiKey:
-                      'apiKey' in parsed.data && typeof parsed.data.apiKey === 'string'
-                        ? parsed.data.apiKey
-                        : '',
-                  },
-                  signal,
-                )
-              : await options.openAIKeys.synchronize(input, signal),
+            action === 'authorize'
+              ? await options.openAIKeys.authorize(input, signal)
+              : action === 'replace'
+                ? await options.openAIKeys.replace(
+                    {
+                      ...input,
+                      sameProject: true,
+                      apiKey:
+                        'apiKey' in parsed.data && typeof parsed.data.apiKey === 'string'
+                          ? parsed.data.apiKey
+                          : '',
+                    },
+                    signal,
+                  )
+                : await options.openAIKeys.synchronize({ ...input, sameProject: true }, signal),
           );
         } catch {
           return res.status(422).json({

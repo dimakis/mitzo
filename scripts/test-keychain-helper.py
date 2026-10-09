@@ -5,6 +5,7 @@ import subprocess
 import tempfile
 
 root = pathlib.Path(__file__).resolve().parent.parent
+original_search_list = subprocess.run(["security", "list-keychains", "-d", "user"], capture_output=True, text=True, check=True, timeout=10).stdout
 with tempfile.TemporaryDirectory(prefix="mitzo-keychain-test-") as folder:
     helper = pathlib.Path(folder) / "helper"
     keychain = str(pathlib.Path(folder) / "test.keychain-db")
@@ -69,6 +70,26 @@ with tempfile.TemporaryDirectory(prefix="mitzo-keychain-test-") as folder:
         subprocess.run(["security", "add-generic-password", "-U", "-a", "credential", "-s", external_service, "-w", "changed-external-fixture", keychain], check=True, capture_output=True, timeout=30)
         assert call("read", service=external_service)["code"] == "item_missing", "linked credential changes require explicit re-enrollment"
         assert call("link", service=external_service)["persistentRef"] != pinned_ref
+        # OpenAI rotation is authenticated separately and never searches the login Keychain.
+        rotation_service = "com.mitzo.openai.synthetic"
+        subprocess.run(["security", "add-generic-password", "-a", "credential", "-s", rotation_service, "-w", "ROTATION_OLD", "-A", keychain], check=True, capture_output=True, timeout=30)
+        pinned_ref = None
+        assert call("rotation-read", service=rotation_service)["code"] == "unauthorized"
+        controller["rotationItems"] = [{"service": rotation_service, "account": "credential"}]
+        controller_path.write_text(json.dumps(controller))
+        assert call("rotation-authorize", service=rotation_service) == {"ok": True}
+        assert call("rotation-read", service=rotation_service) == {"ok": True, "value": "ROTATION_OLD", "version": None, "managed": False}
+        assert call("rotation-read", service=rotation_service, authorization="wrong")["code"] == "unauthorized"
+        assert call("rotation-write", service=external_service, secret="UNAUTHORIZED", version="890456d2-8b5d-43d6-b8b8-48c1c99837c0", expectedVersion=None)["code"] == "unauthorized"
+        version = "890456d2-8b5d-43d6-b8b8-48c1c99837c0"
+        assert call("rotation-write", service=rotation_service, secret="ROTATION_NEW", version=version, expectedVersion=None) == {"ok": True}
+        assert call("rotation-read", service=rotation_service) == {"ok": True, "value": "ROTATION_NEW", "version": version, "managed": True}
+        assert call("rotation-write", service=rotation_service, secret="STALE", version=version, expectedVersion=None)["code"] == "invalid_request"
+        assert call("rotation-read", service=rotation_service)["value"] == "ROTATION_NEW"
+        subprocess.run(["security", "add-generic-password", "-U", "-a", "credential", "-s", rotation_service, "-w", "ROTATION_DRIFT", keychain], check=True, capture_output=True, timeout=30)
+        assert call("rotation-read", service=rotation_service) == {"ok": True, "value": "ROTATION_DRIFT", "version": None, "managed": True}
+        assert call("rotation-write", service=rotation_service, secret="STALE", version=version, expectedVersion=version)["code"] == "invalid_request"
     finally:
         subprocess.run(["security", "delete-keychain", keychain], check=True, timeout=30)
+assert subprocess.run(["security", "list-keychains", "-d", "user"], capture_output=True, text=True, check=True, timeout=10).stdout == original_search_list, "Keychain search list changed"
 print("Keychain helper: disposable-keychain checks passed")

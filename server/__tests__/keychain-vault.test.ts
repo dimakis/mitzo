@@ -354,3 +354,54 @@ it('rejects controller executable storage in writable ancestry', () => {
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+it('routes OpenAI rotation through the verified helper and separately enrolled coordinates', async () => {
+  const enrollRotation = vi.fn(async () => {});
+  const run = vi.fn(async () => '{"ok":true}');
+  const verify = vi.fn(async () => {});
+  const vault = new MacKeychainVault(
+    '/trusted/helper',
+    'signed-requirement',
+    run,
+    verify,
+    { ...controller, enrollRotation, namespace: 'production' },
+    fixtureHelper,
+  );
+  const signal = AbortSignal.timeout(5000);
+  await vault.rotateOpenAI(
+    { service: 'com.mitzo.openai', account: 'work' },
+    'rotation-write',
+    {
+      secret: 'PRIVATE_KEY',
+      version: '890456d2-8b5d-43d6-b8b8-48c1c99837c0',
+      expectedVersion: null,
+    },
+    signal,
+  );
+  expect(enrollRotation).toHaveBeenCalledExactlyOnceWith({
+    service: 'com.mitzo.openai',
+    account: 'work',
+  });
+  expect(verify).toHaveBeenCalledExactlyOnceWith('/trusted/helper', 'signed-requirement');
+  expect(run).toHaveBeenCalledExactlyOnceWith(
+    '/trusted/helper',
+    {
+      operation: 'rotation-write',
+      service: 'com.mitzo.openai',
+      account: 'work',
+      secret: 'PRIVATE_KEY',
+      version: '890456d2-8b5d-43d6-b8b8-48c1c99837c0',
+      expectedVersion: null,
+      authorization: 'controller-token',
+      namespace: 'production',
+    },
+    signal,
+  );
+  await expect(
+    vault.rotateOpenAI(
+      { service: 'mitzo.connection.protected', account: 'credential' },
+      'rotation-write',
+    ),
+  ).rejects.toThrow('unavailable');
+  expect(run).toHaveBeenCalledTimes(1);
+});

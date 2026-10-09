@@ -22,18 +22,19 @@ let data = FileHandle.standardInput.readData(ofLength: 65537)
 guard data.count <= 65536,
       let input = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
       let operation = input["operation"] as? String,
-      ["save", "link", "read", "remove"].contains(operation),
+      ["save", "link", "read", "remove", "rotation-read", "rotation-write", "rotation-authorize"].contains(operation),
       let service = input["service"] as? String, !service.isEmpty, service.count <= 256,
       let account = input["account"] as? String, !account.isEmpty, account.count <= 256
 else { reply(["ok": false, "code": "invalid_request"]) }
 
-var allowed: Set<String> = ["operation", "service", "account", "secret", "persistentRef", "authorization", "namespace"]
+var allowed: Set<String> = ["operation", "service", "account", "secret", "persistentRef", "authorization", "namespace", "version", "expectedVersion"]
 #if KEYCHAIN_TESTING
 allowed.insert("testKeychain")
 allowed.insert("testController")
 #endif
 guard Set(input.keys).isSubset(of: allowed),
-      operation == "save" || input["secret"] == nil
+      operation == "rotation-write" || (input["version"] == nil && input["expectedVersion"] == nil),
+      ["save", "rotation-write"].contains(operation) || input["secret"] == nil
 else { reply(["ok": false, "code": "invalid_request"]) }
 if ["save", "remove"].contains(operation) && !service.hasPrefix("mitzo.connection.") {
     reply(["ok": false, "code": "invalid_request"])
@@ -74,6 +75,89 @@ if operation == "read" || operation == "remove" {
           items.contains(where: { ($0["persistentRef"] as? String) == persistentRef && ($0["service"] as? String) == service && ($0["account"] as? String) == account })
     else { reply(["ok": false, "code": "unauthorized"]) }
 }
+// OpenAI rotation is restricted to host-configured coordinates in the private controller record.
+// Only the browser's separately reauthorized setup action may request native interaction.
+if operation.hasPrefix("rotation-") {
+    guard !service.contains("\0"), !account.contains("\0"), !service.hasPrefix("mitzo.connection."),
+          input["persistentRef"] == nil,
+          let rotationItems = controller["rotationItems"] as? [[String: Any]],
+          rotationItems.contains(where: { ($0["service"] as? String) == service && ($0["account"] as? String) == account })
+    else { reply(["ok": false, "code": "unauthorized"]) }
+    SecKeychainSetUserInteractionAllowed(operation == "rotation-authorize")
+    var query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+        kSecAttrService as String: service, kSecAttrAccount as String: account]
+    #if KEYCHAIN_TESTING
+    guard let path = input["testKeychain"] as? String else { reply(["ok": false, "code": "invalid_request"]) }
+    var keychain: SecKeychain?
+    let opened = SecKeychainOpen(path, &keychain)
+    guard opened == errSecSuccess, let keychain else { failed(opened) }
+    query[kSecMatchSearchList as String] = [keychain]
+    SecKeychainSetUserInteractionAllowed(false)
+    #endif
+    var metadataQuery = query
+    metadataQuery[kSecReturnAttributes as String] = true
+    metadataQuery[kSecReturnPersistentRef as String] = true
+    metadataQuery[kSecMatchLimit as String] = kSecMatchLimitAll
+    var metadata: CFTypeRef?
+    let metadataStatus = SecItemCopyMatching(metadataQuery as CFDictionary, &metadata)
+    guard metadataStatus == errSecSuccess else { failed(metadataStatus) }
+    let matches = (metadata as? [[String: Any]]) ?? []
+    guard matches.count == 1, let persistent = matches[0][kSecValuePersistentRef as String] as? Data else {
+        reply(["ok": false, "code": "unavailable"])
+    }
+    var selected: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+        kSecValuePersistentRef as String: persistent, kSecReturnAttributes as String: true,
+        kSecReturnData as String: true]
+    #if KEYCHAIN_TESTING
+    selected[kSecMatchSearchList as String] = query[kSecMatchSearchList as String]
+    #endif
+    var found: CFTypeRef?
+    let readStatus = SecItemCopyMatching(selected as CFDictionary, &found)
+    guard readStatus == errSecSuccess else { failed(readStatus) }
+    guard let item = found as? [String: Any], let value = item[kSecValueData as String] as? Data,
+          let secret = String(data: value, encoding: .utf8), !secret.isEmpty, value.count <= 16384
+    else { reply(["ok": false, "code": "unavailable"]) }
+    let marker = (item[kSecAttrGeneric as String] as? Data) ?? Data()
+    let prefix = "mitzo-openai-key-v1:"
+    var version: String?
+    if !marker.isEmpty {
+        guard let text = String(data: marker, encoding: .utf8), text.hasPrefix(prefix) else {
+            reply(["ok": false, "code": "unavailable"])
+        }
+        let parts = text.dropFirst(prefix.count).split(separator: ":", omittingEmptySubsequences: false)
+        guard parts.count == 2, let id = UUID(uuidString: String(parts[0])),
+              id.uuidString.lowercased() == String(parts[0]), parts[1].count == 64,
+              parts[1].allSatisfy({ $0.isHexDigit && !$0.isUppercase })
+        else { reply(["ok": false, "code": "unavailable"]) }
+        let fingerprint = SHA256.hash(data: value).map { String(format: "%02x", $0) }.joined()
+        if fingerprint == parts[1] { version = String(parts[0]) }
+    }
+    if operation == "rotation-authorize" { reply(["ok": true]) }
+    if operation == "rotation-read" {
+        reply(["ok": true, "value": secret, "version": version as Any? ?? NSNull(), "managed": !marker.isEmpty])
+    }
+    guard input.keys.contains("expectedVersion"),
+          (input["expectedVersion"] is NSNull || input["expectedVersion"] is String),
+          (input["expectedVersion"] as? String) == version,
+          let replacement = input["secret"] as? String, !replacement.isEmpty, replacement.utf8.count <= 16384,
+          let newVersion = input["version"] as? String, let uuid = UUID(uuidString: newVersion),
+          uuid.uuidString.lowercased() == newVersion
+    else { reply(["ok": false, "code": "invalid_request"]) }
+    let replacementData = Data(replacement.utf8)
+    let fingerprint = SHA256.hash(data: replacementData).map { String(format: "%02x", $0) }.joined()
+    var target: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+        kSecValuePersistentRef as String: persistent]
+    if !marker.isEmpty { target[kSecAttrGeneric as String] = marker }
+    #if KEYCHAIN_TESTING
+    target[kSecMatchSearchList as String] = query[kSecMatchSearchList as String]
+    #endif
+    // Update the existing secret and receipt together; preserve the item's ACL and identity.
+    let writeStatus = SecItemUpdate(target as CFDictionary, [kSecValueData as String: replacementData,
+        kSecAttrGeneric as String: Data((prefix + newVersion + ":" + fingerprint).utf8)] as CFDictionary)
+    guard writeStatus == errSecSuccess else { failed(writeStatus) }
+    reply(["ok": true])
+}
+
 // Reads in a background session must return an actionable error rather than hang on a desktop prompt.
 SecKeychainSetUserInteractionAllowed(operation == "save" || operation == "link")
 var query: [String: Any] = [
