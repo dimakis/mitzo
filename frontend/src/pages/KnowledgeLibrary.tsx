@@ -296,6 +296,7 @@ export function KnowledgeLibrary() {
                 key={selected.path}
                 fullscreenStatus={fullscreenStatus}
                 content={selected.content}
+                historyResetKey={library.historyResetKey}
                 ext={selected.path.match(/\.[^.]+$/)?.[0] || '.md'}
                 onChange={library.change}
                 saving={busy || !editable}

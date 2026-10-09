@@ -543,6 +543,63 @@ test('Knowledge edits and saves its working copy with usable source, preview and
   await expectSource(source, draft);
 });
 
+test('adopting a same-content saved Knowledge draft clears obsolete Vim undo history', async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(isMobile, 'CodeMirror conflict history');
+  const path = 'hub/principles.md';
+  const original = '# Original principles';
+  const content = '# My principles';
+  await page.routeWebSocket('**/*', (socket) => socket.close());
+  await page.route('**/api/**', (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname === '/api/knowledge')
+      return route.fulfill({
+        json: {
+          revision: 'r1',
+          documents: [{ path, title: 'Working principles', area: 'Hub' }],
+          drafts: [],
+          reviewEnabled: false,
+          acceptanceEnabled: false,
+          syncedAt: null,
+        },
+      });
+    if (url.pathname === '/api/knowledge/document')
+      return route.fulfill({ json: { path, revision: 'r1', content: original } });
+    if (url.pathname === '/api/knowledge/drafts')
+      return route.fulfill({
+        json: {
+          draft: {
+            id: 'fixture-newer-draft',
+            title: 'Working principles',
+            baseRevision: 'r1',
+            version: 2,
+            state: 'draft',
+            updatedAt: '2026-10-09T12:00:00Z',
+            documents: [{ path, content, base: original }],
+          },
+        },
+      });
+    return route.fulfill({ json: {} });
+  });
+  await page.goto('/knowledge');
+  await page.getByRole('button', { name: /Working principles/ }).click();
+  const source = page.getByRole('textbox', { name: 'Document source' });
+  await source.fill(content);
+  await expect(page.getByRole('button', { name: 'Undo', exact: true })).toBeEnabled();
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page.getByRole('region', { name: 'Compare saved draft' })).toBeVisible();
+  await page.getByRole('button', { name: 'Use saved draft', exact: true }).click();
+  await expectSource(source, content);
+  await expect(page.getByRole('button', { name: 'Undo', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Redo', exact: true })).toBeDisabled();
+  await page.getByRole('button', { name: 'Vim', exact: true }).click();
+  await expect(source).toBeFocused();
+  await source.press('u');
+  await expectSource(source, content);
+});
+
 test('desktop Markdown syntax remains readable in light and dark source themes', async ({
   page,
   isMobile,
