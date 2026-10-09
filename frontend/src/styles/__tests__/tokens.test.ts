@@ -199,7 +199,10 @@ function styleSources(source: string, filename: string): { css: string[]; inline
     if (ts.isTemplateExpression(node)) css.push(literalStyleValue(node)!);
     if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.PlusToken) {
       const value = literalStyleValue(node);
-      if (value !== null) css.push(value);
+      if (value !== null) {
+        css.push(value);
+        return;
+      }
     }
     if (
       ts.isPropertyAssignment(node) &&
@@ -494,6 +497,15 @@ describe('design tokens', () => {
       expect(
         styleViolations("const styles = '.page { font-family:' + 'Arial; }';", 'page.tsx'),
       ).toContain('font stack');
+    });
+
+    it('does not reject incomplete children of a valid reconstructed CSS expression', () => {
+      expect(
+        styleViolations(
+          "const styles = '.page { font-family: var(--' + 'font-ui); }';",
+          'page.tsx',
+        ),
+      ).toEqual([]);
     });
 
     it('allows token-based shorthand size and family', () => {
