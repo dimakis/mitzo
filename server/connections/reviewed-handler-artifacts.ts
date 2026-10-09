@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.0';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.6';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.11';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.10';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -77,13 +77,23 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../openai-key-controller.ts': '721a1c6a513fc5380e4a2222927cda025bf8cbd7e8d49d8c5d526470e2cff217',
   '../connections-router.ts': 'db03601e5f09080ad370621d2fcbd5879f744c9b272a930b296c20cd47f82979',
   '../connections-service.ts': '1aae9d2c0da483ae798ba03d5804bfb0e81316f3f69666c6595befec3179c314',
+  // Repository acquisition and source claims share the ordinary runtime admission review.
+  '../github-repository-source.ts':
+    'd0df34bf1d40bca9156745b08f676132b7ef018715e6f7514f5ddee110d1c24a',
+  '../repository-workspaces.ts': 'a2706f91306a385c5926240b23be38422ef1e3acb4ca24ff228cc602f366faeb',
+  '../repository-workspace-runtime.ts':
+    'b6d4516dd289d2c40d34d32adde3aa3d3cd24405706e1b720f8dffb3ff0c32e4',
+  '../repository-workspace-router.ts':
+    '13b8fab1dd0f5b83abfbb06946533cfb5273d28e4a71aacd24f7076be4858905',
+  '../repository-chat-startup.ts':
+    'da5476aa7e43badb1809a8f52d958d5338ec921c6ab96531978f750fecf4428f',
   // Admission shares compiled connection authority with gateway provisioning.
   'runtime-profiles.ts': '3632545ca52fbfad7442de08c03d5f9808b50b5bfdef92f9cd72b8fa8ab5140b',
   '../connections-gateway.ts': '8cc83813dff18a0cafba0fad53f3c5de987c8af631f8439029590285501849a1',
   '../openshell-runtime-policy.ts':
     'efecd458bf61fecd8198ecd330e0227e2c600ab21d6d2890cd2bac254e22b75f',
   '../openshell-runtime.ts': '71e650b8114df6264ce0a5b81ae32a1907ee3562c177c9d0d59c1f4825849b0c',
-  '../codex-chat-session.ts': '8c11ec22ceac62890318d28e20b97175c1aba5afd4ff89ba2c74e43a3baadd78',
+  '../codex-chat-session.ts': 'cb3abdb89152674678c0a4914f9ee7e966412b64f53b2c7d902d0548911bba99',
   '../connections-runtime.ts': 'dbe641704a1d761d73740260fb28057054fdb34a64513fa77292d2fdb1954a84',
   'capabilities/operation-store.ts':
     '1a235f11d5578880e6dfa7ecf5779e2a011e24430774fc17429d7d22359b93f2',
