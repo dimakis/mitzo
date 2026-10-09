@@ -197,6 +197,10 @@ function styleSources(source: string, filename: string): { css: string[]; inline
   const visit = (node: ts.Node) => {
     if (ts.isStringLiteralLike(node)) css.push(node.text);
     if (ts.isTemplateExpression(node)) css.push(literalStyleValue(node)!);
+    if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.PlusToken) {
+      const value = literalStyleValue(node);
+      if (value !== null) css.push(value);
+    }
     if (
       ts.isPropertyAssignment(node) &&
       (ts.isIdentifier(node.name) || ts.isStringLiteralLike(node.name))
@@ -484,6 +488,12 @@ describe('design tokens', () => {
       expect(
         styleViolations('.page { --bg: color-mix(in srgb, var(--space-4), var(--font-ui)); }'),
       ).toContain('token override: --bg');
+    });
+
+    it('checks standalone statically concatenated CSS expressions', () => {
+      expect(
+        styleViolations("const styles = '.page { font-family:' + 'Arial; }';", 'page.tsx'),
+      ).toContain('font stack');
     });
 
     it('allows token-based shorthand size and family', () => {
