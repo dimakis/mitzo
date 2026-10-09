@@ -11,6 +11,34 @@ afterEach(() => {
   localStorage.clear();
   vi.useRealTimers();
 });
+it.each(['debounced', 'immediate'] as const)(
+  'keeps a user-cleared preparation empty after %s reload and blocks Send',
+  (timing) => {
+    vi.useFakeTimers();
+    localStorage.setItem('mitzo-draft-new', 'ordinary draft');
+    const onSend = vi.fn(() => true);
+    const props = {
+      onSend,
+      onStop: vi.fn(),
+      running: false,
+      initialText: 'Prepared task',
+      draftStorageKey: 'mitzo-repository-prompt:prep-a',
+    };
+    const first = render(<ChatInput {...props} />);
+    fireEvent.change(screen.getByLabelText('Message Mitzo'), { target: { value: '' } });
+    if (timing === 'debounced') act(() => vi.advanceTimersByTime(500));
+    first.unmount();
+    render(<ChatInput {...props} />);
+    expect((screen.getByLabelText('Message Mitzo') as HTMLTextAreaElement).value).toBe('');
+    expect(
+      (screen.getByRole('button', { name: 'Send message' }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+    fireEvent.keyDown(screen.getByLabelText('Message Mitzo'), { key: 'Enter' });
+    expect(onSend).not.toHaveBeenCalled();
+    expect(localStorage.getItem('mitzo-repository-prompt:prep-a')).toBe('');
+    expect(localStorage.getItem('mitzo-draft-new')).toBe('ordinary draft');
+  },
+);
 it('uses a preparation-owned storage key without changing runtime session identity', () => {
   vi.useFakeTimers();
   localStorage.setItem('mitzo-draft-new', 'ordinary draft\n keep these bytes');

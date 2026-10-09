@@ -23,9 +23,9 @@ function readDraft(key: string, initialText?: string, scoped = false): string {
   }
 }
 
-function saveDraft(key: string, text: string): void {
+function saveDraft(key: string, text: string, preserveEmpty = false): void {
   try {
-    if (text) localStorage.setItem(key, text);
+    if (text || preserveEmpty) localStorage.setItem(key, text);
     else localStorage.removeItem(key);
   } catch {
     // Browser draft storage is optional.
@@ -58,7 +58,7 @@ export function useDraft(
     // Preparation drafts belong to their own receipt. Never move ordinary or
     // another preparation's text across this ownership boundary.
     if (previous.scoped || scoped) {
-      if (previous.scoped && dirty.current) saveDraft(previous.key, textRef.current);
+      if (previous.scoped && dirty.current) saveDraft(previous.key, textRef.current, true);
       storageRef.current = { key, scoped };
       dirty.current = false;
       const restored = readDraft(key, initialText, scoped);
@@ -99,8 +99,9 @@ export function useDraft(
     clearTimeout(timerRef.current);
     if (!dirty.current) return;
     const savedKey = storageRef.current.key;
+    const preserveEmpty = storageRef.current.scoped;
     timerRef.current = setTimeout(() => {
-      saveDraft(savedKey, text);
+      saveDraft(savedKey, text, preserveEmpty);
       dirty.current = false;
     }, DEBOUNCE_MS);
 
@@ -111,7 +112,7 @@ export function useDraft(
     () => () => {
       clearTimeout(timerRef.current);
       if (storageRef.current.scoped && dirty.current)
-        saveDraft(storageRef.current.key, textRef.current);
+        saveDraft(storageRef.current.key, textRef.current, true);
     },
     [],
   );

@@ -12,6 +12,43 @@ afterEach(() => {
 });
 
 describe('useDraft', () => {
+  it('restores an explicitly empty preparation draft after a debounced user edit and reload', () => {
+    vi.useFakeTimers();
+    const first = renderHook(() =>
+      useDraft(undefined, 'Server task', 'mitzo-repository-prompt:prep-a'),
+    );
+    act(() => first.result.current[1](''));
+    act(() => vi.advanceTimersByTime(500));
+    expect(localStorage.getItem('mitzo-repository-prompt:prep-a')).toBe('');
+    first.unmount();
+    const reopened = renderHook(() =>
+      useDraft(undefined, 'Server task', 'mitzo-repository-prompt:prep-a'),
+    );
+    expect(reopened.result.current[0]).toBe('');
+    act(() => reopened.result.current[2]());
+    expect(localStorage.getItem('mitzo-repository-prompt:prep-a')).toBeNull();
+  });
+  it.each(['unmount', 'switch'] as const)(
+    'flushes an empty preparation edit on immediate %s without resurrecting the server task',
+    (transition) => {
+      vi.useFakeTimers();
+      localStorage.setItem('mitzo-draft-new', 'ordinary draft');
+      const first = renderHook(({ scope }) => useDraft(undefined, 'Server task', scope), {
+        initialProps: { scope: 'mitzo-repository-prompt:prep-a' },
+      });
+      act(() => first.result.current[1](''));
+      if (transition === 'unmount') first.unmount();
+      else first.rerender({ scope: 'mitzo-repository-prompt:prep-b' });
+      expect(localStorage.getItem('mitzo-repository-prompt:prep-a')).toBe('');
+      const reopened = renderHook(() =>
+        useDraft(undefined, 'Server task', 'mitzo-repository-prompt:prep-a'),
+      );
+      expect(reopened.result.current[0]).toBe('');
+      act(() => vi.advanceTimersByTime(500));
+      expect(localStorage.getItem('mitzo-repository-prompt:prep-a')).toBe('');
+      expect(localStorage.getItem('mitzo-draft-new')).toBe('ordinary draft');
+    },
+  );
   it('edits and clears only a preparation-owned key while preserving the ordinary draft bytes', () => {
     vi.useFakeTimers();
     localStorage.setItem('mitzo-draft-new', 'ordinary draft\n  with spacing');
