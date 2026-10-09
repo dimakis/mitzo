@@ -50,6 +50,8 @@ The dormant [Symposium artifact snapshot observer](docs/features/symposium-artif
 
 Qualified canonical staging builds expose a bounded Personal account-check diagnostic to the authenticated operator. It returns finite owned-supervisor observations without model execution or catalog publication; unavailable observations remain inconclusive. See the [staging diagnostic procedure](docs/operations/canonical-staging.md#bounded-personal-account-check-diagnostic).
 
+The source-qualified [CONNECT forwarding repair](docs/spikes/openshell-codex/connect-preface-native/README.md) preserves tunnel bytes consumed with the CONNECT header. Staging adoption and a successful Personal account read remain separate from offline qualification.
+
 Vertex readiness validates the pinned CLI’s blank failure-code column and empty-error `-` marker without accepting diagnostic text.
 
 Symposium director status resolves the verified runtime once per request and reuses it for per-seat diagnostics; each later request still performs fresh verification.

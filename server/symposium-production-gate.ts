@@ -10,6 +10,7 @@ import {
   symposiumOwnedBuildVersions,
   SOURCE_QUALIFIED_SYMPOSIUM_LOCAL_B20_BUILD,
   SOURCE_QUALIFIED_SYMPOSIUM_ROUTING_BUILD,
+  SOURCE_QUALIFIED_SYMPOSIUM_CONNECT_PREFACE_BUILD,
   type SymposiumOwnedBuildSelection,
 } from './symposium-owned-runtime-contract.js';
 import {
@@ -76,11 +77,17 @@ const codex01591Reviewed = REVIEWED_SYMPOSIUM_CODEX_01591_RUNTIME.build;
 const codexIdentityReviewed = REVIEWED_SYMPOSIUM_CODEX_01591_IDENTITY_RUNTIME.build;
 const OwnedAttestation = LegacyAttestation.extend({
   contract: z.literal('openshell-v0.1-owned-native-seats'),
-  cliVersion: z.enum([reviewed.version, '0.0.0', SOURCE_QUALIFIED_SYMPOSIUM_ROUTING_BUILD.version]),
+  cliVersion: z.enum([
+    reviewed.version,
+    '0.0.0',
+    SOURCE_QUALIFIED_SYMPOSIUM_ROUTING_BUILD.version,
+    SOURCE_QUALIFIED_SYMPOSIUM_CONNECT_PREFACE_BUILD.version,
+  ]),
   cliSha256: z.enum([
     reviewed.cliSha256,
     SOURCE_QUALIFIED_SYMPOSIUM_LOCAL_B20_BUILD.cliSha256,
     SOURCE_QUALIFIED_SYMPOSIUM_ROUTING_BUILD.cliSha256,
+    SOURCE_QUALIFIED_SYMPOSIUM_CONNECT_PREFACE_BUILD.cliSha256,
   ]),
   gatewayVersion: z.enum([reviewed.version, '0.0.0']),
   gatewaySha256: z.enum([
@@ -115,6 +122,7 @@ const OwnedAttestation = LegacyAttestation.extend({
     reviewed.supervisorImage,
     SOURCE_QUALIFIED_SYMPOSIUM_LOCAL_B20_BUILD.supervisorImage,
     SOURCE_QUALIFIED_SYMPOSIUM_ROUTING_BUILD.supervisorImage,
+    SOURCE_QUALIFIED_SYMPOSIUM_CONNECT_PREFACE_BUILD.supervisorImage,
   ]),
   nativeArtifacts: z
     .object({
@@ -179,11 +187,21 @@ const OwnedAttestation = LegacyAttestation.extend({
       value.cliVersion === SOURCE_QUALIFIED_SYMPOSIUM_ROUTING_BUILD.version ||
       value.cliSha256 === SOURCE_QUALIFIED_SYMPOSIUM_ROUTING_BUILD.cliSha256 ||
       value.supervisorImage === SOURCE_QUALIFIED_SYMPOSIUM_ROUTING_BUILD.supervisorImage;
+    const connectPreface =
+      value.cliVersion === SOURCE_QUALIFIED_SYMPOSIUM_CONNECT_PREFACE_BUILD.version ||
+      value.cliSha256 === SOURCE_QUALIFIED_SYMPOSIUM_CONNECT_PREFACE_BUILD.cliSha256 ||
+      value.supervisorImage === SOURCE_QUALIFIED_SYMPOSIUM_CONNECT_PREFACE_BUILD.supervisorImage;
     let expected: ReturnType<typeof reviewedSymposiumOwnedBuild>;
     try {
       expected = reviewedSymposiumOwnedBuild(
         value.image,
-        routing ? 'local-854b-routing-v1' : local ? 'local-854b-b20-v1' : undefined,
+        connectPreface
+          ? 'local-854b-routing-v2'
+          : routing
+            ? 'local-854b-routing-v1'
+            : local
+              ? 'local-854b-b20-v1'
+              : undefined,
       );
     } catch {
       context.addIssue({

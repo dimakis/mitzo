@@ -1,0 +1,8 @@
+tree 8a6ac78050e486234f77e07d3a00d2175adf5f94
+parent 9472cc767d569bf74c986a2412443988cc4e937f
+author dimakis <dimitri.saridakis@gmail.com> 1791588043 +0100
+committer dimakis <dimitri.saridakis@gmail.com> 1791588801 +0100
+
+fix(network): preserve CONNECT payload during protocol detection
+
+Signed-off-by: dimakis <dimitri.saridakis@gmail.com>

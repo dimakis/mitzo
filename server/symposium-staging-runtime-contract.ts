@@ -3,6 +3,7 @@ import {
   REVIEWED_SYMPOSIUM_OWNED_RUNTIME,
   REVIEWED_SYMPOSIUM_CLAUDE_RUNTIME,
   SOURCE_QUALIFIED_SYMPOSIUM_ROUTING_BUILD,
+  SOURCE_QUALIFIED_SYMPOSIUM_CONNECT_PREFACE_BUILD,
 } from './symposium-owned-runtime-contract.js';
 import type { OwnedSymposiumFileConfig } from './symposium-owned-config-schema.js';
 /** Explicit successor for Codex code-mode seats. The original image and the
@@ -97,7 +98,8 @@ export function reviewedStagingOwnedBuild(
   const matches = (
     build:
       | ReturnType<typeof reviewedStagingOwnedRuntime>['build']
-      | typeof SOURCE_QUALIFIED_SYMPOSIUM_ROUTING_BUILD,
+      | typeof SOURCE_QUALIFIED_SYMPOSIUM_ROUTING_BUILD
+      | typeof SOURCE_QUALIFIED_SYMPOSIUM_CONNECT_PREFACE_BUILD,
   ) =>
     gateway.cliSha256 === build.cliSha256 &&
     gateway.executableSha256 === build.gatewaySha256 &&
@@ -105,6 +107,14 @@ export function reviewedStagingOwnedBuild(
     gateway.sandboxRuntimeImage === build.sandboxRuntimeImage &&
     gateway.supervisorImage === build.supervisorImage;
   if (!gateway) throw Error('Staging native tuple is not qualified');
+  if (
+    /^[a-f0-9]{64}$/.test(SOURCE_QUALIFIED_SYMPOSIUM_CONNECT_PREFACE_BUILD.cliSha256) &&
+    /^sha256:[a-f0-9]{64}$/.test(
+      SOURCE_QUALIFIED_SYMPOSIUM_CONNECT_PREFACE_BUILD.supervisorImage,
+    ) &&
+    matches(SOURCE_QUALIFIED_SYMPOSIUM_CONNECT_PREFACE_BUILD)
+  )
+    return SOURCE_QUALIFIED_SYMPOSIUM_CONNECT_PREFACE_BUILD;
   if (matches(SOURCE_QUALIFIED_SYMPOSIUM_ROUTING_BUILD))
     return SOURCE_QUALIFIED_SYMPOSIUM_ROUTING_BUILD;
   try {

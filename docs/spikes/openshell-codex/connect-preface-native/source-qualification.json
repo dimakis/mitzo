@@ -1,0 +1,61 @@
+{
+  "format": "connect-preface-native-source-v1",
+  "upstreamRepository": "https://github.com/NVIDIA/OpenShell.git",
+  "upstreamCommit": "854b2370b8740b67f6481d3015272fc37aaf9427",
+  "nativeCommit": "871837ae7598189ab1b06f8fd6a29148985edf6f",
+  "nativeParentCommit": "9472cc767d569bf74c986a2412443988cc4e937f",
+  "sourceTree": "8a6ac78050e486234f77e07d3a00d2175adf5f94",
+  "patchSha256": "4b74bdb457914a07360130a65a2a47471e8a797d34b196abbc24e4fc8c64bf9e",
+  "sourceArchiveSha256": "c20753a6d00bb117fd9845919cf3b09a8aa7893c7ad2dd7cbd21ee587975b5bf",
+  "cargoLockSha256": "ea10e2922eece4077a2c1be17cac83214aa5f79f39fd6c5cc830e1a2cf9d459a",
+  "compiler": {
+    "rustc": "1.95.0 (59807616e 2026-04-14)",
+    "cargo": "1.95.0 (f2d3ce0bd 2026-03-21)",
+    "zig": "0.16.0",
+    "cargoZigbuild": "0.22.3"
+  },
+  "supervisor": {
+    "sha256": "00029e7ffc06531dca649751b321ae829023908f1a70520e0346a86724c4680d",
+    "target": "aarch64-unknown-linux-gnu.2.28",
+    "format": "ELF 64-bit LSB pie executable, ARM aarch64, version 1 (SYSV), dynamically linked, interpreter /lib/ld-linux-aarch64.so.1, for GNU/Linux 2.0.0, stripped",
+    "versionBuildMetadata": "0.0.1-dev.4+g871837ae7",
+    "versionExecuted": "openshell-supervisor 0.0.1-dev.4+g871837ae7",
+    "imageConfigId": "sha256:9b666aa70b8407e22f3ee24c875e65e2eefc9ba559ac03fb78e4d37e6db52995",
+    "imageManifestDigest": "sha256:6e193e1d53d5cd75ef057f15f3d5acd9e2f4db7362031722b5f4a18d2d7cb84b",
+    "qualificationCleanupConfirmed": true
+  },
+  "cli": {
+    "sha256": "63527180098c2f0917a8ca1dcb1029cb5640ea8fa8a8252c72f800b7a9f60a72",
+    "versionExecuted": "openshell 0.0.1-dev.4+g871837ae7",
+    "format": "Mach-O 64-bit executable arm64",
+    "loaderDependencies": [
+      "/System/Library/Frameworks/Security.framework/Versions/A/Security",
+      "/System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation",
+      "/usr/lib/libiconv.2.dylib",
+      "/usr/lib/libSystem.B.dylib"
+    ]
+  },
+  "tests": {
+    "focusedTotal": 13,
+    "connectPrefetchedPayload": 5,
+    "tunnelProtocolControls": 8,
+    "red": "coalesced TLS-prefix and plaintext payload absent at authorized mock upstream; empty control passed",
+    "green": "exact bidirectional bytes, hidden synthetic response, fragmented CONNECT, TLS/HTTP short-prefix detection, deadline/EOF restoration and unchanged initial idle wait",
+    "focusedClippy": "network library passed -D warnings",
+    "format": "cargo fmt and diff check passed",
+    "licenseCheckFiles": 1151,
+    "modelCalls": 0
+  },
+  "fullNativePrecommit": "attempted offline; uncached pytest-xdist 3.8.0 prevented completion; standalone offline license check passed",
+  "fullNativeE2e": "not run; actual handler and virtual bridge use a local mock upstream; live canonical acceptance remains separate",
+  "limits": {
+    "jobs": 2,
+    "timeoutSeconds": 900,
+    "network": "offline-locked-qualified-public-cache",
+    "providerRequests": 0,
+    "modelCalls": 0
+  },
+  "unchangedGatewayVersion": "0.0.117-dev.292+g854b2370b",
+  "adopted": false,
+  "sourceRegistrationRequired": true
+}
