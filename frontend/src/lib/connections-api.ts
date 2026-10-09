@@ -75,6 +75,19 @@ type OpenAIKeySelection = {
   sameProject: boolean;
   csrf: string;
 };
+export async function authorizeOpenAIKey(input: {
+  accountId: string;
+  revision: string;
+  csrf: string;
+}): Promise<OpenAIKeyHealth> {
+  const { accountId, ...body } = input;
+  return bodyOrError(
+    await apiFetch(
+      `/api/connections/openai-keys/${encodeURIComponent(accountId)}/authorize`,
+      json('POST', body, input.csrf),
+    ),
+  );
+}
 export async function replaceOpenAIKey(
   input: OpenAIKeySelection & { apiKey: string },
 ): Promise<OpenAIKeyHealth> {

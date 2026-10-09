@@ -36,20 +36,31 @@ export class KeychainUnavailableError extends Error {
   }
 }
 type HelperRequest = VaultReference & {
-  operation: 'save' | 'link' | 'read' | 'remove';
+  operation:
+    | 'save'
+    | 'link'
+    | 'read'
+    | 'remove'
+    | 'rotation-read'
+    | 'rotation-write'
+    | 'rotation-authorize'
+    | 'rotation-create';
   secret?: string;
   authorization?: string;
   namespace?: string;
+  version?: string;
+  expectedVersion?: string | null;
 };
-type RunHelper = (file: string, request: HelperRequest) => Promise<string>;
-const runHelper: RunHelper = (file, request) =>
+type RunHelper = (file: string, request: HelperRequest, signal?: AbortSignal) => Promise<string>;
+const runHelper: RunHelper = (file, request, signal) =>
   new Promise((resolve, reject) => {
     const child = execFile(
       file,
       [],
       {
         encoding: 'utf8',
-        timeout: 30_000,
+        timeout: request.operation === 'rotation-authorize' ? 120_000 : 30_000,
+        signal,
         maxBuffer: 64 * 1024,
         env: { PATH: '/usr/bin:/bin', HOME: process.env.HOME ?? '' },
       },
@@ -78,7 +89,8 @@ export class MacKeychainVault implements CredentialVault {
     private controller: KeychainControllerAccess = keychainController,
     private prepare: (file: string) => PreparedKeychainHelper = prepareKeychainHelper,
   ) {}
-  private async call(request: HelperRequest) {
+  private async call(request: HelperRequest, signal?: AbortSignal) {
+    signal?.throwIfAborted();
     let helper: PreparedKeychainHelper | undefined;
     try {
       helper = this.prepare(this.file);
@@ -94,15 +106,19 @@ export class MacKeychainVault implements CredentialVault {
       service?: string;
       account?: string;
       persistentRef?: string;
+      value?: string;
+      version?: string | null;
+      managed?: boolean;
     };
     try {
       const authorization = await this.controller.authorization();
+      const input = {
+        ...request,
+        authorization,
+        ...(this.controller.namespace ? { namespace: this.controller.namespace } : {}),
+      };
       result = JSON.parse(
-        await this.run(helper.file, {
-          ...request,
-          authorization,
-          ...(this.controller.namespace ? { namespace: this.controller.namespace } : {}),
-        }),
+        await (signal ? this.run(helper.file, input, signal) : this.run(helper.file, input)),
       );
     } catch {
       throw new KeychainUnavailableError('unavailable');
@@ -116,6 +132,22 @@ export class MacKeychainVault implements CredentialVault {
           : 'unavailable',
       );
     return result;
+  }
+  async rotateOpenAI(
+    reference: { service: string; account: string },
+    operation: 'rotation-read' | 'rotation-write' | 'rotation-authorize' | 'rotation-create',
+    extra: { secret?: string; version?: string; expectedVersion?: string | null } = {},
+    signal?: AbortSignal,
+  ) {
+    const parsed = VaultReferenceSchema.parse(reference);
+    if (
+      parsed.persistentRef ||
+      parsed.service.startsWith('mitzo.connection.') ||
+      !this.controller.enrollRotation
+    )
+      throw new KeychainUnavailableError('unavailable');
+    await this.controller.enrollRotation({ service: parsed.service, account: parsed.account });
+    return this.call({ operation, ...parsed, ...extra }, signal);
   }
   async save(id: string, secret: string) {
     if (!/^[A-Za-z0-9-]+$/.test(id) || !secret || Buffer.byteLength(secret, 'utf8') > 16_384)
