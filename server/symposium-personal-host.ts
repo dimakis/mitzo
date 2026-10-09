@@ -1,6 +1,6 @@
 import type { SubscriptionLaunchIdentity } from './symposium-subscription-identity.js';
 import type { CatalogModel } from './model-catalog.js';
-import type { DiscoveryResult } from './symposium-model-discovery.js';
+import type { DiscoveryResult, RoutingDiagnosticResult } from './symposium-model-discovery.js';
 import { AccountProfiles } from './account-profiles.js';
 import { DeviceLoginCleanupError } from './symposium-device-login.js';
 import { PersonalConnections, type ConnectionSelection } from './symposium-personal-connections.js';
@@ -10,16 +10,23 @@ import {
 } from './symposium-subscription-host.js';
 import type { VerifySymposiumSubscriptionAuth } from './symposium-subscription-native.js';
 type DiscoveryRecovery = (assertCurrent: () => void) => Promise<DiscoveryResult>;
+export interface PersonalDiscoveryProof {
+  provider: { name: string; id: string };
+  account: { email: string; planType: string };
+  launchIdentity?(): SubscriptionLaunchIdentity;
+  assertCurrent(): void;
+}
+
 /** Slots retain display metadata only; each live adapter owns an independent receipt. */
 export function createPersonalSubscriptionHost(
   options: SymposiumSubscriptionHostOptions,
   metadataPath: string,
-  discover?: (proof: {
-    provider: { name: string; id: string };
-    account: { email: string; planType: string };
-    launchIdentity?(): SubscriptionLaunchIdentity;
-    assertCurrent(): void;
-  }) => Promise<{ result: DiscoveryResult; models?: CatalogModel[]; recover?: DiscoveryRecovery }>,
+  discover?: (proof: PersonalDiscoveryProof) => Promise<{
+    result: DiscoveryResult;
+    models?: CatalogModel[];
+    recover?: DiscoveryRecovery;
+  }>,
+  diagnose?: (proof: PersonalDiscoveryProof) => Promise<RoutingDiagnosticResult>,
 ) {
   const recoveries = new Map<
     string,
@@ -211,6 +218,72 @@ export function createPersonalSubscriptionHost(
           return { ...result, connection };
         } finally {
           recovering = false;
+        }
+      },
+      /** Trusted optional native capability only. This never invalidates, publishes
+       * or implies a supported model catalog; the lease only fences owned work. */
+      async diagnoseRouting(id: string, revision: number, assertOperator: () => void) {
+        assertOperator();
+        if (!diagnose) throw new Error('Owned routing diagnostic is unavailable');
+        assertNoDiscovery();
+        if (connections.list().some((row) => ['connecting', 'disconnecting'].includes(row.state)))
+          throw new Error('Account change is pending');
+        const lease = connections.beginDiscovery(id, revision);
+        let entered = false;
+        try {
+          options.gateway.verifyCustody();
+          const proof = lease.adapter.captureDiscovery();
+          const assertCurrent = () => {
+            assertOperator();
+            options.gateway.verifyCustody();
+            connections.assertDiscovery(lease);
+            proof.assertCurrent();
+          };
+          assertCurrent();
+          if (proof.account.planType !== 'pro')
+            throw new Error('A live Personal Pro receipt is required');
+          entered = true;
+          const result = await diagnose({
+            provider: proof.provider,
+            account: proof.account,
+            launchIdentity: () => {
+              assertCurrent();
+              const identity = proof.launchIdentity();
+              return {
+                accountId: identity.accountId,
+                assertCurrent: () => {
+                  assertCurrent();
+                  identity.assertCurrent();
+                },
+              };
+            },
+            assertCurrent,
+          });
+          assertCurrent();
+          if (
+            !['complete', 'failed', 'reconciliation_required'].includes(result.status) ||
+            result.inference !== false ||
+            result.catalogPublication !== false
+          )
+            throw new Error('Invalid routing diagnostic outcome');
+          const connection = connections.finishDiscovery(
+            lease,
+            result.status !== 'reconciliation_required',
+          );
+          return { ...result, connection };
+        } catch {
+          let released = false;
+          try {
+            connections.finishDiscovery(lease, !entered);
+            released = !entered;
+          } catch {
+            /* Preserve unresolved owned operation. */
+          }
+          throw new Error(
+            released
+              ? 'Personal routing diagnostic preflight failed'
+              : 'Personal routing diagnostic requires recovery',
+          );
         }
       },
       async discoverModels(id: string, revision: number, assertOperator: () => void) {

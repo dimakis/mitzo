@@ -87,6 +87,14 @@ export type DiscoveryResult =
       diagnostic?: DiscoveryDiagnostic;
       diagnosticPersisted?: boolean;
     };
+/** Routing metadata only; completion never publishes a model catalog. */
+export interface RoutingDiagnosticResult {
+  status: 'complete' | 'failed' | 'reconciliation_required';
+  inference: false;
+  catalogPublication: false;
+  diagnostic?: DiscoveryDiagnostic;
+  diagnosticPersisted?: boolean;
+}
 
 /** Account and model metadata only. No thread/turn API, inference, or automatic retry. */
 export async function runSymposiumModelDiscovery(

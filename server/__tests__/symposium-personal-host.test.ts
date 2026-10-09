@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { SymposiumSubscriptionHostOptions } from '../symposium-subscription-host.js';
 type FakeAdapter = {
-  complete(): void;
+  complete(plan?: 'plus' | 'pro'): void;
   disconnect: ReturnType<typeof vi.fn>;
   beginDeviceLogin: ReturnType<typeof vi.fn>;
   captureDiscovery: ReturnType<typeof vi.fn>;
@@ -27,6 +27,11 @@ vi.mock('../symposium-subscription-host.js', () => ({
       }),
       captureDiscovery: vi.fn(() => ({
         provider: { name: 'physical-provider', id: 'provider-id' },
+        account: {
+          email: (definition as { email: string }).email,
+          planType: (definition as { planType: string }).planType,
+        },
+        launchIdentity: () => ({ accountId: 'real-account', assertCurrent() {} }),
         assertCurrent: () => {
           if (!definition) throw new Error('receipt changed');
         },
@@ -56,20 +61,20 @@ vi.mock('../symposium-subscription-host.js', () => ({
         }),
         cancel: async () => fail(new Error('cancelled')),
       })),
-      complete() {
+      complete(plan: 'plus' | 'pro' = 'plus') {
         definition = {
           id: options.accountId,
           label: options.label,
           provider: 'openai-codex',
           nativeAuth: 'sandbox-chatgpt',
           email: 'test@example.test',
-          planType: 'plus',
+          planType: plan,
           sandboxProvider: 'provider-' + Math.floor(Math.random() * 1e9),
           sandboxProviderId: 'provider-id',
           sandboxProviderType: 'codex',
           models: options.models,
         };
-        finish({ email: 'test@example.test', planType: 'plus' });
+        finish({ email: 'test@example.test', planType: plan });
       },
     };
     state.adapters.set(options.accountId, adapter);
@@ -83,7 +88,10 @@ afterEach(() => {
   state.adapters.clear();
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
-function fixture(discover?: Parameters<typeof createPersonalSubscriptionHost>[2]) {
+function fixture(
+  discover?: Parameters<typeof createPersonalSubscriptionHost>[2],
+  diagnose?: Parameters<typeof createPersonalSubscriptionHost>[3],
+) {
   const root = mkdtempSync(join(tmpdir(), 'personal-host-'));
   roots.push(root);
   return createPersonalSubscriptionHost(
@@ -98,6 +106,7 @@ function fixture(discover?: Parameters<typeof createPersonalSubscriptionHost>[2]
     },
     join(root, 'slots.json'),
     discover,
+    diagnose,
   );
 }
 it('connects two independent accounts, rotates only explicit reconnect and fences removed account', async () => {
@@ -179,13 +188,13 @@ it('cannot implicitly reconnect the default slot through direct host entrypoints
   expect(host.personalConnections.list()[0].state).toBe('connected');
 });
 
-async function connected(host: ReturnType<typeof fixture>) {
+async function connected(host: ReturnType<typeof fixture>, plan: 'plus' | 'pro' = 'plus') {
   const row = host.personalConnections.list()[0];
   const login = await host.beginDeviceLogin({
     connectionId: row.id,
     expectedRevision: row.revision,
   });
-  state.adapters.get(row.id)!.complete();
+  state.adapters.get(row.id)!.complete(plan);
   await login.completed;
   return host.personalConnections.list()[0];
 }
@@ -474,4 +483,117 @@ it('does not accept personal provenance from authored profile JSON', () => {
         },
       ]),
   ).toThrow('Invalid account profiles');
+});
+
+it('keeps routing diagnostic closed before changing a slot when the trusted capability is absent', async () => {
+  const host = fixture(),
+    row = await connected(host, 'pro');
+  await expect(
+    host.personalConnections.diagnoseRouting(row.id, row.revision, () => {}),
+  ).rejects.toThrow('unavailable');
+  expect(host.personalConnections.list()[0]).toEqual(row);
+  expect(state.adapters.get(row.id)!.captureDiscovery).not.toHaveBeenCalled();
+});
+it('requires a live Pro receipt before entering the routing diagnostic capability', async () => {
+  const diagnose = vi.fn(),
+    host = fixture(undefined, diagnose),
+    row = await connected(host);
+  await expect(
+    host.personalConnections.diagnoseRouting(row.id, row.revision, () => {}),
+  ).rejects.toThrow('preflight');
+  expect(diagnose).not.toHaveBeenCalled();
+  expect(host.personalConnections.list()[0]).toMatchObject({ state: 'connected' });
+  expect(host.personalConnections.list()[0].modelDiscovery).toBeUndefined();
+});
+it.each(['complete', 'failed'] as const)(
+  'preserves current catalog and connected receipt after routing diagnostic %s with confirmed cleanup',
+  async (status) => {
+    const diagnose = vi.fn(async (proof) => {
+      proof.assertCurrent();
+      expect(proof.provider).toEqual({ name: 'physical-provider', id: 'provider-id' });
+      expect(proof.account).toMatchObject({ planType: 'pro' });
+      return { status, inference: false as const, catalogPublication: false as const };
+    });
+    const host = fixture(undefined, diagnose),
+      row = await connected(host, 'pro');
+    const before = host.currentProfiles.resolve(row.id, 'luna'),
+      catalog = host.currentProfiles.catalog()[0];
+    const result = await host.personalConnections.diagnoseRouting(row.id, row.revision, () => {});
+    expect(result).toMatchObject({
+      status,
+      inference: false,
+      catalogPublication: false,
+      connection: { state: 'connected', revision: row.revision + 2 },
+    });
+    expect(host.currentProfiles.resolve(row.id, 'luna')).toEqual(before);
+    expect(host.currentProfiles.catalog()[0].models).toEqual(catalog.models);
+    expect(host.currentProfiles.catalog()[0].modelDiscovery).toEqual(catalog.modelDiscovery);
+    expect(host.personalConnections.list()[0].modelDiscovery).toBeUndefined();
+    expect(state.adapters.get(row.id)!.disconnect).not.toHaveBeenCalled();
+  },
+);
+it('serializes routing diagnostic with catalog discovery and account mutations', async () => {
+  let release!: (value: { status: 'failed'; inference: false; catalogPublication: false }) => void;
+  const diagnose = vi.fn(
+    () =>
+      new Promise<{ status: 'failed'; inference: false; catalogPublication: false }>((resolve) => {
+        release = resolve;
+      }),
+  );
+  const discover = vi.fn(),
+    host = fixture(discover, diagnose),
+    row = await connected(host, 'pro');
+  const pending = host.personalConnections.diagnoseRouting(row.id, row.revision, () => {});
+  const current = host.personalConnections.list()[0];
+  expect(current.modelDiscovery).toBe('pending');
+  expect(() => host.personalConnections.create('Other')).toThrow('discovery');
+  await expect(host.personalConnections.disconnect(row.id, current.revision)).rejects.toThrow(
+    'discovery',
+  );
+  await expect(
+    host.personalConnections.discoverModels(row.id, current.revision, () => {}),
+  ).rejects.toThrow('discovery');
+  expect(() =>
+    host.captureAdmissionProvider({ connectionId: row.id, expectedRevision: current.revision }),
+  ).toThrow('discovery');
+  expect(discover).not.toHaveBeenCalled();
+  release({ status: 'failed', inference: false, catalogPublication: false });
+  await pending;
+});
+it.each(['uncertain', 'throw', 'revoked'] as const)(
+  'quarantines routing diagnostic after %s rather than claiming cleanup',
+  async (failure) => {
+    let authorized = true;
+    const host = fixture(undefined, async (proof) => {
+      proof.assertCurrent();
+      if (failure === 'throw') throw new Error('unknown allocation with private details');
+      if (failure === 'revoked') authorized = false;
+      return {
+        status: failure === 'uncertain' ? 'reconciliation_required' : 'failed',
+        inference: false,
+        catalogPublication: false,
+      };
+    });
+    const row = await connected(host, 'pro');
+    const operation = host.personalConnections.diagnoseRouting(row.id, row.revision, () => {
+      if (!authorized) throw new Error('revoked');
+    });
+    if (failure === 'uncertain') expect((await operation).status).toBe('reconciliation_required');
+    else await expect(operation).rejects.toThrow('recovery');
+    expect(host.personalConnections.list()[0]).toMatchObject({
+      state: 'recovery_required',
+      modelDiscovery: 'reconciliation_required',
+    });
+    expect(host.currentProfiles.catalog()).toEqual([]);
+  },
+);
+it('refuses stale routing selections before calling the diagnostic runner', async () => {
+  const diagnose = vi.fn(),
+    host = fixture(undefined, diagnose),
+    row = await connected(host, 'pro');
+  await expect(
+    host.personalConnections.diagnoseRouting(row.id, row.revision - 1, () => {}),
+  ).rejects.toThrow('changed');
+  expect(diagnose).not.toHaveBeenCalled();
+  expect(host.personalConnections.list()[0]).toEqual(row);
 });

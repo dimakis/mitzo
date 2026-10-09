@@ -1,3 +1,4 @@
+import { createPersonalRoutingDiagnosticHandler } from './symposium-routing-diagnostic-route.js';
 import { createRepositoryWorkspaceRouter } from './repository-workspace-router.js';
 import {
   getRepositoryWorkspaces,
@@ -1128,6 +1129,7 @@ export interface SymposiumProductionHost {
     disconnect(id: string, revision: number): Promise<PersonalConnection>;
     recoverDiscovery?(id: string, revision: number, assertOperator: () => void): Promise<unknown>;
     discoverModels?(id: string, revision: number, assertOperator: () => void): Promise<unknown>;
+    diagnoseRouting?: import('./symposium-routing-diagnostic-route.js').PersonalRoutingDiagnosticOperation;
   };
   resolveSeatPolicy?: import('./symposium-owned-seat-policy.js').SymposiumSeatPolicySelector;
   observeDurableReviewToolResult?: import('./symposium-codex-native.js').OpenAiCodexSeatInput['observeDurableReviewToolResult'];
@@ -2473,6 +2475,13 @@ app.post(
       unregister();
     }
   },
+);
+app.post(
+  '/api/symposium/personal/connections/:id/routing-diagnostic',
+  operatorAuthMiddleware,
+  createPersonalRoutingDiagnosticHandler(
+    () => symposiumProductionHost?.personalConnections?.diagnoseRouting,
+  ),
 );
 app.get('/api/symposium/personal/login/status', operatorAuthMiddleware, subscriptionLogin.status);
 app.post('/api/symposium/personal/login', operatorAuthMiddleware, subscriptionLogin.start);
