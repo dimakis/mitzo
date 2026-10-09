@@ -18,7 +18,7 @@ function environment(): NodeJS.ProcessEnv {
     GIT_TERMINAL_PROMPT: '0',
     GIT_NO_REPLACE_OBJECTS: '1',
     GIT_NO_LAZY_FETCH: '1',
-    GIT_CONFIG_COUNT: token ? '3' : '2',
+    GIT_CONFIG_COUNT: '3',
     GIT_CONFIG_KEY_0: 'core.hooksPath',
     GIT_CONFIG_VALUE_0: '/dev/null',
     GIT_CONFIG_KEY_1: 'core.fsmonitor',
@@ -31,7 +31,12 @@ function environment(): NodeJS.ProcessEnv {
           GIT_CONFIG_VALUE_2:
             '!f() { echo username=x-access-token; echo password="$GITHUB_TOKEN"; }; f',
         }
-      : {}),
+      : {
+          // Consult only the enrolled gh account for this canonical host, without
+          // inheriting global Git helpers or exporting its stored credentials.
+          GIT_CONFIG_KEY_2: 'credential.https://github.com.helper',
+          GIT_CONFIG_VALUE_2: '!gh auth git-credential',
+        }),
   };
 }
 function safeCause(error: unknown): Error {

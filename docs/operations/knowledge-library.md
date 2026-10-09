@@ -40,7 +40,15 @@ publisher enrollment and `acceptanceEnabled: true`; its default is disabled.
 The existing GitHub CLI host transport supplies GitHub authentication. Its account is
 verified against `publisherLogin` before saving, sending, inspecting or accepting a review.
 Use a separately reviewed service account and credential configuration for this
-host deployment. Never borrow production credentials/configuration for staging, or
+host deployment. Authenticate that service user with `gh auth login --hostname
+github.com`, or provide its separately enrolled `GH_TOKEN` / `GITHUB_TOKEN` in the
+controller environment. With no environment token, private Git fetches and clones
+use the code-owned GitHub-scoped `gh auth git-credential` helper against the same
+GitHub CLI account as API calls. With an environment token, the fixed credential
+helper reads it only from the controller environment. Both paths disable global and
+system Git configuration; no user-defined Git credential helpers are inherited, and
+stored GitHub CLI credentials are never copied into configuration, argv or diagnostics.
+Never borrow production credentials/configuration for staging, or
 fall back to production. No provider or real model call is needed for Library reads,
 draft editing, source review inspection or acceptance.
 
