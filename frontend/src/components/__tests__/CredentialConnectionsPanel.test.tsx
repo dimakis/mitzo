@@ -28,6 +28,45 @@ afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
 });
+
+it('enrolls any HTTPS API from the generic entry with explicit scope and no chat grant', async () => {
+  render(<CredentialConnectionsPanel initialTemplate="custom" />);
+  await screen.findByLabelText('Service address');
+  expect((screen.getByLabelText('Service template') as HTMLSelectElement).value).toBe('custom');
+  expect((screen.getByLabelText('Connection name') as HTMLInputElement).value).toBe('');
+  await authorize();
+  fireEvent.change(screen.getByLabelText('Connection name'), { target: { value: 'Example data' } });
+  fireEvent.change(screen.getByLabelText('Service address'), {
+    target: { value: 'https://data.example.com' },
+  });
+  fireEvent.change(screen.getByLabelText('Authentication'), { target: { value: 'api-key' } });
+  fireEvent.change(screen.getByLabelText('Authentication header', { exact: false }), {
+    target: { value: 'X-Service-Key' },
+  });
+  fireEvent.change(screen.getByLabelText('Allowed path prefixes', { exact: false }), {
+    target: { value: '/v2/records/' },
+  });
+  fireEvent.change(screen.getByLabelText('Token or password'), {
+    target: { value: 'fixture-key' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Save connection' }));
+  await screen.findByText('Connection saved. Chats will request approval when they need it.');
+  expect(api.createCredentialConnection).toHaveBeenCalledWith(
+    {
+      connection: {
+        label: 'Example data',
+        endpoint: 'https://data.example.com',
+        auth: { kind: 'api-key', headerName: 'X-Service-Key' },
+        paths: ['/v2/records/'],
+        methods: ['GET', 'HEAD'],
+        allowPrivateNetwork: false,
+      },
+      secret: 'fixture-key',
+    },
+    'csrf',
+  );
+  expect(api.getConnectionSessions).not.toHaveBeenCalled();
+});
 async function authorize() {
   fireEvent.change(screen.getByLabelText('Keychain setup passphrase'), {
     target: { value: 'password' },

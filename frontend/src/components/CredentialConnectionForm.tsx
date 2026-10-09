@@ -4,18 +4,21 @@ import type {
   ConnectionAuth,
   ConnectionMethod,
   ConnectionRun,
+  CredentialConnectionTemplate,
 } from '../types/credential-connections';
 const methods: ConnectionMethod[] = ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE'];
 export function CredentialConnectionForm({
   busy,
   csrf,
   run,
+  initialTemplate = 'home-assistant',
 }: {
   busy: boolean;
   csrf: () => string | undefined;
   run: ConnectionRun;
+  initialTemplate?: CredentialConnectionTemplate;
 }) {
-  const [label, setLabel] = useState('Home Assistant');
+  const [label, setLabel] = useState(initialTemplate === 'home-assistant' ? 'Home Assistant' : '');
   const [endpoint, setEndpoint] = useState('');
   const [kind, setKind] = useState<ConnectionAuth['kind']>('bearer');
   const [username, setUsername] = useState('');
@@ -24,7 +27,7 @@ export function CredentialConnectionForm({
   const [secret, setSecret] = useState('');
   const [keychainService, setKeychainService] = useState('');
   const [keychainAccount, setKeychainAccount] = useState('');
-  const [paths, setPaths] = useState('/api/');
+  const [paths, setPaths] = useState(initialTemplate === 'home-assistant' ? '/api/' : '/');
   const [selectedMethods, setSelectedMethods] = useState<ConnectionMethod[]>(['GET', 'HEAD']);
   const [allowPrivateNetwork, setAllowPrivateNetwork] = useState(false);
   return (
@@ -84,7 +87,7 @@ export function CredentialConnectionForm({
               setPaths(home ? '/api/' : '/');
               setSelectedMethods(['GET', 'HEAD']);
             }}
-            defaultValue="home-assistant"
+            defaultValue={initialTemplate}
           >
             <option value="home-assistant">Home Assistant</option>
             <option value="custom">Custom HTTPS service</option>
@@ -105,7 +108,9 @@ export function CredentialConnectionForm({
             required
             type="url"
             autoComplete="url"
-            placeholder="https://ha.example.com"
+            placeholder={
+              initialTemplate === 'custom' ? 'https://api.example.com' : 'https://ha.example.com'
+            }
             value={endpoint}
             onChange={(e) => setEndpoint(e.target.value)}
           />

@@ -2,9 +2,15 @@ import { useCallback, useEffect, useState } from 'react';
 import { CredentialConnectionForm } from './CredentialConnectionForm';
 import { CredentialConnectionCard } from './CredentialConnectionCard';
 import { getCredentialConnections, reauthorizeKeychain } from '../lib/credential-connections-api';
-import type { CredentialConnection } from '../types/credential-connections';
+import type {
+  CredentialConnection,
+  CredentialConnectionTemplate,
+} from '../types/credential-connections';
 
-export function CredentialConnectionsPanel({ connectionId }: { connectionId?: string } = {}) {
+export function CredentialConnectionsPanel({
+  connectionId,
+  initialTemplate = 'home-assistant',
+}: { connectionId?: string; initialTemplate?: CredentialConnectionTemplate } = {}) {
   const [connections, setConnections] = useState<CredentialConnection[] | null>(null);
   const [loadError, setLoadError] = useState('');
   const [message, setMessage] = useState('');
@@ -58,7 +64,17 @@ export function CredentialConnectionsPanel({ connectionId }: { connectionId?: st
       className="today-section connections-card"
       aria-labelledby="keychain-connections-heading"
     >
-      <h2 id="keychain-connections-heading">Apple Keychain connections</h2>
+      <h2 id="keychain-connections-heading">
+        {initialTemplate === 'custom'
+          ? 'Authenticated API connections'
+          : 'Apple Keychain connections'}
+      </h2>
+      {initialTemplate === 'custom' && (
+        <p>
+          Connect any HTTPS API using a bearer token, username and password, or an authentication
+          header. Choose the destination, allowed paths and methods for each connection.
+        </p>
+      )}
       <p>
         Keep tokens and passwords in Apple Keychain. Each chat asks for its own approval before
         using a connection.
@@ -116,7 +132,14 @@ export function CredentialConnectionsPanel({ connectionId }: { connectionId?: st
               Authorize Keychain changes
             </button>
           </details>
-          {!connectionId && <CredentialConnectionForm busy={busy} csrf={csrf} run={run} />}
+          {!connectionId && (
+            <CredentialConnectionForm
+              busy={busy}
+              csrf={csrf}
+              run={run}
+              initialTemplate={initialTemplate}
+            />
+          )}
           {connectionId && !connections.some((connection) => connection.id === connectionId) && (
             <p>
               This connection is no longer available. Return to Connections to refresh its status.

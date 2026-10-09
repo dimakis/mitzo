@@ -18,6 +18,7 @@ export function MoreView() {
         ['All attention', '/focus'],
         ['Chat history and quick actions', '/sessions'],
         ['Connections', '/connections-access'],
+        ['API connections', '/connections?manage=api'],
       ].map(([label, to]) => (
         <Link className="workspace-record" key={to} to={to}>
           {label}
@@ -26,7 +27,10 @@ export function MoreView() {
       ))}
       <section className="today-section">
         <h2>Connections</h2>
-        <p className="workspace-muted">Choose AI accounts and models inside a chat.</p>
+        <p className="workspace-muted">
+          Choose AI accounts inside a chat. Add API connections for authenticated service access
+          with your approval in each chat.
+        </p>
         <ServiceStatus />
       </section>
       <button

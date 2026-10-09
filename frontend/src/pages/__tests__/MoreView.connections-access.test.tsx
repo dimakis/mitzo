@@ -20,3 +20,14 @@ it('opens the unified overview from More', () => {
     '/connections-access',
   );
 });
+
+it('makes generic API setup directly accessible from More on mobile', () => {
+  render(
+    <MemoryRouter>
+      <MoreView />
+    </MemoryRouter>,
+  );
+  expect(screen.getByRole('link', { name: 'API connections' }).getAttribute('href')).toBe(
+    '/connections?manage=api',
+  );
+});

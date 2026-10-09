@@ -2,6 +2,7 @@ export type ConnectionAuth =
   | { kind: 'bearer' }
   | { kind: 'basic'; username: string }
   | { kind: 'api-key' | 'password'; headerName: string };
+export type CredentialConnectionTemplate = 'home-assistant' | 'custom';
 export type ConnectionMethod = 'GET' | 'HEAD' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 export interface CredentialConnectionInput {
   label: string;

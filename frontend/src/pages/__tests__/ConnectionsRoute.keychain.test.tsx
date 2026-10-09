@@ -14,8 +14,17 @@ vi.mock('../../lib/connections-api', () => ({
   getConnectionTemplates: vi.fn(async () => ({ templates: [], capabilities: [] })),
 }));
 vi.mock('../../components/CredentialConnectionsPanel', () => ({
-  CredentialConnectionsPanel: ({ connectionId }: { connectionId?: string }) => (
-    <p>Keychain controls: {connectionId ?? 'setup'}</p>
+  CredentialConnectionsPanel: ({
+    connectionId,
+    initialTemplate,
+  }: {
+    connectionId?: string;
+    initialTemplate?: string;
+  }) => (
+    <>
+      <p>Keychain controls: {connectionId ?? 'setup'}</p>
+      <p>Initial template: {initialTemplate ?? 'legacy'}</p>
+    </>
   ),
 }));
 vi.mock('../../components/OpenAIKeyControls', () => ({
@@ -54,15 +63,26 @@ it('opens only the selected Keychain connection from its management destination'
   expect(screen.queryByText('Choose ChatGPT')).toBeNull();
 });
 
-it('offers Keychain setup through the add chooser without opening management controls', async () => {
+it('offers generic authenticated API setup through the add chooser', async () => {
   render(
     <MemoryRouter initialEntries={['/connections']}>
       <ConnectionsRoute />
     </MemoryRouter>,
   );
-  expect(await screen.findByRole('link', { name: 'Choose Apple Keychain' })).toHaveProperty(
+  expect(await screen.findByRole('link', { name: 'Choose API connection' })).toHaveProperty(
     'href',
-    expect.stringContaining('/connections?manage=keychain'),
+    expect.stringContaining('/connections?manage=api'),
   );
   expect(screen.queryByText('Keychain controls: setup')).toBeNull();
+});
+
+it('opens generic API setup with no service-specific template', async () => {
+  render(
+    <MemoryRouter initialEntries={['/connections?manage=api']}>
+      <ConnectionsRoute />
+    </MemoryRouter>,
+  );
+  expect(await screen.findByText('Keychain controls: setup')).toBeTruthy();
+  expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('API connections');
+  expect(screen.getByText('Initial template: custom')).toBeTruthy();
 });

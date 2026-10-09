@@ -351,9 +351,11 @@ export function ConnectionsView({ mode = 'add', connectionId }: ConnectionsViewP
               ? 'Manage Google Workspace'
               : mode === 'keychain'
                 ? 'Apple Keychain connections'
-                : mode === 'legacy'
-                  ? 'Provider details'
-                  : 'Manage connection';
+                : mode === 'api'
+                  ? 'API connections'
+                  : mode === 'legacy'
+                    ? 'Provider details'
+                    : 'Manage connection';
   const identityFields = template?.connectionFields.filter((field) => field.kind === 'email') ?? [];
   const resourceFields = template?.connectionFields.filter((field) => field.kind !== 'email') ?? [];
   const stepValid =
@@ -505,11 +507,13 @@ export function ConnectionsView({ mode = 'add', connectionId }: ConnectionsViewP
                     ⌘
                   </span>
                   <div className="access-row-copy">
-                    <h3>Apple Keychain</h3>
-                    <p>Connect an HTTPS service with a token or password.</p>
+                    <h3>Authenticated API</h3>
+                    <p>
+                      Connect any HTTPS API with a token or password. Each chat asks for approval.
+                    </p>
                   </div>
-                  <Link className="access-row-action" to="/connections?manage=keychain">
-                    Choose Apple Keychain
+                  <Link className="access-row-action" to="/connections?manage=api">
+                    Choose API connection
                   </Link>
                 </article>
               </div>
@@ -650,8 +654,11 @@ export function ConnectionsView({ mode = 'add', connectionId }: ConnectionsViewP
         )
       ) : mode === 'personal' ? (
         <SymposiumPersonalConnections mode="manage" connectionId={connectionId} />
-      ) : mode === 'keychain' ? (
-        <CredentialConnectionsPanel connectionId={connectionId} />
+      ) : mode === 'keychain' || mode === 'api' ? (
+        <CredentialConnectionsPanel
+          connectionId={connectionId}
+          initialTemplate={mode === 'api' ? 'custom' : 'home-assistant'}
+        />
       ) : (
         <>
           {loadError && (
