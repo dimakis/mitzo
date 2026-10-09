@@ -5,6 +5,7 @@ import MitzoShared
 
 struct SessionListView: View {
     @EnvironmentObject var appState: AppState
+    @EnvironmentObject var notificationDelegate: WatchNotificationDelegate
 
     var body: some View {
         NavigationStack {
@@ -43,6 +44,12 @@ struct SessionListView: View {
         .task {
             await appState.refreshSessions()
         }
+        .sheet(item: $notificationDelegate.destination) { destination in
+            NavigationStack {
+                WatchNotificationDestinationView(destination: destination)
+                    .environmentObject(appState)
+            }
+        }
     }
 
     @ViewBuilder
@@ -60,6 +67,65 @@ struct SessionListView: View {
                 .fill(.red)
                 .frame(width: 8, height: 8)
         }
+    }
+}
+
+/// Load by ID rather than searching a capped feed. An old push must never open
+/// a different request or disappear merely because newer items arrived.
+struct WatchNotificationDestinationView: View {
+    @EnvironmentObject var appState: AppState
+    let destination: WatchNotificationDestination
+    @State private var item: MitzoNotification?
+    @State private var error: String?
+    @State private var replySent = false
+    @State private var replyAttempted = false
+
+    var body: some View {
+        Group {
+            switch destination {
+            case .notification(let id):
+                if let item {
+                    WatchNotificationDetail(item: item, onDecision: { decision in
+                        try await appState.respondNotification(item, decision: decision)
+                    }).environmentObject(appState)
+                } else {
+                    VStack {
+                        if let error {
+                            Text(error).font(.caption)
+                            Button("Retry") { Task { await load(id: id) } }
+                        } else { ProgressView() }
+                    }.task { await load(id: id) }
+                }
+            case .session(let id):
+                ChatView(sessionId: id).environmentObject(appState)
+            case .reply(let id, let text):
+                if replySent {
+                    ChatView(sessionId: id).environmentObject(appState)
+                } else {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Your reply").font(.headline)
+                        Text(text).font(.caption)
+                        if let error {
+                            Text(error).font(.caption).foregroundStyle(.orange)
+                            NavigationLink("Open session") {
+                                ChatView(sessionId: id).environmentObject(appState)
+                            }
+                        } else { ProgressView("Sending…") }
+                    }.task {
+                        guard !replyAttempted else { return }
+                        replyAttempted = true
+                        do { try await appState.replyToNotification(sessionID: id, text: text); replySent = true }
+                        catch { self.error = "Reply could not be confirmed. Check the session before sending again." }
+                    }
+                }
+            }
+        }
+    }
+
+    @MainActor private func load(id: String) async {
+        error = nil
+        do { item = try await appState.loadNotification(id: id) }
+        catch { self.error = "Cannot load this request. Check your iPhone connection and retry." }
     }
 }
 

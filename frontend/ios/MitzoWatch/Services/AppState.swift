@@ -120,11 +120,20 @@ final class AppState: ObservableObject {
         try await relayClient.requestNotifications()
     }
 
+    func loadNotification(id: String) async throws -> MitzoNotification {
+        try await relayClient.requestNotification(id: id)
+    }
+
+    func replyToNotification(sessionID: String, text: String) async throws {
+        try await relayClient.replyToNotification(sessionID: sessionID, text: text)
+    }
+
     func respondNotification(_ item: MitzoNotification, decision: NotificationResponse.Decision) async throws {
-        guard item.isActionable(), let sessionId = item.sessionId else {
-            throw RelayResponseError.serverRejected("This request is no longer active.")
+        let current = try await loadNotification(id: item.id)
+        guard let response = watchNotificationResponse(reviewed: item, current: current, decision: decision) else {
+            throw RelayResponseError.serverRejected("This request changed or is no longer active. Refresh before responding.")
         }
-        try await relayClient.respondNotification(id: item.id, sessionId: sessionId, decision: decision)
+        try await relayClient.respondNotification(id: current.id, sessionId: response.sessionId, decision: response.decision)
     }
 
     // MARK: - Active Chat
