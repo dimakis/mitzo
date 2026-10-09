@@ -1,3 +1,5 @@
+import { TerminalAdviser } from './terminal-adviser.js';
+import { createTerminalAdviserSession } from './terminal-adviser-model.js';
 import { TerminalService, TerminalStore } from './terminal-service.js';
 import { TmuxTerminalBackend } from './terminal-backend.js';
 import { createTerminalTargetResolver } from './terminal-targets.js';
@@ -3175,7 +3177,36 @@ export const terminalService = new TerminalService(new TerminalStore(taskStore.g
 });
 app.use(
   '/api/terminals',
-  createTerminalRouter({ service: terminalService, authorize: operatorAuthMiddleware }),
+  createTerminalRouter({
+    service: terminalService,
+    authorize: operatorAuthMiddleware,
+    adviser: new TerminalAdviser(createTerminalAdviserSession),
+    accounts: async () => {
+      const profiles = loadAccountProfiles();
+      // Subscription CLI agents do not establish an inference-only capability.
+      return profiles
+        .catalog()
+        .filter((account) => account.provider !== 'openai-codex')
+        .map((account) => ({ ...account, label: accountAliases.label(account.id, account.label) }));
+    },
+    context: (id) => {
+      const meta = id ? eventStore.getSession(id) : undefined;
+      return meta?.accountBinding
+        ? {
+            selection: {
+              accountId: meta.accountBinding.accountId,
+              model: meta.selectedModel ?? meta.accountBinding.model,
+              reasoningEffort: meta.reasoningEffort,
+            },
+          }
+        : {};
+    },
+    destinations: () =>
+      eventStore
+        .listSessions(200)
+        .filter((meta) => meta.cwd && isRemoteSessionArtifact(meta.sessionId))
+        .map((meta) => ({ sessionId: meta.sessionId, label: meta.title || 'Untitled chat' })),
+  }),
 );
 
 function readPreviewFile(filePath: string): {

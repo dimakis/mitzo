@@ -122,3 +122,48 @@ it('binds output transport to operator logout and expiry', async () => {
   expect(subscribed).toBe(true);
   expect(release).toHaveBeenCalled();
 });
+
+it('exposes only server supplied adviser accounts and explicit reviewed context', async () => {
+  const ask = vi.fn(async () => ({ text: 'Try pwd', commands: ['pwd'] }));
+  const app = express();
+  app.use(express.json());
+  app.use(
+    '/api/terminals',
+    createTerminalRouter({
+      authorize: (_req, res, next) => {
+        res.locals.authSession = { id: 'advice-login', expiresAt: Date.now() + 60000 };
+        next();
+      },
+      service: { get: vi.fn(() => ({ id: 'owned' })) } as never,
+      adviser: { ask } as never,
+      accounts: async () => [
+        { id: 'work', label: 'Work', models: [{ id: 'luna', label: 'Luna' }] },
+      ],
+    }),
+  );
+  await request(app).get('/api/terminals/accounts').expect(200);
+  await request(app)
+    .post('/api/terminals/owned/advice')
+    .send({
+      accountId: 'work',
+      model: 'luna',
+      messages: [{ role: 'user', content: 'help' }],
+      output: 'reviewed',
+    })
+    .expect(200);
+  expect(ask).toHaveBeenCalledWith(
+    'advice-login',
+    expect.objectContaining({ output: 'reviewed' }),
+    expect.any(AbortSignal),
+  );
+  await request(app)
+    .post('/api/terminals/owned/advice')
+    .send({
+      accountId: 'work',
+      model: 'luna',
+      messages: [{ role: 'user', content: 'help' }],
+      readTerminal: true,
+    })
+    .expect(400);
+  expect(ask).toHaveBeenCalledTimes(1);
+});
