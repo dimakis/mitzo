@@ -90,3 +90,24 @@ it('hides unenrolled onboarding and explains missing repository access', async (
   render(<RepositoryChatPicker accountId="account" model="model" onChange={vi.fn()} />);
   expect(await screen.findByText(/Assign a GitHub connection/)).toBeTruthy();
 });
+
+it('keeps a lost saved repository preparation blocked rather than silently launching the default workspace', async () => {
+  sessionStorage.setItem('mitzo-repository-draft:account:model', preview.id);
+  api.fetch.mockImplementation(async (url: string) =>
+    url.includes('/catalog')
+      ? new Response(
+          JSON.stringify({
+            available: true,
+            repositories: [{ connectionId: 'github', label: 'GitHub', repository: 'example/repo' }],
+          }),
+        )
+      : new Response(JSON.stringify({ error: 'unavailable' }), { status: 404 }),
+  );
+  const onChange = vi.fn();
+  render(<RepositoryChatPicker accountId="account" model="model" onChange={onChange} />);
+  expect(await screen.findByRole('alert')).toHaveProperty(
+    'textContent',
+    'Saved repository preparation is unavailable. Preview again or continue without a repository.',
+  );
+  expect(onChange).toHaveBeenLastCalledWith({ blocked: true });
+});

@@ -50,6 +50,7 @@ export function RepositoryChatPicker({
   useEffect(() => {
     const controller = new AbortController();
     callback.current(null);
+    let restoring = false;
     const query = new URLSearchParams({ accountId, model });
     void Promise.resolve(
       apiFetch(`/api/repository-workspaces/catalog?${query}`, { signal: controller.signal }),
@@ -66,11 +67,16 @@ export function RepositoryChatPicker({
           /* Storage is optional. */
         }
         if (!data.available || !saved) return;
+        restoring = true;
+        setOpened(true);
+        callback.current({ blocked: true });
         const restored = await apiFetch(`/api/repository-workspaces/${saved}?${query}`, {
           signal: controller.signal,
         });
         if (!restored.ok) {
-          sessionStorage.removeItem(storageKey);
+          setError(
+            'Saved repository preparation is unavailable. Preview again or continue without a repository.',
+          );
           return;
         }
         const ready = workspaceSchema.parse(await restored.json());
@@ -80,7 +86,10 @@ export function RepositoryChatPicker({
         callback.current({ repositoryWorkspaceId: ready.id, blocked: false });
       })
       .catch(() => {
-        /* Onboarding is optional when the account or feature is unavailable. */
+        if (!controller.signal.aborted && restoring)
+          setError(
+            'Repository preparation unavailable. Preview again or continue without a repository.',
+          );
       });
     return () => {
       controller.abort();
