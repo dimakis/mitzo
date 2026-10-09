@@ -1,3 +1,6 @@
+import { validateGatewaySigningMaterial } from '../symposium-gateway-signing.js';
+import { generateKeyPairSync } from 'node:crypto';
+import { lstatSync } from 'node:fs';
 import process from 'node:process';
 import { controlHashes } from '../../scripts/lib/staging-key-controls.mjs';
 import { it, expect } from 'vitest';
@@ -37,11 +40,27 @@ function boundFixture() {
   const write = (p, v) => writeFileSync(p, JSON.stringify(v, null, 2) + '\n', { mode: 0o600 }),
     config = {
       gateway: {
-        jwt: { signingKey: '/old/signing', publicKey: '/old/public', kid: '/old/kid' },
+        jwt: {
+          signingKey: join(root, 'symposium/settings/original-private.pem'),
+          publicKey: join(root, 'symposium/settings/original-public.pem'),
+          kid: join(root, 'symposium/settings/original-kid'),
+        },
         port: 18990,
       },
       personal: { workProfiles: [] },
     };
+  const pair = generateKeyPairSync('rsa', { modulusLength: 2048 });
+  writeFileSync(
+    config.gateway.jwt.signingKey,
+    pair.privateKey.export({ type: 'pkcs8', format: 'pem' }),
+    { mode: 0o600 },
+  );
+  writeFileSync(
+    config.gateway.jwt.publicKey,
+    pair.publicKey.export({ type: 'spki', format: 'pem' }),
+    { mode: 0o600 },
+  );
+  writeFileSync(config.gateway.jwt.kid, 'original-key-id\n', { mode: 0o600 });
   write(join(root, 'symposium/settings/owned-host.json'), config);
   const raw = readFileSync(join(root, 'symposium/settings/owned-host.json')),
     configHash = hash(raw),
@@ -135,6 +154,12 @@ function boundFixture() {
     qualified: [qualified],
     previousRecovery: old,
     previousAuditSha256: old.auditSha256,
+    originalKeys: Object.fromEntries(
+      Object.entries(config.gateway.jwt).map(([name, path]) => [
+        name,
+        { path, sha256: hash(readFileSync(path)), mode: lstatSync(path).mode & 0o777 },
+      ]),
+    ),
     registrationSha256: hash('second registration'),
     nodeExecutable: process.execPath,
     registration: {
@@ -170,6 +195,9 @@ function boundFixture() {
   write(join(archive, 'deployment.lock'), lock);
   write(join(archive, 'topology.json'), s.topology);
   writeFileSync(join(archive, 'com.mitzo.staging.plist'), 'second registration', { mode: 0o600 });
+  mkdirSync(join(archive, 'original-keys'), { mode: 0o700 });
+  for (const [name, path] of Object.entries(config.gateway.jwt))
+    writeFileSync(join(archive, 'original-keys', name), readFileSync(path), { mode: 0o600 });
   s.controlRecords = controlHashes(archive);
   s.previousControlRecords = controlHashes(oldArchive);
   write(join(oldArchive, 'activation-attempt.json'), s.activation);
@@ -203,12 +231,17 @@ function boundFixture() {
   insert.run(...Object.values(qualified));
   insert.run(launchId, 'pre_resource_refused', JSON.stringify(row), receipt.auditSha256, archive);
   db.close();
-  return { root, archive, oldArchive, receipt, write };
+  return { root, archive, oldArchive, receipt, write, originalKeys: config.gateway.jwt };
 }
 it('verifies both preserved histories and exact new key/config bytes while retaining the lock', async () => {
   const f = boundFixture();
   try {
-    const result = await verifyKeyRecovery(f.root, f.receipt, false);
+    const result = await verifyKeyRecovery(
+      f.root,
+      f.receipt,
+      false,
+      validateGatewaySigningMaterial,
+    );
     expect(result.recovery).toEqual(f.receipt);
     expect(existsSync(join(f.root, 'service/deployment.lock'))).toBe(true);
   } finally {
@@ -226,6 +259,8 @@ it.each([
   'archived lock',
   'archived topology',
   'archived registration',
+  'original key',
+  'archived original key',
 ])('fences changed %s and keeps the original lock', async (kind) => {
   const f = boundFixture();
   try {
@@ -239,6 +274,9 @@ it.each([
       f.write(join(f.root, 'symposium/settings/owned-host.json'), {});
     else if (kind === 'fresh key') writeFileSync(f.receipt.freshKeys.publicKey.path, 'changed');
     else if (kind === 'original lock') f.write(join(f.root, 'service/deployment.lock'), {});
+    else if (kind === 'original key') writeFileSync(f.originalKeys.signingKey, 'replaced');
+    else if (kind === 'archived original key')
+      writeFileSync(join(f.archive, 'original-keys', 'signingKey'), 'replaced');
     else if (kind === 'archived lock') f.write(join(f.archive, 'deployment.lock'), {});
     else if (kind === 'archived topology') f.write(join(f.archive, 'topology.json'), {});
     else if (kind === 'archived registration')
@@ -252,7 +290,9 @@ it.each([
       );
       db.close();
     }
-    await expect(verifyKeyRecovery(f.root, f.receipt, false)).rejects.toThrow();
+    await expect(
+      verifyKeyRecovery(f.root, f.receipt, false, validateGatewaySigningMaterial),
+    ).rejects.toThrow();
     expect(existsSync(join(f.root, 'service/deployment.lock'))).toBe(true);
   } finally {
     rmSync(f.root, { recursive: true });

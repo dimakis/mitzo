@@ -1,3 +1,4 @@
+import { originalKeyRecords } from './staging-key-retention.mjs';
 import {
   validateKeyRefusalRegistration,
   validateLoadedHistoricalJob,
@@ -198,6 +199,7 @@ export async function auditKeyRefusal(root) {
     workspaceFiles: inventory(plan.repositoryPath),
     gatewayFiles: inventory(config.gateway.stateParent),
     registryFiles: inventory(join(root, 'registry')),
+    originalKeys: originalKeyRecords(config),
     registrationSha256,
     registration: plist,
     nodeExecutable: process.execPath,

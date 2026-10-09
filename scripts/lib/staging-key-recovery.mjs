@@ -1,3 +1,4 @@
+import { verifyOriginalKeyRetention } from './staging-key-retention.mjs';
 import {
   validateKeyRefusalRegistration,
   validateLoadedHistoricalJob,
@@ -58,6 +59,13 @@ export async function prepareKeyMetadata(root, expectedAudit, audit) {
           throw Error('Original preserved evidence changed');
       exclusive(join(archive, 'audit.json'), JSON.stringify(s, null, 2) + '\n');
       exclusive(join(archive, 'original-config.json'), originalConfig);
+      mkdirSync(join(archive, 'original-keys'), { mode: 0o700 });
+      for (const [name, record] of Object.entries(s.originalKeys))
+        cpSync(record.path, join(archive, 'original-keys', name), {
+          errorOnExist: true,
+          force: false,
+        });
+      verifyOriginalKeyRetention(archive, s.originalKeys, first.config);
       for (const name of [
         'deployment.lock',
         'topology.json',
@@ -170,7 +178,7 @@ export async function prepareKeyMetadata(root, expectedAudit, audit) {
     modelCalls: 0,
   };
 }
-export async function verifyKeyRecovery(root, recovery, vacant = true) {
+export async function verifyKeyRecovery(root, recovery, vacant = true, trustedValidateSigning) {
   if (
     recovery.version !== 2 ||
     recovery.classification !== 'pre_resource_refused' ||
@@ -253,6 +261,7 @@ export async function verifyKeyRecovery(root, recovery, vacant = true) {
     s.plan.configSha256 !== s.configSha256
   )
     throw Error('Exact original key configuration changed');
+  verifyOriginalKeyRetention(recovery.archive, s.originalKeys, JSON.parse(oldConfig));
   const next = deriveKeyConfiguration(root, JSON.parse(oldConfig), s.row.launchId),
     actual = bytes(s.plan.configPath);
   if (
@@ -272,11 +281,16 @@ export async function verifyKeyRecovery(root, recovery, vacant = true) {
       hash(bytes(path)) !== recovery.freshKeys[name]?.sha256
     )
       throw Error('Fresh private key bytes changed');
-  const { validateGatewaySigningMaterial } =
-    await import('../../dist/symposium-gateway-signing.js');
-  validateGatewaySigningMaterial(
-    Object.fromEntries(expectedKeys.map(([name, path]) => [name, bytes(path)])),
-  );
+  // Private constructor seam for hermetic tests; CLI never accepts a hook.
+  const validateSigning =
+    trustedValidateSigning ??
+    (await import('../../dist/symposium-gateway-signing.js')).validateGatewaySigningMaterial;
+  if (
+    typeof validateSigning !== 'function' ||
+    validateSigning(Object.fromEntries(expectedKeys.map(([name, path]) => [name, bytes(path)]))) !==
+      undefined
+  )
+    throw Error('Synchronous trusted signing validation required');
   const lock = privateJson(join(root, 'service/deployment.lock'));
   if (
     JSON.stringify(lock) !== JSON.stringify(s.lock) ||
