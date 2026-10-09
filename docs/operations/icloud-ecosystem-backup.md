@@ -165,11 +165,22 @@ An existing unregistered repository requires a recovery check and is preserved.
 `POST /api/backups/setup` (`password`, `recoveryConfirmed: true`) require an
 interactive operator session. Agents' internal tokens cannot use setup. The secret
 submission requires HTTPS or a loopback connection. Host paths and executables
-cannot be supplied by the browser. The private `setup.json` receipt persists
-readiness across restarts; setup completion enables manual actions immediately,
+cannot be supplied by the browser. The client validates the resolved API URL, including the Capacitor API base, before
+serializing a password and rejects redirects for that request. The private
+`setup.json` receipt persists readiness across restarts; setup completion enables manual actions immediately,
 without changing `.env` or restarting Mitzo. The Keychain coordinate includes a
 hash of the host-owned repository path so independently isolated roots do not
 share a credential. No scheduler starts and setup never runs a backup implicitly.
+
+Tool preparation publishes complete immutable generations before atomically
+selecting one through `tools.json`. A failed selection retains either the previous
+complete generation or the newly complete generation, so an explicit retry can
+finish without deleting existing tools. The manifest includes the bundled Swift
+source hash; a changed source rebuilds the probe using pinned source bytes. View
+setup → Refresh backup tools adopts that generation without replacing the backup
+password or clearing recovery confirmation. Setup holds the backup admission
+fence while updating tools. Older qualified tool manifests can be upgraded;
+unregistered executables remain outside this adoption path.
 
 The existing operator-only API remains `GET /api/backups`, `POST /api/backups/run`
 and `POST /api/backups/refresh`. Run and refresh bodies remain empty JSON objects.

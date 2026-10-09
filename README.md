@@ -1000,7 +1000,11 @@ confirm that you can retrieve it without this Mac. Mitzo stores its encryption c
 in a repository-scoped Keychain entry; secrets never enter setup receipts or agent
 tools. Completing setup enables manual actions immediately and persists across
 restarts without editing environment variables. Remote password entry requires
-HTTPS. iCloud Drive and Swift command-line tools must be available on the Mac.
+HTTPS; the client checks the actual API target before sending a password and refuses
+redirects. iCloud Drive and Swift command-line tools must be available on the Mac.
+View setup → Refresh backup tools rebuilds a changed upload helper and preserves
+your password and recovery confirmation. Failed tool publication can be retried
+without replacing the previous working generation.
 Existing configured backups and retained locks are preserved; setup cannot replace
 an existing repository password. Disabled actions explain their prerequisites.
 An interactive operator can manually capture the Mitzo/Telos database group, encrypt
