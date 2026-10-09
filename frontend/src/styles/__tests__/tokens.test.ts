@@ -16,7 +16,7 @@ const fontShorthand = new RegExp(
   `^(?:inherit|(?:(?:${fontVariable}|[\\d.]+(?:px|rem|em|%)?|normal|italic|oblique|bold|bolder|lighter|small-caps)[\\s/]+)*${fontVariable})$`,
 );
 
-const ownedTokens = new Set([...css.matchAll(/(--[\w-]+):/g)].map((match) => match[1]));
+const ownedTokens = new Set([...css.matchAll(/(--[\w-]+)\s*:/g)].map((match) => match[1]));
 
 // Legacy collection/chat scopes remap these roles to the common workspace theme.
 // Shared scales, font roles and canonical colors are never redefined by a page.
@@ -160,7 +160,9 @@ function styleViolations(source: string, filename = 'component.css'): string[] {
   const sources = styleSources(clean, filename);
   const styleTexts = sources.css;
   for (const styleText of styleTexts) {
-    for (const definition of styleText.matchAll(/(?:^|[;{])\s*(--[\w-]+):\s*([^;}]+)(?=[;}]|$)/g)) {
+    for (const definition of styleText.matchAll(
+      /(?:^|[;{])\s*(--[\w-]+)\s*:\s*([^;}]+)(?=[;}]|$)/g,
+    )) {
       if (ownedTokens.has(definition[1]) && !allowedContextAlias(definition[1], definition[2]))
         violations.push(`token override: ${definition[1]}`);
     }
@@ -169,7 +171,7 @@ function styleViolations(source: string, filename = 'component.css'): string[] {
   if (/(?:color|background(?:-color)?|fill|stroke):\s*['"]?(?:white|black)\b/i.test(clean))
     violations.push('named color');
   for (const styleText of styleTexts) {
-    for (const font of styleText.matchAll(/\b(font-family|font):\s*([^;}]+)(?=[;}]|$)/g)) {
+    for (const font of styleText.matchAll(/\b(font-family|font)\s*:\s*([^;}]+)(?=[;}]|$)/g)) {
       const allowed = font[1] === 'font' ? fontShorthand : fontFamily;
       if (!allowed.test(font[2].trim())) violations.push('font stack');
     }
@@ -347,6 +349,14 @@ describe('design tokens', () => {
       expect(styleViolations('.page { --bg: var(--private-palette); }')).toContain(
         'token override: --bg',
       );
+    });
+
+    it.each([
+      '.page { --space-4 : 17px; }',
+      '.page { font-family : Arial; }',
+      '.page { font : var(--text-base) Arial; }',
+    ])('handles CSS whitespace before a declaration colon: %s', (source) => {
+      expect(styleViolations(source).length).toBeGreaterThan(0);
     });
 
     it('allows token-based shorthand size and family', () => {
