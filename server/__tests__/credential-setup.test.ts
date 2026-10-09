@@ -193,6 +193,7 @@ it('requires documented custom authentication and rejects tokens, credentialed U
       methods: ['GET'],
       verificationPath: '/api/me',
       evidenceUrl: 'https://docs.example.com/auth',
+      success: { field: 'id', type: 'string' },
     },
   };
   expect(service.setups.prepare('a', custom).connection.auth).toEqual({
@@ -280,4 +281,131 @@ it('rolls back both connection metadata and its saved key when ready persistence
   ).toBe('pending');
   expect(service.catalog()).toEqual([]);
   expect(vault.remove).toHaveBeenCalledOnce();
+});
+it('coalesces retries for the same session and normalized pending configuration only', () => {
+  const { service } = fixture();
+  const first = service.setups.prepare('chat-a', input);
+  expect(
+    service.setups.prepare('chat-a', {
+      ...input,
+      label: 'Home Assistant',
+      allowPrivateNetwork: false,
+    }),
+  ).toEqual(first);
+  expect(service.setups.prepare('chat-b', input).id).not.toBe(first.id);
+  expect(service.setups.prepare('chat-a', { ...input, access: 'read' }).id).not.toBe(first.id);
+  service.setups.cancel(first.id, 1);
+  expect(service.setups.prepare('chat-a', input).id).not.toBe(first.id);
+});
+it('coalesces a repeated prepare while credential verification is active', async () => {
+  const { service, send } = fixture();
+  const first = service.setups.prepare('chat-a', input);
+  let resume!: (value: { status: number; body: string }) => void;
+  send.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        resume = resolve;
+      }),
+  );
+  const completion = service.setups.complete(
+    first.id,
+    1,
+    'private-key',
+    new AbortController().signal,
+  );
+  expect(service.setups.prepare('chat-a', input)).toMatchObject({
+    id: first.id,
+    status: 'verifying',
+  });
+  resume({ status: 401, body: '' });
+  await completion;
+});
+it('requires a documented custom JSON success selector and refuses HTML or structured error success', async () => {
+  const { service, send, vault } = fixture();
+  const custom = {
+    profile: 'custom',
+    endpoint: 'https://api.example.com',
+    custom: {
+      auth: { kind: 'bearer' },
+      paths: ['/api/'],
+      methods: ['GET'],
+      verificationPath: '/api/me',
+      evidenceUrl: 'https://docs.example.com/auth',
+      success: { field: 'id', type: 'string' },
+    },
+  };
+  const missing = { ...custom, custom: { ...custom.custom, success: undefined } };
+  expect(PrepareConnectionSetupSchema.safeParse(missing).success).toBe(false);
+  expect(
+    PrepareConnectionSetupSchema.safeParse({
+      ...custom,
+      custom: { ...custom.custom, success: { field: 'id', type: 'string', equals: 'user' } },
+    }).success,
+  ).toBe(false);
+  const setup = service.setups.prepare('chat-a', custom);
+  for (const body of [
+    '<html>Login</html>',
+    '{"error":"Sign in","id":"user"}',
+    '{"id":null}',
+    '{"id":""}',
+  ]) {
+    send
+      .mockResolvedValueOnce({ status: 401, body: '' })
+      .mockResolvedValueOnce({ status: 200, body });
+    const current = service.setups.status('chat-a', setup.id);
+    expect(
+      (
+        await service.setups.complete(
+          setup.id,
+          current.revision,
+          'private-key',
+          new AbortController().signal,
+        )
+      ).status,
+    ).toBe('pending');
+  }
+  expect(vault.save).not.toHaveBeenCalled();
+  send
+    .mockResolvedValueOnce({ status: 401, body: '' })
+    .mockResolvedValueOnce({ status: 200, body: '{"id":"user"}' });
+  const current = service.setups.status('chat-a', setup.id);
+  expect(
+    (
+      await service.setups.complete(
+        setup.id,
+        current.revision,
+        'private-key',
+        new AbortController().signal,
+      )
+    ).status,
+  ).toBe('ready');
+});
+it('matches an exact documented JSON marker and preserves different verification profiles', async () => {
+  const { service, send } = fixture();
+  const custom = {
+    profile: 'custom',
+    endpoint: 'https://api.example.com',
+    custom: {
+      auth: { kind: 'bearer' },
+      paths: ['/api/'],
+      methods: ['GET'],
+      verificationPath: '/api/me',
+      evidenceUrl: 'https://docs.example.com/auth',
+      success: { field: 'authenticated', equals: true },
+    },
+  };
+  const setup = service.setups.prepare('chat-a', custom);
+  expect(
+    service.setups.prepare('chat-a', {
+      ...custom,
+      custom: { ...custom.custom, success: { field: 'id', type: 'number' } },
+    }).id,
+  ).not.toBe(setup.id);
+  send
+    .mockResolvedValueOnce({ status: 401, body: '' })
+    .mockResolvedValueOnce({ status: 200, body: '{"authenticated":false}' });
+  expect(
+    (await service.setups.complete(setup.id, 1, 'private-key', new AbortController().signal))
+      .status,
+  ).toBe('pending');
 });

@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from 'node:util';
 import {
   ConnectionInputSchema,
   type CredentialConnectionInput,
@@ -10,9 +11,54 @@ import {
   type PublicCredentialConnection,
 } from './credential-connections.js';
 
+const successField = z
+  .string()
+  .regex(/^[A-Za-z][A-Za-z0-9_]{0,63}$/)
+  .refine((field) => !['__proto__', 'constructor', 'prototype', 'error', 'errors'].includes(field));
+const success = z.union([
+  z
+    .object({
+      field: successField,
+      equals: z.union([z.string().min(1).max(256), z.number().finite(), z.boolean()]),
+    })
+    .strict(),
+  z
+    .object({
+      field: successField,
+      type: z.enum(['string', 'number', 'boolean', 'object', 'array']),
+    })
+    .strict(),
+]);
+type SuccessSelector = z.infer<typeof success>;
+function matchesSuccess(body: string, selector?: SuccessSelector): boolean {
+  if (!selector) return false;
+  try {
+    const value = JSON.parse(body);
+    if (
+      !value ||
+      typeof value !== 'object' ||
+      Array.isArray(value) ||
+      Object.hasOwn(value, 'error') ||
+      Object.hasOwn(value, 'errors') ||
+      !Object.hasOwn(value, selector.field)
+    )
+      return false;
+    const result = value[selector.field];
+    if ('equals' in selector) return result === selector.equals;
+    if (selector.type === 'array') return Array.isArray(result);
+    if (selector.type === 'object')
+      return !!result && typeof result === 'object' && !Array.isArray(result);
+    return (
+      typeof result === selector.type && (selector.type !== 'string' || result.trim().length > 0)
+    );
+  } catch {
+    return false;
+  }
+}
 const custom = ConnectionInputSchema.pick({ auth: true, paths: true, methods: true })
   .extend({
     verificationPath: z.string().min(1).max(512),
+    success,
     evidenceUrl: z
       .string()
       .url()
@@ -52,6 +98,7 @@ export interface ConnectionSetup {
   credential: { label: string; instructions: string; helpUrl?: string };
   setupUrl: string;
   verificationPath: string;
+  verificationSuccess?: SuccessSelector;
   connectionId?: string;
   connectionRevision?: number;
   error?: string;
@@ -115,6 +162,29 @@ export class CredentialConnectionSetups {
     if (!config.methods.includes('GET')) throw new Error('Verification requires GET access');
     const verificationPath = home ? '/api/' : parsed.custom!.verificationPath;
     requestTarget(config, verificationPath);
+    const verificationSuccess = home ? undefined : parsed.custom!.success;
+    const helpUrl = home
+      ? 'https://www.home-assistant.io/docs/authentication/'
+      : parsed.custom!.evidenceUrl;
+    const normalizedConfig = (connection: CredentialConnectionInput) => ({
+      ...connection,
+      paths: [...connection.paths].sort(),
+      methods: [...connection.methods].sort(),
+    });
+    const existing = this.store
+      .listSetups()
+      .find(
+        (candidate) =>
+          candidate.sessionId === sessionId &&
+          ['pending', 'verifying'].includes(candidate.status) &&
+          candidate.expiresAt > Date.now() &&
+          candidate.profile === parsed.profile &&
+          candidate.verificationPath === verificationPath &&
+          candidate.credential.helpUrl === helpUrl &&
+          isDeepStrictEqual(candidate.verificationSuccess, verificationSuccess) &&
+          isDeepStrictEqual(normalizedConfig(candidate.connection), normalizedConfig(config)),
+      );
+    if (existing) return this.browserStatus(existing.id);
     const id = randomUUID();
     const setup: ConnectionSetup = {
       id,
@@ -125,6 +195,7 @@ export class CredentialConnectionSetups {
       expiresAt: Date.now() + 30 * 60_000,
       connection: config,
       verificationPath,
+      ...(verificationSuccess ? { verificationSuccess } : {}),
       credential: home
         ? {
             label: 'Home Assistant key',
@@ -217,7 +288,7 @@ export class CredentialConnectionSetups {
                 return false;
               }
             }
-          : () => true;
+          : (body: string) => matchesSuccess(body, setup.verificationSuccess);
       let ready!: ConnectionSetup;
       await this.createVerified(
         setup.connection,
