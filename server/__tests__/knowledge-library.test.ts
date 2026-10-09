@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AcceptedKnowledgeSource } from '../knowledge-library-source.js';
 import { KnowledgeDraftStore } from '../knowledge-draft-store.js';
+import Database from 'better-sqlite3';
 
 let root: string;
 let source: AcceptedKnowledgeSource;
@@ -130,6 +131,40 @@ describe('accepted knowledge', () => {
 });
 
 describe('operator drafts', () => {
+  it.each(['draft', 'accepted'] as const)(
+    'preserves a legacy %s draft when a new request collides with its identity',
+    (state) => {
+      const revision = git('rev-parse', 'HEAD');
+      const docs = [
+        {
+          path: 'architecture/overview.md',
+          base: '# Accepted architecture\n',
+          content: '# Original\n',
+        },
+      ];
+      const draft = store.create('Original', revision, docs);
+      store.save(draft.id, draft.version, [{ ...docs[0]!, content: '# Later saved content\n' }]);
+      store.status(draft.id, state);
+      const original = store.get(draft.id);
+      store.close();
+      // Older database rows predate the durable request fingerprint table.
+      const legacy = new Database(join(root, 'drafts.sqlite'));
+      legacy.prepare('DELETE FROM knowledge_draft_requests WHERE id=?').run(draft.id);
+      legacy.close();
+      store = new KnowledgeDraftStore(join(root, 'drafts.sqlite'));
+      expect(() =>
+        store.create(
+          'New request',
+          revision,
+          [{ ...docs[0]!, content: '# Replacement\n' }],
+          draft.id,
+        ),
+      ).toThrow('identity');
+      expect(store.get(draft.id)).toEqual(original);
+      expect(store.listSummaries()).toHaveLength(1);
+      expect(store.listSummaries()[0]?.state).toBe(state);
+    },
+  );
   it('keeps catalog summaries small and excludes content, while an expired worker cannot overwrite a newer status', () => {
     const draft = store.create('Change', git('rev-parse', 'HEAD'), [
       {

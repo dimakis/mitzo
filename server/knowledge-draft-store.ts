@@ -175,6 +175,10 @@ export class KnowledgeDraftStore {
           );
         return this.get(id);
       }
+      if (this.db.prepare('SELECT id FROM knowledge_drafts WHERE id=?').get(id))
+        throw new KnowledgeDraftConflict(
+          'This save request identity belongs to an existing draft. Reload its saved draft before continuing.',
+        );
       const draft = this.put({
         id,
         title: title.trim(),
