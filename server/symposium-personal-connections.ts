@@ -31,6 +31,7 @@ const Row = z
       .optional(),
   })
   .strict();
+export const PersonalConnectionSchema = Row;
 export type PersonalConnection = z.infer<typeof Row>;
 export interface ConnectionSelection {
   connectionId: string;

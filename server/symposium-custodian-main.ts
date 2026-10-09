@@ -70,7 +70,11 @@ export async function runSymposiumCustodian(hooks: SymposiumCustodianConstructor
     throw Error('Runtime observer must be a trusted constructor callback');
   if (observeController !== undefined && typeof observeController !== 'function')
     throw Error('Controller observer must be a trusted constructor callback');
-  if (admissionBuildSelection !== undefined && admissionBuildSelection !== 'local-854b-b20-v1')
+  if (
+    admissionBuildSelection !== undefined &&
+    admissionBuildSelection !== 'local-854b-b20-v1' &&
+    admissionBuildSelection !== 'local-854b-routing-v1'
+  )
     throw Error('Owned full-build selection is not reviewed');
   if (process.env.MITZO_SYMPOSIUM_CUSTODIAN_CONTROLLER || process.send)
     throw Error('Custodian must be launched as the independent owner');

@@ -3,12 +3,14 @@ import Database from 'better-sqlite3';
 import type { DurableSymposiumReviewToolObservation } from '../symposium-codex-native.js';
 import { EventStore } from '../event-store.js';
 import { PhysicalArtifactSealer } from '../symposium-physical-artifact-seal.js';
+import * as runtimeContract from '../symposium-owned-runtime-contract.js';
 import * as discoveryCore from '../symposium-model-discovery.js';
 import * as discoveryCreation from '../symposium-discovery-creation.js';
 import * as evidenceCollector from '../symposium-owned-evidence-async.js';
 import { SymposiumPerSeatSandboxOwner } from '../symposium-session-runtime.js';
 import { sandboxNameForConversation } from '../openshell-runtime.js';
 import * as personalHost from '../symposium-personal-host.js';
+import * as subscriptionHost from '../symposium-subscription-host.js';
 import * as discoveryHost from '../symposium-model-discovery-host.js';
 import * as sourceSeal from '../symposium-source-artifact-seal.js';
 import { readSymposiumProductionAttestation } from '../symposium-production-gate.js';
@@ -24,6 +26,7 @@ import {
   chmodSync,
 } from 'node:fs';
 import { join } from 'node:path';
+import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import {
   createOwnedSymposiumHost,
@@ -1615,3 +1618,726 @@ it('captures validated diagnostic selection before asynchronous gateway setup', 
     host.stop();
   }
 });
+
+it('keeps routing diagnostic construction absent for ordinary and unqualified owned builds', async () => {
+  const f = fixture(),
+    compose = vi.spyOn(personalHost, 'createPersonalSubscriptionHost');
+  const host = await createOwnedSymposiumHost(f.options, f.launch);
+  expect(compose.mock.calls[0][3]).toBeUndefined();
+  host.stop();
+  const unsupported = fixture();
+  unsupported.options.admissionBuildSelection = 'local-854b-routing-v1';
+  await expect(createOwnedSymposiumHost(unsupported.options, unsupported.launch)).rejects.toThrow();
+  expect(unsupported.launch).not.toHaveBeenCalled();
+});
+function diagnosticFixture() {
+  const f = fixture();
+  const build = {
+    ...runtimeContract.REVIEWED_SYMPOSIUM_CODEX_01591_IDENTITY_RUNTIME.build,
+    cliSha256: '1'.repeat(64),
+    gatewaySha256: '2'.repeat(64),
+    supervisorImage: 'sha256:' + '3'.repeat(64),
+  };
+  vi.spyOn(runtimeContract, 'reviewedSymposiumRoutingDiagnosticBuild').mockImplementation(
+    (image, selection) => {
+      if (image !== build.image || selection !== 'local-854b-routing-v1')
+        throw Error('Unqualified diagnostic tuple');
+      return build as never;
+    },
+  );
+  f.options.admissionBuildSelection = 'local-854b-routing-v1';
+  Object.assign(f.options.gateway, {
+    workloadImage: build.image,
+    cliSha256: build.cliSha256,
+    executableSha256: build.gatewaySha256,
+    supervisorImage: build.supervisorImage,
+    sandboxRuntimeImage: build.sandboxRuntimeImage,
+    podmanSocket: '/private/podman.sock',
+  });
+  const verifyNative = vi.fn();
+  Object.assign(f.gateway, { verifyOwnedNativeHost: verifyNative });
+  writeFileSync(join(f.root, 'gateway.toml'), 'owned config', { mode: 0o400 });
+  return { ...f, build, verifyNative };
+}
+it.each(['complete', 'failed', 'reconciliation_required'] as const)(
+  'wires only the qualified routing mode and retains positive original cleanup for %s before a late receipt change',
+  async (status) => {
+    const f = diagnosticFixture(),
+      compose = vi.spyOn(personalHost, 'createPersonalSubscriptionHost');
+    let journal: discoveryCore.DiscoveryReceipt | undefined;
+    const raw = {
+      persistReceipt: vi.fn(async (receipt) => {
+        journal = structuredClone(receipt);
+      }),
+      readReceipt: vi.fn(async () => journal),
+      clearReceipt: vi.fn(async () => {
+        journal = undefined;
+      }),
+      withExclusiveAttempt: async (run: () => Promise<unknown>) => run(),
+      verifyCustody: vi.fn(async () => {}),
+      openClient: vi.fn(),
+      create: vi.fn(),
+    } as unknown as discoveryCore.DiscoveryOperations;
+    const factory = vi.spyOn(discoveryHost, 'createDiscoveryHostOperations').mockReturnValue(raw);
+    vi.spyOn(discoveryCreation, 'fenceDiscoveryCreation').mockImplementation((operations) => ({
+      operations,
+      creationUncertain: () => false,
+    }));
+    let receiptCurrent = true;
+    const runner = vi
+      .spyOn(discoveryCore, 'runSymposiumRoutingDiagnostic')
+      .mockImplementation(async (config, operations, hooks) => {
+        const receipt = {
+          name: 'md-' + 'a'.repeat(16),
+          claim: 'b'.repeat(64),
+          configHash: createHashForFixture(JSON.stringify(config)),
+          id: 'exact-original-id',
+        };
+        await operations.persistReceipt(receipt, false);
+        const cleanup = discoveryCore.createSymposiumModelDiscoveryRecovery(config, receipt);
+        await cleanup({
+          withExclusiveAttempt: async (run: () => Promise<unknown>) => run(),
+          verifyCustody: async () => {},
+          readReceipt: async () => receipt,
+          list: async () => [],
+          physicalAbsent: async () => true,
+          clearReceipt: async () => {},
+        } as unknown as discoveryCore.DiscoveryOperations);
+        hooks!.onPhysicalCleanup!(receipt, cleanup.physicalCleanupEvidence()!);
+        await operations.clearReceipt(receipt);
+        receiptCurrent = false;
+        return { status, inference: false, catalogPublication: false };
+      });
+    const models = vi.spyOn(discoveryCore, 'runSymposiumModelDiscovery');
+    const host = await createOwnedSymposiumHost(f.options, f.launch);
+    try {
+      const callback = compose.mock.calls[0][3];
+      expect(callback).toBeTypeOf('function');
+      const result = await callback!({
+        provider: { name: 'personal', id: 'physical-id' },
+        account: { email: 'fixture@example.test', planType: 'pro' },
+        assertCurrent() {
+          if (!receiptCurrent) throw Error('late receipt change');
+        },
+      });
+      expect(result.result).toEqual({ status, inference: false, catalogPublication: false });
+      expect(result.recover).toBeTypeOf('function');
+      expect(runner).toHaveBeenCalledOnce();
+      expect(models).not.toHaveBeenCalled();
+      expect(f.verifyNative).toHaveBeenCalledWith(
+        expect.objectContaining({
+          cli: f.gateway.cli,
+          gateway: f.gateway.gateway,
+          workspace: f.gateway.workspace,
+          gatewayEndpoint: f.gateway.endpoint,
+          cliSha256: f.build.cliSha256,
+          gatewaySha256: f.build.gatewaySha256,
+          image: f.build.image,
+          sandboxRuntimeImage: f.build.sandboxRuntimeImage,
+          supervisorImage: f.build.supervisorImage,
+        }),
+      );
+      expect(factory.mock.calls[0][0].routingDiagnostic).toEqual({
+        format: 'owned-supervisor-console-v1',
+        logLevel: 'off,openshell.routing_http=debug',
+        supervisorImage: f.build.supervisorImage,
+      });
+      expect(factory.mock.calls[0][1].routingDiagnostic).toMatchObject({
+        supervisorImage: f.build.supervisorImage,
+        assertSupported: expect.any(Function),
+      });
+      await expect(result.recover!(() => {})).resolves.toMatchObject({
+        status: 'reconciled',
+        inference: false,
+      });
+      expect(raw.openClient).not.toHaveBeenCalled();
+      expect(raw.create).not.toHaveBeenCalled();
+    } finally {
+      host.stop();
+    }
+  },
+);
+function createHashForFixture(data: string) {
+  return createHash('sha256').update(data).digest('hex');
+}
+it('rejects a contradictory qualified diagnostic tuple before native host launch', async () => {
+  const f = diagnosticFixture();
+  f.options.gateway.supervisorImage = 'sha256:' + '9'.repeat(64);
+  await expect(createOwnedSymposiumHost(f.options, f.launch)).rejects.toThrow('tuple');
+  expect(f.launch).not.toHaveBeenCalled();
+});
+it('retains the observed original diagnostic identity even if the receipt guard fails immediately before journal persistence', async () => {
+  const f = diagnosticFixture(),
+    compose = vi.spyOn(personalHost, 'createPersonalSubscriptionHost');
+  let current = true;
+  const persist = vi.fn(async () => {});
+  const raw = {
+    persistReceipt: persist,
+    readReceipt: async () => undefined,
+  } as unknown as discoveryCore.DiscoveryOperations;
+  vi.spyOn(discoveryHost, 'createDiscoveryHostOperations').mockReturnValue(raw);
+  vi.spyOn(discoveryCreation, 'fenceDiscoveryCreation').mockImplementation((operations) => ({
+    operations,
+    creationUncertain: () => false,
+  }));
+  vi.spyOn(discoveryCore, 'runSymposiumRoutingDiagnostic').mockImplementation(
+    async (config, operations) => {
+      const receipt = {
+        name: 'md-' + 'a'.repeat(16),
+        claim: 'b'.repeat(64),
+        configHash: createHashForFixture(JSON.stringify(config)),
+        id: 'observed-original-id',
+      };
+      current = false;
+      await expect(operations.persistReceipt(receipt, false)).rejects.toThrow('receipt guard');
+      return { status: 'reconciliation_required', inference: false, catalogPublication: false };
+    },
+  );
+  const host = await createOwnedSymposiumHost(f.options, f.launch);
+  try {
+    const response = await compose.mock.calls[0][3]!({
+      provider: { name: 'personal', id: 'id' },
+      account: { email: 'fixture@example.test', planType: 'pro' },
+      assertCurrent() {
+        if (!current) throw Error('receipt guard');
+      },
+    });
+    expect(response.recover).toBeTypeOf('function');
+    expect(persist).not.toHaveBeenCalled();
+  } finally {
+    host.stop();
+  }
+});
+it('promotes only the retained positive owned Ready identity after guarded first-ID persistence loses authority', async () => {
+  const f = diagnosticFixture(),
+    compose = vi.spyOn(personalHost, 'createPersonalSubscriptionHost');
+  let current = true,
+    present = true;
+  let journal: discoveryCore.DiscoveryReceipt | undefined;
+  let ownedRow: Record<string, unknown>;
+  let expectedReceipt: discoveryCore.DiscoveryReceipt | undefined;
+  const raw = {
+    persistReceipt: vi.fn(async (receipt) => {
+      journal = structuredClone(receipt);
+    }),
+    readReceipt: vi.fn(async () => journal),
+    clearReceipt: vi.fn(async () => {
+      journal = undefined;
+    }),
+    withExclusiveAttempt: async (run: () => Promise<unknown>) => run(),
+    verifyCustody: vi.fn(async () => {}),
+    list: vi.fn(async () => (present ? [ownedRow] : [])),
+    physicalAbsent: vi.fn(async () => !present),
+    cancel: vi.fn(async () => {}),
+    delete: vi.fn(async () => {
+      present = false;
+    }),
+    wait: vi.fn(async () => {}),
+    openClient: vi.fn(),
+    create: vi.fn(async (_receipt, _config, dispatch) => {
+      dispatch!();
+    }),
+  } as unknown as discoveryCore.DiscoveryOperations;
+  vi.spyOn(discoveryHost, 'createDiscoveryHostOperations').mockReturnValue(raw);
+  const mintReady = discoveryCore.createDiscoveryOwnedReadyEvidence;
+  vi.spyOn(discoveryCore, 'createDiscoveryOwnedReadyEvidence').mockImplementation((...args) => {
+    const evidence = mintReady(...args);
+    current = false;
+    return evidence;
+  });
+  vi.spyOn(discoveryCore, 'runSymposiumRoutingDiagnostic').mockImplementation(
+    async (config, operations) => {
+      const receipt = {
+        name: 'md-' + 'a'.repeat(16),
+        claim: 'b'.repeat(64),
+        configHash: createHashForFixture(JSON.stringify(config)),
+        id: 'observed-original-id',
+      };
+      expectedReceipt = receipt;
+      journal = { name: receipt.name, claim: receipt.claim, configHash: receipt.configHash };
+      ownedRow = {
+        id: receipt.id,
+        name: receipt.name,
+        workspace: config.workspace,
+        phase: 'Ready',
+        labels: {
+          'mitzo.discovery': 'models',
+          'mitzo.discovery.claim': discoveryCore.discoveryClaimLabel(receipt.claim),
+        },
+      };
+      const pending = { name: receipt.name, claim: receipt.claim, configHash: receipt.configHash };
+      await expect(operations.create(pending, config)).rejects.toThrow('receipt guard');
+      return { status: 'reconciliation_required', inference: false, catalogPublication: false };
+    },
+  );
+  const host = await createOwnedSymposiumHost(f.options, f.launch);
+  try {
+    const response = await compose.mock.calls[0][3]!({
+      provider: { name: 'personal', id: 'id' },
+      account: { email: 'fixture@example.test', planType: 'pro' },
+      assertCurrent() {
+        if (!current) throw Error('receipt guard');
+      },
+    });
+    expect(raw.persistReceipt).not.toHaveBeenCalled();
+    const durableFence = join(f.options.gateway.stateParent, 'sandbox-creation-fence.json');
+    expect(JSON.parse(readFileSync(durableFence, 'utf8')).uncertain).toBe(true);
+    await expect(response.recover!(() => {})).resolves.toMatchObject({
+      status: 'reconciled',
+      inference: false,
+    });
+    expect(raw.persistReceipt).toHaveBeenCalled();
+    if (!expectedReceipt) throw Error('Original Ready receipt was not captured');
+    for (const [receipt, exclusive] of vi.mocked(raw.persistReceipt).mock.calls) {
+      expect(receipt).toEqual(expectedReceipt);
+      expect(exclusive).toBe(false);
+    }
+    expect(raw.delete).toHaveBeenCalledOnce();
+    expect(JSON.parse(readFileSync(durableFence, 'utf8')).uncertain).toBe(false);
+    expect(raw.openClient).not.toHaveBeenCalled();
+    expect(raw.create).toHaveBeenCalledOnce();
+  } finally {
+    host.stop();
+  }
+});
+
+it.each([
+  'none',
+  'lock-release',
+  'journal-read',
+  'custody',
+  'orphan',
+  'first-id-write',
+  'wrong-id',
+  'wrong-label',
+  'wrong-config',
+] as const)(
+  'recovers only the original non-Ready diagnostic creation after positive cleanup (%s)',
+  async (failure) => {
+    const f = diagnosticFixture();
+    const adapter = {
+      activeDefinition: undefined,
+      captureDiscovery: () => ({
+        provider: { name: 'personal', id: 'real-provider-id' },
+        account: { email: 'fixture@example.test', planType: 'pro' },
+        assertCurrent() {},
+      }),
+      beginDeviceLogin: async () => ({
+        completed: Promise.resolve({ email: 'fixture@example.test', planType: 'pro' }),
+        cancel: async () => {},
+      }),
+      disconnect: vi.fn(async () => {}),
+      invalidate: vi.fn(),
+    };
+    vi.spyOn(subscriptionHost, 'createSymposiumSubscriptionHost').mockReturnValue(adapter as never);
+    let journal: discoveryCore.DiscoveryReceipt | undefined;
+    let row:
+      | {
+          id: string;
+          name: string;
+          workspace: string;
+          phase: string;
+          labels: Record<string, string>;
+        }
+      | undefined;
+    let recovering = false;
+    let fail = true;
+    const firstIdWriteFailure = [
+      'first-id-write',
+      'wrong-id',
+      'wrong-label',
+      'wrong-config',
+    ].includes(failure);
+    const operations = {
+      withExclusiveAttempt: async (run: () => Promise<unknown>) => {
+        const result = await run();
+        if (recovering && fail && failure === 'lock-release') throw Error('lock release failed');
+        return result;
+      },
+      verifyCustody: async () => {
+        if (recovering && fail && failure === 'custody') throw Error('custody lost');
+      },
+      readReceipt: async () => {
+        if (recovering && fail && failure === 'journal-read') throw Error('journal unreadable');
+        return journal;
+      },
+      persistReceipt: async (receipt: discoveryCore.DiscoveryReceipt) => {
+        if (firstIdWriteFailure && !recovering && receipt.id)
+          throw Error('first ID write failed before persistence');
+        journal = structuredClone(receipt);
+      },
+      clearReceipt: vi.fn(async () => {
+        journal = undefined;
+      }),
+      create: vi.fn(async (receipt, config, dispatch) => {
+        dispatch();
+        row =
+          failure === 'orphan'
+            ? undefined
+            : {
+                name: receipt.name,
+                id: 'original-non-ready-id',
+                workspace: config.workspace,
+                phase: 'Pending',
+                labels: {
+                  'mitzo.discovery': 'models',
+                  'mitzo.discovery.claim': discoveryCore.discoveryClaimLabel(receipt.claim),
+                },
+              };
+      }),
+      list: async () => (row ? [row] : []),
+      wait: async () => {},
+      cancel: vi.fn(async () => {}),
+      delete: vi.fn(async () => {
+        row = undefined;
+      }),
+      physicalAbsent: vi.fn(async () => row === undefined),
+      observeRouting: async () => ({ status: 'inconclusive' }),
+      openClient: vi.fn(),
+    } as unknown as discoveryCore.DiscoveryOperations;
+    vi.spyOn(discoveryHost, 'createDiscoveryHostOperations').mockReturnValue(operations);
+    const host = await createOwnedSymposiumHost(f.options, f.launch);
+    try {
+      const original = host.personalConnections.list()[0];
+      const login = await host.beginDeviceLogin({
+        connectionId: original.id,
+        expectedRevision: original.revision,
+      });
+      await login.completed;
+      const connected = host.personalConnections.list()[0];
+      const result = await host.personalConnections.diagnoseRouting(
+        connected.id,
+        connected.revision,
+        () => {},
+      );
+      expect(result.status).toBe('reconciliation_required');
+      if (failure === 'orphan' || firstIdWriteFailure)
+        expect(operations.delete).not.toHaveBeenCalled();
+      else expect(operations.delete).toHaveBeenCalledOnce();
+      if (firstIdWriteFailure) expect(operations.physicalAbsent).not.toHaveBeenCalled();
+      else expect(operations.physicalAbsent).toHaveBeenCalledOnce();
+      expect(operations.openClient).not.toHaveBeenCalled();
+      if (firstIdWriteFailure) expect(journal).toBeDefined();
+      else if (failure !== 'orphan') expect(journal).toBeUndefined();
+      if (firstIdWriteFailure) expect(journal?.id).toBeUndefined();
+      const fencePath = join(f.root, 'sandbox-creation-fence.json');
+      expect(JSON.parse(readFileSync(fencePath, 'utf8')).uncertain).toBe(true);
+      const other = vi.fn(async () => {});
+      await expect(host.runSandboxCreation(() => {}, other)).rejects.toThrow('host recovery');
+      expect(other).not.toHaveBeenCalled();
+      if (failure === 'orphan') {
+        await expect(
+          host.personalConnections.recoverDiscovery(
+            result.connection.id,
+            result.connection.revision,
+            () => {},
+          ),
+        ).rejects.toThrow('unavailable');
+        expect(adapter.disconnect).not.toHaveBeenCalled();
+        expect(JSON.parse(readFileSync(fencePath, 'utf8')).uncertain).toBe(true);
+        return;
+      }
+      recovering = true;
+      const originalRow = structuredClone(row);
+      const originalJournal = structuredClone(journal);
+      if (failure === 'wrong-id') row!.id = 'foreign-id';
+      if (failure === 'wrong-label') row!.labels['mitzo.discovery.claim'] = 'foreign-claim';
+      if (failure === 'wrong-config') journal!.configHash = 'f'.repeat(64);
+      if (failure !== 'none' && failure !== 'first-id-write') {
+        await expect(
+          host.personalConnections.recoverDiscovery(
+            result.connection.id,
+            result.connection.revision,
+            () => {},
+          ),
+        ).rejects.toThrow('physical cleanup unconfirmed');
+        expect(JSON.parse(readFileSync(fencePath, 'utf8')).uncertain).toBe(true);
+        expect(adapter.disconnect).not.toHaveBeenCalled();
+        if (firstIdWriteFailure) expect(operations.delete).not.toHaveBeenCalled();
+      }
+      fail = false;
+      row = originalRow;
+      journal = originalJournal;
+      await expect(
+        host.personalConnections.recoverDiscovery(
+          result.connection.id,
+          result.connection.revision,
+          () => {},
+        ),
+      ).resolves.toMatchObject({ status: 'reconciled', connection: { state: 'reauth_required' } });
+      expect(JSON.parse(readFileSync(fencePath, 'utf8')).uncertain).toBe(false);
+      expect(adapter.disconnect).toHaveBeenCalledOnce();
+      expect(operations.create).toHaveBeenCalledOnce();
+      expect(operations.delete).toHaveBeenCalledOnce();
+    } finally {
+      host.stop();
+    }
+  },
+);
+it.each([
+  'qualification',
+  'config-read',
+  'adapter-construction',
+  'late-preflight-revocation',
+] as const)(
+  'releases the exact Personal lease after actual owned diagnostic %s fails before allocation',
+  async (failure) => {
+    const f = diagnosticFixture();
+    let authorized = true;
+    const adapter = {
+      activeDefinition: undefined,
+      captureDiscovery: () => ({
+        provider: { name: 'personal', id: 'real-provider-id' },
+        account: { email: 'fixture@example.test', planType: 'pro' },
+        assertCurrent() {},
+      }),
+      beginDeviceLogin: async () => ({
+        completed: Promise.resolve({ email: 'fixture@example.test', planType: 'pro' }),
+        cancel: async () => {},
+      }),
+      disconnect: vi.fn(async () => {}),
+      invalidate: vi.fn(),
+    };
+    vi.spyOn(subscriptionHost, 'createSymposiumSubscriptionHost').mockReturnValue(adapter as never);
+    const factory = vi.spyOn(discoveryHost, 'createDiscoveryHostOperations');
+    const runner = vi.spyOn(discoveryCore, 'runSymposiumRoutingDiagnostic');
+    const host = await createOwnedSymposiumHost(f.options, f.launch);
+    try {
+      const original = host.personalConnections.list()[0];
+      const login = await host.beginDeviceLogin({
+        connectionId: original.id,
+        expectedRevision: original.revision,
+      });
+      await login.completed;
+      const connected = host.personalConnections.list()[0];
+      if (failure === 'qualification')
+        f.verifyNative.mockImplementation(() => {
+          throw Error('tuple unavailable');
+        });
+      if (failure === 'config-read') rmSync(join(f.root, 'gateway.toml'));
+      if (failure === 'adapter-construction')
+        factory.mockImplementation(() => {
+          throw Error('private adapter preflight unavailable');
+        });
+      if (failure === 'late-preflight-revocation')
+        f.verifyNative.mockImplementation(() => {
+          authorized = false;
+        });
+      await expect(
+        host.personalConnections.diagnoseRouting(connected.id, connected.revision, () => {
+          if (!authorized) throw Error('operator expired');
+        }),
+      ).rejects.toThrow('preflight');
+      const settled = host.personalConnections.list()[0];
+      expect(settled).toMatchObject({
+        state: 'connected',
+        account: connected.account,
+        revision: connected.revision + 2,
+      });
+      expect(settled.modelDiscovery).toBeUndefined();
+      expect(adapter.invalidate).not.toHaveBeenCalled();
+      expect(runner).not.toHaveBeenCalled();
+      expect(existsSync(join(f.root, 'routing-diagnostic.json'))).toBe(false);
+      await expect(
+        host.personalConnections.disconnect(settled.id, settled.revision),
+      ).resolves.toMatchObject({ state: 'disconnected' });
+    } finally {
+      host.stop();
+    }
+  },
+);
+
+it('releases the Personal lease after positively undispatched real core failure even if operator expiry follows its return', async () => {
+  const f = diagnosticFixture();
+  let authorized = true;
+  const adapter = {
+    activeDefinition: undefined,
+    captureDiscovery: () => ({
+      provider: { name: 'personal', id: 'real-provider-id' },
+      account: { email: 'fixture@example.test', planType: 'pro' },
+      assertCurrent() {},
+    }),
+    beginDeviceLogin: async () => ({
+      completed: Promise.resolve({ email: 'fixture@example.test', planType: 'pro' }),
+      cancel: async () => {},
+    }),
+    disconnect: vi.fn(async () => {}),
+    invalidate: vi.fn(),
+  };
+  vi.spyOn(subscriptionHost, 'createSymposiumSubscriptionHost').mockReturnValue(adapter as never);
+  const operations = {
+    withExclusiveAttempt: async (run: () => Promise<unknown>) => run(),
+    verifyCustody: vi.fn(async () => {}),
+    readReceipt: vi.fn(async () => undefined),
+    create: vi.fn(),
+    openClient: vi.fn(),
+    persistReceipt: vi.fn(),
+    clearReceipt: vi.fn(),
+  } as unknown as discoveryCore.DiscoveryOperations;
+  vi.spyOn(discoveryHost, 'createDiscoveryHostOperations').mockReturnValue(operations);
+  const realRunner = discoveryCore.runSymposiumRoutingDiagnostic;
+  vi.spyOn(discoveryCore, 'runSymposiumRoutingDiagnostic').mockImplementation(async (...args) => {
+    const result = await realRunner(...args);
+    expect(result.status).toBe('failed');
+    authorized = false;
+    return result;
+  });
+  const host = await createOwnedSymposiumHost(f.options, f.launch);
+  try {
+    const original = host.personalConnections.list()[0];
+    const login = await host.beginDeviceLogin({
+      connectionId: original.id,
+      expectedRevision: original.revision,
+    });
+    await login.completed;
+    const connected = host.personalConnections.list()[0];
+    await expect(
+      host.personalConnections.diagnoseRouting(connected.id, connected.revision, () => {
+        if (!authorized) throw Error('operator expired');
+      }),
+    ).rejects.toThrow('preflight');
+    expect(host.personalConnections.list()[0]).toMatchObject({
+      state: 'connected',
+      revision: connected.revision + 2,
+    });
+    expect(host.personalConnections.list()[0].modelDiscovery).toBeUndefined();
+    expect(adapter.invalidate).not.toHaveBeenCalled();
+    expect(operations.create).not.toHaveBeenCalled();
+    expect(operations.openClient).not.toHaveBeenCalled();
+    expect(operations.persistReceipt).not.toHaveBeenCalled();
+  } finally {
+    host.stop();
+  }
+});
+it.each([
+  'current-operator',
+  'late-expiry',
+  'before-core-expiry',
+  'in-core-expiry',
+  'lock-release-failure',
+] as const)(
+  'releases only this Personal lease when first core custody fails before reading any prior journal (%s)',
+  async (authority) => {
+    const f = diagnosticFixture();
+    let authorized = true;
+    const adapter = {
+      activeDefinition: undefined,
+      captureDiscovery: () => ({
+        provider: { name: 'personal', id: 'real-provider-id' },
+        account: { email: 'fixture@example.test', planType: 'pro' },
+        assertCurrent() {},
+      }),
+      beginDeviceLogin: async () => ({
+        completed: Promise.resolve({ email: 'fixture@example.test', planType: 'pro' }),
+        cancel: async () => {},
+      }),
+      disconnect: vi.fn(async () => {}),
+      invalidate: vi.fn(),
+    };
+    vi.spyOn(subscriptionHost, 'createSymposiumSubscriptionHost').mockReturnValue(adapter as never);
+    const operations = {
+      withExclusiveAttempt: async (run: () => Promise<unknown>) => {
+        const result = await run();
+        if (authority === 'lock-release-failure') throw Error('original lock release failed');
+        return result;
+      },
+      verifyCustody: vi.fn(async () => {
+        if (authority === 'in-core-expiry') authorized = false;
+        throw Error('first custody unavailable');
+      }),
+      readReceipt: vi.fn(),
+      persistReceipt: vi.fn(),
+      clearReceipt: vi.fn(),
+      clearUndispatchedReceipt: vi.fn(),
+      create: vi.fn(),
+      openClient: vi.fn(),
+      list: vi.fn(),
+      delete: vi.fn(),
+      cancel: vi.fn(),
+      physicalAbsent: vi.fn(),
+    } as unknown as discoveryCore.DiscoveryOperations;
+    vi.spyOn(discoveryHost, 'createDiscoveryHostOperations').mockReturnValue(operations);
+    const realRunner = discoveryCore.runSymposiumRoutingDiagnostic;
+    vi.spyOn(discoveryCore, 'runSymposiumRoutingDiagnostic').mockImplementation(async (...args) => {
+      if (authority === 'before-core-expiry') authorized = false;
+      const result = await realRunner(...args);
+      if (authority === 'late-expiry') authorized = false;
+      return result;
+    });
+    const host = await createOwnedSymposiumHost(f.options, f.launch);
+    try {
+      const original = host.personalConnections.list()[0];
+      const login = await host.beginDeviceLogin({
+        connectionId: original.id,
+        expectedRevision: original.revision,
+      });
+      await login.completed;
+      const connected = host.personalConnections.list()[0];
+      const journalPath = join(f.root, 'routing-diagnostic.json');
+      const priorJournal = 'uninspected prior-operation journal';
+      writeFileSync(journalPath, priorJournal, { mode: 0o600 });
+      await expect(
+        host.runSandboxCreation(
+          () => {},
+          async (dispatch) => {
+            dispatch();
+            throw Error('foreign original creation still uncertain');
+          },
+        ),
+      ).rejects.toThrow('foreign original');
+      const fencePath = join(f.root, 'sandbox-creation-fence.json');
+      const priorFence = readFileSync(fencePath, 'utf8');
+      const diagnostic = host.personalConnections.diagnoseRouting(
+        connected.id,
+        connected.revision,
+        () => {
+          if (!authorized) throw Error('operator expired');
+        },
+      );
+      if (
+        authority === 'late-expiry' ||
+        authority === 'before-core-expiry' ||
+        authority === 'in-core-expiry'
+      )
+        await expect(diagnostic).rejects.toThrow('preflight');
+      else
+        expect((await diagnostic).status).toBe(
+          authority === 'lock-release-failure' ? 'reconciliation_required' : 'failed',
+        );
+      expect(host.personalConnections.list()[0]).toMatchObject({
+        state: authority === 'lock-release-failure' ? 'recovery_required' : 'connected',
+        account: connected.account,
+        revision: connected.revision + 2,
+      });
+      if (authority === 'lock-release-failure') {
+        expect(host.personalConnections.list()[0].modelDiscovery).toBe('reconciliation_required');
+        expect(adapter.invalidate).toHaveBeenCalledOnce();
+      } else {
+        expect(host.personalConnections.list()[0].modelDiscovery).toBeUndefined();
+        expect(adapter.invalidate).not.toHaveBeenCalled();
+      }
+      expect(readFileSync(journalPath, 'utf8')).toBe(priorJournal);
+      expect(readFileSync(fencePath, 'utf8')).toBe(priorFence);
+      for (const name of [
+        'readReceipt',
+        'persistReceipt',
+        'clearReceipt',
+        'clearUndispatchedReceipt',
+        'create',
+        'openClient',
+        'list',
+        'delete',
+        'cancel',
+        'physicalAbsent',
+      ] as const)
+        expect(operations[name]).not.toHaveBeenCalled();
+      const unrelated = vi.fn(async () => {});
+      await expect(host.runSandboxCreation(() => {}, unrelated)).rejects.toThrow(
+        'requires host recovery',
+      );
+      expect(unrelated).not.toHaveBeenCalled();
+    } finally {
+      host.stop();
+    }
+  },
+);

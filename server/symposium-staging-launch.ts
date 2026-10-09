@@ -5,6 +5,8 @@ import type { OwnedReleasePlan } from './symposium-owned-release.js';
 import type { SymposiumCustodianConstructorHooks } from './symposium-custodian-main.js';
 import { openStagingRegistry } from './symposium-staging-registry.js';
 import { readOwnedSymposiumHostConfig } from './symposium-owned-config-schema.js';
+import { reviewedStagingOwnedBuild } from './symposium-staging-runtime-contract.js';
+import { SOURCE_QUALIFIED_SYMPOSIUM_ROUTING_BUILD } from './symposium-owned-runtime-contract.js';
 
 export const StagingLaunchSchema = z.strictObject({
   registryDirectory: z.string().refine(isAbsolute),
@@ -76,7 +78,17 @@ export async function launchStagingCustodian(
   },
 ) {
   const input = StagingLaunchSchema.parse(registration);
+  const selection = () => {
+    const config = readOwnedSymposiumHostConfig(plan.configPath);
+    const build = reviewedStagingOwnedBuild(config.gateway);
+    if (JSON.stringify(plan.runtime) !== JSON.stringify(build))
+      throw Error('Verified staging plan runtime differs from configured tuple');
+    return build === SOURCE_QUALIFIED_SYMPOSIUM_ROUTING_BUILD
+      ? ('local-854b-routing-v1' as const)
+      : undefined;
+  };
   deps.verify(plan);
+  selection();
   rejectRegistryOverlap(plan, input.registryDirectory);
   const registry = openStagingRegistry(input.registryDirectory, input.capacity);
   let owner: ReturnType<typeof registry.reserve> | undefined;
@@ -95,7 +107,9 @@ export async function launchStagingCustodian(
     const original = owner;
     deps.claim(plan);
     deps.verify(plan);
+    const admissionBuildSelection = selection();
     await deps.run({
+      ...(admissionBuildSelection ? { admissionBuildSelection } : {}),
       observeController(identity, current) {
         current();
         original.controller(identity);

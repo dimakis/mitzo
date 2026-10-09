@@ -45,7 +45,10 @@ import {
   type ArtifactGenerationRequest,
 } from './symposium-artifact-generations.js';
 import type { SuccessorArtifactExportReceipt } from './symposium-physical-artifact-seal.js';
-import { REVIEWED_SYMPOSIUM_OWNED_RUNTIME } from './symposium-owned-runtime-contract.js';
+import {
+  REVIEWED_SYMPOSIUM_OWNED_RUNTIME,
+  reviewedSymposiumRoutingDiagnosticBuild,
+} from './symposium-owned-runtime-contract.js';
 import { artifactGitContract, createArtifactGitVolume } from './symposium-artifact-initializer.js';
 import { symposiumArtifactOwner } from './symposium-artifact-owner.js';
 import {
@@ -64,14 +67,23 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import {
   runSymposiumModelDiscovery,
+  runSymposiumRoutingDiagnostic,
   createSymposiumModelDiscoveryRecovery,
+  type DiscoveryConfig,
+  type DiscoveryOperations,
+  type DiscoveryRecoveryCapability,
+  type DiscoveryOwnedReadyEvidence,
   type DiscoveryReceipt,
 } from './symposium-model-discovery.js';
 import { guardDiscoveryOperations } from './symposium-discovery-custody.js';
 import { createDiscoveryHostOperations } from './symposium-model-discovery-host.js';
 import type { CatalogModel } from './model-catalog.js';
 import { SymposiumWorkspaceLifecycle } from './symposium-workspace-lifecycle.js';
-import { createPersonalSubscriptionHost } from './symposium-personal-host.js';
+import {
+  createPersonalSubscriptionHost,
+  preparePersonalRoutingDiagnostic,
+  createPersonalRoutingDiagnosticDispatchWitness,
+} from './symposium-personal-host.js';
 import type { ConnectionSelection } from './symposium-personal-connections.js';
 import { SymposiumConfigSchema } from '@mitzo/protocol';
 import {
@@ -164,9 +176,36 @@ export async function createOwnedSymposiumHost(
     throw Error('Native input diagnostic must be a trusted constructor boolean');
   if (
     options.admissionBuildSelection !== undefined &&
-    options.admissionBuildSelection !== 'local-854b-b20-v1'
+    options.admissionBuildSelection !== 'local-854b-b20-v1' &&
+    options.admissionBuildSelection !== 'local-854b-routing-v1'
   )
     throw Error('Owned full-build selection is not reviewed');
+  const diagnosticSelection = options.admissionBuildSelection;
+  const diagnosticBuild =
+    diagnosticSelection === 'local-854b-routing-v1'
+      ? reviewedSymposiumRoutingDiagnosticBuild(options.gateway.workloadImage, diagnosticSelection)
+      : undefined;
+  const assertConfiguredDiagnosticTuple = () => {
+    if (!diagnosticBuild) throw Error('Routing diagnostic native tuple is unavailable');
+    const current = reviewedSymposiumRoutingDiagnosticBuild(
+      options.gateway.workloadImage,
+      diagnosticSelection,
+    );
+    if (
+      current.cliSha256 !== diagnosticBuild.cliSha256 ||
+      current.gatewaySha256 !== diagnosticBuild.gatewaySha256 ||
+      current.image !== diagnosticBuild.image ||
+      current.sandboxRuntimeImage !== diagnosticBuild.sandboxRuntimeImage ||
+      current.supervisorImage !== diagnosticBuild.supervisorImage ||
+      options.gateway.cliSha256 !== current.cliSha256 ||
+      options.gateway.executableSha256 !== current.gatewaySha256 ||
+      options.gateway.workloadImage !== current.image ||
+      options.gateway.sandboxRuntimeImage !== current.sandboxRuntimeImage ||
+      options.gateway.supervisorImage !== current.supervisorImage
+    )
+      throw Error('Configured routing diagnostic native tuple changed');
+  };
+  if (diagnosticBuild) assertConfiguredDiagnosticTuple();
   const originalObserver = options.observeDurableReviewToolResult;
   if (originalObserver !== undefined && typeof originalObserver !== 'function')
     throw new Error('Owned native observer must be a trusted constructor callback');
@@ -862,6 +901,179 @@ export async function createOwnedSymposiumHost(
         }
         return { result, models, recover };
       },
+      diagnosticBuild
+        ? async (proof) => {
+            const assertSupported = async (config: DiscoveryConfig) => {
+              custody();
+              assertConfiguredDiagnosticTuple();
+              if (
+                config.cliSha256 !== diagnosticBuild.cliSha256 ||
+                config.workloadImage !== diagnosticBuild.image ||
+                config.routingDiagnostic?.supervisorImage !== diagnosticBuild.supervisorImage
+              )
+                throw Error('Selected routing diagnostic tuple changed');
+              gateway.verifyOwnedNativeHost({
+                cli: gateway.cli,
+                cliEnvironment: gateway.managementEnvironment,
+                cliSha256: diagnosticBuild.cliSha256,
+                gatewaySha256: diagnosticBuild.gatewaySha256,
+                gateway: gateway.gateway,
+                workspace: gateway.workspace,
+                gatewayEndpoint: gateway.endpoint,
+                image: diagnosticBuild.image,
+                sandboxRuntimeImage: diagnosticBuild.sandboxRuntimeImage,
+                supervisorImage: diagnosticBuild.supervisorImage,
+              });
+            };
+            const { config, original } = await preparePersonalRoutingDiagnostic(proof, async () => {
+              custody();
+              proof.assertCurrent();
+              const gatewayConfigPath = join(gateway.stateDirectory, 'gateway.toml');
+              const config: DiscoveryConfig = {
+                cliSha256: options.gateway.cliSha256,
+                workloadImage: options.gateway.workloadImage,
+                policySha256: policyDigest,
+                podmanUrl: `unix://${options.gateway.podmanSocket}`,
+                gateway: gateway.gateway,
+                workspace: gateway.workspace,
+                provider: proof.provider,
+                routingDiagnostic: {
+                  format: 'owned-supervisor-console-v1',
+                  logLevel: 'off,openshell.routing_http=debug',
+                  supervisorImage: diagnosticBuild.supervisorImage,
+                },
+              };
+              await assertSupported(config);
+              proof.assertCurrent();
+              const original = createDiscoveryHostOperations(config, {
+                cli: gateway.cli,
+                podman: options.podman.executable,
+                policy: options.runtime.policy,
+                journal: join(gateway.stateDirectory, 'routing-diagnostic.json'),
+                namespace: options.podman.sandboxNamespace,
+                environment: { ...gateway.managementEnvironment },
+                configPins: [
+                  {
+                    path: gatewayConfigPath,
+                    sha256: createHash('sha256')
+                      .update(readFileSync(gatewayConfigPath))
+                      .digest('hex'),
+                    mode: 0o400,
+                  },
+                ],
+                launchIdentity: proof.launchIdentity,
+                attestGateway: async () => {
+                  custody();
+                },
+                routingDiagnostic: {
+                  supervisorImage: diagnosticBuild.supervisorImage,
+                  assertSupported,
+                },
+              });
+              return { config, original };
+            });
+            const originalCreation = workspaceLifecycle.retainDiscoveryCreation();
+            let retainedReceipt: DiscoveryReceipt | undefined;
+            let recovery: DiscoveryRecoveryCapability | undefined;
+            let retainedReadyEvidence: DiscoveryOwnedReadyEvidence | undefined;
+            const retain = (receipt: DiscoveryReceipt, evidence?: DiscoveryOwnedReadyEvidence) => {
+              if (!receipt.id) return;
+              const observed = structuredClone(receipt);
+              if (retainedReceipt && JSON.stringify(retainedReceipt) !== JSON.stringify(observed))
+                throw Error('Original diagnostic receipt changed');
+              if (!retainedReceipt) retainedReceipt = observed;
+              if (!recovery || (evidence && !retainedReadyEvidence)) {
+                retainedReadyEvidence = evidence ?? retainedReadyEvidence;
+                recovery = createSymposiumModelDiscoveryRecovery(
+                  config,
+                  observed,
+                  retainedReadyEvidence,
+                  originalCreation.pendingRecoveryAuthority,
+                );
+              }
+            };
+            const guarded = guardDiscoveryOperations(original, () => {
+              custody();
+              proof.assertCurrent();
+            });
+            const operations: DiscoveryOperations = {
+              ...guarded,
+              async withExclusiveAttempt(operation) {
+                // The first guarded core check precedes journal/native work.
+                // Preserve its private disposition after original lock release.
+                return original.withExclusiveAttempt(operation);
+              },
+              async create(receipt, config, markDispatched) {
+                originalCreation.bindReceipt(receipt);
+                await guarded.create(receipt, config, markDispatched);
+              },
+              async persistReceipt(receipt, exclusive) {
+                // Retain an ID observed by the original owned Ready check even
+                // when authority is lost just before its first journal write.
+                retain(receipt);
+                await guarded.persistReceipt(receipt, exclusive);
+              },
+            };
+            const fenced = fenceDiscoveryCreation(
+              operations,
+              gateway.workspace,
+              originalCreation.create,
+              () => {
+                custody();
+                proof.assertCurrent();
+              },
+              (receipt, evidence) => {
+                originalCreation.retainReady(evidence);
+                retain(receipt, evidence);
+              },
+            );
+            const nondispatch = createPersonalRoutingDiagnosticDispatchWitness(proof);
+            const result = await runSymposiumRoutingDiagnostic(config, fenced.operations, {
+              notDispatchedOrigin: nondispatch.origin,
+              onNotDispatched(evidence) {
+                nondispatch.confirm(config, evidence);
+              },
+              onOwnedReady: retain,
+              onPhysicalCleanup(receipt, evidence) {
+                retain(receipt);
+                recovery?.confirmPhysicalCleanup(receipt, evidence);
+              },
+            });
+            // Return retained cleanup even after a late receipt/operator change; the
+            // Personal coordinator fences the result after capturing this capability.
+            const recover = recovery
+              ? (check: () => void) =>
+                  originalCreation.recover(async () => {
+                    const cleanup = guardDiscoveryOperations(original, () => {
+                      custody();
+                      check();
+                    });
+                    const result = await recovery!(cleanup);
+                    custody();
+                    check();
+                    return {
+                      result,
+                      ...(result.status === 'reconciled'
+                        ? { physicalCleanup: recovery!.physicalCleanupEvidence() }
+                        : {}),
+                    };
+                  })
+              : undefined;
+            return {
+              result: fenced.creationUncertain()
+                ? { ...result, status: 'reconciliation_required' as const }
+                : result,
+              ...(recover ? { recover } : {}),
+              ...(result.status === 'failed' &&
+              !retainedReceipt &&
+              !recovery &&
+              !fenced.creationUncertain() &&
+              nondispatch.disposition()
+                ? { undispatched: nondispatch.disposition() }
+                : {}),
+            };
+          }
+        : undefined,
     );
     const assertArtifactAdmissionCurrent = (
       sessionId: string,

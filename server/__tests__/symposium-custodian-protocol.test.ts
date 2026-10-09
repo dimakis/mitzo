@@ -58,6 +58,25 @@ describe('finite custodian protocol', () => {
     expect(selectCustodianOperation('POST', path)).toBeNull();
     expect(selectCustodianOperation('GET', `${path}/extra`)).toBeNull();
   });
+  it('routes only the exact operator Personal routing diagnostic identity', () => {
+    const path = '/api/symposium/personal/connections/pro-slot/routing-diagnostic';
+    const selected = selectCustodianOperation('POST', path);
+    expect(selected).toEqual({ operation: 'personal.diagnoseRouting', resourceId: 'pro-slot' });
+    expect(custodianRoute(selected!)).toEqual({ method: 'POST', path });
+    expect(selectCustodianOperation('GET', path)).toBeNull();
+    expect(selectCustodianOperation('POST', path + '/extra')).toBeNull();
+    expect(selectCustodianOperation('POST', path.replace('pro-slot', 'x%2Fy'))).toBeNull();
+    expect(() =>
+      decodeCustodianRequest({
+        ...selected,
+        requestId: 'diagnostic-1',
+        epoch: 1,
+        body: { expectedRevision: 7, actor: 'forged' },
+        query: {},
+        authorization: { id: 'operator', expiresAt: 1000 },
+      }),
+    ).toThrow();
+  });
   it('maps supported routes to semantic operations without accepting arbitrary paths', () => {
     expect(
       selectCustodianOperation('POST', '/api/sessions/s-1/symposium/deliveries/d-1/dispatch'),

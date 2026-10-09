@@ -2,6 +2,8 @@ import { createHash } from 'node:crypto';
 import { expect, it, vi } from 'vitest';
 import {
   createSymposiumModelDiscoveryRecovery,
+  createDiscoveryOwnedReadyEvidence,
+  discoveryClaimLabel,
   recoverSymposiumModelDiscovery,
 } from '../symposium-model-discovery.js';
 import type { DiscoveryOperations } from '../symposium-model-discovery.js';
@@ -135,3 +137,63 @@ it('retained cleanup proof does not bypass changed journal, custody or an occupi
   };
   expect((await recover(ops)).status).toBe('reconciliation_required');
 });
+it.each(['exact', 'forged', 'wrong-id', 'wrong-claim'] as const)(
+  'recovers pending journal only with positive same-process Ready evidence: %s',
+  async (kind) => {
+    const f = fixture();
+    const pending = { ...f.receipt };
+    delete pending.id;
+    let journal: unknown = pending;
+    f.ops.readReceipt = async () => journal;
+    const row = {
+      id: f.receipt.id!,
+      name: f.receipt.name,
+      workspace: config.workspace,
+      phase: 'Ready',
+      labels: {
+        'mitzo.discovery': 'models',
+        'mitzo.discovery.claim': discoveryClaimLabel(f.receipt.claim),
+      },
+    };
+    const proof = createDiscoveryOwnedReadyEvidence(config, f.receipt, row);
+    const recovery = createSymposiumModelDiscoveryRecovery(
+      config,
+      f.receipt,
+      kind === 'forged' ? { receipt: f.receipt } : proof,
+    );
+    let exists = true;
+    f.ops.list = async () =>
+      exists
+        ? [
+            {
+              ...row,
+              ...(kind === 'wrong-id' ? { id: 'replacement' } : {}),
+              ...(kind === 'wrong-claim'
+                ? { labels: { ...row.labels, 'mitzo.discovery.claim': 'different' } }
+                : {}),
+            },
+          ]
+        : [];
+    f.ops.persistReceipt = vi.fn(async (value) => {
+      journal = value;
+    });
+    f.ops.cancel = vi.fn(async () => {});
+    f.ops.delete = vi.fn(async () => {
+      exists = false;
+    });
+    f.ops.clearReceipt = vi.fn(async () => {
+      journal = undefined;
+    });
+    const result = await recovery(f.ops);
+    expect(result.status).toBe(kind === 'exact' ? 'reconciled' : 'reconciliation_required');
+    expect(f.ops.create).not.toHaveBeenCalled();
+    expect(f.ops.openClient).not.toHaveBeenCalled();
+    if (kind === 'exact') {
+      expect(f.ops.persistReceipt).toHaveBeenCalledWith(f.receipt, false);
+      expect(f.ops.delete).toHaveBeenCalledWith(f.receipt);
+    } else {
+      expect(f.ops.persistReceipt).not.toHaveBeenCalled();
+      expect(f.ops.delete).not.toHaveBeenCalled();
+    }
+  },
+);

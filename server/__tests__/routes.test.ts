@@ -1686,6 +1686,11 @@ describe('mounted personal device login ownership', () => {
       create: vi.fn(() => row),
       disconnect: vi.fn(async () => ({ ...row, revision: 2 })),
       recoverDiscovery: vi.fn(async () => ({ status: 'reconciled', inference: false })),
+      diagnoseRouting: vi.fn(async () => ({
+        status: 'failed' as const,
+        inference: false as const,
+        catalogPublication: false as const,
+      })),
       discoverModels: vi.fn(async () => ({
         status: 'complete',
         inference: false,
@@ -1757,6 +1762,18 @@ describe('mounted personal device login ownership', () => {
       ).status,
     ).toBe(200);
     expect(personalConnections.disconnect).toHaveBeenCalledWith('personal_test', 1);
+    const routingEndpoint = '/api/symposium/personal/connections/personal_test/routing-diagnostic';
+    const routed = await request(app)
+      .post(routingEndpoint)
+      .set('Cookie', first)
+      .send({ expectedRevision: 1 });
+    expect(routed.status).toBe(422);
+    expect(routed.body).toEqual({ status: 'failed', inference: false, catalogPublication: false });
+    expect(personalConnections.diagnoseRouting).toHaveBeenCalledWith(
+      'personal_test',
+      1,
+      expect.any(Function),
+    );
     const endpoint = '/api/symposium/personal/connections/personal_test/models/refresh';
     expect((await request(app).post(endpoint).send({ expectedRevision: 1 })).status).toBe(401);
     expect((await request(app).post(endpoint).set('Cookie', first).send({})).status).toBe(400);

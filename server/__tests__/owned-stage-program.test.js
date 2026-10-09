@@ -54,6 +54,24 @@ it('creates the missing canonical bin privately and verifies the pinned copy wit
   expect(preparePinnedProgram(f.root, f.input, f.sha256)).toEqual(prepared);
 });
 
+it('freezes a separately named routing CLI and refuses cross-kind or arbitrary program paths', () => {
+  const f = fixture();
+  const device = preparePinnedProgram(f.root, f.input, f.sha256);
+  const routing = preparePinnedProgram(f.root, f.input, f.sha256, 'routing-cli');
+  expect(routing.pin.executable).toBe(join(f.parent, 'openshell-routing-' + f.sha256.slice(0, 12)));
+  expect(routing.pin.executable).not.toBe(device.pin.executable);
+  expect(readFileSync(routing.pin.executable)).toEqual(f.data);
+  expect(() =>
+    assertPinnedProgram(f.root, routing.pin, routing.metadata, 'routing-cli'),
+  ).not.toThrow();
+  expect(() => assertPinnedProgram(f.root, routing.pin, routing.metadata)).toThrow();
+  expect(() => assertPinnedProgram(f.root, device.pin, device.metadata, 'routing-cli')).toThrow();
+  expect(() => preparePinnedProgram(f.root, f.input, f.sha256, '../arbitrary')).toThrow();
+  expect(() => assertPinnedProgram(f.root, device.pin, device.metadata, '../arbitrary')).toThrow();
+  chmodSync(routing.pin.executable, 0o700);
+  expect(() => assertPinnedProgram(f.root, routing.pin, routing.metadata, 'routing-cli')).toThrow();
+});
+
 it.each([0o755, 0o770, 0o1700])(
   'refuses existing bin permissions %o without repairing them',
   (mode) => {

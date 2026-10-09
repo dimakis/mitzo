@@ -1,5 +1,6 @@
 import {
   reviewedSymposiumOwnedBuild,
+  symposiumOwnedBuildVersions,
   type SymposiumOwnedBuildSelection,
 } from './symposium-owned-runtime-contract.js';
 import { z } from 'zod';
@@ -252,9 +253,9 @@ export function collectOwnedAdmissionEvidence(
   );
   const candidate: SymposiumProductionAttestation = {
     contract: 'openshell-v0.1-owned-native-seats',
-    cliVersion: build.version,
+    cliVersion: symposiumOwnedBuildVersions(build).cliVersion,
     cliSha256: build.cliSha256,
-    gatewayVersion: build.version,
+    gatewayVersion: symposiumOwnedBuildVersions(build).gatewayVersion,
     gatewaySha256: build.gatewaySha256,
     gateway: config.gateway,
     workspace: config.workspace,

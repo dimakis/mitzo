@@ -131,7 +131,7 @@ export function reviewedSymposiumOwnedRuntime(image: string) {
 /** Explicit source-qualified local build, not a claim of completed physical admission.
  * Image-only consumers retain their original catalog entry. Only trusted construction
  * can select this exact tuple before the same physical gate collects evidence. */
-export type SymposiumOwnedBuildSelection = 'local-854b-b20-v1';
+export type SymposiumOwnedBuildSelection = 'local-854b-b20-v1' | 'local-854b-routing-v1';
 export const SOURCE_QUALIFIED_SYMPOSIUM_LOCAL_B20_BUILD = Object.freeze({
   ...REVIEWED_SYMPOSIUM_CODEX_01591_IDENTITY_RUNTIME.build,
   version: '0.0.0',
@@ -142,16 +142,59 @@ export const SOURCE_QUALIFIED_SYMPOSIUM_LOCAL_B20_BUILD = Object.freeze({
     ...REVIEWED_SYMPOSIUM_CODEX_01591_IDENTITY_RUNTIME.build.nativeArtifacts,
   }),
 } as const);
+
+/** Public source patch and locked dependency receipt are retained in
+ * docs/spikes/openshell-codex/routing-diagnostic-native. This exact tuple enables
+ * bounded account-check observation; physical admission still uses the full gate. */
+export const SOURCE_QUALIFIED_SYMPOSIUM_ROUTING_BUILD = Object.freeze({
+  ...REVIEWED_SYMPOSIUM_CODEX_01591_IDENTITY_RUNTIME.build,
+  version: '0.0.1-dev.3+g9472cc767',
+  gatewayVersion: REVIEWED_SYMPOSIUM_OWNED_RUNTIME.build.version,
+  cliSha256: 'a66f3eb90cef5d39073800f4f287cbe0dd137d754faeac218db52325a713e836',
+  supervisorImage: 'sha256:602585a9a550d5c8650bb10f2c80002b2d31e56fbef27f799c50d21ad26a6a89',
+  nativeArtifacts: Object.freeze({
+    ...REVIEWED_SYMPOSIUM_CODEX_01591_IDENTITY_RUNTIME.build.nativeArtifacts,
+  }),
+} as const);
 export function reviewedSymposiumOwnedBuild(
   image: string,
   selection?: SymposiumOwnedBuildSelection,
 ) {
   const original = reviewedSymposiumOwnedRuntime(image).build;
   if (selection === undefined) return original;
+  if (selection === 'local-854b-routing-v1')
+    return reviewedSymposiumRoutingDiagnosticBuild(image, selection);
   if (
     selection !== 'local-854b-b20-v1' ||
     image !== SOURCE_QUALIFIED_SYMPOSIUM_LOCAL_B20_BUILD.image
   )
     throw Error('Owned full-build selection is not reviewed');
   return SOURCE_QUALIFIED_SYMPOSIUM_LOCAL_B20_BUILD;
+}
+
+/** A caller or persisted configuration cannot supply an arbitrary proof/build. */
+export function reviewedSymposiumRoutingDiagnosticBuild(
+  image: string,
+  selection?: SymposiumOwnedBuildSelection,
+) {
+  if (
+    selection !== 'local-854b-routing-v1' ||
+    image !== SOURCE_QUALIFIED_SYMPOSIUM_ROUTING_BUILD.image
+  )
+    throw Error('Routing diagnostic native build is not qualified');
+  return SOURCE_QUALIFIED_SYMPOSIUM_ROUTING_BUILD;
+}
+
+/** Keep historical serialized build records verbatim. Only a separately
+ * qualified successor may declare a different measured gateway version. */
+type OwnedBuildVersions<T> = T extends { version: infer V extends string }
+  ? { cliVersion: V; gatewayVersion: T extends { gatewayVersion: infer G extends string } ? G : V }
+  : never;
+export function symposiumOwnedBuildVersions<
+  const T extends { version: string; gatewayVersion?: string },
+>(build: T): OwnedBuildVersions<T> {
+  return {
+    cliVersion: build.version,
+    gatewayVersion: build.gatewayVersion ?? build.version,
+  } as OwnedBuildVersions<T>;
 }

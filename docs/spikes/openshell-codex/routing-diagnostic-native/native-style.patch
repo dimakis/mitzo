@@ -1,0 +1,108 @@
+diff --git a/crates/openshell-supervisor-network/src/l7/routing_diagnostic.rs b/crates/openshell-supervisor-network/src/l7/routing_diagnostic.rs
+index 8c09ae2..e5443fa 100644
+--- a/crates/openshell-supervisor-network/src/l7/routing_diagnostic.rs
++++ b/crates/openshell-supervisor-network/src/l7/routing_diagnostic.rs
+@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+ 
+ static NEXT_ORDINAL: AtomicU64 = AtomicU64::new(1);
+ 
+-pub(crate) fn reserve_ordinal(counter: &AtomicU64) -> Option<u64> {
++pub fn reserve_ordinal(counter: &AtomicU64) -> Option<u64> {
+     counter
+         .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+             if value == 0 {
+@@ -20,7 +20,7 @@ pub(crate) fn reserve_ordinal(counter: &AtomicU64) -> Option<u64> {
+ }
+ 
+ #[derive(Clone, Copy, Debug)]
+-pub(crate) enum RoutingFailure {
++pub enum RoutingFailure {
+     Credential,
+     Transport,
+     Relay,
+@@ -39,43 +39,39 @@ impl RoutingFailure {
+ }
+ 
+ #[derive(Debug)]
+-pub(crate) struct RoutingEvent {
++pub struct RoutingEvent {
+     ordinal: u64,
++    kind: &'static str,
++    method: &'static str,
+     outcome: &'static str,
+     status_code: Option<u16>,
+ }
+ 
+ impl RoutingEvent {
+-    pub(crate) fn kind(&self) -> &'static str {
+-        "account_check"
++    pub fn kind(&self) -> &'static str {
++        self.kind
+     }
+-    pub(crate) fn method(&self) -> &'static str {
+-        "GET"
++    pub fn method(&self) -> &'static str {
++        self.method
+     }
+-    pub(crate) fn outcome(&self) -> &'static str {
++    pub fn outcome(&self) -> &'static str {
+         self.outcome
+     }
+-    pub(crate) fn status_code(&self) -> Option<u16> {
++    pub fn status_code(&self) -> Option<u16> {
+         self.status_code
+     }
+-    pub(crate) fn ordinal(&self) -> u64 {
++    pub fn ordinal(&self) -> u64 {
+         self.ordinal
+     }
+ }
+ 
+-pub(crate) struct RoutingCapture {
++pub struct RoutingCapture {
+     ordinal: u64,
+     finished: AtomicBool,
+ }
+ 
+ impl RoutingCapture {
+-    pub(crate) fn new(
+-        host: &str,
+-        port: u16,
+-        method: &str,
+-        target: &str,
+-        no_query: bool,
+-    ) -> Option<Self> {
++    pub fn new(host: &str, port: u16, method: &str, target: &str, no_query: bool) -> Option<Self> {
+         if !host.eq_ignore_ascii_case("chatgpt.com")
+             || port != 443
+             || method != "GET"
+@@ -91,23 +87,27 @@ impl RoutingCapture {
+         })
+     }
+ 
+-    pub(crate) fn response(&self, status_code: u16) -> Option<RoutingEvent> {
++    pub fn response(&self, status_code: u16) -> Option<RoutingEvent> {
+         if !(100..=599).contains(&status_code) || self.finished.swap(true, Ordering::Relaxed) {
+             return None;
+         }
+         Some(RoutingEvent {
+             ordinal: self.ordinal,
++            kind: "account_check",
++            method: "GET",
+             outcome: "response",
+             status_code: Some(status_code),
+         })
+     }
+ 
+-    pub(crate) fn failure(&self, failure: RoutingFailure) -> Option<RoutingEvent> {
++    pub fn failure(&self, failure: RoutingFailure) -> Option<RoutingEvent> {
+         if self.finished.swap(true, Ordering::Relaxed) {
+             return None;
+         }
+         Some(RoutingEvent {
+             ordinal: self.ordinal,
++            kind: "account_check",
++            method: "GET",
+             outcome: failure.name(),
+             status_code: None,
+         })
