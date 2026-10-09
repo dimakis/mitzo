@@ -61,6 +61,26 @@ describe('accepted knowledge', () => {
       'not UTF-8 text',
     );
   });
+  it('keeps individual Markdown file scopes exact even when a tree contains similarly named directories', async () => {
+    mkdirSync(join(root, 'README.md'));
+    writeFileSync(join(root, 'README.md/private.md'), '# Outside the selected file\n');
+    git('add', 'README.md');
+    git('commit', '-m', 'similarly named directory');
+    git('update-ref', 'refs/remotes/origin/main', 'HEAD');
+    const scoped = new AcceptedKnowledgeSource(root, 'refs/remotes/origin/main', [
+      'README.md',
+      'architecture/overview.md',
+    ]);
+    expect(scoped.allowed('architecture/overview.md')).toBe(true);
+    expect(scoped.allowed('README.md/private.md')).toBe(false);
+    expect((await scoped.catalog()).documents.map((document) => document.path)).toEqual([
+      'architecture/overview.md',
+    ]);
+    await expect(scoped.read('README.md/private.md', await scoped.revision())).rejects.toThrow(
+      'Document is outside the library',
+    );
+    expect(source.allowed('architecture/another.md')).toBe(true);
+  });
   it('cancels Git reads when the operation authority expires', async () => {
     await expect(
       source.read('architecture/overview.md', git('rev-parse', 'HEAD'), AbortSignal.abort()),

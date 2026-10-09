@@ -98,7 +98,9 @@ export class AcceptedKnowledgeSource {
   allowed(path: string) {
     return (
       safeKnowledgePath(path) &&
-      this.paths.some((scope) => path === scope || path.startsWith(scope + '/'))
+      this.paths.some(
+        (scope) => path === scope || (!scope.endsWith('.md') && path.startsWith(scope + '/')),
+      )
     );
   }
   async revision(signal?: AbortSignal) {
