@@ -32,6 +32,7 @@ export function InboxView({ desktop = false }: { desktop?: boolean } = {}) {
   const [items, setItems] = useState<InboxItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeFilter, setActiveFilter] = useState<string | null>(null);
+  const [filtersAvailable, setFiltersAvailable] = useState(false);
   const [query, setQuery] = useState('');
   const backButton = useRef<HTMLButtonElement>(null);
   const searchInput = useRef<HTMLInputElement>(null);
@@ -134,6 +135,10 @@ export function InboxView({ desktop = false }: { desktop?: boolean } = {}) {
   }
 
   const sources = [...new Set(items.map((i) => i.agent))].sort();
+  // Once offered, keep All available as agent counts shrink after removals.
+  useEffect(() => {
+    if (sources.length > 1) setFiltersAvailable(true);
+  }, [sources.length]);
   const search = query.trim().toLocaleLowerCase();
   const filtered = items.filter(
     (item) =>
@@ -144,7 +149,9 @@ export function InboxView({ desktop = false }: { desktop?: boolean } = {}) {
           .toLocaleLowerCase()
           .includes(search)),
   );
-  const selected = (storeInbox as InboxItem[]).find((item) => item.filename === selectedFilename);
+  const selectionItems =
+    desktop && !removingFiles.has(selectedFilename ?? '') ? filtered : (storeInbox as InboxItem[]);
+  const selected = selectionItems.find((item) => item.filename === selectedFilename);
   const showMobileDetail = !desktop && !!selectedFilename;
 
   useEffect(() => {
@@ -237,7 +244,7 @@ export function InboxView({ desktop = false }: { desktop?: boolean } = {}) {
 
       {!loading && items.length === 0 && <EmptyState icon={'\u2713'} title="No pending items" />}
 
-      {!showMobileDetail && sources.length > 1 && (
+      {!showMobileDetail && filtersAvailable && (
         <div className="inbox-filters">
           <button
             className={`inbox-filter-pill${activeFilter === null ? ' inbox-filter-pill--active' : ''}`}

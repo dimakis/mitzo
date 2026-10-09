@@ -41,6 +41,7 @@ describe('design tokens', () => {
       '--ui-font',
       '--bg',
       '--surface',
+      '--color-preview-canvas',
       '--border',
       '--text',
       '--text-dim',

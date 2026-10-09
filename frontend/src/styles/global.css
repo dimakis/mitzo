@@ -3078,7 +3078,8 @@ textarea:focus {
   display: block;
   width: 100%;
   border: 0;
-  background: var(--color-text);
+  background: var(--color-preview-canvas);
+  color-scheme: light;
 }
 
 .html-preview-card {
@@ -3154,7 +3155,7 @@ textarea:focus {
 
 .html-preview-card-content {
   border-top: 1px solid var(--border);
-  background: var(--color-text);
+  background: var(--color-preview-canvas);
 }
 
 .html-preview-card-status {

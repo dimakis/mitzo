@@ -139,6 +139,14 @@ test.beforeEach(async ({ page }) => {
               '# Full proposal context\n\nReview the original evidence before deciding on the next step.',
           },
         });
+      if (url.pathname === '/api/files/read' && url.searchParams.get('path')?.endsWith('.html'))
+        return route.fulfill({
+          json: {
+            path: '/workspace/preview.html',
+            ext: '.html',
+            content: '<h1>HTML artifact</h1>',
+          },
+        });
       return route.fulfill({ json: url.pathname in fixtures ? fixtures[url.pathname] : {} });
     }
     const file =
@@ -341,6 +349,28 @@ test('Files keeps the last row and editor controls inside the shell and resized 
   await expect(page.getByRole('button', { name: 'Edit', exact: true })).toBeVisible();
 });
 
+test('HTML artifacts keep a light canvas and readable default text in both app themes', async ({
+  page,
+}) => {
+  await page.goto('/files?path=preview.html');
+  const iframe = page.locator('iframe.html-preview');
+  const heading = page
+    .frameLocator('iframe.html-preview')
+    .getByRole('heading', { name: 'HTML artifact' });
+  await expect(heading).toBeVisible();
+  for (const theme of ['light', 'dark']) {
+    await page.evaluate((value) => {
+      document.documentElement.dataset.theme = value;
+    }, theme);
+    expect(await iframe.evaluate((element) => getComputedStyle(element).backgroundColor)).toBe(
+      'rgb(255, 255, 255)',
+    );
+    expect(await heading.evaluate((element) => getComputedStyle(element).color)).toBe(
+      'rgb(0, 0, 0)',
+    );
+  }
+});
+
 test('Settings previews and persists every accent and font across navigation and reload', async ({
   page,
   isMobile,
@@ -481,6 +511,7 @@ test('accent-filled controls retain their paired foreground on hover and in user
     <span id="status-reference" style="color:var(--color-on-status)">Status reference</span>
     <div class="chat-input--compact"><button class="chat-input-btn--queue">Queue</button></div>
     <span class="codex-queue-status-attention">!</span>
+    <div class="html-preview-card-content">HTML card canvas</div>
     <button class="mode-pill mode-pill--active">Agent</button>
     <div class="msg-bubble-group msg-bubble-group--user"><div class="msg-bubble msg-bubble--user">
       User message<div class="msg-bubble-footer msg-bubble-footer--user">
@@ -528,6 +559,11 @@ test('accent-filled controls retain their paired foreground on hover and in user
           .locator('#status-reference')
           .evaluate((element) => getComputedStyle(element).color),
       );
+      expect(
+        await page
+          .locator('.html-preview-card-content')
+          .evaluate((element) => getComputedStyle(element).backgroundColor),
+      ).toBe('rgb(255, 255, 255)');
     }
   }
 });
