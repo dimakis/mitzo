@@ -156,3 +156,111 @@ describe('qualified pre-native refusal', () => {
     expect(calls).toEqual(['validate', 'archive', 'audit']);
   });
 });
+
+import {
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+  readFileSync,
+  readdirSync,
+  existsSync,
+  rmSync,
+  realpathSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { prepareColdMetadata, displaced } from '../../scripts/lib/staging-cold-prepare.mjs';
+import { inventory, hash } from '../../scripts/lib/staging-cold-audit.mjs';
+function filesystem() {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'cold-refusal-')));
+  const owned = join(root, 'symposium/service'),
+    workspace = join(root, 'symposium/workspace'),
+    gateway = join(root, 'symposium/state/gateway');
+  for (const p of [
+    'service',
+    'registry',
+    'symposium/service',
+    'symposium/workspace',
+    'symposium/state/gateway',
+  ])
+    mkdirSync(join(root, p), { recursive: true, mode: 0o700 });
+  const s = snapshot();
+  s.row.planDirectory = owned;
+  s.plan.planDirectory = owned;
+  s.plan.repositoryPath = workspace;
+  for (const n of [...displaced, 'transition-' + s.operation + '-uncertain.json'])
+    writeFileSync(join(owned, n), 'old ' + n, { mode: 0o600 });
+  for (const n of ['deployment.lock', 'topology.json', 'com.mitzo.staging.plist'])
+    writeFileSync(join(root, 'service', n), 'original ' + n, { mode: 0o600 });
+  writeFileSync(join(workspace, 'retained'), 'task data', { mode: 0o600 });
+  writeFileSync(join(gateway, 'empty-ledger'), 'original', { mode: 0o600 });
+  const db = new Database(join(root, 'registry/staging.db'));
+  db.exec(
+    'CREATE TABLE launches(' +
+      Object.keys(s.row)
+        .map((k) => k + ' ' + (k === 'controllerGeneration' ? 'INTEGER' : 'TEXT'))
+        .join(',') +
+      ')',
+  );
+  db.prepare(
+    'INSERT INTO launches VALUES(' +
+      Object.keys(s.row)
+        .map(() => '?')
+        .join(',') +
+      ')',
+  ).run(...Object.values(s.row));
+  db.close();
+  const audit = () => {
+    const value = {
+      ...s,
+      serviceFiles: inventory(owned),
+      workspaceFiles: inventory(workspace),
+      gatewayFiles: inventory(gateway),
+    };
+    return {
+      snapshot: value,
+      auditSha256: hash(JSON.stringify(value)),
+      config: { gateway: { stateParent: gateway } },
+    };
+  };
+  return { root, owned, workspace, gateway, s, audit, sha: audit().auditSha256 };
+}
+it('actual metadata recovery archives original files and reservation while retaining the exact original lock', async () => {
+  const f = filesystem();
+  try {
+    const lock = readFileSync(join(f.root, 'service/deployment.lock'));
+    const result = await prepareColdMetadata(f.root, f.sha, f.audit);
+    expect(result.lockRetained).toBe(true);
+    expect(readFileSync(join(f.root, 'service/deployment.lock'))).toEqual(lock);
+    expect(readFileSync(join(result.archive, 'original-workspace/retained'), 'utf8')).toBe(
+      'task data',
+    );
+    expect(readdirSync(f.workspace)).toEqual([]);
+    expect(readdirSync(f.gateway)).toEqual([]);
+    expect(existsSync(join(f.owned, 'launch.intent'))).toBe(false);
+    const db = new Database(join(f.root, 'registry/staging.db'), { readonly: true });
+    expect(db.prepare('SELECT COUNT(*) AS n FROM launches').get().n).toBe(0);
+    expect(
+      JSON.parse(db.prepare('SELECT recordJson FROM qualified_cold_refusals').get().recordJson),
+    ).toEqual(f.s.row);
+    db.close();
+  } finally {
+    rmSync(f.root, { recursive: true, force: true });
+  }
+});
+it('an archive collision does not modify unrelated preserved evidence or release capacity', async () => {
+  const f = filesystem();
+  try {
+    const archive = join(f.root, 'service/cold-refusals', f.s.operation);
+    mkdirSync(archive, { recursive: true, mode: 0o700 });
+    writeFileSync(join(archive, 'keep'), 'unrelated', { mode: 0o600 });
+    await expect(prepareColdMetadata(f.root, f.sha, f.audit)).rejects.toThrow();
+    expect(readdirSync(archive)).toEqual(['keep']);
+    expect(existsSync(join(f.owned, 'launch.intent'))).toBe(true);
+    const db = new Database(join(f.root, 'registry/staging.db'), { readonly: true });
+    expect(db.prepare('SELECT COUNT(*) AS n FROM launches').get().n).toBe(1);
+    db.close();
+  } finally {
+    rmSync(f.root, { recursive: true, force: true });
+  }
+});
