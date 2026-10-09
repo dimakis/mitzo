@@ -1498,7 +1498,7 @@ async function _startChatInner(
   // have the full map even after server restart (Phase 2d).
   // Merge discovered entries — the map may already have the primary but be
   // missing lazily-created secondaries after a restart.
-  if (!openShellSelected && options.resume && BASE_REPO) {
+  if (!repositoryWorkspace && !openShellSelected && options.resume && BASE_REPO) {
     const config = getRepoConfig();
     const wtIdFromCwd = baseCwd.match(/\/(\.claude|\.cursor)\/worktrees\/([^/]+)/)?.[2];
     if (wtIdFromCwd) {

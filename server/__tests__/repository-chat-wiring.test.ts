@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { mkdtemp, rm, realpath, access } from 'node:fs/promises';
+import { mkdtemp, rm, realpath, access, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AccountProfiles } from '../account-profiles.js';
@@ -109,6 +109,45 @@ it('starts a native repository chat with its claimed cwd and exact repository co
     );
     expect(chat.eventStore.getSession('aaaaaaaa-bbbb-4ccc-8ddd-121212121212')?.cwd).toBe(root);
 
+    const retained = join(
+      root,
+      '.claude',
+      'worktrees',
+      'repo-8ca30b0d-3e65-4eeb-8244-f6277350818f',
+      'mgmt',
+    );
+    await mkdir(retained, { recursive: true });
+    const validResumeId = 'valid-retained-host-chat';
+    chat.eventStore.upsertSession({
+      sessionId: validResumeId,
+      cwd: retained,
+      accountBinding: profiles.resolve('fixture', 'offline-model'),
+      selectedModel: 'offline-model',
+    });
+    repositories.getForConversation.mockReturnValue({
+      id: 'repository',
+      repository: 'example/repo',
+      baseBranch: 'main',
+      baseOid: 'a'.repeat(40),
+      featureBranch: 'mitzo/task',
+      directory: retained,
+      sandbox: false,
+    });
+    open.mockClear();
+    await chat.startChat(
+      { send: vi.fn(), isOpen: () => true },
+      'valid-resume-fixture',
+      'continue edits',
+      {
+        resume: validResumeId,
+        accountId: 'fixture',
+        model: 'offline-model',
+        accountProfiles: profiles,
+      },
+    );
+    expect(open).toHaveBeenCalled();
+    expect(open.mock.calls.at(-1)![0].session.worktreePaths.get('primary')?.path).toBe(retained);
+    expect(open.mock.calls.at(-1)![0].env.MITZO_REPO_PRIMARY).toBe(retained);
     open.mockClear();
     const missing = join(root, 'missing-retained-task');
     const resumeId = 'retained-host-chat';
