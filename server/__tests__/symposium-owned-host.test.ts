@@ -2036,3 +2036,110 @@ it('releases the Personal lease after positively undispatched real core failure 
     host.stop();
   }
 });
+it.each(['current-operator', 'late-expiry'] as const)(
+  'releases only this Personal lease when first core custody fails before reading any prior journal (%s)',
+  async (authority) => {
+    const f = diagnosticFixture();
+    let authorized = true;
+    const adapter = {
+      activeDefinition: undefined,
+      captureDiscovery: () => ({
+        provider: { name: 'personal', id: 'real-provider-id' },
+        account: { email: 'fixture@example.test', planType: 'pro' },
+        assertCurrent() {},
+      }),
+      beginDeviceLogin: async () => ({
+        completed: Promise.resolve({ email: 'fixture@example.test', planType: 'pro' }),
+        cancel: async () => {},
+      }),
+      disconnect: vi.fn(async () => {}),
+      invalidate: vi.fn(),
+    };
+    vi.spyOn(subscriptionHost, 'createSymposiumSubscriptionHost').mockReturnValue(adapter as never);
+    const operations = {
+      withExclusiveAttempt: async (run: () => Promise<unknown>) => run(),
+      verifyCustody: vi.fn(async () => {
+        throw Error('first custody unavailable');
+      }),
+      readReceipt: vi.fn(),
+      persistReceipt: vi.fn(),
+      clearReceipt: vi.fn(),
+      clearUndispatchedReceipt: vi.fn(),
+      create: vi.fn(),
+      openClient: vi.fn(),
+      list: vi.fn(),
+      delete: vi.fn(),
+      cancel: vi.fn(),
+      physicalAbsent: vi.fn(),
+    } as unknown as discoveryCore.DiscoveryOperations;
+    vi.spyOn(discoveryHost, 'createDiscoveryHostOperations').mockReturnValue(operations);
+    const realRunner = discoveryCore.runSymposiumRoutingDiagnostic;
+    vi.spyOn(discoveryCore, 'runSymposiumRoutingDiagnostic').mockImplementation(async (...args) => {
+      const result = await realRunner(...args);
+      if (authority === 'late-expiry') authorized = false;
+      return result;
+    });
+    const host = await createOwnedSymposiumHost(f.options, f.launch);
+    try {
+      const original = host.personalConnections.list()[0];
+      const login = await host.beginDeviceLogin({
+        connectionId: original.id,
+        expectedRevision: original.revision,
+      });
+      await login.completed;
+      const connected = host.personalConnections.list()[0];
+      const journalPath = join(f.root, 'routing-diagnostic.json');
+      const priorJournal = 'uninspected prior-operation journal';
+      writeFileSync(journalPath, priorJournal, { mode: 0o600 });
+      await expect(
+        host.runSandboxCreation(
+          () => {},
+          async (dispatch) => {
+            dispatch();
+            throw Error('foreign original creation still uncertain');
+          },
+        ),
+      ).rejects.toThrow('foreign original');
+      const fencePath = join(f.root, 'sandbox-creation-fence.json');
+      const priorFence = readFileSync(fencePath, 'utf8');
+      const diagnostic = host.personalConnections.diagnoseRouting(
+        connected.id,
+        connected.revision,
+        () => {
+          if (!authorized) throw Error('operator expired');
+        },
+      );
+      if (authority === 'late-expiry') await expect(diagnostic).rejects.toThrow('preflight');
+      else expect((await diagnostic).status).toBe('failed');
+      expect(host.personalConnections.list()[0]).toMatchObject({
+        state: 'connected',
+        account: connected.account,
+        revision: connected.revision + 2,
+      });
+      expect(host.personalConnections.list()[0].modelDiscovery).toBeUndefined();
+      expect(adapter.invalidate).not.toHaveBeenCalled();
+      expect(readFileSync(journalPath, 'utf8')).toBe(priorJournal);
+      expect(readFileSync(fencePath, 'utf8')).toBe(priorFence);
+      for (const name of [
+        'readReceipt',
+        'persistReceipt',
+        'clearReceipt',
+        'clearUndispatchedReceipt',
+        'create',
+        'openClient',
+        'list',
+        'delete',
+        'cancel',
+        'physicalAbsent',
+      ] as const)
+        expect(operations[name]).not.toHaveBeenCalled();
+      const unrelated = vi.fn(async () => {});
+      await expect(host.runSandboxCreation(() => {}, unrelated)).rejects.toThrow(
+        'requires host recovery',
+      );
+      expect(unrelated).not.toHaveBeenCalled();
+    } finally {
+      host.stop();
+    }
+  },
+);

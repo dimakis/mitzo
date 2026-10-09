@@ -33,7 +33,9 @@ export interface PersonalRoutingDiagnosticUndispatchedDisposition {
   readonly kind: 'owned-routing-undispatched';
 }
 const undispatchedOutcomes = new WeakMap<object, PersonalDiscoveryProof>();
-/** Retained only inside one owned diagnostic callback, never restored from metadata. */
+/** Acknowledges only this exact Personal lease. Unknown prior journals, native
+ * resources and workspace fences remain outside this capability. Never restored
+ * from metadata or used to grant physical cleanup authority. */
 export function createPersonalRoutingDiagnosticDispatchWitness(proof: PersonalDiscoveryProof) {
   const origin = Object.freeze({});
   let disposition: PersonalRoutingDiagnosticUndispatchedDisposition | undefined;
