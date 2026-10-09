@@ -68,6 +68,8 @@ it('makes an accepted session routable before boot completes and preserves its p
         clientMsgId: 'original-prompt',
       },
     );
+    // Default chats remain routable synchronously while asynchronous boot context is pending.
+    expect(query).not.toHaveBeenCalled();
     expect(chat.registry.findBySessionId(sessionId)?.clientId).toBe('stable-driver');
     await expect(
       chat.sendToChat('stable-driver', 'rapid follow-up', undefined, undefined, 'follow-up'),

@@ -1165,13 +1165,14 @@ async function _startChatInner(
       options.accountProfiles ??
       (options.accountId || storedBinding ? loadAccountProfiles() : undefined);
     accountBinding = resolveAccountSelection(options, storedBinding, !!options.resume, profiles);
-    agentProfile = await resolveChatAgentProfile({
-      requested: options.agentProfile,
-      stored: storedMeta?.agentProfile,
-      resume: !!options.resume,
-      provider: accountBinding?.provider,
-      lookup: (selection) => readAgentLibraryProfile(selection, options.operatorConnectionId),
-    });
+    if (options.agentProfile || storedMeta?.agentProfile)
+      agentProfile = await resolveChatAgentProfile({
+        requested: options.agentProfile,
+        stored: storedMeta?.agentProfile,
+        resume: !!options.resume,
+        provider: accountBinding?.provider,
+        lookup: (selection) => readAgentLibraryProfile(selection, options.operatorConnectionId),
+      });
     if (!accountBinding && openShellAvailable)
       throw new Error('OpenShell execution requires an explicit account selection');
     if (accountBinding) {
