@@ -21,9 +21,9 @@ beforeEach(() => {
   data.conflict = false;
   data.fetch.mockReset().mockImplementation(async (_url: string, options?: RequestInit) => {
     if (options?.method === 'PUT') {
-      if (data.conflict)
-        return { ok: false, status: 409, json: async () => ({ error: 'changed' }) };
       const patch = JSON.parse(String(options.body));
+      if (data.conflict || patch.revision !== data.preferences.revision)
+        return { ok: false, status: 409, json: async () => ({ error: 'changed' }) };
       data.preferences = { ...data.preferences, ...patch, revision: data.preferences.revision + 1 };
     }
     return { ok: true, json: async () => data.preferences };
@@ -31,6 +31,67 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 describe('home preferences', () => {
+  it.each(['names', 'pins'])(
+    'requires explicit review before saving a dirty nickname draft after another device changes %s',
+    async (change) => {
+      render(<MinionNameSettings />);
+      await waitFor(() =>
+        expect((screen.getByLabelText('Briefing minion name') as HTMLInputElement).value).toBe(
+          'Minion',
+        ),
+      );
+      fireEvent.change(screen.getByLabelText('Briefing minion name'), {
+        target: { value: 'Jeeves' },
+      });
+      data.preferences = {
+        ...data.preferences,
+        revision: 1,
+        ...(change === 'names'
+          ? { names: { briefing: 'Brew', terminal: 'Alfred' } }
+          : { pins: [{ kind: 'session' as const, id: 'new', title: 'New' }] }),
+      };
+      const remote = data.preferences;
+      await act(async () => {
+        window.dispatchEvent(new Event('mitzo-home-preferences-changed'));
+      });
+      expect((screen.getByLabelText('Briefing minion name') as HTMLInputElement).value).toBe(
+        'Jeeves',
+      );
+      fireEvent.click(screen.getByRole('button', { name: 'Save names' }));
+      expect((await screen.findByRole('alert')).textContent).toContain('changed on another device');
+      expect(data.preferences).toEqual(remote);
+      expect((screen.getByLabelText('Briefing minion name') as HTMLInputElement).value).toBe(
+        'Jeeves',
+      );
+      expect(
+        (screen.getByRole('button', { name: 'Save names' }) as HTMLButtonElement).disabled,
+      ).toBe(true);
+      fireEvent.submit(screen.getByRole('button', { name: 'Save names' }).closest('form')!);
+      expect(data.fetch.mock.calls.filter((call) => call[1]?.method === 'PUT')).toHaveLength(1);
+      const initialSave = data.fetch.mock.calls.find((call) => call[1]?.method === 'PUT')!;
+      expect(JSON.parse(initialSave[1].body).revision).toBe(0);
+      fireEvent.click(screen.getByRole('button', { name: 'Review current names' }));
+      expect((screen.getByLabelText('Briefing minion name') as HTMLInputElement).value).toBe(
+        remote.names.briefing,
+      );
+      expect((screen.getByLabelText('Terminal minion name') as HTMLInputElement).value).toBe(
+        remote.names.terminal,
+      );
+      expect(screen.queryByRole('alert')).toBeNull();
+      fireEvent.change(screen.getByLabelText('Briefing minion name'), {
+        target: { value: 'Jeeves' },
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'Save names' }));
+      await screen.findByText('Names saved.');
+      expect(data.preferences.names).toEqual({
+        briefing: 'Jeeves',
+        terminal: remote.names.terminal,
+      });
+      expect(data.preferences.pins).toEqual(remote.pins);
+      const finalSave = data.fetch.mock.calls.filter((call) => call[1]?.method === 'PUT').at(-1)!;
+      expect(JSON.parse(finalSave[1].body).revision).toBe(1);
+    },
+  );
   it('keeps a newer remote edit when the save response arrives after its refresh', async () => {
     const original = data.preferences;
     let reads = 0;
