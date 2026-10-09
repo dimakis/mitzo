@@ -55,10 +55,13 @@ The task draft carries the requested work; it does not copy the entire transcrip
 Existing conversation workspaces are never switched by this tool.
 
 The preparation and task draft are durable. `GetRepositoryChatPreparation` reads
-a known ID, or recovers the latest preparation owned by this chat and its exact
-account binding after a lost response. Repeated identical requests reuse the
+a known ID, or recovers the latest preparation owned by this chat and the same
+account/provider/profile after a lost response. A source-chat model change can
+recover its old draft; the prepared model and launch binding remain unchanged. Repeated identical requests reuse the
 existing preparation; a different task waits until the previous unused draft is
-discarded. Failed or interrupted acquisition is not retried automatically. A
+discarded. Failed acquisition is not retried automatically. Interrupted `preparing` or
+`claiming` records remain fenced for inspection of the original operation before
+any reuse or cleanup; status recovery does not prove that an old worker retired. A
 claimed draft links to its original target conversation instead of creating a
 replacement, and clearing it never deletes the claimed task.
 
