@@ -503,9 +503,22 @@ and Watch mirroring settings determine what reaches the wrist.
 The Watch app's **Notifications** entry loads the latest ten items through the
 paired iPhone's authenticated relay, shows full request details, and supports
 ordinary one-shot approval or denial. Questions and conversation access grants
-are reviewed on iPhone. Oversized relay payloads fail with a request to review on
+are reviewed on iPhone. Tapping **Review request**, **View**, or the notification
+on Apple Watch opens that exact item, even when it is older than the latest ten.
+The detail screen rechecks the current request before submitting an approval.
+Inline **Reply** preserves Watch dictation and sends it through the paired iPhone;
+an unconfirmed reply remains visible without automatically sending it again.
+Eligible **Allow once**/**Deny** banner actions run in the background on the iPhone,
+including when its web view is closed. Notification REST requests use the origin
+configured by the authenticated iPhone app independently of its chat connection;
+they never guess a server on a cold launch. Oversized relay payloads fail with a request to review on
 iPhone, rather than truncating approval details. A reachable paired iPhone is
-required. Ship an updated iOS/Watch binary for the new native entry and badge
+required. The iPhone target embeds the Watch companion; native CI builds both
+apps and verifies the embedded identity, executable, and matching versions.
+The app explicitly registers its local notification bridge at startup; an offline
+smoke test exercises the real JavaScript-to-native configuration call in a
+disposable simulator, without contacting a backend or reusing credentials.
+Ship an updated iOS/Watch binary for the native notification handlers and badge
 bridge; a web deployment alone cannot update installed native code.
 
 | File                     | Purpose                                                                   |
