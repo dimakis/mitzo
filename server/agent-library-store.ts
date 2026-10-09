@@ -24,7 +24,10 @@ const Publish = z.strictObject({
 });
 const ImportDraft = z.strictObject({
   profileId: Id,
-  artifact: SymposiumProfileVersionSchema,
+  artifact: z.union([
+    SymposiumProfileVersionSchema,
+    z.strictObject({ definition: PortableProfileDefinitionSchema }),
+  ]),
   idempotencyKey: Id,
 });
 type DraftRow = {
@@ -168,7 +171,10 @@ export class AgentLibraryStore {
   }
   importDraft(owner: string, input: unknown): AgentLibraryDraft {
     const request = ImportDraft.parse(input);
-    if (hash(request.artifact.definition) !== request.artifact.contentHash)
+    if (
+      'contentHash' in request.artifact &&
+      hash(request.artifact.definition) !== request.artifact.contentHash
+    )
       throw Error('Profile content hash mismatch');
     return this.retry(owner, request.idempotencyKey, { operation: 'import', ...request }, () => {
       if (this.getDraft(owner, request.profileId) || this.profiles.get(owner, request.profileId))

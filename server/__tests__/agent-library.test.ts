@@ -147,6 +147,24 @@ it('imports a verified portable version as a new draft without overwriting exist
     }),
   ).toThrow(/hash/i);
 });
+
+it('imports an unversioned advisor definition only as a draft', () => {
+  const imported = library.importDraft('user', {
+    profileId: 'advisor-draft',
+    artifact: { definition },
+    idempotencyKey: 'advisor-import',
+  });
+  expect(imported.definition).toEqual(definition);
+  expect(imported.baseRevision).toBe(0);
+  expect(library.list('user').versions).toEqual([]);
+  expect(() =>
+    library.importDraft('user', {
+      profileId: 'unsafe-draft',
+      artifact: { definition: { ...definition, authorityGrant: { tools: 'write' } } },
+      idempotencyKey: 'unsafe-import',
+    }),
+  ).toThrow();
+});
 it.each(['descriptor', 'description'])(
   'validates private material in the %s identity field',
   (field) => {

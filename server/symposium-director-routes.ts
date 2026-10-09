@@ -1,4 +1,6 @@
 import { registerAuthSession, type AuthSession } from './auth.js';
+import { agentProfileLabel } from '@mitzo/protocol';
+import { buildAgentProfilePrompt } from './agent-library-prompt.js';
 import {
   recentAppReauthorizationHandlers,
   requireSameOriginJson,
@@ -603,6 +605,7 @@ export function createSymposiumDirectorRouter(deps: SymposiumDirectorRouteDeps):
       });
       return;
     }
+    const primaryProfile = session.agentProfile?.definition;
     const draft = {
       version: 2 as const,
       revision: (session.symposiumRevision ?? 0) + 1,
@@ -612,10 +615,16 @@ export function createSymposiumDirectorRouter(deps: SymposiumDirectorRouteDeps):
       seats: [
         {
           id: 'architect',
-          name: 'Primary agent',
+          name: primaryProfile ? agentProfileLabel(primaryProfile) : 'Primary agent',
           role: 'implementer',
           model: binding.data.model,
-          systemPrompt: '',
+          systemPrompt: primaryProfile ? buildAgentProfilePrompt(primaryProfile) : '',
+          ...(primaryProfile
+            ? {
+                expectedOutput: primaryProfile.expectedOutput,
+                acceptanceCriteria: primaryProfile.acceptanceCriteria,
+              }
+            : {}),
           color: '#335577',
           accountBinding: binding.data,
         },
