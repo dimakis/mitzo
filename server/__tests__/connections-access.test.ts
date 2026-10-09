@@ -430,6 +430,7 @@ it('includes Keychain HTTPS providers in the existing Connections overview witho
           paths: ['/api/'],
           methods: ['GET'],
           allowPrivateNetwork: false,
+          homeAssistantDashboards: 'disabled',
           status: 'active',
           verifiedAt: null,
         },
@@ -439,6 +440,7 @@ it('includes Keychain HTTPS providers in the existing Connections overview witho
   );
   const row = inventory.resources.find((r) => r.kind === 'keychain-connection');
   expect(row?.access.appliesTo).toBe('Explicit approval in each session');
+  expect(row?.access.summary.match(/HA dashboard WebSocket/g)).toHaveLength(1);
   expect(row?.details.endpoint).toBe('https://ha.example.com');
   expect(row?.actions[0].href).toBe('/connections?manage=keychain&connection=ha');
   expect(inventory.sources.find((s) => s.id === 'keychain')?.state).toBe('available');

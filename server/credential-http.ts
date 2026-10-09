@@ -1,5 +1,5 @@
 import { canonicalPublicDnsAddress } from './connections/iana-address-policy.js';
-import { request as httpsRequest } from 'node:https';
+import { request as httpsRequest, type RequestOptions } from 'node:https';
 import { lookup } from 'node:dns';
 import { isIP } from 'node:net';
 import type { AuthenticatedRequest, ConnectionSender } from './credential-connections.js';
@@ -18,6 +18,27 @@ export function isAllowedConnectionAddress(address: string, allowPrivate: boolea
     );
   }
   return isIP(address) === 6 && /^(fc|fd)/i.test(address);
+}
+export function connectionDnsLookup(
+  allowPrivateNetwork: boolean,
+): NonNullable<RequestOptions['lookup']> {
+  return (host, options, callback) => {
+    lookup(host, { all: true }, (error, addresses) => {
+      if (
+        error ||
+        !addresses?.length ||
+        addresses.length > 16 ||
+        addresses.some(
+          (a) =>
+            isIP(a.address) !== a.family ||
+            !isAllowedConnectionAddress(a.address, allowPrivateNetwork),
+        )
+      )
+        return callback(error ?? new Error('Destination is unavailable'), [], undefined);
+      if (options.all) callback(null, addresses);
+      else callback(null, addresses[0].address, addresses[0].family);
+    });
+  };
 }
 const httpsSend: ConnectionSender = (input, signal) =>
   new Promise((resolve, reject) => {
@@ -38,23 +59,7 @@ const httpsSend: ConnectionSender = (input, signal) =>
           ...input.headers,
         },
         // Resolve and validate every address, then connect to that checked result. No DNS TOCTOU lookup.
-        lookup: (host, options, callback) => {
-          lookup(host, { all: true }, (error, addresses) => {
-            if (
-              error ||
-              !addresses?.length ||
-              addresses.length > 16 ||
-              addresses.some(
-                (a) =>
-                  isIP(a.address) !== a.family ||
-                  !isAllowedConnectionAddress(a.address, input.allowPrivateNetwork),
-              )
-            )
-              return callback(error ?? new Error('Destination is unavailable'), [], undefined);
-            if (options.all) callback(null, addresses);
-            else callback(null, addresses[0].address, addresses[0].family);
-          });
-        },
+        lookup: connectionDnsLookup(input.allowPrivateNetwork),
       },
       (response) => {
         const status = response.statusCode ?? 0;
