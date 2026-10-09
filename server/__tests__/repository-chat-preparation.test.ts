@@ -260,3 +260,40 @@ it('recovers an owned draft after the source chat changes model without changing
   ).toThrow();
   expect(() => f.service.chatPreparation(prepared.id, current)).toThrow();
 });
+
+it('requires inspection rather than impossible discard while an original preparation is running', async () => {
+  const f = await fixture();
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const implementation = f.prepare.getMockImplementation()!;
+  f.prepare.mockImplementation(async (...args) => {
+    await gate;
+    return implementation(...args);
+  });
+  const pending = f.service.prepareChat(
+    binding,
+    'origin',
+    'connection',
+    'example/repo',
+    'First task',
+    new AbortController().signal,
+  );
+  await vi.waitFor(() => expect(f.prepare).toHaveBeenCalledOnce());
+  try {
+    await expect(
+      f.service.prepareChat(
+        binding,
+        'origin',
+        'connection',
+        'example/other',
+        'Other task',
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow('inspect the original preparation');
+  } finally {
+    release();
+    await pending;
+  }
+});

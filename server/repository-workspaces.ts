@@ -255,7 +255,9 @@ export class RepositoryWorkspaces {
     if (pending) {
       if (pending.key !== key)
         return Promise.reject(
-          new Error('Discard the previous preparation before choosing a different task'),
+          new Error(
+            'A repository preparation is already running; inspect the original preparation before starting another task',
+          ),
         );
       return pending.result;
     }
@@ -275,6 +277,10 @@ export class RepositoryWorkspaces {
         await this.authorize(previous, binding, signal);
         return this.chatPreparation(previous.id, binding, sourceConversationId);
       }
+      if (records.some((value) => ['preparing', 'claiming'].includes(value.state)))
+        throw new Error(
+          'A repository preparation is running or interrupted; inspect the original preparation before starting another task',
+        );
       if (records.some((value) => value.state !== 'claimed'))
         throw new Error('Discard the previous preparation before choosing a different task');
       const preview = await this.preview(binding, connectionId, repository, signal);
