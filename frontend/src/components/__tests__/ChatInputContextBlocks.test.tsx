@@ -32,7 +32,10 @@ vi.mock('../../lib/resizeImage', () => ({
   })),
 }));
 
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  localStorage.clear();
+});
 
 describe('ChatInput with externalContextBlocks', () => {
   const baseProps = {

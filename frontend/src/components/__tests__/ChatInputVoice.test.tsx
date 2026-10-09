@@ -9,7 +9,10 @@ vi.mock('../SlashPicker', () => ({
   SlashPicker: () => null,
 }));
 
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  localStorage.clear();
+});
 
 function makeVoice(overrides: Partial<UseVoiceReturn> = {}): UseVoiceReturn {
   return {
