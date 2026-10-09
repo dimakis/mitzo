@@ -1,6 +1,6 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { mkdtemp, realpath, mkdir, writeFile, readFile, rm, access } from 'node:fs/promises';
-import { renameSync, symlinkSync, mkdirSync, writeFileSync } from 'node:fs';
+import { renameSync, symlinkSync, mkdirSync, writeFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 const boundary = vi.hoisted(() => ({
@@ -39,7 +39,7 @@ it.each(['destination', 'source'])(
     await writeFile(join(outside, 'owned.txt'), 'unrelated work');
     boundary.mutate = () => {
       const selected = replacement === 'source' ? source : destination;
-      renameSync(selected, selected + '-original');
+      if (existsSync(selected)) renameSync(selected, selected + '-original');
       symlinkSync(outside, selected, 'dir');
     };
     await expect(copyRepositoryTaskCheckout(source, destination)).rejects.toThrow();

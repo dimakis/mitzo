@@ -22,7 +22,7 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
-  '../repository-task-copy.ts': '63467c41939829b50c968d09a272cbaa253ba03d7e3608cd13f82a176978595b',
+  '../repository-task-copy.ts': 'a297c748c549aa5c88a7be595d512f8716a0a63ee7a0add899e07883a2278e59',
   '../github-repository-connections.ts':
     '3917a36a0cc8b3bb73f1f4fa66e93e17be3b0ace58eff2bb3e0470bd67b7c11e',
   '../credential-websocket.ts': '87a41d7c329dccb6616726feed14a5fb25c8aefe94556c767f42618b8d995810',
