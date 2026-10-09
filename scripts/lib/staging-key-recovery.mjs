@@ -206,6 +206,13 @@ export async function verifyKeyRecovery(root, recovery, vacant = true) {
       JSON.stringify(old)
   )
     throw Error('Exact previous refusal receipt changed');
+  for (const path of [
+    join(old.archive, 'activation-attempt.json'),
+    join(recovery.archive, 'cold-activation.json'),
+    join(recovery.archive, 'original-activation-intent.json'),
+  ])
+    if (JSON.stringify(privateJson(path)) !== JSON.stringify(s.activation))
+      throw Error('Preserved original activation proof changed');
   directory(old.archive);
   const original = privateJson(join(old.archive, 'audit.json'));
   classifyColdRefusal(original);

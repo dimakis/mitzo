@@ -126,6 +126,9 @@ function boundFixture() {
     previousAuditSha256: old.auditSha256,
     registrationSha256: 'f'.repeat(64),
   };
+  write(join(oldArchive, 'activation-attempt.json'), s.activation);
+  write(join(archive, 'cold-activation.json'), s.activation);
+  write(join(archive, 'original-activation-intent.json'), s.activation);
   write(join(archive, 'audit.json'), s);
   write(join(archive, 'previous-cold-recovery.json'), old);
   write(join(archive, 'cold-recovery.json'), old);
@@ -173,6 +176,7 @@ it.each([
   'fresh key',
   'original lock',
   'qualified history',
+  'previous activation',
 ])('fences changed %s and keeps the original lock', async (kind) => {
   const f = boundFixture();
   try {
@@ -186,6 +190,8 @@ it.each([
       f.write(join(f.root, 'symposium/settings/owned-host.json'), {});
     else if (kind === 'fresh key') writeFileSync(f.receipt.freshKeys.publicKey.path, 'changed');
     else if (kind === 'original lock') f.write(join(f.root, 'service/deployment.lock'), {});
+    else if (kind === 'previous activation')
+      f.write(join(f.oldArchive, 'activation-attempt.json'), {});
     else {
       const db = new Database(join(f.root, 'registry/staging.db'));
       db.exec(
