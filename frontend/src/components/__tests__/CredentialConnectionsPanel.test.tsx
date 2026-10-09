@@ -11,6 +11,7 @@ vi.mock('../../lib/credential-connections-api', () => ({
   createCredentialConnection: vi.fn(),
   rotateCredentialConnection: vi.fn(),
   updateDashboardAccess: vi.fn(),
+  updateConnectionWebSocket: vi.fn(),
   testCredentialConnection: vi.fn(),
   disableCredentialConnection: vi.fn(),
   getConnectionSessions: vi.fn(),
@@ -389,4 +390,65 @@ it('requires setup authorization to expand dashboard access and clears revoked s
   await screen.findByText('Dashboard access updated. Each chat needs fresh approval.');
   expect(api.updateDashboardAccess).toHaveBeenCalledWith('ha', 1, 'read-write', 'csrf');
   expect(screen.queryByRole('button', { name: 'Revoke session-a' })).toBeNull();
+});
+
+it('enables WebSocket on a custom service with existing header auth and requires setup authorization', async () => {
+  const custom = {
+    ...homeAssistant,
+    id: 'custom',
+    label: 'Custom service',
+    auth: { kind: 'api-key' as const, headerName: 'X-API-Key' },
+    paths: ['/'],
+  };
+  vi.mocked(api.getCredentialConnections).mockResolvedValue([custom]);
+  render(<CredentialConnectionsPanel connectionId="custom" />);
+  await screen.findByLabelText('WebSocket access for Custom service');
+  fireEvent.change(screen.getByLabelText('WebSocket access for Custom service'), {
+    target: { value: 'headers' },
+  });
+  fireEvent.change(screen.getByLabelText('WebSocket path for Custom service'), {
+    target: { value: '/rpc/socket' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Save WebSocket setup' }));
+  await screen.findByText('Authorize Keychain changes before continuing.');
+  expect(api.updateConnectionWebSocket).not.toHaveBeenCalled();
+  await authorize();
+  fireEvent.click(screen.getByRole('button', { name: 'Save WebSocket setup' }));
+  await screen.findByText('WebSocket setup updated. Each chat needs fresh approval.');
+  expect(api.updateConnectionWebSocket).toHaveBeenCalledWith(
+    'custom',
+    1,
+    { path: '/rpc/socket', authentication: { kind: 'headers' } },
+    'csrf',
+  );
+});
+it('offers generic WebSocket setup during custom connection creation without a separate credential', async () => {
+  render(<CredentialConnectionsPanel />);
+  await screen.findByLabelText('Service template');
+  await authorize();
+  fireEvent.change(screen.getByLabelText('Service template'), { target: { value: 'custom' } });
+  fireEvent.change(screen.getByLabelText('Connection name'), { target: { value: 'RPC service' } });
+  fireEvent.change(screen.getByLabelText('Service address'), {
+    target: { value: 'https://rpc.example.com' },
+  });
+  fireEvent.change(screen.getByLabelText('Token or password'), {
+    target: { value: 'fixture-private-token' },
+  });
+  fireEvent.change(screen.getByLabelText('WebSocket access for new connection'), {
+    target: { value: 'headers' },
+  });
+  fireEvent.change(screen.getByLabelText('WebSocket path for new connection'), {
+    target: { value: '/rpc' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Save connection' }));
+  await waitFor(() =>
+    expect(api.createCredentialConnection).toHaveBeenCalledWith(
+      expect.objectContaining({
+        connection: expect.objectContaining({
+          websocket: { path: '/rpc', authentication: { kind: 'headers' } },
+        }),
+      }),
+      'csrf',
+    ),
+  );
 });

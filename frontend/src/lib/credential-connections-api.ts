@@ -4,6 +4,7 @@ import type {
   CredentialConnectionEnrollment,
   ConnectionSessionAccess,
   DashboardAccess,
+  ConnectionWebSocketConfig,
 } from '../types/credential-connections';
 const base = '/api/credential-connections';
 async function request<T>(path: string, method = 'GET', body?: unknown, csrf?: string): Promise<T> {
@@ -93,6 +94,22 @@ export async function updateDashboardAccess(
       `/${encodeURIComponent(id)}/dashboard-access`,
       'POST',
       { revision, access },
+      csrf,
+    )
+  ).connection;
+}
+
+export async function updateConnectionWebSocket(
+  id: string,
+  revision: number,
+  websocket: ConnectionWebSocketConfig | null,
+  csrf: string,
+) {
+  return (
+    await request<{ connection: CredentialConnection }>(
+      `/${encodeURIComponent(id)}/websocket`,
+      'POST',
+      { revision, websocket },
       csrf,
     )
   ).connection;

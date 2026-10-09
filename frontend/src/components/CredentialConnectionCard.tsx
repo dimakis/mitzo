@@ -1,3 +1,5 @@
+import { CredentialWebSocketSettings } from './CredentialWebSocketSettings';
+import { websocketDraft, websocketConfiguration } from '../lib/credential-websocket-settings';
 import { useEffect, useState } from 'react';
 import {
   disableCredentialConnection,
@@ -5,6 +7,7 @@ import {
   revokeConnectionSession,
   rotateCredentialConnection,
   updateDashboardAccess,
+  updateConnectionWebSocket,
   testCredentialConnection,
 } from '../lib/credential-connections-api';
 import type {
@@ -24,6 +27,11 @@ export function CredentialConnectionCard({
   csrf: () => string | undefined;
   run: ConnectionRun;
 }) {
+  const [websocket, setWebsocket] = useState(() => websocketDraft(connection.websocket));
+  useEffect(
+    () => setWebsocket(websocketDraft(connection.websocket)),
+    [connection.websocket, connection.revision],
+  );
   const [testPath, setTestPath] = useState(connection.paths[0]);
   const [sessions, setSessions] = useState<ConnectionSessionAccess[]>();
   const [rotating, setRotating] = useState(false);
@@ -48,6 +56,37 @@ export function CredentialConnectionCard({
           ? `Verified ${new Date(connection.verifiedAt).toLocaleString()}`
           : 'Not yet verified'}
       </p>
+      {connection.status === 'active' && (
+        <>
+          <CredentialWebSocketSettings
+            label={connection.label}
+            draft={websocket}
+            onChange={setWebsocket}
+            disabled={busy}
+          />
+          <button
+            disabled={
+              busy ||
+              JSON.stringify(websocket) === JSON.stringify(websocketDraft(connection.websocket))
+            }
+            onClick={() => {
+              const token = csrf();
+              if (token)
+                void run(async () => {
+                  await updateConnectionWebSocket(
+                    connection.id,
+                    connection.revision,
+                    websocketConfiguration(websocket),
+                    token,
+                  );
+                  setSessions(undefined);
+                }, 'WebSocket setup updated. Each chat needs fresh approval.');
+            }}
+          >
+            Save WebSocket setup
+          </button>
+        </>
+      )}
       {connection.status === 'active' && connection.auth.kind === 'bearer' && (
         <>
           <label className="connections-field">

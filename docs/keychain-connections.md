@@ -1,6 +1,6 @@
 # Apple Keychain service connections
 
-Keychain HTTPS connections and bounded Home Assistant dashboard WebSocket operations are a provider type in Mitzo's existing Connections overview and management page. They support Home Assistant and custom HTTPS APIs authenticated by a bearer token, HTTP Basic username/password, an API-key header, or a password header. The authentication mapping, destination, allowed paths and methods are configured explicitly. Existing managed OpenShell, Google Workspace and personal account connections keep their owning controls.
+Keychain HTTPS connections and service-neutral WebSocket requests are a provider type in Mitzo's existing Connections overview and management page. They support Home Assistant and custom HTTPS APIs authenticated by a bearer token, HTTP Basic username/password, an API-key header, or a password header. The authentication mapping, destination, allowed paths and methods are configured explicitly. Existing managed OpenShell, Google Workspace and personal account connections keep their owning controls.
 
 The Mac's Keychain remains the credential source of truth. These connections use a trusted host HTTP client, rather than copying credentials into OpenShell. Neither model tool inputs/results, session workspaces, browser storage nor SQLite contain credential values. SQLite stores metadata, pinned Keychain references and exact conversation grants. The host temporarily resolves a credential after checking a grant and injects it into its approved request. Responses are bounded and known raw, URL-encoded and authentication representations are redacted. Only connect services you trust to receive that credential.
 
@@ -17,11 +17,38 @@ The Mac's Keychain remains the credential source of truth. These connections use
 
 **Session access** lists grants and lets the operator revoke one session. **Disable and revoke all access** invalidates every grant immediately. In-flight requests are cancelled where possible; cancellation cannot undo an already accepted external write. Rotation saves a new Keychain item and invalidates all grants, including approvals pending on the old revision. Linked items are never changed or deleted. Changes to an externally linked credential fail closed and require explicit re-enrollment; Mitzo does not silently adopt a changed or re-created item. Disabling a connection retains its Keychain item.
 
+## WebSocket service connections
+
+WebSocket support belongs to each service connection, rather than to a particular service. New and existing connections have **Service WebSocket** controls. Access defaults to disabled. Enable header authentication to reuse the connection's bearer, Basic, API-key or password header, or configure a JSON authentication exchange that privately inserts the same Keychain credential. Set a relative WebSocket path within the connection's allowed path prefixes and, optionally, service subprotocol names. The WSS destination is derived from the enrolled HTTPS origin; agents cannot choose a different origin or supply authentication settings. Updating or disabling WebSocket setup requires recent setup authorization, increments the connection revision, revokes existing chat grants and cancels in-flight operations.
+
+Agents call `ConnectionWebSocket` with `connectionId`, a text `message`, and an optional `responseMatch` containing a top-level JSON `field` and scalar `equals` value. One application message is sent after authentication; the tool returns the first matching text response. Without a matcher it returns the first application response. A matching response is a transport result, not proof that the service accepted the command: inspect the service's response and read back state when needed. Generic commands may write, irrespective of names such as `read` in their payload. The separate WebSocket permission authorizes arbitrary text commands on the configured endpoint and is blocked in Ask mode, even if the HTTPS connection only permits GET. The chat approval card displays this broader scope. Home Assistant's dashboard adapter remains available for restricted list/read/save operations; enabling it does not enable arbitrary WebSocket commands.
+
+For JSON authentication, only non-secret scalar parameters belong in `message`; Mitzo inserts the credential under `credentialField`. Optionally wait for a `challenge` matcher before sending authentication, then require a `success` matcher before sending the application message. For example, HA's preset corresponds to:
+
+```json
+{
+  "path": "/api/websocket",
+  "authentication": {
+    "kind": "json",
+    "message": "{\"type\":\"auth\"}",
+    "credentialField": "access_token",
+    "challenge": { "field": "type", "equals": "auth_required" },
+    "success": { "field": "type", "equals": "auth_ok" }
+  }
+}
+```
+
+The authenticated control-plane route `POST /api/credential-connections/:id/websocket` takes `{ revision, websocket }`; `websocket: null` disables generic access. This route is service-neutral and uses the same browser identity and recent CSRF reauthorization as credential enrollment. JSON exchange configuration never contains the credential. Authentication frames and raw upstream failures are not returned to agents or persisted by the service.
+
+The shared transport checks TLS and DNS/address policy, refuses redirects, disables compression and rechecks current session ownership, mode, grant and connection revision before each send, receive and result. Application messages are limited to 128 KiB, responses to 256 KiB per frame/final result, total incoming traffic to 768 KiB and 64 frames, and the whole exchange to 30 seconds. Known credential representations are redacted before returning data. Each invocation closes its socket and destroys its dedicated HTTPS agent. It never reconnects or replays a command; a failure after sending is reported as unconfirmed and may have applied. Verify service state before retrying.
+
+The initial generic capability supports bounded text request/response APIs with header or single-step JSON authentication and optional subprotocol negotiation. Binary codecs, continuous subscriptions, OAuth enrollment and multi-step custom authentication require additional adapters; a universal transport does not make all application protocols interchangeable. Adapters reuse the same custody and transport boundary. See the [ws client API](https://github.com/websockets/ws/blob/master/doc/ws.md) for the underlying transport.
+
 ## Home Assistant dashboards over WebSocket
 
 For an existing Home Assistant connection, select **Dashboard API access → Read and update dashboards** and save after authorizing setup. New connections expose the same choice. Dashboard access defaults to disabled, including connections enrolled before this feature. It requires bearer authentication and an allowed path prefix covering `/api/websocket`. Changing the scope increments the connection revision, revokes existing grants and cancels in-flight requests. Each chat must approve the new scope. This approval is separate from setup authorization.
 
-Agents use `HomeAssistantDashboard` with `operation: "list"`, `"read"` or `"save"`. Authentication uses the connection's Keychain token in HA's private authentication exchange; the agent cannot select another WebSocket URL or send arbitrary commands. The only application commands are `lovelace/dashboards/list`, `lovelace/config` and `lovelace/config/save`. Omit `urlPath` for the default dashboard, or use the exact path returned by listing dashboards. Dashboard updates require an HA administrator account and a storage-mode dashboard; YAML-backed dashboards must be updated at their owning source.
+Agents use `HomeAssistantDashboard` with `operation: "list"`, `"read"` or `"save"`. Authentication uses the connection's Keychain token in HA's private authentication exchange; this tool cannot select another WebSocket URL or send arbitrary commands. The only application commands are `lovelace/dashboards/list`, `lovelace/config` and `lovelace/config/save`. Omit `urlPath` for the default dashboard, or use the exact path returned by listing dashboards. Dashboard updates require an HA administrator account and a storage-mode dashboard; YAML-backed dashboards must be updated at their owning source.
 
 A read returns the complete configuration and `configHash`. If credential redaction changes the read, the result is marked `redacted: true`, `writable: false`, with `configHash: null`. Saves are also refused whenever the fresh baseline contains a protected credential, so a redaction marker cannot overwrite it. Preserve unrelated views and cards when editing. A save supplies the full configuration as a JSON string plus that hash as `expectedConfigHash`. Mitzo reads the dashboard immediately before writing and refuses a stale hash, then reads back the saved configuration before reporting success. Saves to the same dashboard through this controller cannot overlap. HA does not provide an atomic conditional-save API: another writer can still race between the check and save. The read-back check detects an unexpected final configuration but cannot undo an external concurrent edit.
 

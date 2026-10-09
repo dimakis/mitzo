@@ -1,3 +1,5 @@
+import { CredentialWebSocketSettings } from './CredentialWebSocketSettings';
+import { websocketDraft, websocketConfiguration } from '../lib/credential-websocket-settings';
 import { useState } from 'react';
 import { createCredentialConnection } from '../lib/credential-connections-api';
 import type {
@@ -29,6 +31,7 @@ export function CredentialConnectionForm({
   const [selectedMethods, setSelectedMethods] = useState<ConnectionMethod[]>(['GET', 'HEAD']);
   const [homeAssistantDashboards, setHomeAssistantDashboards] =
     useState<DashboardAccess>('disabled');
+  const [websocket, setWebsocket] = useState(() => websocketDraft());
   const [allowPrivateNetwork, setAllowPrivateNetwork] = useState(false);
   return (
     <form
@@ -58,12 +61,15 @@ export function CredentialConnectionForm({
           homeAssistantDashboards: kind === 'bearer' ? homeAssistantDashboards : 'disabled',
         };
         void run(
-          () =>
+          async () =>
             createCredentialConnection(
               source === 'new'
-                ? { connection, secret: credential }
+                ? {
+                    connection: { ...connection, websocket: websocketConfiguration(websocket) },
+                    secret: credential,
+                  }
                 : {
-                    connection,
+                    connection: { ...connection, websocket: websocketConfiguration(websocket) },
                     existing: { service: keychainService, account: keychainAccount },
                   },
               token,
@@ -88,6 +94,7 @@ export function CredentialConnectionForm({
               setPaths(home ? '/api/' : '/');
               setSelectedMethods(['GET', 'HEAD']);
               setHomeAssistantDashboards('disabled');
+              setWebsocket(websocketDraft());
             }}
             defaultValue="home-assistant"
           >
@@ -225,6 +232,12 @@ export function CredentialConnectionForm({
             </span>
           </label>
         )}
+        <CredentialWebSocketSettings
+          label="new connection"
+          draft={websocket}
+          onChange={setWebsocket}
+          disabled={busy}
+        />
         <details>
           <summary>Allowed requests</summary>
           <p>
