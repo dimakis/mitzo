@@ -214,9 +214,9 @@
 .workspace-chat .msg-bubble--assistant a {
   color: var(--workspace-accent);
 }
-[data-theme='light'] .workspace-chat .token-bar--green {
-  color: #17683a;
-  border-color: #9ebdad;
+.workspace-chat .token-bar--normal {
+  color: var(--workspace-accent);
+  border-color: color-mix(in srgb, var(--workspace-accent) 30%, transparent);
 }
 [data-theme='light'] .workspace-chat .token-bar--yellow {
   color: #805600;

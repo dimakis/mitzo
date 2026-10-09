@@ -6,7 +6,7 @@ function getContextColor(ratio: number): string {
   if (ratio >= 0.95) return 'flashing';
   if (ratio >= 0.8) return 'red';
   if (ratio >= 0.5) return 'yellow';
-  return 'green';
+  return 'normal';
 }
 
 interface Props {

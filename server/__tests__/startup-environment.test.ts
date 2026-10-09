@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 
+// Cover the child process's 20-second startup budget plus fixture cleanup on busy CI runners.
 it('boots with authentication and workspace settings supplied only by the default dotenv file', () => {
   const root = mkdtempSync(join(tmpdir(), 'mitzo-startup-env-'));
   const workspace = join(root, 'workspace');
@@ -60,4 +61,4 @@ it('boots with authentication and workspace settings supplied only by the defaul
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
-});
+}, 30_000);
