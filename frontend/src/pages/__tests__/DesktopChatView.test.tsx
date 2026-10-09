@@ -831,3 +831,38 @@ it('blocks a saved repository before the picker reports any selection', async ()
   fireEvent.click(screen.getByRole('button', { name: 'Test send' }));
   expect(sendMessage).not.toHaveBeenCalled();
 });
+
+it.each([true, false])(
+  'consumes a repository receipt only after its matching send is assigned: %s',
+  async (queued) => {
+    const key = 'mitzo-repository-draft:test:luna';
+    const receipt = '8ca30b0d-3e65-4eeb-8244-f6277350818f';
+    sessionStorage.setItem(key, receipt);
+    const store = createMockStore();
+    const sendMessage = vi.fn(
+      (_text: string, _options?: { onSessionAssigned?: (id: string) => void }) => {},
+    );
+    store.setState({ sendMessage });
+    render(
+      <MemoryRouter>
+        <MitzoStoreProvider value={store}>
+          <DesktopChatView />
+        </MitzoStoreProvider>
+      </MemoryRouter>,
+    );
+    if (
+      screen.getByRole('button', { name: /^Workspace/ }).getAttribute('aria-expanded') === 'false'
+    )
+      fireEvent.click(screen.getByRole('button', { name: /^Workspace/ }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Use Test account · Luna' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Ready repository launch' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Test send' }));
+    expect(sessionStorage.getItem(key)).toBe(receipt);
+    act(() =>
+      store.setState({ sessions: { ...store.getState().sessions, active: 'assigned-chat' } }),
+    );
+    expect(sessionStorage.getItem(key)).toBe(receipt);
+    if (queued) act(() => sendMessage.mock.calls[0][1]?.onSessionAssigned?.('assigned-chat'));
+    await waitFor(() => expect(sessionStorage.getItem(key)).toBe(queued ? null : receipt));
+  },
+);

@@ -1,4 +1,8 @@
-import { savedRepositoryDraft } from '../lib/repository-draft';
+import {
+  savedRepositoryDraft,
+  repositoryDraftKey,
+  consumeRepositoryDraft,
+} from '../lib/repository-draft';
 import {
   RepositoryChatPicker,
   type RepositoryChatSelection,
@@ -213,7 +217,16 @@ export function DesktopChatView() {
       contextBlocks: ctxBlocks,
       ...(accountSelection ?? {}),
       ...(!activeSessionId && repositorySelection?.repositoryWorkspaceId
-        ? { repositoryWorkspaceId: repositorySelection.repositoryWorkspaceId }
+        ? {
+            repositoryWorkspaceId: repositorySelection.repositoryWorkspaceId,
+            onSessionAssigned: () => {
+              if (accountSelection?.accountId)
+                consumeRepositoryDraft(
+                  repositoryDraftKey(accountSelection.accountId, accountSelection.model),
+                  repositorySelection.repositoryWorkspaceId!,
+                );
+            },
+          }
         : {}),
       mode,
       cwd: searchParams.get('cwd') ?? undefined,
