@@ -28,3 +28,5 @@ export function validateRecoveryPlist(root, plan, plist, node) {
   if (canonical(plist) !== canonical(expected))
     throw Error('Prepared canonical recovery service changed');
 }
+// Historical impossibility proof requires the complete original environment too.
+export const validateHistoricalColdPlist = validateRecoveryPlist;

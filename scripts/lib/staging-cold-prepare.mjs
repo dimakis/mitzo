@@ -83,6 +83,7 @@ export async function prepareColdMetadata(root, expectedAudit, audit = auditCold
         ['service', s.serviceFiles],
         ['workspace', s.workspaceFiles],
         ['gateway-state', s.gatewayFiles],
+        ['registry', s.registryFiles],
       ])
         if (JSON.stringify(inventory(join(archive, name))) !== JSON.stringify(expected))
           throw Error('Preserved original evidence changed');

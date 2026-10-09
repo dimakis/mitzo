@@ -217,6 +217,7 @@ function filesystem() {
       serviceFiles: inventory(owned),
       workspaceFiles: inventory(workspace),
       gatewayFiles: inventory(gateway),
+      registryFiles: inventory(join(root, 'registry')),
     };
     return {
       snapshot: value,
@@ -268,7 +269,10 @@ it('an archive collision does not modify unrelated preserved evidence or release
 
 import { vi } from 'vitest';
 import { prepareFreshRecovery } from '../../scripts/lib/staging-cold-control.mjs';
-import { validateRecoveryPlist } from '../../scripts/lib/staging-cold-plist.mjs';
+import {
+  validateRecoveryPlist,
+  validateHistoricalColdPlist,
+} from '../../scripts/lib/staging-cold-plist.mjs';
 const osCalls = vi.hoisted(() => ({ run: vi.fn() }));
 vi.mock('node:child_process', async (original) => ({
   ...(await original()),
@@ -522,6 +526,73 @@ it('an uncertain fresh start keeps the original lock and never issues a second s
     ).toBe(true);
   } finally {
     clock?.mockRestore();
+    osCalls.run.mockReset();
+    rmSync(f.root, { recursive: true, force: true });
+  }
+});
+
+import { recordOrVerifyFreshOwnerReceipt } from '../../scripts/lib/staging-cold-receipt.mjs';
+it('a verified receipt can resume the same owner after interruption without rewriting evidence', () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'owner-receipt-')));
+  try {
+    const path = join(root, 'receipt.json'),
+      value = {
+        operation: 'original',
+        target: 'd'.repeat(40),
+        owner: {
+          instanceId: 'fresh',
+          epoch: 1,
+          parent: { pid: 10, birth: 'parent' },
+          app: { pid: 11, birth: 'app' },
+        },
+      };
+    recordOrVerifyFreshOwnerReceipt(path, value);
+    const before = readFileSync(path);
+    recordOrVerifyFreshOwnerReceipt(path, value);
+    expect(readFileSync(path)).toEqual(before);
+    expect(() =>
+      recordOrVerifyFreshOwnerReceipt(path, { ...value, owner: { ...value.owner, epoch: 2 } }),
+    ).toThrow();
+    expect(readFileSync(path)).toEqual(before);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+it('the actual copied registry bytes are verified before reservation classification', async () => {
+  const f = filesystem();
+  try {
+    const audit = () => {
+      const v = f.audit();
+      v.snapshot.registryFiles = {
+        ...inventory(join(f.root, 'registry')),
+        'unaccounted-wal': { sha256: 'f'.repeat(64), mode: 0o600 },
+      };
+      v.auditSha256 = hash(JSON.stringify(v.snapshot));
+      return v;
+    };
+    await expect(prepareColdMetadata(f.root, audit().auditSha256, audit)).rejects.toThrow(
+      'Preserved original evidence changed',
+    );
+    const db = new Database(join(f.root, 'registry/staging.db'), { readonly: true });
+    expect(db.prepare('SELECT COUNT(*) AS n FROM launches').get().n).toBe(1);
+    expect(
+      db.prepare("SELECT name FROM sqlite_master WHERE name='qualified_cold_refusals'").get(),
+    ).toBeUndefined();
+    db.close();
+  } finally {
+    rmSync(f.root, { recursive: true, force: true });
+  }
+});
+
+it('historical refusal proof rejects a preload environment before considering the mandatory gate', async () => {
+  const f = filesystem();
+  try {
+    await prepareColdMetadata(f.root, f.sha, f.audit);
+    const t = freshFixture(f);
+    validateHistoricalColdPlist(f.root, t.plan, t.plist, process.execPath);
+    t.plist.EnvironmentVariables.NODE_OPTIONS = '--import hidden';
+    expect(() => validateHistoricalColdPlist(f.root, t.plan, t.plist, process.execPath)).toThrow();
+  } finally {
     osCalls.run.mockReset();
     rmSync(f.root, { recursive: true, force: true });
   }

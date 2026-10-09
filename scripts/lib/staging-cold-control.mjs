@@ -14,6 +14,7 @@ import { bytes, hash, directory, git, run, inventory } from './staging-cold-audi
 import { classifyColdRefusal } from './staging-cold-refusal.mjs';
 import { exclusive, sync } from './staging-cold-prepare.mjs';
 import { validateRecoveryPlist } from './staging-cold-plist.mjs';
+import { recordOrVerifyFreshOwnerReceipt } from './staging-cold-receipt.mjs';
 export function verifyPreparedController(root, source, current) {
   if (source !== join(root, 'releases', current.slice(0, 12)))
     throw Error('Independent canonical controller preparation required');
@@ -63,6 +64,7 @@ export async function preparedCold(root, vacant = true) {
     ['service', s.serviceFiles],
     ['workspace', s.workspaceFiles],
     ['gateway-state', s.gatewayFiles],
+    ['registry', s.registryFiles],
   ])
     if (JSON.stringify(inventory(join(recovery.archive, name))) !== JSON.stringify(expected))
       throw Error('Archived original evidence drift');
@@ -260,17 +262,14 @@ export async function verifyFreshRecovery(root, source, current) {
     ).ok
   )
     throw Error('HTTP readiness unavailable');
-  exclusive(
-    join(recovery.archive, 'fresh-owner-verified.json'),
-    JSON.stringify({
-      operation: recovery.operation,
-      target: current,
-      owner,
-      nativeRetirement: false,
-      oldRefusalPreserved: true,
-      modelCalls: 0,
-    }) + '\n',
-  );
+  recordOrVerifyFreshOwnerReceipt(join(recovery.archive, 'fresh-owner-verified.json'), {
+    operation: recovery.operation,
+    target: current,
+    owner,
+    nativeRetirement: false,
+    oldRefusalPreserved: true,
+    modelCalls: 0,
+  });
   if (JSON.stringify(privateJson(join(root, 'service/deployment.lock'))) !== JSON.stringify(lock))
     throw Error('Retained lock changed');
   unlinkSync(join(root, 'service/deployment.lock'));

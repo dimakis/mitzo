@@ -12,6 +12,7 @@ import {
   artifacts,
 } from './staging-files.mjs';
 import { classifyColdRefusal } from './staging-cold-refusal.mjs';
+import { validateHistoricalColdPlist } from './staging-cold-plist.mjs';
 export const hash = (b) => createHash('sha256').update(b).digest('hex');
 export function bytes(p) {
   const s = lstatSync(p);
@@ -181,6 +182,7 @@ export async function auditColdRefusal(root) {
   )
     throw Error('Original loaded registration changed');
   const plist = JSON.parse(run('/usr/bin/plutil', ['-convert', 'json', '-o', '-', plistPath]));
+  validateHistoricalColdPlist(root, plan, plist, process.execPath);
   if (
     plist.Label !== 'com.mitzo.staging' ||
     plist.KeepAlive !== false ||
@@ -282,6 +284,7 @@ export async function auditColdRefusal(root) {
     boot,
     configSha256: hash(bytes(plan.configPath)),
     registrySha256: hash(bytes(join(root, 'registry/staging.db'))),
+    registryFiles: inventory(join(root, 'registry')),
   };
   classifyColdRefusal(snapshot);
   return { snapshot, auditSha256: hash(JSON.stringify(snapshot)), config };
