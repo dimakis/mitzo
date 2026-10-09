@@ -491,3 +491,23 @@ it('preserves unsaved WebSocket edits across authorization refreshes for an enab
     ).toBe('/saved-new-revision'),
   );
 });
+
+it('preserves dashboard edits when refresh makes the same legacy disabled scope explicit', async () => {
+  vi.mocked(api.getCredentialConnections).mockResolvedValue([homeAssistant]);
+  render(<CredentialConnectionsPanel connectionId="ha" />);
+  await screen.findByLabelText('Dashboard API access for Home Assistant');
+  fireEvent.change(screen.getByLabelText('Dashboard API access for Home Assistant'), {
+    target: { value: 'read-write' },
+  });
+  vi.mocked(api.getCredentialConnections).mockResolvedValue([
+    { ...homeAssistant, homeAssistantDashboards: 'disabled' },
+  ]);
+  await authorize();
+  expect(
+    (screen.getByLabelText('Dashboard API access for Home Assistant') as HTMLSelectElement).value,
+  ).toBe('read-write');
+  fireEvent.click(screen.getByRole('button', { name: 'Save dashboard access' }));
+  await waitFor(() =>
+    expect(api.updateDashboardAccess).toHaveBeenCalledWith('ha', 1, 'read-write', 'csrf'),
+  );
+});

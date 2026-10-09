@@ -1,6 +1,6 @@
 import { CredentialWebSocketSettings } from './CredentialWebSocketSettings';
 import { websocketDraft, websocketConfiguration } from '../lib/credential-websocket-settings';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   disableCredentialConnection,
   getConnectionSessions,
@@ -29,10 +29,17 @@ export function CredentialConnectionCard({
 }) {
   const [websocket, setWebsocket] = useState(() => websocketDraft(connection.websocket));
   const savedWebsocket = JSON.stringify(connection.websocket ?? null);
-  useEffect(
-    () => setWebsocket(websocketDraft(JSON.parse(savedWebsocket))),
-    [savedWebsocket, connection.revision],
-  );
+  const lastSavedWebsocket = useRef({
+    configuration: savedWebsocket,
+    revision: connection.revision,
+  });
+  useEffect(() => {
+    const previous = lastSavedWebsocket.current;
+    if (previous.configuration === savedWebsocket && previous.revision === connection.revision)
+      return;
+    lastSavedWebsocket.current = { configuration: savedWebsocket, revision: connection.revision };
+    setWebsocket(websocketDraft(JSON.parse(savedWebsocket)));
+  }, [savedWebsocket, connection.revision]);
   const [testPath, setTestPath] = useState(connection.paths[0]);
   const [sessions, setSessions] = useState<ConnectionSessionAccess[]>();
   const [rotating, setRotating] = useState(false);
@@ -40,10 +47,18 @@ export function CredentialConnectionCard({
   const [dashboardAccess, setDashboardAccess] = useState<DashboardAccess>(
     connection.homeAssistantDashboards ?? 'disabled',
   );
-  useEffect(
-    () => setDashboardAccess(connection.homeAssistantDashboards ?? 'disabled'),
-    [connection.homeAssistantDashboards, connection.revision],
-  );
+  const savedDashboardAccess = connection.homeAssistantDashboards ?? 'disabled';
+  const lastSavedDashboard = useRef({
+    access: savedDashboardAccess,
+    revision: connection.revision,
+  });
+  useEffect(() => {
+    const previous = lastSavedDashboard.current;
+    if (previous.access === savedDashboardAccess && previous.revision === connection.revision)
+      return;
+    lastSavedDashboard.current = { access: savedDashboardAccess, revision: connection.revision };
+    setDashboardAccess(savedDashboardAccess);
+  }, [savedDashboardAccess, connection.revision]);
   const loadSessions = async () => setSessions(await getConnectionSessions(connection.id));
   return (
     <article className="connections-card">
