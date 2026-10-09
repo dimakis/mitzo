@@ -246,3 +246,68 @@ it('sends only the current saved review for review and preserves its source', as
     ]).version,
   ).toBe(2);
 });
+
+it('captures move bases from accepted original paths and persists new folders', async () => {
+  const created = await request(app())
+    .post('/api/knowledge/drafts')
+    .set('x-operator', 'yes')
+    .send({
+      title: 'Organize',
+      baseRevision: await source.revision(),
+      directories: ['architecture/new'],
+      documents: [
+        {
+          path: 'architecture/new/one.md',
+          sourcePath: 'architecture/one.md',
+          content: '# Accepted\n',
+        },
+      ],
+    });
+  expect(created.status).toBe(201);
+  expect(created.body.draft.documents[0]).toEqual({
+    path: 'architecture/new/one.md',
+    sourcePath: 'architecture/one.md',
+    base: '# Accepted\n',
+    content: '# Accepted\n',
+  });
+  const saved = await request(app())
+    .put('/api/knowledge/drafts/' + created.body.draft.id)
+    .set('x-operator', 'yes')
+    .send({
+      version: 1,
+      documents: [{ path: 'architecture/one.md', content: '# Accepted\n' }],
+      directories: [],
+    });
+  expect(saved.status).toBe(200);
+  expect(saved.body.draft.documents[0].sourcePath).toBeUndefined();
+});
+it('allows folder-only drafts while rejecting root and uncurated folders', async () => {
+  for (const folder of [
+    'new',
+    'architecture',
+    'scripts/new',
+    'architecture/../outside',
+    'architecture/.secret',
+  ]) {
+    const result = await request(app())
+      .post('/api/knowledge/drafts')
+      .set('x-operator', 'yes')
+      .send({
+        title: 'Folder',
+        baseRevision: await source.revision(),
+        documents: [],
+        directories: [folder],
+      });
+    expect(result.status).not.toBe(201);
+  }
+  const result = await request(app())
+    .post('/api/knowledge/drafts')
+    .set('x-operator', 'yes')
+    .send({
+      title: 'Folder',
+      baseRevision: await source.revision(),
+      documents: [],
+      directories: ['architecture/new'],
+    });
+  expect(result.status).toBe(201);
+});

@@ -59,26 +59,47 @@ async function knowledgeGitBlob(
     throw new Error('Knowledge Git operation failed');
   }
 }
-export function safeKnowledgePath(path: string): boolean {
+const reservedSegments = new Set([
+  '__pycache__',
+  'node_modules',
+  'scripts',
+  'tests',
+  'worktrees',
+  'dist',
+  'runtime',
+  'logs',
+  'coverage',
+  'build',
+]);
+export function safeKnowledgeDirectory(path: string): boolean {
   return (
     path.length <= 512 &&
-    /^[\p{L}\p{N}_ /().-]+\.md$/u.test(path) &&
+    /^[\p{L}\p{N}_ /().-]+$/u.test(path) &&
     path
       .split('/')
       .every(
         (p) =>
           p &&
+          p.trim() === p &&
           p !== '.' &&
           p !== '..' &&
           !p.startsWith('.') &&
-          !['__pycache__', 'node_modules', 'scripts', 'tests', 'worktrees', 'dist'].includes(p),
+          !reservedSegments.has(p),
       )
   );
+}
+export function safeKnowledgePath(path: string): boolean {
+  return path.endsWith('.md') && safeKnowledgeDirectory(path);
 }
 const oid = /^[a-f0-9]{40,64}$/;
 /** Reads Git objects only. It never checks out, reads dirty files or enumerates worktrees. */
 export class AcceptedKnowledgeSource {
-  private cached?: { revision: string; documents: { path: string; title: string; area: string }[] };
+  private cached?: {
+    revision: string;
+    documents: { path: string; title: string; area: string }[];
+    directories: string[];
+    documentPaths: string[];
+  };
   constructor(
     readonly directory: string,
     readonly acceptedRef: string,
@@ -102,6 +123,97 @@ export class AcceptedKnowledgeSource {
         (scope) => path === scope || (!scope.endsWith('.md') && path.startsWith(scope + '/')),
       )
     );
+  }
+  allowedDirectory(path: string) {
+    return (
+      safeKnowledgeDirectory(path) &&
+      this.paths.some(
+        (scope) => !scope.endsWith('.md') && (path === scope || path.startsWith(scope + '/')),
+      )
+    );
+  }
+  allowedMove(from: string, to: string) {
+    const owner = (path: string) =>
+      this.paths
+        .filter((scope) => !scope.endsWith('.md') && path.startsWith(scope + '/'))
+        .sort((a, b) => b.length - a.length)[0];
+    const privateBoundary = (path: string) => {
+      const parts = path.split('/');
+      const index = parts.findIndex((part) => /^private(?:[_-]|$)/i.test(part));
+      return index < 0 ? '' : parts.slice(0, index + 1).join('/');
+    };
+    return (
+      from !== to &&
+      this.allowed(from) &&
+      this.allowed(to) &&
+      privateBoundary(from) === privateBoundary(to) &&
+      from.split('/')[0] === to.split('/')[0] &&
+      Boolean(owner(from)) &&
+      owner(from) === owner(to)
+    );
+  }
+  private async entries(revision: string, signal?: AbortSignal) {
+    if (!oid.test(revision)) throw new Error('Knowledge revision is invalid');
+    await knowledgeGit(
+      this.directory,
+      ['merge-base', '--is-ancestor', revision, this.acceptedRef],
+      undefined,
+      undefined,
+      signal,
+    );
+    const tree = await knowledgeGit(
+      this.directory,
+      ['ls-tree', '-r', '-t', '-z', revision],
+      undefined,
+      undefined,
+      signal,
+    );
+    return new Map(
+      tree.split('\0').flatMap((row) => {
+        const [meta, path] = row.split('\t');
+        return path && meta ? [[path, meta] as const] : [];
+      }),
+    );
+  }
+  async validateStructure(
+    revision: string,
+    documents: { path: string; sourcePath?: string }[],
+    directories: string[] = [],
+    signal?: AbortSignal,
+  ) {
+    const entries = await this.entries(revision, signal);
+    const parents = (path: string) =>
+      path
+        .split('/')
+        .slice(0, -1)
+        .map((_, i, parts) => parts.slice(0, i + 1).join('/'));
+    for (const document of documents) {
+      if (
+        !this.allowed(document.path) ||
+        (document.sourcePath && !this.allowedMove(document.sourcePath, document.path))
+      )
+        throw new Error('Move is outside the library area');
+      if (document.sourcePath && entries.has(document.path))
+        throw new Error('Move destination is already occupied');
+      for (const parent of parents(document.path)) {
+        const entry = entries.get(parent);
+        if (entry && !entry.startsWith('040000 tree '))
+          throw new Error('Document parent is not a directory');
+      }
+    }
+    for (const directory of directories) {
+      if (
+        !this.allowedDirectory(directory) ||
+        !this.paths.some((scope) => !scope.endsWith('.md') && directory.startsWith(scope + '/'))
+      )
+        throw new Error('Folder is outside the library');
+      if (entries.has(directory)) throw new Error('Folder destination is already occupied');
+      for (const parent of parents(directory)) {
+        const entry = entries.get(parent);
+        if (entry && !entry.startsWith('040000 tree '))
+          throw new Error('Folder parent is not a directory');
+      }
+    }
   }
   async revision(signal?: AbortSignal) {
     const sha = (
@@ -137,7 +249,40 @@ export class AcceptedKnowledgeSource {
         },
       ];
     });
-    return (this.cached = { revision, documents });
+    const directories = new Set<string>();
+    const addAncestors = (path: string) => {
+      const parts = path.split('/');
+      for (let i = 1; i < parts.length; i++) {
+        const directory = parts.slice(0, i).join('/');
+        if (this.allowedDirectory(directory)) directories.add(directory);
+      }
+    };
+    for (const document of documents) addAncestors(document.path);
+    for (const row of tree.split('\0')) {
+      const [meta, path] = row.split('\t');
+      if (
+        !path?.endsWith('/.gitkeep') ||
+        !meta?.startsWith('100644 blob ') ||
+        !this.allowedDirectory(path.slice(0, -9))
+      )
+        continue;
+      const size = (
+        await knowledgeGit(
+          this.directory,
+          ['cat-file', '-s', meta.split(' ')[2]!],
+          undefined,
+          undefined,
+          signal,
+        )
+      ).trim();
+      if (size === '0') addAncestors(path);
+    }
+    return (this.cached = {
+      revision,
+      documents,
+      directories: [...directories].sort(),
+      documentPaths: [...this.paths],
+    });
   }
   async read(path: string, revision: string, signal?: AbortSignal) {
     if (!oid.test(revision)) throw new Error('Knowledge revision is invalid');

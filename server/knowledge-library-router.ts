@@ -2,7 +2,11 @@ import express from 'express';
 import { z } from 'zod';
 import { registerAuthSession, type AuthSession } from './auth.js';
 import { requireSameOriginJson } from './connections-router.js';
-import { AcceptedKnowledgeSource, safeKnowledgePath } from './knowledge-library-source.js';
+import {
+  AcceptedKnowledgeSource,
+  safeKnowledgeDirectory,
+  safeKnowledgePath,
+} from './knowledge-library-source.js';
 import {
   KnowledgeDraftConflict,
   KnowledgeDraftStore,
@@ -23,19 +27,23 @@ export interface KnowledgeLibraryDependencies {
 const revision = z.string().regex(/^[a-f0-9]{40,64}$/);
 const document = z.strictObject({
   path: z.string().refine(safeKnowledgePath),
+  sourcePath: z.string().refine(safeKnowledgePath).optional(),
   content: z.string().refine((s) => Buffer.byteLength(s) <= 5 * 1024 * 1024),
 });
-const documents = z.array(document).min(1).max(20);
+const documents = z.array(document).max(20);
+const directories = z.array(z.string().refine(safeKnowledgeDirectory)).max(20).optional();
 const create = z.strictObject({
   requestId: z.string().uuid().optional(),
   title: z.string().trim().min(1).max(200),
   baseRevision: revision,
   documents,
+  directories,
 });
 const save = z.strictObject({
   version: z.number().int().positive(),
   documents,
   baseRevision: revision.optional(),
+  directories,
 });
 class AuthorityExpired extends Error {}
 /** Browser-only, no task/session argument or client-selected credentials, paths or refs. */
@@ -172,11 +180,22 @@ export function createKnowledgeLibraryRouter(
         input.data.documents.some((d) => !context.runtime.source.allowed(d.path))
       )
         return res.status(400).json({ error: 'Invalid knowledge draft' });
+      await context.runtime.source.validateStructure(
+        input.data.baseRevision,
+        input.data.documents,
+        input.data.directories,
+        context.signal,
+      );
       const docs = await Promise.all(
         input.data.documents.map(async (d) => ({
           ...d,
-          base: (await context.runtime.source.read(d.path, input.data.baseRevision, context.signal))
-            .content,
+          base: (
+            await context.runtime.source.read(
+              d.sourcePath ?? d.path,
+              input.data.baseRevision,
+              context.signal,
+            )
+          ).content,
         })),
       );
       context.assert();
@@ -186,6 +205,7 @@ export function createKnowledgeLibraryRouter(
           input.data.baseRevision,
           docs,
           input.data.requestId,
+          input.data.directories,
         ),
       });
     }),
@@ -213,14 +233,28 @@ export function createKnowledgeLibraryRouter(
         throw new KnowledgeDraftConflict(
           'Accepted knowledge changed again. Refresh before resolving.',
         );
+      await context.runtime.source.validateStructure(
+        baseRevision,
+        input.data.documents,
+        input.data.directories ?? draft.directories,
+        context.signal,
+      );
       const docs = await Promise.all(
         input.data.documents.map(async (d) => ({
           ...d,
-          base: (await context.runtime.source.read(d.path, baseRevision, context.signal)).content,
+          base: (
+            await context.runtime.source.read(d.sourcePath ?? d.path, baseRevision, context.signal)
+          ).content,
         })),
       );
       context.assert();
-      const saved = context.runtime.store.save(draftId, input.data.version, docs, baseRevision);
+      const saved = context.runtime.store.save(
+        draftId,
+        input.data.version,
+        docs,
+        baseRevision,
+        input.data.directories,
+      );
       return res.json(await submit(context, saved));
     }),
   );
