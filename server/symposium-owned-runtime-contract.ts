@@ -4,8 +4,6 @@
 export const REVIEWED_SYMPOSIUM_OWNED_RUNTIME = {
   build: {
     version: '0.0.117-dev.292+g854b2370b',
-    cliVersion: '0.0.117-dev.292+g854b2370b',
-    gatewayVersion: '0.0.117-dev.292+g854b2370b',
     cliSha256: '5a02cb78ef641da6badec1901677d4478c059a0080dbf4de13a6bbc503588dc8',
     gatewaySha256: '281a4873ec62ddb384db2b495a324d5a899e27944500c309191195463cd2422e',
     image: 'sha256:a5a5302f2443c02f24506248883b9d22f070f58b288f898ac69a547b653e2161',
@@ -137,8 +135,6 @@ export type SymposiumOwnedBuildSelection = 'local-854b-b20-v1' | 'local-854b-rou
 export const SOURCE_QUALIFIED_SYMPOSIUM_LOCAL_B20_BUILD = Object.freeze({
   ...REVIEWED_SYMPOSIUM_CODEX_01591_IDENTITY_RUNTIME.build,
   version: '0.0.0',
-  cliVersion: '0.0.0',
-  gatewayVersion: '0.0.0',
   cliSha256: '6ed96b7aa13655d6ecaeb822aee7526bc2170d85bd00f4506b13330703cb5dff',
   gatewaySha256: '712906577a63c29553e7f2653bf2944c55a7142c3c69643532d1461da1eebe10',
   supervisorImage: 'sha256:baa239a3c804bb889d70f8da465facbe289e302fba4cefb19112200a16fb5013',
@@ -167,4 +163,10 @@ export function reviewedSymposiumRoutingDiagnosticBuild(
   _selection?: SymposiumOwnedBuildSelection,
 ): ReturnType<typeof reviewedSymposiumOwnedBuild> {
   throw Error('Routing diagnostic native build is not qualified');
+}
+
+/** Keep historical serialized build records verbatim. Only a separately
+ * qualified successor may declare a different measured gateway version. */
+export function symposiumOwnedBuildVersions(build: { version: string; gatewayVersion?: string }) {
+  return { cliVersion: build.version, gatewayVersion: build.gatewayVersion ?? build.version };
 }

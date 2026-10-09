@@ -19,8 +19,12 @@ it('preserves every image-only default and requires explicit known full-build se
     contracts.REVIEWED_SYMPOSIUM_CODEX_01591_RUNTIME,
     contracts.REVIEWED_SYMPOSIUM_CODEX_01591_IDENTITY_RUNTIME,
   ]) {
-    expect(runtime.build.cliVersion).toBe(runtime.build.version);
-    expect(runtime.build.gatewayVersion).toBe(runtime.build.version);
+    expect(contracts.symposiumOwnedBuildVersions(runtime.build)).toEqual({
+      cliVersion: runtime.build.version,
+      gatewayVersion: runtime.build.version,
+    });
+    expect(Object.keys(runtime.build)).not.toContain('cliVersion');
+    expect(Object.keys(runtime.build)).not.toContain('gatewayVersion');
     expect(resolve(runtime.build.image)).toBe(
       contracts.reviewedSymposiumOwnedRuntime(runtime.build.image).build,
     );
@@ -29,11 +33,13 @@ it('preserves every image-only default and requires explicit known full-build se
   const local = resolve(image, 'local-854b-b20-v1');
   expect(local).toMatchObject({
     version: '0.0.0',
-    cliVersion: '0.0.0',
-    gatewayVersion: '0.0.0',
     cliSha256: '6ed96b7aa13655d6ecaeb822aee7526bc2170d85bd00f4506b13330703cb5dff',
     gatewaySha256: '712906577a63c29553e7f2653bf2944c55a7142c3c69643532d1461da1eebe10',
     supervisorImage: 'sha256:baa239a3c804bb889d70f8da465facbe289e302fba4cefb19112200a16fb5013',
+  });
+  expect(contracts.symposiumOwnedBuildVersions(local)).toEqual({
+    cliVersion: '0.0.0',
+    gatewayVersion: '0.0.0',
   });
   expect(local.nativeArtifacts).toEqual(
     contracts.REVIEWED_SYMPOSIUM_CODEX_01591_IDENTITY_RUNTIME.build.nativeArtifacts,

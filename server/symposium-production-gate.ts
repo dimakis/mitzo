@@ -7,6 +7,7 @@ import {
   REVIEWED_SYMPOSIUM_CODEX_01591_RUNTIME,
   REVIEWED_SYMPOSIUM_CODEX_01591_IDENTITY_RUNTIME,
   reviewedSymposiumOwnedBuild,
+  symposiumOwnedBuildVersions,
   SOURCE_QUALIFIED_SYMPOSIUM_LOCAL_B20_BUILD,
   type SymposiumOwnedBuildSelection,
 } from './symposium-owned-runtime-contract.js';
@@ -186,8 +187,8 @@ const OwnedAttestation = LegacyAttestation.extend({
           value.providerInstances.some(
             (p) => p.type !== 'openai' || p.profileName !== 'openai',
           ))) ||
-      value.cliVersion !== expected.cliVersion ||
-      value.gatewayVersion !== expected.gatewayVersion ||
+      value.cliVersion !== symposiumOwnedBuildVersions(expected).cliVersion ||
+      value.gatewayVersion !== symposiumOwnedBuildVersions(expected).gatewayVersion ||
       value.cliSha256 !== expected.cliSha256 ||
       value.gatewaySha256 !== expected.gatewaySha256 ||
       value.supervisorImage !== expected.supervisorImage ||
@@ -389,8 +390,8 @@ export function verifySymposiumProductionGate(
   if (owned) {
     const selectedBuild = reviewedSymposiumOwnedBuild(expected.image, buildSelection);
     if (
-      expected.cliVersion !== selectedBuild.cliVersion ||
-      expected.gatewayVersion !== selectedBuild.gatewayVersion ||
+      expected.cliVersion !== symposiumOwnedBuildVersions(selectedBuild).cliVersion ||
+      expected.gatewayVersion !== symposiumOwnedBuildVersions(selectedBuild).gatewayVersion ||
       expected.cliSha256 !== selectedBuild.cliSha256 ||
       expected.gatewaySha256 !== selectedBuild.gatewaySha256 ||
       expected.supervisorImage !== selectedBuild.supervisorImage
