@@ -120,14 +120,6 @@ export async function prepareFreshRecovery(root, source, current, apply = false,
     join(root, 'symposium/settings/staging-registration.json'),
     root,
   );
-  const inputs = Object.fromEntries(
-    [
-      'owned-release.json',
-      'staging-custodian.plist',
-      'staging-operator.json',
-      'empty-accounts.json',
-    ].map((n) => [n, hash(bytes(join(owned, n)))]),
-  );
   if (
     lstatSync(join(owned, 'launch.intent'), { throwIfNoEntry: false }) ||
     lstatSync(join(owned, 'original-owner.json'), { throwIfNoEntry: false }) ||
@@ -138,14 +130,7 @@ export async function prepareFreshRecovery(root, source, current, apply = false,
   const config = privateJson(plan.configPath);
   if (portPids(config.gateway.port).length || portPids(3190).length)
     throw Error('Required staging ports are occupied');
-  const intent = {
-    operation: recovery.operation,
-    auditSha256: recovery.auditSha256,
-    target: current,
-    inputs,
-    registrationSha256: hash(bytes(join(root, 'symposium/settings/staging-registration.json'))),
-    configSha256: plan.configSha256,
-  };
+  const intent = coldActivationIntent(root, recovery, plan, current);
   if (!apply) {
     exclusive(join(root, 'service/cold-activation.json'), JSON.stringify(intent) + '\n');
     return { planned: true, ...intent, serviceControl: false, modelCalls: 0 };
@@ -225,6 +210,12 @@ export async function verifyFreshRecovery(root, source, current) {
   if (plan.sourceCommit !== current || plan.releaseRoot !== source || intent.target !== current)
     throw Error('Exact fresh recovery target required');
   verifyRetainedOwnedRelease(plan);
+  validateColdActivationBinding(root, recovery, plan, current, intent);
+  if (
+    JSON.stringify(privateJson(join(recovery.archive, 'activation-attempt.json'))) !==
+    JSON.stringify(intent)
+  )
+    throw Error('Preserved activation attempt changed');
   const owner = privateJson(join(owned, 'original-owner.json'));
   const db = new Database(join(root, 'registry/staging.db'), {
     readonly: true,
@@ -282,4 +273,29 @@ export async function verifyFreshRecovery(root, source, current) {
     modelCalls: 0,
     productionActions: [],
   };
+}
+
+function coldActivationIntent(root, recovery, plan, current) {
+  const owned = join(root, 'symposium/service');
+  return {
+    operation: recovery.operation,
+    auditSha256: recovery.auditSha256,
+    target: current,
+    inputs: Object.fromEntries(
+      [
+        'owned-release.json',
+        'staging-custodian.plist',
+        'staging-operator.json',
+        'empty-accounts.json',
+      ].map((n) => [n, hash(bytes(join(owned, n)))]),
+    ),
+    registrationSha256: hash(bytes(join(root, 'symposium/settings/staging-registration.json'))),
+    configSha256: plan.configSha256,
+  };
+}
+export function validateColdActivationBinding(root, recovery, plan, current, intent) {
+  if (
+    JSON.stringify(coldActivationIntent(root, recovery, plan, current)) !== JSON.stringify(intent)
+  )
+    throw Error('Full activation intent or prepared inputs changed; retain lock');
 }

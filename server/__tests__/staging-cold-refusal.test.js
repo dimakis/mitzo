@@ -624,3 +624,31 @@ it('a tableless SQLite view still prevents initial-state classification', () => 
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+import { validateColdActivationBinding } from '../../scripts/lib/staging-cold-control.mjs';
+it('final verification refuses any activation-intent drift even when its target stays unchanged', async () => {
+  const f = filesystem();
+  try {
+    await prepareColdMetadata(f.root, f.sha, f.audit);
+    const t = freshFixture(f);
+    const intent = await prepareFreshRecovery(f.root, t.source, t.current, false, t.tools);
+    delete intent.planned;
+    delete intent.serviceControl;
+    delete intent.modelCalls;
+    const recovery = JSON.parse(readFileSync(join(f.root, 'service/cold-recovery.json')));
+    validateColdActivationBinding(f.root, recovery, t.plan, t.current, intent);
+    for (const field of ['operation', 'auditSha256', 'registrationSha256', 'configSha256']) {
+      const changed = { ...intent, [field]: 'changed' };
+      expect(() =>
+        validateColdActivationBinding(f.root, recovery, t.plan, t.current, changed),
+      ).toThrow();
+    }
+    const changed = { ...intent, inputs: { ...intent.inputs, 'staging-operator.json': 'wrong' } };
+    expect(() =>
+      validateColdActivationBinding(f.root, recovery, t.plan, t.current, changed),
+    ).toThrow();
+  } finally {
+    osCalls.run.mockReset();
+    rmSync(f.root, { recursive: true, force: true });
+  }
+});
