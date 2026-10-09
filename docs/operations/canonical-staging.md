@@ -385,3 +385,50 @@ them directly with isolated file credentials. It does not expand the custodian's
 PATH, reuse cached host authentication or send model/thread requests. Ordinary
 unconfigured callers retain their existing launcher behavior. Live inference
 still requires fresh Personal sign-in and an explicit supported Luna selection.
+
+A completed owned update retains `service/owned-update-plan.json`. Before another
+initial-stage plan, archive that exact completed plan from the newly prepared
+accepted controller. Use the prior operation/source, the check's actual fresh
+original instance/epoch, and the SHA256 of the retained plan bytes:
+
+```sh
+node scripts/update-owned-staging.mjs archive-completed-plan \
+  --operation COMPLETED_OPERATION --source CURRENT_SOURCE \
+  --instance CURRENT_ORIGINAL_INSTANCE --epoch CURRENT_EPOCH \
+  --expected-plan-sha RETAINED_PLAN_SHA256
+```
+
+This metadata operation requires no deployment lock and compares the actual
+current original parent/app/registry with the prior update's verified fresh-owner
+receipt. It rechecks the old prepared controller, complete four-input activation,
+original start attempt, configuration, registration, preserved service/workspace/
+gateway/registry inventory and the actual retired SQLite row/receipt history.
+The accepted original-retirement validator also checks the preserved native
+receipt and original owner. A missing lock, elapsed time or saved successful
+status alone cannot qualify a completed update.
+
+Under the shared exclusive metadata lock, it preserves the unchanged plan as
+`completed-plan.json` inside the original operation archive and checkpoints its
+intent before vacating only the exact original plan file. It performs no service,
+VM, model or registry control. Original archives and receipt history remain.
+Before disposition, a refusal releases only its own matching lock when the
+original plan identity and bytes are unchanged. After a disposition attempt,
+uncertainty retains the lock and evidence. If acknowledgement is interrupted,
+use `verify-completed-plan` with the identical arguments; verification never
+repeats disposition or vacates a different plan. Existing records are never
+replaced. Any conflicting evidence requires investigation.
+
+Archiving a completed plan does not migrate connected credentials or permit an
+update of used conversation/task state. The subsequent plan/apply still require
+the existing initial-stage emptiness and original-owner retirement gates.
+
+If accepted main advances during a lost metadata acknowledgement, a newly prepared
+exact accepted verifier may use the same `verify-completed-plan` arguments only
+when the original metadata controller's private prepared release still matches
+its immutable receipt and source/tree/build/dependency pins, and its commit is an
+ancestor of the current accepted verifier. Unknown metadata schemas, unrelated
+history and missing or changed old preparation refuse verification. Original
+intent, selection, lock and archived plan remain unchanged; a separate verifier
+acknowledgement records both controller identities. This grants only verification
+of that same completed metadata effect, never another plan disposition or native
+service action.
