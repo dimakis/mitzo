@@ -87,3 +87,20 @@ it('isolates controller capabilities and enrolled items between namespaces', asy
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+it('keeps OpenAI rotation coordinates separate from service connection custody', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'mitzo-rotation-controller-'));
+  try {
+    const controller = new KeychainController(directory);
+    await controller.enrollRotation({ service: 'com.mitzo.openai', account: 'work' });
+    await controller.enrollRotation({ service: 'com.mitzo.openai', account: 'work' });
+    const record = JSON.parse(await readFile(join(directory, 'controller.json'), 'utf8'));
+    expect(record.rotationItems).toEqual([{ service: 'com.mitzo.openai', account: 'work' }]);
+    expect(record.items).toEqual([]);
+    await expect(
+      controller.enrollRotation({ service: 'mitzo.connection.someone', account: 'work' }),
+    ).rejects.toThrow('Invalid');
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});

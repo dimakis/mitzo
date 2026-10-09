@@ -15,6 +15,7 @@ const initial = {
   verifiedAt: null,
 };
 vi.mock('../../lib/connections-api', () => ({
+  authorizeOpenAIKey: vi.fn(),
   getOpenAIKeyStatus: vi.fn(async () => [initial]),
   replaceOpenAIKey: vi.fn(),
   synchronizeOpenAIKey: vi.fn(),
@@ -105,6 +106,54 @@ it('keeps native or upstream error text out of the credential form and refreshes
     expect(f.node.textContent).not.toContain('PRIVATE_KEY');
     expect(f.node.textContent).toContain('Could not confirm');
     expect(api.getOpenAIKeyStatus).toHaveBeenCalledTimes(2);
+  } finally {
+    await act(async () => f.root.unmount());
+  }
+});
+
+it('keeps replacement actionable when Keychain access needs explicit authorization and does not prompt on mount', async () => {
+  vi.mocked(api.getOpenAIKeyStatus).mockResolvedValue([
+    {
+      ...initial,
+      health: 'unavailable',
+      canSynchronize: false,
+      errorCode: 'KEYCHAIN_AUTHORIZATION_REQUIRED',
+    } as never,
+  ]);
+  const f = await mount(false);
+  try {
+    expect(f.node.textContent).toContain('Keychain access needs authorization');
+    expect(f.button('Replace API key').disabled).toBe(false);
+    expect(api.authorizeOpenAIKey).not.toHaveBeenCalled();
+    await act(async () => fireEvent.click(f.button('Replace API key')));
+    expect(f.onReauthorizationNeeded).toHaveBeenCalledOnce();
+    expect(api.authorizeOpenAIKey).not.toHaveBeenCalled();
+    expect(f.node.querySelector('input[type=password]')).toBeNull();
+  } finally {
+    await act(async () => f.root.unmount());
+  }
+});
+it('authorizes the signed helper only after an explicit authorized replacement click', async () => {
+  vi.mocked(api.getOpenAIKeyStatus).mockResolvedValue([
+    {
+      ...initial,
+      health: 'unavailable',
+      canSynchronize: false,
+      errorCode: 'KEYCHAIN_AUTHORIZATION_REQUIRED',
+    } as never,
+  ]);
+  vi.mocked(api.authorizeOpenAIKey).mockResolvedValue(initial as never);
+  const f = await mount(true);
+  try {
+    expect(api.authorizeOpenAIKey).not.toHaveBeenCalled();
+    await act(async () => fireEvent.click(f.button('Replace API key')));
+    expect(api.authorizeOpenAIKey).toHaveBeenCalledExactlyOnceWith({
+      accountId: 'work',
+      revision: 'v1',
+      csrf: 'csrf',
+    });
+    expect(api.replaceOpenAIKey).not.toHaveBeenCalled();
+    expect(f.node.querySelector('input[type=password]')).toBeNull();
   } finally {
     await act(async () => f.root.unmount());
   }

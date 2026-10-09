@@ -6,6 +6,7 @@ vi.mock('../auth.js', () => ({ verifyPassphrase: (value: string) => value === 'c
 describe('OpenAI credential management routes', () => {
   it('requires browser auth, fresh reauthorization, same origin, and same-project confirmation', async () => {
     const manager = {
+      authorize: vi.fn(async () => ({ health: 'not_verified' })),
       list: vi.fn(async () => []),
       replace: vi.fn(async () => ({ health: 'ready' })),
       synchronize: vi.fn(async () => ({ health: 'ready' })),
@@ -45,6 +46,28 @@ describe('OpenAI credential management routes', () => {
       .set('x-browser', 'yes')
       .send({ passphrase: 'correct' });
     const csrf = auth.body.csrf;
+    const authorize = (body: object) =>
+      request(app)
+        .post('/api/connections/openai-keys/work/authorize')
+        .set('x-browser', 'yes')
+        .send(body);
+    expect((await authorize({ csrf: 'stale', revision: 'v1' })).status).toBe(403);
+    expect(manager.authorize).not.toHaveBeenCalled();
+    expect(
+      (
+        await request(app)
+          .post('/api/connections/openai-keys/work/authorize')
+          .set('x-browser', 'yes')
+          .set('origin', 'https://untrusted.example')
+          .send({ csrf, revision: 'v1' })
+      ).status,
+    ).toBe(403);
+    expect((await authorize({ csrf, revision: 'v1', apiKey: 'UNEXPECTED' })).status).toBe(400);
+    expect((await authorize({ csrf, revision: 'v1' })).status).toBe(200);
+    expect(manager.authorize).toHaveBeenCalledExactlyOnceWith(
+      { accountId: 'work', revision: 'v1' },
+      expect.any(AbortSignal),
+    );
     expect(
       (await post({ csrf, revision: 'v1', apiKey: 'PRIVATE', sameProject: false })).status,
     ).toBe(400);

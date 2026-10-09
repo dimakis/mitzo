@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
-import { getOpenAIKeyStatus, replaceOpenAIKey, synchronizeOpenAIKey } from '../lib/connections-api';
+import {
+  authorizeOpenAIKey,
+  getOpenAIKeyStatus,
+  replaceOpenAIKey,
+  synchronizeOpenAIKey,
+} from '../lib/connections-api';
 import type { OpenAIKeyHealth } from '../types/connections';
 
 export function OpenAIKeyControls({
@@ -15,6 +20,7 @@ export function OpenAIKeyControls({
 }) {
   const [accounts, setAccounts] = useState<OpenAIKeyHealth[]>([]);
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(true);
   const refresh = useCallback(async () => {
     try {
       setAccounts(await getOpenAIKeyStatus());
@@ -22,6 +28,8 @@ export function OpenAIKeyControls({
     } catch {
       setAccounts([]);
       setError('OpenAI connection status is unavailable. Try checking again.');
+    } finally {
+      setLoading(false);
     }
   }, []);
   useEffect(() => {
@@ -34,6 +42,10 @@ export function OpenAIKeyControls({
         Replace a key once to keep host API calls and sandbox chats synchronized.
       </p>
       {error && <p role="alert">{error}</p>}
+      {loading && <p role="status">Checking configured OpenAI accounts…</p>}
+      {!loading && !error && accounts.length === 0 && (
+        <p>No OpenAI accounts are enrolled for key replacement.</p>
+      )}
       {!error &&
         accountId &&
         accounts.length > 0 &&
@@ -82,6 +94,7 @@ function OpenAIKeyCard({
   const [sameProject, setSameProject] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
+  const needsKeychainAuthorization = account.errorCode === 'KEYCHAIN_AUTHORIZATION_REQUIRED';
   useEffect(() => {
     setMode(null);
     setApiKey('');
@@ -95,9 +108,32 @@ function OpenAIKeyCard({
       setSameProject(false);
     }
   }, [authorized]);
-  const open = (next: 'replace' | 'synchronize') => {
+  const open = async (next: 'replace' | 'synchronize') => {
     if (!authorized) {
       onReauthorizationNeeded();
+      return;
+    }
+    if (needsKeychainAuthorization) {
+      setBusy(true);
+      setMessage(
+        'On the Mac, authorize the signed Mitzo Keychain helper for this item. Choose Always Allow to retain that authorization across requests.',
+      );
+      try {
+        onUpdated(
+          await authorizeOpenAIKey({
+            accountId: account.accountId,
+            revision: account.revision,
+            csrf,
+          }),
+        );
+      } catch {
+        setMessage(
+          'Keychain authorization was not confirmed. Authorize access on the Mac, then retry.',
+        );
+      } finally {
+        setBusy(false);
+        await refresh();
+      }
       return;
     }
     setApiKey('');
@@ -147,11 +183,13 @@ function OpenAIKeyCard({
       <p role="status">
         {account.health === 'ready'
           ? 'Credentials synchronized'
-          : account.health === 'needs_attention'
-            ? 'Synchronization needs attention'
-            : account.health === 'unavailable'
-              ? 'Connection unavailable'
-              : 'Synchronization has not been verified'}
+          : needsKeychainAuthorization
+            ? 'Keychain access needs authorization on the Mac'
+            : account.health === 'needs_attention'
+              ? 'Synchronization needs attention'
+              : account.health === 'unavailable'
+                ? 'Connection unavailable'
+                : 'Synchronization has not been verified'}
       </p>
       {account.verifiedAt && (
         <p className="workspace-muted">
@@ -162,13 +200,19 @@ function OpenAIKeyCard({
       {account.errorCode === 'NOT_APPLIED' && (
         <p role="alert">The last replacement did not complete. Enter the key again to retry.</p>
       )}
+      {needsKeychainAuthorization && (
+        <p>
+          The saved key has not been read. Choose Replace API key to authorize Mitzo’s signed helper
+          before entering a replacement.
+        </p>
+      )}
       {!mode && (
         <div className="connections-actions">
-          <button disabled={busy || !account.revision} onClick={() => open('replace')}>
+          <button disabled={busy || !account.revision} onClick={() => void open('replace')}>
             Replace API key
           </button>
           {account.canSynchronize && account.health !== 'ready' && (
-            <button disabled={busy || !account.revision} onClick={() => open('synchronize')}>
+            <button disabled={busy || !account.revision} onClick={() => void open('synchronize')}>
               {account.health === 'needs_attention'
                 ? 'Retry synchronization'
                 : 'Synchronize saved key'}
@@ -176,7 +220,13 @@ function OpenAIKeyCard({
           )}
         </div>
       )}
-      {busy && <p role="status">Validating and synchronizing…</p>}
+      {busy && (
+        <p role="status">
+          {needsKeychainAuthorization
+            ? 'Waiting for Keychain authorization on the Mac…'
+            : 'Validating and synchronizing…'}
+        </p>
+      )}
       {mode && (
         <form
           onSubmit={(event) => {

@@ -86,7 +86,7 @@ export function prepareKeychainHelper(
   if (info.uid !== process.getuid?.() || (info.mode & 0o777) !== 0o700)
     throw new Error('Helper storage must be private');
   const directory = mkdtempSync(join(storage, 'verified-'));
-  const file = join(directory, 'helper');
+  const file = join(directory, 'Mitzo Keychain Helper');
   try {
     const fd = openSync(source, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
     try {

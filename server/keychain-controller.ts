@@ -7,12 +7,14 @@ import { VaultReferenceSchema, type VaultReference } from './keychain-vault.js';
 interface ControllerRecord {
   authorization: string;
   items: VaultReference[];
+  rotationItems?: { service: string; account: string }[];
 }
 export interface KeychainControllerAccess {
   readonly namespace?: string;
   authorization(): Promise<string>;
   enroll(ref: VaultReference): Promise<void>;
   forget(ref: VaultReference): Promise<void>;
+  enrollRotation?(ref: { service: string; account: string }): Promise<void>;
 }
 /** This private capability authenticates the trusted host controller, not arbitrary helper invocations.
  * Same-user unsandboxed processes are part of the host trust boundary; the agent has no access here. */
@@ -86,6 +88,14 @@ export class KeychainController implements KeychainControllerAccess {
         !/^[a-f0-9]{64}$/.test(record.authorization) ||
         !Array.isArray(record.items) ||
         record.items.length > 256 ||
+        (record.rotationItems !== undefined &&
+          (!Array.isArray(record.rotationItems) ||
+            record.rotationItems.length > 256 ||
+            record.rotationItems.some(
+              (item) =>
+                !VaultReferenceSchema.safeParse(item).success ||
+                Object.hasOwn(item, 'persistentRef'),
+            ))) ||
         record.items.some(
           (item) => !VaultReferenceSchema.safeParse(item).success || !item.persistentRef,
         )
@@ -125,6 +135,19 @@ export class KeychainController implements KeychainControllerAccess {
   forget(ref: VaultReference) {
     return this.update((record) => {
       record.items = record.items.filter((item) => item.persistentRef !== ref.persistentRef);
+    });
+  }
+  enrollRotation(ref: { service: string; account: string }) {
+    const parsed = VaultReferenceSchema.safeParse(ref);
+    if (!parsed.success || parsed.data.persistentRef || ref.service.startsWith('mitzo.connection.'))
+      return Promise.reject(new Error('Invalid OpenAI Keychain reference'));
+    ref = { service: ref.service, account: ref.account };
+    return this.update((record) => {
+      const items = record.rotationItems ?? [];
+      if (!items.some((item) => item.service === ref.service && item.account === ref.account))
+        items.push(ref);
+      if (items.length > 256) throw new Error('OpenAI Keychain reference limit reached');
+      record.rotationItems = items;
     });
   }
 }
