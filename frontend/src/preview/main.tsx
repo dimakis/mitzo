@@ -13,10 +13,12 @@ import { MitzoStoreProvider } from '@mitzo/client/hooks';
 import { ResponsiveChatView } from '../components/ResponsiveChatView';
 import { SessionList } from '../pages/SessionList';
 import { previewSessionState } from './session-state';
+import '../styles/tokens.css';
 import '../styles/global.css';
 import '../styles/desktop.css';
 import '../styles/workspace.css';
 import '../styles/workspace-chat.css';
+import '../styles/mobile-workspace.css';
 
 const store = createMitzoStore({
   transport: { fetch: (url, init) => fetch(url, init) },
@@ -84,8 +86,8 @@ createRoot(document.getElementById('root')!).render(
         right: 0,
         zIndex: 1200,
         padding: '0.35rem 0.75rem',
-        background: '#413818',
-        color: '#fff',
+        background: 'var(--color-panel)',
+        color: 'var(--color-text)',
         fontSize: '0.8rem',
         textAlign: 'center',
         pointerEvents: 'none',

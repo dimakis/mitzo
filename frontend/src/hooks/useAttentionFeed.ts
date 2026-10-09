@@ -31,10 +31,10 @@ export interface AttentionItem {
 
 // ─── Color constants ───────────────────────────────────────────────────────
 
-const COLOR_AMBER = '#fbbf24';
-const COLOR_RED = '#ff6d6d';
-const COLOR_PURPLE = '#b48cff';
-const COLOR_GREEN = '#4ade80';
+const COLOR_AMBER = 'var(--color-warning)';
+const COLOR_RED = 'var(--color-danger)';
+const COLOR_PURPLE = 'var(--color-accent)';
+const COLOR_GREEN = 'var(--color-success)';
 
 // ─── Sub-priority constants ────────────────────────────────────────────────
 

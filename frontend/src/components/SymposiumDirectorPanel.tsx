@@ -1,3 +1,4 @@
+import { defaultSeatColor } from '../lib/theme-color';
 import './SymposiumDirectorPanel.css';
 import { canRequestAgent, canRequestRuntime } from '../lib/symposium-status';
 import {
@@ -1224,7 +1225,7 @@ function SessionDirectorPanel({
             name: newSeatName.trim(),
             role: newSeatRole,
             systemPrompt: '',
-            color: '#665599',
+            color: defaultSeatColor(),
             accountId: newSeatSelection.accountId,
             model: newSeatSelection.model,
             ...(newSeatSelection.reasoningEffort
@@ -1267,7 +1268,7 @@ function SessionDirectorPanel({
             role: newSeatRole,
             model: newSeatSelection.model,
             systemPrompt: '',
-            color: '#665599',
+            color: defaultSeatColor(),
             accountBinding: binding,
             ...(newSeatSelection.reasoningEffort
               ? { reasoningEffort: newSeatSelection.reasoningEffort }

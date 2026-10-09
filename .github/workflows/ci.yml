@@ -71,6 +71,9 @@ jobs:
       - run: npm install --no-audit
       - run: npx playwright install --with-deps webkit chromium
       - run: npm run test:browser
+      - name: Verify shared theme and mobile layouts without a backend
+        if: always()
+        run: npm run test:ui
 
   native:
     needs: changes
@@ -114,6 +117,9 @@ jobs:
 
       - name: Verify embedded Watch companion
         run: python3 scripts/check-watch-bundle.py "$RUNNER_TEMP/mitzo-ios-build/Build/Products/Debug-iphonesimulator/App.app"
+
+      - name: Test native cold-boot wait with offline process fixtures
+        run: python3 scripts/test-native-notification-boot.py
 
       - name: Test real notification bridge in an offline disposable simulator
         run: python3 scripts/test-native-notification-bridge.py "$RUNNER_TEMP/mitzo-ios-build/Build/Products/Debug-iphonesimulator/App.app"

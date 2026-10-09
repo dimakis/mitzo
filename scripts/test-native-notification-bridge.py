@@ -20,6 +20,15 @@ def simctl(*args: str) -> str:
     return subprocess.check_output(["xcrun", "simctl", *args], text=True, timeout=180).strip()
 
 
+def wait_for_boot(device: str) -> None:
+    # A fresh hosted runner can spend several minutes migrating its simulator
+    # data on first boot. Stream progress and keep this wait separate from the
+    # shorter command and bridge-configuration deadlines.
+    subprocess.run(
+        ["xcrun", "simctl", "bootstatus", device, "-b"], check=True, timeout=600
+    )
+
+
 def smoke(app: Path) -> None:
     runtimes = json.loads(simctl("list", "runtimes", "--json"))["runtimes"]
     available = [r for r in runtimes if r["isAvailable"] and ".iOS-" in r["identifier"]]
@@ -51,7 +60,7 @@ window.addEventListener('load', async () => {{
                 bundle_id = plistlib.load(source)["CFBundleIdentifier"]
             print("Booting an isolated iPhone simulator for the offline bridge test.", flush=True)
             simctl("boot", device)
-            simctl("bootstatus", device, "-b")
+            wait_for_boot(device)
             simctl("install", device, str(copied))
             simctl("launch", device, bundle_id)
             container = Path(simctl("get_app_container", device, bundle_id, "data"))

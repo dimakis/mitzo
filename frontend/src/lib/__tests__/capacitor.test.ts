@@ -38,6 +38,7 @@ import { isCapacitor, registerCapacitorLifecycle, configureStatusBar } from '../
 beforeEach(() => {
   vi.clearAllMocks();
   delete listeners['appStateChange'];
+  document.documentElement.style.setProperty('--color-bg', '#123456');
 });
 
 describe('isCapacitor', () => {
@@ -105,7 +106,7 @@ describe('configureStatusBar', () => {
     vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
     await configureStatusBar();
     expect(StatusBar.setBackgroundColor).toHaveBeenCalledWith({
-      color: '#111113',
+      color: '#123456',
     });
   });
 });

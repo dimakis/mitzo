@@ -18,9 +18,9 @@ interface TodoCardProps {
 // ─── Urgency → color border ────────────────────────────────────────────────
 
 function urgencyColor(urgency: number): string {
-  if (urgency >= 0.8) return '#ff6d6d';
-  if (urgency >= 0.5) return '#fbbf24';
-  if (urgency >= 0.2) return '#b48cff';
+  if (urgency >= 0.8) return 'var(--color-danger)';
+  if (urgency >= 0.5) return 'var(--color-warning)';
+  if (urgency >= 0.2) return 'var(--color-accent)';
   return 'transparent';
 }
 
@@ -34,7 +34,6 @@ function urgencyWidth(urgency: number): number {
 // ─── Status visuals ────────────────────────────────────────────────────────
 
 function getStatusIcon(item: TodoItem): string {
-  if (item.starred) return '\u2605'; // ★
   if (item.status === 'active') return '\u25CF'; // ●
   if (item.status === 'acknowledged') return '\u25D0'; // ◐
   if (item.status === 'completed') return '\u2713'; // ✓
@@ -42,11 +41,10 @@ function getStatusIcon(item: TodoItem): string {
 }
 
 function getStatusColor(item: TodoItem): string {
-  if (item.starred) return '#fbbf24';
-  if (item.status === 'active') return '#b48cff';
-  if (item.status === 'acknowledged') return '#60a5fa';
-  if (item.status === 'completed') return '#4ade80';
-  return '#888';
+  if (item.status === 'active') return 'var(--color-accent)';
+  if (item.status === 'acknowledged') return 'var(--color-info)';
+  if (item.status === 'completed') return 'var(--color-success)';
+  return 'var(--color-muted)';
 }
 
 export function TodoCard({
@@ -195,7 +193,7 @@ export function TodoCard({
                 onStar(item.id);
               }}
             >
-              {item.starred ? '\u2B50' : '\u2606'}
+              {item.starred ? '\u2605' : '\u2606'}
             </button>
           </div>
 
