@@ -63,7 +63,11 @@ export function KnowledgeLibrary() {
                 Review details
               </button>
               {editable && (
-                <button className="btn-primary" disabled={busy} onClick={() => void library.save()}>
+                <button
+                  className="btn-primary"
+                  disabled={busy || !library.canSave}
+                  onClick={() => void library.save()}
+                >
                   {busy ? 'Saving…' : 'Save'}
                 </button>
               )}
