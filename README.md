@@ -25,6 +25,8 @@ Accounts with multiple managed connections can provision new sandboxes without e
 
 With reviewed deployment configuration setting `MITZO_REPOSITORY_WORKSPACES_ENABLED=1`, a new ordinary OpenAI chat can select a repository from its assigned managed GitHub connection, preview the default branch’s exact commit, and prepare an independent feature-branch checkout before the first prompt. Mobile and desktop share the picker. Credentials stay on the controller, and the selected repository remains bound to the conversation across restart and resume.
 
+Source verification streams 64 KiB chunks instead of buffering whole files. Host task copies use pinned directory descriptors through an isolated Python helper, retaining independent checkouts without following replacement paths. Filesystem cloning, shared download caching and retained-storage quotas remain subsequent resource work.
+
 Initial support covers regular-file GitHub projects up to 10,000 files and 64 MiB of Git storage/current-tree content. Dependency automation, local repository attachment and other hosting providers are subsequent slices. The feature is disabled by default and requires separate canonical-staging provider enrollment and live acceptance before rollout. See [repository-backed chats](docs/features/repository-backed-chats.md) for configuration, custody and acceptance gates.
 
 ## Features
@@ -562,7 +564,7 @@ bridge; a web deployment alone cannot update installed native code.
 
 React 19 + Vite. Ten pages (`Login`, `SessionList`, `ChatView`, `DesktopChatView`, `FileViewer`, `InboxView`, `CalendarView`, `TodoView`, `TodoDetailView`, `TaskBoard`), a `useReducer`-based message state machine (`useChatMessages`), module-level WebSocket pool with 500-message buffer, and components for thinking blocks, tool pills, tool groups, permission banners, and a slash-command picker. Capacitor wraps the frontend for iOS deployment via TestFlight.
 
-The chat composer gives draft text the full width, with a toolbar below it. The context wheel sits beside the recording and send controls, uses the app accent during normal usage, and turns amber/red as context fills. Tap it for context and session token details. Session resources open from the toolbar; commands, attachments, and workspace options collapse into More in narrow composers while recording, interrupt, and send controls remain directly available.
+The chat composer gives draft text the full width, with unboxed utility icons in a toolbar below it and a circular send action at the far right. The context wheel sits beside the recording and send controls, uses the app accent during normal usage, and turns amber/red as context fills. Tap it for context and session token details. Session resources open from the toolbar; commands, attachments, and workspace options collapse into More in narrow composers while recording, interrupt, and send controls remain directly available.
 
 For iOS development, run `./scripts/build-ios.sh` to build the iOS web assets and open Xcode. After the build, `./scripts/build-ios.sh --sync` copies the existing `frontend/dist-ios` assets into the iOS project without rebuilding them.
 
