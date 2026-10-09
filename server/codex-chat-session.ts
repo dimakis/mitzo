@@ -700,8 +700,8 @@ async function openCodexChatBound(
       if (provisioning) options = { ...options, resume: false };
     }
     const repositorySeed =
-      runtimeManager && !options.resume && options.repositoryWorkspace?.seed
-        ? await getRepositoryWorkspaces().startupSeed(
+      runtimeManager && !options.resume && options.repositoryWorkspace
+        ? await getRepositoryWorkspaces(true).startupSeed(
             options.repositoryWorkspace.id,
             options.binding,
             options.conversationId,
@@ -713,7 +713,12 @@ async function openCodexChatBound(
           runtimeManager!.ensure(
             options.conversationId,
             options.session.abortController.signal,
-            undefined,
+            options.resume && options.repositoryWorkspace && routedRuntime
+              ? {
+                  sandboxName: routedRuntime.runtime.sandboxName,
+                  sandboxId: routedRuntime.runtime.sandboxId,
+                }
+              : undefined,
             repositorySeed ? { seed: repositorySeed, cleanup: () => {} } : undefined,
           ),
         )

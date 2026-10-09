@@ -7,6 +7,8 @@ export interface RepositoryChatWorkspace {
   featureBranch: string;
   directory?: string;
   seed?: string;
+  sandbox?: boolean;
+  binding?: AccountBinding;
 }
 export async function selectRepositoryChatWorkspace(
   options: {

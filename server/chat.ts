@@ -1308,6 +1308,19 @@ async function _startChatInner(
   } else if (options.resume) {
     repositoryWorkspace = readRepositoryWorkspaceForConversation(options.resume);
   }
+  if (
+    repositoryWorkspace?.sandbox !== undefined &&
+    repositoryWorkspace.sandbox !== openShellSelected
+  )
+    throw new Error('Repository workspace runtime changed; preserve the original conversation');
+  if (
+    repositoryWorkspace?.binding &&
+    (!accountBinding ||
+      repositoryWorkspace.binding.accountId !== accountBinding.accountId ||
+      repositoryWorkspace.binding.provider !== accountBinding.provider ||
+      repositoryWorkspace.binding.profileRevision !== accountBinding.profileRevision)
+  )
+    throw new Error('Repository workspace account binding changed');
   if (repositoryWorkspace?.directory && !openShellSelected) {
     baseCwd = repositoryWorkspace.directory;
     options = { ...options, cwd: baseCwd };
@@ -1948,6 +1961,17 @@ async function _startChatInner(
     }
 
     session.queryInstance = q;
+    if (repositoryWorkspace && accountBinding && session.sessionId) {
+      // Provider startup has settled and the task workspace is independently retained.
+      // Failure to reclaim a controller seed must never terminate a live task.
+      await getRepositoryWorkspaces(true)
+        .releaseSource(repositoryWorkspace.id, accountBinding, session.sessionId)
+        .catch(() =>
+          log.warn('Repository preparation cleanup remains pending', {
+            repositoryWorkspaceId: repositoryWorkspace.id,
+          }),
+        );
+    }
 
     // Session state machine: mark STARTING (query allocated, waiting for first SDK event)
     const startingSessionId = options.resume ?? session.sessionId;

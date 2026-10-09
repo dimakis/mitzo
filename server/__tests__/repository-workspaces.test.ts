@@ -162,3 +162,21 @@ it('rechecks the exact frozen sandbox seed before upload and rejects changed sou
   ).rejects.toThrow();
   f.service.close();
 });
+
+it('releases only settled controller seed copies while retaining task metadata and edits', async () => {
+  const f = await fixture();
+  const signal = new AbortController().signal;
+  const preview = await f.service.preview(binding, 'connection', 'example/repo', signal);
+  await f.service.prepare(preview.id, binding, signal);
+  const claimed = await f.service.claim(preview.id, binding, 'conversation', f.taskRoot, false);
+  await writeFile(join(claimed.directory!, 'file.txt'), 'task edits');
+  await expect(f.service.releaseSource(preview.id, binding, 'other')).rejects.toThrow();
+  await f.service.releaseSource(preview.id, binding, 'conversation');
+  expect(await readFile(join(claimed.directory!, 'file.txt'), 'utf8')).toBe('task edits');
+  expect(f.service.getForConversation('conversation')).toMatchObject({
+    directory: claimed.directory,
+    sourceReleased: true,
+  });
+  await expect(f.service.discard(preview.id, binding)).rejects.toThrow();
+  f.service.close();
+});

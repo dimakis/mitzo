@@ -21,6 +21,7 @@ export interface RepositoryWorkspace extends GithubRepositoryPreview {
   state: 'preview' | 'preparing' | 'ready' | 'claiming' | 'claimed' | 'failed' | 'discarded';
   createdAt: number;
   sourceDigest?: string;
+  sourceReleased?: boolean;
   conversationId?: string;
   directory?: string;
   sandbox?: boolean;
@@ -48,7 +49,7 @@ export async function repositorySourceDigest(directory: string): Promise<string>
       const before = await lstat(child);
       if (++entries > 100000 || before.isSymbolicLink())
         throw new Error('Repository source storage is unsupported');
-      hash.update(JSON.stringify([relative, before.mode]));
+      hash.update(JSON.stringify([relative, before.mode, before.isFile() ? before.size : null]));
       if (before.isDirectory()) await walk(child, relative + '/');
       else if (before.isFile()) {
         bytes += before.size;
@@ -120,7 +121,7 @@ export class RepositoryWorkspaces {
       throw new Error(
         'Repository workspace preparation did not complete; preserve its original claim',
       );
-    return record;
+    return { ...record, ...(!record.sourceReleased ? { seed: this.source(record) } : {}) };
   }
   status(id: string, binding: AccountBinding) {
     const record = this.get(id);
@@ -148,6 +149,19 @@ export class RepositoryWorkspaces {
   private source(record: RepositoryWorkspace) {
     return join(this.directory, record.id, 'mgmt');
   }
+  async releaseSource(id: string, binding: AccountBinding, conversationId: string) {
+    const record = this.get(id);
+    if (
+      record.state !== 'claimed' ||
+      record.conversationId !== conversationId ||
+      !isDeepStrictEqual(record.binding, binding)
+    )
+      throw new Error('Repository source release requires its settled conversation claim');
+    if (record.sourceReleased) return;
+    await rm(join(this.directory, id), { recursive: true, force: true });
+    record.sourceReleased = true;
+    this.save(record);
+  }
   async startupSeed(
     id: string,
     binding: AccountBinding,
@@ -155,7 +169,12 @@ export class RepositoryWorkspaces {
     signal: AbortSignal,
   ) {
     const record = this.get(id);
-    if (record.state !== 'claimed' || !record.sandbox || record.conversationId !== conversationId)
+    if (
+      record.state !== 'claimed' ||
+      record.sourceReleased ||
+      !record.sandbox ||
+      record.conversationId !== conversationId
+    )
       throw new Error('Repository sandbox seed claim is unavailable');
     await this.authorize(record, binding, signal);
     if ((await repositorySourceDigest(this.source(record))) !== record.sourceDigest)
@@ -217,7 +236,8 @@ export class RepositoryWorkspaces {
         const value = JSON.parse(row.record) as RepositoryWorkspace;
         return (
           value.binding.accountId === binding.accountId &&
-          ['preparing', 'ready'].includes(value.state)
+          ['preparing', 'ready', 'claiming', 'claimed'].includes(value.state) &&
+          !value.sourceReleased
         );
       }).length >= 8
     )
