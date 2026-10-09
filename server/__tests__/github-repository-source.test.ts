@@ -1,3 +1,4 @@
+import { GitHubCliHostPublisher } from '../connections/capabilities/github-publish-pr-transport.js';
 import { RepositoryWorkspaces } from '../repository-workspaces.js';
 import type { AccountBinding } from '@mitzo/protocol';
 import { executeTrustedGitCommit } from '../trusted-native-operation.js';
@@ -345,6 +346,48 @@ it.each(['release+fix', 'release@2026', 'résumé/next+patch'])(
     await prepareGithubRepositorySource(preview, target, 'mitzo/task', f.signal, f.run);
     expect(f.git(target, 'rev-parse', `refs/remotes/origin/${baseBranch}`)).toBe(f.oid);
     expect(await readFile(join(target, 'file.txt'), 'utf8')).toBe('original\n');
+    await writeFile(join(target, 'file.txt'), 'edited special branch\n');
+    f.git(target, 'add', 'file.txt');
+    f.git(target, 'commit', '-qm', 'edit');
+    const source = {
+      workspace: target,
+      gitStorageRoots: [],
+      repositoryPath: target,
+      baseBranch,
+      signal: f.signal,
+      privateDirectory: join(f.root, 'publication-inspection'),
+    };
+    const inspection = await inspectHostGithubRepository(source);
+    expect(inspection).toMatchObject({
+      sourceBranch: 'mitzo/task',
+      commitsAhead: 1,
+      changedFiles: ['file.txt'],
+    });
+    expect(
+      (
+        await exportHostGithubBundle({
+          ...source,
+          sourceBranch: 'mitzo/task',
+          sourceOid: inspection.sourceOid,
+          maxBytes: 1024 * 1024,
+        })
+      ).length,
+    ).toBeGreaterThan(0);
+    const publisher = new GitHubCliHostPublisher(async (_command, args) => ({
+      stdout: JSON.stringify(
+        args.at(-1)!.includes('/branches/')
+          ? { protected: false }
+          : { full_name: 'example/repo', default_branch: baseBranch },
+      ),
+      stderr: '',
+    }));
+    expect(
+      await publisher.policy({
+        repository: 'example/repo',
+        sourceBranch: 'mitzo/task',
+        signal: f.signal,
+      }),
+    ).toMatchObject({ defaultBranch: baseBranch, sourceBranchProtected: false });
   },
 );
 

@@ -5,12 +5,12 @@ import { createHash } from 'node:crypto';
  * verifies the two source artifacts below, so modifying a validator/helper
  * outside a golden input cannot silently retain this implementation revision.
  */
-export const reviewedHandlerImplementationRevision = 'v1.0.0';
+export const reviewedHandlerImplementationRevision = 'v1.0.1';
 
-export const reviewedGithubPublicationImplementationRevision = 'v1.0.6';
+export const reviewedGithubPublicationImplementationRevision = 'v1.0.7';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.13';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.14';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -39,8 +39,8 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../credential-sdk-tools.ts': 'e64cae00d86986bba78e672ad9ebf6c8c89316e2e64bb30c7d478f76fc1640c9',
   '../session-credential-tools.ts':
     '70db62d9e3c16e66c2e238351a348b82fc6afc8f3b7baba37eeaabb98d27b9c8',
-  'policy-compiler.ts': '13a12a3182568a151247cb204792f15c374af9e5a7f401d51b954c6dd40fd538',
-  'registry.ts': 'cccbb1c67d559eda923c4d0beac5e0203918e3ab2970ab90a1937bb32a09d8a4',
+  'policy-compiler.ts': '59579f9eb69a3129dd2d8e1676fa46bd21da45c07f58752183416c82c0986014',
+  'registry.ts': '6d7407cae812ccc270ebfc6ab827430aa9f88af17e6e4d7e7bc3197d255d9801',
   'iana-address-policy.ts': '899b0b5ad66f5cbe72224b34c29ff7a88e32c2a6f5b2987e4d18cfc64f862b4e',
   'iana-address-data.generated.ts':
     '58f91383fa17ab9612d24bc113d011ece63bfc06b4635ba99f108bb05aa34038',
@@ -48,10 +48,10 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   // reviewed: both the production executor and its OpenShell/Git transport
   // must match this revision before the registry can advertise the action.
   'capabilities/github-publish-pr.ts':
-    '5c89cde9110fa132ea94cd5ec0dd531ce47d668450ab4a869ad5e420cd1929f9',
+    '559e98cf8f45313e37bf34b4f54c4345bdc9b4bf22538078dc563483750bbde1',
   'capabilities/github-publish-pr-transport.ts':
-    'd333da15bfd6d9bc9f41ec68bd93a48b644415d5911080aa4c79f029b47831e8',
-  '../github-host-source.ts': '8e3ec9f30b300d7509124f59b969e5b059d5662b710a3a90f228cc86f08ac7e3',
+    '503c887848f3180647b6188ab65b8503bc6670291d4ce865a1b1df1504f15293',
+  '../github-host-source.ts': '2720dd0fedf081780ebd64a485164ec5abc6dee7920de925d35e3e6aa647e084',
   '../github-publishing-tool.ts':
     'db6746ef09c51d46617dc413b7faea8a0ab412b9c0c60870d18f8bd66fd94e11',
   '../capability-conversation-binding.ts':
@@ -78,8 +78,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../connections-router.ts': 'db03601e5f09080ad370621d2fcbd5879f744c9b272a930b296c20cd47f82979',
   '../connections-service.ts': '1aae9d2c0da483ae798ba03d5804bfb0e81316f3f69666c6595befec3179c314',
   // Repository acquisition and source claims share the ordinary runtime admission review.
+  '../git-branch.ts': '6a839922766c5fcb35272793eac4c0ee1f9a1438b2e7a7cd5ca807846324f8ab',
   '../github-repository-source.ts':
-    '2b05c5b3e3c0b93d299d355fffa714fe64f000f478ab612ab0c3915ff5cb6d6c',
+    'da17db978a7374c79b693f62a7bda82c34218db10e5e6e4dcc72267c6fe462a8',
   '../worktree.ts': 'e3fd6d93d33cb5403786c5a7da16dd229d8ba03ad06e8c3abaf6309c64adb34a',
   '../repository-task-checkout.ts':
     '32fd232781b0ba9573fa0e6a511a78ede54a8c33a80dee30f52d06283b4beab5',

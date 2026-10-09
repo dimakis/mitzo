@@ -1,3 +1,4 @@
+import { isGitBranchName } from '../git-branch.js';
 import { isIP } from 'node:net';
 import { parse as parseDomain } from 'tldts';
 import { z } from 'zod';
@@ -33,7 +34,7 @@ const Email = z.string().email();
 // `.github` is valid, so do not reuse the owner validator for them.
 const githubOwner = /^[a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?$/;
 const githubRepositoryName = /^[a-z0-9._-]{1,100}$/;
-const githubBranch = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,254}$/;
+const githubBranch = { test: isGitBranchName };
 const githubObjectId = /^[0-9a-f]{40}$/i;
 // Git and GitHub branch names are case-sensitive. Only exact uppercase HEAD
 // is ambiguous when the executor resolves origin/HEAD (the remote default).

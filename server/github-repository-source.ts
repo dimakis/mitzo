@@ -1,4 +1,5 @@
-import { execFile, spawnSync } from 'node:child_process';
+import { isGitBranchName } from './git-branch.js';
+import { execFile } from 'node:child_process';
 import { mkdir, readdir, rm, stat, realpath } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
@@ -8,23 +9,7 @@ const exec = promisify(execFile);
 const MAX_REPOSITORY_BYTES = 64 * 1024 * 1024;
 const MAX_FILES = 10000;
 const oid = z.string().regex(/^[a-f0-9]{40}$/);
-const branch = z
-  .string()
-  .min(1)
-  .refine((value) => {
-    // Git owns ref syntax. A fixed refs/heads prefix prevents option interpretation
-    // and the branch-expression expansion performed by check-ref-format --branch.
-    const result = spawnSync('git', ['check-ref-format', `refs/heads/${value}`], {
-      env: {
-        PATH: process.env.PATH ?? '/usr/bin:/bin',
-        GIT_CONFIG_SYSTEM: '/dev/null',
-        GIT_CONFIG_GLOBAL: '/dev/null',
-      },
-      timeout: 5000,
-      stdio: 'ignore',
-    });
-    return result.status === 0;
-  });
+const branch = z.string().min(1).refine(isGitBranchName);
 export const GithubRepositoryPreviewSchema = z.strictObject({
   repository: z.string(),
   baseBranch: branch,
