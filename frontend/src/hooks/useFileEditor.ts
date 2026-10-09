@@ -34,6 +34,7 @@ export function useFileEditor(
   const [base, setBase] = useState(content);
   const [history, setHistory] = useState<string[]>([]);
   const [position, setPosition] = useState(0);
+  const [historyResetKey, setHistoryResetKey] = useState(0);
   const editorRef = useRef<HTMLTextAreaElement>(null);
   const inFlight = useRef(false);
   const identity = useRef(key);
@@ -124,6 +125,7 @@ export function useFileEditor(
     setEditContent(next);
     setHistory([next]);
     setPosition(0);
+    setHistoryResetKey((value) => value + 1);
     persist(next, latestContent);
     onLatest?.(latestContent);
     setLatestContent(null);
@@ -168,6 +170,7 @@ export function useFileEditor(
     }
   }
   return {
+    historyResetKey,
     draftStorageError,
     latestContent,
     reviewing,

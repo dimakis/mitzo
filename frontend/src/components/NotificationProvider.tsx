@@ -48,6 +48,10 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       if (!response.ok) throw new Error('Cannot load notifications. Try again.');
       const data = (await response.json()) as NotificationFeed;
       if (gen !== generation.current || seq !== sequence.current || blocked.current) return;
+      if (offset > 0 && offset >= data.total) {
+        setOffset(Math.max(0, Math.floor((data.total - 1) / 50) * 50));
+        return;
+      }
       setFeed(data);
       setError(null);
       setLoading(false);
