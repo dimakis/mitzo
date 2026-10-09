@@ -8,7 +8,8 @@ export interface KnowledgeDraft {
   title: string;
   baseRevision: string;
   version: number;
-  documents: { path: string; base: string; content: string }[];
+  documents: { path: string; sourcePath?: string; base: string; content: string }[];
+  directories?: string[];
   updatedAt: string;
   state: 'draft' | 'in-review' | 'accepted' | 'closed';
   review?: { url: string; head: string; version: number; ready?: boolean };
@@ -20,6 +21,8 @@ export type KnowledgeDraftSummary = Omit<KnowledgeDraft, 'documents'> & {
 };
 export interface KnowledgeCatalog {
   revision: string;
+  directories?: string[];
+  documentPaths?: string[];
   documents: KnowledgeDocument[];
   drafts: KnowledgeDraftSummary[];
   reviewEnabled: boolean;
