@@ -38,6 +38,7 @@ import {
   appendAudit,
 } from './lib/staging-files.mjs';
 import { assertStageJob } from './lib/staging-job.mjs';
+import { assertStageRegistration } from './lib/staging-registration.mjs';
 const repo = 'https://github.com/dimakis/mitzo.git',
   root = join(homedir(), '.local/share/mitzo-staging'),
   label = 'com.mitzo.staging';
@@ -108,18 +109,29 @@ function portPids(port) {
 function job() {
   const text = run('launchctl', ['print', 'gui/' + process.getuid() + '/' + label]);
   const path = text.match(/^\s*path = (.+)$/m)?.[1];
-  if (path !== join(root, 'service/com.mitzo.staging.plist'))
-    throw Error('Original staging service control path changed');
   const match = text.match(/^\s*pid = (\d+)$/m);
-  if (!match) return { pid: null };
-  const pid = Number(match[1]);
+  const pid = match ? Number(match[1]) : null;
+  const birth = pid ? run('/bin/ps', ['-p', String(pid), '-o', 'lstart=']) : null;
+  const registration = assertStageRegistration({
+    registered: path,
+    canonical: join(root, 'service/com.mitzo.staging.plist'),
+    legacy: join(homedir(), 'Library/LaunchAgents/com.mitzo.staging.plist'),
+    qualification:
+      path === join(root, 'service/com.mitzo.staging.plist')
+        ? undefined
+        : privateJson(join(root, 'service/legacy-qualification.json')),
+    pid,
+    birth,
+  });
+  if (!pid) return { pid: null, registration };
   const names = run('/usr/sbin/lsof', ['-a', '-p', String(pid), '-d', 'cwd', '-Fn'])
     .split('\n')
     .filter((v) => v.startsWith('n'));
   if (names.length !== 1) throw Error('Stage process directory unavailable');
   return {
     pid,
-    birth: run('/bin/ps', ['-p', String(pid), '-o', 'lstart=']),
+    birth,
+    registration,
     cwd: names[0].slice(1),
     portPids: portPids(3190),
     protectedPids: [...portPids(3100), ...portPids(3101)],
@@ -296,6 +308,8 @@ async function deploy() {
   assertStageCandidate(next, target, path);
   validateRelease(next, main());
   const originalJob = job();
+  if (originalJob.registration === 'qualified-legacy')
+    throw Error('Qualified legacy service requires the original ordinary-to-owned transition');
   assertStageJob(originalJob, active);
   if (active.sourceCommit !== expected) throw Error('Current stage changed since plan');
   const id = randomUUID(),
@@ -317,6 +331,7 @@ async function deploy() {
     'scripts/lib/staging-files.mjs',
     'scripts/lib/staging-job.mjs',
     'scripts/lib/staging-launcher-template.mjs',
+    'scripts/lib/staging-registration.mjs',
   ]) {
     const installed = new URL(name.replace('scripts/', ''), import.meta.url);
     const p = fileURLToPath(installed);
