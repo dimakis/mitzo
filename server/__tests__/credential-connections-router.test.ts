@@ -240,24 +240,21 @@ it('exposes a prepared setup only to browser auth and accepts only the key at th
   expect(submitted.body.setup).toMatchObject({ status: 'pending', revision: 3 });
   expect(JSON.stringify(submitted.body)).not.toContain('private-token');
 });
-it('notifies only ready setup, persists delivery, and retries notification without creating another connection', async () => {
+it('notifies only ready setup and records successful delivery', async () => {
   const { service } = setup();
-  const { CredentialConnectionSetups } = await import('../credential-setup.js');
   // This route test isolates enrollment networking from notification delivery.
   const draft = service.setups.prepare('origin-chat', {
     profile: 'home-assistant',
     endpoint: 'https://ha.example.com',
   });
-  const complete = vi
-    .spyOn(service.setups, 'complete')
-    .mockResolvedValue({
-      ...draft,
-      status: 'ready',
-      revision: 3,
-      connectionId: 'verified-id',
-      connectionRevision: 1,
-      delivery: 'pending',
-    });
+  const complete = vi.spyOn(service.setups, 'complete').mockResolvedValue({
+    ...draft,
+    status: 'ready',
+    revision: 3,
+    connectionId: 'verified-id',
+    connectionRevision: 1,
+    delivery: 'pending',
+  });
   const onReady = vi.fn(async () => true);
   const mark = vi.spyOn(service.setups, 'markDelivered');
   const app = express();
@@ -279,7 +276,6 @@ it('notifies only ready setup, persists delivery, and retries notification witho
   );
   expect(mark).toHaveBeenCalledWith(draft.id);
   expect(complete).toHaveBeenCalledOnce();
-  expect(CredentialConnectionSetups).toBeDefined();
 });
 it('cancels setup through browser authorization and never reads a credential', async () => {
   const { app, service, vault } = setup();

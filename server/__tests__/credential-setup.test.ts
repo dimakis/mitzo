@@ -266,3 +266,18 @@ it('removes the enrolled credential if setup persistence loses its revision afte
   expect(service.catalog()).toEqual([]);
   expect(vault.remove).toHaveBeenCalledOnce();
 });
+it('rolls back both connection metadata and its saved key when ready persistence throws', async () => {
+  const { service, store, vault } = fixture();
+  const draft = service.setups.prepare('chat-a', input);
+  const put = store.putSetup.bind(store);
+  vi.spyOn(store, 'putSetup').mockImplementation((setup) => {
+    if (setup.status === 'ready') throw new Error('Database unavailable');
+    put(setup);
+  });
+  expect(
+    (await service.setups.complete(draft.id, 1, 'private-key', new AbortController().signal))
+      .status,
+  ).toBe('pending');
+  expect(service.catalog()).toEqual([]);
+  expect(vault.remove).toHaveBeenCalledOnce();
+});

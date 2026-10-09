@@ -129,12 +129,8 @@ export class CredentialConnectionStore {
       )
       .all(id) as Array<{ sessionId: string; revision: number }>;
   }
-  deleteUnapproved(id: string, revision: number) {
-    return this.db.transaction(() => {
-      if (this.get(id)?.revision !== revision || this.grants(id).length) return false;
-      this.db.prepare('DELETE FROM credential_connections WHERE id=?').run(id);
-      return true;
-    })();
+  transaction<T>(operation: () => T): T {
+    return this.db.transaction(operation)();
   }
   getSetup(id: string): ConnectionSetup | undefined {
     const row = this.db
@@ -271,15 +267,7 @@ export class CredentialConnections {
     private sendDashboard: DashboardSender = sendDashboardRequest,
     private sendWebSocket: WebSocketSender = websocketRequest,
   ) {
-    this.setups = new CredentialConnectionSetups(
-      store,
-      (...args) => this.createVerified(...args),
-      async (id, revision) => {
-        const connection = this.store.get(id);
-        if (connection && this.store.deleteUnapproved(id, revision))
-          await this.removeUnusedCredential(connection.credentialRef);
-      },
-    );
+    this.setups = new CredentialConnectionSetups(store, (...args) => this.createVerified(...args));
   }
   private async createVerified(
     input: CredentialConnectionInput,
@@ -288,6 +276,7 @@ export class CredentialConnections {
     proof: (body: string) => boolean,
     signal: AbortSignal,
     stillAllowed: () => boolean,
+    persistReady: (connection: PublicCredentialConnection) => void,
   ) {
     const parsed = ConnectionInputSchema.parse(input);
     const url = requestTarget(parsed, path);
@@ -329,8 +318,13 @@ export class CredentialConnections {
         ownsCredential: true,
         verifiedAt: Date.now(),
       };
-      this.store.put(connection);
-      return publicCredentialConnection(connection);
+      const publicConnection = publicCredentialConnection(connection);
+      // Both metadata records become visible together; a failed ready write rolls back enrollment.
+      this.store.transaction(() => {
+        this.store.put(connection);
+        persistReady(publicConnection);
+      });
+      return publicConnection;
     } catch (error) {
       await this.vault.remove(credentialRef).catch(() => {});
       throw error;

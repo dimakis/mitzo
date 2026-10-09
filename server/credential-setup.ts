@@ -64,6 +64,7 @@ type CreateVerified = (
   proof: (body: string) => boolean,
   signal: AbortSignal,
   stillAllowed: () => boolean,
+  persistReady: (connection: PublicCredentialConnection) => void,
 ) => Promise<PublicCredentialConnection>;
 const retryMessage =
   'Could not verify this key. Check the key, service address and access, then try again.';
@@ -74,7 +75,6 @@ export class CredentialConnectionSetups {
   constructor(
     private store: CredentialConnectionStore,
     private createVerified: CreateVerified,
-    private discardVerified: (id: string, revision: number) => Promise<void>,
   ) {}
   prepare(sessionId: string, input: unknown): ConnectionSetup {
     if (!sessionId || sessionId.length > 256) throw new Error('Session unavailable');
@@ -218,27 +218,28 @@ export class CredentialConnectionSetups {
               }
             }
           : () => true;
-      const connection = await this.createVerified(
+      let ready!: ConnectionSetup;
+      await this.createVerified(
         setup.connection,
         secret,
         setup.verificationPath,
         proof,
         signal,
         allowed,
+        (connection) => {
+          ready = {
+            ...verifying,
+            status: 'ready',
+            revision: verifying.revision + 1,
+            connectionId: connection.id,
+            connectionRevision: connection.revision,
+            delivery: 'pending',
+          };
+          delete ready.error;
+          if (!this.store.replaceSetupAtRevision(ready, verifying.revision))
+            throw new Error('Setup changed');
+        },
       );
-      const ready: ConnectionSetup = {
-        ...verifying,
-        status: 'ready',
-        revision: verifying.revision + 1,
-        connectionId: connection.id,
-        connectionRevision: connection.revision,
-        delivery: 'pending',
-      };
-      delete ready.error;
-      if (!this.store.replaceSetupAtRevision(ready, verifying.revision)) {
-        await this.discardVerified(connection.id, connection.revision);
-        throw new Error('Setup changed');
-      }
       return ready;
     } catch {
       const retry: ConnectionSetup = {
