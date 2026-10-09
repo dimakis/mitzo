@@ -1,11 +1,13 @@
 import { Router, type RequestHandler } from 'express';
 import { TerminalOpenBody, TerminalInputBody, TerminalResizeBody } from '@mitzo/protocol';
+import { registerAuthSession, type AuthSession } from './auth.js';
 import { requireSameOriginJson } from './connections-router.js';
 import type { TerminalService } from './terminal-service.js';
 
 export function createTerminalRouter(options: {
   service: TerminalService;
   authorize: RequestHandler;
+  observeAuth?: (session: AuthSession, invalidate: () => void) => () => void;
 }) {
   const router = Router();
   router.use(options.authorize);
@@ -27,9 +29,20 @@ export function createTerminalRouter(options: {
   router.get('/:id/events', async (req, res) => {
     let release: (() => void) | undefined;
     let closed = false;
+    let unobserve = () => {};
+    unobserve = (options.observeAuth ?? registerAuthSession)(res.locals.authSession, () => {
+      closed = true;
+      release?.();
+      res.end();
+    });
+    if (closed) {
+      unobserve();
+      return;
+    }
     res.on('close', () => {
       closed = true;
       release?.();
+      unobserve();
     });
     try {
       options.service.get(res.locals.authSession.id, req.params.id);

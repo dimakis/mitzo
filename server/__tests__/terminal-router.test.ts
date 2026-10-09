@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
+import { registerAuthSession, revokeAuthSession } from '../auth.js';
 import { createTerminalRouter } from '../terminal-router.js';
 function setup() {
   const service = {
@@ -22,7 +23,7 @@ function setup() {
           res.status(403).json({ error: 'Interactive operator authentication is required' });
           return;
         }
-        res.locals.authSession = { id: 'login-a' };
+        res.locals.authSession = { id: 'login-a', expiresAt: Date.now() + 60000 };
         next();
       },
     }),
@@ -86,4 +87,38 @@ describe('operator terminal API', () => {
       .expect(409);
     expect(JSON.stringify(response.body)).not.toContain('private-secret');
   });
+});
+
+it('binds output transport to operator logout and expiry', async () => {
+  const release = vi.fn();
+  let subscribed = false;
+  const app = express();
+  app.use(
+    '/api/terminals',
+    createTerminalRouter({
+      authorize: (_req, res, next) => {
+        res.locals.authSession = { id: 'stream-login', expiresAt: Date.now() + 60000 };
+        next();
+      },
+      service: {
+        get: () => ({}),
+        subscribe: async (_owner: string, _id: string, listener: (event: unknown) => void) => {
+          subscribed = true;
+          listener({ type: 'snapshot', data: 'private', seq: 1 });
+          return release;
+        },
+      } as never,
+      observeAuth: registerAuthSession,
+    }),
+  );
+  const response = request(app).get('/api/terminals/term-owned/events').buffer(false);
+  const done = new Promise<void>((resolve, reject) => {
+    response.end((error) => (error ? reject(error) : resolve()));
+    response.on('response', () => {
+      revokeAuthSession({ id: 'stream-login', expiresAt: Date.now() + 60000 });
+    });
+  });
+  await done;
+  expect(subscribed).toBe(true);
+  expect(release).toHaveBeenCalled();
 });
