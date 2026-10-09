@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { HomeStore } from '../home-store.js';
@@ -50,6 +50,57 @@ it('rejects malformed or duplicate pins and leaves saved preferences intact', ()
 it('refuses corrupt state instead of silently resetting it', () => {
   writeFileSync(join(root, 'home.json'), '{broken');
   expect(() => new HomeStore(join(root, 'home.json')).preferences()).toThrow();
+});
+
+it('refuses a write beyond the byte limit before replacing the readable saved state', () => {
+  const quote = {
+    id: 'quote',
+    text: '文'.repeat(2000),
+    author: '文'.repeat(200),
+    work: '文'.repeat(300),
+    translation: '文'.repeat(200),
+    explanation: '文'.repeat(5000),
+    example: '文'.repeat(2000),
+    biography: '文'.repeat(2000),
+    sourceUrl: 'https://example.org/' + '文'.repeat(1980),
+    explainerUrl: 'https://example.org/' + '文'.repeat(1980),
+    authorUrl: 'https://example.org/' + '文'.repeat(1980),
+  };
+  const state = {
+    version: 1,
+    revision: 0,
+    names: { briefing: 'Minion', terminal: 'Minion' },
+    pins: [],
+    briefingChats: [],
+    quotes: Array.from({ length: 24 }, (_, i) => ({
+      date: `2026-10-${String(i + 1).padStart(2, '0')}`,
+      quote,
+    })),
+    remaining: [] as string[],
+  };
+  let size = Buffer.byteLength(JSON.stringify(state));
+  for (let i = 0; size < 4 * 1024 * 1024 - 50000 && i < 10000; i++) {
+    const id = '文'.repeat(92) + `id-${i}`;
+    state.remaining.push(id);
+    size += Buffer.byteLength(JSON.stringify(id)) + 1;
+  }
+  const path = join(root, 'home.json');
+  const original = JSON.stringify(state);
+  expect(Buffer.byteLength(original)).toBeLessThan(4 * 1024 * 1024);
+  writeFileSync(path, original);
+  const store = new HomeStore(path);
+  expect(store.preferences().revision).toBe(0);
+  expect(() =>
+    store.update(0, {
+      pins: Array.from({ length: 100 }, (_, i) => ({
+        kind: 'telos',
+        id: String(i),
+        title: '文'.repeat(500),
+      })),
+    }),
+  ).toThrow(/too large/);
+  expect(readFileSync(path, 'utf8')).toBe(original);
+  expect(store.preferences().revision).toBe(0);
 });
 
 it('retains separate briefing chats by exact report revision and selection without changing preferences', () => {

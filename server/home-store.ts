@@ -2,6 +2,7 @@ import {
   constants,
   closeSync,
   fstatSync,
+  fsyncSync,
   mkdirSync,
   openSync,
   readFileSync,
@@ -18,6 +19,8 @@ import type {
   HomePreferences,
   PhilosophyQuote,
 } from '@mitzo/protocol';
+
+const MAX_STATE_BYTES = 4 * 1024 * 1024;
 
 const text = (max: number) => z.string().trim().min(1).max(max);
 const url = z.string().url().startsWith('https://').max(2000);
@@ -119,7 +122,7 @@ export class HomeStore {
     }
     try {
       const stat = fstatSync(fd);
-      if (!stat.isFile() || stat.nlink !== 1 || stat.size > 4 * 1024 * 1024)
+      if (!stat.isFile() || stat.nlink !== 1 || stat.size > MAX_STATE_BYTES)
         throw new Error('Invalid home preferences file');
       return stateSchema.parse(JSON.parse(readFileSync(fd, 'utf8')));
     } finally {
@@ -127,10 +130,22 @@ export class HomeStore {
     }
   }
   private write(state: State) {
+    const bytes = Buffer.from(JSON.stringify(state), 'utf8');
+    if (bytes.length > MAX_STATE_BYTES) throw new Error('Home preferences are too large');
     mkdirSync(dirname(this.path), { recursive: true, mode: 0o700 });
     const temporary = `${this.path}.${randomUUID()}.tmp`;
     try {
-      writeFileSync(temporary, JSON.stringify(state), { mode: 0o600, flag: 'wx' });
+      const fd = openSync(
+        temporary,
+        constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL,
+        0o600,
+      );
+      try {
+        writeFileSync(fd, bytes);
+        fsyncSync(fd);
+      } finally {
+        closeSync(fd);
+      }
       renameSync(temporary, this.path);
     } finally {
       try {
