@@ -24,6 +24,7 @@ import { AttentionFeed } from './components/AttentionFeed';
 import { WorkspacePageHeading } from './components/WorkspacePageHeading';
 import { SessionList } from './pages/SessionList';
 import { ResponsiveChatView } from './components/ResponsiveChatView';
+import { KnowledgeLibrary } from './pages/KnowledgeLibrary';
 import { FileViewer } from './pages/FileViewer';
 import { InboxView } from './pages/InboxView';
 import { CalendarView } from './pages/CalendarView';
@@ -336,6 +337,16 @@ export function App() {
                     <ProtectedRoute>
                       <PageRoute>
                         <TaskBoardRoute />
+                      </PageRoute>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/knowledge"
+                  element={
+                    <ProtectedRoute>
+                      <PageRoute>
+                        <KnowledgeLibrary />
                       </PageRoute>
                     </ProtectedRoute>
                   }
