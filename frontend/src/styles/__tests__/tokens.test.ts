@@ -37,13 +37,15 @@ function allowedContextAlias(property: string, value: string | null): boolean {
   if (!contextualAliases.has(property) || value === null) return false;
   const clean = value.trim();
   if (/^var\(\s*--[\w-]+\s*\)$/.test(clean)) return true;
-  if (!clean.startsWith('color-mix(')) return false;
-  let depth = 0;
-  for (let i = clean.indexOf('('); i < clean.length; i++) {
-    if (clean[i] === '(') depth++;
-    if (clean[i] === ')' && --depth === 0) return i === clean.length - 1;
-  }
-  return false;
+  const role = String.raw`var\(\s*--[\w-]+\s*\)`;
+  const weight = String.raw`(?:\s+\d+(?:\.\d+)?%)?`;
+  const mix = new RegExp(
+    `^color-mix\\(\\s*in\\s+srgb\\s*,\\s*${role}${weight}\\s*,\\s*${role}${weight}\\s*\\)$`,
+  );
+  return (
+    mix.test(clean) &&
+    [...clean.matchAll(/var\(\s*(--[\w-]+)\s*\)/g)].every((match) => ownedTokens.has(match[1]))
+  );
 }
 
 type InlineStyle = { property: string; value: string | null; styleContext: boolean };
@@ -324,6 +326,20 @@ describe('design tokens', () => {
           'page.tsx',
         ),
       ).toContain('inline token override: --space-4');
+    });
+
+    it('rejects named colors inside a legacy role color mix', () => {
+      expect(styleViolations('.page { --bg: color-mix(in srgb, red, blue); }')).toContain(
+        'token override: --bg',
+      );
+    });
+
+    it('allows the existing token-based legacy role color mix', () => {
+      expect(
+        styleViolations(
+          '.page { --bg-secondary: color-mix(in srgb, var(--workspace-bg) 96%, var(--workspace-text)); }',
+        ),
+      ).toEqual([]);
     });
 
     it('allows token-based shorthand size and family', () => {
