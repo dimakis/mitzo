@@ -1,0 +1,305 @@
+.connection-setup-page {
+  max-width: 800px;
+}
+.connection-setup-surface {
+  max-width: 640px;
+  padding: 32px;
+  border: 1px solid var(--workspace-line);
+  border-radius: 18px;
+  background: var(--workspace-surface, var(--workspace-bg));
+}
+.connection-setup-eyebrow {
+  margin: 0 0 12px;
+  color: var(--workspace-muted);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.connection-setup-surface h1 {
+  margin: 0 0 12px;
+  font-size: 28px;
+  line-height: 1.2;
+  letter-spacing: -0.035em;
+  font-weight: 600;
+}
+.connection-setup-surface p {
+  line-height: 1.6;
+}
+.connection-setup-intro {
+  margin: 0;
+  color: var(--workspace-muted);
+  font-size: 15px;
+}
+.connection-setup-summary {
+  margin: 26px 0 20px;
+  display: grid;
+  gap: 16px;
+  padding: 20px;
+  border-radius: 12px;
+  background: var(--workspace-bg);
+  border: 1px solid var(--workspace-line);
+}
+.connection-setup-summary dt {
+  font-size: 12px;
+  color: var(--workspace-muted);
+  margin-bottom: 4px;
+}
+.connection-setup-summary dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.connection-setup-privacy {
+  margin: 0 0 26px;
+  font-size: 13px;
+  color: var(--workspace-muted);
+}
+.connection-setup-surface .connections-field {
+  margin: 0 0 10px;
+  gap: 9px;
+  font-size: 14px;
+  font-weight: 500;
+}
+.connection-setup-surface input {
+  width: 100%;
+  min-height: 46px;
+  font: inherit;
+}
+.connection-setup-guidance {
+  margin-bottom: 24px;
+  font-size: 13px;
+  color: var(--workspace-muted);
+}
+.connection-setup-guidance p {
+  margin: 0 0 8px;
+}
+.connection-setup-guidance a {
+  color: var(--workspace-accent);
+  text-decoration: none;
+}
+.connection-setup-surface .connection-setup-unlock {
+  margin-bottom: 26px;
+}
+.connection-setup-unlock span {
+  font-size: 12px;
+  color: var(--workspace-muted);
+  font-weight: 400;
+}
+.connection-setup-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+.connection-setup-actions button {
+  min-height: 44px;
+  padding: 11px 18px;
+  font-size: 14px;
+}
+.connection-setup-return {
+  display: inline-flex;
+  align-items: center;
+  padding: 12px 18px;
+  margin-top: 12px;
+  text-decoration: none;
+}
+.connection-setup-surface :is(button, a, input):focus-visible,
+.connection-setup-chat-card a:focus-visible {
+  outline: 2px solid var(--workspace-accent);
+  outline-offset: 3px;
+}
+.connection-setup-chat-card {
+  margin: 12px 0;
+  padding: 18px;
+  border: 1px solid var(--workspace-line, var(--border));
+  border-radius: 12px;
+}
+.connection-setup-chat-card h3 {
+  margin: 0 0 7px;
+  font-size: 16px;
+  font-weight: 600;
+}
+.connection-setup-chat-card p {
+  margin: 0 0 14px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--workspace-muted, var(--text-secondary));
+}
+.connection-setup-chat-card a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 9px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  text-decoration: none;
+}
+@media (max-width: 600px) {
+  .connection-setup-surface {
+    padding: 24px 20px;
+  }
+  .connection-setup-surface h1 {
+    font-size: 25px;
+  }
+  .connection-setup-actions {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 8px;
+  }
+}
+.connection-setup-page {
+  height: 100dvh;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.credential-connections-panel {
+  max-width: 760px;
+  padding: 26px;
+}
+.credential-connections-panel > h2 {
+  margin: 0 0 10px;
+  font-size: 19px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+.credential-connections-intro {
+  color: var(--workspace-muted);
+  font-size: 14px;
+  line-height: 1.6;
+  margin: 0 0 22px;
+  max-width: 560px;
+}
+.credential-connections-panel > details {
+  margin: 18px 0;
+}
+.credential-connections-panel summary {
+  color: var(--workspace-muted);
+  font-size: 14px;
+  cursor: pointer;
+  min-height: 36px;
+  align-content: center;
+}
+.credential-manual-setup {
+  border: 1px solid var(--workspace-line);
+  border-radius: 10px;
+  padding: 10px 16px;
+}
+.credential-manual-setup > form {
+  margin-top: 20px;
+}
+.credential-connection-record {
+  padding: 22px 0;
+  border-top: 1px solid var(--workspace-line);
+}
+.credential-connection-record:last-child {
+  padding-bottom: 0;
+}
+.credential-connection-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.credential-connection-heading h3 {
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.4;
+  font-weight: 600;
+}
+.credential-connection-status {
+  font-size: 12px;
+  color: var(--workspace-muted);
+  white-space: nowrap;
+}
+.credential-connection-status--active::before {
+  content: '';
+  display: inline-block;
+  height: 6px;
+  width: 6px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: var(--workspace-accent);
+  vertical-align: middle;
+}
+.credential-connection-address {
+  font-size: 13px;
+  color: var(--workspace-muted);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  margin: 6px 0 9px;
+}
+.credential-connection-controls {
+  margin: 16px 0 0;
+}
+.credential-connection-controls > button {
+  margin: 5px 8px 8px 0;
+  padding: 10px 12px;
+  font-size: 13px;
+  border: 1px solid var(--workspace-line);
+  border-radius: 8px;
+}
+.credential-connections-panel fieldset {
+  min-width: 0;
+  border: 0;
+  padding: 0;
+  margin: 22px 0;
+}
+.credential-connections-panel fieldset legend {
+  font-weight: 600;
+  font-size: 14px;
+  margin-bottom: 8px;
+}
+.credential-connections-panel input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
+  min-height: 0;
+  margin-right: 7px;
+  vertical-align: middle;
+}
+.credential-connections-panel .connections-field {
+  margin: 18px 0;
+  gap: 8px;
+}
+.credential-connections-panel .connections-field span,
+.credential-connection-verification {
+  font-size: 13px;
+  color: var(--workspace-muted);
+  line-height: 1.5;
+}
+.credential-connections-panel input:not([type='checkbox']),
+.credential-connections-panel select {
+  font: inherit;
+}
+@media (max-width: 600px) {
+  .credential-connections-panel {
+    padding: 22px 18px;
+  }
+  .credential-connection-heading {
+    align-items: flex-start;
+  }
+}
+.connection-setup-documentation {
+  margin-top: 16px;
+  padding: 14px;
+  border: 1px solid var(--workspace-line);
+  border-radius: 10px;
+}
+.connection-setup-documentation .connection-setup-documentation-url {
+  margin: 8px 0 12px;
+  color: var(--workspace-text);
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.connection-setup-documentation > button {
+  min-height: 40px;
+  font: inherit;
+  padding: 0;
+  text-align: left;
+}
+.connection-setup-documentation-review {
+  margin-top: 12px;
+}

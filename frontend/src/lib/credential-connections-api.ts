@@ -1,4 +1,4 @@
-import { apiFetch } from './api-fetch';
+import { apiFetch, AUTH_LOST_EVENT } from './api-fetch';
 import type {
   CredentialConnection,
   CredentialConnectionEnrollment,
@@ -7,6 +7,22 @@ import type {
   ConnectionWebSocketConfig,
 } from '../types/credential-connections';
 const base = '/api/credential-connections';
+type CredentialAuthorization = { csrf: string; expiresAt: number };
+let cachedAuthorization: CredentialAuthorization | undefined;
+/** Kept only in this document's memory; never credentials, cookies or persistent storage. */
+export function getCachedCredentialAuthorization() {
+  if (!cachedAuthorization || cachedAuthorization.expiresAt <= Date.now()) {
+    cachedAuthorization = undefined;
+    return undefined;
+  }
+  return cachedAuthorization;
+}
+if (typeof window !== 'undefined') {
+  window.addEventListener(AUTH_LOST_EVENT, () => {
+    cachedAuthorization = undefined;
+  });
+}
+
 async function request<T>(path: string, method = 'GET', body?: unknown, csrf?: string): Promise<T> {
   const response = await apiFetch(base + path, {
     method,
@@ -22,6 +38,7 @@ async function request<T>(path: string, method = 'GET', body?: unknown, csrf?: s
         }),
   });
   const data = await response.json().catch(() => ({}));
+  if (response.status === 401 || response.status === 403) cachedAuthorization = undefined;
   if (!response.ok)
     throw new Error(
       data && typeof data.error === 'string' ? data.error : 'Connection request failed',
@@ -34,8 +51,13 @@ export async function getCredentialConnections() {
     throw new Error('Apple Keychain connections are not configured.');
   return data.connections;
 }
-export function reauthorizeKeychain(passphrase: string) {
-  return request<{ csrf: string; expiresAt: number }>('/reauthorize', 'POST', { passphrase });
+export async function reauthorizeKeychain(passphrase: string) {
+  cachedAuthorization = undefined;
+  const authorization = await request<CredentialAuthorization>('/reauthorize', 'POST', {
+    passphrase,
+  });
+  cachedAuthorization = authorization;
+  return authorization;
 }
 export async function createCredentialConnection(
   body: CredentialConnectionEnrollment,
@@ -113,4 +135,37 @@ export async function updateConnectionWebSocket(
       csrf,
     )
   ).connection;
+}
+
+export async function getConnectionSetup(id: string) {
+  return (
+    await request<{ setup: import('../types/credential-connections').ConnectionSetup }>(
+      `/setups/${encodeURIComponent(id)}`,
+    )
+  ).setup;
+}
+export async function completeConnectionSetup(
+  id: string,
+  revision: number,
+  secret: string,
+  csrf: string,
+) {
+  return (
+    await request<{ setup: import('../types/credential-connections').ConnectionSetup }>(
+      `/setups/${encodeURIComponent(id)}/complete`,
+      'POST',
+      { revision, secret },
+      csrf,
+    )
+  ).setup;
+}
+export async function cancelConnectionSetup(id: string, revision: number, csrf: string) {
+  return (
+    await request<{ setup: import('../types/credential-connections').ConnectionSetup }>(
+      `/setups/${encodeURIComponent(id)}/cancel`,
+      'POST',
+      { revision },
+      csrf,
+    )
+  ).setup;
 }

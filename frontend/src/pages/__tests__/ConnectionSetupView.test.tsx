@@ -1,0 +1,314 @@
+// @vitest-environment jsdom
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { Link, MemoryRouter, Route, Routes } from 'react-router-dom';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { ConnectionSetupView } from '../ConnectionSetupView';
+import * as api from '../../lib/credential-connections-api';
+import type { ConnectionSetup } from '../../types/credential-connections';
+vi.mock('../../lib/credential-connections-api', () => ({
+  getConnectionSetup: vi.fn(),
+  getCachedCredentialAuthorization: vi.fn(),
+  reauthorizeKeychain: vi.fn(),
+  completeConnectionSetup: vi.fn(),
+  cancelConnectionSetup: vi.fn(),
+}));
+const setup: ConnectionSetup = {
+  id: 'draft-a',
+  sessionId: 'chat/a',
+  revision: 1,
+  status: 'pending',
+  expiresAt: Date.now() + 1_800_000,
+  profile: 'home-assistant',
+  setupUrl: '/connections/setup/draft-a',
+  connection: {
+    label: 'Home Assistant',
+    endpoint: 'https://ha.example.com',
+    auth: { kind: 'bearer' },
+    paths: ['/api/'],
+    methods: ['GET', 'HEAD', 'POST'],
+    allowPrivateNetwork: false,
+  },
+  credential: {
+    label: 'Home Assistant key',
+    helpUrl: 'https://www.home-assistant.io/docs/authentication/',
+    instructions: 'Create a long-lived access token in your Home Assistant profile.',
+  },
+};
+function open(id = 'draft-a') {
+  return render(
+    <MemoryRouter initialEntries={['/connections/setup/' + id]}>
+      <Routes>
+        <Route path="/connections/setup/:setupId" element={<ConnectionSetupView />} />
+      </Routes>
+    </MemoryRouter>,
+  );
+}
+beforeEach(() => {
+  vi.resetAllMocks();
+  vi.mocked(api.getConnectionSetup).mockResolvedValue(setup);
+  vi.mocked(api.reauthorizeKeychain).mockResolvedValue({
+    csrf: 'csrf',
+    expiresAt: Date.now() + 60_000,
+  });
+  vi.mocked(api.completeConnectionSetup).mockResolvedValue({
+    ...setup,
+    status: 'ready',
+    revision: 2,
+    connectionId: 'ha',
+  });
+});
+afterEach(cleanup);
+it('presents only the prepared credential and plain access scope, then returns to the original chat', async () => {
+  open();
+  await screen.findByLabelText('Home Assistant key');
+  expect(screen.getByText('https://ha.example.com')).toBeTruthy();
+  expect(screen.getByText('Read and make changes')).toBeTruthy();
+  expect(screen.queryByLabelText('Authentication')).toBeNull();
+  expect(screen.queryByLabelText(/WebSocket/)).toBeNull();
+  fireEvent.change(screen.getByLabelText('Mitzo passphrase'), {
+    target: { value: 'fixture-passphrase' },
+  });
+  fireEvent.change(screen.getByLabelText('Home Assistant key'), {
+    target: { value: 'fixture-only-secret' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Connect Home Assistant' }));
+  await screen.findByRole('heading', { name: 'Home Assistant is connected' });
+  expect(api.completeConnectionSetup).toHaveBeenCalledWith(
+    'draft-a',
+    1,
+    'fixture-only-secret',
+    'csrf',
+  );
+  expect(screen.getByRole('link', { name: 'Return to chat' }).getAttribute('href')).toBe(
+    '/chat/chat%2Fa',
+  );
+  expect(screen.queryByLabelText('Home Assistant key')).toBeNull();
+});
+it('keeps required reauthorization inline and clears both secrets before completion settles', async () => {
+  vi.mocked(api.reauthorizeKeychain).mockResolvedValue({
+    csrf: 'new-csrf',
+    expiresAt: Date.now() + 60_000,
+  });
+  let finish!: (value: ConnectionSetup) => void;
+  vi.mocked(api.completeConnectionSetup).mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  open();
+  await screen.findByLabelText('Mitzo passphrase');
+  fireEvent.change(screen.getByLabelText('Home Assistant key'), {
+    target: { value: 'fixture-key' },
+  });
+  fireEvent.change(screen.getByLabelText('Mitzo passphrase'), {
+    target: { value: 'fixture-passphrase' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Connect Home Assistant' }));
+  await waitFor(() => expect(api.completeConnectionSetup).toHaveBeenCalled());
+  expect((screen.getByLabelText('Home Assistant key') as HTMLInputElement).value).toBe('');
+  expect(
+    (screen.queryByLabelText('Mitzo passphrase') as HTMLInputElement | null)?.value ?? '',
+  ).toBe('');
+  finish({
+    ...setup,
+    status: 'pending',
+    revision: 2,
+    error: 'The key could not be verified. Try a new key.',
+  });
+  await screen.findByRole('alert');
+  expect(screen.getByRole('alert').textContent).toContain('could not be verified');
+});
+it('disables expired setup and preserves a route back to the original task', async () => {
+  vi.mocked(api.getConnectionSetup).mockResolvedValue({ ...setup, status: 'expired' });
+  open();
+  await screen.findByRole('heading', { name: 'This setup has expired' });
+  expect(screen.queryByLabelText('Home Assistant key')).toBeNull();
+  expect(screen.getByRole('link', { name: 'Return to chat' })).toBeTruthy();
+});
+it('cancels a prepared connection without enrolling it', async () => {
+  vi.mocked(api.cancelConnectionSetup).mockResolvedValue({
+    ...setup,
+    status: 'cancelled',
+    revision: 2,
+  });
+  open();
+  await screen.findByLabelText('Home Assistant key');
+  fireEvent.change(screen.getByLabelText('Mitzo passphrase'), {
+    target: { value: 'fixture-passphrase' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel setup' }));
+  await screen.findByRole('heading', { name: 'Setup cancelled' });
+  expect(api.cancelConnectionSetup).toHaveBeenCalledWith('draft-a', 1, 'csrf');
+  expect(api.completeConnectionSetup).not.toHaveBeenCalled();
+});
+it('reloads status after an uncertain completion without blindly resending a credential', async () => {
+  vi.mocked(api.completeConnectionSetup).mockRejectedValue(new Error('Network interrupted'));
+  open();
+  await screen.findByLabelText('Home Assistant key');
+  fireEvent.change(screen.getByLabelText('Home Assistant key'), {
+    target: { value: 'fixture-key' },
+  });
+  fireEvent.change(screen.getByLabelText('Mitzo passphrase'), {
+    target: { value: 'fixture-passphrase' },
+  });
+  vi.mocked(api.getConnectionSetup).mockResolvedValue({ ...setup, status: 'ready', revision: 2 });
+  fireEvent.click(screen.getByRole('button', { name: 'Connect Home Assistant' }));
+  await screen.findByRole('heading', { name: 'Home Assistant is connected' });
+  expect(api.completeConnectionSetup).toHaveBeenCalledTimes(1);
+});
+it('asks only for the service key when secure storage is already authorized in this browser', async () => {
+  vi.mocked(api.getCachedCredentialAuthorization).mockReturnValue({
+    csrf: 'cached-csrf',
+    expiresAt: Date.now() + 60_000,
+  });
+  open();
+  await screen.findByLabelText('Home Assistant key');
+  expect(screen.queryByLabelText('Mitzo passphrase')).toBeNull();
+  fireEvent.change(screen.getByLabelText('Home Assistant key'), {
+    target: { value: 'fixture-key' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Connect Home Assistant' }));
+  await screen.findByRole('heading', { name: 'Home Assistant is connected' });
+  expect(api.reauthorizeKeychain).not.toHaveBeenCalled();
+  expect(api.completeConnectionSetup).toHaveBeenCalledWith(
+    'draft-a',
+    1,
+    'fixture-key',
+    'cached-csrf',
+  );
+});
+it('drops view authorization after a refused completion and asks for the passphrase again', async () => {
+  vi.mocked(api.getCachedCredentialAuthorization).mockReturnValue({
+    csrf: 'revoked-csrf',
+    expiresAt: Date.now() + 60_000,
+  });
+  vi.mocked(api.completeConnectionSetup).mockRejectedValue(new Error('Authorize again'));
+  open();
+  await screen.findByLabelText('Home Assistant key');
+  fireEvent.change(screen.getByLabelText('Home Assistant key'), {
+    target: { value: 'fixture-key' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Connect Home Assistant' }));
+  await screen.findByLabelText('Mitzo passphrase');
+  expect((screen.getByLabelText('Home Assistant key') as HTMLInputElement).value).toBe('');
+});
+it('explains how to continue when the verified connection has not reached the assistant yet', async () => {
+  vi.mocked(api.getConnectionSetup).mockResolvedValue({
+    ...setup,
+    status: 'ready',
+    delivery: 'pending',
+  });
+  open();
+  await screen.findByRole('heading', { name: 'Home Assistant is connected' });
+  expect(screen.getByText(/tell your assistant the connection is ready/)).toBeTruthy();
+});
+
+it('ignores an outstanding first A response after navigating A to B and back to a newer A', async () => {
+  let finishFirstA!: (value: ConnectionSetup) => void;
+  let aRequests = 0;
+  vi.mocked(api.getConnectionSetup).mockImplementation(async (id) => {
+    if (id === 'draft-a' && ++aRequests === 1) {
+      return new Promise<ConnectionSetup>((resolve) => {
+        finishFirstA = resolve;
+      });
+    }
+    return id === 'draft-a'
+      ? { ...setup, status: 'ready', revision: 7 }
+      : { ...setup, id: 'draft-b', connection: { ...setup.connection, label: 'Other service' } };
+  });
+  render(
+    <MemoryRouter initialEntries={['/connections/setup/draft-a']}>
+      <Link to="/connections/setup/draft-b">Visit B</Link>
+      <Link to="/connections/setup/draft-a">Return to A</Link>
+      <Routes>
+        <Route path="/connections/setup/:setupId" element={<ConnectionSetupView />} />
+      </Routes>
+    </MemoryRouter>,
+  );
+  await waitFor(() => expect(api.getConnectionSetup).toHaveBeenCalledWith('draft-a'));
+  fireEvent.click(screen.getByRole('link', { name: 'Visit B' }));
+  await screen.findByRole('heading', { name: 'Connect Other service' });
+  fireEvent.click(screen.getByRole('link', { name: 'Return to A' }));
+  await screen.findByRole('heading', { name: 'Home Assistant is connected' });
+  await act(async () => {
+    finishFirstA({ ...setup, status: 'pending', revision: 1 });
+  });
+  expect(screen.getByRole('heading', { name: 'Home Assistant is connected' })).toBeTruthy();
+  expect(screen.queryByLabelText('Home Assistant key')).toBeNull();
+  expect(api.getConnectionSetup).toHaveBeenCalledTimes(3);
+});
+it('waits for an outstanding verification poll instead of discarding every slow response', async () => {
+  vi.useFakeTimers();
+  try {
+    let finishPoll!: (value: ConnectionSetup) => void;
+    vi.mocked(api.getConnectionSetup)
+      .mockResolvedValueOnce({ ...setup, status: 'verifying' })
+      .mockImplementation(
+        () =>
+          new Promise<ConnectionSetup>((resolve) => {
+            finishPoll = resolve;
+          }),
+      );
+    open();
+    await act(async () => {});
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1500);
+    });
+    expect(api.getConnectionSetup).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1500);
+    });
+    expect(api.getConnectionSetup).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      finishPoll({ ...setup, status: 'ready', revision: 2 });
+    });
+    expect(screen.getByRole('heading', { name: 'Home Assistant is connected' })).toBeTruthy();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+it('shows a custom reference destination as assistant-provided documentation before offering an external link', async () => {
+  const destination = 'https://docs.unrelated.example/service-auth';
+  vi.mocked(api.getConnectionSetup).mockResolvedValue({
+    ...setup,
+    profile: 'custom',
+    credential: { ...setup.credential, helpUrl: destination },
+  });
+  open();
+  await screen.findByLabelText('Home Assistant key');
+  expect(screen.getByText(destination)).toBeTruthy();
+  expect(screen.getByText(/provided by your assistant/)).toBeTruthy();
+  expect(screen.getByText(/Enter your key only here in Mitzo/)).toBeTruthy();
+  expect(screen.queryByRole('link', { name: /Where to get your key/ })).toBeNull();
+  expect(screen.queryByRole('link', { name: 'Open documentation' })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Review service documentation' }));
+  expect(screen.getByRole('link', { name: 'Open documentation' }).getAttribute('href')).toBe(
+    destination,
+  );
+});
+it('keeps the built-in Home Assistant credential guidance simple', async () => {
+  open();
+  await screen.findByLabelText('Home Assistant key');
+  expect(screen.getByRole('link', { name: /Where to get your key/ }).getAttribute('href')).toBe(
+    'https://www.home-assistant.io/docs/authentication/',
+  );
+  expect(screen.queryByRole('button', { name: 'Review service documentation' })).toBeNull();
+});
+it.each([
+  'javascript:alert(1)',
+  'http://docs.example.test',
+  'https://',
+  'https://user:password@docs.example.test/auth',
+])('does not offer an unsafe documentation URL: %s', async (helpUrl) => {
+  vi.mocked(api.getConnectionSetup).mockResolvedValue({
+    ...setup,
+    profile: 'custom',
+    credential: { ...setup.credential, helpUrl },
+  });
+  open();
+  await screen.findByLabelText('Home Assistant key');
+  expect(screen.queryByRole('link', { name: 'Open documentation' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Review service documentation' })).toBeNull();
+  expect(screen.queryByRole('link', { name: /Where to get your key/ })).toBeNull();
+});

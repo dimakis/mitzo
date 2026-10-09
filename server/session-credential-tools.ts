@@ -11,9 +11,10 @@ import {
   credentialConnectionToolDefinitions,
 } from './credential-connection-tools.js';
 import { getCredentialConnectionsRuntime } from './credential-connections-runtime.js';
+import { connectionGuide } from './connection-guide.js';
 
 export const CONNECTION_TOOL_INSTRUCTIONS =
-  '\nFor authenticated service access, first call ListConnections to discover configured connections and their permissions, then RequestConnectionAccess if needed and ConnectionRequest. Mitzo asks for approval scoped to this session and injects credentials privately. Never search workspace files for tokens or request passwords in chat. If a connection is missing, direct the user to Connections. For other configured WebSocket services use ConnectionWebSocket with a text message and optional response correlation; it is treated as a write, bounded to 30 seconds and never automatically replayed. Service authentication is configured privately in Connections. For Home Assistant dashboards, use HomeAssistantDashboard over the approved WebSocket connection: read before saving, preserve unrelated views/cards, and supply the returned configHash as expectedConfigHash. Dashboard saves verify the read-back result; after an unconfirmed save, read again rather than retrying automatically. HTTP reachability alone is not proof of authenticated access.\n';
+  '\nFor authenticated services, call ListConnections first. If setup or usage guidance is needed, call GetConnectionGuide. Prepare missing connections within this chat; the user enters only their credential through the secure setup card. Never ask for secrets in chat or search files for them. Request session access before use.\n';
 export function sessionCredentialTools(
   sessionId: string,
   session: ManagedSession,
@@ -57,17 +58,19 @@ export function sessionCredentialTools(
     content: 'Connection tool is unavailable under current session permissions',
     isError: true,
   });
+  const credentialAllowed = (name: string, method?: string) =>
+    currentService === getCredentialConnectionsRuntime() && stillAllowed(name, method);
   const tools = currentService
     ? createCredentialConnectionTools(
         currentService,
         sessionId,
         (name, input, opts) => {
           const current = owner();
-          if (!current || !stillAllowed(name))
+          if (!current || !credentialAllowed(name))
             return Promise.resolve({ behavior: 'deny', message: 'Session unavailable' });
           return buildPermissionHandler(current.clientId, registry)(toolPrefix + name, input, opts);
         },
-        stillAllowed,
+        credentialAllowed,
       )
     : undefined;
   return {
@@ -92,21 +95,32 @@ export function sessionCredentialTools(
               ? parsed.data.method
               : undefined;
       if (!stillAllowed(name, method)) return unavailable();
+      if (name === 'GetConnectionGuide')
+        return {
+          content: JSON.stringify(
+            connectionGuide(
+              credentialConnectionSchemas.GetConnectionGuide.parse(input).topic,
+              credentialConnectionToolDefinitions,
+            ),
+          ),
+          isError: false,
+        };
       if (name === 'ListConnections')
         return {
           content: JSON.stringify({
             connections: [
-              ...(currentService
+              ...(getCredentialConnectionsRuntime()
                 ?.catalog(sessionId)
                 .map((c) => ({ ...c, transport: 'keychain-https' })) ?? []),
               ...(integrations?.providers() ?? []),
             ],
-            keychainConfigured: !!currentService,
+            keychainConfigured: !!getCredentialConnectionsRuntime(),
           }),
           isError: false,
         };
       if ('connectionId' in parsed.data) {
-        const provider = integrations?.providers().find((p) => p.id === parsed.data.connectionId);
+        const connectionId = parsed.data.connectionId;
+        const provider = integrations?.providers().find((p) => p.id === connectionId);
         if (provider) {
           if (name !== 'RequestConnectionAccess')
             return {
@@ -133,6 +147,7 @@ export function sessionCredentialTools(
           content: 'Apple Keychain connections are not configured. Open Connections for setup.',
           isError: true,
         };
+      if (!credentialAllowed(name, method)) return unavailable();
       return tools.execute(name, input, combined);
     },
   };

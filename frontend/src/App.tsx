@@ -17,6 +17,7 @@ import { saveTokenToWatch } from './lib/watch-auth';
 import { Login } from './pages/Login';
 import { Today } from './pages/Today';
 import { MoreView } from './pages/MoreView';
+import { ConnectionSetupView } from './pages/ConnectionSetupView';
 import { ConnectionsRoute } from './pages/ConnectionsRoute';
 import { ConnectionsAccessView } from './pages/ConnectionsAccessView';
 import { AttentionFeed } from './components/AttentionFeed';
@@ -239,6 +240,16 @@ export function App() {
                     <ProtectedRoute>
                       <PageRoute>
                         <NotificationsView />
+                      </PageRoute>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/connections/setup/:setupId"
+                  element={
+                    <ProtectedRoute>
+                      <PageRoute>
+                        <ConnectionSetupView />
                       </PageRoute>
                     </ProtectedRoute>
                   }

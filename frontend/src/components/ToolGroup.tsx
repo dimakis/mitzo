@@ -1,5 +1,7 @@
 import { useId, useState } from 'react';
 import { getToolStatus, type ToolBlock } from '../lib/tool-status';
+import { ConnectionSetupCard } from './ConnectionSetupCard';
+import { connectionSetupResult } from '../lib/connection-setup-result';
 import { ToolPill } from './ToolPill';
 
 interface Props {
@@ -25,6 +27,19 @@ export function ToolGroup({ tools, sessionId }: Props) {
 
   return (
     <div className="tool-group">
+      {tools
+        .filter((tool, index) => {
+          const setup = connectionSetupResult(tool, sessionId);
+          return (
+            setup &&
+            !tools
+              .slice(index + 1)
+              .some((later) => connectionSetupResult(later, sessionId)?.id === setup.id)
+          );
+        })
+        .map((tool) => (
+          <ConnectionSetupCard key={tool.blockId} block={tool} sessionId={sessionId} />
+        ))}
       <button
         type="button"
         className="tool-group-header"
@@ -47,7 +62,7 @@ export function ToolGroup({ tools, sessionId }: Props) {
       {expanded && (
         <div id={listId} className="tool-group-list">
           {tools.map((t, i) => (
-            <ToolPill key={t.blockId || i} block={t} sessionId={sessionId} />
+            <ToolPill key={t.blockId || i} block={t} sessionId={sessionId} showSetupCard={false} />
           ))}
         </div>
       )}
