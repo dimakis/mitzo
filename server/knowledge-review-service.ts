@@ -52,19 +52,27 @@ export class KnowledgeReviewService {
       throw new Error('Review identity differs from this change');
     return review;
   }
-  private async projection(draft: KnowledgeDraft, accepted: string, branch: string) {
+  private async projection(
+    draft: KnowledgeDraft,
+    accepted: string,
+    branch: string,
+    signal: AbortSignal,
+    lease: string,
+  ) {
     if (draft.publication?.version === draft.version) return draft.publication.head;
     const parent = draft.publication?.head ?? accepted;
     const temporary = await mkdtemp(join(tmpdir(), 'mitzo-knowledge-index-'));
     const index = join(temporary, 'index');
     try {
-      await knowledgeGit(this.source.directory, ['read-tree', accepted], undefined, index);
+      await knowledgeGit(this.source.directory, ['read-tree', accepted], undefined, index, signal);
       for (const document of draft.documents) {
         const sha = (
           await knowledgeGit(
             this.source.directory,
             ['hash-object', '-w', '--stdin'],
             document.content,
+            undefined,
+            signal,
           )
         ).trim();
         await knowledgeGit(
@@ -72,10 +80,11 @@ export class KnowledgeReviewService {
           ['update-index', '--add', '--cacheinfo', `100644,${sha},${document.path}`],
           undefined,
           index,
+          signal,
         );
       }
       const tree = (
-        await knowledgeGit(this.source.directory, ['write-tree'], undefined, index)
+        await knowledgeGit(this.source.directory, ['write-tree'], undefined, index, signal)
       ).trim();
       const parents = parent === accepted ? ['-p', parent] : ['-p', parent, '-p', accepted];
       const head = (
@@ -93,11 +102,20 @@ export class KnowledgeReviewService {
             ...parents,
           ],
           draft.title + '\n',
+          undefined,
+          signal,
         )
       ).trim();
-      await knowledgeGit(this.source.directory, ['update-ref', `refs/heads/${branch}`, head]);
+      this.store.assertLease(draft.id, lease);
+      await knowledgeGit(
+        this.source.directory,
+        ['update-ref', `refs/heads/${branch}`, head],
+        undefined,
+        undefined,
+        signal,
+      );
       // Persist before the first network mutation: a retry recovers this exact commit.
-      this.store.prepared(draft.id, draft.version, head);
+      this.store.prepared(draft.id, draft.version, head, lease);
       return head;
     } finally {
       await rm(temporary, { recursive: true, force: true });
@@ -146,6 +164,8 @@ export class KnowledgeReviewService {
               id,
               'draft',
               'Previous review finished. Start a new change with your remaining edits.',
+              lease,
+              version,
             );
             throw new KnowledgeDraftConflict(
               'Previous review finished. Start a new change with your remaining edits.',
@@ -168,16 +188,16 @@ export class KnowledgeReviewService {
               throw new Error('Merged review differs from the saved review head');
           }
           signal.throwIfAborted();
-          this.store.status(id, existing.merged ? 'accepted' : 'closed');
+          this.store.status(id, existing.merged ? 'accepted' : 'closed', undefined, lease, version);
           throw new KnowledgeDraftConflict('This change is finished. Start a new draft.');
         }
       }
-      const accepted = await this.source.revision();
+      const accepted = await this.source.revision(signal);
       for (const document of draft.documents) {
-        const original = await this.source.read(document.path, draft.baseRevision);
+        const original = await this.source.read(document.path, draft.baseRevision, signal);
         if (document.base !== original.content)
           throw new KnowledgeDraftConflict('Draft base differs from its accepted revision');
-        const latest = await this.source.read(document.path, accepted);
+        const latest = await this.source.read(document.path, accepted, signal);
         if (latest.content !== document.base)
           throw new KnowledgeDraftConflict(
             `${document.path} changed since this draft started. Compare the accepted document and resolve before saving its review.`,
@@ -191,19 +211,18 @@ export class KnowledgeReviewService {
         throw new KnowledgeDraftConflict(
           'This review changed elsewhere. Reload its review before continuing.',
         );
-      const head = await this.projection(draft, accepted, branch);
+      const head = await this.projection(draft, accepted, branch, signal, lease);
       if (remote !== head) {
         const temporary = await mkdtemp(join(tmpdir(), 'mitzo-knowledge-bundle-'));
         try {
           const path = join(temporary, 'change.bundle');
-          await knowledgeGit(this.source.directory, [
-            'bundle',
-            'create',
-            path,
-            `refs/heads/${branch}`,
-            '--not',
-            accepted,
-          ]);
+          await knowledgeGit(
+            this.source.directory,
+            ['bundle', 'create', path, `refs/heads/${branch}`, '--not', accepted],
+            undefined,
+            undefined,
+            signal,
+          );
           if ((await stat(path)).size > 16 * 1024 * 1024)
             throw new Error('Change exceeds review export limit');
           const reconstructed = await this.publisher.reconstruct({
@@ -213,6 +232,7 @@ export class KnowledgeReviewService {
           });
           cleanup = reconstructed.cleanupDirectory ?? reconstructed.directory;
           signal.throwIfAborted();
+          this.store.assertLease(id, lease);
           await this.publisher.push({ ...common, directory: reconstructed.directory });
         } finally {
           await rm(temporary, { recursive: true, force: true });
@@ -225,6 +245,7 @@ export class KnowledgeReviewService {
         draft: true,
       };
       signal.throwIfAborted();
+      this.store.assertLease(id, lease);
       const result = this.scope(
         existing
           ? await this.publisher.update({ ...input, pullRequest: existing })
@@ -238,14 +259,20 @@ export class KnowledgeReviewService {
         throw new Error('Review verification failed');
       this.scope(verified, branch);
       signal.throwIfAborted();
-      return this.store.receipt(id, version, { url: verified.url, head });
+      return this.store.receipt(id, version, { url: verified.url, head }, lease);
     } catch (error) {
       if (error instanceof KnowledgeDraftConflict) throw error;
-      this.store.status(
-        id,
-        'draft',
-        'Draft saved. Its review could not be confirmed. Retry Save to recover the same change.',
-      );
+      try {
+        this.store.status(
+          id,
+          'draft',
+          'Draft saved. Its review could not be confirmed. Retry Save to recover the same change.',
+          lease,
+          version,
+        );
+      } catch {
+        /* An expired owner cannot overwrite a newer save or acceptance. */
+      }
       throw new Error(
         'Draft saved. Its review could not be confirmed. Retry Save to recover the same change.',
         { cause: error },

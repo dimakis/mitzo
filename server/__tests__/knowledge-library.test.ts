@@ -38,6 +38,11 @@ afterEach(() => {
 });
 
 describe('accepted knowledge', () => {
+  it('cancels Git reads when the operation authority expires', async () => {
+    await expect(
+      source.read('architecture/overview.md', git('rev-parse', 'HEAD'), AbortSignal.abort()),
+    ).rejects.toThrow();
+  });
   it('reads accepted objects, ignoring dirty task files and later branch commits', async () => {
     const revision = git('rev-parse', 'HEAD');
     writeFileSync(join(root, 'architecture/overview.md'), '# Unaccepted\n');
@@ -82,6 +87,37 @@ describe('accepted knowledge', () => {
 });
 
 describe('operator drafts', () => {
+  it('keeps catalog summaries small and excludes content, while an expired worker cannot overwrite a newer status', () => {
+    const draft = store.create('Change', git('rev-parse', 'HEAD'), [
+      {
+        path: 'architecture/overview.md',
+        base: '# Accepted architecture\n',
+        content: '# My private draft\n',
+      },
+    ]);
+    expect(store.listSummaries()).toEqual([
+      expect.objectContaining({ id: draft.id, documents: [{ path: 'architecture/overview.md' }] }),
+    ]);
+    expect(JSON.stringify(store.listSummaries())).not.toContain('My private draft');
+    const lease = store.acquire(draft.id);
+    store.release(draft.id, lease);
+    store.status(draft.id, 'accepted');
+    expect(() => store.status(draft.id, 'draft', 'Stale failure', lease, draft.version)).toThrow(
+      'lease',
+    );
+    expect(store.get(draft.id).state).toBe('accepted');
+  });
+  it('rejects content that cannot be opened as an accepted UTF-8 document', () => {
+    const documents = [
+      {
+        path: 'architecture/overview.md',
+        base: '# Accepted architecture\n',
+        content: '# Invalid\0text',
+      },
+    ];
+    expect(() => store.create('Change', git('rev-parse', 'HEAD'), documents)).toThrow('invalid');
+    expect(store.list()).toHaveLength(0);
+  });
   it('recovers an initial save with the same request identity without duplicating the change', () => {
     const requestId = '3dc71613-15ab-4f9c-a5ce-25141566f5b9';
     const docs = [

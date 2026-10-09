@@ -23,11 +23,14 @@ export async function knowledgeGit(
   args: string[],
   input?: string,
   indexFile?: string,
+  signal?: AbortSignal,
 ) {
+  signal?.throwIfAborted();
   const child = exec('git', ['-C', directory, ...args], {
     env: { ...knowledgeGitEnvironment(), ...(indexFile ? { GIT_INDEX_FILE: indexFile } : {}) },
     maxBuffer: 8 * 1024 * 1024,
     timeout: 30_000,
+    signal,
   });
   if (input !== undefined) child.child.stdin?.end(input);
   try {
@@ -78,17 +81,29 @@ export class AcceptedKnowledgeSource {
       this.paths.some((scope) => path === scope || path.startsWith(scope + '/'))
     );
   }
-  async revision() {
+  async revision(signal?: AbortSignal) {
     const sha = (
-      await knowledgeGit(this.directory, ['rev-parse', '--verify', this.acceptedRef + '^{commit}'])
+      await knowledgeGit(
+        this.directory,
+        ['rev-parse', '--verify', this.acceptedRef + '^{commit}'],
+        undefined,
+        undefined,
+        signal,
+      )
     ).trim();
     if (!oid.test(sha)) throw new Error('Accepted knowledge revision is invalid');
     return sha;
   }
-  async catalog() {
-    const revision = await this.revision();
+  async catalog(signal?: AbortSignal) {
+    const revision = await this.revision(signal);
     if (this.cached?.revision === revision) return this.cached;
-    const tree = await knowledgeGit(this.directory, ['ls-tree', '-r', '-z', revision]);
+    const tree = await knowledgeGit(
+      this.directory,
+      ['ls-tree', '-r', '-z', revision],
+      undefined,
+      undefined,
+      signal,
+    );
     const documents = tree.split('\0').flatMap((row) => {
       const [meta, path] = row.split('\t');
       if (!path || !meta?.startsWith('100644 blob ') || !this.allowed(path)) return [];
@@ -102,20 +117,42 @@ export class AcceptedKnowledgeSource {
     });
     return (this.cached = { revision, documents });
   }
-  async read(path: string, revision: string) {
+  async read(path: string, revision: string, signal?: AbortSignal) {
     if (!oid.test(revision)) throw new Error('Knowledge revision is invalid');
     if (!this.allowed(path)) throw new Error('Document is outside the library');
     // Old accepted revisions stay addressable. Arbitrary task commits do not.
-    await knowledgeGit(this.directory, ['merge-base', '--is-ancestor', revision, this.acceptedRef]);
-    const entry = await knowledgeGit(this.directory, ['ls-tree', '-z', revision, '--', path]);
+    await knowledgeGit(
+      this.directory,
+      ['merge-base', '--is-ancestor', revision, this.acceptedRef],
+      undefined,
+      undefined,
+      signal,
+    );
+    const entry = await knowledgeGit(
+      this.directory,
+      ['ls-tree', '-z', revision, '--', path],
+      undefined,
+      undefined,
+      signal,
+    );
     const [meta, name] = entry.replace(/\0$/, '').split('\t');
     if (name !== path || !meta?.startsWith('100644 blob '))
       throw new Error('Document is outside the library');
     const blob = meta.split(' ')[2]!;
-    const size = Number((await knowledgeGit(this.directory, ['cat-file', '-s', blob])).trim());
+    const size = Number(
+      (
+        await knowledgeGit(this.directory, ['cat-file', '-s', blob], undefined, undefined, signal)
+      ).trim(),
+    );
     if (!Number.isSafeInteger(size) || size > 5 * 1024 * 1024)
       throw new Error('Document exceeds the editor limit');
-    const content = await knowledgeGit(this.directory, ['cat-file', 'blob', blob]);
+    const content = await knowledgeGit(
+      this.directory,
+      ['cat-file', 'blob', blob],
+      undefined,
+      undefined,
+      signal,
+    );
     if (content.includes('\0') || content.includes('\uFFFD'))
       throw new Error('Document is not UTF-8 text');
     return { path, revision, content };

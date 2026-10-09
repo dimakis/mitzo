@@ -96,11 +96,11 @@ export function createKnowledgeLibraryRouter(
     };
   }
   async function catalog(context: Context) {
-    const catalog = await context.runtime.source.catalog();
+    const catalog = await context.runtime.source.catalog(context.signal);
     context.assert();
     return {
       ...catalog,
-      drafts: context.runtime.store.list(),
+      drafts: context.runtime.store.listSummaries(),
       syncedAt: context.runtime.syncedAt,
       reviewEnabled: Boolean(context.runtime.reviewService),
       acceptanceEnabled: context.runtime.acceptanceEnabled,
@@ -154,7 +154,11 @@ export function createKnowledgeLibraryRouter(
         .strictObject({ path: z.string().refine(safeKnowledgePath), revision })
         .safeParse(req.query);
       if (!input.success) return res.status(400).json({ error: 'Invalid document request' });
-      const result = await context.runtime.source.read(input.data.path, input.data.revision);
+      const result = await context.runtime.source.read(
+        input.data.path,
+        input.data.revision,
+        context.signal,
+      );
       context.assert();
       return res.json(result);
     }),
@@ -171,7 +175,8 @@ export function createKnowledgeLibraryRouter(
       const docs = await Promise.all(
         input.data.documents.map(async (d) => ({
           ...d,
-          base: (await context.runtime.source.read(d.path, input.data.baseRevision)).content,
+          base: (await context.runtime.source.read(d.path, input.data.baseRevision, context.signal))
+            .content,
         })),
       );
       context.assert();
@@ -211,7 +216,7 @@ export function createKnowledgeLibraryRouter(
       const docs = await Promise.all(
         input.data.documents.map(async (d) => ({
           ...d,
-          base: (await context.runtime.source.read(d.path, baseRevision)).content,
+          base: (await context.runtime.source.read(d.path, baseRevision, context.signal)).content,
         })),
       );
       context.assert();
@@ -303,7 +308,13 @@ export function createKnowledgeLibraryRouter(
           throw new KnowledgeDraftConflict('Draft changed before acceptance');
         await context.runtime.publisher.accept(reviewIdentity(context, draft));
         context.assert();
-        const accepted = context.runtime.store.status(draft.id, 'accepted');
+        const accepted = context.runtime.store.status(
+          draft.id,
+          'accepted',
+          undefined,
+          lease,
+          draft.version,
+        );
         try {
           await context.runtime.refresh();
         } catch {

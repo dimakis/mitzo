@@ -21,6 +21,9 @@ export interface KnowledgeDraft {
   error?: string;
 }
 export class KnowledgeDraftConflict extends Error {}
+export type KnowledgeDraftSummary = Omit<KnowledgeDraft, 'documents' | 'publication'> & {
+  documents: { path: string }[];
+};
 export class KnowledgeDraftStore {
   private readonly db: Database.Database;
   constructor(path: string) {
@@ -30,6 +33,16 @@ export class KnowledgeDraftStore {
     this.db.exec(
       'CREATE TABLE IF NOT EXISTS knowledge_drafts (id TEXT PRIMARY KEY, value TEXT NOT NULL); CREATE TABLE IF NOT EXISTS knowledge_draft_leases (id TEXT PRIMARY KEY, token TEXT NOT NULL, expires INTEGER NOT NULL); CREATE TABLE IF NOT EXISTS knowledge_draft_requests (id TEXT PRIMARY KEY, fingerprint TEXT NOT NULL)',
     );
+    if (
+      !(this.db.pragma('table_info(knowledge_drafts)') as { name: string }[]).some(
+        (column) => column.name === 'summary',
+      )
+    ) {
+      this.db.exec('ALTER TABLE knowledge_drafts ADD COLUMN summary TEXT');
+      this.db.transaction(() => {
+        for (const draft of this.list()) this.put(draft);
+      })();
+    }
   }
   close() {
     this.db.close();
@@ -53,6 +66,13 @@ export class KnowledgeDraftStore {
     if (!row) throw new Error('Draft not found');
     return JSON.parse(row.value) as KnowledgeDraft;
   }
+  listSummaries(): KnowledgeDraftSummary[] {
+    return (
+      this.db.prepare('SELECT summary FROM knowledge_drafts ORDER BY rowid DESC').all() as {
+        summary: string;
+      }[]
+    ).map((row) => JSON.parse(row.summary) as KnowledgeDraftSummary);
+  }
   assertIdle(id: string) {
     const lease = this.db
       .prepare('SELECT expires FROM knowledge_draft_leases WHERE id=?')
@@ -75,6 +95,19 @@ export class KnowledgeDraftStore {
   release(id: string, token: string) {
     this.db.prepare('DELETE FROM knowledge_draft_leases WHERE id=? AND token=?').run(id, token);
   }
+  assertLease(id: string, token: string) {
+    const lease = this.db
+      .prepare('SELECT token, expires FROM knowledge_draft_leases WHERE id=?')
+      .get(id) as { token: string; expires: number } | undefined;
+    if (!lease || lease.token !== token || lease.expires <= Date.now())
+      throw new KnowledgeDraftConflict(
+        'The review lease expired. Refresh this draft before continuing.',
+      );
+  }
+  private writable(id: string, lease?: string) {
+    if (lease) this.assertLease(id, lease);
+    else this.assertIdle(id);
+  }
   private validate(documents: KnowledgeDraftDocument[]) {
     if (
       !documents.length ||
@@ -83,6 +116,10 @@ export class KnowledgeDraftStore {
       documents.some(
         (d) =>
           !safeKnowledgePath(d.path) ||
+          [d.content, d.base].some(
+            (value) =>
+              value.includes('\0') || Buffer.from(value, 'utf8').toString('utf8') !== value,
+          ) ||
           Buffer.byteLength(d.content) > 5 * 1024 * 1024 ||
           Buffer.byteLength(d.base) > 5 * 1024 * 1024,
       ) ||
@@ -91,9 +128,22 @@ export class KnowledgeDraftStore {
       throw new Error('Draft documents are invalid or too large');
   }
   private put(draft: KnowledgeDraft) {
+    const summary: KnowledgeDraftSummary = {
+      id: draft.id,
+      title: draft.title,
+      baseRevision: draft.baseRevision,
+      version: draft.version,
+      documents: draft.documents.map((d) => ({ path: d.path })),
+      state: draft.state,
+      updatedAt: draft.updatedAt,
+      review: draft.review,
+      error: draft.error,
+    };
     this.db
-      .prepare('INSERT OR REPLACE INTO knowledge_drafts(id,value) VALUES(?,?)')
-      .run(draft.id, JSON.stringify(draft));
+      .prepare(
+        'INSERT INTO knowledge_drafts(id,value,summary) VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET value=excluded.value,summary=excluded.summary',
+      )
+      .run(draft.id, JSON.stringify(draft), JSON.stringify(summary));
     return draft;
   }
   create(
@@ -160,8 +210,9 @@ export class KnowledgeDraftStore {
       });
     })();
   }
-  receipt(id: string, version: number, review: { url: string; head: string }) {
+  receipt(id: string, version: number, review: { url: string; head: string }, lease?: string) {
     return this.db.transaction(() => {
+      this.writable(id, lease);
       const draft = this.get(id);
       if (version !== draft.version)
         throw new KnowledgeDraftConflict('Draft changed while saving its review');
@@ -173,15 +224,28 @@ export class KnowledgeDraftStore {
       });
     })();
   }
-  prepared(id: string, version: number, head: string) {
+  prepared(id: string, version: number, head: string, lease?: string) {
     return this.db.transaction(() => {
+      this.writable(id, lease);
       const draft = this.get(id);
       if (version !== draft.version)
         throw new KnowledgeDraftConflict('Draft changed while preparing its review');
       return this.put({ ...draft, publication: { version, head } });
     })();
   }
-  status(id: string, state: KnowledgeDraft['state'], error?: string) {
-    return this.db.transaction(() => this.put({ ...this.get(id), state, error }))();
+  status(
+    id: string,
+    state: KnowledgeDraft['state'],
+    error?: string,
+    lease?: string,
+    version?: number,
+  ) {
+    return this.db.transaction(() => {
+      this.writable(id, lease);
+      const draft = this.get(id);
+      if (version !== undefined && draft.version !== version)
+        throw new KnowledgeDraftConflict('Draft changed while checking its review');
+      return this.put({ ...draft, state, error });
+    })();
   }
 }
