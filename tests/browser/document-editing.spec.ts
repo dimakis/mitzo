@@ -377,13 +377,17 @@ test('relative line numbers follow the Vim cursor without changing the draft', a
 
 test('a fullscreen save conflict keeps its draft and latest-version review usable inside the modal', async ({
   page,
-}) => {
+  isMobile,
+}, testInfo) => {
+  const latest =
+    '# Agent update\n\n' +
+    Array.from({ length: 300 }, (_, index) => `Latest line ${index + 1}`).join('\n');
   const writes = await mockDocument(page, '# Original');
   await page.route('**/api/files/write', (route) =>
     route.fulfill({ status: 409, json: { error: 'File changed elsewhere.' } }),
   );
   await page.route('**/api/files/read?**', (route) =>
-    route.fulfill({ json: { path: 'report.md', ext: '.md', content: '# Agent update' } }),
+    route.fulfill({ json: { path: 'report.md', ext: '.md', content: latest } }),
   );
   const source = page.getByRole('textbox', { name: 'Document source' });
   await source.fill('# My fullscreen draft');
@@ -396,8 +400,25 @@ test('a fullscreen save conflict keeps its draft and latest-version review usabl
   await expect(modal.getByRole('region', { name: 'Latest saved version' })).toContainText(
     '# Agent update',
   );
-  await modal.getByRole('button', { name: 'Keep my draft for next save' }).click();
+  expect((await source.boundingBox())!.height).toBeGreaterThan(44);
+  const comparison = modal.getByRole('region', { name: 'Latest saved version' });
+  await comparison.evaluate((element) => {
+    element.scrollTop = element.scrollHeight;
+  });
+  const keep = modal.getByRole('button', { name: 'Keep my draft for next save' });
+  await expect(keep).toBeInViewport();
+  await keep.click({ trial: true });
+  await page.screenshot({ path: testInfo.outputPath('fullscreen-large-conflict.png') });
+  await keep.click();
   await expectSource(source, '# My fullscreen draft');
+  await expect(modal.getByRole('button', { name: 'Undo', exact: true })).toBeDisabled();
+  await expect(modal.getByRole('button', { name: 'Redo', exact: true })).toBeDisabled();
+  if (!isMobile) {
+    await modal.getByRole('button', { name: 'Vim', exact: true }).click();
+    await expect(source).toBeFocused();
+    await source.press('u');
+    await expectSource(source, '# My fullscreen draft');
+  }
   await page.unroute('**/api/files/write');
   // Restore only the synthetic save endpoint, keeping the app entirely offline.
   await page.route('**/api/files/write', (route) => {
@@ -408,7 +429,7 @@ test('a fullscreen save conflict keeps its draft and latest-version review usabl
   await expect(modal).toContainText('All changes saved');
   expect(writes.at(-1)).toMatchObject({
     content: '# My fullscreen draft',
-    expectedContent: '# Agent update',
+    expectedContent: latest,
   });
 });
 
@@ -637,4 +658,105 @@ test('the desktop Files source pane fills the available editor workspace', async
   const sourceBounds = (await source.boundingBox())!;
   const workspaceBounds = (await page.locator('.viewer-content--editing').boundingBox())!;
   expect(sourceBounds.height).toBeGreaterThan(workspaceBounds.height * 0.65);
+});
+
+test('fullscreen Knowledge comparisons scroll independently and preserve space for editing', async ({
+  page,
+}, testInfo) => {
+  const documents = [
+    { path: 'hub/principles.md', title: 'Working principles', area: 'Hub' },
+    { path: 'teams/release.md', title: 'Release process', area: 'Teams' },
+  ];
+  let comparing = false;
+  let saves = 0;
+  let savedDraft: Record<string, unknown> | undefined;
+  const writes: Record<string, unknown>[] = [];
+  const catalog = () => ({
+    revision: comparing ? 'r2' : 'r1',
+    documents,
+    drafts: [],
+    reviewEnabled: false,
+    acceptanceEnabled: false,
+    syncedAt: null,
+  });
+  await page.routeWebSocket('**/*', (socket) => socket.close());
+  await page.route('**/api/**', (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname === '/api/knowledge') return route.fulfill({ json: catalog() });
+    if (url.pathname === '/api/knowledge/refresh') {
+      comparing = true;
+      return route.fulfill({ json: catalog() });
+    }
+    if (url.pathname === '/api/knowledge/document') {
+      const path = url.searchParams.get('path')!;
+      const content = comparing
+        ? '# Updated accepted knowledge\n' +
+          Array.from({ length: 250 }, (_, index) => `${path} accepted line ${index + 1}`).join('\n')
+        : '# Original';
+      return route.fulfill({ json: { path, revision: comparing ? 'r2' : 'r1', content } });
+    }
+    if (url.pathname === '/api/knowledge/drafts') {
+      const body = route.request().postDataJSON();
+      writes.push(body);
+      if (++saves === 1)
+        return route.fulfill({ status: 409, json: { error: 'Accepted knowledge changed.' } });
+      savedDraft = {
+        id: 'fixture-comparison-draft',
+        title: body.title,
+        baseRevision: body.baseRevision,
+        version: 1,
+        state: 'draft',
+        updatedAt: '2026-10-09T12:00:00Z',
+        documents: body.documents.map((document: { path: string; content: string }) => ({
+          ...document,
+          base: '# Updated accepted knowledge',
+        })),
+      };
+      return route.fulfill({ json: { draft: savedDraft } });
+    }
+    if (url.pathname.endsWith('/review')) return route.fulfill({ json: { draft: savedDraft } });
+    return route.fulfill({ json: {} });
+  });
+  await page.goto('/knowledge');
+  await page.getByRole('button', { name: /Working principles/ }).click();
+  const source = page.getByRole('textbox', { name: 'Document source' });
+  await source.fill('# My principles draft');
+  await page.getByRole('button', { name: '+ Add document', exact: true }).click();
+  await page.getByRole('button', { name: /Release process/ }).click();
+  await source.fill('# My release draft');
+  await page.getByRole('button', { name: 'Fullscreen', exact: true }).click();
+  const modal = page.getByRole('dialog', { name: 'Fullscreen document editor' });
+  await modal.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(modal).toContainText('Accepted knowledge changed.');
+  await modal.getByRole('button', { name: 'Compare accepted version', exact: true }).click();
+  const comparison = modal.getByRole('region', { name: 'Compare accepted and draft' });
+  await expect(comparison).toContainText('hub/principles.md');
+  await expect(comparison).toContainText('teams/release.md');
+  const feedback = modal.locator('.document-editor-fullscreen-status');
+  expect((await feedback.boundingBox())!.height).toBeLessThanOrEqual(
+    (await modal.boundingBox())!.height * 0.35 + 1,
+  );
+  expect((await source.boundingBox())!.height).toBeGreaterThan(44);
+  expect(await feedback.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(
+    true,
+  );
+  await feedback.evaluate((element) => {
+    element.scrollTop = element.scrollHeight;
+  });
+  const keep = modal.getByRole('button', { name: 'Keep my draft and save', exact: true });
+  await expect(keep).toBeInViewport();
+  await keep.click({ trial: true });
+  await page.screenshot({ path: testInfo.outputPath('knowledge-large-comparison.png') });
+  await keep.click();
+  await expect(modal).toContainText('Draft saved');
+  await expectSource(source, '# My release draft');
+  expect(writes.at(-1)).toMatchObject({
+    documents: [
+      { path: 'hub/principles.md', content: '# My principles draft' },
+      { path: 'teams/release.md', content: '# My release draft' },
+    ],
+  });
+  // An uncertain initial creation keeps its request identity on retry.
+  expect(writes.at(-1)?.requestId).toBe(writes[0].requestId);
+  await expect(modal.getByRole('alert')).toHaveCount(0);
 });
