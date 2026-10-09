@@ -38,7 +38,7 @@ function config() {
 }
 it('composes only exact CLI/supervisor/device changes, preserving all original state inputs', () => {
   const old = config(),
-    before = structuredClone(old);
+    before = JSON.parse(JSON.stringify(old));
   const proposed = createOwnedRoutingProposal(old, device, pin, original, target);
   expect(old).toEqual(before);
   expect(proposed).toEqual({
