@@ -12,7 +12,11 @@ import { DesktopChatView } from '../DesktopChatView';
 import { PREFERRED_MODEL_KEY } from '../../lib/model-preference';
 import { useDraft } from '../../hooks/useDraft';
 const api = vi.hoisted(() => ({ fetch: vi.fn(), realComposer: false }));
-vi.mock('../../lib/api-fetch', () => ({ apiFetch: api.fetch, getApiBaseUrl: () => '' }));
+vi.mock('../../lib/api-fetch', async () => ({
+  ...(await vi.importActual<typeof import('../../lib/api-fetch')>('../../lib/api-fetch')),
+  apiFetch: api.fetch,
+  getApiBaseUrl: () => '',
+}));
 vi.mock('../../lib/keyboard', () => ({ onKeyboardToggle: () => () => {} }));
 vi.mock('../../hooks/useProgress', () => ({ useProgressByToolId: () => new Map() }));
 vi.mock('../../hooks/useVoice', () => ({
