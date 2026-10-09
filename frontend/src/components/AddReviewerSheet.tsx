@@ -1,3 +1,4 @@
+import { agentProfileLabel } from '@mitzo/protocol';
 import { defaultSeatColor } from '../lib/theme-color';
 import {
   SymposiumConfigurationOperationReceiptSchema,
@@ -1154,7 +1155,7 @@ function ReviewerForm({
                       )
                         .then(({ definition }) => {
                           if (load !== profileLoad.current || lockedRef.current) return;
-                          setName(definition.name);
+                          setName(agentProfileLabel(definition));
                           setRole(definition.role);
                           setInstructions(definition.instructions);
                           setExpectedOutput(definition.expectedOutput);

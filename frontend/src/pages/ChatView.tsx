@@ -1,3 +1,5 @@
+import { ChatAgentProfilePicker } from '../components/ChatAgentProfilePicker';
+import type { AgentProfileSelection } from '@mitzo/protocol';
 import {
   savedRepositoryDraft,
   repositoryDraftKey,
@@ -55,6 +57,15 @@ export function ChatView() {
   );
   const { sessionId } = useParams<{ sessionId?: string }>();
   const [searchParams] = useSearchParams();
+  const [agentProfile, setAgentProfile] = useState<AgentProfileSelection | null>(null);
+  const [agentProfileBlocked, setAgentProfileBlocked] = useState<string | undefined>();
+  const onAgentProfileChange = useCallback(
+    (selection: AgentProfileSelection | null, reason?: string) => {
+      setAgentProfile(selection);
+      setAgentProfileBlocked(reason);
+    },
+    [],
+  );
   const navigate = useNavigate();
   // Store state
   const messages = useMessages();
@@ -315,6 +326,7 @@ export function ChatView() {
       mode,
       cwd: searchParams.get('cwd') ?? undefined,
       extraTools: searchParams.get('extraTools') ?? undefined,
+      ...(!activeSessionId && agentProfile ? { agentProfile } : {}),
       ...(!activeSessionId && !isolation ? { isolation: false } : {}),
     };
     try {
@@ -415,6 +427,13 @@ export function ChatView() {
             ) : (
               <span>Waiting for repository preparation…</span>
             )}
+            <ChatAgentProfilePicker
+              key={chatDraftRevision}
+              sessionId={activeSessionId}
+              search={searchParams.toString()}
+              onChange={onAgentProfileChange}
+              disabled={messages.running}
+            />
           </div>
           <header className="chat-header">
             {!connected && (
@@ -594,6 +613,7 @@ export function ChatView() {
               }
               sendDisabledReason={
                 repositoryHandoffReason ??
+                (!activeSessionId ? agentProfileBlocked : undefined) ??
                 (!activeSessionId && repositorySelection?.blocked
                   ? 'Prepare or remove the repository before sending.'
                   : !activeSessionId && !accountSelection
