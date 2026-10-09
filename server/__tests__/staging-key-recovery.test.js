@@ -1,3 +1,5 @@
+import process from 'node:process';
+import { controlHashes } from '../../scripts/lib/staging-key-controls.mjs';
 import { it, expect } from 'vitest';
 import { verifyKeyRecovery } from '../../scripts/lib/staging-key-recovery.mjs';
 import { mkdtempSync, chmodSync, rmSync, realpathSync } from 'node:fs';
@@ -81,11 +83,18 @@ function boundFixture() {
     containers: [],
     volumes: [],
     configSha256: configHash,
+    registrationSha256: hash('original registration'),
+    topology: { mode: 'owned-custodian', sourceCommit: plan.sourceCommit, transitionId: operation },
     serviceFiles: {},
     workspaceFiles: {},
     gatewayFiles: {},
     registryFiles: {},
   };
+  write(join(oldArchive, 'deployment.lock'), lock);
+  write(join(oldArchive, 'topology.json'), original.topology);
+  writeFileSync(join(oldArchive, 'com.mitzo.staging.plist'), 'original registration', {
+    mode: 0o600,
+  });
   write(join(oldArchive, 'audit.json'), original);
   const old = {
     version: 1,
@@ -104,11 +113,13 @@ function boundFixture() {
   };
   const nextPlan = {
       ...plan,
+      releaseRoot: join(root, 'releases', '1'.repeat(12)),
       sourceCommit: '1'.repeat(40),
       configPath: join(root, 'symposium/settings/owned-host.json'),
     },
     row = { ...oldRow, ...nextPlan, launchId };
   delete row.configPath;
+  delete row.releaseRoot;
   const s = {
     ...original,
     contract: 'native-ed25519-before-store-v1',
@@ -124,8 +135,43 @@ function boundFixture() {
     qualified: [qualified],
     previousRecovery: old,
     previousAuditSha256: old.auditSha256,
-    registrationSha256: 'f'.repeat(64),
+    registrationSha256: hash('second registration'),
+    nodeExecutable: process.execPath,
+    registration: {
+      Label: 'com.mitzo.staging',
+      ProgramArguments: [
+        process.execPath,
+        join(nextPlan.releaseRoot, 'scripts/start-staging-custodian.mjs'),
+        join(root, 'symposium/service/owned-release.json'),
+        join(root, 'symposium/settings/staging-registration.json'),
+        join(root, 'symposium/service/staging-operator.json'),
+        '--canonical',
+      ],
+      EnvironmentVariables: { NODE_OPTIONS: '', NODE_PATH: '', DOTENV_CONFIG_PATH: '/dev/null' },
+      WorkingDirectory: nextPlan.releaseRoot,
+      StandardOutPath: join(root, 'symposium/service/owner.stdout.log'),
+      StandardErrorPath: join(root, 'symposium/service/owner.stderr.log'),
+      KeepAlive: false,
+      RunAtLoad: false,
+      ExitTimeOut: 180,
+    },
+    topology: {
+      mode: 'owned-custodian',
+      sourceCommit: nextPlan.sourceCommit,
+      transitionId: operation,
+    },
   };
+  writeFileSync(join(archive, 'service/staging-custodian.plist'), 'second registration', {
+    mode: 0o600,
+  });
+  s.serviceFiles = {
+    'staging-custodian.plist': { sha256: hash('second registration'), mode: 0o600 },
+  };
+  write(join(archive, 'deployment.lock'), lock);
+  write(join(archive, 'topology.json'), s.topology);
+  writeFileSync(join(archive, 'com.mitzo.staging.plist'), 'second registration', { mode: 0o600 });
+  s.controlRecords = controlHashes(archive);
+  s.previousControlRecords = controlHashes(oldArchive);
   write(join(oldArchive, 'activation-attempt.json'), s.activation);
   write(join(archive, 'cold-activation.json'), s.activation);
   write(join(archive, 'original-activation-intent.json'), s.activation);
@@ -177,6 +223,9 @@ it.each([
   'original lock',
   'qualified history',
   'previous activation',
+  'archived lock',
+  'archived topology',
+  'archived registration',
 ])('fences changed %s and keeps the original lock', async (kind) => {
   const f = boundFixture();
   try {
@@ -190,6 +239,10 @@ it.each([
       f.write(join(f.root, 'symposium/settings/owned-host.json'), {});
     else if (kind === 'fresh key') writeFileSync(f.receipt.freshKeys.publicKey.path, 'changed');
     else if (kind === 'original lock') f.write(join(f.root, 'service/deployment.lock'), {});
+    else if (kind === 'archived lock') f.write(join(f.archive, 'deployment.lock'), {});
+    else if (kind === 'archived topology') f.write(join(f.archive, 'topology.json'), {});
+    else if (kind === 'archived registration')
+      f.write(join(f.archive, 'com.mitzo.staging.plist'), {});
     else if (kind === 'previous activation')
       f.write(join(f.oldArchive, 'activation-attempt.json'), {});
     else {

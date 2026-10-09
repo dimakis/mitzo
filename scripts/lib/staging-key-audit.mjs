@@ -1,3 +1,8 @@
+import {
+  validateKeyRefusalRegistration,
+  validateLoadedHistoricalJob,
+} from './staging-cold-plist.mjs';
+import { controlHashes, verifyHistoricalControls } from './staging-key-controls.mjs';
 import process from 'node:process';
 import { readFileSync, readdirSync, lstatSync } from 'node:fs';
 import { join } from 'node:path';
@@ -75,8 +80,27 @@ export async function auditKeyRefusal(root) {
     JSON.stringify(activation)
   )
     throw Error('Original recovery activation attempt changed');
-  const registrationSha256 = hash(bytes(join(root, 'service/com.mitzo.staging.plist')));
+  const registrationPath = join(root, 'service/com.mitzo.staging.plist'),
+    registrationBytes = bytes(registrationPath),
+    preparedBytes = bytes(join(owned, 'staging-custodian.plist'));
+  const plist = JSON.parse(
+    run('/usr/bin/plutil', ['-convert', 'json', '-o', '-', registrationPath]),
+  );
+  validateKeyRefusalRegistration(
+    root,
+    plan,
+    registrationBytes,
+    preparedBytes,
+    plist,
+    process.execPath,
+  );
+  validateLoadedHistoricalJob(
+    run('/bin/launchctl', ['print', 'gui/' + process.getuid() + '/com.mitzo.staging']),
+    plist,
+  );
+  const registrationSha256 = hash(registrationBytes);
   failedJob(root, { registrationSha256 });
+  verifyHistoricalControls(previous.recovery.archive, previous.s);
   const entries = readdirSync(config.gateway.stateParent).sort(),
     gatewayNames = entries.filter((n) => /^gateway-[A-Za-z0-9]{6}$/.test(n));
   if (
@@ -175,6 +199,10 @@ export async function auditKeyRefusal(root) {
     gatewayFiles: inventory(config.gateway.stateParent),
     registryFiles: inventory(join(root, 'registry')),
     registrationSha256,
+    registration: plist,
+    nodeExecutable: process.execPath,
+    controlRecords: controlHashes(join(root, 'service')),
+    previousControlRecords: controlHashes(previous.recovery.archive),
     configSha256: hash(bytes(plan.configPath)),
     topology,
     vmConfigSha256: hash(bytes(vmConfigPath)),

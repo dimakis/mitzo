@@ -1,3 +1,10 @@
+import {
+  validateKeyRefusalRegistration,
+  validateLoadedHistoricalJob,
+} from './staging-cold-plist.mjs';
+import { run } from './staging-cold-audit.mjs';
+import process from 'node:process';
+import { verifyControlCopies, verifyHistoricalControls } from './staging-key-controls.mjs';
 import { join } from 'node:path';
 import { mkdirSync, cpSync, renameSync } from 'node:fs';
 import Database from 'better-sqlite3';
@@ -62,6 +69,7 @@ export async function prepareKeyMetadata(root, expectedAudit, audit) {
           errorOnExist: true,
           force: false,
         });
+      verifyControlCopies(archive, s.controlRecords);
       sealTree(archive);
     },
     async classify() {
@@ -193,6 +201,16 @@ export async function verifyKeyRecovery(root, recovery, vacant = true) {
   )
     throw Error('Prepared key refusal proof changed');
   classifyKeyRefusal(s);
+  verifyControlCopies(recovery.archive, s.controlRecords);
+  verifyHistoricalControls(recovery.archive, s);
+  validateKeyRefusalRegistration(
+    root,
+    s.plan,
+    bytes(join(recovery.archive, 'com.mitzo.staging.plist')),
+    bytes(join(recovery.archive, 'service/staging-custodian.plist')),
+    s.registration,
+    s.nodeExecutable,
+  );
   for (const [name, expected] of trees(s))
     if (JSON.stringify(inventory(join(recovery.archive, name))) !== JSON.stringify(expected))
       throw Error('Archived key refusal evidence drift');
@@ -216,6 +234,8 @@ export async function verifyKeyRecovery(root, recovery, vacant = true) {
   directory(old.archive);
   const original = privateJson(join(old.archive, 'audit.json'));
   classifyColdRefusal(original);
+  verifyControlCopies(old.archive, s.previousControlRecords);
+  verifyHistoricalControls(old.archive, original);
   if (
     hash(JSON.stringify(original)) !== old.auditSha256 ||
     old.auditSha256 !== s.previousAuditSha256 ||
@@ -292,6 +312,10 @@ export async function verifyKeyRecovery(root, recovery, vacant = true) {
   if (vacant) {
     const { failedJob } = await import('./staging-cold-control.mjs');
     failedJob(root, s);
+    validateLoadedHistoricalJob(
+      run('/bin/launchctl', ['print', 'gui/' + process.getuid() + '/com.mitzo.staging']),
+      s.registration,
+    );
   }
   return { recovery, s, lock };
 }
