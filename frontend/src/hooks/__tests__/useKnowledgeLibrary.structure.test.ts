@@ -717,3 +717,84 @@ it('preserves a sole saved folder on a cancellation conflict and requires saved 
   });
   expect(fetch).not.toHaveBeenCalled();
 });
+it('requires saving excluded documents before last-folder cancellation can close a saved document review', async () => {
+  const document = { path: 'knowledge/a.md', base: 'original', content: 'reviewed document edit' };
+  const draft = {
+    id: 'document-and-folder',
+    title: 'Change',
+    baseRevision: 'base',
+    version: 3,
+    state: 'in-review' as const,
+    documents: [document],
+    directories: ['knowledge/empty'],
+    review: {
+      url: 'https://github.com/example/knowledge/pull/1',
+      head: 'saved-document-head',
+      version: 3,
+      ready: true,
+    },
+    updatedAt: '',
+  };
+  localStorage.setItem(
+    key,
+    JSON.stringify({
+      title: draft.title,
+      baseRevision: 'base',
+      draft,
+      documents: draft.documents,
+      directories: draft.directories,
+      savedDirectories: draft.directories,
+      selected: document.path,
+      saved: JSON.stringify(draft.documents),
+    }),
+  );
+  const { result } = renderHook(useKnowledgeLibrary);
+  await waitFor(() => expect(result.current.catalog).toBeTruthy());
+  fetch.mockResolvedValueOnce({
+    ok: true,
+    json: async () => ({ ...catalog, revision: 'latest', documents: [] }),
+  });
+  await act(async () => {
+    await result.current.compare();
+  });
+  await act(async () => {
+    await result.current.excludeRemovedDocuments();
+  });
+  expect(result.current.copy?.documents).toEqual([]);
+  expect(result.current.copy?.draft?.documents).toEqual([document]);
+  fetch.mockClear();
+  await act(async () => {
+    expect(await result.current.removeDirectory('knowledge/empty')).toBe(false);
+  });
+  expect(fetch).not.toHaveBeenCalled();
+  expect(result.current.pendingDirectories).toEqual(draft.directories);
+  expect(result.current.copy?.draft?.review).toEqual(draft.review);
+  expect(result.current.error).toContain('Save the document removal');
+  const folderDraft = {
+    ...draft,
+    version: 4,
+    baseRevision: 'latest',
+    documents: [],
+    review: { ...draft.review, version: 4, head: 'folder-head', ready: false },
+  };
+  fetch.mockResolvedValueOnce({ ok: true, json: async () => ({ draft: folderDraft }) });
+  await act(async () => {
+    await result.current.save();
+  });
+  expect(fetch.mock.calls[0][0]).toBe('/api/knowledge/drafts/document-and-folder');
+  expect(JSON.parse(fetch.mock.calls[0][1].body)).toMatchObject({
+    version: 3,
+    documents: [],
+    directories: draft.directories,
+  });
+  expect(result.current.copy?.draft?.documents).toEqual([]);
+  fetch.mockResolvedValueOnce({
+    ok: true,
+    json: async () => ({ draft: { ...folderDraft, state: 'closed' } }),
+  });
+  await act(async () => {
+    expect(await result.current.removeDirectory('knowledge/empty')).toBe(true);
+  });
+  expect(fetch.mock.calls.at(-1)?.[0]).toBe('/api/knowledge/drafts/document-and-folder/cancel');
+  expect(JSON.parse(fetch.mock.calls.at(-1)![1].body)).toEqual({ version: 4 });
+});

@@ -471,6 +471,10 @@ export function useKnowledgeLibrary() {
       }
       const remaining = active.directories.filter((directory) => directory !== path);
       if (active.draft && !active.documents.length && !remaining.length) {
+        if (active.draft.documents.length)
+          throw new Error(
+            'Save the document removal before cancelling this folder-only change. Your saved document review and folder are preserved.',
+          );
         try {
           const result = await request<{ draft: KnowledgeDraft }>(
             `/api/knowledge/drafts/${encodeURIComponent(active.draft.id)}/cancel`,
