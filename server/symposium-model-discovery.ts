@@ -65,7 +65,8 @@ export interface DiscoveryOwnedReadyEvidence {
 const ownedReadyEvidence = new WeakSet<DiscoveryOwnedReadyEvidence>();
 /** Private clean disposition for one positively undispatched invocation. */
 export interface DiscoveryNotDispatchedEvidence {
-  readonly kind: 'not-dispatched';
+  /** not-entered grants lease-only release; it says nothing about prior native state. */
+  readonly kind: 'not-dispatched' | 'not-entered';
 }
 const notDispatchedEvidence = new WeakMap<
   DiscoveryNotDispatchedEvidence,
@@ -223,6 +224,7 @@ export async function runSymposiumRoutingDiagnostic(
   const freshOrigin = !!origin && !notDispatchedOrigins.has(origin);
   if (origin) notDispatchedOrigins.add(origin);
   let cleanConfigHash: string | undefined;
+  let noDispatchKind: DiscoveryNotDispatchedEvidence['kind'] = 'not-dispatched';
   let attempt: DiscoveryResult | undefined;
   try {
     const result = await ops.withExclusiveAttempt(async () => {
@@ -233,8 +235,9 @@ export async function runSymposiumRoutingDiagnostic(
         hooks?.onPhysicalCleanup,
         true,
         hooks?.onOwnedReady,
-        (hash) => {
+        (hash, kind) => {
           cleanConfigHash = hash;
+          noDispatchKind = kind;
         },
       );
       return attempt;
@@ -246,7 +249,7 @@ export async function runSymposiumRoutingDiagnostic(
       cleanConfigHash &&
       hooks?.onNotDispatched
     ) {
-      const evidence = Object.freeze({ kind: 'not-dispatched' as const });
+      const evidence = Object.freeze({ kind: noDispatchKind });
       notDispatchedEvidence.set(evidence, { origin, configHash: cleanConfigHash });
       hooks.onNotDispatched(evidence);
     }
@@ -414,11 +417,12 @@ async function runExclusiveDiscovery(
   ) => void,
   routingOnly = false,
   onOwnedReady?: (receipt: DiscoveryReceipt, evidence: DiscoveryOwnedReadyEvidence) => void,
-  onNotDispatched?: (configHash: string) => void,
+  onNotDispatched?: (configHash: string, kind: DiscoveryNotDispatchedEvidence['kind']) => void,
 ): Promise<DiscoveryResult> {
   let receipt: DiscoveryReceipt | undefined;
   let journalAbsenceConfirmed = false;
   let notDispatchedClean = false;
+  let initialCustodyRejected = false;
   let attemptConfigHash: string | undefined;
   let config: DiscoveryConfig;
   let client: DiscoveryReadClient | undefined;
@@ -460,7 +464,17 @@ async function runExclusiveDiscovery(
     config = configSchema.parse(input);
     if (routingOnly !== !!config.routingDiagnostic)
       throw new DiscoveryNotDispatchedError('Diagnostic capability required');
-    await verify();
+    try {
+      await verify();
+    } catch (error) {
+      // This trusted read-only boundary precedes ANY journal read or native dispatch.
+      // Release this invocation's lease only; prior native state remains unknown.
+      if (routingOnly) {
+        initialCustodyRejected = true;
+        attemptConfigHash = createHash('sha256').update(JSON.stringify(config)).digest('hex');
+      }
+      throw error;
+    }
     const configHash = createHash('sha256').update(JSON.stringify(config)).digest('hex');
     attemptConfigHash = configHash;
     const previous = await ops.readReceipt();
@@ -604,7 +618,11 @@ async function runExclusiveDiscovery(
     }
     // Deliberately never surface command output, provider errors, identity or credential data.
     result = {
-      status: receipt || !journalAbsenceConfirmed ? 'reconciliation_required' : 'failed',
+      status: initialCustodyRejected
+        ? 'failed'
+        : receipt || !journalAbsenceConfirmed
+          ? 'reconciliation_required'
+          : 'failed',
       inference: false,
       ...(await diagnose(error)),
     };
@@ -696,7 +714,12 @@ async function runExclusiveDiscovery(
       return { status: 'failed', inference: false, ...(await diagnose(error)) };
     }
   }
-  if (result.status === 'failed' && notDispatchedClean && !receipt && attemptConfigHash)
-    onNotDispatched?.(attemptConfigHash);
+  if (
+    result.status === 'failed' &&
+    (notDispatchedClean || initialCustodyRejected) &&
+    !receipt &&
+    attemptConfigHash
+  )
+    onNotDispatched?.(attemptConfigHash, initialCustodyRejected ? 'not-entered' : 'not-dispatched');
   return { ...result, ...failureDetails, ...(networkObservation ? { networkObservation } : {}) };
 }

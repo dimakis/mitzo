@@ -408,3 +408,65 @@ it('does not trust a misplaced nondispatch error after a native allocation', asy
   expect(f.events).toContain('delete');
   expect(hook).not.toHaveBeenCalled();
 });
+it('first custody rejection vends only lease-release evidence without inspecting or changing prior native state', async () => {
+  const f = fixture();
+  const origin = {};
+  const hook = vi.fn();
+  f.ops.verifyCustody = async () => {
+    throw Error('custody unavailable');
+  };
+  f.ops.readReceipt = vi.fn(async () => ({ name: 'prior', id: 'prior-id' }));
+  f.ops.persistReceipt = vi.fn();
+  f.ops.clearReceipt = vi.fn();
+  f.ops.clearUndispatchedReceipt = vi.fn();
+  f.ops.list = vi.fn();
+  const result = await runSymposiumRoutingDiagnostic(f.config, f.ops, {
+    notDispatchedOrigin: origin,
+    onNotDispatched: hook,
+  });
+  expect(result.status).toBe('failed');
+  expect(hook).toHaveBeenCalledOnce();
+  expect(hook.mock.calls[0][0].kind).toBe('not-entered');
+  expect(() =>
+    assertDiscoveryNotDispatchedEvidence(f.config, hook.mock.calls[0][0], origin),
+  ).not.toThrow();
+  for (const operation of [
+    f.ops.readReceipt,
+    f.ops.persistReceipt,
+    f.ops.clearReceipt,
+    f.ops.clearUndispatchedReceipt,
+    f.ops.list,
+    f.ops.create,
+  ])
+    expect(operation).not.toHaveBeenCalled();
+});
+it.each(['journal-read', 'lock-release', 'malformed'] as const)(
+  'does not invent first-custody clean disposition for %s',
+  async (kind) => {
+    const f = fixture();
+    const hook = vi.fn();
+    if (kind === 'journal-read')
+      f.ops.readReceipt = async () => {
+        throw Error('journal unknown');
+      };
+    if (kind === 'lock-release') {
+      f.ops.verifyCustody = async () => {
+        throw Error('first custody');
+      };
+      f.ops.withExclusiveAttempt = async (fn) => {
+        await fn();
+        throw Error('lock release');
+      };
+    }
+    const input = kind === 'malformed' ? { ...f.config, cliSha256: 'invalid' } : f.config;
+    expect(
+      (
+        await runSymposiumRoutingDiagnostic(input, f.ops, {
+          notDispatchedOrigin: {},
+          onNotDispatched: hook,
+        })
+      ).status,
+    ).toBe('reconciliation_required');
+    expect(hook).not.toHaveBeenCalled();
+  },
+);
