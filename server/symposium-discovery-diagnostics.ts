@@ -32,6 +32,45 @@ export const DiscoveryDiagnosticSchema = z
   })
   .strict();
 export type DiscoveryDiagnostic = z.infer<typeof DiscoveryDiagnosticSchema>;
+const RoutingObservationSchema = z
+  .strictObject({
+    kind: z.literal('account_check'),
+    method: z.literal('GET'),
+    requestOrdinal: z.number().int().min(1).max(Number.MAX_SAFE_INTEGER),
+    outcome: z.enum([
+      'response',
+      'policy_denied',
+      'credential_unavailable',
+      'tls_failed',
+      'transport_failed',
+      'relay_failed',
+      'malformed_response',
+    ]),
+    statusCode: z.number().int().min(100).max(599).optional(),
+    recordedAt: z.string().datetime(),
+  })
+  .refine((value) => (value.outcome === 'response') === (value.statusCode !== undefined));
+export const RoutingNetworkObservationSchema = z
+  .strictObject({
+    source: z.literal('owned-supervisor-console-v1'),
+    availability: z.enum(['captured', 'unavailable']),
+    observations: z.array(RoutingObservationSchema).max(32),
+  })
+  .refine(
+    (value) =>
+      (value.availability === 'captured') === value.observations.length > 0 &&
+      new Set(value.observations.map((row) => row.requestOrdinal)).size ===
+        value.observations.length,
+  );
+export const RoutingDiagnosticResultSchema = z.strictObject({
+  status: z.enum(['complete', 'failed', 'reconciliation_required']),
+  inference: z.literal(false),
+  catalogPublication: z.literal(false),
+  diagnostic: DiscoveryDiagnosticSchema.optional(),
+  diagnosticPersisted: z.boolean().optional(),
+  networkObservation: RoutingNetworkObservationSchema.optional(),
+});
+export type RoutingNetworkObservation = z.infer<typeof RoutingNetworkObservationSchema>;
 export class DiscoveryCommandFailure extends Error {
   constructor(
     readonly detail: Pick<DiscoveryDiagnostic, 'failureClass' | 'commandDispatch' | 'exitCode'>,

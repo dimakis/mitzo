@@ -14,6 +14,8 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import ts from 'typescript';
+import Database from 'better-sqlite3';
+import { REVIEWED_SYMPOSIUM_OWNED_RUNTIME } from '../symposium-owned-runtime-contract.js';
 const roots: string[] = [];
 afterEach(() => roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true })));
 function fixture(canonical = false) {
@@ -21,7 +23,9 @@ function fixture(canonical = false) {
   roots.push(temporary);
   const canonicalRoot = join(temporary, '.local/share/mitzo-staging');
   const sourceCommit = 'a'.repeat(40);
-  const root = canonical ? join(canonicalRoot, 'releases', sourceCommit.slice(0, 12)) : temporary;
+  const root = canonical
+    ? join(canonicalRoot, 'releases', sourceCommit.slice(0, 12))
+    : join(temporary, 'release');
   mkdirSync(root, { recursive: true, mode: 0o700 });
   chmodSync(root, 0o700);
   if (canonical) {
@@ -53,6 +57,19 @@ function fixture(canonical = false) {
     'symposium-staging-identity',
     'symposium-staging-service',
     'symposium-staging-launch-schema',
+    'symposium-staging-runtime-contract',
+    'symposium-owned-runtime-contract',
+    'symposium-staging-registry',
+    'symposium-custodian-retirement',
+    'symposium-owned-config-schema',
+    'symposium-owned-network-config',
+    'credentials',
+    'model-catalog',
+    'symposium-work-vertex-profile',
+    'symposium-publication-registration-schema',
+    'symposium-podman-namespace',
+    'symposium-criterion-definition',
+    'symposium-review-records',
   ])
     writeFileSync(
       join(root, 'dist', name + '.js'),
@@ -64,17 +81,85 @@ function fixture(canonical = false) {
     recursive: true,
     dereference: true,
   });
+  cpSync('node_modules/better-sqlite3', join(root, 'node_modules/better-sqlite3'), {
+    recursive: true,
+    dereference: true,
+  });
+  const registryDirectory = canonical
+    ? join(canonicalRoot, 'registry')
+    : join(temporary, 'registry');
+  mkdirSync(registryDirectory, { recursive: true, mode: 0o700 });
+  const home = canonical ? join(canonicalRoot, 'symposium/home') : join(temporary, 'home');
+  mkdirSync(home, { recursive: true, mode: 0o700 });
   const plan = {
     releaseRoot: root,
     sourceCommit,
     planDirectory: canonical ? join(canonicalRoot, 'symposium/service') : join(root, 'plan'),
     repositoryPath: canonical ? join(canonicalRoot, 'symposium/workspace') : join(root, 'repo'),
-    appHome: canonical ? join(canonicalRoot, 'symposium/home') : root,
+    appHome: home,
     configPath: canonical
       ? join(canonicalRoot, 'symposium/settings/owned-host.json')
       : join(root, 'host.json'),
     entry: 'dist/symposium-custodian-main.js',
+    buildSha256: 'b'.repeat(64),
+    configSha256: 'c'.repeat(64),
+    runtime: REVIEWED_SYMPOSIUM_OWNED_RUNTIME.build,
   };
+  const stateParent = join(temporary, 'gateway-state');
+  mkdirSync(stateParent, { mode: 0o700 });
+  const gatewayStateDirectory = join(stateParent, 'gateway');
+  mkdirSync(gatewayStateDirectory, { mode: 0o700 });
+  const inputs = join(temporary, 'public-inputs');
+  mkdirSync(inputs, { mode: 0o700 });
+  const file = (name: string) => {
+    const path = join(inputs, name);
+    writeFileSync(path, 'offline fixture', { mode: 0o600 });
+    return path;
+  };
+  const build = plan.runtime;
+  const config = {
+    gateway: {
+      executable: file('gateway'),
+      executableSha256: build.gatewaySha256,
+      cliExecutable: file('cli'),
+      cliSha256: build.cliSha256,
+      stateParent,
+      systemCaBundle: file('ca'),
+      gateway: 'test',
+      workspace: 'test',
+      port: 18991,
+      podmanSocket: file('socket'),
+      network: 'test',
+      workloadImage: build.image,
+      sandboxRuntimeImage: build.sandboxRuntimeImage,
+      supervisorImage: build.supervisorImage,
+      tls: {
+        serverCert: file('cert'),
+        serverKey: file('key'),
+        clientCa: file('client-ca'),
+        managementCert: file('management-cert'),
+        managementKey: file('management-key'),
+      },
+      jwt: { signingKey: file('signing'), publicKey: file('public'), kid: file('kid') },
+    },
+    attestationPath: join(inputs, 'pending-attestation'),
+    runtime: { policy: file('policy'), seed: inputs, createDetached: true, sandboxIdLength: 13 },
+    podman: {
+      executable: file('podman'),
+      environment: { HOME: home, PATH: '/usr/bin:/bin' },
+      sandboxNamespace: '',
+    },
+    personal: {
+      workProfiles: [],
+      accountId: 'fixture',
+      label: 'Fixture',
+      selectedModel: 'luna',
+      models: [{ id: 'luna', label: 'Luna' }],
+    },
+    artifacts: [],
+    providerProfiles: [{ path: file('profile'), sha256: 'd'.repeat(64) }],
+  };
+  writeFileSync(plan.configPath, JSON.stringify(config), { mode: 0o600 });
   writeFileSync(join(plan.planDirectory, 'owned-release.json'), JSON.stringify(plan), {
     mode: 0o600,
   });
@@ -83,7 +168,7 @@ function fixture(canonical = false) {
     : join(root, 'registration.json');
   const registration = {
     capacity: 1,
-    registryDirectory: canonical ? join(canonicalRoot, 'registry') : join(root, 'registry'),
+    registryDirectory,
     ownerChat: 'cli-test',
     purpose: 'canonical entry coverage',
     retentionReason: 'synthetic test only',
@@ -102,7 +187,7 @@ function fixture(canonical = false) {
   });
   writeFileSync(
     join(root, 'dist/symposium-owned-release.js'),
-    `import {readFileSync,writeFileSync} from 'node:fs'; export const readOwnedReleasePlan=p=>JSON.parse(readFileSync(p)); export const verifyOwnedRelease=()=>{}; export const claimOwnedLaunch=p=>writeFileSync(p.planDirectory+'/launch.intent','claimed',{flag:'wx'});`,
+    `import {readFileSync,writeFileSync,existsSync} from 'node:fs'; export const readOwnedReleasePlan=p=>JSON.parse(readFileSync(p)); export const verifyOwnedRelease=p=>{const path=p.planDirectory+'/verify-count.json';writeFileSync(path,JSON.stringify((existsSync(path)?JSON.parse(readFileSync(path)):0)+1),{mode:0o600});}; export const claimOwnedLaunch=p=>writeFileSync(p.planDirectory+'/launch.intent','claimed',{flag:'wx'});`,
   );
   writeFileSync(
     join(root, 'dist/actual-staging-launch.js'),
@@ -111,20 +196,12 @@ function fixture(canonical = false) {
     }).outputText,
   );
   writeFileSync(
-    join(root, 'dist/symposium-staging-registry.js'),
-    `export const openStagingRegistry=()=>{throw Error('No native registry in auth/schema fixture');};`,
-  );
-  writeFileSync(
-    join(root, 'dist/symposium-owned-config-schema.js'),
-    `export const readOwnedSymposiumHostConfig=()=>{throw Error('No native configuration in auth/schema fixture');};`,
-  );
-  writeFileSync(
     join(root, 'dist/symposium-staging-launch.js'),
-    `export {StagingLaunchSchema} from './actual-staging-launch.js'; export const launchStagingCustodian=async(p,r,d)=>{d.verify(p); d.claim(p); await d.run({});};`,
+    `export {StagingLaunchSchema,launchStagingCustodian} from './actual-staging-launch.js';`,
   );
   writeFileSync(
     join(root, 'dist/symposium-custodian-main.js'),
-    `export const runSymposiumCustodian=async()=>{console.log(JSON.stringify({port:process.env.PORT,bind:process.env.MITZO_BIND_HOST,passphraseCorrect:process.env.AUTH_PASSPHRASE===${JSON.stringify(operator.AUTH_PASSPHRASE)},secretCorrect:process.env.AUTH_SECRET===${JSON.stringify(operator.AUTH_SECRET)},ambient:Object.keys(process.env).filter(k=>['GH_TOKEN','HTTPS_PROXY','GOOGLE_APPLICATION_CREDENTIALS'].includes(k))}));};`,
+    `import {writeCustodianRetirementReceipt} from './symposium-custodian-retirement.js'; export const runSymposiumCustodian=async(hooks)=>{if(hooks.admissionBuildSelection!==undefined)throw Error('Unexpected successor selector'); const identity={instanceId:'fixture-original',controllerGeneration:1};hooks.observeRetirement('retiring',${JSON.stringify(stateParent)},identity);writeCustodianRetirementReceipt({stateParent:${JSON.stringify(stateParent)},gatewayStateDirectory:${JSON.stringify(gatewayStateDirectory)},...identity});hooks.observeRetirement('retired',${JSON.stringify(stateParent)});console.log(JSON.stringify({port:process.env.PORT,bind:process.env.MITZO_BIND_HOST,passphraseCorrect:process.env.AUTH_PASSPHRASE===${JSON.stringify(operator.AUTH_PASSPHRASE)},secretCorrect:process.env.AUTH_SECRET===${JSON.stringify(operator.AUTH_SECRET)},ambient:Object.keys(process.env).filter(k=>['GH_TOKEN','HTTPS_PROXY','GOOGLE_APPLICATION_CREDENTIALS'].includes(k))}));};`,
   );
   const args = [
     ...(canonical ? ['--import', join(root, 'test-operator.mjs')] : []),
@@ -134,7 +211,22 @@ function fixture(canonical = false) {
     operatorPath,
     ...(canonical ? ['--canonical'] : []),
   ];
-  return { root, args, operator, operatorPath, registration, registrationPath, plan };
+  return { root, args, operator, operatorPath, registration, registrationPath, plan, config };
+}
+function assertOriginalLaunch(f: ReturnType<typeof fixture>) {
+  expect(JSON.parse(readFileSync(join(f.plan.planDirectory, 'verify-count.json'), 'utf8'))).toBe(2);
+  const db = new Database(join(f.registration.registryDirectory, 'staging.db'), {
+    readonly: true,
+    fileMustExist: true,
+  });
+  try {
+    expect(db.prepare('SELECT capacity FROM policy WHERE id=1').get()).toEqual({ capacity: 1 });
+    expect(db.prepare('SELECT state,instanceId,controllerGeneration FROM launches').all()).toEqual([
+      { state: 'retired', instanceId: 'fixture-original', controllerGeneration: 1 },
+    ]);
+  } finally {
+    db.close();
+  }
 }
 it('starts through the private file transport with no ambient credentials and refuses a second owner', () => {
   const f = fixture();
@@ -156,6 +248,7 @@ it('starts through the private file transport with no ambient credentials and re
   });
   expect(result.stdout).not.toContain(f.operator.AUTH_PASSPHRASE);
   expect(result.stdout).not.toContain(f.operator.AUTH_SECRET);
+  assertOriginalLaunch(f);
   expect(spawnSync(process.execPath, f.args, { encoding: 'utf8', env }).status).not.toBe(0);
 });
 it('refuses exposed settings before launch intent', () => {
@@ -179,7 +272,28 @@ it('starts the canonical CLI path with the actual registration/auth guards', () 
   expect(result.status, result.stderr).toBe(0);
   expect(JSON.parse(result.stdout)).toMatchObject({ port: '3190', bind: '127.0.0.1', ambient: [] });
   expect(existsSync(join(f.plan.planDirectory, 'launch.intent'))).toBe(true);
+  assertOriginalLaunch(f);
 });
+it.each(['configured-cli', 'plan-manifest'] as const)(
+  'uses the actual subprocess classifier to refuse %s drift before claim',
+  (failure) => {
+    const f = fixture(true);
+    if (failure === 'configured-cli')
+      Object.assign(f.config.gateway, { cliSha256: 'e'.repeat(64) });
+    else Object.assign(f.plan, { runtime: { ...f.plan.runtime, imageDigest: 'e'.repeat(64) } });
+    writeFileSync(f.plan.configPath, JSON.stringify(f.config), { mode: 0o600 });
+    writeFileSync(join(f.plan.planDirectory, 'owned-release.json'), JSON.stringify(f.plan), {
+      mode: 0o600,
+    });
+    const result = spawnSync(process.execPath, f.args, {
+      encoding: 'utf8',
+      env: { PATH: process.env.PATH },
+    });
+    expect(result.status).not.toBe(0);
+    expect(existsSync(join(f.plan.planDirectory, 'launch.intent'))).toBe(false);
+    expect(existsSync(join(f.registration.registryDirectory, 'staging.db'))).toBe(false);
+  },
+);
 it.each([
   'capacity',
   'registry',

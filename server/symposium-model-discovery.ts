@@ -3,6 +3,9 @@ import {
   DiscoveryCommandFailure,
   DiscoveryNativeMetadataFailure,
   DiscoveryDiagnosticSchema,
+  RoutingDiagnosticResultSchema,
+  RoutingNetworkObservationSchema,
+  type RoutingNetworkObservation,
   type DiscoveryDiagnostic,
 } from './symposium-discovery-diagnostics.js';
 import { createHash, randomBytes } from 'node:crypto';
@@ -19,6 +22,13 @@ const configSchema = z
     gateway: identifier,
     workspace: identifier,
     provider: z.object({ name: identifier, id: identifier }),
+    routingDiagnostic: z
+      .strictObject({
+        format: z.literal('owned-supervisor-console-v1'),
+        logLevel: z.literal('off,openshell.routing_http=debug'),
+        supervisorImage: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+      })
+      .optional(),
   })
   .strict();
 export type DiscoveryConfig = z.infer<typeof configSchema>;
@@ -48,6 +58,103 @@ const sandboxSchema = z.object({
   labels: z.record(z.string(), z.string()),
 });
 type Sandbox = z.infer<typeof sandboxSchema>;
+/** Opaque same-process proof of one exact Ready observation, never reconstructed from a journal. */
+export interface DiscoveryOwnedReadyEvidence {
+  readonly receipt: Readonly<DiscoveryReceipt>;
+}
+const ownedReadyEvidence = new WeakSet<DiscoveryOwnedReadyEvidence>();
+/** Private clean disposition for one positively undispatched invocation. */
+export interface DiscoveryNotDispatchedEvidence {
+  /** not-entered grants lease-only release; it says nothing about prior native state. */
+  readonly kind: 'not-dispatched' | 'not-entered';
+}
+const notDispatchedEvidence = new WeakMap<
+  DiscoveryNotDispatchedEvidence,
+  { origin: object; configHash: string }
+>();
+const notDispatchedOrigins = new WeakSet<object>();
+export function assertDiscoveryNotDispatchedEvidence(
+  input: DiscoveryConfig,
+  evidence: DiscoveryNotDispatchedEvidence,
+  origin: object,
+): void {
+  try {
+    const retained = notDispatchedEvidence.get(evidence);
+    const config = configSchema.parse(input);
+    if (
+      !retained ||
+      retained.origin !== origin ||
+      retained.configHash !== createHash('sha256').update(JSON.stringify(config)).digest('hex')
+    )
+      throw Error('changed');
+  } catch {
+    throw Error('Not-dispatched evidence changed');
+  }
+}
+
+export interface DiscoveryPhysicalCleanupEvidence {
+  readonly receipt: Readonly<DiscoveryReceipt>;
+}
+const physicalCleanupEvidence = new WeakSet<DiscoveryPhysicalCleanupEvidence>();
+export function assertDiscoveryOwnedReadyEvidence(evidence: DiscoveryOwnedReadyEvidence): void {
+  if (!ownedReadyEvidence.has(evidence)) throw Error('Owned Ready evidence unavailable');
+}
+export function assertDiscoveryPhysicalCleanupEvidence(
+  ready: DiscoveryOwnedReadyEvidence,
+  cleanup: DiscoveryPhysicalCleanupEvidence,
+): void {
+  assertDiscoveryOwnedReadyEvidence(ready);
+  if (
+    !physicalCleanupEvidence.has(cleanup) ||
+    JSON.stringify(ready.receipt) !== JSON.stringify(cleanup.receipt)
+  )
+    throw Error('Physical cleanup evidence changed');
+}
+/** Original dispatch binding only; this does not grant Ready or adoption authority. */
+export function assertDiscoveryOriginalPhysicalCleanupEvidence(
+  bound: Pick<DiscoveryReceipt, 'name' | 'claim' | 'configHash'>,
+  cleanup: DiscoveryPhysicalCleanupEvidence,
+): void {
+  if (
+    !physicalCleanupEvidence.has(cleanup) ||
+    !cleanup.receipt.id ||
+    cleanup.receipt.name !== bound.name ||
+    cleanup.receipt.claim !== bound.claim ||
+    cleanup.receipt.configHash !== bound.configHash
+  )
+    throw Error('Physical cleanup evidence changed');
+}
+function physicalCleanupProof(retained: DiscoveryReceipt): DiscoveryPhysicalCleanupEvidence {
+  const receipt = receiptSchema.parse(retained);
+  if (!receipt.id) throw Error('Physical cleanup identity unavailable');
+  const evidence = Object.freeze({ receipt: Object.freeze(structuredClone(receipt)) });
+  physicalCleanupEvidence.add(evidence);
+  return evidence;
+}
+
+export function createDiscoveryOwnedReadyEvidence(
+  input: DiscoveryConfig,
+  retained: DiscoveryReceipt,
+  observed: unknown,
+): DiscoveryOwnedReadyEvidence {
+  const config = configSchema.parse(input);
+  const expected = receiptSchema.parse(retained);
+  const row = sandboxSchema.parse(observed);
+  if (
+    !expected.id ||
+    expected.configHash !== createHash('sha256').update(JSON.stringify(config)).digest('hex') ||
+    row.phase !== 'Ready' ||
+    row.id !== expected.id ||
+    row.name !== expected.name ||
+    row.workspace !== config.workspace ||
+    row.labels['mitzo.discovery'] !== 'models' ||
+    row.labels['mitzo.discovery.claim'] !== discoveryClaimLabel(expected.claim)
+  )
+    throw Error('Owned Ready evidence changed');
+  const evidence = Object.freeze({ receipt: Object.freeze(structuredClone(expected)) });
+  ownedReadyEvidence.add(evidence);
+  return evidence;
+}
 export interface DiscoveryReadClient {
   initialize(): Promise<unknown>;
   request(method: string, params: Record<string, unknown>): Promise<unknown>;
@@ -58,6 +165,7 @@ export interface DiscoveryReadClient {
 export class DiscoveryNotDispatchedError extends Error {}
 export interface DiscoveryOperations {
   recordDiagnostic?(diagnostic: DiscoveryDiagnostic): Promise<void>;
+  observeRouting?(receipt: DiscoveryReceipt): Promise<unknown>;
   withExclusiveAttempt<T>(operation: () => Promise<T>): Promise<T>;
   verifyCustody(config: DiscoveryConfig): Promise<void>;
   readReceipt(): Promise<unknown>;
@@ -79,14 +187,18 @@ export interface DiscoveryOperations {
   physicalAbsent(receipt: DiscoveryReceipt): Promise<boolean>;
   wait(): Promise<void>;
 }
-export type DiscoveryResult =
+export type DiscoveryResult = (
   | { status: 'complete'; inference: false; modelCount: number; lunaModels: string[] }
   | {
       status: 'failed' | 'reconciliation_required' | 'reconciled';
       inference: false;
       diagnostic?: DiscoveryDiagnostic;
       diagnosticPersisted?: boolean;
-    };
+    }
+) & { networkObservation?: RoutingNetworkObservation };
+/** Routing metadata only; completion never publishes a model catalog. */
+export { RoutingDiagnosticResultSchema } from './symposium-discovery-diagnostics.js';
+export type RoutingDiagnosticResult = z.infer<typeof RoutingDiagnosticResultSchema>;
 
 /** Account and model metadata only. No thread/turn API, inference, or automatic retry. */
 export async function runSymposiumModelDiscovery(
@@ -110,17 +222,120 @@ export async function runSymposiumModelDiscovery(
     };
   }
 }
+/** Explicit operator-only routing read. Uses the original allocation and cleanup fences;
+ * no model list or catalog callback can be supplied to this entry point. */
+export async function runSymposiumRoutingDiagnostic(
+  input: DiscoveryConfig,
+  ops: DiscoveryOperations,
+  hooks?: {
+    onPhysicalCleanup?(receipt: DiscoveryReceipt, evidence: DiscoveryPhysicalCleanupEvidence): void;
+    onOwnedReady?(receipt: DiscoveryReceipt, evidence: DiscoveryOwnedReadyEvidence): void;
+    notDispatchedOrigin?: object;
+    onNotDispatched?(evidence: DiscoveryNotDispatchedEvidence): void;
+  },
+): Promise<RoutingDiagnosticResult> {
+  const origin = hooks?.notDispatchedOrigin;
+  const freshOrigin = !!origin && !notDispatchedOrigins.has(origin);
+  if (origin) notDispatchedOrigins.add(origin);
+  let cleanConfigHash: string | undefined;
+  let noDispatchKind: DiscoveryNotDispatchedEvidence['kind'] = 'not-dispatched';
+  let attempt: DiscoveryResult | undefined;
+  try {
+    const result = await ops.withExclusiveAttempt(async () => {
+      attempt = await runExclusiveDiscovery(
+        input,
+        ops,
+        undefined,
+        hooks?.onPhysicalCleanup,
+        true,
+        hooks?.onOwnedReady,
+        (hash, kind) => {
+          cleanConfigHash = hash;
+          noDispatchKind = kind;
+        },
+      );
+      return attempt;
+    });
+    if (
+      result.status === 'failed' &&
+      freshOrigin &&
+      origin &&
+      cleanConfigHash &&
+      hooks?.onNotDispatched
+    ) {
+      const evidence = Object.freeze({ kind: noDispatchKind });
+      notDispatchedEvidence.set(evidence, { origin, configHash: cleanConfigHash });
+      hooks.onNotDispatched(evidence);
+    }
+    return RoutingDiagnosticResultSchema.parse({
+      status: result.status === 'reconciled' ? 'failed' : result.status,
+      inference: false,
+      catalogPublication: false,
+      ...('diagnostic' in result && result.diagnostic
+        ? {
+            diagnostic: result.diagnostic,
+            diagnosticPersisted: result.diagnosticPersisted,
+          }
+        : {}),
+      ...(result.networkObservation ? { networkObservation: result.networkObservation } : {}),
+    });
+  } catch {
+    return RoutingDiagnosticResultSchema.parse({
+      status: 'reconciliation_required',
+      inference: false,
+      catalogPublication: false,
+      ...(attempt?.networkObservation ? { networkObservation: attempt.networkObservation } : {}),
+      ...(attempt && 'diagnostic' in attempt && attempt.diagnostic
+        ? {
+            diagnostic: attempt.diagnostic,
+            diagnosticPersisted: attempt.diagnosticPersisted,
+          }
+        : {}),
+    });
+  }
+}
 /** Same-process cleanup capability, pinned to one exact known sandbox and config.
  * Physical cleanup proof survives a later journal-clear/postcheck/lock-release failure.
  * Every retry still requires fresh custody checks and acquisition of the attempt lock. */
+export interface DiscoveryRecoveryCapability {
+  (ops: DiscoveryOperations): Promise<DiscoveryResult>;
+  /** Only the original runner's positive physical-absence callback may call this. */
+  confirmPhysicalCleanup(
+    receipt: DiscoveryReceipt,
+    evidence?: DiscoveryPhysicalCleanupEvidence,
+  ): void;
+  physicalCleanupEvidence(): DiscoveryPhysicalCleanupEvidence | undefined;
+}
+export interface DiscoveryOriginalDispatchAuthority {
+  readonly kind: 'original-dispatch-recovery';
+}
+const originalDispatchAuthorities = new WeakMap<
+  DiscoveryOriginalDispatchAuthority,
+  (receipt: DiscoveryReceipt) => void
+>();
+/** Trusted workspace constructor only; the validator requires its active original scope. */
+export function createDiscoveryOriginalDispatchAuthority(
+  assertOriginal: (receipt: DiscoveryReceipt) => void,
+): DiscoveryOriginalDispatchAuthority {
+  const authority = Object.freeze({ kind: 'original-dispatch-recovery' as const });
+  originalDispatchAuthorities.set(authority, assertOriginal);
+  return authority;
+}
 export function createSymposiumModelDiscoveryRecovery(
   input: DiscoveryConfig,
   retained: DiscoveryReceipt,
-): (ops: DiscoveryOperations) => Promise<DiscoveryResult> {
+  evidence?: DiscoveryOwnedReadyEvidence,
+  originalAuthority?: DiscoveryOriginalDispatchAuthority,
+): DiscoveryRecoveryCapability {
   const pinnedConfig = structuredClone(input);
   const pinnedReceipt = structuredClone(retained);
   let physicalCleanupProven = false;
-  return async (ops) => {
+  let retainedPhysicalCleanup: DiscoveryPhysicalCleanupEvidence | undefined;
+  const pendingAuthorized =
+    !!evidence &&
+    ownedReadyEvidence.has(evidence) &&
+    JSON.stringify(evidence.receipt) === JSON.stringify(receiptSchema.parse(pinnedReceipt));
+  const recovery = async (ops: DiscoveryOperations): Promise<DiscoveryResult> => {
     try {
       const expected = receiptSchema.parse(pinnedReceipt);
       const config = configSchema.parse(pinnedConfig);
@@ -135,9 +350,41 @@ export function createSymposiumModelDiscoveryRecovery(
         // This is retained positive evidence, never an inference from bare absence.
         if (journal === undefined && physicalCleanupProven)
           return { status: 'reconciled', inference: false };
-        const current = receiptSchema.parse(journal);
-        if (JSON.stringify(current) !== JSON.stringify(expected))
-          throw new Error('Discovery journal changed');
+        let current = receiptSchema.parse(journal);
+        if (JSON.stringify(current) !== JSON.stringify(expected)) {
+          const pending = {
+            name: expected.name,
+            claim: expected.claim,
+            configHash: expected.configHash,
+          };
+          if (JSON.stringify(current) !== JSON.stringify(pending))
+            throw new Error('Discovery journal changed');
+          const assertOriginal =
+            originalAuthority && originalDispatchAuthorities.get(originalAuthority);
+          if (!pendingAuthorized && !assertOriginal)
+            throw new Error('Original dispatch unavailable');
+          assertOriginal?.(expected);
+          const rows = z.array(sandboxSchema).parse(await ops.list());
+          const matches = rows.filter(
+            (row) => row.name === expected.name || row.id === expected.id,
+          );
+          if (
+            matches.length !== 1 ||
+            matches[0].id !== expected.id ||
+            matches[0].name !== expected.name ||
+            matches[0].workspace !== config.workspace ||
+            matches[0].labels['mitzo.discovery'] !== 'models' ||
+            matches[0].labels['mitzo.discovery.claim'] !== discoveryClaimLabel(expected.claim)
+          )
+            throw new Error('Discovery pending identity changed');
+          assertOriginal?.(expected);
+          await ops.verifyCustody(config);
+          await ops.persistReceipt(expected, false);
+          await ops.verifyCustody(config);
+          current = receiptSchema.parse(await ops.readReceipt());
+          if (JSON.stringify(current) !== JSON.stringify(expected))
+            throw new Error('Discovery journal changed');
+        }
         return runExclusiveDiscovery(
           config,
           {
@@ -151,17 +398,42 @@ export function createSymposiumModelDiscoveryRecovery(
             },
           },
           undefined,
-          (cleaned) => {
+          (cleaned, cleanupEvidence) => {
             if (JSON.stringify(cleaned) !== JSON.stringify(expected))
               throw new Error('Discovery cleanup identity changed');
+            retainedPhysicalCleanup = cleanupEvidence;
             physicalCleanupProven = true;
           },
+          !!config.routingDiagnostic,
         );
       });
     } catch {
       return { status: 'reconciliation_required', inference: false };
     }
   };
+  return Object.assign(recovery, {
+    physicalCleanupEvidence: () => retainedPhysicalCleanup,
+    confirmPhysicalCleanup(receipt: DiscoveryReceipt, evidence?: DiscoveryPhysicalCleanupEvidence) {
+      const expected = receiptSchema.parse(pinnedReceipt);
+      const observed = receiptSchema.parse(receipt);
+      const config = configSchema.parse(pinnedConfig);
+      if (
+        !expected.id ||
+        JSON.stringify(expected) !== JSON.stringify(observed) ||
+        expected.configHash !== createHash('sha256').update(JSON.stringify(config)).digest('hex')
+      )
+        throw new Error('Discovery cleanup identity changed');
+      if (evidence) {
+        if (
+          !physicalCleanupEvidence.has(evidence) ||
+          JSON.stringify(evidence.receipt) !== JSON.stringify(expected)
+        )
+          throw Error('Physical cleanup evidence changed');
+        retainedPhysicalCleanup = evidence;
+      }
+      physicalCleanupProven = true;
+    },
+  });
 }
 /** Stateless cleanup rejects missing journals. Retain the factory capability for retries. */
 export async function recoverSymposiumModelDiscovery(
@@ -175,15 +447,25 @@ async function runExclusiveDiscovery(
   input: DiscoveryConfig,
   ops: DiscoveryOperations,
   onCatalog?: (models: CatalogModel[]) => void,
-  onPhysicalCleanup?: (receipt: DiscoveryReceipt) => void,
+  onPhysicalCleanup?: (
+    receipt: DiscoveryReceipt,
+    evidence: DiscoveryPhysicalCleanupEvidence,
+  ) => void,
+  routingOnly = false,
+  onOwnedReady?: (receipt: DiscoveryReceipt, evidence: DiscoveryOwnedReadyEvidence) => void,
+  onNotDispatched?: (configHash: string, kind: DiscoveryNotDispatchedEvidence['kind']) => void,
 ): Promise<DiscoveryResult> {
   let receipt: DiscoveryReceipt | undefined;
   let journalAbsenceConfirmed = false;
+  let notDispatchedClean = false;
+  let initialCustodyRejected = false;
+  let attemptConfigHash: string | undefined;
   let config: DiscoveryConfig;
   let client: DiscoveryReadClient | undefined;
   let result: DiscoveryResult;
   let discovered: CatalogModel[] | undefined;
   let resumed = false;
+  let networkObservation: RoutingNetworkObservation | undefined;
   let creationConfirmed = false;
   let stage: DiscoveryDiagnostic['stage'] = 'preflight';
   let createDispatch: DiscoveryDiagnostic['createDispatch'] = 'not-entered';
@@ -216,8 +498,21 @@ async function runExclusiveDiscovery(
     (!expected.id || row.id === expected.id);
   try {
     config = configSchema.parse(input);
-    await verify();
+    if (routingOnly !== !!config.routingDiagnostic)
+      throw new DiscoveryNotDispatchedError('Diagnostic capability required');
+    try {
+      await verify();
+    } catch (error) {
+      // This trusted read-only boundary precedes ANY journal read or native dispatch.
+      // Release this invocation's lease only; prior native state remains unknown.
+      if (routingOnly) {
+        initialCustodyRejected = true;
+        attemptConfigHash = createHash('sha256').update(JSON.stringify(config)).digest('hex');
+      }
+      throw error;
+    }
     const configHash = createHash('sha256').update(JSON.stringify(config)).digest('hex');
+    attemptConfigHash = configHash;
     const previous = await ops.readReceipt();
     if (previous !== undefined) {
       const parsed = receiptSchema.parse(previous);
@@ -229,6 +524,8 @@ async function runExclusiveDiscovery(
       creationConfirmed = !!receipt.id;
     } else {
       journalAbsenceConfirmed = true;
+      if (routingOnly && !ops.observeRouting)
+        throw new DiscoveryNotDispatchedError('Diagnostic observer required');
       receipt = {
         name: `md-${randomBytes(8).toString('hex')}`,
         claim: randomBytes(32).toString('hex'),
@@ -258,6 +555,8 @@ async function runExclusiveDiscovery(
         if (selected) {
           creationConfirmed = true;
           receipt.id = selected.id;
+          if (selected.phase === 'Ready' && onOwnedReady)
+            onOwnedReady(receipt, createDiscoveryOwnedReadyEvidence(config, receipt, selected));
           await ops.persistReceipt(receipt, false);
         }
         if (selected?.phase === 'Ready') break;
@@ -295,56 +594,92 @@ async function runExclusiveDiscovery(
         .object({ account: z.object({ type: z.literal('chatgpt') }) })
         .safeParse(await client.request('account/read', { refreshToken: false }));
       if (!account.success) throw new DiscoveryNativeMetadataFailure('account_schema');
-      stage = 'model-list';
-      let pages = 0;
-      let expired = false;
-      let timeout: ReturnType<typeof setTimeout> | undefined;
-      const deadline = new Promise<never>((_resolve, reject) => {
-        timeout = setTimeout(() => {
+      if (!routingOnly) {
+        stage = 'model-list';
+        let pages = 0;
+        let expired = false;
+        let timeout: ReturnType<typeof setTimeout> | undefined;
+        const deadline = new Promise<never>((_resolve, reject) => {
+          timeout = setTimeout(() => {
+            expired = true;
+            reject(new Error('Model discovery deadline exceeded'));
+          }, 60_000);
+        });
+        let models;
+        try {
+          models = await Promise.race([
+            readCodexModels({
+              request: (method, params) => {
+                if (method !== 'model/list' || expired || ++pages > 100)
+                  throw new Error('Bounded read-only discovery');
+                return client!.request(method, params);
+              },
+            }),
+            deadline,
+          ]);
+        } finally {
           expired = true;
-          reject(new Error('Model discovery deadline exceeded'));
-        }, 60_000);
-      });
-      let models;
-      try {
-        models = await Promise.race([
-          readCodexModels({
-            request: (method, params) => {
-              if (method !== 'model/list' || expired || ++pages > 100)
-                throw new Error('Bounded read-only discovery');
-              return client!.request(method, params);
-            },
-          }),
-          deadline,
-        ]);
-      } finally {
-        expired = true;
-        clearTimeout(timeout);
+          clearTimeout(timeout);
+        }
+        discovered = models;
+        const lunaModels = models
+          .map((model) => model.id)
+          .filter((id) => /^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$/.test(id) && /luna/i.test(id));
+        await verify();
+        result = { status: 'complete', inference: false, modelCount: models.length, lunaModels };
+      } else {
+        await verify();
+        result = { status: 'complete', inference: false, modelCount: 0, lunaModels: [] };
       }
-      discovered = models;
-      const lunaModels = models
-        .map((model) => model.id)
-        .filter((id) => /^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,127}$/.test(id) && /luna/i.test(id));
-      await verify();
-      result = { status: 'complete', inference: false, modelCount: models.length, lunaModels };
     } else result = { status: 'reconciled', inference: false };
   } catch (error) {
-    if (error instanceof DiscoveryNotDispatchedError && !resumed) {
+    if (
+      error instanceof DiscoveryNotDispatchedError &&
+      !resumed &&
+      !creationConfirmed &&
+      !receipt?.id &&
+      !client &&
+      (stage === 'preflight' || stage === 'create')
+    ) {
       try {
         if (receipt && ops.clearUndispatchedReceipt) await ops.clearUndispatchedReceipt(receipt);
         else if (receipt) await ops.clearReceipt(receipt);
-        else throw new Error('Missing journal identity', { cause: error });
+        else if (!journalAbsenceConfirmed)
+          throw new Error('Missing journal identity', { cause: error });
         receipt = undefined;
+        notDispatchedClean = journalAbsenceConfirmed;
       } catch {
         /* retain reconciliation if journal cleanup fails */
       }
     }
     // Deliberately never surface command output, provider errors, identity or credential data.
     result = {
-      status: receipt || !journalAbsenceConfirmed ? 'reconciliation_required' : 'failed',
+      status: initialCustodyRejected
+        ? 'failed'
+        : receipt || !journalAbsenceConfirmed
+          ? 'reconciliation_required'
+          : 'failed',
       inference: false,
       ...(await diagnose(error)),
     };
+  }
+  // Read the exact owned console while the sandbox still exists. Never let observation
+  // failures bypass the original cancellation/deletion/physical-absence protocol.
+  if (routingOnly && receipt?.id && !resumed) {
+    try {
+      await verify();
+      const rows = z.array(sandboxSchema).parse(await ops.list());
+      const matches = rows.filter((row) => row.name === receipt!.name || row.id === receipt!.id);
+      if (matches.length !== 1 || !owned(matches[0], receipt))
+        throw new Error('Diagnostic owner changed');
+      networkObservation = RoutingNetworkObservationSchema.parse(
+        await ops.observeRouting!(receipt),
+      );
+      await verify();
+    } catch (error) {
+      result = { status: 'reconciliation_required', inference: false };
+      if (!failureDetails) await diagnose(error);
+    }
   }
   stage = 'cleanup';
   try {
@@ -392,7 +727,7 @@ async function runExclusiveDiscovery(
       } else {
         // Capture positive cleanup proof before a guarded clear can delete the journal
         // and then fail its postcheck. This never authorizes credential cleanup itself.
-        onPhysicalCleanup?.(receipt);
+        onPhysicalCleanup?.(receipt, physicalCleanupProof(receipt));
         await ops.clearReceipt(receipt);
         if (result.status === 'reconciliation_required')
           result = { status: resumed ? 'reconciled' : 'failed', inference: false };
@@ -415,5 +750,12 @@ async function runExclusiveDiscovery(
       return { status: 'failed', inference: false, ...(await diagnose(error)) };
     }
   }
-  return { ...result, ...failureDetails };
+  if (
+    result.status === 'failed' &&
+    (notDispatchedClean || initialCustodyRejected) &&
+    !receipt &&
+    attemptConfigHash
+  )
+    onNotDispatched?.(attemptConfigHash, initialCustodyRejected ? 'not-entered' : 'not-dispatched');
+  return { ...result, ...failureDetails, ...(networkObservation ? { networkObservation } : {}) };
 }

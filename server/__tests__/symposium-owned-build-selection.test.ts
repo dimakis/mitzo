@@ -19,6 +19,12 @@ it('preserves every image-only default and requires explicit known full-build se
     contracts.REVIEWED_SYMPOSIUM_CODEX_01591_RUNTIME,
     contracts.REVIEWED_SYMPOSIUM_CODEX_01591_IDENTITY_RUNTIME,
   ]) {
+    expect(contracts.symposiumOwnedBuildVersions(runtime.build)).toEqual({
+      cliVersion: runtime.build.version,
+      gatewayVersion: runtime.build.version,
+    });
+    expect(Object.keys(runtime.build)).not.toContain('cliVersion');
+    expect(Object.keys(runtime.build)).not.toContain('gatewayVersion');
     expect(resolve(runtime.build.image)).toBe(
       contracts.reviewedSymposiumOwnedRuntime(runtime.build.image).build,
     );
@@ -31,6 +37,10 @@ it('preserves every image-only default and requires explicit known full-build se
     gatewaySha256: '712906577a63c29553e7f2653bf2944c55a7142c3c69643532d1461da1eebe10',
     supervisorImage: 'sha256:baa239a3c804bb889d70f8da465facbe289e302fba4cefb19112200a16fb5013',
   });
+  expect(contracts.symposiumOwnedBuildVersions(local)).toEqual({
+    cliVersion: '0.0.0',
+    gatewayVersion: '0.0.0',
+  });
   expect(local.nativeArtifacts).toEqual(
     contracts.REVIEWED_SYMPOSIUM_CODEX_01591_IDENTITY_RUNTIME.build.nativeArtifacts,
   );
@@ -40,6 +50,42 @@ it('preserves every image-only default and requires explicit known full-build se
     resolve(contracts.REVIEWED_SYMPOSIUM_OWNED_RUNTIME.build.image, 'local-854b-b20-v1'),
   ).toThrow();
   expect(resolve(image).cliSha256).not.toBe(local.cliSha256);
+});
+
+it('requires the exact measured routing tuple and explicit trusted diagnostic selection', () => {
+  const image = contracts.REVIEWED_SYMPOSIUM_CODEX_01591_IDENTITY_RUNTIME.build.image;
+  const qualified = contracts.reviewedSymposiumRoutingDiagnosticBuild(
+    image,
+    'local-854b-routing-v1',
+  );
+  expect(qualified).toMatchObject({
+    version: '0.0.1-dev.3+g9472cc767',
+    gatewayVersion: '0.0.117-dev.292+g854b2370b',
+    cliSha256: 'a66f3eb90cef5d39073800f4f287cbe0dd137d754faeac218db52325a713e836',
+    gatewaySha256: contracts.REVIEWED_SYMPOSIUM_OWNED_RUNTIME.build.gatewaySha256,
+    supervisorImage: 'sha256:602585a9a550d5c8650bb10f2c80002b2d31e56fbef27f799c50d21ad26a6a89',
+  });
+  expect(contracts.reviewedSymposiumOwnedBuild(image)).not.toBe(qualified);
+  expect(contracts.reviewedSymposiumOwnedBuild(image, 'local-854b-routing-v1')).toBe(qualified);
+  expect(contracts.symposiumOwnedBuildVersions(qualified)).toEqual({
+    cliVersion: qualified.version,
+    gatewayVersion: qualified.gatewayVersion,
+  });
+  expect(qualified.nativeArtifacts).toEqual(
+    contracts.REVIEWED_SYMPOSIUM_CODEX_01591_IDENTITY_RUNTIME.build.nativeArtifacts,
+  );
+  expect(Object.isFrozen(qualified)).toBe(true);
+  expect(Object.isFrozen(qualified.nativeArtifacts)).toBe(true);
+  for (const selection of [undefined, 'local-854b-b20-v1', 'unknown'])
+    expect(() =>
+      contracts.reviewedSymposiumRoutingDiagnosticBuild(image, selection as never),
+    ).toThrow();
+  expect(() =>
+    contracts.reviewedSymposiumRoutingDiagnosticBuild(
+      contracts.REVIEWED_SYMPOSIUM_OWNED_RUNTIME.build.image,
+      'local-854b-routing-v1',
+    ),
+  ).toThrow();
 });
 
 import { collectOwnedAdmissionEvidence } from '../symposium-owned-evidence.js';

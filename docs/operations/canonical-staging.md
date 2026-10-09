@@ -370,8 +370,25 @@ locked without escalation, restart or rollback.
 The completed retirement and full service/workspace/gateway/registry state are
 archived and checked before disposition. The raw retired launch and receipt are
 preserved in `retired_owned_launches`; the earlier qualified refusal histories
-remain. The fresh configuration changes only the selected Personal device-login
-executable. Old keys and VM supervision remain retained. Fresh empty app paths
+remain. The default proposal changes only the selected Personal device-login executable.
+A separately source-qualified routing diagnostic successor may also change the
+CLI path/hash and Supervisor image, using this exact optional argument pair:
+
+```sh
+node scripts/update-owned-staging.mjs plan --expected-source ORIGINAL_SOURCE \
+  --instance ORIGINAL_INSTANCE --epoch ORIGINAL_EPOCH \
+  --device-executable SELECTED_NATIVE_CODEX --expected-device-sha CODEX_SHA256 \
+  --routing-cli MEASURED_NATIVE_CLI --expected-routing-cli-sha REGISTERED_CLI_SHA256
+```
+
+The accepted controller derives the Supervisor identity from its measured public
+catalog; the command cannot supply another image or build. It freezes the CLI at
+a separate private executable path and checks its full metadata and hash both
+when validating the plan and immediately before normal retirement. The Gateway,
+workload, runtime image, provider profiles, policy, keys and network inputs remain
+bound to the original tuple. A connected Personal slot must first be disconnected
+through the supported owner API; credentials and provisioning receipts are not
+migrated across owner lifetimes. Old keys and VM supervision remain retained. Fresh empty app paths
 and a same-label bundle are prepared at the accepted baseline, then started once.
 The new actual original parent/app identity, singleton row, immutable inputs and
 loopback HTTP readiness must verify before the matching operation unlocks.
@@ -385,3 +402,77 @@ them directly with isolated file credentials. It does not expand the custodian's
 PATH, reuse cached host authentication or send model/thread requests. Ordinary
 unconfigured callers retain their existing launcher behavior. Live inference
 still requires fresh Personal sign-in and an explicit supported Luna selection.
+
+A completed owned update retains `service/owned-update-plan.json`. Before another
+initial-stage plan, archive that exact completed plan from the newly prepared
+accepted controller. Use the prior operation/source, the check's actual fresh
+original instance/epoch, and the SHA256 of the retained plan bytes:
+
+```sh
+node scripts/update-owned-staging.mjs archive-completed-plan \
+  --operation COMPLETED_OPERATION --source CURRENT_SOURCE \
+  --instance CURRENT_ORIGINAL_INSTANCE --epoch CURRENT_EPOCH \
+  --expected-plan-sha RETAINED_PLAN_SHA256
+```
+
+This metadata operation requires no deployment lock and compares the actual
+current original parent/app/registry with the prior update's verified fresh-owner
+receipt. It rechecks the old prepared controller, complete four-input activation,
+original start attempt, configuration, registration, preserved service/workspace/
+gateway/registry inventory and the actual retired SQLite row/receipt history.
+The accepted original-retirement validator also checks the preserved native
+receipt and original owner. A missing lock, elapsed time or saved successful
+status alone cannot qualify a completed update.
+
+Under the shared exclusive metadata lock, it preserves the unchanged plan as
+`completed-plan.json` inside the original operation archive and checkpoints its
+intent before vacating only the exact original plan file. It performs no service,
+VM, model or registry control. Original archives and receipt history remain.
+Before disposition, a refusal releases only its own matching lock when the
+original plan identity and bytes are unchanged. After a disposition attempt,
+uncertainty retains the lock and evidence. If acknowledgement is interrupted,
+use `verify-completed-plan` with the identical arguments; verification never
+repeats disposition or vacates a different plan. Existing records are never
+replaced. Any conflicting evidence requires investigation.
+
+Archiving a completed plan does not migrate connected credentials or permit an
+update of used conversation/task state. The subsequent plan/apply still require
+the existing initial-stage emptiness and original-owner retirement gates.
+
+If accepted main advances during a lost metadata acknowledgement, a newly prepared
+exact accepted verifier may use the same `verify-completed-plan` arguments only
+when the original metadata controller's private prepared release still matches
+its immutable receipt and source/tree/build/dependency pins, and its commit is an
+ancestor of the current accepted verifier. Unknown metadata schemas, unrelated
+history and missing or changed old preparation refuse verification. Original
+intent, selection, lock and archived plan remain unchanged; a separate verifier
+acknowledgement records both controller identities. This grants only verification
+of that same completed metadata effect, never another plan disposition or native
+service action.
+
+## Bounded Personal account-check diagnostic
+
+Only the registered source-qualified routing build exposes the trusted native
+capability. Use the current connected Pro slot and its exact revision, with an
+interactive operator session and same-origin JSON request:
+
+```text
+POST /api/symposium/personal/connections/{id}/routing-diagnostic
+{ "expectedRevision": CURRENT_REVISION }
+```
+
+The request accepts no endpoint, logging, image, provider or model overrides. It
+fences other account changes, creates one owned sandbox, initializes the native
+client and reads account metadata. It never requests a model catalog or inference.
+Before cleanup it reads bounded console output from the exact receipt-bound
+Supervisor, projecting only the recognized account-check request ordinal, finite
+outcome, HTTP status and timestamp. Headers, bodies and raw errors are discarded.
+Normal model discovery does not enable the logging filter.
+
+HTTP 200 alone does not establish valid account JSON. Absent or ambiguous events
+remain inconclusive, including failures before the exact request is recognized.
+Confirmed cleanup preserves the connected slot and any existing catalog. An
+uncertain result quarantines the operation and retains its original cleanup
+capability. Recovery requires that same owner, fresh operator authority and
+positive native cleanup proof; it cannot resume after a process restart or clear
+a foreign workspace creation barrier from metadata or inventory absence.

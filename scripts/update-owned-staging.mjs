@@ -1,4 +1,9 @@
 #!/usr/bin/env node
+import {
+  archiveCompletedOwnedPlan,
+  verifyCompletedOwnedPlanArchive,
+} from './lib/owned-stage-plan-archive.mjs';
+import { qualifyCompletedPlanVerifier } from './lib/owned-stage-plan-verifier.mjs';
 import { recordOrVerifyFreshOwnerReceipt } from './lib/staging-cold-receipt.mjs';
 import process from 'node:process';
 import console from 'node:console';
@@ -19,6 +24,14 @@ import { exclusive, sync, sealTree } from './lib/staging-cold-prepare.mjs';
 import { verifyPreparedController } from './lib/staging-cold-control.mjs';
 import { runOwnedStageUpgrade, archiveRetiredReservation } from './lib/owned-stage-upgrade.mjs';
 import { preparePinnedProgram, assertPinnedProgram } from './lib/owned-stage-program.mjs';
+import {
+  createOwnedRoutingProposal,
+  readOwnedRoutingArguments,
+} from './lib/owned-stage-routing-proposal.mjs';
+import {
+  reviewedSymposiumRoutingDiagnosticBuild,
+  reviewedSymposiumOwnedRuntime,
+} from '../dist/symposium-owned-runtime-contract.js';
 import {
   createFreshActivationIntent,
   verifyFreshActivationBinding,
@@ -84,17 +97,28 @@ function verifyControls(path, expected) {
   if (!same(controls(path), expected)) throw Error('Exact original control records changed');
 }
 
-function minimalConfig(old, pin) {
+function minimalConfig(old, pin, routing) {
+  if (routing !== undefined)
+    return createOwnedRoutingProposal(
+      old,
+      pin,
+      routing.pin,
+      reviewedSymposiumOwnedRuntime(old.gateway.workloadImage).build,
+      reviewedSymposiumRoutingDiagnosticBuild(old.gateway.workloadImage, 'local-854b-routing-v1'),
+    );
   return { ...old, personal: { ...old.personal, deviceLoginExecutable: pin } };
 }
 async function planUpdate(current, args) {
   noLock();
+  const routingRequested =
+    args['--routing-cli'] !== undefined || args['--expected-routing-cli-sha'] !== undefined;
   exactKeys(args, [
     '--expected-source',
     '--instance',
     '--epoch',
     '--device-executable',
     '--expected-device-sha',
+    ...(routingRequested ? ['--routing-cli', '--expected-routing-cli-sha'] : []),
   ]);
   const live = await observeLiveOwner(root);
   if (
@@ -104,13 +128,24 @@ async function planUpdate(current, args) {
     current === live.plan.sourceCommit
   )
     throw Error('Exact distinct original owner/target required');
+  // Select the public tuple and reject incomplete/unknown input before copying either program.
+  const routingBuild = routingRequested
+    ? reviewedSymposiumRoutingDiagnosticBuild(
+        live.config.gateway.workloadImage,
+        'local-854b-routing-v1',
+      )
+    : undefined;
+  const routingInput = readOwnedRoutingArguments(args, routingBuild?.cliSha256);
   const empty = assertEmptyStagingUse(root, live),
     program = preparePinnedProgram(
       root,
       args['--device-executable'],
       args['--expected-device-sha'],
     ),
-    proposal = minimalConfig(live.config, program.pin),
+    routingProgram = routingInput
+      ? preparePinnedProgram(root, routingInput.executable, routingInput.sha256, 'routing-cli')
+      : undefined,
+    proposal = minimalConfig(live.config, program.pin, routingProgram),
     operation = randomUUID(),
     archive = join(root, 'service/owned-updates', operation);
   const value = {
@@ -123,6 +158,7 @@ async function planUpdate(current, args) {
     controlRecords: controls(join(root, 'service')),
     proposal,
     programMetadata: program.metadata,
+    ...(routingProgram ? { routingProgram } : {}),
     proposalSha256: hash(JSON.stringify(proposal, null, 2) + '\n'),
     archive,
   };
@@ -138,6 +174,12 @@ async function planUpdate(current, args) {
     instanceId: live.owner.instanceId,
     epoch: live.owner.epoch,
     deviceExecutableSha256: program.pin.sha256,
+    ...(routingProgram
+      ? {
+          routingCliSha256: routingProgram.pin.sha256,
+          supervisorImage: proposal.gateway.supervisorImage,
+        }
+      : {}),
     serviceControl: false,
     modelCalls: 0,
     productionActions: [],
@@ -157,11 +199,19 @@ function verifyPlan(current, p) {
     p.target !== current ||
     p.archive !== join(root, 'service/owned-updates', p.operation) ||
     hash(bytes(join(source, 'staging-release.json'))) !== p.controllerReceiptSha256 ||
-    !same(p.proposal, minimalConfig(p.live.config, p.proposal.personal.deviceLoginExecutable)) ||
+    !same(
+      p.proposal,
+      minimalConfig(p.live.config, p.proposal.personal.deviceLoginExecutable, p.routingProgram),
+    ) ||
     hash(JSON.stringify(p.proposal, null, 2) + '\n') !== p.proposalSha256
   )
     throw Error('Exact prepared update drift');
   assertPinnedProgram(root, p.proposal.personal.deviceLoginExecutable, p.programMetadata);
+  if (p.routingProgram !== undefined) {
+    if (!same(Object.keys(p.routingProgram).sort(), ['metadata', 'pin']))
+      throw Error('Exact routing program record required');
+    assertPinnedProgram(root, p.routingProgram.pin, p.routingProgram.metadata, 'routing-cli');
+  }
 }
 async function readFreshPrepared(p, started = false) {
   const { readOwnedReleasePlan, verifyOwnedRelease, verifyRetainedOwnedRelease } =
@@ -208,7 +258,7 @@ async function freshOwner(p, lock) {
   verifyFreshActivationBinding(root, source, p, plan, lock, { started: true, registered: true });
   return { owner, row: rows[0], source: p.target, verified: true };
 }
-function verifyArchive(p, lock) {
+function verifyArchive(p, lock, selectedPlanBytes = bytes(planPath)) {
   const receipt = privateJson(join(p.archive, 'retired-audit.json'));
   if (
     !same(receipt.live, p.live) ||
@@ -227,13 +277,13 @@ function verifyArchive(p, lock) {
     throw Error('Archived original operation changed');
   if (
     hash(bytes(join(p.archive, 'original-config.json'))) !== p.live.configSha256 ||
-    !bytes(join(p.archive, 'plan.json')).equals(bytes(planPath))
+    !bytes(join(p.archive, 'plan.json')).equals(selectedPlanBytes)
   )
     throw Error('Archived original config or full plan changed');
   return receipt;
 }
-function verifyRetiredHistory(p, lock) {
-  const audit = verifyArchive(p, lock),
+function verifyRetiredHistory(p, lock, selectedPlanBytes = bytes(planPath)) {
+  const audit = verifyArchive(p, lock, selectedPlanBytes),
     db = new Database(join(root, 'registry/staging.db'), { readonly: true, fileMustExist: true });
   try {
     const row = db
@@ -250,6 +300,80 @@ function verifyRetiredHistory(p, lock) {
   } finally {
     db.close();
   }
+}
+/** Metadata disposition only. Saved completion is compared with the actual
+ * original current owner; no old launch checkpoint or native capability is
+ * reconstructed. Original retirement stays bound to preserved bytes and SQLite. */
+async function completedPlanProof(current, p, selection, selectedPlanBytes) {
+  if (accepted() !== current) throw Error('Accepted metadata controller changed');
+  const oldSource = join(root, 'releases', p.target.slice(0, 12));
+  verifyPreparedController(root, oldSource, p.target);
+  const live = await observeLiveOwner(root);
+  if (
+    live.owner.sourceCommit !== selection.source ||
+    live.owner.instanceId !== selection.instanceId ||
+    live.owner.epoch !== selection.epoch ||
+    live.plan.sourceCommit !== p.target ||
+    live.configSha256 !== p.proposalSha256 ||
+    hash(bytes(join(oldSource, 'staging-release.json'))) !== p.controllerReceiptSha256
+  )
+    throw Error('Exact original fresh owner/configuration required for completed-plan archive');
+  const fresh = { owner: live.owner, row: live.row, source: p.target, verified: true };
+  if (!same(privateJson(join(p.archive, 'fresh-owner-verified.json')), fresh))
+    throw Error('Actual current owner differs from preserved completed update');
+  const intent = createFreshActivationIntent(root, oldSource, p, live.plan);
+  if (
+    !same(privateJson(join(p.archive, 'fresh-activation.json')), intent) ||
+    !same(privateJson(join(p.archive, 'start-attempt.json')), intent) ||
+    hash(bytes(join(root, 'service/com.mitzo.staging.plist'))) !== intent.plistSha256 ||
+    !same(live.topology, {
+      mode: 'owned-custodian',
+      sourceCommit: p.target,
+      transitionId: p.operation,
+    })
+  )
+    throw Error('Complete original one-start activation evidence changed');
+  const audit = privateJson(join(p.archive, 'retired-audit.json'));
+  // This digest checks archived content; it does not stand in for a missing old
+  // operation lock. The independent live retired-history row binds the file SHA.
+  verifyRetiredHistory(p, { retiredAuditSha256: hash(JSON.stringify(audit)) }, selectedPlanBytes);
+  const { CanonicalOwnerSchema, assertCanonicalOwnerRetired } =
+    await import('../dist/symposium-canonical-control.js');
+  const retiredOwner = CanonicalOwnerSchema.parse(
+    privateJson(join(p.archive, 'service/original-owner.json')),
+  );
+  const receipt = privateJson(join(p.archive, 'gateway-state/custodian-retirement.json'));
+  if (
+    !same(retiredOwner, p.live.owner) ||
+    hash(bytes(join(p.archive, 'service/original-owner.json'))) !== p.live.ownerSha256 ||
+    !same(receipt, audit.retired.receipt) ||
+    audit.requestedAt !== privateJson(join(p.archive, 'deployment.lock')).requestedAt
+  )
+    throw Error('Actual preserved original retirement evidence changed');
+  assertCanonicalOwnerRetired(retiredOwner, audit.retired.row, receipt, audit.requestedAt);
+  return {
+    version: 1,
+    fresh,
+    planSha256: hash(selectedPlanBytes),
+    originalControllerReceiptSha256: p.controllerReceiptSha256,
+    configSha256: live.configSha256,
+    freshActivationSha256: hash(bytes(join(p.archive, 'fresh-activation.json'))),
+    startAttemptSha256: hash(bytes(join(p.archive, 'start-attempt.json'))),
+    retiredAuditSha256: hash(bytes(join(p.archive, 'retired-audit.json'))),
+    topologySha256: hash(bytes(join(root, 'service/topology.json'))),
+  };
+}
+function completedPlanSelection(current, args) {
+  exactKeys(args, ['--operation', '--source', '--instance', '--epoch', '--expected-plan-sha']);
+  return {
+    operation: args['--operation'],
+    source: args['--source'],
+    instanceId: args['--instance'],
+    epoch: Number(args['--epoch']),
+    planSha256: args['--expected-plan-sha'],
+    controllerSource: current,
+    controllerReceiptSha256: hash(bytes(join(source, 'staging-release.json'))),
+  };
 }
 async function applyUpdate(current) {
   noLock();
@@ -290,7 +414,7 @@ async function applyUpdate(current) {
       if (!same(await observeLiveOwner(root), p.live))
         throw Error('Original owner changed before retirement');
       if (accepted() !== current) throw Error('Main changed before control');
-      assertPinnedProgram(root, p.proposal.personal.deviceLoginExecutable, p.programMetadata);
+      verifyPlan(current, p);
       run('/bin/launchctl', ['kill', 'SIGTERM', 'gui/' + process.getuid() + '/com.mitzo.staging']);
     },
     async verifyRetired() {
@@ -600,6 +724,35 @@ try {
         0,
       ),
     );
+  } else if (['archive-completed-plan', 'verify-completed-plan'].includes(command)) {
+    const current = accepted();
+    const selection = completedPlanSelection(current, readArgs(args));
+    const action =
+      command === 'archive-completed-plan'
+        ? archiveCompletedOwnedPlan
+        : verifyCompletedOwnedPlanArchive;
+    console.log(
+      JSON.stringify(
+        await action(
+          root,
+          selection,
+          (p, selected, planBytes) => completedPlanProof(current, p, selected, planBytes),
+          (original, verifier) =>
+            qualifyCompletedPlanVerifier(
+              root,
+              {
+                controllerSource: original.controllerSource,
+                controllerReceiptSha256: original.controllerReceiptSha256,
+              },
+              {
+                controllerSource: verifier.controllerSource,
+                controllerReceiptSha256: verifier.controllerReceiptSha256,
+              },
+              () => accepted(),
+            ),
+        ),
+      ),
+    );
   } else if (command === 'verify' && !args.length) {
     const current = accepted(),
       p = privateJson(planPath),
@@ -632,7 +785,8 @@ try {
     console.log(JSON.stringify(await planUpdate(accepted(), readArgs(args))));
   else if (command === 'apply' && !args.length)
     console.log(JSON.stringify(await applyUpdate(accepted())));
-  else throw Error('Use prepare-release, plan with exact owner/device pins, or apply');
+  else
+    throw Error('Use prepare-release, plan, apply, or exact completed-plan archive/verification');
 } catch (error) {
   console.error(
     error.message +

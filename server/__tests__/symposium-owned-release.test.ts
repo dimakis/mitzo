@@ -34,7 +34,10 @@ import {
   claimOwnedLaunch,
   renderOwnedPlist,
 } from '../symposium-owned-release.js';
-import { REVIEWED_SYMPOSIUM_CLAUDE_RUNTIME as reviewed } from '../symposium-owned-runtime-contract.js';
+import {
+  REVIEWED_SYMPOSIUM_CLAUDE_RUNTIME as reviewed,
+  SOURCE_QUALIFIED_SYMPOSIUM_ROUTING_BUILD as routing,
+} from '../symposium-owned-runtime-contract.js';
 const roots: string[] = [];
 afterEach(() => {
   operator.home = undefined;
@@ -518,7 +521,7 @@ it('refuses dotenv templates hidden by index flags or hard-linked to private fil
   expect(() => prepareOwnedRelease(aliased.input, aliased.digest)).toThrow();
 });
 
-it('requires and preserves an independently selected baseline through canonical preparation and retained verification', () => {
+function canonicalFixture() {
   const f = fixture();
   operator.home = f.root;
   const git = (args: string[]) =>
@@ -536,6 +539,11 @@ it('requires and preserves an independently selected baseline through canonical 
     symlinkSync(join(release, 'packages', pkg), link);
   }
   const input = { ...f.input, releaseRoot: release };
+  return { ...f, input, baseline };
+}
+it('requires and preserves an independently selected baseline through canonical preparation and retained verification', () => {
+  const f = canonicalFixture();
+  const { input, baseline } = f;
   expect(() => prepareOwnedRelease(input, f.digest)).toThrow();
   const plan = prepareOwnedRelease({ ...input, acceptedMainBaseline: baseline }, f.digest);
   expect(plan.acceptedMainBaseline).toBe(baseline);
@@ -543,6 +551,58 @@ it('requires and preserves an independently selected baseline through canonical 
   expect(() =>
     verifyRetainedOwnedRelease({ ...plan, acceptedMainBaseline: 'a'.repeat(40) }, f.digest),
   ).toThrow();
+});
+
+it('prepares and verifies the exact routing tuple only in canonical mode without claiming admission', () => {
+  const f = canonicalFixture();
+  Object.assign(f.config.gateway, {
+    cliSha256: routing.cliSha256,
+    executableSha256: routing.gatewaySha256,
+    workloadImage: routing.image,
+    sandboxRuntimeImage: routing.sandboxRuntimeImage,
+    supervisorImage: routing.supervisorImage,
+  });
+  f.save();
+  const digest = (path: string) =>
+    path === f.config.gateway.cliExecutable ? routing.cliSha256 : f.digest(path);
+  const plan = prepareOwnedRelease({ ...f.input, acceptedMainBaseline: f.baseline }, digest);
+  expect(plan.runtime).toEqual(routing);
+  expect(plan.admissionVerified).toBe(false);
+  expect(() => verifyOwnedRelease(plan, digest)).not.toThrow();
+  expect(() => verifyRetainedOwnedRelease(plan, digest)).not.toThrow();
+  expect(() =>
+    verifyOwnedRelease(plan, (path) =>
+      path === f.config.gateway.cliExecutable ? 'a'.repeat(64) : digest(path),
+    ),
+  ).toThrow();
+  expect(() =>
+    verifyRetainedOwnedRelease(
+      {
+        ...plan,
+        runtime: { ...routing, imageDigest: 'a'.repeat(64) } as unknown as typeof plan.runtime,
+      },
+      digest,
+    ),
+  ).toThrow();
+  Object.assign(f.config.gateway, { supervisorImage: reviewed.build.supervisorImage });
+  f.save();
+  expect(() =>
+    prepareOwnedRelease({ ...f.input, acceptedMainBaseline: f.baseline }, digest),
+  ).toThrow('tuple');
+});
+it('preserves ordinary release defaults and refuses a diagnostic successor outside canonical staging', () => {
+  const f = fixture();
+  Object.assign(f.config.gateway, {
+    cliSha256: routing.cliSha256,
+    executableSha256: routing.gatewaySha256,
+    workloadImage: routing.image,
+    sandboxRuntimeImage: routing.sandboxRuntimeImage,
+    supervisorImage: routing.supervisorImage,
+  });
+  f.save();
+  const digest = (path: string) =>
+    path === f.config.gateway.cliExecutable ? routing.cliSha256 : f.digest(path);
+  expect(() => prepareOwnedRelease(f.input, digest)).toThrow();
 });
 
 it('pins the optional device-login program in public input verification and refuses a changed program', () => {

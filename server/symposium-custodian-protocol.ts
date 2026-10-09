@@ -85,6 +85,10 @@ const operations = {
     'POST',
     '/api/symposium/personal/connections/:resourceId/models/refresh',
   ],
+  'personal.diagnoseRouting': [
+    'POST',
+    '/api/symposium/personal/connections/:resourceId/routing-diagnostic',
+  ],
   'personal.recoverModels': [
     'POST',
     '/api/symposium/personal/connections/:resourceId/models/recover',

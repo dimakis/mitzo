@@ -1,0 +1,8 @@
+tree 24c059d570b1a512d241e3b1f5ec785f9338b02d
+parent a8ad9924324dde0442627e6eb100860deef31cae
+author dimakis <dimitri.saridakis@gmail.com> 1791569251 +0100
+committer dimakis <dimitri.saridakis@gmail.com> 1791569251 +0100
+
+refactor(supervisor): keep finite diagnostic helper lint clean
+
+Signed-off-by: dimakis <dimitri.saridakis@gmail.com>

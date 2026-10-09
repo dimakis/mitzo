@@ -2,7 +2,9 @@
 import {
   REVIEWED_SYMPOSIUM_OWNED_RUNTIME,
   REVIEWED_SYMPOSIUM_CLAUDE_RUNTIME,
+  SOURCE_QUALIFIED_SYMPOSIUM_ROUTING_BUILD,
 } from './symposium-owned-runtime-contract.js';
+import type { OwnedSymposiumFileConfig } from './symposium-owned-config-schema.js';
 /** Explicit successor for Codex code-mode seats. The original image and the
  * Claude variant remain valid for their existing resources; neither migrates. */
 export const REVIEWED_SYMPOSIUM_CODE_MODE_RUNTIME = {
@@ -82,4 +84,34 @@ export function reviewedStagingOwnedRuntime(image: string) {
   if (image === REVIEWED_SYMPOSIUM_CODEX_01591_IDENTITY_RUNTIME.build.image)
     return REVIEWED_SYMPOSIUM_CODEX_01591_IDENTITY_RUNTIME;
   throw new Error('Artifact workload image identity is not reviewed');
+}
+
+/** Classify public pins from an already verified private configuration. No
+ * configuration field grants a selector or substitutes a source-qualified build. */
+export function reviewedStagingOwnedBuild(
+  gateway: Pick<
+    OwnedSymposiumFileConfig['gateway'],
+    'cliSha256' | 'executableSha256' | 'workloadImage' | 'sandboxRuntimeImage' | 'supervisorImage'
+  >,
+) {
+  const matches = (
+    build:
+      | ReturnType<typeof reviewedStagingOwnedRuntime>['build']
+      | typeof SOURCE_QUALIFIED_SYMPOSIUM_ROUTING_BUILD,
+  ) =>
+    gateway.cliSha256 === build.cliSha256 &&
+    gateway.executableSha256 === build.gatewaySha256 &&
+    gateway.workloadImage === build.image &&
+    gateway.sandboxRuntimeImage === build.sandboxRuntimeImage &&
+    gateway.supervisorImage === build.supervisorImage;
+  if (!gateway) throw Error('Staging native tuple is not qualified');
+  if (matches(SOURCE_QUALIFIED_SYMPOSIUM_ROUTING_BUILD))
+    return SOURCE_QUALIFIED_SYMPOSIUM_ROUTING_BUILD;
+  try {
+    const original = reviewedStagingOwnedRuntime(gateway.workloadImage).build;
+    if (matches(original)) return original;
+  } catch {
+    /* Unrecognized images never choose a native successor. */
+  }
+  throw Error('Staging native tuple is not qualified');
 }
