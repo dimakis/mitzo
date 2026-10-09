@@ -42,3 +42,28 @@
   background: var(--surface);
   color: var(--text-primary);
 }
+
+.document-source-editor .cm-source-heading {
+  color: var(--accent);
+  font-weight: 700;
+}
+.document-source-editor .cm-source-link {
+  color: var(--accent);
+  text-decoration: underline;
+}
+.document-source-editor .cm-source-strong {
+  font-weight: 700;
+}
+.document-source-editor .cm-source-emphasis {
+  font-style: italic;
+}
+.document-source-editor .cm-source-strikethrough {
+  text-decoration: line-through;
+}
+.document-source-editor .cm-source-code {
+  color: var(--text-primary);
+}
+.document-source-editor .cm-source-quote,
+.document-source-editor .cm-source-marker {
+  color: var(--text-muted);
+}

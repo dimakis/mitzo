@@ -17,7 +17,8 @@ import {
   undo,
   undoDepth,
 } from '@codemirror/commands';
-import { defaultHighlightStyle, syntaxHighlighting } from '@codemirror/language';
+import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
+import { tags } from '@lezer/highlight';
 import { markdown } from '@codemirror/lang-markdown';
 import { searchKeymap } from '@codemirror/search';
 import { getCM, Vim, vim as vimExtension } from '@replit/codemirror-vim';
@@ -50,6 +51,22 @@ interface Props {
 // registering a closure for whichever document happened to mount last.
 const saves = new WeakMap<EditorView, () => void>();
 Vim.defineEx('write', 'w', (cm) => saves.get(cm.cm6)?.());
+
+// Syntax classes use the app's semantic CSS colors, so an existing editor
+// follows light/dark and accent changes without remounting or losing history.
+const markdownHighlightStyle = HighlightStyle.define([
+  { tag: tags.heading, class: 'cm-source-heading' },
+  { tag: [tags.link, tags.url], class: 'cm-source-link' },
+  { tag: tags.strong, class: 'cm-source-strong' },
+  { tag: tags.emphasis, class: 'cm-source-emphasis' },
+  { tag: tags.strikethrough, class: 'cm-source-strikethrough' },
+  { tag: tags.monospace, class: 'cm-source-code' },
+  { tag: [tags.quote, tags.comment], class: 'cm-source-quote' },
+  {
+    tag: [tags.meta, tags.processingInstruction, tags.contentSeparator],
+    class: 'cm-source-marker',
+  },
+]);
 
 export const DocumentSourceEditor = forwardRef<DocumentSourceEditorHandle, Props>(
   function DocumentSourceEditor(props, ref) {
@@ -133,7 +150,7 @@ export const DocumentSourceEditor = forwardRef<DocumentSourceEditorHandle, Props
         drawSelection(),
         highlightActiveLineGutter(),
         EditorView.lineWrapping,
-        syntaxHighlighting(defaultHighlightStyle),
+        syntaxHighlighting(markdownHighlightStyle),
         // A facet alone does not block programmatic undo/redo. Protect all
         // document-changing transactions while the save request is in flight.
         EditorState.transactionFilter.of((transaction) =>

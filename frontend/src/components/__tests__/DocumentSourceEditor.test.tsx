@@ -38,6 +38,33 @@ function key(view: EditorView, value: string) {
 }
 
 describe('document source engine', () => {
+  it('uses semantic Markdown token classes so syntax follows the active app theme', () => {
+    const { ref, props, rerender, container } = setup();
+    rerender(
+      <DocumentSourceEditor
+        ref={ref}
+        {...props}
+        content={'# Heading\n\n[Related](https://example.test)\n\n**Strong** and `code`'}
+      />,
+    );
+    expect(
+      [...container.querySelectorAll('.cm-source-heading')]
+        .map((token) => token.textContent)
+        .join(''),
+    ).toContain('Heading');
+    expect(
+      [...container.querySelectorAll('.cm-source-link')].map((token) => token.textContent).join(''),
+    ).toContain('Related');
+    expect(
+      [...container.querySelectorAll('.cm-source-strong')]
+        .map((token) => token.textContent)
+        .join(''),
+    ).toContain('Strong');
+    expect(
+      [...container.querySelectorAll('.cm-source-code')].map((token) => token.textContent).join(''),
+    ).toContain('code');
+  });
+
   it('formats the selection and shares one undo/redo history with toolbar and keyboard', () => {
     const { view, ref, onChange, onHistoryChange } = setup();
     act(() => view.dispatch({ selection: EditorSelection.single(0, 5) }));
