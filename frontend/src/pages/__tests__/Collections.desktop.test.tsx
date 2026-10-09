@@ -209,6 +209,31 @@ describe('desktop collections', () => {
       within(screen.getByRole('region', { name: 'Event details' })).getByText('Studio'),
     ).toBeTruthy();
   });
+  it('uses one desktop heading and opens a dismissible inspector only on selection', () => {
+    const { container } = render(
+      <MemoryRouter>
+        <CalendarView desktop />
+      </MemoryRouter>,
+    );
+    expect(container.querySelector('.mitzo-logo')).toBeNull();
+    expect(screen.queryByRole('region', { name: 'Event details' })).toBeNull();
+    expect(screen.getByRole('button', { name: /^Today$/ })).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Design review' }));
+    const detail = screen.getByRole('region', { name: 'Event details' });
+    fireEvent.click(within(detail).getByRole('button', { name: 'Close event details' }));
+    expect(screen.queryByRole('region', { name: 'Event details' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Design review' })).toHaveFocus();
+  });
+  it('shows only populated dates in the desktop release agenda', () => {
+    render(
+      <MemoryRouter>
+        <CalendarView desktop />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Releases' }));
+    expect(screen.queryByText('No events')).toBeNull();
+    expect(screen.getByText('No releases in this period')).toBeVisible();
+  });
   it('keeps calendar controls and meeting actions beside the agenda', () => {
     render(
       <MemoryRouter>
@@ -226,7 +251,7 @@ describe('desktop collections', () => {
       expect.objectContaining({ agentName: 'mitzo-calendar' }),
     );
     fireEvent.click(screen.getByRole('button', { name: 'Releases' }));
-    expect(within(detail).queryByText('Studio')).toBeNull();
+    expect(screen.queryByRole('region', { name: 'Event details' })).toBeNull();
     expect(screen.getByRole('button', { name: 'Week' })).toBeDisabled();
   });
 });

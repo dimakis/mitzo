@@ -7594,6 +7594,33 @@ option {
   display: flex;
   overflow: hidden;
 }
+.document-editor-dialog {
+  position: static;
+  align-self: stretch;
+  height: auto;
+  display: flex;
+  flex: 1;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: var(--bg);
+}
+.document-editor-dialog--fullscreen {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100dvh;
+  overflow: hidden;
+}
+.document-editor-dialog::backdrop {
+  background: var(--bg);
+}
 .document-editor {
   display: flex;
   flex-direction: column;
@@ -7607,6 +7634,19 @@ option {
   padding: 0.5rem;
   border-bottom: 1px solid var(--border);
   background: var(--surface);
+}
+.document-editor-controls {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  min-width: 0;
+}
+.document-editor-actions {
+  display: flex;
+  flex-shrink: 0;
+  align-items: flex-start;
+  gap: 0.35rem;
 }
 .document-editor-toolbar button {
   min-height: 44px;
@@ -7633,9 +7673,24 @@ option {
   min-height: 0;
   overflow: hidden;
 }
+.document-editor-fullscreen-status {
+  max-height: 35%;
+  overflow: auto;
+  flex-shrink: 0;
+}
+.document-editor-source {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.document-editor-source[hidden] {
+  display: none;
+}
 .document-editor .viewer-editor {
-  width: 50%;
-  height: auto;
+  width: 100%;
+  height: 100%;
   font-size: 16px;
   line-height: 1.65;
   tab-size: 2;
@@ -7657,13 +7712,31 @@ option {
   background: var(--surface);
 }
 .document-editor-footer {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
   padding-bottom: max(0.45rem, env(safe-area-inset-bottom));
+}
+.document-editor-vim-mode {
+  padding: 0.2rem 0.5rem;
+  color: var(--accent);
+  border: 1px solid var(--border);
+  font-family: var(--font-mono, monospace);
+  font-size: 0.75rem;
+}
+.document-editor--fullscreen {
+  height: 100%;
+  border: 0;
+  border-radius: 0;
 }
 @media (max-width: 600px) {
   .document-editor-toolbar {
     flex-wrap: nowrap;
-    overflow-x: auto;
     flex-shrink: 0;
+  }
+  .document-editor-controls {
+    flex-wrap: nowrap;
+    overflow-x: auto;
   }
   .document-editor-toolbar button {
     flex-shrink: 0;
@@ -7674,7 +7747,7 @@ option {
   .document-editor .viewer-editor {
     width: 100%;
   }
-  .document-editor--split .viewer-editor,
+  .document-editor--split .document-editor-source,
   .document-editor--split .document-editor-preview {
     flex: 1;
     height: 50%;

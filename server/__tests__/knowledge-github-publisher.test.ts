@@ -24,11 +24,17 @@ function fixture(
     closed?: boolean;
     changedAfterReady?: boolean;
     readyFails?: boolean;
+    closeFails?: boolean;
+    closeResponseLost?: boolean;
+    changedAfterClose?: boolean;
+    merged?: boolean;
+    mergedAfterClose?: boolean;
     draftOnRead?: number;
     onRead?: (count: number) => void;
   } = {},
 ) {
-  let merged = false;
+  let merged = options.merged ?? false;
+  let closed = options.closed ?? false;
   let ready = options.alreadyReady ?? false;
   let reads = 0;
   let metadataReads = 0;
@@ -41,6 +47,11 @@ function fixture(
         data = options.noChecks ? [] : [{ name: 'CI', bucket: 'pass', state: 'SUCCESS' }];
       else if (args[1] === 'ready') {
         ready = !options.readyFails;
+        data = '';
+      } else if (args[1] === 'close') {
+        closed = !options.closeFails;
+        merged = options.mergedAfterClose ?? merged;
+        if (options.closeResponseLost) throw new Error('Close response lost');
         data = '';
       } else if (args[1] === 'merge') {
         merged = !options.mergeFails;
@@ -68,13 +79,15 @@ function fixture(
         user: { login: 'publisher' },
         draft:
           !ready || (options.draftOnRead !== undefined && metadataReads >= options.draftOnRead),
-        state: merged || options.closed ? 'closed' : 'open',
+        state: merged || closed ? 'closed' : 'open',
         merged,
         merge_commit_sha: merged ? 'c'.repeat(40) : null,
         head: {
           ref: `knowledge/${id}`,
           sha:
-            (options.changedHead && reads++ > 0) || (options.changedAfterReady && ready)
+            (options.changedHead && reads++ > 0) ||
+            (options.changedAfterReady && ready) ||
+            (options.changedAfterClose && closed)
               ? 'b'.repeat(40)
               : head,
           repo: { full_name: options.badScope ? 'attacker/knowledge' : input.repository },
@@ -354,4 +367,62 @@ describe('final trusted review chronology', () => {
       ),
     ).toBe(false);
   });
+});
+
+describe('cancel Knowledge draft review', () => {
+  it('rechecks canonical saved identity before closing and confirms exact closed head', async () => {
+    const { publisher, run } = fixture({ acceptanceEnabled: false, reports: [], noChecks: true });
+    expect(await publisher.cancel(input)).toEqual({ state: 'closed', head, canAccept: false });
+    expect(run.mock.calls.filter((call) => call[1][1] === 'close')).toHaveLength(1);
+    expect(
+      run.mock.calls.filter((call) => call[1].some((arg) => arg.endsWith('/pulls/7'))),
+    ).toHaveLength(3);
+    expect(
+      run.mock.calls.some((call) => call[1].includes('--delete-branch') || call[1][1] === 'merge'),
+    ).toBe(false);
+  });
+  it('recovers a lost close response by inspecting the same closed review without closing again', async () => {
+    const { publisher, run } = fixture({ closeResponseLost: true });
+    await expect(publisher.cancel(input)).rejects.toThrow('Close response lost');
+    expect(await publisher.cancel(input)).toEqual({ state: 'closed', head, canAccept: false });
+    expect(run.mock.calls.filter((call) => call[1][1] === 'close')).toHaveLength(1);
+  });
+  it.each([{ changedHead: true }, { badScope: true }, { identity: 'other' }, { merged: true }])(
+    'refuses observed changed or merged reviews before closure: %j',
+    async (options) => {
+      const { publisher, run } = fixture(options);
+      await expect(publisher.cancel(input)).rejects.toThrow();
+      expect(run.mock.calls.some((call) => call[1][1] === 'close')).toBe(false);
+    },
+  );
+  it.each([{ closeFails: true }, { changedAfterClose: true }, { mergedAfterClose: true }])(
+    'requires same-head nonmerged closure confirmation: %j',
+    async (options) => {
+      const { publisher } = fixture(options);
+      await expect(publisher.cancel(input)).rejects.toThrow();
+    },
+  );
+  it('honors authorization revocation immediately before the close command', async () => {
+    const controller = new AbortController();
+    const { publisher, run } = fixture({
+      onRead: (count) => {
+        if (count === 2) controller.abort();
+      },
+    });
+    await expect(publisher.cancel({ ...input, signal: controller.signal })).rejects.toThrow();
+    expect(run.mock.calls.some((call) => call[1][1] === 'close')).toBe(false);
+  });
+});
+
+it('rechecks the host lease fence after slow reads immediately before closing', async () => {
+  const { publisher, run } = fixture();
+  const beforeClose = vi.fn(() => {
+    throw new Error('Cancellation lease expired');
+  });
+  await expect(publisher.cancel({ ...input, beforeClose })).rejects.toThrow('lease expired');
+  expect(beforeClose).toHaveBeenCalledOnce();
+  expect(
+    run.mock.calls.filter((call) => call[1].some((arg) => arg.endsWith('/pulls/7'))),
+  ).toHaveLength(2);
+  expect(run.mock.calls.some((call) => call[1][1] === 'close')).toBe(false);
 });

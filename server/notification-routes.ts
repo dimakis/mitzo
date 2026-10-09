@@ -42,6 +42,27 @@ export function notificationRouter(center: NotificationCenter): Router {
     center.changed();
     res.json({ ok: true });
   });
+  router.post('/archive-resolved', (_req, res) => {
+    center.feed('needs');
+    const archived = center.store.archiveResolved();
+    center.changed();
+    res.json({ ok: true, archived });
+  });
+  router.post('/:id/archive', (req, res) => {
+    center.feed('needs');
+    if (!center.store.get(req.params.id))
+      return res.status(404).json({ error: 'Notification not found' });
+    if (!center.store.archive(req.params.id))
+      return res.status(409).json({ error: 'Resolve this request before archiving it.' });
+    center.changed();
+    res.json({ ok: true });
+  });
+  router.post('/:id/restore', (req, res) => {
+    if (!center.store.restore(req.params.id))
+      return res.status(404).json({ error: 'Notification not found' });
+    center.changed();
+    res.json({ ok: true });
+  });
   router.post('/test', (_req, res) => res.status(202).json({ id: center.test() }));
   router.get('/:id', (req, res) => {
     center.feed('needs');

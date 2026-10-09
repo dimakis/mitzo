@@ -6,12 +6,16 @@ import type {
   NotificationResolution,
 } from '@mitzo/protocol';
 
-type Input = Omit<MitzoNotification, 'createdAt' | 'readAt' | 'resolvedAt' | 'resolution'>;
+type Input = Omit<
+  MitzoNotification,
+  'createdAt' | 'readAt' | 'resolvedAt' | 'resolution' | 'archivedAt'
+>;
 interface Row {
   data: string;
   read_at: number | null;
   resolved_at: number | null;
   resolution: NotificationResolution | null;
+  archived_at: number | null;
 }
 function item(row: Row): MitzoNotification {
   return {
@@ -19,6 +23,7 @@ function item(row: Row): MitzoNotification {
     readAt: row.read_at,
     resolvedAt: row.resolved_at,
     resolution: row.resolution,
+    archivedAt: row.archived_at,
   };
 }
 /** Local-authoritative shared state; read receipts never grant or resolve permissions. */
@@ -37,6 +42,9 @@ export class NotificationStore {
     CREATE TABLE IF NOT EXISTS notification_delivered_devices (
       notification_id TEXT NOT NULL, device TEXT NOT NULL, PRIMARY KEY(notification_id, device)
     );`);
+    const columns = this.db.pragma('table_info(notifications)') as { name: string }[];
+    if (!columns.some((column) => column.name === 'archived_at'))
+      this.db.exec('ALTER TABLE notifications ADD COLUMN archived_at INTEGER');
   }
   record(input: Input, now = Date.now()): boolean {
     const data = { ...input, createdAt: now };
@@ -111,9 +119,36 @@ export class NotificationStore {
       )
       .run(now);
   }
+  archive(id: string, now = Date.now()): boolean {
+    this.expire(now);
+    return (
+      this.db
+        .prepare(
+          `UPDATE notifications SET archived_at=COALESCE(archived_at, ?),
+      delivery_status='cancelled' WHERE id=? AND
+      (resolved_at IS NOT NULL OR kind NOT IN ('approval','question'))`,
+        )
+        .run(now, id).changes > 0
+    );
+  }
+  archiveResolved(now = Date.now()): number {
+    this.expire(now);
+    return this.db
+      .prepare(
+        `UPDATE notifications SET archived_at=?, delivery_status='cancelled'
+      WHERE archived_at IS NULL AND (resolved_at IS NOT NULL OR
+      (kind NOT IN ('approval','question') AND read_at IS NOT NULL))`,
+      )
+      .run(now).changes;
+  }
+  restore(id: string): boolean {
+    return (
+      this.db.prepare('UPDATE notifications SET archived_at=NULL WHERE id=?').run(id).changes > 0
+    );
+  }
   feed(filter: NotificationFilter = 'all', now = Date.now(), limit = 100, offset = 0) {
     this.expire(now);
-    const where =
+    const category =
       filter === 'needs'
         ? "kind IN ('approval','question') AND resolved_at IS NULL"
         : filter === 'sessions'
@@ -123,6 +158,8 @@ export class NotificationStore {
             : filter === 'history'
               ? 'resolved_at IS NOT NULL'
               : '1=1';
+    const where =
+      filter === 'archived' ? 'archived_at IS NOT NULL' : `archived_at IS NULL AND (${category})`;
     const items = (
       this.db
         .prepare(
@@ -133,7 +170,7 @@ export class NotificationStore {
     const needsYou = (
       this.db
         .prepare(
-          "SELECT COUNT(*) AS n FROM notifications WHERE kind IN ('approval','question') AND resolved_at IS NULL",
+          "SELECT COUNT(*) AS n FROM notifications WHERE kind IN ('approval','question') AND resolved_at IS NULL AND archived_at IS NULL",
         )
         .get() as { n: number }
     ).n;
@@ -168,7 +205,7 @@ export class NotificationStore {
     return (
       this.db
         .prepare(
-          "SELECT * FROM notifications WHERE delivery_status='queued' AND delivery_at<=? AND resolved_at IS NULL ORDER BY delivery_at LIMIT 25",
+          "SELECT * FROM notifications WHERE delivery_status='queued' AND archived_at IS NULL AND delivery_at<=? AND resolved_at IS NULL ORDER BY delivery_at LIMIT 25",
         )
         .all(now) as Row[]
     ).map(item);
