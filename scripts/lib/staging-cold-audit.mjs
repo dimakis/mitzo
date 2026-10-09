@@ -79,12 +79,18 @@ export function inventory(root) {
 function counts(path, names, emptySchema = false) {
   const db = new Database(path, { readonly: true, fileMustExist: true });
   try {
-    if (emptySchema)
-      return db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().length === 0;
+    if (emptySchema) return db.prepare('SELECT name FROM sqlite_master').all().length === 0;
     return names.map((n) => db.prepare('SELECT COUNT(*) AS n FROM ' + n).get().n);
   } finally {
     db.close();
   }
+}
+export function inspectInitialColdGatewayState(path) {
+  if (JSON.stringify(readdirSync(path).sort()) !== JSON.stringify(['artifact-leases.db']))
+    throw Error('Unexpected later gateway startup footprint');
+  if (!counts(join(path, 'artifact-leases.db'), [], true))
+    throw Error('Initial gateway database has schema');
+  return true;
 }
 export async function auditColdRefusal(root) {
   const { readOwnedReleasePlan, verifyRetainedOwnedRelease } =
@@ -272,7 +278,7 @@ export async function auditColdRefusal(root) {
       'symposium_creation_recoveries',
       'symposium_seat_lifecycle_fences',
     ]),
-    artifactSchemaEmpty: counts(join(config.gateway.stateParent, 'artifact-leases.db'), [], true),
+    artifactSchemaEmpty: inspectInitialColdGatewayState(config.gateway.stateParent),
     containers: native(['ps', '--all', '--format', 'json']),
     volumes: native(['volume', 'ls', '--format', 'json']),
     serviceFiles: inventory(owned),

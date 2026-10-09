@@ -597,3 +597,30 @@ it('historical refusal proof rejects a preload environment before considering th
     rmSync(f.root, { recursive: true, force: true });
   }
 });
+
+import { inspectInitialColdGatewayState } from '../../scripts/lib/staging-cold-audit.mjs';
+it('the exact cold gateway state rejects any later startup file', () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'cold-gateway-')));
+  try {
+    const db = new Database(join(root, 'artifact-leases.db'));
+    db.close();
+    expect(inspectInitialColdGatewayState(root)).toBe(true);
+    writeFileSync(join(root, 'sandbox-creation-fence.json'), '{}', { mode: 0o600 });
+    expect(() => inspectInitialColdGatewayState(root)).toThrow();
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+it('a tableless SQLite view still prevents initial-state classification', () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'cold-view-')));
+  try {
+    const db = new Database(join(root, 'artifact-leases.db'));
+    db.exec('CREATE VIEW later_bootstrap AS SELECT 1');
+    db.close();
+    expect(() => inspectInitialColdGatewayState(root)).toThrow(
+      'Initial gateway database has schema',
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
