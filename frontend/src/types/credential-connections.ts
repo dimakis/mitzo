@@ -7,6 +7,7 @@ export type DashboardAccess = 'disabled' | 'read' | 'read-write';
 export type ConnectionMethod = 'GET' | 'HEAD' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 export interface CredentialConnectionInput {
   label: string;
+  serviceTemplate?: CredentialConnectionTemplate;
   endpoint: string;
   auth: ConnectionAuth;
   paths: string[];

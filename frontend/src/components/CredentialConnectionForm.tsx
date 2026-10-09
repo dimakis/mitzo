@@ -54,6 +54,7 @@ export function CredentialConnectionForm({
               : { kind, headerName };
         const connection = {
           label,
+          serviceTemplate,
           endpoint: endpoint.trim().replace(/\/$/, ''),
           auth,
           paths: paths

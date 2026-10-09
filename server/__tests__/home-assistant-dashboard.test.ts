@@ -225,6 +225,7 @@ function serviceFixture() {
   const service = new CredentialConnections(store, vault, vi.fn(), send);
   const connection = {
     label: 'Home Assistant',
+    serviceTemplate: 'home-assistant',
     endpoint: 'https://ha.example.com',
     auth: { kind: 'bearer' },
     paths: ['/api/'],
@@ -233,7 +234,7 @@ function serviceFixture() {
   };
   return { service, store, vault, send, connection };
 }
-it('keeps old connections disabled for dashboard access and requires an exact session grant before secret resolution', async () => {
+it('keeps dashboard access disabled by default and requires an exact session grant before secret resolution', async () => {
   const f = serviceFixture();
   const c = await f.service.create(f.connection, { secret: 'fixture-private-token' });
   expect(c.homeAssistantDashboards).toBe('disabled');

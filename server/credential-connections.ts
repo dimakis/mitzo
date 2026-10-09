@@ -57,6 +57,7 @@ export const ConnectionAuthSchema = z.discriminatedUnion('kind', [
 export const ConnectionInputSchema = z
   .object({
     label: z.string().trim().min(1).max(100),
+    serviceTemplate: z.enum(['custom', 'home-assistant']).optional(),
     endpoint: z
       .string()
       .max(2048)
@@ -109,12 +110,25 @@ export type PublicCredentialConnection = Omit<
   CredentialConnection,
   'credentialRef' | 'ownsCredential'
 >;
+function serviceTemplate(
+  connection: Pick<CredentialConnectionInput, 'serviceTemplate' | 'homeAssistantDashboards'>,
+) {
+  // Older records carry no template. Preserve only an explicitly enabled HA scope;
+  // neither a bearer token, path nor service label identifies Home Assistant.
+  return (
+    connection.serviceTemplate ??
+    ((connection.homeAssistantDashboards ?? 'disabled') !== 'disabled'
+      ? 'home-assistant'
+      : 'custom')
+  );
+}
 export const publicCredentialConnection = ({
   credentialRef: _ref,
   ownsCredential: _owns,
   ...connection
 }: CredentialConnection): PublicCredentialConnection => ({
   ...connection,
+  serviceTemplate: serviceTemplate(connection),
   homeAssistantDashboards: connection.homeAssistantDashboards ?? 'disabled',
   websocket: connection.websocket ?? null,
 });
@@ -235,11 +249,15 @@ export function requestTarget(
 }
 
 export function dashboardRequestTarget(
-  c: Pick<CredentialConnectionInput, 'endpoint' | 'paths' | 'auth' | 'homeAssistantDashboards'>,
+  c: Pick<
+    CredentialConnectionInput,
+    'endpoint' | 'paths' | 'auth' | 'homeAssistantDashboards' | 'serviceTemplate'
+  >,
   operation: string,
 ): URL {
   const access = c.homeAssistantDashboards ?? 'disabled';
   if (
+    serviceTemplate(c) !== 'home-assistant' ||
     c.auth.kind !== 'bearer' ||
     !['read', 'read-write'].includes(access) ||
     (operation === 'save' && access !== 'read-write')
@@ -306,6 +324,7 @@ export class CredentialConnections {
   }
   async create(input: unknown, source: { secret: string } | { existing: VaultReference }) {
     const parsed = ConnectionInputSchema.parse(input);
+    parsed.serviceTemplate = serviceTemplate(parsed);
     if (parsed.homeAssistantDashboards !== 'disabled') dashboardRequestTarget(parsed, 'read');
     if (parsed.websocket) websocketRequestTarget(parsed);
     const id = randomUUID();
@@ -478,11 +497,18 @@ export class CredentialConnections {
   updateDashboardAccess(id: string, revision: number, input: unknown) {
     const c = this.connection(id, revision);
     const homeAssistantDashboards = DashboardAccessSchema.parse(input);
+    if (homeAssistantDashboards !== 'disabled' && serviceTemplate(c) !== 'home-assistant')
+      throw new Error('Select the Home Assistant template to enable dashboard access');
     if (homeAssistantDashboards !== 'disabled')
       dashboardRequestTarget({ ...c, homeAssistantDashboards }, 'read');
     if ((c.homeAssistantDashboards ?? 'disabled') === homeAssistantDashboards)
       return publicCredentialConnection(c);
-    const updated = { ...c, homeAssistantDashboards, revision: revision + 1 };
+    const updated = {
+      ...c,
+      serviceTemplate: serviceTemplate(c),
+      homeAssistantDashboards,
+      revision: revision + 1,
+    };
     if (!this.store.replaceAtRevision(updated, revision))
       throw new Error('Connection changed; refresh and try again');
     this.store.revokeAll(id);

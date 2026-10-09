@@ -58,6 +58,7 @@ it('enrolls any HTTPS API from the generic entry with explicit scope and no chat
     {
       connection: {
         label: 'Example data',
+        serviceTemplate: 'custom',
         endpoint: 'https://data.example.com',
         auth: { kind: 'api-key', headerName: 'X-Service-Key' },
         paths: ['/v2/records/'],
@@ -192,6 +193,7 @@ it('shows session access and revokes the selected session only', async () => {
 const homeAssistant = {
   id: 'ha',
   label: 'Home Assistant',
+  serviceTemplate: 'home-assistant' as const,
   endpoint: 'https://ha.example.com',
   auth: { kind: 'bearer' as const },
   paths: ['/api/'],
@@ -201,6 +203,21 @@ const homeAssistant = {
   revision: 1,
   verifiedAt: null,
 };
+it('keeps saved custom bearer API connections free of Home Assistant dashboard controls', async () => {
+  vi.mocked(api.getCredentialConnections).mockResolvedValue([
+    {
+      ...homeAssistant,
+      id: 'generic',
+      label: 'Example API',
+      serviceTemplate: 'custom',
+      paths: ['/api/'],
+    },
+  ]);
+  render(<CredentialConnectionsPanel initialTemplate="custom" />);
+  await screen.findByRole('heading', { name: 'Example API' });
+  expect(screen.queryByLabelText(/Dashboard API access for Example API/)).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Save dashboard access' })).toBeNull();
+});
 it('clears a submitted credential when authorization has expired', async () => {
   render(<CredentialConnectionsPanel />);
   await screen.findByLabelText('Service address');
