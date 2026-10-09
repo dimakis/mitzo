@@ -5,12 +5,12 @@ import { createHash } from 'node:crypto';
  * verifies the two source artifacts below, so modifying a validator/helper
  * outside a golden input cannot silently retain this implementation revision.
  */
-export const reviewedHandlerImplementationRevision = 'v1.0.0';
+export const reviewedHandlerImplementationRevision = 'v1.0.2';
 
-export const reviewedGithubPublicationImplementationRevision = 'v1.0.6';
+export const reviewedGithubPublicationImplementationRevision = 'v1.0.9';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.12';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.19';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,6 +22,8 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../github-repository-connections.ts':
+    '3917a36a0cc8b3bb73f1f4fa66e93e17be3b0ace58eff2bb3e0470bd67b7c11e',
   '../credential-websocket.ts': '87a41d7c329dccb6616726feed14a5fb25c8aefe94556c767f42618b8d995810',
   // Keychain HTTP/WebSocket credential custody and exact-session approval handlers.
   '../home-assistant-dashboard.ts':
@@ -39,8 +41,8 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../credential-sdk-tools.ts': 'e64cae00d86986bba78e672ad9ebf6c8c89316e2e64bb30c7d478f76fc1640c9',
   '../session-credential-tools.ts':
     '70db62d9e3c16e66c2e238351a348b82fc6afc8f3b7baba37eeaabb98d27b9c8',
-  'policy-compiler.ts': '13a12a3182568a151247cb204792f15c374af9e5a7f401d51b954c6dd40fd538',
-  'registry.ts': 'cccbb1c67d559eda923c4d0beac5e0203918e3ab2970ab90a1937bb32a09d8a4',
+  'policy-compiler.ts': '59579f9eb69a3129dd2d8e1676fa46bd21da45c07f58752183416c82c0986014',
+  'registry.ts': 'd93c4b41cff1d0519dbdcbb466a035cc256b7bcc63d2e1440e781cda64833561',
   'iana-address-policy.ts': '899b0b5ad66f5cbe72224b34c29ff7a88e32c2a6f5b2987e4d18cfc64f862b4e',
   'iana-address-data.generated.ts':
     '58f91383fa17ab9612d24bc113d011ece63bfc06b4635ba99f108bb05aa34038',
@@ -48,12 +50,12 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   // reviewed: both the production executor and its OpenShell/Git transport
   // must match this revision before the registry can advertise the action.
   'capabilities/github-publish-pr.ts':
-    '5c89cde9110fa132ea94cd5ec0dd531ce47d668450ab4a869ad5e420cd1929f9',
+    '559e98cf8f45313e37bf34b4f54c4345bdc9b4bf22538078dc563483750bbde1',
   'capabilities/github-publish-pr-transport.ts':
-    'd333da15bfd6d9bc9f41ec68bd93a48b644415d5911080aa4c79f029b47831e8',
-  '../github-host-source.ts': '8e3ec9f30b300d7509124f59b969e5b059d5662b710a3a90f228cc86f08ac7e3',
+    '503c887848f3180647b6188ab65b8503bc6670291d4ce865a1b1df1504f15293',
+  '../github-host-source.ts': '2720dd0fedf081780ebd64a485164ec5abc6dee7920de925d35e3e6aa647e084',
   '../github-publishing-tool.ts':
-    'db6746ef09c51d46617dc413b7faea8a0ab412b9c0c60870d18f8bd66fd94e11',
+    'a3df58f0c68bdf72433f5a88d425d35764092c6f6e1fbd62691ef865b9622326',
   '../capability-conversation-binding.ts':
     '147a328d161f167aeeb31bf0017d5fea25cc3f22933392249a228d7bd61e89aa',
   // Secret custody and its browser/admission boundaries share the runtime review contract.
@@ -83,13 +85,34 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../openai-key-controller.ts': '721a1c6a513fc5380e4a2222927cda025bf8cbd7e8d49d8c5d526470e2cff217',
   '../connections-router.ts': 'cd0d3f49c776faa7f6f5adaa49c36ba2017703a47ce3fa9d51901e099d6adb5c',
   '../connections-service.ts': '1aae9d2c0da483ae798ba03d5804bfb0e81316f3f69666c6595befec3179c314',
+  // Repository acquisition and source claims share the ordinary runtime admission review.
+  '../git-branch.ts': '6dd4fef0069e65d78fc94d047777442e4ef073596555581da536e1e39a5d3877',
+  '../github-repository-source.ts':
+    'd511b06cf755bf1ce6a2dec95acddf2c4a9e6480b206291210fbd7808bf6731f',
+  '../worktree.ts': 'e3fd6d93d33cb5403786c5a7da16dd229d8ba03ad06e8c3abaf6309c64adb34a',
+  '../repository-task-checkout.ts':
+    '32fd232781b0ba9573fa0e6a511a78ede54a8c33a80dee30f52d06283b4beab5',
+  '../native-tool-executor.ts': '6bca4beb98690334e83a0a88b35c80558ed01b7485f682aca0cc0af11b6cd766',
+  '../repository-workspaces.ts': '964fcacc49cfda3175a3cf54550df1ed7010e47bab71001cf42896a6d2e03974',
+  '../../packages/protocol/src/event-store.ts':
+    '523d22223051a09ff250d4cbfbfabb98a7ba6de309c6952a119864ca7ecb0cdb',
+  '../../packages/protocol/src/types.ts':
+    'bdd789a67bbef05768a11bf471f3fb1a4ccf6af281e85d6fc4ac9a24d49963e1',
+  '../repository-workspace-runtime.ts':
+    '13db6d8d468d3e5ff4a9c8feaa06e5abbbb040196e8cf5b94b145297a5393a99',
+  '../repository-workspace-router.ts':
+    '13b8fab1dd0f5b83abfbb06946533cfb5273d28e4a71aacd24f7076be4858905',
+  '../trusted-native-operation.ts':
+    '0e8afb3b0968881d542850c68b5bc3cb362becffb47e354eccf8375e52ff0038',
+  '../repository-chat-startup.ts':
+    'da5476aa7e43badb1809a8f52d958d5338ec921c6ab96531978f750fecf4428f',
   // Admission shares compiled connection authority with gateway provisioning.
   'runtime-profiles.ts': '3632545ca52fbfad7442de08c03d5f9808b50b5bfdef92f9cd72b8fa8ab5140b',
   '../connections-gateway.ts': '8cc83813dff18a0cafba0fad53f3c5de987c8af631f8439029590285501849a1',
   '../openshell-runtime-policy.ts':
     'efecd458bf61fecd8198ecd330e0227e2c600ab21d6d2890cd2bac254e22b75f',
   '../openshell-runtime.ts': '71e650b8114df6264ce0a5b81ae32a1907ee3562c177c9d0d59c1f4825849b0c',
-  '../codex-chat-session.ts': '8c11ec22ceac62890318d28e20b97175c1aba5afd4ff89ba2c74e43a3baadd78',
+  '../codex-chat-session.ts': '87a46ff513212d13a7d230d821fa31d3cfc02c30542ead74e832e318f2b2981f',
   '../connections-runtime.ts': 'dbe641704a1d761d73740260fb28057054fdb34a64513fa77292d2fdb1954a84',
   'capabilities/operation-store.ts':
     '1a235f11d5578880e6dfa7ecf5779e2a011e24430774fc17429d7d22359b93f2',

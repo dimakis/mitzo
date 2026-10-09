@@ -128,6 +128,37 @@ function fixture(
 }
 
 describe('github.publish-pr capability', () => {
+  it.each(['release+fix', 'release@2026', 'résumé/next+patch'])(
+    'publishes an explicitly allowed Git base branch %s through approved preflight',
+    async (baseBranch) => {
+      const f = fixture();
+      vi.mocked(f.host.policy).mockResolvedValue({
+        defaultBranch: baseBranch,
+        sourceBranchProtected: false,
+      });
+      const pull = { ...f.pull, baseBranch };
+      vi.mocked(f.host.create).mockResolvedValue(pull);
+      vi.mocked(f.host.read).mockResolvedValue(pull);
+      const executor = createGithubPublishPrExecutor({
+        sandbox: f.sandbox,
+        host: f.host,
+        resolveConversation: () => ({
+          workspace: '/sandbox/workspaces/mgmt',
+          sandboxName: 'sandbox-1',
+        }),
+        resolvePublicConfig: () => ({
+          allowedRepositories: ['acme/widgets'],
+          allowedBaseBranches: [baseBranch],
+        }),
+      });
+      const request = context({ input: { ...input, baseBranch } });
+      const preflight = await executor.preflight!(request);
+      expect(preflight.approvalInput.baseBranch).toBe(baseBranch);
+      await executor.execute({ ...request, approvalInput: preflight.approvalInput });
+      expect(f.host.create).toHaveBeenCalledWith(expect.objectContaining({ baseBranch }));
+    },
+  );
+
   it('uses the production service preflight card for approval, execution, and durable ambiguous recovery', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'mitzo-github-service-'));
     const f = fixture({ inspection: { changedFiles: ['deleted.ts', 'src/index.ts'] } });

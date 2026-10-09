@@ -1,3 +1,5 @@
+import type { RepositoryChatWorkspace } from './repository-chat-startup.js';
+import { getRepositoryWorkspaces } from './repository-workspace-runtime.js';
 import {
   sessionCredentialTools,
   CONNECTION_TOOL_INSTRUCTIONS,
@@ -476,6 +478,7 @@ export function readCodexLifecycleQueue(conversationId: string, binding: Account
   return store().lifecycleQueue(conversationId, binding);
 }
 interface Options {
+  repositoryWorkspace?: RepositoryChatWorkspace;
   publishingGitStorageRoots?: readonly string[];
   resume?: boolean;
   conversationId: string;
@@ -695,10 +698,35 @@ async function openCodexChatBound(
         };
       }
       if (provisioning) options = { ...options, resume: false };
+      if (
+        options.resume &&
+        options.repositoryWorkspace &&
+        (!routedRuntime?.runtime.sandboxName || !routedRuntime.runtime.sandboxId)
+      )
+        throw new Error('Repository sandbox identity is unavailable; preserve the conversation');
     }
+    const repositorySeed =
+      runtimeManager && !options.resume && options.repositoryWorkspace
+        ? await getRepositoryWorkspaces(true).startupSeed(
+            options.repositoryWorkspace.id,
+            options.binding,
+            options.conversationId,
+            options.session.abortController.signal,
+          )
+        : undefined;
     managedOpenShell = runtimeManager
       ? await duringCodexStartup('sandbox_preparation', () =>
-          runtimeManager!.ensure(options.conversationId, options.session.abortController.signal),
+          runtimeManager!.ensure(
+            options.conversationId,
+            options.session.abortController.signal,
+            options.resume && options.repositoryWorkspace && routedRuntime
+              ? {
+                  sandboxName: routedRuntime.runtime.sandboxName,
+                  sandboxId: routedRuntime.runtime.sandboxId,
+                }
+              : undefined,
+            repositorySeed ? { seed: repositorySeed, cleanup: () => {} } : undefined,
+          ),
         )
       : undefined;
   } catch (error) {
@@ -954,7 +982,7 @@ async function openCodexChatBound(
       // Enrolled sessions receive accepted guidance through prepareSystemPrompt
       // on each turn. A retained writable checkout can contain older guidance;
       // never install that context as persistent thread developer instructions.
-      if (configuredRuntime?.knowledgeStore) {
+      if (configuredRuntime?.knowledgeStore || options.repositoryWorkspace) {
         startup = {};
       } else {
         const context = await runtimeManager!.compileContext(managedOpenShell!, signal);
@@ -1200,7 +1228,23 @@ async function openCodexChatBound(
           },
           beforeReconnect: async () => {
             await sharedOpenShellLifecycleCoordinator.admit(options.conversationId, async () => {
-              let recovered = await runtimeManager!.ensure(options.conversationId, signal);
+              const retained = options.repositoryWorkspace
+                ? privateStorage.readArtifactRuntime(options.conversationId, options.binding)
+                : undefined;
+              if (options.repositoryWorkspace && !retained)
+                throw new Error(
+                  'Repository sandbox identity is unavailable; preserve the conversation',
+                );
+              let recovered = await runtimeManager!.ensure(
+                options.conversationId,
+                signal,
+                retained
+                  ? {
+                      sandboxName: retained.runtime.sandboxName,
+                      sandboxId: retained.runtime.sandboxId,
+                    }
+                  : undefined,
+              );
               if (recovered.sandboxId && configuredRuntime) {
                 const selected = await prepareRetainedRuntimeMigration({
                   conversationId: options.conversationId,

@@ -1,3 +1,4 @@
+import { githubRepositoryConnections } from './github-repository-connections.js';
 import { realpathSync } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
@@ -146,18 +147,11 @@ export function createGithubPublishingTool(
       );
       if (!isCurrent())
         return { content: 'Session permissions changed; retry publishing', isError: true };
-      const connections = runtime.store
-        .list('operator')
-        .filter(
-          (c) =>
-            c.templateId === 'github-readonly' &&
-            c.status === 'active' &&
-            c.desiredAccountIds.includes(account.accountId) &&
-            Array.isArray(c.publicConfig.allowedRepositories) &&
-            c.publicConfig.allowedRepositories.some(
-              (value) => typeof value === 'string' && value.toLowerCase() === repository,
-            ),
-        );
+      const connections = githubRepositoryConnections(
+        runtime.store.list('operator'),
+        account.accountId,
+        repository,
+      );
       if (connections.length !== 1)
         return {
           content:
