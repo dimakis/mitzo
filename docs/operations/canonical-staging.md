@@ -161,3 +161,14 @@ and creates a fresh v2 release receipt. It never runs npm install, chooses versi
 changes the live receipt or controls a service. Missing provisioning still refuses
 a changed lock. Native runtime/configuration qualification and provider enrollment
 remain separate from this migration.
+
+The original VM supervisor remains `com.mitzo.staging.vm`, with no automatic
+restart. Resume that same registered supervisor after confirming a stopped VM,
+its recorded rootless resource/mount boundary and no retained native operation.
+A foreground `podman machine start` in an agent command does not establish
+persistent supervision. Its stable API socket uses the supervisor's finite
+`TMPDIR=/private/tmp`; review the [socket-only proposal](evidence/canonical-staging-socket-proposal.json)
+before changing the historical gateway socket location. Preserve the original
+private configuration, verify the approved old/new hashes and schema, and
+reprepare superseded unlaunched bundles. This changes no account/model policy or
+credentials and grants no native runtime or inference admission.
