@@ -542,7 +542,13 @@ for (const [layout, View] of [
                       accountLabel: 'Prepared',
                       model: 'luna',
                     },
-                    modelSelection: { model: 'luna', models: accounts[1].models },
+                    modelSelection: {
+                      model: 'luna',
+                      models: [
+                        ...accounts[1].models,
+                        { id: 'manual-model', label: 'Manual model' },
+                      ],
+                    },
                   }
                 : accounts,
           ),
@@ -592,6 +598,12 @@ for (const [layout, View] of [
     expect(localStorage.getItem(`mitzo-repository-prompt:${id}`)).toBeNull();
     expect(send).toHaveBeenCalledTimes(1);
     expect(localStorage.getItem(PREFERRED_MODEL_KEY)).toBe('remembered-model');
+    expect(localStorage.getItem('mitzo-default-account-model')).toContain('other');
+    fireEvent.change(screen.getByRole('combobox', { name: 'Model' }), {
+      target: { value: 'manual-model' },
+    });
+    expect(localStorage.getItem(PREFERRED_MODEL_KEY)).toBe('manual-model');
+    expect(store.getState().config.modelId).toBe('manual-model');
     expect(localStorage.getItem('mitzo-default-account-model')).toContain('other');
   });
   it(`${layout}: blocks the early send handler while the old active session is being cleared`, async () => {

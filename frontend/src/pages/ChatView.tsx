@@ -149,6 +149,7 @@ export function ChatView() {
     [storeSetModel],
   );
 
+  const restoredRepositoryBinding = useRef<string | null>(null);
   const selectAccount = useCallback(
     (selection: AccountSelection | null) => {
       if (repositoryHandoff.present && activeSessionId) return;
@@ -157,8 +158,12 @@ export function ChatView() {
         if (
           repositoryHandoff.present ||
           (activeSessionId !== null &&
-            activeSessionId === repositoryHandoff.lastAssignedConversationId)
+            activeSessionId === repositoryHandoff.lastAssignedConversationId &&
+            restoredRepositoryBinding.current !== activeSessionId)
         ) {
+          // Preserve browser defaults once while the assigned binding hydrates.
+          // Later explicit model choices use the ordinary preference path.
+          if (!repositoryHandoff.present) restoredRepositoryBinding.current = activeSessionId;
           setModelState(selection.model);
           storeSetModel(selection.model);
         } else setModel(selection.model);
