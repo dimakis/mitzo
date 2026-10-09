@@ -118,6 +118,26 @@ it('lets the user review the latest version and keep the draft against a new bas
   ).toBe('agent version');
 });
 
+it.each([false, true])(
+  'signals a keyboard history reset when resolving a conflict (replace: %s)',
+  async (replace) => {
+    const { result } = editor();
+    act(() => result.current.startEditing());
+    const resetKey = result.current.historyResetKey;
+    act(() => result.current.handleEditChange('my draft'));
+    expect(result.current.historyResetKey).toBe(resetKey);
+    vi.mocked(apiFetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({ content: 'agent version' })),
+    );
+    await act(() => result.current.reviewLatest());
+    act(() => result.current.resolveConflict(replace));
+    expect(result.current.historyResetKey).not.toBe(resetKey);
+    expect(result.current.canUndo).toBe(false);
+    expect(result.current.canRedo).toBe(false);
+    expect(result.current.editContent).toBe(replace ? 'agent version' : 'my draft');
+  },
+);
+
 it('reports failed draft backup and clears the warning after storage recovers', () => {
   const { result } = editor();
   act(() => result.current.startEditing());
