@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { createHomeRouter } from '../home-router.js';
 import { HomeStore } from '../home-store.js';
 import { compileQuoteCatalog } from '../quote-catalog.js';
+import { EventStore } from '@mitzo/protocol/event-store';
 
 let root: string;
 beforeEach(() => {
@@ -39,6 +40,7 @@ function app(changed = vi.fn()) {
         id === 'registered'
           ? {
               sessionType: 'chat',
+              isHidden: false,
               selectedModel: 'luna',
               accountBinding: { accountId: 'work', model: 'luna' },
             }
@@ -152,6 +154,70 @@ it('registers only actual session account/model bindings and returns exact repor
   expect(
     (await request(api).get('/api/home/briefing-chats?date=2026-02-30&revision=bad')).status,
   ).toBe(400);
+});
+
+it('does not reuse or register a deleted briefing chat while preserving its saved history', async () => {
+  const sessions = new EventStore(':memory:');
+  const store = new HomeStore(join(root, 'home.json'));
+  const api = express();
+  api.use(express.json());
+  api.use(
+    '/api/home',
+    createHomeRouter({
+      store,
+      catalog: () => [entry],
+      briefing: () => null,
+      session: (id) => sessions.getSession(id),
+    }),
+  );
+  // The real DELETE route hides the row; the EventStore deliberately retains its metadata.
+  api.delete('/api/sessions/:id', (req, res) => {
+    sessions.hideSession(req.params.id);
+    res.sendStatus(204);
+  });
+  const selection = {
+    accountId: 'work',
+    accountLabel: 'Work',
+    provider: 'openai',
+    model: 'luna',
+    profileRevision: 'fixture',
+  };
+  const binding = {
+    date: '2026-10-10',
+    revision: 'a'.repeat(64),
+    sessionId: 'deleted-chat',
+    accountId: 'work',
+    model: 'luna',
+  };
+  try {
+    sessions.upsertSession({ sessionId: binding.sessionId, accountBinding: selection });
+    expect((await request(api).post('/api/home/briefing-chats').send(binding)).status).toBe(201);
+    const dateQuery = `/api/home/briefing-chats?date=${binding.date}&revision=${binding.revision}`;
+    expect((await request(api).get(dateQuery)).body).toHaveLength(1);
+    expect((await request(api).delete(`/api/sessions/${binding.sessionId}`)).status).toBe(204);
+    expect(sessions.getSession(binding.sessionId)?.isHidden).toBe(true);
+    expect((await request(api).get(dateQuery)).body).toEqual([]);
+    expect(
+      (await request(api).get(`/api/home/briefing-chats?sessionId=${binding.sessionId}`)).body,
+    ).toEqual([]);
+    expect((await request(api).post('/api/home/briefing-chats').send(binding)).status).toBe(404);
+    // Asking again finds no resumable binding and can register a new visible conversation.
+    sessions.upsertSession({ sessionId: 'fresh-chat', accountBinding: selection });
+    expect(
+      (
+        await request(api)
+          .post('/api/home/briefing-chats')
+          .send({ ...binding, sessionId: 'fresh-chat' })
+      ).status,
+    ).toBe(201);
+    expect((await request(api).get(dateQuery)).body).toEqual([
+      expect.objectContaining({ ...binding, sessionId: 'fresh-chat' }),
+    ]);
+    expect(store.briefingChats(binding.date, binding.revision)).toHaveLength(2);
+    expect(sessions.getSession(binding.sessionId)?.isHidden).toBe(true);
+  } finally {
+    sessions.close();
+  }
 });
 it('serves the cached daily quote and saved briefing, with explicit missing and invalid states', async () => {
   const api = app();

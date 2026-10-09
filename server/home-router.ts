@@ -21,12 +21,16 @@ export function createHomeRouter(deps: {
   briefing: (date: string) => BriefingSnapshot | null;
   changed?: () => void;
   session?: (id: string) =>
-    | (Pick<SessionMeta, 'sessionType' | 'selectedModel'> & {
+    | (Pick<SessionMeta, 'sessionType' | 'selectedModel' | 'isHidden'> & {
         accountBinding?: Pick<AccountBinding, 'accountId' | 'model'> | null;
       })
     | null;
 }) {
   const router = Router();
+  const visibleSession = (id: string) => {
+    const session = deps.session?.(id);
+    return session && !session.isHidden ? session : null;
+  };
   router.use((_req, res, next) => {
     res.setHeader('Cache-Control', 'no-store');
     next();
@@ -68,7 +72,7 @@ export function createHomeRouter(deps: {
         return;
       }
       try {
-        res.json(deps.session?.(sessionId) ? deps.store.briefingChatForSession(sessionId) : []);
+        res.json(visibleSession(sessionId) ? deps.store.briefingChatForSession(sessionId) : []);
       } catch {
         res.status(503).json({ error: 'Briefing conversation is unavailable. Retry.' });
       }
@@ -84,7 +88,7 @@ export function createHomeRouter(deps: {
       res.json(
         deps.store
           .briefingChats(date, revision)
-          .filter((chat) => Boolean(deps.session?.(chat.sessionId))),
+          .filter((chat) => Boolean(visibleSession(chat.sessionId))),
       );
     } catch {
       res.status(503).json({ error: 'Briefing conversations are unavailable. Retry.' });
@@ -93,7 +97,7 @@ export function createHomeRouter(deps: {
   router.post('/briefing-chats', (req, res) => {
     try {
       const binding = briefingChatSchema.parse(req.body);
-      const session = deps.session?.(binding.sessionId);
+      const session = visibleSession(binding.sessionId);
       if (!session || session.sessionType === 'symposium') {
         res.status(404).json({ error: 'Registered chat not found.' });
         return;
