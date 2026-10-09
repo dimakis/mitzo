@@ -12,6 +12,45 @@ afterEach(() => {
 });
 
 describe('useDraft', () => {
+  it.each(['switch', 'unmount'] as const)(
+    'flushes the dirty ordinary owner on immediate %s before a preparation opens',
+    (transition) => {
+      vi.useFakeTimers();
+      localStorage.setItem('mitzo-draft-new', 'Older ordinary draft');
+      const initialProps: { scope?: string } = {};
+      const ordinary = renderHook(
+        ({ scope }: { scope?: string }) => useDraft(undefined, undefined, scope),
+        { initialProps },
+      );
+      const edited = 'Fresh ordinary draft\n  exact spacing  ';
+      act(() => ordinary.result.current[1](edited));
+      if (transition === 'switch') ordinary.rerender({ scope: 'mitzo-repository-prompt:prep-a' });
+      else ordinary.unmount();
+      expect(localStorage.getItem('mitzo-draft-new')).toBe(edited);
+      expect(localStorage.getItem('mitzo-repository-prompt:prep-a')).toBeNull();
+      act(() => vi.advanceTimersByTime(500));
+      expect(localStorage.getItem('mitzo-draft-new')).toBe(edited);
+    },
+  );
+  it.each(['switch', 'unmount'] as const)(
+    'removes a user-emptied ordinary owner on immediate %s',
+    (transition) => {
+      vi.useFakeTimers();
+      localStorage.setItem('mitzo-draft-new', 'Older ordinary draft');
+      const initialProps: { scope?: string } = {};
+      const ordinary = renderHook(
+        ({ scope }: { scope?: string }) => useDraft(undefined, undefined, scope),
+        { initialProps },
+      );
+      act(() => ordinary.result.current[1](''));
+      if (transition === 'switch') ordinary.rerender({ scope: 'mitzo-repository-prompt:prep-a' });
+      else ordinary.unmount();
+      expect(localStorage.getItem('mitzo-draft-new')).toBeNull();
+      act(() => vi.advanceTimersByTime(500));
+      expect(localStorage.getItem('mitzo-draft-new')).toBeNull();
+    },
+  );
+
   it('flushes a preparation edit before confirmation and cancels a pending dirty flush on confirmed clear', () => {
     vi.useFakeTimers();
     const draft = renderHook(() =>

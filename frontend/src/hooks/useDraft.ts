@@ -55,12 +55,12 @@ export function useDraft(
     const previous = storageRef.current;
     if (previous.key === key) return;
     clearTimeout(timerRef.current);
+    if (dirty.current) saveDraft(previous.key, textRef.current, previous.scoped);
+    dirty.current = false;
     // Preparation drafts belong to their own receipt. Never move ordinary or
     // another preparation's text across this ownership boundary.
     if (previous.scoped || scoped) {
-      if (previous.scoped && dirty.current) saveDraft(previous.key, textRef.current, true);
       storageRef.current = { key, scoped };
-      dirty.current = false;
       const restored = readDraft(key, initialText, scoped);
       textRef.current = restored;
       setTextRaw(restored);
@@ -111,8 +111,8 @@ export function useDraft(
   useEffect(
     () => () => {
       clearTimeout(timerRef.current);
-      if (storageRef.current.scoped && dirty.current)
-        saveDraft(storageRef.current.key, textRef.current, true);
+      if (dirty.current)
+        saveDraft(storageRef.current.key, textRef.current, storageRef.current.scoped);
     },
     [],
   );

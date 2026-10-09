@@ -67,3 +67,38 @@ it('uses a preparation-owned storage key without changing runtime session identi
   expect(localStorage.getItem('mitzo-repository-prompt:prep-a')).toBeNull();
   expect(localStorage.getItem('mitzo-draft-new')).toBe('ordinary draft\n keep these bytes');
 });
+
+it.each(['same composer', 'remount'] as const)(
+  'flushes an instant ordinary edit before preparation %s without sharing prompt ownership',
+  (transition) => {
+    vi.useFakeTimers();
+    localStorage.setItem('mitzo-draft-new', 'Older ordinary draft');
+    const onSend = vi.fn(() => false);
+    const props = { onSend, onStop: vi.fn(), running: false };
+    const first = render(<ChatInput {...props} />);
+    const ordinary = 'Fresh ordinary task\n  preserve these bytes  ';
+    fireEvent.change(screen.getByLabelText('Message Mitzo'), { target: { value: ordinary } });
+    first.rerender(
+      <ChatInput
+        {...props}
+        key={transition === 'remount' ? 'prep-a' : undefined}
+        initialText="Prepared task"
+        draftStorageKey="mitzo-repository-prompt:prep-a"
+      />,
+    );
+    expect((screen.getByLabelText('Message Mitzo') as HTMLTextAreaElement).value).toBe(
+      'Prepared task',
+    );
+    expect(localStorage.getItem('mitzo-draft-new')).toBe(ordinary);
+    fireEvent.change(screen.getByLabelText('Message Mitzo'), {
+      target: { value: 'Edited preparation' },
+    });
+    first.unmount();
+    act(() => vi.advanceTimersByTime(500));
+    expect(localStorage.getItem('mitzo-draft-new')).toBe(ordinary);
+    expect(localStorage.getItem('mitzo-repository-prompt:prep-a')).toBe('Edited preparation');
+    render(<ChatInput {...props} />);
+    expect((screen.getByLabelText('Message Mitzo') as HTMLTextAreaElement).value).toBe(ordinary);
+    expect(onSend).not.toHaveBeenCalled();
+  },
+);
