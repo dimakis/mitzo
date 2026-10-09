@@ -82,6 +82,7 @@ export const OwnedSymposiumConfigSchema = z.strictObject({
     sandboxNamespace: z.string().refine(isPodmanSandboxNamespace),
   }),
   personal: z.strictObject({
+    deviceLoginExecutable: z.strictObject({ executable: path, sha256: digest }).optional(),
     workProfiles: z.array(z.discriminatedUnion('provider', [Work, SymposiumWorkVertexProfile])),
     accountId: z.string().regex(/^[a-zA-Z0-9_-]+$/),
     label: z.string().min(1),

@@ -1,6 +1,8 @@
+import { createHash } from 'node:crypto';
+import { tmpdir } from 'node:os';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
-import { existsSync, writeFileSync, rmSync } from 'node:fs';
+import { chmodSync, existsSync, writeFileSync, rmSync, mkdtempSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { beginDeviceLogin, deviceLoginProcessSpec } from '../symposium-device-login.js';
@@ -211,4 +213,49 @@ it('reaps and erases an allocation that expires before initialization returns', 
   } finally {
     now.mockRestore();
   }
+});
+
+describe('pinned sign-in executable', () => {
+  it('freezes the selected native program and works without PATH lookup while retaining isolated credentials', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'pinned-device-test-')),
+      program = join(root, 'codex');
+    writeFileSync(program, 'native-auth-only', { mode: 0o500 });
+    const pin = {
+        executable: program,
+        sha256: createHash('sha256').update('native-auth-only').digest('hex'),
+      },
+      f = fixture();
+    try {
+      const login = await beginDeviceLogin(f.service as never, f.launch as never, undefined, pin);
+      const command = f.launch.mock.calls[0][0];
+      expect(command).toBe(join(f.home(), 'codex-device-auth'));
+      expect(readFileSync(command, 'utf8')).toBe('native-auth-only');
+      expect(f.launch.mock.calls[0][2].shell).toBe(false);
+      expect(f.launch.mock.calls[0][2].env).not.toHaveProperty('OPENAI_API_KEY');
+      chmodSync(program, 0o700);
+      writeFileSync(program, 'changed');
+      f.complete();
+      await login.completed;
+      expect(existsSync(f.home())).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true });
+    }
+  });
+  it('rejects a mismatched pin before spawning and removes the fresh private home', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'pinned-device-test-')),
+      program = join(root, 'codex');
+    writeFileSync(program, 'native', { mode: 0o500 });
+    const f = fixture();
+    try {
+      await expect(
+        beginDeviceLogin(f.service as never, f.launch as never, undefined, {
+          executable: program,
+          sha256: 'f'.repeat(64),
+        }),
+      ).rejects.toThrow();
+      expect(f.launch).not.toHaveBeenCalled();
+    } finally {
+      rmSync(root, { recursive: true });
+    }
+  });
 });

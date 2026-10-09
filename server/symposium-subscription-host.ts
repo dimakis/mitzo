@@ -1,4 +1,8 @@
-import { beginDeviceLogin, DeviceLoginCleanupError } from './symposium-device-login.js';
+import {
+  beginDeviceLogin,
+  DeviceLoginCleanupError,
+  type DeviceLoginExecutable,
+} from './symposium-device-login.js';
 import { spawnSync } from 'node:child_process';
 import { AccountProfiles } from './account-profiles.js';
 import { z } from 'zod';
@@ -13,6 +17,7 @@ import {
 
 export interface SymposiumSubscriptionHostOptions {
   gateway: OwnedSymposiumGateway;
+  deviceLoginExecutable?: DeviceLoginExecutable;
   runCredentialCleanup?: <T>(operation: () => Promise<T>) => Promise<T>;
   seatProof: {
     assertCurrent(input: Parameters<VerifySymposiumSubscriptionAuth>[0]): void;
@@ -250,7 +255,12 @@ export function createSymposiumSubscriptionHost(
     invalidate,
     async beginDeviceLogin() {
       invalidate();
-      const login = await beginDeviceLogin(service);
+      const login = await beginDeviceLogin(
+        service,
+        undefined,
+        undefined,
+        options.deviceLoginExecutable,
+      );
       return { ...login, completed: activate(login.completed) };
     },
     async beginLogin() {
