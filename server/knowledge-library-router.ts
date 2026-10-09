@@ -273,13 +273,56 @@ export function createKnowledgeLibraryRouter(
         inspected.state === 'in-review' && current.version !== current.review?.version
           ? 'draft'
           : inspected.state;
-      const updated = context.runtime.store.status(draft.id, state, current.error);
+      const updated =
+        inspected.state === 'in-review' &&
+        current.review?.version === current.version &&
+        typeof inspected.draft === 'boolean'
+          ? context.runtime.store.receipt(draft.id, current.version, {
+              ...current.review,
+              ready: !inspected.draft,
+            })
+          : context.runtime.store.status(draft.id, state, current.error);
       return res.json({
         draft: updated,
         canAccept: inspected.canAccept && current.version === current.review?.version,
         reason: inspected.reason,
         currentHead: inspected.head,
       });
+    }),
+  );
+  router.post(
+    '/drafts/:id/ready',
+    route(async (req, res, context) => {
+      const input = z
+        .strictObject({ version: z.number().int().positive(), head: revision })
+        .safeParse(req.body);
+      if (!input.success) return res.status(400).json({ error: 'Invalid review submission' });
+      if (!context.runtime.publisher)
+        throw new KnowledgeDraftConflict('Review publishing is not configured');
+      const draft = context.runtime.store.get(id(req));
+      if (
+        draft.state !== 'in-review' ||
+        draft.version !== input.data.version ||
+        draft.review?.version !== draft.version ||
+        draft.review.head !== input.data.head
+      )
+        throw new KnowledgeDraftConflict('Save the current draft before sending it for review');
+      const lease = context.runtime.store.acquire(draft.id);
+      try {
+        const sent = await context.runtime.publisher.sendForReview(reviewIdentity(context, draft));
+        context.assert();
+        if (sent.head !== draft.review.head || sent.draft !== false || sent.state !== 'in-review')
+          throw new KnowledgeDraftConflict('Review submission could not be confirmed');
+        const updated = context.runtime.store.receipt(
+          draft.id,
+          draft.version,
+          { ...draft.review, ready: true },
+          lease,
+        );
+        return res.json({ draft: updated, canAccept: false });
+      } finally {
+        context.runtime.store.release(draft.id, lease);
+      }
     }),
   );
   router.post(

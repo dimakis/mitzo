@@ -12,6 +12,8 @@ import {
   type KnowledgeLibraryDependencies,
 } from '../knowledge-library-router.js';
 import { revokeAuthSession } from '../auth.js';
+import type { KnowledgeGithubPublisher } from '../knowledge-github-publisher.js';
+import type { KnowledgeReviewService } from '../knowledge-review-service.js';
 
 let root: string, store: KnowledgeDraftStore, source: AcceptedKnowledgeSource;
 let auth: { id: string; expiresAt: number };
@@ -160,4 +162,52 @@ it('fences revoked authentication after slow source initialization', async () =>
   revokeAuthSession(auth);
   finish({ source, store, syncedAt: null, acceptanceEnabled: false, refresh: vi.fn() });
   expect((await response).status).toBe(403);
+});
+
+it('sends only the current saved review for review and preserves its source', async () => {
+  const revision = await source.revision();
+  const draft = store.create('Change', revision, [
+    { path: 'architecture/one.md', base: '# Accepted\n', content: '# My draft\n' },
+  ]);
+  const head = 'a'.repeat(40);
+  store.receipt(draft.id, draft.version, { url: 'https://github.com/test/knowledge/pull/1', head });
+  const sendForReview = vi.fn(async () => ({
+    state: 'in-review',
+    head,
+    draft: false,
+    canAccept: false,
+  }));
+  const a = app(async () => ({
+    source,
+    store,
+    syncedAt: null,
+    acceptanceEnabled: false,
+    refresh: vi.fn(),
+    reviewService: {
+      config: { repository: 'test/knowledge', baseBranch: 'main' },
+      assertIdle: (id: string) => store.assertIdle(id),
+    } as unknown as KnowledgeReviewService,
+    publisher: { sendForReview } as unknown as KnowledgeGithubPublisher,
+  }));
+  expect(
+    (
+      await request(a)
+        .post(`/api/knowledge/drafts/${draft.id}/ready`)
+        .set('x-operator', 'yes')
+        .send({ version: draft.version, head: 'b'.repeat(40) })
+    ).status,
+  ).toBe(409);
+  expect(sendForReview).not.toHaveBeenCalled();
+  const response = await request(a)
+    .post(`/api/knowledge/drafts/${draft.id}/ready`)
+    .set('x-operator', 'yes')
+    .send({ version: draft.version, head });
+  expect(response.status).toBe(200);
+  expect(response.body.draft.review.ready).toBe(true);
+  expect(response.body.draft.documents[0].content).toBe('# My draft\n');
+  expect(
+    store.save(draft.id, draft.version, [
+      { path: 'architecture/one.md', base: '# Accepted\n', content: '# Next edit\n' },
+    ]).version,
+  ).toBe(2);
 });

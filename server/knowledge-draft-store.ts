@@ -16,7 +16,7 @@ export interface KnowledgeDraft {
   documents: KnowledgeDraftDocument[];
   updatedAt: string;
   state: 'draft' | 'in-review' | 'accepted' | 'closed';
-  review?: { url: string; head: string; version: number };
+  review?: { url: string; head: string; version: number; ready?: boolean };
   publication?: { head: string; version: number };
   error?: string;
 }
@@ -210,7 +210,12 @@ export class KnowledgeDraftStore {
       });
     })();
   }
-  receipt(id: string, version: number, review: { url: string; head: string }, lease?: string) {
+  receipt(
+    id: string,
+    version: number,
+    review: { url: string; head: string; ready?: boolean },
+    lease?: string,
+  ) {
     return this.db.transaction(() => {
       this.writable(id, lease);
       const draft = this.get(id);
@@ -218,7 +223,7 @@ export class KnowledgeDraftStore {
         throw new KnowledgeDraftConflict('Draft changed while saving its review');
       return this.put({
         ...draft,
-        review: { ...review, version },
+        review: { ...review, ready: review.ready ?? false, version },
         state: 'in-review',
         error: undefined,
       });
