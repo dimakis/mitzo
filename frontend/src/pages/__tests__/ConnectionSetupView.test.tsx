@@ -178,3 +178,28 @@ it('asks only for the service key when secure storage is already authorized in t
     'cached-csrf',
   );
 });
+it('drops view authorization after a refused completion and asks for the passphrase again', async () => {
+  vi.mocked(api.getCachedCredentialAuthorization).mockReturnValue({
+    csrf: 'revoked-csrf',
+    expiresAt: Date.now() + 60_000,
+  });
+  vi.mocked(api.completeConnectionSetup).mockRejectedValue(new Error('Authorize again'));
+  open();
+  await screen.findByLabelText('Home Assistant key');
+  fireEvent.change(screen.getByLabelText('Home Assistant key'), {
+    target: { value: 'fixture-key' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Connect Home Assistant' }));
+  await screen.findByLabelText('Mitzo passphrase');
+  expect((screen.getByLabelText('Home Assistant key') as HTMLInputElement).value).toBe('');
+});
+it('explains how to continue when the verified connection has not reached the assistant yet', async () => {
+  vi.mocked(api.getConnectionSetup).mockResolvedValue({
+    ...setup,
+    status: 'ready',
+    delivery: 'pending',
+  });
+  open();
+  await screen.findByRole('heading', { name: 'Home Assistant is connected' });
+  expect(screen.getByText(/tell your assistant the connection is ready/)).toBeTruthy();
+});

@@ -121,6 +121,7 @@ export function ConnectionSetupView() {
     } catch (reason) {
       if (!alive.current || currentSetupId.current !== setupId) return;
       if (mutationStarted) {
+        setAuthorization(undefined);
         setUncertain(true);
         // A lost response may follow a successful save. Check before accepting another key.
         await load().catch(() => undefined);
@@ -169,7 +170,9 @@ export function ConnectionSetupView() {
           <>
             <p>
               {ready
-                ? 'Your key is saved privately and the connection is verified. Continue your original task in chat.'
+                ? setup.delivery === 'pending'
+                  ? 'Your key is saved privately and the connection is verified. Return to chat; if the task is waiting, tell your assistant the connection is ready.'
+                  : 'Your key is saved privately and the connection is verified. Continue your original task in chat.'
                 : expired
                   ? 'Return to your chat and ask the assistant to prepare this connection again.'
                   : 'Return to your chat whenever you want to continue.'}

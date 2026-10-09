@@ -68,6 +68,8 @@ export interface ConnectionSetup {
   connection: CredentialConnectionInput;
   credential: { label: string; helpUrl?: string; instructions: string };
   connectionId?: string;
+  delivery?: 'pending' | 'delivered';
+  connectionRevision?: number;
   error?: string;
   setupUrl: string;
 }
