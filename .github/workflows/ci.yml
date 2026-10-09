@@ -156,6 +156,10 @@ jobs:
       - name: Build workspace packages
         run: npx tsc -b packages/protocol packages/harness packages/client
 
+      - name: Verify reviewed daily quote catalogue
+        id: quotes
+        run: npm run quotes:check
+
       - name: Lint
         id: lint
         run: npm run lint
@@ -236,6 +240,7 @@ jobs:
         if: always()
         run: |
           if [ "${{ steps.lint.outcome }}" = "failure" ] || \
+             [ "${{ steps.quotes.outcome }}" = "failure" ] || \
              [ "${{ steps.format.outcome }}" = "failure" ] || \
              [ "${{ steps.typecheck-server.outcome }}" = "failure" ] || \
              [ "${{ steps.typecheck-frontend.outcome }}" = "failure" ] || \
