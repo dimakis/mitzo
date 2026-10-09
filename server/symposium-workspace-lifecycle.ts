@@ -11,6 +11,13 @@ import {
   fsyncSync,
 } from 'node:fs';
 import { dirname } from 'node:path';
+import {
+  assertDiscoveryOwnedReadyEvidence,
+  assertDiscoveryPhysicalCleanupEvidence,
+  type DiscoveryOwnedReadyEvidence,
+  type DiscoveryPhysicalCleanupEvidence,
+  type DiscoveryReceipt,
+} from './symposium-model-discovery.js';
 export type SandboxCreationFence = <T>(
   verify: () => void,
   operation: (markDispatched: () => void, markSettled?: () => void) => Promise<T>,
@@ -28,6 +35,7 @@ export class SandboxCreationPreflightError extends Error {
 export class SymposiumWorkspaceLifecycle {
   private tail: Promise<unknown> = Promise.resolve();
   private uncertain = false;
+  private pendingCreation: symbol | undefined;
   private draining = false;
   private controllerPaused = false;
   pauseController() {
@@ -116,8 +124,12 @@ export class SymposiumWorkspaceLifecycle {
     this.tail = result.catch(() => undefined);
     return result;
   }
-  create: SandboxCreationFence = (verify, operation) =>
-    this.run(async () => {
+  private createForToken<T>(
+    token: symbol,
+    verify: () => void,
+    operation: (markDispatched: () => void, markSettled?: () => void) => Promise<T>,
+  ): Promise<T> {
+    return this.run(async () => {
       if (this.draining) throw new Error('Workspace is shutting down');
       if (this.controllerPaused) throw new Error('Workspace controller unavailable');
       verify();
@@ -134,21 +146,119 @@ export class SymposiumWorkspaceLifecycle {
           } catch (error) {
             throw new SandboxCreationPreflightError(error);
           }
+          this.pendingCreation = token;
           this.save(true);
           dispatched = true;
         },
         () => {
-          if (!dispatched || settled) throw new Error('Sandbox terminal receipt changed');
+          if (!dispatched || settled || this.pendingCreation !== token)
+            throw new Error('Sandbox terminal receipt changed');
           this.custody();
           this.save(false);
+          this.pendingCreation = undefined;
           settled = true;
         },
       );
       if (!dispatched) throw new Error('Sandbox creation dispatch was not recorded');
       this.custody();
-      this.save(false);
+      if (!settled) {
+        if (this.pendingCreation !== token) throw new Error('Sandbox terminal receipt changed');
+        this.save(false);
+        this.pendingCreation = undefined;
+      }
       return result;
     });
+  }
+  create: SandboxCreationFence = (verify, operation) =>
+    this.createForToken(Symbol('sandbox creation'), verify, operation);
+  /** An original in-process creation may reconcile only its own durable uncertainty. */
+  retainDiscoveryCreation() {
+    const token = Symbol('original discovery creation');
+    let invoked = false;
+    let active = false;
+    let bound: Pick<DiscoveryReceipt, 'name' | 'claim' | 'configHash'> | undefined;
+    let ready: DiscoveryOwnedReadyEvidence | undefined;
+    return {
+      create: ((verify, operation) => {
+        if (invoked) return Promise.reject(new Error('Original discovery creation already used'));
+        invoked = true;
+        return this.createForToken(token, verify, async (dispatch, settle) => {
+          active = true;
+          try {
+            return await operation(() => {
+              if (!bound) throw new Error('Original discovery receipt was not bound');
+              dispatch();
+            }, settle);
+          } finally {
+            active = false;
+          }
+        });
+      }) as SandboxCreationFence,
+      bindReceipt: (receipt: DiscoveryReceipt) => {
+        if (
+          !active ||
+          bound ||
+          this.pendingCreation === token ||
+          receipt.id ||
+          !/^md-[0-9a-f]{16}$/.test(receipt.name) ||
+          !/^[0-9a-f]{64}$/.test(receipt.claim) ||
+          !/^[0-9a-f]{64}$/.test(receipt.configHash)
+        )
+          throw new Error('Original discovery receipt binding changed');
+        bound = Object.freeze({
+          name: receipt.name,
+          claim: receipt.claim,
+          configHash: receipt.configHash,
+        });
+      },
+      retainReady: (evidence: DiscoveryOwnedReadyEvidence) => {
+        assertDiscoveryOwnedReadyEvidence(evidence);
+        if (
+          !bound ||
+          evidence.receipt.name !== bound.name ||
+          evidence.receipt.claim !== bound.claim ||
+          evidence.receipt.configHash !== bound.configHash
+        )
+          throw new Error('Original discovery Ready identity changed');
+        if (ready) {
+          if (JSON.stringify(ready.receipt) !== JSON.stringify(evidence.receipt))
+            throw new Error('Original discovery Ready identity changed');
+          return;
+        }
+        if (!invoked || this.pendingCreation !== token || !this.uncertain)
+          throw new Error('Original discovery creation is not pending');
+        ready = evidence;
+      },
+      recover: <T>(
+        operation: () => Promise<{ result: T; physicalCleanup?: DiscoveryPhysicalCleanupEvidence }>,
+      ): Promise<T> => {
+        const result = this.tail.then(async () => {
+          this.custody();
+          const pending = this.uncertain;
+          if (pending && (this.pendingCreation !== token || !ready))
+            throw new Error('Workspace creation outcome requires original host recovery');
+          const outcome = await operation();
+          this.custody();
+          if (pending) {
+            if (
+              !this.uncertain ||
+              this.pendingCreation !== token ||
+              !ready ||
+              !outcome.physicalCleanup
+            )
+              throw new Error('Original discovery physical cleanup unconfirmed');
+            assertDiscoveryPhysicalCleanupEvidence(ready, outcome.physicalCleanup);
+            this.custody();
+            this.save(false);
+            this.pendingCreation = undefined;
+          }
+          return outcome.result;
+        });
+        this.tail = result.catch(() => undefined);
+        return result;
+      },
+    };
+  }
   cleanup<T>(operation: () => Promise<T>): Promise<T> {
     return this.run(operation);
   }

@@ -965,6 +965,7 @@ export async function createOwnedSymposiumHost(
                 assertSupported,
               },
             });
+            const originalCreation = workspaceLifecycle.retainDiscoveryCreation();
             let retainedReceipt: DiscoveryReceipt | undefined;
             let recovery: DiscoveryRecoveryCapability | undefined;
             let retainedReadyEvidence: DiscoveryOwnedReadyEvidence | undefined;
@@ -989,6 +990,10 @@ export async function createOwnedSymposiumHost(
             });
             const operations: DiscoveryOperations = {
               ...guarded,
+              async create(receipt, config, markDispatched) {
+                originalCreation.bindReceipt(receipt);
+                await guarded.create(receipt, config, markDispatched);
+              },
               async persistReceipt(receipt, exclusive) {
                 // Retain an ID observed by the original owned Ready check even
                 // when authority is lost just before its first journal write.
@@ -999,30 +1004,41 @@ export async function createOwnedSymposiumHost(
             const fenced = fenceDiscoveryCreation(
               operations,
               gateway.workspace,
-              workspaceLifecycle.create,
+              originalCreation.create,
               () => {
                 custody();
                 proof.assertCurrent();
               },
-              retain,
+              (receipt, evidence) => {
+                originalCreation.retainReady(evidence);
+                retain(receipt, evidence);
+              },
             );
             const result = await runSymposiumRoutingDiagnostic(config, fenced.operations, {
               onOwnedReady: retain,
-              onPhysicalCleanup(receipt) {
+              onPhysicalCleanup(receipt, evidence) {
                 retain(receipt);
-                recovery?.confirmPhysicalCleanup(receipt);
+                recovery?.confirmPhysicalCleanup(receipt, evidence);
               },
             });
             // Return retained cleanup even after a late receipt/operator change; the
             // Personal coordinator fences the result after capturing this capability.
             const recover = recovery
               ? (check: () => void) =>
-                  workspaceLifecycle.cleanup(async () => {
+                  originalCreation.recover(async () => {
                     const cleanup = guardDiscoveryOperations(original, () => {
                       custody();
                       check();
                     });
-                    return recovery!(cleanup);
+                    const result = await recovery!(cleanup);
+                    custody();
+                    check();
+                    return {
+                      result,
+                      ...(result.status === 'reconciled'
+                        ? { physicalCleanup: recovery!.physicalCleanupEvidence() }
+                        : {}),
+                    };
                   })
               : undefined;
             return {

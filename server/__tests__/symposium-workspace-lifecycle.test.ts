@@ -1,5 +1,14 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import {
+  createDiscoveryOwnedReadyEvidence,
+  createSymposiumModelDiscoveryRecovery,
+  type DiscoveryOperations,
+  discoveryClaimLabel,
+  type DiscoveryConfig,
+  type DiscoveryPhysicalCleanupEvidence,
+} from '../symposium-model-discovery.js';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { SymposiumWorkspaceLifecycle } from '../symposium-workspace-lifecycle.js';
@@ -195,4 +204,326 @@ it('does not let a replacement controller clear an uncertain dispatched creation
   fence.pauseController();
   await expect(fence.quiesceController(new AbortController().signal)).rejects.toThrow('recovery');
   expect(() => fence.resumeController()).toThrow('recovery');
+});
+
+function discoveryEvidence() {
+  const config: DiscoveryConfig = {
+    cliSha256: 'a'.repeat(64),
+    workloadImage: 'sha256:' + 'b'.repeat(64),
+    policySha256: 'c'.repeat(64),
+    podmanUrl: 'unix:///mock.sock',
+    gateway: 'owned-gateway',
+    workspace: 'owned-workspace',
+    provider: { name: 'personal', id: 'provider-id' },
+  };
+  const receipt = {
+    id: 'original-native-id',
+    name: 'md-' + 'a'.repeat(16),
+    claim: 'b'.repeat(64),
+    configHash: createHash('sha256').update(JSON.stringify(config)).digest('hex'),
+  };
+  const ready = createDiscoveryOwnedReadyEvidence(config, receipt, {
+    ...receipt,
+    workspace: config.workspace,
+    phase: 'Ready',
+    labels: {
+      'mitzo.discovery': 'models',
+      'mitzo.discovery.claim': discoveryClaimLabel(receipt.claim),
+    },
+  });
+  return { config, receipt, ready };
+}
+function readyEvidence() {
+  return discoveryEvidence().ready;
+}
+function bind(
+  scope: ReturnType<SymposiumWorkspaceLifecycle['retainDiscoveryCreation']>,
+  evidence = discoveryEvidence(),
+) {
+  const { name, claim, configHash } = evidence.receipt;
+  scope.bindReceipt({ name, claim, configHash });
+}
+async function physicalCleanup(fixture = discoveryEvidence()) {
+  const recovery = createSymposiumModelDiscoveryRecovery(
+    fixture.config,
+    fixture.receipt,
+    fixture.ready,
+  );
+  const operations = {
+    withExclusiveAttempt: async (run: () => Promise<unknown>) => run(),
+    verifyCustody: async () => {},
+    readReceipt: async () => fixture.receipt,
+    list: async () => [],
+    physicalAbsent: async () => true,
+    clearReceipt: async () => {},
+  } as unknown as DiscoveryOperations;
+  expect((await recovery(operations)).status).toBe('reconciled');
+  return recovery.physicalCleanupEvidence()!;
+}
+it('keeps ordinary work and foreign or reopened scopes closed after original dispatch uncertainty', async () => {
+  const { fence, path } = fixture();
+  const scope = fence.retainDiscoveryCreation();
+  await expect(
+    scope.create(
+      () => {},
+      async (dispatch) => {
+        bind(scope);
+        dispatch();
+        scope.retainReady(readyEvidence());
+        throw Error('original ID write lost');
+      },
+    ),
+  ).rejects.toThrow('ID write lost');
+  expect(JSON.parse(readFileSync(path, 'utf8')).uncertain).toBe(true);
+  const unused = vi.fn(async () => ({ result: 'unproven' }));
+  await expect(fence.cleanup(async () => {})).rejects.toThrow('recovery');
+  await expect(
+    fence.create(
+      () => {},
+      async () => {},
+    ),
+  ).rejects.toThrow('recovery');
+  await expect(fence.drain(new AbortController().signal)).rejects.toThrow('recovery');
+  await expect(fence.retainDiscoveryCreation().recover(unused)).rejects.toThrow(
+    'original host recovery',
+  );
+  const reopened = new SymposiumWorkspaceLifecycle(path, () => {});
+  await expect(reopened.retainDiscoveryCreation().recover(unused)).rejects.toThrow(
+    'original host recovery',
+  );
+  expect(unused).not.toHaveBeenCalled();
+  await expect(scope.recover(unused)).rejects.toThrow('physical cleanup unconfirmed');
+  await expect(
+    scope.recover(async () => ({
+      result: 'unproven',
+      physicalCleanup: {} as DiscoveryPhysicalCleanupEvidence,
+    })),
+  ).rejects.toThrow();
+  expect(JSON.parse(readFileSync(path, 'utf8')).uncertain).toBe(true);
+  await expect(fence.cleanup(async () => {})).rejects.toThrow('recovery');
+});
+it('retains original uncertainty when fresh custody is lost or original recovery throws', async () => {
+  const { path } = fixture();
+  let current = true;
+  const fence = new SymposiumWorkspaceLifecycle(path, () => {
+    if (!current) throw Error('custody lost');
+  });
+  const scope = fence.retainDiscoveryCreation();
+  await expect(
+    scope.create(
+      () => {},
+      async (dispatch) => {
+        bind(scope);
+        dispatch();
+        scope.retainReady(readyEvidence());
+        throw Error('ID write lost');
+      },
+    ),
+  ).rejects.toThrow('ID write lost');
+  const cleanup = vi.fn(async () => ({ result: undefined }));
+  current = false;
+  await expect(scope.recover(cleanup)).rejects.toThrow('custody lost');
+  expect(cleanup).not.toHaveBeenCalled();
+  current = true;
+  await expect(
+    scope.recover(async () => {
+      throw Error('physical cleanup uncertain');
+    }),
+  ).rejects.toThrow('physical cleanup uncertain');
+  expect(JSON.parse(readFileSync(path, 'utf8')).uncertain).toBe(true);
+});
+it('rejects forged Ready evidence and reusing the original creation scope', async () => {
+  const { fence } = fixture();
+  const scope = fence.retainDiscoveryCreation();
+  await expect(
+    scope.create(
+      () => {},
+      async (dispatch) => {
+        bind(scope);
+        dispatch();
+        scope.retainReady({ receipt: readyEvidence().receipt });
+      },
+    ),
+  ).rejects.toThrow();
+  await expect(
+    scope.create(
+      () => {},
+      async () => {},
+    ),
+  ).rejects.toThrow('already used');
+  const cleanup = vi.fn(async () => ({ result: undefined }));
+  await expect(scope.recover(cleanup)).rejects.toThrow('original host recovery');
+  expect(cleanup).not.toHaveBeenCalled();
+});
+
+it('settles only its original creation after positive core cleanup and prevents stale scope clearing another dispatch', async () => {
+  const { fence, path } = fixture();
+  const evidence = discoveryEvidence();
+  const original = fence.retainDiscoveryCreation();
+  await expect(
+    original.create(
+      () => {},
+      async (dispatch) => {
+        bind(original, evidence);
+        dispatch();
+        original.retainReady(evidence.ready);
+        throw Error('first-ID write lost');
+      },
+    ),
+  ).rejects.toThrow('write lost');
+  await expect(
+    original.recover(async () => ({
+      result: 'reconciled',
+      physicalCleanup: await physicalCleanup(evidence),
+    })),
+  ).resolves.toBe('reconciled');
+  expect(JSON.parse(readFileSync(path, 'utf8')).uncertain).toBe(false);
+  await expect(fence.cleanup(async () => 'ordinary')).resolves.toBe('ordinary');
+  await expect(
+    fence.create(
+      () => {},
+      async (dispatch) => {
+        dispatch();
+        throw Error('another unknown create');
+      },
+    ),
+  ).rejects.toThrow('unknown create');
+  const operation = vi.fn(async () => ({
+    result: undefined,
+    physicalCleanup: await physicalCleanup(evidence),
+  }));
+  await expect(original.recover(operation)).rejects.toThrow('original host recovery');
+  expect(operation).not.toHaveBeenCalled();
+  expect(JSON.parse(readFileSync(path, 'utf8')).uncertain).toBe(true);
+});
+it('rejects genuine cleanup evidence belonging to another original native identity', async () => {
+  const { fence, path } = fixture();
+  const original = fence.retainDiscoveryCreation();
+  await expect(
+    original.create(
+      () => {},
+      async (dispatch) => {
+        bind(original);
+        dispatch();
+        original.retainReady(readyEvidence());
+        throw Error('unknown');
+      },
+    ),
+  ).rejects.toThrow('unknown');
+  const foreign = discoveryEvidence();
+  foreign.receipt.id = 'foreign-id';
+  foreign.ready = createDiscoveryOwnedReadyEvidence(foreign.config, foreign.receipt, {
+    ...foreign.receipt,
+    workspace: foreign.config.workspace,
+    phase: 'Ready',
+    labels: {
+      'mitzo.discovery': 'models',
+      'mitzo.discovery.claim': discoveryClaimLabel(foreign.receipt.claim),
+    },
+  });
+  await expect(
+    original.recover(async () => ({
+      result: 'unproven',
+      physicalCleanup: await physicalCleanup(foreign),
+    })),
+  ).rejects.toThrow();
+  expect(JSON.parse(readFileSync(path, 'utf8')).uncertain).toBe(true);
+});
+
+it('serializes queued ordinary creation behind positive original cleanup without releasing the fence early', async () => {
+  const { fence, path } = fixture();
+  const evidence = discoveryEvidence(),
+    original = fence.retainDiscoveryCreation();
+  await expect(
+    original.create(
+      () => {},
+      async (dispatch) => {
+        bind(original, evidence);
+        dispatch();
+        original.retainReady(evidence.ready);
+        throw Error('lost first ID write');
+      },
+    ),
+  ).rejects.toThrow('lost first ID');
+  let release!: () => void;
+  const recovery = original.recover(async () => {
+    await new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    return { result: 'reconciled', physicalCleanup: await physicalCleanup(evidence) };
+  });
+  await Promise.resolve();
+  const create = vi.fn(async (dispatch: () => void) => {
+    dispatch();
+  });
+  const queued = fence.create(() => {}, create);
+  await Promise.resolve();
+  expect(create).not.toHaveBeenCalled();
+  expect(JSON.parse(readFileSync(path, 'utf8')).uncertain).toBe(true);
+  release();
+  await recovery;
+  await queued;
+  expect(create).toHaveBeenCalledOnce();
+  expect(JSON.parse(readFileSync(path, 'utf8')).uncertain).toBe(false);
+});
+it('keeps durable uncertainty if custody changes after genuine physical cleanup', async () => {
+  const { path } = fixture();
+  let current = true;
+  const fence = new SymposiumWorkspaceLifecycle(path, () => {
+    if (!current) throw Error('custody lost');
+  });
+  const evidence = discoveryEvidence(),
+    scope = fence.retainDiscoveryCreation();
+  await expect(
+    scope.create(
+      () => {},
+      async (dispatch) => {
+        bind(scope);
+        dispatch();
+        scope.retainReady(evidence.ready);
+        throw Error('ID write lost');
+      },
+    ),
+  ).rejects.toThrow('ID write lost');
+  await expect(
+    scope.recover(async () => {
+      const proof = await physicalCleanup(evidence);
+      current = false;
+      return { result: 'reconciled', physicalCleanup: proof };
+    }),
+  ).rejects.toThrow('custody lost');
+  expect(JSON.parse(readFileSync(path, 'utf8')).uncertain).toBe(true);
+});
+it('refuses genuine foreign Ready evidence before it can authorize an original creation settlement', async () => {
+  const { fence, path } = fixture();
+  const original = discoveryEvidence();
+  const foreign = discoveryEvidence();
+  foreign.receipt.claim = 'd'.repeat(64);
+  foreign.ready = createDiscoveryOwnedReadyEvidence(foreign.config, foreign.receipt, {
+    ...foreign.receipt,
+    workspace: foreign.config.workspace,
+    phase: 'Ready',
+    labels: {
+      'mitzo.discovery': 'models',
+      'mitzo.discovery.claim': discoveryClaimLabel(foreign.receipt.claim),
+    },
+  });
+  const scope = fence.retainDiscoveryCreation();
+  await expect(
+    scope.create(
+      () => {},
+      async (dispatch) => {
+        bind(scope, original);
+        dispatch();
+        scope.retainReady(foreign.ready);
+      },
+    ),
+  ).rejects.toThrow('Ready identity changed');
+  const cleanup = vi.fn(async () => ({
+    result: 'foreign-reconciled',
+    physicalCleanup: await physicalCleanup(foreign),
+  }));
+  await expect(scope.recover(cleanup)).rejects.toThrow('original host recovery');
+  expect(cleanup).not.toHaveBeenCalled();
+  expect(JSON.parse(readFileSync(path, 'utf8')).uncertain).toBe(true);
 });

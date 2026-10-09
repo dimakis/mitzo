@@ -1693,7 +1693,16 @@ it.each(['complete', 'failed', 'reconciliation_required'] as const)(
           id: 'exact-original-id',
         };
         await operations.persistReceipt(receipt, false);
-        hooks!.onPhysicalCleanup!(receipt);
+        const cleanup = discoveryCore.createSymposiumModelDiscoveryRecovery(config, receipt);
+        await cleanup({
+          withExclusiveAttempt: async (run: () => Promise<unknown>) => run(),
+          verifyCustody: async () => {},
+          readReceipt: async () => receipt,
+          list: async () => [],
+          physicalAbsent: async () => true,
+          clearReceipt: async () => {},
+        } as unknown as discoveryCore.DiscoveryOperations);
+        hooks!.onPhysicalCleanup!(receipt, cleanup.physicalCleanupEvidence()!);
         await operations.clearReceipt(receipt);
         receiptCurrent = false;
         return { status, inference: false, catalogPublication: false };
@@ -1824,12 +1833,17 @@ it('promotes only the retained positive owned Ready identity after guarded first
     }),
     wait: vi.fn(async () => {}),
     openClient: vi.fn(),
-    create: vi.fn(),
+    create: vi.fn(async (_receipt, _config, dispatch) => {
+      dispatch!();
+    }),
   } as unknown as discoveryCore.DiscoveryOperations;
   vi.spyOn(discoveryHost, 'createDiscoveryHostOperations').mockReturnValue(raw);
-  const fence = vi
-    .spyOn(discoveryCreation, 'fenceDiscoveryCreation')
-    .mockImplementation((operations) => ({ operations, creationUncertain: () => false }));
+  const mintReady = discoveryCore.createDiscoveryOwnedReadyEvidence;
+  vi.spyOn(discoveryCore, 'createDiscoveryOwnedReadyEvidence').mockImplementation((...args) => {
+    const evidence = mintReady(...args);
+    current = false;
+    return evidence;
+  });
   vi.spyOn(discoveryCore, 'runSymposiumRoutingDiagnostic').mockImplementation(
     async (config, operations) => {
       const receipt = {
@@ -1850,12 +1864,8 @@ it('promotes only the retained positive owned Ready identity after guarded first
           'mitzo.discovery.claim': discoveryCore.discoveryClaimLabel(receipt.claim),
         },
       };
-      const evidence = discoveryCore.createDiscoveryOwnedReadyEvidence(config, receipt, ownedRow);
-      const observe = fence.mock.calls[0][4];
-      expect(observe).toBeTypeOf('function');
-      observe!(receipt, evidence);
-      current = false;
-      await expect(operations.persistReceipt(receipt, false)).rejects.toThrow('receipt guard');
+      const pending = { name: receipt.name, claim: receipt.claim, configHash: receipt.configHash };
+      await expect(operations.create(pending, config)).rejects.toThrow('receipt guard');
       return { status: 'reconciliation_required', inference: false, catalogPublication: false };
     },
   );
@@ -1869,6 +1879,8 @@ it('promotes only the retained positive owned Ready identity after guarded first
       },
     });
     expect(raw.persistReceipt).not.toHaveBeenCalled();
+    const durableFence = join(f.options.gateway.stateParent, 'sandbox-creation-fence.json');
+    expect(JSON.parse(readFileSync(durableFence, 'utf8')).uncertain).toBe(true);
     await expect(response.recover!(() => {})).resolves.toMatchObject({
       status: 'reconciled',
       inference: false,
@@ -1880,8 +1892,9 @@ it('promotes only the retained positive owned Ready identity after guarded first
       expect(exclusive).toBe(false);
     }
     expect(raw.delete).toHaveBeenCalledOnce();
+    expect(JSON.parse(readFileSync(durableFence, 'utf8')).uncertain).toBe(false);
     expect(raw.openClient).not.toHaveBeenCalled();
-    expect(raw.create).not.toHaveBeenCalled();
+    expect(raw.create).toHaveBeenCalledOnce();
   } finally {
     host.stop();
   }
