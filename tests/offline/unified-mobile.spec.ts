@@ -400,6 +400,14 @@ test('Today exposes real bookmarks, the tiny quote and all saved briefing meetin
   await page.getByRole('button', { name: 'Ask Jeeves', exact: true }).click();
   const popup = page.getByRole('dialog');
   await expect(popup).toBeVisible();
+  const popupBounds = (await popup.boundingBox())!;
+  const viewport = page.viewportSize()!;
+  expect(popupBounds.x).toBeCloseTo((viewport.width - popupBounds.width) / 2, 0);
+  expect(popupBounds.y).toBeCloseTo((viewport.height - popupBounds.height) / 2, 0);
+  const accountBounds = (await popup
+    .getByRole('combobox', { name: 'Account', exact: true })
+    .boundingBox())!;
+  expect(accountBounds.width).toBeGreaterThan(popupBounds.width - 80);
   await expect(popup.getByRole('combobox', { name: 'Account', exact: true })).toBeVisible();
   await expect(popup.getByRole('combobox', { name: 'Account', exact: true })).toHaveValue(
     'work-account',
