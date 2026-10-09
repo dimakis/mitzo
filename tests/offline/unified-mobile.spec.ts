@@ -376,6 +376,7 @@ test('Today exposes real bookmarks, the tiny quote and all saved briefing meetin
   await expect(page.getByRole('heading', { name: 'Your focus' })).toHaveCount(0);
   const quote = page.getByRole('link', { name: /Quote of the day by/ });
   await expect(quote).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('today-home.png') });
   await quote.click();
   await expect(page.getByRole('heading', { name: 'A thought for today' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Read the source' })).toHaveAttribute(
@@ -403,6 +404,7 @@ test('Today exposes real bookmarks, the tiny quote and all saved briefing meetin
   await expect(popup.getByRole('combobox', { name: 'Account', exact: true })).toHaveValue(
     'work-account',
   );
+  await page.screenshot({ path: testInfo.outputPath('briefing-picker.png') });
   await popup.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(popup).toHaveCount(0);
   await page.screenshot({ path: testInfo.outputPath('briefing-reader.png') });
