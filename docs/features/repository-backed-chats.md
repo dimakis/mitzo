@@ -66,6 +66,26 @@ settles and the task workspace is independently retained, the controller seed co
 is reclaimed. Task files, Git history and conversation metadata remain intact.
 At most eight unreleased preparing/ready/claimed sources may be held per account.
 
+## Resource use
+
+Host tasks retain independent full copies of files and Git metadata. An isolated
+Python helper copies through pinned directory descriptors on macOS/Linux, applying
+no-follow lookups and exclusive creation so a replaced path cannot redirect later
+writes. It runs only during a host copy, preserves file modes, and fails closed if
+Python or the required descriptor operations are unavailable. The original claim
+and partial copy are retained for inspection. Filesystem cloning remains future
+work.
+
+Source verification reads files in 64 KiB chunks, retaining the existing frozen
+digest format. It rejects files that change or exceed their inspected size during
+reading. Verification still reads the entire bounded source, including Git data.
+
+Each preparation still acquires its own repository history. The eight-source
+limit bounds unreleased preparations per account, and successful provider startup
+reclaims its seed. Retained tasks have no aggregate storage quota or automatic
+archiving policy yet. Shared downloads, active sandbox admission and idle runtime
+management remain subsequent resource work. Task files are preserved by default.
+
 ## Initial support and limits
 
 - Ordinary `openai` and compatible `openai-codex` accounts, using host execution or

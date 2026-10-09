@@ -17,6 +17,19 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { RepositoryWorkspaces } from '../repository-workspaces.js';
 import type { AccountBinding } from '@mitzo/protocol';
+const copyFailure = vi.hoisted(() => ({ error: undefined as Error | undefined }));
+vi.mock('../repository-task-copy.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../repository-task-copy.js')>();
+  return {
+    ...actual,
+    copyRepositoryTaskCheckout: async (
+      ...args: Parameters<typeof actual.copyRepositoryTaskCheckout>
+    ) => {
+      if (copyFailure.error) throw copyFailure.error;
+      return actual.copyRepositoryTaskCheckout(...args);
+    },
+  };
+});
 const roots: string[] = [];
 const binding = {
   accountId: 'account',
@@ -25,6 +38,7 @@ const binding = {
   profileRevision: 'rev',
 } as AccountBinding;
 afterEach(async () => {
+  copyFailure.error = undefined;
   await Promise.all(roots.splice(0).map((p) => rm(p, { recursive: true, force: true })));
 });
 async function fixture() {
@@ -378,4 +392,21 @@ it('rejects a preview whose default branch cannot be published, before acquiring
   } finally {
     f.service.close();
   }
+});
+
+it('retains the original claim when the descriptor-anchored copier refuses execution', async () => {
+  const f = await fixture();
+  const signal = new AbortController().signal;
+  const preview = await f.service.preview(binding, 'connection', 'example/repo', signal);
+  await f.service.prepare(preview.id, binding, signal);
+  copyFailure.error = new Error('Pinned copy refused');
+  await expect(
+    f.service.claim(preview.id, binding, 'conversation', f.taskRoot, false),
+  ).rejects.toThrow('Pinned copy refused');
+  expect(f.service.status(preview.id, binding).state).toBe('claiming');
+  expect(() => f.service.getForConversation('conversation')).toThrow('preserve its original claim');
+  await expect(access(join(f.taskRoot, `repo-${preview.id}`, 'mgmt'))).rejects.toMatchObject({
+    code: 'ENOENT',
+  });
+  f.service.close();
 });
