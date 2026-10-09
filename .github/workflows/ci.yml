@@ -71,6 +71,9 @@ jobs:
       - run: npm install --no-audit
       - run: npx playwright install --with-deps webkit chromium
       - run: npm run test:browser
+      - name: Verify shared theme and mobile layouts without a backend
+        if: always()
+        run: npm run test:ui
 
   native:
     needs: changes

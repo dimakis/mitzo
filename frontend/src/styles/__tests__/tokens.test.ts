@@ -1,14 +1,38 @@
-import { readFileSync } from 'fs';
+import { readFileSync, readdirSync } from 'fs';
 import { resolve } from 'path';
 import { describe, it, expect } from 'vitest';
 
-const css = readFileSync(resolve(__dirname, '../global.css'), 'utf-8');
+const css = readFileSync(resolve(__dirname, '../tokens.css'), 'utf-8');
 
 // Extract :root block content
 const rootMatch = css.match(/:root\s*\{([^}]+)\}/);
 const rootBlock = rootMatch?.[1] ?? '';
 
 describe('design tokens', () => {
+  it('keeps the theme and font definitions in one file', () => {
+    const root = resolve(__dirname, '../../');
+    const files = readdirSync(root, { recursive: true, withFileTypes: true });
+    for (const file of files) {
+      if (
+        !file.isFile() ||
+        !/\.(css|tsx?)$/.test(file.name) ||
+        file.name === 'tokens.css' ||
+        file.parentPath.includes('__tests__') ||
+        file.parentPath.endsWith('/preview')
+      )
+        continue;
+      const source = readFileSync(resolve(file.parentPath, file.name), 'utf8');
+      for (const definition of source.matchAll(
+        /--(?:color-accent|font-ui|font-mono|workspace-accent|ui-font):\s*([^;]+);/g,
+      )) {
+        expect(definition[1].trim(), file.name).toMatch(/^var\(/);
+      }
+      expect(source, file.name).not.toMatch(/#[\da-f]{3,8}\b|rgba?\(\s*\d/i);
+      for (const font of source.matchAll(/font-family:\s*([^;]+);/g)) {
+        expect(font[1].trim(), file.name).toMatch(/^(var\(|inherit$)/);
+      }
+    }
+  });
   describe('required CSS variables are defined in :root', () => {
     const requiredVars = [
       '--ui-font',

@@ -24,6 +24,9 @@ export default defineConfig({
     },
   },
   test: {
+    // The native/configuration adapter reads literal values from the shared
+    // stylesheet; do not replace its ?raw import with Vitest's empty CSS stub.
+    css: { include: [/tokens\.css/] },
     exclude: [
       ...configDefaults.exclude,
       '**/dist/**', // Workspace builds emit test copies; run their source only.

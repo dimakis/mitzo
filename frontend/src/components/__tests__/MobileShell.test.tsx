@@ -41,6 +41,23 @@ function ruleBody(styles: string, rule: string) {
 }
 
 describe('MobileShell navigation', () => {
+  it.each(['/', '/sessions', '/inbox', '/todos', '/more', '/connections-access'])(
+    'owns the full wordmark on %s',
+    (path) => {
+      const { container } = renderAt(path);
+      const brand = screen.getByRole('link', { name: 'Mitzo home' });
+      expect(brand.querySelector('img')?.getAttribute('src')).toBe('/mitzo-wordmark.png');
+      expect(container.querySelector('.mobile-workspace-masthead')?.contains(brand)).toBe(true);
+      expect(container.querySelector('.mobile-workspace-body')).toBeTruthy();
+    },
+  );
+  it.each(['/login', '/chat/example', '/todos/example'])(
+    'leaves focused views to their own navigation on %s',
+    (path) => {
+      renderAt(path);
+      expect(screen.queryByRole('link', { name: 'Mitzo home' })).toBeNull();
+    },
+  );
   it.each(['/chat', '/chat/example', '/', '/todos/example', '/tasks', '/more'])(
     'keeps the menu available on %s',
     (path) => {

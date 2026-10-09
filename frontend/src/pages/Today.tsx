@@ -5,7 +5,6 @@ import { useAttentionFeed } from '../hooks/useAttentionFeed';
 import { formatRelativeTime } from '../lib/formatTime';
 import { formatTokens } from '../lib/formatTokens';
 import { apiFetch } from '../lib/api-fetch';
-import { MitzoBrand } from '../components/MitzoBrand';
 import { WorkspacePageHeading } from '../components/WorkspacePageHeading';
 
 const TOKEN_PREFERENCE = 'mitzo-today-tokens';
@@ -83,10 +82,6 @@ export function Today() {
   });
   return (
     <main className="workspace-page today-page">
-      <header className="today-top">
-        <MitzoBrand />
-        <Link to="/sessions">Search chats</Link>
-      </header>
       <WorkspacePageHeading
         className="today-heading"
         eyebrow={now.toLocaleDateString(undefined, {

@@ -21,3 +21,21 @@ it('offers backup management and retains the existing appearance preference', ()
   fireEvent.change(screen.getByRole('combobox', { name: 'Theme' }), { target: { value: 'dark' } });
   expect(setTheme).toHaveBeenCalledWith('dark');
 });
+
+it('lets the user change the shared accent and UI font without navigating away', () => {
+  localStorage.clear();
+  render(
+    <MemoryRouter>
+      <SettingsView />
+    </MemoryRouter>,
+  );
+  fireEvent.click(screen.getByRole('radio', { name: 'Teal' }));
+  fireEvent.change(screen.getByRole('combobox', { name: 'Font' }), {
+    target: { value: 'georgia' },
+  });
+  expect(document.documentElement.dataset.accent).toBe('teal');
+  expect(document.documentElement.dataset.font).toBe('georgia');
+  fireEvent.click(screen.getByRole('button', { name: 'Reset appearance' }));
+  expect(document.documentElement.dataset.accent).toBe('lavender');
+  expect(document.documentElement.dataset.font).toBe('system');
+});

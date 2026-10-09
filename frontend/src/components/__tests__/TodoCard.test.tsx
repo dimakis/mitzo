@@ -126,7 +126,7 @@ describe('TodoCard', () => {
     expect(starBtn?.textContent).toBe('☆');
   });
 
-  it('shows ⭐ star button for starred item', () => {
+  it('shows one star control while preserving the outcome status', () => {
     const starredItem = { ...mockItem, starred: true };
     const { container } = render(
       <TodoCard
@@ -140,7 +140,8 @@ describe('TodoCard', () => {
       />,
     );
     const starBtn = container.querySelector('.todo-card-star');
-    expect(starBtn?.textContent).toBe('⭐');
+    expect(starBtn?.textContent).toBe('★');
+    expect(container.querySelector('.todo-card-icon')?.textContent).toBe('●');
   });
 
   it('calls onStar with item id when star button is clicked', () => {

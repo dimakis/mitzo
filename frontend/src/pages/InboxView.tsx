@@ -3,173 +3,14 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useMitzoStore } from '@mitzo/client/hooks';
 import { ProposalDetail } from '../components/ProposalDetail';
 import { EmptyState } from '../components/EmptyState';
-import { PageHeader } from '../components/PageHeader';
 import { WorkspacePageHeading } from '../components/WorkspacePageHeading';
 import { apiFetch } from '../lib/api-fetch';
 import { buildInboxContext, buildInboxPrompt } from '../lib/inbox-utils';
 
 import type { InboxItem } from '../lib/inbox-utils';
 
-function InboxCard({
-  item,
-  onApprove,
-  onDiscard,
-  onStartSession,
-}: {
-  item: InboxItem;
-  onApprove: (filename: string) => void;
-  onDiscard: (filename: string) => void;
-  onStartSession: (item: InboxItem, body: string) => void;
-}) {
-  const ref = useRef<HTMLDivElement>(null);
-  const startX = useRef(0);
-  const currentX = useRef(0);
-  const swiping = useRef(false);
-  const [expanded, setExpanded] = useState(false);
-  const [fullContent, setFullContent] = useState<string | null>(null);
-
-  async function toggleExpand() {
-    if (expanded) {
-      setExpanded(false);
-      return;
-    }
-    if (!fullContent) {
-      try {
-        const res = await apiFetch(`/api/inbox/${encodeURIComponent(item.filename)}`);
-        if (res.ok) {
-          const data = await res.json();
-          setFullContent(data.content);
-        }
-      } catch {
-        // Ignore fetch errors
-      }
-    }
-    setExpanded(true);
-  }
-
-  function handleTouchStart(e: React.TouchEvent) {
-    startX.current = e.touches[0].clientX;
-    currentX.current = startX.current;
-    swiping.current = true;
-  }
-
-  function handleTouchMove(e: React.TouchEvent) {
-    if (!swiping.current || !ref.current) return;
-    currentX.current = e.touches[0].clientX;
-    const dx = currentX.current - startX.current;
-
-    // Allow both directions
-    ref.current.style.transform = `translateX(${dx}px)`;
-    ref.current.style.opacity = `${Math.max(0, 1 - Math.abs(dx) / 200)}`;
-  }
-
-  function handleTouchEnd() {
-    if (!swiping.current || !ref.current) return;
-    swiping.current = false;
-    const dx = currentX.current - startX.current;
-
-    if (dx > 100) {
-      // Swipe right → approve
-      ref.current.style.transition = 'transform 0.2s, opacity 0.2s';
-      ref.current.style.transform = 'translateX(100%)';
-      ref.current.style.opacity = '0';
-      setTimeout(() => onApprove(item.filename), 200);
-    } else if (dx < -100) {
-      // Swipe left → discard
-      ref.current.style.transition = 'transform 0.2s, opacity 0.2s';
-      ref.current.style.transform = 'translateX(-100%)';
-      ref.current.style.opacity = '0';
-      setTimeout(() => onDiscard(item.filename), 200);
-    } else {
-      // Snap back
-      ref.current.style.transition = 'transform 0.2s, opacity 0.2s';
-      ref.current.style.transform = 'translateX(0)';
-      ref.current.style.opacity = '1';
-      setTimeout(() => {
-        if (ref.current) ref.current.style.transition = '';
-      }, 200);
-    }
-  }
-
-  // Strip frontmatter for display
-  function bodyContent(): string {
-    if (!fullContent) return '';
-    const match = fullContent.match(/^---\n[\s\S]*?\n---\n([\s\S]*)$/);
-    return match ? match[1].trim() : fullContent;
-  }
-
-  return (
-    <div className="inbox-card-wrapper">
-      <div className="inbox-card-actions-bg">
-        <span className="inbox-action-label inbox-action-approve">Archive</span>
-        <span className="inbox-action-label inbox-action-discard">Discard</span>
-      </div>
-      <div
-        ref={ref}
-        className="inbox-card"
-        onClick={toggleExpand}
-        onTouchStart={handleTouchStart}
-        onTouchMove={handleTouchMove}
-        onTouchEnd={handleTouchEnd}
-      >
-        <div className="inbox-card-header">
-          <span className="inbox-card-agent">{item.agent}</span>
-          <span className="inbox-card-time">
-            {item.timestamp ? new Date(item.timestamp).toLocaleDateString() : ''}
-          </span>
-        </div>
-        <div className="inbox-card-title">{item.title}</div>
-        {item.tags.length > 0 && (
-          <div className="inbox-card-tags">
-            {item.tags.map((tag) => (
-              <span key={tag} className="inbox-card-tag">
-                {tag}
-              </span>
-            ))}
-          </div>
-        )}
-        {!expanded && <div className="inbox-card-preview">{item.preview}</div>}
-        {expanded && (
-          <div className="inbox-card-body">
-            <pre className="inbox-card-body-text">{bodyContent()}</pre>
-            <div className="inbox-card-buttons">
-              <button
-                className="inbox-btn inbox-btn-approve"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onApprove(item.filename);
-                }}
-              >
-                Archive
-              </button>
-              <button
-                className="inbox-btn inbox-btn-discard"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onDiscard(item.filename);
-                }}
-              >
-                Discard
-              </button>
-              <button
-                className="inbox-btn inbox-btn-session"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onStartSession(item, fullContent ?? item.preview);
-                }}
-              >
-                Review in session
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
 export function InboxView({ desktop = false }: { desktop?: boolean } = {}) {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const linkedFilename = searchParams.get('item');
   const [selectedFilename, setSelectedFilename] = useState<string | null>(linkedFilename);
   useEffect(() => {
@@ -180,6 +21,12 @@ export function InboxView({ desktop = false }: { desktop?: boolean } = {}) {
   const [items, setItems] = useState<InboxItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeFilter, setActiveFilter] = useState<string | null>(null);
+  const [query, setQuery] = useState('');
+  const backButton = useRef<HTMLButtonElement>(null);
+  const list = useRef<HTMLDivElement>(null);
+  const rows = useRef(new Map<string, HTMLButtonElement>());
+  const lastOpened = useRef<string | null>(null);
+  const listPosition = useRef(0);
   const [pendingRemovals, setPendingRemovals] = useState<Set<string>>(new Set());
   const setPendingSession = useMitzoStore((s) => s.setPendingSession);
 
@@ -229,6 +76,13 @@ export function InboxView({ desktop = false }: { desktop?: boolean } = {}) {
       );
       if (!res.ok) throw new Error('Request failed');
       await loadInbox();
+      if (selectedFilename === filename) {
+        setSelectedFilename(null);
+        setSearchParams((params) => {
+          params.delete('item');
+          return params;
+        });
+      }
       // Keep the optimistic removal until the store confirms the file is absent.
       // The synchronization effect prunes confirmed removals.
     } catch {
@@ -257,12 +111,52 @@ export function InboxView({ desktop = false }: { desktop?: boolean } = {}) {
   }
 
   const sources = [...new Set(items.map((i) => i.agent))].sort();
-  const filtered = activeFilter ? items.filter((i) => i.agent === activeFilter) : items;
+  const search = query.trim().toLocaleLowerCase();
+  const filtered = items.filter(
+    (item) =>
+      (!activeFilter || item.agent === activeFilter) &&
+      (!search ||
+        [item.title, item.preview, item.agent, ...item.tags]
+          .join(' ')
+          .toLocaleLowerCase()
+          .includes(search)),
+  );
+  const selected = (storeInbox as InboxItem[]).find((item) => item.filename === selectedFilename);
+  const showMobileDetail = !desktop && !!selectedFilename;
 
-  const selected = filtered.find((item) => item.filename === selectedFilename);
+  useEffect(() => {
+    if (desktop) return;
+    if (showMobileDetail) {
+      lastOpened.current = selectedFilename;
+      backButton.current?.focus();
+    } else if (lastOpened.current) {
+      rows.current.get(lastOpened.current)?.focus({ preventScroll: true });
+      if (list.current) list.current.scrollTop = listPosition.current;
+      lastOpened.current = null;
+    }
+  }, [desktop, showMobileDetail, selectedFilename]);
+
+  function openProposal(filename: string) {
+    listPosition.current = list.current?.scrollTop ?? 0;
+    setSelectedFilename(filename);
+    if (!desktop)
+      setSearchParams((params) => {
+        params.set('item', filename);
+        return params;
+      });
+  }
+  function closeProposal() {
+    setSelectedFilename(null);
+    setSearchParams((params) => {
+      params.delete('item');
+      return params;
+    });
+  }
 
   return (
-    <div className={`inbox-page${desktop ? ' collection-page proposals-desktop' : ''}`}>
+    <div
+      className={`inbox-page${desktop ? ' collection-page proposals-desktop' : ' proposals-mobile'}`}
+    >
       {desktop && (
         <WorkspacePageHeading
           className="collection-heading"
@@ -271,17 +165,45 @@ export function InboxView({ desktop = false }: { desktop?: boolean } = {}) {
           description="Review suggestions from your agents and decide what comes next."
         />
       )}
-      <PageHeader title="Proposals" badge={items.length || undefined} />
+      {!desktop && (
+        <WorkspacePageHeading
+          title="Proposals"
+          badge={items.length}
+          description="Suggestions from your agents. You decide what comes next."
+        />
+      )}
+      {showMobileDetail && (
+        <button
+          ref={backButton}
+          className="proposal-back"
+          aria-label="Back to proposals"
+          onClick={closeProposal}
+        >
+          ← Back to proposals
+        </button>
+      )}
+      {!showMobileDetail && (
+        <div className="proposal-search">
+          <input
+            type="search"
+            aria-label="Search proposals"
+            placeholder="Search proposals…"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+          />
+        </div>
+      )}
 
       {actionError && <p role="alert">{actionError}</p>}
       {loading && <p className="inbox-empty">Loading...</p>}
 
       {!loading && items.length === 0 && <EmptyState icon={'\u2713'} title="No pending items" />}
 
-      {sources.length > 1 && (
+      {!showMobileDetail && sources.length > 1 && (
         <div className="inbox-filters">
           <button
             className={`inbox-filter-pill${activeFilter === null ? ' inbox-filter-pill--active' : ''}`}
+            aria-pressed={activeFilter === null}
             onClick={() => setActiveFilter(null)}
           >
             All
@@ -290,9 +212,10 @@ export function InboxView({ desktop = false }: { desktop?: boolean } = {}) {
             <button
               key={src}
               className={`inbox-filter-pill${activeFilter === src ? ' inbox-filter-pill--active' : ''}`}
+              aria-pressed={activeFilter === src}
               onClick={() => setActiveFilter(activeFilter === src ? null : src)}
             >
-              {src}
+              {src.replaceAll('_', ' ')}
               <span className="inbox-filter-count">
                 {items.filter((i) => i.agent === src).length}
               </span>
@@ -301,39 +224,51 @@ export function InboxView({ desktop = false }: { desktop?: boolean } = {}) {
         </div>
       )}
 
-      {!desktop && (
-        <div className="inbox-hint">
-          {filtered.length > 0 && <span>Swipe right to archive, left to discard</span>}
-        </div>
-      )}
       <div className={desktop ? 'collection-panels' : 'collection-mobile-body'}>
-        <div className="inbox-scroll">
-          {filtered.map((item) =>
-            desktop ? (
+        {!showMobileDetail && (
+          <div className="inbox-scroll" ref={list}>
+            {!loading && filtered.length === 0 && items.length > 0 && (
+              <p className="inbox-empty">No matching proposals</p>
+            )}
+            {filtered.map((item) => (
               <button
                 key={item.filename}
-                className="collection-record"
+                ref={(node) => {
+                  if (node) rows.current.set(item.filename, node);
+                  else rows.current.delete(item.filename);
+                }}
+                className="collection-record proposal-record"
                 aria-current={selected?.filename === item.filename ? 'true' : undefined}
                 aria-label={item.title}
-                onClick={() => setSelectedFilename(item.filename)}
+                onClick={() => openProposal(item.filename)}
               >
-                <small>{item.agent}</small>
+                <span className="proposal-record-meta">
+                  <small>{item.agent.replaceAll('_', ' ')}</small>
+                  {item.timestamp && (
+                    <time dateTime={item.timestamp}>
+                      {new Date(item.timestamp).toLocaleDateString(undefined, {
+                        month: 'short',
+                        day: 'numeric',
+                      })}
+                    </time>
+                  )}
+                </span>
                 <strong>{item.title}</strong>
                 <p>{item.preview}</p>
-                {item.tags.length > 0 && <small>{item.tags.join(' · ')}</small>}
+                <span className="proposal-record-footer">
+                  <small>
+                    {item.tags.slice(0, 2).join(' · ')}
+                    {item.tags.length > 2 && ` · +${item.tags.length - 2}`}
+                  </small>
+                  <span className="proposal-record-open" aria-hidden="true">
+                    Review →
+                  </span>
+                </span>
               </button>
-            ) : (
-              <InboxCard
-                key={item.filename}
-                item={item}
-                onApprove={handleApprove}
-                onDiscard={handleDiscard}
-                onStartSession={handleStartSession}
-              />
-            ),
-          )}
-        </div>
-        {(desktop || !!linkedFilename) && (
+            ))}
+          </div>
+        )}
+        {(desktop || showMobileDetail) && (
           <section className="collection-inspector" aria-label="Proposal details">
             {selected ? (
               <ProposalDetail
@@ -345,7 +280,7 @@ export function InboxView({ desktop = false }: { desktop?: boolean } = {}) {
               />
             ) : (
               <div className="collection-placeholder">
-                <h2>Select a proposal</h2>
+                <h2>{showMobileDetail ? 'Proposal unavailable' : 'Select a proposal'}</h2>
                 <p>Read its full context and review it in a session.</p>
               </div>
             )}

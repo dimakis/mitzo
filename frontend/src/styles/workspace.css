@@ -1,21 +1,3 @@
-/* Workspace presentation tokens; conversation and task internals retain their styles. */
-:root {
-  --workspace-bg: #131416;
-  --workspace-text: #f2f2f5;
-  --workspace-muted: #aaaab4;
-  --workspace-line: #33343d;
-  --workspace-panel: #242131;
-  --workspace-accent: #b5a1ff;
-  --workspace-radius: 16px;
-}
-[data-theme='light'] {
-  --workspace-bg: #faf9f6;
-  --workspace-text: #202127;
-  --workspace-muted: #62636b;
-  --workspace-line: #dedee3;
-  --workspace-panel: #efedf8;
-  --workspace-accent: #5e42b8;
-}
 .workspace-page,
 .workspace-rail,
 .workspace-tabs {
@@ -432,10 +414,10 @@
   font-weight: 550;
 }
 .connections-risk--bounded-write {
-  color: #ffc978;
+  color: var(--color-warning);
 }
 .connections-risk--operator-defined {
-  color: #ffb4ab;
+  color: var(--color-danger);
 }
 .connections-wizard-actions {
   display: flex;
@@ -535,7 +517,7 @@
   opacity: 0.55;
 }
 .connections-actions .connections-danger {
-  color: #ffb4ab;
+  color: var(--color-danger);
 }
 .connections-remove-confirm {
   width: 100%;
@@ -892,7 +874,7 @@
   position: fixed;
   inset: 0;
   z-index: 1000;
-  background: #16122066;
+  background: var(--color-overlay);
 }
 .access-drawer {
   position: absolute;
@@ -903,7 +885,7 @@
   flex-direction: column;
   background: var(--workspace-bg);
   color: var(--workspace-text);
-  box-shadow: -12px 0 40px #0002;
+  box-shadow: -12px 0 40px var(--color-shadow);
   overflow-wrap: anywhere;
   padding-top: env(safe-area-inset-top);
   padding-bottom: env(safe-area-inset-bottom);
@@ -1199,7 +1181,7 @@
   color: var(--workspace-accent);
 }
 .output-upload-error {
-  color: var(--danger, #bf4545);
+  color: var(--danger, var(--color-danger));
 }
 .output-upload-form {
   display: flex;

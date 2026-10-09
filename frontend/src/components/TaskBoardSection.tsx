@@ -11,9 +11,9 @@ const STATE_LABELS: Record<string, string> = {
 };
 
 const STATE_COLORS: Record<string, string> = {
-  idle: '#888',
-  running: '#b48cff',
-  paused: '#fbbf24',
+  idle: 'var(--color-muted)',
+  running: 'var(--color-accent)',
+  paused: 'var(--color-warning)',
 };
 
 export function TaskBoardSection() {

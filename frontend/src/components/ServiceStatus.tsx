@@ -5,7 +5,7 @@ import type { ServiceHealthStatus } from '@mitzo/protocol';
 
 function ServiceDot({ service }: { service: ServiceHealthStatus | null }) {
   if (!service) return null;
-  const color = service.ok ? '#4ade80' : '#ff6d6d';
+  const color = service.ok ? 'var(--color-success)' : 'var(--color-danger)';
   return (
     <span className="service-dot" style={{ color }}>
       <span className="service-dot-indicator" style={{ background: color }} />

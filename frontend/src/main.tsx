@@ -5,6 +5,7 @@ import { App } from './App';
 import { clientStore } from './client-store';
 import { initTheme } from './hooks/useTheme';
 import 'highlight.js/styles/github-dark-dimmed.min.css';
+import './styles/tokens.css';
 import './styles/global.css';
 import './styles/code-block.css';
 import './styles/calendar.css';
@@ -15,6 +16,8 @@ import './styles/workspace-chat.css';
 import './styles/workspace-work.css';
 import './styles/workspace-agents.css';
 import './styles/workspace-collections.css';
+import './styles/mobile-workspace.css';
+import './styles/appearance.css';
 
 initTheme();
 

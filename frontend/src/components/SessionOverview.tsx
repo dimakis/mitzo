@@ -11,12 +11,12 @@ import { formatRelativeTime } from '../lib/formatTime';
 // ─── State visuals ──────────────────────────────────────────────────────────
 
 const STATE_CONFIG: Record<SessionActivityState, { icon: string; color: string; label: string }> = {
-  init: { icon: '\u25CB', color: '#888', label: 'init' },
-  working: { icon: '\u25CF', color: '#b48cff', label: 'working' },
-  waiting: { icon: '\u26A0', color: '#ff6d6d', label: 'waiting' },
-  done: { icon: '\u2713', color: '#4ade80', label: 'done' },
-  idle: { icon: '\u25CB', color: '#555', label: 'idle' },
-  paused: { icon: '\u23F8', color: '#888', label: 'paused' },
+  init: { icon: '\u25CB', color: 'var(--color-muted)', label: 'init' },
+  working: { icon: '\u25CF', color: 'var(--color-accent)', label: 'working' },
+  waiting: { icon: '\u26A0', color: 'var(--color-danger)', label: 'waiting' },
+  done: { icon: '\u2713', color: 'var(--color-success)', label: 'done' },
+  idle: { icon: '\u25CB', color: 'var(--color-muted)', label: 'idle' },
+  paused: { icon: '\u23F8', color: 'var(--color-muted)', label: 'paused' },
 };
 
 // ─── Card ───────────────────────────────────────────────────────────────────

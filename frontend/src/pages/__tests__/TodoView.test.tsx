@@ -215,7 +215,7 @@ describe('TodoView', () => {
     });
   });
 
-  it('renders MitzoLogo for home navigation', () => {
+  it('presents Work as one clear heading and leaves branding to the shell', () => {
     mockUseTodoData.mockReturnValue({
       loading: false,
       items: [],
@@ -232,7 +232,9 @@ describe('TodoView', () => {
       </MemoryRouter>,
     );
 
-    expect(container.querySelector('.mitzo-logo')).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Work', level: 1 })).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: 'Telos' })).toBeNull();
+    expect(container.querySelector('.mitzo-logo')).toBeNull();
   });
 
   it('searches outcome text and context', () => {

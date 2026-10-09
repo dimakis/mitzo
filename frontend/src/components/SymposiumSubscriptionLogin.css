@@ -5,7 +5,7 @@
   min-width: 0;
   padding: 0.75rem;
   box-sizing: border-box;
-  border: 1px solid var(--border-color, #555);
+  border: 1px solid var(--border-color, var(--color-muted));
   border-radius: 8px;
 }
 .symposium-subscription-login p,

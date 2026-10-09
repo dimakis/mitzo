@@ -1,0 +1,362 @@
+import { expect, test } from '@playwright/test';
+import { readFile } from 'node:fs/promises';
+import { resolve, extname } from 'node:path';
+
+const outcomes = Array.from({ length: 12 }, (_, index) => ({
+  id: `outcome-${index}`,
+  summary:
+    index === 0
+      ? 'Prepare the quarterly planning review and bring together the latest decisions, priorities and context for the team'
+      : `Outcome ${index + 1}`,
+  intent: 'Bring the decisions and their context into one clear next step.',
+  profile: 'work',
+  urgency: 0.6,
+  starred: index < 2,
+  status: 'active',
+  ageDays: 2,
+  parentId: null,
+  children: [],
+  childCount: 0,
+  completedChildCount: 0,
+  sources: [],
+  links: [],
+  goalId: null,
+  contextHints: {
+    repos: [],
+    paths: [],
+    issues: [],
+    docIds: [],
+    people: [],
+    jiraKeys: [],
+    keywords: [],
+    taskHint: '',
+  },
+}));
+const proposals = Array.from({ length: 12 }, (_, index) => ({
+  filename: `proposal-${index}.md`,
+  agent: index % 2 ? 'planner' : 'dream_detector',
+  title:
+    index === 0
+      ? '[cross-reference] planning.py ↔ Quarterly planning decisions and follow-up context.md'
+      : `Proposal ${index + 1}`,
+  timestamp: '2026-10-09T12:00:00Z',
+  tags: ['planning', 'memory', 'follow-up'],
+  preview: 'Bring related decisions together so the next review starts with the right context.',
+}));
+const sessions = Array.from({ length: 14 }, (_, index) => ({
+  id: `session-${index}`,
+  summary:
+    ['Quarterly planning review', 'Explore the product direction', 'Follow up on team priorities'][
+      index % 3
+    ] + ` ${index + 1}`,
+  lastModified: Date.now() - index * 3600000,
+  totalTokens: 0,
+  isActive: false,
+  isAttached: false,
+}));
+const account = {
+  id: 'work-account',
+  kind: 'ai-account',
+  section: 'ai-accounts',
+  provider: 'openai',
+  revision: 1,
+  label: 'Work OpenAI',
+  owner: 'accounts',
+  gateway: 'primary',
+  workspace: null,
+  nativeId: 'work',
+  status: 'configured',
+  accountIdentity: null,
+  verification: { state: 'unverified', verifiedAt: null, reason: null },
+  access: {
+    summary: 'Choose inside a chat',
+    desiredAccountIds: [],
+    observedAttachments: null,
+    appliesTo: 'New conversations',
+  },
+  actions: [{ id: 'manage', label: 'Manage', href: '/connections' }],
+  details: {},
+};
+const fixtures: Record<string, unknown> = {
+  '/api/auth/check': { authenticated: true },
+  '/api/sessions': sessions,
+  '/api/config': { quickActions: [] },
+  '/api/version': { updateAvailable: false },
+  '/api/todos': { profiles: ['manual', 'personal', 'work'], items: outcomes },
+  '/api/tasks': [],
+  '/api/inbox': proposals,
+  '/api/briefings/latest': null,
+  '/api/service-health': { services: [], checkedAt: Date.now() },
+  '/api/notifications': { items: [], needsYou: 0, unread: 0, total: 0, hasMore: false },
+  '/api/connections-access': { generatedAt: Date.now(), sources: [], resources: [account] },
+};
+const mime: Record<string, string> = {
+  '.js': 'application/javascript',
+  '.css': 'text/css',
+  '.html': 'text/html',
+  '.png': 'image/png',
+  '.svg': 'image/svg+xml',
+  '.woff2': 'font/woff2',
+};
+
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('mitzo-theme', 'dark');
+    localStorage.setItem('mitzo:transport', 'ws');
+    // Match the native application's bounded viewport without native APIs.
+    document.addEventListener('DOMContentLoaded', () => {
+      document.documentElement.style.overflow = 'hidden';
+      document.body.style.cssText = 'height:100dvh;overflow:hidden';
+    });
+  });
+  await page.routeWebSocket('**/*', (socket) => socket.close());
+  await page.route('**/*', async (route) => {
+    const url = new URL(route.request().url());
+    if (url.hostname !== 'mitzo-ui.test') return route.abort();
+    if (url.pathname.startsWith('/api/')) {
+      // No app mutation or model request can leave this fixture suite.
+      if (route.request().method() !== 'GET')
+        return route.fulfill({ status: 405, json: { error: 'Offline UI test' } });
+      if (url.pathname.startsWith('/api/inbox/'))
+        return route.fulfill({
+          json: {
+            content:
+              '# Full proposal context\n\nReview the original evidence before deciding on the next step.',
+          },
+        });
+      return route.fulfill({ json: url.pathname in fixtures ? fixtures[url.pathname] : {} });
+    }
+    const file =
+      url.pathname.startsWith('/assets/') || extname(url.pathname)
+        ? url.pathname.slice(1)
+        : 'index.html';
+    const root = resolve('frontend/dist');
+    const path = resolve(root, file);
+    if (!path.startsWith(root + '/')) return route.abort();
+    try {
+      return route.fulfill({
+        body: await readFile(path),
+        contentType: mime[extname(path)] ?? 'application/octet-stream',
+      });
+    } catch {
+      return route.fulfill({ status: 404, body: 'Missing offline asset' });
+    }
+  });
+});
+
+const routes = ['/', '/sessions', '/inbox', '/todos', '/more', '/connections-access'];
+
+test('every mobile collection keeps one wordmark, one palette and reachable navigation', async ({
+  page,
+  isMobile,
+}, testInfo) => {
+  test.skip(!isMobile, 'Mobile shell');
+  for (const width of [320, 390, 440]) {
+    await page.setViewportSize({ width, height: 844 });
+    let reference: unknown;
+    for (const route of routes) {
+      await page.goto(route);
+      await expect(page.locator('h1').first()).toBeVisible();
+      const brand = page.getByRole('link', { name: 'Mitzo home' });
+      await expect(brand).toBeVisible();
+      await brand.click({ trial: true });
+      const pageTop = await page.locator('.mobile-workspace-body > *').first().boundingBox();
+      const masthead = (await page.locator('.mobile-workspace-masthead').boundingBox())!;
+      expect(pageTop!.y).toBeGreaterThanOrEqual(masthead.y + masthead.height);
+      await expect(page.locator('.mitzo-logo')).toHaveCount(0); // hidden legacy logos tested separately below
+      const box = await brand.boundingBox();
+      if (reference) expect(box).toEqual(reference);
+      else reference = box;
+      expect(
+        await page
+          .locator('.mobile-workspace-body')
+          .evaluate((element) => element.scrollWidth <= element.clientWidth),
+      ).toBe(true);
+      await expect(page.getByRole('link', { name: 'More', exact: true })).toBeInViewport();
+      if (width === 390) {
+        await page.evaluate(
+          () =>
+            new Promise<void>((resolve) =>
+              requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+            ),
+        );
+        await page.screenshot({
+          path: testInfo.outputPath(`${route.replaceAll('/', '') || 'today'}.png`),
+        });
+      }
+    }
+  }
+});
+
+test('one token change updates the accent and font on every main page', async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(!isMobile, 'Mobile theme contract');
+  for (const route of routes) {
+    await page.goto(route);
+    await expect(page.locator('h1').first()).toBeVisible();
+    await page.evaluate(() => {
+      document.documentElement.style.setProperty('--color-accent', '#36d6b7');
+      document.documentElement.style.setProperty('--font-ui', 'Georgia');
+    });
+    const active = page.locator('.workspace-tabs [aria-current="page"]');
+    expect(await active.evaluate((element) => getComputedStyle(element).color)).toBe(
+      'rgb(54, 214, 183)',
+    );
+    expect(
+      await page
+        .locator('h1')
+        .first()
+        .evaluate((element) => getComputedStyle(element).fontFamily),
+    ).toContain('Georgia');
+    if (route === '/todos') {
+      expect(
+        await page
+          .locator('.todo-card-icon')
+          .first()
+          .evaluate((element) => getComputedStyle(element).color),
+      ).toBe('rgb(54, 214, 183)');
+    }
+    await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'light'));
+    expect(
+      await page
+        .locator('.mobile-workspace')
+        .evaluate((element) => getComputedStyle(element).backgroundColor),
+    ).toBe('rgb(250, 249, 246)');
+  }
+});
+
+test('Proposals opens full context and keeps the end of each collection above the tabs', async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(!isMobile, 'Mobile collections');
+  await page.goto('/inbox');
+  await page.getByRole('button', { name: proposals[0].title, exact: true }).click();
+  await expect(
+    page
+      .getByRole('region', { name: 'Proposal details' })
+      .getByText('Full proposal context', { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Review in session' })).toBeVisible();
+  await page.getByRole('button', { name: 'Back to proposals' }).click();
+  await page.getByRole('searchbox', { name: 'Search proposals' }).fill('Proposal 12');
+  await expect(page.locator('.proposal-record')).toHaveCount(1);
+  for (const [route, scroll, last] of [
+    ['/inbox', '.inbox-scroll', '.proposal-record'],
+    ['/todos', '.todo-scroll', '.todo-card'],
+    ['/sessions', '.session-list-scroll', '.session-item'],
+  ]) {
+    await page.goto(route);
+    await expect(page.locator(last).last()).toBeAttached();
+    await page.locator(scroll).evaluate((element) => {
+      element.scrollTop = element.scrollHeight;
+    });
+    const end = (await page.locator(last).last().boundingBox())!;
+    const tabs = (await page.locator('.workspace-tabs').boundingBox())!;
+    expect(end.y + end.height).toBeLessThanOrEqual(tabs.y);
+  }
+});
+
+test('desktop collections inherit the same theme without the mobile masthead', async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(isMobile, 'Desktop theme contract');
+  for (const route of routes) {
+    await page.goto(route);
+    await expect(page.locator('h1').first()).toBeVisible();
+    await expect(page.locator('.mobile-workspace-masthead')).toHaveCount(0);
+    await page.evaluate(() =>
+      document.documentElement.style.setProperty('--color-accent', '#36d6b7'),
+    );
+    expect(
+      await page
+        .locator('.workspace-rail a')
+        .first()
+        .evaluate((element) => getComputedStyle(element).getPropertyValue('--accent').trim()),
+    ).toBe('#36d6b7');
+  }
+});
+
+test('Settings previews and persists every accent and font across navigation and reload', async ({
+  page,
+  isMobile,
+}, testInfo) => {
+  if (isMobile) await page.setViewportSize({ width: 320, height: 844 });
+  await page.goto('/settings');
+  const theme = page.getByRole('combobox', { name: 'Theme' });
+  const preview = page.locator('.appearance-preview-action');
+  for (const mode of ['dark', 'light']) {
+    await theme.selectOption(mode);
+    for (const label of ['Lavender', 'Teal', 'Rose', 'Amber']) {
+      await page.getByRole('radio', { name: label, exact: true }).check();
+      const ratio = await preview.evaluate((element) => {
+        const style = getComputedStyle(element);
+        const luminance = (color: string) => {
+          const parts = color
+            .match(/[\d.]+/g)!
+            .slice(0, 3)
+            .map(Number)
+            .map((value) => {
+              const channel = value / 255;
+              return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+            });
+          return parts[0] * 0.2126 + parts[1] * 0.7152 + parts[2] * 0.0722;
+        };
+        const a = luminance(style.color),
+          b = luminance(style.backgroundColor);
+        return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+      });
+      expect(ratio, `${label} in ${mode}`).toBeGreaterThanOrEqual(4.5);
+    }
+  }
+  await theme.selectOption('dark');
+  await page.getByRole('radio', { name: 'Teal', exact: true }).check();
+  for (const value of ['system', 'arial', 'georgia']) {
+    await page.getByRole('combobox', { name: 'Font' }).selectOption(value);
+    const stored = await page.evaluate(() => localStorage.getItem('mitzo-font'));
+    expect(stored).toBe(value);
+    const font = await page
+      .locator('h1')
+      .first()
+      .evaluate((element) => getComputedStyle(element).fontFamily);
+    if (value !== 'system') expect(font.toLowerCase()).toContain(value);
+    if (isMobile)
+      expect(
+        await page
+          .locator('.settings-page')
+          .evaluate((element) => element.scrollWidth <= element.clientWidth),
+      ).toBe(true);
+  }
+  const accent = await preview.evaluate((element) => getComputedStyle(element).backgroundColor);
+  await page.goto('/sessions');
+  expect(
+    await page
+      .locator('.workspace-primary')
+      .first()
+      .evaluate((element) => getComputedStyle(element).backgroundColor),
+  ).toBe(accent);
+  expect(
+    await page
+      .locator('h1')
+      .first()
+      .evaluate((element) => getComputedStyle(element).fontFamily),
+  ).toContain('Georgia');
+  await page.reload();
+  expect(
+    await page
+      .locator('h1')
+      .first()
+      .evaluate((element) => getComputedStyle(element).fontFamily),
+  ).toContain('Georgia');
+  await page.goto('/settings');
+  await expect(page.getByRole('radio', { name: 'Teal', exact: true })).toBeChecked();
+  await expect(page.getByRole('combobox', { name: 'Font' })).toHaveValue('georgia');
+  await page.getByRole('button', { name: 'Reset appearance' }).click();
+  await expect(page.getByRole('radio', { name: 'Lavender', exact: true })).toBeChecked();
+  await expect(page.getByRole('combobox', { name: 'Font' })).toHaveValue('system');
+  if (isMobile) await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({ path: testInfo.outputPath('settings.png') });
+});

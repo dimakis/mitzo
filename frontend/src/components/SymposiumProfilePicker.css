@@ -34,7 +34,7 @@
 }
 .symposium-profile-picker fieldset {
   min-width: 0;
-  border: 1px solid var(--border-color, #555);
+  border: 1px solid var(--border-color, var(--color-muted));
   border-radius: 6px;
   padding: 0.6rem;
 }
@@ -48,7 +48,7 @@
 .symposium-profile-picker p {
   margin: 0;
   font-size: 0.8rem;
-  color: var(--text-secondary, #aaa);
+  color: var(--text-secondary, var(--color-muted));
 }
 .symposium-profile-picker button {
   min-height: 42px;

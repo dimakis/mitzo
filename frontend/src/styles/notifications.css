@@ -222,7 +222,7 @@
   color: var(--workspace-accent);
 }
 .notification-error {
-  color: var(--error, #dc5555);
+  color: var(--error, var(--color-danger));
 }
 .notification-footnote {
   color: var(--workspace-muted);

@@ -7,7 +7,6 @@ import { formatRelativeTime } from '../lib/formatTime';
 import { useLongPress } from '../hooks/useLongPress';
 import { computeSwipeState, REVEAL_WIDTH } from '../lib/swipe-reveal';
 import { selectionChanged } from '../lib/haptics';
-import { MitzoLogo } from '../components/MitzoLogo';
 import { useSessionList } from '../hooks/useSessionList';
 import type { QuickAction } from '../hooks/useSessionList';
 import { formatTokens } from '../lib/formatTokens';
@@ -388,7 +387,6 @@ export function SessionList() {
     <div className="session-list-page workspace-page conversation-library">
       <header className="session-list-header">
         <div className="session-list-header-title">
-          <MitzoLogo />
           <h1>Chats</h1>
         </div>
         <div className="conversation-header-actions">

@@ -99,7 +99,7 @@
 
 .cal-view-btn--active {
   background: var(--accent);
-  color: #fff;
+  color: var(--color-on-accent);
 }
 
 .cal-view-btn:disabled {
@@ -121,7 +121,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: rgba(108, 99, 255, 0.1);
+  background: color-mix(in srgb, var(--color-accent) 10%, transparent);
   border-left: 3px solid var(--accent);
   padding: var(--space-1h) var(--space-3);
   border-radius: 0 6px 6px 0;
@@ -217,12 +217,12 @@
 }
 
 .cal-event-milestone {
-  background: rgba(244, 67, 54, 0.08);
+  background: color-mix(in srgb, var(--color-danger) 8%, transparent);
   border-left: 3px solid var(--danger);
 }
 
 .cal-event-milestone:hover {
-  background: rgba(244, 67, 54, 0.14);
+  background: color-mix(in srgb, var(--color-danger) 14%, transparent);
 }
 
 .cal-event-row {
@@ -269,7 +269,7 @@
 
 .cal-badge-milestone {
   background: var(--danger);
-  color: #fff;
+  color: var(--color-on-status);
 }
 
 /* Event detail (expanded) */
@@ -313,7 +313,7 @@
 
 .cal-action-prep {
   background: var(--accent);
-  color: #fff;
+  color: var(--color-on-accent);
   border: none;
   padding: var(--space-2) var(--space-3);
   border-radius: 6px;
