@@ -18,7 +18,7 @@ import {
 } from 'node:fs';
 import { dirname, isAbsolute, join, relative } from 'node:path';
 import { OwnedSymposiumConfigSchema } from './symposium-owned-config-schema.js';
-import { reviewedStagingOwnedRuntime } from './symposium-staging-runtime-contract.js';
+import { reviewedStagingOwnedBuild } from './symposium-staging-runtime-contract.js';
 import { reviewedSymposiumOwnedRuntime } from './symposium-owned-runtime-contract.js';
 const sha = (value: Buffer | string) => createHash('sha256').update(value).digest('hex');
 function fail(): never {
@@ -165,7 +165,7 @@ export interface OwnedReleasePlan extends OwnedReleaseInput {
   sourceTree: string;
   buildSha256: string;
   inputsSha256: string;
-  runtime: ReturnType<typeof reviewedStagingOwnedRuntime>['build'];
+  runtime: ReturnType<typeof reviewedStagingOwnedBuild>;
   admissionVerified: false;
 }
 function inspect(input: OwnedReleaseInput, digest: (path: string) => string, fresh = true) {
@@ -309,9 +309,9 @@ function inspect(input: OwnedReleaseInput, digest: (path: string) => string, fre
     mutableDirectories.some((path) => overlaps(config.runtime.seed, path))
   )
     fail();
-  const reviewed = (canonicalRelease ? reviewedStagingOwnedRuntime : reviewedSymposiumOwnedRuntime)(
-    config.gateway.workloadImage,
-  ).build;
+  const reviewed = canonicalRelease
+    ? reviewedStagingOwnedBuild(config.gateway)
+    : reviewedSymposiumOwnedRuntime(config.gateway.workloadImage).build;
   if (
     config.gateway.cliSha256 !== reviewed.cliSha256 ||
     config.gateway.executableSha256 !== reviewed.gatewaySha256 ||

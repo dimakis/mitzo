@@ -20,6 +20,10 @@ import {
 } from '../symposium-custodian-retirement.js';
 import type { OwnedReleasePlan } from '../symposium-owned-release.js';
 import type { SymposiumCustodianConstructorHooks } from '../symposium-custodian-main.js';
+import {
+  REVIEWED_SYMPOSIUM_OWNED_RUNTIME,
+  SOURCE_QUALIFIED_SYMPOSIUM_ROUTING_BUILD,
+} from '../symposium-owned-runtime-contract.js';
 
 const roots: string[] = [];
 afterEach(() => roots.splice(0).forEach((p) => rmSync(p, { recursive: true, force: true })));
@@ -64,13 +68,15 @@ function fixture() {
     return path;
   };
   const digest = 'a'.repeat(64);
+  const original = REVIEWED_SYMPOSIUM_OWNED_RUNTIME.build;
+  plan.runtime = original;
   const config = {
     gateway: {
       stateParent,
       executable: inputFile('gateway-executable'),
-      executableSha256: digest,
+      executableSha256: original.gatewaySha256,
       cliExecutable: inputFile('gateway-cli'),
-      cliSha256: digest,
+      cliSha256: original.cliSha256,
       systemCaBundle: inputFile('system-ca'),
       gateway: 'test',
       workspace: 'test',
@@ -78,8 +84,8 @@ function fixture() {
       podmanSocket: inputFile('podman-socket'),
       network: 'test',
       workloadImage: 'sha256:a5a5302f2443c02f24506248883b9d22f070f58b288f898ac69a547b653e2161',
-      sandboxRuntimeImage: `sha256:${digest}`,
-      supervisorImage: `sha256:${digest}`,
+      sandboxRuntimeImage: original.sandboxRuntimeImage,
+      supervisorImage: original.supervisorImage,
       tls: {
         serverCert: inputFile('tls-server-cert'),
         serverKey: inputFile('tls-server-key'),
@@ -142,6 +148,83 @@ function fixture() {
   mkdirSync(gatewayStateDirectory, { mode: 0o700 });
   return { root, plan, registration, stateParent, gatewayStateDirectory, config };
 }
+it('passes the routing selector only after verified exact source-qualified config and full plan runtime', async () => {
+  const f = fixture();
+  const build = SOURCE_QUALIFIED_SYMPOSIUM_ROUTING_BUILD;
+  Object.assign(f.config.gateway, {
+    cliSha256: build.cliSha256,
+    executableSha256: build.gatewaySha256,
+    workloadImage: build.image,
+    sandboxRuntimeImage: build.sandboxRuntimeImage,
+    supervisorImage: build.supervisorImage,
+  });
+  f.plan.runtime = build as OwnedReleasePlan['runtime'];
+  writeFileSync(f.plan.configPath, JSON.stringify(f.config), { mode: 0o600 });
+  const order: string[] = [];
+  await expect(
+    launchStagingCustodian(f.plan, f.registration, {
+      verify() {
+        order.push('verify');
+      },
+      claim() {
+        order.push('claim');
+      },
+      async run(hooks) {
+        order.push('run');
+        expect(hooks.admissionBuildSelection).toBe('local-854b-routing-v1');
+        throw Error('fixture stop');
+      },
+    }),
+  ).rejects.toThrow('fixture stop');
+  expect(order).toEqual(['verify', 'claim', 'verify', 'run']);
+});
+it.each(['manifest', 'cli', 'post-claim'] as const)(
+  'refuses %s tuple drift before trusted launch',
+  async (failure) => {
+    const f = fixture();
+    if (failure === 'manifest')
+      f.plan.runtime = {
+        ...f.plan.runtime,
+        imageDigest: 'a'.repeat(64),
+      } as unknown as OwnedReleasePlan['runtime'];
+    if (failure === 'cli') {
+      Object.assign(f.config.gateway, { cliSha256: 'a'.repeat(64) });
+      writeFileSync(f.plan.configPath, JSON.stringify(f.config), { mode: 0o600 });
+    }
+    const run = vi.fn(async () => {});
+    await expect(
+      launchStagingCustodian(f.plan, f.registration, {
+        verify() {},
+        claim() {
+          if (failure === 'post-claim') {
+            Object.assign(f.config.gateway, { supervisorImage: `sha256:${'a'.repeat(64)}` });
+            writeFileSync(f.plan.configPath, JSON.stringify(f.config), { mode: 0o600 });
+          }
+        },
+        run,
+      }),
+    ).rejects.toThrow(/tuple|runtime/);
+    expect(run).not.toHaveBeenCalled();
+  },
+);
+it('checks release verification before reading any classifier configuration', async () => {
+  const f = fixture();
+  writeFileSync(f.plan.configPath, '{}', { mode: 0o600 });
+  const claim = vi.fn(),
+    run = vi.fn(async () => {});
+  await expect(
+    launchStagingCustodian(f.plan, f.registration, {
+      verify() {
+        throw Error('release unverified');
+      },
+      claim,
+      run,
+    }),
+  ).rejects.toThrow('release unverified');
+  expect(claim).not.toHaveBeenCalled();
+  expect(run).not.toHaveBeenCalled();
+  expect(existsSync(join(f.registration.registryDirectory, 'staging.db'))).toBe(false);
+});
 it('reserves before original launch intent and records same-owner replacement through terminal retirement', async () => {
   const f = fixture();
   const order: string[] = [];
@@ -156,6 +239,7 @@ it('reserves before original launch intent and records same-owner replacement th
       order.push('claim');
     },
     async run(hooks: SymposiumCustodianConstructorHooks) {
+      expect(hooks.admissionBuildSelection).toBeUndefined();
       order.push('run');
       hooks.observeController!(
         {
