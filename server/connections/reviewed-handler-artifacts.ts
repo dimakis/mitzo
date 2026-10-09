@@ -78,7 +78,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../connections-router.ts': 'db03601e5f09080ad370621d2fcbd5879f744c9b272a930b296c20cd47f82979',
   '../connections-service.ts': '1aae9d2c0da483ae798ba03d5804bfb0e81316f3f69666c6595befec3179c314',
   // Repository acquisition and source claims share the ordinary runtime admission review.
-  '../git-branch.ts': '905072a6928b56a28b2029f128a54df9b26cbd0365a3c1f2bf360e183e630032',
+  '../git-branch.ts': '6dd4fef0069e65d78fc94d047777442e4ef073596555581da536e1e39a5d3877',
   '../github-repository-source.ts':
     'da17db978a7374c79b693f62a7bda82c34218db10e5e6e4dcc72267c6fe462a8',
   '../worktree.ts': 'e3fd6d93d33cb5403786c5a7da16dd229d8ba03ad06e8c3abaf6309c64adb34a',

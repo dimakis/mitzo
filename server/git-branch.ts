@@ -8,10 +8,13 @@ export function isGitBranchName(value: string): boolean {
     value.startsWith('-') ||
     value.endsWith('.') ||
     value.includes('..') ||
-    value.includes('@{') ||
-    /[\x00-\x20\x7f~^:?*\[\\]/.test(value)
+    value.includes('@{')
   )
     return false;
+  for (const character of value) {
+    const code = character.charCodeAt(0);
+    if (code <= 0x20 || code === 0x7f || '~^:?*[\\'.includes(character)) return false;
+  }
   return value
     .split('/')
     .every(
