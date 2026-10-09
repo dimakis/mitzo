@@ -512,6 +512,7 @@ export function createDiscoveryHostOperations(
         workspace: config.workspace,
         namespace: options.namespace,
         supervisorImage: config.routingDiagnostic!.supervisorImage,
+        gatewayInventory: () => operations.list(),
         assertCurrent: async () => {
           if (!activeAttempt || !assertAttemptLock)
             throw Error('Routing observation lock unavailable');
