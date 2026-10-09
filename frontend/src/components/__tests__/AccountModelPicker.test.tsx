@@ -2,6 +2,64 @@
 import { it, expect, vi, afterEach } from 'vitest';
 import { act, render, screen, fireEvent, cleanup, waitFor, within } from '@testing-library/react';
 import { AccountModelPicker } from '../AccountModelPicker';
+
+it('validates a required repository binding without changing browser defaults or offering a fallback', async () => {
+  const onChange = vi.fn();
+  vi.mocked(apiFetch).mockResolvedValue(
+    new Response(
+      JSON.stringify([
+        { id: 'other', label: 'Other', models: [{ id: 'other-model', label: 'Other model' }] },
+        { id: 'prepared', label: 'Prepared', models: [{ id: 'luna', label: 'Luna' }] },
+      ]),
+    ),
+  );
+  localStorage.setItem(
+    'mitzo-default-account-model',
+    JSON.stringify({ accountId: 'other', model: 'other-model' }),
+  );
+  render(
+    <AccountModelPicker
+      sessionId={null}
+      preferredModel="other-model"
+      requiredSelection={{ accountId: 'prepared', model: 'luna' }}
+      onChange={onChange}
+    />,
+  );
+  await vi.waitFor(() =>
+    expect(onChange).toHaveBeenLastCalledWith({ accountId: 'prepared', model: 'luna' }),
+  );
+  expect((screen.getByLabelText('Account') as HTMLSelectElement).disabled).toBe(true);
+  expect((screen.getByLabelText('Model') as HTMLSelectElement).disabled).toBe(true);
+  expect(screen.queryByText('Make default for new chats')).toBeNull();
+  expect(screen.queryByText('Use legacy server account')).toBeNull();
+  expect(localStorage.getItem('mitzo-default-account-model')).toContain('other-model');
+});
+
+it('blocks a missing required model instead of selecting another catalog model', async () => {
+  const onChange = vi.fn();
+  vi.mocked(apiFetch).mockResolvedValue(
+    new Response(
+      JSON.stringify([
+        {
+          id: 'prepared',
+          label: 'Prepared',
+          models: [{ id: 'other-model', label: 'Other model' }],
+        },
+      ]),
+    ),
+  );
+  render(
+    <AccountModelPicker
+      sessionId={null}
+      preferredModel="other-model"
+      requiredSelection={{ accountId: 'prepared', model: 'missing' }}
+      onChange={onChange}
+    />,
+  );
+  await screen.findByRole('alert');
+  expect(onChange.mock.calls.every(([selection]) => selection === null)).toBe(true);
+  expect(screen.queryByText('Use legacy server account')).toBeNull();
+});
 import { apiFetch } from '../../lib/api-fetch';
 vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
 afterEach(() => {

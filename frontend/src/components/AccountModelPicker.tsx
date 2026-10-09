@@ -56,7 +56,7 @@ function withThinking(selection: AccountSelection, account: Account): AccountSel
 
 /** Catalog refreshes and draft confirmation belong to one conversation. */
 export function AccountModelPicker(props: Parameters<typeof SessionAccountModelPicker>[0]) {
-  const sessionKey = props.scope === 'symposium' ? 'symposium' : (props.sessionId ?? 'new-chat');
+  const sessionKey = `${props.scope === 'symposium' ? 'symposium' : (props.sessionId ?? 'new-chat')}:${props.requiredSelection?.accountId ?? ''}:${props.requiredSelection?.model ?? ''}`;
   return <SessionAccountModelPicker key={sessionKey} {...props} />;
 }
 
@@ -69,9 +69,11 @@ function SessionAccountModelPicker({
   disabled = false,
   scope = 'chat',
   requireExplicitSelection = false,
+  requiredSelection,
 }: {
   scope?: 'chat' | 'symposium';
   requireExplicitSelection?: boolean;
+  requiredSelection?: { accountId: string; model: string };
   disabled?: boolean;
   sessionId: string | null;
   preferredModel: string;
@@ -276,6 +278,22 @@ function SessionAccountModelPicker({
             return;
           }
           setAccounts(catalog);
+          if (requiredSelection) {
+            const account = catalog.find((entry) => entry.id === requiredSelection.accountId);
+            if (
+              !account ||
+              account.modelDiscovery?.stale ||
+              !account.models.some((entry) => entry.id === requiredSelection.model)
+            )
+              throw new Error(
+                'Prepared account or model is unavailable. Refresh accounts before sending.',
+              );
+            const next = withThinking(requiredSelection, account);
+            setSelection(next);
+            setNeedsConfirmation(false);
+            callbacks.current.onChange(next);
+            return;
+          }
           const previous =
             (attempt ? selectionRef.current : null) ??
             (scope === 'chat' && !legacy ? getDefaultAccountModel() : null);
@@ -320,7 +338,15 @@ function SessionAccountModelPicker({
     };
     // Preferred model is read only when a new task opens; changing it must not reload the catalog.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId, attempt, legacy, scope, requireExplicitSelection]);
+  }, [
+    sessionId,
+    attempt,
+    legacy,
+    scope,
+    requireExplicitSelection,
+    requiredSelection?.accountId,
+    requiredSelection?.model,
+  ]);
   const subscriptionLogin =
     scope === 'symposium' ? (
       <>
@@ -343,7 +369,7 @@ function SessionAccountModelPicker({
         <button disabled={disabled} onClick={() => setAttempt((value) => value + 1)}>
           Retry accounts
         </button>
-        {scope === 'chat' && !sessionId && !legacy && (
+        {scope === 'chat' && !sessionId && !legacy && !requiredSelection && (
           <button disabled={disabled} onClick={() => setLegacy(true)}>
             Use legacy server account
           </button>
@@ -363,7 +389,7 @@ function SessionAccountModelPicker({
             ? 'No Symposium account profiles configured.'
             : 'No account profiles configured.'}
         </span>
-        {scope === 'chat' && (
+        {scope === 'chat' && !requiredSelection && (
           <button disabled={disabled} onClick={() => setLegacy(true)}>
             Use legacy server account
           </button>
@@ -397,7 +423,7 @@ function SessionAccountModelPicker({
         <span>Legacy server account</span>
       ) : (
         <select
-          disabled={disabled}
+          disabled={disabled || !!requiredSelection}
           aria-label="Account"
           className="chat-model-select"
           value={account.id}
@@ -485,7 +511,7 @@ function SessionAccountModelPicker({
         </form>
       )}
       <select
-        disabled={disabled}
+        disabled={disabled || !!requiredSelection}
         aria-label="Model"
         className="chat-model-select"
         value={selection.model}
@@ -555,7 +581,7 @@ function SessionAccountModelPicker({
           {account.models.find((model) => model.id === selection.model)?.label ?? selection.model}
         </button>
       )}
-      {scope === 'chat' && !sessionId && !legacy && (
+      {scope === 'chat' && !sessionId && !legacy && !requiredSelection && (
         <>
           <button
             disabled={disabled || draftUnavailable}
