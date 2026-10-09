@@ -27,6 +27,7 @@ export function DocumentEditor(props: Props) {
   const { content, ext, onChange, saving, onSave, undo, redo, canUndo, canRedo } = props;
   const [mode, setMode] = useState<'source' | 'preview' | 'split'>('source');
   const input = useRef<HTMLTextAreaElement>(null);
+  const sourcePane = useRef<HTMLDivElement>(null);
   const source = useRef<DocumentSourceEditorHandle>(null);
   const dialog = useRef<HTMLDialogElement>(null);
   const modal = useRef(false);
@@ -50,6 +51,7 @@ export function DocumentEditor(props: Props) {
       element.close();
       element.showModal();
       modal.current = true;
+      if (!sourcePane.current?.hidden) source.current?.focus();
     } else if (modal.current) {
       element.close();
       modal.current = false;
@@ -57,6 +59,31 @@ export function DocumentEditor(props: Props) {
       restoreFocus.current?.focus();
     }
   }, [fullscreen]);
+
+  useEffect(() => {
+    const element = dialog.current;
+    const viewport = window.visualViewport;
+    if (!fullscreen || !element || !viewport) return;
+    const resize = () => {
+      element.style.height = `${viewport.height}px`;
+      element.style.top = `${viewport.offsetTop}px`;
+    };
+    resize();
+    viewport.addEventListener('resize', resize);
+    viewport.addEventListener('scroll', resize);
+    return () => {
+      viewport.removeEventListener('resize', resize);
+      viewport.removeEventListener('scroll', resize);
+      element.style.height = '';
+      element.style.top = '';
+    };
+  }, [fullscreen]);
+
+  useEffect(() => {
+    // Keyboard users can continue typing after choosing keys or a source view.
+    // Do not open a software keyboard just because touch fullscreen was selected.
+    if (mode !== 'preview') source.current?.focus();
+  }, [mode, preferences.vim]);
 
   function selectVim(value: boolean) {
     if (value) setActivatedKeyboard(true);
@@ -109,108 +136,124 @@ export function DocumentEditor(props: Props) {
         aria-label="Document editor"
       >
         <div className="document-editor-toolbar">
-          <div className="document-editor-modes" aria-label="Editor view">
-            {(['source', 'preview', 'split'] as const).map((value) => (
+          <div className="document-editor-controls">
+            <div className="document-editor-modes" aria-label="Editor view">
+              {(['source', 'preview', 'split'] as const).map((value) => (
+                <button
+                  key={value}
+                  type="button"
+                  aria-pressed={mode === value}
+                  onClick={() => setMode(value)}
+                >
+                  {value[0].toUpperCase() + value.slice(1)}
+                </button>
+              ))}
+            </div>
+            <div className="document-editor-modes" aria-label="Editing keys">
               <button
-                key={value}
                 type="button"
-                aria-pressed={mode === value}
-                onClick={() => setMode(value)}
+                aria-pressed={!preferences.vim}
+                onClick={() => selectVim(false)}
               >
-                {value[0].toUpperCase() + value.slice(1)}
+                Standard
               </button>
-            ))}
-          </div>
-          <div className="document-editor-modes" aria-label="Editing keys">
-            <button type="button" aria-pressed={!preferences.vim} onClick={() => selectVim(false)}>
-              Standard
-            </button>
-            <button type="button" aria-pressed={preferences.vim} onClick={() => selectVim(true)}>
-              Vim
-            </button>
-          </div>
-          {preferences.keyboard && (
+              <button type="button" aria-pressed={preferences.vim} onClick={() => selectVim(true)}>
+                Vim
+              </button>
+            </div>
+            {preferences.keyboard && (
+              <button
+                type="button"
+                aria-pressed={preferences.relativeLineNumbers}
+                onClick={() => preferences.setRelativeLineNumbers(!preferences.relativeLineNumbers)}
+              >
+                Relative line numbers
+              </button>
+            )}
             <button
               type="button"
-              aria-pressed={preferences.relativeLineNumbers}
-              onClick={() => preferences.setRelativeLineNumbers(!preferences.relativeLineNumbers)}
+              onClick={handleUndo}
+              disabled={saving || !(useKeyboard ? sourceHistory.canUndo : canUndo)}
+              title="Undo (⌘/Ctrl Z)"
             >
-              Relative line numbers
+              Undo
             </button>
-          )}
-          <button
-            type="button"
-            onClick={() => setFullscreen(!fullscreen)}
-            aria-pressed={fullscreen}
-          >
-            {fullscreen ? 'Exit fullscreen' : 'Fullscreen'}
-          </button>
-          {fullscreen && (
-            <button type="button" onClick={onSave} disabled={saving}>
-              {saving ? 'Saving…' : 'Save'}
+            <button
+              type="button"
+              onClick={handleRedo}
+              disabled={saving || !(useKeyboard ? sourceHistory.canRedo : canRedo)}
+              title="Redo (⌘/Ctrl Shift Z)"
+            >
+              Redo
             </button>
-          )}
-          <button
-            type="button"
-            onClick={handleUndo}
-            disabled={saving || !(useKeyboard ? sourceHistory.canUndo : canUndo)}
-            title="Undo (⌘/Ctrl Z)"
-          >
-            Undo
-          </button>
-          <button
-            type="button"
-            onClick={handleRedo}
-            disabled={saving || !(useKeyboard ? sourceHistory.canRedo : canRedo)}
-            title="Redo (⌘/Ctrl Shift Z)"
-          >
-            Redo
-          </button>
-          {markdown && mode !== 'preview' && !preferences.vim && (
-            <>
-              <button
-                type="button"
-                disabled={saving}
-                onClick={() => insert('**', '**')}
-                aria-label="Bold"
-              >
-                <strong>B</strong>
+            {markdown && mode !== 'preview' && !preferences.vim && (
+              <>
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={() => insert('**', '**')}
+                  aria-label="Bold"
+                >
+                  <strong>B</strong>
+                </button>
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={() => insert('_', '_')}
+                  aria-label="Italic"
+                >
+                  <em>I</em>
+                </button>
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={() => insert('`', '`')}
+                  aria-label="Inline code"
+                >
+                  Code
+                </button>
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={() => insert('## ', '', 'Heading')}
+                >
+                  Heading
+                </button>
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={() => insert('- ', '', 'List item')}
+                >
+                  List
+                </button>
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={() => insert('[', '](https://)', 'Link text')}
+                >
+                  Link
+                </button>
+              </>
+            )}
+          </div>
+          <div className="document-editor-actions" role="group" aria-label="Document actions">
+            <button
+              type="button"
+              onClick={() => setFullscreen(!fullscreen)}
+              aria-pressed={fullscreen}
+            >
+              {fullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+            </button>
+            {fullscreen && (
+              <button type="button" onClick={onSave} disabled={saving}>
+                {saving ? 'Saving…' : 'Save'}
               </button>
-              <button
-                type="button"
-                disabled={saving}
-                onClick={() => insert('_', '_')}
-                aria-label="Italic"
-              >
-                <em>I</em>
-              </button>
-              <button
-                type="button"
-                disabled={saving}
-                onClick={() => insert('`', '`')}
-                aria-label="Inline code"
-              >
-                Code
-              </button>
-              <button type="button" disabled={saving} onClick={() => insert('## ', '', 'Heading')}>
-                Heading
-              </button>
-              <button type="button" disabled={saving} onClick={() => insert('- ', '', 'List item')}>
-                List
-              </button>
-              <button
-                type="button"
-                disabled={saving}
-                onClick={() => insert('[', '](https://)', 'Link text')}
-              >
-                Link
-              </button>
-            </>
-          )}
+            )}
+          </div>
         </div>
         {fullscreen && props.fullscreenStatus}
         <div className="document-editor-panes">
-          <div className="document-editor-source" hidden={mode === 'preview'}>
+          <div ref={sourcePane} className="document-editor-source" hidden={mode === 'preview'}>
             {useKeyboard ? (
               <Suspense fallback={<div role="status">Loading keyboard editor…</div>}>
                 <DocumentSourceEditor
