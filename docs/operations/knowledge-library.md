@@ -4,6 +4,9 @@ The Library is an operator surface for a curated accepted GitHub source. Its sou
 an independent private bare mirror. It never reads the application's task checkout,
 dirty files, model sandbox, or other worktrees. Accepted documents are Git objects on
 the explicitly enrolled accepted branch; saving a draft creates a draft review.
+Use **Send for review** for the explicit transition that marks the saved review ready
+and lets the configured review automation begin. Saving changes after that returns
+the review to draft; send its new saved head for review again.
 
 Set `MITZO_KNOWLEDGE_LIBRARY_CONFIG` to an absolute physical host JSON file owned by
 the service user, with mode `0600` and a `0700` parent. Provision and independently
@@ -35,7 +38,7 @@ owner. Omit `publisherLogin` for a read-only Library. Acceptance requires both e
 publisher enrollment and `acceptanceEnabled: true`; its default is disabled.
 
 The existing GitHub CLI host transport supplies GitHub authentication. Its account is
-verified against `publisherLogin` before saving, inspecting or accepting a review.
+verified against `publisherLogin` before saving, sending, inspecting or accepting a review.
 Use a separately reviewed service account and credential configuration for this
 host deployment. Never borrow production credentials/configuration for staging, or
 fall back to production. No provider or real model call is needed for Library reads,
@@ -50,6 +53,14 @@ time; a failed refresh retains drafts and the previous synchronization time. The
 is no background backend, custodian, preview or automatic deployment. The mirror
 rejects changed origin/refspec, unexpected local Git configuration and alternate
 object stores. Drafts live in `stateDirectory/drafts.sqlite` with private SQLite state.
+
+Sending for review checks the configured account, canonical PR repository, base
+branch, author, source branch and exact saved head. It reads the open PR immediately
+before the ready mutation and verifies the same head is ready afterward. An
+already-ready PR is verified without another mutation. This action requires no
+Centaur approval, does not merge, and works while acceptance is disabled. Review
+automation must be provisioned separately; readiness confirms the GitHub review
+state, not that a reviewer has run. A closed or changed review cannot be sent.
 
 Acceptance checks the canonical PR repository, base branch, author, source branch
 `knowledge/draft-id`, and exact saved head. It combines trusted-author reviews and

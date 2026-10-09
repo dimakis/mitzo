@@ -234,6 +234,38 @@ export class KnowledgeGithubPublisher extends GitHubCliHostPublisher {
             : 'All required checks must pass; missing required checks block acceptance',
     };
   }
+  /** Explicit operator transition: request review without claiming acceptance. */
+  async sendForReview(
+    input: KnowledgeReviewIdentity,
+  ): Promise<KnowledgeReviewInspection & { state: 'in-review'; draft: false }> {
+    const number = this.checked(input);
+    const signal = input.signal ?? AbortSignal.timeout(120_000);
+    signal.throwIfAborted();
+    if (
+      (await this.identity(signal)).toLowerCase() !==
+      this.configuration.publisherLogin.toLowerCase()
+    )
+      throw new Error('Knowledge publishing account changed');
+    signal.throwIfAborted();
+    const assertOpenHead = (pr: z.infer<typeof pullRequest>) => {
+      if (pr.state !== 'open' || pr.merged || pr.head.sha !== input.head)
+        throw new Error('Knowledge review head or state changed; reload before requesting review');
+    };
+    assertOpenHead(await this.readExact(input, number, signal));
+    signal.throwIfAborted();
+    // Re-read immediately before the mutation; an earlier observed head is insufficient.
+    const current = await this.readExact(input, number, signal);
+    signal.throwIfAborted();
+    assertOpenHead(current);
+    if (current.draft)
+      await this.command('gh', ['pr', 'ready', number, '--repo', input.repository], signal);
+    signal.throwIfAborted();
+    const ready = await this.readExact(input, number, signal);
+    signal.throwIfAborted();
+    assertOpenHead(ready);
+    if (ready.draft) throw new Error('Knowledge review readiness could not be confirmed');
+    return { state: 'in-review', head: input.head, draft: false, canAccept: false };
+  }
   async accept(input: KnowledgeReviewIdentity): Promise<KnowledgeReviewInspection> {
     this.checked(input);
     if (!this.configuration.acceptanceEnabled) throw new Error('Knowledge acceptance is disabled');

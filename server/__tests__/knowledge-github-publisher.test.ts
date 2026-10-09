@@ -21,11 +21,16 @@ function fixture(
     acceptanceEnabled?: boolean;
     alreadyReady?: boolean;
     badScope?: boolean;
+    closed?: boolean;
+    changedAfterReady?: boolean;
+    readyFails?: boolean;
+    onRead?: (count: number) => void;
   } = {},
 ) {
   let merged = false;
   let ready = options.alreadyReady ?? false;
   let reads = 0;
+  let metadataReads = 0;
   const run = vi.fn(async (_command: string, args: readonly string[]) => {
     let data: unknown;
     if (args[0] === 'api' && args.at(-1) === 'user')
@@ -34,7 +39,7 @@ function fixture(
       if (args[1] === 'checks')
         data = options.noChecks ? [] : [{ name: 'CI', bucket: 'pass', state: 'SUCCESS' }];
       else if (args[1] === 'ready') {
-        ready = true;
+        ready = !options.readyFails;
         data = '';
       } else if (args[1] === 'merge') {
         merged = !options.mergeFails;
@@ -53,22 +58,28 @@ function fixture(
         ],
       ];
     else if (args.some((a) => a.endsWith('/comments'))) data = [options.comments ?? []];
-    else
+    else {
+      metadataReads++;
+      options.onRead?.(metadataReads);
       data = {
         html_url: input.url,
         number: 7,
         user: { login: 'publisher' },
         draft: !ready,
-        state: merged ? 'closed' : 'open',
+        state: merged || options.closed ? 'closed' : 'open',
         merged,
         merge_commit_sha: merged ? 'c'.repeat(40) : null,
         head: {
           ref: `knowledge/${id}`,
-          sha: options.changedHead && reads++ > 0 ? 'b'.repeat(40) : head,
+          sha:
+            (options.changedHead && reads++ > 0) || (options.changedAfterReady && ready)
+              ? 'b'.repeat(40)
+              : head,
           repo: { full_name: options.badScope ? 'attacker/knowledge' : input.repository },
         },
         base: { ref: 'main', repo: { full_name: input.repository } },
       };
+    }
     return { stdout: typeof data === 'string' ? data : JSON.stringify(data), stderr: '' };
   });
   const publisher = new KnowledgeGithubPublisher(
@@ -185,5 +196,76 @@ describe('host Knowledge acceptance gate', () => {
       canAccept: false,
     });
     expect(run.mock.calls.some((c) => ['ready', 'merge'].includes(c[1][1]))).toBe(false);
+  });
+});
+
+describe('send Knowledge draft for review', () => {
+  it('marks the exact saved head ready without requiring approval or acceptance enrollment', async () => {
+    const { publisher, run } = fixture({ reports: [], noChecks: true, acceptanceEnabled: false });
+    expect(await publisher.sendForReview(input)).toEqual({
+      state: 'in-review',
+      head,
+      draft: false,
+      canAccept: false,
+    });
+    expect(run.mock.calls.filter((c) => c[1][1] === 'ready')).toHaveLength(1);
+    expect(run.mock.calls.filter((c) => c[1].some((a) => a.endsWith('/pulls/7')))).toHaveLength(3);
+    expect(
+      run.mock.calls.some(
+        (c) =>
+          ['checks', 'merge'].includes(c[1][1]) ||
+          c[1].some((a) => a.endsWith('/reviews') || a.endsWith('/comments')),
+      ),
+    ).toBe(false);
+  });
+  it('is idempotent for an already-ready saved head', async () => {
+    const { publisher, run } = fixture({ alreadyReady: true });
+    expect(await publisher.sendForReview(input)).toMatchObject({ draft: false, head });
+    expect(run.mock.calls.some((c) => c[1][1] === 'ready')).toBe(false);
+  });
+  it.each([
+    { head: 'b'.repeat(40) },
+    { repository: 'other/repo' },
+    { baseBranch: 'wrong' },
+    { url: input.url + '?x=1' },
+  ])('rejects mismatching review input before ready: %j', async (patch) => {
+    const { publisher, run } = fixture();
+    await expect(publisher.sendForReview({ ...input, ...patch })).rejects.toThrow();
+    expect(run.mock.calls.some((c) => c[1][1] === 'ready')).toBe(false);
+  });
+  it.each([{ closed: true }, { changedHead: true }, { identity: 'other' }, { badScope: true }])(
+    'blocks unavailable or changed reviews before ready: %j',
+    async (options) => {
+      const { publisher, run } = fixture(options);
+      await expect(publisher.sendForReview(input)).rejects.toThrow();
+      expect(run.mock.calls.some((c) => c[1][1] === 'ready')).toBe(false);
+    },
+  );
+  it.each([{ changedAfterReady: true }, { readyFails: true }])(
+    'verifies the same head became ready before returning a receipt: %j',
+    async (options) => {
+      const { publisher, run } = fixture(options);
+      await expect(publisher.sendForReview(input)).rejects.toThrow();
+      expect(run.mock.calls.some((c) => c[1][1] === 'merge')).toBe(false);
+    },
+  );
+  it('honors authorization revocation before any call or before ready mutation', async () => {
+    const alreadyAborted = new AbortController();
+    alreadyAborted.abort();
+    const first = fixture();
+    await expect(
+      first.publisher.sendForReview({ ...input, signal: alreadyAborted.signal }),
+    ).rejects.toThrow();
+    expect(first.run).not.toHaveBeenCalled();
+    const duringRead = new AbortController();
+    const second = fixture({
+      onRead: (count) => {
+        if (count === 2) duringRead.abort();
+      },
+    });
+    await expect(
+      second.publisher.sendForReview({ ...input, signal: duringRead.signal }),
+    ).rejects.toThrow();
+    expect(second.run.mock.calls.some((c) => c[1][1] === 'ready')).toBe(false);
   });
 });
