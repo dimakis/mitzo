@@ -18,6 +18,15 @@ by reviewed `.gitkeep` markers. Saved draft versions and exact creation request 
 also cover structural operations, so uncertain responses can be retried without
 losing later edits or folders.
 
+Removing the last folder from a saved folder-only change cancels its review. The
+server checks the saved draft version and canonical review identity and head before
+closing it, then verifies the result before clearing the local operation. A lost
+response keeps the folder recoverable for retry; a changed review blocks cancellation.
+GitHub does not provide an atomic head comparison for closing a pull request, so
+the server checks the head both before and after that mutation and preserves the
+saved receipt if the outcome is uncertain. Cancellation does not delete the branch
+or change accepted knowledge.
+
 Set `MITZO_KNOWLEDGE_LIBRARY_CONFIG` to an absolute physical host JSON file owned by
 the service user, with mode `0600` and a `0700` parent. Provision and independently
 review host enrollment before enabling it. A repository document cannot supply this

@@ -17,6 +17,10 @@ export function KnowledgeLibrary() {
   const [adding, setAdding] = useState(!!copy && copy.documents.length === 0);
   const [reader, setReader] = useState<{ document: KnowledgeDocument; content: string }>();
   const readRequest = useRef(0);
+  const [readerFailure, setReaderFailure] = useState<{
+    document: KnowledgeDocument;
+    message: string;
+  }>();
   const [parent, setParent] = useState('');
   const [menu, setMenu] = useState<KnowledgeDocument>();
   const [dialog, setDialog] = useState<'folder' | 'move'>();
@@ -38,18 +42,36 @@ export function KnowledgeLibrary() {
       });
     }
   }
+  function showWorkingCopy() {
+    ++readRequest.current;
+    setReaderFailure(undefined);
+    setReader(undefined);
+    setReading(true);
+  }
   async function openReader(document: KnowledgeDocument) {
     if (adding) {
-      await library.openDocument(document, true);
-      setReading(true);
-      setAdding(false);
+      if (await library.openDocument(document, true)) {
+        showWorkingCopy();
+        setAdding(false);
+      }
       return;
     }
     const request = ++readRequest.current;
-    const value = await library.readDocument(document);
-    if (value && request === readRequest.current) {
-      setReader({ document, content: value.content });
-      setReading(false);
+    setReaderFailure(undefined);
+    try {
+      const value = await library.readDocument(document);
+      if (!value) throw new Error('Refresh the library and try again.');
+      if (request === readRequest.current) {
+        setReader({ document, content: value.content });
+        setReading(false);
+      }
+    } catch (error: unknown) {
+      if (request === readRequest.current) {
+        setReaderFailure({
+          document,
+          message: error instanceof Error ? error.message : 'Please try again.',
+        });
+      }
     }
   }
   const areas = [...new Set(catalog?.documents.map((d) => d.area) || [])];
@@ -61,11 +83,17 @@ export function KnowledgeLibrary() {
     ) || [];
   const draft = copy?.draft;
   const editable = !draft || draft.state === 'draft' || draft.state === 'in-review';
+  const closedEmpty =
+    draft?.state === 'closed' && !copy?.documents.length && !copy?.directories?.length;
   const currentReview = !!draft?.review && draft.review.version === draft.version;
   const showEditor = !!copy && reading && !reader && (!!selected || !!copy.directories?.length);
   const structureChanged =
     !!copy?.directories?.length || !!copy?.documents.some((document) => document.sourcePath);
-  const areaRoots = new Set(documents.map((document) => document.path.split('/')[0]));
+  const areaRoots = new Set(
+    (catalog?.documents || [])
+      .filter((document) => area === 'All knowledge' || document.area === area)
+      .map((document) => document.path.split('/')[0]),
+  );
   const visibleDirectories = library.directories.filter(
     (directory) => area === 'All knowledge' || areaRoots.has(directory.split('/')[0]),
   );
@@ -84,6 +112,16 @@ export function KnowledgeLibrary() {
           {library.storageError}
         </div>
       )}
+      {readerFailure && (
+        <div className="knowledge-alert" role="alert">
+          <p>
+            Couldn't open {readerFailure.document.title}. {readerFailure.message}
+          </p>
+          <button onClick={() => void openReader(readerFailure.document)}>
+            Retry opening document
+          </button>
+        </div>
+      )}
       {!catalog && <p className="workspace-muted">Loading your library…</p>}
       {reader ? (
         <KnowledgeReader
@@ -96,11 +134,13 @@ export function KnowledgeLibrary() {
           onBack={() => {
             ++readRequest.current;
             setReader(undefined);
+            setReaderFailure(undefined);
           }}
           onEdit={() => {
-            void library.openDocument(reader.document).then(() => {
-              setReader(undefined);
-              setReading(true);
+            void library.openDocument(reader.document).then((opened) => {
+              if (opened) {
+                showWorkingCopy();
+              }
             });
           }}
         />
@@ -494,21 +534,30 @@ export function KnowledgeLibrary() {
           {copy && (
             <div className="knowledge-resume">
               <span>
-                {adding
-                  ? 'Choose a document to add to your change set.'
-                  : dirty
-                    ? 'Your unsaved working copy is ready to continue.'
-                    : 'Continue your working copy.'}
+                {closedEmpty
+                  ? library.notice ||
+                    'This change is closed. Clear the working copy to start a new change.'
+                  : adding
+                    ? 'Choose a document to add to your change set.'
+                    : dirty
+                      ? 'Your unsaved working copy is ready to continue.'
+                      : 'Continue your working copy.'}
               </span>
-              <button
-                disabled={busy || (copy.documents.length === 0 && !copy.directories?.length)}
-                onClick={() => {
-                  setReading(true);
-                  setAdding(false);
-                }}
-              >
-                {copy.documents.length ? 'Resume editing' : 'Review changes'}
-              </button>
+              {closedEmpty ? (
+                <button disabled={busy} onClick={library.discard}>
+                  Discard working copy
+                </button>
+              ) : (
+                <button
+                  disabled={busy || (copy.documents.length === 0 && !copy.directories?.length)}
+                  onClick={() => {
+                    showWorkingCopy();
+                    setAdding(false);
+                  }}
+                >
+                  {copy.documents.length ? 'Resume editing' : 'Review changes'}
+                </button>
+              )}
             </div>
           )}
           {structureChanged && (
@@ -626,6 +675,8 @@ export function KnowledgeLibrary() {
                   key={item.id}
                   disabled={busy}
                   onClick={() => {
+                    ++readRequest.current;
+                    setReaderFailure(undefined);
                     library.openDraft(item);
                     setReading(true);
                   }}
@@ -669,9 +720,14 @@ export function KnowledgeLibrary() {
               )
             }
             onClick={() => {
-              void library.openDocument(menu, true).then(() => {
-                setReading(false);
-                setDialog('move');
+              void library.openDocument(menu, true).then((opened) => {
+                if (opened) {
+                  ++readRequest.current;
+                  setReaderFailure(undefined);
+                  setReader(undefined);
+                  setReading(false);
+                  setDialog('move');
+                }
               });
             }}
           >
@@ -701,6 +757,9 @@ export function KnowledgeLibrary() {
                 ? library.createDirectory(path)
                 : library.moveDocument(menu!.path, path);
             if (applied) {
+              ++readRequest.current;
+              setReaderFailure(undefined);
+              setReader(undefined);
               setParent(path.split('/').slice(0, -1).join('/'));
               setReading(false);
             }

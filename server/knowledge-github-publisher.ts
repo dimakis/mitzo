@@ -279,6 +279,45 @@ export class KnowledgeGithubPublisher extends GitHubCliHostPublisher {
     if (ready.draft) throw new Error('Knowledge review readiness could not be confirmed');
     return { state: 'in-review', head: input.head, draft: false, canAccept: false };
   }
+  /** Close this draft's review; pre/post checks do not imply an atomic head comparison. */
+  async cancel(
+    input: KnowledgeReviewIdentity & { beforeClose?: () => void },
+  ): Promise<KnowledgeReviewInspection & { state: 'closed' }> {
+    const number = this.checked(input);
+    const signal = input.signal ?? AbortSignal.timeout(120_000);
+    signal.throwIfAborted();
+    if (
+      (await this.identity(signal)).toLowerCase() !==
+      this.configuration.publisherLogin.toLowerCase()
+    )
+      throw new Error('Knowledge publishing account changed');
+    signal.throwIfAborted();
+    const assertHead = (pr: z.infer<typeof pullRequest>) => {
+      if (pr.merged || pr.head.sha !== input.head)
+        throw new Error('Knowledge review head or state changed; reload before cancelling');
+    };
+    const initial = await this.readExact(input, number, signal);
+    signal.throwIfAborted();
+    assertHead(initial);
+    if (initial.state !== 'closed') {
+      // Reinspect immediately before closing. GitHub close has no match-head
+      // option, so confirmation afterward is mandatory and ambiguity stays retryable.
+      const current = await this.readExact(input, number, signal);
+      signal.throwIfAborted();
+      assertHead(current);
+      if (current.state !== 'closed') {
+        input.beforeClose?.();
+        await this.command('gh', ['pr', 'close', number, '--repo', input.repository], signal);
+      }
+      signal.throwIfAborted();
+      const closed = await this.readExact(input, number, signal);
+      signal.throwIfAborted();
+      assertHead(closed);
+      if (closed.state !== 'closed')
+        throw new Error('Knowledge review closure could not be confirmed');
+    }
+    return { state: 'closed', head: input.head, canAccept: false };
+  }
   async accept(input: KnowledgeReviewIdentity): Promise<KnowledgeReviewInspection> {
     this.checked(input);
     if (!this.configuration.acceptanceEnabled) throw new Error('Knowledge acceptance is disabled');

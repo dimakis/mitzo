@@ -257,6 +257,7 @@ export function useKnowledgeLibrary() {
     });
   }
   async function openDocument(document: KnowledgeDocument, add = false) {
+    let opened = false;
     await run(async () => {
       if (!catalog) return;
       const staged = current.current?.documents.find(
@@ -264,6 +265,7 @@ export function useKnowledgeLibrary() {
       );
       if (staged) {
         persist({ ...current.current!, selected: staged.path });
+        opened = true;
         return;
       }
       if (!add && dirty && !window.confirm('Replace your unsaved working copy with this document?'))
@@ -277,6 +279,7 @@ export function useKnowledgeLibrary() {
       );
       if (add && existing) {
         persist({ ...current.current!, selected: existing.path });
+        opened = true;
         return;
       }
       const old = current.current;
@@ -304,17 +307,17 @@ export function useKnowledgeLibrary() {
           selected: item.path,
           saved: JSON.stringify([item]),
         });
+      opened = true;
       setHistory([data.content]);
       setPosition(0);
       setNotice('');
       setComparison(null);
       setGate(null);
     });
+    return opened;
   }
   async function readDocument(document: KnowledgeDocument) {
-    const staged = current.current?.documents.find(
-      (d) => d.path === document.path || d.sourcePath === document.path,
-    );
+    const staged = current.current?.documents.find((d) => d.path === document.path);
     if (staged) return { content: staged.content };
     if (!catalog) return;
     return request<{ content: string }>(
@@ -440,7 +443,15 @@ export function useKnowledgeLibrary() {
   }
   async function removeDirectory(path: string) {
     const old = current.current;
-    if (!old || inFlight.current || !old.directories.includes(path)) return false;
+    if (
+      !old ||
+      inFlight.current ||
+      old.initialSaveConflict ||
+      old.draft?.state === 'accepted' ||
+      old.draft?.state === 'closed' ||
+      !old.directories.includes(path)
+    )
+      return false;
     let removed = false;
     await run(async () => {
       let active = current.current!;
@@ -458,10 +469,39 @@ export function useKnowledgeLibrary() {
           active = { ...active, pendingCreate: undefined };
         }
       }
-      persist({
-        ...active,
-        directories: active.directories.filter((directory) => directory !== path),
-      });
+      const remaining = active.directories.filter((directory) => directory !== path);
+      if (active.draft && !active.documents.length && !remaining.length) {
+        try {
+          const result = await request<{ draft: KnowledgeDraft }>(
+            `/api/knowledge/drafts/${encodeURIComponent(active.draft.id)}/cancel`,
+            'POST',
+            { version: active.draft.version },
+          );
+          if (
+            result.draft.id !== active.draft.id ||
+            result.draft.version !== active.draft.version ||
+            result.draft.state !== 'closed'
+          )
+            throw new Error(
+              'Cancellation could not be confirmed. Your saved folder change is preserved.',
+            );
+          updateDraft(result.draft);
+          persist({ ...current.current!, directories: [], savedDirectories: [] });
+          setNotice('Saved change cancelled.');
+        } catch (error) {
+          if (error instanceof KnowledgeApiError && error.status === 409) {
+            persist({
+              ...active,
+              initialSaveConflict: active.draft,
+              savedComparisonUnavailable: true,
+            });
+            setComparison(null);
+            setGate(null);
+            await loadSavedComparison();
+          }
+          throw error;
+        }
+      } else persist({ ...active, directories: remaining });
       setGate(null);
       removed = true;
     });

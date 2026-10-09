@@ -526,3 +526,194 @@ it.each([
   expect(result.current.canSave).toBe(false);
   expect(fetch).not.toHaveBeenCalled();
 });
+it('reads the original accepted path separately after an edited move', async () => {
+  const { result } = renderHook(useKnowledgeLibrary);
+  await waitFor(() => expect(result.current.catalog).toBeTruthy());
+  await act(async () => {
+    await result.current.openDocument(catalog.documents[0]);
+  });
+  act(() => result.current.change('working text'));
+  act(() => result.current.moveDocument('knowledge/a.md', 'knowledge/moved/a.md'));
+  fetch.mockClear();
+  const before = localStorage.getItem(key);
+  await act(async () => {
+    expect(await result.current.readDocument(catalog.documents[0])).toEqual({
+      content: 'original',
+    });
+  });
+  expect(fetch.mock.calls[0][0]).toContain('path=knowledge%2Fa.md');
+  expect(localStorage.getItem(key)).toBe(before);
+  expect(
+    await result.current.readDocument({
+      path: 'knowledge/moved/a.md',
+      title: 'A',
+      area: 'knowledge',
+    }),
+  ).toEqual({ content: 'working text' });
+});
+it('reports document opening failure and cancelled replacement without confirming selection', async () => {
+  const { result } = renderHook(useKnowledgeLibrary);
+  await waitFor(() => expect(result.current.catalog).toBeTruthy());
+  fetch.mockRejectedValueOnce(new Error('offline'));
+  await act(async () => {
+    expect(await result.current.openDocument(catalog.documents[0])).toBe(false);
+  });
+  await act(async () => {
+    expect(await result.current.openDocument(catalog.documents[0])).toBe(true);
+  });
+  act(() => result.current.change('local'));
+  vi.spyOn(window, 'confirm').mockReturnValue(false);
+  await act(async () => {
+    expect(
+      await result.current.openDocument({
+        path: 'knowledge/other.md',
+        title: 'Other',
+        area: 'knowledge',
+      }),
+    ).toBe(false);
+  });
+  expect(result.current.selected?.content).toBe('local');
+});
+it('cancels a saved sole-folder change through its version-fenced review workflow before removing local operations', async () => {
+  const draft = {
+    id: 'folder-only',
+    title: 'Folder',
+    baseRevision: 'base',
+    version: 3,
+    state: 'in-review',
+    documents: [],
+    directories: ['knowledge/empty'],
+    review: {
+      url: 'https://github.com/example/knowledge/pull/1',
+      head: 'head',
+      version: 3,
+      ready: true,
+    },
+    updatedAt: '',
+  };
+  localStorage.setItem(
+    key,
+    JSON.stringify({
+      title: draft.title,
+      baseRevision: 'base',
+      draft,
+      documents: [],
+      directories: draft.directories,
+      savedDirectories: draft.directories,
+      selected: '',
+      saved: '[]',
+    }),
+  );
+  const { result } = renderHook(useKnowledgeLibrary);
+  await waitFor(() => expect(result.current.catalog).toBeTruthy());
+  let resolve!: (value: unknown) => void;
+  fetch.mockImplementationOnce(
+    () =>
+      new Promise((done) => {
+        resolve = done;
+      }),
+  );
+  let cancellation!: Promise<boolean>;
+  act(() => {
+    cancellation = result.current.removeDirectory('knowledge/empty');
+  });
+  expect(result.current.pendingDirectories).toEqual(['knowledge/empty']);
+  expect(fetch.mock.calls.at(-1)?.[0]).toBe('/api/knowledge/drafts/folder-only/cancel');
+  expect(JSON.parse(fetch.mock.calls.at(-1)![1].body)).toEqual({ version: 3 });
+  await act(async () => {
+    resolve({ ok: true, json: async () => ({ draft: { ...draft, state: 'closed' } }) });
+    expect(await cancellation).toBe(true);
+  });
+  expect(result.current.pendingDirectories).toEqual([]);
+  expect(result.current.copy?.draft).toMatchObject({ state: 'closed', review: draft.review });
+  expect(result.current.dirty).toBe(false);
+});
+it('retries an uncertain saved-folder cancellation with the same saved version and receipt', async () => {
+  const draft = {
+    id: 'folder-only',
+    title: 'Folder',
+    baseRevision: 'base',
+    version: 3,
+    state: 'draft',
+    documents: [],
+    directories: ['knowledge/empty'],
+    updatedAt: '',
+  };
+  localStorage.setItem(
+    key,
+    JSON.stringify({
+      title: draft.title,
+      baseRevision: 'base',
+      draft,
+      documents: [],
+      directories: draft.directories,
+      savedDirectories: draft.directories,
+      selected: '',
+      saved: '[]',
+    }),
+  );
+  const { result } = renderHook(useKnowledgeLibrary);
+  await waitFor(() => expect(result.current.catalog).toBeTruthy());
+  fetch.mockRejectedValueOnce(new Error('lost cancellation response'));
+  await act(async () => {
+    expect(await result.current.removeDirectory('knowledge/empty')).toBe(false);
+  });
+  expect(result.current.pendingDirectories).toEqual(draft.directories);
+  expect(result.current.copy?.draft?.version).toBe(3);
+  fetch.mockResolvedValueOnce({
+    ok: true,
+    json: async () => ({ draft: { ...draft, state: 'closed' } }),
+  });
+  await act(async () => {
+    expect(await result.current.removeDirectory('knowledge/empty')).toBe(true);
+  });
+  const calls = fetch.mock.calls.filter(([url]) => url.endsWith('/cancel'));
+  expect(calls).toHaveLength(2);
+  expect(calls.map(([, init]) => JSON.parse(init.body))).toEqual([{ version: 3 }, { version: 3 }]);
+});
+it('preserves a sole saved folder on a cancellation conflict and requires saved comparison', async () => {
+  const draft = {
+    id: 'folder-only',
+    title: 'Folder',
+    baseRevision: 'base',
+    version: 3,
+    state: 'draft',
+    documents: [],
+    directories: ['knowledge/empty'],
+    updatedAt: '',
+  };
+  localStorage.setItem(
+    key,
+    JSON.stringify({
+      title: draft.title,
+      baseRevision: 'base',
+      draft,
+      documents: [],
+      directories: draft.directories,
+      savedDirectories: draft.directories,
+      selected: '',
+      saved: '[]',
+    }),
+  );
+  const { result } = renderHook(useKnowledgeLibrary);
+  await waitFor(() => expect(result.current.catalog).toBeTruthy());
+  fetch.mockResolvedValueOnce({
+    ok: false,
+    status: 409,
+    json: async () => ({ error: 'changed elsewhere' }),
+  });
+  fetch.mockResolvedValueOnce({
+    ok: true,
+    json: async () => ({ draft: { ...draft, version: 4, directories: ['knowledge/other'] } }),
+  });
+  await act(async () => {
+    expect(await result.current.removeDirectory('knowledge/empty')).toBe(false);
+  });
+  expect(result.current.pendingDirectories).toEqual(draft.directories);
+  expect(result.current.copy?.initialSaveConflict?.version).toBe(4);
+  fetch.mockClear();
+  await act(async () => {
+    expect(await result.current.removeDirectory('knowledge/empty')).toBe(false);
+  });
+  expect(fetch).not.toHaveBeenCalled();
+});

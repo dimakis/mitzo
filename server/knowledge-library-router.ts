@@ -363,6 +363,69 @@ export function createKnowledgeLibraryRouter(
     }),
   );
   router.post(
+    '/drafts/:id/cancel',
+    route(async (req, res, context) => {
+      const input = z.strictObject({ version: z.number().int().positive() }).safeParse(req.body);
+      if (!input.success) return res.status(400).json({ error: 'Invalid cancellation request' });
+      const draft = context.runtime.store.get(id(req));
+      context.runtime.store.assertIdle(draft.id);
+      context.runtime.reviewService?.assertIdle(draft.id);
+      if (draft.version !== input.data.version)
+        throw new KnowledgeDraftConflict(
+          'Draft changed in another window. Reload before cancelling.',
+        );
+      if (draft.state === 'accepted')
+        throw new KnowledgeDraftConflict('This change was accepted and cannot be cancelled.');
+      if (draft.state === 'closed') return res.json({ draft });
+      if (
+        draft.publication &&
+        (!draft.review ||
+          draft.publication.version !== draft.version ||
+          draft.publication.head !== draft.review.head)
+      )
+        throw new KnowledgeDraftConflict('Recover the saved review before cancelling this change.');
+      if (draft.review && draft.review.version !== draft.version)
+        throw new KnowledgeDraftConflict(
+          'Recover the current saved review before cancelling this change.',
+        );
+      const lease = context.runtime.store.acquire(draft.id);
+      try {
+        if (draft.review) {
+          const identity = reviewIdentity(context, draft);
+          const closed = await context.runtime.publisher!.cancel({
+            ...identity,
+            beforeClose: () => {
+              context.assert();
+              context.runtime.store.assertLease(draft.id, lease);
+              const current = context.runtime.store.get(draft.id);
+              if (
+                current.version !== draft.version ||
+                current.review?.head !== draft.review?.head ||
+                current.review?.version !== draft.version ||
+                current.state === 'accepted' ||
+                current.state === 'closed'
+              )
+                throw new KnowledgeDraftConflict(
+                  'Draft changed while cancelling its review. The saved copy is retained.',
+                );
+            },
+          });
+          context.assert();
+          if (closed.state !== 'closed' || closed.head !== draft.review.head)
+            throw new KnowledgeDraftConflict(
+              'Review closure could not be confirmed. The saved copy is retained.',
+            );
+        }
+        context.assert();
+        return res.json({
+          draft: context.runtime.store.status(draft.id, 'closed', undefined, lease, draft.version),
+        });
+      } finally {
+        context.runtime.store.release(draft.id, lease);
+      }
+    }),
+  );
+  router.post(
     '/drafts/:id/accept',
     route(async (req, res, context) => {
       const input = z

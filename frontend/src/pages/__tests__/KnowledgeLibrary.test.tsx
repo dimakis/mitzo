@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import React from 'react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { KnowledgeLibrary } from '../KnowledgeLibrary';
 import { apiFetch } from '../../lib/api-fetch';
@@ -1387,4 +1387,198 @@ it('starts with compact collapsed areas and preserves user expansion while searc
   fireEvent.change(screen.getByRole('searchbox'), { target: { value: '' } });
   expect(screen.getByRole('button', { name: /Working principles/ })).toBeTruthy();
   expect(screen.queryByRole('button', { name: /Release process/ })).toBeNull();
+});
+
+it('keeps the requested reader visible when Edit cannot load its working copy', async () => {
+  const original = vi.mocked(apiFetch).getMockImplementation()!;
+  let reads = 0;
+  vi.mocked(apiFetch).mockImplementation(async (path, init) => {
+    if (path.startsWith('/api/knowledge/document') && ++reads === 2)
+      throw new Error('Editing is temporarily unavailable');
+    return original(path, init);
+  });
+  setup();
+  fireEvent.click(await findLibraryDocument(/Working principles/));
+  await screen.findByRole('article', { name: 'Working principles' });
+  fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+  await screen.findByText('Editing is temporarily unavailable');
+  expect(screen.getByRole('article', { name: 'Working principles' })).toBeTruthy();
+  expect(screen.queryByRole('textbox', { name: 'Document source' })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+  await screen.findByRole('textbox', { name: 'Document source' });
+});
+it('keeps the requested reader when replacing an unrelated edited document is cancelled', async () => {
+  const own = [{ path: 'hub/principles.md', base: '# Principles', content: '# Keep my edits' }];
+  localStorage.setItem(
+    'mitzo-knowledge-working-copy:',
+    JSON.stringify({
+      title: 'Working principles',
+      baseRevision: 'r1',
+      documents: own,
+      selected: own[0].path,
+      saved: JSON.stringify(draft.documents),
+    }),
+  );
+  const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+  try {
+    setup();
+    await screen.findByRole('textbox', { name: 'Document source' });
+    fireEvent.click(screen.getByRole('button', { name: '← Library' }));
+    fireEvent.click(await findLibraryDocument(/Release process/, 'teams'));
+    await screen.findByRole('article', { name: 'Release process' });
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    await waitFor(() => expect(confirm).toHaveBeenCalled());
+    expect(screen.getByRole('article', { name: 'Release process' })).toBeTruthy();
+    expect(screen.queryByRole('textbox', { name: 'Document source' })).toBeNull();
+    expect(JSON.parse(localStorage.getItem('mitzo-knowledge-working-copy:')!).documents).toEqual(
+      own,
+    );
+  } finally {
+    confirm.mockRestore();
+  }
+});
+it('does not open a Move chooser when the source could not be added to an older working copy', async () => {
+  const own = [{ path: 'hub/principles.md', base: '# Principles', content: '# Keep older edits' }];
+  localStorage.setItem(
+    'mitzo-knowledge-working-copy:',
+    JSON.stringify({
+      title: 'Working principles',
+      baseRevision: 'r0',
+      documents: own,
+      selected: own[0].path,
+      saved: JSON.stringify(draft.documents),
+    }),
+  );
+  const original = vi.mocked(apiFetch).getMockImplementation()!;
+  vi.mocked(apiFetch).mockImplementation(async (path, init) =>
+    path === '/api/knowledge'
+      ? response({
+          ...catalog,
+          directories: ['hub', 'teams', 'teams/context'],
+          documentPaths: ['hub', 'teams'],
+        })
+      : original(path, init),
+  );
+  setup();
+  await screen.findByRole('textbox', { name: 'Document source' });
+  fireEvent.click(screen.getByRole('button', { name: '← Library' }));
+  await findLibraryDocument(/Release process/, 'teams');
+  fireEvent.click(screen.getByRole('button', { name: 'Options for teams/release.md' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Move document' }));
+  await screen.findAllByText(
+    'Refresh and compare this draft before adding a document from the latest library.',
+  );
+  expect(screen.queryByRole('dialog', { name: 'Move document' })).toBeNull();
+  expect(screen.getByRole('dialog', { name: 'Document options' })).toBeTruthy();
+  expect(JSON.parse(localStorage.getItem('mitzo-knowledge-working-copy:')!).documents).toEqual(own);
+});
+it('retains a matching empty folder under the selected area when no documents match search', async () => {
+  const original = vi.mocked(apiFetch).getMockImplementation()!;
+  vi.mocked(apiFetch).mockImplementation(async (path, init) =>
+    path === '/api/knowledge'
+      ? response({ ...catalog, directories: ['hub', 'hub/empty-guides', 'teams'] })
+      : original(path, init),
+  );
+  setup();
+  fireEvent.click(await screen.findByRole('button', { name: /^Hub/ }));
+  fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'empty-guides' } });
+  expect(screen.getByRole('button', { name: 'Folder hub' })).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Folder hub/empty-guides' })).toBeTruthy();
+  expect(screen.getByText('This folder is empty.')).toBeTruthy();
+});
+it('preserves the current reader and offers retry when a linked accepted document fails to load', async () => {
+  const original = vi.mocked(apiFetch).getMockImplementation()!;
+  let offline = true;
+  vi.mocked(apiFetch).mockImplementation(async (path, init) => {
+    if (path.startsWith('/api/knowledge/document')) {
+      if (path.includes('teams%2Frelease.md')) {
+        if (offline) throw new Error('Network unavailable');
+        return response({ content: '# Release' });
+      }
+      return response({ content: '# Principles\n\n[Release](../teams/release.md)' });
+    }
+    return original(path, init);
+  });
+  setup();
+  fireEvent.click(await findLibraryDocument(/Working principles/));
+  await screen.findByRole('article', { name: 'Working principles' });
+  fireEvent.click(screen.getByRole('link', { name: 'Release' }));
+  await screen.findByText(/Network unavailable/);
+  expect(screen.getByRole('article', { name: 'Working principles' })).toBeTruthy();
+  expect(screen.queryByRole('textbox', { name: 'Document source' })).toBeNull();
+  offline = false;
+  fireEvent.click(screen.getByRole('button', { name: 'Retry opening document' }));
+  await screen.findByRole('article', { name: 'Release process' });
+  expect(localStorage.getItem('mitzo-knowledge-working-copy:')).toBeNull();
+});
+
+it('keeps a cancelled folder-only receipt accessible and lets the user explicitly clear it', async () => {
+  const folderDraft = {
+    ...draft,
+    state: 'draft',
+    review: undefined,
+    documents: [],
+    directories: ['hub/guides'],
+  };
+  const original = vi.mocked(apiFetch).getMockImplementation()!;
+  vi.mocked(apiFetch).mockImplementation(async (path, init) => {
+    if (path === '/api/knowledge') return response({ ...catalog, directories: ['hub'] });
+    if (path === '/api/knowledge/drafts' || path.endsWith('/review'))
+      return response({ draft: folderDraft });
+    if (path.endsWith('/cancel')) return response({ draft: { ...folderDraft, state: 'closed' } });
+    return original(path, init);
+  });
+  setup();
+  fireEvent.click(await screen.findByRole('button', { name: 'Folder hub' }));
+  fireEvent.click(screen.getByRole('button', { name: 'New folder' }));
+  fireEvent.change(screen.getByRole('textbox', { name: 'Folder name' }), {
+    target: { value: 'guides' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Create folder' }));
+  await screen.findByText('New folder: hub/guides');
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  await waitFor(() =>
+    expect(JSON.parse(localStorage.getItem('mitzo-knowledge-working-copy:')!).draft?.id).toBe('d1'),
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Remove new folder hub/guides' }));
+  await screen.findByText('Saved change cancelled.');
+  expect(JSON.parse(localStorage.getItem('mitzo-knowledge-working-copy:')!).draft.state).toBe(
+    'closed',
+  );
+  expect((screen.getByRole('button', { name: 'New folder' }) as HTMLButtonElement).disabled).toBe(
+    true,
+  );
+  const clear = vi.spyOn(window, 'confirm').mockReturnValue(true);
+  fireEvent.click(screen.getByRole('button', { name: 'Discard working copy' }));
+  expect(clear).toHaveBeenCalled();
+  clear.mockRestore();
+  expect(localStorage.getItem('mitzo-knowledge-working-copy:')).toBeNull();
+  expect((screen.getByRole('button', { name: 'New folder' }) as HTMLButtonElement).disabled).toBe(
+    false,
+  );
+});
+it('ignores an older linked read after explicitly switching the current reader to Edit', async () => {
+  let resolveRead!: (value: Response) => void;
+  const pendingRead = new Promise<Response>((resolve) => {
+    resolveRead = resolve;
+  });
+  const original = vi.mocked(apiFetch).getMockImplementation()!;
+  vi.mocked(apiFetch).mockImplementation(async (path, init) => {
+    if (path.startsWith('/api/knowledge/document')) {
+      if (path.includes('teams%2Frelease.md')) return pendingRead;
+      return response({ content: '# Principles\n\n[Release](../teams/release.md)' });
+    }
+    return original(path, init);
+  });
+  setup();
+  fireEvent.click(await findLibraryDocument(/Working principles/));
+  await screen.findByRole('article', { name: 'Working principles' });
+  fireEvent.click(screen.getByRole('link', { name: 'Release' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+  await screen.findByRole('textbox', { name: 'Document source' });
+  await act(async () => {
+    resolveRead(response({ content: '# Slow release' }));
+  });
+  expect(screen.getByRole('textbox', { name: 'Document source' })).toBeTruthy();
+  expect(screen.queryByRole('article', { name: 'Release process' })).toBeNull();
 });
