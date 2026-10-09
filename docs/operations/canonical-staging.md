@@ -200,3 +200,14 @@ before changing the historical gateway socket location. Preserve the original
 private configuration, verify the approved old/new hashes and schema, and
 reprepare superseded unlaunched bundles. This changes no account/model policy or
 credentials and grants no native runtime or inference admission.
+
+The canonical custodian keeps its restricted `PATH=/usr/bin:/bin`. Gateway
+listener observation selects `/usr/sbin/lsof` explicitly on macOS for both sync
+startup and async custody checks. This fixes executable discovery without
+inheriting a broader shell environment. A historical launch failure still keeps
+its registry reservation, launch intent and transition lock; applying this source
+fix does not grant retry, original-owner recovery or retirement authority.
+
+See the [bounded failed-launch record](evidence/canonical-staging-activation-refusal.json)
+for the named original operation. An empty observed native inventory is not an
+original-owner retirement receipt or permission to reclaim the reserved slot.

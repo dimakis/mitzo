@@ -14,11 +14,23 @@ import {
 } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import type { SymposiumHostIssuer } from '../symposium-host-issuer.js';
+import { SymposiumHostIssuer } from '../symposium-host-issuer.js';
 import {
   OwnedSymposiumGateway,
   type OwnedSymposiumGatewayOptions,
 } from '../symposium-owned-gateway.js';
+
+const systemProbe = vi.hoisted(() => ({ sync: vi.fn(), async: vi.fn(), start: vi.fn() }));
+vi.mock('node:child_process', async (original) => ({
+  ...(await original<typeof import('node:child_process')>()),
+  spawnSync: systemProbe.sync,
+  execFile: systemProbe.async,
+  spawn: systemProbe.start,
+}));
+vi.mock('node:os', async (original) => ({
+  ...(await original<typeof import('node:os')>()),
+  platform: () => 'darwin',
+}));
 
 const roots: string[] = [];
 afterEach(() => {
@@ -604,4 +616,52 @@ it('fences the original gateway if its creation journal cannot be retained', asy
   ).rejects.toThrow('original journal uncertain');
   expect(child.kill).toHaveBeenCalled();
   expect(issuer.stop).toHaveBeenCalled();
+});
+
+it('the default macOS listener probes work in the canonical restricted PATH without launching a real process', async () => {
+  const f = fixture(),
+    originalPath = process.env.PATH;
+  process.env.PATH = '/usr/bin:/bin';
+  let probes = 0;
+  systemProbe.sync.mockImplementation((executable: string) => {
+    if (executable === 'lsof')
+      return { status: null, error: Object.assign(Error('unavailable'), { code: 'ENOENT' }) };
+    if (executable === '/usr/sbin/lsof')
+      return ++probes === 1 ? { status: 1, stdout: '' } : { status: 0, stdout: 'p4321\n' };
+    return { status: 0, stdout: '' };
+  });
+  systemProbe.start.mockReturnValue(f.child);
+  systemProbe.async.mockImplementation(
+    (
+      executable: string,
+      _args: string[],
+      _options: unknown,
+      callback: (error: Error | null, stdout: string) => void,
+    ) => {
+      if (executable !== '/usr/sbin/lsof') callback(Error('unavailable'), '');
+      else callback(null, 'p4321\n');
+    },
+  );
+  const issuer = vi
+    .spyOn(SymposiumHostIssuer, 'start')
+    .mockResolvedValue(f.issuer as unknown as SymposiumHostIssuer);
+  let gateway: OwnedSymposiumGateway | undefined;
+  try {
+    gateway = await OwnedSymposiumGateway.launch(f.options);
+    await gateway.verifyCustodyAsync();
+    const probes = systemProbe.sync.mock.calls
+      .filter(([program]) => String(program).includes('lsof'))
+      .map(([program]) => program);
+    expect(probes.length).toBeGreaterThanOrEqual(2);
+    expect(new Set(probes)).toEqual(new Set(['/usr/sbin/lsof']));
+    expect(systemProbe.async.mock.calls[0][0]).toBe('/usr/sbin/lsof');
+    expect(systemProbe.start).toHaveBeenCalledTimes(1); // Mocked gateway only; no native/model process.
+  } finally {
+    gateway?.stop();
+    issuer.mockRestore();
+    process.env.PATH = originalPath;
+    systemProbe.sync.mockReset();
+    systemProbe.async.mockReset();
+    systemProbe.start.mockReset();
+  }
 });

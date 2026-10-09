@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 1,
+  "observedAt": "2026-10-09T04:12:56.429854+00:00",
+  "scope": "canonical staging only; no model calls or production actions",
+  "prerequisites": {
+    "legacyQualification": "https://github.com/dimakis/mitzo/pull/787",
+    "verificationOnlyRecovery": "https://github.com/dimakis/mitzo/pull/788",
+    "originalNodeIdentity": "https://github.com/dimakis/mitzo/pull/789"
+  },
+  "transition": {
+    "operationId": "800c57ad-c490-4330-8589-9430462ac8dd",
+    "originalSource": "8e115c6e98b641a3e867c31385f71cec77cea385",
+    "appTarget": "62c620982fe745ddef62cf96e14919f6f0861dc6",
+    "acceptedController": "fd88e2feba64b9c076221dc7aed7b4e83ae52493",
+    "configSha256": "5776a94a3bfaf016d1e818e0c577734c266654f031634b23c9e68f7ec9ac4d19",
+    "originalStoppedAndPreserved": true,
+    "sameCanonicalLabelInstalled": true,
+    "result": "uncertain; original custodian readiness not proven"
+  },
+  "retainedOwnership": {
+    "deploymentLockHeld": true,
+    "launchIntentRetained": true,
+    "registryState": "retirement_uncertain",
+    "launchId": "d96ded23-e04b-45cf-91e9-92c5c7e61b62",
+    "instanceId": null,
+    "controllerGeneration": 0,
+    "originalOwnerRecorded": false,
+    "jobLastExitCode": 1,
+    "jobRunning": false
+  },
+  "diagnosis": {
+    "canonicalPath": "/usr/bin:/bin",
+    "probeProgram": "lsof",
+    "readOnlyReproduction": "ENOENT",
+    "macOSSystemProgram": "/usr/sbin/lsof",
+    "inference": "The exact restricted environment cannot execute the initial gateway listener probe; accepted source rejects that error before gateway launch-directory allocation or native process start. Generic original stderr does not retain the specific internal exception.",
+    "publicBinaryAndCertificateChecksPassed": true
+  },
+  "boundedNativeObservation": {
+    "privateVm": "running",
+    "containers": 0,
+    "volumes": 0,
+    "gatewayLaunchDirectoriesObserved": 0,
+    "heldRegistryReleased": false,
+    "absenceIsNotRetirementOrRecoveryAuthority": true
+  },
+  "qualification": {
+    "gatewayAdmission": false,
+    "providerEnrollment": false,
+    "lunaModelCalls": 0,
+    "workflowAcceptance": false,
+    "deviceAcceptance": false,
+    "productionActions": []
+  },
+  "recoveryBoundary": "Preserve the exact operation and failed original-owner reservation. This source fix does not retry startup, clear evidence, adopt custody or provide terminal retirement proof. A separately reviewed recovery is required before activation can continue."
+}

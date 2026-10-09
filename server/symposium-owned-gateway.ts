@@ -27,6 +27,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
+import { platform } from 'node:os';
 import type { SymposiumOwnedNativeHostBinding } from './symposium-production-gate.js';
 import { SymposiumHostIssuer } from './symposium-host-issuer.js';
 import type { ArtifactDriverConfig, ArtifactLeaseRequest } from './symposium-artifact-lease.js';
@@ -129,11 +130,14 @@ interface HostOperations {
   listenerPidAsync?(port: number): Promise<number | null>;
   startIssuer(cert: Buffer, key: Buffer): Promise<SymposiumHostIssuer>;
 }
+// Canonical owned launch intentionally supplies PATH=/usr/bin:/bin. macOS lsof
+// lives outside that PATH; select the system executable without widening it.
+const listenerExecutable = platform() === 'darwin' ? '/usr/sbin/lsof' : 'lsof';
 const host: HostOperations = {
   listenerPidAsync: (port) =>
     new Promise((resolve, reject) => {
       execFile(
-        'lsof',
+        listenerExecutable,
         ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-Fp'],
         { encoding: 'utf8', timeout: 5_000, maxBuffer: 1024 * 1024 },
         (error, stdout) => {
@@ -165,7 +169,7 @@ const host: HostOperations = {
     return spawn(executable, args, { env, stdio: 'ignore', detached: false });
   },
   listenerPid(port) {
-    const result = spawnSync('lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-Fp'], {
+    const result = spawnSync(listenerExecutable, ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-Fp'], {
       encoding: 'utf8',
       timeout: 5_000,
     });
