@@ -81,7 +81,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../github-repository-source.ts':
     '01ad127563ad062ff952f0dc7d7782f2ac5c6ee178214db65422fbbad222435c',
   '../repository-task-checkout.ts':
-    '0a2dcbd1bd178096f7da64064c9da0e544b67620dcdafb50e42704f2ac16d08a',
+    '32fd232781b0ba9573fa0e6a511a78ede54a8c33a80dee30f52d06283b4beab5',
   '../native-tool-executor.ts': '6bca4beb98690334e83a0a88b35c80558ed01b7485f682aca0cc0af11b6cd766',
   '../repository-workspaces.ts': '36875ad74d8c31111003201c684bf9db98b999e36ff4ebc3e36ddfcd91d80617',
   '../repository-workspace-runtime.ts':

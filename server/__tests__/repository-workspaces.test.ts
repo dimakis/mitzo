@@ -260,6 +260,7 @@ it('validates retained task ownership across restart while preserving edits and 
   await writeFile(join(claimed.directory!, 'file.txt'), 'task edits');
   f.git(claimed.directory!, 'add', 'file.txt');
   f.git(claimed.directory!, 'commit', '-qm', 'task edit');
+  f.git(claimed.directory!, 'pack-refs', '--all');
   await f.service.releaseSource(preview.id, binding, 'conversation');
   f.service.close();
   const restored = new RepositoryWorkspaces(join(f.root, 'private'), { authorize: f.authorize });

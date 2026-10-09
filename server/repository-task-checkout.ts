@@ -35,16 +35,45 @@ export async function snapshotRepositoryTaskCheckout(
     throw new Error('Retained repository task identity changed');
   const head = join(gitDirectory, 'HEAD');
   const ref = join(gitDirectory, 'refs', 'heads', featureBranch);
-  for (const path of [head, ref]) {
-    if (!(await lstat(path)).isFile() || (await realpath(path)) !== path)
+  for (const path of [head, ref, join(gitDirectory, 'packed-refs')]) {
+    const info = await lstat(path).catch((error: NodeJS.ErrnoException) => {
+      if (error.code !== 'ENOENT' || path === head) throw error;
+      return null;
+    });
+    if (info && (!info.isFile() || (await realpath(path)) !== path))
       throw new Error('Retained repository task metadata is unavailable');
   }
-  const oid = (await readFile(ref, 'utf8')).trim();
-  if (
-    (await readFile(head, 'utf8')).trim() !== `ref: refs/heads/${featureBranch}` ||
-    !/^[a-f0-9]{40}$/.test(oid)
-  )
+  if ((await readFile(head, 'utf8')).trim() !== `ref: refs/heads/${featureBranch}`)
     throw new Error('Retained repository task branch changed');
+  const runGit = (args: string[]) =>
+    run(
+      'git',
+      [
+        '--no-replace-objects',
+        '-c',
+        'core.fsmonitor=false',
+        '-c',
+        'core.hooksPath=/dev/null',
+        '--git-dir',
+        gitDirectory,
+        ...args,
+      ],
+      {
+        cwd: directory,
+        env: {
+          PATH: '/usr/bin:/bin:/opt/homebrew/bin:/usr/local/bin',
+          GIT_CONFIG_SYSTEM: '/dev/null',
+          GIT_CONFIG_GLOBAL: '/dev/null',
+          GIT_NO_LAZY_FETCH: '1',
+        },
+        timeout: 5000,
+        maxBuffer: 4096,
+      },
+    ).catch(() => {
+      throw new Error('Retained repository task Git history is unavailable');
+    });
+  const oid = (await runGit(['rev-parse', '--verify', 'HEAD'])).stdout.trim();
+  if (!/^[a-f0-9]{40}$/.test(oid)) throw new Error('Retained repository task branch changed');
   const objects = join(gitDirectory, 'objects');
   if (!(await lstat(objects)).isDirectory() || (await realpath(objects)) !== objects)
     throw new Error('Retained repository task object storage changed');
@@ -56,34 +85,7 @@ export async function snapshotRepositoryTaskCheckout(
     if (entry) throw new Error('External standalone Git storage is unavailable');
   }
   // Verify the retained commit without project hooks, filters, lazy fetches or ambient credentials.
-  await run(
-    'git',
-    [
-      '--no-replace-objects',
-      '-c',
-      'core.fsmonitor=false',
-      '-c',
-      'core.hooksPath=/dev/null',
-      '--git-dir',
-      gitDirectory,
-      'cat-file',
-      '-e',
-      `${oid}^{commit}`,
-    ],
-    {
-      cwd: directory,
-      env: {
-        PATH: '/usr/bin:/bin:/opt/homebrew/bin:/usr/local/bin',
-        GIT_CONFIG_SYSTEM: '/dev/null',
-        GIT_CONFIG_GLOBAL: '/dev/null',
-        GIT_NO_LAZY_FETCH: '1',
-      },
-      timeout: 5000,
-      maxBuffer: 4096,
-    },
-  ).catch(() => {
-    throw new Error('Retained repository task Git history is unavailable');
-  });
+  await runGit(['cat-file', '-e', `${oid}^{commit}`]);
   const afterRoot = await lstat(directory),
     afterGit = await lstat(gitDirectory);
   if (
