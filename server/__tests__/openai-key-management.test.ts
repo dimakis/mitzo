@@ -295,7 +295,7 @@ describe('OpenAI key replacement and recovery', () => {
   it('leaves both credentials untouched when validation fails and redacts upstream errors', async () => {
     const f = fixture();
     f.validateKey.mockRejectedValueOnce(new Error('bad-key secret in response'));
-    await expect(f.replace('bad-key')).rejects.toThrow('OpenAI key validation failed');
+    await expect(f.replace('bad-key')).rejects.toThrow('KEY_VALIDATION_FAILED');
     expect(f.keychain.write).not.toHaveBeenCalled();
     expect(f.gateway.replace).not.toHaveBeenCalled();
     expect(f.store.pending()).toEqual([]);
@@ -315,7 +315,7 @@ describe('OpenAI key replacement and recovery', () => {
         { accountId: 'work', revision, apiKey: 'key', sameProject: true },
         signal(),
       ),
-    ).rejects.toThrow('Connection changed');
+    ).rejects.toThrow('ACCOUNT_CHANGED');
     expect(f.validateKey).not.toHaveBeenCalled();
   });
   it('does not manage a shared Keychain item or provider without affecting other accounts', async () => {
@@ -338,7 +338,7 @@ describe('OpenAI key replacement and recovery', () => {
     const result = await f.replace();
     expect(result.health).toBe('needs_attention');
     expect(result.canSynchronize).toBe(true);
-    expect(result.errorCode).toBe('SYNC_PENDING');
+    expect(result.errorCode).toBe('CHAT_UPDATE_UNCONFIRMED');
     expect(f.saved().value).toBe('new-key');
     expect(f.gatewayKey()).toBe('old-key');
     const restarted = new OpenAIKeyManagement(f.options);
@@ -460,7 +460,7 @@ it('lists an authorization-needed account without invoking interactive Keychain 
   expect(authorize).not.toHaveBeenCalled();
   await expect(
     manager.authorize({ accountId: 'work', revision: 'stale' }, signal()),
-  ).rejects.toThrow('Connection changed');
+  ).rejects.toThrow('ACCOUNT_CHANGED');
   expect(authorize).not.toHaveBeenCalled();
   const result = await manager.authorize(
     { accountId: 'work', revision: status!.revision },
@@ -471,4 +471,29 @@ it('lists an authorization-needed account without invoking interactive Keychain 
   expect(f.validateKey).not.toHaveBeenCalled();
   expect(f.keychain.write).not.toHaveBeenCalled();
   expect(f.gateway.pause).not.toHaveBeenCalled();
+});
+
+it('reports an unsafe chat drain without writing credentials or offering saved-key recovery', async () => {
+  const f = fixture();
+  f.gateway.pause.mockRejectedValueOnce(new Error('PRIVATE_NATIVE_FAILURE'));
+  const result = await f.replace();
+  expect(result).toMatchObject({ health: 'not_verified', errorCode: 'CHAT_PAUSE_FAILED' });
+  expect(f.keychain.write).not.toHaveBeenCalled();
+  expect(f.gateway.replace).not.toHaveBeenCalled();
+  expect(f.store.pending()).toHaveLength(0);
+  await f.manager.recover(signal());
+  expect((await f.manager.list(signal()))[0]!.errorCode).toBe('CHAT_PAUSE_FAILED');
+});
+
+it('preserves the previous verified key when a later replacement cannot drain chats', async () => {
+  const f = fixture();
+  await f.replace();
+  f.keychain.write.mockClear();
+  f.gateway.replace.mockClear();
+  f.gateway.pause.mockRejectedValueOnce(new Error('unsafe drain'));
+  const result = await f.replace('second-key');
+  expect(result).toMatchObject({ health: 'ready', errorCode: 'CHAT_PAUSE_FAILED' });
+  expect(f.keychain.write).not.toHaveBeenCalled();
+  expect(f.gateway.replace).not.toHaveBeenCalled();
+  expect(await f.manager.resolveKey('work', signal())).toBe('new-key');
 });

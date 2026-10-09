@@ -223,7 +223,9 @@ it('restores a settled claim after startup fails before assignment, and offers i
     'href',
     'http://localhost:3000/chat/aaaaaaaa-bbbb-4ccc-8ddd-121212121212',
   );
-  expect(onChange).toHaveBeenLastCalledWith({ repositoryWorkspaceId: preview.id, blocked: false });
+  expect(onChange).toHaveBeenLastCalledWith({ blocked: true });
+  expect(screen.queryByText(/Ready for your first prompt/)).toBeNull();
+  expect(screen.getByText(/already belongs to a conversation/)).toBeTruthy();
 });
 
 it.each([false, true])(

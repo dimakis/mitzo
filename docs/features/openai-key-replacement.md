@@ -4,9 +4,9 @@ Enrolled accounts appear in **More → Connections → the enrolled AI account �
 reauthorizes and selects **Replace API key**. If macOS has not authorized the signed
 Mitzo Keychain helper for this item, this explicit action opens native authorization on
 the Mac. **Always Allow** retains access for that signed helper and item; it is never
-requested for Python or another interpreter. Once authorized, the operator selects
-**Replace API key**, enters a masked replacement once, and confirms
-that it belongs to the same work OpenAI project. The browser clears the key before waiting
+requested for Python or another interpreter. After authorization, the replacement form
+opens automatically. The operator enters a masked replacement once, and confirms
+that it belongs to the same work OpenAI project, then selects **Save API key**. The browser clears the key before waiting
 for the response and does not put it in browser storage.
 
 Validation first checks `gpt-6-luna` availability, then sends one fixed, tool-free Responses
@@ -34,7 +34,7 @@ resource versions, phases, timestamps and safe error codes. It contains no crede
 values or credential digests. Its durable intent precedes side effects. The existing
 Connections control-plane gate serializes replacement with sandbox admission.
 
-Affected provider-attached sandboxes stop before replacement and retain their workspaces.
+Affected provider-attached sandboxes stop before replacement and retain their workspaces. Read-only attachment inventory accepts exact catalog provider names such as `mitzo-keychain-v2`; service-provider mutations remain restricted to their managed prefix. Already stopped sandboxes need no additional stop. An unproven drain aborts a fresh operation before either credential write and reports `CHAT_PAUSE_FAILED`; it never forces a restart or treats an Error phase as proof of quiescence.
 Host API requests resolve the verified canonical key for each request, including web
 searches. Known unsynchronized accounts cannot start or resume provider work. Removing UI
 enrollment or disabling Connections does not bypass previously recorded account fences.
@@ -47,8 +47,7 @@ upgrading never deletes or infers ownership for those records.
 
 After interruption, recovery can complete a proven Keychain commit whose gateway update
 has not started and whose bindings and gateway revision are unchanged. The write sends the journaled provider version as a gateway compare-and-swap;
-concurrent updates reject it. A started or uncertain gateway update remains **needs attention** until an attended **Retry
-synchronization**. Recovery never claims success from a resource-version change alone.
+concurrent updates reject it. A started or uncertain gateway update remains **needs attention** until an attended **Finish key update**. The UI only offers this action when a matching saved key can be used. **Refresh status** reads the saved-operation status, shows progress and its last refresh time, and does not send another model test. A failed refresh retains the previous details with a stale-status notice and disables credential edits. Recovery never claims success from a resource-version change alone.
 A completed receipt invalidated by an external Keychain edit requires fresh key entry;
 Mitzo does not copy that unrecognized saved secret to the gateway. An explicitly
 entered replacement can supersede a pending operation within the same

@@ -339,6 +339,23 @@ describe('central notification delivery', () => {
     center.close();
     store.close();
   });
+  it('delivers an account failure as a failed request and honors notification preferences', async () => {
+    const { store, center, push } = setup();
+    const explanation = 'The selected account’s project is unavailable or archived.';
+    center.turnFailed('s1', 54, explanation, 'Work OpenAI API', false);
+    await center.flush();
+    expect(push).not.toHaveBeenCalled();
+    expect(store.get('turn:s1:54')).toMatchObject({
+      title: 'Work OpenAI API: request failed',
+      body: explanation,
+    });
+    center.turnFailed('s1', 55, explanation, 'Work OpenAI API', true);
+    await center.flush();
+    expect(push).toHaveBeenCalledOnce();
+    expect(JSON.stringify(push.mock.calls)).not.toContain('finished its turn');
+    center.close();
+    store.close();
+  });
   it('retains native session reply actions for completion alerts', async () => {
     const { store, center, push } = setup();
     center.turnComplete('s1', 55, 'Done', 'Tests', true);
