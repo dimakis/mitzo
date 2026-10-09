@@ -2,7 +2,7 @@
 // Initial ordinary-to-owned transition only. Preparation never controls launchd.
 import process from 'node:process';
 import console from 'node:console';
-import { join, dirname, relative } from 'node:path';
+import { join, dirname, relative, isAbsolute } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import {
@@ -246,8 +246,12 @@ function ordinaryReceipt() {
     plist.Label !== 'com.mitzo.staging' ||
     plist.KeepAlive !== false ||
     plist.WorkingDirectory !== r.release ||
-    JSON.stringify(plist.ProgramArguments) !==
-      JSON.stringify([process.execPath, join(service, 'start.mjs')])
+    !Array.isArray(plist.ProgramArguments) ||
+    plist.ProgramArguments.length !== 2 ||
+    typeof plist.ProgramArguments[0] !== 'string' ||
+    !isAbsolute(plist.ProgramArguments[0]) ||
+    realpathSync(plist.ProgramArguments[0]) !== realpathSync(process.execPath) ||
+    plist.ProgramArguments[1] !== join(service, 'start.mjs')
   )
     throw Error('Original ordinary service changed');
   return r;

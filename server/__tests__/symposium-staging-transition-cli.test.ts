@@ -15,7 +15,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import ts from 'typescript';
@@ -148,6 +148,14 @@ function fixture(mode = 'ok') {
     compiledArtifacts: artifacts,
     dependencyFingerprint: fp,
   });
+  const ordinaryExecutable =
+    mode.includes('node-alias') || mode.includes('wrong-node')
+      ? join(home, 'operator-node')
+      : mode.includes('relative-node')
+        ? relative(process.cwd(), process.execPath)
+        : process.execPath;
+  if (mode.includes('node-alias')) symlinkSync(process.execPath, ordinaryExecutable);
+  else if (mode.includes('wrong-node')) writeFileSync(ordinaryExecutable, 'different executable');
   const calls = join(home, 'calls.json');
   json(calls, []);
   const prelude = join(release, 'fixture.mjs');
@@ -168,7 +176,7 @@ cp.spawnSync=(program,args,options)=>{
      .update('// Synthetic qualified target launcher; no native execution.\n')
      .digest('hex'),
  )}};if(args[0]==='rev-parse')return {status:0,stdout:args[1]==='HEAD'?(options?.cwd===oldRelease?${JSON.stringify(old)}:${JSON.stringify(controllerCommit)}):'e'.repeat(40)};if(args[0]==='ls-files'&&args[1]==='--error-unmatch'&&mode==='untracked-launcher'&&args.includes('scripts/start-staging-custodian.mjs'))return {status:1,stdout:''};if(args[0]==='ls-files'&&args[1]==='-v')return {status:0,stdout:(mode==='split-hidden-index'||mode==='ordinary-hidden-assume'&&options?.cwd===oldRelease?'h ':mode==='ordinary-hidden-skip'&&options?.cwd===oldRelease?'S ':'H ')+'scripts/symposium-staging-transition.mjs'};if(args[0]==='remote')return {status:0,stdout:'https://github.com/dimakis/mitzo.git'};return {status:0,stdout:''};}
- if(program==='/usr/bin/plutil'){const canonical=args.at(-1).includes('/symposium/');const plist=canonical?{Label:'com.mitzo.staging',ProgramArguments:[process.execPath,release+'/scripts/start-staging-custodian.mjs',owned+'/owned-release.json',root+'/symposium/settings/staging-registration.json',owned+'/staging-operator.json','--canonical'],EnvironmentVariables:{NODE_OPTIONS:'',NODE_PATH:'',DOTENV_CONFIG_PATH:'/dev/null'},WorkingDirectory:release,StandardOutPath:owned+'/owner.stdout.log',StandardErrorPath:owned+'/owner.stderr.log',KeepAlive:false,RunAtLoad:false,ExitTimeOut:180}:{Label:'com.mitzo.staging',KeepAlive:false,WorkingDirectory:oldRelease,ProgramArguments:[process.execPath,root+'/service/start.mjs']};if(mode==='unsafe-plist'&&canonical)plist.EnvironmentVariables.NODE_OPTIONS='--import /production/hook.mjs';return {status:0,stdout:JSON.stringify(plist)};}
+ if(program==='/usr/bin/plutil'){const canonical=args.at(-1).includes('/symposium/');const plist=canonical?{Label:'com.mitzo.staging',ProgramArguments:[process.execPath,release+'/scripts/start-staging-custodian.mjs',owned+'/owned-release.json',root+'/symposium/settings/staging-registration.json',owned+'/staging-operator.json','--canonical'],EnvironmentVariables:{NODE_OPTIONS:'',NODE_PATH:'',DOTENV_CONFIG_PATH:'/dev/null'},WorkingDirectory:release,StandardOutPath:owned+'/owner.stdout.log',StandardErrorPath:owned+'/owner.stderr.log',KeepAlive:false,RunAtLoad:false,ExitTimeOut:180}:{Label:'com.mitzo.staging',KeepAlive:false,WorkingDirectory:oldRelease,ProgramArguments:[${JSON.stringify(ordinaryExecutable)},root+'/service/start.mjs',...(mode.includes('extra-node-arg')?['--unexpected']:[])]};if(mode==='unsafe-plist'&&canonical)plist.EnvironmentVariables.NODE_OPTIONS='--import /production/hook.mjs';return {status:0,stdout:JSON.stringify(plist)};}
  if(program==='/usr/sbin/lsof'){const port=args.find(x=>x.startsWith('-iTCP:')).split(':')[1],pids=port==='3190'?(started?[112]:stopped?[]:[42]):port==='3100'?(mode==='production'?[42]:[900]):[];return {status:pids.length?0:1,stdout:pids.join('\\n')};}
  if(program==='/bin/ps')return {status:stopped&&mode!=='uncertain'?1:0,stdout:stopped?'':'42'};
  if(program==='/bin/launchctl'){
@@ -491,4 +499,41 @@ it('target launcher byte drift or alias after preparation refuses apply before S
     expect(result.status).not.toBe(0);
     expect(JSON.parse(readFileSync(f.calls, 'utf8'))).toEqual([]);
   }
+});
+
+it('the original Homebrew-style Node alias qualifies the same executable for a legacy transition', () => {
+  const f = fixture('legacy-node-alias');
+  const p = f.run('prepare');
+  expect(p.status, p.stderr).toBe(0);
+  expect(f.run('plan').status).toBe(0);
+  const applied = f.run('apply');
+  expect(applied.status, applied.stderr).toBe(0);
+  expect(JSON.parse(readFileSync(f.calls, 'utf8')).map((x: string[]) => x[1])).toEqual([
+    'kill',
+    'bootout',
+    'bootstrap',
+    'kickstart',
+  ]);
+});
+it.each(['legacy-wrong-node', 'legacy-extra-node-arg', 'legacy-relative-node'])(
+  'a different executable or extra launcher argument refuses %s before control',
+  (mode) => {
+    const f = fixture(mode);
+    expect(f.run('prepare').status).not.toBe(0);
+    expect(existsSync(join(f.owned, 'transition.json'))).toBe(false);
+    expect(JSON.parse(readFileSync(f.calls, 'utf8'))).toEqual([]);
+  },
+);
+it('a Node alias redirected after preparation refuses before original service control', () => {
+  const f = fixture('legacy-node-alias');
+  const p = f.run('prepare');
+  expect(p.status, p.stderr).toBe(0);
+  const alias = join(f.home, 'operator-node'),
+    other = join(f.home, 'different-node');
+  writeFileSync(other, 'different executable');
+  rmSync(alias);
+  symlinkSync(other, alias);
+  expect(f.run('apply').status).not.toBe(0);
+  expect(JSON.parse(readFileSync(f.calls, 'utf8'))).toEqual([]);
+  expect(existsSync(join(f.service, 'deployment.lock'))).toBe(false);
 });

@@ -169,7 +169,7 @@ plist, confirms original process/listener exit through the original service
 handle, then removes only that recorded login plist before installing the same
 canonical label. This prevents a later login from resurrecting the old ordinary
 launcher. Changing either plist, the original PID/birth or qualification refuses
-control. The owned service continues to require the private canonical path.
+control. The ordinary launcher executable may use the original Homebrew symlink only when its resolved path is the executing Node binary; the exact two arguments, startup script, plist bytes and process pins remain checked. A redirected executable or extra argument refuses before control. The owned service continues to require the private canonical path.
 
 For a changed package lock, provision and audit dependencies separately in an
 isolated checkout of the exact target, with no provider configuration. Keep its
