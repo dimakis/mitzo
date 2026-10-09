@@ -230,3 +230,26 @@ it('rejects forged cleanup identity and never treats missing journal as positive
   expect(await recovery(f.ops)).toMatchObject({ status: 'reconciliation_required' });
   expect(f.ops.create).not.toHaveBeenCalled();
 });
+it('retains genuine Ready evidence before revoked durable-ID persistence', async () => {
+  const f = fixture();
+  const ready = vi.fn();
+  let revoked = false;
+  const persist = f.ops.persistReceipt;
+  f.ops.persistReceipt = async (receipt, exclusive) => {
+    if (receipt.id) {
+      revoked = true;
+      throw Error('revoked before persist');
+    }
+    await persist(receipt, exclusive);
+  };
+  f.ops.verifyCustody = async () => {
+    if (revoked) throw Error('revoked');
+  };
+  const result = await runSymposiumRoutingDiagnostic(f.config, f.ops, { onOwnedReady: ready });
+  expect(result.status).toBe('reconciliation_required');
+  expect(ready).toHaveBeenCalledOnce();
+  expect(ready.mock.calls[0][0].id).toBe('sandbox-1');
+  expect(ready.mock.calls[0][1].receipt.id).toBe('sandbox-1');
+  expect(f.receipt()?.id).toBeUndefined();
+  expect(f.events).not.toContain('account/read');
+});

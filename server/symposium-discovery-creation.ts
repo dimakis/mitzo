@@ -1,6 +1,9 @@
 import { z } from 'zod';
 import {
   DiscoveryNotDispatchedError,
+  createDiscoveryOwnedReadyEvidence,
+  type DiscoveryOwnedReadyEvidence,
+  type DiscoveryReceipt,
   discoveryClaimLabel,
   type DiscoveryOperations,
 } from './symposium-model-discovery.js';
@@ -20,6 +23,7 @@ export function fenceDiscoveryCreation(
   workspace: string,
   fence: SandboxCreationFence,
   verify: () => void,
+  onOwnedReady?: (receipt: DiscoveryReceipt, evidence: DiscoveryOwnedReadyEvidence) => void,
 ) {
   let uncertain = false;
   return {
@@ -52,6 +56,11 @@ export function fenceDiscoveryCreation(
                 throw new Error('Discovery creation identity changed');
               if (selected[0]?.phase === 'Ready') {
                 receipt.id = selected[0].id;
+                if (onOwnedReady)
+                  onOwnedReady(
+                    receipt,
+                    createDiscoveryOwnedReadyEvidence(config, receipt, selected[0]),
+                  );
                 await operations.persistReceipt(receipt, false);
                 verify();
                 return;

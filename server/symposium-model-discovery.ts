@@ -58,6 +58,34 @@ const sandboxSchema = z.object({
   labels: z.record(z.string(), z.string()),
 });
 type Sandbox = z.infer<typeof sandboxSchema>;
+/** Opaque same-process proof of one exact Ready observation, never reconstructed from a journal. */
+export interface DiscoveryOwnedReadyEvidence {
+  readonly receipt: Readonly<DiscoveryReceipt>;
+}
+const ownedReadyEvidence = new WeakSet<DiscoveryOwnedReadyEvidence>();
+export function createDiscoveryOwnedReadyEvidence(
+  input: DiscoveryConfig,
+  retained: DiscoveryReceipt,
+  observed: unknown,
+): DiscoveryOwnedReadyEvidence {
+  const config = configSchema.parse(input);
+  const expected = receiptSchema.parse(retained);
+  const row = sandboxSchema.parse(observed);
+  if (
+    !expected.id ||
+    expected.configHash !== createHash('sha256').update(JSON.stringify(config)).digest('hex') ||
+    row.phase !== 'Ready' ||
+    row.id !== expected.id ||
+    row.name !== expected.name ||
+    row.workspace !== config.workspace ||
+    row.labels['mitzo.discovery'] !== 'models' ||
+    row.labels['mitzo.discovery.claim'] !== discoveryClaimLabel(expected.claim)
+  )
+    throw Error('Owned Ready evidence changed');
+  const evidence = Object.freeze({ receipt: Object.freeze(structuredClone(expected)) });
+  ownedReadyEvidence.add(evidence);
+  return evidence;
+}
 export interface DiscoveryReadClient {
   initialize(): Promise<unknown>;
   request(method: string, params: Record<string, unknown>): Promise<unknown>;
@@ -130,12 +158,22 @@ export async function runSymposiumModelDiscovery(
 export async function runSymposiumRoutingDiagnostic(
   input: DiscoveryConfig,
   ops: DiscoveryOperations,
-  hooks?: { onPhysicalCleanup(receipt: DiscoveryReceipt): void },
+  hooks?: {
+    onPhysicalCleanup?(receipt: DiscoveryReceipt): void;
+    onOwnedReady?(receipt: DiscoveryReceipt, evidence: DiscoveryOwnedReadyEvidence): void;
+  },
 ): Promise<RoutingDiagnosticResult> {
   let attempt: DiscoveryResult | undefined;
   try {
     const result = await ops.withExclusiveAttempt(async () => {
-      attempt = await runExclusiveDiscovery(input, ops, undefined, hooks?.onPhysicalCleanup, true);
+      attempt = await runExclusiveDiscovery(
+        input,
+        ops,
+        undefined,
+        hooks?.onPhysicalCleanup,
+        true,
+        hooks?.onOwnedReady,
+      );
       return attempt;
     });
     return RoutingDiagnosticResultSchema.parse({
@@ -176,10 +214,15 @@ export interface DiscoveryRecoveryCapability {
 export function createSymposiumModelDiscoveryRecovery(
   input: DiscoveryConfig,
   retained: DiscoveryReceipt,
+  evidence?: DiscoveryOwnedReadyEvidence,
 ): DiscoveryRecoveryCapability {
   const pinnedConfig = structuredClone(input);
   const pinnedReceipt = structuredClone(retained);
   let physicalCleanupProven = false;
+  const pendingAuthorized =
+    !!evidence &&
+    ownedReadyEvidence.has(evidence) &&
+    JSON.stringify(evidence.receipt) === JSON.stringify(receiptSchema.parse(pinnedReceipt));
   const recovery = async (ops: DiscoveryOperations): Promise<DiscoveryResult> => {
     try {
       const expected = receiptSchema.parse(pinnedReceipt);
@@ -195,9 +238,35 @@ export function createSymposiumModelDiscoveryRecovery(
         // This is retained positive evidence, never an inference from bare absence.
         if (journal === undefined && physicalCleanupProven)
           return { status: 'reconciled', inference: false };
-        const current = receiptSchema.parse(journal);
-        if (JSON.stringify(current) !== JSON.stringify(expected))
-          throw new Error('Discovery journal changed');
+        let current = receiptSchema.parse(journal);
+        if (JSON.stringify(current) !== JSON.stringify(expected)) {
+          const pending = {
+            name: expected.name,
+            claim: expected.claim,
+            configHash: expected.configHash,
+          };
+          if (!pendingAuthorized || JSON.stringify(current) !== JSON.stringify(pending))
+            throw new Error('Discovery journal changed');
+          const rows = z.array(sandboxSchema).parse(await ops.list());
+          const matches = rows.filter(
+            (row) => row.name === expected.name || row.id === expected.id,
+          );
+          if (
+            matches.length !== 1 ||
+            matches[0].id !== expected.id ||
+            matches[0].name !== expected.name ||
+            matches[0].workspace !== config.workspace ||
+            matches[0].labels['mitzo.discovery'] !== 'models' ||
+            matches[0].labels['mitzo.discovery.claim'] !== discoveryClaimLabel(expected.claim)
+          )
+            throw new Error('Discovery pending identity changed');
+          await ops.verifyCustody(config);
+          await ops.persistReceipt(expected, false);
+          await ops.verifyCustody(config);
+          current = receiptSchema.parse(await ops.readReceipt());
+          if (JSON.stringify(current) !== JSON.stringify(expected))
+            throw new Error('Discovery journal changed');
+        }
         return runExclusiveDiscovery(
           config,
           {
@@ -252,6 +321,7 @@ async function runExclusiveDiscovery(
   onCatalog?: (models: CatalogModel[]) => void,
   onPhysicalCleanup?: (receipt: DiscoveryReceipt) => void,
   routingOnly = false,
+  onOwnedReady?: (receipt: DiscoveryReceipt, evidence: DiscoveryOwnedReadyEvidence) => void,
 ): Promise<DiscoveryResult> {
   let receipt: DiscoveryReceipt | undefined;
   let journalAbsenceConfirmed = false;
@@ -339,6 +409,8 @@ async function runExclusiveDiscovery(
         if (selected) {
           creationConfirmed = true;
           receipt.id = selected.id;
+          if (selected.phase === 'Ready' && onOwnedReady)
+            onOwnedReady(receipt, createDiscoveryOwnedReadyEvidence(config, receipt, selected));
           await ops.persistReceipt(receipt, false);
         }
         if (selected?.phase === 'Ready') break;
