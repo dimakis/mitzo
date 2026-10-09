@@ -659,6 +659,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         sessions: { ...get().sessions, active: null },
         chatDraftRevision: get().chatDraftRevision + 1,
         messages: INITIAL_MESSAGES_STATE,
+        tokens: INITIAL_TOKENS_STATE,
         sendError: null,
         sendStatus: null,
         permissions: INITIAL_PERMISSIONS_STATE,

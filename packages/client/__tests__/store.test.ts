@@ -5,6 +5,7 @@ import type { MitzoStoreOptions, MitzoStoreState } from '../src/store.js';
 import type { TransportAdapter } from '../src/types.js';
 import type { WebSocketLike } from '../src/ws-connection.js';
 import { WS_READY_STATE } from '../src/types.js';
+import { INITIAL_TOKENS_STATE } from '../src/slices/tokens.js';
 import type { StoreApi } from 'zustand/vanilla';
 
 // ─── Mock WebSocket ─────────────────────────────────────────────────────────
@@ -434,6 +435,58 @@ describe('switchSession', () => {
 });
 
 describe('newSession', () => {
+  it.each(['observed', 'unknown'] as const)(
+    'resets prior %s native token state and permits durable hydration in a new conversation',
+    async (sessionTotalStatus) => {
+      const transport = mockTransport();
+      vi.mocked(transport.fetch).mockImplementation(async (url) => ({
+        ok: true,
+        json: async () => (url.endsWith('/meta') ? { numTurns: 2, totalTokens: 1800 } : []),
+      }));
+      const store = createReadyStore(transport);
+      const nativeTotal = sessionTotalStatus === 'observed' ? 24600 : 0;
+      lastWs.simulateMessage({ type: 'session_id', sessionId: 'codex-old' });
+      lastWs.simulateMessage({
+        type: 'token_update',
+        sessionId: 'codex-old',
+        agentContext: 12300,
+        contextCeiling: 128000,
+        sessionTotal: nativeTotal,
+        sessionTotalStatus,
+        numTurns: 3,
+        turnIndex: 3,
+        numCompactions: 1,
+      });
+      expect(store.getState().tokens.sessionTotalStatus).toBe(sessionTotalStatus);
+      lastWs.simulateMessage({
+        type: 'session_switched',
+        sessionId: 'codex-old',
+        tokens: { input: 300, output: 400 },
+      });
+      await store.getState().fetchSessionMeta('codex-old');
+      expect(store.getState().tokens.sessionTotal).toBe(nativeTotal);
+
+      store.getState().newSession();
+      expect(store.getState().tokens).toEqual(INITIAL_TOKENS_STATE);
+
+      store.getState().sendMessage('new conversation', { model: 'claude-sonnet' });
+      lastWs.simulateMessage({ type: 'session_id', sessionId: 'claude-new' });
+      lastWs.simulateMessage({
+        type: 'session_switched',
+        sessionId: 'claude-new',
+        tokens: { input: 300, output: 400, cacheRead: 200, cacheCreation: 100 },
+      });
+      expect(store.getState().tokens.sessionTotal).toBe(1000);
+      await store.getState().fetchSessionMeta('claude-new');
+      expect(store.getState().tokens).toMatchObject({
+        sessionTotal: 1800,
+        numTurns: 2,
+        turnIndex: 2,
+      });
+      expect(store.getState().tokens.sessionTotalStatus).toBeUndefined();
+    },
+  );
+
   it('clears active session and resets messages', () => {
     const store = createReadyStore();
     store.setState((s) => ({
