@@ -147,14 +147,17 @@ describe('original-owner controlled fresh staging update', () => {
   it('a rejected native receipt cannot vacate a retired row', () => {
     const db = new Database(':memory:');
     db.exec(
-      "CREATE TABLE launches(launchId TEXT,state TEXT);INSERT INTO launches VALUES('launch','retired')",
+      "CREATE TABLE launches(launchId TEXT, state TEXT, instanceId TEXT, controllerGeneration INTEGER, completedAt INTEGER);INSERT INTO launches VALUES('launch','retired','original',1,123)",
     );
     const row = db.prepare('SELECT * FROM launches').get();
+    let validated = false;
     expect(() =>
       archiveRetiredReservation(db, row, {}, '/private/archive', 'a'.repeat(64), () => {
+        validated = true;
         throw Error('receipt');
       }),
-    ).toThrow();
+    ).toThrow('receipt');
+    expect(validated).toBe(true);
     expect(db.prepare('SELECT COUNT(*) n FROM launches').get().n).toBe(1);
     db.close();
   });
