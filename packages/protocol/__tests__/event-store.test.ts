@@ -863,6 +863,38 @@ describe('EventStore', () => {
     expect(store.searchSessions('needle', 2).map((s) => s.sessionId)).toEqual(['noisy', 'older']);
   });
 
+  it('finds titles anywhere in saved history and keeps message snippets when both match', () => {
+    store.upsertSession({
+      sessionId: 'title-only',
+      summary: 'Canonical recovery plan',
+      updatedAt: 1,
+    });
+    store.upsertSession({ sessionId: 'both', summary: 'Canonical follow-up', updatedAt: 2 });
+    store.append('both', 'user_message', { text: 'Discuss canonical recovery details' });
+    store.upsertSession({ sessionId: 'hidden', summary: 'Canonical hidden' });
+    store.hideSession('hidden');
+    store.upsertSession({
+      sessionId: 'legacy',
+      summary: 'Canonical artifact',
+      conversationSource: 'legacy',
+      isActive: false,
+    });
+    const results = store.searchSessions('canonical', 2);
+    expect(results.map((match) => match.sessionId)).toEqual(['both', 'title-only']);
+    expect(results[0].snippet).toContain('recovery details');
+    expect(results[1].snippet).toContain('Canonical recovery plan');
+  });
+
+  it('treats title search wildcards as literal text and deduplicates before the limit', () => {
+    store.upsertSession({ sessionId: 'literal', summary: '100% coverage_v2' });
+    store.append('literal', 'user_message', { text: '100% coverage_v2 review' });
+    store.upsertSession({ sessionId: 'ordinary', summary: '1000 coverageXv2' });
+    expect(store.searchSessions('100%', 1).map((match) => match.sessionId)).toEqual(['literal']);
+    expect(store.searchSessions('coverage_', 2).map((match) => match.sessionId)).toEqual([
+      'literal',
+    ]);
+  });
+
   describe('upsertSession', () => {
     it('persists verified SDK history across reopen without changing usage or prompts', () => {
       const root = mkdtempSync(join(tmpdir(), 'verified-sdk-history-'));

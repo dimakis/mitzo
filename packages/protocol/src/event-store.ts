@@ -6251,23 +6251,22 @@ export class EventStore {
   }
 
   /**
-   * Search session content for a query string.
-   * Searches user messages and assistant text deltas, returns matching sessions
-   * with a snippet of the matched content.
+   * Search saved conversation titles, user messages and assistant text deltas.
+   * Prefer a matching message snippet when the title also matches.
    */
   searchSessions(query: string, limit = 20): SessionSearchResult[] {
     if (!query.trim()) return [];
     const escaped = query.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
     const pattern = `%${escaped}%`;
     const rows = this.db!.prepare(
-      `WITH matches AS (SELECT
+      `WITH candidates AS (SELECT
         e.session_id,
         s.summary,
         e.payload,
         e.created_at AS matched_at,
         e.seq AS matched_seq,
         s.updated_at,
-        ROW_NUMBER() OVER (PARTITION BY e.session_id ORDER BY e.created_at DESC, e.seq DESC) AS match_rank
+        1 AS content_match
       FROM events e
       JOIN sessions s ON s.session_id = e.session_id
       WHERE s.is_hidden = 0
@@ -6277,9 +6276,19 @@ export class EventStore {
           json_extract(e.payload, '$.text') LIKE ? ESCAPE '\\'
           OR json_extract(e.payload, '$.delta') LIKE ? ESCAPE '\\'
         )
+      UNION ALL
+      SELECT s.session_id, s.summary, json_object('text', s.summary),
+        s.updated_at AS matched_at, 0 AS matched_seq, s.updated_at, 0 AS content_match
+      FROM sessions s
+      WHERE s.is_hidden = 0 AND ${REGISTERED_CONVERSATION_SQL}
+        AND s.summary LIKE ? ESCAPE '\\'
+      ), matches AS (
+        SELECT *, ROW_NUMBER() OVER (
+          PARTITION BY session_id ORDER BY content_match DESC, matched_at DESC, matched_seq DESC
+        ) AS match_rank FROM candidates
       ) SELECT * FROM matches WHERE match_rank = 1
       ORDER BY matched_at DESC, matched_seq DESC LIMIT ?`,
-    ).all(pattern, pattern, limit) as Array<{
+    ).all(pattern, pattern, pattern, limit) as Array<{
       session_id: string;
       summary: string | null;
       payload: string;
