@@ -54,6 +54,12 @@ The source chat keeps its workspace, branch, permissions and provider history.
 The task draft carries the requested work; it does not copy the entire transcript.
 Existing conversation workspaces are never switched by this tool.
 
+Editable prompts use a browser draft keyed to their preparation. Reload preserves
+edits, including an intentionally empty prompt, without changing ordinary unsent
+chat drafts. Send saves the current edit before transport; only the matching new
+conversation assignment consumes it. A rejected Send retains the prompt for retry,
+while uncertain delivery keeps the existing pending-send fence.
+
 The preparation and task draft are durable. `GetRepositoryChatPreparation` reads
 a known ID, or recovers the latest preparation owned by this chat and the same
 account/provider/profile after a lost response. A source-chat model change can
