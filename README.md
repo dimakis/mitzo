@@ -505,7 +505,9 @@ including when its web view is closed. Notification REST requests use the origin
 configured by the authenticated iPhone app independently of its chat connection;
 they never guess a server on a cold launch. Oversized relay payloads fail with a request to review on
 iPhone, rather than truncating approval details. A reachable paired iPhone is
-required. Ship an updated iOS/Watch binary for the new native entry and badge
+required. The iPhone target embeds the Watch companion; native CI builds both
+apps and verifies the embedded identity, executable, and matching versions.
+Ship an updated iOS/Watch binary for the native notification handlers and badge
 bridge; a web deployment alone cannot update installed native code.
 
 | File                     | Purpose                                                                   |

@@ -77,7 +77,7 @@ jobs:
     if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.native == 'true') }}
     name: Native Swift tests and builds
     runs-on: macos-26
-    timeout-minutes: 15
+    timeout-minutes: 25
     permissions:
       contents: read
     env:
@@ -86,29 +86,34 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm install --global npm@11.18.0
+      - run: npm install --no-audit
+
+      - name: Prepare native web assets and plugins
+        run: |
+          npx tsc -b packages/protocol packages/harness packages/client
+          npm run build:ios
+
       - name: Test Keychain helper with disposable credentials
         run: python3 scripts/test-keychain-helper.py
 
       - name: Test shared native package
         run: swift test --package-path frontend/ios/MitzoShared
 
-      - name: Build iOS simulator package
+      - name: Build iPhone app with Watch companion
         if: always()
-        working-directory: frontend/ios/MitzoShared
         run: >-
-          xcodebuild -scheme MitzoShared
+          xcodebuild -project frontend/ios/App/App.xcodeproj -scheme App
           -destination 'generic/platform=iOS Simulator'
           -derivedDataPath "$RUNNER_TEMP/mitzo-ios-build"
           CODE_SIGNING_ALLOWED=NO build
 
-      - name: Build watchOS simulator package
-        if: always()
-        working-directory: frontend/ios/MitzoShared
-        run: >-
-          xcodebuild -scheme MitzoShared
-          -destination 'generic/platform=watchOS Simulator'
-          -derivedDataPath "$RUNNER_TEMP/mitzo-watch-build"
-          CODE_SIGNING_ALLOWED=NO build
+      - name: Verify embedded Watch companion
+        run: python3 scripts/check-watch-bundle.py "$RUNNER_TEMP/mitzo-ios-build/Build/Products/Debug-iphonesimulator/App.app"
 
   ci:
     runs-on: ubuntu-latest
