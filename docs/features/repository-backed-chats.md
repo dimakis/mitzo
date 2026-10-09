@@ -68,9 +68,13 @@ At most eight unreleased preparing/ready/claimed sources may be held per account
 
 ## Resource use
 
-Host tasks retain independent full copies of files and Git metadata. Filesystem
-cloning remains future work: a portable implementation must preserve exclusive
-ownership throughout recursive copying, including directory replacement races.
+Host tasks retain independent full copies of files and Git metadata. An isolated
+Python helper copies through pinned directory descriptors on macOS/Linux, applying
+no-follow lookups and exclusive creation so a replaced path cannot redirect later
+writes. It runs only during a host copy, preserves file modes, and fails closed if
+Python or the required descriptor operations are unavailable. The original claim
+and partial copy are retained for inspection. Filesystem cloning remains future
+work.
 
 Source verification reads files in 64 KiB chunks, retaining the existing frozen
 digest format. It rejects files that change or exceed their inspected size during
