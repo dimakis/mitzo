@@ -97,6 +97,12 @@ export function KnowledgeLibrary() {
   const visibleDirectories = library.directories.filter(
     (directory) => area === 'All knowledge' || areaRoots.has(directory.split('/')[0]),
   );
+  const folderParents = [
+    ...new Set([
+      ...library.directories,
+      ...(catalog?.documentPaths || []).filter((scope) => library.canCreateInDirectory(scope)),
+    ]),
+  ];
   const editorComparisons = showEditor ? (
     <>
       {copy!.initialSaveConflict && (
@@ -763,7 +769,7 @@ export function KnowledgeLibrary() {
       {dialog && (
         <KnowledgeOrganizationDialog
           mode={dialog}
-          directories={library.directories}
+          directories={dialog === 'folder' ? folderParents : library.directories}
           initialParent={
             dialog === 'folder' ? parent : menu?.path.split('/').slice(0, -1).join('/') || ''
           }

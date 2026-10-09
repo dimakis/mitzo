@@ -1859,3 +1859,35 @@ it('reads first on a keyboard device and mounts the proper CodeMirror editor onl
     { path: 'hub/principles.md', content: '# **Principles**' },
   ]);
 });
+
+it('creates the first folder inside an empty enrolled knowledge directory', async () => {
+  const original = vi.mocked(apiFetch).getMockImplementation()!;
+  vi.mocked(apiFetch).mockImplementation(async (path, init) =>
+    path === '/api/knowledge'
+      ? response({
+          ...catalog,
+          documents: [],
+          directories: [],
+          documentPaths: ['hub/context', 'CONSTITUTION.md'],
+        })
+      : original(path, init),
+  );
+  setup();
+  fireEvent.click(await screen.findByRole('button', { name: 'New folder' }));
+  const dialog = screen.getByRole('dialog', { name: 'New folder' });
+  expect(within(dialog).queryByRole('button', { name: 'Folder CONSTITUTION.md' })).toBeNull();
+  const ancestor = within(dialog).getByRole('button', { name: 'Folder hub' });
+  expect((ancestor as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Expand folder hub' }));
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Folder hub/context' }));
+  fireEvent.change(within(dialog).getByRole('textbox', { name: 'Folder name' }), {
+    target: { value: 'guides' },
+  });
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Create folder' }));
+  await screen.findByText('New folder: hub/context/guides');
+  expect(screen.queryByRole('textbox', { name: 'Document source' })).toBeNull();
+  const copy = JSON.parse(localStorage.getItem('mitzo-knowledge-working-copy:')!);
+  expect(copy.documents).toEqual([]);
+  expect(copy.directories).toEqual(['hub/context/guides']);
+  expect((screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(false);
+});
