@@ -103,3 +103,25 @@ it('permits only one removal while keeping the full detail visible, then allows 
   expect(await screen.findByRole('alert')).toHaveTextContent('Archive failed');
   expect(screen.getByRole('button', { name: 'Archive' })).toBeEnabled();
 });
+
+it.each(['Archive', 'Discard'])('restores focus to a surviving row after %s', async (action) => {
+  show();
+  fireEvent.click(await screen.findByRole('button', { name: 'First proposal' }));
+  await screen.findByText('Full proposal context');
+  await act(async () => fireEvent.click(screen.getByRole('button', { name: action })));
+  expect(screen.queryByRole('button', { name: 'First proposal' })).toBeNull();
+  expect(await screen.findByRole('button', { name: 'Second proposal' })).toHaveFocus();
+});
+
+it('restores focus to search when removal leaves no matching rows', async () => {
+  show();
+  await screen.findByRole('button', { name: 'First proposal' });
+  fireEvent.change(screen.getByRole('searchbox', { name: 'Search proposals' }), {
+    target: { value: 'First' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'First proposal' }));
+  await screen.findByText('Full proposal context');
+  await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Archive' })));
+  expect(screen.queryByRole('button', { name: 'Second proposal' })).toBeNull();
+  expect(await screen.findByRole('searchbox', { name: 'Search proposals' })).toHaveFocus();
+});

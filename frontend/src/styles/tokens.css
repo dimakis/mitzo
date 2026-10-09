@@ -130,6 +130,9 @@
   --color-code-bg: #f0f0f2;
 }
 
+[data-accent='lavender'] {
+  --color-accent: var(--accent-lavender);
+}
 [data-accent='teal'] {
   --color-accent: var(--accent-teal);
 }

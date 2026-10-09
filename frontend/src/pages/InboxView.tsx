@@ -34,6 +34,7 @@ export function InboxView({ desktop = false }: { desktop?: boolean } = {}) {
   const [activeFilter, setActiveFilter] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const backButton = useRef<HTMLButtonElement>(null);
+  const searchInput = useRef<HTMLInputElement>(null);
   const list = useRef<HTMLDivElement>(null);
   const rows = useRef(new Map<string, HTMLButtonElement>());
   const lastOpened = useRef<string | null>(null);
@@ -149,8 +150,17 @@ export function InboxView({ desktop = false }: { desktop?: boolean } = {}) {
       lastOpened.current = selectedFilename;
       backButton.current?.focus();
     } else if (lastOpened.current) {
-      rows.current.get(lastOpened.current)?.focus({ preventScroll: true });
       if (list.current) list.current.scrollTop = listPosition.current;
+      const openedRow = rows.current.get(lastOpened.current);
+      if (openedRow) {
+        openedRow.focus({ preventScroll: true });
+      } else {
+        // A successful removal leaves no opened row to return to.
+        // Let the fallback scroll into view so keyboard focus stays visible.
+        (
+          list.current?.querySelector<HTMLButtonElement>('.proposal-record') ?? searchInput.current
+        )?.focus();
+      }
       lastOpened.current = null;
     }
   }, [desktop, showMobileDetail, selectedFilename]);
@@ -206,6 +216,7 @@ export function InboxView({ desktop = false }: { desktop?: boolean } = {}) {
       {!showMobileDetail && (
         <div className="proposal-search">
           <input
+            ref={searchInput}
             type="search"
             aria-label="Search proposals"
             placeholder="Search proposals…"

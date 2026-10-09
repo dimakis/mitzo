@@ -290,8 +290,20 @@ test('Settings previews and persists every accent and font across navigation and
   const preview = page.locator('.appearance-preview-action');
   for (const mode of ['dark', 'light']) {
     await theme.selectOption(mode);
+    await page.getByRole('radio', { name: 'Lavender', exact: true }).check();
+    const swatches = page.locator('.appearance-swatch');
+    const palette = await swatches.evaluateAll((elements) =>
+      elements.map((element) => getComputedStyle(element).backgroundColor),
+    );
+    expect(new Set(palette).size).toBe(4);
     for (const label of ['Lavender', 'Teal', 'Rose', 'Amber']) {
       await page.getByRole('radio', { name: label, exact: true }).check();
+      expect(
+        await swatches.evaluateAll((elements) =>
+          elements.map((element) => getComputedStyle(element).backgroundColor),
+        ),
+        `Swatches after selecting ${label} in ${mode}`,
+      ).toEqual(palette);
       const ratio = await preview.evaluate((element) => {
         const style = getComputedStyle(element);
         const luminance = (color: string) => {
