@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { afterEach, expect, it, vi } from 'vitest';
@@ -64,10 +64,12 @@ vi.mock('../../components/RepositoryChatPicker', () => ({
     initialPreparationId?: string;
     onChange(value: { blocked: boolean; repositoryWorkspaceId?: string }): void;
   }) => {
+    const change = useRef(onChange);
+    change.current = onChange;
     useEffect(
-      () => onChange({ blocked: false, repositoryWorkspaceId: initialPreparationId }),
+      () => change.current({ blocked: false, repositoryWorkspaceId: initialPreparationId }),
       [initialPreparationId],
-    ); // eslint-disable-line react-hooks/exhaustive-deps
+    );
     return <span data-testid="preparation-id">{initialPreparationId}</span>;
   },
 }));
