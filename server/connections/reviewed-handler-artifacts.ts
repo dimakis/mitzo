@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.0';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.6';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.9';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.10';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -27,7 +27,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../home-assistant-dashboard.ts':
     '1053d482935af066472aedd48365af2b71cb7cf55e30ee88cc9fcf89b96e1d62',
   '../credential-connections.ts':
-    'f09647e677e59fe361ad704cb72a0525291b81dc5036e51867f1fb0538a5c4ab',
+    '3e4c2e93918d8471cb5150cb7bc95fbddf4ff96076a5961f07d9a7898d4f44a4',
   '../credential-connections-router.ts':
     'b05c419d959bb8e5b8523e603ab090a15bbd25dc9d3295bf6b1ad139a9899e65',
   '../credential-connection-tools.ts':
