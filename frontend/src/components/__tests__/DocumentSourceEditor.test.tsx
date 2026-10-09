@@ -181,6 +181,29 @@ describe('document source engine', () => {
     expect(view.contentDOM.getAttribute('aria-readonly')).toBe('true');
   });
 
+  it('clears obsolete history when the conflict epoch changes without changing the draft', () => {
+    const { view, ref, props, rerender, onChange, onHistoryChange } = setup();
+    rerender(<DocumentSourceEditor ref={ref} {...props} historyResetKey={0} />);
+    act(() => view.dispatch({ selection: EditorSelection.single(0, 5) }));
+    act(() => ref.current!.insert('**', '**'));
+    const draft = view.state.doc.toString();
+    onChange.mockClear();
+    rerender(<DocumentSourceEditor ref={ref} {...props} content={draft} historyResetKey={0} />);
+    expect(onHistoryChange).toHaveBeenLastCalledWith({ canUndo: true, canRedo: false });
+    rerender(<DocumentSourceEditor ref={ref} {...props} content={draft} historyResetKey={1} />);
+    expect(EditorView.findFromDOM(screen.getByRole('textbox'))).toBe(view);
+    expect(view.state.doc.toString()).toBe(draft);
+    expect(view.state.selection.main.from).toBe(2);
+    expect(view.state.selection.main.to).toBe(7);
+    expect(onChange).not.toHaveBeenCalled();
+    expect(onHistoryChange).toHaveBeenLastCalledWith({ canUndo: false, canRedo: false });
+    act(() => ref.current!.undo());
+    expect(view.state.doc.toString()).toBe(draft);
+    act(() => ref.current!.insert('_', '_'));
+    act(() => ref.current!.undo());
+    expect(view.state.doc.toString()).toBe(draft);
+  });
+
   it('reconciles external replacements without echoing or preserving obsolete undo history', () => {
     const { view, ref, props, rerender, onChange, onHistoryChange } = setup();
     act(() => ref.current!.insert('**', '**'));

@@ -43,6 +43,7 @@ interface Props {
   onSave(): void;
   vim: boolean;
   relativeLineNumbers: boolean;
+  historyResetKey?: number;
   onModeChange?(mode: VimMode): void;
   onHistoryChange?(history: EditorHistoryState): void;
 }
@@ -72,6 +73,7 @@ export const DocumentSourceEditor = forwardRef<DocumentSourceEditorHandle, Props
   function DocumentSourceEditor(props, ref) {
     const host = useRef<HTMLDivElement>(null);
     const view = useRef<EditorView | null>(null);
+    const lastHistoryResetKey = useRef(props.historyResetKey);
     const latest = useRef(props);
     latest.current = props;
     const settings = useRef(new Compartment());
@@ -282,10 +284,12 @@ export const DocumentSourceEditor = forwardRef<DocumentSourceEditorHandle, Props
     }, [props.vim, props.relativeLineNumbers, props.saving, props.ext]);
 
     useLayoutEffect(() => {
-      if (view.current && props.content !== view.current.state.doc.toString()) {
+      const resetHistory = lastHistoryResetKey.current !== props.historyResetKey;
+      lastHistoryResetKey.current = props.historyResetKey;
+      if (view.current && (resetHistory || props.content !== view.current.state.doc.toString())) {
         resetState.current?.(props.content);
       }
-    }, [props.content]);
+    }, [props.content, props.historyResetKey]);
 
     return <div ref={host} className="document-source-editor" />;
   },
