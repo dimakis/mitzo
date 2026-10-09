@@ -136,6 +136,11 @@ function fixture(mode = 'valid') {
     );
   const cli = join(source, 'scripts/requalify-staging.mjs');
   writeFileSync(cli, readFileSync(cli, 'utf8').replace("process.platform !== 'darwin'", 'false'));
+  const verifyCli = join(source, 'scripts/verify-staging-qualification.mjs');
+  writeFileSync(
+    verifyCli,
+    readFileSync(verifyCli, 'utf8').replace("process.platform !== 'darwin'", 'false'),
+  );
   git(source, 'add', '.');
   git(source, 'commit', '-qm', 'controller');
   git(source, 'remote', 'add', 'origin', 'https://github.com/dimakis/mitzo.git');
@@ -143,7 +148,7 @@ function fixture(mode = 'valid') {
   const preload = join(home, 'os.mjs');
   writeFileSync(
     preload,
-    `import os from 'node:os';import cp from 'node:child_process';import {syncBuiltinESMExports} from 'node:module';const original=cp.spawnSync;os.homedir=()=>${JSON.stringify(home)};cp.spawnSync=(program,args,options)=>{if(program==='git'&&args.includes('ls-remote'))return {status:0,stdout:${JSON.stringify(mode === 'unaccepted' ? 'f'.repeat(40) : accepted)}+' refs/heads/main'};if(program==='launchctl'){if(args[0]!=='print')throw Error('Service control attempted');return {status:0,stdout:'path = '+${JSON.stringify(legacy)}+'\\npid = 42'};}if(program==='/bin/ps')return {status:0,stdout:'original birth'};if(program==='/usr/sbin/lsof'){if(args.includes('cwd'))return {status:0,stdout:'p42\\nn'+${JSON.stringify(release)}};return args.includes('-iTCP:3190')?{status:0,stdout:'42'}:{status:1,stdout:''};}if(program==='/usr/bin/plutil')return {status:0,stdout:${JSON.stringify(JSON.stringify(plist))}};if(program===process.execPath)return original(program,['--import',${JSON.stringify(preload)},...args],options);return original(program,args,options);};syncBuiltinESMExports();`,
+    `import os from 'node:os';import cp from 'node:child_process';import {syncBuiltinESMExports} from 'node:module';const original=cp.spawnSync;os.homedir=()=>process.env.HOME||${JSON.stringify(home)};cp.spawnSync=(program,args,options)=>{if(program==='git'&&args.includes('ls-remote'))return {status:0,stdout:${JSON.stringify(mode === 'unaccepted' ? 'f'.repeat(40) : accepted)}+' refs/heads/main'};if(program==='launchctl'){if(args[0]!=='print')throw Error('Service control attempted');return {status:0,stdout:'path = '+${JSON.stringify(legacy)}+'\\npid = 42'};}if(program==='/bin/ps')return {status:0,stdout:'original birth'};if(program==='/usr/sbin/lsof'){if(args.includes('cwd'))return {status:0,stdout:'p42\\nn'+${JSON.stringify(release)}};return args.includes('-iTCP:3190')?{status:0,stdout:'42'}:{status:1,stdout:''};}if(program==='/usr/bin/plutil')return {status:0,stdout:${JSON.stringify(JSON.stringify(plist))}};if(program===process.execPath)return original(program,['--import',${JSON.stringify(preload)},...args],options);return original(program,args,options);};syncBuiltinESMExports();`,
   );
   if (mode === 'partial-archive')
     writeFileSync(
@@ -163,7 +168,13 @@ syncBuiltinESMExports();
       timeout: 30000,
       env: { PATH: process.env.PATH },
     });
-  return { root, old, receiptPath, run };
+  const runRecovery = (...args) =>
+    spawnSync(process.execPath, ['--import', preload, verifyCli, ...args], {
+      encoding: 'utf8',
+      timeout: 30000,
+      env: { PATH: process.env.PATH },
+    });
+  return { root, old, receiptPath, run, runRecovery, preload };
 }
 it('the real metadata command archives the original receipt, leaves its process intact and qualifies the new guards', () => {
   const f = fixture(),
@@ -259,3 +270,108 @@ it('an actual partial archive write retains the lock and original receipt before
     'uncertain',
   );
 });
+function completedRetainedOperation() {
+  const f = fixture(),
+    report = JSON.parse(f.run('audit').stdout);
+  const applied = f.run(
+    'apply',
+    '--expected-current',
+    f.old,
+    '--expected-audit',
+    report.auditSha256,
+  );
+  expect(applied.status, applied.stderr).toBe(0);
+  const operation = JSON.parse(applied.stdout),
+    q = JSON.parse(readFileSync(join(f.root, 'service/legacy-qualification.json')));
+  writeFileSync(
+    join(f.root, 'service/deployment.lock'),
+    JSON.stringify({
+      id: operation.id,
+      mode: 'legacy-qualification',
+      expected: f.old,
+      controller: q.controllerSource,
+    }) + '\n',
+    { mode: 0o600 },
+  );
+  return { f, report, operation };
+}
+it('verification-only recovery confirms exact completed metadata without rewriting it or controlling the original service', () => {
+  const { f, report, operation } = completedRetainedOperation(),
+    before = readFileSync(f.receiptPath);
+  const recovered = f.runRecovery(
+    '--operation',
+    operation.id,
+    '--expected-audit',
+    report.auditSha256,
+  );
+  expect(recovered.status, recovered.stderr).toBe(0);
+  expect(JSON.parse(recovered.stdout)).toMatchObject({
+    verifiedOriginalOperation: operation.id,
+    metadataRewritten: false,
+    serviceControl: false,
+    lockReleased: true,
+  });
+  expect(readFileSync(f.receiptPath)).toEqual(before);
+  expect(existsSync(join(f.root, 'service/deployment.lock'))).toBe(false);
+  expect(readFileSync(join(f.root, 'service/deployment-audit.jsonl'), 'utf8')).toContain(
+    'verified-recovery',
+  );
+}, 15000);
+it('recovery refuses another operation or installed-controller drift while retaining the original lock', () => {
+  const { f, report, operation } = completedRetainedOperation();
+  expect(
+    f.runRecovery(
+      '--operation',
+      '22345678-1234-1234-1234-123456789abc',
+      '--expected-audit',
+      report.auditSha256,
+    ).status,
+  ).not.toBe(0);
+  expect(existsSync(join(f.root, 'service/deployment.lock'))).toBe(true);
+  writeFileSync(join(f.root, 'bin/lib/staging-files.mjs'), 'drift');
+  expect(
+    f.runRecovery('--operation', operation.id, '--expected-audit', report.auditSha256).status,
+  ).not.toBe(0);
+  expect(existsSync(join(f.root, 'service/deployment.lock'))).toBe(true);
+}, 15000);
+
+it('recovery retains the lock when installed historical control evidence changes', () => {
+  const { f, report, operation } = completedRetainedOperation();
+  writeFileSync(join(f.root, 'service/control-tool.json'), '{}');
+  const recovered = f.runRecovery(
+    '--operation',
+    operation.id,
+    '--expected-audit',
+    report.auditSha256,
+  );
+  expect(recovered.status).not.toBe(0);
+  expect(recovered.stderr).toContain('Installed historical control evidence changed');
+  expect(existsSync(join(f.root, 'service/deployment.lock'))).toBe(true);
+}, 15000);
+it('recovery retains the lock after canonical re-registration or original process birth drift', () => {
+  for (const drift of ['registration', 'birth']) {
+    const { f, report, operation } = completedRetainedOperation();
+    let preload = readFileSync(f.preload, 'utf8');
+    if (drift === 'registration') {
+      preload = preload.replace(
+        JSON.stringify(
+          join(
+            realpathSync(join(f.root, '../../..')),
+            'Library/LaunchAgents/com.mitzo.staging.plist',
+          ),
+        ),
+        JSON.stringify(join(f.root, 'service/com.mitzo.staging.plist')),
+      );
+    } else preload = preload.replace("stdout:'original birth'", "stdout:'different birth'");
+    writeFileSync(f.preload, preload);
+    const recovered = f.runRecovery(
+      '--operation',
+      operation.id,
+      '--expected-audit',
+      report.auditSha256,
+    );
+    expect(recovered.status, drift).not.toBe(0);
+    expect(recovered.stderr).toContain('Original live');
+    expect(existsSync(join(f.root, 'service/deployment.lock'))).toBe(true);
+  }
+}, 30000);

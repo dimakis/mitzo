@@ -54,7 +54,7 @@ const names = [
   'lib/staging-registration.mjs',
   'lib/staging-dependency-source.mjs',
 ];
-function run(program, args, cwd = root) {
+function run(program, args, cwd = root, userHome = join(root, 'home')) {
   const result = spawnSync(program, args, {
     cwd,
     encoding: 'utf8',
@@ -62,7 +62,7 @@ function run(program, args, cwd = root) {
     maxBuffer: 16 * 1024 * 1024,
     env: {
       PATH: '/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin',
-      HOME: join(root, 'home'),
+      HOME: userHome,
       GIT_CONFIG_NOSYSTEM: '1',
       GIT_CONFIG_GLOBAL: '/dev/null',
       GIT_OPTIONAL_LOCKS: '0',
@@ -383,7 +383,7 @@ try {
         );
         if (c.status !== 1 || JSON.stringify(JSON.parse(c.stdout).issues) !== '["deployment-lock"]')
           throw Error('Migrated controller qualification failed');
-        run(process.execPath, [join(root, 'service/start.mjs'), '--check']);
+        run(process.execPath, [join(root, 'service/start.mjs'), '--check'], root, homedir());
         if (
           JSON.stringify(originalJob(inspection.receipt)) !==
           JSON.stringify({

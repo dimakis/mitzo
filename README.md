@@ -1017,6 +1017,8 @@ Historical receipts and login-plist registrations require the explicit
 before the ordinary-to-owned transition. Its metadata migration archives existing
 evidence and leaves the original service running; changed locks can be prepared
 from an explicitly pinned, independently provisioned dependency source.
+An exact completed metadata operation can use the documented verification-only
+recovery after a lost or refused acknowledgement; incomplete writes retain their lock.
 
 ### Host Podman image maintenance
 
