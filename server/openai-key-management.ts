@@ -56,7 +56,12 @@ export interface OpenAIKeyHealth {
   errorCode: string | null;
   verifiedAt: number | null;
 }
-type Selection = { accountId: string; revision: string; sameProject: boolean };
+type Selection = {
+  accountId: string;
+  revision: string;
+  /** Older clients sent this assertion. It cannot establish the key's billing identity. */
+  sameProject?: boolean;
+};
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 
 /** Keychain is canonical for the existing host consumer; the gateway is its managed replica.
@@ -291,7 +296,6 @@ export class OpenAIKeyManagement {
     });
   }
   private async selected(input: Selection, signal: AbortSignal) {
-    if (!input.sameProject) throw new Error('Confirm the same work project');
     const account = this.account(input.accountId);
     const state = await this.state(account, signal);
     if (!input.revision || state.status.revision !== input.revision)
@@ -402,12 +406,22 @@ export class OpenAIKeyManagement {
       failure = 'CHAT_UPDATE_UNCONFIRMED';
       await this.finish(operation, account, value, signal);
     } catch {
+      const notSaved = !writeStarted && failure === 'CHAT_PAUSE_FAILED' && !selected.pending;
       this.options.store.update(operation.id, {
-        ...(!writeStarted && failure === 'CHAT_PAUSE_FAILED' && !selected.pending
-          ? { phase: 'aborted' as const }
-          : {}),
+        ...(notSaved ? { phase: 'aborted' as const } : {}),
         errorCode: failure,
       });
+      if (notSaved && signal.aborted) {
+        // The journal proves no credential write started. Do not lose that
+        // outcome by rereading Keychain/gateway with the expired drain signal.
+        // A fresh status check must establish a revision before another mutation.
+        return {
+          ...selected.status,
+          revision: '',
+          canSynchronize: false,
+          errorCode: failure,
+        };
+      }
     }
     return (await this.state(this.account(account.id), signal)).status;
   }

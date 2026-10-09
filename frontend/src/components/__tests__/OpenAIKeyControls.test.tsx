@@ -73,19 +73,15 @@ it('submits a masked key once, clears it before awaiting the response, and shows
   try {
     await act(async () => fireEvent.click(f.button('Replace API key')));
     const input = f.node.querySelector<HTMLInputElement>('input[type=password]')!;
-    const confirmed = f.node.querySelector<HTMLInputElement>('input[type=checkbox]')!;
     await act(async () => fireEvent.change(input, { target: { value: 'PRIVATE_KEY' } }));
     expect(f.button('Save API key').disabled).toBe(false);
-    await act(async () => fireEvent.click(f.button('Save API key')));
-    expect(f.node.textContent).toContain('Confirm that this key');
-    expect(api.replaceOpenAIKey).not.toHaveBeenCalled();
-    await act(async () => fireEvent.click(confirmed));
+    expect(f.node.querySelector('input[type=checkbox]')).toBeNull();
+    expect(f.node.textContent).toContain('OpenAI bills the account associated with this key');
     await act(async () => fireEvent.click(f.button('Save API key')));
     expect(api.replaceOpenAIKey).toHaveBeenCalledWith({
       accountId: 'work',
       revision: 'v1',
       apiKey: 'PRIVATE_KEY',
-      sameProject: true,
       csrf: 'csrf',
     });
     expect(f.node.querySelector('input[type=password]')).toBeNull();
@@ -113,7 +109,6 @@ it('keeps native or upstream error text out of the credential form and refreshes
   vi.mocked(api.synchronizeOpenAIKey).mockRejectedValueOnce(new Error('PRIVATE_KEY from upstream'));
   try {
     await act(async () => fireEvent.click(f.button('Finish key update')));
-    await act(async () => fireEvent.click(f.node.querySelector('input[type=checkbox]')!));
     await act(async () => fireEvent.click(f.button('Finish update')));
     expect(f.node.textContent).not.toContain('PRIVATE_KEY');
     expect(f.node.textContent).toContain('Could not confirm');
@@ -210,12 +205,11 @@ it('keeps update feedback after a new revision arrives and after refreshing that
         target: { value: 'SYNTHETIC_KEY' },
       }),
     );
-    await act(async () => fireEvent.click(f.node.querySelector('input[type=checkbox]')!));
     await act(async () => fireEvent.click(f.button('Save API key')));
-    expect(f.node.textContent).toContain('key update is incomplete');
+    expect(f.node.textContent).toContain('key is saved on this Mac');
     vi.mocked(api.getOpenAIKeyStatus).mockResolvedValue([updated as never]);
     await act(async () => fireEvent.click(f.button('Refresh status')));
-    expect(f.node.textContent).toContain('key update is incomplete');
+    expect(f.node.textContent).toContain('key is saved on this Mac');
     expect(f.node.textContent).toContain('Status refreshed at');
   } finally {
     await act(async () => f.root.unmount());
@@ -257,10 +251,53 @@ it('does not report successful replacement when only the previous key remains re
         target: { value: 'SYNTHETIC_KEY' },
       }),
     );
-    await act(async () => fireEvent.click(f.node.querySelector('input[type=checkbox]')!));
     await act(async () => fireEvent.click(f.button('Save API key')));
     expect(f.node.textContent).toContain('replacement was not saved');
     expect(f.node.textContent).not.toContain('API key updated.');
+  } finally {
+    await act(async () => f.root.unmount());
+  }
+});
+
+it('hides previous failure during a save and stops save progress before refreshing an uncertain result', async () => {
+  vi.mocked(api.getOpenAIKeyStatus).mockResolvedValueOnce([
+    { ...initial, errorCode: 'NOT_APPLIED' } as never,
+  ]);
+  const f = await mount();
+  let rejectSave!: (error: Error) => void;
+  let completeRefresh!: (value: never) => void;
+  vi.mocked(api.replaceOpenAIKey).mockImplementationOnce(
+    () =>
+      new Promise((_, reject) => {
+        rejectSave = reject;
+      }),
+  );
+  vi.mocked(api.getOpenAIKeyStatus).mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        completeRefresh = resolve;
+      }),
+  );
+  try {
+    await act(async () => fireEvent.click(f.button('Replace API key')));
+    await act(async () =>
+      fireEvent.change(f.node.querySelector('input[type=password]')!, {
+        target: { value: 'SYNTHETIC_KEY' },
+      }),
+    );
+    const saving = act(async () => fireEvent.click(f.button('Save API key')));
+    await saving;
+    expect(f.node.textContent).not.toContain('previous update did not save');
+    expect(f.node.textContent).not.toContain('Status refreshed at');
+    expect(f.button('Refresh status').disabled).toBe(true);
+    await act(async () => rejectSave(new Error('request timed out')));
+    expect(f.node.textContent).not.toContain('Checking the key and updating');
+    expect(f.node.textContent).toContain('Checking saved account status');
+    await act(async () =>
+      completeRefresh([{ ...initial, revision: 'v2', errorCode: 'CHAT_PAUSE_FAILED' }] as never),
+    );
+    expect(f.node.textContent).toContain('replacement was not saved');
+    expect(f.node.textContent).not.toContain('may already have been saved');
   } finally {
     await act(async () => f.root.unmount());
   }

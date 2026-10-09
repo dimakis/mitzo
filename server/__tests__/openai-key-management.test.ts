@@ -46,7 +46,9 @@ function fixture() {
     }),
   };
   const gateway = {
-    inspect: vi.fn(async () => ({ version: gatewayVersion })),
+    inspect: vi.fn(async (_account: ManagedOpenAIAccount, _signal: AbortSignal) => ({
+      version: gatewayVersion,
+    })),
     pause: vi.fn(async () => {
       calls.push('pause');
     }),
@@ -77,7 +79,6 @@ function fixture() {
         accountId: 'work',
         revision: await revision(),
         apiKey: key,
-        sameProject: true,
       },
       signal(),
     );
@@ -273,7 +274,6 @@ describe('OpenAI key replacement and recovery', () => {
       {
         accountId: 'work',
         revision: (await restarted.list(signal()))[0]!.revision,
-        sameProject: true,
       },
       signal(),
     );
@@ -300,14 +300,15 @@ describe('OpenAI key replacement and recovery', () => {
     expect(f.gateway.replace).not.toHaveBeenCalled();
     expect(f.store.pending()).toEqual([]);
   });
-  it('requires the explicit same-project confirmation and rejects a stale form', async () => {
+  it('accepts a validated replacement without a project assertion and still rejects a stale form', async () => {
     const f = fixture();
     await expect(
       f.manager.replace(
-        { accountId: 'work', revision: await f.revision(), apiKey: 'key', sameProject: false },
+        { accountId: 'work', revision: await f.revision(), apiKey: 'key' },
         signal(),
       ),
-    ).rejects.toThrow('Confirm the same work project');
+    ).resolves.toMatchObject({ health: 'ready' });
+    f.validateKey.mockClear();
     const revision = await f.revision();
     f.driftGateway();
     await expect(
@@ -351,7 +352,6 @@ describe('OpenAI key replacement and recovery', () => {
       {
         accountId: 'work',
         revision: (await restarted.list(signal()))[0]!.revision,
-        sameProject: true,
       },
       signal(),
     );
@@ -496,4 +496,33 @@ it('preserves the previous verified key when a later replacement cannot drain ch
   expect(f.keychain.write).not.toHaveBeenCalled();
   expect(f.gateway.replace).not.toHaveBeenCalled();
   expect(await f.manager.resolveKey('work', signal())).toBe('new-key');
+});
+
+it('returns the journaled not-saved result when the deadline expires during chat drain', async () => {
+  const f = fixture();
+  const controller = new AbortController();
+  f.gateway.inspect.mockImplementation(async (_account, signal) => {
+    signal.throwIfAborted();
+    return { version: '10' };
+  });
+  f.gateway.pause.mockImplementationOnce(async () => {
+    controller.abort();
+    controller.signal.throwIfAborted();
+  });
+  const result = await f.manager.replace(
+    { accountId: 'work', revision: await f.revision(), apiKey: 'new-key' },
+    controller.signal,
+  );
+  expect(result).toMatchObject({
+    health: 'not_verified',
+    errorCode: 'CHAT_PAUSE_FAILED',
+    revision: '',
+    canSynchronize: false,
+  });
+  expect(f.keychain.write).not.toHaveBeenCalled();
+  expect(f.gateway.replace).not.toHaveBeenCalled();
+  expect(f.store.latest('work')).toMatchObject({
+    phase: 'aborted',
+    errorCode: 'CHAT_PAUSE_FAILED',
+  });
 });

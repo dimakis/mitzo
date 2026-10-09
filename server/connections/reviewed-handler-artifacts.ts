@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.9';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.24';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.25';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -70,7 +70,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../capability-conversation-binding.ts':
     '147a328d161f167aeeb31bf0017d5fea25cc3f22933392249a228d7bd61e89aa',
   // Secret custody and its browser/admission boundaries share the runtime review contract.
-  '../openai-key-management.ts': '69c7e38c1a2d0d396861bbb91a68747ea1a9a445c1d353b29f0292f0a654429c',
+  '../openai-key-management.ts': 'e812a6aab95d79ee8266bf6d19dd87e252137a36616be2ae088377f5c5e2a992',
   '../openai-key-operation-store.ts':
     'dcd4bfc37e6098f194e19c9a797ca70eed189b19568c0272c778ecdec49f00a9',
   '../openai-enrollment-models.ts':
@@ -84,7 +84,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../openshell-key-api.ts': '45164e44c19a0d1c845a847ea3ccae625445d75c3d09fa32ca5ec86dd53e26a3',
   '../openshell-key-api-protocol.ts':
     '3ebca322e76e76771aaffbccabeda9ea1bb2945d672d9f9879d2665b584ca423',
-  '../openai-key-gateway.ts': '874179ced58c1cfdd480411d4f52f37bcb199b07e6e7122de62b2fc2cb918164',
+  '../openai-key-gateway.ts': '8469d53784b79310006723b25004cb60ec90d24220961e20c6d7eb1b019e0363',
   '../keychain-rotation-credentials.ts':
     '4c36d9edaca72c0fc2009032656cf2254b4f3c2fafbd4cf771fbe980944c0ba2',
   '../keychain-vault.ts': '17a32a4e63621d623937033237cb10b6f1f87a30b0d88db5cd31888cbc4ce5a4',
@@ -94,7 +94,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../native/keychain-helper/main.swift':
     '316b7aaac1027f7f94d26e093edbe39a3ccac64236bd61702c32c47419f6edb1',
   '../openai-key-controller.ts': '721a1c6a513fc5380e4a2222927cda025bf8cbd7e8d49d8c5d526470e2cff217',
-  '../connections-router.ts': '1e95092737e273c06b4854c295b4ca6557fa50df17c0120729e41d169397f3c8',
+  '../connections-router.ts': '6620ec153b72f42b18370bc375ab88331205ac9eb8c4ccd9a1bfe7655646599b',
   '../connections-service.ts': '1aae9d2c0da483ae798ba03d5804bfb0e81316f3f69666c6595befec3179c314',
   // Repository acquisition and source claims share the ordinary runtime admission review.
   '../git-branch.ts': '6dd4fef0069e65d78fc94d047777442e4ef073596555581da536e1e39a5d3877',
