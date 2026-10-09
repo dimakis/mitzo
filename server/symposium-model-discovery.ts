@@ -3,6 +3,7 @@ import {
   DiscoveryCommandFailure,
   DiscoveryNativeMetadataFailure,
   DiscoveryDiagnosticSchema,
+  RoutingDiagnosticResultSchema,
   type DiscoveryDiagnostic,
 } from './symposium-discovery-diagnostics.js';
 import { createHash, randomBytes } from 'node:crypto';
@@ -88,13 +89,8 @@ export type DiscoveryResult =
       diagnosticPersisted?: boolean;
     };
 /** Routing metadata only; completion never publishes a model catalog. */
-export interface RoutingDiagnosticResult {
-  status: 'complete' | 'failed' | 'reconciliation_required';
-  inference: false;
-  catalogPublication: false;
-  diagnostic?: DiscoveryDiagnostic;
-  diagnosticPersisted?: boolean;
-}
+export { RoutingDiagnosticResultSchema } from './symposium-discovery-diagnostics.js';
+export type RoutingDiagnosticResult = z.infer<typeof RoutingDiagnosticResultSchema>;
 
 /** Account and model metadata only. No thread/turn API, inference, or automatic retry. */
 export async function runSymposiumModelDiscovery(
