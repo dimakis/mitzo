@@ -34,6 +34,9 @@ it('exposes the same discovery, session approval and request tools to SDK sessio
     'GetConnectionGuide',
     'PrepareConnectionSetup',
     'GetConnectionSetup',
+    'ListRepositories',
+    'PrepareRepositoryChat',
+    'GetRepositoryChatPreparation',
   ]);
   const result = await mocked.tools[0].handler({});
   expect(JSON.stringify(result)).toContain('connections');
@@ -206,6 +209,53 @@ it('treats generic WebSocket messages as writes even when the agent labels their
     credentialSdkPermission(
       'mcp__mitzo-connections__ConnectionWebSocket',
       input,
+      'client',
+      registry,
+      session,
+    )?.behavior,
+  ).toBe('allow');
+});
+
+it('registers repository preparation with the shared prefixed permission boundary', () => {
+  const registry = new SessionRegistry();
+  registry.register('client', {
+    sessionId: 'origin',
+    mode: 'agent',
+    abortController: new AbortController(),
+  } as never);
+  const session = registry.get('client')!;
+  expect(
+    credentialSdkPermission(
+      'mcp__mitzo-connections__PrepareRepositoryChat',
+      { repository: 'example/repo', prompt: 'Fix parser' },
+      'client',
+      registry,
+      session,
+    )?.behavior,
+  ).toBe('allow');
+  expect(
+    credentialSdkPermission(
+      'mcp__mitzo-connections__PrepareRepositoryChat',
+      { repository: 'example/repo', prompt: 'Fix parser', accountId: 'other' },
+      'client',
+      registry,
+      session,
+    )?.behavior,
+  ).toBe('deny');
+  session.mode = 'ask';
+  expect(
+    credentialSdkPermission(
+      'mcp__mitzo-connections__PrepareRepositoryChat',
+      { repository: 'example/repo', prompt: 'Fix parser' },
+      'client',
+      registry,
+      session,
+    )?.behavior,
+  ).toBe('deny');
+  expect(
+    credentialSdkPermission(
+      'mcp__mitzo-connections__GetRepositoryChatPreparation',
+      {},
       'client',
       registry,
       session,

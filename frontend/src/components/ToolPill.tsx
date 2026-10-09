@@ -7,6 +7,7 @@ import { CodeBlock } from './CodeBlock';
 import { artifactViewerUrl } from '../lib/file-paths';
 import { webAccessOutcome, webAccessSummary } from '../lib/web-access-outcome';
 import { ConnectionSetupCard } from './ConnectionSetupCard';
+import { RepositoryChatSetupCard } from './RepositoryChatSetupCard';
 import { GoogleSearchResult } from './GoogleSearchResult';
 
 interface Props {
@@ -179,6 +180,7 @@ export function ToolPill({ block, sessionId, showSetupCard = true }: Props) {
         <span className="tool-pill-chevron">{expanded ? '▾' : '▸'}</span>
       </button>
       {showSetupCard && <ConnectionSetupCard block={block} sessionId={sessionId} />}
+      {showSetupCard && <RepositoryChatSetupCard block={block} sessionId={sessionId} />}
       {['RequestWebAccess', 'mcp__mitzo-web-access__RequestWebAccess'].includes(
         block.toolName ?? '',
       ) &&

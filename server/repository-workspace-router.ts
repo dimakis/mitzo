@@ -15,6 +15,7 @@ const previewInput = selection.extend({
 export function createRepositoryWorkspaceRouter(deps: {
   resolveBinding(accountId: string, model: string): AccountBinding;
   catalog(binding: AccountBinding): unknown;
+  chatPreparation?(id: string): unknown;
   preview(
     binding: AccountBinding,
     connectionId: string,
@@ -92,6 +93,19 @@ export function createRepositoryWorkspaceRouter(deps: {
     } finally {
       clearTimeout(timer);
       req.off('aborted', abort);
+    }
+  });
+  router.get('/:id/chat-preparation', (req, res) => {
+    if (
+      !z.uuid().safeParse(req.params.id).success ||
+      !z.strictObject({}).safeParse(req.query).success
+    )
+      return res.status(400).json({ error: 'Invalid repository chat preparation' });
+    try {
+      if (!deps.chatPreparation) throw new Error('unavailable');
+      return res.json(deps.chatPreparation(String(req.params.id)));
+    } catch {
+      return res.status(404).json({ error: 'Repository chat preparation unavailable' });
     }
   });
   router.get('/:id', (req, res) => {

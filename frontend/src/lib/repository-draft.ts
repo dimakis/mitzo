@@ -2,6 +2,11 @@ export function repositoryDraftKey(accountId: string, model: string) {
   return `mitzo-repository-draft:${accountId}:${model}`;
 }
 
+/** Editable prompt ownership belongs to a preparation, independent of runtime routing. */
+export function repositoryPromptDraftKey(preparationId: string): string {
+  return `mitzo-repository-prompt:${preparationId}`;
+}
+
 export function savedRepositoryDraft(accountId: string, model: string): string | null {
   try {
     return sessionStorage.getItem(repositoryDraftKey(accountId, model));

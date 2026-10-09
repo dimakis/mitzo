@@ -2662,6 +2662,12 @@ app.use(
   createRepositoryWorkspaceRouter({
     resolveBinding: repositoryWorkspaceBinding,
     catalog: repositoryWorkspaceCatalog,
+    chatPreparation: (id) => {
+      const service = getRepositoryWorkspaces(true);
+      const record = service.get(id);
+      const binding = repositoryWorkspaceBinding(record.binding.accountId, record.binding.model);
+      return { repositoryChat: service.chatPreparation(id, binding) };
+    },
     preview: (binding, connectionId, repository, signal) =>
       getRepositoryWorkspaces().preview(binding, connectionId, repository, signal),
     prepare: (id, binding, signal) => getRepositoryWorkspaces().prepare(id, binding, signal),

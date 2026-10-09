@@ -206,3 +206,16 @@ it('blocks dashboard saves in Ask mode before discovering credentials or request
   ).toBe(true);
   expect(providers).not.toHaveBeenCalled();
 });
+
+it('advertises and dispatches repository tools through the shared provider surface', async () => {
+  const f = setup();
+  expect(f.tools.definitions.map((tool) => tool.name)).toEqual(
+    expect.arrayContaining([
+      'ListRepositories',
+      'PrepareRepositoryChat',
+      'GetRepositoryChatPreparation',
+    ]),
+  );
+  const result = await f.tools.execute('ListRepositories', {}, new AbortController().signal);
+  expect(result).toBeDefined();
+});

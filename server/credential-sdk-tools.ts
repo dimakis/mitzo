@@ -1,3 +1,4 @@
+import { repositoryChatSchemas, repositoryChatToolDefinitions } from './repository-chat-tools.js';
 import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk';
 import {
   checkSkillPolicy,
@@ -12,6 +13,8 @@ import {
 import { sessionCredentialTools } from './session-credential-tools.js';
 
 const prefix = 'mcp__mitzo-connections__';
+const schemas = { ...credentialConnectionSchemas, ...repositoryChatSchemas };
+const definitions = [...credentialConnectionToolDefinitions, ...repositoryChatToolDefinitions];
 /** Only this server's validated handlers bypass the SDK's generic MCP prompt; connection grants still force their own card. */
 export function credentialSdkPermission(
   name: string,
@@ -21,10 +24,10 @@ export function credentialSdkPermission(
   session: ManagedSession,
 ) {
   if (!name.startsWith(prefix)) return undefined;
-  const short = name.slice(prefix.length) as keyof typeof credentialConnectionSchemas;
+  const short = name.slice(prefix.length) as keyof typeof schemas;
   if (
-    !Object.hasOwn(credentialConnectionSchemas, short) ||
-    !credentialConnectionSchemas[short].safeParse(input).success ||
+    !Object.hasOwn(schemas, short) ||
+    !schemas[short].safeParse(input).success ||
     registry.get(clientId) !== session ||
     session.abortController.signal.aborted ||
     checkSkillPolicy(registry, clientId, name) === 'deny'
@@ -39,7 +42,8 @@ export function credentialSdkPermission(
       input.method !== undefined &&
       !['GET', 'HEAD'].includes(String(input.method))) ||
       (short === 'HomeAssistantDashboard' && input.operation === 'save') ||
-      short === 'ConnectionWebSocket')
+      short === 'ConnectionWebSocket' ||
+      short === 'PrepareRepositoryChat')
   )
     return { behavior: 'deny' as const, message: 'Ask mode only permits connection reads' };
   return { behavior: 'allow' as const, updatedInput: input };
@@ -53,12 +57,11 @@ export function createCredentialSdkServer(
   return createSdkMcpServer({
     name: 'mitzo-connections',
     version: '1.0.0',
-    tools: credentialConnectionToolDefinitions.map((definition) =>
+    tools: definitions.map((definition) =>
       tool(
         definition.name,
         definition.description,
-        credentialConnectionSchemas[definition.name as keyof typeof credentialConnectionSchemas]
-          .shape,
+        schemas[definition.name as keyof typeof schemas].shape,
         async (input, extra) => {
           const id = sessionId();
           if (!id)

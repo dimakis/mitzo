@@ -14,34 +14,63 @@ function draftKey(sessionId: string | undefined): string {
   return `${KEY_PREFIX}${sessionId ?? 'new'}`;
 }
 
+function readDraft(key: string, initialText?: string, scoped = false): string {
+  if (!scoped && initialText) return initialText;
+  try {
+    return localStorage.getItem(key) ?? initialText ?? '';
+  } catch {
+    return initialText ?? '';
+  }
+}
+
+function saveDraft(key: string, text: string, preserveEmpty = false): void {
+  try {
+    if (text || preserveEmpty) localStorage.setItem(key, text);
+    else localStorage.removeItem(key);
+  } catch {
+    // Browser draft storage is optional.
+  }
+}
+
 /** Persists draft prompt text to localStorage per session. */
 export function useDraft(
   sessionId: string | undefined,
   initialText?: string,
-): [string, Dispatch<SetStateAction<string>>, () => void] {
-  const [text, setTextRaw] = useState(() => {
-    if (initialText) return initialText;
-    try {
-      return localStorage.getItem(draftKey(sessionId)) ?? '';
-    } catch {
-      return '';
-    }
-  });
+  draftStorageKey?: string,
+): [string, Dispatch<SetStateAction<string>>, () => void, () => void] {
+  const key = draftStorageKey ?? draftKey(sessionId);
+  const scoped = draftStorageKey !== undefined;
+  const [text, setTextRaw] = useState(() => readDraft(key, initialText, scoped));
 
   const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
-  const sessionRef = useRef(sessionId);
+  const storageRef = useRef({ key, scoped });
+  const textRef = useRef(text);
+  textRef.current = text;
+  const dirty = useRef(false);
   const mountedRef = useRef(false);
 
   // When sessionId changes (e.g. new session gets assigned an ID),
   // migrate draft from old key and load any existing draft for new key.
   useEffect(() => {
-    const prev = sessionRef.current;
-    sessionRef.current = sessionId;
-    if (prev === sessionId) return;
+    const previous = storageRef.current;
+    if (previous.key === key) return;
+    clearTimeout(timerRef.current);
+    if (dirty.current) saveDraft(previous.key, textRef.current, previous.scoped);
+    dirty.current = false;
+    // Preparation drafts belong to their own receipt. Never move ordinary or
+    // another preparation's text across this ownership boundary.
+    if (previous.scoped || scoped) {
+      storageRef.current = { key, scoped };
+      const restored = readDraft(key, initialText, scoped);
+      textRef.current = restored;
+      setTextRaw(restored);
+      return;
+    }
+    storageRef.current = { key, scoped };
 
     // If we had a draft under the old key, migrate it
-    const oldKey = draftKey(prev);
-    const newKey = draftKey(sessionId);
+    const oldKey = previous.key;
+    const newKey = key;
     try {
       const existing = localStorage.getItem(newKey);
       if (existing) {
@@ -59,7 +88,7 @@ export function useDraft(
     } catch {
       // localStorage unavailable — ignore
     }
-  }, [sessionId]);
+  }, [key, scoped, initialText]);
 
   // Debounced save to localStorage on text change (skip initial render)
   useEffect(() => {
@@ -68,30 +97,48 @@ export function useDraft(
       return;
     }
     clearTimeout(timerRef.current);
+    if (!dirty.current) return;
+    const savedKey = storageRef.current.key;
+    const preserveEmpty = storageRef.current.scoped;
     timerRef.current = setTimeout(() => {
-      try {
-        const key = draftKey(sessionRef.current);
-        if (text) {
-          localStorage.setItem(key, text);
-        } else {
-          localStorage.removeItem(key);
-        }
-      } catch {
-        // localStorage full or unavailable — ignore
-      }
+      saveDraft(savedKey, text, preserveEmpty);
+      dirty.current = false;
     }, DEBOUNCE_MS);
 
     return () => clearTimeout(timerRef.current);
-  }, [text]);
+  }, [text, key]);
 
-  const clearDraft = useCallback(() => {
-    setTextRaw('');
-    try {
-      localStorage.removeItem(draftKey(sessionRef.current));
-    } catch {
-      // ignore
-    }
+  useEffect(
+    () => () => {
+      clearTimeout(timerRef.current);
+      if (dirty.current)
+        saveDraft(storageRef.current.key, textRef.current, storageRef.current.scoped);
+    },
+    [],
+  );
+
+  const setText = useCallback<Dispatch<SetStateAction<string>>>((update) => {
+    setTextRaw((previous) => {
+      const next = typeof update === 'function' ? update(previous) : update;
+      textRef.current = next;
+      dirty.current = true;
+      return next;
+    });
   }, []);
 
-  return [text, setTextRaw, clearDraft];
+  const clearDraft = useCallback(() => {
+    clearTimeout(timerRef.current);
+    dirty.current = false;
+    textRef.current = '';
+    setTextRaw('');
+    saveDraft(storageRef.current.key, '');
+  }, []);
+
+  const flushDraft = useCallback(() => {
+    clearTimeout(timerRef.current);
+    saveDraft(storageRef.current.key, textRef.current, storageRef.current.scoped);
+    dirty.current = false;
+  }, []);
+
+  return [text, setText, clearDraft, flushDraft];
 }
