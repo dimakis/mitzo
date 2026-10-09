@@ -174,7 +174,7 @@ syncBuiltinESMExports();
       timeout: 30000,
       env: { PATH: process.env.PATH },
     });
-  return { root, old, receiptPath, run, runRecovery };
+  return { root, old, receiptPath, run, runRecovery, preload };
 }
 it('the real metadata command archives the original receipt, leaves its process intact and qualifies the new guards', () => {
   const f = fixture(),
@@ -334,3 +334,44 @@ it('recovery refuses another operation or installed-controller drift while retai
   ).not.toBe(0);
   expect(existsSync(join(f.root, 'service/deployment.lock'))).toBe(true);
 }, 15000);
+
+it('recovery retains the lock when installed historical control evidence changes', () => {
+  const { f, report, operation } = completedRetainedOperation();
+  writeFileSync(join(f.root, 'service/control-tool.json'), '{}');
+  const recovered = f.runRecovery(
+    '--operation',
+    operation.id,
+    '--expected-audit',
+    report.auditSha256,
+  );
+  expect(recovered.status).not.toBe(0);
+  expect(recovered.stderr).toContain('Installed historical control evidence changed');
+  expect(existsSync(join(f.root, 'service/deployment.lock'))).toBe(true);
+}, 15000);
+it('recovery retains the lock after canonical re-registration or original process birth drift', () => {
+  for (const drift of ['registration', 'birth']) {
+    const { f, report, operation } = completedRetainedOperation();
+    let preload = readFileSync(f.preload, 'utf8');
+    if (drift === 'registration') {
+      preload = preload.replace(
+        JSON.stringify(
+          join(
+            realpathSync(join(f.root, '../../..')),
+            'Library/LaunchAgents/com.mitzo.staging.plist',
+          ),
+        ),
+        JSON.stringify(join(f.root, 'service/com.mitzo.staging.plist')),
+      );
+    } else preload = preload.replace("stdout:'original birth'", "stdout:'different birth'");
+    writeFileSync(f.preload, preload);
+    const recovered = f.runRecovery(
+      '--operation',
+      operation.id,
+      '--expected-audit',
+      report.auditSha256,
+    );
+    expect(recovered.status, drift).not.toBe(0);
+    expect(recovered.stderr).toContain('Original live');
+    expect(existsSync(join(f.root, 'service/deployment.lock'))).toBe(true);
+  }
+}, 30000);

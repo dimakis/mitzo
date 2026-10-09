@@ -27,6 +27,7 @@ import {
 import { verifyRetainedQualification } from './lib/staging-qualification-recovery.mjs';
 import { auditLegacyClosure } from './lib/staging-legacy.mjs';
 import { registrationDigest } from './lib/staging-registration.mjs';
+import { assertStageJob } from './lib/staging-job.mjs';
 
 const root = join(homedir(), '.local/share/mitzo-staging'),
   source = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -87,6 +88,53 @@ function publicFile(p) {
   )
     throw Error('Original qualification file identity refused');
   return readFileSync(p);
+}
+const legacyPath = join(homedir(), 'Library/LaunchAgents/com.mitzo.staging.plist'),
+  canonicalPath = join(root, 'service/com.mitzo.staging.plist');
+function originalJob(receipt) {
+  const text = run('launchctl', ['print', `gui/${process.getuid()}/com.mitzo.staging`]);
+  if (text.match(/^\s*path = (.+)$/m)?.[1]?.trim() !== legacyPath)
+    throw Error('Original live legacy registration changed');
+  const registrationSha256 = registrationDigest(legacyPath);
+  if (registrationDigest(canonicalPath) !== registrationSha256)
+    throw Error('Legacy/private registrations differ');
+  const plist = JSON.parse(run('/usr/bin/plutil', ['-convert', 'json', '-o', '-', legacyPath]));
+  if (
+    plist.Label !== 'com.mitzo.staging' ||
+    plist.KeepAlive !== false ||
+    plist.WorkingDirectory !== receipt.release ||
+    plist.ProgramArguments?.length !== 2 ||
+    realpathSync(plist.ProgramArguments[0]) !== realpathSync(process.execPath) ||
+    plist.ProgramArguments[1] !== join(root, 'service/start.mjs')
+  )
+    throw Error('Legacy service configuration refused');
+  const pid = Number(text.match(/^\s*pid = (\d+)$/m)?.[1]);
+  const birth = run('/bin/ps', ['-p', String(pid), '-o', 'lstart=']);
+  const cwd = run('/usr/sbin/lsof', ['-a', '-p', String(pid), '-d', 'cwd', '-Fn'])
+    .split('\n')
+    .filter((l) => l.startsWith('n'));
+  if (cwd.length !== 1) throw Error('Original process directory unknown');
+  const portPids = (port) => {
+    const p = spawnSync('/usr/sbin/lsof', ['-t', `-iTCP:${port}`, '-sTCP:LISTEN'], {
+      encoding: 'utf8',
+      timeout: 3000,
+    });
+    if (p.status === 1) return [];
+    if (p.status !== 0) throw Error('Listener inventory unavailable');
+    return [...new Set(p.stdout.trim().split(/\s+/).filter(Boolean).map(Number))];
+  };
+  const job = {
+    pid,
+    birth,
+    cwd: cwd[0].slice(1),
+    portPids: portPids(3190),
+    protectedPids: [...portPids(3100), ...portPids(3101)],
+  };
+  assertStageJob(job, receipt);
+  return {
+    original: { pid, birth, cwd: job.cwd },
+    legacyRegistration: { path: legacyPath, sha256: registrationSha256 },
+  };
 }
 try {
   if (process.platform !== 'darwin' || args.length !== 4)
@@ -183,6 +231,17 @@ try {
       priorBytes,
       currentBytes: publicFile(receiptPath),
     });
+    const live = originalJob(prior);
+    if (
+      JSON.stringify(live.original) !== JSON.stringify(snapshot.original) ||
+      JSON.stringify(live.legacyRegistration) !== JSON.stringify(snapshot.legacyRegistration)
+    )
+      throw Error('Original live registration or process identity changed');
+    if (
+      hash(publicFile(join(root, 'service/control-tool.json'))) !==
+      snapshot.files['service/control-tool.json']
+    )
+      throw Error('Installed historical control evidence changed');
     const a = auditLegacyClosure(prior.release, prior);
     for (const k of ['legacyFingerprint', 'closureFingerprint', 'coverage', 'payloadSha256'])
       if (JSON.stringify(a[k]) !== JSON.stringify(snapshot[k]))
