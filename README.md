@@ -1012,6 +1012,11 @@ The [operating procedure](docs/operations/canonical-staging.md) describes integr
 checks, exact-commit preparation, plan/apply updates, private audit/snapshots and uncertain
 shutdown handling. Staging operations keep production and retained diagnostic resources
 outside their scope; provider setup is separate.
+Historical receipts and login-plist registrations require the explicit
+[legacy qualification procedure](docs/operations/canonical-staging.md#explicit-legacy-qualification)
+before the ordinary-to-owned transition. Its metadata migration archives existing
+evidence and leaves the original service running; changed locks can be prepared
+from an explicitly pinned, independently provisioned dependency source.
 
 ### Host Podman image maintenance
 

@@ -55,6 +55,7 @@ function fixture(mode = 'valid') {
     'home',
     'releases',
     'bin/lib',
+    'registry',
   ])
     mkdirSync(join(root, p), { recursive: true, mode: 0o700 });
   const release = join(root, 'releases', old.slice(0, 12));
@@ -185,6 +186,15 @@ it('a changed original receipt refuses before a lock, archive or controller writ
   ).not.toBe(0);
   expect(existsSync(join(f.root, 'service/requalifications'))).toBe(false);
   expect(existsSync(join(f.root, 'service/deployment.lock'))).toBe(false);
+});
+it('retained registry ownership or an unused start permit refuses even read-only qualification', () => {
+  for (const name of ['registry/retained.json', 'service/launch-permit.json']) {
+    const f = fixture();
+    writeFileSync(join(f.root, name), 'retained', { mode: 0o600 });
+    expect(f.run('audit').status).not.toBe(0);
+    expect(existsSync(join(f.root, 'service/requalifications'))).toBe(false);
+    expect(readFileSync(join(f.root, name), 'utf8')).toBe('retained');
+  }
 });
 it('an unaccepted source cannot apply a valid independently audited original', () => {
   const f = fixture('unaccepted'),

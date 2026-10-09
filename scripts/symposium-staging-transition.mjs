@@ -383,6 +383,7 @@ function controllerIdentity(commit) {
     'scripts/lib/symposium-staging-transition.mjs',
     'scripts/lib/symposium-staging-router.mjs',
     'scripts/lib/staging-files.mjs',
+    'scripts/lib/staging-registration.mjs',
   ];
   run('git', ['ls-files', '--error-unmatch', ...files], controllerRoot);
   assertVisibleTrackedIndex(run('git', ['ls-files', '-v'], controllerRoot));

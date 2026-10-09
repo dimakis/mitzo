@@ -17,6 +17,7 @@ import {
   renameSync,
   unlinkSync,
   realpathSync,
+  readdirSync,
 } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { auditLegacyClosure } from './lib/staging-legacy.mjs';
@@ -123,12 +124,24 @@ function originalJob(receipt) {
   };
 }
 function inspect(ownLock = false) {
-  for (const p of ['service', 'settings', 'workspace', 'state', 'home', 'releases', 'bin'])
+  for (const p of [
+    'service',
+    'settings',
+    'workspace',
+    'state',
+    'home',
+    'releases',
+    'bin',
+    'registry',
+  ])
     stageDirectory(root, p);
   if (!ownLock) absent(lockPath);
+  if (readdirSync(join(root, 'registry')).length)
+    throw Error('Existing registry ownership requires investigation');
   for (const p of [
     qualificationPath,
     join(root, 'service/topology.json'),
+    join(root, 'service/launch-permit.json'),
     join(root, 'symposium/service/transition.json'),
     join(root, 'symposium/service/launch.intent'),
     join(root, 'symposium/service/original-owner.json'),
