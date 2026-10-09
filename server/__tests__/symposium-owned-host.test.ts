@@ -1805,7 +1805,7 @@ it('promotes only the retained positive owned Ready identity after guarded first
     present = true;
   let journal: discoveryCore.DiscoveryReceipt | undefined;
   let ownedRow: Record<string, unknown>;
-  let expectedReceipt: discoveryCore.DiscoveryReceipt;
+  let expectedReceipt: discoveryCore.DiscoveryReceipt | undefined;
   const raw = {
     persistReceipt: vi.fn(async (receipt) => {
       journal = structuredClone(receipt);
@@ -1874,6 +1874,7 @@ it('promotes only the retained positive owned Ready identity after guarded first
       inference: false,
     });
     expect(raw.persistReceipt).toHaveBeenCalled();
+    if (!expectedReceipt) throw Error('Original Ready receipt was not captured');
     for (const [receipt, exclusive] of vi.mocked(raw.persistReceipt).mock.calls) {
       expect(receipt).toEqual(expectedReceipt);
       expect(exclusive).toBe(false);
