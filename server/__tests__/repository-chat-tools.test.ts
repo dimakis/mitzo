@@ -379,3 +379,17 @@ it('keeps unknown tool dispatch available to other handlers', async () => {
   expect(await tools.execute('OtherTool', {}, signal())).toBeUndefined();
   expect(runtime.binding).not.toHaveBeenCalled();
 });
+
+it('recovers status through the read-only ledger accessor and gives prior-draft guidance on failure', async () => {
+  const f = fixture();
+  await f.tools.execute('GetRepositoryChatPreparation', {}, signal());
+  expect(runtime.service).toHaveBeenCalledWith(true);
+  runtime.prepareChat.mockRejectedValueOnce(new Error('private fixture failure'));
+  const failed = await f.tools.execute(
+    'PrepareRepositoryChat',
+    { repository: 'example/repo', prompt: 'New task' },
+    signal(),
+  );
+  expect(failed?.content).toContain('GetRepositoryChatPreparation');
+  expect(failed?.content).not.toContain('private fixture failure');
+});

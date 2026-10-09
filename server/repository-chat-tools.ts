@@ -186,7 +186,7 @@ export function sessionRepositoryTools(
           const { preparationId } = repositoryChatSchemas.GetRepositoryChatPreparation.parse(
             parsed.data,
           );
-          const preparation = getRepositoryWorkspaces().chatPreparation(
+          const preparation = getRepositoryWorkspaces(true).chatPreparation(
             preparationId,
             binding,
             sessionId,
@@ -222,7 +222,7 @@ export function sessionRepositoryTools(
         return {
           content:
             name === 'PrepareRepositoryChat'
-              ? 'Repository chat preparation failed. Select exactly one authorized GitHub repository from ListRepositories, check repository access, and retry.'
+              ? 'Repository chat preparation could not complete. Use GetRepositoryChatPreparation once to inspect any existing draft before preparing another. Preserve running or interrupted preparations for inspection; clear only an unused ready or failed draft. If no draft exists, check repository access through ListRepositories.'
               : 'Repository chat preparation is unavailable for this account and source chat. Check the draft selection and retry.',
           isError: true,
         };
