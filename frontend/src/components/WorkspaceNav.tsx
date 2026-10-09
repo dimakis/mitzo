@@ -34,6 +34,8 @@ export function WorkspaceNav({ desktop = false }: { desktop?: boolean }) {
       {items.map(({ label, path, end, icon }) => {
         const active =
           (end ? pathname === path : pathname === path || pathname.startsWith(path + '/')) ||
+          (label === 'Today' &&
+            (pathname.startsWith('/briefings/') || pathname.startsWith('/quotes/'))) ||
           (label === 'Chats' && (pathname === '/chat' || pathname.startsWith('/chat/'))) ||
           (label === 'Connections' && pathname === '/connections') ||
           (!desktop &&
