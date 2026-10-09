@@ -1,3 +1,4 @@
+import { defaultSeatColor } from '../lib/theme-color';
 import {
   SymposiumConfigurationOperationReceiptSchema,
   canonicalConfigurationOperationJson,
@@ -124,7 +125,7 @@ function approvedReviewerSeat(
     seat.accountBinding?.accountId !== approved.selection.accountId ||
     seat.model !== approved.selection.model ||
     (seat.reasoningEffort ?? '') !== (approved.selection.reasoningEffort ?? '') ||
-    seat.color !== '#665599'
+    seat.color !== defaultSeatColor()
   )
     throw new Error('Configuration did not confirm the approved account and model.');
   if (operation.generic) {
@@ -847,7 +848,7 @@ function ReviewerForm({
             expectedRevision: config.revision,
             seatId,
             ...guidance,
-            color: '#665599',
+            color: defaultSeatColor(),
             accountId: selected.accountId,
             model: selected.model,
             ...(selected.reasoningEffort ? { reasoningEffort: selected.reasoningEffort } : {}),
@@ -876,7 +877,7 @@ function ReviewerForm({
                   {
                     id: seatId,
                     ...guidance,
-                    color: '#665599',
+                    color: defaultSeatColor(),
                     model: selected.model,
                     accountBinding: binding,
                     ...(selected.reasoningEffort

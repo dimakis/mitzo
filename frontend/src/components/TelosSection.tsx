@@ -13,10 +13,10 @@ const STATUS_ICONS: Record<string, string> = {
 };
 
 const STATUS_COLORS: Record<string, string> = {
-  active: '#b48cff',
-  acknowledged: '#60a5fa',
-  snoozed: '#888',
-  completed: '#4ade80',
+  active: 'var(--color-accent)',
+  acknowledged: 'var(--color-info)',
+  snoozed: 'var(--color-muted)',
+  completed: 'var(--color-success)',
 };
 
 function urgencyClass(urgency: number): string {
@@ -37,7 +37,9 @@ function TelosCard({
   onAck: (id: string) => void;
 }) {
   const icon = item.starred ? '\u2605' : (STATUS_ICONS[item.status] ?? '\u25CF');
-  const color = item.starred ? '#fbbf24' : (STATUS_COLORS[item.status] ?? '#888');
+  const color = item.starred
+    ? 'var(--color-warning)'
+    : (STATUS_COLORS[item.status] ?? 'var(--color-muted)');
   const ageLabel = item.ageDays === 0 ? 'new' : `${item.ageDays}d`;
   const source = item.sources[0];
   const hasChildren = (item.children?.length ?? 0) > 0;

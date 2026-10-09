@@ -9,11 +9,13 @@ export function ProposalDetail({
   onArchive,
   onDiscard,
   onReview,
+  pending = false,
 }: {
   item: InboxItem;
   onArchive: (filename: string) => void;
   onDiscard: (filename: string) => void;
   onReview: (item: InboxItem, body: string) => void;
+  pending?: boolean;
 }) {
   const [content, setContent] = useState<string | null>(null);
   const [error, setError] = useState(false);
@@ -51,12 +53,21 @@ export function ProposalDetail({
       ) : (
         <>
           <div className="collection-actions">
-            <button className="collection-primary" onClick={() => onReview(item, content)}>
+            <button
+              disabled={pending}
+              className="collection-primary"
+              onClick={() => onReview(item, content)}
+            >
               Review in session
             </button>
-            <button onClick={() => onArchive(item.filename)}>Archive</button>
-            <button onClick={() => onDiscard(item.filename)}>Discard</button>
+            <button disabled={pending} onClick={() => onArchive(item.filename)}>
+              Archive
+            </button>
+            <button disabled={pending} onClick={() => onDiscard(item.filename)}>
+              Discard
+            </button>
           </div>
+          {pending && <p role="status">Updating proposal…</p>}
           <p className="workspace-muted">
             Archive keeps the proposal for reference. Review in session opens a conversation about
             it.

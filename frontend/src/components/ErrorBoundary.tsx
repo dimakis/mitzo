@@ -33,8 +33,8 @@ export class ErrorBoundary extends Component<Props, State> {
     return (
       <div
         style={{
-          background: 'var(--bg, #111113)',
-          color: '#e0e0e0',
+          background: 'var(--bg, var(--color-bg))',
+          color: 'var(--color-text)',
           minHeight: '100dvh',
           display: 'flex',
           flexDirection: 'column',
@@ -42,18 +42,18 @@ export class ErrorBoundary extends Component<Props, State> {
           justifyContent: 'center',
           padding: '2rem',
           textAlign: 'center',
-          fontFamily: 'system-ui, sans-serif',
+          fontFamily: 'var(--ui-font)',
         }}
       >
         <h1 style={{ fontSize: '1.5rem', marginBottom: '0.5rem' }}>Something went wrong</h1>
-        <p style={{ color: '#999', fontSize: '0.875rem', marginBottom: '1.5rem' }}>
+        <p style={{ color: 'var(--color-muted)', fontSize: '0.875rem', marginBottom: '1.5rem' }}>
           {this.state.error?.message || 'An unexpected error occurred'}
         </p>
         <button
           onClick={this.handleReset}
           style={{
-            background: '#7c3aed',
-            color: '#fff',
+            background: 'var(--color-accent)',
+            color: 'var(--color-on-accent)',
             border: 'none',
             borderRadius: '0.5rem',
             padding: '0.75rem 1.5rem',

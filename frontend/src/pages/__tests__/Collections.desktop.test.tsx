@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { InboxView } from '../InboxView';
 import { CalendarView } from '../CalendarView';
@@ -66,6 +66,74 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 describe('desktop collections', () => {
+  it.each([true, false])(
+    'keeps All reachable after removing a filtered agent’s final proposal (desktop=%s)',
+    async (desktop) => {
+      render(
+        <MemoryRouter>
+          <InboxView desktop={desktop} />
+        </MemoryRouter>,
+      );
+      await screen.findByRole('button', { name: 'First proposal' });
+      fireEvent.click(screen.getByRole('button', { name: /planner/ }));
+      fireEvent.click(screen.getByRole('button', { name: 'First proposal' }));
+      await screen.findByText('Full first proposal');
+      await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Archive' })));
+      const all = await screen.findByRole('button', { name: 'All' });
+      fireEvent.click(all);
+      expect(await screen.findByRole('button', { name: 'Second proposal' })).toBeVisible();
+      expect(all).toBeVisible();
+    },
+  );
+  it.each(['search', 'agent filter'])(
+    'clears the selected inspector when %s hides its row',
+    async (filter) => {
+      render(
+        <MemoryRouter>
+          <InboxView desktop />
+        </MemoryRouter>,
+      );
+      fireEvent.click(await screen.findByRole('button', { name: 'First proposal' }));
+      await screen.findByText('Full first proposal');
+      if (filter === 'search') {
+        fireEvent.change(screen.getByRole('searchbox', { name: 'Search proposals' }), {
+          target: { value: 'Second' },
+        });
+      } else {
+        fireEvent.click(screen.getByRole('button', { name: /reviewer/ }));
+      }
+      expect(screen.queryByRole('button', { name: 'First proposal' })).toBeNull();
+      expect(screen.getByText('Select a proposal')).toBeVisible();
+      expect(screen.queryByRole('button', { name: 'Archive' })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Discard' })).toBeNull();
+    },
+  );
+  it('retains disabled pending removal context even if search hides its row', async () => {
+    render(
+      <MemoryRouter>
+        <InboxView desktop />
+      </MemoryRouter>,
+    );
+    fireEvent.click(await screen.findByRole('button', { name: 'First proposal' }));
+    await screen.findByText('Full first proposal');
+    let finish!: (response: { ok: boolean }) => void;
+    mocks.fetch.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Archive' }));
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search proposals' }), {
+      target: { value: 'Second' },
+    });
+    expect(screen.getByText('Full first proposal')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Archive' })).toBeDisabled();
+    await act(async () => finish({ ok: false }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Archive failed');
+    expect(screen.queryByRole('button', { name: 'Archive' })).toBeNull();
+    expect(screen.getByText('Select a proposal')).toBeVisible();
+  });
   it('opens full proposals beside the list and reviews only the selected content', async () => {
     render(
       <MemoryRouter>

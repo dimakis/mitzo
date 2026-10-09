@@ -56,7 +56,7 @@ test('Telos keeps long handovers compact and actions reachable on iOS', async ({
   isMobile,
 }) => {
   test.skip(!isMobile, 'Mobile collection layout');
-  await expect(page.getByRole('heading', { name: 'Telos', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Work', exact: true })).toBeVisible();
   const card = page.locator('.todo-card').first();
   await expect(card).toBeVisible();
   expect((await card.boundingBox())!.height).toBeLessThan(250);

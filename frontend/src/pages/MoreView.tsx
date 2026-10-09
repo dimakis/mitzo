@@ -4,39 +4,54 @@ import { clearWatchToken } from '../lib/watch-auth';
 import { ServiceStatus } from '../components/ServiceStatus';
 import { logout } from '../lib/api-fetch';
 import { WorkspacePageHeading } from '../components/WorkspacePageHeading';
+import { UiIcon } from '../components/UiIcon';
 export function MoreView() {
   const navigate = useNavigate();
   return (
-    <main className="workspace-page">
+    <main className="workspace-page more-page">
       <WorkspacePageHeading title="More" description="Your tools and preferences." />
-      {[
-        ['Notifications', '/notifications'],
-        ['Calendar', '/calendar'],
-        ['Agent taskboard', '/tasks'],
-        ['Knowledge', '/knowledge'],
-        ['Settings', '/settings'],
-        ['All attention', '/focus'],
-        ['Chat history and quick actions', '/sessions'],
-        ['Connections', '/connections-access'],
-        ['API connections', '/connections?manage=api'],
-      ].map(([label, to]) => (
-        <Link className="workspace-record" key={to} to={to}>
-          {label}
-          <span aria-hidden="true">↗</span>
-        </Link>
+      {(
+        [
+          {
+            title: 'Workspace',
+            items: [
+              ['Connections', '/connections-access', 'connections'],
+              ['Notifications', '/notifications', 'bell'],
+              ['Calendar', '/calendar', 'calendar'],
+              ['Agent taskboard', '/tasks', 'agents'],
+              ['Knowledge', '/knowledge', 'files'],
+              ['Files', '/files', 'files'],
+              ['All attention', '/focus', 'today'],
+              ['Chat history and quick actions', '/sessions', 'chats'],
+            ],
+          },
+          {
+            title: 'Preferences',
+            items: [
+              ['Settings', '/settings', 'settings'],
+              ['API connections', '/connections?manage=api', 'connections'],
+            ],
+          },
+        ] as const
+      ).map((group) => (
+        <section className="more-group" key={group.title} aria-label={group.title}>
+          <h2>{group.title}</h2>
+          <div className="access-row-group">
+            {group.items.map(([label, to, icon]) => (
+              <Link className="more-link" key={to} to={to}>
+                <span className="more-link-icon">
+                  <UiIcon name={icon} />
+                </span>
+                <span>{label}</span>
+                <span className="more-link-chevron" aria-hidden="true">
+                  ›
+                </span>
+              </Link>
+            ))}
+          </div>
+        </section>
       ))}
-      <section className="today-section">
-        <h2>Workspace tools</h2>
-        <Link className="workspace-record" to="/files">
-          Files <span aria-hidden="true">↗</span>
-        </Link>
-      </section>
-      <section className="today-section">
-        <h2>Connections</h2>
-        <p className="workspace-muted">
-          Choose AI accounts inside a chat. Add API connections for authenticated service access
-          with your approval in each chat.
-        </p>
+      <section className="more-service-status" aria-label="Service status">
         <ServiceStatus />
       </section>
       <button

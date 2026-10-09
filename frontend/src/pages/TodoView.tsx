@@ -4,7 +4,6 @@ import { useMitzoStore } from '@mitzo/client/hooks';
 import { TodoCard } from '../components/TodoCard';
 import { EmptyState } from '../components/EmptyState';
 import { WorkspacePageHeading } from '../components/WorkspacePageHeading';
-import { MitzoLogo } from '../components/MitzoLogo';
 import { useTodoData } from '../hooks/useTodoData';
 import { buildPrompt, buildTodoContext } from '../lib/todo-utils';
 import type { TodoItem, TodoOutcomeDraft } from '../types/todo';
@@ -353,24 +352,24 @@ export function TodoView({ selectedId }: { selectedId?: string } = {}) {
     <div className="todo-page">
       <div className="todo-collection-heading">
         <WorkspacePageHeading
-          eyebrow="Work"
-          title="Telos"
-          description="Choose a priority. Review its context and next step."
+          title="Work"
+          description="Choose an outcome and take the next step."
+          actions={
+            <div className="todo-collection-actions">
+              <button
+                className="todo-add-btn"
+                onClick={() => setCreating({ parentId: undefined })}
+                aria-label="Add outcome"
+                title="Add todo"
+              >
+                + Add outcome
+              </button>
+              <button className="todo-refresh" onClick={refresh} aria-label="Refresh Telos">
+                &#x21bb;
+              </button>
+            </div>
+          }
         />
-        <div className="todo-collection-actions">
-          <MitzoLogo />
-          <button
-            className="todo-add-btn"
-            onClick={() => setCreating({ parentId: undefined })}
-            aria-label="Add outcome"
-            title="Add todo"
-          >
-            + Add outcome
-          </button>
-          <button className="todo-refresh" onClick={refresh} aria-label="Refresh Telos">
-            &#x21bb;
-          </button>
-        </div>
       </div>
 
       <div className="todo-scroll" ref={scrollRef}>

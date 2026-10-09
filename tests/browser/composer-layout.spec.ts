@@ -11,6 +11,7 @@ async function composerAssets(running = false, model = 'new-model', voiceState =
         import React from 'react';
         import { createRoot } from 'react-dom/client';
         import { ChatInput } from './frontend/src/components/ChatInput';
+        import './frontend/src/styles/tokens.css';
         import './frontend/src/styles/global.css';
         import './frontend/src/styles/workspace.css';
         import './frontend/src/styles/workspace-chat.css';

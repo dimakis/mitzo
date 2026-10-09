@@ -3,6 +3,7 @@
 import { Capacitor } from '@capacitor/core';
 import { App } from '@capacitor/app';
 import { StatusBar, Style } from '@capacitor/status-bar';
+import { themeBackgroundColor } from './theme-color';
 
 export function isCapacitor(): boolean {
   return Capacitor.isNativePlatform();
@@ -26,5 +27,6 @@ export async function configureStatusBar(theme: 'dark' | 'light' = 'dark'): Prom
   if (!isCapacitor()) return;
 
   await StatusBar.setStyle({ style: theme === 'dark' ? Style.Dark : Style.Light });
-  await StatusBar.setBackgroundColor({ color: theme === 'dark' ? '#111113' : '#f5f5f7' });
+  const color = themeBackgroundColor();
+  if (color) await StatusBar.setBackgroundColor({ color });
 }

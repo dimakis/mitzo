@@ -59,7 +59,7 @@ export function WorkspaceNav({ desktop = false }: { desktop?: boolean }) {
             aria-current={active ? 'page' : undefined}
             className={`workspace-nav-link${active ? ' workspace-nav-link--active' : ''}`}
           >
-            {desktop && <UiIcon name={icon} />}
+            <UiIcon name={icon} />
             <span className="workspace-nav-label">{label}</span>
             {(label === 'Notifications' || (!desktop && label === 'More')) &&
               !!notifications?.feed?.needsYou && (
