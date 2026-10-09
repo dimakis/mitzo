@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { EventStore } from '../event-store.js';
 import type { StoredEvent } from '../event-store.js';
@@ -20,6 +23,39 @@ describe('EventStore', () => {
     store.append('s2', 'token_update', { sessionTotal: 999 });
     store.append('s1', 'message_end', { messageId: 'last' });
     expect(store.getLatestEvent('s1', 'token_update')?.payload).toEqual({ sessionTotal: 240 });
+  });
+
+  it('retains the repository marker across metadata updates and database restart', () => {
+    const root = mkdtempSync(join(tmpdir(), 'repository-conversation-marker-'));
+    const path = join(root, 'events.db');
+    store.close();
+    store = new EventStore(path);
+    try {
+      store.upsertSession({
+        sessionId: 'repository-chat',
+        repositoryWorkspaceId: 'source-id',
+        cwd: '/retained/task',
+      });
+      store.upsertSession({ sessionId: 'repository-chat', summary: 'Updated title' });
+      store.close();
+      store = new EventStore(path);
+      expect(store.getSession('repository-chat')).toMatchObject({
+        repositoryWorkspaceId: 'source-id',
+        cwd: '/retained/task',
+        summary: 'Updated title',
+      });
+      expect(() =>
+        store.upsertSession({
+          sessionId: 'repository-chat',
+          repositoryWorkspaceId: 'other-source',
+        }),
+      ).toThrow('cannot be replaced');
+      expect(store.getSession('repository-chat')?.repositoryWorkspaceId).toBe('source-id');
+    } finally {
+      store.close();
+      store = new EventStore(':memory:');
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   describe('constructor', () => {

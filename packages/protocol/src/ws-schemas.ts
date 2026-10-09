@@ -27,6 +27,7 @@ export const SendMessage = z.object({
   mode: z.enum(['ask', 'agent', 'auto']).optional(),
   resume: z.string().optional(),
   cwd: z.string().optional(),
+  repositoryWorkspaceId: z.uuid().optional(),
   extraTools: z.string().optional(),
   isolation: z.boolean().optional(),
   images: z.array(ImageSchema).optional(),

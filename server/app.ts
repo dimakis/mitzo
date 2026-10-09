@@ -1,3 +1,9 @@
+import { createRepositoryWorkspaceRouter } from './repository-workspace-router.js';
+import {
+  getRepositoryWorkspaces,
+  repositoryWorkspaceBinding,
+  repositoryWorkspaceCatalog,
+} from './repository-workspace-runtime.js';
 import { createSdkConversationImportRouter } from './sdk-conversation-import-routes.js';
 import {
   CAPACITY_REATTACH_READY_TIMEOUT_MS,
@@ -2598,6 +2604,19 @@ app.get('/api/models', (_req, res) => {
       .json({ error: 'Model configuration unavailable. Check the profile file on the Mac.' });
   }
 });
+
+app.use(
+  '/api/repository-workspaces',
+  createRepositoryWorkspaceRouter({
+    resolveBinding: repositoryWorkspaceBinding,
+    catalog: repositoryWorkspaceCatalog,
+    preview: (binding, connectionId, repository, signal) =>
+      getRepositoryWorkspaces().preview(binding, connectionId, repository, signal),
+    prepare: (id, binding, signal) => getRepositoryWorkspaces().prepare(id, binding, signal),
+    status: (id, binding) => getRepositoryWorkspaces(true).status(id, binding),
+    discard: (id, binding) => getRepositoryWorkspaces(true).discard(id, binding),
+  }),
+);
 
 app.get('/api/config', (_req, res) => {
   const config = getRepoConfig();

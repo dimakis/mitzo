@@ -21,6 +21,7 @@ logs/
 test-results/
 playwright-report/
 .claude/worktrees/
+.claude/repository-tasks/
 .cursor/worktrees/
 frontend/ios/App/App.xcworkspace/
 **/xcshareddata/swiftpm/Package.resolved

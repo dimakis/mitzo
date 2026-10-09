@@ -1,3 +1,4 @@
+import { isGitBranchName } from '../../git-branch.js';
 import { execFile } from 'node:child_process';
 import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -19,7 +20,7 @@ import type {
 const exec = promisify(execFile);
 const safeSandbox = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 const safePath = /^\/sandbox\/workspaces\/[A-Za-z0-9][A-Za-z0-9._/-]{0,255}$/;
-const safeBranch = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,254}$/;
+const safeBranch = { test: isGitBranchName };
 const safeRepository =
   /^[a-z0-9](?:[a-z0-9._-]{0,98}[a-z0-9])?\/[a-z0-9](?:[a-z0-9._-]{0,98}[a-z0-9])?$/;
 
@@ -30,7 +31,7 @@ export interface OpenShellControlRunner {
   ): Promise<string>;
 }
 
-function checked(value: string, expression: RegExp, message: string) {
+function checked(value: string, expression: Pick<RegExp, 'test'>, message: string) {
   if (!expression.test(value)) throw new Error(message);
   return value;
 }

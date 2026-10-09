@@ -1658,6 +1658,23 @@ describe('reconnect recovery', () => {
 });
 
 describe('sendMessage', () => {
+  it('sends a prepared repository receipt only when creating a new conversation', async () => {
+    const store = createReadyStore();
+    store.getState().sendMessage('start repository task', {
+      repositoryWorkspaceId: '8ca30b0d-3e65-4eeb-8244-f6277350818f',
+    });
+    expect(lastWs.parsedSent().find((message) => message.type === 'send')).toMatchObject({
+      sessionId: null,
+      repositoryWorkspaceId: '8ca30b0d-3e65-4eeb-8244-f6277350818f',
+    });
+    lastWs.simulateMessage({ type: 'session_id', sessionId: 'repository-chat' });
+    store
+      .getState()
+      .sendMessage('continue repository task', { repositoryWorkspaceId: 'different-source' });
+    const messages = lastWs.parsedSent().filter((message) => message.type === 'send');
+    expect(messages.at(-1)).toMatchObject({ sessionId: 'repository-chat' });
+    expect(messages.at(-1)).not.toHaveProperty('repositoryWorkspaceId');
+  });
   it('adds optimistic user message', () => {
     const store = createReadyStore();
     store.getState().sendMessage('hello');
@@ -3367,3 +3384,37 @@ it.each([false, true])(
     expect(store.getState().sessions.active).toBe('running-b');
   },
 );
+
+it.each(['foreground', 'offscreen'] as const)(
+  'notifies only the matching repository send of assignment while %s',
+  async (scope) => {
+    const store = createReadyStore();
+    const assigned = vi.fn();
+    store.getState().sendMessage('Edit repo', {
+      repositoryWorkspaceId: '8ca30b0d-3e65-4eeb-8244-f6277350818f',
+      onSessionAssigned: assigned,
+    });
+    const id = store.getState().messages.messages.at(-1)!.messageId;
+    expect(lastWs.parsedSent().find((msg) => msg.type === 'send')).not.toHaveProperty(
+      'onSessionAssigned',
+    );
+    if (scope === 'offscreen') await store.getState().switchSession('other-chat');
+    lastWs.simulateMessage({ type: 'session_id', sessionId: 'other', clientMsgId: 'unrelated' });
+    expect(assigned).not.toHaveBeenCalled();
+    lastWs.simulateMessage({ type: 'session_id', sessionId: 'repo-chat', clientMsgId: id });
+    expect(assigned).toHaveBeenCalledExactlyOnceWith('repo-chat');
+  },
+);
+
+it('preserves the unassigned repository receipt when startup fails before assignment', () => {
+  const store = createReadyStore();
+  const assigned = vi.fn();
+  store.getState().sendMessage('Edit repo', {
+    repositoryWorkspaceId: '8ca30b0d-3e65-4eeb-8244-f6277350818f',
+    onSessionAssigned: assigned,
+  });
+  const id = store.getState().messages.messages.at(-1)!.messageId;
+  lastWs.simulateMessage({ type: 'error', clientMsgId: id, error: 'Startup rejected' });
+  lastWs.simulateMessage({ type: 'session_id', sessionId: 'unrelated', clientMsgId: 'different' });
+  expect(assigned).not.toHaveBeenCalled();
+});

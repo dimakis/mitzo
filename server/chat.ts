@@ -1,4 +1,13 @@
 import { publicProviderFailureMessage } from './provider-failure.js';
+import {
+  getRepositoryWorkspaces,
+  readRepositoryWorkspaceForConversation,
+} from './repository-workspace-runtime.js';
+import {
+  selectRepositoryChatWorkspace,
+  repositoryChatContext,
+  type RepositoryChatWorkspace,
+} from './repository-chat-startup.js';
 import { credentialSdkBoundary } from './credential-sdk-boundary.js';
 import { createCredentialSdkServer, credentialSdkPermission } from './credential-sdk-tools.js';
 import { CONNECTION_TOOL_INSTRUCTIONS } from './session-credential-tools.js';
@@ -1015,6 +1024,8 @@ export function nativeStartupSessionId(clientMsgId: string): string {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-8${hex.slice(13, 16)}-${variant}${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
 }
 
+const repositoryStartups = new Set<string>();
+
 export async function startChat(
   transport: SessionTransport,
   clientId: string,
@@ -1022,6 +1033,7 @@ export async function startChat(
   options: {
     resume?: string;
     initialSessionId?: string;
+    repositoryWorkspaceId?: string;
     cwd?: string;
     model?: string;
     accountId?: string;
@@ -1045,6 +1057,23 @@ export async function startChat(
     reattachOnly?: boolean;
   },
 ) {
+  const repositoryStartupId =
+    options.repositoryWorkspaceId && !options.resume
+      ? nativeStartupSessionId(`repository:${options.repositoryWorkspaceId}`)
+      : undefined;
+  if (repositoryStartupId) {
+    if (repositoryStartups.has(repositoryStartupId))
+      throw new Error('Repository conversation startup is already in progress');
+    if (
+      eventStore.getSessionState(repositoryStartupId) ||
+      registry.findBySessionId(repositoryStartupId)
+    )
+      throw new Error(
+        'This repository already has a conversation. Resume its original conversation.',
+      );
+    options = { ...options, initialSessionId: repositoryStartupId };
+    repositoryStartups.add(repositoryStartupId);
+  }
   const startupGuard: { admission?: ProviderDispatchAdmission } = {};
   let releaseOrdinaryStartup: (() => void) | undefined;
   return withSpanAsync(
@@ -1072,6 +1101,7 @@ export async function startChat(
         cleanupUndispatchedStartup(startupGuard.admission, clientId);
       } finally {
         releaseOrdinaryStartup?.();
+        if (repositoryStartupId) repositoryStartups.delete(repositoryStartupId);
       }
     });
 }
@@ -1083,6 +1113,7 @@ async function _startChatInner(
   options: {
     resume?: string;
     initialSessionId?: string;
+    repositoryWorkspaceId?: string;
     cwd?: string;
     model?: string;
     accountId?: string;
@@ -1267,7 +1298,76 @@ async function _startChatInner(
       'agent')
     : (options.mode ?? 'agent');
 
+  let repositoryWorkspace: RepositoryChatWorkspace | undefined;
+  if (options.repositoryWorkspaceId) {
+    if (
+      options.resume ||
+      !accountBinding ||
+      !['openai', 'openai-codex'].includes(accountBinding.provider)
+    )
+      throw new Error('Repository-backed startup requires a new ordinary OpenAI conversation');
+    options = {
+      ...options,
+      initialSessionId: options.initialSessionId ?? nativeStartupSessionId(initialMessageId),
+    };
+    const taskRoot = join(BASE_REPO, '.claude', 'repository-tasks');
+    if (!openShellSelected) {
+      if (!BASE_REPO) throw new Error('Repository task root is not configured');
+      mkdirSync(taskRoot, { recursive: true, mode: 0o700 });
+    }
+    repositoryWorkspace = await selectRepositoryChatWorkspace(
+      {
+        repositoryWorkspaceId: options.repositoryWorkspaceId,
+        conversationId: options.initialSessionId!,
+        binding: accountBinding,
+        sandbox: openShellSelected,
+        taskRoot,
+      },
+      getRepositoryWorkspaces(),
+    );
+  } else if (options.resume) {
+    const marker = eventStore.getSession(options.resume)?.repositoryWorkspaceId;
+    repositoryWorkspace = readRepositoryWorkspaceForConversation(options.resume, marker);
+    if (marker && repositoryWorkspace?.id !== marker)
+      throw new Error(
+        'Repository claim ledger is unavailable or changed; preserve the conversation',
+      );
+  }
+  if (
+    repositoryWorkspace?.sandbox !== undefined &&
+    repositoryWorkspace.sandbox !== openShellSelected
+  )
+    throw new Error('Repository workspace runtime changed; preserve the original conversation');
+  if (
+    repositoryWorkspace?.binding &&
+    (!accountBinding ||
+      repositoryWorkspace.binding.accountId !== accountBinding.accountId ||
+      repositoryWorkspace.binding.provider !== accountBinding.provider ||
+      repositoryWorkspace.binding.profileRevision !== accountBinding.profileRevision)
+  )
+    throw new Error('Repository workspace account binding changed');
+  if (repositoryWorkspace && !openShellSelected) {
+    if (!repositoryWorkspace.directory)
+      throw new Error('Retained repository task directory is unavailable');
+    await getRepositoryWorkspaces(true).validateHostTask(
+      options.resume ?? options.initialSessionId!,
+      repositoryWorkspace.directory,
+    );
+    options = { ...options, cwd: repositoryWorkspace.directory };
+  }
   const baseCwd = openShellWorkdir ?? resolveResumeCwd(options);
+  if (repositoryWorkspace) {
+    eventStore.upsertSession({
+      sessionId: options.resume ?? options.initialSessionId!,
+      repositoryWorkspaceId: repositoryWorkspace.id,
+      cwd: baseCwd,
+      mode,
+      ...(accountBinding ? { accountBinding } : {}),
+      selectedModel: options.model ?? accountBinding?.model ?? null,
+      reasoningEffort: options.reasoningEffort ?? null,
+    });
+  }
+  prompt = repositoryChatContext(repositoryWorkspace) + prompt;
   const nativeProviderSelected = !!apiCredentialRef || !!gemini;
 
   if (
@@ -1427,11 +1527,15 @@ async function _startChatInner(
       }
     : createSessionWorktrees(transport, baseCwd, wtId, options);
 
+  if (repositoryWorkspace?.directory && !openShellSelected) {
+    repoWorktrees.set('primary', { path: repositoryWorkspace.directory, wtId });
+  }
+
   // On resume, rebuild worktreePaths from disk so the system prompt and guard
   // have the full map even after server restart (Phase 2d).
   // Merge discovered entries — the map may already have the primary but be
   // missing lazily-created secondaries after a restart.
-  if (!openShellSelected && options.resume && BASE_REPO) {
+  if (!repositoryWorkspace && !openShellSelected && options.resume && BASE_REPO) {
     const config = getRepoConfig();
     const wtIdFromCwd = baseCwd.match(/\/(\.claude|\.cursor)\/worktrees\/([^/]+)/)?.[2];
     if (wtIdFromCwd) {
@@ -1521,7 +1625,7 @@ async function _startChatInner(
     session.worktreePaths.set(name, info);
   }
 
-  const branch = getBranch(cwd);
+  const branch = repositoryWorkspace?.featureBranch ?? getBranch(cwd);
   session.branch = branch;
   send(transport, { type: 'session_info', branch, cwd, worktree: !!worktreePath, wtId });
 
@@ -1615,10 +1719,15 @@ async function _startChatInner(
   }
 
   // Build the system prompt append string (used by both query and comparison)
-  const workspacePrompt = openShellWorkdir
-    ? buildOpenShellWorkspaceSystemPrompt(openShellWorkdir, wtId)
-    : buildWorktreeSystemPrompt(repoWorktrees);
+  const workspacePrompt = repositoryWorkspace
+    ? `# Repository task workspace
+This is an independent checkout with its own Git storage, not a linked worktree. Work inside ${cwd} for code edits, dependency setup and tests. Use the dedicated Mitzo integrations for network access and publication. Do not switch to the configured default repository.
+`
+    : openShellWorkdir
+      ? buildOpenShellWorkspaceSystemPrompt(openShellWorkdir, wtId)
+      : buildWorktreeSystemPrompt(repoWorktrees);
   const systemPromptAppend =
+    repositoryChatContext(repositoryWorkspace) +
     'This is Mitzo, a mobile chat interface. The user is on their phone.\n' +
     SESSION_PERMISSION_INSTRUCTIONS +
     TELOS_ARTIFACT_INSTRUCTIONS +
@@ -1709,6 +1818,7 @@ async function _startChatInner(
         conversationId,
         binding: accountBinding!,
         profile: codexProfile,
+        repositoryWorkspace,
         session,
         registry,
         prompt: fullPrompt,
@@ -1721,7 +1831,7 @@ async function _startChatInner(
         env: sessionEnv,
         mcpServers: allMcpServers,
         eventStore,
-        onDemandCreate: buildOnDemandCreate(wtId, clientId),
+        onDemandCreate: repositoryWorkspace ? undefined : buildOnDemandCreate(wtId, clientId),
         publishingGitStorageRoots: [BASE_REPO, ...Object.values(getRepoConfig().repos)]
           .filter(Boolean)
           .map((root) => join(root, '.git')),
@@ -1776,7 +1886,7 @@ async function _startChatInner(
         systemPrompt: systemPromptAppend,
         env: sessionEnv,
         mcpServers: allMcpServers,
-        onDemandCreate: buildOnDemandCreate(wtId, clientId),
+        onDemandCreate: repositoryWorkspace ? undefined : buildOnDemandCreate(wtId, clientId),
         publishingGitStorageRoots: [BASE_REPO, ...Object.values(getRepoConfig().repos)]
           .filter(Boolean)
           .map((root) => join(root, '.git')),
@@ -1802,7 +1912,7 @@ async function _startChatInner(
     } else {
       const existingDecision = webAccessSdkPermission(
         buildPermissionHandler(clientId, registry, {
-          onDemandCreate: buildOnDemandCreate(wtId, clientId),
+          onDemandCreate: repositoryWorkspace ? undefined : buildOnDemandCreate(wtId, clientId),
         }),
       );
       const connectionServer = createCredentialSdkServer(
@@ -1897,6 +2007,17 @@ async function _startChatInner(
     }
 
     session.queryInstance = q;
+    if (repositoryWorkspace && accountBinding && session.sessionId) {
+      // Provider startup has settled and the task workspace is independently retained.
+      // Failure to reclaim a controller seed must never terminate a live task.
+      await getRepositoryWorkspaces(true)
+        .releaseSource(repositoryWorkspace.id, accountBinding, session.sessionId)
+        .catch(() =>
+          log.warn('Repository preparation cleanup remains pending', {
+            repositoryWorkspaceId: repositoryWorkspace.id,
+          }),
+        );
+    }
 
     // Session state machine: mark STARTING (query allocated, waiting for first SDK event)
     const startingSessionId = options.resume ?? session.sessionId;

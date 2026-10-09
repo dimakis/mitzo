@@ -1,0 +1,45 @@
+.repository-chat-picker {
+  margin: 0.5rem 0.75rem;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+.repository-chat-picker label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+.repository-chat-picker select,
+.repository-chat-picker input {
+  width: 100%;
+  min-height: 2.75rem;
+  padding: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 0.4rem;
+  color: var(--text);
+  background: var(--surface);
+}
+.repository-chat-picker button {
+  align-self: flex-start;
+  min-height: 2.75rem;
+  padding: 0.45rem 0.75rem;
+}
+.repository-chat-picker p {
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+.repository-chat-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  overflow-wrap: anywhere;
+}
+.repository-chat-hint {
+  margin: 0.5rem 0.75rem;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}

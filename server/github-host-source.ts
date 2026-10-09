@@ -1,3 +1,4 @@
+import { isGitBranchName } from './git-branch.js';
 import { execFile } from 'node:child_process';
 import {
   lstat,
@@ -31,13 +32,7 @@ const within = (root: string, path: string) => {
   return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
 };
 function ref(value: string) {
-  if (
-    !/^[A-Za-z0-9][A-Za-z0-9._/-]{0,254}$/.test(value) ||
-    value.includes('..') ||
-    value.includes('@{') ||
-    value.endsWith('.lock')
-  )
-    throw new Error('Git reference is invalid');
+  if (!isGitBranchName(value)) throw new Error('Git reference is invalid');
   return value;
 }
 function gitEnv() {

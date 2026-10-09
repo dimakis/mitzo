@@ -6,6 +6,10 @@ import { randomUUID } from 'node:crypto';
 import { SessionRegistry, type ManagedSession } from '@mitzo/harness';
 import { EventStore } from '@mitzo/protocol/event-store';
 import type { AccountBinding } from '@mitzo/protocol';
+const repositorySeeds = vi.hoisted(() => ({ verify: vi.fn() }));
+vi.mock('../repository-workspace-runtime.js', () => ({
+  getRepositoryWorkspaces: () => ({ startupSeed: repositorySeeds.verify }),
+}));
 const native = vi.hoisted(() => ({ cli: vi.fn(), ssh: vi.fn(), launch: vi.fn() }));
 // Only the native CLI and RPC boundaries are substituted. Conversation, send,
 // queue, lifecycle coordinator, artifact mapping and lifecycle records are real.
@@ -24,7 +28,11 @@ vi.mock('../codex-app-server-client.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../codex-app-server-client.js')>()),
   CodexAppServerClient: { launchOpenShell: (...args: unknown[]) => native.launch(...args) },
 }));
-import { getCodexConversationStore, openCodexChat } from '../codex-chat-session.js';
+import {
+  getCodexConversationStore,
+  getCodexRuntime,
+  openCodexChat,
+} from '../codex-chat-session.js';
 import { OpenShellRuntimeManager, openShellRuntimeConfig } from '../openshell-runtime.js';
 import { initializeOpenShellLifecycle } from '../openshell-lifecycle-controller.js';
 import { sharedOpenShellLifecycleCoordinator } from '../openshell-lifecycle.js';
@@ -398,3 +406,76 @@ it('reattach-only leaves reserved provisioning available for the next explicit s
     await sharedOpenShellLifecycleCoordinator.admit(f.id, async () => {});
   }
 });
+
+it('uploads the controller-selected repository seed and avoids the MGMT task compiler for a repository chat', async () => {
+  const f = fixture();
+  const repositoryWorkspace = {
+    id: 'source-fixture',
+    repository: 'example/repo',
+    baseBranch: 'main',
+    baseOid: 'a'.repeat(40),
+    featureBranch: 'mitzo/task',
+    seed: join(root, 'repository-seed', 'mgmt'),
+  };
+  mkdirSync(repositoryWorkspace.seed, { recursive: true });
+  repositorySeeds.verify.mockResolvedValue(repositoryWorkspace.seed);
+  const compile = vi.spyOn(OpenShellRuntimeManager.prototype, 'compileContext');
+  let chat: Awaited<ReturnType<typeof openCodexChat>> | undefined;
+  try {
+    chat = await openCodexChat({ ...f.options, repositoryWorkspace });
+    expect(
+      native.cli.mock.calls.some(
+        ([args]) =>
+          args.includes('--upload') &&
+          args.includes(repositoryWorkspace.seed + ':/sandbox/workspaces'),
+      ),
+    ).toBe(true);
+    expect(compile).not.toHaveBeenCalled();
+    expect(f.requests.filter((method) => method === 'turn/start')).toHaveLength(1);
+  } finally {
+    compile.mockRestore();
+    chat?.close();
+    await sharedOpenShellLifecycleCoordinator.admit(f.id, async () => {});
+  }
+});
+
+it.each(['missing', 'replaced'] as const)(
+  'refuses repository reconnect when its retained sandbox is %s',
+  async (condition) => {
+    const f = fixture();
+    const repositoryWorkspace = {
+      id: 'source-fixture',
+      repository: 'example/repo',
+      baseBranch: 'main',
+      baseOid: 'a'.repeat(40),
+      featureBranch: 'mitzo/task',
+      seed: join(root, 'repository-seed', 'mgmt'),
+    };
+    mkdirSync(repositoryWorkspace.seed, { recursive: true });
+    repositorySeeds.verify.mockResolvedValue(repositoryWorkspace.seed);
+    let chat: Awaited<ReturnType<typeof openCodexChat>> | undefined;
+    try {
+      chat = await openCodexChat({ ...f.options, repositoryWorkspace });
+      const runtime = getCodexRuntime(f.options.session)!;
+      const callbacks = native.launch.mock.calls[0][2];
+      const artifact = getCodexConversationStore().readArtifactRuntime(f.id, binding)!;
+      const name = artifact.runtime.sandboxName;
+      if (condition === 'missing') sandboxes.delete(name);
+      else sandboxes.set(name, { ...sandboxes.get(name), id: 'replacement-physical-id' });
+      const creates = native.cli.mock.calls.filter(([args]) => args.includes('create')).length;
+      callbacks.onClose(new Error('offline transport lost'));
+      await expect(
+        runtime.send({ id: 'follow-up-' + f.id, prompt: 'continue edits' }),
+      ).rejects.toThrow('physical identity changed');
+      expect(native.cli.mock.calls.filter(([args]) => args.includes('create'))).toHaveLength(
+        creates,
+      );
+      expect(native.launch).toHaveBeenCalledOnce();
+      expect(f.requests.filter((method) => method === 'thread/start')).toHaveLength(1);
+      expect(f.requests.filter((method) => method === 'turn/start')).toHaveLength(1);
+    } finally {
+      chat?.close();
+      await sharedOpenShellLifecycleCoordinator.admit(f.id, async () => {});
+    }
+  },
+);

@@ -5,6 +5,10 @@ const PROJECT_ACCESS_CODE = 'not_authorized_invalid_project';
 const PROJECT_ACCESS_MESSAGE =
   'The selected account’s project is unavailable or archived. Check its project configuration before starting a new turn.';
 const MAX_NATIVE_CODE_MESSAGE_LENGTH = 2_000;
+const MODEL_CAPACITY_MESSAGE =
+  'The selected model is at capacity. Wait for capacity or choose another available model. Your progress is saved.';
+const ACCOUNT_LIMIT_MESSAGE =
+  'The selected account has reached a usage or budget limit. Check its limits or choose another available account. Inspect saved work before continuing.';
 
 const SAFE_PROVIDER_CODES = new Set([
   'server_is_overloaded',
@@ -209,6 +213,18 @@ export function publicProviderFailureMessage(value: unknown): string {
   const failure = record(value);
   if (failure?.category === 'authentication' && failure.code === PROJECT_ACCESS_CODE)
     return PROJECT_ACCESS_MESSAGE;
+  if (
+    failure?.category === 'overloaded' &&
+    (failure.code === 'server_overloaded' || failure.message === MODEL_CAPACITY_MESSAGE)
+  )
+    return MODEL_CAPACITY_MESSAGE;
+  if (
+    failure?.category === 'rate_limited' &&
+    (failure.retryable === false ||
+      failure.message === ACCOUNT_LIMIT_MESSAGE ||
+      (typeof failure.code === 'string' && NON_RETRYABLE_LIMIT_CODES.has(failure.code)))
+  )
+    return ACCOUNT_LIMIT_MESSAGE;
   return typeof failure?.category === 'string' && Object.hasOwn(PUBLIC_MESSAGES, failure.category)
     ? PUBLIC_MESSAGES[failure.category as ProviderFailureCategory]
     : PUBLIC_MESSAGES.unknown;
@@ -247,15 +263,14 @@ export function classifyProviderFailure(
     attempt: Math.max(1, Math.trunc(context.attempt ?? 1)),
     correlationId: context.correlationId,
     ...(delay ? { retryAfterMs: delay } : {}),
-    message:
-      code === PROJECT_ACCESS_CODE
-        ? PROJECT_ACCESS_MESSAGE
-        : code === 'server_overloaded' ||
-            (category === 'overloaded' && /model is at capacity/i.test(text))
-          ? 'The selected model is at capacity. Wait for capacity or choose another available model. Your progress is saved.'
-          : permanentLimit && category === 'rate_limited'
-            ? 'The selected account has reached a usage or budget limit. Check its limits or choose another available account. Inspect saved work before continuing.'
-            : PUBLIC_MESSAGES[category],
+    message: publicProviderFailureMessage({
+      category,
+      code,
+      retryable,
+      ...(category === 'overloaded' && /model is at capacity/i.test(text)
+        ? { message: MODEL_CAPACITY_MESSAGE }
+        : {}),
+    }),
   };
 }
 
