@@ -79,7 +79,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../connections-service.ts': '1aae9d2c0da483ae798ba03d5804bfb0e81316f3f69666c6595befec3179c314',
   // Repository acquisition and source claims share the ordinary runtime admission review.
   '../github-repository-source.ts':
-    'd0df34bf1d40bca9156745b08f676132b7ef018715e6f7514f5ddee110d1c24a',
+    '01ad127563ad062ff952f0dc7d7782f2ac5c6ee178214db65422fbbad222435c',
   '../repository-workspaces.ts': 'a2706f91306a385c5926240b23be38422ef1e3acb4ca24ff228cc602f366faeb',
   '../repository-workspace-runtime.ts':
     'b6d4516dd289d2c40d34d32adde3aa3d3cd24405706e1b720f8dffb3ff0c32e4',
