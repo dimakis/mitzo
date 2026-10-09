@@ -1,3 +1,4 @@
+import { inspectHostGithubRepository, exportHostGithubBundle } from '../github-host-source.js';
 import { afterEach, expect, it, vi } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import { mkdtemp, realpath, rm, writeFile, readFile, access } from 'node:fs/promises';
@@ -129,5 +130,41 @@ it('preserves an existing destination rather than overwriting it', async () => {
   await expect(
     prepareGithubRepositorySource(preview, f.source, 'mitzo/task-123', f.signal, f.run),
   ).rejects.toThrow();
+  expect(await readFile(join(f.source, 'file.txt'), 'utf8')).toBe('original\n');
+});
+
+it('lets the independent checkout commit changes and export them through the existing publisher boundary', async () => {
+  const f = await fixture();
+  const preview = await inspectGithubRepositorySource('example/repo', f.signal, f.run);
+  const target = join(f.root, 'publishable-task');
+  await prepareGithubRepositorySource(preview, target, 'mitzo/task-123', f.signal, f.run);
+  await writeFile(join(target, 'file.txt'), 'task change\n');
+  f.git(target, 'add', 'file.txt');
+  f.git(target, 'commit', '-qm', 'task change');
+  const source = {
+    workspace: target,
+    gitStorageRoots: [],
+    repositoryPath: target,
+    baseBranch: 'main',
+    signal: f.signal,
+    privateDirectory: join(f.root, 'inspection'),
+  };
+  const inspection = await inspectHostGithubRepository(source);
+  expect(inspection).toMatchObject({
+    sourceBranch: 'mitzo/task-123',
+    commitsAhead: 1,
+    changedFiles: ['file.txt'],
+    status: '',
+  });
+  const bundle = await exportHostGithubBundle({
+    ...source,
+    sourceBranch: 'mitzo/task-123',
+    sourceOid: inspection.sourceOid,
+    maxBytes: 1024 * 1024,
+  });
+  expect(bundle.length).toBeGreaterThan(0);
+  expect(f.git(target, 'log', '-1', '--format=%an <%ae>')).toBe(
+    'Mitzo Sandbox <sandbox@mitzo.invalid>',
+  );
   expect(await readFile(join(f.source, 'file.txt'), 'utf8')).toBe('original\n');
 });

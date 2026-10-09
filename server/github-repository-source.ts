@@ -240,6 +240,8 @@ export async function prepareGithubRepositorySource(
         throw new Error('Repository exceeds the initial 64 MiB expanded source limit');
     }
     await git('config', 'core.bare', 'false');
+    await git('config', 'user.name', 'Mitzo Sandbox');
+    await git('config', 'user.email', 'sandbox@mitzo.invalid');
     await git('config', 'remote.origin.url', `https://github.com/${preview.repository}.git`);
     await git('update-ref', `refs/remotes/origin/${preview.baseBranch}`, preview.baseOid);
     await git(
