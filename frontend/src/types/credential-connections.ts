@@ -56,3 +56,18 @@ export interface WebSocketDraft {
   protocols: string;
   authentication: string;
 }
+
+/** Public metadata only. Credentials never enter chat, storage, or tool results. */
+export interface ConnectionSetup {
+  id: string;
+  sessionId: string;
+  revision: number;
+  status: 'pending' | 'verifying' | 'ready' | 'cancelled' | 'expired';
+  expiresAt: number;
+  profile: 'home-assistant' | 'custom';
+  connection: CredentialConnectionInput;
+  credential: { label: string; helpUrl?: string; instructions: string };
+  connectionId?: string;
+  error?: string;
+  setupUrl: string;
+}
