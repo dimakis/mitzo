@@ -114,6 +114,7 @@ import { applyTierOverrides } from './tool-tiers.js';
 import { loadRepoConfig } from './repo-config.js';
 import { loadProjectHooks } from './hook-bridge.js';
 import { buildPermissionHandler } from './permission-handler.js';
+import { setSkillPolicy } from './skill-policy.js';
 import { runQueryLoop, broadcastToObservers } from './query-loop.js';
 import { clearSessionImages } from './image-store.js';
 import { AsyncQueue } from './async-queue.js';
@@ -1628,6 +1629,7 @@ async function _startChatInner(
   });
 
   const session = registry.get(clientId)!;
+  if (options.skillAllowedTools) setSkillPolicy(registry, clientId, options.skillAllowedTools);
   session.model = options.model ?? session.model;
   session.inputQueue = inputQueue as { push: (msg: unknown) => void; close: () => void };
   _onSessionChange?.(clientId, 'start');
