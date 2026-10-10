@@ -7,6 +7,9 @@ import {
 
 import { parseSlashCommand } from './slash-commands.js';
 import {
+  assertOrdinaryContributorSendAllowed,
+  ContributorSendOwnershipError,
+  CONTRIBUTOR_SEND_REQUIRED_MESSAGE,
   ContributorStopOwnershipError,
   CONTRIBUTOR_STOP_REQUIRED_MESSAGE,
 } from './ordinary-contributor-execution.js';
@@ -194,6 +197,7 @@ export function createChatRestRouter(
     const connectionId =
       (req.headers['x-connection-id'] as string | undefined) ?? `send-${msg.clientMsgId}`;
     try {
+      if (msg.sessionId) assertOrdinaryContributorSendAllowed(ctx.eventStore, msg.sessionId);
       claimChatCommand(ctx.eventStore, msg);
       const dispatch = async (
         command: typeof msg,
@@ -298,6 +302,17 @@ export function createChatRestRouter(
         res.status(202).json(receipt);
       }
     } catch (err) {
+      if (err instanceof ContributorSendOwnershipError) {
+        res
+          .status(409)
+          .json({
+            ok: false,
+            code: err.code,
+            error: CONTRIBUTOR_SEND_REQUIRED_MESSAGE,
+            clientMsgId: msg.clientMsgId,
+          });
+        return;
+      }
       log.error('POST /chat/send failed', { connectionId, error: String(err) });
       if (err instanceof ExecutionAdmissionError) {
         res.status(409).json({
@@ -348,6 +363,17 @@ export function createChatRestRouter(
       });
       res.status(202).json({ ok: true });
     } catch (err) {
+      if (err instanceof ContributorSendOwnershipError) {
+        res
+          .status(409)
+          .json({
+            ok: false,
+            code: err.code,
+            error: CONTRIBUTOR_SEND_REQUIRED_MESSAGE,
+            clientMsgId: msg.clientMsgId,
+          });
+        return;
+      }
       log.error('POST /chat/interrupt failed', { connectionId, error: String(err) });
       if (err instanceof ExecutionAdmissionError) {
         res.status(409).json({ ok: false, code: err.code, error: err.message });
@@ -560,6 +586,12 @@ export function createChatRestRouter(
       handleSessionClose(connectionId, msg, ctx);
       res.json({ ok: true });
     } catch (err) {
+      if (err instanceof ContributorStopOwnershipError) {
+        res
+          .status(409)
+          .json({ ok: false, code: err.code, error: CONTRIBUTOR_STOP_REQUIRED_MESSAGE });
+        return;
+      }
       log.error('POST /chat/close failed', { connectionId, error: String(err) });
       res.status(500).json({ ok: false, error: 'Internal server error' });
     }

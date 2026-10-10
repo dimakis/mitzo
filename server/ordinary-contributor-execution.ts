@@ -53,6 +53,15 @@ export class ContributorStopOwnershipError extends Error {
     this.name = 'ContributorStopOwnershipError';
   }
 }
+export const CONTRIBUTOR_SEND_REQUIRED_MESSAGE =
+  'Use contributor directed messages while its exact execution is active or unresolved';
+export class ContributorSendOwnershipError extends Error {
+  readonly code = 'CONTRIBUTOR_DIRECTED_MESSAGE_REQUIRED';
+  constructor() {
+    super(CONTRIBUTOR_SEND_REQUIRED_MESSAGE);
+    this.name = 'ContributorSendOwnershipError';
+  }
+}
 /** Public controls must not close a query whose exact terminal is owned by the contributor driver. */
 export function assertOrdinaryContributorStopAllowed(
   store: ContributorFacts,
@@ -67,9 +76,7 @@ export function assertOrdinaryContributorSendAllowed(
   childSessionId: string,
 ): void {
   if (hasUnsettledContributorExecution(store, childSessionId))
-    throw new Error(
-      'Use contributor directed messages while its exact execution is active or unresolved',
-    );
+    throw new ContributorSendOwnershipError();
 }
 /** Trusted start only; authorizes one existing claim without creating execution authority. */
 export function authorizeOrdinaryContributorStart(

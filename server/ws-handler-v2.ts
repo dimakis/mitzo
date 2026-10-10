@@ -1,5 +1,8 @@
 import type { SourceSnapshot } from '@mitzo/protocol';
 import {
+  assertOrdinaryContributorSendAllowed,
+  ContributorSendOwnershipError,
+  CONTRIBUTOR_SEND_REQUIRED_MESSAGE,
   assertOrdinaryContributorStopAllowed,
   ContributorStopOwnershipError,
   CONTRIBUTOR_STOP_REQUIRED_MESSAGE,
@@ -674,6 +677,7 @@ export function handleSendV2(
     { 'ws.connectionId': connectionId, 'ws.sessionId': msg.sessionId ?? 'new' },
     async (span) => {
       try {
+        if (msg.sessionId) assertOrdinaryContributorSendAllowed(ctx.eventStore, msg.sessionId);
         if (msg.sessionId && msg.agentProfile) {
           const pinned = ctx.eventStore.getSession(msg.sessionId)?.agentProfile;
           if (
@@ -1206,6 +1210,16 @@ export function handleSendV2(
         }
         await startupAdmission;
       } catch (err: unknown) {
+        if (err instanceof ContributorSendOwnershipError) {
+          transport.send({
+            type: 'error',
+            sessionId: msg.sessionId,
+            clientMsgId: msg.clientMsgId,
+            error: CONTRIBUTOR_SEND_REQUIRED_MESSAGE,
+          });
+          if (delivery?.awaitStartupAdmission) throw err;
+          return;
+        }
         const message = err instanceof Error ? err.message : String(err);
         span.recordException(err instanceof Error ? err : new Error(message));
         span.setStatus({ code: SpanStatusCode.ERROR, message });
@@ -1252,6 +1266,7 @@ export function handleInterruptV2(
     'ws.interrupt',
     { 'ws.connectionId': connectionId, 'ws.sessionId': msg.sessionId },
     async () => {
+      assertOrdinaryContributorSendAllowed(ctx.eventStore, msg.sessionId);
       if (ctx.eventStore.getSession(msg.sessionId)?.symposiumConfig) {
         const error = new Error('Use Symposium directed prompts for this session');
         transport.send({ type: 'error', sessionId: msg.sessionId, error: error.message });
@@ -1797,6 +1812,7 @@ export function handleSessionClose(
     'ws.session_close',
     { 'ws.connectionId': connectionId, 'ws.sessionId': msg.sessionId },
     () => {
+      assertOrdinaryContributorStopAllowed(ctx.eventStore, msg.sessionId);
       const found = ctx.sessionRegistry.findBySessionId(msg.sessionId);
       const conn = ctx.connRegistry.get(connectionId);
 
@@ -1915,7 +1931,17 @@ export async function dispatchV2Message(
       handleSessionSuspend(connectionId, msg, ctx);
       break;
     case 'session_close':
-      handleSessionClose(connectionId, msg, ctx);
+      try {
+        handleSessionClose(connectionId, msg, ctx);
+      } catch (error) {
+        if (!(error instanceof ContributorStopOwnershipError)) throw error;
+        transport.send({
+          type: 'session_close_ack',
+          sessionId: msg.sessionId,
+          accepted: false,
+          reason: CONTRIBUTOR_STOP_REQUIRED_MESSAGE,
+        });
+      }
       break;
     case 'send':
       await handleSendV2(connectionId, transport, msg, ctx);
@@ -1933,7 +1959,17 @@ export async function dispatchV2Message(
       }
       break;
     case 'interrupt':
-      await handleInterruptV2(connectionId, transport, msg, ctx);
+      try {
+        await handleInterruptV2(connectionId, transport, msg, ctx);
+      } catch (error) {
+        if (!(error instanceof ContributorSendOwnershipError)) throw error;
+        transport.send({
+          type: 'error',
+          sessionId: msg.sessionId,
+          clientMsgId: msg.clientMsgId,
+          error: CONTRIBUTOR_SEND_REQUIRED_MESSAGE,
+        });
+      }
       break;
     case 'permission_response':
       handlePermissionResponseV2(connectionId, msg, ctx);
