@@ -40,9 +40,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '5af4e80dfb5b91ca7a7a2fba06ba3ec3661e121d9cada5480d83719d8fc78b06',
   '../symposium-ordinary-turn.ts':
     '9723bd4ee4acf6527fd624212b68068105545ceed0b855a5786632332f7e6be3',
-  '../output-contributors.ts': '4295ff835cb833090cef2dc2fdc5456b36e12f148c7e8b8f9cf7af501fec5aa8',
+  '../output-contributors.ts': '1d72ae2b12e4117a4ca2874a57e323591b9151042f3dfb4b1102e122d85bd063',
   '../output-contributor-routes.ts':
-    '16c089ca63fac6fe1295742d60731cd79293b22d6853e545f1781203243dbcf7',
+    '4ab469643b1fc60e8bf2d7ca0b03c66f161cf8b9222d874804927b6eb0161501',
   '../session-output-references.ts':
     'f3cc6ec16ec1c2dc907566658c3f12b1776ee35f1bde662a77e97b9a08946841',
   '../session-output-routes.ts': '2e08e938b4914797006231d1044b2c6c28693aa7fe1813a37d6ba1c9697649b2',
