@@ -145,7 +145,14 @@ export class TerminalService {
       createdAt: Date.now(),
     };
     this.store.create(record);
-    await this.ensure(record, false);
+    try {
+      await this.ensure(record, false);
+    } catch (error) {
+      // Initial verification can fail before the backend's start handler runs.
+      if (this.store.read(owner, record.id).state === 'running')
+        this.store.state(record.id, 'unavailable');
+      throw error;
+    }
     return this.get(owner, record.id);
   }
   private async verify(record: TerminalRecord) {

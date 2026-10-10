@@ -160,6 +160,26 @@ describe('operator terminals', () => {
     }
     expect((await service.open('operator-a', {})).state).toBe('running');
   });
+  it('releases capacity when initial verification fails before a shell is started', async () => {
+    let calls = 0;
+    service = new TerminalService(new TerminalStore(db), {
+      resolve: async () => {
+        if (++calls % 2 === 0) throw Error('Temporary sandbox inspection failure');
+        return target;
+      },
+      backend,
+    });
+    for (let attempt = 0; attempt < 6; attempt++) {
+      await expect(service.open('operator-a', {})).rejects.toThrow();
+      expect(service.list('operator-a').every((record) => record.state === 'unavailable')).toBe(
+        true,
+      );
+    }
+    expect(backend.start).not.toHaveBeenCalled();
+    service = new TerminalService(new TerminalStore(db), { resolve: async () => target, backend });
+    expect((await service.open('operator-a', {})).state).toBe('running');
+    expect(backend.start).toHaveBeenCalledWith(expect.anything(), false, expect.anything());
+  });
   it('does not deliver queued input after logout or expiry during environment verification', async () => {
     const terminal = await service.open('operator-a', {});
     let release!: () => void;
