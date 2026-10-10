@@ -7538,7 +7538,7 @@ option {
 }
 
 .symposium-profile-proposal button {
-  min-height: 2.5rem;
+  min-height: var(--control-height);
 }
 
 @media (max-width: 520px) {

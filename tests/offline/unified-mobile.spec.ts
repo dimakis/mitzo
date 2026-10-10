@@ -985,6 +985,10 @@ test('profile drafts stay behind Workspace and remain readable on mobile and des
             .getByRole('button', { name: 'Save reusable profile' })
             .scrollIntoViewIfNeeded();
           await expect(panel.getByRole('button', { name: 'Save reusable profile' })).toBeVisible();
+          const saveTarget = await panel
+            .getByRole('button', { name: 'Save reusable profile' })
+            .boundingBox();
+          expect(saveTarget!.height).toBeGreaterThanOrEqual(44);
         }
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
           true,
