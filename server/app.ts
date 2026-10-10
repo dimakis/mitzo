@@ -122,6 +122,7 @@ import { createSubscriptionLoginController } from './symposium-subscription-logi
 import { AccountAliases } from './account-aliases.js';
 import { AccountBindingSchema, SymposiumConfigSchema } from '@mitzo/protocol';
 import { SymposiumProfileStore } from './symposium-profiles.js';
+import { authorizeSymposiumSeat } from './symposium-seat-authorization.js';
 import { getAgentLibrary } from './agent-library-runtime.js';
 import { createAgentLibraryRouter } from './agent-library-router.js';
 import { createContextPackRouter } from './context-pack-router.js';
@@ -1514,29 +1515,7 @@ const symposiumHostGrants = new SymposiumHostGrants(join(BASE_REPO || '.', '.mit
   },
   resolveProfile: (selection) =>
     symposiumProfileStore.get('user', selection.profileId, selection.revision),
-  authorizeSeat: ({ sessionId, seat, contextSourceRefs }) => {
-    const sessionSource = `session:${sessionId}`;
-    const packSources =
-      seat.contextRecipe?.source === 'packs'
-        ? seat.contextRecipe.packs.map(contextPackSourceRef)
-        : [];
-    if (
-      contextSourceRefs.length > 0 &&
-      contextSourceRefs.some((ref) => ref !== sessionSource && !packSources.includes(ref))
-    )
-      throw new Error('Only this conversation context can be admitted');
-    const writable = seat.role === 'implementer' || seat.role === 'coder';
-    return {
-      classification: 'mixed' as const,
-      sourceRefs: [...new Set([...contextSourceRefs, ...packSources])],
-      authority: {
-        filesystem:
-          seat.authorityRequest?.filesystem ?? (writable ? ('write' as const) : ('read' as const)),
-        tools: seat.authorityRequest?.tools ?? (writable ? ('write' as const) : ('read' as const)),
-        network: seat.authorityRequest?.network ?? ('restricted' as const),
-      },
-    };
-  },
+  authorizeSeat: authorizeSymposiumSeat,
 });
 const symposiumReaderAuthorityBridge = createSymposiumReaderAuthorityBridge();
 

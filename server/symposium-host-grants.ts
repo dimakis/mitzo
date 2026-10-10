@@ -328,7 +328,13 @@ export class SymposiumHostGrants {
       throw new Error('Profile is not compatible with the selected provider');
     this.deps.validateSelection(seat);
     const authorization = Authorization.parse(
-      this.deps.authorizeSeat({ sessionId, actor, seat: inputSeat, contextSourceRefs }),
+      this.deps.authorizeSeat({
+        sessionId,
+        actor,
+        // Preserve the approved role and authority ceiling while admitting the trusted recipe.
+        seat: { ...inputSeat, contextRecipe: seat.contextRecipe },
+        contextSourceRefs,
+      }),
     );
     // A portable role cannot raise the approved seat's executable authority.
     if (

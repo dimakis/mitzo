@@ -145,6 +145,11 @@ it('binds the exact selected profile context recipe without accepting a caller r
   });
   const seat = result.seats.find((value) => value.id === 'reviewer')!;
   expect(seat.contextRecipe).toEqual(recipe);
+  expect(deps.authorizeSeat).toHaveBeenCalledWith(
+    expect.objectContaining({
+      seat: expect.objectContaining({ role: 'reviewer', contextRecipe: recipe }),
+    }),
+  );
   expect(() =>
     grants.verifySeat({
       sessionId: 'chat',
@@ -605,3 +610,79 @@ it.each(['activate', 'seats/revise'] as const)(
     expect(deps.authorizeSeat).not.toHaveBeenCalled();
   },
 );
+
+it('grants selected pack references under the real application policy without raising original seat authority', async () => {
+  const { authorizeSymposiumSeat } = await import('../symposium-seat-authorization.js');
+  const recipe = {
+    version: 2 as const,
+    source: 'packs' as const,
+    tokenBudget: 4000,
+    packs: [{ id: 'mitzo-core', revision: 3, hash: 'd'.repeat(64) }],
+  };
+  grants.close();
+  const deps = makeDeps();
+  const coder = deps.resolveProfile({ profileId: 'owner-coder', revision: 1 })!;
+  config.seats[2].role = 'implementer';
+  config.seats[2].authorityRequest = {
+    filesystem: 'read',
+    tools: 'read',
+    network: 'restricted',
+  };
+  grants = new SymposiumHostGrants(join(directory, 'events.db'), {
+    ...deps,
+    resolveProfile: () => ({
+      ...coder,
+      definition: { ...coder.definition, contextRecipe: recipe },
+    }),
+    authorizeSeat: authorizeSymposiumSeat,
+  });
+  const result = grants.activate({
+    sessionId: 'chat',
+    expectedRevision: 1,
+    actor: 'owner',
+    profileSelections: { builder: { profileId: 'owner-coder', revision: 1 } },
+  });
+  const selected = result.seats.find((seat) => seat.id === 'builder')!;
+  expect(selected.contextGrant?.sourceRefs).toContain(
+    `context-pack:mitzo-core:3:${'d'.repeat(64)}`,
+  );
+  expect(selected.contextRecipe).toEqual(recipe);
+  expect(selected.authorityGrant).toMatchObject({
+    filesystem: 'read',
+    tools: 'read',
+    network: 'restricted',
+  });
+  expect(() =>
+    grants.verifySeat({ sessionId: 'chat', seat: selected, membershipGeneration: 1 }),
+  ).not.toThrow();
+});
+
+it('uses trusted recipe sources while retaining an original read-only role ceiling', async () => {
+  const { authorizeSymposiumSeat } = await import('../symposium-seat-authorization.js');
+  const recipe = {
+    version: 2 as const,
+    source: 'packs' as const,
+    tokenBudget: 4000,
+    packs: [{ id: 'mitzo-core', revision: 3, hash: 'd'.repeat(64) }],
+  };
+  grants.close();
+  const deps = makeDeps();
+  const coder = deps.resolveProfile({ profileId: 'owner-coder', revision: 1 })!;
+  grants = new SymposiumHostGrants(join(directory, 'events.db'), {
+    ...deps,
+    resolveProfile: () => ({
+      ...coder,
+      definition: { ...coder.definition, contextRecipe: recipe },
+    }),
+    authorizeSeat: authorizeSymposiumSeat,
+  });
+  expect(() =>
+    grants.activate({
+      sessionId: 'chat',
+      expectedRevision: 1,
+      actor: 'owner',
+      profileSelections: { reviewer: { profileId: 'owner-coder', revision: 1 } },
+    }),
+  ).toThrow(/authority ceiling/);
+  expect(config.state).toBe('draft');
+});
