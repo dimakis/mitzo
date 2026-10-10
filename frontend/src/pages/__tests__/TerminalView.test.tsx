@@ -6,6 +6,7 @@ import { forwardRef, useImperativeHandle, useEffect } from 'react';
 const mocks = vi.hoisted(() => ({
   send: vi.fn(async () => {}),
   focus: vi.fn(),
+  scroll: vi.fn(async () => {}),
   review: vi.fn(() => 'private terminal output'),
   names: { briefing: 'Minion', terminal: 'Minion' },
 }));
@@ -13,6 +14,7 @@ vi.mock('../../components/TerminalConsole', () => ({
   TerminalConsole: forwardRef(function Mock(props: { onStatus: (state: string) => void }, ref) {
     useImperativeHandle(ref, () => ({
       send: mocks.send,
+      scroll: mocks.scroll,
       reviewOutput: mocks.review,
       focus: mocks.focus,
     }));
@@ -198,6 +200,7 @@ it('preserves the adviser selection when its panel and all controls are collapse
   fireEvent.click(screen.getByRole('button', { name: 'Show Minion' }));
   fireEvent.click(screen.getByText('Use Work Luna Low'));
   fireEvent.click(screen.getByRole('button', { name: 'Hide Minion' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Show controls' }));
   fireEvent.click(screen.getByRole('button', { name: 'Collapse controls' }));
   fireEvent.click(screen.getByRole('button', { name: 'Show controls' }));
   fireEvent.click(screen.getByRole('button', { name: 'Show Minion' }));
@@ -290,4 +293,27 @@ it('uses the workspace terminal name independently of the briefing and legacy br
   expect(screen.getByLabelText('Ask Orbit')).toBeTruthy();
   expect(screen.queryByLabelText('Ask Jeeves')).toBeNull();
   expect(screen.queryByLabelText('Ask Old browser name')).toBeNull();
+});
+
+it('starts with compact controls while keeping adviser and destination reachable', async () => {
+  setup('/terminal');
+  await screen.findByText('Shell output');
+  expect(screen.getByRole('button', { name: 'Show controls' }).getAttribute('aria-expanded')).toBe(
+    'false',
+  );
+  expect(screen.queryByRole('button', { name: 'Choose terminal destination' })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Show Minion' }));
+  expect(screen.getByText('Use Work Luna Low').closest('[hidden]')).toBeNull();
+  expect(
+    screen.getByRole('button', { name: 'Choose terminal destination' }).closest('[hidden]'),
+  ).toBeNull();
+});
+
+it('always offers return to live output after a terminal attachment without writing input', async () => {
+  setup('/terminal');
+  await screen.findByText('Shell output');
+  fireEvent.click(screen.getByRole('button', { name: 'Terminal options' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Return to live output' }));
+  await waitFor(() => expect(mocks.scroll).toHaveBeenCalledWith(null));
+  expect(mocks.send).not.toHaveBeenCalled();
 });
