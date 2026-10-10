@@ -37,7 +37,8 @@
 .knowledge-top {
   margin: 30px 0 24px;
 }
-.knowledge-library button:not(.btn-primary):not(.workspace-text-link) {
+.knowledge-library
+  button:not(.btn-primary):not(.workspace-text-link):not(.document-editor-control) {
   border: 1px solid var(--border);
   background: var(--bg-secondary);
   color: var(--text-primary);
