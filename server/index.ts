@@ -1144,115 +1144,83 @@ function handleChatWs(
             'ws.has_resume': !!msg.resume,
           },
           (span) => {
-            return routeLegacyChatSend(
-              eventStore,
-              isActive(clientId) ? registry.get(clientId)?.sessionId : msg.resume,
-              () => {
-                const requestedCwd = msg.cwd;
-                const validatedCwd = requestedCwd
-                  ? isAllowedPath(requestedCwd)
-                    ? requestedCwd
-                    : BASE_REPO
-                  : undefined;
-                const cwd = validatedCwd ?? registry.get(clientId)?.cwd ?? BASE_REPO;
-                const skillRegistry = buildSkillRegistry(cwd);
-                const resolution = resolveSlashCommand(
-                  msg.prompt,
-                  skillRegistry,
-                  NATIVE_COMMAND_NAMES,
-                );
-                span.setAttribute('ws.send.resolution', resolution.type);
+            const targetSessionId = isActive(clientId)
+              ? registry.get(clientId)?.sessionId
+              : msg.resume;
+            return routeLegacyChatSend(eventStore, targetSessionId, () => {
+              const requestedCwd = msg.cwd;
+              const validatedCwd = requestedCwd
+                ? isAllowedPath(requestedCwd)
+                  ? requestedCwd
+                  : BASE_REPO
+                : undefined;
+              const cwd = validatedCwd ?? registry.get(clientId)?.cwd ?? BASE_REPO;
+              const skillRegistry = buildSkillRegistry(cwd);
+              const resolution = resolveSlashCommand(
+                msg.prompt,
+                skillRegistry,
+                NATIVE_COMMAND_NAMES,
+              );
+              span.setAttribute('ws.send.resolution', resolution.type);
 
-                if (resolution.type === 'native') {
-                  const commandSessionId = isActive(clientId)
-                    ? (registry.get(clientId)?.sessionId ?? null)
-                    : (msg.resume ?? null);
-                  void nativeCommands
-                    .execute(resolution.name, resolution.arguments, skillRegistry, { transport })
-                    .then((result) => {
-                      if (result) {
-                        transport.send({
-                          type: 'native_command_result',
-                          v: 2,
-                          clientMsgId: msg.clientMsgId,
-                          sessionId: commandSessionId,
-                          command: result.command,
-                          content: result.content,
-                        });
-                      }
-                    })
-                    .catch((err: unknown) => {
+              if (resolution.type === 'native') {
+                const commandSessionId = isActive(clientId)
+                  ? (registry.get(clientId)?.sessionId ?? null)
+                  : (msg.resume ?? null);
+                void nativeCommands
+                  .execute(resolution.name, resolution.arguments, skillRegistry, { transport })
+                  .then((result) => {
+                    if (result) {
                       transport.send({
-                        type: 'error',
-                        error: `Command /${resolution.name} failed: ${err instanceof Error ? err.message : 'unknown'}`,
-                      });
-                    });
-                  return;
-                } else if (resolution.type === 'error') {
-                  transport.send({ type: 'error', error: resolution.message });
-                } else if (resolution.type === 'skill') {
-                  if (resolution.allowedTools) {
-                    setSkillPolicy(registry, clientId, resolution.allowedTools);
-                  } else {
-                    clearSkillPolicy(registry, clientId);
-                  }
-                  transport.send({
-                    type: 'skill_invoked',
-                    v: 2,
-                    name: resolution.name,
-                    source: skillRegistry.get(resolution.name)?.scope || 'bundled',
-                    arguments: resolution.arguments,
-                    ...(resolution.collisions ? { collisions: resolution.collisions } : {}),
-                  });
-                  routeLegacySkillMessage(
-                    {
-                      transport,
-                      ws,
-                      clientId,
-                      resume: msg.resume,
-                      renderedPrompt: resolution.renderedPrompt,
-                      userIntent: msg.prompt,
-                      images: msg.images,
-                      contextBlocks: msg.contextBlocks,
-                      clientMsgId: msg.clientMsgId,
-                      startOptions: {
-                        resume: msg.resume,
-                        cwd: validatedCwd,
-                        model: msg.model,
-                        extraTools: msg.extraTools,
-                        isolation: msg.isolation,
-                        mode: msg.mode,
-                        images: msg.images,
-                        contextBlocks: msg.contextBlocks,
+                        type: 'native_command_result',
+                        v: 2,
                         clientMsgId: msg.clientMsgId,
-                      },
-                    },
-                    { isActive, sendToActiveChat, tryRouteToActiveSession, startChat },
-                  );
+                        sessionId: commandSessionId,
+                        command: result.command,
+                        content: result.content,
+                      });
+                    }
+                  })
+                  .catch((err: unknown) => {
+                    transport.send({
+                      type: 'error',
+                      error: `Command /${resolution.name} failed: ${err instanceof Error ? err.message : 'unknown'}`,
+                    });
+                  });
+                return;
+              } else if (resolution.type === 'error') {
+                transport.send({
+                  type: 'error',
+                  error: resolution.message,
+                  clientMsgId: msg.clientMsgId,
+                  ...(targetSessionId ? { sessionId: targetSessionId } : {}),
+                });
+              } else if (resolution.type === 'skill') {
+                if (resolution.allowedTools) {
+                  setSkillPolicy(registry, clientId, resolution.allowedTools);
                 } else {
                   clearSkillPolicy(registry, clientId);
-                  if (isActive(clientId)) {
-                    sendToActiveChat(
-                      transport,
-                      clientId,
-                      msg.prompt,
-                      msg.images,
-                      msg.contextBlocks,
-                      msg.clientMsgId,
-                      msg.prompt,
-                    );
-                  } else if (
-                    !tryRouteToActiveSession(
-                      ws,
-                      msg.resume,
-                      msg.prompt,
-                      msg.images,
-                      msg.contextBlocks,
-                      msg.clientMsgId,
-                      msg.prompt,
-                    )
-                  ) {
-                    startChat(transport, clientId, msg.prompt, {
+                }
+                transport.send({
+                  type: 'skill_invoked',
+                  v: 2,
+                  name: resolution.name,
+                  source: skillRegistry.get(resolution.name)?.scope || 'bundled',
+                  arguments: resolution.arguments,
+                  ...(resolution.collisions ? { collisions: resolution.collisions } : {}),
+                });
+                routeLegacySkillMessage(
+                  {
+                    transport,
+                    ws,
+                    clientId,
+                    resume: msg.resume,
+                    renderedPrompt: resolution.renderedPrompt,
+                    userIntent: msg.prompt,
+                    images: msg.images,
+                    contextBlocks: msg.contextBlocks,
+                    clientMsgId: msg.clientMsgId,
+                    startOptions: {
                       resume: msg.resume,
                       cwd: validatedCwd,
                       model: msg.model,
@@ -1262,12 +1230,48 @@ function handleChatWs(
                       images: msg.images,
                       contextBlocks: msg.contextBlocks,
                       clientMsgId: msg.clientMsgId,
-                      userIntent: msg.prompt,
-                    });
-                  }
+                    },
+                  },
+                  { isActive, sendToActiveChat, tryRouteToActiveSession, startChat },
+                );
+              } else {
+                clearSkillPolicy(registry, clientId);
+                if (isActive(clientId)) {
+                  sendToActiveChat(
+                    transport,
+                    clientId,
+                    msg.prompt,
+                    msg.images,
+                    msg.contextBlocks,
+                    msg.clientMsgId,
+                    msg.prompt,
+                  );
+                } else if (
+                  !tryRouteToActiveSession(
+                    ws,
+                    msg.resume,
+                    msg.prompt,
+                    msg.images,
+                    msg.contextBlocks,
+                    msg.clientMsgId,
+                    msg.prompt,
+                  )
+                ) {
+                  startChat(transport, clientId, msg.prompt, {
+                    resume: msg.resume,
+                    cwd: validatedCwd,
+                    model: msg.model,
+                    extraTools: msg.extraTools,
+                    isolation: msg.isolation,
+                    mode: msg.mode,
+                    images: msg.images,
+                    contextBlocks: msg.contextBlocks,
+                    clientMsgId: msg.clientMsgId,
+                    userIntent: msg.prompt,
+                  });
                 }
-              },
-            );
+              }
+            });
           },
           contextFromTraceparent(traceparent),
         );

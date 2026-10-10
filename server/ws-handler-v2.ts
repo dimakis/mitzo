@@ -911,7 +911,12 @@ export function handleSendV2(
         }
 
         if (resolution.type === 'error') {
-          transport.send({ type: 'error', error: resolution.message });
+          transport.send({
+            type: 'error',
+            error: resolution.message,
+            clientMsgId: msg.clientMsgId,
+            ...(msg.sessionId ? { sessionId: msg.sessionId } : {}),
+          });
           return;
         }
 

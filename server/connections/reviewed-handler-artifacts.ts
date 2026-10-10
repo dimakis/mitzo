@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.9';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.47';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.48';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,7 +22,7 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
-  '../index.ts': '40875b5e925574d690d98840f2eea9b0815da124d98211f644fb50aa65f93353',
+  '../index.ts': '3250dd4f48376381f8cb4b79d079ae4eb5c302b03bcab202c7cc9e969fd8c445',
   '../legacy-chat-delivery.ts': '30e041a7b8d1279cefae9198639444fa8e3dd4f76386598ec50ce66741f09f5c',
 
   '../chat-rest-handler.ts': '35dbf6b8632965712b047b156491bbadb8cda42899d06ff52c8a426150e21ed7',
@@ -58,7 +58,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '5ad72e9be9d3289a13511aaa1bb107b527283493e5577e08912ea4fdc4740a81',
   '../agent-context-binding.ts': 'ce0f8dba7f97f515be8ee00a441e3cc36344aad44f31e0b2fb33a160f8803e66',
   '../app.ts': '80fa44e1447e685c892fac3ee350a0cd51205930dcf0506cb6ceed5dabb507c1',
-  '../ws-handler-v2.ts': '3f298b6b7765a363a7db52612a42e874013335ef111f93ccde3d19d71d213618',
+  '../ws-handler-v2.ts': 'a1befd2e31d2b1fbb6772b44b1183b8a40a8a492d96c35b0c64614510bb0784a',
   '../briefings.ts': '277b26171abc42266a3b621ff7ab10306792764cb55bbc635e41c4ba20e98d49',
   '../home-router.ts': '744708f3503d3ef46114998ce9bb6a68b3068a3c7d57e0c264298cdb69aac982',
   '../notification-store.ts': 'd73b922e8e04b1e6415d1c1388bcf75edb4b65c913d3636b9a63e16583bc035b',
