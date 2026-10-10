@@ -16,6 +16,7 @@ import { useDocumentReader } from '../hooks/useDocumentReader';
 import { DocumentEditor } from '../components/DocumentEditor';
 import { HtmlPreview } from '../components/HtmlPreview';
 import { findArtifactCapabilityByExtension } from '@mitzo/protocol';
+import './FileViewerControls.css';
 
 export function FileViewer() {
   const [params] = useSearchParams();
@@ -98,8 +99,10 @@ function FileViewerDocument() {
         <MitzoLogo />
         {(state.isViewing || state.canGoUp || fromRoute) && (
           <button
+            type="button"
             className="viewer-header-back"
             aria-label="Back"
+            disabled={editor.saving}
             onClick={() => {
               if (editor.saving) return;
               if (editor.dirty && !confirm('Discard unsaved changes?')) return;
@@ -114,83 +117,110 @@ function FileViewerDocument() {
             <UiIcon name="back" size={16} />
           </button>
         )}
-        <span className="viewer-header-title">{state.isViewing ? fileName : dirName}</span>
+        <div className="viewer-header-context">
+          <span className="viewer-header-title">{state.isViewing ? fileName : dirName}</span>
+          {displayBranch && <span className="viewer-header-branch">{displayBranch}</span>}
+        </div>
 
-        {displayBranch && <span className="viewer-header-branch">{displayBranch}</span>}
-
-        {!state.isViewing && !state.gitInfo?.worktreesLoaded && (
-          <button
-            className="viewer-header-action"
-            onClick={() => void nav.loadWorktrees()}
-            disabled={state.worktreesLoading}
-          >
-            {state.worktreesLoading ? 'Loading worktrees…' : 'Worktrees'}
-          </button>
-        )}
-
-        {state.isViewing && !editor.editing && (
-          <ShareButton
-            filePath={state.filePath}
-            sessionId={state.sessionId || undefined}
-            className="share-btn--visible viewer-header-share"
-          />
-        )}
-        {state.isViewing && isMarkdown && !editor.editing && reader.available && (
-          <button
-            className={`viewer-header-action${reader.state !== 'idle' ? ' viewer-header-action--active' : ''}`}
-            onClick={() => {
-              if (reader.state !== 'idle') {
-                reader.stop();
-              } else {
-                reader.read(state.content);
-              }
-            }}
-            disabled={reader.state === 'loading'}
-          >
-            {reader.state === 'loading'
-              ? 'Loading...'
-              : reader.state === 'playing'
-                ? 'Stop'
-                : 'Read'}
-          </button>
-        )}
-        {state.isViewing && isEditable && !editor.editing && (
-          <button
-            className="viewer-header-action"
-            onClick={editor.startEditing}
-            disabled={state.loading || !!state.error}
-          >
-            Edit
-          </button>
-        )}
-        {editor.editing && (
-          <>
+        <div className="viewer-header-actions" role="group" aria-label="File actions">
+          {!state.isViewing && !state.gitInfo?.worktreesLoaded && (
             <button
-              className="viewer-header-action viewer-header-action--save"
-              onClick={() => editor.saveFile(nav.setContent)}
-              disabled={editor.saving || !editor.dirty}
+              type="button"
+              className="viewer-header-action"
+              onClick={() => void nav.loadWorktrees()}
+              disabled={state.worktreesLoading}
+              aria-busy={state.worktreesLoading}
             >
-              {editor.saving ? 'Saving...' : 'Save'}
+              <UiIcon name={state.worktreesLoading ? 'loading' : 'worktree'} size={16} />
+              {state.worktreesLoading ? 'Loading worktrees…' : 'Worktrees'}
             </button>
+          )}
+
+          {state.isViewing && !editor.editing && (
+            <ShareButton
+              filePath={state.filePath}
+              sessionId={state.sessionId || undefined}
+              className="share-btn--visible viewer-header-share"
+            />
+          )}
+          {state.isViewing && isMarkdown && !editor.editing && reader.available && (
             <button
-              className="viewer-header-action viewer-header-action--cancel"
-              onClick={editor.cancelEditing}
-              disabled={editor.saving}
+              type="button"
+              className={`viewer-header-action${reader.state !== 'idle' ? ' viewer-header-action--active' : ''}`}
+              aria-pressed={reader.state !== 'idle'}
+              aria-busy={reader.state === 'loading'}
+              onClick={() => {
+                if (reader.state !== 'idle') {
+                  reader.stop();
+                } else {
+                  reader.read(state.content);
+                }
+              }}
+              disabled={reader.state === 'loading'}
             >
-              {editor.dirty ? 'Discard' : 'Done'}
+              <UiIcon
+                name={
+                  reader.state === 'loading'
+                    ? 'loading'
+                    : reader.state === 'playing'
+                      ? 'stop'
+                      : 'volume'
+                }
+                size={16}
+              />
+              {reader.state === 'loading'
+                ? 'Loading...'
+                : reader.state === 'playing'
+                  ? 'Stop'
+                  : 'Read'}
             </button>
-          </>
-        )}
+          )}
+          {state.isViewing && isEditable && !editor.editing && (
+            <button
+              type="button"
+              className="viewer-header-action viewer-header-action--primary"
+              onClick={editor.startEditing}
+              disabled={state.loading || !!state.error}
+            >
+              <UiIcon name="edit" size={16} />
+              Edit
+            </button>
+          )}
+          {editor.editing && (
+            <>
+              <button
+                type="button"
+                className={`viewer-header-action${editor.dirty ? ' viewer-header-action--danger' : ''}`}
+                onClick={editor.cancelEditing}
+                disabled={editor.saving}
+              >
+                {editor.dirty ? 'Discard' : 'Done'}
+              </button>
+              <button
+                type="button"
+                className="viewer-header-action viewer-header-action--primary"
+                onClick={() => editor.saveFile(nav.setContent)}
+                disabled={editor.saving || !editor.dirty}
+                aria-busy={editor.saving}
+              >
+                <UiIcon name={editor.saving ? 'loading' : 'check'} size={16} />
+                {editor.saving ? 'Saving...' : 'Save'}
+              </button>
+            </>
+          )}
+        </div>
       </header>
 
       {!state.isViewing &&
         (state.roots.length > 0 || (state.gitInfo && state.gitInfo.worktrees.length > 0)) && (
-          <div className="viewer-root-bar">
+          <div className="viewer-root-bar" role="group" aria-label="Workspace roots and worktrees">
             {state.roots.length > 0 ? (
               state.roots.map((root) => (
                 <button
+                  type="button"
                   key={root.path}
                   className={`viewer-root-btn${state.activeRoot === root.path ? ' viewer-root-btn--active' : ''}`}
+                  aria-pressed={state.activeRoot === root.path}
                   onClick={() => {
                     editor.resetEditor();
                     nav.handleRootChange(root.path, editor.dirty);
@@ -201,7 +231,9 @@ function FileViewerDocument() {
               ))
             ) : state.gitInfo ? (
               <button
+                type="button"
                 className={`viewer-root-btn${state.activeRoot === state.gitInfo.repoPath ? ' viewer-root-btn--active' : ''}`}
+                aria-pressed={state.activeRoot === state.gitInfo.repoPath}
                 onClick={() => {
                   editor.resetEditor();
                   nav.handleRootChange(state.gitInfo!.repoPath, editor.dirty);
@@ -212,8 +244,10 @@ function FileViewerDocument() {
             ) : null}
             {state.gitInfo?.worktrees.map((wt) => (
               <button
+                type="button"
                 key={wt.path}
                 className={`viewer-root-btn${state.activeRoot === wt.path ? ' viewer-root-btn--active' : ''}`}
+                aria-pressed={state.activeRoot === wt.path}
                 onClick={() => {
                   editor.resetEditor();
                   nav.handleRootChange(wt.path, editor.dirty);

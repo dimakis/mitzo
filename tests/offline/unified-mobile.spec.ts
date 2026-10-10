@@ -1821,8 +1821,7 @@ async function exerciseBriefingReloadRecovery(
     expect.objectContaining({ kind: 'briefing', date: binding.date, revision: binding.revision }),
   ]);
   expect(registrations).toHaveLength(0);
-  // REST delivery can race native connection startup. Establish the first
-  // receiver before destroying its window so the cold-reload scenario is real.
+  // HTTP delivery does not wait for the receiver's asynchronous socket startup.
   if (nativeMode) await expect.poll(() => sockets).toBeGreaterThanOrEqual(1);
   await page.reload();
   await expect.poll(() => sends.length).toBe(2);
@@ -1831,6 +1830,7 @@ async function exerciseBriefingReloadRecovery(
   expect(turns.size).toBe(1);
   if (nativeMode) {
     await expect.poll(() => sockets).toBeGreaterThanOrEqual(2);
+    expect(sockets).toBeGreaterThanOrEqual(2);
     expect(websocketSends).toHaveLength(0);
     expect(chatSseRequests).toBe(0);
   } else expect(sockets).toBe(0);
