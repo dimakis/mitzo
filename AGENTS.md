@@ -2,6 +2,10 @@
 
 Read `CLAUDE.md` for repository commands, architecture, test discipline, and workflow. Preserve other sessions' branches, task files, provider history, and sandbox ownership.
 
+## UI design is a repository contract
+
+For any user-facing UI change, read [the UI design contract](docs/design/ui-design-system.md) and `frontend/AGENTS.md` before implementation. It applies to new features, existing pages, mobile and web in every session. Reuse shared tokens and components; keep palette/font definitions in `frontend/src/styles/tokens.css`, and use the shared spacing/type/radius scales. UI work is incomplete without the contract's validation and PR evidence. Evolve a missing shared pattern in the same PR rather than inventing a competing page theme.
+
 ## Canonical staging
 
 For live Mitzo testing on the configured macOS host, reuse `http://mitzo-staging.localhost:3190` and `com.mitzo.staging`. Read [the operating procedure](docs/operations/canonical-staging.md) and run `~/.local/share/mitzo-staging/bin/mitzo-staging check` first. Do not create additional staging backends, custodians or background previews, borrow production configuration, or use production as a test fallback. Staging changes use the audited exact-commit plan/apply command; a lock or uncertain drain requires investigation, never forced restart or automatic rollback. Provider setup and retained diagnostic resources remain separate. Production deployment is a separate explicit user action.
