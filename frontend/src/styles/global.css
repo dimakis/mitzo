@@ -7704,6 +7704,7 @@ option {
   background: var(--bg);
 }
 .document-editor {
+  --document-editor-control-height: var(--control-height);
   display: flex;
   flex-direction: column;
   width: 100%;
@@ -7712,42 +7713,127 @@ option {
 .document-editor-toolbar {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.35rem;
-  padding: 0.5rem;
-  border-bottom: 1px solid var(--border);
-  background: var(--surface);
+  align-items: center;
+  flex-shrink: 0;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg);
 }
 .document-editor-controls {
   display: flex;
   flex: 1;
   flex-wrap: wrap;
-  gap: 0.35rem;
+  align-items: center;
+  gap: var(--space-3);
   min-width: 0;
 }
 .document-editor-actions {
   display: flex;
   flex-shrink: 0;
-  align-items: flex-start;
-  gap: 0.35rem;
+  align-items: center;
+  gap: var(--space-1);
 }
-.document-editor-toolbar button {
-  min-height: 44px;
-  min-width: 44px;
-  padding: 0.4rem 0.6rem;
-  background: var(--bg);
-  color: var(--text);
-  border: 1px solid var(--border);
+.document-editor .document-editor-control {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
+  min-height: var(--document-editor-control-height);
+  min-width: var(--document-editor-control-height);
+  padding: var(--space-1) var(--space-2);
+  border: 0;
+  border-radius: var(--radius-control);
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  line-height: 1.4;
+  white-space: nowrap;
+  color: var(--color-muted);
+  background: transparent;
+  cursor: pointer;
 }
-.document-editor-toolbar button[aria-pressed='true'] {
-  color: var(--accent);
-  border-color: var(--accent);
+.document-editor .document-editor-control:hover:not(:disabled) {
+  color: var(--color-text);
+  background: var(--color-surface);
 }
-.document-editor-toolbar button:disabled {
+.document-editor .document-editor-control[aria-pressed='true'],
+.document-editor .document-editor-save {
+  color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 12%, var(--color-bg));
+}
+.document-editor .document-editor-control:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+}
+.document-editor .document-editor-control:disabled {
   opacity: 0.45;
+  cursor: default;
+}
+.document-editor .document-editor-icon-control {
+  padding: var(--space-1);
+}
+.document-editor-icon-control::after {
+  content: attr(aria-label);
+  display: none;
+}
+.document-editor-icon-control:focus-visible::after {
+  display: block;
+}
+@media (hover: hover) {
+  .document-editor-icon-control:hover::after {
+    display: block;
+  }
 }
 .document-editor-modes {
   display: flex;
-  gap: 0.25rem;
+  gap: var(--space-1);
+  flex-shrink: 0;
+}
+.document-editor-views {
+  margin-right: auto;
+}
+.document-editor-keys {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+.document-editor-label {
+  font-size: var(--text-xs);
+  color: var(--color-muted);
+}
+.document-editor-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--space-4);
+  height: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+}
+.document-editor .document-editor-relative-lines[aria-pressed='true'] {
+  background: transparent;
+}
+.document-editor-tools {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-shrink: 0;
+  min-width: 0;
+  overflow-x: auto;
+  padding: var(--space-1) var(--space-2);
+  border-bottom: 1px solid var(--color-border);
+}
+.document-editor-history,
+.document-editor-formatting {
+  display: flex;
+  flex-shrink: 0;
+  gap: var(--space-1);
+}
+.document-editor-formatting {
+  padding-left: var(--space-3);
+  border-left: 1px solid var(--color-border);
 }
 .document-editor-panes {
   display: flex;
@@ -7773,7 +7859,7 @@ option {
 .document-editor .viewer-editor {
   width: 100%;
   height: 100%;
-  font-size: 16px;
+  font-size: var(--text-base);
   line-height: 1.65;
   tab-size: 2;
 }
@@ -7788,23 +7874,23 @@ option {
 }
 .document-editor-footer,
 .document-editor-status {
-  padding: 0.45rem 0.75rem;
-  font-size: 0.8rem;
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-s);
   color: var(--text-dim);
   background: var(--surface);
 }
 .document-editor-footer {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  padding-bottom: max(0.45rem, env(safe-area-inset-bottom));
+  gap: var(--space-3);
+  padding-bottom: max(var(--space-2), env(safe-area-inset-bottom));
 }
 .document-editor-vim-mode {
-  padding: 0.2rem 0.5rem;
+  padding: var(--space-1) var(--space-2);
   color: var(--accent);
   border: 1px solid var(--border);
   font-family: var(--font-mono, monospace);
-  font-size: 0.75rem;
+  font-size: var(--text-xs);
 }
 .document-editor--fullscreen {
   height: 100%;
@@ -7820,8 +7906,9 @@ option {
     flex-wrap: nowrap;
     overflow-x: auto;
   }
-  .document-editor-toolbar button {
+  .document-editor-keys {
     flex-shrink: 0;
+    flex-wrap: nowrap;
   }
   .document-editor-panes {
     flex-direction: column;
@@ -7835,10 +7922,16 @@ option {
     height: 50%;
   }
   .viewer-header {
-    gap: 0.35rem;
+    gap: var(--space-1h);
   }
   .viewer-header-branch {
     display: none;
+  }
+}
+@media (min-width: 601px) and (hover: hover) and (pointer: fine) {
+  .document-editor {
+    /* Dense mouse controls derive from the shared touch target and spacing scale. */
+    --document-editor-control-height: calc(var(--control-height) - var(--space-3));
   }
 }
 .document-conflict {
