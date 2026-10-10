@@ -48,7 +48,7 @@ it.each([
   async (model, reasoningEffort, thinkingConfig) => {
     mocks.provider = 'google-vertex';
     const fetcher = vi.fn(
-      async () =>
+      async (_url: string | URL | Request, _init?: RequestInit) =>
         new Response(
           JSON.stringify({
             candidates: [
@@ -64,9 +64,9 @@ it.each([
       { accountId: 'test', model, reasoningEffort, messages: [{ role: 'user', content: 'Help' }] },
       new AbortController().signal,
     );
-    expect(JSON.parse(fetcher.mock.calls[0][1].body).generationConfig.thinkingConfig).toEqual(
-      thinkingConfig,
-    );
+    expect(
+      JSON.parse(fetcher.mock.calls[0][1]!.body as string).generationConfig.thinkingConfig,
+    ).toEqual(thinkingConfig);
   },
 );
 function openAIReply(text: string) {

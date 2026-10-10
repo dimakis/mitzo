@@ -2,7 +2,7 @@ import { geminiThinkingEfforts, geminiTranscriptDefaultEffort } from './gemini-t
 export function terminalAdviserCatalog<
   T extends {
     provider: string;
-    models: { id: string; reasoningEfforts?: string[] }[];
+    models: { id: string; reasoningEfforts?: string[]; defaultReasoningEffort?: string }[];
   },
 >(accounts: T[]) {
   return accounts
