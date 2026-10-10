@@ -231,7 +231,9 @@ public enum ServerMessage: Codable, Sendable {
     case unwatched(sessionId: String)
     case sessionSwitched(SessionSwitchedParams)
     case sessionCleared
-    case sessionId(sessionId: String, seq: Int?, ts: Int?)
+    case sessionId(sessionId: String, seq: Int?, ts: Int?, clientMsgId: String? = nil)
+    case userMessage(UserMessageParams)
+    case nativeCommandResult(NativeCommandResultParams)
     case sessionResumed(sessionId: String, replayed: Int)
     case sessionTakeover(sessionId: String)
     case sessionEnd(SessionEndParams)
@@ -281,7 +283,8 @@ public enum ServerMessage: Codable, Sendable {
             let sessionId = try container.decode(String.self, forKey: AnyCodingKey("sessionId"))
             let seq = try container.decodeIfPresent(Int.self, forKey: AnyCodingKey("seq"))
             let ts = try container.decodeIfPresent(Int.self, forKey: AnyCodingKey("ts"))
-            self = .sessionId(sessionId: sessionId, seq: seq, ts: ts)
+            let clientMsgId = try container.decodeIfPresent(String.self, forKey: AnyCodingKey("clientMsgId"))
+            self = .sessionId(sessionId: sessionId, seq: seq, ts: ts, clientMsgId: clientMsgId)
 
         case "session_resumed":
             let sessionId = try container.decode(String.self, forKey: AnyCodingKey("sessionId"))
@@ -328,6 +331,12 @@ public enum ServerMessage: Codable, Sendable {
             let params = try ToolResultParams(from: decoder)
             self = .toolResult(params)
 
+        case "user_message":
+            self = .userMessage(try UserMessageParams(from: decoder))
+
+        case "native_command_result":
+            self = .nativeCommandResult(try NativeCommandResultParams(from: decoder))
+
         case "session_control_rejected":
             self = .sessionControlRejected(try SessionControlRejectedParams(from: decoder))
 
@@ -373,11 +382,12 @@ public enum ServerMessage: Codable, Sendable {
         case .sessionCleared:
             try container.encode("session_cleared", forKey: AnyCodingKey("type"))
 
-        case .sessionId(let sessionId, let seq, let ts):
+        case .sessionId(let sessionId, let seq, let ts, let clientMsgId):
             try container.encode("session_id", forKey: AnyCodingKey("type"))
             try container.encode(sessionId, forKey: AnyCodingKey("sessionId"))
             try container.encodeIfPresent(seq, forKey: AnyCodingKey("seq"))
             try container.encodeIfPresent(ts, forKey: AnyCodingKey("ts"))
+            try container.encodeIfPresent(clientMsgId, forKey: AnyCodingKey("clientMsgId"))
 
         case .sessionResumed(let sessionId, let replayed):
             try container.encode("session_resumed", forKey: AnyCodingKey("type"))
@@ -424,6 +434,14 @@ public enum ServerMessage: Codable, Sendable {
             try container.encode("tool_result", forKey: AnyCodingKey("type"))
             try params.encode(to: encoder)
 
+        case .userMessage(let params):
+            try container.encode("user_message", forKey: AnyCodingKey("type"))
+            try params.encode(to: encoder)
+
+        case .nativeCommandResult(let params):
+            try container.encode("native_command_result", forKey: AnyCodingKey("type"))
+            try params.encode(to: encoder)
+
         case .sessionControlRejected(let params):
             try container.encode("session_control_rejected", forKey: AnyCodingKey("type"))
             try params.encode(to: encoder)
@@ -444,6 +462,39 @@ public enum ServerMessage: Codable, Sendable {
 }
 
 // MARK: - Server Message Params
+
+public struct UserMessageParams: Codable, Sendable {
+    public let sessionId: String
+    public let messageId: String
+    public let text: String
+    public let seq: Int?
+    public let ts: Int?
+}
+
+public struct NativeCommandResultParams: Codable, Sendable {
+    public let sessionId: String?
+    public let clientMsgId: String?
+    public let command: String
+    public let content: String
+    public let hasSessionId: Bool
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: AnyCodingKey.self)
+        hasSessionId = container.contains(AnyCodingKey("sessionId"))
+        sessionId = try container.decodeIfPresent(String.self, forKey: AnyCodingKey("sessionId"))
+        clientMsgId = try container.decodeIfPresent(String.self, forKey: AnyCodingKey("clientMsgId"))
+        command = try container.decode(String.self, forKey: AnyCodingKey("command"))
+        content = try container.decode(String.self, forKey: AnyCodingKey("content"))
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: AnyCodingKey.self)
+        if hasSessionId { try container.encode(sessionId, forKey: AnyCodingKey("sessionId")) }
+        try container.encodeIfPresent(clientMsgId, forKey: AnyCodingKey("clientMsgId"))
+        try container.encode(command, forKey: AnyCodingKey("command"))
+        try container.encode(content, forKey: AnyCodingKey("content"))
+    }
+}
 
 public enum SessionControl: String, Codable, Sendable {
     case stop, send, interrupt, close
