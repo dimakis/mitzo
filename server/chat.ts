@@ -1,3 +1,8 @@
+import {
+  resolveOrdinaryContributorGuidance,
+  saveOrdinaryContributorGuidance,
+} from './ordinary-contributor-guidance.js';
+import type { OrdinaryTurnLifecycle } from './ordinary-turn-lifecycle.js';
 import { assembleSourceSnapshots } from './source-snapshot-context.js';
 import { SourceSnapshotsSchema, type SourceSnapshot } from '@mitzo/protocol';
 import { publicProviderFailureMessage } from './provider-failure.js';
@@ -1062,6 +1067,14 @@ export async function startChat(
     onStartupAdmission?: (error?: unknown) => void;
     onFirstEventOutcome?: (error?: Error) => void;
     onTerminalOutcome?: (error?: Error) => void;
+    /** Trusted observers for independently owned ordinary contributor turns. */
+    ordinaryTurnLifecycle?: OrdinaryTurnLifecycle;
+    /** Explicit contributor guidance supplied by the trusted collaboration owner. */
+    contributorGuidance?: string;
+    /** Trusted caller borrows a workspace owned outside this child session. */
+    retainWorkspace?: boolean;
+    onQueryReady?: (query: { interrupt(): Promise<void> }) => void;
+    onTurnResult?: (result: { is_error?: boolean }, inputUuid?: string) => void;
     telosTaskId?: string;
     agentName?: string;
     agentProfile?: AgentProfileSelection;
@@ -1145,6 +1158,14 @@ async function _startChatInner(
     onStartupAdmission?: (error?: unknown) => void;
     onFirstEventOutcome?: (error?: Error) => void;
     onTerminalOutcome?: (error?: Error) => void;
+    /** Trusted observers for independently owned ordinary contributor turns. */
+    ordinaryTurnLifecycle?: OrdinaryTurnLifecycle;
+    /** Explicit contributor guidance supplied by the trusted collaboration owner. */
+    contributorGuidance?: string;
+    /** Trusted caller borrows a workspace owned outside this child session. */
+    retainWorkspace?: boolean;
+    onQueryReady?: (query: { interrupt(): Promise<void> }) => void;
+    onTurnResult?: (result: { is_error?: boolean }, inputUuid?: string) => void;
     telosTaskId?: string;
     agentName?: string;
     agentProfile?: AgentProfileSelection;
@@ -1173,6 +1194,15 @@ async function _startChatInner(
       options.accountProfiles ??
       (options.accountId || storedBinding ? loadAccountProfiles() : undefined);
     accountBinding = resolveAccountSelection(options, storedBinding, !!options.resume, profiles);
+    options = {
+      ...options,
+      contributorGuidance: resolveOrdinaryContributorGuidance(
+        eventStore,
+        options.resume ?? options.initialSessionId,
+        accountBinding ?? undefined,
+        options.contributorGuidance,
+      ),
+    };
     if (options.agentProfile || storedMeta?.agentProfile)
       agentProfile = await resolveChatAgentProfile({
         requested: options.agentProfile,
@@ -1643,6 +1673,23 @@ async function _startChatInner(
   });
 
   const session = registry.get(clientId)!;
+  if (options.contributorGuidance !== undefined && session.sessionId)
+    saveOrdinaryContributorGuidance(
+      eventStore,
+      session.sessionId,
+      accountBinding ?? undefined,
+      options.contributorGuidance,
+    );
+  if (options.retainWorkspace && session.sessionId) {
+    const retained = eventStore
+      .getSessionEvents(session.sessionId)
+      .some(
+        (event) =>
+          event.type === 'workspace_retention' && event.payload.policy === 'external-owner',
+      );
+    if (!retained)
+      eventStore.append(session.sessionId, 'workspace_retention', { policy: 'external-owner' });
+  }
   if (options.skillAllowedTools) setSkillPolicy(registry, clientId, options.skillAllowedTools);
   session.model = options.model ?? session.model;
   session.inputQueue = inputQueue as { push: (msg: unknown) => void; close: () => void };
@@ -1758,7 +1805,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
     repositoryChatContext(repositoryWorkspace) +
     'This is Mitzo, a mobile chat interface. The user is on their phone.\n' +
     SESSION_PERMISSION_INSTRUCTIONS +
-    TELOS_ARTIFACT_INSTRUCTIONS +
+    (options.contributorGuidance === undefined ? TELOS_ARTIFACT_INSTRUCTIONS : '') +
     '- Read operations are fine without asking.\n' +
     '- Keep responses concise — small screen.\n' +
     '- Read CLAUDE.md and .cursor/rules/ for project context before doing substantive work.' +
@@ -1766,6 +1813,9 @@ This is an independent checkout with its own Git storage, not a linked worktree.
     workspacePrompt +
     (supportsHostTaskTools(openShellSelected) ? buildTaskPromptForSession(clientId) : '') +
     (agentProfile ? `\n\n${buildAgentProfilePrompt(agentProfile.definition)}` : '') +
+    (options.contributorGuidance
+      ? `\n\n## Contributor guidance\n${options.contributorGuidance}`
+      : '') +
     bootContextAppend;
 
   // Fire-and-forget: load agent definition and store in session registry.
@@ -1876,6 +1926,8 @@ This is an independent checkout with its own Git storage, not a linked worktree.
           });
         },
         reattachOnly: options.reattachOnly,
+        ordinaryTurnLifecycle: options.ordinaryTurnLifecycle,
+        contributorGuidance: options.contributorGuidance,
       });
     } else if (apiKey || gemini) {
       const conversationId = options.resume ?? newSdkSessionId!;
@@ -2039,6 +2091,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
     }
 
     session.queryInstance = q;
+    options.onQueryReady?.(q);
     if (repositoryWorkspace && accountBinding && session.sessionId) {
       // Provider startup has settled and the task workspace is independently retained.
       // Failure to reclaim a controller seed must never terminate a live task.
@@ -2130,6 +2183,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
               result.is_error === true ? 'failed' : 'completed',
               inputUuid,
             );
+          options.onTurnResult?.(result, inputUuid);
         },
         onSuccessfulAccountUse: (binding) => getAccountUseStore().record(binding),
       },
@@ -2856,6 +2910,18 @@ export async function interruptChat(
 export function cleanupSessionWorktrees(
   session: import('./session-registry.js').ManagedSession,
 ): void {
+  // Contributor workspaces belong to their selected task/source. Keep the durable
+  // marker effective for later ordinary cold resumes, not just this private query.
+  if (
+    session.sessionId &&
+    eventStore
+      .getSessionEvents(session.sessionId)
+      .some(
+        (event) =>
+          event.type === 'workspace_retention' && event.payload.policy === 'external-owner',
+      )
+  )
+    return;
   const config = getRepoConfig();
   const primaryPath = session.worktreePaths.get('primary')?.path;
   for (const [repoName, { wtId, path }] of session.worktreePaths) {

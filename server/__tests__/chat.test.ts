@@ -168,6 +168,24 @@ describe('cleanupSessionWorktrees', () => {
     vi.restoreAllMocks();
   });
 
+  it('preserves externally retained contributor workspaces after a cold resume', async () => {
+    const { cleanupSessionWorktrees, eventStore } = await import('../chat.js');
+    const sessionId = 'retained-contributor-workspace';
+    eventStore.upsertSession({ sessionId });
+    eventStore.append(sessionId, 'workspace_retention', { policy: 'external-owner' });
+    const session = {
+      sessionId,
+      worktreePaths: new Map([
+        ['primary', { path: '/repo/.claude/worktrees/parent', wtId: 'parent' }],
+        ['other', { path: '/other/.claude/worktrees/parent', wtId: 'parent' }],
+      ]),
+    } as unknown as ManagedSession;
+    cleanupSessionWorktrees(session);
+    expect(removeWorktreeMock).not.toHaveBeenCalled();
+    expect(rescueDirtyWorktreeMock).not.toHaveBeenCalled();
+    expect(session.worktreePaths.size).toBe(2);
+  });
+
   it('skips primary worktree and only removes secondaries', async () => {
     const { loadRepoConfig } = await import('../repo-config.js');
     (loadRepoConfig as ReturnType<typeof vi.fn>).mockReturnValue({

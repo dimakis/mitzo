@@ -317,6 +317,37 @@ it('reattaches the provider runtime without admitting or replaying user intent',
   chat.close();
 });
 
+it('forwards exact ordinary provider receipts and never treats closing as provider termination', async () => {
+  vi.clearAllMocks();
+  mocks.connect.mockResolvedValue({ definitions: [], close: mocks.mcpClose });
+  const lifecycle = {
+    beforeDispatch: vi.fn(),
+    accepted: vi.fn(),
+    terminal: vi.fn(),
+    terminalConflict: vi.fn(),
+  };
+  const chat = await openCodexChat({
+    ...options(new AbortController()),
+    ordinaryTurnLifecycle: lifecycle,
+  });
+  const controls = mocks.conversationOptions as unknown as {
+    onProviderDispatch(id: string): void;
+    onProviderAccepted(id: string, thread: string, turn: string): void;
+    onProviderTerminal(id: string, turn: string, status: 'completed'): void;
+    onProviderTerminalConflict(id: string, thread: string, turn: string): void;
+  };
+  controls.onProviderDispatch('command');
+  controls.onProviderAccepted('command', 'provider-thread', 'provider-turn');
+  expect(lifecycle.beforeDispatch).toHaveBeenCalledWith('command');
+  expect(lifecycle.accepted).toHaveBeenCalledWith('command', 'provider-thread', 'provider-turn');
+  chat.close();
+  expect(lifecycle.terminal).not.toHaveBeenCalled();
+  controls.onProviderTerminal('command', 'provider-turn', 'completed');
+  expect(lifecycle.terminal).toHaveBeenCalledWith('command', 'provider-turn', 'completed');
+  controls.onProviderTerminalConflict('command', 'provider-thread', 'provider-turn');
+  expect(lifecycle.terminalConflict).toHaveBeenCalledWith('command', 'provider-turn');
+});
+
 it('waits for cold-reconnect runtime registration', async () => {
   vi.clearAllMocks();
   mocks.connect.mockResolvedValue({ definitions: [], close: mocks.mcpClose });
@@ -1954,6 +1985,24 @@ it('offers Keychain connection tools inside OpenShell alongside existing host ca
   } finally {
     vi.unstubAllEnvs();
   }
+});
+
+it('does not require Telos outcome capture for ordinary artifact contributors in OpenShell', async () => {
+  vi.clearAllMocks();
+  vi.stubEnv('MITZO_OPENSHELL_SANDBOX_NAME', 'sandbox');
+  const chat = await openCodexChat({
+    ...options(new AbortController()),
+    systemPrompt: 'Selected artifact contributor instructions.',
+    contributorGuidance: 'Contribute to the selected document.',
+  });
+  expect(mocks.conversationOptions?.systemPrompt).not.toContain(
+    'Telos is the de facto persistent home',
+  );
+  expect(mocks.conversationOptions?.systemPrompt).not.toContain(
+    'Use TelosCreateOutcome for durable Telos capture',
+  );
+  expect(mocks.conversationOptions?.systemPrompt).toContain('Current Mitzo mode');
+  chat.close();
 });
 
 it('refuses cold repository resume without its artifact identity before ensuring a sandbox', async () => {

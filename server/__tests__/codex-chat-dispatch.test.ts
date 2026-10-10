@@ -114,6 +114,7 @@ it('routes a bound Codex account to its controller with context and canonical du
     expect(openCodexChat).toHaveBeenCalledOnce();
     expect(persisted).toEqual(profiles.resolve('personal', 'luna'));
     expect(opened?.systemPrompt).toContain('boot evidence');
+    expect(opened?.systemPrompt).toContain('Telos is the de facto persistent home');
     expect(opened?.prompt).toContain('attached context');
     expect(query).not.toHaveBeenCalled();
     expect(id).toBe('5f68a371-73d1-4994-a512-b71d4bc44c65');
@@ -130,9 +131,104 @@ it('routes a bound Codex account to its controller with context and canonical du
       accountProfiles: profiles,
       resume: id,
       clientMsgId: 'durable-next-prompt',
+      contributorGuidance: 'Contribute to this selected document. Outcome capture is optional.',
     });
     expect(id).toBe('5f68a371-73d1-4994-a512-b71d4bc44c65');
     expect(opened?.messageId).toBe('durable-next-prompt');
+    expect(opened?.systemPrompt).toContain('Outcome capture is optional.');
+    expect(opened?.systemPrompt).not.toContain('Telos is the de facto persistent home');
+    await chat.startChat({ send: () => {}, isOpen: () => true }, 'cold-child-ui', 'continue', {
+      cwd: root,
+      accountId: 'personal',
+      model: 'luna',
+      accountProfiles: profiles,
+      resume: id,
+      clientMsgId: 'cold-child-prompt',
+    });
+    expect(opened?.systemPrompt).toContain('Outcome capture is optional.');
+    expect(opened?.systemPrompt?.match(/Outcome capture is optional\./g)).toHaveLength(1);
+    expect(opened?.systemPrompt).not.toContain('Telos is the de facto persistent home');
+    expect(query).not.toHaveBeenCalled();
+  } finally {
+    chat.eventStore.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+it('connects trusted contributor observers to the real ordinary query loop and exact child identity', async () => {
+  vi.resetModules();
+  const root = await mkdtemp(join(tmpdir(), 'mitzo-contributor-query-'));
+  vi.stubEnv('REPO_PATH', root);
+  vi.stubEnv('WORKTREE_ENABLED', 'false');
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => new Response(JSON.stringify({ boot: { tokens: 1, content: 'boot' } }))),
+  );
+  const chat = await import('../chat.js');
+  const profiles = new AccountProfiles(
+    [
+      {
+        id: 'personal',
+        label: 'Personal',
+        provider: 'openai-codex',
+        credentialRef: '/login',
+        email: 'test@example.com',
+        planType: 'test',
+        models: [{ id: 'offline-luna', label: 'Offline fixture' }],
+      },
+    ],
+    { codexEnabled: true },
+  );
+  const lifecycle = { beforeDispatch: vi.fn(), accepted: vi.fn(), terminal: vi.fn() };
+  const ready = vi.fn();
+  const result = vi.fn();
+  const childId = '5f68a371-73d1-4994-a512-b71d4bc44c66';
+  vi.mocked(openCodexChat).mockImplementation(async (options) => {
+    expect(options.ordinaryTurnLifecycle).toBe(lifecycle);
+    expect(options.contributorGuidance).toBe('Selected contributor guidance.');
+    expect(options.conversationId).toBe(childId);
+    return {
+      interrupt: async () => {},
+      setPermissionMode: async () => {},
+      close: () => {},
+      stopTask: async () => {
+        throw new Error('Offline fixture has no subagents');
+      },
+      async *[Symbol.asyncIterator]() {
+        options.ordinaryTurnLifecycle!.beforeDispatch('exact-recipient');
+        options.ordinaryTurnLifecycle!.accepted('exact-recipient', 'raw-thread', 'raw-turn');
+        yield { type: 'system', subtype: 'init', session_id: childId };
+        options.ordinaryTurnLifecycle!.terminal('exact-recipient', 'raw-turn', 'completed');
+        yield { type: 'result', session_id: childId, is_error: false };
+      },
+    };
+  });
+  try {
+    await chat.startChat(
+      { send: () => {}, isOpen: () => true },
+      'private-contributor-client',
+      'Exact selected excerpt.',
+      {
+        cwd: root,
+        accountId: 'personal',
+        model: 'offline-luna',
+        accountProfiles: profiles,
+        initialSessionId: childId,
+        clientMsgId: 'exact-recipient',
+        contributorGuidance: 'Selected contributor guidance.',
+        retainWorkspace: true,
+        ordinaryTurnLifecycle: lifecycle,
+        onQueryReady: ready,
+        onTurnResult: result,
+      },
+    );
+    expect(ready).toHaveBeenCalledOnce();
+    expect(result).toHaveBeenCalledOnce();
+    expect(lifecycle.terminal).toHaveBeenCalledWith('exact-recipient', 'raw-turn', 'completed');
+    expect(chat.eventStore.getSessionEvents(childId)).toEqual(
+      expect.arrayContaining([expect.objectContaining({ type: 'workspace_retention' })]),
+    );
+    expect(chat.registry.findBySessionId(childId)).toBeNull();
     expect(query).not.toHaveBeenCalled();
   } finally {
     chat.eventStore.close();
