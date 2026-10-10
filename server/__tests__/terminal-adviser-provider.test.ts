@@ -41,6 +41,8 @@ it.each([
   ['gemini-2.5-pro', 'low', { thinkingBudget: 512 }],
   ['gemini-2.5-pro', 'high', { thinkingBudget: 2048 }],
   ['gemini-2.5-flash', 'none', { thinkingBudget: 0 }],
+  ['gemini-3.1-flash-lite', undefined, { thinkingLevel: 'LOW' }],
+  ['gemini-3.5-flash-lite', undefined, { thinkingLevel: 'LOW' }],
 ])(
   'applies %s %s thinking in the actual intercepted provider request',
   async (model, reasoningEffort, thinkingConfig) => {

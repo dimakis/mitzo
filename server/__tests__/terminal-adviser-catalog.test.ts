@@ -12,6 +12,11 @@ it('offers only Gemini thinking modes supported by the text-only adviser adapter
         },
         { id: 'gemini-2.5-pro', reasoningEfforts: ['none', 'low', 'high'] },
         { id: 'gemini-2.0-flash', reasoningEfforts: ['low', 'high'] },
+        {
+          id: 'gemini-3.1-flash-lite',
+          reasoningEfforts: ['minimal', 'low', 'high'],
+          defaultReasoningEffort: 'minimal',
+        },
       ],
     },
     {
@@ -26,6 +31,8 @@ it('offers only Gemini thinking modes supported by the text-only adviser adapter
     ['low', 'medium', 'high'],
     ['low', 'high'],
     [],
+    ['low', 'high'],
   ]);
+  expect(accounts[0].models[3].defaultReasoningEffort).toBe('low');
   expect(accounts[1].models[0].reasoningEfforts).toEqual(['low', 'high']);
 });

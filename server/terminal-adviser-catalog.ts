@@ -1,4 +1,4 @@
-import { geminiThinkingEfforts } from './gemini-thinking.js';
+import { geminiThinkingEfforts, geminiTranscriptDefaultEffort } from './gemini-thinking.js';
 export function terminalAdviserCatalog<
   T extends {
     provider: string;
@@ -13,6 +13,9 @@ export function terminalAdviserCatalog<
         account.provider === 'google-vertex'
           ? {
               ...model,
+              ...(geminiTranscriptDefaultEffort(model.id)
+                ? { defaultReasoningEffort: geminiTranscriptDefaultEffort(model.id) }
+                : {}),
               reasoningEfforts: model.reasoningEfforts?.filter((effort) =>
                 geminiThinkingEfforts(model.id, true).includes(effort),
               ),
