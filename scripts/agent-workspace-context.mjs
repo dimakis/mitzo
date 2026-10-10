@@ -8,7 +8,10 @@ export async function compileWorkspaceContext(recipe, options, compiler) {
   const { compile, estimateTokens, parseMarkdown } = compiler;
   async function rootIdentity(options) {
     if (!options.workspaceRoot) throw Error('Select a chat workspace for context compilation');
-    return realpath(options.workspaceRoot);
+    const root = await realpath(options.workspaceRoot);
+    if (options.requirePhysicalRoot && root !== options.workspaceRoot)
+      throw Error('Context workspace root changed or is not physical');
+    return root;
   }
   async function document(root, reference, signal) {
     signal?.throwIfAborted();

@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.9';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.38';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.39';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -32,9 +32,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/agent-context-recipe.ts':
     '95237765d7257eb1ae0ab1de3875d2eea11b8d460dadf1e49671b55a640344a1',
   '../../scripts/agent-workspace-context.mjs':
-    '34c620c92540522e29bd3929bcdbfd68222defa30aa3e2581d088bcf3c44fe31',
+    '61ee6c960962ec630f75eeedf160f13d31fbb65338639a5305579d29166bd57d',
   '../../docs/spikes/openshell-codex/compile-agent-context.mjs':
-    'e7813d5d7d19a2e3d7098e4df02d4b12563cc04dda28782b03d7b3991dda50d0',
+    '75cc1a653dbb7d4c20ffbeab8fafcf20b19110ff64110a548d30c65305da20be',
   '../../scripts/attest-knowledge-runtime.py':
     '5737ec8e7fc19a17b6ef5a35c1898e834d2a5d2d2a9f7593b607eaaf1971cfeb',
   '../agent-context-sandbox.ts': '387d6e2f403b604adeb4bffe8bd350683a5c15ba1fa2caf26a69f6e7b0d6741b',

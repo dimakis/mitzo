@@ -54,6 +54,27 @@ it('runs the protected entrypoint with bounded preloaded sources and a sandbox s
     expect(response.context.fullMarkdown).toContain('Use sandbox-selected context.');
   });
 });
+it('rejects a task root switched to an outside link after the initial physical-root check', () => {
+  fixture((root, invoke) => {
+    const outside = resolve(root, '../..', 'outside-task');
+    mkdirSync(outside);
+    writeFileSync(join(outside, 'AGENTS.md'), '# Outside instructions\nOUTSIDE TASK AUTHORITY');
+    writeFileSync(join(outside, 'design.md'), '# Outside data\nDo not read this selection.');
+    const path = resolve(root, '../..', 'compiler.mjs');
+    const source = readFileSync(path, 'utf8').replace(
+      'const compiled = await compileWorkspaceContext',
+      `const fs = await import('node:fs/promises');
+       await fs.rename(workspaceRoot, workspaceRoot + '.before');
+       await fs.symlink(${JSON.stringify(outside)}, workspaceRoot);
+       const compiled = await compileWorkspaceContext`,
+    );
+    writeFileSync(path, source);
+    const result = invoke({ workspaceRoot: root, recipe });
+    expect(result.status).not.toBe(0);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toMatch(/physical|root changed/);
+  });
+});
 it.each([
   'host root',
   'traversal',

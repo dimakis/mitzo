@@ -78,7 +78,11 @@ if (
   !selectors(recipe.excluded)
 )
   throw Error('Invalid sandbox workspace context recipe');
-const compiled = await compileWorkspaceContext(recipe, { workspaceRoot }, compiler);
+const compiled = await compileWorkspaceContext(
+  recipe,
+  { workspaceRoot, requirePhysicalRoot: true },
+  compiler,
+);
 const output =
   JSON.stringify({
     compilerRevision: 'mitzo-sandbox-context-v1:contexgin-683f9007db686e710ed9a5410468fe33df1c5382',
