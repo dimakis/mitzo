@@ -204,6 +204,7 @@ async function setup(
   inheritedConfig: Record<string, unknown> = {},
   savedHistory?: EventStore,
   recordProviderRequest?: (method: string) => void,
+  prepareAgentContext?: (signal: AbortSignal) => Promise<void>,
 ) {
   const dir = mkdtempSync(join(tmpdir(), 'mitzo-codex-'));
   const store = existingStore ?? new CodexConversationStore(join(dir, 'private.db'));
@@ -286,6 +287,7 @@ async function setup(
     beforeReconnect,
     prepareTurn,
     prepareSystemPrompt,
+    prepareAgentContext,
     onApplicationContextAccepted,
     beforeRuntimeAdmission,
     reconnectGuard,
@@ -4161,4 +4163,57 @@ it('preserves unavailable-project diagnostics through terminal results without r
   expect(JSON.stringify({ events, errors: onError.mock.calls })).not.toMatch(
     /sk-private|private.invalid|Bearer/,
   );
+});
+
+it('rechecks agent source authority after async turn preparation before any provider dispatch', async () => {
+  let current = true;
+  const accepted = vi.fn();
+  const args: Parameters<typeof setup> = [];
+  args[7] = async () => {
+    await Promise.resolve();
+    current = false;
+  };
+  args[10] = accepted;
+  args[25] = async () => {
+    if (!current) throw Error('Agent source authority revoked');
+  };
+  const { c, requests } = await setup(...args);
+  await expect(c.send({ id: 'revoked-context', prompt: 'first' })).rejects.toThrow(
+    'Agent source authority revoked',
+  );
+  expect(requests.filter((request) => request.method === 'turn/start')).toHaveLength(0);
+  expect(c.getTurnDispatchCount()).toBe(0);
+  expect(accepted).not.toHaveBeenCalled();
+});
+it('blocks revoked source authority on a later queued command without recording acceptance', async () => {
+  let current = true;
+  const accepted = vi.fn();
+  const args: Parameters<typeof setup> = [];
+  args[10] = accepted;
+  args[25] = async () => {
+    if (!current) throw Error('Agent source authority revoked');
+  };
+  const { c, requests, callbacks } = await setup(...args);
+  await c.send({ id: 'first-authorized', prompt: 'first' });
+  await c.send({ id: 'queued-revoked', prompt: 'second' });
+  current = false;
+  callbacks.onNotification('turn/completed', {
+    threadId: 'provider-thread',
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  await vi.waitFor(() => expect(c.isPaused()).toBe(true));
+  expect(requests.filter((request) => request.method === 'turn/start')).toHaveLength(1);
+  expect(accepted).toHaveBeenCalledOnce();
+});
+it('does not transmit private developer instructions when source authority is denied at thread setup', async () => {
+  const requests: string[] = [];
+  const args: Parameters<typeof setup> = [];
+  args[24] = (method) => requests.push(method);
+  args[25] = async () => {
+    throw Error('Source authority revoked before thread setup');
+  };
+  await expect(setup(...args)).rejects.toThrow('Source authority revoked before thread setup');
+  expect(requests).not.toContain('thread/start');
+  expect(requests).not.toContain('thread/resume');
+  expect(requests).not.toContain('turn/start');
 });

@@ -126,6 +126,7 @@ export interface CodexConversationOptions {
   ) => Promise<string | void>;
   /** Select verified project context at a safe boundary; never append it as user text. */
   prepareSystemPrompt?: (signal: AbortSignal) => Promise<string | undefined>;
+  prepareAgentContext?: (signal: AbortSignal) => Promise<void>;
   beforeComplete?: (signal: AbortSignal) => Promise<void>;
   /** Private bounded trusted observer; must stop its reads when the supplied signal aborts. */
   observeStartupConfig?: (
@@ -499,12 +500,16 @@ export class CodexConversation {
                 modelProvider: z.string(),
               })
               .parse(
-                await this.client.request(state.threadId ? 'thread/resume' : 'thread/start', {
-                  ...(state.threadId ? { threadId: state.threadId } : {}),
-                  ...threadOptions,
-                  allowProviderModelFallback: false,
-                  ...(state.threadId ? {} : this.dynamicToolsOption()),
-                }),
+                await this.contextRequest(
+                  this.client,
+                  state.threadId ? 'thread/resume' : 'thread/start',
+                  {
+                    ...(state.threadId ? { threadId: state.threadId } : {}),
+                    ...threadOptions,
+                    allowProviderModelFallback: false,
+                    ...(state.threadId ? {} : this.dynamicToolsOption()),
+                  },
+                ),
               );
     if (
       result.model !== this.binding.model ||
@@ -528,6 +533,15 @@ export class CodexConversation {
     this.opts.emit({ type: 'system', subtype: 'init', session_id: this.opts.conversationId });
     this.opts.onQueueChange?.();
   }
+  private async contextRequest(client: Rpc, method: string, params: ObjectValue) {
+    const signal =
+      this.active?.abort.signal ?? this.opts.startupSignal ?? new AbortController().signal;
+    signal.throwIfAborted();
+    await this.opts.prepareAgentContext?.(signal);
+    signal.throwIfAborted();
+    if (this.closed) throw Error('Codex context dispatch closed');
+    return client.request(method, params);
+  }
   private async repairThreadOwnership(client: Rpc, options: Record<string, unknown>) {
     const pending = this.opts.store.pendingThreadOwnership(this.opts.conversationId, this.binding!);
     if (!pending) return;
@@ -539,7 +553,7 @@ export class CodexConversation {
         modelProvider: z.string(),
       })
       .parse(
-        await client.request('thread/resume', {
+        await this.contextRequest(client, 'thread/resume', {
           ...options,
           threadId: pending.threadId,
           allowProviderModelFallback: false,
@@ -1076,7 +1090,7 @@ export class CodexConversation {
               modelProvider: z.string(),
             })
             .parse(
-              await client.request('thread/start', {
+              await this.contextRequest(client, 'thread/start', {
                 ...threadOptions,
                 allowProviderModelFallback: false,
                 ...this.dynamicToolsOption(),
@@ -1093,7 +1107,7 @@ export class CodexConversation {
                   modelProvider: z.string(),
                 })
                 .parse(
-                  await client.request('thread/resume', {
+                  await this.contextRequest(client, 'thread/resume', {
                     threadId: this.threadId,
                     ...threadOptions,
                     allowProviderModelFallback: false,
@@ -1225,7 +1239,7 @@ export class CodexConversation {
           modelProvider: z.string(),
         })
         .parse(
-          await client.request('thread/resume', {
+          await this.contextRequest(client, 'thread/resume', {
             threadId: this.threadId,
             ...this.threadOptions(runtimeConfig, modelProvider, state),
             allowProviderModelFallback: false,
@@ -1303,7 +1317,7 @@ export class CodexConversation {
         modelProvider: z.string(),
       })
       .parse(
-        await client.request('thread/start', {
+        await this.contextRequest(client, 'thread/start', {
           ...threadOptions,
           allowProviderModelFallback: false,
           ...this.dynamicToolsOption(),
@@ -1348,7 +1362,7 @@ export class CodexConversation {
         modelProvider: z.string(),
       })
       .parse(
-        await client.request('thread/start', {
+        await this.contextRequest(client, 'thread/start', {
           ...threadOptions,
           allowProviderModelFallback: false,
           ...this.dynamicToolsOption(),
@@ -1452,13 +1466,13 @@ export class CodexConversation {
       })
       .parse(
         lastCompletedTurnId
-          ? await client.request('thread/fork', {
+          ? await this.contextRequest(client, 'thread/fork', {
               threadId: state.threadId,
               lastTurnId: lastCompletedTurnId,
               excludeTurns: true,
               ...threadOptions,
             })
-          : await client.request('thread/start', {
+          : await this.contextRequest(client, 'thread/start', {
               ...threadOptions,
               allowProviderModelFallback: false,
               ...this.dynamicToolsOption(),
@@ -1668,6 +1682,8 @@ export class CodexConversation {
           : null;
       if (continuation)
         assertCapacityAdmissionDeadline(this.capacityAdmissionDeadlines.get(command.id));
+      await this.opts.prepareAgentContext?.(active.abort.signal);
+      active.abort.signal.throwIfAborted();
       this.opts.onProviderDispatch?.(command.id);
       active.span = tracer.startSpan('codex.turn', {}, context.active());
       active.span.setAttribute('mitzo.route', 'chatgpt-subscription');
@@ -1691,6 +1707,7 @@ export class CodexConversation {
         this.opts.store.beginCapacityDispatch(this.opts.conversationId, this.binding!, command.id);
         this.capacityAdmissionDeadlines.delete(command.id);
       }
+      active.abort.signal.throwIfAborted();
       this.turnDispatchCount += 1;
       const result = z.object({ turn: z.object({ id: z.string().min(1) }) }).parse(
         await this.client.request('turn/start', {

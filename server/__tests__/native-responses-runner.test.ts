@@ -94,6 +94,50 @@ describe('durable native Responses turns', () => {
       ...selection,
     });
   }
+  it.each(['openai', 'google-vertex'] as const)(
+    'revalidates source grants after credentials resolve before HTTP dispatch (%s)',
+    async (provider) => {
+      let current = true;
+      const credential = async () => {
+        await Promise.resolve();
+        current = false;
+        return 'offline-only-token';
+      };
+      const authorize = vi.fn(async () => {
+        if (!current) throw Error('Source grant revoked');
+      });
+      const selectedBinding = {
+        ...binding,
+        provider,
+        model: provider === 'google-vertex' ? 'gemini-3.8-flash' : binding.model,
+      };
+      const opts = {
+        conversationId: 'blocked-after-credential',
+        binding: selectedBinding,
+        store,
+        systemPrompt: 'Pinned context',
+        maxTokens: 100,
+        executeTool: vi.fn(),
+        prepareAgentContext: authorize,
+      };
+      const selected = new NativeResponsesRunner(
+        provider === 'google-vertex'
+          ? {
+              ...opts,
+              gemini: {
+                accountId: binding.accountId,
+                projectId: 'fixture',
+                region: 'global',
+                getAccessToken: credential,
+              },
+            }
+          : { ...opts, apiKey: 'offline-only', getApiKey: credential },
+      );
+      await expect(collect(selected.run('blocked'))).rejects.toThrow();
+      expect(authorize).toHaveBeenCalledOnce();
+      expect(fetchMock).not.toHaveBeenCalled();
+    },
+  );
   it('runs and resumes Gemini tool turns with the same durable native tool loop', async () => {
     const googleBinding = { ...binding, provider: 'google-vertex', model: 'gemini-3.8-flash' };
     let turn = 0;

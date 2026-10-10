@@ -1389,3 +1389,55 @@ it.each(['vertex-remote-id', 'vertex-local-id'])(
     }
   },
 );
+
+it('revalidates source authority on later queued API commands before starting the runner', async () => {
+  const registry = new SessionRegistry();
+  const abortController = new AbortController();
+  registry.register('scope-client', {
+    transport: { send: () => {}, isOpen: () => true },
+    abortController,
+    mode: 'agent',
+    sessionId: 'scope-app',
+    cwd: '/tmp',
+    sessionAllowList: new Set(),
+  });
+  const input = new AsyncQueue<{ message: { content: string }; mitzoMessageId: string }>();
+  input.push({ message: { content: 'provider-ack' }, mitzoMessageId: 'accepted-command' });
+  input.push({ message: { content: 'second-denied' }, mitzoMessageId: 'denied-command' });
+  input.close();
+  let checks = 0;
+  const authorize = vi.fn(async () => {
+    if (++checks > 1) throw Error('Source grant revoked');
+  });
+  const accepted = vi.fn();
+  const prior = calls.prompts.length;
+  const chat = await openResponsesChat({
+    conversationId: 'scope-app',
+    binding: {
+      accountId: 'fixture',
+      accountLabel: 'Fixture',
+      provider: 'openai',
+      model: 'offline',
+      profileRevision: 'fixture',
+    },
+    apiKey: 'offline-only',
+    session: registry.get('scope-client')!,
+    registry,
+    input,
+    systemPrompt: 'Pinned scope context',
+    env: { PATH: '/usr/bin:/bin' },
+    mcpServers: {},
+    store: {} as never,
+    prepareAgentContext: authorize,
+    onAgentContextAccepted: accepted,
+  });
+  try {
+    for await (const event of chat) expect(event).toHaveProperty('type');
+    expect(calls.prompts.slice(prior)).toEqual(['provider-ack']);
+    expect(authorize).toHaveBeenCalledTimes(2);
+    expect(accepted).toHaveBeenCalledOnce();
+  } finally {
+    chat.close();
+    registry.dispose();
+  }
+});

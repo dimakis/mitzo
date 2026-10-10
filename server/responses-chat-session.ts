@@ -129,6 +129,7 @@ interface Options {
   onDemandCreate?: NativeToolOptions['onDemandCreate'];
   store?: NativeResponsesStore;
   agentContext?: AgentContextSnapshot;
+  prepareAgentContext?: (signal: AbortSignal) => Promise<void>;
   onAgentContextAccepted?: (
     commandId: string,
     threadId: string,
@@ -193,6 +194,7 @@ export async function openResponsesChat(options: Options) {
     gemini: options.gemini,
     store: privateStorage,
     systemPrompt,
+    prepareAgentContext: options.prepareAgentContext,
     maxTokens: 8192,
     selectedModel: options.selectedModel,
     reasoningEffort: options.reasoningEffort ?? undefined,
@@ -365,6 +367,8 @@ export async function openResponsesChat(options: Options) {
             terminalizeExecution(executionReason);
           };
           try {
+            await options.prepareAgentContext?.(signal);
+            signal.throwIfAborted();
             for await (const event of runner.run(
               message.message.content,
               signal,

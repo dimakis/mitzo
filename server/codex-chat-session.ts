@@ -500,6 +500,7 @@ interface Options {
   onBootContext?: (context: OpenShellBootContext) => void;
   /** Already resolved, authorized and persisted by common chat admission. */
   agentContext?: AgentContextSnapshot;
+  prepareAgentContext?: (signal: AbortSignal) => Promise<void>;
   onAgentContextAccepted?: (
     commandId: string,
     threadId: string,
@@ -1152,6 +1153,8 @@ async function openCodexChatBound(
       : `codex-cli:${SUPPORTED_CODEX_CLI_VERSION}`,
     getMode: () => options.session.mode,
     systemPrompt: persistentSystemPrompt,
+    startupSignal: signal,
+    prepareAgentContext: options.prepareAgentContext,
     // Thread instructions already contain the retained snapshot. The exact
     // turn/start acknowledgement associates it without duplicating developer context.
     ...(options.agentContext

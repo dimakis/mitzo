@@ -97,6 +97,8 @@ export type StreamEvent =
 
 /** Configuration for a model session. */
 export interface ModelSessionConfig {
+  /** Revalidate trusted context after credential/tool awaits, immediately before transmission. */
+  beforeDispatch?: () => Promise<void>;
   /** Model identifier (e.g. 'claude-opus-4-6', 'gpt-5.5'). */
   model: string;
   /** System prompt text. */

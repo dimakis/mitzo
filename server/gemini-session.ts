@@ -158,6 +158,8 @@ export class GeminiSession implements ModelSession {
         this.options.region === 'global'
           ? 'aiplatform.googleapis.com'
           : `${this.options.region}-aiplatform.googleapis.com`;
+      await this.config.beforeDispatch?.();
+      this.config.signal?.throwIfAborted();
       const response = await fetch(
         `https://${host}/v1/projects/${encodeURIComponent(this.options.projectId)}/locations/${this.options.region}/publishers/google/models/${this.config.model}:generateContent`,
         {
