@@ -25,6 +25,7 @@
   place-items: center;
   min-width: 44px;
   min-height: 44px;
+  padding: 0;
   color: var(--color-accent);
   background: transparent;
 }
@@ -171,8 +172,8 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  min-height: 60px;
-  margin: 8px 0 0;
+  min-height: 44px;
+  margin: 0;
   border-bottom: 1px solid var(--color-border);
 }
 .terminal-destination-row button:first-child {
@@ -181,7 +182,8 @@
   gap: 10px;
   flex: 1;
   min-width: 0;
-  min-height: 56px;
+  min-height: 44px;
+  padding: 0;
   background: transparent;
   color: var(--color-text);
   text-align: left;
@@ -300,7 +302,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  min-height: 26px;
+  min-height: 24px;
   margin-top: 4px;
   font-size: 12px;
   color: var(--color-muted);
@@ -319,5 +321,28 @@
   .mobile-workspace-body .terminal-page {
     padding-bottom: 8px;
     gap: 8px;
+  }
+}
+
+@media (max-width: 767px) {
+  .mobile-workspace:has(.terminal-page) {
+    height: var(--terminal-viewport-height, 100dvh);
+  }
+  html[data-terminal-keyboard='true'] .mobile-workspace:has(.terminal-page) {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  html[data-terminal-keyboard='true'] .mobile-workspace:has(.terminal-page) .workspace-tabs {
+    display: none;
+  }
+  html[data-terminal-keyboard='true'] .terminal-output {
+    min-height: 0;
+  }
+  html[data-terminal-keyboard='true']
+    .terminal-page:has(.terminal-adviser-panel :is(input, textarea):focus)
+    .terminal-command-area {
+    display: none;
+  }
+  html[data-terminal-keyboard='true'] .terminal-adviser-panel {
+    max-height: min(42dvh, max(44px, calc(var(--terminal-viewport-height) - 320px)));
   }
 }

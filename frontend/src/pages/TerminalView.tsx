@@ -13,7 +13,6 @@ import {
 } from '../components/TerminalConsole';
 import { UiIcon } from '../components/UiIcon';
 import type { WorkspaceSummary } from '../types/workspace';
-import './TerminalView.css';
 type Message = { role: 'user' | 'assistant'; content: string };
 const histories = new Map<string, CommandHistory>();
 export function TerminalView() {
@@ -75,10 +74,7 @@ export function TerminalView() {
       signal: controller.signal,
     })
       .then(async (response) => {
-        if (!response.ok)
-          throw Error(
-            'Terminal unavailable. Check that tmux is installed in the selected environment.',
-          );
+        if (!response.ok) throw Error('Terminal unavailable. Check the selected environment.');
         const info: TerminalInfo = await response.json();
         if (disposed) return;
         if (!info.id || !['host', 'sandbox'].includes(info.kind))
@@ -114,6 +110,7 @@ export function TerminalView() {
         const data = await response.json();
         if (!disposed) {
           setSeed(data.selection);
+          if (data.summary) setSummary(data.summary);
           setContextReady(true);
         }
       })
@@ -126,6 +123,39 @@ export function TerminalView() {
     };
     // The original conversation supplies a starting preference; destination changes never replace the adviser account.
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  useEffect(() => {
+    const root = document.documentElement;
+    let width = window.innerWidth,
+      fullHeight = window.visualViewport?.height ?? window.innerHeight;
+    const update = () => {
+      const height = window.visualViewport?.height ?? window.innerHeight;
+      if (window.innerWidth !== width) {
+        width = window.innerWidth;
+        fullHeight = height;
+      }
+      fullHeight = Math.max(fullHeight, height);
+      root.style.setProperty('--terminal-viewport-height', `${height}px`);
+      const active = document.activeElement as HTMLElement | null;
+      const editing = !!active?.closest('.terminal-page input,.terminal-page textarea');
+      const keyboard = editing && height < fullHeight - 140;
+      root.dataset.terminalKeyboard = String(keyboard);
+      if (keyboard) {
+        if (!active?.closest('.terminal-adviser-panel')) setControls(false);
+        else requestAnimationFrame(() => active?.scrollIntoView({ block: 'nearest' }));
+      }
+    };
+    update();
+    window.addEventListener('resize', update);
+    window.visualViewport?.addEventListener('resize', update);
+    document.addEventListener('focusin', update);
+    return () => {
+      window.removeEventListener('resize', update);
+      window.visualViewport?.removeEventListener('resize', update);
+      document.removeEventListener('focusin', update);
+      root.style.removeProperty('--terminal-viewport-height');
+      delete root.dataset.terminalKeyboard;
+    };
   }, []);
   const chooseAccount = useCallback((next: AccountSelection | null) => {
     const previous = previousSelection.current;
