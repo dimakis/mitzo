@@ -131,6 +131,20 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
     'href',
     '/chat?agentProfile=bob&profileRevision=4',
   );
+  await page.getByLabel('Agent name').fill('Working Robert');
+  catalog.versions.unshift({
+    ...catalog.versions[0],
+    revision: 5,
+    definition: { ...catalog.versions[0].definition, name: 'Remote Robert' },
+  });
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.reload();
+  await expect(page.getByLabel('Agent name')).toHaveValue('Working Robert');
+  await expect(page.getByLabel('Agent name')).toBeEnabled();
+  await page.getByRole('button', { name: 'Discard unsaved edits', exact: true }).click();
+  await expect(page.getByLabel('Agent name')).toHaveValue('Remote Robert');
+  catalog.versions.shift();
+  await page.reload();
   await page.getByRole('button', { name: 'Export profile', exact: true }).click();
   await expect(page.getByLabel('Portable profile export')).toContainText('The systems architect');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
