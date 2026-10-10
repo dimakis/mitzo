@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.9';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.31';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.32';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,7 +22,7 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
-  '../chat.ts': '528aec4f04d2e49f698d68f12c60618a680b4ffb660cb29951642a54d78e65f1',
+  '../chat.ts': '4938fa5073920839dc542b194640a575f56959f2726770cfed26e5d711785b76',
   '../agent-context-binding.ts': 'ce0f8dba7f97f515be8ee00a441e3cc36344aad44f31e0b2fb33a160f8803e66',
   '../app.ts': '3a136e933a31552e46a11e8fdc8a4d5475f986497aee3601d2b6ad32e8572a30',
   '../ws-handler-v2.ts': '2952b6ea0ad4307739603901b01725514896452ea70c9f2464d8c04c6f4d9052',
