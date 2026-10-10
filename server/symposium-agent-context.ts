@@ -1,4 +1,6 @@
 import Database from 'better-sqlite3';
+import { createHash } from 'node:crypto';
+import { PortableProfileDefinitionSchema } from './symposium-profile-portability.js';
 import { AgentContextSnapshotSchema, type AgentContextSnapshot } from '@mitzo/protocol';
 import {
   compileAgentContext,
@@ -121,6 +123,7 @@ export function createSymposiumAgentContextBinding(deps: {
   assertCurrent(execution: SymposiumSeatExecution): void;
   compileOptions(execution: SymposiumSeatExecution): Promise<AgentContextCompileOptions>;
 }) {
+  const sourceFences = new WeakMap<PreparedSymposiumAgentContext, () => void>();
   function selected(execution: SymposiumSeatExecution) {
     deps.assertCurrent(execution);
     if (!execution.seat.contextRecipe) return undefined;
@@ -136,6 +139,11 @@ export function createSymposiumAgentContextBinding(deps: {
     const profile = deps.profiles.get('user', binding.profileId, revision);
     if (!profile || profile.profileId !== binding.profileId || profile.revision !== revision)
       throw Error('Selected context profile revision unavailable');
+    const definition = PortableProfileDefinitionSchema.parse(profile.definition);
+    if (
+      createHash('sha256').update(JSON.stringify(definition)).digest('hex') !== profile.contentHash
+    )
+      throw Error('Selected profile integrity check failed');
     if (
       JSON.stringify(profile.definition.contextRecipe) !==
       JSON.stringify(execution.seat.contextRecipe)
@@ -169,12 +177,13 @@ export function createSymposiumAgentContextBinding(deps: {
           signal: execution.signal,
         });
         deps.assertCurrent(execution);
+        sourceFences.set(stored, () => options.packs!.assertCurrent());
         return stored;
       }
       const compiled = await compileAgentContext(recipe, { ...options, signal: execution.signal });
       deps.assertCurrent(execution);
       execution.signal.throwIfAborted();
-      return deps.store.prepare(
+      const prepared = deps.store.prepare(
         execution,
         AgentContextSnapshotSchema.parse({
           ...compiled,
@@ -183,9 +192,14 @@ export function createSymposiumAgentContextBinding(deps: {
           profileHash: profile.contentHash,
         }),
       );
+      sourceFences.set(prepared, () => options.packs!.assertCurrent());
+      return prepared;
     },
     assertCurrent(execution: SymposiumSeatExecution, prepared: PreparedSymposiumAgentContext) {
       const profile = selected(execution);
+      const sourceFence = sourceFences.get(prepared);
+      if (!sourceFence) throw Error('Prepared context source adapter is unavailable');
+      sourceFence();
       const stored = deps.store.getPrepared(execution);
       if (
         !profile ||
@@ -201,6 +215,7 @@ export function createSymposiumAgentContextBinding(deps: {
       thread: string,
       turn: string,
     ) {
+      // Delivery is historical fact: later authority revocation cannot erase its acknowledgement.
       deps.store.accept(execution, prepared, thread, turn);
     },
   };

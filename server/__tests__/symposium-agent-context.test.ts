@@ -1,4 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
+import { createHash } from 'node:crypto';
 import {
   createSymposiumAgentContextBinding,
   SymposiumAgentContextStore,
@@ -46,13 +47,16 @@ function fixture() {
     definition: {
       name: 'Agent',
       role: 'agent',
-      instructions: '',
+      instructions: 'Use accepted evidence.',
       expectedOutput: 'Text',
       acceptanceCriteria: ['Evidence'],
       modelPolicyRole: 'agent',
       contextRecipe: recipe,
     },
   };
+  profile.contentHash = createHash('sha256')
+    .update(JSON.stringify(profile.definition))
+    .digest('hex');
   const execution = {
     sessionId: 's',
     deliveryId: 'd',
@@ -74,6 +78,7 @@ function fixture() {
     content: '# Core\nPinned instructions.',
   }));
   const assertCurrent = vi.fn();
+  const sourceAssertCurrent = vi.fn();
   const binding = createSymposiumAgentContextBinding({
     store,
     profiles: { get: () => profile },
@@ -84,11 +89,11 @@ function fixture() {
         resolve: async () => pack,
         authorize: async () => {},
         readDocument,
-        assertCurrent,
+        assertCurrent: sourceAssertCurrent,
       },
     }),
   });
-  return { binding, store, execution, readDocument, profile, assertCurrent };
+  return { binding, store, execution, readDocument, profile, assertCurrent, sourceAssertCurrent };
 }
 it('persists exact prepared context and reuses immutable same-seat generation snapshots', async () => {
   const { binding, store, execution, readDocument } = fixture();
@@ -176,4 +181,23 @@ it('fails native startup if a selected context recipe has no prepared boot snaps
   const { execution } = fixture();
   const { symposiumSeatSystemPrompt } = await import('../symposium-seat-prompt.js');
   expect(() => symposiumSeatSystemPrompt(execution.seat)).toThrow(/prepared/);
+});
+
+it('retains the prepared adapter fence and records acknowledged historical delivery after revocation', async () => {
+  const { binding, execution, sourceAssertCurrent, assertCurrent, store } = fixture();
+  const prepared = await binding.prepare(execution);
+  sourceAssertCurrent.mockImplementation(() => {
+    throw Error('source scope revoked');
+  });
+  expect(() => binding.assertCurrent(execution, prepared!)).toThrow(/source scope revoked/);
+  assertCurrent.mockImplementation(() => {
+    throw Error('operator logged out');
+  });
+  binding.accepted(execution, prepared!, 'thread', 'turn');
+  expect(store.acceptances(execution)).toHaveLength(1);
+});
+it('rejects a catalog definition whose saved immutable profile hash no longer matches', async () => {
+  const { binding, execution, profile } = fixture();
+  profile.definition.instructions = 'Tampered';
+  await expect(binding.prepare(execution)).rejects.toThrow(/profile integrity/);
 });
