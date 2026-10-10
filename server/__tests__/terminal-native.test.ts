@@ -51,6 +51,32 @@ it.skipIf(!available)(
           encoding: 'utf8',
         }).stdout.trim(),
       ).toBe('status off');
+      live.write(
+        "i=1; while [ $i -le 100 ]; do printf 'HISTORY_%03d\\n' $i; i=$((i+1)); done; printf 'HISTORY_%s\\n' DONE\r",
+      );
+      await vi.waitFor(() => expect(output).toContain('HISTORY_DONE'), { timeout: 3000 });
+      output = '';
+      await live.scroll(-40, () => {});
+      const pane = () =>
+        spawnSync(
+          'tmux',
+          [
+            '-L',
+            namespace,
+            'display-message',
+            '-p',
+            '-t',
+            record.id,
+            '#{pane_in_mode}:#{scroll_position}',
+          ],
+          { encoding: 'utf8' },
+        ).stdout.trim();
+      expect(pane()).toMatch(/^1:[1-9]/);
+      await vi.waitFor(() => expect(output).toContain('HISTORY_0'), { timeout: 3000 });
+      await live.scroll(10, () => {});
+      expect(pane()).toMatch(/^1:[1-9]/);
+      await live.scroll(null, () => {});
+      expect(pane()).toBe('0:');
       live.detach();
       output = '';
       const reconstructed = new TmuxTerminalBackend(namespace, environment);

@@ -4,27 +4,28 @@
   height: 100dvh;
   min-height: 0;
   overflow: hidden;
-  gap: 12px;
+  gap: var(--space-3);
 }
 .terminal-heading {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-1);
   flex-shrink: 0;
-  min-height: 44px;
+  min-height: var(--control-height);
 }
 .terminal-heading h1 {
   flex: 1;
   margin: 0;
-  font-size: 18px;
+  font-size: var(--text-lg);
   font-weight: 600;
   letter-spacing: -0.02em;
 }
 .terminal-heading :is(button, a) {
   display: grid;
   place-items: center;
-  min-width: 44px;
-  min-height: 44px;
+  min-width: var(--control-height);
+  min-height: var(--control-height);
   padding: 0;
   color: var(--color-accent);
   background: transparent;
@@ -33,24 +34,24 @@
   flex-shrink: 0;
   position: relative;
 }
-.terminal-adviser-toggle {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  min-height: 48px;
-  padding: 8px 10px;
-  border-radius: var(--radius-control);
-  background: var(--color-panel);
-  color: var(--color-text);
-  text-align: left;
+.terminal-heading-title {
+  flex: 1;
+  min-width: 0;
 }
-.terminal-adviser-toggle > svg:first-child {
-  color: var(--color-accent);
+.terminal-heading-title small {
+  display: block;
+  font-size: var(--text-xs);
+  color: var(--color-muted);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
-.terminal-adviser-toggle > svg:last-child {
-  margin-left: auto;
+.terminal-heading .terminal-adviser-toggle {
   flex-shrink: 0;
+  border-radius: var(--radius-control);
+}
+.terminal-heading .terminal-adviser-toggle[aria-expanded='true'] {
+  background: var(--color-panel);
 }
 .terminal-adviser-toggle span,
 .terminal-destination-row span {
@@ -65,12 +66,12 @@
 }
 .terminal-adviser-toggle strong,
 .terminal-destination-row strong {
-  font-size: 13px;
+  font-size: var(--text-sm);
   font-weight: 550;
 }
 .terminal-adviser-toggle small,
 .terminal-destination-row small {
-  font-size: 12px;
+  font-size: var(--text-xs);
   color: var(--color-muted);
   margin-top: 3px;
 }
@@ -81,21 +82,21 @@
 }
 .terminal-adviser-pickers {
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
   flex-wrap: wrap;
 }
 .terminal-adviser-pickers select {
   flex: 1;
   min-width: 90px;
   max-width: 100%;
-  min-height: 44px;
+  min-height: var(--control-height);
 }
 .terminal-adviser-boundary {
-  font-size: 12px;
+  font-size: var(--text-xs);
   margin: 10px 0;
 }
 .terminal-adviser-response {
-  font-size: 13px;
+  font-size: var(--text-sm);
   overflow-wrap: anywhere;
 }
 .terminal-adviser-response pre {
@@ -104,7 +105,7 @@
 .terminal-suggestion {
   display: flex;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--space-3);
   width: 100%;
   padding: 10px 12px;
   margin: 8px 0;
@@ -120,14 +121,14 @@
 .terminal-suggestion span {
   color: var(--color-accent);
   flex-shrink: 0;
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 .terminal-reviewed {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-2);
   margin: 12px 0;
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 .terminal-reviewed textarea {
   min-height: 96px;
@@ -141,7 +142,7 @@
 .terminal-adviser-input,
 .terminal-command-form {
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
 }
 .terminal-page :is(input, textarea) {
   min-width: 0;
@@ -161,7 +162,7 @@
   opacity: 0.45;
 }
 .terminal-page .workspace-primary {
-  min-height: 44px;
+  min-height: var(--control-height);
   flex-shrink: 0;
   padding: 10px 16px;
   background: var(--color-accent);
@@ -171,8 +172,8 @@
 .terminal-destination-row {
   display: flex;
   align-items: center;
-  gap: 8px;
-  min-height: 44px;
+  gap: var(--space-2);
+  min-height: var(--control-height);
   margin: 0;
   border-bottom: 1px solid var(--color-border);
 }
@@ -182,7 +183,7 @@
   gap: 10px;
   flex: 1;
   min-width: 0;
-  min-height: 44px;
+  min-height: var(--control-height);
   padding: 0;
   background: transparent;
   color: var(--color-text);
@@ -190,8 +191,8 @@
 }
 .terminal-destination-row button:last-child {
   flex-shrink: 0;
-  width: 44px;
-  height: 44px;
+  width: var(--control-height);
+  height: var(--control-height);
   color: var(--color-accent);
   background: transparent;
 }
@@ -213,8 +214,8 @@
 .terminal-destination-picker label {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  font-size: 13px;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
   margin: 12px 0;
 }
 .terminal-destination-picker > div {
@@ -225,14 +226,14 @@
 .terminal-history button,
 .terminal-options button {
   width: 100%;
-  min-height: 44px;
+  min-height: var(--control-height);
   text-align: left;
   color: var(--color-text);
   padding: 8px;
   background: transparent;
 }
 .terminal-options p {
-  font-size: 12px;
+  font-size: var(--text-xs);
   margin: 4px 8px;
 }
 .terminal-output {
@@ -245,6 +246,12 @@
   position: absolute;
   inset: 0;
 }
+.terminal-emulator {
+  position: absolute;
+  inset: 0;
+  touch-action: pinch-zoom;
+  overscroll-behavior: contain;
+}
 .terminal-console .xterm {
   height: 100%;
   padding: 0;
@@ -256,10 +263,10 @@
 .terminal-input-caption {
   display: flex;
   justify-content: space-between;
-  gap: 8px;
+  gap: var(--space-2);
   margin-bottom: 8px;
   color: var(--color-muted);
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 .terminal-command-form textarea {
   resize: none;
@@ -275,13 +282,13 @@
 .terminal-keybar button {
   flex: 1;
   min-width: 0;
-  min-height: 44px;
+  min-height: var(--control-height);
   padding: 6px 2px;
   background: transparent;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-control);
   color: var(--color-text);
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 .terminal-history {
   position: absolute;
@@ -304,10 +311,10 @@
 .terminal-status {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   min-height: 24px;
   margin-top: 4px;
-  font-size: 12px;
+  font-size: var(--text-xs);
   color: var(--color-muted);
 }
 .terminal-status button {
@@ -316,14 +323,15 @@
   background: transparent;
 }
 .terminal-error {
-  font-size: 12px;
+  font-size: var(--text-xs);
   color: var(--color-danger);
   margin: 4px 0;
 }
 @media (max-width: 767px) {
   .mobile-workspace-body .terminal-page {
-    padding-bottom: 8px;
-    gap: 8px;
+    padding-top: var(--space-2);
+    padding-bottom: var(--space-2);
+    gap: var(--space-2);
   }
 }
 
@@ -348,4 +356,38 @@
   html[data-terminal-keyboard='true'] .terminal-adviser-panel {
     max-height: min(42dvh, max(44px, calc(var(--terminal-viewport-height) - 320px)));
   }
+}
+
+.terminal-live {
+  position: absolute;
+  right: var(--space-2);
+  bottom: var(--space-2);
+  z-index: 11;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--control-height);
+  padding: 0 var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  color: var(--color-accent);
+  background: var(--color-surface);
+}
+.terminal-heading .terminal-options {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 12;
+  width: min(100%, 360px);
+}
+.terminal-status-quiet {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  min-height: 0;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }

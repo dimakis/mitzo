@@ -1,5 +1,10 @@
 import { Router, type RequestHandler } from 'express';
-import { TerminalOpenBody, TerminalInputBody, TerminalResizeBody } from '@mitzo/protocol';
+import {
+  TerminalOpenBody,
+  TerminalInputBody,
+  TerminalResizeBody,
+  TerminalScrollBody,
+} from '@mitzo/protocol';
 import { registerAuthSession, type AuthSession } from './auth.js';
 import { requireSameOriginJson } from './connections-router.js';
 import { AdviserBody, type TerminalAdviser } from './terminal-adviser.js';
@@ -243,6 +248,29 @@ export function createTerminalRouter(options: {
       res.json({ ok: true });
     } catch {
       res.status(409).json({ error: 'Terminal unavailable' });
+    } finally {
+      unobserve();
+    }
+  });
+  router.post('/:id/scroll', requireSameOriginJson, async (req, res) => {
+    const body = TerminalScrollBody.safeParse(req.body);
+    if (!body.success) {
+      res.status(400).json({ error: 'Invalid terminal scroll' });
+      return;
+    }
+    const controller = new AbortController();
+    const auth = res.locals.authSession as AuthSession;
+    const unobserve = (options.observeAuth ?? registerAuthSession)(auth, () => controller.abort());
+    res.on('close', () => controller.abort());
+    try {
+      await options.service.scroll(auth.id, String(req.params.id), body.data.lines, {
+        signal: controller.signal,
+        expiresAt: auth.expiresAt,
+      });
+      if (!controller.signal.aborted) res.json({ ok: true });
+    } catch {
+      if (!controller.signal.aborted)
+        res.status(409).json({ error: 'Terminal history unavailable' });
     } finally {
       unobserve();
     }
