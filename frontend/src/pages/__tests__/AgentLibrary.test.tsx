@@ -125,6 +125,102 @@ it('preserves spaces and newlines while typing criteria and normalizes only when
     'Compare options',
   ]);
 });
+
+it('recovers incomplete compiler recipe edits and normalizes them only when saving', async () => {
+  const first = setup();
+  await screen.findByDisplayValue('Bob');
+  fireEvent.click(screen.getByRole('tab', { name: 'Context' }));
+  fireEvent.click(screen.getByLabelText('Compile chat context'));
+  fireEvent.change(screen.getByLabelText('Documents (one per line)'), {
+    target: { value: ' docs/design.md \n' },
+  });
+  fireEvent.change(screen.getByLabelText('Required sections (one per line)'), {
+    target: { value: ' docs/design.md > Design > Architecture notes \n' },
+  });
+  fireEvent.change(screen.getByLabelText('Token budget'), { target: { value: '' } });
+  first.unmount();
+  setup();
+  await screen.findByText('Unsaved edits');
+  fireEvent.click(screen.getByRole('tab', { name: 'Context' }));
+  expect(screen.getByLabelText('Documents (one per line)')).toHaveProperty(
+    'value',
+    ' docs/design.md \n',
+  );
+  expect(screen.getByLabelText('Required sections (one per line)')).toHaveProperty(
+    'value',
+    ' docs/design.md > Design > Architecture notes \n',
+  );
+  fireEvent.change(screen.getByLabelText('Token budget'), { target: { value: '4000' } });
+  vi.mocked(apiFetch).mockImplementation(async (_path, init) => {
+    const body = JSON.parse(init!.body as string);
+    return response({ profileId: 'bob', version: 1, baseRevision: 3, definition: body.definition });
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+  await screen.findByText('Draft saved. Existing chats keep their published revision.');
+  const save = vi.mocked(apiFetch).mock.calls.find(([path]) => path.endsWith('/drafts'))!;
+  expect(JSON.parse(save[1]!.body as string).definition.contextRecipe).toEqual({
+    version: 1,
+    source: 'workspace',
+    files: ['docs/design.md'],
+    tokenBudget: 4000,
+    required: [['docs/design.md', 'Design', 'Architecture notes']],
+    excluded: [],
+  });
+});
+it('previews the actual compiled prompt with source and trimming details and clears stale output on error', async () => {
+  setup();
+  await screen.findByDisplayValue('Bob');
+  fireEvent.click(screen.getByRole('tab', { name: 'Context' }));
+  fireEvent.click(screen.getByLabelText('Compile chat context'));
+  fireEvent.change(screen.getByLabelText('Documents (one per line)'), {
+    target: { value: 'docs/design.md' },
+  });
+  fireEvent.click(screen.getByRole('tab', { name: 'Prompt preview' }));
+  vi.mocked(apiFetch).mockResolvedValueOnce(
+    response({
+      profilePrompt: 'Profile guidance',
+      assembledPrompt: 'Profile guidance\n# Boot Context\nCompiled architecture context',
+      contextResolved: true,
+      previewScope: 'configured-workspace',
+      compiledContext: {
+        source: 'workspace',
+        compilerRevision: 'fixture',
+        recipeHash: 'a'.repeat(64),
+        payloadHash: 'b'.repeat(64),
+        workspaceIdentity: 'c'.repeat(64),
+        context: {
+          type: 'boot_context',
+          source: 'contexgin',
+          sourceCount: 1,
+          tokenCount: 200,
+          tokenBudget: 4000,
+          sources: [{ path: 'docs/design.md', kind: 'reference' }],
+          included: [],
+          trimmed: [
+            {
+              source: 'docs/design.md',
+              heading: 'Background',
+              tokens: 800,
+              content: 'Optional background',
+            },
+          ],
+          fullMarkdown: 'Compiled architecture context',
+        },
+      },
+    }),
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Compile preview' }));
+  await screen.findByText(/Compiled architecture context/);
+  expect(screen.getByText('docs/design.md')).toBeTruthy();
+  expect(screen.getByText(/200.*4,000 tokens/)).toBeTruthy();
+  expect(screen.getByText(/Background/)).toBeTruthy();
+  vi.mocked(apiFetch).mockResolvedValueOnce(
+    response({ error: 'Selected source is unavailable' }, false),
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Compile preview' }));
+  await screen.findByRole('alert');
+  expect(screen.queryByText(/Compiled architecture context/)).toBeNull();
+});
 it('offers an advisor chat that uses the existing profile proposal tool', async () => {
   setup();
   await screen.findByDisplayValue('Bob');
