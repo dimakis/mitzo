@@ -1,0 +1,432 @@
+diff --git a/architecture/sandbox.md b/architecture/sandbox.md
+index 3976b7f..dacd01c 100644
+--- a/architecture/sandbox.md
++++ b/architecture/sandbox.md
+@@ -314,6 +314,9 @@ entering shared TLS-terminated or plaintext HTTP relays; non-HTTP traffic uses
+ the shared raw byte relay after the existing adapter gates. Forward HTTP retains
+ its guarded single-request relay while sharing authorization, request context,
+ policy-pinning, and destination boundaries.
++Bytes read past a CONNECT header are replayed once as tunnel data before TLS
++detection or relay. Protocol detection assembles incomplete prefixes within its
++existing byte limit and deadline, then restores all inspected bytes before relay.
+ Adapter-specific response and OCSF event shapes remain at the protocol boundary.
+ HTTP response framing and connection persistence are separate decisions. After
+ forwarding a complete closing response (explicit `Connection: close` or HTTP/1.0
+diff --git a/crates/openshell-supervisor-network/src/proxy.rs b/crates/openshell-supervisor-network/src/proxy.rs
+index 5f224b4..a223cb3 100644
+--- a/crates/openshell-supervisor-network/src/proxy.rs
++++ b/crates/openshell-supervisor-network/src/proxy.rs
+@@ -110,10 +110,6 @@ const TUNNEL_PROTOCOL_PEEK_BYTES: usize = crate::l7::rest::HTTP2_PRIOR_KNOWLEDGE
+ const TUNNEL_PROTOCOL_PEEK_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(100);
+ #[cfg(test)]
+ const TUNNEL_PROTOCOL_PEEK_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(10);
+-#[cfg(not(test))]
+-const TUNNEL_PROTOCOL_PEEK_POLL: std::time::Duration = std::time::Duration::from_millis(5);
+-#[cfg(test)]
+-const TUNNEL_PROTOCOL_PEEK_POLL: std::time::Duration = std::time::Duration::from_millis(1);
+ const FORWARD_ENCODED_SLASH_REJECTION_DETAIL: &str =
+     "request-target contains an encoded '/' (%2F) which is not allowed on this endpoint";
+ 
+@@ -1715,31 +1711,55 @@ fn middleware_uninspectable_gate(
+     Ok(crate::l7::middleware::uninspectable_traffic_gate(&chain))
+ }
+ 
+-async fn peek_tunnel_protocol<C>(client: &mut C) -> Result<Option<TunnelProtocol>>
+-where
+-    C: tokio::io::AsyncBufRead + Unpin,
+-{
++fn prepend_tunnel_bytes(client: ProxyClient, prefix: Vec<u8>) -> ProxyClient {
++    let (reader, writer) = tokio::io::split(client);
++    let reader = std::io::Cursor::new(prefix).chain(reader);
++    tokio::io::BufReader::new(Box::new(tokio::io::join(reader, writer)))
++}
++
++async fn peek_tunnel_protocol(client: &mut ProxyClient) -> Result<Option<TunnelProtocol>> {
+     let deadline = tokio::time::Instant::now() + TUNNEL_PROTOCOL_PEEK_TIMEOUT;
++    let mut peek = Vec::with_capacity(TUNNEL_PROTOCOL_PEEK_BYTES);
++    let result = async {
++        loop {
++            let available = if peek.is_empty() {
++                // Preserve the initial wait for a peer to send any tunnel data.
++                client.fill_buf().await.into_diagnostic()?
++            } else {
++                match tokio::time::timeout_at(deadline, client.fill_buf()).await {
++                    Ok(available) => available.into_diagnostic()?,
++                    Err(_) => return Ok(Some(classify_tunnel_protocol(&peek))),
++                }
++            };
++            if available.is_empty() {
++                return Ok((!peek.is_empty()).then(|| classify_tunnel_protocol(&peek)));
++            }
+ 
+-    loop {
+-        let available = client.fill_buf().await.into_diagnostic()?;
+-        if available.is_empty() {
+-            return Ok(None);
+-        }
+-
+-        let n = available.len().min(TUNNEL_PROTOCOL_PEEK_BYTES);
+-        let peek = &available[..n];
+-        let protocol = classify_tunnel_protocol(peek);
+-        if protocol != TunnelProtocol::Unsupported
+-            || !could_be_supported_tunnel_protocol_prefix(peek)
+-            || n == TUNNEL_PROTOCOL_PEEK_BYTES
+-            || tokio::time::Instant::now() >= deadline
+-        {
+-            return Ok(Some(protocol));
++            let n = available.len().min(TUNNEL_PROTOCOL_PEEK_BYTES - peek.len());
++            peek.extend_from_slice(&available[..n]);
++            client.consume(n);
++            let protocol = classify_tunnel_protocol(&peek);
++            if protocol != TunnelProtocol::Unsupported
++                || !could_be_supported_tunnel_protocol_prefix(&peek)
++                || peek.len() == TUNNEL_PROTOCOL_PEEK_BYTES
++                || tokio::time::Instant::now() >= deadline
++            {
++                return Ok(Some(protocol));
++            }
+         }
++    }
++    .await;
+ 
+-        tokio::time::sleep(TUNNEL_PROTOCOL_PEEK_POLL).await;
++    // Consume incomplete prefixes so fill_buf can refill, then restore every
++    // inspected byte before the selected relay (or an error) resumes.
++    if !peek.is_empty() {
++        let original = std::mem::replace(
++            client,
++            tokio::io::BufReader::new(Box::new(std::io::Cursor::new(Vec::<u8>::new()))),
++        );
++        *client = prepend_tunnel_bytes(original, peek);
+     }
++    result
+ }
+ 
+ fn emit_connect_activity_if_l4_only(
+@@ -2531,6 +2551,13 @@ async fn handle_mediated_connection(
+         .await;
+     }
+ 
++    // CONNECT read-ahead belongs to the tunnel. Replay it before the existing
++    // reader, which can itself still contain buffered bytes, without changing
++    // the write side or forwarding anything before authorization completes.
++    if header_end < used {
++        client = prepend_tunnel_bytes(client, buf[header_end..used].to_vec());
++    }
++
+     let (raw_host, port) = parse_target(target)?;
+     let host = normalize_host(&raw_host);
+     let (host_lc, raw_host_lc) = (host.to_ascii_lowercase(), raw_host.to_ascii_lowercase());
+@@ -7857,6 +7884,176 @@ process:
+         assert_eq!(&response, b"server-tls");
+     }
+ 
++    /// Exercise the production bridge and CONNECT handler with the entire
++    /// header and first workload payload already available in one read.
++    async fn connect_prefetched_payload_exchange(
++        payload: &[u8],
++        fragmented: bool,
++        deferred_prefix: Option<usize>,
++    ) {
++        let upstream = TcpListener::bind("127.0.0.1:0").await.unwrap();
++        let address = upstream.local_addr().unwrap();
++        let (prefix_tx, prefix_rx) = tokio::sync::oneshot::channel();
++        let received = tokio::spawn(async move {
++            let (mut stream, _) = upstream.accept().await.unwrap();
++            let mut bytes = Vec::new();
++            if let Some(length) = deferred_prefix {
++                bytes.resize(length, 0);
++                stream.read_exact(&mut bytes).await.unwrap();
++            }
++            let _ = prefix_tx.send(());
++            stream.read_to_end(&mut bytes).await.unwrap();
++            stream.write_all(&bytes).await.unwrap();
++            stream.shutdown().await.unwrap();
++            bytes
++        });
++        let data = format!(
++            "network_policies:\n  echo:\n    name: echo\n    endpoints:\n      - host: host.openshell.internal\n        port: {}\n        tls: skip\n    binaries: []\n",
++            address.port()
++        );
++        let engine = Arc::new(
++            OpaEngine::from_strings_with_binary_identity_required(
++                include_str!("../data/sandbox-policy.rego"),
++                &data,
++                false,
++            )
++            .unwrap(),
++        );
++        let (workload, mut peer) = tokio::io::duplex(1024);
++        let authority = format!("host.openshell.internal:{}", address.port());
++        let stream: BoundaryDuplexStream = if fragmented {
++            Box::new(workload)
++        } else {
++            virtual_connect_stream(Box::new(workload), authority.clone())
++        };
++        let mut handler = tokio::io::BufReader::new(stream);
++        if !fragmented {
++            let initial_payload = &payload[..deferred_prefix.unwrap_or(payload.len())];
++            peer.write_all(initial_payload).await.unwrap();
++            if deferred_prefix.is_none() {
++                peer.shutdown().await.unwrap();
++            }
++            tokio::task::yield_now().await;
++            let initial = handler.fill_buf().await.unwrap();
++            let end = initial.windows(4).position(|w| w == b"\r\n\r\n").unwrap() + 4;
++            assert_eq!(
++                &initial[end..],
++                initial_payload,
++                "fixture must coalesce the payload"
++            );
++        }
++
++        let (denial_tx, mut denial_rx) = mpsc::unbounded_channel();
++        let task = tokio::spawn(handle_mediated_connection(
++            handler,
++            None,
++            None,
++            None,
++            None,
++            engine,
++            Arc::new(BinaryIdentityCache::new()),
++            Arc::new(AtomicU32::new(0)),
++            None,
++            None,
++            AgentProposals::default(),
++            Arc::new(Some(IpAddr::V4(Ipv4Addr::LOCALHOST))),
++            Arc::new(None),
++            Arc::new(None),
++            None,
++            None,
++            None,
++            Some(denial_tx),
++            None,
++            None,
++        ));
++        if fragmented {
++            let header = format!("CONNECT {authority} HTTP/1.1\r\nHost: {authority}\r\n\r\n");
++            let split = header.len() - 2;
++            peer.write_all(&header.as_bytes()[..split]).await.unwrap();
++            tokio::task::yield_now().await;
++            let mut tail = header.as_bytes()[split..].to_vec();
++            tail.extend_from_slice(payload);
++            peer.write_all(&tail).await.unwrap();
++            peer.shutdown().await.unwrap();
++        }
++        if let Some(length) = deferred_prefix {
++            tokio::time::timeout(std::time::Duration::from_secs(2), prefix_rx)
++                .await
++                .unwrap()
++                .unwrap();
++            peer.write_all(&payload[length..]).await.unwrap();
++            peer.shutdown().await.unwrap();
++        }
++        let mut echoed = Vec::new();
++        tokio::time::timeout(
++            std::time::Duration::from_secs(2),
++            peer.read_to_end(&mut echoed),
++        )
++        .await
++        .unwrap()
++        .unwrap();
++        task.await.unwrap().unwrap();
++        assert!(
++            denial_rx.try_recv().is_err(),
++            "fixture must authorize the tunnel"
++        );
++        let seen = tokio::time::timeout(std::time::Duration::from_secs(2), received)
++            .await
++            .unwrap()
++            .unwrap();
++        assert_eq!(seen, payload, "CONNECT must not discard workload bytes");
++        if fragmented {
++            let mut expected = b"HTTP/1.1 200 Connection Established\r\n\r\n".to_vec();
++            expected.extend_from_slice(payload);
++            assert_eq!(echoed, expected);
++        } else {
++            assert_eq!(echoed, payload, "synthetic 200 must stay hidden");
++        }
++    }
++
++    #[tokio::test]
++    async fn connect_prefetched_payload_preserves_tls_client_hello_prefix() {
++        connect_prefetched_payload_exchange(
++            &[0x16, 0x03, 0x03, 0x00, 0x04, 0x01, 0, 0, 0],
++            false,
++            None,
++        )
++        .await;
++    }
++
++    #[tokio::test]
++    async fn connect_prefetched_payload_preserves_plaintext_http() {
++        connect_prefetched_payload_exchange(
++            b"GET /probe HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n",
++            false,
++            None,
++        )
++        .await;
++    }
++
++    #[tokio::test]
++    async fn connect_prefetched_payload_empty_tunnel_stays_empty() {
++        connect_prefetched_payload_exchange(b"", false, None).await;
++    }
++
++    #[tokio::test]
++    async fn connect_prefetched_payload_preserves_fragmented_connect_tail() {
++        connect_prefetched_payload_exchange(b"GET /fragmented HTTP/1.1\r\n\r\n", true, None).await;
++    }
++
++    #[tokio::test]
++    async fn connect_prefetched_payload_replays_short_prefix_before_later_bytes_once() {
++        // Raw tls:skip isolates byte preservation from TLS prefix detection.
++        for length in [1, 2] {
++            connect_prefetched_payload_exchange(
++                &[0x16, 0x03, 0x03, 0x00, 0x04, 0x01, 0, 0, 0],
++                false,
++                Some(length),
++            )
++            .await;
++        }
++    }
++
+     #[async_trait::async_trait]
+     impl NetworkMediationSource for FailedMediationSource {
+         async fn accept_tcp(
+@@ -9325,6 +9522,117 @@ network_policies:
+         assert!(!could_be_supported_tunnel_protocol_prefix(b"SSH"));
+     }
+ 
++    async fn assert_replayed_tunnel_prefix(
++        prefix: &[u8],
++        remainder: &[u8],
++        expected: TunnelProtocol,
++    ) {
++        let (stream, mut peer) = tokio::io::duplex(65536);
++        peer.write_all(remainder).await.unwrap();
++        peer.shutdown().await.unwrap();
++        let stream: BoundaryDuplexStream = Box::new(stream);
++        let client = tokio::io::BufReader::new(stream);
++        let (reader, writer) = tokio::io::split(client);
++        let reader = std::io::Cursor::new(prefix.to_vec()).chain(reader);
++        let stream: BoundaryDuplexStream = Box::new(tokio::io::join(reader, writer));
++        let mut client = tokio::io::BufReader::new(stream);
++        let protocol = tokio::time::timeout(
++            std::time::Duration::from_millis(250),
++            peek_tunnel_protocol(&mut client),
++        )
++        .await
++        .unwrap()
++        .unwrap();
++        let mut actual = Vec::new();
++        client.read_to_end(&mut actual).await.unwrap();
++        assert_eq!(actual, [prefix, remainder].concat());
++        assert_eq!(protocol, Some(expected));
++        client.write_all(b"ack").await.unwrap();
++        let mut acknowledgment = [0; 3];
++        peer.read_exact(&mut acknowledgment).await.unwrap();
++        assert_eq!(&acknowledgment, b"ack");
++    }
++
++    #[tokio::test]
++    async fn tunnel_protocol_peek_replayed_short_tls_prefixes() {
++        for prefix_len in [1, 2, 3] {
++            let payload = [0x16, 0x03, 0x03, 0, 4, 1, 0, 0, 0];
++            assert_replayed_tunnel_prefix(
++                &payload[..prefix_len],
++                &payload[prefix_len..],
++                TunnelProtocol::Tls,
++            )
++            .await;
++        }
++    }
++
++    #[tokio::test]
++    async fn tunnel_protocol_peek_replayed_plain_http_prefixes() {
++        for prefix_len in [1, 2, 4] {
++            let payload = b"GET / HTTP/1.1\r\nHost: example.test\r\n\r\n";
++            assert_replayed_tunnel_prefix(
++                &payload[..prefix_len],
++                &payload[prefix_len..],
++                TunnelProtocol::Http1,
++            )
++            .await;
++        }
++    }
++
++    #[tokio::test]
++    async fn tunnel_protocol_peek_partial_prefix_deadline_preserves_bytes() {
++        for prefix in [&[0x16][..], &[0x16, 0x03][..], b"GE"] {
++            let (stream, mut peer) = tokio::io::duplex(65536);
++            peer.write_all(prefix).await.unwrap();
++            let stream: BoundaryDuplexStream = Box::new(stream);
++            let mut client = tokio::io::BufReader::new(stream);
++            let protocol = tokio::time::timeout(
++                std::time::Duration::from_millis(250),
++                peek_tunnel_protocol(&mut client),
++            )
++            .await
++            .unwrap()
++            .unwrap();
++            assert_eq!(protocol, Some(TunnelProtocol::Unsupported));
++            let mut actual = vec![0; prefix.len()];
++            client.read_exact(&mut actual).await.unwrap();
++            assert_eq!(actual, prefix);
++            client.write_all(b"ack").await.unwrap();
++            let mut acknowledgment = [0; 3];
++            peer.read_exact(&mut acknowledgment).await.unwrap();
++            assert_eq!(&acknowledgment, b"ack");
++        }
++    }
++
++    #[tokio::test]
++    async fn tunnel_protocol_peek_initial_idle_wait_is_unchanged() {
++        let (stream, mut peer) = tokio::io::duplex(65536);
++        let sender = tokio::spawn(async move {
++            tokio::time::sleep(TUNNEL_PROTOCOL_PEEK_TIMEOUT * 2).await;
++            peer.write_all(&[0x16, 0x03, 0x03]).await.unwrap();
++            peer.shutdown().await.unwrap();
++        });
++        let stream: BoundaryDuplexStream = Box::new(stream);
++        let mut client = tokio::io::BufReader::new(stream);
++        let protocol = peek_tunnel_protocol(&mut client).await.unwrap();
++        assert_eq!(protocol, Some(TunnelProtocol::Tls));
++        let mut actual = Vec::new();
++        client.read_to_end(&mut actual).await.unwrap();
++        assert_eq!(actual, [0x16, 0x03, 0x03]);
++        sender.await.unwrap();
++    }
++
++    #[tokio::test]
++    async fn tunnel_protocol_peek_eof_and_unsupported_preserve_bytes() {
++        assert_replayed_tunnel_prefix(&[0x16], &[], TunnelProtocol::Unsupported).await;
++        assert_replayed_tunnel_prefix(b"SSH", b"-2.0\r\n", TunnelProtocol::Unsupported).await;
++        let (stream, mut peer) = tokio::io::duplex(64);
++        peer.shutdown().await.unwrap();
++        let stream: BoundaryDuplexStream = Box::new(stream);
++        let mut client = tokio::io::BufReader::new(stream);
++        assert_eq!(peek_tunnel_protocol(&mut client).await.unwrap(), None);
++    }
++
+     #[tokio::test]
+     async fn h2c_prior_knowledge_is_blocked_for_l7_tunnel() {
+         use crate::l7::middleware::UninspectableTrafficGate;
+@@ -9332,14 +9640,15 @@ network_policies:
+         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+         let addr = listener.local_addr().unwrap();
+         let mut client = TcpStream::connect(addr).await.unwrap();
+-        let (mut server, _) = listener.accept().await.unwrap();
++        let (server, _) = listener.accept().await.unwrap();
+ 
+         client
+             .write_all(crate::l7::rest::HTTP2_PRIOR_KNOWLEDGE_PREFACE)
+             .await
+             .unwrap();
+ 
+-        let protocol = peek_tunnel_protocol(&mut tokio::io::BufReader::new(&mut server))
++        let stream: BoundaryDuplexStream = Box::new(server);
++        let protocol = peek_tunnel_protocol(&mut tokio::io::BufReader::new(stream))
+             .await
+             .expect("peek should succeed")
+             .expect("client sent bytes");

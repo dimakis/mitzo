@@ -42,6 +42,7 @@ import { useProgressByToolId } from '../hooks/useProgress';
 import type { ImageAttachment } from '../types/chat';
 
 export function DesktopChatView() {
+  const [profileToolsTarget, setProfileToolsTarget] = useState<HTMLDivElement | null>(null);
   const { sessionId } = useParams<{ sessionId?: string }>();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -460,6 +461,7 @@ export function DesktopChatView() {
                 )}
               </div>
               {activeSessionId && <SymposiumDirectorPanel sessionId={activeSessionId} />}
+              <div ref={setProfileToolsTarget} />
             </div>
           </WorkspaceControls>
 
@@ -485,6 +487,7 @@ export function DesktopChatView() {
           {!activeSessionId && !sessionId && <NewSymposium />}
           <ScrollFab scrollRef={scrollRef} />
           <SymposiumConversation
+            profileToolsTarget={profileToolsTarget}
             sessionId={activeSessionId}
             chat={{
               sessionId: sessionId || activeSessionId || undefined,
