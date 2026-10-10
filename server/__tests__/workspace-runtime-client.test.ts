@@ -260,6 +260,8 @@ describe('enrolled workspace runtime', () => {
       fixtureDescription +
         `else:
  import subprocess
+ open(${JSON.stringify(pidPath)}, 'w').close()
+ time.sleep(0.1)
  child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])
  open(${JSON.stringify(pidPath)}, 'w').write(str(child.pid))
  time.sleep(60)`,
@@ -269,15 +271,21 @@ describe('enrolled workspace runtime', () => {
       { date: '2026-10-10' },
       controller.signal,
     );
+    // Observe cancellation even if readiness fails; assert the original call below.
+    void call.catch(() => {});
     let pid: number | undefined;
     try {
       for (let count = 0; count < 100; count++) {
         try {
-          pid = Number(readFileSync(pidPath, 'utf8'));
-          break;
+          const candidate = Number(readFileSync(pidPath, 'utf8'));
+          if (Number.isInteger(candidate) && candidate > 0) {
+            pid = candidate;
+            break;
+          }
         } catch {
-          await new Promise((done) => setTimeout(done, 20));
+          /* The provider has not created its marker yet. */
         }
+        await new Promise((done) => setTimeout(done, 20));
       }
       expect(pid).toBeGreaterThan(0);
       controller.abort();
