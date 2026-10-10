@@ -309,6 +309,7 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
       await page.screenshot({
         path: testInfo.outputPath(`agent-context-preview-${theme}-${accent}-${font}.png`),
         fullPage: true,
+        animations: 'disabled',
       });
     }
   }
