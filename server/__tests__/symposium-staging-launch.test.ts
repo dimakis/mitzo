@@ -23,6 +23,7 @@ import type { SymposiumCustodianConstructorHooks } from '../symposium-custodian-
 import {
   REVIEWED_SYMPOSIUM_OWNED_RUNTIME,
   SOURCE_QUALIFIED_SYMPOSIUM_ROUTING_BUILD,
+  SOURCE_QUALIFIED_SYMPOSIUM_CONNECT_PREFACE_BUILD,
 } from '../symposium-owned-runtime-contract.js';
 
 const roots: string[] = [];
@@ -148,36 +149,41 @@ function fixture() {
   mkdirSync(gatewayStateDirectory, { mode: 0o700 });
   return { root, plan, registration, stateParent, gatewayStateDirectory, config };
 }
-it('passes the routing selector only after verified exact source-qualified config and full plan runtime', async () => {
-  const f = fixture();
-  const build = SOURCE_QUALIFIED_SYMPOSIUM_ROUTING_BUILD;
-  Object.assign(f.config.gateway, {
-    cliSha256: build.cliSha256,
-    executableSha256: build.gatewaySha256,
-    workloadImage: build.image,
-    sandboxRuntimeImage: build.sandboxRuntimeImage,
-    supervisorImage: build.supervisorImage,
-  });
-  f.plan.runtime = build as OwnedReleasePlan['runtime'];
-  writeFileSync(f.plan.configPath, JSON.stringify(f.config), { mode: 0o600 });
-  const order: string[] = [];
-  await expect(
-    launchStagingCustodian(f.plan, f.registration, {
-      verify() {
-        order.push('verify');
-      },
-      claim() {
-        order.push('claim');
-      },
-      async run(hooks) {
-        order.push('run');
-        expect(hooks.admissionBuildSelection).toBe('local-854b-routing-v1');
-        throw Error('fixture stop');
-      },
-    }),
-  ).rejects.toThrow('fixture stop');
-  expect(order).toEqual(['verify', 'claim', 'verify', 'run']);
-});
+it.each([
+  ['local-854b-routing-v1', SOURCE_QUALIFIED_SYMPOSIUM_ROUTING_BUILD],
+  ['local-854b-routing-v2', SOURCE_QUALIFIED_SYMPOSIUM_CONNECT_PREFACE_BUILD],
+] as const)(
+  'passes %s only after verified exact source-qualified config and full plan runtime',
+  async (selection, build) => {
+    const f = fixture();
+    Object.assign(f.config.gateway, {
+      cliSha256: build.cliSha256,
+      executableSha256: build.gatewaySha256,
+      workloadImage: build.image,
+      sandboxRuntimeImage: build.sandboxRuntimeImage,
+      supervisorImage: build.supervisorImage,
+    });
+    f.plan.runtime = build as OwnedReleasePlan['runtime'];
+    writeFileSync(f.plan.configPath, JSON.stringify(f.config), { mode: 0o600 });
+    const order: string[] = [];
+    await expect(
+      launchStagingCustodian(f.plan, f.registration, {
+        verify() {
+          order.push('verify');
+        },
+        claim() {
+          order.push('claim');
+        },
+        async run(hooks) {
+          order.push('run');
+          expect(hooks.admissionBuildSelection).toBe(selection);
+          throw Error('fixture stop');
+        },
+      }),
+    ).rejects.toThrow('fixture stop');
+    expect(order).toEqual(['verify', 'claim', 'verify', 'run']);
+  },
+);
 it.each(['manifest', 'cli', 'post-claim'] as const)(
   'refuses %s tuple drift before trusted launch',
   async (failure) => {

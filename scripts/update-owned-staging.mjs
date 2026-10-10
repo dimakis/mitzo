@@ -28,10 +28,8 @@ import {
   createOwnedRoutingProposal,
   readOwnedRoutingArguments,
 } from './lib/owned-stage-routing-proposal.mjs';
-import {
-  reviewedSymposiumRoutingDiagnosticBuild,
-  reviewedSymposiumOwnedRuntime,
-} from '../dist/symposium-owned-runtime-contract.js';
+import { reviewedSymposiumRoutingDiagnosticBuild } from '../dist/symposium-owned-runtime-contract.js';
+import { reviewedStagingOwnedBuild } from '../dist/symposium-staging-runtime-contract.js';
 import {
   createFreshActivationIntent,
   verifyFreshActivationBinding,
@@ -103,8 +101,8 @@ function minimalConfig(old, pin, routing) {
       old,
       pin,
       routing.pin,
-      reviewedSymposiumOwnedRuntime(old.gateway.workloadImage).build,
-      reviewedSymposiumRoutingDiagnosticBuild(old.gateway.workloadImage, 'local-854b-routing-v1'),
+      reviewedStagingOwnedBuild(old.gateway),
+      reviewedSymposiumRoutingDiagnosticBuild(old.gateway.workloadImage, 'local-854b-routing-v2'),
     );
   return { ...old, personal: { ...old.personal, deviceLoginExecutable: pin } };
 }
@@ -132,7 +130,7 @@ async function planUpdate(current, args) {
   const routingBuild = routingRequested
     ? reviewedSymposiumRoutingDiagnosticBuild(
         live.config.gateway.workloadImage,
-        'local-854b-routing-v1',
+        'local-854b-routing-v2',
       )
     : undefined;
   const routingInput = readOwnedRoutingArguments(args, routingBuild?.cliSha256);

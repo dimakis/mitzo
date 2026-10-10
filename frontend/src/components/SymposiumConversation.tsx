@@ -1,3 +1,4 @@
+import { createPortal } from 'react-dom';
 import { SymposiumAccessRequests } from './SymposiumAccessRequests';
 import {
   symposiumQueueOperations,
@@ -138,14 +139,17 @@ export function SymposiumConversation({
   sessionId,
   chat,
   ordinaryComposer,
+  profileToolsTarget,
 }: {
   sessionId: string | null;
   chat: ChatAreaProps;
   ordinaryComposer: ReactNode;
+  profileToolsTarget: HTMLElement | null;
 }) {
   const [status, setStatus] = useState<Status | null>(null);
   const [statusFresh, setStatusFresh] = useState(false);
   const [selected, setSelected] = useState('all');
+  const [recipient, setRecipient] = useState('');
   const [profilesOpen, setProfilesOpen] = useState(false);
   const profilesPanelId = useId();
   const [page, setPage] = useState<PerspectivePage>({ items: [], nextSeq: null, queued: [] });
@@ -183,6 +187,7 @@ export function SymposiumConversation({
     setError('');
     setStatusError('');
     setSelected('all');
+    setRecipient('');
     setSeatSeed(null);
     setProfilesOpen(false);
     setPage({ items: [], nextSeq: null, queued: [] });
@@ -337,16 +342,15 @@ export function SymposiumConversation({
   useEffect(() => {
     if (compact && anchorSeatId) {
       setSelected(anchorSeatId);
+      setRecipient((current) => current || anchorSeatId);
       setShare(null);
     }
   }, [compact, anchorSeatId]);
-  const recipients =
-    compact && anchorSeatId
-      ? admitted.filter((seatId) => seatId === anchorSeatId)
-      : admitted.filter((seatId) => seatId === selected);
+  const recipients = admitted.filter((seatId) => seatId === recipient);
   const recipientChoices = seats.filter(
     (seat) => admitted.includes(seat.id) && (!compact || seat.id === anchorSeatId),
   );
+  const recipientName = seats.find((seat) => seat.id === recipient)?.name ?? 'an agent';
   const seatName = seats.find((seat) => seat.id === selected)?.name ?? selected;
   const visiblePage =
     pageFor === `${base}:${selected}` ? page : { items: [], queued: [], nextSeq: null };
@@ -507,10 +511,10 @@ export function SymposiumConversation({
   }, [base, sessionId, share, excerpt, shareRecipients]);
   const controlDelivery = async (deliveryId: string, action: 'approve' | 'send' | 'stop') => {
     if (
-      selected === 'all' ||
       !status?.deliveries?.some(
         (delivery) =>
-          delivery.deliveryId === deliveryId && delivery.recipientSeatIds.includes(selected),
+          delivery.deliveryId === deliveryId &&
+          (selected === 'all' || delivery.recipientSeatIds.includes(selected)),
       )
     )
       return;
@@ -538,6 +542,48 @@ export function SymposiumConversation({
     },
     [items, selected],
   );
+
+  const profileTools =
+    sessionId && profileToolsTarget && status?.sessionId === sessionId
+      ? createPortal(
+          <div className="symposium-profile-tools">
+            <button
+              type="button"
+              aria-expanded={profilesOpen}
+              aria-controls={profilesOpen ? profilesPanelId : undefined}
+              onClick={() => setProfilesOpen((open) => !open)}
+            >
+              Reusable profile drafts
+              <UiIcon name={profilesOpen ? 'up' : 'down'} />
+            </button>
+            {profilesOpen && (
+              <>
+                {selected !== 'all' && status.seats.find((seat) => seat.seatId === selected) && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setSeatSeed({
+                        seatId: selected,
+                        ...status.seats.find((seat) => seat.seatId === selected)!.seat,
+                      })
+                    }
+                  >
+                    Draft reusable profile from this seat
+                  </button>
+                )}
+                <SymposiumProfileProposals
+                  key={sessionId}
+                  id={profilesPanelId}
+                  sessionId={sessionId}
+                  seatSeed={seatSeed}
+                  onSeatSeedDone={() => setSeatSeed(null)}
+                />
+              </>
+            )}
+          </div>,
+          profileToolsTarget,
+        )
+      : null;
 
   if (base && (!status || status.sessionId !== sessionId))
     return (
@@ -574,26 +620,7 @@ export function SymposiumConversation({
     return (
       <>
         {chat && <ChatArea {...chat} />}
-        {sessionId && (
-          <div className="symposium-profile-tools">
-            <button
-              type="button"
-              aria-expanded={profilesOpen}
-              aria-controls={profilesOpen ? profilesPanelId : undefined}
-              onClick={() => setProfilesOpen((open) => !open)}
-            >
-              Reusable profile drafts
-              <UiIcon name={profilesOpen ? 'up' : 'down'} />
-            </button>
-            {profilesOpen && (
-              <SymposiumProfileProposals
-                key={sessionId}
-                id={profilesPanelId}
-                sessionId={sessionId}
-              />
-            )}
-          </div>
-        )}
+        {profileTools}
         {ordinaryComposer}
       </>
     );
@@ -610,43 +637,7 @@ export function SymposiumConversation({
       <p className="symposium-boundary-note">
         Messages go to the agents you select. File access follows each agent’s permissions.
       </p>
-      <div className="symposium-profile-tools">
-        <button
-          type="button"
-          aria-expanded={profilesOpen}
-          aria-controls={profilesOpen ? profilesPanelId : undefined}
-          onClick={() => setProfilesOpen((open) => !open)}
-        >
-          Reusable profile drafts
-          <UiIcon name={profilesOpen ? 'up' : 'down'} />
-        </button>
-        {profilesOpen && (
-          <>
-            {selected !== 'all' && status.seats.find((seat) => seat.seatId === selected) && (
-              <button
-                type="button"
-                onClick={() =>
-                  setSeatSeed({
-                    seatId: selected,
-                    ...status.seats.find((seat) => seat.seatId === selected)!.seat,
-                  })
-                }
-              >
-                Draft reusable profile from this seat
-              </button>
-            )}
-            {sessionId && (
-              <SymposiumProfileProposals
-                key={sessionId}
-                id={profilesPanelId}
-                sessionId={sessionId}
-                seatSeed={seatSeed}
-                onSeatSeedDone={() => setSeatSeed(null)}
-              />
-            )}
-          </>
-        )}
-      </div>
+      {profileTools}
       {queuedOperation && (
         <section aria-label="Saved queued message">
           <p role="status">{queuedOperation.notice}</p>
@@ -705,7 +696,7 @@ export function SymposiumConversation({
       {!statusFresh && (
         <p role="status">
           Delivery status could not be refreshed. New approvals and sending are paused; Stop remains
-          available in the recipient agent stream.
+          available for active deliveries.
         </p>
       )}
       {sessionId && <SymposiumAccessRequests sessionId={sessionId} />}
@@ -800,7 +791,7 @@ export function SymposiumConversation({
                               receipt. History is preserved.
                             </p>
                           )}
-                          {selected !== 'all' && delivery.status === 'awaiting_intervention' && (
+                          {delivery.status === 'awaiting_intervention' && (
                             <button
                               type="button"
                               disabled={
@@ -811,7 +802,7 @@ export function SymposiumConversation({
                               Approve delivery to {recipientNames}
                             </button>
                           )}
-                          {selected !== 'all' && delivery.status === 'ready' && (
+                          {delivery.status === 'ready' && (
                             <button
                               type="button"
                               disabled={
@@ -844,7 +835,7 @@ export function SymposiumConversation({
                               Delivery needs recovery. Sending again is unavailable here.
                             </p>
                           )}
-                          {selected !== 'all' && !terminal && (
+                          {!terminal && (
                             <button
                               type="button"
                               disabled={state?.stop}
@@ -853,11 +844,9 @@ export function SymposiumConversation({
                               Stop delivery to {recipientNames}
                             </button>
                           )}
-                          {selected !== 'all' &&
-                            !terminal &&
-                            delivery.recipientSeatIds.length > 1 && (
-                              <p>Stop applies to this entire delivery and all named recipients.</p>
-                            )}
+                          {!terminal && delivery.recipientSeatIds.length > 1 && (
+                            <p>Stop applies to this entire delivery and all named recipients.</p>
+                          )}
                         </details>
                       </article>
                     );
@@ -912,24 +901,17 @@ export function SymposiumConversation({
       )}
       <SymposiumAudienceComposer
         key={sessionId}
-        audience={compact && anchorSeatId ? anchorSeatId : selected}
+        audience={recipient}
         seats={recipientChoices}
         onSelectRecipient={
-          recipientChoices.length > 1
+          recipientChoices.length > 1 || !recipientChoices.some((seat) => seat.id === recipient)
             ? (id) => {
-                if (!recipientChoices.some((seat) => seat.id === id)) return;
-                setSelected(id);
-                setShare(null);
+                if (id && !recipientChoices.some((seat) => seat.id === id)) return;
+                setRecipient(id);
               }
             : undefined
         }
-        audienceLabel={
-          compact
-            ? (seats.find((seat) => seat.id === anchorSeatId)?.name ?? 'builder')
-            : selected === 'all'
-              ? 'all admitted seats'
-              : seatName
-        }
+        audienceLabel={recipientName}
         recipients={recipients}
         enabled={statusFresh && recipients.length > 0 && !queuedOperation}
         disabledReason={

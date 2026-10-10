@@ -177,12 +177,14 @@ export async function createOwnedSymposiumHost(
   if (
     options.admissionBuildSelection !== undefined &&
     options.admissionBuildSelection !== 'local-854b-b20-v1' &&
-    options.admissionBuildSelection !== 'local-854b-routing-v1'
+    options.admissionBuildSelection !== 'local-854b-routing-v1' &&
+    options.admissionBuildSelection !== 'local-854b-routing-v2'
   )
     throw Error('Owned full-build selection is not reviewed');
   const diagnosticSelection = options.admissionBuildSelection;
   const diagnosticBuild =
-    diagnosticSelection === 'local-854b-routing-v1'
+    diagnosticSelection === 'local-854b-routing-v1' ||
+    diagnosticSelection === 'local-854b-routing-v2'
       ? reviewedSymposiumRoutingDiagnosticBuild(options.gateway.workloadImage, diagnosticSelection)
       : undefined;
   const assertConfiguredDiagnosticTuple = () => {
