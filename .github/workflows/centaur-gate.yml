@@ -30,7 +30,7 @@ jobs:
     # Its dedicated App key must never be a repository-level secret.
     environment: centaur-status-writer
     steps:
-      - uses: actions/create-github-app-token@v2
+      - uses: actions/create-github-app-token@v3
         id: status-token
         with:
           app-id: ${{ vars.CENTAUR_STATUS_APP_ID }}
