@@ -152,13 +152,7 @@ async function setup(
   displayToolName?: (name: string) => string,
   beforeComplete?: (signal: AbortSignal) => Promise<void>,
   completionHookTimeoutMs?: number,
-  verifyBinding?: () => Promise<{
-    accountId: string;
-    accountLabel: string;
-    provider: 'openai';
-    model: string;
-    profileRevision: string;
-  }>,
+  verifyBinding?: () => Promise<AccountBinding>,
   beforeReconnect?: () => Promise<void>,
   onActivity?: () => boolean,
   prepareTurn?: (
