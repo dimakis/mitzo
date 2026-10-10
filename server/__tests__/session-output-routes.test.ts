@@ -48,7 +48,7 @@ function setup() {
   );
   const get = (path = '/api/sessions/source/outputs') =>
     request(app).get(path).set('X-Operator', 'authorized');
-  const post = (body: unknown, id = 'source') =>
+  const post = (body: object, id = 'source') =>
     request(app).post(`/api/sessions/${id}/outputs`).set('X-Operator', 'authorized').send(body);
   const source = store.listSessionOutputCandidates('source')[0].source;
   return {

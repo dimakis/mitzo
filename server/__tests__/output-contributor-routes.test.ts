@@ -53,7 +53,7 @@ function fixture() {
     mode: 'ask',
     profileSelection: { profileId: 'writer', revision: 1 },
   };
-  const post = (path: string, body: unknown) =>
+  const post = (path: string, body: object) =>
     request(app)
       .post(path)
       .set('x-operator', 'private-owner')
