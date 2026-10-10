@@ -100,14 +100,31 @@ vi.mock('../../components/ChatInput', () => ({
     initialText?: string;
     onStop: () => void;
     running: boolean;
-    onSend?: (text: string) => boolean;
+    onSend?: (
+      text: string,
+      images?: never[],
+      context?: string[],
+      receipt?: (status: 'accepted' | 'failed' | 'uncertain') => void,
+      assigned?: (id: string) => void,
+    ) => boolean;
     sendDisabledReason?: string;
   }) => (
     <>
       <div data-testid="draft">{initialText}</div>
       <span data-testid="composer-running">{String(running)}</span>
       <button onClick={onStop}>Test Stop</button>
-      <button disabled={!!sendDisabledReason} onClick={() => onSend?.('hello')}>
+      <button
+        disabled={!!sendDisabledReason}
+        onClick={() =>
+          onSend?.(
+            'hello',
+            undefined,
+            undefined,
+            () => {},
+            () => {},
+          )
+        }
+      >
         Test send
       </button>
     </>
@@ -744,6 +761,13 @@ it.each([true, false])(
     fireEvent.click(await screen.findByRole('button', { name: 'Use Work · Sonnet' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Ready repository launch' }));
     fireEvent.click(screen.getByRole('button', { name: 'Test send' }));
+    expect(sendMessage).toHaveBeenCalledWith(
+      'hello',
+      expect.objectContaining({
+        onDelivery: expect.any(Function),
+        onSessionAssigned: expect.any(Function),
+      }),
+    );
     expect(sessionStorage.getItem(key)).toBe(receipt);
     act(() =>
       store.setState({ sessions: { ...store.getState().sessions, active: 'assigned-chat' } }),

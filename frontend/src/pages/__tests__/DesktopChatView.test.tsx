@@ -100,13 +100,30 @@ vi.mock('../../components/ChatInput', () => ({
     sendDisabledReason?: string;
     onStop: () => void;
     running: boolean;
-    onSend: (text: string) => boolean;
+    onSend: (
+      text: string,
+      images?: never[],
+      context?: string[],
+      receipt?: (status: 'accepted' | 'failed' | 'uncertain') => void,
+      assigned?: (id: string) => void,
+    ) => boolean;
   }) => (
     <div data-testid="chat-input">
       <span>{sendDisabledReason}</span>
       <span data-testid="composer-running">{String(running)}</span>
       <button onClick={onStop}>Test Stop</button>
-      <button disabled={!!sendDisabledReason} onClick={() => onSend('hello')}>
+      <button
+        disabled={!!sendDisabledReason}
+        onClick={() =>
+          onSend(
+            'hello',
+            undefined,
+            undefined,
+            () => {},
+            () => {},
+          )
+        }
+      >
         Test send
       </button>
       external: {externalContextBlocks ? externalContextBlocks.length : 'none'}
@@ -409,7 +426,12 @@ it('uses the account catalog on desktop and sends the explicit subscription choi
   fireEvent.click(screen.getByText('Test send'));
   expect(store.getState().sendMessage).toHaveBeenCalledWith(
     'hello',
-    expect.objectContaining({ accountId: 'personal', model: 'luna' }),
+    expect.objectContaining({
+      accountId: 'personal',
+      model: 'luna',
+      onDelivery: expect.any(Function),
+      onSessionAssigned: expect.any(Function),
+    }),
   );
 });
 

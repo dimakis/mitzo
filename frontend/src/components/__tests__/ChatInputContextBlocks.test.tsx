@@ -41,13 +41,33 @@ afterEach(() => {
 
 describe('ChatInput with externalContextBlocks', () => {
   const baseProps = {
-    onSend: vi.fn().mockReturnValue(true),
+    onSend: vi.fn(
+      (
+        _text: string,
+        _images?: unknown[],
+        _context?: string[],
+        receipt?: (status: 'accepted') => void,
+      ) => {
+        receipt?.('accepted');
+        return true;
+      },
+    ),
     onStop: vi.fn(),
     running: false,
   };
 
   it('preserves a draft and blocks button and keyboard sends until account selection is ready', () => {
-    const onSend = vi.fn().mockReturnValue(true);
+    const onSend = vi.fn(
+      (
+        _text: string,
+        _images?: unknown[],
+        _context?: string[],
+        receipt?: (status: 'accepted') => void,
+      ) => {
+        receipt?.('accepted');
+        return true;
+      },
+    );
     const { rerender } = render(
       <ChatInput {...baseProps} onSend={onSend} sendDisabledReason="Select an account to send" />,
     );
@@ -61,7 +81,13 @@ describe('ChatInput with externalContextBlocks', () => {
     expect((textarea as HTMLTextAreaElement).value).toBe('keep this draft');
     rerender(<ChatInput {...baseProps} onSend={onSend} />);
     fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
-    expect(onSend).toHaveBeenCalledWith('keep this draft', undefined, undefined);
+    expect(onSend).toHaveBeenCalledWith(
+      'keep this draft',
+      undefined,
+      undefined,
+      expect.any(Function),
+      expect.any(Function),
+    );
   });
   it('hides the session tray when externalContextBlocks are managed by a parent', () => {
     const { container } = render(
@@ -125,7 +151,17 @@ describe('ChatInput with externalContextBlocks', () => {
   });
 
   it('passes external context blocks to onSend', () => {
-    const onSend = vi.fn().mockReturnValue(true);
+    const onSend = vi.fn(
+      (
+        _text: string,
+        _images?: unknown[],
+        _context?: string[],
+        receipt?: (status: 'accepted') => void,
+      ) => {
+        receipt?.('accepted');
+        return true;
+      },
+    );
     render(
       <ChatInput
         {...baseProps}
@@ -138,11 +174,27 @@ describe('ChatInput with externalContextBlocks', () => {
     fireEvent.change(textarea, { target: { value: 'hello' } });
     fireEvent.keyDown(textarea, { key: 'Enter' });
 
-    expect(onSend).toHaveBeenCalledWith('hello', undefined, ['boot-context', 'constitution']);
+    expect(onSend).toHaveBeenCalledWith(
+      'hello',
+      undefined,
+      ['boot-context', 'constitution'],
+      expect.any(Function),
+      expect.any(Function),
+    );
   });
 
   it('does NOT clear external context blocks on send', async () => {
-    const onSend = vi.fn().mockReturnValue(true);
+    const onSend = vi.fn(
+      (
+        _text: string,
+        _images?: unknown[],
+        _context?: string[],
+        receipt?: (status: 'accepted') => void,
+      ) => {
+        receipt?.('accepted');
+        return true;
+      },
+    );
     const blocks = ['boot-context'];
     const { rerender } = render(
       <ChatInput {...baseProps} onSend={onSend} externalContextBlocks={blocks} />,
@@ -166,12 +218,29 @@ describe('ChatInput with externalContextBlocks', () => {
 
     // Both sends should include the external blocks
     expect(onSend).toHaveBeenCalledTimes(2);
-    expect(onSend).toHaveBeenNthCalledWith(2, 'second message', undefined, ['boot-context']);
+    expect(onSend).toHaveBeenNthCalledWith(
+      2,
+      'second message',
+      undefined,
+      ['boot-context'],
+      expect.any(Function),
+      expect.any(Function),
+    );
   });
 });
 
 it('retains a queued image/context and active composer through rejected Stop until confirmed idle', async () => {
-  const onSend = vi.fn().mockReturnValue(true);
+  const onSend = vi.fn(
+    (
+      _text: string,
+      _images?: unknown[],
+      _context?: string[],
+      receipt?: (status: 'accepted') => void,
+    ) => {
+      receipt?.('accepted');
+      return true;
+    },
+  );
   const callbacks = { onSessionAssigned: vi.fn(), onSessionExpired: vi.fn() };
   function Harness() {
     const [messages, setMessages] = useState({ ...INITIAL_MESSAGES_STATE, running: true });
@@ -236,6 +305,8 @@ it('retains a queued image/context and active composer through rejected Stop unt
     'Queued exact draft',
     [{ data: 'resized', mediaType: 'image/png', preview: 'data:image/png;base64,resized' }],
     ['exact context'],
+    expect.any(Function),
+    expect.any(Function),
   );
   expect(screen.getByLabelText('Message Mitzo')).toHaveProperty('value', 'Next untouched draft');
   expect(screen.getByAltText('Attachment 1')).toBeTruthy();

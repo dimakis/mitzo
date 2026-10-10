@@ -87,7 +87,17 @@ async function fixture() {
   const stream = store.getState().messages.current;
   const permission = store.getState().messages.permission;
   const delivery = vi.fn();
-  const onSend = vi.fn().mockReturnValue(true);
+  const onSend = vi.fn(
+    (
+      _text: string,
+      _images?: unknown[],
+      _context?: string[],
+      receipt?: (status: 'accepted') => void,
+    ) => {
+      receipt?.('accepted');
+      return true;
+    },
+  );
   function Harness({ sessionId = 'child' }: { sessionId?: string }) {
     const messages = useStore(store, (state) => state.messages);
     return (
@@ -210,6 +220,8 @@ it('recovers a late rejected payload separately from newer draft and queued inpu
     'Independent queued draft',
     [{ data: 'queued.png', mediaType: 'image/png', preview: 'data:image/png;base64,queued.png' }],
     undefined,
+    expect.any(Function),
+    expect.any(Function),
   );
   f.receive({ type: 'session_state_changed', sessionId: 'child', state: 'running' });
   f.receive({ type: 'session_state_changed', sessionId: 'child', state: 'idle' });

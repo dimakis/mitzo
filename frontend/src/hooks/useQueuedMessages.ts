@@ -4,7 +4,7 @@ import type { ImageAttachment } from '../types/chat';
 const KEY_PREFIX = 'mitzo-queue-';
 
 export interface QueuedMessage {
-  /** Definitive refusal is recoverable only through an explicit operator retry. */
+  /** Submitted or refused input must never resume automatic queue drain. */
   requiresRetry?: boolean;
   text: string;
   images: ImageAttachment[];
@@ -71,7 +71,8 @@ export function useQueuedMessages(
   queue: QueuedMessage[];
   enqueue: (msg: QueuedMessage) => boolean;
   dequeue: () => QueuedMessage | undefined;
-  restoreRejected: (msg: QueuedMessage) => void;
+  restoreRejected: (msg: QueuedMessage) => QueuedMessage;
+  removeSubmitted: (msg: QueuedMessage) => void;
   remove: (index: number) => void;
   edit: (index: number) => QueuedMessage | undefined;
 } {
@@ -134,7 +135,13 @@ export function useQueuedMessages(
 
   // Return already-submitted input without discarding it when the ordinary queue is full.
   const restoreRejected = useCallback((msg: QueuedMessage) => {
-    setQueueRaw((prev) => [...prev, { ...msg, requiresRetry: true }]);
+    const retained = { ...msg, requiresRetry: true };
+    setQueueRaw((prev) => [...prev, retained]);
+    return retained;
+  }, []);
+
+  const removeSubmitted = useCallback((msg: QueuedMessage) => {
+    setQueueRaw((prev) => prev.filter((item) => item !== msg));
   }, []);
 
   const remove = useCallback((index: number) => {
@@ -148,5 +155,5 @@ export function useQueuedMessages(
     return item;
   }, []);
 
-  return { queue, enqueue, dequeue, restoreRejected, remove, edit };
+  return { queue, enqueue, dequeue, restoreRejected, removeSubmitted, remove, edit };
 }

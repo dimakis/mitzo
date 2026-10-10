@@ -329,6 +329,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       launchGeneration: number;
       sessionId?: string;
       control: 'send' | 'interrupt';
+      running: boolean;
     }
   >();
 
@@ -344,6 +345,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       historyRequest,
       launchGeneration,
       sessionId: parserState.currentSessionId,
+      running: store.getState().messages.running,
     });
     for (const id of deliveryOrigins.keys()) {
       if (deliveryOrigins.size <= 256) break;
@@ -367,12 +369,24 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
   function settleDelivery(id: string, status: 'accepted' | 'failed' | 'uncertain') {
     const observer = deliveryObservers.get(id);
     const sessionId = deliverySessions.get(id);
+    const origin = deliveryOrigins.get(id);
     if (observer && status === 'failed') {
       pendingOptimisticMessageIds.delete(id);
       store.setState((s) => ({
         messages: {
           ...s.messages,
           messages: s.messages.messages.filter((m) => m.messageId !== id),
+          // Undo only this send's optimistic busy state. A real stream, newer
+          // input, running origin or another conversation retains its owner.
+          ...(origin?.control === 'send' &&
+          !origin.running &&
+          (origin.sessionId ?? null) === s.sessions.active &&
+          origin.historyRequest === historyRequest &&
+          !s.messages.current &&
+          Object.keys(s.messages.currentByMessage).length === 0 &&
+          s.messages.messages.filter((m) => m.role === 'user').at(-1)?.messageId === id
+            ? { running: false }
+            : {}),
         },
       }));
     }
@@ -395,9 +409,14 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
           connection.clearSession(sessionId);
       });
   }
-  function confirmPersistedDelivery(messages: FinishedMessage[]) {
+  function confirmPersistedDelivery(sessionId: string, messages: FinishedMessage[]) {
     for (const message of messages)
-      if (message.role === 'user') settleDelivery(message.messageId, 'accepted');
+      if (
+        message.role === 'user' &&
+        (!deliveryOrigins.has(message.messageId) ||
+          deliveryOrigins.get(message.messageId)?.sessionId === sessionId)
+      )
+        settleDelivery(message.messageId, 'accepted');
   }
 
   let boundedRestore:
@@ -451,7 +470,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         : api.getReconnectTranscript(sessionId, throughSeq);
     transcript
       .then(({ messages: msgs, current, currents = [], cursor }) => {
-        if (Array.isArray(msgs)) confirmPersistedDelivery(msgs);
+        if (Array.isArray(msgs)) confirmPersistedDelivery(sessionId, msgs);
         if (request !== historyRequest || store.getState().sessions.active !== sessionId) return;
         if (Array.isArray(msgs)) {
           const appliedCursor = cursor ?? throughSeq;
@@ -1215,8 +1234,13 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
 
   function bindLaunchAssignment(id: string, sessionId: string, consume = true): boolean {
     const origin = unassignedDeliveries.get(id);
-    const foreground =
-      origin?.historyRequest === historyRequest && origin?.launchGeneration === launchGeneration;
+    const deliveryOrigin = deliveryOrigins.get(id);
+    const foreground = origin
+      ? origin.historyRequest === historyRequest && origin.launchGeneration === launchGeneration
+      : !!deliveryOrigin &&
+        deliveryOrigin.sessionId === parserState.currentSessionId &&
+        deliveryOrigin.historyRequest === historyRequest &&
+        deliveryOrigin.launchGeneration === launchGeneration;
     // HTTP delivery can precede session_id. Retain the draft identity until that event.
     if (consume) unassignedDeliveries.delete(id);
     if (deliveryObservers.has(id)) deliverySessions.set(id, sessionId);
@@ -1313,6 +1337,15 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       msg.type === '_send_uncertain' ||
       msg.type === '_send_accepted'
     ) {
+      const origin =
+        typeof msg.clientMsgId === 'string' ? deliveryOrigins.get(msg.clientMsgId) : undefined;
+      if (
+        origin &&
+        !unassignedDeliveries.has(msg.clientMsgId as string) &&
+        (msg.originalSessionId ?? msg.sessionId ?? null) !== (origin.sessionId ?? null) &&
+        (msg.sessionId ?? null) !== (origin.sessionId ?? null)
+      )
+        return true;
       if (
         msg.type === '_send_accepted' &&
         typeof msg.clientMsgId === 'string' &&
@@ -1330,7 +1363,10 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         msg.type === '_send_accepted' &&
         typeof msg.sessionId === 'string' &&
         typeof msg.clientMsgId === 'string' &&
-        unassignedDeliveries.has(msg.clientMsgId)
+        (unassignedDeliveries.has(msg.clientMsgId) ||
+          (origin?.control === 'send' &&
+            origin.sessionId !== msg.sessionId &&
+            msg.originalSessionId === origin.sessionId))
       ) {
         const foreground = bindLaunchAssignment(msg.clientMsgId, msg.sessionId, false);
         if (foreground) callbacks.onSessionAssigned(msg.sessionId);
@@ -1437,6 +1473,12 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       if (id && unassignedDeliveries.has(id)) {
         const foreground = bindLaunchAssignment(id, eventSessionId);
         if (!foreground) return true;
+      } else if (id) {
+        const origin = deliveryOrigins.get(id);
+        if (origin?.control === 'send' && deliveryObservers.has(id)) {
+          const foreground = bindLaunchAssignment(id, eventSessionId);
+          if (!foreground) return true;
+        }
       }
     }
 
@@ -1444,6 +1486,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     // can release its launch; unrelated runtime errors are not delivery receipts.
     if (msg.type === 'error' && typeof msg.clientMsgId === 'string') {
       const origin = deliveryOrigins.get(msg.clientMsgId);
+      if (origin?.sessionId && eventSessionId && origin.sessionId !== eventSessionId) return true;
       const offscreen =
         origin &&
         (origin.sessionId
@@ -1466,11 +1509,28 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         settleDelivery(id, 'failed');
       }
     }
+    if (msg.type === 'native_command_result' && typeof msg.clientMsgId === 'string') {
+      const origin = deliveryOrigins.get(msg.clientMsgId);
+      if (origin?.control === 'send' && (origin.sessionId ?? null) === (eventSessionId ?? null))
+        settleDelivery(msg.clientMsgId, 'accepted');
+    }
+
     // Delivery receipts settle their original launch even when its chat is no longer visible.
     // Transcript updates below remain scoped to the current chat.
     if (msg.type === 'user_message' && typeof msg.messageId === 'string') {
       const origin = deliveryOrigins.get(msg.messageId);
-      if (origin?.control === 'interrupt' && origin.sessionId !== eventSessionId) return true;
+      // A saved first input may arrive before session_id on legacy/startup
+      // routes. Its exact command establishes the previously unassigned owner.
+      if (
+        origin?.control === 'send' &&
+        !origin.sessionId &&
+        typeof eventSessionId === 'string' &&
+        unassignedDeliveries.has(msg.messageId)
+      ) {
+        const foreground = bindLaunchAssignment(msg.messageId, eventSessionId);
+        if (foreground) callbacks.onSessionAssigned(eventSessionId);
+      }
+      if (origin && origin.sessionId !== eventSessionId) return true;
       settleDelivery(msg.messageId, 'accepted');
     }
 
@@ -1487,7 +1547,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       void api
         .getReconnectTranscript(eventSessionId, cursor)
         .then(({ messages }) => {
-          confirmPersistedDelivery(messages);
+          confirmPersistedDelivery(eventSessionId, messages);
           connection.commitTranscriptCursor(eventSessionId, cursor);
           connection.acknowledgeReconnectSnapshot(
             eventSessionId,
