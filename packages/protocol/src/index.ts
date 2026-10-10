@@ -242,11 +242,17 @@ export * from './symposium-artifact-reader.js';
 
 export * from './symposium-configuration-operations.js';
 
-export { NotificationKind, NotificationFilter, NotificationPreferences } from './notifications.js';
+export {
+  NotificationKind,
+  NotificationFilter,
+  NotificationPreferences,
+  InboxQuery,
+} from './notifications.js';
 export type {
   MitzoNotification,
   NotificationResolution,
   NotificationFeed,
+  InboxFeed,
 } from './notifications.js';
 
 export type { BackupRunStatus, BackupRun, BackupOverview } from './backup.js';

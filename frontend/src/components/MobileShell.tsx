@@ -19,6 +19,7 @@ const COLLECTION_ROUTES = new Set([
   '/connections',
   '/settings',
   '/settings/backups',
+  '/settings/notifications',
   '/calendar',
   '/notifications',
   '/tasks',

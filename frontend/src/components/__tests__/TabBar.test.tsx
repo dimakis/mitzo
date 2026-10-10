@@ -24,7 +24,7 @@ describe('TabBar', () => {
   it('renders five named destinations', () => {
     renderAt('/');
     expect(screen.getAllByRole('link')).toHaveLength(5);
-    for (const name of ['Today', 'Chats', 'Proposals', 'Work', 'More'])
+    for (const name of ['Today', 'Chats', 'Inbox', 'Work', 'More'])
       expect(screen.getByRole('link', { name })).toBeTruthy();
   });
   it('highlights Today on the home route', () => {
