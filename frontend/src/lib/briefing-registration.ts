@@ -363,10 +363,12 @@ export const briefingCommandHandoff = {
     notify();
   },
 };
-export function localBriefingConversation(
+export class BriefingConversationRecoveryError extends Error {}
+
+export async function localBriefingConversation(
   source: { date: string; revision: string },
   selection: { accountId?: string; model: string },
-): string | null {
+): Promise<string | null> {
   const existing = read().records.find(
     (entry) =>
       entry.binding.date === source.date &&
@@ -374,7 +376,34 @@ export function localBriefingConversation(
       entry.binding.accountId === selection.accountId &&
       entry.binding.model === selection.model,
   );
-  if (existing) return existing.binding.sessionId;
+  if (existing) {
+    let hidden: boolean;
+    try {
+      const response = await apiFetch(
+        `/api/sessions/${encodeURIComponent(existing.binding.sessionId)}/meta`,
+      );
+      if (!response.ok) throw new Error('Conversation visibility unavailable');
+      const meta: unknown = await response.json();
+      if (
+        !meta ||
+        typeof meta !== 'object' ||
+        !('isHidden' in meta) ||
+        typeof meta.isHidden !== 'boolean'
+      )
+        throw new Error('Conversation visibility missing');
+      hidden = meta.isHidden;
+    } catch {
+      throw new BriefingConversationRecoveryError(
+        'Could not confirm this conversation is available. Retry before starting another briefing conversation.',
+      );
+    }
+    if (!hidden) return existing.binding.sessionId;
+    // Only an authoritative deletion clears this exact local reviewed receipt.
+    const current = read().records.find(
+      (entry) => entry.binding.sessionId === existing.binding.sessionId,
+    );
+    if (current && same(current.binding, existing.binding)) remove(existing.binding.sessionId);
+  }
   if (
     commands().some(
       (entry) =>
@@ -384,7 +413,7 @@ export function localBriefingConversation(
         entry.model === selection.model,
     )
   )
-    throw new Error(
+    throw new BriefingConversationRecoveryError(
       'This briefing conversation is awaiting assignment. Let its existing message finish restoring before asking again.',
     );
   return null;

@@ -1,3 +1,4 @@
+import { localBriefingConversation } from '../lib/briefing-registration';
 import { UiIcon } from '../components/UiIcon';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams, useLocation } from 'react-router-dom';
@@ -168,6 +169,11 @@ export function BriefingView() {
     );
     if (existing) {
       navigate(`/chat/${encodeURIComponent(existing.sessionId)}`);
+      return;
+    }
+    const retained = await localBriefingConversation(snapshot, selection);
+    if (retained) {
+      navigate(`/chat/${encodeURIComponent(retained)}`);
       return;
     }
     stageLaunch({

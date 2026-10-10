@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
-import { beforeAll, afterEach, expect, it, vi } from 'vitest';
+import { beforeAll, beforeEach, afterEach, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { BriefingView } from '../BriefingView';
 import { apiFetch } from '../../lib/api-fetch';
+import { briefingCommandHandoff, registerBriefing } from '../../lib/briefing-registration';
 const fixtures = vi.hoisted(() => ({
   pending: vi.fn(),
   report: {
@@ -29,6 +30,7 @@ vi.mock('../../hooks/useHomePreferences', () => ({
 }));
 vi.mock('../../lib/api-fetch', () => ({
   getApiBaseUrl: () => '',
+  AUTH_LOST_EVENT: 'mitzo:auth-lost',
   apiFetch: vi.fn(
     async (url: string) =>
       new Response(JSON.stringify(url.includes('briefing-chats') ? [] : fixtures.report)),
@@ -50,6 +52,7 @@ function show() {
       <Routes>
         <Route path="/briefings/:date" element={<BriefingView />} />
         <Route path="/chat" element={<Location />} />
+        <Route path="/chat/:sessionId" element={<Location />} />
       </Routes>
     </MemoryRouter>,
   );
@@ -62,8 +65,15 @@ beforeAll(() => {
     this.open = false;
   };
 });
+beforeEach(() => {
+  vi.mocked(apiFetch).mockImplementation(
+    async (url) =>
+      new Response(JSON.stringify(String(url).includes('briefing-chats') ? [] : fixtures.report)),
+  );
+});
 afterEach(() => {
   cleanup();
+  localStorage.clear();
   vi.clearAllMocks();
 });
 it('names the Today destination without exposing its decorative navigation icon', async () => {
@@ -173,3 +183,71 @@ it('cancel leaves chat untouched; Use selection stages the exact report without 
   expect(launch.accountSelection).toEqual({ accountId: 'work', model: 'luna' });
   expect(screen.getByTestId('location').textContent).toBe('/chat');
 });
+
+async function ask() {
+  fireEvent.click(await screen.findByRole('button', { name: 'Ask Jeeves' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Choose Work OpenAI · Luna' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Use selection' }));
+}
+it('blocks duplicate Ask while its original durable command awaits assignment and shows the reason', async () => {
+  expect(
+    briefingCommandHandoff.prepare({
+      type: 'send',
+      sessionId: null,
+      clientMsgId: 'original-command',
+      accountId: 'work',
+      model: 'luna',
+      sourceSnapshots: [{ kind: 'briefing', ...fixtures.report }],
+    }),
+  ).toBe(true);
+  show();
+  await ask();
+  await waitFor(() =>
+    expect(screen.getByRole('alert').textContent).toContain('awaiting assignment'),
+  );
+  expect(fixtures.pending).not.toHaveBeenCalled();
+});
+it.each(['visible', 'hidden', 'unavailable', 'missing', 'malformed'] as const)(
+  'checks authoritative %s visibility before reusing a locally retained failed registration',
+  async (state) => {
+    vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+      if (String(url).includes('/meta')) {
+        if (state === 'unavailable' || state === 'missing')
+          return new Response('', { status: state === 'missing' ? 404 : 503 });
+        return new Response(
+          JSON.stringify(state === 'malformed' ? {} : { isHidden: state === 'hidden' }),
+        );
+      }
+      if (String(url).includes('briefing-chats'))
+        return new Response('[]', { status: init?.method === 'POST' ? 503 : 200 });
+      return new Response(JSON.stringify(fixtures.report));
+    });
+    await registerBriefing({
+      sessionId: 'retained',
+      date: fixtures.report.date,
+      revision: fixtures.report.revision,
+      accountId: 'work',
+      model: 'luna',
+    });
+    show();
+    await ask();
+    if (state === 'visible') {
+      await waitFor(() =>
+        expect(screen.getByTestId('location').textContent).toBe('/chat/retained'),
+      );
+      expect(fixtures.pending).not.toHaveBeenCalled();
+    } else if (state === 'hidden') {
+      await waitFor(() => expect(fixtures.pending).toHaveBeenCalledOnce());
+      expect(Object.entries(localStorage).some(([key]) => key.endsWith(':retained'))).toBe(false);
+      expect(screen.getByTestId('location').textContent).toBe('/chat');
+    } else {
+      await waitFor(() =>
+        expect(screen.getByRole('alert').textContent).toContain(
+          'Could not confirm this conversation',
+        ),
+      );
+      expect(fixtures.pending).not.toHaveBeenCalled();
+      expect(Object.entries(localStorage).some(([key]) => key.endsWith(':retained'))).toBe(true);
+    }
+  },
+);

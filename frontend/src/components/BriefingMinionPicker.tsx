@@ -4,6 +4,7 @@ import { AccountModelPicker, type AccountSelection } from './AccountModelPicker'
 import type { WorkspaceSummary } from '../types/workspace';
 import { getDefaultAccountModel } from '../lib/account-preference';
 import { getPreferredModel } from '../lib/model-preference';
+import { BriefingConversationRecoveryError } from '../lib/briefing-registration';
 
 export function BriefingMinionPicker({
   name,
@@ -90,8 +91,12 @@ export function BriefingMinionPicker({
             setError('');
             try {
               await onUse(selection);
-            } catch {
-              setError('Could not open this briefing conversation. Retry.');
+            } catch (error) {
+              setError(
+                error instanceof BriefingConversationRecoveryError
+                  ? error.message
+                  : 'Could not open this briefing conversation. Retry.',
+              );
               setSaving(false);
             }
           }}
