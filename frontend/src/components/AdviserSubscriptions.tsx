@@ -253,8 +253,10 @@ export function AdviserSubscriptions({
                 disabled={busy || disabled}
                 onClick={() =>
                   void mutate(async () => {
+                    const cancelledAttemptId = attempt!.id;
+                    const request = version.current;
                     const response = await apiFetch(
-                      `${endpoint}/attempts/${encodeURIComponent(attempt!.id)}/cancel`,
+                      `${endpoint}/attempts/${encodeURIComponent(cancelledAttemptId)}/cancel`,
                       {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
@@ -262,7 +264,8 @@ export function AdviserSubscriptions({
                       },
                     );
                     if (!response.ok) throw Error('Unavailable');
-                    if (mounted.current) {
+                    // An older cancellation receipt cannot retire a newer recovered attempt.
+                    if (mounted.current && version.current === request) {
                       version.current++;
                       setAttempt(null);
                       setMessage('Sign-in cancelled.');
