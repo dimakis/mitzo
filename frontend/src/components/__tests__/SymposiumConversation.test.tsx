@@ -107,6 +107,24 @@ afterEach(() => {
   vi.clearAllMocks();
   localStorage.clear();
 });
+it('places the ordinary output inspector inside the existing rich conversation scroll surface', async () => {
+  vi.mocked(apiFetch).mockResolvedValue({
+    ok: true,
+    json: async () => ({ sessionId: 'session', config: null, seats: [] }),
+  } as Response);
+  render(
+    <SymposiumConversation
+      sessionId="session"
+      chat={chat}
+      ordinaryComposer={<span>Ordinary composer</span>}
+      ordinaryAfterMessages={<span>Selected ordinary output</span>}
+    />,
+  );
+  await screen.findByText('Ordinary composer');
+  expect(
+    within(screen.getByTestId('rich-chat')).getByText('Selected ordinary output'),
+  ).toBeTruthy();
+});
 
 const status = {
   sessionId: 'session',

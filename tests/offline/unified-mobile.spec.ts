@@ -451,6 +451,8 @@ test.beforeEach(async ({ page }) => {
       // No app mutation or model request can leave this fixture suite.
       if (route.request().method() !== 'GET')
         return route.fulfill({ status: 405, json: { error: 'Offline UI test' } });
+      if (/^\/api\/sessions\/[^/]+\/outputs$/.test(url.pathname))
+        return route.fulfill({ json: { outputs: [], candidates: [] } });
       if (url.pathname === '/api/inbox/feed') return route.fulfill({ json: inboxFixture(url) });
       if (url.pathname.startsWith('/api/inbox/records/')) {
         const id = decodeURIComponent(url.pathname.slice('/api/inbox/records/'.length));

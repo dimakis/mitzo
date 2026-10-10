@@ -76,7 +76,7 @@ function PickerField({
 
 /** Catalog refreshes and draft confirmation belong to one conversation. */
 export function AccountModelPicker(props: Parameters<typeof SessionAccountModelPicker>[0]) {
-  const sessionKey = `${props.scope === 'symposium' ? 'symposium' : props.scope === 'adviser' ? 'adviser' : (props.sessionId ?? 'new-chat')}:${props.requiredSelection?.accountId ?? ''}:${props.requiredSelection?.model ?? ''}`;
+  const sessionKey = `${props.scope === 'symposium' ? 'symposium' : props.scope === 'adviser' ? 'adviser' : (props.sessionId ?? 'new-chat')}:${props.requiredSelection?.accountId ?? ''}:${props.requiredSelection?.model ?? ''}:${JSON.stringify(props.allowedAccountIds?.slice().sort() ?? null)}`;
   return <SessionAccountModelPicker key={sessionKey} {...props} />;
 }
 
@@ -93,10 +93,13 @@ function SessionAccountModelPicker({
   draftOnly = false,
   preferWorkOpenAI = false,
   initialSelection,
+  allowedAccountIds,
 }: {
   draftOnly?: boolean;
   preferWorkOpenAI?: boolean;
   initialSelection?: AccountSelection;
+  /** Host-verified routes for this action; undefined preserves ordinary chat's full catalog. */
+  allowedAccountIds?: string[];
   scope?: 'chat' | 'symposium' | 'adviser';
   requireExplicitSelection?: boolean;
   requiredSelection?: { accountId: string; model: string };
@@ -301,7 +304,9 @@ function SessionAccountModelPicker({
             throw new Error(
               'Invalid account information. Retry or check the server configuration.',
             );
-          const catalog: Account[] = parsed.data;
+          const catalog: Account[] = allowedAccountIds
+            ? parsed.data.filter((account) => allowedAccountIds.includes(account.id))
+            : parsed.data;
           if (!catalog.length) {
             setEmpty(true);
             return;
@@ -323,10 +328,13 @@ function SessionAccountModelPicker({
             callbacks.current.onChange(next);
             return;
           }
+          const deviceDefault = scope === 'chat' && !legacy ? getDefaultAccountModel() : null;
+          const eligibleDefault =
+            !allowedAccountIds || allowedAccountIds.includes(deviceDefault?.accountId ?? '')
+              ? deviceDefault
+              : null;
           const previous =
-            (attempt ? selectionRef.current : null) ??
-            initialSelection ??
-            (scope === 'chat' && !legacy ? getDefaultAccountModel() : null);
+            (attempt ? selectionRef.current : null) ?? initialSelection ?? eligibleDefault;
           if (
             !legacy &&
             previous &&
@@ -421,11 +429,13 @@ function SessionAccountModelPicker({
       <>
         {subscriptionLogin}
         <span>
-          {scope === 'symposium'
-            ? 'No Symposium account profiles configured.'
-            : 'No account profiles configured.'}
+          {allowedAccountIds
+            ? 'No accounts are eligible for this action.'
+            : scope === 'symposium'
+              ? 'No Symposium account profiles configured.'
+              : 'No account profiles configured.'}
         </span>
-        {scope === 'chat' && !requiredSelection && (
+        {scope === 'chat' && !requiredSelection && !draftOnly && !allowedAccountIds && (
           <button disabled={disabled} onClick={() => setLegacy(true)}>
             Use legacy server account
           </button>

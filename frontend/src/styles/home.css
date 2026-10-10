@@ -103,6 +103,9 @@
   font-weight: 550;
   margin: 0;
 }
+.home-dialog button {
+  min-height: var(--control-height);
+}
 .home-dialog footer {
   margin-top: var(--space-5);
   justify-content: flex-end;
