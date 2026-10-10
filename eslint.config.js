@@ -6,7 +6,7 @@ import prettier from 'eslint-config-prettier';
 
 export default tseslint.config(
   {
-    ignores: ['dist/', 'frontend/dist/', 'node_modules/', 'frontend/node_modules/', 'mcp-server/'],
+    ignores: ['**/dist/', 'node_modules/', 'frontend/node_modules/', 'mcp-server/'],
   },
 
   js.configs.recommended,
