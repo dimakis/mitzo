@@ -11,10 +11,17 @@ const accountSchema = z.object({
   state: z.enum(['connected', 'disconnected', 'reauth_required']),
   revocationPending: z.boolean().default(false),
 });
-const snapshotSchema = z.object({ enabled: z.boolean(), accounts: z.array(accountSchema) });
 const attemptSchema = z.object({
   id: z.string(),
   state: z.enum(['pending', 'connected', 'failed', 'cancelled']),
+});
+const snapshotSchema = z.object({
+  enabled: z.boolean(),
+  accounts: z.array(accountSchema),
+  pendingAttempt: attemptSchema
+    .extend({ state: z.literal('pending') })
+    .nullable()
+    .optional(),
 });
 const labels = {
   connected: 'Connected',
@@ -45,7 +52,14 @@ export function AdviserSubscriptions({
     const response = await apiFetch(endpoint);
     if (!response.ok) throw Error('Unavailable');
     const data = snapshotSchema.parse(await response.json());
-    if (mounted.current && request === version.current) setSnapshot(data);
+    if (mounted.current && request === version.current) {
+      setSnapshot(data);
+      // An older host can omit this field; omission is not proof that a known
+      // attempt ended. Current hosts explicitly return null when none is pending.
+      if (data.pendingAttempt !== undefined) setAttempt(data.pendingAttempt);
+      setError('');
+      if (data.pendingAttempt) setMessage('Finish sign-in in the browser on your Mac.');
+    }
   }, []);
   useEffect(() => {
     mounted.current = true;
@@ -68,6 +82,7 @@ export function AdviserSubscriptions({
         });
         if (!response.ok) throw Error('Unavailable');
         const result = attemptSchema.parse(await response.json());
+        if (result.id !== attempt.id) throw Error('Sign-in attempt changed');
         if (disposed) return;
         if (result.state !== 'pending') {
           await refresh();
@@ -97,6 +112,7 @@ export function AdviserSubscriptions({
   async function mutate(operation: () => Promise<void>) {
     if (mutation.current || disabled) return;
     mutation.current = true;
+    version.current++;
     setBusy(true);
     setError('');
     setMessage('');
