@@ -1,4 +1,4 @@
-export type MotionKind = 'page' | 'popover' | 'sheet' | 'disclosure';
+export type MotionKind = 'page' | 'fade' | 'popover' | 'sheet' | 'disclosure';
 
 export const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)';
 
@@ -16,8 +16,9 @@ export function animateMotion(element: HTMLElement, kind: MotionKind, opening = 
   // Pages use opacity only: transforms would move the containing block for fixed
   // chat controls, keyboards and portals. Content updates never call this helper.
   if (kind === 'popover' || kind === 'sheet') {
-    closed.transform = `translateY(${styles.getPropertyValue(`--motion-distance-${kind}`).trim()})`;
-    opened.transform = 'translateY(0)';
+    // Individual translate composes with the tray's existing centering transform.
+    closed.translate = `0 ${styles.getPropertyValue(`--motion-distance-${kind}`).trim()}`;
+    opened.translate = '0 0';
   }
   if (kind === 'disclosure') {
     closed.height = '0px';

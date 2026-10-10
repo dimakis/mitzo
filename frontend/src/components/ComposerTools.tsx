@@ -1,5 +1,8 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { UiIcon } from './UiIcon';
+import { useMotionPresence } from '../hooks/useMotionPresence';
+import { useIsDesktop } from '../hooks/useMediaQuery';
+import { MotionPresence } from './MotionPresence';
 
 interface Props {
   onCommands: () => void;
@@ -28,6 +31,9 @@ export function ComposerTools({
 }: Props) {
   const [toolsExpanded, setToolsExpanded] = useState(false);
   const [workspaceExpanded, setWorkspaceExpanded] = useState(false);
+  const isDesktop = useIsDesktop();
+  const open = isDesktop || toolsExpanded;
+  const { ref: motionRef, present } = useMotionPresence(open, 'popover', false);
   const toolsId = useId();
   const toolsRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -64,7 +70,15 @@ export function ComposerTools({
       >
         <UiIcon name="more" />
       </button>
-      <div id={toolsId} className="composer-tools" data-expanded={toolsExpanded}>
+      <div
+        id={toolsId}
+        ref={motionRef}
+        className="composer-tools"
+        data-expanded={present}
+        hidden={!present}
+        inert={!open}
+        aria-hidden={!open || undefined}
+      >
         <button
           className="chat-input-btn chat-input-btn--skills"
           onClick={() => {
@@ -117,7 +131,7 @@ export function ComposerTools({
             <span className="composer-tools-label">Workspace</span>
           </button>
         )}
-        {workspaceExpanded && (
+        <MotionPresence open={workspaceExpanded} appear={false}>
           <dl className="composer-workspace-details">
             <dt>Workspace</dt>
             <dd>{isWorktree ? 'Isolated worktree' : 'Shared checkout'}</dd>
@@ -134,7 +148,7 @@ export function ComposerTools({
               </>
             )}
           </dl>
-        )}
+        </MotionPresence>
       </div>
     </div>
   );

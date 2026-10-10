@@ -271,6 +271,94 @@ const mime: Record<string, string> = {
   '.woff2': 'font/woff2',
 };
 
+async function recordMotion(page: Page) {
+  await page.addInitScript(() => {
+    const events: { kind: string; duration: number }[] = [];
+    Object.assign(window, { motionEvents: events });
+    const original = HTMLElement.prototype.animate;
+    HTMLElement.prototype.animate = function (frames, options) {
+      const animation = original.call(this, frames, options);
+      queueMicrotask(() =>
+        events.push({
+          kind: animation.id,
+          duration: Number(animation.effect?.getTiming().duration),
+        }),
+      );
+      return animation;
+    };
+  });
+}
+async function motionKinds(page: Page) {
+  return page.evaluate(() =>
+    (window as Window & { motionEvents: { kind: string }[] }).motionEvents.map(
+      (event) => event.kind,
+    ),
+  );
+}
+
+test('motion: navigation keeps layout and input stable across push and back', async ({
+  page,
+}, testInfo) => {
+  await recordMotion(page);
+  await page.goto('/sessions');
+  await expect(page.getByRole('link', { name: 'More', exact: true })).toBeVisible();
+  const nav = page.getByRole('navigation', { name: 'Main navigation' });
+  const before = await nav.boundingBox();
+  await page.getByRole('link', { name: 'More', exact: true }).click();
+  await expect(page).toHaveURL(/\/more$/);
+  await expect.poll(() => motionKinds(page)).toContain('mitzo:page');
+  expect(await nav.boundingBox()).toEqual(before);
+  await page.goBack();
+  await expect(page).toHaveURL(/\/sessions$/);
+  await expect
+    .poll(async () => (await motionKinds(page)).filter((kind) => kind === 'mitzo:page').length)
+    .toBe(2);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+    page.viewportSize()!.width,
+  );
+  await page.screenshot({
+    path: testInfo.outputPath('motion-navigation.png'),
+    animations: 'disabled',
+  });
+});
+
+test('motion: composer popover and resource sheet animate without losing the draft', async ({
+  page,
+}, testInfo) => {
+  test.skip(!testInfo.project.name.startsWith('mobile'), 'Composer popover is mobile only');
+  await recordMotion(page);
+  await page.goto('/chat');
+  const draft = page.getByRole('textbox', { name: /Message/ }).first();
+  await draft.fill('Keep this draft');
+  await page.getByRole('button', { name: 'More composer actions', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Commands', exact: true })).toBeVisible();
+  await expect.poll(() => motionKinds(page)).toContain('mitzo:popover');
+  await page.getByRole('button', { name: 'More composer actions', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Commands', exact: true })).toBeHidden();
+  await page.getByRole('button', { name: 'Open session tray', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Close session tray', exact: true })).toBeVisible();
+  await expect.poll(() => motionKinds(page)).toContain('mitzo:sheet');
+  await page
+    .getByRole('button', { name: 'Dismiss session tray', exact: true })
+    .click({ position: { x: 8, y: 8 } });
+  await expect(page.getByRole('button', { name: 'Close session tray', exact: true })).toBeHidden();
+  await expect(draft).toHaveValue('Keep this draft');
+  await expect(
+    page.getByRole('button', { name: 'More composer actions', exact: true }),
+  ).toBeInViewport();
+});
+
+test('motion: Reduce Motion disables navigation and control animations', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await recordMotion(page);
+  await page.goto('/sessions');
+  await page.getByRole('link', { name: 'More', exact: true }).click();
+  await expect(page).toHaveURL(/\/more$/);
+  expect(await motionKinds(page)).toEqual([]);
+  const animations = await page.evaluate(() => document.getAnimations().length);
+  expect(animations).toBe(0);
+});
+
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
     localStorage.setItem('mitzo-theme', 'dark');
