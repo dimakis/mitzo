@@ -386,8 +386,7 @@ export function TerminalView() {
               )}
             </div>
             <p className="workspace-muted terminal-adviser-boundary">
-              Suggestions only. You run commands. API and Vertex accounts are supported; personal
-              ChatGPT needs an isolated adviser runtime.
+              Suggestions only. You run commands. Choose a connected adviser account.
             </p>
             {reply && (
               <div className="terminal-adviser-response">
