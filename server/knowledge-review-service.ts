@@ -25,8 +25,11 @@ export interface KnowledgeReviewConfiguration {
 type Publisher = GithubHostPublisher & {
   identity(signal: AbortSignal): Promise<string>;
   inspect?(input: KnowledgeReviewIdentity): Promise<KnowledgeReviewInspection>;
+  sendForReview?(
+    input: KnowledgeReviewIdentity & { beforeReady?: () => void },
+  ): Promise<KnowledgeReviewInspection & { state: 'in-review'; draft: false }>;
 };
-/** Operator saves use a host-owned source and publisher, independent of provider/chat authority. */
+/** Explicit review sends use a host-owned source and publisher, independent of provider/chat authority. */
 export class KnowledgeReviewService {
   private readonly busy = new Set<string>();
   constructor(
@@ -39,7 +42,7 @@ export class KnowledgeReviewService {
     this.store.assertIdle(id);
     if (this.busy.has(id))
       throw new KnowledgeDraftConflict(
-        'This draft is saving its review. Try again when it finishes.',
+        'This draft is sending its review. Try again when it finishes.',
       );
   }
   private scope(review: GithubPullRequest, branch: string) {
@@ -232,7 +235,52 @@ export class KnowledgeReviewService {
       await rm(temporary, { recursive: true, force: true });
     }
   }
-  async submit(id: string, version: number, authorizationSignal?: AbortSignal) {
+  /** Preserve the prepared-head recovery operation for host callers; Save never invokes it. */
+  submit(id: string, version: number, authorizationSignal?: AbortSignal) {
+    return this.submitBatch(id, version, authorizationSignal, false);
+  }
+  sendForReview(id: string, version: number, authorizationSignal?: AbortSignal) {
+    if (!this.publisher.sendForReview) throw new Error('Review publishing is not configured');
+    return this.submitBatch(id, version, authorizationSignal, true);
+  }
+  private async ready(draft: KnowledgeDraft, lease: string, signal: AbortSignal) {
+    const review = draft.review;
+    if (!review || review.version !== draft.version || !this.publisher.sendForReview)
+      throw new KnowledgeDraftConflict('The current saved review could not be confirmed');
+    const assertCurrent = () => {
+      signal.throwIfAborted();
+      this.store.assertLease(draft.id, lease);
+      const current = this.store.get(draft.id);
+      if (
+        current.version !== draft.version ||
+        current.review?.version !== draft.version ||
+        current.review.head !== review.head ||
+        current.state === 'accepted' ||
+        current.state === 'closed'
+      )
+        throw new KnowledgeDraftConflict('Draft changed while sending its review');
+    };
+    assertCurrent();
+    const sent = await this.publisher.sendForReview({
+      draftId: draft.id,
+      url: review.url,
+      head: review.head,
+      repository: this.config.repository,
+      baseBranch: this.config.baseBranch,
+      signal,
+      beforeReady: assertCurrent,
+    });
+    assertCurrent();
+    if (sent.head !== review.head || sent.draft !== false || sent.state !== 'in-review')
+      throw new KnowledgeDraftConflict('Review submission could not be confirmed');
+    return this.store.receipt(draft.id, draft.version, { ...review, ready: true }, lease);
+  }
+  private async submitBatch(
+    id: string,
+    version: number,
+    authorizationSignal: AbortSignal | undefined,
+    forReview: boolean,
+  ) {
     this.assertIdle(id);
     const lease = this.store.acquire(id);
     this.busy.add(id);
@@ -244,7 +292,9 @@ export class KnowledgeReviewService {
     try {
       const draft = this.store.get(id);
       if (draft.version !== version)
-        throw new KnowledgeDraftConflict('Draft changed in another window. Reload before saving.');
+        throw new KnowledgeDraftConflict(
+          'Draft changed in another window. Reload before sending its review.',
+        );
       if (draft.state === 'accepted' || draft.state === 'closed')
         throw new KnowledgeDraftConflict('This change is finished. Start a new draft.');
       if (
@@ -252,6 +302,14 @@ export class KnowledgeReviewService {
         this.config.publisherLogin.toLowerCase()
       )
         throw new Error('Publishing account changed');
+      if (forReview && draft.review?.version === version) {
+        if (
+          draft.publication &&
+          (draft.publication.version !== version || draft.publication.head !== draft.review.head)
+        )
+          throw new KnowledgeDraftConflict('Saved publication differs from its confirmed review');
+        return await this.ready(draft, lease, signal);
+      }
       const branch = `knowledge/${draft.id}`;
       const common = {
         repository: this.config.repository,
@@ -326,7 +384,7 @@ export class KnowledgeReviewService {
         const latest = await this.source.read(sourcePath, accepted, signal);
         if (latest.content !== document.base)
           throw new KnowledgeDraftConflict(
-            `${document.path} changed since this draft started. Compare the accepted document and resolve before saving its review.`,
+            `${document.path} changed since this draft started. Compare the accepted document and resolve before sending its review.`,
           );
       }
       if (
@@ -356,6 +414,23 @@ export class KnowledgeReviewService {
         lease,
         !remote && !existing && !draft.review,
       );
+      if (forReview && existing && remote === head && draft.publication?.version === version) {
+        // A lost create/update acknowledgement must not redraft or rewrite the
+        // same published batch. Reinspect its identity and head, then request ready.
+        const confirmed = await this.publisher.read({ ...common, externalResultId: existing.url });
+        if (
+          !confirmed ||
+          confirmed.state !== 'open' ||
+          confirmed.url !== existing.url ||
+          (await this.publisher.readBranch(common)) !== head
+        )
+          throw new KnowledgeDraftConflict('The prepared review changed. Reload before sending.');
+        this.scope(confirmed, branch);
+        signal.throwIfAborted();
+        this.store.assertLease(id, lease);
+        const recovered = this.store.receipt(id, version, { url: confirmed.url, head }, lease);
+        return await this.ready(recovered, lease, signal);
+      }
       if (remote !== head) {
         const temporary = await mkdtemp(join(tmpdir(), 'mitzo-knowledge-bundle-'));
         try {
@@ -380,7 +455,7 @@ export class KnowledgeReviewService {
           if (existing && !existing.draft) {
             if (!remote || !this.publisher.inspect)
               throw new Error('Exact ready review inspection unavailable');
-            // Keep the old head in place until Save has returned the PR to draft.
+            // Keep the old head in place until Send has returned the PR to draft.
             // Otherwise synchronize can start another review of unpublished edits.
             const redrafted = this.scope(
               await this.publisher.update({ ...input, pullRequest: existing }),
@@ -427,14 +502,15 @@ export class KnowledgeReviewService {
         throw new Error('Review verification failed');
       this.scope(verified, branch);
       signal.throwIfAborted();
-      return this.store.receipt(id, version, { url: verified.url, head }, lease);
+      const published = this.store.receipt(id, version, { url: verified.url, head }, lease);
+      return forReview ? await this.ready(published, lease, signal) : published;
     } catch (error) {
       if (error instanceof KnowledgeDraftConflict) throw error;
       try {
         this.store.status(
           id,
           'draft',
-          'Draft saved. Its review could not be confirmed. Retry Save to recover the same change.',
+          'Draft saved. Its review could not be confirmed. Retry Send for review to recover the same change.',
           lease,
           version,
         );
@@ -442,7 +518,7 @@ export class KnowledgeReviewService {
         /* An expired owner cannot overwrite a newer save or acceptance. */
       }
       throw new Error(
-        'Draft saved. Its review could not be confirmed. Retry Save to recover the same change.',
+        'Draft saved. Its review could not be confirmed. Retry Send for review to recover the same change.',
         { cause: error },
       );
     } finally {
