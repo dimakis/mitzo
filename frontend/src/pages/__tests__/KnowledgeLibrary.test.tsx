@@ -2455,11 +2455,11 @@ it('makes reusable context curation available under Knowledge', async () => {
       : existing(path, init),
   );
   setup();
-  fireEvent.click(await screen.findByRole('button', { name: 'Context', exact: true }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Context' }));
   expect(await screen.findByRole('region', { name: 'Context packs' })).toBeTruthy();
   expect(
     screen.getByRole('link', { name: 'Create context with advisor' }).getAttribute('href'),
   ).toContain('/chat?prompt=');
-  fireEvent.click(screen.getByRole('button', { name: 'Library', exact: true }));
+  fireEvent.click(screen.getByRole('button', { name: 'Library' }));
   expect(await findLibraryDocument(/Working principles/)).toBeTruthy();
 });

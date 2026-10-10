@@ -11,7 +11,9 @@ export function AgentContextPreview({ value }: { value: CompiledAgentContext }) 
       <p>
         {value.source === 'workspace'
           ? 'Preview uses the configured workspace. Each new chat compiles its own workspace; resumes reuse their saved context.'
-          : 'Preview uses the configured ContexGin preset. Each new chat saves the compiled result for later resumes.'}
+          : value.source === 'packs'
+            ? 'Preview uses pinned accepted Knowledge revisions. Each new chat saves this exact compiled result; existing chats retain their snapshot.'
+            : 'Preview uses the configured ContexGin preset. Each new chat saves the compiled result for later resumes.'}
       </p>
       <details>
         <summary>Sources and trimming</summary>
@@ -22,7 +24,7 @@ export function AgentContextPreview({ value }: { value: CompiledAgentContext }) 
             </li>
           ))}
         </ul>
-        {value.source === 'workspace' ? (
+        {value.source !== 'contexgin' ? (
           <>
             <p>
               {context.trimmed.length} optional{' '}
@@ -43,6 +45,53 @@ export function AgentContextPreview({ value }: { value: CompiledAgentContext }) 
             This preset reports sources and token use; section trimming details are unavailable.
           </p>
         )}
+        {value.provenance && (
+          <>
+            <h3>Pinned packs</h3>
+            <ul>
+              {value.provenance.packs.map((pack) => (
+                <li key={`${pack.id}:${pack.revision}`}>
+                  <p>
+                    {pack.id} · revision {pack.revision}
+                  </p>
+                  <code>{pack.hash}</code>
+                </li>
+              ))}
+            </ul>
+            <h3>Accepted source revisions</h3>
+            <ul>
+              {value.provenance.documents.map((document) => (
+                <li key={`${document.path}:${document.revision}`}>
+                  <p>
+                    {document.path} · {document.storeId}
+                  </p>
+                  <code>{document.revision}</code>
+                  <p>
+                    Content hash: <code>{document.contentHash}</code>
+                  </p>
+                </li>
+              ))}
+            </ul>
+            <h3>Omitted sections</h3>
+            {value.provenance.omissions.length ? (
+              <ul>
+                {value.provenance.omissions.map((section, index) => (
+                  <li key={index}>
+                    {section.path} · {section.heading} · {section.reason}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p>No sections omitted.</p>
+            )}
+          </>
+        )}
+        <p>
+          Compiler: <code>{value.compilerRevision}</code>
+        </p>
+        <p>
+          Recipe reference: <code>{value.recipeHash}</code>
+        </p>
         <p>
           Context reference: <code>{value.payloadHash}</code>
         </p>
