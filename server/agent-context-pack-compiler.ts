@@ -104,7 +104,10 @@ export async function compileContextPacks(
       if (sourceRevisions.has(source.path) && sourceRevisions.get(source.path) !== identity)
         throw Error('Context packs select conflicting source revisions');
       sourceRevisions.set(source.path, identity);
-      if (!documents.some((document) => document.path === source.path))
+      const previous = documents.find((document) => document.path === source.path);
+      if (previous && previous.contentHash !== textDigest(source.content))
+        throw Error('Immutable context source content changed during composition');
+      if (!previous)
         documents.push({
           storeId: source.storeId,
           path: source.path,

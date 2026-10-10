@@ -268,3 +268,37 @@ it('reauthorizes retained provenance without source reads and rejects namespace 
   );
   await expect(verifyCompiledAgentContext(result, recipe)).rejects.toThrow(/authorization/i);
 });
+it('rejects changing source bytes under one immutable identity during pack composition', async () => {
+  const secondDefinition = { ...definition, id: 'second' };
+  const second = {
+    ...pack,
+    id: 'second',
+    definition: secondDefinition,
+    hash: contextDigest(secondDefinition),
+  };
+  const packs = {
+    ...adapter(),
+    resolve: async (pin: { id: string }) => (pin.id === second.id ? second : pack),
+  };
+  packs.readDocument.mockResolvedValueOnce({
+    storeId: 'accepted-mgmt',
+    path: document.path,
+    revision,
+    content: '# Architecture\nFirst immutable version.',
+  });
+  packs.readDocument.mockResolvedValueOnce({
+    storeId: 'accepted-mgmt',
+    path: document.path,
+    revision,
+    content: '# Architecture\nDifferent bytes under the same source identity.',
+  });
+  await expect(
+    compileAgentContext(
+      {
+        ...recipe,
+        packs: [...recipe.packs, { id: second.id, revision: second.revision, hash: second.hash }],
+      },
+      { packs },
+    ),
+  ).rejects.toThrow(/source.*content|source.*changed/i);
+});
