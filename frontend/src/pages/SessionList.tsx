@@ -485,10 +485,20 @@ export function SessionList() {
         )}
         {search.active ? (
           <div className="conversation-results" aria-live="polite">
-            <p className="conversation-list-caption">
-              {search.searching ? 'Searching…' : `${search.results.length} results`}
-            </p>
-            {!search.searching && search.results.length === 0 && (
+            {!search.error && (
+              <p className="conversation-list-caption">
+                {search.searching ? 'Searching…' : `${search.results.length} results`}
+              </p>
+            )}
+            {search.error && (
+              <div className="session-list-error" role="alert">
+                <span>{search.error}</span>
+                <button type="button" onClick={search.retry}>
+                  Try again
+                </button>
+              </div>
+            )}
+            {!search.searching && !search.error && search.results.length === 0 && (
               <p className="session-list-empty">No matching conversations</p>
             )}
             {search.results.map((r) => (

@@ -83,6 +83,96 @@ const profiles = [
     models: [{ id: 'haiku', label: 'Haiku' }],
   },
 ];
+it('supports a staged dialog without mutating aliases or browser defaults', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(new Response(JSON.stringify(profiles)));
+  const onChange = vi.fn();
+  render(
+    <AccountModelPicker sessionId={null} preferredModel="sonnet" onChange={onChange} draftOnly />,
+  );
+  await waitFor(() =>
+    expect(onChange).toHaveBeenLastCalledWith({ accountId: 'work', model: 'sonnet' }),
+  );
+  expect(screen.queryByText('Make default for new chats')).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Edit account alias' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Use Work Vertex · Sonnet' })).toBeNull();
+  expect(screen.getByText('Account').tagName).toBe('SPAN');
+  expect(screen.getByText('Model').tagName).toBe('SPAN');
+  fireEvent.change(screen.getByLabelText('Account'), { target: { value: 'other' } });
+  expect(onChange).toHaveBeenLastCalledWith({ accountId: 'other', model: 'haiku' });
+  expect(localStorage.getItem('mitzo-default-account-model')).toBeNull();
+});
+it('prefers configured Work OpenAI for a briefing draft and respects an explicit saved default', async () => {
+  const catalog = [
+    {
+      id: 'personal',
+      label: 'Personal ChatGPT',
+      models: [{ id: 'personal-model', label: 'Personal model' }],
+    },
+    {
+      id: 'configured-work',
+      label: 'OpenAI Work',
+      models: [{ id: 'actual-work-model', label: 'Actual work model' }],
+    },
+  ];
+  vi.mocked(apiFetch).mockImplementation(async () => new Response(JSON.stringify(catalog)));
+  const onChange = vi.fn();
+  const first = render(
+    <AccountModelPicker
+      sessionId={null}
+      preferredModel="missing"
+      onChange={onChange}
+      draftOnly
+      preferWorkOpenAI
+    />,
+  );
+  await waitFor(() =>
+    expect(onChange).toHaveBeenLastCalledWith({
+      accountId: 'configured-work',
+      model: 'actual-work-model',
+    }),
+  );
+  first.unmount();
+  localStorage.setItem(
+    'mitzo-default-account-model',
+    JSON.stringify({ accountId: 'personal', model: 'personal-model' }),
+  );
+  render(
+    <AccountModelPicker
+      sessionId={null}
+      preferredModel="missing"
+      onChange={onChange}
+      draftOnly
+      preferWorkOpenAI
+    />,
+  );
+  await waitFor(() =>
+    expect(onChange).toHaveBeenLastCalledWith({ accountId: 'personal', model: 'personal-model' }),
+  );
+});
+it('stages the current minion binding before general defaults while leaving account changes available', async () => {
+  vi.mocked(apiFetch).mockImplementation(async () => new Response(JSON.stringify(profiles)));
+  localStorage.setItem(
+    'mitzo-default-account-model',
+    JSON.stringify({ accountId: 'other', model: 'haiku' }),
+  );
+  const onChange = vi.fn();
+  render(
+    <AccountModelPicker
+      sessionId={null}
+      preferredModel="haiku"
+      onChange={onChange}
+      draftOnly
+      initialSelection={{ accountId: 'work', model: 'sonnet' }}
+    />,
+  );
+  await waitFor(() =>
+    expect(onChange).toHaveBeenLastCalledWith({ accountId: 'work', model: 'sonnet' }),
+  );
+  expect((screen.getByLabelText('Account') as HTMLSelectElement).disabled).toBe(false);
+  fireEvent.change(screen.getByLabelText('Account'), { target: { value: 'other' } });
+  expect(onChange).toHaveBeenLastCalledWith({ accountId: 'other', model: 'haiku' });
+  expect(localStorage.getItem('mitzo-default-account-model')).toContain('haiku');
+});
 it('loads accounts and models from the server and emits explicit selection', async () => {
   vi.mocked(apiFetch).mockResolvedValue({ ok: true, json: async () => profiles } as Response);
   const onChange = vi.fn();
@@ -979,4 +1069,56 @@ it('requires confirmation after clearing the default even across catalog refresh
   await waitFor(() => expect(onChange).toHaveBeenLastCalledWith(null));
   fireEvent.click(await screen.findByRole('button', { name: /Use .*Haiku/ }));
   expect(onChange).toHaveBeenLastCalledWith({ accountId: 'other', model: 'haiku' });
+});
+
+it('keeps terminal adviser account, model and thinking independent of chat defaults', async () => {
+  const onChange = vi.fn();
+  localStorage.setItem(
+    'mitzo-default-account-model',
+    JSON.stringify({ accountId: 'other', model: 'other' }),
+  );
+  vi.mocked(apiFetch).mockResolvedValue(
+    new Response(
+      JSON.stringify([
+        {
+          id: 'work',
+          label: 'Work',
+          models: [
+            {
+              id: 'luna',
+              label: 'Luna',
+              reasoningEfforts: ['low', 'high'],
+              defaultReasoningEffort: 'low',
+            },
+          ],
+        },
+      ]),
+    ),
+  );
+  render(
+    <AccountModelPicker
+      scope="adviser"
+      sessionId={null}
+      preferredModel="luna"
+      initialSelection={{ accountId: 'work', model: 'luna', reasoningEffort: 'high' }}
+      onChange={onChange}
+    />,
+  );
+  await waitFor(() =>
+    expect(onChange).toHaveBeenLastCalledWith({
+      accountId: 'work',
+      model: 'luna',
+      reasoningEffort: 'high',
+    }),
+  );
+  expect(apiFetch).toHaveBeenCalledWith('/api/terminals/accounts', expect.any(Object));
+  expect(screen.getByRole('option', { name: 'Adviser default' })).toBeTruthy();
+  expect(screen.queryByText('Make default for new chats')).toBeNull();
+  expect(localStorage.getItem('mitzo-default-account-model')).toContain('other');
+  fireEvent.change(screen.getByLabelText('Thinking'), { target: { value: 'low' } });
+  expect(onChange).toHaveBeenLastCalledWith({
+    accountId: 'work',
+    model: 'luna',
+    reasoningEffort: 'low',
+  });
 });

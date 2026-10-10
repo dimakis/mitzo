@@ -7,7 +7,7 @@
 
 import { createStore } from 'zustand/vanilla';
 import type { StoreApi } from 'zustand/vanilla';
-import type { FinishedMessage, MitzoMode, ImageAttachment } from '@mitzo/protocol';
+import type { FinishedMessage, MitzoMode, ImageAttachment, SourceSnapshot } from '@mitzo/protocol';
 
 import type { TransportAdapter } from './types.js';
 import { messagesReducer, INITIAL_MESSAGES_STATE } from './slices/messages.js';
@@ -45,6 +45,7 @@ import { MitzoApiClient } from './api-client.js';
 import { MitzoConnection } from './connection.js';
 import type { MitzoConnectionConfig } from './connection.js';
 import { SseConnection } from './sse-connection.js';
+import { SendOutbox } from './send-outbox.js';
 import type { SseConnectionConfig } from './sse-connection.js';
 import type { ChatConnection } from './chat-connection.js';
 import { messageIdentity } from './message-identity.js';
@@ -59,6 +60,7 @@ export interface SendMessageOptions {
   onDelivery?: (status: 'accepted' | 'failed' | 'uncertain') => void;
   accountId?: string;
   contextBlocks?: string[];
+  sourceSnapshots?: SourceSnapshot[];
   images?: ImageAttachment[];
   model?: string;
   reasoningEffort?: string | null;
@@ -74,6 +76,12 @@ export interface SendMessageOptions {
 export interface PendingSession {
   prompt: string;
   context: string;
+  /** Configured reference block names. */
+  contextBlocks?: string[];
+  /** Exact reviewed source data, independently delivered to provider prompt assembly. */
+  sourceSnapshots?: SourceSnapshot[];
+  accountSelection?: { accountId: string; model: string; reasoningEffort?: string | null };
+  briefing?: { date: string; revision: string };
   telosTaskId?: string;
   agentName?: string;
 }
@@ -171,8 +179,16 @@ export interface MitzoStoreOptions {
   wsConfig: MitzoConnectionConfig;
   /** When provided, the store uses SSE + HTTP POST instead of WebSocket. */
   sseConfig?: SseConnectionConfig;
+  /** Durable HTTP admission of initial reviewed briefing commands while WS receives events. */
+  reviewedSendConfig?: { url: string; storage: Pick<Storage, 'getItem' | 'setItem'> };
   /** Start with transports latched off until restoreAuthentication() after an explicit login. */
   initiallyAuthenticated?: boolean;
+  /** Global durable command handoff, recreated at bootstrap and independent of UI observers. */
+  sendHandoff?: {
+    prepare(command: Record<string, unknown>): boolean;
+    assign(clientMsgId: string, sessionId: string, hint?: Record<string, unknown>): void;
+    reject(clientMsgId: string): void;
+  };
 }
 
 // ─── Tree helpers ───────────────────────────────────────────────────────────
@@ -216,6 +232,7 @@ function mergeLiveWithDurable(
     ...(durable.symposiumProvenance ? { symposiumProvenance: durable.symposiumProvenance } : {}),
     images: live.images ?? durable.images,
     contextBlocks: live.contextBlocks ?? durable.contextBlocks,
+    sourceSnapshots: live.sourceSnapshots ?? durable.sourceSnapshots,
   };
 }
 
@@ -258,6 +275,39 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     ? new SseConnection(options.sseConfig)
     : new MitzoConnection(options.wsConfig);
 
+  let reviewedAuthenticated = options.initiallyAuthenticated !== false;
+  let reviewedSendScope = Date.now();
+  const reviewedOutbox = options.reviewedSendConfig
+    ? new SendOutbox({
+        url: options.reviewedSendConfig.url,
+        storage: options.reviewedSendConfig.storage,
+        fetch: options.transport.fetch.bind(options.transport),
+        requireDurableBriefings: true,
+        notify(event) {
+          wsListener(event);
+          if (
+            event.type === '_send_accepted' &&
+            typeof event.sessionId === 'string' &&
+            store.getState().sessions.active === event.sessionId
+          ) {
+            const sessionId = event.sessionId;
+            connection.send({ type: 'switch_session', sessionId });
+            fetchAndRestoreMessages(sessionId, undefined, false, () =>
+              connection.send({
+                type: 'switch_session',
+                sessionId,
+                historyCursor: connection.getLastSeq(sessionId),
+              }),
+            );
+          }
+        },
+      })
+    : null;
+  function pauseReviewedDelivery() {
+    if (!reviewedAuthenticated) return;
+    reviewedAuthenticated = false;
+    reviewedOutbox?.rejectAll('Authentication expired. Sign in again to retry.');
+  }
   const parserState: ProtocolParserState = { currentSessionId: undefined };
 
   let historyRequest = 0;
@@ -298,6 +348,9 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
 
     if (status !== 'uncertain') {
       if (status === 'failed') {
+        // Definitive rejection releases only this command's durable launch receipt.
+        // Network/auth ambiguity stays pending until an authoritative receipt arrives.
+        options.sendHandoff?.reject(id);
         unassignedDeliveries.delete(id);
         assignmentObservers.delete(id);
       }
@@ -722,6 +775,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         if (opts?.accountId) msg.accountId = opts.accountId;
         if (mode && !parserState.currentSessionId) msg.mode = mode;
         if (opts?.contextBlocks?.length) msg.contextBlocks = opts.contextBlocks;
+        if (opts?.sourceSnapshots?.length) msg.sourceSnapshots = opts.sourceSnapshots;
         if (opts?.images?.length) {
           msg.images = opts.images.map((img) => ({ data: img.data, mediaType: img.mediaType }));
         }
@@ -737,6 +791,17 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         return msg;
       };
 
+      const msg = buildPayload();
+      if (options.sendHandoff && !options.sendHandoff.prepare(msg)) {
+        pendingOptimisticMessageIds.delete(clientMsgId);
+        set({
+          sendError:
+            'The reviewed conversation identity could not be retained. Retry before sending.',
+        });
+        settleDelivery(clientMsgId, 'failed');
+        return;
+      }
+
       set((s) => ({
         messages: messagesReducer(s.messages, {
           type: 'USER_SEND',
@@ -744,18 +809,24 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
           clientMsgId,
           images: opts?.images?.map((img) => img.preview),
           contextBlocks: opts?.contextBlocks,
+          sourceSnapshots: opts?.sourceSnapshots,
         }),
         sendError: null,
         sendStatus: null,
       }));
 
-      const msg = buildPayload();
-
       if (!parserState.currentSessionId) {
         awaitingSessionId = true;
         set({ modeChangeReady: false });
       }
-      const sent = connection.send(msg);
+      const reviewed =
+        !!reviewedOutbox &&
+        msg.sessionId === null &&
+        Array.isArray(msg.sourceSnapshots) &&
+        msg.sourceSnapshots[0]?.kind === 'briefing';
+      const sent = reviewed
+        ? reviewedAuthenticated && reviewedOutbox!.enqueue(msg, reviewedSendScope++)
+        : connection.send(msg);
       if (!sent) {
         pendingOptimisticMessageIds.delete(clientMsgId);
         awaitingSessionId = false;
@@ -763,7 +834,9 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       }
       if (!sent) {
         set((s) => ({
-          sendError: 'Message could not be queued. Please retry.',
+          sendError: reviewed
+            ? 'The reviewed message could not be retained for recovery. Retry before sending.'
+            : 'Message could not be queued. Please retry.',
           messages: !parserState.currentSessionId
             ? messagesReducer(s.messages, { type: 'SESSION_STATE_CHANGED', state: 'idle' })
             : s.messages,
@@ -791,8 +864,16 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         msg.images = opts.images.map((img) => ({ data: img.data, mediaType: img.mediaType }));
       }
       if (opts?.contextBlocks?.length) msg.contextBlocks = opts.contextBlocks;
+      if (opts?.sourceSnapshots?.length) msg.sourceSnapshots = opts.sourceSnapshots;
 
-      const sent = connection.send(msg);
+      const reviewed =
+        !!reviewedOutbox &&
+        msg.sessionId === null &&
+        Array.isArray(msg.sourceSnapshots) &&
+        msg.sourceSnapshots[0]?.kind === 'briefing';
+      const sent = reviewed
+        ? reviewedAuthenticated && reviewedOutbox!.enqueue(msg, reviewedSendScope++)
+        : connection.send(msg);
       if (!sent) {
         set({ sendError: 'Not connected. Interrupt was not delivered.' });
         return;
@@ -806,6 +887,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
           clientMsgId,
           images: opts?.images?.map((img) => img.preview),
           contextBlocks: opts?.contextBlocks,
+          sourceSnapshots: opts?.sourceSnapshots,
         }),
       }));
     },
@@ -1065,8 +1147,11 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       }
       const selection = {
         ...opts,
-        model: opts?.model ?? get().config.modelId ?? undefined,
+        ...pending.accountSelection,
+        model: pending.accountSelection?.model ?? opts?.model ?? get().config.modelId ?? undefined,
         mode: opts?.mode ?? get().config.mode,
+        contextBlocks: [...(pending.contextBlocks ?? []), ...(opts?.contextBlocks ?? [])],
+        sourceSnapshots: pending.sourceSnapshots ?? opts?.sourceSnapshots,
       };
       // Each attempt has a distinct identity, so stale receipts cannot dismiss a replacement.
       const launch = { ...pending };
@@ -1092,10 +1177,13 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     },
 
     invalidateAuthentication() {
+      pauseReviewedDelivery();
       connection.invalidateAuthentication();
     },
 
     restoreAuthentication() {
+      reviewedAuthenticated = true;
+      reviewedOutbox?.start();
       connection.restoreAuthentication();
     },
 
@@ -1195,6 +1283,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
 
   function wsListener(msg: Record<string, unknown>): boolean {
     if (msg.type === '_auth_lost') {
+      pauseReviewedDelivery();
       store.setState((s) => ({
         connection: { ...s.connection, status: 'disconnected', clientId: null },
       }));
@@ -1207,6 +1296,16 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       msg.type === '_send_uncertain' ||
       msg.type === '_send_accepted'
     ) {
+      if (
+        msg.type === '_send_accepted' &&
+        typeof msg.clientMsgId === 'string' &&
+        typeof msg.sessionId === 'string'
+      )
+        options.sendHandoff?.assign(
+          msg.clientMsgId,
+          msg.sessionId,
+          msg.sourceHandoff as Record<string, unknown> | undefined,
+        );
       const visible = store
         .getState()
         .messages.messages.some((m) => m.messageId === msg.clientMsgId);
@@ -1287,6 +1386,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
 
     const eventSessionId = msg.sessionId as string | undefined;
     if (msg.type === 'session_id' && typeof eventSessionId === 'string') {
+      if (typeof msg.clientMsgId === 'string')
+        options.sendHandoff?.assign(msg.clientMsgId, eventSessionId);
       // Correlated assignments survive navigation; only their original draft may be selected.
       const id =
         typeof msg.clientMsgId === 'string'
@@ -1547,6 +1648,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
   connection.onMessage(wsListener);
   if (options.initiallyAuthenticated === false) connection.blockAuthentication();
   connection.connect();
+  if (reviewedAuthenticated) reviewedOutbox?.start();
 
   return store;
 }

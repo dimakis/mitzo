@@ -1,5 +1,18 @@
-import { existsSync, readdirSync, statSync } from 'fs';
-import { join } from 'path';
+import {
+  constants,
+  closeSync,
+  existsSync,
+  fstatSync,
+  openSync,
+  realpathSync,
+  readdirSync,
+  statSync,
+} from 'fs';
+import { join, resolve } from 'path';
+import { createHash } from 'node:crypto';
+import type { BriefingSnapshot } from '@mitzo/protocol';
+import { validDate } from './home-store.js';
+import { readBoundedFile } from './bounded-file-read.js';
 
 export interface MorningBriefingSummary {
   filename: string;
@@ -39,4 +52,33 @@ export function getLatestMorningBriefing(
       Date.parse(b.generatedAt) - Date.parse(a.generatedAt) || b.filename.localeCompare(a.filename),
   );
   return candidates[0] ?? null;
+}
+
+/** Read a dated, bounded saved report. Opening it does not generate a new briefing. */
+export function readMorningBriefing(repoPath: string, date: string): BriefingSnapshot | null {
+  if (!validDate(date)) throw new Error('Invalid briefing date');
+  const canonicalRoot = realpathSync(repoPath);
+  const directory = resolve(canonicalRoot, 'command_center', 'briefings');
+  if (!existsSync(directory)) return null;
+  if (realpathSync(directory) !== directory)
+    throw new Error('Briefing directory must not be a symlink');
+  const latest = getLatestMorningBriefing(canonicalRoot, date);
+  if (!latest) return null;
+  const fd = openSync(latest.path, constants.O_RDONLY | constants.O_NOFOLLOW);
+  try {
+    const stat = fstatSync(fd);
+    if (!stat.isFile() || stat.nlink !== 1 || stat.size > 2 * 1024 * 1024)
+      throw new Error('Briefing is unavailable or too large');
+    const bytes = readBoundedFile(fd, 2 * 1024 * 1024);
+    // Preserve a BOM as content so UTF-8 re-encoding matches the hashed saved bytes.
+    const content = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes);
+    return {
+      ...latest,
+      generatedAt: stat.mtime.toISOString(),
+      revision: createHash('sha256').update(bytes).digest('hex'),
+      content,
+    };
+  } finally {
+    closeSync(fd);
+  }
 }

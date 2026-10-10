@@ -17,15 +17,14 @@ import {
 import { WorkspacePageHeading } from '../components/WorkspacePageHeading';
 import { AgentProfileEditor } from '../components/AgentProfileEditor';
 import { AgentReviewerLauncher } from '../components/AgentReviewerLauncher';
+import {
+  loadAgentLibraryWorkingCopy,
+  saveAgentLibraryWorkingCopy,
+  type AgentLibraryEditor,
+} from '../lib/agent-library-working-copy';
 import '../styles/agent-library.css';
 
-type Editor = {
-  profileId: string;
-  definition: SymposiumProfileDefinition;
-  expectedVersion: number;
-  baseRevision: number;
-  publishedRevision: number | null;
-};
+type Editor = AgentLibraryEditor;
 type Tab = 'identity' | 'instructions' | 'context' | 'preview' | 'versions';
 async function read<T>(path: string, body?: unknown): Promise<T> {
   const response = await apiFetch(
@@ -63,11 +62,12 @@ const normalize = (definition: SymposiumProfileDefinition): SymposiumProfileDefi
     : {}),
 });
 export function AgentLibrary() {
+  const [recovered] = useState(loadAgentLibraryWorkingCopy);
   const [catalog, setCatalog] = useState<AgentLibraryCatalog | null>(null);
-  const [editor, setEditor] = useState<Editor | null>(null);
+  const [editor, setEditor] = useState<Editor | null>(recovered?.editor ?? null);
   const [tab, setTab] = useState<Tab>('identity');
   const [query, setQuery] = useState('');
-  const [dirty, setDirty] = useState(false);
+  const [dirty, setDirty] = useState(!!recovered);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -75,10 +75,28 @@ export function AgentLibrary() {
   const [portable, setPortable] = useState('');
   const [importing, setImporting] = useState(false);
   const [importJson, setImportJson] = useState('');
-  const saveKey = useRef(crypto.randomUUID());
+  const saveKey = useRef(recovered?.saveKey ?? crypto.randomUUID());
   const publishKey = useRef(crypto.randomUUID());
   const importKey = useRef({ id: crypto.randomUUID(), key: crypto.randomUUID() });
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  useEffect(() => {
+    if (!dirty) return;
+    const protect = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', protect);
+    return () => window.removeEventListener('beforeunload', protect);
+  }, [dirty]);
   const adopt = (version: AgentLibraryVersion | AgentLibraryDraft) => {
+    if (!mounted.current) return;
+    saveAgentLibraryWorkingCopy(null);
     setEditor({
       profileId: version.profileId,
       definition: structuredClone(version.definition),
@@ -102,7 +120,7 @@ export function AgentLibrary() {
           throw Error('Agent Library response is invalid');
         setCatalog(rows);
         const first = rows.drafts[0] ?? rows.versions[0];
-        if (first) adopt(first);
+        if (first && !recovered) adopt(first);
       })
       .catch((cause: unknown) => {
         if (live) setError(cause instanceof Error ? cause.message : 'Library unavailable');
@@ -110,7 +128,7 @@ export function AgentLibrary() {
     return () => {
       live = false;
     };
-  }, []);
+  }, [recovered]);
   const execute = async (action: () => Promise<void>) => {
     setBusy(true);
     setError('');
@@ -124,10 +142,13 @@ export function AgentLibrary() {
     }
   };
   const update = (definition: SymposiumProfileDefinition) => {
-    setEditor((current) => current && { ...current, definition });
+    if (!editor) return;
+    const next = { ...editor, definition };
+    saveKey.current = crypto.randomUUID();
+    saveAgentLibraryWorkingCopy({ editor: next, saveKey: saveKey.current });
+    setEditor(next);
     setDirty(true);
     setPreview('');
-    saveKey.current = crypto.randomUUID();
     publishKey.current = crypto.randomUUID();
   };
   const save = () =>
@@ -174,19 +195,21 @@ export function AgentLibrary() {
       setNotice(`Published revision ${version.revision}. Ready to use in new chats and Symposium.`);
     });
   const create = () => {
-    setEditor({
+    const next = {
       profileId: crypto.randomUUID(),
       definition: newAgentDefinition(),
       expectedVersion: 0,
       baseRevision: 0,
       publishedRevision: null,
-    });
+    };
+    saveKey.current = crypto.randomUUID();
+    saveAgentLibraryWorkingCopy({ editor: next, saveKey: saveKey.current });
+    setEditor(next);
     setDirty(true);
     setTab('identity');
     setError('');
     setPreview('');
     setPortable('');
-    saveKey.current = crypto.randomUUID();
   };
   const latest = new Map<string, AgentLibraryVersion>();
   for (const version of catalog?.versions ?? [])
@@ -203,6 +226,7 @@ export function AgentLibrary() {
       .includes(query.toLowerCase()),
   );
   const historical =
+    !dirty &&
     !!editor?.publishedRevision &&
     (latest.get(editor.profileId)?.revision ?? 0) > editor.publishedRevision;
   const canUse = !!editor?.publishedRevision && !dirty;
@@ -437,6 +461,7 @@ export function AgentLibrary() {
                           const saved = entries.get(editor.profileId);
                           if (saved) adopt(saved);
                           else {
+                            saveAgentLibraryWorkingCopy(null);
                             setEditor(null);
                             setDirty(false);
                           }

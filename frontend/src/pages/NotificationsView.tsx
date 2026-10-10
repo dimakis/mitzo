@@ -44,7 +44,7 @@ function actionable(item: MitzoNotification) {
     (item.expiresAt === undefined || item.expiresAt > Date.now())
   );
 }
-function RequestDetail({
+export function RequestDetail({
   item,
   onRespond,
   busy,
@@ -348,11 +348,11 @@ function Preferences({
     </form>
   );
 }
-export function NotificationsView() {
+export function NotificationsView({ preferencesOnly = false }: { preferencesOnly?: boolean } = {}) {
   const notifications = useNotifications();
   const [params, setParams] = useSearchParams();
   const [selected, setSelected] = useState<MitzoNotification | null>(null);
-  const [preferences, setPreferences] = useState(false);
+  const [preferences, setPreferences] = useState(preferencesOnly);
   const [notice, setNotice] = useState('');
   const [actionError, setActionError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -441,17 +441,19 @@ export function NotificationsView() {
                 : 'A clear view of what needs you, and what’s changed.'
           }
         />
-        <button
-          className="notification-button"
-          onClick={() => {
-            setPreferences((v) => !v);
-            setActionError('');
-            setNotice('');
-          }}
-        >
-          <UiIcon name={preferences ? 'back' : 'settings'} />
-          {preferences ? 'Notifications' : 'Preferences'}
-        </button>
+        {!preferencesOnly && (
+          <button
+            className="notification-button"
+            onClick={() => {
+              setPreferences((v) => !v);
+              setActionError('');
+              setNotice('');
+            }}
+          >
+            <UiIcon name={preferences ? 'back' : 'settings'} />
+            {preferences ? 'Notifications' : 'Preferences'}
+          </button>
+        )}
       </div>
       {notifications.error && (
         <div role="alert" className="workspace-load-error">

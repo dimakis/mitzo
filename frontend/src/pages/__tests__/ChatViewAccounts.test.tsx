@@ -36,7 +36,15 @@ const voiceMocks = vi.hoisted(() => ({
   stopSpeaking: vi.fn(),
 }));
 
-vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn(), getApiBaseUrl: () => '' }));
+vi.mock('../../lib/api-fetch', () => ({
+  apiFetch: vi.fn(),
+  getApiBaseUrl: () => '',
+  AUTH_LOST_EVENT: 'auth-lost',
+  AUTH_RESTORED_EVENT: 'auth-restored',
+}));
+vi.mock('../../hooks/useHomePreferences', () => ({
+  useHomePreferences: () => ({ preferences: { names: { briefing: 'Jeeves' } } }),
+}));
 vi.mock('../../hooks/useProgress', () => ({ useProgressByToolId: () => new Map() }));
 vi.mock('../../lib/keyboard', () => ({ onKeyboardToggle: () => () => {} }));
 vi.mock('../../hooks/useVoice', () => ({
@@ -102,7 +110,136 @@ vi.mock('../../components/ChatInput', () => ({
 afterEach(() => {
   cleanup();
   sessionStorage.clear();
+  localStorage.clear();
   vi.resetAllMocks();
+});
+
+it('keeps the reviewed briefing account locked and labels the rich chat with the configured minion name', async () => {
+  localStorage.setItem('mitzo-preferred-model', 'saved-general-model');
+  vi.mocked(apiFetch).mockImplementation(
+    async (url) =>
+      new Response(
+        JSON.stringify(
+          String(url).includes('/home/preferences')
+            ? { revision: 1, names: { briefing: 'Jeeves', terminal: 'Minion' }, pins: [] }
+            : [
+                {
+                  id: 'work',
+                  label: 'Work OpenAI',
+                  models: [
+                    {
+                      id: 'luna',
+                      label: 'Luna',
+                      reasoningEfforts: ['low', 'high'],
+                      defaultReasoningEffort: 'low',
+                    },
+                  ],
+                },
+              ],
+        ),
+      ),
+  );
+  const store = createTestStore();
+  store.setState({
+    pendingSession: {
+      prompt: 'Discuss this report',
+      context: 'Briefing',
+      briefing: { date: '2026-10-09', revision: 'a'.repeat(64) },
+      accountSelection: { accountId: 'work', model: 'luna' },
+      contextBlocks: ['Exact saved report'],
+    },
+  });
+  render(
+    <MitzoStoreProvider value={store}>
+      <MemoryRouter>
+        <ChatView />
+      </MemoryRouter>
+    </MitzoStoreProvider>,
+  );
+  await screen.findByRole('heading', { name: 'Jeeves' });
+  expect((screen.getByLabelText('Account') as HTMLSelectElement).disabled).toBe(true);
+  expect((screen.getByLabelText('Model') as HTMLSelectElement).disabled).toBe(true);
+  expect((screen.getByLabelText('Thinking') as HTMLSelectElement).disabled).toBe(true);
+  expect(localStorage.getItem('mitzo-preferred-model')).toBe('saved-general-model');
+  expect(screen.getByRole('link', { name: /Read briefing/ }).getAttribute('href')).toContain(
+    '/briefings/2026-10-09',
+  );
+  expect(screen.getByRole('button', { name: 'Test send' }).hasAttribute('disabled')).toBe(true);
+  localStorage.setItem(
+    'mitzo-default-account-model',
+    JSON.stringify({ accountId: 'other', model: 'unavailable' }),
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Change account or model' }));
+  const dialog = screen.getByRole('dialog', { hidden: true });
+  await waitFor(() =>
+    expect((within(dialog).getByLabelText('Account') as HTMLSelectElement).value).toBe('work'),
+  );
+});
+it('waits for briefing identity before allowing inline model changes on a restored conversation', async () => {
+  let resolveBinding!: (response: Response) => void;
+  const identity = new Promise<Response>((resolve) => {
+    resolveBinding = resolve;
+  });
+  vi.mocked(apiFetch).mockImplementation(async (url) =>
+    String(url).includes('/home/briefing-chats')
+      ? identity
+      : new Response(
+          JSON.stringify({
+            accountBinding: { accountId: 'work', accountLabel: 'Work OpenAI', model: 'luna' },
+            modelSelection: { model: 'luna', models: [{ id: 'luna', label: 'Luna' }] },
+          }),
+        ),
+  );
+  const store = createTestStore();
+  store.setState({ sessions: { ...store.getState().sessions, active: 'restored' } });
+  render(
+    <MitzoStoreProvider value={store}>
+      <MemoryRouter initialEntries={['/chat/restored']}>
+        <Routes>
+          <Route path="/chat/:sessionId" element={<ChatView />} />
+        </Routes>
+      </MemoryRouter>
+    </MitzoStoreProvider>,
+  );
+  const model = (await screen.findByLabelText('Model')) as HTMLSelectElement;
+  expect(model.disabled).toBe(true);
+  await act(async () => resolveBinding(new Response('[]')));
+  await waitFor(() => expect(model.disabled).toBe(false));
+});
+
+it('keeps inline account and model changes locked after identity lookup failure until retry confirms an ordinary chat', async () => {
+  let attempts = 0;
+  vi.mocked(apiFetch).mockImplementation(async (url) =>
+    String(url).includes('/home/briefing-chats')
+      ? ++attempts === 1
+        ? new Response('', { status: 503 })
+        : new Response('[]')
+      : new Response(
+          JSON.stringify({
+            accountBinding: { accountId: 'work', accountLabel: 'Work OpenAI', model: 'luna' },
+            modelSelection: { model: 'luna', models: [{ id: 'luna', label: 'Luna' }] },
+          }),
+        ),
+  );
+  const store = createTestStore();
+  store.setState({ sessions: { ...store.getState().sessions, active: 'restored' } });
+  render(
+    <MitzoStoreProvider value={store}>
+      <MemoryRouter initialEntries={['/chat/restored']}>
+        <Routes>
+          <Route path="/chat/:sessionId" element={<ChatView />} />
+        </Routes>
+      </MemoryRouter>
+    </MitzoStoreProvider>,
+  );
+  const retry = await screen.findByRole('button', { name: 'Retry briefing lookup' });
+  expect((screen.getByLabelText('Model') as HTMLSelectElement).disabled).toBe(true);
+  expect(screen.getByText('Work OpenAI', { selector: '.chat-account-binding' })).toBeTruthy();
+  fireEvent.click(retry);
+  await waitFor(() =>
+    expect((screen.getByLabelText('Model') as HTMLSelectElement).disabled).toBe(false),
+  );
+  expect(screen.queryByRole('button', { name: 'Retry briefing lookup' })).toBeNull();
 });
 
 it('updates web-search consent when the connection ID changes without a status change', () => {

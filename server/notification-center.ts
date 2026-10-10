@@ -61,6 +61,10 @@ export class NotificationCenter {
   private lastBadge = -1;
   private badgeQueue = Promise.resolve();
   private badgeRetryAt?: number;
+  private inboxReconciler?: () => boolean;
+  setInboxReconciler(reconcile: () => boolean): void {
+    this.inboxReconciler = reconcile;
+  }
   constructor(
     public readonly store: NotificationStore,
     private deps: Dependencies,
@@ -208,6 +212,7 @@ export class NotificationCenter {
     return id;
   }
   feed(filter: Parameters<NotificationStore['feed']>[0], limit?: number, offset?: number) {
+    if (this.inboxReconciler?.()) this.changed();
     if (this.store.reconcilePermissions(hasPending)) this.changed();
     return {
       ...this.store.feed(filter, Date.now(), limit, offset),

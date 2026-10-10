@@ -1,3 +1,4 @@
+import { TerminalView } from './pages/TerminalView';
 import { SettingsView } from './pages/SettingsView';
 import { BackupsView } from './pages/BackupsView';
 import { NotificationProvider } from './components/NotificationProvider';
@@ -16,6 +17,8 @@ import { hideSplash } from './lib/splash';
 import { saveTokenToWatch } from './lib/watch-auth';
 import { Login } from './pages/Login';
 import { Today } from './pages/Today';
+import { QuoteView } from './pages/QuoteView';
+import { BriefingView } from './pages/BriefingView';
 import { MoreView } from './pages/MoreView';
 import { ConnectionSetupView } from './pages/ConnectionSetupView';
 import { ConnectionsRoute } from './pages/ConnectionsRoute';
@@ -27,7 +30,7 @@ import { ResponsiveChatView } from './components/ResponsiveChatView';
 import { KnowledgeLibrary } from './pages/KnowledgeLibrary';
 import { AgentLibrary } from './pages/AgentLibrary';
 import { FileViewer } from './pages/FileViewer';
-import { InboxView } from './pages/InboxView';
+import { UnifiedInboxView, InboxRedirect } from './pages/UnifiedInboxView';
 import { CalendarView } from './pages/CalendarView';
 import { TodoWorkspace } from './pages/TodoWorkspace';
 import { TaskBoard } from './pages/TaskBoard';
@@ -126,7 +129,7 @@ function ChatRoute() {
 function CollectionRoute({ page }: { page: 'proposals' | 'calendar' }) {
   const isDesktop = useIsDesktop();
   return page === 'proposals' ? (
-    <InboxView desktop={isDesktop} />
+    <UnifiedInboxView desktop={isDesktop} />
   ) : (
     <CalendarView desktop={isDesktop} />
   );
@@ -149,7 +152,7 @@ function dismissKeyboard(e: React.MouseEvent | React.TouchEvent) {
   if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable) return;
   if (
     target.closest(
-      'button, a, select, [role="button"], .chat-input, .slash-picker, .context-picker',
+      'button, a, select, [role="button"], .chat-input, .slash-picker, .context-picker, .terminal-console',
     )
   )
     return;
@@ -185,7 +188,37 @@ export function App() {
                     </ProtectedRoute>
                   }
                 />
+                <Route
+                  path="/terminal"
+                  element={
+                    <ProtectedRoute>
+                      <PageRoute>
+                        <TerminalView />
+                      </PageRoute>
+                    </ProtectedRoute>
+                  }
+                />
                 <Route path="/login" element={<Login />} />
+                <Route
+                  path="/briefings/:date"
+                  element={
+                    <ProtectedRoute>
+                      <PageRoute>
+                        <BriefingView />
+                      </PageRoute>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/quotes/:date"
+                  element={
+                    <ProtectedRoute>
+                      <PageRoute>
+                        <QuoteView />
+                      </PageRoute>
+                    </ProtectedRoute>
+                  }
+                />
                 <Route
                   path="/sessions/:sessionId/review-records/:recordId"
                   element={
@@ -241,7 +274,7 @@ export function App() {
                   element={
                     <ProtectedRoute>
                       <PageRoute>
-                        <NotificationsView />
+                        <InboxRedirect />
                       </PageRoute>
                     </ProtectedRoute>
                   }
@@ -308,6 +341,16 @@ export function App() {
                     <ProtectedRoute>
                       <PageRoute>
                         <CollectionRoute page="proposals" />
+                      </PageRoute>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/settings/notifications"
+                  element={
+                    <ProtectedRoute>
+                      <PageRoute>
+                        <NotificationsView preferencesOnly />
                       </PageRoute>
                     </ProtectedRoute>
                   }

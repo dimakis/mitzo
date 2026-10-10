@@ -2238,6 +2238,37 @@ export class EventStore {
     return events;
   }
 
+  /** Only ordinary user-attached sources, independent of the recent dialogue window.
+   * Iterate distinct bounded JSON values rather than hydrating tool/permission payloads. */
+  getConversationSourceSnapshots(sessionId: string): unknown[] {
+    const metadataBytes = Buffer.byteLength(
+      JSON.stringify([
+        { kind: 'briefing', date: '0000-00-00', revision: '0'.repeat(64), content: '' },
+      ]),
+      'utf8',
+    );
+    const maxRecordBytes = 6 * 2 * 1024 * 1024 + metadataBytes;
+    const rows = this.db!.prepare(
+      `SELECT CASE WHEN length(CAST(json_extract(payload, '$.sourceSnapshots') AS BLOB)) <= ?
+        THEN json_extract(payload, '$.sourceSnapshots') ELSE NULL END AS sources
+        FROM events WHERE session_id=? AND type='user_message'
+        AND seat_id IS NULL AND symposium_provenance IS NULL
+        AND json_type(payload, '$.sourceSnapshots') IS NOT NULL
+        GROUP BY sources ORDER BY MIN(seq)`,
+    ).iterate(maxRecordBytes, sessionId);
+    const snapshots: unknown[] = [];
+    let bytes = 0;
+    for (const row of rows as Iterable<{ sources: unknown }>) {
+      if (typeof row.sources !== 'string') throw new Error('Invalid saved source snapshot');
+      bytes += Buffer.byteLength(row.sources, 'utf8');
+      // JSON escaping can expand a valid 2 MiB text by at most six times.
+      if (bytes > 6 * 2 * 1024 * 1024 + 64 * metadataBytes || snapshots.length >= 64)
+        throw new Error('Saved source snapshot projection exceeds bounds');
+      snapshots.push(JSON.parse(row.sources));
+    }
+    return snapshots;
+  }
+
   /** Transport attachment does not start another turn. Recover the last durable turn signal. */
   getSessionClientState(sessionId: string): ClientSessionState | null {
     const session = this.getSession(sessionId);
@@ -6345,23 +6376,22 @@ export class EventStore {
   }
 
   /**
-   * Search session content for a query string.
-   * Searches user messages and assistant text deltas, returns matching sessions
-   * with a snippet of the matched content.
+   * Search saved conversation titles, user messages and assistant text deltas.
+   * Prefer a matching message snippet when the title also matches.
    */
   searchSessions(query: string, limit = 20): SessionSearchResult[] {
     if (!query.trim()) return [];
     const escaped = query.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
     const pattern = `%${escaped}%`;
     const rows = this.db!.prepare(
-      `WITH matches AS (SELECT
+      `WITH candidates AS (SELECT
         e.session_id,
         s.summary,
         e.payload,
         e.created_at AS matched_at,
         e.seq AS matched_seq,
         s.updated_at,
-        ROW_NUMBER() OVER (PARTITION BY e.session_id ORDER BY e.created_at DESC, e.seq DESC) AS match_rank
+        1 AS content_match
       FROM events e
       JOIN sessions s ON s.session_id = e.session_id
       WHERE s.is_hidden = 0
@@ -6371,9 +6401,19 @@ export class EventStore {
           json_extract(e.payload, '$.text') LIKE ? ESCAPE '\\'
           OR json_extract(e.payload, '$.delta') LIKE ? ESCAPE '\\'
         )
+      UNION ALL
+      SELECT s.session_id, s.summary, json_object('text', s.summary),
+        s.updated_at AS matched_at, 0 AS matched_seq, s.updated_at, 0 AS content_match
+      FROM sessions s
+      WHERE s.is_hidden = 0 AND ${REGISTERED_CONVERSATION_SQL}
+        AND s.summary LIKE ? ESCAPE '\\'
+      ), matches AS (
+        SELECT *, ROW_NUMBER() OVER (
+          PARTITION BY session_id ORDER BY content_match DESC, matched_at DESC, matched_seq DESC
+        ) AS match_rank FROM candidates
       ) SELECT * FROM matches WHERE match_rank = 1
       ORDER BY matched_at DESC, matched_seq DESC LIMIT ?`,
-    ).all(pattern, pattern, limit) as Array<{
+    ).all(pattern, pattern, pattern, limit) as Array<{
       session_id: string;
       summary: string | null;
       payload: string;

@@ -89,7 +89,7 @@ import { ProviderFailureError } from './provider-failure.js';
 import { codexRuntimeDiagnostic, codexRuntimeErrorTelemetry } from './codex-runtime-diagnostics.js';
 import { CodexStartupError, duringCodexStartup } from './codex-startup-error.js';
 import type { EventStore } from './event-store.js';
-import { codexRolloverHistory } from './codex-rollover-context.js';
+import { codexRolloverHistory, codexRolloverSources } from './codex-rollover-context.js';
 import type { ProviderDispatchAdmission } from './provider-execution.js';
 import { INTERNAL_TOKEN } from './internal-token.js';
 import { localHttpBaseUrl, localServerUsesTls } from './local-server-url.js';
@@ -1339,6 +1339,7 @@ async function openCodexChatBound(
     onProviderComplete: (messageId, status) =>
       finishTrackedProviderAttempt(options.session, messageId, status),
     loadConversationHistory: () => codexRolloverHistory(options.eventStore, options.conversationId),
+    loadSourceSnapshots: () => codexRolloverSources(options.eventStore, options.conversationId),
     onClosed: () => {
       if (runtimeManager) markOpenShellLifecycleIdle(options.conversationId);
       finish();

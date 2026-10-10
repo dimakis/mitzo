@@ -783,6 +783,7 @@ describe('session routes', () => {
       cwd: '/tmp/repo',
       mode: 'agent',
       isActive: true,
+      isHidden: false,
       totalTokens: 9500,
       totalCostUsd: 0.05,
       numTurns: 3,
@@ -1592,6 +1593,7 @@ describe('account catalog routes', () => {
     };
     const meta = {
       sessionId: 'legacy-codex-picker',
+      isHidden: false,
       cwd: '/sandbox/workspaces/mgmt',
       accountBinding: binding,
       selectedModel: null,
@@ -1601,7 +1603,14 @@ describe('account catalog routes', () => {
       cacheReadTokens: 0,
       cacheCreationTokens: 0,
     } as ReturnType<typeof eventStore.getSession>;
-    vi.mocked(eventStore.getSession).mockReturnValueOnce(meta).mockReturnValueOnce(meta);
+    const getSession = vi.mocked(eventStore.getSession);
+    const originalGetSession = getSession.getMockImplementation();
+    const originalQueueReader = vi.mocked(readCodexQueue).getMockImplementation();
+    // Metadata may reread the row after asynchronous catalog discovery. Model
+    // changes belong to the queue fixture, not a one-shot session lookup.
+    getSession.mockImplementation((id) =>
+      id === 'legacy-codex-picker' ? meta : (originalGetSession?.(id) ?? null),
+    );
     vi.mocked(readCodexQueue)
       .mockReturnValueOnce({
         model: 'gpt-test',
@@ -1635,13 +1644,21 @@ describe('account catalog routes', () => {
       const legacy = await request(app)
         .get('/api/sessions/legacy-codex-picker/meta')
         .set('Cookie', authCookie);
+      expect(legacy.status).toBe(200);
+      expect(legacy.body.isHidden).toBe(false);
       expect(legacy.body.modelSelection.reasoningEffort).toBe('high');
 
       const reset = await request(app)
         .get('/api/sessions/legacy-codex-picker/meta')
         .set('Cookie', authCookie);
+      expect(reset.status).toBe(200);
+      expect(reset.body.isHidden).toBe(false);
       expect(reset.body.modelSelection.reasoningEffort).toBeNull();
     } finally {
+      getSession.mockImplementation(originalGetSession!);
+      // Restore the ordinary reader even if an assertion stopped this test
+      // before consuming both queued model selections.
+      vi.mocked(readCodexQueue).mockReset().mockImplementation(originalQueueReader!);
       vi.unstubAllEnvs();
     }
   });

@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { createHash } from 'node:crypto';
 import express from 'express';
 import type { Server } from 'node:http';
 import { EventStore } from '../event-store.js';
@@ -13,6 +14,14 @@ import {
   claimTransportConnection,
   releaseTransportConnection,
 } from '../transport-auth-ownership.js';
+
+const libraryVersion = vi.hoisted(() => vi.fn());
+vi.mock('../agent-library-runtime.js', () => ({
+  getAgentLibrary: () => ({ version: libraryVersion }),
+}));
+import { readAgentLibraryProfile } from '../agent-library-transport.js';
+import { resolveChatAgentProfile } from '../agent-library-binding.js';
+import { assembleSourceSnapshots } from '../source-snapshot-context.js';
 
 // ─── Mock the handler functions ──────────────────────────────────────────────
 
@@ -74,7 +83,7 @@ function buildApp(sseRegistry: SessionSseRegistry, connRegistry: ConnectionRegis
   app.use(express.json());
   app.use((req, res, next) => {
     const id = req.headers['x-test-auth'];
-    if (typeof id === 'string') res.locals.authSession = { id };
+    if (typeof id === 'string') res.locals.authSession = { id, expiresAt: Date.now() + 60_000 };
     else if (req.path.startsWith('/api/chat/web-search-consent'))
       res.locals.authSession = { id: 'consent-login' };
     next();
@@ -222,6 +231,166 @@ describe('chat-rest-handler', () => {
     expect(handleSendV2).toHaveBeenCalledTimes(1);
   });
 
+  it('admits a headerless authenticated profile with exact source once and releases its temporary identity', async () => {
+    const definition = {
+      name: 'Brew',
+      role: 'agent',
+      instructions: 'Explain the report.',
+      expectedOutput: 'A brief',
+      acceptanceCriteria: ['Use evidence'],
+      modelPolicyRole: 'agent',
+    };
+    const profile = {
+      profileId: 'brew',
+      revision: 1,
+      definition,
+      contentHash: createHash('sha256').update(JSON.stringify(definition)).digest('hex'),
+    };
+    libraryVersion.mockReturnValue(profile);
+    const content = '\ufeff# Original report\nExact source tail';
+    const sourceSnapshots = [
+      {
+        kind: 'briefing',
+        date: '2026-10-09',
+        revision: createHash('sha256').update(content).digest('hex'),
+        content,
+      },
+    ];
+    const message = {
+      type: 'send',
+      sessionId: null,
+      clientMsgId: 'native-http-profile',
+      prompt: 'Discuss',
+      accountId: 'work',
+      model: 'luna',
+      agentProfile: { profileId: 'brew', revision: 1 },
+      sourceSnapshots,
+    };
+    const provider = vi.fn();
+    vi.mocked(handleSendV2).mockImplementationOnce(
+      async (connectionId, transport, command, ctx, delivery) => {
+        const selected = await resolveChatAgentProfile({
+          requested: command.agentProfile,
+          provider: 'openai',
+          lookup: (selection) => readAgentLibraryProfile(selection, connectionId),
+        });
+        const text = assembleSourceSnapshots(command.prompt, command.sourceSnapshots);
+        ctx.eventStore.upsertSession({
+          sessionId: delivery!.initialSessionId!,
+          agentProfile: selected,
+        });
+        transport.send({
+          type: 'user_message',
+          messageId: command.clientMsgId,
+          text: command.prompt,
+          sourceSnapshots: command.sourceSnapshots,
+        });
+        provider({ text, profile: selected });
+      },
+    );
+    const first = await request(testServer)
+      .post('/api/chat/send')
+      .set('X-Test-Auth', 'profile-login')
+      .send(message);
+    const retry = await request(testServer)
+      .post('/api/chat/send')
+      .set('X-Test-Auth', 'profile-login')
+      .send(message);
+    expect(first.status).toBe(202);
+    expect(retry.status).toBe(202);
+    expect(retry.body).toEqual(first.body);
+    expect(provider).toHaveBeenCalledOnce();
+    expect(provider.mock.calls[0][0].text).toContain(content);
+    expect(eventStore.getSession(first.body.sessionId)?.agentProfile).toEqual(profile);
+    expect(eventStore.getSendCommand(message.clientMsgId)?.payload).toEqual(message);
+    const event = eventStore.getEventsAfter(first.body.sessionId, 0)[0];
+    expect(event.payload.sourceSnapshots).toEqual(sourceSnapshots);
+    expect(event.payload.text).toBe('Discuss');
+    expect(event).not.toHaveProperty('seatId');
+    expect(event).not.toHaveProperty('symposiumProvenance');
+    await expect(
+      readAgentLibraryProfile(message.agentProfile, `send-${message.clientMsgId}`),
+    ).rejects.toThrow(/authentication/i);
+  });
+
+  it.each(['internal-only', 'client-auth-body'])(
+    'does not turn %s into interactive profile authority',
+    async (kind) => {
+      const message = {
+        type: 'send',
+        sessionId: null,
+        clientMsgId: `profile-${kind}`,
+        prompt: 'Discuss',
+        agentProfile: { profileId: 'brew', revision: 1 },
+        ...(kind === 'client-auth-body'
+          ? { authSession: { id: 'forged', expiresAt: Date.now() + 60_000 } }
+          : {}),
+      };
+      vi.mocked(handleSendV2).mockImplementationOnce(async (connectionId, _transport, command) => {
+        await readAgentLibraryProfile(command.agentProfile!, connectionId);
+      });
+      const response = await request(testServer).post('/api/chat/send').send(message);
+      expect(response.status).toBe(422);
+      expect(response.body.error).toMatch(/authentication/i);
+      expect(libraryVersion).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(['registered-ws', 'unregistered-header'])(
+    'does not grant profile authority to an arbitrary %s connection header',
+    async (connectionId) => {
+      if (connectionId === 'registered-ws')
+        connRegistry.register(connectionId, new SseTransport(connectionId, sseRegistry));
+      vi.mocked(handleSendV2).mockImplementationOnce(async (id, _transport, command) => {
+        await readAgentLibraryProfile(command.agentProfile!, id);
+      });
+      const response = await request(testServer)
+        .post('/api/chat/send')
+        .set('X-Test-Auth', 'profile-login')
+        .set('X-Connection-ID', connectionId)
+        .send({
+          type: 'send',
+          sessionId: null,
+          clientMsgId: `profile-${connectionId}`,
+          prompt: 'Discuss',
+          agentProfile: { profileId: 'brew', revision: 1 },
+        });
+      expect(response.status).toBe(connectionId === 'registered-ws' ? 403 : 422);
+      expect(libraryVersion).not.toHaveBeenCalled();
+      await expect(
+        readAgentLibraryProfile({ profileId: 'brew', revision: 1 }, connectionId),
+      ).rejects.toThrow(/authentication/i);
+      // A pre-handler refusal must not leave a one-shot dispatch for the next fixture.
+      vi.mocked(handleSendV2).mockReset();
+    },
+  );
+
+  it('releases headerless operator authority when startup rejects the selected revision', async () => {
+    libraryVersion.mockReturnValue(null);
+    const selection = { profileId: 'missing', revision: 1 };
+    vi.mocked(handleSendV2).mockImplementationOnce(async (connectionId, _transport, command) => {
+      await resolveChatAgentProfile({
+        requested: command.agentProfile,
+        lookup: (requested) => readAgentLibraryProfile(requested, connectionId),
+      });
+    });
+    const response = await request(testServer)
+      .post('/api/chat/send')
+      .set('X-Test-Auth', 'profile-login')
+      .send({
+        type: 'send',
+        sessionId: null,
+        clientMsgId: 'missing-profile-http',
+        prompt: 'Discuss',
+        agentProfile: selection,
+      });
+    expect(response.status).toBe(422);
+    expect(response.body.error).toMatch(/not found/i);
+    await expect(readAgentLibraryProfile(selection, 'send-missing-profile-http')).rejects.toThrow(
+      /authentication/i,
+    );
+  });
+
   it('rejects requests with unknown connection (requireConnection path)', async () => {
     const res = await request(testServer)
       .post('/api/chat/stop')
@@ -232,6 +401,51 @@ describe('chat-rest-handler', () => {
   });
 
   // ─── POST /api/chat/send ────────────────────────────────────────────────
+  it('preserves the source snapshot through HTTP validation, durable acceptance and exact retry', async () => {
+    const content = '# Captured briefing\nFinal source detail';
+    const sourceSnapshots = [
+      {
+        kind: 'briefing',
+        date: '2026-10-09',
+        revision: createHash('sha256').update(content).digest('hex'),
+        content,
+      },
+    ];
+    const message = {
+      type: 'send',
+      sessionId: null,
+      prompt: 'Discuss the report',
+      clientMsgId: 'http-source',
+      sourceSnapshots,
+    };
+    const first = await request(testServer)
+      .post('/api/chat/send')
+      .set('X-Connection-ID', CONNECTION_ID)
+      .send(message);
+    const retry = await request(testServer)
+      .post('/api/chat/send')
+      .set('X-Connection-ID', CONNECTION_ID)
+      .send(message);
+    expect(first.status).toBe(202);
+    expect(retry.status).toBe(202);
+    expect(first.body).toEqual(retry.body);
+    expect(eventStore.getSendCommand('http-source')?.payload).toMatchObject({ sourceSnapshots });
+    expect(handleSendV2).toHaveBeenCalledWith(
+      CONNECTION_ID,
+      expect.anything(),
+      expect.objectContaining({ sourceSnapshots }),
+      expect.anything(),
+      expect.anything(),
+    );
+    const changed = await request(testServer)
+      .post('/api/chat/send')
+      .set('X-Connection-ID', CONNECTION_ID)
+      .send({
+        ...message,
+        sourceSnapshots: [{ ...sourceSnapshots[0], content: 'Different report' }],
+      });
+    expect(changed.status).toBe(409);
+  });
 
   it('rejects ordinary REST send and interrupt to Symposium before dispatch', async () => {
     vi.spyOn(eventStore, 'getSession').mockReturnValue({ symposiumConfig: '{}' } as never);

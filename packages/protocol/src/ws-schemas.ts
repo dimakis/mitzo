@@ -32,6 +32,8 @@ export const SendMessage = z.object({
   isolation: z.boolean().optional(),
   images: z.array(ImageSchema).optional(),
   contextBlocks: z.array(z.string()).optional(),
+  // Saved inline sources require protocol v2; legacy handlers must never silently drop them.
+  sourceSnapshots: z.never().optional(),
   traceparent,
 });
 
@@ -41,6 +43,8 @@ export const InterruptMessage = z.object({
   clientMsgId: z.string().min(1).max(512),
   images: z.array(ImageSchema).optional(),
   contextBlocks: z.array(z.string()).optional(),
+  // Saved inline sources require protocol v2; legacy handlers must never silently drop them.
+  sourceSnapshots: z.never().optional(),
   traceparent,
 });
 

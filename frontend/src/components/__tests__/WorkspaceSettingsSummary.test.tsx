@@ -157,3 +157,45 @@ it('uses the profile as the header title without repeating a generic workspace h
   await within(toggle()).findByText('Work Vertex');
   expect(within(toggle()).queryByText('Workspace')).toBeNull();
 });
+
+it('auto-opens a new review without persisting it, allows collapse, and reopens for the next review', () => {
+  const view = (attention: boolean) => (
+    <WorkspaceControls status="Ready" attention={attention}>
+      <input aria-label="Review account" />
+    </WorkspaceControls>
+  );
+  const { rerender } = render(view(false));
+  expect(toggle().getAttribute('aria-expanded')).toBe('false');
+  rerender(view(true));
+  expect(toggle().getAttribute('aria-expanded')).toBe('true');
+  expect(toggle().querySelector('svg[data-icon="up"]')).toBeTruthy();
+  expect(localStorage.getItem('mitzo-workspace-controls-expanded')).toBeNull();
+  fireEvent.click(toggle());
+  expect(toggle().getAttribute('aria-expanded')).toBe('false');
+  expect(screen.queryByRole('textbox', { name: 'Review account' })).toBeNull();
+  expect(toggle().querySelector('svg[data-icon="down"]')).toBeTruthy();
+  expect(localStorage.getItem('mitzo-workspace-controls-expanded')).toBe('0');
+  rerender(view(true));
+  expect(toggle().getAttribute('aria-expanded')).toBe('false');
+  rerender(view(false));
+  expect(toggle().getAttribute('aria-expanded')).toBe('false');
+  rerender(view(true));
+  expect(toggle().getAttribute('aria-expanded')).toBe('true');
+  expect(screen.getByRole('textbox', { name: 'Review account' })).toBeTruthy();
+});
+it('keeps the saved expanded preference after automatic review attention ends', () => {
+  localStorage.setItem('mitzo-workspace-controls-expanded', '1');
+  const { rerender } = render(
+    <WorkspaceControls status="Ready" attention>
+      <input aria-label="Review account" />
+    </WorkspaceControls>,
+  );
+  rerender(
+    <WorkspaceControls status="Ready">
+      <input aria-label="Review account" />
+    </WorkspaceControls>,
+  );
+  expect(toggle().getAttribute('aria-expanded')).toBe('true');
+  expect(screen.getByRole('textbox', { name: 'Review account' })).toBeTruthy();
+  expect(localStorage.getItem('mitzo-workspace-controls-expanded')).toBe('1');
+});
