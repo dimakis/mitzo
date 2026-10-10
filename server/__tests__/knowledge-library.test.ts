@@ -3,7 +3,11 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { AcceptedKnowledgeSource } from '../knowledge-library-source.js';
+import {
+  AcceptedKnowledgeSource,
+  safeKnowledgeDirectory,
+  safeKnowledgePath,
+} from '../knowledge-library-source.js';
 import { KnowledgeDraftStore } from '../knowledge-draft-store.js';
 import Database from 'better-sqlite3';
 
@@ -95,6 +99,8 @@ describe('accepted knowledge', () => {
     writeFileSync(join(root, 'architecture/overview.md'), '# Dirty\n');
     expect(await source.catalog()).toEqual({
       revision,
+      directories: ['architecture'],
+      documentPaths: ['architecture'],
       documents: [
         expect.objectContaining({ path: 'architecture/overview.md', area: 'architecture' }),
       ],
@@ -249,4 +255,127 @@ describe('operator drafts', () => {
     expect(changed.review?.url).toBe(review.review?.url);
     expect(changed.review?.version).toBe(review.version);
   });
+});
+
+describe('knowledge structure changes', () => {
+  it('lists curated ancestors and only zero-byte regular empty folder markers', async () => {
+    for (const folder of [
+      'architecture/empty',
+      'architecture/bad',
+      'architecture/linked',
+      'scripts/empty',
+    ])
+      mkdirSync(join(root, folder), { recursive: true });
+    writeFileSync(join(root, 'architecture/empty/.gitkeep'), '');
+    writeFileSync(join(root, 'architecture/bad/.gitkeep'), 'not a marker');
+    symlinkSync('../overview.md', join(root, 'architecture/linked/.gitkeep'));
+    writeFileSync(join(root, 'scripts/empty/.gitkeep'), '');
+    git('add', '.');
+    git('commit', '-m', 'folders');
+    git('update-ref', 'refs/remotes/origin/main', 'HEAD');
+    expect((await source.catalog()).directories).toEqual(['architecture', 'architecture/empty']);
+  });
+  it('persists folder-only drafts and fingerprints directories', () => {
+    const requestId = '12345678-1234-4123-8123-123456789abc';
+    const revision = git('rev-parse', 'HEAD');
+    const draft = store.create('Folder', revision, [], requestId, ['architecture/new']);
+    expect(draft.directories).toEqual(['architecture/new']);
+    expect(store.listSummaries()[0]?.directories).toEqual(draft.directories);
+    expect(() => store.create('Folder', revision, [], requestId, ['architecture/other'])).toThrow(
+      'different content',
+    );
+  });
+  it('rejects duplicate move origins and file-directory collisions', () => {
+    const revision = git('rev-parse', 'HEAD');
+    const doc = {
+      path: 'architecture/new.md',
+      sourcePath: 'architecture/overview.md',
+      base: 'old',
+      content: 'new',
+    };
+    expect(() =>
+      store.create('Moves', revision, [doc, { ...doc, path: 'architecture/other.md' }]),
+    ).toThrow();
+    expect(() =>
+      store.create('Collision', revision, [doc], undefined, ['architecture/new.md/nested']),
+    ).toThrow();
+  });
+});
+
+it('keeps enrolled private boundaries and individually selected root guidance immovable', () => {
+  const scoped = new AcceptedKnowledgeSource(root, 'refs/remotes/origin/main', [
+    'okrs',
+    'README.md',
+    'architecture',
+  ]);
+  expect(
+    scoped.allowedMove(
+      'okrs/shared_eng_excellence/context/a.md',
+      'okrs/private_eng_excellence/context/a.md',
+    ),
+  ).toBe(false);
+  expect(scoped.allowedMove('README.md', 'architecture/README.md')).toBe(false);
+});
+
+it.each(['AGENTS.md', 'CLAUDE.md'])(
+  'keeps individually enrolled %s immovable inside an overlapping folder scope',
+  async (filename) => {
+    mkdirSync(join(root, 'hub'), { recursive: true });
+    writeFileSync(join(root, 'hub', filename), '# Enrolled guidance\n');
+    git('add', 'hub');
+    git('commit', '-m', 'enrolled guidance');
+    git('update-ref', 'refs/remotes/origin/main', 'HEAD');
+    const original = `hub/${filename}`;
+    const scoped = new AcceptedKnowledgeSource(root, 'refs/remotes/origin/main', ['hub', original]);
+    const target = `hub/context/${filename}`;
+    expect(scoped.allowed(original)).toBe(true);
+    expect(scoped.allowed(target)).toBe(true);
+    expect(scoped.allowedMove(original, target)).toBe(false);
+    await expect(
+      scoped.validateStructure(await scoped.revision(), [{ path: target, sourcePath: original }]),
+    ).rejects.toThrow('Move is outside the library area');
+    expect(scoped.allowedMove(`hub/context/${filename}`, `hub/other/${filename}`)).toBe(true);
+  },
+);
+
+it('validates moves against non-Markdown entries, symlinks and directory parents', async () => {
+  writeFileSync(join(root, 'architecture/occupied.md'), 'occupied');
+  writeFileSync(join(root, 'architecture/blob'), 'not a directory');
+  mkdirSync(join(root, 'architecture/tree.md'));
+  writeFileSync(join(root, 'architecture/tree.md/file.txt'), 'occupied tree');
+  git('add', '.');
+  git('commit', '-m', 'structural obstacles');
+  git('update-ref', 'refs/remotes/origin/main', 'HEAD');
+  const revision = await source.revision();
+  for (const path of [
+    'architecture/occupied.md',
+    'architecture/tree.md',
+    'architecture/link.md',
+    'architecture/blob/child.md',
+  ]) {
+    await expect(
+      source.validateStructure(revision, [{ path, sourcePath: 'architecture/overview.md' }]),
+    ).rejects.toThrow();
+  }
+  for (const folder of [
+    'architecture/blob/nested',
+    'architecture/link.md/nested',
+    'architecture/tree.md',
+    'architecture/occupied.md',
+  ]) {
+    await expect(source.validateStructure(revision, [], [folder])).rejects.toThrow();
+  }
+  await expect(
+    source.validateStructure(revision, [
+      { path: 'architecture/overview.md', sourcePath: 'architecture/overview.md' },
+    ]),
+  ).rejects.toThrow('outside');
+});
+
+it('bounds filesystem segment bytes and rejects case variants of runtime paths', () => {
+  expect(safeKnowledgeDirectory('architecture/' + 'é'.repeat(127))).toBe(true);
+  expect(safeKnowledgeDirectory('architecture/' + 'é'.repeat(128))).toBe(false);
+  expect(safeKnowledgePath('architecture/' + 'é'.repeat(126) + '.md')).toBe(true);
+  expect(safeKnowledgePath('architecture/' + 'é'.repeat(127) + '.md')).toBe(false);
+  expect(safeKnowledgeDirectory('architecture/Node_Modules/new')).toBe(false);
 });

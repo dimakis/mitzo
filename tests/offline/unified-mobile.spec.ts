@@ -77,6 +77,11 @@ const account = {
   actions: [{ id: 'manage', label: 'Manage', href: '/connections' }],
   details: {},
 };
+const knowledgeDocuments = Array.from({ length: 40 }, (_, index) => ({
+  path: `hub/context/document-${String(index + 1).padStart(2, '0')}.md`,
+  title: `Knowledge document ${index + 1}`,
+  area: 'Hub',
+}));
 const fixtures: Record<string, unknown> = {
   '/api/auth/check': { authenticated: true },
   '/api/sessions': sessions,
@@ -150,11 +155,9 @@ const fixtures: Record<string, unknown> = {
   },
   '/api/knowledge': {
     revision: 'fixture-revision',
-    documents: Array.from({ length: 40 }, (_, index) => ({
-      path: `hub/document-${index + 1}.md`,
-      title: `Knowledge document ${index + 1}`,
-      area: 'Hub',
-    })),
+    documents: knowledgeDocuments,
+    directories: ['hub', 'hub/context'],
+    documentPaths: ['hub'],
     drafts: [],
     reviewEnabled: false,
     acceptanceEnabled: false,
@@ -188,6 +191,20 @@ test.beforeEach(async ({ page }) => {
       // No app mutation or model request can leave this fixture suite.
       if (route.request().method() !== 'GET')
         return route.fulfill({ status: 405, json: { error: 'Offline UI test' } });
+      if (url.pathname === '/api/knowledge/document') {
+        const document = knowledgeDocuments.find(
+          (item) => item.path === url.searchParams.get('path'),
+        );
+        if (!document)
+          return route.fulfill({ status: 404, json: { error: 'Unknown fixture document' } });
+        return route.fulfill({
+          json: {
+            path: document.path,
+            revision: 'fixture-revision',
+            content: `# ${document.title}\n\nAccepted library context.`,
+          },
+        });
+      }
       if (url.pathname === '/api/calendar') {
         const base = url.searchParams.get('date')!;
         const days = Number(url.searchParams.get('days'));
@@ -443,9 +460,24 @@ test('Proposals opens full context and keeps the end of each collection above th
     ['/inbox', '.inbox-scroll', '.proposal-record'],
     ['/todos', '.todo-scroll', '.todo-card'],
     ['/sessions', '.session-list-scroll', '.session-item'],
-    ['/knowledge', '.knowledge-library', '.knowledge-card'],
+    ['/knowledge', '.knowledge-library', '.knowledge-tree-row:has(.knowledge-tree-more)'],
   ]) {
     await page.goto(route);
+    if (route === '/knowledge') {
+      const hub = page.getByRole('button', { name: 'Folder hub', exact: true });
+      await expect(hub).toHaveAttribute('aria-expanded', 'false');
+      await hub.click();
+      const context = page.getByRole('button', { name: 'Folder hub/context', exact: true });
+      await expect(context).toHaveAttribute('aria-expanded', 'false');
+      await context.click();
+      await expect(page.locator(last)).toHaveCount(knowledgeDocuments.length);
+      await expect(
+        page
+          .locator(last)
+          .last()
+          .getByRole('button', { name: /^Knowledge document 40/ }),
+      ).toBeAttached();
+    }
     await expect(page.locator(last).last()).toBeAttached();
     await page.locator(scroll).evaluate((element) => {
       element.scrollTop = element.scrollHeight;
@@ -454,6 +486,16 @@ test('Proposals opens full context and keeps the end of each collection above th
     const tabs = (await page.locator('.workspace-tabs').boundingBox())!;
     expect(end.y + end.height).toBeLessThanOrEqual(tabs.y);
   }
+  await page.getByRole('button', { name: /^Knowledge document 40/ }).click();
+  const reader = page.getByRole('article', { name: 'Knowledge document 40' });
+  await expect(reader.getByRole('heading', { name: 'Knowledge document 40' })).toBeVisible();
+  await expect(reader.getByText('Accepted library context.', { exact: true })).toBeVisible();
+  await expect(page.getByRole('textbox', { name: 'Document source' })).toHaveCount(0);
+  expect(
+    await page.evaluate(() => localStorage.getItem('mitzo-knowledge-working-copy:')),
+  ).toBeNull();
+  await page.getByRole('button', { name: 'Edit', exact: true }).click();
+  await expect(page.getByRole('textbox', { name: 'Document source' })).toBeVisible();
 });
 
 test('desktop collections inherit the same theme without the mobile masthead', async ({

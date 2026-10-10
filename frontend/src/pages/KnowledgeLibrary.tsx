@@ -1,39 +1,178 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
+import { KnowledgeTree } from '../components/KnowledgeTree';
+import { KnowledgeReader } from '../components/KnowledgeReader';
+import { KnowledgeOrganizationDialog } from '../components/KnowledgeOrganizationDialog';
+import type { KnowledgeDocument, KnowledgeDraft } from '../types/knowledge';
 import { DocumentEditor } from '../components/DocumentEditor';
 import { WorkspacePageHeading } from '../components/WorkspacePageHeading';
 import { useKnowledgeLibrary } from '../hooks/useKnowledgeLibrary';
+function OrganizationChanges({
+  directories = [],
+  documents,
+}: {
+  directories?: string[];
+  documents: KnowledgeDraft['documents'];
+}) {
+  const moves = documents.filter((document) => document.sourcePath);
+  return (
+    <>
+      <h5>New folders</h5>
+      {directories.length ? (
+        <ul>
+          {directories.map((path) => (
+            <li key={path}>{path}</li>
+          ))}
+        </ul>
+      ) : (
+        <p>No new folders.</p>
+      )}
+      <h5>Document moves</h5>
+      {moves.length ? (
+        <ul>
+          {moves.map((document) => (
+            <li key={document.path}>
+              {document.sourcePath} → {document.path}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p>No document moves.</p>
+      )}
+    </>
+  );
+}
+
 export function KnowledgeLibrary() {
   const library = useKnowledgeLibrary();
   const { catalog, copy, selected, dirty, busy } = library;
   const [tab, setTab] = useState<'library' | 'drafts'>('library');
   const [search, setSearch] = useState('');
   const [area, setArea] = useState('All knowledge');
-  const [reading, setReading] = useState(true);
+  const [reading, setReading] = useState(false);
   const [details, setDetails] = useState(false);
-  const [adding, setAdding] = useState(!!copy && copy.documents.length === 0);
+  const [adding, setAdding] = useState(false);
+  const [reader, setReader] = useState<{ document: KnowledgeDocument; content: string }>();
+  const readRequest = useRef(0);
+  const [readerFailure, setReaderFailure] = useState<{
+    document: KnowledgeDocument;
+    message: string;
+  }>();
+  const [parent, setParent] = useState('');
+  const [menu, setMenu] = useState<KnowledgeDocument>();
+  const [dialog, setDialog] = useState<'folder' | 'move'>();
+  const movedSources = new Set(
+    copy?.documents.flatMap((document) => (document.sourcePath ? [document.sourcePath] : [])) || [],
+  );
+  const treeDocuments = [
+    ...(catalog?.documents.filter((document) => !movedSources.has(document.path)) || []),
+  ];
+  for (const document of copy?.documents || []) {
+    if (!treeDocuments.some((item) => item.path === document.path)) {
+      const source = catalog?.documents.find(
+        (item) => item.path === (document.sourcePath || document.path),
+      );
+      treeDocuments.push({
+        path: document.path,
+        title: source?.title || document.path.split('/').pop()!,
+        area: source?.area || document.path.split('/')[0],
+      });
+    }
+  }
+  function showWorkingCopy() {
+    ++readRequest.current;
+    setReaderFailure(undefined);
+    setReader(undefined);
+    setReading(true);
+  }
+  async function openReader(document: KnowledgeDocument) {
+    if (adding) {
+      if (await library.openDocument(document, true)) {
+        showWorkingCopy();
+        setAdding(false);
+      }
+      return;
+    }
+    const request = ++readRequest.current;
+    setReaderFailure(undefined);
+    try {
+      const value = await library.readDocument(document);
+      if (!value) throw new Error('Refresh the library and try again.');
+      if (request === readRequest.current) {
+        setReader({ document, content: value.content });
+        setReading(false);
+      }
+    } catch (error: unknown) {
+      if (request === readRequest.current) {
+        setReaderFailure({
+          document,
+          message: error instanceof Error ? error.message : 'Please try again.',
+        });
+      }
+    }
+  }
   const areas = [...new Set(catalog?.documents.map((d) => d.area) || [])];
   const documents =
-    catalog?.documents.filter(
+    treeDocuments.filter(
       (d) =>
         (area === 'All knowledge' || d.area === area) &&
         `${d.title} ${d.path}`.toLowerCase().includes(search.toLowerCase()),
     ) || [];
   const draft = copy?.draft;
   const editable = !draft || draft.state === 'draft' || draft.state === 'in-review';
+  const closedEmpty =
+    draft?.state === 'closed' && !copy?.documents.length && !copy?.directories?.length;
   const currentReview = !!draft?.review && draft.review.version === draft.version;
-  const showEditor = !!selected && reading;
+  const showEditor =
+    !!copy &&
+    reading &&
+    !reader &&
+    (!!selected || !!copy.directories?.length || !!copy.initialSaveConflict);
+  const structureChanged =
+    !!copy?.directories?.length || !!copy?.documents.some((document) => document.sourcePath);
+  const areaRoots = new Set(
+    (catalog?.documents || [])
+      .filter((document) => area === 'All knowledge' || document.area === area)
+      .map((document) => document.path.split('/')[0]),
+  );
+  const visibleDirectories = library.directories.filter(
+    (directory) => area === 'All knowledge' || areaRoots.has(directory.split('/')[0]),
+  );
+  const folderParents = [
+    ...new Set([
+      ...library.directories,
+      ...(catalog?.documentPaths || []).filter((scope) => library.canCreateInDirectory(scope)),
+    ]),
+  ];
   const editorComparisons = showEditor ? (
     <>
       {copy!.initialSaveConflict && (
         <section className="knowledge-comparison" aria-label="Compare saved draft and working copy">
           <h3>This saved draft changed on another device</h3>
           <p>
-            Your working copy is preserved. Compare every document before choosing which version to
-            keep. Updating the saved draft replaces its contents with your working copy.
+            Your working copy is preserved. Compare every document, new folder and document move
+            before choosing which version to keep. Updating the saved draft replaces its contents
+            and organization changes with your working copy.
           </p>
           {copy!.savedComparisonUnavailable && (
             <p>The latest saved version is unavailable. Refresh the comparison to continue.</p>
           )}
+          <div className="knowledge-compare-panes">
+            <section aria-label="Saved draft organization">
+              <h4>Saved draft organization</h4>
+              {copy!.savedComparisonUnavailable ? (
+                <p>Awaiting latest saved version.</p>
+              ) : (
+                <OrganizationChanges
+                  directories={copy!.initialSaveConflict.directories}
+                  documents={copy!.initialSaveConflict.documents}
+                />
+              )}
+            </section>
+            <section aria-label="Your working copy organization">
+              <h4>Your working copy organization</h4>
+              <OrganizationChanges directories={copy!.directories} documents={copy!.documents} />
+            </section>
+          </div>
           {[
             ...new Set([
               ...copy!.initialSaveConflict.documents.map((d) => d.path),
@@ -228,8 +367,39 @@ export function KnowledgeLibrary() {
           {library.storageError}
         </div>
       )}
+      {readerFailure && (
+        <div className="knowledge-alert" role="alert">
+          <p>
+            Couldn't open {readerFailure.document.title}. {readerFailure.message}
+          </p>
+          <button onClick={() => void openReader(readerFailure.document)}>
+            Retry opening document
+          </button>
+        </div>
+      )}
       {!catalog && <p className="workspace-muted">Loading your library…</p>}
-      {showEditor ? (
+      {reader ? (
+        <KnowledgeReader
+          document={reader.document}
+          documents={catalog?.documents}
+          onOpen={(document) => void openReader(document)}
+          content={reader.content}
+          workingCopy={copy?.documents.some((document) => document.path === reader.document.path)}
+          busy={busy}
+          onBack={() => {
+            ++readRequest.current;
+            setReader(undefined);
+            setReaderFailure(undefined);
+          }}
+          onEdit={() => {
+            void library.openDocument(reader.document).then((opened) => {
+              if (opened) {
+                showWorkingCopy();
+              }
+            });
+          }}
+        />
+      ) : showEditor ? (
         <>
           <div className="knowledge-editor-heading">
             <div>
@@ -244,7 +414,7 @@ export function KnowledgeLibrary() {
                 ← Library
               </button>
               <h2>{copy!.title}</h2>
-              <p className="workspace-muted">{selected.path}</p>
+              <p className="workspace-muted">{selected?.path || 'Folder changes'}</p>
             </div>
             <div className="knowledge-editor-actions">
               <span role="status">
@@ -269,7 +439,7 @@ export function KnowledgeLibrary() {
               <button
                 key={d.path}
                 disabled={busy}
-                aria-pressed={d.path === selected.path}
+                aria-pressed={d.path === selected?.path}
                 onClick={() => library.select(d.path)}
               >
                 {catalog?.documents.find((item) => item.path === d.path)?.title ||
@@ -292,22 +462,50 @@ export function KnowledgeLibrary() {
             className={`knowledge-edit-layout${details ? ' knowledge-edit-layout--details' : ''}`}
           >
             <div className="knowledge-editor-body">
-              <DocumentEditor
-                key={selected.path}
-                fullscreenStatus={fullscreenStatus}
-                content={selected.content}
-                historyResetKey={library.historyResetKey}
-                ext={selected.path.match(/\.[^.]+$/)?.[0] || '.md'}
-                onChange={library.change}
-                saving={busy || !editable}
-                onSave={() => {
-                  if (editable) void library.save();
-                }}
-                undo={library.undo}
-                redo={library.redo}
-                canUndo={library.canUndo}
-                canRedo={library.canRedo}
-              />
+              {selected && (
+                <DocumentEditor
+                  key={selected.path}
+                  fullscreenStatus={fullscreenStatus}
+                  historyResetKey={library.historyResetKey}
+                  content={selected.content}
+                  ext={selected.path.match(/\.[^.]+$/)?.[0] || '.md'}
+                  onChange={library.change}
+                  saving={busy || !editable}
+                  onSave={() => {
+                    if (editable) void library.save();
+                  }}
+                  undo={library.undo}
+                  redo={library.redo}
+                  canUndo={library.canUndo}
+                  canRedo={library.canRedo}
+                />
+              )}
+              {structureChanged && (
+                <section className="knowledge-pending" aria-label="Pending organization changes">
+                  <h3>Organization changes</h3>
+                  {copy!.directories?.map((path) => (
+                    <div className="knowledge-pending-folder" key={path}>
+                      <p>New folder: {path}</p>
+                      {editable && (
+                        <button
+                          disabled={busy}
+                          aria-label={`Remove new folder ${path}`}
+                          onClick={() => void library.removeDirectory(path)}
+                        >
+                          Remove
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                  {copy!.documents
+                    .filter((document) => document.sourcePath)
+                    .map((document) => (
+                      <p key={document.path}>
+                        Moved: {document.sourcePath} → {document.path}
+                      </p>
+                    ))}
+                </section>
+              )}
               {editorComparisons}
             </div>
             {details && (
@@ -415,22 +613,90 @@ export function KnowledgeLibrary() {
           {copy && (
             <div className="knowledge-resume">
               <span>
-                {adding
-                  ? 'Choose a document to add to your change set.'
-                  : dirty
-                    ? 'Your unsaved working copy is ready to continue.'
-                    : 'Continue your working copy.'}
+                {closedEmpty
+                  ? library.notice ||
+                    'This change is closed. Clear the working copy to start a new change.'
+                  : adding
+                    ? 'Choose a document to add to your change set.'
+                    : dirty
+                      ? 'Your unsaved working copy is ready to continue.'
+                      : 'Continue your working copy.'}
               </span>
-              <button
-                disabled={busy || copy.documents.length === 0}
-                onClick={() => {
-                  setReading(true);
-                  setAdding(false);
-                }}
-              >
-                Resume editing
-              </button>
+              {closedEmpty ? (
+                <button disabled={busy} onClick={library.discard}>
+                  Discard working copy
+                </button>
+              ) : !copy.documents.length &&
+                !copy.directories?.length &&
+                !copy.initialSaveConflict &&
+                editable ? (
+                <button
+                  disabled={busy}
+                  onClick={() => {
+                    ++readRequest.current;
+                    setReaderFailure(undefined);
+                    setReader(undefined);
+                    setAdding(true);
+                    setReading(false);
+                  }}
+                >
+                  + Add document
+                </button>
+              ) : (
+                <button
+                  disabled={
+                    busy ||
+                    (copy.documents.length === 0 &&
+                      !copy.directories?.length &&
+                      !copy.initialSaveConflict)
+                  }
+                  onClick={() => {
+                    showWorkingCopy();
+                    setAdding(false);
+                  }}
+                >
+                  {copy.documents.length ? 'Resume editing' : 'Review changes'}
+                </button>
+              )}
             </div>
+          )}
+          {structureChanged && (
+            <section className="knowledge-pending" aria-label="Pending organization changes">
+              <div className="knowledge-top">
+                <strong>Pending changes</strong>
+                <button
+                  className="btn-primary"
+                  disabled={busy || !library.canSave}
+                  onClick={() => void library.save()}
+                >
+                  Save
+                </button>
+              </div>
+              {copy!.directories?.map((path) => (
+                <div className="knowledge-pending-folder" key={path}>
+                  <p>New folder: {path}</p>
+                  {editable && (
+                    <button
+                      disabled={busy}
+                      aria-label={`Remove new folder ${path}`}
+                      onClick={() => void library.removeDirectory(path)}
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
+              ))}
+              {copy!.documents
+                .filter((document) => document.sourcePath)
+                .map((document) => (
+                  <p key={document.path}>
+                    Moved: {document.sourcePath} → {document.path}
+                  </p>
+                ))}
+              <p className="workspace-muted">
+                Save keeps these changes with your draft for review.
+              </p>
+            </section>
           )}
           {tab === 'library' ? (
             <div className="knowledge-browser">
@@ -466,35 +732,26 @@ export function KnowledgeLibrary() {
                     onChange={(e) => setSearch(e.target.value)}
                   />
                 </div>
-                <div className="knowledge-cards">
-                  {documents.map((doc) => (
-                    <button
-                      disabled={
-                        busy || (adding && copy?.documents.some((d) => d.path === doc.path))
-                      }
-                      className="knowledge-card"
-                      key={doc.path}
-                      onClick={() =>
-                        void library.openDocument(doc, adding).then(() => {
-                          if (library.copy || !busy) {
-                            setReading(true);
-                            setAdding(false);
-                          }
-                        })
-                      }
-                    >
-                      <span className="knowledge-card-icon" aria-hidden="true">
-                        ▤
-                      </span>
-                      <span className="knowledge-card-content">
-                        <span className="knowledge-eyebrow">{doc.area}</span>
-                        <strong>{doc.title}</strong>
-                        <span className="workspace-muted">{doc.path}</span>
-                      </span>
-                      <span aria-hidden="true">↗</span>
-                    </button>
-                  ))}
+                <div className="knowledge-tree-toolbar">
+                  <p className="workspace-muted">
+                    {parent
+                      ? `Current folder: ${parent}`
+                      : 'Choose a folder to organize your knowledge.'}
+                  </p>
+                  <button disabled={busy || !editable} onClick={() => setDialog('folder')}>
+                    New folder
+                  </button>
                 </div>
+                <KnowledgeTree
+                  documents={documents}
+                  directories={visibleDirectories}
+                  search={search}
+                  busy={busy}
+                  selectedFolder={parent}
+                  onFolder={setParent}
+                  onOpen={(document) => void openReader(document)}
+                  onMore={editable ? setMenu : undefined}
+                />
                 {catalog && !documents.length && (
                   <p className="workspace-muted">No documents match this view.</p>
                 )}
@@ -518,6 +775,8 @@ export function KnowledgeLibrary() {
                   key={item.id}
                   disabled={busy}
                   onClick={() => {
+                    ++readRequest.current;
+                    setReaderFailure(undefined);
                     library.openDraft(item);
                     setReading(true);
                   }}
@@ -549,6 +808,66 @@ export function KnowledgeLibrary() {
             </section>
           )}
         </>
+      )}
+      {menu && !dialog && (
+        <div className="knowledge-file-menu" role="dialog" aria-label="Document options">
+          <p className="workspace-muted">{menu.path}</p>
+          <button
+            disabled={
+              busy ||
+              !library.directories.some((directory) =>
+                library.canMoveDocument(menu.path, `${directory}/${menu.path.split('/').pop()}`),
+              )
+            }
+            onClick={() => {
+              ++readRequest.current;
+              setReaderFailure(undefined);
+              setReader(undefined);
+              setReading(false);
+              setDialog('move');
+            }}
+          >
+            Move document
+          </button>
+          <button onClick={() => setMenu(undefined)}>Close</button>
+        </div>
+      )}
+      {dialog && (
+        <KnowledgeOrganizationDialog
+          mode={dialog}
+          directories={dialog === 'folder' ? folderParents : library.directories}
+          initialParent={
+            dialog === 'folder' ? parent : menu?.path.split('/').slice(0, -1).join('/') || ''
+          }
+          source={dialog === 'move' ? menu?.path : undefined}
+          busy={busy}
+          error={library.error}
+          canChooseParent={library.canCreateInDirectory}
+          canChoose={(path) =>
+            dialog === 'folder'
+              ? library.canCreateDirectory(path)
+              : library.canMoveDocument(menu!.path, path)
+          }
+          onSubmit={async (path) => {
+            const applied =
+              dialog === 'folder'
+                ? library.createDirectory(path)
+                : await library.moveAcceptedDocument(menu!, path);
+            if (applied) {
+              setAdding(false);
+              ++readRequest.current;
+              setReaderFailure(undefined);
+              setReader(undefined);
+              setParent(path.split('/').slice(0, -1).join('/'));
+              setReading(false);
+            }
+            return applied;
+          }}
+          onClose={() => {
+            setDialog(undefined);
+            setMenu(undefined);
+          }}
+        />
       )}
     </main>
   );
