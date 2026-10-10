@@ -1060,6 +1060,7 @@ export async function startChat(
     resumePermission?: ResumePermission;
     images?: Array<{ data: string; mediaType: string }>;
     contextBlocks?: string[];
+    sourceSnapshots?: SourceSnapshot[];
     clientMsgId?: string;
     onSessionResolved?: (sessionId: string) => void;
     onStartupAdmission?: (error?: unknown) => void;
@@ -1140,6 +1141,7 @@ async function _startChatInner(
     resumePermission?: ResumePermission;
     images?: Array<{ data: string; mediaType: string }>;
     contextBlocks?: string[];
+    sourceSnapshots?: SourceSnapshot[];
     clientMsgId?: string;
     onSessionResolved?: (sessionId: string) => void;
     onStartupAdmission?: (error?: unknown) => void;
@@ -1414,7 +1416,13 @@ async function _startChatInner(
       });
     }
     try {
-      const stablePrompt = assemblePrompt(prompt, baseCwd, undefined, options.contextBlocks);
+      const stablePrompt = assemblePrompt(
+        prompt,
+        baseCwd,
+        undefined,
+        options.contextBlocks,
+        options.sourceSnapshots,
+      );
       initialProviderAdmission = admitProviderDispatch({
         store: eventStore,
         request: {
@@ -1571,6 +1579,7 @@ async function _startChatInner(
     cwd,
     codexProfile ? undefined : options.images,
     options.contextBlocks,
+    options.sourceSnapshots,
   );
   const userIntent = options.userIntent ?? prompt;
   if (options.reattachOnly && (!options.resume || !codexProfile))
@@ -1599,7 +1608,7 @@ async function _startChatInner(
       sessionId: options.initialSessionId,
       cwd,
       mode,
-      initialPrompt: fullPrompt,
+      initialPrompt: options.sourceSnapshots?.length ? prompt : fullPrompt,
       ...(accountBinding ? { accountBinding } : {}),
       selectedModel: options.model ?? accountBinding?.model ?? null,
       reasoningEffort: options.reasoningEffort ?? null,
@@ -1820,12 +1829,13 @@ This is an independent checkout with its own Git storage, not a linked worktree.
         storeAndEchoIfNew(
           conversationId,
           messageId,
-          fullPrompt,
+          options.sourceSnapshots?.length ? prompt : fullPrompt,
           clientId,
           transport,
           session.observers,
           imagePreviews(options.images),
           options.contextBlocks,
+          options.sourceSnapshots,
         );
       q = await openCodexChat({
         resume: !!options.resume,
@@ -1911,12 +1921,13 @@ This is an independent checkout with its own Git storage, not a linked worktree.
       storeAndEchoIfNew(
         conversationId,
         initialMessageId,
-        fullPrompt,
+        options.sourceSnapshots?.length ? prompt : fullPrompt,
         clientId,
         transport,
         session.observers,
         imagePreviews(options.images),
         options.contextBlocks,
+        options.sourceSnapshots,
       );
       trackResponsesProviderAdmission(session, initialProviderAdmission, eventStore);
       inputQueue.push(
@@ -2048,12 +2059,13 @@ This is an independent checkout with its own Git storage, not a linked worktree.
       storeAndEchoIfNew(
         options.resume,
         messageId,
-        fullPrompt,
+        options.sourceSnapshots?.length ? prompt : fullPrompt,
         clientId,
         transport,
         session.observers,
         imagePreviews(options.images),
         options.contextBlocks,
+        options.sourceSnapshots,
       );
     }
 
@@ -2066,7 +2078,11 @@ This is an independent checkout with its own Git storage, not a linked worktree.
       registry,
       abortController,
       eventStore,
-      options.resume || codexProfile || apiKey || gemini ? undefined : fullPrompt,
+      options.resume || codexProfile || apiKey || gemini
+        ? undefined
+        : options.sourceSnapshots?.length
+          ? prompt
+          : fullPrompt,
       {
         connRegistry: _connRegistry ?? undefined,
         onFirstEventOutcome: options.onFirstEventOutcome,
@@ -2074,6 +2090,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
         initialClientMsgId: options.clientMsgId,
         initialImages: imagePreviews(options.images),
         initialContextBlocks: options.contextBlocks,
+        initialSourceSnapshots: options.sourceSnapshots,
         onSessionResolved: (sessionId: string) => {
           // Persist boot context for new sessions (resume sessions already persisted above)
           if (!options.resume) {
@@ -2224,6 +2241,7 @@ function storeAndEchoIfNew(
   observers: Set<SessionTransport>,
   images?: string[],
   contextBlocks?: string[],
+  sourceSnapshots?: SourceSnapshot[],
 ): boolean {
   if (eventStore.hasUserMessage(sessionId, messageId)) {
     return true;
@@ -2236,6 +2254,7 @@ function storeAndEchoIfNew(
     text,
     ...(images?.length ? { images } : {}),
     ...(contextBlocks?.length ? { contextBlocks } : {}),
+    ...(sourceSnapshots?.length ? { sourceSnapshots } : {}),
   });
   eventStore.updateLastSpeaker(sessionId, 'user');
   _onSessionChange?.(clientId, 'user_message');
@@ -2249,6 +2268,7 @@ function storeAndEchoIfNew(
     prevSessionSeq: eventStore.getSessionPredecessorSeq(sessionId, seq),
     ...(images?.length ? { images } : {}),
     ...(contextBlocks?.length ? { contextBlocks } : {}),
+    ...(sourceSnapshots?.length ? { sourceSnapshots } : {}),
   };
   send(transport, echo);
   broadcastToObservers(observers, echo);
@@ -2336,6 +2356,7 @@ export function preflightStartupProviderCommand(
     cwd: string;
     images?: Array<{ data: string; mediaType: string }>;
     contextBlocks?: string[];
+    sourceSnapshots?: SourceSnapshot[];
     model?: string;
     reasoningEffort?: string | null;
   },
@@ -2349,6 +2370,7 @@ export function preflightStartupProviderCommand(
     request.cwd,
     undefined,
     request.contextBlocks,
+    request.sourceSnapshots,
   );
   const providerRequest = {
     sessionId: request.sessionId,
@@ -2407,6 +2429,7 @@ export async function sendToChat(
   reasoningEffort?: string | null,
   signal?: AbortSignal,
   userIntent?: string,
+  sourceSnapshots?: SourceSnapshot[],
 ): Promise<boolean> {
   return withSpanAsync('chat.send', { 'chat.clientId': clientId }, async () => {
     if (signal?.aborted) return false;
@@ -2438,6 +2461,7 @@ export async function sendToChat(
       session.cwd ?? '.',
       codex ? undefined : images,
       contextBlocks,
+      sourceSnapshots,
     );
     const messageId = clientMsgId || `umsg-${Date.now()}-${randomUUID().slice(0, 8)}-send`;
     const previews = imagePreviews(images);
@@ -2532,12 +2556,13 @@ export async function sendToChat(
         const isDup = storeAndEchoIfNew(
           session.sessionId,
           messageId,
-          fullPrompt,
+          sourceSnapshots?.length ? prompt : fullPrompt,
           clientId,
           session.transport,
           session.observers,
           previews,
           contextBlocks,
+          ...(sourceSnapshots?.length ? ([sourceSnapshots] as const) : ([] as const)),
         );
         tryAutoRename(session.sessionId, clientId).catch(() => {
           /* errors logged internally */
@@ -2551,9 +2576,10 @@ export async function sendToChat(
           type: 'user_message',
           v: 2,
           messageId,
-          text: fullPrompt,
+          text: sourceSnapshots?.length ? prompt : fullPrompt,
           ...(previews?.length ? { images: previews } : {}),
           ...(contextBlocks?.length ? { contextBlocks } : {}),
+          ...(sourceSnapshots?.length ? { sourceSnapshots } : {}),
         };
         send(session.transport, echo);
         broadcastToObservers(session.observers, echo);
@@ -2633,10 +2659,17 @@ export function preflightChatCommand(
   clientMsgId?: string,
   model?: string,
   reasoningEffort?: string | null,
+  sourceSnapshots?: SourceSnapshot[],
 ): boolean {
   const session = registry.get(clientId);
   if (!session?.sessionId || !clientMsgId || !getResponsesRuntime(session)) return false;
-  const stablePrompt = assemblePrompt(prompt, session.cwd ?? '.', undefined, contextBlocks);
+  const stablePrompt = assemblePrompt(
+    prompt,
+    session.cwd ?? '.',
+    undefined,
+    contextBlocks,
+    sourceSnapshots,
+  );
   const binding = eventStore.getSession(session.sessionId)?.accountBinding ?? undefined;
   return preflightProviderDispatch(eventStore, {
     sessionId: session.sessionId,
@@ -2657,6 +2690,7 @@ export async function interruptChat(
   clientMsgId?: string,
   model?: string,
   reasoningEffort?: string | null,
+  sourceSnapshots?: SourceSnapshot[],
 ): Promise<boolean> {
   return withSpanAsync('chat.interrupt', { 'chat.clientId': clientId }, async () => {
     const session = registry.get(clientId);
@@ -2665,6 +2699,13 @@ export async function interruptChat(
     if (!session?.queryInstance || !session?.inputQueue) return false;
     const codex = getCodexRuntime(session);
     const responses = getResponsesRuntime(session);
+    const fullPrompt = assemblePrompt(
+      prompt,
+      session.cwd ?? '.',
+      codex ? undefined : images,
+      contextBlocks,
+      sourceSnapshots,
+    );
     if (!codex && !responses && model && model !== session.model) {
       send(session.transport, {
         type: 'error',
@@ -2693,6 +2734,11 @@ export async function interruptChat(
         clientMsgId,
         model,
         reasoningEffort,
+        ...((sourceSnapshots?.length ? [undefined, undefined, sourceSnapshots] : []) as [
+          undefined?,
+          undefined?,
+          SourceSnapshot[]?,
+        ]),
       );
     }
     if (responses) {
@@ -2705,6 +2751,7 @@ export async function interruptChat(
           clientMsgId,
           model,
           reasoningEffort,
+          ...(sourceSnapshots?.length ? ([sourceSnapshots] as const) : ([] as const)),
         )
       )
         return true;
@@ -2717,6 +2764,11 @@ export async function interruptChat(
         clientMsgId,
         model,
         reasoningEffort,
+        ...((sourceSnapshots?.length ? [undefined, undefined, sourceSnapshots] : []) as [
+          undefined?,
+          undefined?,
+          SourceSnapshot[]?,
+        ]),
       );
     }
     if (model) {
@@ -2730,7 +2782,6 @@ export async function interruptChat(
         ...(reasoningEffort !== undefined ? { reasoningEffort: reasoningEffort || null } : {}),
       });
     }
-    const fullPrompt = assemblePrompt(prompt, session.cwd ?? '.', images, contextBlocks);
     const messageId = clientMsgId || `umsg-${Date.now()}-${randomUUID().slice(0, 8)}-interrupt`;
     const previews = imagePreviews(images);
     // Store and echo the user message. A retried interrupt must still stop
@@ -2740,12 +2791,13 @@ export async function interruptChat(
       isDup = storeAndEchoIfNew(
         session.sessionId,
         messageId,
-        fullPrompt,
+        sourceSnapshots?.length ? prompt : fullPrompt,
         clientId,
         session.transport,
         session.observers,
         previews,
         contextBlocks,
+        sourceSnapshots,
       );
     } else {
       // Pre-session-resolve: no eventStore to dedup against (see sendToChat).
@@ -2753,9 +2805,10 @@ export async function interruptChat(
         type: 'user_message',
         v: 2,
         messageId,
-        text: fullPrompt,
+        text: sourceSnapshots?.length ? prompt : fullPrompt,
         ...(previews?.length ? { images: previews } : {}),
         ...(contextBlocks?.length ? { contextBlocks } : {}),
+        ...(sourceSnapshots?.length ? { sourceSnapshots } : {}),
       };
       send(session.transport, echo);
       broadcastToObservers(session.observers, echo);
@@ -3532,6 +3585,7 @@ export interface RestoredMessage {
   startedSeq?: number;
   images?: string[];
   contextBlocks?: string[];
+  sourceSnapshots?: SourceSnapshot[];
   blocks: Array<{
     blockId: string;
     blockType: string;
@@ -3768,6 +3822,7 @@ function replaySingleEventsToTranscript(
       timestamp: typeof payload.ts === 'number' ? payload.ts : event.createdAt,
       startedSeq: event.seq,
       images: Array.isArray(payload.images) ? (payload.images as string[]) : undefined,
+      sourceSnapshots: SourceSnapshotsSchema.safeParse(payload.sourceSnapshots).data,
       contextBlocks: Array.isArray(payload.contextBlocks)
         ? (payload.contextBlocks as string[])
         : undefined,
@@ -4139,6 +4194,7 @@ export function replayEventsToMessages(
       images: Array.isArray(matchingEvt?.payload.images)
         ? (matchingEvt.payload.images as string[])
         : undefined,
+      sourceSnapshots: SourceSnapshotsSchema.safeParse(matchingEvt?.payload.sourceSnapshots).data,
       contextBlocks: Array.isArray(matchingEvt?.payload.contextBlocks)
         ? (matchingEvt.payload.contextBlocks as string[])
         : undefined,
@@ -4151,6 +4207,7 @@ export function replayEventsToMessages(
       role: 'user',
       timestamp: typeof p.ts === 'number' ? p.ts : legacyInitialPromptEvent.createdAt,
       images: Array.isArray(p.images) ? (p.images as string[]) : undefined,
+      sourceSnapshots: SourceSnapshotsSchema.safeParse(p.sourceSnapshots).data,
       contextBlocks: Array.isArray(p.contextBlocks) ? (p.contextBlocks as string[]) : undefined,
       blocks: [
         {
@@ -4181,6 +4238,7 @@ export function replayEventsToMessages(
           role: 'user',
           timestamp: typeof p.ts === 'number' ? p.ts : evt.createdAt,
           images: Array.isArray(p.images) ? (p.images as string[]) : undefined,
+          sourceSnapshots: SourceSnapshotsSchema.safeParse(p.sourceSnapshots).data,
           contextBlocks: Array.isArray(p.contextBlocks) ? (p.contextBlocks as string[]) : undefined,
           blocks: [
             {

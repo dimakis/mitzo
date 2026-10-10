@@ -3142,6 +3142,9 @@ it('sends an approved briefing snapshot and account without replacing either wit
     prompt: 'Discuss this briefing',
     context: 'Briefing 2026-10-09',
     contextBlocks: ['Exact saved report'],
+    sourceSnapshots: [
+      { kind: 'briefing', date: '2026-10-09', revision: 'a'.repeat(64), content: 'Exact snapshot' },
+    ],
     accountSelection: { accountId: 'work', model: 'luna', reasoningEffort: 'low' },
   });
   const assigned = vi.fn();
@@ -3157,6 +3160,9 @@ it('sends an approved briefing snapshot and account without replacing either wit
     model: 'luna',
     reasoningEffort: 'low',
     contextBlocks: ['Exact saved report', 'Extra context'],
+    sourceSnapshots: [
+      { kind: 'briefing', date: '2026-10-09', revision: 'a'.repeat(64), content: 'Exact snapshot' },
+    ],
   });
   lastWs.simulateMessage({ type: 'session_id', sessionId: 'briefing-chat' });
   expect(assigned).toHaveBeenCalledWith('briefing-chat');

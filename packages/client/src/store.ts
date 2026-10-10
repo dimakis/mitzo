@@ -7,7 +7,7 @@
 
 import { createStore } from 'zustand/vanilla';
 import type { StoreApi } from 'zustand/vanilla';
-import type { FinishedMessage, MitzoMode, ImageAttachment } from '@mitzo/protocol';
+import type { FinishedMessage, MitzoMode, ImageAttachment, SourceSnapshot } from '@mitzo/protocol';
 
 import type { TransportAdapter } from './types.js';
 import { messagesReducer, INITIAL_MESSAGES_STATE } from './slices/messages.js';
@@ -58,6 +58,7 @@ export interface SendMessageOptions {
   onDelivery?: (status: 'accepted' | 'failed' | 'uncertain') => void;
   accountId?: string;
   contextBlocks?: string[];
+  sourceSnapshots?: SourceSnapshot[];
   images?: ImageAttachment[];
   model?: string;
   reasoningEffort?: string | null;
@@ -75,6 +76,7 @@ export interface PendingSession {
   context: string;
   /** Reviewed source snapshots, delivered as context rather than a replacement system prompt. */
   contextBlocks?: string[];
+  sourceSnapshots?: SourceSnapshot[];
   accountSelection?: { accountId: string; model: string; reasoningEffort?: string | null };
   briefing?: { date: string; revision: string };
   telosTaskId?: string;
@@ -219,6 +221,7 @@ function mergeLiveWithDurable(
     ...(durable.symposiumProvenance ? { symposiumProvenance: durable.symposiumProvenance } : {}),
     images: live.images ?? durable.images,
     contextBlocks: live.contextBlocks ?? durable.contextBlocks,
+    sourceSnapshots: live.sourceSnapshots ?? durable.sourceSnapshots,
   };
 }
 
@@ -725,6 +728,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         if (opts?.accountId) msg.accountId = opts.accountId;
         if (mode && !parserState.currentSessionId) msg.mode = mode;
         if (opts?.contextBlocks?.length) msg.contextBlocks = opts.contextBlocks;
+        if (opts?.sourceSnapshots?.length) msg.sourceSnapshots = opts.sourceSnapshots;
         if (opts?.images?.length) {
           msg.images = opts.images.map((img) => ({ data: img.data, mediaType: img.mediaType }));
         }
@@ -745,6 +749,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
           clientMsgId,
           images: opts?.images?.map((img) => img.preview),
           contextBlocks: opts?.contextBlocks,
+          sourceSnapshots: opts?.sourceSnapshots,
         }),
         sendError: null,
         sendStatus: null,
@@ -792,6 +797,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         msg.images = opts.images.map((img) => ({ data: img.data, mediaType: img.mediaType }));
       }
       if (opts?.contextBlocks?.length) msg.contextBlocks = opts.contextBlocks;
+      if (opts?.sourceSnapshots?.length) msg.sourceSnapshots = opts.sourceSnapshots;
 
       const sent = connection.send(msg);
       if (!sent) {
@@ -807,6 +813,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
           clientMsgId,
           images: opts?.images?.map((img) => img.preview),
           contextBlocks: opts?.contextBlocks,
+          sourceSnapshots: opts?.sourceSnapshots,
         }),
       }));
     },
@@ -1070,6 +1077,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         model: pending.accountSelection?.model ?? opts?.model ?? get().config.modelId ?? undefined,
         mode: opts?.mode ?? get().config.mode,
         contextBlocks: [...(pending.contextBlocks ?? []), ...(opts?.contextBlocks ?? [])],
+        sourceSnapshots: pending.sourceSnapshots ?? opts?.sourceSnapshots,
       };
       // Each attempt has a distinct identity, so stale receipts cannot dismiss a replacement.
       const launch = { ...pending };

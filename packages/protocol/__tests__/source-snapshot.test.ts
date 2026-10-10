@@ -1,5 +1,6 @@
 import { expect, it } from 'vitest';
 import { V2SendMessage } from '../src/ws-schemas-v2.js';
+import { SendMessage } from '../src/ws-schemas.js';
 
 it('retains a dated source snapshot through validated send envelopes', () => {
   const sourceSnapshots = [
@@ -13,6 +14,18 @@ it('retains a dated source snapshot through validated send envelopes', () => {
     sourceSnapshots,
   });
   expect(parsed).toMatchObject({ sourceSnapshots });
+});
+it('rejects inline sources on legacy clients rather than silently dropping their content', () => {
+  expect(
+    SendMessage.safeParse({
+      type: 'send',
+      prompt: 'Discuss',
+      clientMsgId: 'legacy-source',
+      sourceSnapshots: [
+        { kind: 'briefing', date: '2026-10-09', revision: 'a'.repeat(64), content: 'Report' },
+      ],
+    }).success,
+  ).toBe(false);
 });
 it('rejects excessive UTF-8 bytes, invalid calendar dates and multiple source snapshots', () => {
   const source = {
