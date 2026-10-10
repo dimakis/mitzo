@@ -1,4 +1,8 @@
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { revokeAuthSession, type AuthSession } from '../auth.js';
 import express from 'express';
 import request from 'supertest';
 import { AgentLibraryStore } from '../agent-library-store.js';
@@ -15,20 +19,49 @@ const definition = {
   modelPolicyRole: 'reviewer',
 };
 const stores: AgentLibraryStore[] = [];
-function app(operator = true) {
+const roots: string[] = [];
+let login = 0;
+function app(
+  operator = true,
+  options: Parameters<typeof createAgentLibraryRouter>[1] = {},
+  auth: AuthSession = { id: `verified-login-${++login}`, expiresAt: Date.now() + 60000 },
+) {
   const store = new AgentLibraryStore(':memory:');
   stores.push(store);
   const app = express();
   app.use(express.json());
   if (operator)
     app.use((_req, res, next) => {
-      res.locals.authSession = { id: 'verified-login' };
+      res.locals.authSession = auth;
       next();
     });
-  app.use('/api/agent-library', createAgentLibraryRouter(store));
+  app.use('/api/agent-library', createAgentLibraryRouter(store, options));
   return app;
 }
-afterEach(() => stores.splice(0).forEach((store) => store.close()));
+afterEach(() => {
+  stores.splice(0).forEach((store) => store.close());
+  roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true }));
+  vi.restoreAllMocks();
+});
+function workspace() {
+  const root = mkdtempSync(join(tmpdir(), 'mitzo-context-preview-'));
+  roots.push(root);
+  mkdirSync(join(root, 'docs'));
+  writeFileSync(join(root, 'AGENTS.md'), '# Rules\nKeep tasks safe.');
+  writeFileSync(join(root, 'docs/design.md'), '# Design\n## Architecture\nUse immutable bundles.');
+  return root;
+}
+const compiledDefinition = {
+  ...definition,
+  contextRecipe: {
+    version: 1 as const,
+    source: 'workspace' as const,
+    files: ['docs/design.md'],
+    tokenBudget: 1000,
+    required: [],
+    excluded: [],
+  },
+};
 it('requires interactive operator authentication for reads and writes', async () => {
   const server = app(false);
   await request(server).get('/api/agent-library').expect(403);
@@ -100,4 +133,94 @@ it('routes Library operations through the retained custodian rather than a secon
     expect(selected).not.toBeNull();
     expect(custodianRoute(selected!)).toEqual({ method, path });
   }
+});
+
+it('compiles a context preview in the server-selected workspace and returns auditable sources without creating a session', async () => {
+  const root = workspace();
+  const response = await request(app(true, { workspaceRoot: root }))
+    .post('/api/agent-library/preview')
+    .send({ definition: compiledDefinition })
+    .expect(200);
+  expect(response.body.contextResolved).toBe(true);
+  expect(response.body.assembledPrompt).toContain('Bob · The architect');
+  expect(response.body.assembledPrompt).toContain('Use immutable bundles.');
+  expect(
+    response.body.compiledContext.context.sources.map((source: { path: string }) => source.path),
+  ).toEqual(['AGENTS.md', 'docs/design.md']);
+  expect(response.body.compiledContext.payloadHash).toMatch(/^[a-f0-9]{64}$/);
+  expect(response.body.previewScope).toBe('configured-workspace');
+});
+it('rejects caller-selected host roots, unavailable documents, and attempts to exclude canonical instructions', async () => {
+  const root = workspace();
+  const server = app(true, { workspaceRoot: root });
+  await request(server)
+    .post('/api/agent-library/preview')
+    .send({ definition: compiledDefinition, workspaceRoot: root })
+    .expect(400);
+  for (const contextRecipe of [
+    { ...compiledDefinition.contextRecipe, files: ['missing.md'] },
+    { ...compiledDefinition.contextRecipe, excluded: [['AGENTS.md']] },
+  ]) {
+    const response = await request(server)
+      .post('/api/agent-library/preview')
+      .send({ definition: { ...compiledDefinition, contextRecipe } })
+      .expect(400);
+    expect(response.body.contextResolved).not.toBe(true);
+  }
+});
+it('compiles configured presets without fetching any provider or accepting a caller service URL', async () => {
+  const fetcher = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+    new Response(
+      JSON.stringify({
+        agent: 'architect',
+        boot: {
+          content: '# Compiled preset',
+          tokens: 5,
+          tokenBudget: 1000,
+          sources: ['Architecture.md'],
+        },
+      }),
+    ),
+  );
+  const server = app(true, { contexginUrl: 'http://configured.test:4195' });
+  const preset = {
+    ...definition,
+    contextRecipe: { version: 1, source: 'contexgin', agentName: 'architect' },
+  };
+  const response = await request(server)
+    .post('/api/agent-library/preview')
+    .send({ definition: preset })
+    .expect(200);
+  expect(response.body.assembledPrompt).toContain('Compiled preset');
+  expect(response.body.previewScope).toBe('contexgin-preset');
+  expect(fetcher).toHaveBeenCalledWith(
+    'http://configured.test:4195/api/agents/architect/context',
+    expect.anything(),
+  );
+  await request(server)
+    .post('/api/agent-library/preview')
+    .send({ definition: preset, contexginUrl: 'http://caller.test' })
+    .expect(400);
+});
+it('refuses a compiled preview whose operator session is revoked during compilation', async () => {
+  const auth = { id: 'revoked-preview-login', expiresAt: Date.now() + 60000 };
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async () => {
+    revokeAuthSession(auth);
+    return new Response(
+      JSON.stringify({
+        agent: 'architect',
+        boot: { content: '# Revoked preset', tokens: 5, tokenBudget: 1000, sources: [] },
+      }),
+    );
+  });
+  const response = await request(app(true, {}, auth))
+    .post('/api/agent-library/preview')
+    .send({
+      definition: {
+        ...definition,
+        contextRecipe: { version: 1, source: 'contexgin', agentName: 'architect' },
+      },
+    })
+    .expect(403);
+  expect(response.body.compiledContext).toBeUndefined();
 });
