@@ -237,13 +237,22 @@ it('retains registration identity after sign-out and does not persist tokens', a
   expect(auth.searchParams.get('client_id')).toBe('oaiapp_test');
   expect(f.service.list()[0].state).toBe('disconnected');
 });
-it.each([true, false])(
-  'does not let a pending reauthorization undo disconnect (remote revocation: %s)',
-  async (revoked) => {
+it.each([
+  { revoked: true, refreshed: false },
+  { revoked: false, refreshed: false },
+  { revoked: true, refreshed: true },
+  { revoked: false, refreshed: true },
+])(
+  'does not let a pending reauthorization undo disconnect (%j)',
+  async ({ revoked, refreshed }) => {
     const f = fixture(),
       signal = new AbortController().signal;
     const account = await f.service.complete('operator', f.callback(f.begin()), signal);
+    if (refreshed) f.advance();
     const callback = f.callback(f.begin(account.id));
+    if (refreshed) {
+      await f.service.ready(account.id, 'gpt-6-luna', 'low', signal);
+    }
     const original = f.fetcher.getMockImplementation()!;
     f.fetcher.mockImplementation(async (url, init) => {
       if (String(url).includes('openid-configuration'))

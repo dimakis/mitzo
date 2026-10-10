@@ -531,7 +531,7 @@ export class ChatGptPlanAdviserAccounts {
     this.assertOwnership();
     const account = this.state.accounts.find((row) => row.id === id);
     if (!account) throw Error('Adviser account unavailable');
-    if (this.pending?.account === account) this.pending = undefined;
+    if (this.pending?.account?.id === id) this.pending = undefined;
     this.generation++;
     this.controllers.get(id)?.abort();
     account.state = 'disconnected';
