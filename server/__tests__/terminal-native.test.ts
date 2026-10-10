@@ -92,6 +92,8 @@ it.skipIf(!available)(
         timeout: 3000,
         interval: 20,
       });
+      await reconstructed.end(record);
+      await expect(reconstructed.end(record)).resolves.toBeUndefined();
     } finally {
       live?.detach();
       spawnSync('tmux', ['-L', namespace, 'kill-server'], { env: { ...process.env, HOME: home } });

@@ -8,6 +8,19 @@ import type { OpenShellRuntime } from './openshell-runtime.js';
 import type { TerminalBackend, TerminalRecord } from './terminal-service.js';
 
 const execute = promisify(execFile);
+function isMissingSession(error: unknown, id: string) {
+  if (
+    !error ||
+    typeof error !== 'object' ||
+    !('code' in error) ||
+    error.code !== 1 ||
+    !('stderr' in error) ||
+    typeof error.stderr !== 'string'
+  )
+    return false;
+  const detail = error.stderr.trim();
+  return detail.startsWith('no server running on ') || detail === `can't find session: ${id}`;
+}
 export function safeTerminalEnvironment(base: NodeJS.ProcessEnv = process.env) {
   const env: Record<string, string> = {};
   for (const key of ['PATH', 'HOME', 'USER', 'LOGNAME', 'SHELL', 'LANG', 'LC_ALL', 'TMPDIR', 'TZ'])
@@ -135,21 +148,7 @@ export class TmuxTerminalBackend implements TerminalBackend {
         maxBuffer: 64 * 1024,
       });
     } catch (error) {
-      if (
-        error &&
-        typeof error === 'object' &&
-        'code' in error &&
-        error.code === 1 &&
-        'stderr' in error &&
-        typeof error.stderr === 'string'
-      ) {
-        const detail = error.stderr.trim();
-        if (
-          detail.startsWith('no server running on ') ||
-          detail === `can't find session: ${record.id}`
-        )
-          throw new TerminalSessionMissing();
-      }
+      if (isMissingSession(error, record.id)) throw new TerminalSessionMissing();
       // Process errors include SSH proxy arguments and their short-lived grant token.
       // eslint-disable-next-line preserve-caught-error
       throw Error('Terminal transport unavailable');
@@ -202,10 +201,17 @@ export class TmuxTerminalBackend implements TerminalBackend {
   }
   async end(record: TerminalRecord) {
     const spec = await this.spec(record, 'end');
-    await execute(spec.command, spec.args, {
-      env: spec.env,
-      timeout: 15_000,
-      maxBuffer: 64 * 1024,
-    });
+    try {
+      await execute(spec.command, spec.args, {
+        env: spec.env,
+        timeout: 15_000,
+        maxBuffer: 64 * 1024,
+      });
+    } catch (error) {
+      if (isMissingSession(error, record.id)) return;
+      // Process failures may include a short-lived SSH grant in their arguments.
+      // eslint-disable-next-line preserve-caught-error
+      throw Error('Terminal cleanup unavailable');
+    }
   }
 }

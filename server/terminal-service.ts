@@ -1,4 +1,7 @@
 import { TerminalSessionMissing } from './terminal-errors.js';
+import { TerminalOwnerStore } from './terminal-owner-store.js';
+import type { AuthSession } from './interactive-auth-core.js';
+import { validateOpenShellCliEnvironment } from './openshell-cli-environment.js';
 import { randomUUID } from 'node:crypto';
 import type Database from 'better-sqlite3';
 import {
@@ -45,16 +48,26 @@ interface LiveTerminal {
   listeners: Set<(event: TerminalEvent) => void>;
 }
 export class TerminalStore {
+  readonly owners: TerminalOwnerStore;
   constructor(private db: Database.Database) {
     db.exec(`CREATE TABLE IF NOT EXISTS operator_terminals (
       id TEXT PRIMARY KEY, owner TEXT NOT NULL, identity TEXT NOT NULL,
       kind TEXT NOT NULL, label TEXT NOT NULL, cwd TEXT NOT NULL,
       session_id TEXT, state TEXT NOT NULL, created_at INTEGER NOT NULL
     )`);
+    if (
+      !(db.pragma('table_info(operator_terminals)') as { name: string }[]).some(
+        (column) => column.name === 'cleanup_target',
+      )
+    )
+      db.exec('ALTER TABLE operator_terminals ADD COLUMN cleanup_target TEXT');
+    this.owners = new TerminalOwnerStore(db);
   }
   create(record: TerminalRecord) {
     this.db
-      .prepare('INSERT INTO operator_terminals VALUES (?,?,?,?,?,?,?,?,?)')
+      .prepare(
+        'INSERT INTO operator_terminals (id,owner,identity,kind,label,cwd,session_id,state,created_at,cleanup_target) VALUES (?,?,?,?,?,?,?,?,?,?)',
+      )
       .run(
         record.id,
         record.owner,
@@ -65,14 +78,19 @@ export class TerminalStore {
         record.sessionId ?? null,
         record.state,
         record.createdAt,
+        record.target ? JSON.stringify(cleanupTarget(record.target)) : null,
       );
   }
   private rows(owner?: string): TerminalRecord[] {
-    const query = `SELECT id,owner,identity,kind,label,cwd,session_id AS sessionId,state,created_at AS createdAt FROM operator_terminals ${owner ? 'WHERE owner=?' : ''} ORDER BY created_at DESC`;
+    const query = `SELECT id,owner,identity,kind,label,cwd,session_id AS sessionId,state,created_at AS createdAt,cleanup_target AS cleanupTarget FROM operator_terminals ${owner ? 'WHERE owner=?' : ''} ORDER BY created_at DESC`;
     const records = (
       owner ? this.db.prepare(query).all(owner) : this.db.prepare(query).all()
-    ) as TerminalRecord[];
-    return records.map((record) => ({ ...record, sessionId: record.sessionId || undefined }));
+    ) as (TerminalRecord & { cleanupTarget: string | null })[];
+    return records.map(({ cleanupTarget: saved, ...record }) => ({
+      ...record,
+      sessionId: record.sessionId || undefined,
+      ...(saved ? { target: JSON.parse(saved) as TerminalTarget } : {}),
+    }));
   }
   list(owner?: string) {
     return this.rows(owner);
@@ -86,6 +104,44 @@ export class TerminalStore {
     this.db.prepare('UPDATE operator_terminals SET state=? WHERE id=?').run(state, id);
   }
 }
+function cleanupTarget(target: TerminalTarget): TerminalTarget {
+  const { kind, label, cwd, identity, sessionId } = target;
+  if (!target.runtime) return { kind, label, cwd, identity, sessionId };
+  const {
+    sandboxId,
+    sandboxName,
+    workdir,
+    appServerCommand,
+    cli,
+    gateway,
+    workspace,
+    gatewayEndpoint,
+    gatewayInsecure,
+    cliEnvironment,
+  } = target.runtime;
+  return {
+    kind,
+    label,
+    cwd,
+    identity,
+    sessionId,
+    runtime: {
+      sandboxId,
+      sandboxName,
+      workdir,
+      appServerCommand,
+      cli,
+      gateway,
+      workspace,
+      gatewayEndpoint,
+      gatewayInsecure,
+      ...(cliEnvironment
+        ? { cliEnvironment: validateOpenShellCliEnvironment(cliEnvironment) }
+        : {}),
+    },
+  };
+}
+type ObserveOwner = (session: AuthSession, invalidate: () => void) => () => void;
 function publicInfo(record: TerminalRecord): TerminalInfo {
   const { id, kind, label, cwd, sessionId, state, createdAt } = record;
   return { id, kind, label, cwd, ...(sessionId ? { sessionId } : {}), state, createdAt };
@@ -94,21 +150,102 @@ export class TerminalService {
   private live = new Map<string, LiveTerminal>();
   private starts = new Map<string, Promise<LiveTerminal>>();
   private opening: Promise<void> = Promise.resolve();
+  private ownerObservers = new Map<string, () => void>();
+  private maintenance?: ReturnType<typeof setInterval>;
   constructor(
     private store: TerminalStore,
     private deps: {
       resolve(request: { sessionId?: string }, owner: string): Promise<TerminalTarget>;
       backend: TerminalBackend;
+      validateCleanupTarget?(target: TerminalTarget): void;
     },
   ) {}
+  bindOwner(session: AuthSession, observe: ObserveOwner) {
+    this.store.owners.bind(session);
+    if (this.ownerObservers.has(session.id)) return;
+    let invalidated = false;
+    const release = observe(session, () => {
+      invalidated = true;
+      this.store.owners.retire(session.id);
+      this.ownerObservers.get(session.id)?.();
+      this.ownerObservers.delete(session.id);
+      for (const record of this.store.list(session.id)) {
+        const live = this.live.get(record.id);
+        for (const listener of live?.listeners ?? [])
+          listener({ type: 'error', error: 'Operator session ended' });
+        live?.listeners.clear();
+        live?.process?.detach();
+        if (live) live.process = undefined;
+      }
+      void this.reconcileOwners().catch(() => {});
+    });
+    if (invalidated) {
+      release();
+      throw Error('Operator session unavailable');
+    }
+    this.ownerObservers.set(session.id, release);
+  }
+  startOwnerMaintenance(observe: ObserveOwner) {
+    // Old unleased records cannot establish a surviving login authority.
+    for (const record of this.store.list())
+      if (record.state === 'running' && !this.store.owners.read(record.owner))
+        this.store.owners.retire(record.owner);
+    for (const owner of this.store.owners.runningOwners())
+      if (!owner.revoked && owner.expiresAt > Date.now()) this.bindOwner(owner, observe);
+    void this.reconcileOwners().catch(() => {});
+    this.maintenance = setInterval(() => {
+      void this.reconcileOwners().catch(() => {});
+    }, 60000);
+    this.maintenance.unref?.();
+  }
+  reconcileOwners() {
+    const operation = this.opening.then(() => this.reconcileOwnersNow());
+    this.opening = operation.catch(() => {});
+    return operation;
+  }
+  private async reconcileOwnersNow() {
+    for (const owner of this.store.owners.runningOwners()) {
+      if (!owner.revoked && owner.expiresAt > Date.now()) continue;
+      this.store.owners.retire(owner.id);
+      for (const record of this.store
+        .list(owner.id)
+        .filter((record) => record.state === 'running')) {
+        try {
+          await this.starts.get(record.id);
+          const saved =
+            record.kind === 'host' || record.target ? record : await this.verify(record);
+          if (saved.target) this.deps.validateCleanupTarget?.(saved.target);
+          await this.deps.backend.end(saved);
+        } catch (error) {
+          if (!(error instanceof TerminalSessionMissing)) continue;
+        }
+        this.store.state(record.id, 'ended');
+        const live = this.live.get(record.id);
+        live?.listeners.clear();
+        live?.process?.detach();
+        this.live.delete(record.id);
+      }
+    }
+  }
+  private assertOwner(owner: string) {
+    const lease = this.store.owners.read(owner);
+    if (lease && (lease.revoked || lease.expiresAt <= Date.now()))
+      throw Error('Operator session expired');
+  }
   list(owner: string) {
+    this.assertOwner(owner);
     return this.store.list(owner).map(publicInfo);
   }
   get(owner: string, id: string) {
+    this.assertOwner(owner);
     return publicInfo(this.store.read(owner, id));
   }
   open(owner: string, request: { sessionId?: string }): Promise<TerminalInfo> {
-    const operation = this.opening.then(() => this.openOne(owner, request));
+    const operation = this.opening.then(async () => {
+      await this.reconcileOwnersNow();
+      this.assertOwner(owner);
+      return this.openOne(owner, request);
+    });
     this.opening = operation.then(
       () => undefined,
       () => undefined,
@@ -117,6 +254,7 @@ export class TerminalService {
   }
   private async openOne(owner: string, request: { sessionId?: string }) {
     const target = await this.deps.resolve(request, owner);
+    this.assertOwner(owner);
     const existing = this.store
       .list(owner)
       .find((record) => record.identity === target.identity && record.state === 'running');
@@ -143,6 +281,7 @@ export class TerminalService {
       sessionId: target.sessionId,
       state: 'running',
       createdAt: Date.now(),
+      target,
     };
     this.store.create(record);
     try {
@@ -153,6 +292,7 @@ export class TerminalService {
         this.store.state(record.id, 'unavailable');
       throw error;
     }
+    this.assertOwner(owner);
     return this.get(owner, record.id);
   }
   private async verify(record: TerminalRecord) {
@@ -166,8 +306,10 @@ export class TerminalService {
     return { ...record, target };
   }
   private async ensure(record: TerminalRecord, resume = true): Promise<LiveTerminal> {
+    this.assertOwner(record.owner);
     if (record.state !== 'running') throw new Error('Terminal has ended or is unavailable');
     const verified = await this.verify(record);
+    this.assertOwner(record.owner);
     const existing = this.live.get(record.id);
     if (existing?.process) return existing;
     const pending = this.starts.get(record.id);
@@ -212,6 +354,7 @@ export class TerminalService {
   }
   async subscribe(owner: string, id: string, listener: (event: TerminalEvent) => void) {
     const live = await this.ensure(this.store.read(owner, id));
+    this.assertOwner(owner);
     listener({ type: 'snapshot', data: live.data, seq: live.seq });
     live.listeners.add(listener);
     return () => {
@@ -232,12 +375,14 @@ export class TerminalService {
     if (!TerminalInputBody.safeParse({ data }).success) throw new Error('Invalid terminal input');
     const live = await this.ensure(this.store.read(owner, id));
     authorize();
+    this.assertOwner(owner);
     live.process!.write(data);
   }
   async resize(owner: string, id: string, cols: number, rows: number) {
     if (!TerminalResizeBody.safeParse({ cols, rows }).success)
       throw new Error('Invalid terminal size');
     const live = await this.ensure(this.store.read(owner, id));
+    this.assertOwner(owner);
     live.process!.resize(cols, rows);
   }
   async end(owner: string, id: string) {
@@ -252,6 +397,9 @@ export class TerminalService {
     this.live.delete(id);
   }
   detachAll() {
+    if (this.maintenance) clearInterval(this.maintenance);
+    for (const release of this.ownerObservers.values()) release();
+    this.ownerObservers.clear();
     for (const live of this.live.values()) {
       live.listeners.clear();
       live.process?.detach();

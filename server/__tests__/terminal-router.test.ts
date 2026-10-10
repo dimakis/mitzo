@@ -5,6 +5,7 @@ import { registerAuthSession, revokeAuthSession } from '../auth.js';
 import { createTerminalRouter } from '../terminal-router.js';
 function setup() {
   const service = {
+    bindOwner: vi.fn(),
     open: vi.fn(async () => ({ id: 'term-owned' })),
     list: vi.fn(() => []),
     get: vi.fn(() => ({ id: 'term-owned' })),
@@ -44,6 +45,10 @@ describe('operator terminal API', () => {
       .send({ sessionId: 'chat-a' })
       .expect(201);
     expect(service.open).toHaveBeenCalledWith('login-a', { sessionId: 'chat-a' });
+    expect(service.bindOwner).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'login-a', expiresAt: expect.any(Number) }),
+      expect.any(Function),
+    );
     await request(app)
       .post('/api/terminals')
       .set('authorization', 'Bearer operator')
@@ -106,6 +111,7 @@ it('binds output transport to operator logout and expiry', async () => {
         next();
       },
       service: {
+        bindOwner: vi.fn(),
         get: () => ({}),
         subscribe: async (_owner: string, _id: string, listener: (event: unknown) => void) => {
           subscribed = true;
@@ -139,7 +145,7 @@ it('exposes only server supplied adviser accounts and explicit reviewed context'
         res.locals.authSession = { id: 'advice-login', expiresAt: Date.now() + 60000 };
         next();
       },
-      service: { get: vi.fn(() => ({ id: 'owned' })) } as never,
+      service: { bindOwner: vi.fn(), get: vi.fn(() => ({ id: 'owned' })) } as never,
       adviser: { ask } as never,
       accounts: async () => [
         { id: 'work', label: 'Work', models: [{ id: 'luna', label: 'Luna' }] },

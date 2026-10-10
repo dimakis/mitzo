@@ -3143,6 +3143,12 @@ export const terminalService = new TerminalService(new TerminalStore(taskStore.g
   backend: new TmuxTerminalBackend(
     `mitzo-${createHash('sha256').update(mitzoDir).digest('hex').slice(0, 16)}`,
   ),
+  validateCleanupTarget: (target) => {
+    if (target.kind === 'sandbox') {
+      if (!target.runtime) throw Error('Original sandbox cleanup receipt unavailable');
+      validateSessionArtifactRuntime(target.runtime, openShellRuntimeConfig(process.env));
+    }
+  },
   resolve: createTerminalTargetResolver({
     hostCwd: homedir(),
     session: (id) => {
@@ -3174,6 +3180,7 @@ export const terminalService = new TerminalService(new TerminalStore(taskStore.g
     },
   }),
 });
+terminalService.startOwnerMaintenance(registerAuthSession);
 app.use(
   '/api/terminals',
   createTerminalRouter({

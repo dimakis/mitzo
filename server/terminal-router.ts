@@ -16,6 +16,14 @@ export function createTerminalRouter(options: {
 }) {
   const router = Router();
   router.use(options.authorize);
+  router.use((_req, res, next) => {
+    try {
+      options.service.bindOwner(res.locals.authSession, options.observeAuth ?? registerAuthSession);
+      next();
+    } catch {
+      res.status(403).json({ error: 'Operator session unavailable' });
+    }
+  });
   router.get('/', (_req, res) =>
     res.json({ terminals: options.service.list(res.locals.authSession.id) }),
   );
