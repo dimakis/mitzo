@@ -2,6 +2,7 @@ import { afterEach, beforeEach, expect, it } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync, linkSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { createHash } from 'node:crypto';
 import { readMorningBriefing } from '../briefings.js';
 let root: string;
 beforeEach(() => {
@@ -22,6 +23,19 @@ it('returns the entire saved report with a stable revision rather than regenerat
   writeFileSync(path, content + '\nUpdated');
   expect(readMorningBriefing(root, '2026-10-09')?.revision).not.toBe(snapshot?.revision);
   expect(() => readMorningBriefing(root, '../secrets')).toThrow();
+});
+
+it('preserves a UTF-8 BOM so transmitted content still matches the exact saved revision', () => {
+  const bytes = Buffer.concat([
+    Buffer.from([0xef, 0xbb, 0xbf]),
+    Buffer.from('# Morning Briefing\r\n\r\nRésumé — 今日\r\n'),
+  ]);
+  writeFileSync(join(root, 'command_center/briefings/morning_2026-10-09_0700.md'), bytes);
+  const snapshot = readMorningBriefing(root, '2026-10-09')!;
+  expect(Buffer.from(snapshot.content, 'utf8')).toEqual(bytes);
+  expect(createHash('sha256').update(snapshot.content, 'utf8').digest('hex')).toBe(
+    snapshot.revision,
+  );
 });
 
 it('does not read symlinks or oversized reports outside the briefing boundary', () => {

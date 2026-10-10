@@ -70,7 +70,8 @@ export function readMorningBriefing(repoPath: string, date: string): BriefingSna
     if (!stat.isFile() || stat.nlink !== 1 || stat.size > 2 * 1024 * 1024)
       throw new Error('Briefing is unavailable or too large');
     const bytes = readBoundedFile(fd, 2 * 1024 * 1024);
-    const content = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+    // Preserve a BOM as content so UTF-8 re-encoding matches the hashed saved bytes.
+    const content = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes);
     return {
       ...latest,
       generatedAt: stat.mtime.toISOString(),
