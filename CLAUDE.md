@@ -21,7 +21,7 @@ npm run build:all    # Build server + frontend
 npm start            # Run built server (node dist/index.js)
 npm run deploy       # Build all + restart launchd service
 
-npm run lint         # ESLint (server + frontend)
+npm run lint         # ESLint (server + frontend + shared packages)
 npm run lint:fix     # ESLint with auto-fix
 npm run format       # Prettier (write)
 npm run format:check # Prettier (check only)
