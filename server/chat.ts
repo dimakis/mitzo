@@ -217,7 +217,10 @@ import type {
 } from '@mitzo/protocol';
 import { resolveChatAgentContext } from './agent-context-binding.js';
 import { createAcceptedContextPacks, getContextPackRuntime } from './context-pack-runtime.js';
-import { bootContextWithReceipt, recordAgentContextAcceptance } from './agent-context-delivery.js';
+import {
+  bootContextWithRetainedReceipt,
+  recordAgentContextAcceptance,
+} from './agent-context-delivery.js';
 import { retainAgentContextAuthority } from './agent-context-authority.js';
 import { captureAgentLibraryAuthorization } from './agent-library-transport.js';
 import { shouldAutoRename, extractRecentPrompts } from './auto-rename.js';
@@ -1813,7 +1816,14 @@ async function _startChatInner(
     return;
   }
   let bootContextMsg: BootContextMessage =
-    (agentContext ? bootContextWithReceipt(agentContext) : undefined) ??
+    (agentContext
+      ? bootContextWithRetainedReceipt(
+          agentContext,
+          stateSessionId
+            ? (eventStore.getSession(stateSessionId)?.bootContext ?? undefined)
+            : undefined,
+        )
+      : undefined) ??
     (openShellSelected
       ? { ...FALLBACK_BOOT_CONTEXT, source: 'sandbox', scope: 'sandbox' }
       : await fetchBootContext(agentName, undefined, undefined, !sdkCredentialBoundary));
@@ -1995,10 +2005,11 @@ This is an independent checkout with its own Git storage, not a linked worktree.
         onBootContext: (context) => {
           // Both sandbox startup and published-knowledge adoption use the pinned
           // ContexGin compiler. A selected profile keeps its prepared snapshot.
-          agentContext = eventStore.getSession(conversationId)?.agentContext ?? agentContext;
+          const retained = eventStore.getSession(conversationId);
+          agentContext = retained?.agentContext ?? agentContext;
           const message: BootContextMessage = agentContext
             ? {
-                ...bootContextWithReceipt(agentContext),
+                ...bootContextWithRetainedReceipt(agentContext, retained?.bootContext ?? undefined),
                 ...(context.scope ? { scope: context.scope } : {}),
               }
             : { ...context, source: 'contexgin' };

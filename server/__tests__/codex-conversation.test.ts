@@ -4338,3 +4338,219 @@ it.each([false, true])(
     );
   },
 );
+
+it.each([
+  'tool-success',
+  'tool-failure',
+  'question',
+  'duplicate',
+  'symposium-replay',
+  'durable-observer',
+] as const)(
+  'closes Codex before a host continuation can deliver revoked retained context (%s)',
+  async (path) => {
+    let current = true;
+    let replaying = false;
+    const accepted = vi.fn();
+    const authorize = vi.fn(async () => {
+      if (!current) throw Error('Retained accepted Knowledge was revoked during host work');
+    });
+    const observer = vi.fn(async () => {
+      if (path === 'durable-observer' || (path === 'symposium-replay' && replaying))
+        current = false;
+    });
+    const args: Parameters<typeof setup> = [];
+    args[10] = accepted;
+    args[25] = authorize;
+    if (path === 'symposium-replay' || path === 'durable-observer')
+      args[19] = { ownerKind: 'symposium', onToolResultDurable: observer };
+    const { c, callbacks, execute, requestUserInput, rpc, requests, onError } = await setup(
+      ...args,
+    );
+    await c.send({ id: 'accepted-command', prompt: 'Review' });
+    let continuationSignal: AbortSignal | undefined;
+    const call = {
+      threadId: 'provider-thread',
+      turnId: 'turn-1',
+      callId: 'host-call',
+      namespace: null,
+      tool: 'Read',
+      arguments: {},
+    };
+    const question = {
+      threadId: 'provider-thread',
+      turnId: 'turn-1',
+      itemId: 'question-1',
+      isBlocking: true,
+      autoResolutionMs: null,
+      questions: [
+        {
+          id: 'q1',
+          header: 'Scope',
+          question: 'Which scope?',
+          isSecret: false,
+          isOther: false,
+          options: [{ label: 'Current', description: 'Current task' }],
+        },
+      ],
+    };
+    if (path === 'duplicate' || path === 'symposium-replay') {
+      expect(
+        await callbacks.onRequest('item/tool/call', call, new AbortController().signal),
+      ).toMatchObject({ success: true });
+      if (path === 'duplicate') current = false;
+      replaying = true;
+    } else if (path === 'question') {
+      requestUserInput.mockImplementation(async (_params, signal) => {
+        continuationSignal = signal;
+        await Promise.resolve();
+        current = false;
+        return { answers: { q1: { answers: ['Current'] } } };
+      });
+    } else if (path === 'tool-success' || path === 'tool-failure') {
+      execute.mockImplementation(async (_name, _input, signal) => {
+        continuationSignal = signal;
+        await Promise.resolve();
+        current = false;
+        if (path === 'tool-failure') throw Error('Tool failed after Knowledge refresh');
+        return { content: 'Completed host work', isError: false };
+      });
+    }
+    let providerContinuations = 0;
+    try {
+      await callbacks.onRequest(
+        path === 'question' ? 'item/tool/requestUserInput' : 'item/tool/call',
+        path === 'question' ? question : call,
+        new AbortController().signal,
+      );
+    } catch {
+      // The transport translates host RPC errors into recoverable tool results.
+    }
+    if (!rpc.close.mock.calls.length) providerContinuations++;
+    expect(providerContinuations).toBe(0);
+    expect(rpc.close).toHaveBeenCalledOnce();
+    expect(onError).toHaveBeenCalledOnce();
+    expect(c.isPaused()).toBe(true);
+    if (continuationSignal) expect(continuationSignal.aborted).toBe(true);
+    expect(accepted).toHaveBeenCalledOnce();
+    expect(requests.filter((request) => request.method === 'turn/start')).toHaveLength(1);
+    current = true;
+    await expect(c.send({ id: 'must-not-revive', prompt: 'Continue' })).rejects.toThrow(
+      /unavailable|closed/,
+    );
+  },
+);
+
+it('preserves authorized Codex host continuations and their exact tool responses', async () => {
+  const authorize = vi.fn(async () => {});
+  const args: Parameters<typeof setup> = [];
+  args[25] = authorize;
+  const { c, callbacks, execute, rpc } = await setup(...args);
+  await c.send({ id: 'authorized-command', prompt: 'Review' });
+  const checksBeforeHostWork = authorize.mock.calls.length;
+  execute.mockResolvedValue({ content: 'Exact authorized result', isError: false });
+  const result = await callbacks.onRequest(
+    'item/tool/call',
+    {
+      threadId: 'provider-thread',
+      turnId: 'turn-1',
+      callId: 'authorized-tool',
+      namespace: null,
+      tool: 'Read',
+      arguments: {},
+    },
+    new AbortController().signal,
+  );
+  expect(result).toEqual({
+    success: true,
+    contentItems: [{ type: 'inputText', text: 'Exact authorized result' }],
+  });
+  expect(authorize).toHaveBeenCalledTimes(checksBeforeHostWork + 2);
+  expect(rpc.close).not.toHaveBeenCalled();
+});
+
+it.each([
+  'provider-completion',
+  'ledger-error-observer',
+  'mapper-flush',
+  'queue-observer',
+  'closed-observer',
+] as const)(
+  'guarantees actual Codex shutdown when close callbacks fail after source revocation (%s)',
+  async (failureStep) => {
+    let current = true;
+    const failure = Error(`Throwing close callback: ${failureStep}`);
+    const args: Parameters<typeof setup> = [];
+    args[25] = async () => {
+      if (!current) throw Error('Accepted source revoked');
+    };
+    const {
+      c,
+      callbacks,
+      execute,
+      rpc,
+      store,
+      onError,
+      onClosed,
+      conversationOptions,
+      getBinding,
+    } = await setup(...args);
+    await c.send({ id: 'guarded-close', prompt: 'Read' });
+    const completed = vi.fn(() => {
+      if (failureStep === 'provider-completion') throw failure;
+    });
+    conversationOptions.onProviderComplete = completed;
+    if (failureStep === 'ledger-error-observer') {
+      vi.spyOn(store, 'pauseForRecovery').mockImplementation(() => {
+        throw Error('Recovery ledger unavailable');
+      });
+      onError.mockImplementation((error) => {
+        if (error.message === 'Recovery ledger unavailable') throw failure;
+      });
+    }
+    if (failureStep === 'mapper-flush') {
+      const mapper = (c as unknown as { mapper: { flush(): void } }).mapper;
+      const flush = mapper.flush.bind(mapper);
+      vi.spyOn(mapper, 'flush').mockImplementation(() => {
+        if (!current) throw failure;
+        flush();
+      });
+    }
+    if (failureStep === 'queue-observer')
+      conversationOptions.onQueueChange = () => {
+        throw failure;
+      };
+    if (failureStep === 'closed-observer')
+      onClosed.mockImplementation(() => {
+        throw failure;
+      });
+    let toolSignal: AbortSignal | undefined;
+    execute.mockImplementation(async (_name, _input, signal) => {
+      toolSignal = signal;
+      current = false;
+      return { content: 'Host action completed', isError: false };
+    });
+    await expect(
+      callbacks.onRequest(
+        'item/tool/call',
+        {
+          threadId: 'provider-thread',
+          turnId: 'turn-1',
+          callId: 'close-failure-tool',
+          namespace: null,
+          tool: 'Read',
+          arguments: {},
+        },
+        new AbortController().signal,
+      ),
+    ).rejects.toBe(failure);
+    expect(rpc.close).toHaveBeenCalledOnce();
+    expect(toolSignal?.aborted).toBe(true);
+    expect(completed).toHaveBeenCalledWith('guarded-close', 'failed');
+    expect(onClosed).toHaveBeenCalledOnce();
+    if (failureStep !== 'ledger-error-observer')
+      expect(store.read('app', getBinding()).recovery).toBeTruthy();
+    c.close();
+    expect(rpc.close).toHaveBeenCalledOnce();
+  },
+);

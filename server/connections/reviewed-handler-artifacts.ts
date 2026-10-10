@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.9';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.41';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.42';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,9 +22,11 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../symposium-host-tool-bridge.ts':
+    '93559b7b6a5aeb1e66e633d2038cedd774d1a9efe1e8bbfc20d83c7e13326ba0',
   '../symposium-seat-authorization.ts':
     '26006d392e10e68c695e00039935332c28fb7146feaa057e482afa38c4f1fa21',
-  '../chat.ts': '47c58bf75c05907186b3c8a09cf8f411a6bcf948c45d4af5444711f068577c43',
+  '../chat.ts': 'd4a36bcd0fe373ae5e4ee0d10f617fbb33f650b0081c8ffcc0a44e5f20d471b7',
   '../agent-context-binding.ts': '4917ff83899105b7ac2c537c8db18111eeb97386d1ca0a2d2b576d872e1db360',
   '../app.ts': '65b5b84c81a572b80c71a28d09e00b62791d045324795f2465e63f6a299fdb50',
   '../ws-handler-v2.ts': '2952b6ea0ad4307739603901b01725514896452ea70c9f2464d8c04c6f4d9052',
@@ -174,10 +176,10 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../agent-context-authority.ts':
     '68b721db46cf6ba99de042cdf32be345bfc78c7ae27c2e31ee2b0b52a20ac266',
   '../agent-context-delivery.ts':
-    '91b1681f10a58ce941850ffeff732b71cdfcb08e4c695c475a65614152795a38',
+    'ccb083988e7c0563d9080a8553d9903abc1cf5b1d669b4583c215508faaee46a',
   '../agent-context-pack-compiler.ts':
     '2d4bc90077def1e87fd267ee9576cbf3b2835a00ec07b971f5f94b71bb7147a7',
-  '../codex-conversation.ts': '6cdc3af37ebc65902fc3ef201134a34cab1c33aaae596ca0da8d8422e9f4a2ac',
+  '../codex-conversation.ts': '91041d717070e1de6dba3139a6fd7731d3f93728405967205470b0bcd1ba139a',
   '../context-pack-composition.ts':
     'cae630948dd56814bda2601f3df7469712074899a53b3ff9017b08dce32638c0',
   '../context-pack-router.ts': 'ae314ca49f783d26ed8c419f69683960bc35443923009332fe4a1f9efa2e12d6',
@@ -195,7 +197,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../symposium-agent-context.ts':
     'f644a5c5b731fbadefb98d965fcd2e061b19b2b48517668c62385f770124c36a',
   '../symposium-claude-native.ts':
-    '0e7948a67cf31022a673d3ec631a1b9c513633b223dc0167674de2c174d4f314',
+    '901a5ad5c65e70e56973cb79509df4f637182f1428dd8f103df0400c5b2e4880',
   '../symposium-codex-native.ts':
     '46f9b155921092db21ab181b113404d1c593be5a02744d41fbb273857dae2ddf',
   '../symposium-host-grants.ts': 'c79ba3b163ef3f58030ffae396c19b7fa1bbc87788842bbddff6c569f01791ac',

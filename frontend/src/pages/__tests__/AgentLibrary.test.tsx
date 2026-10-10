@@ -234,6 +234,9 @@ it('offers an advisor chat that uses the existing profile proposal tool', async 
   expect(url.searchParams.get('prompt')).toContain('tokenBudget');
   expect(url.searchParams.get('prompt')).toContain('supported OpenShell sandboxes');
   expect(url.searchParams.get('prompt')).toContain('Symposium still requires');
+  expect(url.searchParams.get('prompt')).toContain(
+    'Native Claude Symposium seats do not support context recipes',
+  );
 });
 
 it('recovers unsaved edits after navigation without replacing their save basis', async () => {

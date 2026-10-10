@@ -188,59 +188,22 @@ describe('Claude Vertex sealed page feed', () => {
   );
 });
 
-it('withholds the next Claude page after accepted source authorization is revoked', async () => {
+it('refuses bound native Claude context before reading any sealed page', async () => {
   const { bindSymposiumAgentContextAuthorization } = await import('../symposium-agent-context.js');
   const current = { ...execution };
-  const authorize = vi.fn(async () => {});
-  bindSymposiumAgentContextAuthorization(current, authorize);
-  const child = Object.assign(new EventEmitter(), {
-    stdin: new PassThrough(),
-    stdout: new PassThrough(),
-    stderr: new PassThrough(),
-    kill: vi.fn(() => true),
-  });
-  let sent = '';
-  child.stdin.on('data', (chunk) => {
-    sent += chunk.toString();
-  });
-  const native = await createClaudeVertexSeat({
-    sandbox,
-    route,
-    execution: current,
-    spawnProcess: () => child,
-    requireModelReceipts: true,
-    reviewPages: {
-      readForHost: (pageIndex: number) => ({
-        context: `sealed-${pageIndex}`,
-        receipt: {
-          pageIndex,
-          pageCount: 2,
-          contextSha256: `hash-${pageIndex}`,
-          evidenceSha256: 'e'.repeat(64),
-          pagesSha256: 'p'.repeat(64),
-        },
-      }),
-      markHostDelivered: vi.fn(),
-    } as never,
-  });
-  const running = native.run(current, { beforeDispatch() {}, accepted() {} });
-  await vi.waitFor(() => expect(sent).toContain('sealed-0'));
-  const argv = claudeVertexArgv(route, current, true);
-  const thread = argv[argv.indexOf('--session-id') + 1];
-  const emit = (value: unknown) => child.stdout.write(JSON.stringify(value) + '\n');
-  emit({ type: 'system', subtype: 'init', session_id: thread, model: 'claude-test' });
-  emit({
-    type: 'assistant',
-    session_id: thread,
-    message: {
-      id: 'turn-0',
-      model: 'claude-test',
-      content: [{ type: 'text', text: 'provisional' }],
-    },
-  });
-  authorize.mockRejectedValue(Error('Accepted source revoked'));
-  const rejected = expect(running).rejects.toThrow(/failed|uncertain/);
-  emit({ type: 'result', session_id: thread, is_error: false });
-  await rejected;
-  expect(sent).not.toContain('sealed-1');
+  bindSymposiumAgentContextAuthorization(current, async () => {});
+  const readForHost = vi.fn();
+  const spawnProcess = vi.fn();
+  await expect(
+    createClaudeVertexSeat({
+      sandbox,
+      route,
+      execution: current,
+      spawnProcess,
+      requireModelReceipts: true,
+      reviewPages: { readForHost, markHostDelivered: vi.fn() },
+    }),
+  ).rejects.toThrow(/Native Claude recipe context requires a reviewed continuation fence/);
+  expect(readForHost).not.toHaveBeenCalled();
+  expect(spawnProcess).not.toHaveBeenCalled();
 });

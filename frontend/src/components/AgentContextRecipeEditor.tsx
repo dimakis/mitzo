@@ -106,9 +106,11 @@ export function AgentContextRecipeEditor({
     <fieldset className="agent-library-context-recipe" disabled={disabled}>
       <legend>Compiled chat context</legend>
       <p>
-        Published packs support local chats, OpenShell and Symposium. Workspace documents and
-        ContexGin presets compile context for local chats and supported OpenShell sandboxes.
-        Symposium uses published packs with its existing context and grant setup.
+        Published packs support local chats, OpenShell and Symposium seats that support compiled
+        context. Workspace documents and ContexGin presets compile context for local chats and
+        supported OpenShell sandboxes. Symposium uses published packs with its existing context and
+        grant setup. Native Claude Symposium seats require a profile without a context recipe.
+        Ordinary Claude chats support published packs.
       </p>
       <label className="agent-library-checkbox">
         <input

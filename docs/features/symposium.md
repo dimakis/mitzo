@@ -65,6 +65,8 @@ The Agent Library and existing profile draft/catalog controls are source feature
 saving a profile does not activate it or prove provider availability. Profiles are
 optional guidance. Select account, model, context and authority for the contributor.
 
+Native Codex and Gemini seats support published context-pack recipes. Native Claude seats reject recipe-bearing profiles before setup or spawn until a trusted continuation fence is reviewed; ordinary Claude SDK chats support packs.
+
 Ordinary chat's context-recipe compiler is accepted source. The candidate contributor
 adapter does not compile or authorize recipe context sources and explicitly rejects
 recipe-bearing saved profiles. Use Default Mitzo or a compatible saved profile without

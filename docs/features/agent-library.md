@@ -51,7 +51,7 @@ Cold resumes verify and reuse the saved compiled payload even if source document
 
 For account-independent context, select published [context packs](context-packs.md) in the Context tab. The version 2 recipe pins each pack's identity, revision and content hash plus a final composed token budget. Compilation resolves accepted Git objects from the host-enrolled Knowledge source, independently of writable task roots. Draft previews, new chats and Symposium seats use this same compiler and source authorization contract.
 
-OpenShell retains the profile snapshot once in persistent provider instructions. Verified publication retrieval guidance is delivered separately; it does not replace the pinned boot body or add another default bundle. Symposium grants bind the selected profile recipe, then persist the compiled snapshot for the exact seat membership generation before native setup/dispatch. Source grants and provider permissions remain enforced by their existing owners. Legacy workspace/preset recipes also support reviewed managed OpenShell sandboxes, as described below. Symposium compiled recipes require packs.
+OpenShell retains the profile snapshot once in persistent provider instructions. Verified publication retrieval guidance is delivered separately; it does not replace the pinned boot body or add another default bundle. Symposium grants bind the selected profile recipe, then persist the compiled snapshot for the exact seat membership generation before native setup/dispatch. Source grants and provider permissions remain enforced by their existing owners. Legacy workspace/preset recipes also support reviewed managed OpenShell sandboxes, as described below. Symposium compiled recipes require packs on supported Codex and Gemini seats. Native Claude seats reject context recipes before setup because their built-in tool continuations lack a reviewed accepted-source fence; use a profile without a recipe there. Ordinary Claude SDK chats support packs.
 
 ## OpenShell sandbox recipes
 
@@ -92,7 +92,7 @@ The source contract is verified against OpenAI's exact `79b1b666f2e8551f8abbbca3
 
 **Create with advisor** opens a normal chat asking about the agent’s job, success criteria, name, descriptor and behavior. It prefers exact published context-pack references for portable profiles, distinguishes the final composed budget from each pack's preview budget, and asks for confirmed references. It uses the existing `SymposiumProposeProfile` tool when available. Proposals appear in the chat draft controls for explicit user review and save. That tool cannot publish a profile or issue runtime grants. Runtimes without the tool can return portable profile JSON for manual review/import.
 
-Legacy workspace/preset proposals can target local or supported managed OpenShell chats. Sandbox presets require confirmed host-owned mappings; the host sample preview may use different sources. Select published packs for compiled Symposium context.
+Legacy workspace/preset proposals can target local or supported managed OpenShell chats. Sandbox presets require confirmed host-owned mappings; the host sample preview may use different sources. Select published packs for compiled context on supported Symposium seats; native Claude requires a profile without a context recipe.
 
 ## Validation and rollout
 

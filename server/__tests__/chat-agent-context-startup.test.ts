@@ -812,3 +812,100 @@ it('preserves legacy SDK hook matchers and outputs when no pack context is selec
     await rm(root, { recursive: true, force: true });
   }
 });
+
+it('retains historical context acceptance after a later failed sandbox refresh', async () => {
+  const { root, chat, profile, transport, unbind } = await setup();
+  try {
+    vi.stubEnv('MITZO_OPENSHELL_ENABLED', '1');
+    const profiles = new AccountProfiles(
+      [
+        {
+          id: 'fixture',
+          label: 'Offline account',
+          provider: 'openai-codex',
+          email: 'fixture@example.com',
+          planType: 'pro',
+          sandboxProvider: 'fixture-openai',
+          sandboxProviderType: 'openai-codex-oauth',
+          sandboxProviderId: 'provider-id',
+          sandboxGrantId: 'grant-id',
+          models: [{ id: 'luna', label: 'Luna fixture' }],
+        },
+      ],
+      { codexEnabled: true },
+    );
+    const { contextDigest } = await import('../agent-context-compiler.js');
+    const codex = await import('../codex-chat-session.js');
+    let admittedSessionId: string | undefined;
+    vi.spyOn(codex, 'openCodexChat').mockImplementation(async (options) => {
+      options.assertAgentContextAuthorization!();
+      admittedSessionId = options.conversationId;
+      const context = {
+        type: 'boot_context' as const,
+        source: 'contexgin' as const,
+        sourceCount: 1,
+        tokenCount: 10,
+        tokenBudget: 1000,
+        sources: [{ path: 'AGENTS.md', kind: 'governance' }],
+        included: [],
+        trimmed: [],
+        fullMarkdown: 'Accepted immutable sandbox guidance.',
+      };
+      const snapshot = {
+        source: 'workspace' as const,
+        compilerRevision: 'sandbox-fixture',
+        recipeHash: contextDigest(profile.definition.contextRecipe),
+        payloadHash: contextDigest(context),
+        workspaceIdentity: contextDigest('/sandbox/workspaces/mgmt'),
+        profileId: profile.profileId,
+        revision: profile.revision,
+        profileHash: profile.contentHash,
+        context,
+        sandbox: {
+          sandboxId: 'sandbox-id',
+          sandboxName: 'sandbox-name',
+          workspaceRoot: '/sandbox/workspaces/mgmt',
+          runtimeContractImageDigest: 'sha256:' + 'a'.repeat(64),
+          compilerSha256: 'b'.repeat(64),
+          entrypointSha256: 'c'.repeat(64),
+          recipeSha256: 'd'.repeat(64),
+          runtimeInputsSha256: 'e'.repeat(64),
+          effectiveRecipeHash: contextDigest(profile.definition.contextRecipe),
+        },
+      };
+      chat.eventStore.upsertSession({ sessionId: options.conversationId, agentContext: snapshot });
+      options.onBootContext!({ ...context, scope: 'sandbox' });
+      options.onAgentContextAccepted!(
+        'first-command',
+        'provider-thread',
+        'first-turn',
+        'f'.repeat(64),
+      );
+      expect(
+        JSON.parse(chat.eventStore.getSession(options.conversationId)!.bootContext!).receipt.status,
+      ).toBe('accepted');
+      options.onBootContext!({ ...context, scope: 'sandbox' });
+      throw Error('Later source authorization denied before provider acceptance');
+    });
+    await chat.startChat(transport, 'refresh-receipt', 'Review this', {
+      cwd: root,
+      accountId: 'fixture',
+      model: 'luna',
+      accountProfiles: profiles,
+      agentProfile: { profileId: 'bob', revision: 3 },
+      operatorConnectionId: 'operator',
+    });
+    const session = chat.eventStore.getSession(admittedSessionId!)!;
+    expect(JSON.parse(session.bootContext!).receipt.status).toBe('accepted');
+    expect(
+      chat.eventStore
+        .getSessionEvents(admittedSessionId!)
+        .filter((event) => event.type === 'agent_context_accepted'),
+    ).toHaveLength(1);
+  } finally {
+    unbind();
+    chat.registry.dispose();
+    chat.eventStore.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});

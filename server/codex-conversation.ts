@@ -2198,6 +2198,53 @@ export class CodexConversation {
     params: ObjectValue,
     signal: AbortSignal,
   ): Promise<ObjectValue> {
+    if (!this.opts.prepareAgentContext) return this.hostRequest(method, params, signal);
+    const active = this.active;
+    const generation = this.transportGeneration;
+    const continuationSignal = AbortSignal.any([
+      signal,
+      ...(active ? [active.abort.signal] : []),
+      ...(this.opts.startupSignal ? [this.opts.startupSignal] : []),
+    ]);
+    const authorize = async () => {
+      try {
+        if (this.closed || generation !== this.transportGeneration)
+          throw Error('Codex host continuation is closed or replaced');
+        continuationSignal.throwIfAborted();
+        await this.opts.prepareAgentContext!(continuationSignal);
+        continuationSignal.throwIfAborted();
+        if (this.closed || generation !== this.transportGeneration || this.active !== active)
+          throw Error('Codex host continuation identity changed');
+      } catch (error) {
+        if (!this.closed) {
+          try {
+            this.opts.onError?.(
+              new Error('Agent context authorization failed; Codex runtime closed.'),
+            );
+          } finally {
+            // Transport host-RPC exceptions become recoverable tool results.
+            // Close first so neither successful nor error replies can reach
+            // the provider and resume inference with revoked instructions.
+            this.close();
+          }
+        }
+        throw error;
+      }
+    };
+    await authorize();
+    try {
+      return await this.hostRequest(method, params, continuationSignal);
+    } finally {
+      // Covers questions, tool failures, duplicate uncertainty and durable
+      // replay/result observers, including authority changes while they await.
+      await authorize();
+    }
+  }
+  private async hostRequest(
+    method: string,
+    params: ObjectValue,
+    signal: AbortSignal,
+  ): Promise<ObjectValue> {
     if (method === 'item/tool/requestUserInput') {
       const input = CodexUserInput.parse(params);
       const active = this.active;
@@ -2339,41 +2386,64 @@ export class CodexConversation {
   close() {
     if (this.closed) return;
     this.closed = true;
-    this.stopCapacityScheduleForCleanup();
-    this.startupObserverAbort?.abort(new Error('Startup transport is closed or replaced'));
     this.paused = true;
-    this.finishTurnSpan('failed', 'close');
+    const active = this.active;
     const closeStatus =
-      this.active?.accepted && this.opts.deferToolSurfaceReplacement ? 'interrupted' : 'failed';
-    if (this.active) this.opts.onProviderComplete?.(this.active.command.id, closeStatus);
-    this.active?.abort.abort();
-    try {
-      if (this.binding)
-        this.opts.store.pauseForRecovery(
-          this.opts.conversationId,
-          this.binding,
-          this.active?.command.id,
-          closeStatus,
-          'resume',
-          undefined,
-          true,
-          true,
-        );
-    } catch (error) {
-      this.opts.onError?.(
-        error instanceof Error ? error : new Error('Codex recovery state could not be saved'),
-      );
-    }
-    this.active = undefined;
-    try {
-      this.mapper?.flush();
-    } finally {
+      active?.accepted && this.opts.deferToolSurfaceReplacement ? 'interrupted' : 'failed';
+    let failed = false;
+    let failure: unknown;
+    const attempt = (operation: () => void) => {
       try {
-        this.client.close();
+        operation();
+      } catch (error) {
+        if (!failed) failure = error;
+        failed = true;
+      }
+    };
+    try {
+      attempt(() => this.stopCapacityScheduleForCleanup());
+      attempt(() =>
+        this.startupObserverAbort?.abort(new Error('Startup transport is closed or replaced')),
+      );
+      attempt(() => this.finishTurnSpan('failed', 'close'));
+      attempt(() => {
+        if (active) this.opts.onProviderComplete?.(active.command.id, closeStatus);
+      });
+      attempt(() => {
+        try {
+          if (this.binding)
+            this.opts.store.pauseForRecovery(
+              this.opts.conversationId,
+              this.binding,
+              active?.command.id,
+              closeStatus,
+              'resume',
+              undefined,
+              true,
+              true,
+            );
+        } catch (error) {
+          this.opts.onError?.(
+            error instanceof Error ? error : new Error('Codex recovery state could not be saved'),
+          );
+        }
+      });
+      attempt(() => this.mapper?.flush());
+    } finally {
+      // Accounting, telemetry and event observers must never leave a closed
+      // conversation attached to a live provider or an uncancelled host tool.
+      try {
+        attempt(() => active?.abort.abort());
       } finally {
-        this.opts.onQueueChange?.();
-        this.opts.onClosed?.();
+        this.active = undefined;
+        try {
+          attempt(() => this.client.close());
+        } finally {
+          attempt(() => this.opts.onQueueChange?.());
+          attempt(() => this.opts.onClosed?.());
+        }
       }
     }
+    if (failed) throw failure;
   }
 }

@@ -382,27 +382,101 @@ it.each(['completed', 'failed', 'lost-close', 'wrong-thread', 'conflicting-resul
   },
 );
 
-it('awaits retained source authorization before Claude dispatch and spawn', async () => {
-  const { bindSymposiumAgentContextAuthorization } = await import('../symposium-agent-context.js');
-  const currentExecution = { ...execution };
-  let reject!: (error: Error) => void;
-  const pending = new Promise<void>((_resolve, rejectPromise) => {
-    reject = rejectPromise;
+it.each(['binding', 'recipe', 'snapshot', 'malformed snapshot'] as const)(
+  'refuses native Claude recipe continuation before bridge/setup/spawn: %s',
+  async (kind) => {
+    const { bindSymposiumAgentContextAuthorization } =
+      await import('../symposium-agent-context.js');
+    const currentExecution = { ...execution };
+    if (kind === 'binding')
+      bindSymposiumAgentContextAuthorization(currentExecution, async () => {});
+    if (kind === 'recipe')
+      currentExecution.seat = {
+        ...execution.seat,
+        contextRecipe: { version: 2, source: 'packs', packs: [], tokenBudget: 1000 },
+      };
+    if (kind === 'snapshot' || kind === 'malformed snapshot')
+      currentExecution.agentContext = (
+        kind === 'snapshot' ? { source: 'packs' } : {}
+      ) as import('@mitzo/protocol').AgentContextSnapshot;
+    const spawnProcess = vi.fn();
+    const createHostToolBridge = vi.fn();
+    await expect(
+      createClaudeVertexSeat({
+        sandbox,
+        route,
+        execution: currentExecution,
+        spawnProcess,
+        verifiedLauncher: true,
+        createHostToolBridge,
+        hostTools: { tools: [], instructions: '', executeTool: vi.fn() },
+        verifyHostTools: vi.fn(),
+      }),
+    ).rejects.toThrow(/Native Claude recipe context requires a reviewed continuation fence/);
+    expect(createHostToolBridge).not.toHaveBeenCalled();
+    expect(spawnProcess).not.toHaveBeenCalled();
+  },
+);
+
+it.each(['snapshot', 'binding'] as const)(
+  'refuses a same-claim copied execution with newly bound context before native launch: %s',
+  async (kind) => {
+    const spawnProcess = vi.fn(() => {
+      throw Error('Unexpected native spawn');
+    });
+    const beforeDispatch = vi.fn();
+    const native = await createClaudeVertexSeat({ sandbox, route, execution, spawnProcess });
+    const currentExecution = { ...execution };
+    if (kind === 'snapshot')
+      currentExecution.agentContext = {
+        source: 'packs',
+      } as import('@mitzo/protocol').AgentContextSnapshot;
+    else {
+      const { bindSymposiumAgentContextAuthorization } =
+        await import('../symposium-agent-context.js');
+      bindSymposiumAgentContextAuthorization(currentExecution, async () => {});
+    }
+    expect(() => native.run(currentExecution, { beforeDispatch, accepted() {} })).toThrow(
+      /Native Claude recipe context requires a reviewed continuation fence/,
+    );
+    expect(beforeDispatch).not.toHaveBeenCalled();
+    expect(spawnProcess).not.toHaveBeenCalled();
+  },
+);
+
+it('cancels the exact native Claude claim when its host bridge fails', async () => {
+  const confirm = vi.fn().mockResolvedValue(undefined) as SymposiumAttemptTransport['confirm'];
+  const { registry, child } = harness(confirm);
+  let rejectBridge!: (error: Error) => void;
+  const failed = new Promise<never>((_resolve, reject) => {
+    rejectBridge = reject;
   });
-  bindSymposiumAgentContextAuthorization(currentExecution, () => pending);
-  const spawnProcess = vi.fn();
-  const native = await createClaudeVertexSeat({
-    sandbox,
-    route,
-    execution: currentExecution,
-    spawnProcess,
-  });
-  const beforeDispatch = vi.fn();
-  const running = native.run(currentExecution, { beforeDispatch, accepted() {} });
-  expect(beforeDispatch).not.toHaveBeenCalled();
-  expect(spawnProcess).not.toHaveBeenCalled();
-  reject(Error('Accepted source scope revoked during setup'));
-  await expect(running).rejects.toThrow(/source scope revoked/);
-  expect(beforeDispatch).not.toHaveBeenCalled();
-  expect(spawnProcess).not.toHaveBeenCalled();
+  const bridge = {
+    argv: [],
+    activate: vi.fn(),
+    failed,
+    close: vi.fn().mockResolvedValue(undefined),
+  };
+  try {
+    const native = await createClaudeVertexSeat({
+      sandbox,
+      route,
+      execution,
+      attemptRegistry: registry,
+      verifiedLauncher: true,
+      hostTools: { tools: [], instructions: '', executeTool: vi.fn() },
+      verifyHostTools: vi.fn(),
+      createHostToolBridge: vi.fn().mockResolvedValue(bridge),
+    });
+    const running = native.run(execution, { beforeDispatch() {}, accepted() {} });
+    const rejected = expect(running).rejects.toThrow(/source authorization revoked/);
+    rejectBridge(Error('source authorization revoked'));
+    await rejected;
+    expect(confirm).toHaveBeenCalledWith(sandbox, execution.claimToken);
+    expect(registry.get(execution.claimToken)?.state).toBe('confirmed');
+    expect(bridge.close).toHaveBeenCalledOnce();
+    child.emit('close', 0);
+  } finally {
+    registry.close();
+  }
 });

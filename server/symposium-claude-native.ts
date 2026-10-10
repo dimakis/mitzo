@@ -240,6 +240,20 @@ export async function createClaudeVertexSeat(
   input: ClaudeVertexSeatInput,
 ): Promise<SymposiumNativeSeat> {
   const { execution, route } = input;
+  const assertContextSupported = (current: SymposiumSeatExecution) => {
+    // --bare keeps project discovery isolated, but this reviewed native launcher
+    // has no pre-model barrier for built-in tool continuations. A host MCP result
+    // fence alone cannot authorize those requests. SDK Claude packs are separate.
+    if (
+      current.seat.contextRecipe ||
+      current.agentContext ||
+      symposiumAgentContextAuthorization(current)
+    )
+      throw Error(
+        'Native Claude recipe context requires a reviewed continuation fence; select a supported runtime',
+      );
+  };
+  assertContextSupported(execution);
   const observationContext = input.attemptRegistry
     ? {
         claimToken: execution.claimToken,
@@ -274,6 +288,7 @@ export async function createClaudeVertexSeat(
         signal: execution.signal,
         tools: input.hostTools,
         verifyCurrent: input.verifyHostTools!,
+        prepareAgentContext: symposiumAgentContextAuthorization(execution),
       })
     : undefined;
   if (bridge && input.hostTools) {
@@ -306,6 +321,8 @@ export async function createClaudeVertexSeat(
         throw new Error('Claude attempt continuity lineage changed');
     },
     run(currentExecution, callbacks) {
+      assertContextSupported(execution);
+      assertContextSupported(currentExecution);
       const authorizeContext = symposiumAgentContextAuthorization(execution);
       const launch = () => {
         if (currentExecution.claimToken !== execution.claimToken)

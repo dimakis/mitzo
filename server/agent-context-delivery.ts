@@ -1,4 +1,5 @@
 import {
+  AgentCompiledBootContextSchema,
   AgentContextSnapshotSchema,
   AgentContextReceiptSchema,
   type AgentContextSnapshot,
@@ -23,6 +24,35 @@ export function bootContextWithReceipt(
     }),
   };
 }
+/** Historical acceptance survives refresh only for the exact validated durable payload. */
+export function bootContextWithRetainedReceipt(
+  snapshot: AgentContextSnapshot,
+  retainedBootContext?: string,
+) {
+  const prepared = bootContextWithReceipt(snapshot);
+  if (!retainedBootContext) return prepared;
+  try {
+    const retained: unknown = JSON.parse(retainedBootContext);
+    if (!retained || typeof retained !== 'object' || Array.isArray(retained)) return prepared;
+    const { receipt, ...context } = retained as Record<string, unknown>;
+    delete context.scope;
+    const previousReceipt = AgentContextReceiptSchema.safeParse(receipt);
+    const previousContext = AgentCompiledBootContextSchema.safeParse(context);
+    const accepted = bootContextWithReceipt(snapshot, 'accepted');
+    if (
+      previousReceipt.success &&
+      previousContext.success &&
+      JSON.stringify(previousReceipt.data) === JSON.stringify(accepted.receipt) &&
+      JSON.stringify(previousContext.data) ===
+        JSON.stringify(AgentContextSnapshotSchema.parse(snapshot).context)
+    )
+      return accepted;
+  } catch {
+    // Invalid legacy metadata cannot establish acceptance of the current payload.
+  }
+  return prepared;
+}
+
 /** Provider-confirmed acknowledgement is distinct from compilation or selecting a publication. */
 export function recordAgentContextAcceptance(input: {
   store: Pick<EventStore, 'getSession' | 'append' | 'upsertSession'>;
