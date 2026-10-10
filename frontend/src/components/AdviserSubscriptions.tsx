@@ -59,6 +59,7 @@ export function AdviserSubscriptions({
       if (data.pendingAttempt !== undefined) setAttempt(data.pendingAttempt);
       setError('');
       if (data.pendingAttempt) setMessage('Finish sign-in in the browser on your Mac.');
+      return { data, request };
     }
   }, []);
   useEffect(() => {
@@ -85,10 +86,13 @@ export function AdviserSubscriptions({
         if (result.id !== attempt.id) throw Error('Sign-in attempt changed');
         if (disposed) return;
         if (result.state !== 'pending') {
-          await refresh();
-          if (!disposed) {
-            setAttempt(result);
+          const refreshed = await refresh();
+          if (!disposed && refreshed && refreshed.request === version.current) {
             changed.current();
+            // The host snapshot can recover a newer attempt from another tab.
+            // Keep its controls and status rather than replaying this older result.
+            if (refreshed.data.pendingAttempt) return;
+            setAttempt(result);
             setMessage(
               result.state === 'connected'
                 ? 'ChatGPT adviser connected. Choose its account and model.'

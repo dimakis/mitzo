@@ -139,6 +139,107 @@ it('continues polling a recovered host-owned attempt until it completes', async 
   expect(mocks.changed).toHaveBeenCalledTimes(1);
   expect(mocks.fetch.mock.calls.some(([url]) => url.endsWith('/start'))).toBe(false);
 });
+it('keeps a newer host-owned pending attempt when an older completed poll refreshes accounts', async () => {
+  vi.useFakeTimers();
+  let current = 'attempt-a';
+  mocks.fetch.mockImplementation(async (url: string) => {
+    if (url.endsWith('/attempts/attempt-a')) {
+      current = 'attempt-b';
+      return new Response(JSON.stringify({ id: 'attempt-a', state: 'connected' }));
+    }
+    if (url.endsWith('/attempts/attempt-b'))
+      return new Response(JSON.stringify({ id: 'attempt-b', state: 'pending' }));
+    if (url.endsWith('/cancel')) return new Response(JSON.stringify({ ok: true }));
+    return new Response(
+      JSON.stringify({
+        enabled: true,
+        accounts: [],
+        pendingAttempt: { id: current, state: 'pending' },
+      }),
+    );
+  });
+  await act(async () => {
+    render(<AdviserSubscriptions onAccountsChanged={mocks.changed} />);
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Manage adviser accounts' }));
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(2000);
+  });
+  expect(screen.getByRole('status').textContent).toBe('Finish sign-in in the browser on your Mac.');
+  expect(
+    screen
+      .getByRole('button', { name: 'Continue with ChatGPT on your Mac' })
+      .hasAttribute('disabled'),
+  ).toBe(true);
+  expect(screen.getByRole('button', { name: 'Cancel sign-in' }).hasAttribute('disabled')).toBe(
+    false,
+  );
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(2000);
+  });
+  expect(mocks.fetch.mock.calls.some(([url]) => url.endsWith('/attempts/attempt-b'))).toBe(true);
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel sign-in' }));
+  });
+  expect(
+    mocks.fetch.mock.calls.filter(([url]) => url.endsWith('/cancel')).map(([url]) => url),
+  ).toEqual(['/api/terminals/subscriptions/attempts/attempt-b/cancel']);
+  expect(mocks.fetch.mock.calls.some(([url]) => url.endsWith('/start'))).toBe(false);
+});
+it('ignores an older completion refresh after cancellation and a newer local sign-in', async () => {
+  vi.useFakeTimers();
+  let reads = 0;
+  let finishRefresh!: (response: Response) => void;
+  mocks.fetch.mockImplementation(async (url: string) => {
+    if (url.endsWith('/attempts/attempt-a'))
+      return new Response(JSON.stringify({ id: 'attempt-a', state: 'connected' }));
+    if (url.endsWith('/start'))
+      return new Response(JSON.stringify({ id: 'attempt-b', state: 'pending' }));
+    if (url.endsWith('/cancel')) return new Response(JSON.stringify({ ok: true }));
+    if (url.endsWith('/attempts/attempt-b'))
+      return new Response(JSON.stringify({ id: 'attempt-b', state: 'pending' }));
+    if (++reads === 2)
+      return new Promise<Response>((resolve) => {
+        finishRefresh = resolve;
+      });
+    return new Response(
+      JSON.stringify({
+        enabled: true,
+        accounts: [],
+        pendingAttempt: { id: 'attempt-a', state: 'pending' },
+      }),
+    );
+  });
+  await act(async () => {
+    render(<AdviserSubscriptions onAccountsChanged={mocks.changed} />);
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Manage adviser accounts' }));
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(2000);
+  });
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel sign-in' }));
+  });
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: 'Continue with ChatGPT on your Mac' }));
+  });
+  await act(async () => {
+    finishRefresh(
+      new Response(JSON.stringify({ enabled: true, accounts: [], pendingAttempt: null })),
+    );
+  });
+  expect(screen.getByRole('status').textContent).toBe('Finish sign-in in the browser on your Mac.');
+  expect(
+    screen
+      .getByRole('button', { name: 'Continue with ChatGPT on your Mac' })
+      .hasAttribute('disabled'),
+  ).toBe(true);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(2000);
+  });
+  expect(mocks.fetch.mock.calls.some(([url]) => url.endsWith('/attempts/attempt-b'))).toBe(true);
+  expect(mocks.changed).not.toHaveBeenCalled();
+});
 it('keeps account setup collapsed and lets the host browser own subscription sign-in', async () => {
   mocks.fetch.mockImplementation(
     async (url: string, _init?: RequestInit) =>
