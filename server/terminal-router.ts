@@ -4,6 +4,11 @@ import { registerAuthSession, type AuthSession } from './auth.js';
 import { requireSameOriginJson } from './connections-router.js';
 import { AdviserBody, type TerminalAdviser } from './terminal-adviser.js';
 import type { TerminalService } from './terminal-service.js';
+import { z } from 'zod';
+import {
+  getTerminalPlanAdviserHost,
+  type TerminalPlanAdviserHost,
+} from './terminal-plan-adviser.js';
 
 export function createTerminalRouter(options: {
   service: TerminalService;
@@ -13,6 +18,7 @@ export function createTerminalRouter(options: {
   context?: (sessionId?: string) => unknown;
   destinations?: () => unknown;
   observeAuth?: (session: AuthSession, invalidate: () => void) => () => void;
+  planAdvisers?: () => TerminalPlanAdviserHost | null;
 }) {
   const router = Router();
   router.use(options.authorize);
@@ -42,6 +48,94 @@ export function createTerminalRouter(options: {
       ) ?? {},
     ),
   );
+  const planHost = options.planAdvisers ?? getTerminalPlanAdviserHost;
+  router.get('/subscriptions', (_req, res) => {
+    try {
+      const host = planHost();
+      res.json({ enabled: !!host, accounts: host?.list() ?? [] });
+    } catch {
+      res.status(503).json({ error: 'Adviser accounts unavailable' });
+    }
+  });
+  router.post('/subscriptions/start', requireSameOriginJson, async (req, res) => {
+    const body = z
+      .object({
+        label: z.string().trim().min(1).max(80),
+        accountId: z.string().min(1).max(200).optional(),
+      })
+      .strict()
+      .safeParse(req.body);
+    if (!body.success) {
+      res.status(400).json({ error: 'Invalid adviser sign-in request' });
+      return;
+    }
+    const host = planHost();
+    if (!host) {
+      res.status(503).json({ error: 'ChatGPT adviser sign-in is not enabled on this Mac' });
+      return;
+    }
+    try {
+      const auth = res.locals.authSession as AuthSession;
+      res
+        .status(202)
+        .json(await host.start(auth.id, auth.expiresAt, body.data.label, body.data.accountId));
+    } catch {
+      res.status(409).json({ error: 'Could not start adviser sign-in on the Mac. Retry.' });
+    }
+  });
+  router.get('/subscriptions/attempts/:attempt', (req, res) => {
+    try {
+      const host = planHost();
+      if (!host) throw Error('Unavailable');
+      res.json(host.status(res.locals.authSession.id, String(req.params.attempt)));
+    } catch {
+      res.status(404).json({ error: 'Adviser sign-in unavailable' });
+    }
+  });
+  router.post(
+    '/subscriptions/attempts/:attempt/cancel',
+    requireSameOriginJson,
+    async (req, res) => {
+      if (!z.object({}).strict().safeParse(req.body).success) {
+        res.status(400).json({ error: 'Invalid cancellation' });
+        return;
+      }
+      try {
+        const host = planHost();
+        if (!host) throw Error('Unavailable');
+        await host.cancel(res.locals.authSession.id, String(req.params.attempt));
+        res.json({ ok: true });
+      } catch {
+        res.status(409).json({ error: 'Adviser sign-in cancellation unavailable' });
+      }
+    },
+  );
+  router.post('/subscriptions/:account/disconnect', requireSameOriginJson, async (req, res) => {
+    if (!z.object({}).strict().safeParse(req.body).success) {
+      res.status(400).json({ error: 'Invalid disconnect request' });
+      return;
+    }
+    const controller = new AbortController();
+    const unobserve = (options.observeAuth ?? registerAuthSession)(res.locals.authSession, () =>
+      controller.abort(),
+    );
+    try {
+      const host = planHost();
+      if (!host) throw Error('Unavailable');
+      res.json(
+        await host.disconnect(
+          String(req.params.account),
+          AbortSignal.any([controller.signal, AbortSignal.timeout(30000)]),
+        ),
+      );
+    } catch {
+      res
+        .status(409)
+        .json({ error: 'Adviser disconnect could not be confirmed. Refresh accounts.' });
+    } finally {
+      unobserve();
+    }
+  });
   router.post('/:id/advice', requireSameOriginJson, async (req, res) => {
     const body = AdviserBody.safeParse(req.body);
     if (!body.success) {

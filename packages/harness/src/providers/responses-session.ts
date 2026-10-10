@@ -41,7 +41,7 @@ export interface ResponsesCheckpoint {
   input: Record<string, unknown>[];
 }
 
-export interface ResponsesSessionOptions {
+interface ApiResponsesSessionOptions {
   accountId: string;
   /** Stateless, text-only reviewed transcript. Incompatible with tools or checkpoints. */
   textTranscript?: boolean;
@@ -50,7 +50,21 @@ export interface ResponsesSessionOptions {
   /** Enrolled rotation uses a fresh, account-bound secret for every request. Failure never falls back. */
   getApiKey?: (signal?: AbortSignal) => Promise<string>;
   checkpoint?: ResponsesCheckpoint;
+  authentication?: 'api';
 }
+/** Plan tokens come only from the dedicated registration authority. This route
+ * cannot inherit API billing, agent tools, provider checkpoints or custom URLs. */
+interface ChatGptPlanResponsesSessionOptions {
+  accountId: string;
+  authentication: 'chatgpt-plan';
+  textTranscript: true;
+  getAccessToken: (signal?: AbortSignal) => Promise<string>;
+  apiKey?: never;
+  getApiKey?: never;
+  checkpoint?: never;
+}
+export type ResponsesSessionOptions =
+  ApiResponsesSessionOptions | ChatGptPlanResponsesSessionOptions;
 
 /** Private structured failure used by the server's sanitizer. It never retains a response body. */
 export class OpenAIResponsesRequestError extends Error {
@@ -314,9 +328,9 @@ class ResponseBlocks {
   }
 }
 
-/** Direct API billing route. One instance belongs to one server-owned account binding. */
+/** One direct inference route and one server-owned account binding per instance. */
 export class ResponsesSession implements ModelSession {
-  readonly provider = 'openai';
+  readonly provider: 'openai' | 'openai-chatgpt-plan';
   private state: ResponsesCheckpoint;
   private running = false;
 
@@ -324,12 +338,23 @@ export class ResponsesSession implements ModelSession {
     private config: ModelSessionConfig,
     private options: ResponsesSessionOptions,
   ) {
+    const plan = options.authentication === 'chatgpt-plan';
+    this.provider = plan ? 'openai-chatgpt-plan' : 'openai';
+    if (
+      plan &&
+      (!options.textTranscript ||
+        typeof options.getAccessToken !== 'function' ||
+        options.apiKey !== undefined ||
+        options.getApiKey !== undefined ||
+        options.checkpoint !== undefined)
+    )
+      throw new Error('ChatGPT plan inference requires separate text-only authorization');
     if (options.textTranscript && (config.tools?.length || options.checkpoint))
       throw new Error('Text transcript inference cannot use tools or checkpoints');
     if (!options.accountId.trim()) throw new Error('OpenAI account ID is required');
     if (options.checkpoint && options.checkpoint.accountId !== options.accountId)
       throw new Error('OpenAI checkpoint account does not match');
-    if (!options.apiKey.trim()) throw new Error('OpenAI API key is required');
+    if (!plan && !options.apiKey.trim()) throw new Error('OpenAI API key is required');
     if (config.thinking)
       throw new Error('Anthropic thinking budgets are unsupported by OpenAI Responses');
     if (options.checkpoint && options.checkpoint.model !== config.model)
@@ -346,6 +371,8 @@ export class ResponsesSession implements ModelSession {
 
   /** Persist beside the account binding after a completed turn; never send to the phone. */
   checkpoint(): ResponsesCheckpoint {
+    if (this.options.authentication === 'chatgpt-plan')
+      throw new Error('ChatGPT adviser checkpoints are unavailable');
     return structuredClone(this.state);
   }
 
@@ -377,7 +404,8 @@ export class ResponsesSession implements ModelSession {
       {
         kind: SpanKind.CLIENT,
         attributes: {
-          'mitzo.route': 'openai-api',
+          'mitzo.route':
+            this.options.authentication === 'chatgpt-plan' ? 'chatgpt-plan-adviser' : 'openai-api',
           'gen_ai.request.model': this.config.model,
           'http.request.method': 'POST',
           'server.address': 'api.openai.com',
@@ -389,12 +417,16 @@ export class ResponsesSession implements ModelSession {
     let failed = false;
     let responseReceived = false;
     try {
-      const apiKey = this.options.getApiKey
-        ? await this.options.getApiKey(this.config.signal)
-        : this.options.apiKey;
+      const apiKey =
+        this.options.authentication === 'chatgpt-plan'
+          ? await this.options.getAccessToken(this.config.signal)
+          : this.options.getApiKey
+            ? await this.options.getApiKey(this.config.signal)
+            : this.options.apiKey;
       if (!apiKey.trim()) throw new Error('OpenAI API credential unavailable');
       const response = await fetch('https://api.openai.com/v1/responses', {
         method: 'POST',
+        redirect: 'error',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${apiKey}`,
@@ -406,7 +438,7 @@ export class ResponsesSession implements ModelSession {
           max_output_tokens: this.config.maxTokens,
           stream: true,
           store: false,
-          include: ['reasoning.encrypted_content'],
+          ...(!this.options.textTranscript ? { include: ['reasoning.encrypted_content'] } : {}),
           ...(this.config.reasoningEffort ||
           (/^(?:gpt-[56](?:[.-]|$)|o[34](?:-|$))/.test(this.config.model) &&
             !/(?:^|-)chat(?:-|$)/.test(this.config.model))

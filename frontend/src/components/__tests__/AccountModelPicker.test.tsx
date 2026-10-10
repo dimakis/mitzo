@@ -1077,23 +1077,25 @@ it('keeps terminal adviser account, model and thinking independent of chat defau
     'mitzo-default-account-model',
     JSON.stringify({ accountId: 'other', model: 'other' }),
   );
-  vi.mocked(apiFetch).mockResolvedValue(
-    new Response(
-      JSON.stringify([
-        {
-          id: 'work',
-          label: 'Work',
-          models: [
+  vi.mocked(apiFetch).mockImplementation(async (url) =>
+    String(url).endsWith('/subscriptions')
+      ? new Response(JSON.stringify({ enabled: false, accounts: [] }))
+      : new Response(
+          JSON.stringify([
             {
-              id: 'luna',
-              label: 'Luna',
-              reasoningEfforts: ['low', 'high'],
-              defaultReasoningEffort: 'low',
+              id: 'work',
+              label: 'Work',
+              models: [
+                {
+                  id: 'luna',
+                  label: 'Luna',
+                  reasoningEfforts: ['low', 'high'],
+                  defaultReasoningEffort: 'low',
+                },
+              ],
             },
-          ],
-        },
-      ]),
-    ),
+          ]),
+        ),
   );
   render(
     <AccountModelPicker
