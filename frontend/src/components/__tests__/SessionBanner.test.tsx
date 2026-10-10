@@ -88,7 +88,7 @@ describe('SessionBanner', () => {
     fireEvent.click(screen.getByTitle('View full markdown'));
     expect(screen.getByText('Boot Context (Full Markdown)')).toBeTruthy();
     // Close the modal
-    fireEvent.click(screen.getByText('\u2715'));
+    fireEvent.click(screen.getByRole('button', { name: 'Close boot context' }));
     expect(screen.queryByText('Boot Context (Full Markdown)')).toBeNull();
   });
 

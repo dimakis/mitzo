@@ -1,3 +1,4 @@
+import { UiIcon } from '../components/UiIcon';
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useSessionList } from '../hooks/useSessionList';
@@ -151,12 +152,14 @@ export function Today() {
                       · {item.meta}
                     </small>
                   </span>
-                  <span aria-hidden="true">↗</span>
+                  <span aria-hidden="true">
+                    <UiIcon name="forward" size={16} />
+                  </span>
                 </Link>
               ))
             )}
             <Link className="workspace-text-link" to="/todos">
-              All work →
+              All work <UiIcon name="right" size={16} />
             </Link>
           </section>
         </div>
@@ -190,12 +193,14 @@ export function Today() {
                     </small>
                   )}
                 </span>
-                <span aria-hidden="true">↗</span>
+                <span aria-hidden="true">
+                  <UiIcon name="forward" size={16} />
+                </span>
               </Link>
             ))
           )}
           <Link className="workspace-text-link" to="/sessions">
-            All chats →
+            All chats <UiIcon name="right" size={16} />
           </Link>
           <label className="today-token-toggle">
             <input
@@ -233,7 +238,7 @@ export function Today() {
             disabled={!prompt.trim()}
             aria-label="Start chat"
           >
-            Send ↗
+            Send <UiIcon name="send" size={16} />
           </button>
         </div>
         <Link to="/chat">Open a new chat</Link>

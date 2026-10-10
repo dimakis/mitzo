@@ -337,7 +337,7 @@ export function ChatInput({
                 aria-label={`Remove attachment ${index + 1}`}
                 onClick={() => removeImage(index)}
               >
-                &times;
+                <UiIcon name="close" size={16} />
               </button>
             </div>
           ))}
@@ -373,8 +373,9 @@ export function ChatInput({
           <button
             className="chat-input-queued-btn chat-input-queued-btn--clear"
             onClick={() => removeQueued(i)}
+            aria-label={`Remove queued message ${i + 1}`}
           >
-            &times;
+            <UiIcon name="close" size={16} />
           </button>
         </div>
       ))}

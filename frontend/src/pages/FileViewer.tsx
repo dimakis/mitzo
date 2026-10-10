@@ -1,3 +1,4 @@
+import { UiIcon } from '../components/UiIcon';
 import { useSearchParams, useNavigate, useLocation } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import {
@@ -98,6 +99,7 @@ function FileViewerDocument() {
         {(state.isViewing || state.canGoUp || fromRoute) && (
           <button
             className="viewer-header-back"
+            aria-label="Back"
             onClick={() => {
               if (editor.saving) return;
               if (editor.dirty && !confirm('Discard unsaved changes?')) return;
@@ -109,7 +111,7 @@ function FileViewerDocument() {
               }
             }}
           >
-            &larr;
+            <UiIcon name="back" size={16} />
           </button>
         )}
         <span className="viewer-header-title">{state.isViewing ? fileName : dirName}</span>

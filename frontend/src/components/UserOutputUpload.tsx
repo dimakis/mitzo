@@ -1,3 +1,4 @@
+import { UiIcon } from './UiIcon';
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { apiFetch } from '../lib/api-fetch';
@@ -171,7 +172,7 @@ export function UserOutputUpload({ itemId, onUploaded }: { itemId: string; onUpl
                   aria-label="Close upload"
                   onClick={() => setOpened(false)}
                 >
-                  ×
+                  <UiIcon name="close" size={16} />
                 </button>
               </header>
               <form
@@ -187,7 +188,7 @@ export function UserOutputUpload({ itemId, onUploaded }: { itemId: string; onUpl
                   </p>
                   <div className="output-upload-file-card">
                     <span className="output-file-icon" aria-hidden="true">
-                      ↑
+                      <UiIcon name="upload" size={16} />
                     </span>
                     <strong>{file ? file.name : 'Choose a file'}</strong>
                     <p>
@@ -210,18 +211,7 @@ export function UserOutputUpload({ itemId, onUploaded }: { itemId: string; onUpl
                         disabled={busy}
                         onClick={() => camera.current?.click()}
                       >
-                        <svg
-                          aria-hidden="true"
-                          width="16"
-                          height="16"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="1.5"
-                        >
-                          <path d="M4 6h4l2-3h4l2 3h4a1 1 0 0 1 1 1v13H3V7a1 1 0 0 1 1-1Z" />
-                          <circle cx="12" cy="13" r="4" />
-                        </svg>
+                        <UiIcon name="file" size={16} />
                         Camera
                       </button>
                     </div>

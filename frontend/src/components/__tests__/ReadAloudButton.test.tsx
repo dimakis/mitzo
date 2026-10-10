@@ -11,13 +11,14 @@ describe('ReadAloudButton', () => {
   it('renders speaker icon when idle', () => {
     render(<ReadAloudButton text="Hello" active={false} onSpeak={vi.fn()} onStop={vi.fn()} />);
     const btn = screen.getByRole('button', { name: 'Read aloud' });
-    expect(btn.textContent).toBe('\u{1F50A}');
+    expect(btn.querySelector('svg')?.getAttribute('data-icon')).toBe('volume');
+    expect(btn.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true');
   });
 
   it('renders stop icon when active', () => {
     render(<ReadAloudButton text="Hello" active={true} onSpeak={vi.fn()} onStop={vi.fn()} />);
     const btn = screen.getByRole('button', { name: 'Stop reading' });
-    expect(btn.textContent).toBe('\u23F9');
+    expect(btn.querySelector('svg')?.getAttribute('data-icon')).toBe('stop');
   });
 
   it('calls onSpeak with text when clicked while idle', () => {

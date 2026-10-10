@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { MitzoLogo } from './MitzoLogo';
+import { UiIcon } from './UiIcon';
 
 interface PageHeaderProps {
   title: string;
@@ -14,7 +15,7 @@ export function PageHeader({ title, badge, center, children, onBack }: PageHeade
     <header className="page-header">
       {onBack ? (
         <button className="page-header-back" onClick={onBack} aria-label="Back">
-          &larr;
+          <UiIcon name="back" size={16} />
         </button>
       ) : (
         <MitzoLogo />

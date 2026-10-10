@@ -99,7 +99,7 @@ export function DesktopShell({
               onClick={toggleLeft}
               title={leftCollapsed ? 'Show sidebar' : 'Hide sidebar'}
             >
-              {leftCollapsed ? '\u25B6' : '\u25C0'}
+              <UiIcon name={leftCollapsed ? 'panelLeft' : 'panelLeftClose'} size={16} />
             </button>
             {!leftCollapsed && <>{left}</>}
           </div>
@@ -114,7 +114,7 @@ export function DesktopShell({
               onClick={toggleRight}
               title={rightCollapsed ? 'Show context' : 'Hide context'}
             >
-              {rightCollapsed ? '\u25C0' : '\u25B6'}
+              <UiIcon name={rightCollapsed ? 'panelRight' : 'panelRightClose'} size={16} />
             </button>
             {!rightCollapsed && right}
           </div>
