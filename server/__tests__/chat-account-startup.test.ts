@@ -103,6 +103,27 @@ it('delivers the exact dated briefing snapshot to the mocked Codex provider and 
     expect(restored.filter((message) => message.role === 'user')).toHaveLength(1);
     expect(restored[0].sourceSnapshots).toEqual([snapshot]);
     expect(restored[0].blocks[0].content).toBe('Discuss the saved report');
+    open.mockClear();
+    const rejectedTransport = { send: vi.fn(), isOpen: () => true };
+    const rejected = await chat
+      .startChat(rejectedTransport, 'invalid-source-provider', 'Discuss', {
+        cwd: root,
+        isolation: false,
+        accountId: 'work',
+        model: 'luna',
+        accountProfiles: profiles,
+        sourceSnapshots: [{ ...snapshot, content: 'Changed source with an old revision' }],
+      })
+      .then(
+        () => null,
+        (error: unknown) => error,
+      );
+    expect(open).not.toHaveBeenCalled();
+    const reported =
+      rejected instanceof Error
+        ? rejected.message
+        : rejectedTransport.send.mock.calls.map(([event]) => String(event.error ?? '')).join(' ');
+    expect(reported).toMatch(/revision/);
   } finally {
     chat.eventStore.close();
     await rm(root, { recursive: true, force: true });
