@@ -139,3 +139,31 @@ it('shows every line of a staged adviser command before executing it', async () 
   fireEvent.click(screen.getByRole('button', { name: 'Run command' }));
   await waitFor(() => expect(mocks.send).toHaveBeenCalledWith('printf first\npwd\r'));
 });
+
+it('retains deliberately reviewed output in subsequent adviser turns', async () => {
+  setup();
+  await screen.findByText('Shell output');
+  fireEvent.click(screen.getByRole('button', { name: 'Show Minion' }));
+  fireEvent.click(screen.getByText('Use Work Luna Low'));
+  fireEvent.click(screen.getByRole('button', { name: 'Share output' }));
+  fireEvent.change(screen.getByLabelText('Reviewed output'), { target: { value: 'redacted' } });
+  fireEvent.change(screen.getByLabelText('Ask Minion'), { target: { value: 'help' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Ask adviser' }));
+  await screen.findByText('Try checking');
+  fireEvent.change(screen.getByLabelText('Ask Minion'), { target: { value: 'why?' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Ask adviser' }));
+  await waitFor(() =>
+    expect(
+      vi.mocked(apiFetch).mock.calls.filter(([path]) => String(path).endsWith('/advice')),
+    ).toHaveLength(2),
+  );
+  const requests = vi
+    .mocked(apiFetch)
+    .mock.calls.filter(([path]) => String(path).endsWith('/advice'));
+  const body = JSON.parse(requests[1][1]!.body as string);
+  expect(body.messages[0]).toEqual({
+    role: 'user',
+    content: 'help\n\nReviewed terminal output:\nredacted',
+  });
+  expect(body.output).toBeUndefined();
+});

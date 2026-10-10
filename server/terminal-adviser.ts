@@ -9,7 +9,7 @@ export const AdviserBody = z
     messages: z
       .array(
         z
-          .object({ role: z.enum(['user', 'assistant']), content: z.string().min(1).max(8192) })
+          .object({ role: z.enum(['user', 'assistant']), content: z.string().min(1).max(32768) })
           .strict(),
       )
       .min(1)

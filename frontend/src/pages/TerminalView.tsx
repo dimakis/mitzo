@@ -232,7 +232,12 @@ export function TerminalView() {
       const result = await response.json();
       if (controller.signal.aborted) return;
       setReply(result);
-      setMessages([...next, { role: 'assistant', content: result.text.slice(0, 8192) }]);
+      const retained = next.map((message, index) =>
+        index === next.length - 1 && review
+          ? { ...message, content: `${message.content}\n\nReviewed terminal output:\n${review}` }
+          : message,
+      );
+      setMessages([...retained, { role: 'assistant', content: result.text.slice(0, 8192) }]);
       setQuestion('');
       setReview(null);
     } catch {
