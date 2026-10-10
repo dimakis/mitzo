@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   store: vi.fn(),
   setArtifactRuntime: vi.fn(),
   recordKnowledgeAdoption: vi.fn(),
+  recordAgentContextAdoption: vi.fn(),
   privateDirectory: '/tmp',
   conversationOptions: undefined as Record<string, unknown> | undefined,
   useTls: false,
@@ -45,6 +46,7 @@ vi.mock('../codex-conversation-store.js', () => ({
     }
     setArtifactRuntime = mocks.setArtifactRuntime;
     recordKnowledgeAdoption = mocks.recordKnowledgeAdoption;
+    recordAgentContextAdoption = mocks.recordAgentContextAdoption;
   },
 }));
 vi.mock('../codex-conversation.js', () => ({
@@ -135,6 +137,23 @@ it('forwards only recognized sanitized Codex diagnostics', () => {
   expect(publicCodexRuntimeError(new Error('Bearer sk-secret at https://private.example'))).toBe(
     'Codex turn failed. Inspect queued work before retrying.',
   );
+});
+it('explains sandbox recipe compatibility and source failures without exposing compiler output', async () => {
+  const { SandboxAgentContextAdmissionError } = await import('../agent-context-sandbox.js');
+  const secret = Error('Bearer sk-private in /private/workspace and compiler stdout');
+  for (const [reason, expected] of [
+    ['runtime', 'compatible reviewed runtime'],
+    ['recipe', 'selected documents'],
+    ['scope', 'new chat'],
+    ['authorization', 'Sign in again'],
+  ] as const) {
+    const detail = new SandboxAgentContextAdmissionError(reason, secret);
+    const message = publicCodexStartupError(new CodexStartupError('context_preparation', detail));
+    expect(message).toContain(expected);
+    expect(message).toContain('No provider turn was started');
+    expect(message).not.toContain('sk-private');
+    expect(message).not.toContain('/private/workspace');
+  }
 });
 it('reports connection admission rejection without claiming a provider turn failed', () => {
   expect(
@@ -1873,13 +1892,35 @@ it('preserves first launch and valid restore while failing closed for a replacem
           fullMarkdown: 'PINNED PROFILE CONTEXT',
         },
       };
+      const prepareProfile = vi.fn().mockResolvedValue(undefined);
       const profiled = await openCodexChat({
         ...chatOptions('valid-lifecycle-state', true),
         systemPrompt: 'base prompt\nPINNED PROFILE CONTEXT',
+        agentProfile: {
+          profileId: profileContext.profileId,
+          revision: profileContext.revision,
+          contentHash: profileContext.profileHash,
+          definition: {
+            name: 'Architect',
+            role: 'agent',
+            instructions: 'Review the design.',
+            expectedOutput: 'Design brief',
+            acceptanceCriteria: [],
+            modelPolicyRole: 'agent',
+            contextRecipe: {
+              version: 2,
+              source: 'packs',
+              tokenBudget: 1000,
+              packs: profileContext.provenance.packs,
+            },
+          },
+        },
+        prepareAgentContext: prepareProfile,
         agentContext: profileContext,
         onAgentContextAccepted: profileAccepted,
       });
       expect(mocks.conversationOptions?.disableProjectDocuments).toBe(true);
+      expect(mocks.conversationOptions?.prepareAgentContext).toBe(prepareProfile);
       const profilePrepare = mocks.conversationOptions?.prepareSystemPrompt as (
         signal: AbortSignal,
       ) => Promise<string>;
@@ -2189,3 +2230,280 @@ it('acknowledges host Codex profile context only on exact provider turn acceptan
     startup.mockRestore();
   }
 });
+it.each(['new', 'resume', 'revoked', 'compiler failure'])(
+  'admits sandbox recipes before provider initialization and preserves their immutable prompt: %s',
+  async (phase) => {
+    vi.clearAllMocks();
+    mocks.initialize.mockResolvedValue(undefined);
+    mocks.send.mockResolvedValue(undefined);
+    vi.stubEnv('MITZO_OPENSHELL_ENABLED', '1');
+    vi.stubEnv('MITZO_OPENSHELL_IMAGE', 'fixture');
+    vi.stubEnv('MITZO_OPENSHELL_POLICY', '/fixture/policy');
+    vi.stubEnv('MITZO_OPENSHELL_SEED', '/fixture/seed');
+    const { contextDigest } = await import('../agent-context-compiler.js');
+    const { resolveSandboxAgentContext, SANDBOX_AGENT_COMPILER_REVISION } =
+      await import('../agent-context-sandbox.js');
+    const recipe = {
+      version: 1 as const,
+      source: 'workspace' as const,
+      files: ['design.md'],
+      tokenBudget: 10000,
+      required: [],
+      excluded: [],
+    };
+    const definition = {
+      role: 'agent',
+      name: 'Bob',
+      descriptor: 'The architect',
+      instructions: 'Challenge assumptions.',
+      expectedOutput: 'Design brief',
+      acceptanceCriteria: [],
+      modelPolicyRole: 'agent',
+      contextRecipe: recipe,
+    };
+    const agentProfile = {
+      profileId: 'bob',
+      revision: 3,
+      definition,
+      contentHash: contextDigest(definition),
+    } satisfies import('@mitzo/protocol').AgentLibraryVersion;
+    const managed = {
+      sandboxName: 'sandbox-one',
+      sandboxId: 'physical-one',
+      workdir: '/sandbox/workspaces/mgmt',
+      appServerCommand: '/sandbox/run-mitzo-app-server' as const,
+      cli: 'openshell',
+      gateway: 'default',
+      workspace: 'default',
+      gatewayInsecure: false,
+    };
+    const scope = {
+      sandboxId: managed.sandboxId,
+      sandboxName: managed.sandboxName,
+      workspaceRoot: managed.workdir,
+      runtimeContractImageDigest: 'sha256:' + 'a'.repeat(64),
+      compilerSha256: 'b'.repeat(64),
+      entrypointSha256: 'c'.repeat(64),
+      recipeSha256: 'd'.repeat(64),
+      runtimeInputsSha256: 'e'.repeat(64),
+    };
+    const context = {
+      type: 'boot_context' as const,
+      source: 'contexgin' as const,
+      sourceCount: 1,
+      tokenCount: 1000,
+      tokenBudget: 10000,
+      sources: [{ path: 'design.md', kind: 'markdown' }],
+      included: [],
+      trimmed: [],
+      fullMarkdown: 'REQUIRED ' + '完整内容 '.repeat(1200) + 'RECIPE END',
+    };
+    const ensure = vi.spyOn(OpenShellRuntimeManager.prototype, 'ensure').mockResolvedValue(managed);
+    const verify = vi
+      .spyOn(OpenShellRuntimeManager.prototype, 'verifyAgentContextRuntime')
+      .mockResolvedValue(scope);
+    const compile = vi
+      .spyOn(OpenShellRuntimeManager.prototype, 'compileAgentContext')
+      .mockResolvedValue({
+        compilerRevision: SANDBOX_AGENT_COMPILER_REVISION,
+        workspaceIdentity: contextDigest(managed.workdir),
+        context,
+      });
+    const legacy = vi
+      .spyOn(OpenShellRuntimeManager.prototype, 'compileContext')
+      .mockRejectedValue(Error('Recipe must not trigger legacy compilation'));
+    const adoption = vi
+      .spyOn(OpenShellRuntimeManager.prototype, 'adoptKnowledge')
+      .mockResolvedValue(undefined);
+    const lifecycleSpies = [
+      vi
+        .spyOn(lifecycleController, 'restoreOpenShellLifecycleIfNeeded')
+        .mockResolvedValue(undefined),
+      vi
+        .spyOn(lifecycleController, 'registerOpenShellLifecycleProvisional')
+        .mockImplementation(() => {}),
+      vi.spyOn(lifecycleController, 'registerOpenShellLifecycle').mockImplementation(() => {}),
+      vi.spyOn(lifecycleController, 'markOpenShellLifecycleIdle').mockImplementation(() => {}),
+    ];
+    const controller = new AbortController();
+    const base = options(controller);
+    const persist = vi.fn();
+    const agentAccepted = vi.fn();
+    const authorize = vi.fn(() => {
+      if (phase === 'revoked' && compile.mock.calls.length) throw Error('Operator revoked');
+    });
+    let saved: import('@mitzo/protocol').AgentContextSnapshot | undefined;
+    if (phase === 'resume') {
+      saved = await resolveSandboxAgentContext({
+        profile: agentProfile,
+        conversationId: 'recipe-chat',
+        runtime: managed,
+        manager: Object.create(OpenShellRuntimeManager.prototype),
+        signal: controller.signal,
+      });
+      compile.mockClear();
+    }
+    if (phase === 'compiler failure')
+      compile.mockRejectedValue(Error('Selected context file is unavailable'));
+    const input = {
+      ...base,
+      conversationId: 'recipe-chat',
+      resume: phase === 'resume',
+      binding: {
+        accountId: 'work',
+        accountLabel: 'Work',
+        provider: 'openai',
+        model: 'luna-fixture',
+        profileRevision: '1',
+      },
+      profile: {
+        accountId: 'work',
+        accountLabel: 'Work',
+        planType: 'api',
+        email: 'fixture@example.com',
+        model: 'luna-fixture',
+        sandboxProvider: 'openai-work',
+      },
+      agentProfile,
+      assertAgentContextAuthorization: authorize,
+      onAgentContextAccepted: agentAccepted,
+      eventStore: {
+        ...base.eventStore,
+        getSession: () => (saved ? { agentContext: saved } : undefined),
+        upsertSession: persist,
+      },
+      messageId: 'message',
+      prompt: 'Design this',
+      systemPrompt: 'PLATFORM GUIDANCE',
+      env: {},
+    } as unknown as Parameters<typeof openCodexChat>[0];
+    try {
+      if (phase === 'revoked' || phase === 'compiler failure') {
+        await expect(openCodexChat(input)).rejects.toThrow();
+        expect(mocks.initialize).not.toHaveBeenCalled();
+        expect(mocks.send).not.toHaveBeenCalled();
+        expect(persist).not.toHaveBeenCalled();
+        expect(compile).toHaveBeenCalledOnce();
+      } else {
+        const chat = await openCodexChat(input);
+        expect(compile).toHaveBeenCalledTimes(phase === 'resume' ? 0 : 1);
+        expect(legacy).not.toHaveBeenCalled();
+        expect(persist).toHaveBeenCalledWith(
+          expect.objectContaining({
+            sessionId: 'recipe-chat',
+            agentContext: expect.objectContaining({
+              sandbox: expect.objectContaining({ sandboxId: 'physical-one' }),
+            }),
+          }),
+        );
+        const developerInstructions = mocks.conversationOptions?.systemPrompt as string;
+        expect(developerInstructions).not.toContain(context.fullMarkdown);
+        expect(developerInstructions).toContain('PLATFORM GUIDANCE');
+        expect(mocks.recordAgentContextAdoption).not.toHaveBeenCalled();
+        expect(agentAccepted).not.toHaveBeenCalled();
+        expect(mocks.conversationOptions?.disableProjectDocuments).toBe(false);
+        const prepare = mocks.conversationOptions?.prepareSystemPrompt as (
+          signal: AbortSignal,
+        ) => Promise<string | undefined>;
+        const applicationContext = await prepare(controller.signal);
+        expect(applicationContext).toContain(context.fullMarkdown);
+        const acknowledge = mocks.conversationOptions?.onApplicationContextAccepted as (
+          command: string,
+          thread: string,
+          turn: string,
+          context: string,
+        ) => void;
+        acknowledge('message', 'thread-one', 'turn-one', applicationContext!);
+        expect(mocks.recordAgentContextAdoption).toHaveBeenCalledWith(
+          'recipe-chat',
+          input.binding,
+          'message',
+          'thread-one',
+          'turn-one',
+          expect.objectContaining({ profileId: 'bob', payloadHash: contextDigest(context) }),
+        );
+        expect(agentAccepted).toHaveBeenCalledWith(
+          'message',
+          'thread-one',
+          'turn-one',
+          createHash('sha256')
+            .update(
+              JSON.stringify({ developerInstructions, additionalContext: applicationContext }),
+            )
+            .digest('hex'),
+        );
+        verify.mockResolvedValueOnce({ ...scope, sandboxId: 'physical-other' });
+        await expect(prepare(controller.signal)).rejects.toThrow(/runtime changed/);
+        chat.close();
+      }
+    } finally {
+      ensure.mockRestore();
+      verify.mockRestore();
+      compile.mockRestore();
+      legacy.mockRestore();
+      adoption.mockRestore();
+      lifecycleSpies.forEach((spy) => spy.mockRestore());
+    }
+  },
+);
+
+it.each(['supplied', 'retained'] as const)(
+  'refuses pack snapshots carrying sandbox compiler scope before provider initialization: %s',
+  async (location) => {
+    vi.clearAllMocks();
+    mocks.connect.mockResolvedValue({ definitions: [], close: mocks.mcpClose });
+    const agentContext = {
+      source: 'packs' as const,
+      compilerRevision: 'fixture',
+      recipeHash: 'a'.repeat(64),
+      payloadHash: 'b'.repeat(64),
+      profileId: 'architect',
+      revision: 1,
+      profileHash: 'c'.repeat(64),
+      provenance: {
+        packs: [{ id: 'architecture', revision: 1, hash: 'd'.repeat(64) }],
+        documents: [],
+        omissions: [],
+      },
+      sandbox: {
+        sandboxId: 'physical-one',
+        sandboxName: 'sandbox-one',
+        workspaceRoot: '/sandbox/workspaces/mgmt',
+        runtimeContractImageDigest: 'sha256:' + 'a'.repeat(64),
+        compilerSha256: 'b'.repeat(64),
+        entrypointSha256: 'c'.repeat(64),
+        recipeSha256: 'd'.repeat(64),
+        runtimeInputsSha256: 'e'.repeat(64),
+        effectiveRecipeHash: 'f'.repeat(64),
+      },
+      context: {
+        type: 'boot_context' as const,
+        source: 'contexgin' as const,
+        sourceCount: 1,
+        tokenCount: 5,
+        tokenBudget: 1000,
+        sources: [{ path: 'architecture.md', kind: 'reference' }],
+        included: [],
+        trimmed: [],
+        fullMarkdown: 'PINNED PACK CONTEXT',
+      },
+    };
+    const base = options(new AbortController());
+    await expect(
+      openCodexChat({
+        ...base,
+        ...(location === 'supplied'
+          ? { agentContext }
+          : {
+              resume: true,
+              eventStore: {
+                ...base.eventStore,
+                getSession: () => ({ agentContext }),
+              } as typeof base.eventStore,
+            }),
+      }),
+    ).rejects.toThrow(/scope/);
+    expect(mocks.initialize).not.toHaveBeenCalled();
+    expect(mocks.send).not.toHaveBeenCalled();
+  },
+);

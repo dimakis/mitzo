@@ -1200,14 +1200,6 @@ async function _startChatInner(
         (accountBinding.provider === 'openai-codex' ||
           (accountBinding.provider === 'openai' &&
             process.env.MITZO_OPENSHELL_OPENAI_API_ENABLED !== '0'));
-      if (
-        openShellRequested &&
-        agentProfile?.definition.contextRecipe &&
-        agentProfile.definition.contextRecipe.source !== 'packs'
-      )
-        throw Error(
-          'Compiled context recipes currently require a local chat; OpenShell uses its reviewed sandbox compiler',
-        );
       options = {
         ...options,
         ...resolveEffectiveAccountSelection(options, storedMeta, accountBinding),
@@ -1747,25 +1739,36 @@ async function _startChatInner(
   // could discard a valid bundle while persisting empty context for the session.
   let agentContext: AgentContextSnapshot | undefined;
   let prepareAgentContext: ((signal: AbortSignal) => Promise<void>) | undefined;
+  let assertSandboxContextAuthorization: (() => void) | undefined;
   try {
     const stored = options.resume ? eventStore.getSession(options.resume)?.agentContext : undefined;
     if (agentProfile?.definition.contextRecipe || stored) {
       const authorization = captureAgentLibraryAuthorization(options.operatorConnectionId);
       const scope = retainAgentContextAuthority(authorization.auth, abortController);
       startupGuard.releaseContext = scope.release;
-      const contextRuntime =
-        agentProfile?.definition.contextRecipe?.source === 'packs'
-          ? await getContextPackRuntime()
-          : undefined;
-      if (agentProfile?.definition.contextRecipe?.source === 'packs' && !contextRuntime)
+      const packRecipe = agentProfile?.definition.contextRecipe?.source === 'packs';
+      if (
+        (stored?.sandbox && (!openShellSelected || packRecipe || stored.source === 'packs')) ||
+        (openShellSelected && !packRecipe && stored && !stored.sandbox)
+      )
+        throw Error('Agent context compilation scope differs; start a new chat');
+      const contextRuntime = packRecipe ? await getContextPackRuntime() : undefined;
+      if (packRecipe && !contextRuntime)
         throw Error('Knowledge Library is not configured for the selected agent context');
-      agentContext = await resolveChatAgentContext({
-        profile: agentProfile,
-        stored,
-        workspaceRoot: cwd,
-        signal: abortController.signal,
-        ...(contextRuntime ? { packs: createAcceptedContextPacks(contextRuntime, scope) } : {}),
-      });
+      if (openShellSelected && !packRecipe) {
+        assertSandboxContextAuthorization = () => {
+          authorization.assertCurrent();
+          scope.assertCurrent();
+        };
+      } else {
+        agentContext = await resolveChatAgentContext({
+          profile: agentProfile,
+          stored,
+          workspaceRoot: cwd,
+          signal: abortController.signal,
+          ...(contextRuntime ? { packs: createAcceptedContextPacks(contextRuntime, scope) } : {}),
+        });
+      }
       authorization.assertCurrent();
       scope.assertCurrent();
       prepareAgentContext = async (signal) => {
@@ -1804,7 +1807,7 @@ async function _startChatInner(
     _onSessionChange?.(clientId, 'end', session.sessionId);
     return;
   }
-  const bootContextMsg: BootContextMessage =
+  let bootContextMsg: BootContextMessage =
     (agentContext ? bootContextWithReceipt(agentContext) : undefined) ??
     (openShellSelected
       ? { ...FALLBACK_BOOT_CONTEXT, source: 'sandbox', scope: 'sandbox' }
@@ -1878,7 +1881,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
 
   // Recipe-bound chats already have their exact Library definition and context.
   // Loading the legacy definition would compile another, unrelated default bundle.
-  if (!agentContext)
+  if (!agentContext && !agentProfile?.definition.contextRecipe)
     loadAgentDef(agentName, cwd)
       .then((loaded) => {
         const s = registry.get(clientId);
@@ -1956,6 +1959,8 @@ This is an independent checkout with its own Git storage, not a linked worktree.
           options.sourceSnapshots,
         );
       q = await openCodexChat({
+        agentProfile,
+        assertAgentContextAuthorization: assertSandboxContextAuthorization,
         resume: !!options.resume,
         conversationId,
         binding: accountBinding!,
@@ -1972,7 +1977,9 @@ This is an independent checkout with its own Git storage, not a linked worktree.
         systemPrompt: systemPromptAppend,
         agentContext,
         prepareAgentContext,
-        onAgentContextAccepted: agentContext ? acceptAgentContext : undefined,
+        onAgentContextAccepted: agentProfile?.definition.contextRecipe
+          ? acceptAgentContext
+          : undefined,
         env: sessionEnv,
         mcpServers: allMcpServers,
         eventStore,
@@ -1983,9 +1990,14 @@ This is an independent checkout with its own Git storage, not a linked worktree.
         onBootContext: (context) => {
           // Both sandbox startup and published-knowledge adoption use the pinned
           // ContexGin compiler. A selected profile keeps its prepared snapshot.
+          agentContext = eventStore.getSession(conversationId)?.agentContext ?? agentContext;
           const message: BootContextMessage = agentContext
-            ? bootContextWithReceipt(agentContext)
+            ? {
+                ...bootContextWithReceipt(agentContext),
+                ...(context.scope ? { scope: context.scope } : {}),
+              }
             : { ...context, source: 'contexgin' };
+          bootContextMsg = message;
           send(transport, { ...message, sessionId: conversationId });
           session.bootContext = message as unknown as Record<string, unknown>;
           eventStore.upsertSession({

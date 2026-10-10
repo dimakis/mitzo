@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.9';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.35';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.40';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -24,16 +24,15 @@ export function reviewedHandlerSourceFingerprint(source: string) {
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../symposium-seat-authorization.ts':
     '26006d392e10e68c695e00039935332c28fb7146feaa057e482afa38c4f1fa21',
-  '../chat.ts': '93bd362b9e7fcfc494a24a275967fae5fd0dc902e6bdcfd45e5c86cf52266372',
+  '../chat.ts': '43300b42d2f025c4ab0778ba425c4769e339a5148d733e0c241a91207b33bc6e',
   '../agent-context-binding.ts': '4917ff83899105b7ac2c537c8db18111eeb97386d1ca0a2d2b576d872e1db360',
   '../app.ts': '65b5b84c81a572b80c71a28d09e00b62791d045324795f2465e63f6a299fdb50',
   '../ws-handler-v2.ts': '2952b6ea0ad4307739603901b01725514896452ea70c9f2464d8c04c6f4d9052',
   '../codex-queue-routes.ts': '6873ee90c32da94dcfebd432535d4170942e53c980456927f9dd57e9917d9a53',
   '../agent-context-compiler.ts':
-    'd714ac1acdca7631d2f430e9a5b699fa0854f0099f167162fdf50cf90964228b',
+    '8abe66bbdb73b72493905dbd165637c9838555280b81d4b07cf2d32a383d845d',
   '../../packages/protocol/src/agent-context-recipe.ts':
-    'fb3d30b650ec12bd118661be6e30e66f5aa685e1b69daa7246735af402efc5db',
-  // Library profile identity, operator ownership and admission are reviewed runtime inputs.
+    '05ca755108920256b95d1bf051b9937bfdd3fb0e745c64d3ff033a82d89c6289',
   '../symposium-director-routes.ts':
     'e6cabfe7555434bbf426209e5a0de750195559e106b0bbb09c4885a34159ff36',
   '../agent-library-binding.ts': '21fccbe6ee53ec292f93be9de3f678b3e1d4e8a8d6e83798678e9da44fadf7fb',
@@ -64,11 +63,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '6cb81428bb08fa2cf6b79e762573e34dc87f281cfc5d0be70b5316ce66fdd493',
   '../credential-setup-application.ts':
     '387ae34d23260d5e27a9585860210b157aa0ad23543eb13e70fc46496c5dbfb7',
-
   '../github-repository-connections.ts':
     '3917a36a0cc8b3bb73f1f4fa66e93e17be3b0ace58eff2bb3e0470bd67b7c11e',
   '../credential-websocket.ts': '87a41d7c329dccb6616726feed14a5fb25c8aefe94556c767f42618b8d995810',
-  // Keychain HTTP/WebSocket credential custody and exact-session approval handlers.
   '../home-assistant-dashboard.ts':
     '1053d482935af066472aedd48365af2b71cb7cf55e30ee88cc9fcf89b96e1d62',
   '../credential-connections.ts':
@@ -89,9 +86,6 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   'iana-address-policy.ts': '899b0b5ad66f5cbe72224b34c29ff7a88e32c2a6f5b2987e4d18cfc64f862b4e',
   'iana-address-data.generated.ts':
     '58f91383fa17ab9612d24bc113d011ece63bfc06b4635ba99f108bb05aa34038',
-  // The capability binding is not trusted merely because its manifest is
-  // reviewed: both the production executor and its OpenShell/Git transport
-  // must match this revision before the registry can advertise the action.
   'capabilities/github-publish-pr.ts':
     '559e98cf8f45313e37bf34b4f54c4345bdc9b4bf22538078dc563483750bbde1',
   'capabilities/github-publish-pr-transport.ts':
@@ -101,7 +95,6 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'a3df58f0c68bdf72433f5a88d425d35764092c6f6e1fbd62691ef865b9622326',
   '../capability-conversation-binding.ts':
     '147a328d161f167aeeb31bf0017d5fea25cc3f22933392249a228d7bd61e89aa',
-  // Secret custody and its browser/admission boundaries share the runtime review contract.
   '../openai-key-management.ts': '3f9217677809a041042a598434aaec619a636f3e0b6fb15aa46953480c11b667',
   '../openai-key-operation-store.ts':
     '53aa481b64f0b7cbb6055d3d0bd569bb4dc4cd55cf6807748e99a63cc66f20ed',
@@ -128,7 +121,6 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../openai-key-controller.ts': '721a1c6a513fc5380e4a2222927cda025bf8cbd7e8d49d8c5d526470e2cff217',
   '../connections-router.ts': '6620ec153b72f42b18370bc375ab88331205ac9eb8c4ccd9a1bfe7655646599b',
   '../connections-service.ts': '1aae9d2c0da483ae798ba03d5804bfb0e81316f3f69666c6595befec3179c314',
-  // Repository acquisition and source claims share the ordinary runtime admission review.
   '../git-branch.ts': '6dd4fef0069e65d78fc94d047777442e4ef073596555581da536e1e39a5d3877',
   '../github-repository-source.ts':
     'b9a6ef89472b001cb8cd8f8bc04c3b31d514980d9a5154cd6ad48c5b30d42c09',
@@ -151,13 +143,12 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '0e8afb3b0968881d542850c68b5bc3cb362becffb47e354eccf8375e52ff0038',
   '../repository-chat-startup.ts':
     'da5476aa7e43badb1809a8f52d958d5338ec921c6ab96531978f750fecf4428f',
-  // Admission shares compiled connection authority with gateway provisioning.
   'runtime-profiles.ts': '3632545ca52fbfad7442de08c03d5f9808b50b5bfdef92f9cd72b8fa8ab5140b',
   '../connections-gateway.ts': '1a664e65926536d102d2fb0d5f4b7cfd7e2631d6d8bf51f2965025cdb87dc64b',
   '../openshell-runtime-policy.ts':
     'efecd458bf61fecd8198ecd330e0227e2c600ab21d6d2890cd2bac254e22b75f',
-  '../openshell-runtime.ts': '9d873ca8c87f7fcc00d55158e2c5386bcf70b8d3fd5e31bc68c2e96326ba4ab0',
-  '../codex-chat-session.ts': 'ebf0b3f29f6a2a58cdf3d615dace49caa03b2f1198d18f1d4a38b77915305c40',
+  '../openshell-runtime.ts': 'fe3659a89af1b8341fb7beefcc6dd9bb253ccb95011a651f5fa92c3baa5f1b8f',
+  '../codex-chat-session.ts': '5df5c2efd4db3b530783fecee95a132cd9169587687a4fe2da955916050f6a30',
   '../connections-runtime.ts': 'dbe641704a1d761d73740260fb28057054fdb34a64513fa77292d2fdb1954a84',
   'capabilities/operation-store.ts':
     '1a235f11d5578880e6dfa7ecf5779e2a011e24430774fc17429d7d22359b93f2',
@@ -179,14 +170,14 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/agent-context-pack.ts':
     '6964f27523d93a64c153f2d3a56650298a2063521abdafffa0c19c3dba839de5',
   '../../packages/protocol/src/index.ts':
-    'c54059d5e907214a701f1cf5d4303c9d0b583145fb6c444d9417dbf58655cbe7',
+    '9b3cd9485f3b284c28ddba8516906db018668a30d6a4703de79a4a0f81387a17',
   '../agent-context-authority.ts':
     '68b721db46cf6ba99de042cdf32be345bfc78c7ae27c2e31ee2b0b52a20ac266',
   '../agent-context-delivery.ts':
     '91b1681f10a58ce941850ffeff732b71cdfcb08e4c695c475a65614152795a38',
   '../agent-context-pack-compiler.ts':
     '2d4bc90077def1e87fd267ee9576cbf3b2835a00ec07b971f5f94b71bb7147a7',
-  '../codex-conversation.ts': '865262caab0044f3a82ff2e5b1ceb683b82cdb8ea341cadf2668c7fdb2ca404f',
+  '../codex-conversation.ts': '6cdc3af37ebc65902fc3ef201134a34cab1c33aaae596ca0da8d8422e9f4a2ac',
   '../context-pack-composition.ts':
     'cae630948dd56814bda2601f3df7469712074899a53b3ff9017b08dce32638c0',
   '../context-pack-router.ts': 'ae314ca49f783d26ed8c419f69683960bc35443923009332fe4a1f9efa2e12d6',
@@ -206,7 +197,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../symposium-claude-native.ts':
     '0e7948a67cf31022a673d3ec631a1b9c513633b223dc0167674de2c174d4f314',
   '../symposium-codex-native.ts':
-    '4c3483942280cb6846eb8b9021c39bc8d286d29bc367add3f81f350293f060c4',
+    '46f9b155921092db21ab181b113404d1c593be5a02744d41fbb273857dae2ddf',
   '../symposium-host-grants.ts': 'c79ba3b163ef3f58030ffae396c19b7fa1bbc87788842bbddff6c569f01791ac',
   '../symposium-openshell-seat-executor.ts':
     '95c7f179a0e9e7675aef2110d433542db5217ddf308e52fb19e381cfcf628843',
@@ -216,4 +207,13 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../symposium-session-runtime.ts':
     '8ba172ac854b12b6ddebb8a7685950b3412ba455151fedaee4b8004e028dba56',
   '../telos-artifact-tools.ts': '560e27e41df29aa0b5e8a859731bc956b165e6309f9a0974c16da9ee2c2525e5',
+  '../../scripts/agent-workspace-context.mjs':
+    '61ee6c960962ec630f75eeedf160f13d31fbb65338639a5305579d29166bd57d',
+  '../../docs/spikes/openshell-codex/compile-agent-context.mjs':
+    '75cc1a653dbb7d4c20ffbeab8fafcf20b19110ff64110a548d30c65305da20be',
+  '../../scripts/attest-knowledge-runtime.py':
+    '5737ec8e7fc19a17b6ef5a35c1898e834d2a5d2d2a9f7593b607eaaf1971cfeb',
+  '../agent-context-sandbox.ts': '8b61edc17ccc94bc95eae3796e68a0beb9540534e3bfbb348a04154c41995416',
+  '../codex-conversation-store.ts':
+    'c36089ad3386e3a716c9c059428fa0ec14d66385d686682badc243087670d5ed',
 });

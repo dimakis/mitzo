@@ -12,6 +12,7 @@ function Editor({ disabled = false }: { disabled?: boolean }) {
 }
 it('makes compilation opt-in and lets the author choose documents and a bounded budget', () => {
   render(<Editor />);
+  expect(screen.getByText(/local chats and supported OpenShell sandboxes/)).toBeTruthy();
   expect(screen.queryByLabelText('Context source')).toBeNull();
   fireEvent.click(screen.getByLabelText('Compile chat context'));
   expect(screen.getByLabelText('Context source')).toHaveProperty('value', 'workspace');
@@ -43,6 +44,7 @@ it('selects a named preset without exposing a server URL, host path or permissio
   fireEvent.change(screen.getByLabelText('Context source'), { target: { value: 'contexgin' } });
   fireEvent.change(screen.getByLabelText('ContexGin preset'), { target: { value: 'architect' } });
   expect(screen.getByLabelText('ContexGin preset')).toHaveProperty('value', 'architect');
+  expect(screen.getByText(/configured for sandbox documents/)).toBeTruthy();
   expect(screen.queryByLabelText('Token budget')).toBeNull();
   expect(screen.queryByLabelText(/server URL/i)).toBeNull();
 });

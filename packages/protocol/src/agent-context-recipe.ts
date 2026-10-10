@@ -22,6 +22,19 @@ const documentReference = z
   );
 const selectors = z.array(z.array(z.string().trim().min(1).max(120)).min(1).max(8)).max(20);
 
+export const WorkspaceAgentContextRecipeSchema = z.strictObject({
+  version: z.literal(1),
+  source: z.literal('workspace'),
+  files: z
+    .array(documentReference)
+    .max(20)
+    .refine((files) => new Set(files).size === files.length, 'Duplicate context documents'),
+  tokenBudget: z.number().int().min(256).max(32000),
+  required: selectors,
+  excluded: selectors,
+});
+export type WorkspaceAgentContextRecipe = z.infer<typeof WorkspaceAgentContextRecipeSchema>;
+
 /** Compilation inputs only. Workspace ownership and runtime admission stay with the host. */
 export const AgentContextRecipeSchema = z.discriminatedUnion('source', [
   z.strictObject({
@@ -37,17 +50,7 @@ export const AgentContextRecipeSchema = z.discriminatedUnion('source', [
       ),
     tokenBudget: z.number().int().min(256).max(32000),
   }),
-  z.strictObject({
-    version: z.literal(1),
-    source: z.literal('workspace'),
-    files: z
-      .array(documentReference)
-      .max(20)
-      .refine((files) => new Set(files).size === files.length, 'Duplicate context documents'),
-    tokenBudget: z.number().int().min(256).max(32000),
-    required: selectors,
-    excluded: selectors,
-  }),
+  WorkspaceAgentContextRecipeSchema,
   z.strictObject({
     version: z.literal(1),
     source: z.literal('contexgin'),
@@ -132,10 +135,32 @@ export const CompiledAgentContextSchema = z
 export type CompiledAgentContext = z.infer<typeof CompiledAgentContextSchema>;
 
 /** Conversation-owned receipt; excluded from portable Library definitions and exports. */
+export const AgentSandboxContextScopeSchema = z.strictObject({
+  sandboxId: z.string().min(1).max(200),
+  sandboxName: z.string().min(1).max(200),
+  workspaceRoot: z
+    .string()
+    .min(1)
+    .max(1000)
+    .regex(/^\/sandbox\/workspaces\//)
+    .refine((value) =>
+      value
+        .split('/')
+        .slice(1)
+        .every((part) => !!part && part !== '.' && part !== '..'),
+    ),
+  runtimeContractImageDigest: z.string().regex(/^sha256:[a-f0-9]{64}$/),
+  compilerSha256: digest,
+  entrypointSha256: digest,
+  recipeSha256: digest,
+  runtimeInputsSha256: digest,
+});
+export type AgentSandboxContextScope = z.infer<typeof AgentSandboxContextScopeSchema>;
 export const AgentContextSnapshotSchema = CompiledAgentContextSchema.safeExtend({
   profileId: z.string().trim().min(1).max(128),
   revision: z.number().int().positive(),
   profileHash: digest,
+  sandbox: AgentSandboxContextScopeSchema.safeExtend({ effectiveRecipeHash: digest }).optional(),
 });
 export type AgentContextSnapshot = z.infer<typeof AgentContextSnapshotSchema>;
 

@@ -51,16 +51,53 @@ Cold resumes verify and reuse the saved compiled payload even if source document
 
 For account-independent context, select published [context packs](context-packs.md) in the Context tab. The version 2 recipe pins each pack's identity, revision and content hash plus a final composed token budget. Compilation resolves accepted Git objects from the host-enrolled Knowledge source, independently of writable task roots. Draft previews, new chats and Symposium seats use this same compiler and source authorization contract.
 
-OpenShell retains the profile snapshot once in persistent provider instructions. Verified publication retrieval guidance is delivered separately; it does not replace the pinned boot body or add another default bundle. Symposium grants bind the selected profile recipe, then persist the compiled snapshot for the exact seat membership generation before native setup/dispatch. Source grants and provider permissions remain enforced by their existing owners. Legacy workspace/preset recipes require local chat execution; select packs for portable runtime use.
+OpenShell retains the profile snapshot once in persistent provider instructions. Verified publication retrieval guidance is delivered separately; it does not replace the pinned boot body or add another default bundle. Symposium grants bind the selected profile recipe, then persist the compiled snapshot for the exact seat membership generation before native setup/dispatch. Source grants and provider permissions remain enforced by their existing owners. Legacy workspace/preset recipes also support reviewed managed OpenShell sandboxes, as described below. Symposium compiled recipes require packs.
+
+## OpenShell sandbox recipes
+
+Ordinary managed OpenShell API and brokered Codex chats compile workspace recipes inside the owning sandbox through `/usr/libexec/mitzo/compile-agent-context.mjs`. Relative references resolve in that conversation's writable task workspace, not the host preview workspace or another sandbox. The protected entrypoint uses the same bounded preloaded-document implementation as local chats, the pinned ContexGin library, and a cleared Node environment. It performs no service fetch, default discovery or runtime grant.
+
+Admission verifies physical sandbox identity, owning conversation/account, Ready state, and the installed compiler/recipe/runtime-input attestations before and after compilation. The image must contain the reviewed agent compiler and its exact ContexGin pin. Older images or missing compatibility pins fail explicitly; removing a rejection does not enroll an incompatible runtime. Unmanaged static sandboxes and isolated native personal/adviser runtimes are not enrolled by this change.
+
+A sandbox snapshot additionally binds the physical sandbox, task root, configured runtime image contract, installed dependency/compiler entrypoint/recipe/runtime-input hashes and effective workspace recipe hash. Cold resume verifies those identities and reuses saved bytes without reading changed source files. A changed preset, compiler or physical sandbox fails rather than silently rebinding the immutable snapshot, including after retained-runtime migration. Use a new conversation when that compatibility cannot be maintained. Existing task roots, history, branches and checkpoints remain preserved.
+
+The recipe is delivered at each safe turn through application context, separate from persistent thread developer instructions. Fresh accepted shared knowledge follows the saved recipe and explicitly supersedes older accepted knowledge copied into task documents. No task root is pulled or reset to refresh knowledge. A new receipt in the private Codex command ledger records exact profile/snapshot/payload/context and sandbox/runtime identities only after the matching native command attempt, thread, turn and generation are acknowledged. Preparation alone creates no adoption receipt.
+
+### Named sandbox presets
+
+`MITZO_OPENSHELL_AGENT_CONTEXT_PRESETS` is host-owned JSON mapping existing preset names to portable workspace recipes. It is bounded to 64 KiB and 100 entries; unknown fields, URLs, paths outside the task root and grants are rejected. For example:
+
+```json
+{
+  "architect": {
+    "version": 1,
+    "source": "workspace",
+    "files": ["docs/architecture.md"],
+    "tokenBudget": 4000,
+    "required": [["docs/architecture.md", "Architecture", "Constraints"]],
+    "excluded": []
+  }
+}
+```
+
+A portable `{ "source": "contexgin", "agentName": "architect", "version": 1 }` selects this configured sandbox mapping when used in OpenShell. It never copies a host service's compiled body into the sandbox or authorizes a caller-selected service. Local chats and the Library sample preview continue to use the host's ContexGin preset service. Their sources may differ from a configured sandbox mapping; the preview says so. An unavailable sandbox preset fails without fallback.
+
+### Complete application-context delivery
+
+The pinned Codex 0.160.0 provider truncates each additional-context value at 1,000 tokens. Mitzo divides long application context into ordered fragments of at most 800 UTF-8 bytes, preserving code points and all payload bytes. Keys contain a hash of the complete selection and a padded part index: changing any source selection changes every key, so the provider emits the complete changed generation rather than retaining only changed chunks. Total application text is bounded to 1 MiB. User input, provider thread identity and untrusted tool-surface rollover retain their existing paths.
+
+The source contract is verified against OpenAI's exact `79b1b666f2e8551f8abbbca34957227f67f3f553` [fragment implementation](https://github.com/openai/codex/blob/79b1b666f2e8551f8abbbca34957227f67f3f553/codex-rs/context-fragments/src/additional_context.rs) and [ordered context store](https://github.com/openai/codex/blob/79b1b666f2e8551f8abbbca34957227f67f3f553/codex-rs/core/src/state/additional_context.rs). Offline tests assert complete Unicode reassembly, a fact in the middle, required final rules, complete generation replacement, and unchanged user input. This proves transport construction and acknowledged identity, not live model recall.
 
 ## Agent advisor
 
 **Create with advisor** opens a normal chat asking about the agent’s job, success criteria, name, descriptor and behavior. It prefers exact published context-pack references for portable profiles, distinguishes the final composed budget from each pack's preview budget, and asks for confirmed references. It uses the existing `SymposiumProposeProfile` tool when available. Proposals appear in the chat draft controls for explicit user review and save. That tool cannot publish a profile or issue runtime grants. Runtimes without the tool can return portable profile JSON for manual review/import.
 
+Legacy workspace/preset proposals can target local or supported managed OpenShell chats. Sandbox presets require confirmed host-owned mappings; the host sample preview may use different sources. Select published packs for compiled Symposium context.
+
 ## Validation and rollout
 
 Unit tests cover owner separation, draft/publication conflicts, retries and restart, immutable historical identities, import integrity, private identity fields, exact chat admission, provider compatibility, logout during retained-owner lookup, and reviewer handoff without activation. Mocked startup tests check prompt injection, immutable context persistence, cold resume without recompilation, failure before dispatch, and operator revocation during compilation. Compiler tests cover heading selection, required budgets, source confinement, bounded preset responses, cancellation and receipt verification. Offline browser tests serve the compiled app through request interception with synthetic catalogs, without any running Mitzo service or model calls.
 
-Runtime source authorization remains active through asynchronous provider setup and dispatch. Logout or expiry aborts the owning run. A retained snapshot reauthorizes its source namespace, scopes and accepted revision metadata without rereading or recompiling its body. The context disclosure distinguishes preparation from actual provider acknowledgement and preserves source/pack revisions, hashes, budgets and omissions.
+Runtime source authorization remains active through asynchronous provider setup and dispatch. Logout or expiry aborts the owning run. A retained pack snapshot reauthorizes its source namespace, scopes and accepted revision metadata without rereading or recompiling its body. The context disclosure distinguishes preparation from actual provider acknowledgement and preserves source/pack revisions, hashes, budgets and omissions.
 
-No deployment is implied. Live validation follows canonical staging and the supported Luna/account declaration rules. Centralized tool grants and automated catalog selection by task templates remain separate work.
+Sandbox snapshots additionally verify their owning runtime and installed compiler identities. No deployment is implied; compatible sandbox image enrollment remains separate acceptance work. Live validation follows canonical staging and the supported Luna/account declaration rules. Centralized tool grants and automated catalog selection by task templates remain separate work.

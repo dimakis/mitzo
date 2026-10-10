@@ -270,6 +270,42 @@ function requiresProviderThreadReplacement(error: unknown): boolean {
     !['rate_limit', 'authentication', 'context_limit', 'invalid_request'].includes(error.category)
   );
 }
+/** Pinned Codex truncates each additional-context value at 1,000 tokens.
+ * UTF-8 byte bounds also bound token count. Version every part together so its
+ * BTreeMap merge emits the complete changed selection, including unchanged parts.
+ * See openai/codex 79b1b666 context-fragments/src/additional_context.rs and
+ * core/src/state/additional_context.rs. No recipe text becomes ordinary user input.
+ */
+function applicationContextFragments(value: string) {
+  const bytes = Buffer.byteLength(value);
+  if (bytes > 1048576) throw Error('Application context exceeds the supported delivery bound');
+  if (new TextDecoder('utf-8', { fatal: true }).decode(new TextEncoder().encode(value)) !== value)
+    throw Error('Application context contains invalid Unicode');
+  if (bytes <= 800)
+    return { 'mitzo.published-project-context': { kind: 'application' as const, value } };
+  const parts: string[] = [];
+  let part = '',
+    size = 0;
+  for (const character of value) {
+    const length = Buffer.byteLength(character);
+    if (size + length > 800) {
+      parts.push(part);
+      part = '';
+      size = 0;
+    }
+    part += character;
+    size += length;
+  }
+  if (part) parts.push(part);
+  const generation = createHash('sha256').update(value).digest('hex');
+  return Object.fromEntries(
+    parts.map((part, index) => [
+      `mitzo.published-project-context.${generation}.${String(index).padStart(6, '0')}`,
+      { kind: 'application' as const, value: part },
+    ]),
+  );
+}
+
 /** Owns one application conversation. The process, private store and public event sink are supplied by the server. */
 export class CodexConversation {
   private client: Rpc;
@@ -1662,10 +1698,7 @@ export class CodexConversation {
         { kind: 'application' | 'untrusted'; value: string }
       > = {};
       if (systemPrompt !== undefined)
-        additionalContext['mitzo.published-project-context'] = {
-          kind: 'application',
-          value: systemPrompt,
-        };
+        Object.assign(additionalContext, applicationContextFragments(systemPrompt));
       active.abort.signal.throwIfAborted();
       const preparedPrompt =
         (await this.opts.prepareTurn?.(

@@ -63,6 +63,49 @@ it('delivers accepted application context only between turns and preserves the p
     [{ type: 'text', text: 'continue' }],
   ]);
 });
+it('delivers complete long application context in ordered fragments below the pinned provider truncation limit', async () => {
+  let context =
+    '# Required rules\n' +
+    '完整上下文 '.repeat(1400) +
+    '\nMIDDLE RECALL FACT\n' +
+    'architecture '.repeat(1800) +
+    '\nFINAL REQUIRED RULE';
+  const args: Parameters<typeof setup> = [];
+  args[13] = async () => context;
+  const { c, callbacks, requests } = await setup(...args);
+  await c.send({ id: 'long-context', prompt: 'user request unchanged' });
+  const first = requests.find((r) => r.method === 'turn/start')!;
+  const fragments = first.params.additionalContext as Record<
+    string,
+    { kind: string; value: string }
+  >;
+  const keys = Object.keys(fragments).sort();
+  expect(keys.length).toBeGreaterThan(1);
+  expect(keys.map((key) => fragments[key].value).join('')).toBe(context);
+  expect(
+    Object.values(fragments).every(
+      (fragment) => fragment.kind === 'application' && Buffer.byteLength(fragment.value) <= 800,
+    ),
+  ).toBe(true);
+  expect(first.params.input).toEqual([{ type: 'text', text: 'user request unchanged' }]);
+  context = context.replace('MIDDLE RECALL FACT', 'UPDATED REQUIRED INSTRUCTION');
+  callbacks.onNotification('turn/completed', {
+    threadId: 'provider-thread',
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  await c.send({ id: 'changed-context', prompt: 'continue' });
+  await vi.waitFor(() => expect(requests.filter((r) => r.method === 'turn/start')).toHaveLength(2));
+  const next = requests.filter((r) => r.method === 'turn/start')[1].params
+    .additionalContext as typeof fragments;
+  expect(Object.keys(next).some((key) => keys.includes(key))).toBe(false); // provider merge must receive the whole changed generation
+  expect(
+    Object.keys(next)
+      .sort()
+      .map((key) => next[key].value)
+      .join(''),
+  ).toBe(context);
+  c.close();
+});
 afterEach(() => {
   vi.restoreAllMocks();
   cleanup.splice(0).forEach((f) => f());

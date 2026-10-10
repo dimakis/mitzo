@@ -106,8 +106,9 @@ export function AgentContextRecipeEditor({
     <fieldset className="agent-library-context-recipe" disabled={disabled}>
       <legend>Compiled chat context</legend>
       <p>
-        Published packs support local chats, OpenShell and Symposium. Legacy workspace documents and
-        ContexGin presets compile context for local chats only.
+        Published packs support local chats, OpenShell and Symposium. Workspace documents and
+        ContexGin presets compile context for local chats and supported OpenShell sandboxes.
+        Symposium uses published packs with its existing context and grant setup.
       </p>
       <label className="agent-library-checkbox">
         <input
@@ -240,8 +241,8 @@ export function AgentContextRecipeEditor({
                 />
               </label>
               <p>
-                Use relative Markdown paths in the chat workspace. AGENTS.md is always included;
-                CLAUDE.md is used when AGENTS.md is absent.
+                Use relative Markdown paths in the chat's task workspace, including sandboxes.
+                AGENTS.md is always included; CLAUDE.md is used when AGENTS.md is absent.
               </p>
               <label>
                 Token budget
@@ -293,7 +294,10 @@ export function AgentContextRecipeEditor({
                   onChange={(event) => onChange({ ...value, agentName: event.target.value })}
                 />
               </label>
-              <p>Use a preset configured in ContexGin. Its recipe sets the sources and budget.</p>
+              <p>
+                Use a preset configured in ContexGin. OpenShell also requires this preset to be
+                configured for sandbox documents. Its recipe sets the sources and budget.
+              </p>
             </>
           )}
         </>
