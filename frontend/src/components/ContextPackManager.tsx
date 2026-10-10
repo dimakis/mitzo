@@ -580,6 +580,7 @@ export function ContextPackManager({ knowledge }: { knowledge: KnowledgeCatalog 
                         { version: copy.draft!.version },
                       );
                       if (!isCurrent()) return;
+                      setPreview(undefined);
                       setCopy({
                         definition: result.pack.definition,
                         base: result.pack,

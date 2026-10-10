@@ -37,6 +37,72 @@ const draftA = {
 };
 const revisionA = { revision: 7, definition: draftA.definition };
 const impactA = { name: 'Profile using A', profileId: 'profile-a', revision: 2 };
+it('clears synthetic draft preview provenance only after successful publication', async () => {
+  let publishFails = true;
+  vi.mocked(apiFetch).mockImplementation(async (path) => {
+    let result: unknown = { packs: [], drafts: [{ ...draftA, baseRevision: 1 }] };
+    let ok = true;
+    if (path.endsWith('/revisions')) result = { revisions: [] };
+    if (path.endsWith('/impact')) result = { profiles: [] };
+    if (path.endsWith('/preview'))
+      result = {
+        compiledContext: {
+          source: 'packs',
+          compilerRevision: 'draft-compiler',
+          recipeHash: 'draft-recipe',
+          payloadHash: 'draft-payload',
+          provenance: {
+            packs: [{ id: 'pack-a', revision: 1, hash: 'synthetic-draft-hash' }],
+            documents: [],
+            omissions: [],
+          },
+          context: {
+            tokenCount: 1,
+            tokenBudget: 4000,
+            sourceCount: 0,
+            sources: [],
+            trimmed: [],
+            fullMarkdown: 'Synthetic draft preview',
+          },
+        },
+      };
+    if (path.endsWith('/publish')) {
+      ok = !publishFails;
+      result = publishFails
+        ? { error: 'Publication conflict. Draft retained.' }
+        : {
+            pack: {
+              id: 'pack-a',
+              revision: 2,
+              hash: 'published-hash',
+              definition: draftA.definition,
+            },
+          };
+    }
+    return { ok, json: async () => result } as Response;
+  });
+  renderManager();
+  fireEvent.click(await screen.findByRole('button', { name: /Pack A/ }));
+  fireEvent.click(screen.getByRole('button', { name: 'Compile pack preview' }));
+  expect(await screen.findByText('Synthetic draft preview')).toBeTruthy();
+  expect(screen.getByText('synthetic-draft-hash')).toBeTruthy();
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: 'Publish pack revision' })).toBeEnabled(),
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Publish pack revision' }));
+  expect(await screen.findByRole('alert')).toHaveTextContent('Publication conflict');
+  expect(screen.getByText('Synthetic draft preview')).toBeTruthy();
+  expect(screen.getByText('synthetic-draft-hash')).toBeTruthy();
+  publishFails = false;
+  fireEvent.click(screen.getByRole('button', { name: 'Publish pack revision' }));
+  await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Published revision 2'));
+  expect(screen.queryByText('Synthetic draft preview')).toBeNull();
+  expect(screen.queryByText('synthetic-draft-hash')).toBeNull();
+  expect(screen.getByLabelText('Pack name')).toHaveValue('Pack A');
+  expect(vi.mocked(apiFetch).mock.calls.filter(([path]) => path.endsWith('/preview'))).toHaveLength(
+    1,
+  );
+});
 function importPack(value = importedDefinition) {
   fireEvent.click(screen.getByRole('button', { name: 'Import pack JSON' }));
   fireEvent.change(screen.getByLabelText('Portable context pack JSON'), {
