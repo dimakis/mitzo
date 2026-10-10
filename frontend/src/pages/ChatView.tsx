@@ -41,6 +41,7 @@ import { onKeyboardToggle } from '../lib/keyboard';
 import type { ImageAttachment } from '../types/chat';
 
 export function ChatView() {
+  const [profileToolsTarget, setProfileToolsTarget] = useState<HTMLDivElement | null>(null);
   const [keyboardOpen, setKeyboardOpen] = useState(false);
 
   useEffect(
@@ -521,6 +522,7 @@ export function ChatView() {
               )}
             </div>
             {activeSessionId && <SymposiumDirectorPanel sessionId={activeSessionId} />}
+            <div ref={setProfileToolsTarget} />
           </div>
         </WorkspaceControls>
       </div>
@@ -554,6 +556,7 @@ export function ChatView() {
       )}
       {!activeSessionId && !sessionId && <NewSymposium />}
       <SymposiumConversation
+        profileToolsTarget={profileToolsTarget}
         sessionId={activeSessionId}
         chat={{
           sessionId: sessionId || activeSessionId || undefined,

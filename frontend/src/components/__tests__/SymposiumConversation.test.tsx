@@ -11,9 +11,30 @@ import {
 } from '../../lib/symposium-delivery-actions';
 import { apiFetch } from '../../lib/api-fetch';
 import { ResponsiveChatView } from '../ResponsiveChatView';
-import { SymposiumConversation } from '../SymposiumConversation';
+import { useState, type ComponentProps } from 'react';
+import { SymposiumConversation as Conversation } from '../SymposiumConversation';
+import { WorkspaceControls } from '../WorkspaceControls';
 import { ChatInput } from '../ChatInput';
 import { SymposiumProfileProposals } from '../SymposiumProfileProposals';
+
+function SymposiumConversation(
+  props: Omit<ComponentProps<typeof Conversation>, 'profileToolsTarget'>,
+) {
+  const [target, setTarget] = useState<HTMLDivElement | null>(null);
+  return (
+    <>
+      <WorkspaceControls status="Ready">
+        <div ref={setTarget} />
+      </WorkspaceControls>
+      <Conversation {...props} profileToolsTarget={target} />
+    </>
+  );
+}
+
+async function openProfileTools() {
+  fireEvent.click(await screen.findByRole('button', { name: 'Workspace controls' }));
+  return screen.findByRole('button', { name: 'Reusable profile drafts' });
+}
 
 const navigation = vi.hoisted(() => ({ active: 'session' }));
 vi.mock('@mitzo/client/hooks', () => ({
@@ -255,7 +276,7 @@ describe('SymposiumConversation', () => {
         ordinaryComposer={<button>Ordinary send</button>}
       />,
     );
-    fireEvent.click(await screen.findByRole('button', { name: 'Reusable profile drafts' }));
+    fireEvent.click(await openProfileTools());
     const instructions = await screen.findByRole('textbox', { name: 'Instructions' });
     expect(screen.getByText('Ordinary send')).toBeTruthy();
     expect(
@@ -323,7 +344,7 @@ describe('SymposiumConversation', () => {
       return json({ sessionId: 'session', config: null, seats: [] });
     });
     render(<SymposiumConversation sessionId="session" chat={chat} ordinaryComposer={null} />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Reusable profile drafts' }));
+    fireEvent.click(await openProfileTools());
     const save = await screen.findByRole('button', { name: 'Save reusable profile' });
     await waitFor(() => expect(save.hasAttribute('disabled')).toBe(false));
     fireEvent.click(save);
@@ -353,7 +374,8 @@ describe('SymposiumConversation', () => {
       ),
     );
     render(<SymposiumConversation sessionId="session" chat={chat} ordinaryComposer={null} />);
-    await screen.findByRole('button', { name: 'Reusable profile drafts' });
+    await screen.findByRole('button', { name: 'Reusable profile drafts', hidden: true });
+    expect(screen.queryByRole('button', { name: 'Reusable profile drafts' })).toBeNull();
     expect(
       vi.mocked(apiFetch).mock.calls.some(([url]) => String(url).includes('/profile-proposals')),
     ).toBe(false);
@@ -361,7 +383,7 @@ describe('SymposiumConversation', () => {
     expect(screen.queryByRole('complementary', { name: 'Reusable profile drafts' })).toBeNull();
   });
 
-  it('opens a useful empty drafts panel and collapses it without affecting the composer', async () => {
+  it('opens drafts through Workspace and collapses them without affecting the composer', async () => {
     vi.mocked(apiFetch).mockImplementation(async (url) =>
       json(
         String(url).includes('/profile-proposals')
@@ -376,7 +398,9 @@ describe('SymposiumConversation', () => {
         ordinaryComposer={<button>Ordinary send</button>}
       />,
     );
-    const toggle = await screen.findByRole('button', { name: 'Reusable profile drafts' });
+    await screen.findByRole('button', { name: 'Reusable profile drafts', hidden: true });
+    expect(screen.queryByRole('button', { name: 'Reusable profile drafts' })).toBeNull();
+    const toggle = await openProfileTools();
     expect(toggle.getAttribute('aria-expanded')).toBe('false');
     fireEvent.click(toggle);
     expect(toggle.getAttribute('aria-expanded')).toBe('true');
@@ -481,7 +505,7 @@ describe('SymposiumConversation', () => {
     expect(
       screen.queryByRole('button', { name: 'Draft reusable profile from this seat' }),
     ).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'Reusable profile drafts' }));
+    fireEvent.click(await openProfileTools());
     fireEvent.click(
       await screen.findByRole('button', { name: 'Draft reusable profile from this seat' }),
     );
