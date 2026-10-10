@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.9';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.44';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.45';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,6 +22,9 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../index.ts': '40875b5e925574d690d98840f2eea9b0815da124d98211f644fb50aa65f93353',
+  '../legacy-chat-delivery.ts': '30e041a7b8d1279cefae9198639444fa8e3dd4f76386598ec50ce66741f09f5c',
+
   '../chat-rest-handler.ts': '35dbf6b8632965712b047b156491bbadb8cda42899d06ff52c8a426150e21ed7',
   // Contributor live-query capture and exact output ownership share runtime admission.
   '../query-loop.ts': 'e2b9cc2eceb00c45394c71b6d0307d4f05a0e902cade7a59b09ac684a4b75b28',
@@ -31,7 +34,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../ordinary-contributor-guidance.ts':
     '73384ce804421b34005e145073e7c94f7a07819bd77daed5a4c32163fa942e2c',
   '../ordinary-contributor-execution.ts':
-    '10bfff229ba6ee6dc0c5d10760fbf678a921d8655af41016bd7822b7e9943dee',
+    '64c85d35d19b57b4fee7ae3dc8ff6441a666efbfa36237b0a4b9f6ca63b613a9',
   '../symposium-seat-runtime.ts':
     'd8dc53ab2ef1f7410e4a5ec5a7701e921c5adea9c706bb48db2105766bdebecc',
   '../symposium-host-grants.ts': '687977ab6508eddd3a6553668db90cc00dd9ae79da2c4f6383d91b1af877d320',
@@ -55,7 +58,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '5ad72e9be9d3289a13511aaa1bb107b527283493e5577e08912ea4fdc4740a81',
   '../agent-context-binding.ts': 'ce0f8dba7f97f515be8ee00a441e3cc36344aad44f31e0b2fb33a160f8803e66',
   '../app.ts': '5a3cdaa8e9d0c6def0775049dd1ff62c56b8021ddcf586d052005adc932a8444',
-  '../ws-handler-v2.ts': '41f46bd0935957ec01f560406827301c17a38237a7be288afe23c36001ead70d',
+  '../ws-handler-v2.ts': '3f298b6b7765a363a7db52612a42e874013335ef111f93ccde3d19d71d213618',
   '../codex-queue-routes.ts': '6873ee90c32da94dcfebd432535d4170942e53c980456927f9dd57e9917d9a53',
   '../agent-context-compiler.ts':
     'fc6d262171f8ae02500376d2546394be138b6675876d93bcc1da448e2aa37694',

@@ -890,6 +890,8 @@ export function handleSendV2(
                 commandTransport.send({
                   type: 'native_command_result',
                   v: 2,
+                  clientMsgId: msg.clientMsgId,
+                  sessionId: paidReasoning ? commandSessionId : msg.sessionId,
                   command: result.command,
                   content: result.content,
                 });
