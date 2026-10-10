@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.9';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.31';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.32';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -134,7 +134,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'd577cd3f4addce8a09ec6e49272196143f28d6e88abf7a4405336542acbf2bfb',
   '../chat.ts': '85701b32713f11a2583e2242e92757e2b40a9f901ae1e5543b043417483bbc83',
   '../sandboxed-command-worker.ts':
-    '5535426d39321039d3db591a2f52e8e3ae31b35b51c2c8ae278eeee548c8df56',
+    'f2cffea266ca292c2ba690725820e2c23d4a90fc3ed61619540a960bbfe72f23',
   '../protected-sdk-command.ts': 'e7c59a2ebfd3fde4b0c7c8cdf7f69f9d231e2e5f1819a61e0514cd707bc6c32f',
   '../hook-bridge.ts': '8885c2b27079799d33958a17942bb7d8953d01540bf7cd4b3ade537ee39c2d12',
   '../native-tool-executor.ts': '9c2f349a51febe5b8818358f558a67a4e324eda2f525d85a5578e84463f5dc01',

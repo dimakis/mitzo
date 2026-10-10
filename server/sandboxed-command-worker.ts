@@ -47,7 +47,8 @@ async function wrapFilesystemOnly(command: string, config: SandboxRuntimeConfig)
     allowAllUnixSockets: true,
     allowLocalBinding: true,
     allowMachLookup: ['*'],
-    allowAppleEvents: true,
+    // Delegating to another application escapes this worker's file/process fence.
+    allowAppleEvents: false,
     allowPty: true,
     allowGitConfig: true,
     readConfig: {

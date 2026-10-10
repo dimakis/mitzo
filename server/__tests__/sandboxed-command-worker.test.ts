@@ -190,7 +190,7 @@ it('rechecks filesystem-only authority after wrapper preparation and before chil
   expect(spawn).not.toHaveBeenCalled();
 });
 
-it('builds runtime-only policy with installed SRT unrestricted networking and the requested filesystem fence', async () => {
+it('builds runtime-only policy with unrestricted networking and filesystem fencing while denying AppleEvents delegation', async () => {
   const { payload, manager, spawn } = fixture();
   payload.filesystemOnly = true;
   const secret = join(root, 'operator.json');
@@ -204,7 +204,8 @@ it('builds runtime-only policy with installed SRT unrestricted networking and th
   expect(command).toContain('(allow network*)');
   expect(command).not.toContain('(deny network');
   expect(command).toContain('(global-name-prefix "")');
-  expect(command).toContain('(allow appleevent-send)');
+  expect(command).not.toContain('(allow appleevent-send)');
+  expect(command).toMatch(/\(deny default(?:\s|\))/);
   expect(command).toContain(secret);
   expect(manager.initialize).not.toHaveBeenCalled();
 });
