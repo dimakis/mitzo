@@ -18,7 +18,10 @@ import {
 export function createHomeRouter(deps: {
   store: HomeStore;
   catalog: () => PhilosophyQuote[];
-  briefing: (date: string) => BriefingSnapshot | null;
+  briefing: (
+    date: string,
+    signal?: AbortSignal,
+  ) => BriefingSnapshot | null | Promise<BriefingSnapshot | null>;
   changed?: () => void;
   session?: (id: string) =>
     | (Pick<SessionMeta, 'sessionType' | 'selectedModel' | 'isHidden'> & {
@@ -122,21 +125,29 @@ export function createHomeRouter(deps: {
       });
     }
   });
-  router.get(['/quote', '/briefing'], (req, res) => {
+  router.get(['/quote', '/briefing'], async (req, res) => {
     const date = typeof req.query.date === 'string' ? req.query.date : '';
     if (!validDate(date)) {
       res.status(400).json({ error: 'date must be a calendar date in YYYY-MM-DD format' });
       return;
     }
+    const controller = new AbortController();
+    const cancel = () => {
+      if (!res.writableEnded) controller.abort();
+    };
+    res.once('close', cancel);
     try {
       if (req.path === '/quote') res.json(deps.store.dailyQuote(date, deps.catalog()));
       else {
-        const report = deps.briefing(date);
+        const report = await deps.briefing(date, controller.signal);
+        if (res.destroyed) return;
         if (report) res.json(report);
         else res.status(404).json({ error: 'No saved morning briefing for this date.' });
       }
     } catch {
-      res.status(503).json({ error: 'Saved content is unavailable. Retry.' });
+      if (!res.destroyed) res.status(503).json({ error: 'Saved content is unavailable. Retry.' });
+    } finally {
+      res.removeListener('close', cancel);
     }
   });
   return router;

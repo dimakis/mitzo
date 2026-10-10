@@ -9,6 +9,7 @@ import type {
   HookJSONOutput,
   SyncHookJSONOutput,
 } from '@anthropic-ai/claude-agent-sdk';
+import type { ProtectedSdkCommandRunner } from './protected-sdk-command.js';
 
 const log = createLogger('hooks');
 
@@ -120,6 +121,7 @@ export function createCommandCallback(
   cwd: string,
   timeoutMs: number,
   environment: Record<string, string> = hookEnvironment(process.env),
+  runner?: ProtectedSdkCommandRunner,
 ): (
   input: HookInput,
   toolUseID: string | undefined,
@@ -134,6 +136,25 @@ export function createCommandCallback(
 
     // Fast-path: already aborted before we even spawn
     if (options.signal.aborted) return {};
+
+    if (runner) {
+      try {
+        const { stdout } = await runner('/bin/sh', ['-c', command], {
+          cwd,
+          env,
+          timeout: timeoutMs,
+          signal: options.signal,
+          input: JSON.stringify(input),
+        });
+        if (!stdout.trim()) return {};
+        return mapHookOutput(JSON.parse(stdout.trim()), hookEventName);
+      } catch (error) {
+        log.warn(`hook command failed: ${command}`, {
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return {};
+      }
+    }
 
     return new Promise<HookJSONOutput>((resolve) => {
       const child = execFile(
@@ -185,6 +206,7 @@ export function createCommandCallback(
 export function loadProjectHooks(
   cwd: string,
   environment: Record<string, string> = hookEnvironment(process.env),
+  runner?: ProtectedSdkCommandRunner,
 ): Partial<Record<HookEvent, HookCallbackMatcher[]>> | undefined {
   const settingsPath = join(cwd, '.claude', 'settings.json');
   const raw = parseSettingsHooks(settingsPath);
@@ -211,7 +233,7 @@ export function loadProjectHooks(
         .map((h) => {
           const expanded = expandEnvVars(h.command, env);
           const timeoutMs = (matcher.timeout ?? 60) * 1000;
-          return createCommandCallback(expanded, cwd, timeoutMs, env);
+          return createCommandCallback(expanded, cwd, timeoutMs, env, runner);
         });
 
       if (callbacks.length === 0) continue;

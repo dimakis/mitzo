@@ -9,6 +9,9 @@ import type {
 const needs =
   "resolved_at IS NULL AND (kind IN ('approval','question') OR COALESCE(json_extract(data, '$.inbox.needsAttention'),0)=1)";
 
+const visible = 'inbox_visible(data,inbox_source_path)=1';
+type InboxReadPolicy = (filename: string, sourcePath?: string) => boolean;
+
 type Input = Omit<
   MitzoNotification,
   'createdAt' | 'readAt' | 'resolvedAt' | 'resolution' | 'archivedAt'
@@ -32,6 +35,18 @@ function item(row: Row): MitzoNotification {
 /** Local-authoritative shared state; read receipts never grant or resolve permissions. */
 export class NotificationStore {
   private db: Database.Database;
+  private inboxPolicyFactory?: () => InboxReadPolicy;
+  private inboxPolicy?: InboxReadPolicy;
+  setInboxReadPolicy(factory: () => InboxReadPolicy) {
+    this.inboxPolicyFactory = factory;
+  }
+  private refreshInboxPolicy() {
+    try {
+      this.inboxPolicy = this.inboxPolicyFactory?.();
+    } catch {
+      this.inboxPolicy = () => false;
+    }
+  }
   constructor(path: string) {
     this.db = new Database(path);
     this.db.pragma('journal_mode = WAL');
@@ -48,6 +63,18 @@ export class NotificationStore {
     const columns = this.db.pragma('table_info(notifications)') as { name: string }[];
     if (!columns.some((column) => column.name === 'archived_at'))
       this.db.exec('ALTER TABLE notifications ADD COLUMN archived_at INTEGER');
+    if (!columns.some((column) => column.name === 'inbox_source_path'))
+      this.db.exec('ALTER TABLE notifications ADD COLUMN inbox_source_path TEXT');
+    this.db.function('inbox_visible', (data: string, source: string | null) => {
+      try {
+        const record = JSON.parse(data) as MitzoNotification;
+        if (record.inboxFilename === undefined) return 1;
+        if (typeof record.inboxFilename !== 'string') return 0;
+        return this.inboxPolicy?.(record.inboxFilename, source ?? undefined) === false ? 0 : 1;
+      } catch {
+        return 0;
+      }
+    });
   }
   record(input: Input, now = Date.now()): boolean {
     const data = { ...input, createdAt: now };
@@ -67,19 +94,42 @@ export class NotificationStore {
     );
   }
   get(id: string): MitzoNotification | undefined {
-    const row = this.db.prepare('SELECT * FROM notifications WHERE id=?').get(id) as
+    this.refreshInboxPolicy();
+    const row = this.db.prepare(`SELECT * FROM notifications WHERE id=? AND ${visible}`).get(id) as
       Row | undefined;
     return row ? item(row) : undefined;
   }
-  syncInbox(input: Input, at: number, archived = false): boolean {
+  syncInbox(input: Input, at: number, archived = false, sourcePath?: string): boolean {
+    return this.db.transaction(() => this.syncInboxSource(input, at, archived, sourcePath))();
+  }
+  private syncInboxSource(
+    input: Input,
+    at: number,
+    archived: boolean,
+    sourcePath?: string,
+  ): boolean {
     if (input.inbox)
       input = {
         ...input,
         inbox: { ...input.inbox, sourceArchived: archived, sourceUpdatedAt: at },
       };
-    const old = this.get(input.id);
+    // Internal reconciliation can replace stale content with a newly verified public source.
+    const oldRow = this.db.prepare('SELECT * FROM notifications WHERE id=?').get(input.id) as
+      Row | undefined;
+    const old = oldRow ? item(oldRow) : undefined;
+    const provenanceChanged =
+      sourcePath !== undefined &&
+      this.db
+        .prepare(
+          'UPDATE notifications SET inbox_source_path=? WHERE id=? AND inbox_source_path IS NOT ?',
+        )
+        .run(sourcePath, input.id, sourcePath).changes > 0;
     if (!old) {
       this.record(input, at);
+      if (sourcePath)
+        this.db
+          .prepare('UPDATE notifications SET inbox_source_path=? WHERE id=?')
+          .run(sourcePath, input.id);
       if (archived)
         this.db
           .prepare("UPDATE notifications SET archived_at=?, delivery_status='cancelled' WHERE id=?")
@@ -89,7 +139,7 @@ export class NotificationStore {
       const previous = this.db
         .prepare('SELECT data FROM notifications WHERE id=?')
         .get(input.id) as { data: string };
-      if (previous.data === data) return false;
+      if (previous.data === data) return provenanceChanged;
       // Update provenance/content while preserving human read/archive state.
       const worse = old.inbox?.severity !== 'critical' && input.inbox?.severity === 'critical';
       const reopened = old.inbox?.status === 'resolved' && input.inbox?.status === 'pending';
@@ -147,9 +197,11 @@ export class NotificationStore {
     );
   }
   inboxFeed(query: InboxQuery, now = Date.now()) {
+    this.refreshInboxPolicy();
     this.expire(now);
     const clauses: string[] = [
       query.view === 'archive' ? 'archived_at IS NOT NULL' : 'archived_at IS NULL',
+      visible,
     ];
     const values: (string | number)[] = [];
     // Search intentionally crosses the named views while respecting refinements.
@@ -209,13 +261,15 @@ export class NotificationStore {
     ).n;
     const needsYou = (
       this.db
-        .prepare(`SELECT COUNT(*) AS n FROM notifications WHERE archived_at IS NULL AND (${needs})`)
+        .prepare(
+          `SELECT COUNT(*) AS n FROM notifications WHERE ${visible} AND archived_at IS NULL AND (${needs})`,
+        )
         .get() as { n: number }
     ).n;
     const sources = (
       this.db
         .prepare(
-          "SELECT DISTINCT json_extract(data, '$.inbox.agent') AS agent FROM notifications WHERE json_extract(data, '$.inbox.agent') IS NOT NULL ORDER BY agent",
+          `SELECT DISTINCT json_extract(data, '$.inbox.agent') AS agent FROM notifications WHERE ${visible} AND json_extract(data, '$.inbox.agent') IS NOT NULL ORDER BY agent`,
         )
         .all() as { agent: string }[]
     ).map((r) => r.agent);
@@ -259,9 +313,10 @@ export class NotificationStore {
       .run(now, resolution, id, sessionId).changes;
   }
   markRead(id: string, now = Date.now()): boolean {
+    this.refreshInboxPolicy();
     return (
       this.db
-        .prepare('UPDATE notifications SET read_at=COALESCE(read_at, ?) WHERE id=?')
+        .prepare(`UPDATE notifications SET read_at=COALESCE(read_at, ?) WHERE id=? AND ${visible}`)
         .run(now, id).changes > 0
     );
   }
@@ -294,11 +349,14 @@ export class NotificationStore {
       .run(now).changes;
   }
   restore(id: string): boolean {
+    this.refreshInboxPolicy();
     return (
-      this.db.prepare('UPDATE notifications SET archived_at=NULL WHERE id=?').run(id).changes > 0
+      this.db.prepare(`UPDATE notifications SET archived_at=NULL WHERE id=? AND ${visible}`).run(id)
+        .changes > 0
     );
   }
   feed(filter: NotificationFilter = 'all', now = Date.now(), limit = 100, offset = 0) {
+    this.refreshInboxPolicy();
     this.expire(now);
     const category =
       filter === 'needs'
@@ -310,8 +368,7 @@ export class NotificationStore {
             : filter === 'history'
               ? 'resolved_at IS NOT NULL'
               : '1=1';
-    const where =
-      filter === 'archived' ? 'archived_at IS NOT NULL' : `archived_at IS NULL AND (${category})`;
+    const where = `${visible} AND (${filter === 'archived' ? 'archived_at IS NOT NULL' : `archived_at IS NULL AND (${category})`})`;
     const items = (
       this.db
         .prepare(
@@ -321,7 +378,9 @@ export class NotificationStore {
     ).map(item);
     const needsYou = (
       this.db
-        .prepare(`SELECT COUNT(*) AS n FROM notifications WHERE (${needs}) AND archived_at IS NULL`)
+        .prepare(
+          `SELECT COUNT(*) AS n FROM notifications WHERE ${visible} AND (${needs}) AND archived_at IS NULL`,
+        )
         .get() as { n: number }
     ).n;
     const total = (
@@ -351,11 +410,12 @@ export class NotificationStore {
       .run(at, id);
   }
   due(now = Date.now()): MitzoNotification[] {
+    this.refreshInboxPolicy();
     this.expire(now);
     return (
       this.db
         .prepare(
-          "SELECT * FROM notifications WHERE delivery_status='queued' AND archived_at IS NULL AND delivery_at<=? AND resolved_at IS NULL ORDER BY delivery_at LIMIT 25",
+          `SELECT * FROM notifications WHERE ${visible} AND delivery_status='queued' AND archived_at IS NULL AND delivery_at<=? AND resolved_at IS NULL ORDER BY delivery_at LIMIT 25`,
         )
         .all(now) as Row[]
     ).map(item);

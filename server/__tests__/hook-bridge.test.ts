@@ -299,3 +299,49 @@ it('does not expand or inherit controller GitHub credentials in project hooks', 
   });
   expect(process.env.GH_TOKEN).toBe('controller-only');
 });
+
+it('routes project hook commands through the optional protected runner, preserving input/env/timeout/output', async () => {
+  writeSettings({
+    hooks: {
+      SessionStart: [{ timeout: 2, hooks: [{ type: 'command', command: 'synthetic $VALUE' }] }],
+    },
+  });
+  const runner = vi.fn().mockResolvedValue({
+    stdout: '{"additionalContext":"protected context"}',
+    stderr: 'synthetic diagnostic',
+  });
+  const hooks = loadProjectHooks(
+    TEST_DIR,
+    { VALUE: 'project value', GH_TOKEN: 'excluded controller value' },
+    runner,
+  )!;
+  const callback = hooks.SessionStart![0].hooks[0];
+  const input = { hook_event_name: 'SessionStart' } as Parameters<typeof callback>[0];
+  const signal = new AbortController().signal;
+  await expect(callback(input, undefined, { signal })).resolves.toMatchObject({
+    hookSpecificOutput: { additionalContext: 'protected context' },
+  });
+  expect(runner).toHaveBeenCalledWith(
+    '/bin/sh',
+    ['-c', 'synthetic project value'],
+    expect.objectContaining({
+      cwd: TEST_DIR,
+      timeout: 2000,
+      input: JSON.stringify(input),
+      signal,
+      env: { VALUE: 'project value', CLAUDE_PROJECT_DIR: TEST_DIR },
+    }),
+  );
+});
+it('preserves empty hook output on protected command failure or invalid JSON and skips aborted callbacks', async () => {
+  const runner = vi.fn().mockRejectedValue(new Error('synthetic protected failure'));
+  const callback = createCommandCallback('synthetic', TEST_DIR, 1000, {}, runner);
+  const signal = new AbortController().signal;
+  expect(await callback({} as never, undefined, { signal })).toEqual({});
+  runner.mockResolvedValue({ stdout: 'invalid JSON', stderr: '' } as never);
+  expect(await callback({} as never, undefined, { signal })).toEqual({});
+  const controller = new AbortController();
+  controller.abort();
+  expect(await callback({} as never, undefined, { signal: controller.signal })).toEqual({});
+  expect(runner).toHaveBeenCalledTimes(2);
+});

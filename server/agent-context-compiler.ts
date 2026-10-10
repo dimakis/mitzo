@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { realpath } from 'node:fs/promises';
+import { join } from 'node:path';
 import * as contexgin from 'contexgin';
 import { compileWorkspaceContext } from '../scripts/agent-workspace-context.mjs';
 import {
@@ -13,6 +14,7 @@ import { z } from 'zod';
 import { compileContextPacks, type AuthorizedContextPacks } from './agent-context-pack-compiler.js';
 export type { AuthorizedContextPacks } from './agent-context-pack-compiler.js';
 import { DEFAULT_CONTEXGIN_URL } from './constants.js';
+import { isPrivateCodexPath } from './codex-private-path.js';
 
 // Pinned dependency plus this preloaded-document compiler contract; never a runtime grant.
 export const AGENT_CONTEXT_COMPILER_REVISION =
@@ -33,7 +35,12 @@ async function rootIdentity(options: AgentContextCompileOptions) {
   if (!options.workspaceRoot) throw Error('Select a chat workspace for context compilation');
   return realpath(options.workspaceRoot);
 }
-
+function assertAllowedPath(path: string, reference: string) {
+  if (isPrivateCodexPath(path)) throw Error(`Context document is not allowed: ${reference}`);
+}
+function assertAllowedDocument(root: string, reference: string) {
+  assertAllowedPath(join(root, reference), reference);
+}
 async function presetContext(
   recipe: Extract<AgentContextRecipe, { source: 'contexgin' }>,
   options: AgentContextCompileOptions,
@@ -100,7 +107,11 @@ export async function compileAgentContext(
   const recipe = AgentContextRecipeSchema.parse(value);
   const result =
     recipe.source === 'workspace'
-      ? await compileWorkspaceContext(recipe, options, contexgin)
+      ? await compileWorkspaceContext(
+          recipe,
+          { ...options, assertDocumentPath: assertAllowedPath },
+          contexgin,
+        )
       : recipe.source === 'packs'
         ? await compileContextPacks(recipe, options.packs, options.signal)
         : await presetContext(recipe, options);
@@ -167,11 +178,18 @@ export async function verifyCompiledAgentContext(
       packs.assertCurrent();
     }
   }
-  if (
-    recipe.source === 'workspace' &&
-    compiled.workspaceIdentity !== contextDigest(await rootIdentity(options))
-  )
-    throw Error('Saved context belongs to another workspace');
+  if (recipe.source === 'workspace') {
+    const root = await rootIdentity(options);
+    if (compiled.workspaceIdentity !== contextDigest(root))
+      throw Error('Saved context belongs to another workspace');
+    // A previously public document can become operator authority after enrollment.
+    // Pinned context must not replay that document through a cached payload.
+    for (const reference of new Set([
+      ...recipe.files,
+      ...compiled.context.sources.map((source) => source.path),
+    ]))
+      assertAllowedDocument(root, reference);
+  }
   options.signal?.throwIfAborted();
   return compiled;
 }

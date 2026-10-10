@@ -34,7 +34,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-async function setup(contextRecipe?: AgentContextRecipe) {
+async function setup(contextRecipe?: AgentContextRecipe, withFixtureMcp = false) {
   vi.clearAllMocks();
   vi.resetModules();
   const root = await mkdtemp(join(tmpdir(), 'mitzo-context-startup-'));
@@ -86,6 +86,12 @@ async function setup(contextRecipe?: AgentContextRecipe) {
     expiresAt: Date.now() + 60000,
   });
   vi.spyOn(library, 'readAgentLibraryProfile').mockResolvedValue(profile);
+  if (withFixtureMcp) {
+    const mcp = await import('../mcp-config.js');
+    vi.spyOn(mcp, 'loadMcpServers').mockReturnValue({
+      fixture: { command: '/bin/echo', args: ['offline MCP'] },
+    });
+  }
   const compiler = await import('../agent-context-compiler.js');
   const chat = await import('../chat.js');
   return { root, profile, transport, compiler, chat, fetcher, unbind };
@@ -228,113 +234,148 @@ it.each([
   },
 );
 
-it('compiles a profile pack from accepted Knowledge instead of the writable task checkout', async () => {
-  const contextPacks = new ContextPackStore(':memory:');
-  const draft = contextPacks.create({
-    version: 1,
-    id: 'review',
-    name: 'Review',
-    description: '',
-    tokenBudget: 1000,
-    documents: [
-      {
-        path: 'review.md',
-        revision: 'a'.repeat(40),
-        mode: 'required',
-        headings: [],
-        priority: 100,
+it.each([false, true])(
+  'compiles a profile pack from accepted Knowledge with runtime-only fence=%s',
+  async (runtimeOnly) => {
+    const contextPacks = new ContextPackStore(':memory:');
+    const draft = contextPacks.create({
+      version: 1,
+      id: 'review',
+      name: 'Review',
+      description: '',
+      tokenBudget: 1000,
+      documents: [
+        {
+          path: 'review.md',
+          revision: 'a'.repeat(40),
+          mode: 'required',
+          headings: [],
+          priority: 100,
+        },
+      ],
+      retrievalGuidance: 'Use Jira for current status.',
+    });
+    const pack = contextPacks.publish(draft.id, draft.version);
+    const fixture = await setup({
+      version: 2,
+      source: 'packs',
+      tokenBudget: 1000,
+      packs: [{ id: pack.id, revision: pack.revision, hash: pack.hash }],
+    });
+    const { root, chat, transport, unbind } = fixture;
+    const { installContextPackRuntime } = await import('../context-pack-runtime.js');
+    const sourceRead = vi.fn(async (path: string, revision: string) => ({
+      path,
+      revision,
+      content: '# Review\nAccepted review guidance.',
+    }));
+    const release = installContextPackRuntime(async () => ({
+      contextPacks,
+      sourceIdentity: 'github:owner/knowledge@main',
+      source: {
+        authorize: async (path: string, revision: string) => ({
+          path,
+          revision,
+          blob: 'b'.repeat(40),
+        }),
+        allowed: () => true,
+        read: sourceRead,
       },
-    ],
-    retrievalGuidance: 'Use Jira for current status.',
-  });
-  const pack = contextPacks.publish(draft.id, draft.version);
-  const fixture = await setup({
-    version: 2,
-    source: 'packs',
-    tokenBudget: 1000,
-    packs: [{ id: pack.id, revision: pack.revision, hash: pack.hash }],
-  });
-  const { root, chat, transport, unbind } = fixture;
-  const { installContextPackRuntime } = await import('../context-pack-runtime.js');
-  const sourceRead = vi.fn(async (path: string, revision: string) => ({
-    path,
-    revision,
-    content: '# Review\nAccepted review guidance.',
-  }));
-  const release = installContextPackRuntime(async () => ({
-    contextPacks,
-    sourceIdentity: 'github:owner/knowledge@main',
-    source: {
-      authorize: async (path: string, revision: string) => ({
-        path,
-        revision,
-        blob: 'b'.repeat(40),
-      }),
-      allowed: () => true,
-      read: sourceRead,
-    },
-  }));
-  const projectStartup = vi.fn(async () => ({}));
-  const hooks = await import('../hook-bridge.js');
-  vi.mocked(hooks.loadProjectHooks).mockReturnValue({
-    SessionStart: [{ hooks: [projectStartup] }],
-    Stop: [],
-  });
-  try {
-    await writeFile(join(root, 'review.md'), 'Unaccepted task instruction must not enter context.');
-    const { query } = await import('@anthropic-ai/claude-agent-sdk');
-    vi.mocked(query).mockImplementation(() => {
-      throw Error('Mocked provider dispatch');
+    }));
+    const projectStartup = vi.fn(async () => ({}));
+    const protectedRunner = vi
+      .fn()
+      .mockResolvedValue({ stdout: 'Unexpected fallback', stderr: '' });
+    const outerSpawn = vi.fn();
+    if (runtimeOnly) {
+      const boundary = await import('../credential-sdk-boundary.js');
+      vi.spyOn(boundary, 'credentialSdkBoundary').mockReturnValue({
+        credentialIsolation: false,
+        deniedRoots: [],
+        spawnClaudeCodeProcess: outerSpawn,
+      });
+      const protectedCommands = await import('../protected-sdk-command.js');
+      vi.spyOn(protectedCommands, 'createWorkspaceRuntimeCommandRunner').mockReturnValue(
+        protectedRunner,
+      );
+    }
+    const hooks = await import('../hook-bridge.js');
+    vi.mocked(hooks.loadProjectHooks).mockReturnValue({
+      SessionStart: [{ hooks: [projectStartup] }],
+      Stop: [],
     });
-    await chat.startChat(transport, 'pack-context', 'Review', {
-      cwd: root,
-      isolation: false,
-      model: 'luna',
-      operatorConnectionId: 'operator',
-      initialSessionId: sessionId,
-      agentProfile: { profileId: 'bob', revision: 3 },
-    });
-    expect(
-      transport.send.mock.calls
-        .filter(([message]) => message.type === 'error')
-        .map(([message]) => message.error),
-    ).toEqual(['Mocked provider dispatch']);
-    expect(query).toHaveBeenCalledOnce();
-    const append = (vi.mocked(query).mock.calls[0][0].options?.systemPrompt as { append: string })
-      .append;
-    expect(append).toContain('Accepted review guidance.');
-    expect(append).toContain('Use Jira for current status.');
-    expect(append).not.toContain('Unaccepted task instruction');
-    expect(append).not.toContain('At cold start, use TelosFindArtifacts');
-    expect(append).not.toContain('Read CLAUDE.md and .cursor/rules/');
-    expect(vi.mocked(query).mock.calls[0][0].options?.settingSources).toEqual([]);
-    expect(
-      vi
-        .mocked(query)
-        .mock.calls[0][0].options?.hooks?.SessionStart?.some((group) =>
-          group.hooks.includes(projectStartup),
-        ),
-    ).not.toBe(true);
-    const retained = chat.eventStore.getSession(sessionId)!;
-    expect(retained.agentContext?.provenance?.documents[0]?.storeId).toBe(
-      'github:owner/knowledge@main',
-    );
-    expect(JSON.parse(retained.bootContext!).receipt).toMatchObject({
-      status: 'prepared',
-      profileId: 'bob',
-      profileRevision: 3,
-      payloadHash: retained.agentContext?.payloadHash,
-    });
-    expect(sourceRead).toHaveBeenCalledWith('review.md', 'a'.repeat(40), expect.any(AbortSignal));
-  } finally {
-    release();
-    unbind();
-    chat.registry.dispose();
-    chat.eventStore.close();
-    contextPacks.close();
-    await rm(root, { recursive: true, force: true });
-  }
-});
+    try {
+      await writeFile(
+        join(root, 'review.md'),
+        'Unaccepted task instruction must not enter context.',
+      );
+      const { query } = await import('@anthropic-ai/claude-agent-sdk');
+      vi.mocked(query).mockImplementation(() => {
+        throw Error('Mocked provider dispatch');
+      });
+      await chat.startChat(transport, 'pack-context', 'Review', {
+        cwd: root,
+        isolation: false,
+        model: 'luna',
+        operatorConnectionId: 'operator',
+        initialSessionId: sessionId,
+        agentProfile: { profileId: 'bob', revision: 3 },
+      });
+      expect(
+        transport.send.mock.calls
+          .filter(([message]) => message.type === 'error')
+          .map(([message]) => message.error),
+      ).toEqual(['Mocked provider dispatch']);
+      expect(query).toHaveBeenCalledOnce();
+      const append = (vi.mocked(query).mock.calls[0][0].options?.systemPrompt as { append: string })
+        .append;
+      expect(append).toContain('Accepted review guidance.');
+      expect(append).toContain('Use Jira for current status.');
+      expect(append).not.toContain('Unaccepted task instruction');
+      expect(append).not.toContain('At cold start, use TelosFindArtifacts');
+      expect(append).not.toContain('Read CLAUDE.md and .cursor/rules/');
+      expect(vi.mocked(query).mock.calls[0][0].options?.settingSources).toEqual([]);
+      expect(
+        vi.mocked(query).mock.calls[0][0].options?.hooks?.PostToolBatch?.length,
+      ).toBeGreaterThan(0);
+      if (runtimeOnly) {
+        expect(vi.mocked(query).mock.calls[0][0].options?.spawnClaudeCodeProcess).toBe(outerSpawn);
+        expect(vi.mocked(query).mock.calls[0][0].options?.strictMcpConfig).toBeUndefined();
+        expect(hooks.loadProjectHooks).toHaveBeenCalledWith(
+          root,
+          expect.any(Object),
+          protectedRunner,
+        );
+        expect(protectedRunner).not.toHaveBeenCalled();
+      }
+      expect(
+        vi
+          .mocked(query)
+          .mock.calls[0][0].options?.hooks?.SessionStart?.some((group) =>
+            group.hooks.includes(projectStartup),
+          ),
+      ).not.toBe(true);
+      const retained = chat.eventStore.getSession(sessionId)!;
+      expect(retained.agentContext?.provenance?.documents[0]?.storeId).toBe(
+        'github:owner/knowledge@main',
+      );
+      expect(JSON.parse(retained.bootContext!).receipt).toMatchObject({
+        status: 'prepared',
+        profileId: 'bob',
+        profileRevision: 3,
+        payloadHash: retained.agentContext?.payloadHash,
+      });
+      expect(sourceRead).toHaveBeenCalledWith('review.md', 'a'.repeat(40), expect.any(AbortSignal));
+    } finally {
+      release();
+      unbind();
+      chat.registry.dispose();
+      chat.eventStore.close();
+      contextPacks.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+);
 
 it.each([false, true])(
   'pins compiled context before mocked SDK dispatch and reuses it on cold resume (resume=%s)',
@@ -536,6 +577,7 @@ it.each([
   { event: 'PostToolBatch' },
   { event: 'PostToolBatch', nested: true },
   { event: 'PostToolBatch', projectRefresh: true },
+  { event: 'PostToolBatch', projectRefresh: true, runtimeOnly: true },
   { event: 'PostToolBatch', keepAccepted: true },
   { event: 'PreCompact' },
   { event: 'SubagentStart', nested: true },
@@ -561,12 +603,15 @@ it.each([
       retrievalGuidance: '',
     });
     const pack = packs.publish(draft.id, draft.version);
-    const { root, chat, transport, unbind } = await setup({
-      version: 2,
-      source: 'packs',
-      tokenBudget: 1000,
-      packs: [{ id: pack.id, revision: pack.revision, hash: pack.hash }],
-    });
+    const { root, chat, transport, unbind } = await setup(
+      {
+        version: 2,
+        source: 'packs',
+        tokenBudget: 1000,
+        packs: [{ id: pack.id, revision: pack.revision, hash: pack.hash }],
+      },
+      'runtimeOnly' in boundary,
+    );
     const { installContextPackRuntime } = await import('../context-pack-runtime.js');
     let current = true;
     const authorize = vi.fn(async (path: string, revision: string) => {
@@ -614,7 +659,20 @@ it.each([
       });
     }
     const sdkBoundary = await import('../credential-sdk-boundary.js');
-    vi.spyOn(sdkBoundary, 'credentialSdkBoundary').mockReturnValue(undefined);
+    const protectedRunner = vi.fn().mockResolvedValue({ stdout: '', stderr: '' });
+    const outerSpawn = vi.fn();
+    if ('runtimeOnly' in boundary) {
+      vi.stubEnv('WORKSPACE_RUNTIME_FIXTURE_ENV', 'preserved');
+      vi.spyOn(sdkBoundary, 'credentialSdkBoundary').mockReturnValue({
+        credentialIsolation: false,
+        deniedRoots: [],
+        spawnClaudeCodeProcess: outerSpawn,
+      });
+      const protectedCommands = await import('../protected-sdk-command.js');
+      vi.spyOn(protectedCommands, 'createWorkspaceRuntimeCommandRunner').mockReturnValue(
+        protectedRunner,
+      );
+    } else vi.spyOn(sdkBoundary, 'credentialSdkBoundary').mockReturnValue(undefined);
     let providerRequests = 0;
     let aborted = false;
     let continuationStopped = false;
@@ -628,6 +686,14 @@ it.each([
             close: vi.fn(),
             interrupt: vi.fn(),
             async *[Symbol.asyncIterator]() {
+              if ('runtimeOnly' in boundary) {
+                expect(args.options?.spawnClaudeCodeProcess).toBe(outerSpawn);
+                expect(args.options?.settingSources).toEqual([]);
+                expect(args.options?.strictMcpConfig).toBeUndefined();
+                expect(args.options?.mcpServers).toHaveProperty('fixture');
+                expect(args.options?.allowedTools).toContain('mcp__fixture__*');
+                expect(args.options?.env?.WORKSPACE_RUNTIME_FIXTURE_ENV).toBe('preserved');
+              }
               const prompt = args.prompt as AsyncIterable<unknown>;
               await prompt[Symbol.asyncIterator]().next();
               providerRequests++;
@@ -768,6 +834,14 @@ it.each([
         expect(projectOutputPreserved).toBe(true);
       }
       expect(unmatchedProject).not.toHaveBeenCalled();
+      if ('runtimeOnly' in boundary) {
+        expect(hooks.loadProjectHooks).toHaveBeenCalledWith(
+          root,
+          expect.any(Object),
+          protectedRunner,
+        );
+        expect(protectedRunner).not.toHaveBeenCalled();
+      }
     } finally {
       release();
       unbind();

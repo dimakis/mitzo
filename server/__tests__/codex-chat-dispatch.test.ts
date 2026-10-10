@@ -767,3 +767,98 @@ it.each(['contexgin', 'slow-contexgin', 'slow-fallback'] as const)(
   },
   20000,
 );
+
+it.each(['work-api', 'codex', 'gemini'] as const)(
+  'fences local boot compilation before offline %s provider dispatch',
+  async (provider) => {
+    vi.resetModules();
+    vi.clearAllMocks();
+    const root = await mkdtemp(join(tmpdir(), 'mitzo-native-protected-boot-'));
+    vi.stubEnv('REPO_PATH', root);
+    vi.stubEnv('WORKTREE_ENABLED', 'false');
+    vi.stubEnv('MITZO_WORKSPACE_RUNTIME_CONFIG', join(root, 'operator-enrollment.json'));
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline ContexGin fixture')));
+    const protectedCommands = await import('../protected-sdk-command.js');
+    const markdown = '# Synthetic protected native context';
+    const runner = vi.fn().mockResolvedValue({
+      stdout: JSON.stringify({ additionalContext: markdown }),
+      stderr: '',
+    });
+    const factory = vi
+      .spyOn(protectedCommands, 'createWorkspaceRuntimeCommandRunner')
+      .mockReturnValue(runner);
+    const boundary = await import('../credential-sdk-boundary.js');
+    const sdkFactory = vi.spyOn(boundary, 'credentialSdkBoundary');
+    const profile =
+      provider === 'work-api'
+        ? {
+            id: 'native-fixture',
+            label: 'Offline API',
+            provider: 'openai' as const,
+            credentialRef: { provider: 'keychain' as const, service: 'mitzo', account: 'fixture' },
+            models: [{ id: 'test', label: 'Offline fixture' }],
+          }
+        : provider === 'codex'
+          ? {
+              id: 'native-fixture',
+              label: 'Offline Codex',
+              provider: 'openai-codex' as const,
+              credentialRef: '/fixture/login',
+              email: 'test@example.com',
+              planType: 'test',
+              models: [{ id: 'luna', label: 'Offline fixture' }],
+            }
+          : {
+              id: 'native-fixture',
+              label: 'Offline Gemini',
+              provider: 'google-vertex' as const,
+              projectId: 'fixture-project',
+              region: 'global',
+              credentialRef: '/fixture/adc.json',
+              models: [{ id: 'gemini-3.8-flash', label: 'Offline fixture' }],
+            };
+    const profiles = new AccountProfiles([profile], { codexEnabled: true });
+    vi.mocked(openResponsesChat).mockRejectedValue(new Error('offline native boundary'));
+    vi.mocked(openCodexChat).mockRejectedValue(new Error('offline native boundary'));
+    const chat = await import('../chat.js');
+    try {
+      await chat.startChat(
+        { send: () => {}, isOpen: () => true },
+        `protected-${provider}`,
+        'hello',
+        {
+          cwd: root,
+          isolation: false,
+          accountId: 'native-fixture',
+          model: profile.models[0].id,
+          accountProfiles: profiles,
+          initialSessionId: `protected-boot-${provider}`,
+        },
+      );
+      expect(factory).toHaveBeenCalled();
+      expect(sdkFactory).not.toHaveBeenCalled();
+      expect(runner).toHaveBeenCalledWith(
+        'python3',
+        [join(root, 'scripts', 'build_boot_context.py'), '--json'],
+        expect.objectContaining({ cwd: root, timeout: 5000 }),
+      );
+      const opened =
+        provider === 'codex'
+          ? vi.mocked(openCodexChat).mock.calls.at(-1)?.[0]
+          : vi.mocked(openResponsesChat).mock.calls.at(-1)?.[0];
+      expect(opened?.systemPrompt).toContain(markdown);
+      const saved = JSON.parse(
+        chat.eventStore.getSession(`protected-boot-${provider}`)!.bootContext!,
+      );
+      expect(saved.fullMarkdown).toBe(markdown);
+      expect(saved.source).toBe('local-fallback');
+      expect(query).not.toHaveBeenCalled();
+    } finally {
+      factory.mockRestore();
+      sdkFactory.mockRestore();
+      chat.registry.dispose();
+      chat.eventStore.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+);

@@ -1,20 +1,70 @@
 import { spawn } from 'node:child_process';
 import { existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { basename, dirname, isAbsolute, join } from 'node:path';
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { isIP } from 'node:net';
 import { SandboxManager } from '@anthropic-ai/sandbox-runtime';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import type { SpawnedProcess, SpawnOptions } from '@anthropic-ai/claude-agent-sdk';
+import type { Readable } from 'node:stream';
+export type ProtectedSdkProcess = SpawnedProcess & {
+  stderr: Readable;
+  once(
+    event: 'close',
+    listener: (code: number | null, signal: NodeJS.Signals | null) => void,
+  ): void;
+};
 import { canonical, AuthoritySnapshot, validatePath } from './sandbox-authority.js';
 import { getCredentialConnectionsRuntime } from './credential-connections-runtime.js';
 import type { SandboxWorkerPayload } from './sandboxed-command-worker.js';
+import {
+  workspaceRuntimeAuthorityPaths,
+  workspaceRuntimePrivateFiles,
+  workspaceRuntimeSelectorEntries,
+} from './workspace-runtime-private-paths.js';
+
+/** Force SRT's glob branch so it cannot follow the final selector pointer.
+ * macOS Seatbelt sees the pointer's physical directory entry for unlink/create,
+ * while operations below a directory link use its resolved target. Thus /tm[p]
+ * protects /tmp itself without denying writes throughout /private/tmp.
+ */
+function selectorWritePattern(entry: string): string {
+  if (!isAbsolute(entry) || resolve(entry) !== entry || /[*?[\]{}]/.test(entry))
+    throw new Error('SDK runtime selector must have a literal absolute path');
+  const parent = dirname(entry);
+  if (parent !== '/') validatePath(parent);
+  const name = basename(entry);
+  let index = name.length - 1;
+  while (index >= 0 && !/[a-zA-Z0-9]/.test(name[index]!)) index--;
+  if (index < 0) throw new Error('SDK runtime selector requires a literal filename');
+  return join(parent, name.slice(0, index) + '[' + name[index] + ']' + name.slice(index + 1));
+}
+
+function runtimeFilesystemProtection() {
+  const privateFiles = [...new Set(workspaceRuntimePrivateFiles().map(canonical))];
+  const sourceRoots = workspaceRuntimeAuthorityPaths().map(canonical);
+  const selectors = workspaceRuntimeSelectorEntries();
+  const writeRoots = [...new Set([...privateFiles.map(dirname), ...sourceRoots])];
+  [...privateFiles, ...writeRoots].forEach(validatePath);
+  return { privateFiles, writeRoots, selectors, patterns: selectors.map(selectorWritePattern) };
+}
 
 /** The SDK's own sandbox settings are mutable provider policy. An outer OS sandbox
  * protects the whole provider process, including native Read, arbitrary Bash,
  * project hooks and stdio MCP descendants, independently of those settings. */
 export function credentialSdkBoundary(platform: NodeJS.Platform = process.platform) {
+  return createSdkBoundary(platform, false);
+}
+
+/** Controller project commands need the runtime fence for every provider, with
+ * no change to their credential environment or network policy. */
+export function runtimeFilesystemSdkBoundary(platform: NodeJS.Platform = process.platform) {
+  return createSdkBoundary(platform, true);
+}
+
+function createSdkBoundary(platform: NodeJS.Platform, runtimeOnly: boolean) {
+  const initialRuntime = runtimeFilesystemProtection();
   const storage = [
     join(homedir(), '.mitzo', 'keychain-helper'),
     join(homedir(), '.mitzo', 'credential-connections'),
@@ -22,25 +72,30 @@ export function credentialSdkBoundary(platform: NodeJS.Platform = process.platfo
       ? [process.env.MITZO_KEYCHAIN_CONNECTIONS_DIR]
       : []),
   ];
-  if (
-    process.env.MITZO_KEYCHAIN_CONNECTIONS_ENABLED !== '1' &&
-    !getCredentialConnectionsRuntime() &&
-    !storage.some(existsSync)
-  )
-    return undefined;
+  const credentialIsolation =
+    !runtimeOnly &&
+    (process.env.MITZO_KEYCHAIN_CONNECTIONS_ENABLED === '1' ||
+      !!getCredentialConnectionsRuntime() ||
+      storage.some(existsSync));
+  if (!credentialIsolation && initialRuntime.writeRoots.length === 0) return undefined;
   const deniedRoots = [
     ...new Set(
       [
-        ...storage,
-        join(homedir(), '.mitzo'),
-        join(process.cwd(), '.env'),
-        join(homedir(), '.mitzo', 'internal-token'),
-        join(homedir(), 'Library', 'Keychains'),
-        ...(process.env.MITZO_KEYCHAIN_HELPER ? [process.env.MITZO_KEYCHAIN_HELPER] : []),
+        ...initialRuntime.privateFiles,
+        ...(credentialIsolation
+          ? [
+              ...storage,
+              join(homedir(), '.mitzo'),
+              join(process.cwd(), '.env'),
+              join(homedir(), '.mitzo', 'internal-token'),
+              join(homedir(), 'Library', 'Keychains'),
+              ...(process.env.MITZO_KEYCHAIN_HELPER ? [process.env.MITZO_KEYCHAIN_HELPER] : []),
+            ]
+          : []),
       ].map(canonical),
     ),
   ];
-  const providerBaseUrl = process.env.ANTHROPIC_BASE_URL;
+  const providerBaseUrl = credentialIsolation ? process.env.ANTHROPIC_BASE_URL : undefined;
   const providerDomain = providerBaseUrl ? new URL(providerBaseUrl).hostname : undefined;
   if (
     providerDomain &&
@@ -56,18 +111,29 @@ export function credentialSdkBoundary(platform: NodeJS.Platform = process.platfo
   deniedRoots.forEach(validatePath);
   Object.freeze(deniedRoots);
   return {
+    credentialIsolation,
     deniedRoots,
-    spawnClaudeCodeProcess(options: SpawnOptions): SpawnedProcess {
+    spawnClaudeCodeProcess(
+      options: SpawnOptions & { captureStderr?: boolean },
+    ): ProtectedSdkProcess {
       options.signal.throwIfAborted();
       if (platform !== 'darwin')
-        throw new Error('Keychain-protected Claude SDK process isolation requires macOS');
+        throw new Error('Protected Claude SDK process isolation requires macOS');
       const dependencies = SandboxManager.checkDependencies();
       if (dependencies.errors.length || dependencies.warnings.length)
         throw new Error(
-          'Keychain-protected Claude SDK requires complete OS sandbox dependencies; install them before retrying',
+          'Protected Claude SDK requires complete OS sandbox dependencies; install them before retrying',
         );
+      // A factory can be retained while a host operator changes enrollment.
+      // Reconcile known authority immediately before each provider launch.
+      const runtime = runtimeFilesystemProtection();
+      const launchDeniedRoots = [...new Set([...deniedRoots, ...runtime.privateFiles])];
       const authority = new AuthoritySnapshot();
-      deniedRoots.forEach((root) => authority.capture(root));
+      launchDeniedRoots.forEach((root) =>
+        authority.capture(root, runtime.privateFiles.includes(root)),
+      );
+      runtime.writeRoots.forEach((root) => authority.capture(root));
+      runtime.selectors.forEach((entry) => authority.capture(dirname(entry)));
       const temporary = realpathSync(mkdtempSync(join(tmpdir(), 'mitzo-sdk-sandbox-')));
       const policy = join(temporary, 'policy.json');
       const bootstrapConfig = join(temporary, 'tsconfig.json');
@@ -100,28 +166,33 @@ export function credentialSdkBoundary(platform: NodeJS.Platform = process.platfo
         : [worker];
       const quote = (part: string) => "'" + part.replaceAll("'", "'\\''") + "'";
       const targetEnv = { ...options.env };
-      for (const name of [
-        'AUTH_PASSPHRASE',
-        'AUTH_SECRET',
-        'NTFY_AUTH_TOKEN',
-        'GH_TOKEN',
-        'GITHUB_TOKEN',
-      ])
-        delete targetEnv[name];
-      for (const name of Object.keys(targetEnv))
-        if (/^MITZO_.*(?:TOKEN|SECRET|CAPABILITY|PASSPHRASE)$/.test(name)) delete targetEnv[name];
+      if (credentialIsolation) {
+        for (const name of [
+          'AUTH_PASSPHRASE',
+          'AUTH_SECRET',
+          'NTFY_AUTH_TOKEN',
+          'GH_TOKEN',
+          'GITHUB_TOKEN',
+        ])
+          delete targetEnv[name];
+        for (const name of Object.keys(targetEnv))
+          if (/^MITZO_.*(?:TOKEN|SECRET|CAPABILITY|PASSPHRASE)$/.test(name)) delete targetEnv[name];
+      }
       const payload: SandboxWorkerPayload = {
         cwd: options.cwd ?? process.cwd(),
         command: [options.command, ...options.args].map(quote).join(' '),
         authority: authority.serialize(),
+        ...(credentialIsolation ? {} : { filesystemOnly: true }),
         env: targetEnv,
         config: {
           filesystem: {
-            denyRead: [...deniedRoots, temporary],
+            denyRead: [...launchDeniedRoots, temporary],
             allowRead: [],
             allowWrite: ['/'],
             denyWrite: [
-              ...deniedRoots,
+              ...launchDeniedRoots,
+              ...runtime.writeRoots,
+              ...runtime.patterns,
               ...trustedExecutableRoots,
               temporary,
               dirname(worker),
@@ -205,12 +276,14 @@ export function credentialSdkBoundary(platform: NodeJS.Platform = process.platfo
       });
       // SDK protocol is confined to stdout; startup failures go to stderr.
       // Consume stderr to avoid backpressure while exposing actionable sandbox failures.
-      child.stderr.on('data', (data: Buffer) => {
-        process.stderr.write(data);
-      });
+      if (!options.captureStderr)
+        child.stderr.on('data', (data: Buffer) => {
+          process.stderr.write(data);
+        });
       return {
         stdin: child.stdin,
         stdout: child.stdout,
+        stderr: child.stderr,
         get killed() {
           return killed;
         },

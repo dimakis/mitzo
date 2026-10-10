@@ -13,6 +13,7 @@ import { createHash } from 'node:crypto';
 import type { BriefingSnapshot } from '@mitzo/protocol';
 import { validDate } from './home-store.js';
 import { readBoundedFile } from './bounded-file-read.js';
+import { isPrivateCodexPath } from './codex-private-path.js';
 
 export interface MorningBriefingSummary {
   filename: string;
@@ -34,6 +35,7 @@ export function getLatestMorningBriefing(
   date: string,
 ): MorningBriefingSummary | null {
   const briefingsPath = join(repoPath, 'command_center', 'briefings');
+  if (isPrivateCodexPath(briefingsPath)) throw new Error('Briefing directory is private');
   if (!existsSync(briefingsPath)) return null;
 
   const candidates = readdirSync(briefingsPath)
@@ -41,6 +43,7 @@ export function getLatestMorningBriefing(
       const match = MORNING_BRIEFING.exec(filename) ?? LEGACY_MORNING_BRIEFING.exec(filename);
       if (!match || match[1] !== date) return null;
       const path = join(briefingsPath, filename);
+      if (isPrivateCodexPath(path)) return null;
       const stat = statSync(path);
       if (!stat.isFile()) return null;
       return { filename, path, date: match[1], generatedAt: stat.mtime.toISOString() };
@@ -64,6 +67,12 @@ export function readMorningBriefing(repoPath: string, date: string): BriefingSna
     throw new Error('Briefing directory must not be a symlink');
   const latest = getLatestMorningBriefing(canonicalRoot, date);
   if (!latest) return null;
+  return readMorningBriefingSnapshot(latest);
+}
+
+/** Read the exact selected report, including selections from an enrolled runtime. */
+export function readMorningBriefingSnapshot(latest: MorningBriefingSummary): BriefingSnapshot {
+  if (isPrivateCodexPath(latest.path)) throw new Error('Briefing artifact is private');
   const fd = openSync(latest.path, constants.O_RDONLY | constants.O_NOFOLLOW);
   try {
     const stat = fstatSync(fd);
