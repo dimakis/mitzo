@@ -395,9 +395,16 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
           connection.clearSession(sessionId);
       });
   }
-  function confirmPersistedDelivery(messages: FinishedMessage[]) {
+  function matchesDeliverySession(id: string, sessionId: string | undefined): boolean {
+    const origin = deliveryOrigins.get(id);
+    // Observed commands require their assigned session, even after navigation.
+    // An unassigned launch is bound by session_id before its echo can confirm it.
+    return !origin || (typeof origin.sessionId === 'string' && origin.sessionId === sessionId);
+  }
+  function confirmPersistedDelivery(sessionId: string, messages: FinishedMessage[]) {
     for (const message of messages)
-      if (message.role === 'user') settleDelivery(message.messageId, 'accepted');
+      if (message.role === 'user' && matchesDeliverySession(message.messageId, sessionId))
+        settleDelivery(message.messageId, 'accepted');
   }
 
   let boundedRestore:
@@ -451,7 +458,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         : api.getReconnectTranscript(sessionId, throughSeq);
     transcript
       .then(({ messages: msgs, current, currents = [], cursor }) => {
-        if (Array.isArray(msgs)) confirmPersistedDelivery(msgs);
+        if (Array.isArray(msgs)) confirmPersistedDelivery(sessionId, msgs);
         if (request !== historyRequest || store.getState().sessions.active !== sessionId) return;
         if (Array.isArray(msgs)) {
           const appliedCursor = cursor ?? throughSeq;
@@ -1469,8 +1476,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     // Delivery receipts settle their original launch even when its chat is no longer visible.
     // Transcript updates below remain scoped to the current chat.
     if (msg.type === 'user_message' && typeof msg.messageId === 'string') {
-      const origin = deliveryOrigins.get(msg.messageId);
-      if (origin?.control === 'interrupt' && origin.sessionId !== eventSessionId) return true;
+      if (!matchesDeliverySession(msg.messageId, eventSessionId)) return true;
       settleDelivery(msg.messageId, 'accepted');
     }
 
@@ -1487,7 +1493,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       void api
         .getReconnectTranscript(eventSessionId, cursor)
         .then(({ messages }) => {
-          confirmPersistedDelivery(messages);
+          confirmPersistedDelivery(eventSessionId, messages);
           connection.commitTranscriptCursor(eventSessionId, cursor);
           connection.acknowledgeReconnectSnapshot(
             eventSessionId,

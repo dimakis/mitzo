@@ -3197,6 +3197,110 @@ it('confirms a WebSocket launch from its matching persisted user message', () =>
   expect(onDelivery).toHaveBeenCalledExactlyOnceWith('accepted');
 });
 
+it.each(['unassigned', 'assigned'] as const)(
+  'rejects a foreign same-ID echo for an %s observed ordinary send',
+  async (assignment) => {
+    const store = createReadyStore();
+    if (assignment === 'assigned') await store.getState().switchSession('target');
+    const onDelivery = vi.fn();
+    store.getState().sendMessage('Exact draft', { onDelivery });
+    const id = store.getState().messages.messages.at(-1)!.messageId;
+    lastWs.simulateMessage({ type: '_send_uncertain', clientMsgId: id });
+    expect(onDelivery).toHaveBeenCalledExactlyOnceWith('uncertain');
+    lastWs.simulateMessage({
+      type: 'user_message',
+      sessionId: 'foreign',
+      messageId: id,
+      text: 'Exact draft',
+    });
+    expect(onDelivery).toHaveBeenCalledExactlyOnceWith('uncertain');
+    lastWs.simulateMessage({ type: 'user_message', messageId: id, text: 'Exact draft' });
+    expect(onDelivery).toHaveBeenCalledExactlyOnceWith('uncertain');
+    if (assignment === 'unassigned')
+      lastWs.simulateMessage({ type: 'session_id', sessionId: 'target', clientMsgId: id });
+    const echo = { type: 'user_message', sessionId: 'target', messageId: id, text: 'Exact draft' };
+    lastWs.simulateMessage(echo);
+    lastWs.simulateMessage(echo);
+    expect(onDelivery.mock.calls).toEqual([['uncertain'], ['accepted']]);
+    expect(lastWs.parsedSent().filter((m) => m.type === 'send')).toEqual([
+      expect.objectContaining({ clientMsgId: id, prompt: 'Exact draft' }),
+    ]);
+  },
+);
+
+it('rejects foreign same-ID history and accepts the original ordinary send transcript once', async () => {
+  const transport = mockTransport();
+  const store = createReadyStore(transport);
+  await store.getState().switchSession('target');
+  const onDelivery = vi.fn();
+  store.getState().sendMessage('Exact draft', { onDelivery });
+  const id = store.getState().messages.messages.at(-1)!.messageId;
+  await store.getState().switchSession('foreign');
+  (transport.fetch as ReturnType<typeof vi.fn>).mockImplementation(async (url: string) => ({
+    ok: true,
+    json: async () =>
+      url.includes('/messages') ? [{ messageId: id, role: 'user', blocks: [], timestamp: 1 }] : [],
+  }));
+  lastWs.simulateMessage({ type: '_foreground' });
+  await vi.waitFor(() =>
+    expect(store.getState().messages.messages.some((m) => m.messageId === id)).toBe(true),
+  );
+  expect(onDelivery).not.toHaveBeenCalled();
+  await store.getState().switchSession('target');
+  lastWs.simulateMessage({ type: '_foreground' });
+  await vi.waitFor(() => expect(onDelivery).toHaveBeenCalledExactlyOnceWith('accepted'));
+  lastWs.simulateMessage({
+    type: 'user_message',
+    sessionId: 'target',
+    messageId: id,
+    text: 'Exact draft',
+  });
+  expect(onDelivery).toHaveBeenCalledExactlyOnceWith('accepted');
+  expect(lastWs.parsedSent().filter((m) => m.type === 'send')).toHaveLength(1);
+});
+
+it('scopes offscreen reconnect receipts to their requested session instead of another send ID', async () => {
+  const transport = mockTransport();
+  const store = createReadyStore(transport);
+  await store.getState().switchSession('offscreen');
+  const offscreenDelivery = vi.fn();
+  store.getState().sendMessage('Offscreen draft', { onDelivery: offscreenDelivery });
+  const offscreenId = store.getState().messages.messages.at(-1)!.messageId;
+  await store.getState().switchSession('target');
+  const onDelivery = vi.fn();
+  store.getState().sendMessage('Exact draft', { onDelivery });
+  const id = store.getState().messages.messages.at(-1)!.messageId;
+  (transport.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+    ok: true,
+    json: async () => ({
+      messages: [offscreenId, id].map((messageId) => ({
+        messageId,
+        role: 'user',
+        blocks: [],
+        timestamp: 1,
+      })),
+      cursor: 3,
+    }),
+  });
+  lastWs.simulateMessage({
+    type: 'session_reconnect_snapshot',
+    sessionId: 'offscreen',
+    cursor: 3,
+    state: 'idle',
+  });
+  await vi.waitFor(() => expect(offscreenDelivery).toHaveBeenCalledExactlyOnceWith('accepted'));
+  expect(onDelivery).not.toHaveBeenCalled();
+  expect(store.getState().sessions.active).toBe('target');
+  lastWs.simulateMessage({
+    type: 'user_message',
+    sessionId: 'target',
+    messageId: id,
+    text: 'Exact draft',
+  });
+  expect(onDelivery).toHaveBeenCalledExactlyOnceWith('accepted');
+  expect(lastWs.parsedSent().filter((m) => m.type === 'send')).toHaveLength(2);
+});
+
 it('releases a WebSocket launch for retry when startup fails before assignment', () => {
   const store = createReadyStore();
   const onDelivery = vi.fn();
@@ -3406,6 +3510,7 @@ it('removes the rejected optimistic launch before retrying without duplicating i
   expect(store.getState().sendPendingSession()).toBe(false);
   store.getState().sendPendingSession();
   const retryId = store.getState().messages.messages.at(-1)!.messageId;
+  lastWs.simulateMessage({ type: 'session_id', sessionId: 'target', clientMsgId: retryId });
   lastWs.simulateMessage({
     type: 'user_message',
     sessionId: 'target',
