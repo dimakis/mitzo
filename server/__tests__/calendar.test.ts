@@ -1,9 +1,24 @@
-import { describe, it, expect, vi, beforeAll } from 'vitest';
+import { describe, it, expect, vi, beforeAll, afterEach } from 'vitest';
 import type { Express } from 'express';
 import request from 'supertest';
-import { mkdirSync } from 'fs';
+import { mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
+
+const runtime = vi.hoisted(() => ({
+  calendar: vi.fn(),
+  latestBriefing: vi.fn(),
+  briefingsRoot: '',
+}));
+vi.mock('../workspace-runtime-client.js', () => ({
+  workspaceRuntimeConfigured: () => Object.hasOwn(process.env, 'MITZO_WORKSPACE_RUNTIME_CONFIG'),
+  createWorkspaceRuntimeClient: () => runtime,
+}));
+afterEach(() => {
+  delete process.env.MITZO_WORKSPACE_RUNTIME_CONFIG;
+  vi.clearAllMocks();
+  runtime.briefingsRoot = join(TEST_REPO, 'command_center', 'briefings');
+});
 
 const TEST_REPO = join(tmpdir(), `mitzo-test-repo-${process.pid}`);
 
@@ -67,6 +82,8 @@ async function getAuthCookie(agent: request.Agent): Promise<string> {
 }
 
 beforeAll(async () => {
+  runtime.briefingsRoot = join(TEST_REPO, 'command_center', 'briefings');
+  mkdirSync(runtime.briefingsRoot, { recursive: true });
   mkdirSync(TEST_REPO, { recursive: true });
   mkdirSync(join(TEST_REPO, 'mgmt_lib', 'inbox', 'archive'), { recursive: true });
 
@@ -123,5 +140,90 @@ describe('calendar routes', () => {
     const end = new Date(res.body.endDate);
     const diff = (end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24);
     expect(diff).toBeLessThanOrEqual(31);
+  });
+});
+
+describe('enrolled calendar and briefing routes', () => {
+  it('keeps calendar response and clamping while using the enrolled runtime', async () => {
+    process.env.MITZO_WORKSPACE_RUNTIME_CONFIG = '/operator/enrollment.json';
+    runtime.calendar.mockResolvedValue({
+      startDate: '2026-10-10',
+      endDate: '2026-11-09',
+      events: [],
+      sprints: [],
+    });
+    const result = await request(app)
+      .get('/api/calendar')
+      .query({ date: '2026-10-10', days: '100' })
+      .set('Cookie', authCookie);
+    expect(result.status).toBe(200);
+    expect(runtime.calendar).toHaveBeenCalledWith(
+      { date: '2026-10-10', days: 31 },
+      expect.any(AbortSignal),
+    );
+    expect(result.body.endDate).toBe('2026-11-09');
+  });
+  it('fails closed instead of executing mutable calendar code', async () => {
+    process.env.MITZO_WORKSPACE_RUNTIME_CONFIG = '/operator/enrollment.json';
+    runtime.calendar.mockRejectedValue(new Error('private information must not escape'));
+    const result = await request(app)
+      .get('/api/calendar')
+      .query({ date: '2026-10-10', days: 3 })
+      .set('Cookie', authCookie);
+    expect(result.status).toBe(200);
+    expect(result.body).toEqual({
+      startDate: '2026-10-10',
+      endDate: '2026-10-12',
+      events: [],
+      sprints: [],
+      error: 'Workspace runtime calendar unavailable',
+    });
+  });
+  it('returns a briefing path in the existing browser contract', async () => {
+    process.env.MITZO_WORKSPACE_RUNTIME_CONFIG = '/operator/enrollment.json';
+    runtime.latestBriefing.mockResolvedValue({
+      filename: '2026-10-10.md',
+      path: join(runtime.briefingsRoot, '2026-10-10.md'),
+      date: '2026-10-10',
+      generatedAt: '2026-10-10T08:00:00Z',
+    });
+    const result = await request(app)
+      .get('/api/briefings/latest')
+      .query({ date: '2026-10-10' })
+      .set('Cookie', authCookie);
+    expect(result.status).toBe(200);
+    expect(result.body.path).toBe(join(runtime.briefingsRoot, '2026-10-10.md'));
+    writeFileSync(result.body.path, '# Saved briefing');
+    const document = await request(app)
+      .get('/api/files/read')
+      .query({ path: result.body.path })
+      .set('Cookie', authCookie);
+    expect(document.status).toBe(200);
+    expect(document.body.content).toBe('# Saved briefing');
+    expect(runtime.latestBriefing).toHaveBeenCalledWith(
+      { date: '2026-10-10' },
+      expect.any(AbortSignal),
+    );
+  });
+  it('rejects a briefing enrollment outside the existing document roots', async () => {
+    process.env.MITZO_WORKSPACE_RUNTIME_CONFIG = '/operator/enrollment.json';
+    runtime.briefingsRoot = '/private/unrelated-documents';
+    runtime.latestBriefing.mockResolvedValue(null);
+    const result = await request(app)
+      .get('/api/briefings/latest')
+      .query({ date: '2026-10-10' })
+      .set('Cookie', authCookie);
+    expect(result.status).toBe(503);
+    expect(runtime.latestBriefing).not.toHaveBeenCalled();
+  });
+  it('distinguishes runtime failure from no saved briefing without leaking diagnostics', async () => {
+    process.env.MITZO_WORKSPACE_RUNTIME_CONFIG = '/operator/enrollment.json';
+    runtime.latestBriefing.mockRejectedValue(new Error('credential details'));
+    const result = await request(app)
+      .get('/api/briefings/latest')
+      .query({ date: '2026-10-10' })
+      .set('Cookie', authCookie);
+    expect(result.status).toBe(503);
+    expect(result.body).toEqual({ error: 'Workspace runtime briefing unavailable' });
   });
 });

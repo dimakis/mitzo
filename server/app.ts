@@ -286,6 +286,10 @@ import {
   createInboxItem,
 } from './inbox.js';
 import { getLatestMorningBriefing } from './briefings.js';
+import {
+  createWorkspaceRuntimeClient,
+  workspaceRuntimeConfigured,
+} from './workspace-runtime-client.js';
 import { registerToken, removeToken, setTokenStorePath } from './apns.js';
 import { SkillRegistry } from './skills.js';
 import type { SkillWatcher } from './skill-watcher.js';
@@ -3642,10 +3646,30 @@ app.put('/api/files/write', async (req, res) => {
 
 // --- Inbox API ---
 
-app.get('/api/briefings/latest', (req, res) => {
+app.get('/api/briefings/latest', async (req, res) => {
   const date = typeof req.query.date === 'string' ? req.query.date : '';
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
     res.status(400).json({ error: 'date must be YYYY-MM-DD' });
+    return;
+  }
+  if (workspaceRuntimeConfigured()) {
+    const controller = new AbortController();
+    const cancel = () => {
+      if (!res.writableEnded) controller.abort();
+    };
+    res.once('close', cancel);
+    try {
+      const client = createWorkspaceRuntimeClient(process.env.MITZO_WORKSPACE_RUNTIME_CONFIG ?? '');
+      if (!isAllowedPath(client.briefingsRoot)) throw new Error('Briefing root is not readable');
+      const briefing = await client.latestBriefing({ date }, controller.signal);
+      if (briefing && !isAllowedPath(briefing.path))
+        throw new Error('Briefing artifact is not readable');
+      res.json(briefing);
+    } catch {
+      if (!res.destroyed) res.status(503).json({ error: 'Workspace runtime briefing unavailable' });
+    } finally {
+      res.removeListener('close', cancel);
+    }
     return;
   }
   res.json(getLatestMorningBriefing(BASE_REPO, date));
@@ -3838,6 +3862,23 @@ app.get('/api/calendar', async (req, res) => {
       error,
     };
   };
+
+  if (workspaceRuntimeConfigured()) {
+    const controller = new AbortController();
+    const cancel = () => {
+      if (!res.writableEnded) controller.abort();
+    };
+    res.once('close', cancel);
+    try {
+      const client = createWorkspaceRuntimeClient(process.env.MITZO_WORKSPACE_RUNTIME_CONFIG ?? '');
+      res.json(await client.calendar({ date: dateParam, days: daysParam }, controller.signal));
+    } catch {
+      if (!res.destroyed) res.json(emptyResponse('Workspace runtime calendar unavailable'));
+    } finally {
+      res.removeListener('close', cancel);
+    }
+    return;
+  }
 
   // calendar_api.py lives in the mgmt repo (REPO_PATH), not in Mitzo
   if (!existsSync(CALENDAR_SCRIPT)) {
