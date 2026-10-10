@@ -1,4 +1,4 @@
-import { join, basename } from 'node:path';
+import { join, basename, dirname } from 'node:path';
 import { statSync, existsSync, realpathSync } from 'node:fs';
 import { privateCodexPathSnapshot } from './codex-private-path.js';
 import { InboxQuery, type MitzoNotification } from '@mitzo/protocol';
@@ -41,18 +41,31 @@ export class UnifiedInbox {
     store.setInboxReadPolicy(() => {
       const root = this.directory();
       const policy = privateCodexPathSnapshot();
-      const privateNames = new Set(policy.roots.map((path) => basename(path)));
+      const sourceName = (name: string) => name.replace(/_[a-f0-9]{32}(?=\.md$)/, '');
+      const privateNames = new Set(policy.roots.map((path) => sourceName(basename(path))));
       return (filename, sourcePath) => {
         if (basename(filename) !== filename || filename.includes('..') || !filename.endsWith('.md'))
           return false;
-        if (sourcePath) return !policy.isPrivate(sourcePath);
-        // Old ledgers lack provenance. Deny ambiguous private names and both source locations.
-        return (
-          !!root &&
-          !privateNames.has(filename) &&
-          !policy.isPrivate(join(root, filename)) &&
-          !policy.isPrivate(join(root, 'archive', filename))
-        );
+        // Provenance can become stale before reconciliation when a source is moved.
+        // Private archive names also protect the original logical record identity.
+        if (!sourcePath && privateNames.has(sourceName(filename))) return false;
+        if (sourcePath) {
+          const parent = dirname(sourcePath);
+          const originalRoot = basename(parent) === 'archive' ? dirname(parent) : parent;
+          if (
+            policy.roots.some(
+              (path) =>
+                sourceName(basename(path)) === sourceName(filename) &&
+                [originalRoot, join(originalRoot, 'archive')].includes(dirname(path)),
+            )
+          )
+            return false;
+        }
+        const locations = [
+          ...(sourcePath ? [sourcePath] : []),
+          ...(root ? [join(root, filename), join(root, 'archive', filename)] : []),
+        ];
+        return locations.length > 0 && locations.every((path) => !policy.isPrivate(path));
       };
     });
   }

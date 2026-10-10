@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, realpathSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, realpathSync, renameSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { NotificationStore } from '../notification-store.js';
@@ -318,3 +318,53 @@ it('withholds Inbox content on policy failure without losing public history or s
   delete process.env.MITZO_WORKSPACE_RUNTIME_CONFIG;
   expect(store.get('inbox:public.md')?.inbox?.content).toContain('Useful context');
 });
+
+it.each(['stable', 'collision'] as const)(
+  'denies cached authority moved to a %s archive name before enrollment',
+  (kind) => {
+    const database = join(dir, 'moved.db');
+    store.close();
+    store = new NotificationStore(database);
+    inbox = new UnifiedInbox(store, () => dir);
+    const config = join(dir, 'move-config.json');
+    writeFileSync(
+      config,
+      JSON.stringify({ gwsExecutable: '/synthetic/gws', jiraLibPath: '/synthetic/jira' }),
+      { mode: 0o600 },
+    );
+    const filename = 'moved-authority.md';
+    const active = join(dir, filename);
+    writeFileSync(
+      active,
+      JSON.stringify({
+        kind: 'workspace-runtime-v1',
+        config: realpathSync(config),
+        release: realpathSync(dir) + '/release',
+        python: '/synthetic/python',
+      }),
+      { mode: 0o600 },
+    );
+    inbox.reconcile();
+    const id = `inbox:${filename}`;
+    expect(store.get(id)?.inbox?.content).toContain('workspace-runtime-v1');
+    mkdirSync(join(dir, 'archive'));
+    const archived = join(
+      dir,
+      'archive',
+      kind === 'stable' ? filename : filename.replace('.md', '_' + 'a'.repeat(32) + '.md'),
+    );
+    renameSync(active, archived);
+    process.env.MITZO_WORKSPACE_RUNTIME_CONFIG = realpathSync(archived);
+    const assertHidden = () => {
+      expect(inbox.get(id)).toBeUndefined();
+      expect(store.get(id)).toBeUndefined();
+      expect(inbox.feed({ query: 'workspace-runtime-v1' }).total).toBe(0);
+      expect(store.feed('all').items.map((item) => item.id)).not.toContain(id);
+    };
+    assertHidden();
+    store.close();
+    store = new NotificationStore(database);
+    inbox = new UnifiedInbox(store, () => dir);
+    assertHidden();
+  },
+);
