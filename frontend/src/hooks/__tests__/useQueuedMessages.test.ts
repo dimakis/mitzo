@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { renderHook, act, cleanup } from '@testing-library/react';
 import { useQueuedMessages, type QueuedMessage } from '../useQueuedMessages';
 import type { DraftSessionAssignment } from '../useDraft';
@@ -11,10 +11,59 @@ function msg(text: string): QueuedMessage {
 beforeEach(() => localStorage.clear());
 afterEach(() => {
   cleanup();
+  vi.unstubAllGlobals();
   localStorage.clear();
 });
 
 describe('useQueuedMessages', () => {
+  it('keeps exact queue identities and late image cleanup on remote HTTP without randomUUID', () => {
+    vi.stubGlobal('crypto', { getRandomValues: crypto.getRandomValues.bind(crypto) });
+    const origin = renderHook(({ id }) => useQueuedMessages(id, 5, null), {
+      initialProps: { id: 'a' },
+    });
+    const image = {
+      data: 'private-image',
+      mediaType: 'image/png',
+      preview: 'data:image/png;base64,private-image',
+    };
+    const payload = {
+      ...msg('Identical input'),
+      contextBlocks: ['exact context'],
+      images: [image],
+    };
+    act(() => origin.result.current.enqueue(payload));
+    const queued = origin.result.current.queue[0];
+    let retained!: QueuedMessage;
+    act(() => {
+      retained = origin.result.current.restoreRejected(queued);
+    });
+    expect(retained.queueEntryId).toMatch(
+      /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/,
+    );
+    expect(retained.queueEntryId).not.toBe(queued.queueEntryId);
+    expect(retained.images).toBe(payload.images);
+    expect(origin.result.current.dequeue()).toBeUndefined();
+    origin.rerender({ id: 'b' });
+    act(() => origin.result.current.enqueue(msg('Other conversation')));
+    const reopened = renderHook(() => useQueuedMessages('a'));
+    act(() => reopened.result.current.enqueue(payload));
+    const later = reopened.result.current.queue.at(-1)!;
+    expect(later.queueEntryId).not.toBe(retained.queueEntryId);
+    act(() => origin.result.current.removeSubmitted(retained));
+    expect(reopened.result.current.queue).toEqual([later]);
+    expect(reopened.result.current.queue[0].images).toBe(payload.images);
+    expect(origin.result.current.queue).toMatchObject([msg('Other conversation')]);
+    const stored = localStorage.getItem('mitzo-queue-a')!;
+    expect(stored).not.toContain('private-image');
+    expect(JSON.parse(stored)).toEqual([
+      {
+        text: payload.text,
+        contextBlocks: payload.contextBlocks,
+        queueEntryId: later.queueEntryId,
+      },
+    ]);
+  });
+
   it('preserves a later active A image entry when an offscreen A receipt emits its key-only cleanup event', () => {
     const origin = renderHook(({ id }) => useQueuedMessages(id, 5, null), {
       initialProps: { id: 'a' },

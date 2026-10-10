@@ -29,6 +29,7 @@ vi.mock('../../lib/resizeImage', () => ({
 }));
 afterEach(() => {
   cleanup();
+  vi.unstubAllGlobals();
   localStorage.clear();
 });
 
@@ -719,3 +720,49 @@ it('binds an HTTP fork acceptance to its exact old command and ignores a foreign
   expect(f.delivery).toHaveBeenCalledExactlyOnceWith('accepted');
   await waitFor(() => expect(f.input()).toHaveProperty('value', ''));
 });
+
+it.each(['send', 'interrupt', 'automatic queue'] as const)(
+  'retains exact refused %s input and explicit retry on HTTP without randomUUID',
+  async (control) => {
+    vi.stubGlobal('crypto', { getRandomValues: crypto.getRandomValues.bind(crypto) });
+    const f = await fixture();
+    if (control !== 'send') f.running(true);
+    fireEvent.click(screen.getByText('Select context'));
+    await f.compose('Exact HTTP input', 'private-http.png');
+    if (control === 'automatic queue') {
+      fireEvent.click(screen.getByRole('button', { name: 'Queue message' }));
+      f.running(false);
+    } else fireEvent.keyDown(f.input(), { key: 'Enter' });
+    const c = f.command(control === 'interrupt' ? 'interrupt' : 'send');
+    expect(c).toMatchObject({
+      prompt: 'Exact HTTP input',
+      images: [{ data: 'private-http.png', mediaType: 'image/png' }],
+      contextBlocks: ['exact context'],
+    });
+    await f.compose('Newer HTTP draft');
+    if (control !== 'automatic queue')
+      fireEvent.click(screen.getByRole('button', { name: 'Remove attachment 1' }));
+    f.reject(c);
+    expect(f.input()).toHaveProperty('value', 'Newer HTTP draft');
+    expect(screen.getByText('Exact HTTP input')).toBeTruthy();
+    const stored = localStorage.getItem('mitzo-queue-child')!;
+    expect(stored).not.toContain('private-http.png');
+    expect(JSON.parse(stored)).toEqual([
+      {
+        text: 'Exact HTTP input',
+        contextBlocks: ['exact context'],
+        requiresRetry: true,
+        queueEntryId: expect.any(String),
+      },
+    ]);
+    expect(f.store.getState().messages.permission).toBe(f.permission);
+    f.running(false);
+    f.running(true);
+    f.running(false);
+    expect(f.onSend).toHaveBeenCalledTimes(control === 'interrupt' ? 0 : 1);
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    expect(f.input()).toHaveProperty('value', 'Exact HTTP input');
+    expect(screen.getByAltText('Attachment 1')).toBeTruthy();
+    expect(screen.getByText('exact context')).toBeTruthy();
+  },
+);

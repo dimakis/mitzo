@@ -23,6 +23,16 @@ interface StoredMessage {
   contextBlocks: string[];
 }
 
+// randomUUID requires a secure context; getRandomValues also works on remote HTTP.
+function createQueueEntryId(): string {
+  if (typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
 function queueKey(sessionId: string | undefined): string {
   return `${KEY_PREFIX}${sessionId ?? 'new'}`;
 }
@@ -179,7 +189,7 @@ export function useQueuedMessages(
   const enqueue = useCallback(
     (msg: QueuedMessage): boolean => {
       if (queueRef.current.length >= maxQueued) return false;
-      const next = [...queueRef.current, { ...msg, queueEntryId: crypto.randomUUID() }];
+      const next = [...queueRef.current, { ...msg, queueEntryId: createQueueEntryId() }];
       queueRef.current = next;
       setQueueRaw(next);
       return true;
@@ -198,7 +208,7 @@ export function useQueuedMessages(
 
   // Return already-submitted input without discarding it when the ordinary queue is full.
   const restoreRejected = useCallback((msg: QueuedMessage) => {
-    const retained = { ...msg, requiresRetry: true, queueEntryId: crypto.randomUUID() };
+    const retained = { ...msg, requiresRetry: true, queueEntryId: createQueueEntryId() };
     submittedOwners.current.set(retained.queueEntryId, sessionRef.current);
     const next = [...queueRef.current.filter((item) => item !== msg), retained];
     queueRef.current = next;
