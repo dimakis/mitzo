@@ -158,3 +158,68 @@ it('opens immutable historical revisions for comparison before creating another 
   expect(screen.getByLabelText('Pack name')).toHaveValue('Previous review');
   expect(screen.getByRole('button', { name: 'Publish pack revision' })).toBeDisabled();
 });
+it('prepares the curator with bounded accepted references and selected immutable pack metadata', async () => {
+  const definition = {
+    version: 1,
+    id: 'review',
+    name: 'Review sources',
+    description: 'Review accepted decisions',
+    tokenBudget: 4000,
+    documents: [
+      {
+        path: 'hub/review.md',
+        revision: knowledge.revision,
+        mode: 'required',
+        headings: [],
+        priority: 50,
+      },
+    ],
+    retrievalGuidance: '',
+  };
+  const pack = {
+    id: 'review',
+    revision: 3,
+    hash: 'b'.repeat(64),
+    publishedAt: '2026-10-10T10:00:00Z',
+    definition,
+  };
+  vi.mocked(apiFetch).mockImplementation(
+    async (path) =>
+      ({
+        ok: true,
+        json: async () =>
+          path === '/api/context-packs'
+            ? { packs: [pack], drafts: [] }
+            : path.endsWith('/revisions')
+              ? { revisions: [pack] }
+              : { profiles: [] },
+      }) as Response,
+  );
+  render(
+    <MemoryRouter>
+      <ContextPackManager
+        knowledge={{
+          ...knowledge,
+          documents: [
+            ...knowledge.documents,
+            { path: '/Users/private/secret.md', title: 'Private source', area: 'Private' },
+          ],
+        }}
+      />
+    </MemoryRouter>,
+  );
+  fireEvent.click(await screen.findByRole('button', { name: /Review sources/ }));
+  const prompt = new URL(
+    screen.getByRole('link', { name: 'Create context with advisor' }).getAttribute('href')!,
+    'https://mitzo-ui.test',
+  ).searchParams.get('prompt')!;
+  expect(prompt).toContain(knowledge.revision);
+  expect(prompt).toContain('hub/review.md');
+  expect(prompt).toContain('"revision":3');
+  expect(prompt).toContain(pack.hash);
+  expect(prompt).toContain('Review accepted decisions');
+  expect(prompt).not.toContain('/Users/private');
+  expect(prompt).toContain('manual import');
+  expect(screen.getByLabelText('Pack preview budget')).toBeTruthy();
+  expect(screen.getByText(/final profile recipe budget controls/)).toBeTruthy();
+});
