@@ -117,17 +117,37 @@ const operations = {
 } as const;
 export type CustodianOperation = keyof typeof operations;
 const identifier = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,199}$/);
-const selection = z.strictObject({
-  operation: z.enum(Object.keys(operations) as [CustodianOperation, ...CustodianOperation[]]),
-  sessionId: identifier.optional(),
-  resourceId: identifier.optional(),
-  revision: z
-    .string()
-    .regex(/^[1-9][0-9]{0,8}$/)
-    .optional(),
-});
+const profileIdentifier = z.string().trim().min(1).max(128);
+const profileOperations = new Set<string>([
+  'library.read',
+  'library.export',
+  'profile.read',
+  'profile.export',
+]);
+const selection = z
+  .strictObject({
+    operation: z.enum(Object.keys(operations) as [CustodianOperation, ...CustodianOperation[]]),
+    sessionId: identifier.optional(),
+    resourceId: z.string().max(200).optional(),
+    revision: z
+      .string()
+      .regex(/^[1-9][0-9]{0,8}$/)
+      .optional(),
+  })
+  .superRefine((value, context) => {
+    if (value.resourceId === undefined) return;
+    const parsed = (
+      profileOperations.has(value.operation) ? profileIdentifier : identifier
+    ).safeParse(value.resourceId);
+    if (!parsed.success || parsed.data !== value.resourceId)
+      context.addIssue({
+        code: 'custom',
+        path: ['resourceId'],
+        message: 'Invalid custodian resource identity',
+      });
+  });
 export type CustodianSelection = z.infer<typeof selection>;
-const request = selection.extend({
+const request = selection.safeExtend({
   requestId: identifier,
   epoch: z.number().int().positive(),
   body: z.record(z.string(), z.unknown()),
@@ -161,7 +181,9 @@ export function custodianRoute(input: CustodianSelection) {
     /:(sessionId|resourceId|revision)/g,
     (_, key: 'sessionId' | 'resourceId' | 'revision') => {
       if (!parsed[key]) throw Error('Custodian route identity required');
-      return parsed[key];
+      return key === 'resourceId' && profileOperations.has(parsed.operation)
+        ? encodeURIComponent(parsed[key])
+        : parsed[key];
     },
   );
   for (const key of ['sessionId', 'resourceId', 'revision'] as const)
@@ -178,9 +200,22 @@ export function selectCustodianOperation(method: string, path: string): Custodia
     });
     const match = new RegExp(`^${pattern}/?$`).exec(path);
     if (!match) continue;
+    let identities: Record<string, string>;
+    try {
+      identities = Object.fromEntries(
+        names.map((name, i) => [
+          name,
+          name === 'resourceId' && profileOperations.has(operation)
+            ? decodeURIComponent(match[i + 1])
+            : match[i + 1],
+        ]),
+      );
+    } catch {
+      return null;
+    }
     const result = selection.safeParse({
       operation,
-      ...Object.fromEntries(names.map((name, i) => [name, match[i + 1]])),
+      ...identities,
     });
     return result.success ? result.data : null;
   }

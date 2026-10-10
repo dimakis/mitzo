@@ -36,11 +36,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'e4369b6e8e58c9d8e3f7bde1e906538f435892adc58c61bb3e531c15c6fbfbaf',
   '../symposium-profiles.ts': '4138fce2cc44220fa90b3ef65b207b89c06a5f02cd24750a748f79d84d297c95',
   '../symposium-custodian-protocol.ts':
-    '73d2361dbedd774362655a9c3000c55c6378508167c0325d5d10e7277c7ec0b4',
+    'e8412230568f5b6c5716af8fd5a57720d32c128126888d026cf68e4d980ef7b5',
   '../symposium-custodian-proxy.ts':
     '0f29d436d35acea99d373241710b0646a50f83c063de473c39eb7b6605cc699e',
   '../../packages/protocol/src/agent-library.ts':
-    '3021be36633d658969bcd3c95411094734d0bceb59526a3dc7ac84f9671f2b12',
+    'e5c0e87a605c4f7664d5b9c69411bafc8059301a8c37a8057d3bdf14f604900e',
   '../../packages/protocol/src/symposium.ts':
     '97746c3687c89a8bf8334ac48020c7b484287d7c38cf8bc159aad51bee699a67',
   '../repository-chat-tools.ts': '2b3c9c950c38fe2b94bac06d69fff2560eacf2d43b2240e31232f351b9c7d441',

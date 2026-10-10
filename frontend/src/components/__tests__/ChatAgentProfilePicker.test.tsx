@@ -24,23 +24,26 @@ const version = {
   },
 };
 const response = (body: unknown) => ({ ok: true, json: async () => body }) as Response;
-it('selects the exact Library revision and displays its name and descriptor', async () => {
-  vi.mocked(apiFetch).mockResolvedValue(response({ drafts: [], versions: [version] }));
-  const change = vi.fn();
-  render(
-    <MemoryRouter>
-      <ChatAgentProfilePicker
-        sessionId={null}
-        search="agentProfile=bob&profileRevision=3"
-        onChange={change}
-      />
-    </MemoryRouter>,
-  );
-  await screen.findByRole('option', { name: 'Bob · The architect · r3' });
-  await waitFor(() =>
-    expect(change).toHaveBeenCalledWith({ profileId: 'bob', revision: 3 }, undefined),
-  );
-});
+it.each(['bob', 'my agent'])(
+  'selects the exact Library revision for catalog ID %s',
+  async (profileId) => {
+    vi.mocked(apiFetch).mockResolvedValue(
+      response({ drafts: [], versions: [{ ...version, profileId }] }),
+    );
+    const change = vi.fn();
+    render(
+      <MemoryRouter>
+        <ChatAgentProfilePicker
+          sessionId={null}
+          search={new URLSearchParams({ agentProfile: profileId, profileRevision: '3' }).toString()}
+          onChange={change}
+        />
+      </MemoryRouter>,
+    );
+    await screen.findByRole('option', { name: 'Bob · The architect · r3' });
+    await waitFor(() => expect(change).toHaveBeenCalledWith({ profileId, revision: 3 }, undefined));
+  },
+);
 it('blocks a missing explicit revision instead of using default behavior', async () => {
   vi.mocked(apiFetch).mockResolvedValue(response({ drafts: [], versions: [version] }));
   const change = vi.fn();

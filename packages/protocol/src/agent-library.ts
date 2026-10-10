@@ -3,10 +3,8 @@ import { SymposiumProfileDefinitionSchema } from './symposium.js';
 import { z } from 'zod';
 
 export const AgentProfileSelectionSchema = z.strictObject({
-  profileId: z
-    .string()
-    .trim()
-    .regex(/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/),
+  // Shared catalog IDs are opaque, bounded strings; names and IDs remain separate.
+  profileId: z.string().trim().min(1).max(128),
   revision: z.number().int().positive(),
 });
 export type AgentProfileSelection = z.infer<typeof AgentProfileSelectionSchema>;

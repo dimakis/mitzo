@@ -4,6 +4,7 @@ import { resolveChatAgentProfile } from '../agent-library-binding.js';
 import { EventStore } from '@mitzo/protocol/event-store';
 import { V2SendMessage } from '@mitzo/protocol';
 import { buildAgentProfilePrompt } from '../agent-library-prompt.js';
+import { AgentProfileSelectionSchema } from '@mitzo/protocol';
 
 const definition = {
   name: 'Bob',
@@ -21,6 +22,25 @@ const snapshot = {
   contentHash: createHash('sha256').update(JSON.stringify(definition)).digest('hex'),
 };
 afterEach(() => vi.restoreAllMocks());
+it('accepts existing catalog IDs with spaces through selection, wire parsing and snapshot admission', async () => {
+  const selected = { profileId: 'my agent', revision: 3 };
+  expect(AgentProfileSelectionSchema.parse(selected)).toEqual(selected);
+  expect(
+    V2SendMessage.parse({
+      type: 'send',
+      sessionId: null,
+      clientMsgId: 'message',
+      prompt: 'hello',
+      agentProfile: selected,
+    }).agentProfile,
+  ).toEqual(selected);
+  expect(
+    await resolveChatAgentProfile({
+      requested: selected,
+      lookup: async () => ({ ...snapshot, ...selected }),
+    }),
+  ).toEqual({ ...snapshot, ...selected });
+});
 it('pins the exact published profile and refuses a missing revision', async () => {
   const lookup = vi.fn(async () => snapshot);
   expect(
