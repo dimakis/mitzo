@@ -7186,6 +7186,14 @@ option {
 }
 
 .symposium-audience-composer button,
+.symposium-audience-composer select {
+  min-height: var(--control-height);
+}
+
+.symposium-audience-composer select {
+  height: var(--control-height);
+}
+
 .symposium-share-preview button,
 .symposium-share-action {
   min-height: 2.5rem;
