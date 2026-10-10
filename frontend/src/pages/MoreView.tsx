@@ -20,6 +20,7 @@ export function MoreView() {
               ['Notifications', '/notifications', 'bell'],
               ['Calendar', '/calendar', 'calendar'],
               ['Agent taskboard', '/tasks', 'agents'],
+              ['Agent Library', '/agent-library', 'files'],
               ['Knowledge', '/knowledge', 'files'],
               ['Files', '/files', 'files'],
               ['All attention', '/focus', 'today'],

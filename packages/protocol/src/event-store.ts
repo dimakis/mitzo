@@ -39,6 +39,7 @@ import {
 } from './symposium-artifact-reader.js';
 import { databaseBackupWatermark, backupOwnedDatabase } from './database-backup.js';
 import Database from 'better-sqlite3';
+import { AgentLibraryVersionSchema } from './agent-library.js';
 import { createHash, randomUUID } from 'node:crypto';
 import {
   SymposiumArtifactSealSelectionSchema,
@@ -264,6 +265,7 @@ interface SessionRow {
   execution_terminal_reason: string | null;
   execution_updated_at: number | null;
   agent_name: string | null;
+  agent_profile: string | null;
   boot_context: string | null;
   account_binding: string | null;
   runtime_binding: string | null;
@@ -898,6 +900,8 @@ export class EventStore {
   private migrateBootContext(db: Database.Database): void {
     const columns = db.prepare("PRAGMA table_info('sessions')").all() as Array<{ name: string }>;
     const columnNames = new Set(columns.map((c) => c.name));
+    if (!columnNames.has('agent_profile'))
+      db.exec('ALTER TABLE sessions ADD COLUMN agent_profile TEXT');
     if (!columnNames.has('agent_name')) {
       db.exec('ALTER TABLE sessions ADD COLUMN agent_name TEXT');
       this.log.info('migrated sessions table: added agent_name');
@@ -6206,6 +6210,13 @@ export class EventStore {
         fields.push('agent_name = ?');
         values.push(meta.agentName);
       }
+      if (meta.agentProfile !== undefined) {
+        const snapshot = AgentLibraryVersionSchema.parse(meta.agentProfile);
+        if (existing.agent_profile && existing.agent_profile !== JSON.stringify(snapshot))
+          throw Error('Agent profile binding is immutable');
+        fields.push('agent_profile = ?');
+        values.push(JSON.stringify(snapshot));
+      }
       if (meta.accountBinding !== undefined) {
         fields.push('account_binding = ?');
         values.push(meta.accountBinding ? JSON.stringify(meta.accountBinding) : null);
@@ -6248,6 +6259,7 @@ export class EventStore {
         'telos_task_id',
         'closed_by',
         'agent_name',
+        'agent_profile',
         'boot_context',
         'account_binding',
         'selected_model',
@@ -6269,6 +6281,9 @@ export class EventStore {
         meta.telosTaskId ?? null,
         meta.closedBy ?? null,
         meta.agentName ?? null,
+        meta.agentProfile
+          ? JSON.stringify(AgentLibraryVersionSchema.parse(meta.agentProfile))
+          : null,
         meta.bootContext ?? null,
         meta.accountBinding ? JSON.stringify(meta.accountBinding) : null,
         meta.selectedModel ?? null,
@@ -6797,6 +6812,9 @@ function rowToSession(row: SessionRow): SessionMeta {
       (row.execution_terminal_reason as SessionMeta['executionTerminalReason']) ?? null,
     executionUpdatedAt: row.execution_updated_at ?? null,
     agentName: row.agent_name ?? null,
+    ...(row.agent_profile
+      ? { agentProfile: AgentLibraryVersionSchema.parse(JSON.parse(row.agent_profile)) }
+      : {}),
     bootContext: row.boot_context ?? null,
     accountBinding: parseAccountBinding(row.account_binding),
     selectedModel: row.selected_model ?? null,

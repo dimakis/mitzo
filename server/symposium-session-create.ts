@@ -1,3 +1,4 @@
+import { agentProfileLabel } from '@mitzo/protocol';
 import type { SessionArtifactPreparation } from './symposium-session-artifacts.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { Router } from 'express';
@@ -95,7 +96,7 @@ export function createSymposiumSessionRouter(deps: {
         seats: [
           {
             id: 'primary',
-            name: definition.name,
+            name: agentProfileLabel(definition),
             role: selection.role,
             model: binding.model,
             accountBinding: binding,

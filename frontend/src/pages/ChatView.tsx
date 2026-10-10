@@ -1,3 +1,5 @@
+import { ChatAgentProfilePicker } from '../components/ChatAgentProfilePicker';
+import type { AgentProfileSelection } from '@mitzo/protocol';
 import { UiIcon } from '../components/UiIcon';
 import {
   savedRepositoryDraft,
@@ -57,6 +59,15 @@ export function ChatView() {
   );
   const { sessionId } = useParams<{ sessionId?: string }>();
   const [searchParams] = useSearchParams();
+  const [agentProfile, setAgentProfile] = useState<AgentProfileSelection | null>(null);
+  const [agentProfileBlocked, setAgentProfileBlocked] = useState<string | undefined>();
+  const onAgentProfileChange = useCallback(
+    (selection: AgentProfileSelection | null, reason?: string) => {
+      setAgentProfile(selection);
+      setAgentProfileBlocked(reason);
+    },
+    [],
+  );
   const navigate = useNavigate();
   // Store state
   const messages = useMessages();
@@ -272,6 +283,7 @@ export function ChatView() {
     launching = false,
   ): boolean {
     if (repositoryHandoffReason || (repositoryHandoff.present && launching)) return false;
+    if (!activeSessionId && agentProfileBlocked) return false;
     if (launching && activeSessionId) return sendLaunch();
     if (!activeSessionId && (!accountSelection || repositorySelection?.blocked)) return false;
     // For new sessions (no activeSessionId) the store bootstraps a WS on
@@ -317,6 +329,7 @@ export function ChatView() {
       mode,
       cwd: searchParams.get('cwd') ?? undefined,
       extraTools: searchParams.get('extraTools') ?? undefined,
+      ...(!activeSessionId && agentProfile ? { agentProfile } : {}),
       ...(!activeSessionId && !isolation ? { isolation: false } : {}),
     };
     try {
@@ -417,6 +430,13 @@ export function ChatView() {
             ) : (
               <span>Waiting for repository preparation…</span>
             )}
+            <ChatAgentProfilePicker
+              key={`agent-profile:${chatDraftRevision}`}
+              sessionId={activeSessionId}
+              search={searchParams.toString()}
+              onChange={onAgentProfileChange}
+              disabled={messages.running}
+            />
           </div>
           <header className="chat-header">
             {!connected && (
@@ -598,6 +618,7 @@ export function ChatView() {
               }
               sendDisabledReason={
                 repositoryHandoffReason ??
+                (!activeSessionId ? agentProfileBlocked : undefined) ??
                 (!activeSessionId && repositorySelection?.blocked
                   ? 'Prepare or remove the repository before sending.'
                   : !activeSessionId && !accountSelection

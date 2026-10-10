@@ -118,6 +118,8 @@ import { createSubscriptionLoginController } from './symposium-subscription-logi
 import { AccountAliases } from './account-aliases.js';
 import { AccountBindingSchema, SymposiumConfigSchema } from '@mitzo/protocol';
 import { SymposiumProfileStore } from './symposium-profiles.js';
+import { getAgentLibrary } from './agent-library-runtime.js';
+import { createAgentLibraryRouter } from './agent-library-router.js';
 import { createSymposiumProfileRouter } from './symposium-profile-routes.js';
 import { SymposiumProfileProposalStore } from './symposium-profile-proposals.js';
 import { createSymposiumProfileProposalRouter } from './symposium-profile-proposal-routes.js';
@@ -990,6 +992,7 @@ if (custodianControllerClient)
     ),
   );
 receiveCustodianEvents(broadcastDurableSymposiumEvent);
+app.use('/api/agent-library', operatorAuthMiddleware, createAgentLibraryRouter(getAgentLibrary()));
 const symposiumProfileStore = new SymposiumProfileStore(
   join(BASE_REPO || '.', '.mitzo', 'events.db'),
 );
@@ -2870,6 +2873,7 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
   }
   res.json({
     sessionId: meta.sessionId,
+    ...(meta.agentProfile ? { agentProfile: meta.agentProfile } : {}),
     sessionType: symposiumConfigured ? 'symposium' : meta.sessionType,
     branch: meta.branch,
     wtId: meta.wtId,

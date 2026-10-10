@@ -11,6 +11,7 @@ const VersionSchema = z.strictObject({
   definition: PortableProfileDefinitionSchema,
   contentHash: z.string().regex(/^[a-f0-9]{64}$/),
 });
+export const SymposiumProfileVersionSchema = VersionSchema;
 const SaveSchema = z.strictObject({
   profileId: Id,
   expectedRevision: z.number().int().nonnegative(),
