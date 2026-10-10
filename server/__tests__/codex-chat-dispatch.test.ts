@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { query } from '@anthropic-ai/claude-agent-sdk';
@@ -681,3 +681,86 @@ it('routes a Gemini account to native chat with its own token source and resumab
     await rm(root, { recursive: true, force: true });
   }
 });
+
+it.each(['contexgin', 'slow-contexgin', 'slow-fallback'] as const)(
+  'delivers %s boot context to Work API instructions and persists the same bundle on startup and cold resume',
+  async (source) => {
+    vi.resetModules();
+    vi.clearAllMocks();
+    const root = await mkdtemp(join(tmpdir(), 'mitzo-api-boot-'));
+    const markdown = '# Profile\nThe user works on RHOAI.\n# Tone\nUse a direct tone.';
+    vi.stubEnv('REPO_PATH', root);
+    vi.stubEnv('WORKTREE_ENABLED', 'false');
+    // No provider or live account is contacted. Only boot compilation is delayed.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        if (source === 'slow-fallback') throw new Error('ECONNREFUSED');
+        if (source === 'slow-contexgin') await new Promise((resolve) => setTimeout(resolve, 2200));
+        return new Response(
+          JSON.stringify({
+            boot: {
+              content: markdown,
+              tokens: 20,
+              tokenBudget: 12000,
+              sources: ['profile.md'],
+            },
+          }),
+        );
+      }),
+    );
+    if (source === 'slow-fallback') {
+      await mkdir(join(root, 'scripts'));
+      await writeFile(
+        join(root, 'scripts/build_boot_context.py'),
+        `import time\nimport json\ntime.sleep(2.2)\nprint(json.dumps({'additionalContext': ${JSON.stringify(markdown)}}))\n`,
+      );
+    }
+    const profiles = new AccountProfiles([
+      {
+        id: 'work-api',
+        label: 'Work API',
+        provider: 'openai',
+        credentialRef: { provider: 'keychain', service: 'mitzo', account: 'work' },
+        models: [{ id: 'test', label: 'Offline test' }],
+      },
+    ]);
+    vi.mocked(openResponsesChat).mockRejectedValue(new Error('offline provider boundary'));
+    const chat = await import('../chat.js');
+    const sessionId = `api-boot-${source}`;
+    try {
+      for (const resume of [false, true]) {
+        const send = vi.fn();
+        await chat.startChat({ send, isOpen: () => true }, `boot-${source}-${resume}`, 'hello', {
+          cwd: root,
+          isolation: false,
+          accountId: 'work-api',
+          model: 'test',
+          accountProfiles: profiles,
+          ...(resume ? { resume: sessionId } : { initialSessionId: sessionId }),
+          clientMsgId: `message-${resume}`,
+        });
+        const opened = vi.mocked(openResponsesChat).mock.calls.at(-1)?.[0];
+        expect(opened?.systemPrompt).toContain(`# Boot Context\n${markdown}`);
+        const saved = JSON.parse(chat.eventStore.getSession(sessionId)!.bootContext!);
+        expect(saved.fullMarkdown).toBe(markdown);
+        expect(saved.source).toBe(source === 'slow-fallback' ? 'local-fallback' : 'contexgin');
+        expect(send).toHaveBeenCalledWith(
+          expect.objectContaining({
+            type: 'boot_context',
+            fullMarkdown: markdown,
+            sessionId,
+          }),
+        );
+        expect(opened?.binding.accountId).toBe('work-api');
+        expect(JSON.stringify(opened?.env)).not.toContain('private-work-key');
+      }
+      expect(openResponsesChat).toHaveBeenCalledTimes(2);
+    } finally {
+      chat.registry.dispose();
+      chat.eventStore.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+  20000,
+);
