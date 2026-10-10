@@ -3,7 +3,7 @@ import express from 'express';
 import request from 'supertest';
 import { registerAuthSession, revokeAuthSession } from '../auth.js';
 import { createTerminalRouter } from '../terminal-router.js';
-function setup() {
+function setup(planAdvisers?: Parameters<typeof createTerminalRouter>[0]['planAdvisers']) {
   const service = {
     bindOwner: vi.fn(),
     open: vi.fn(async () => ({ id: 'term-owned' })),
@@ -20,12 +20,20 @@ function setup() {
     '/api/terminals',
     createTerminalRouter({
       service: service as never,
+      planAdvisers,
       authorize: (req, res, next) => {
-        if (req.header('authorization') !== 'Bearer operator') {
+        if (
+          !['Bearer operator', 'Bearer another-operator'].includes(
+            req.header('authorization') ?? '',
+          )
+        ) {
           res.status(403).json({ error: 'Interactive operator authentication is required' });
           return;
         }
-        res.locals.authSession = { id: 'login-a', expiresAt: Date.now() + 60000 };
+        res.locals.authSession = {
+          id: req.header('authorization') === 'Bearer another-operator' ? 'login-b' : 'login-a',
+          expiresAt: Date.now() + 60000,
+        };
         next();
       },
     }),
@@ -33,6 +41,32 @@ function setup() {
   return { app, service };
 }
 describe('operator terminal API', () => {
+  it('recovers a pending subscription attempt only through the authenticated operator snapshot', async () => {
+    const pendingAttempt = vi.fn((owner: string) =>
+      owner === 'login-a' ? { id: 'owned-attempt', state: 'pending' } : null,
+    );
+    const { app } = setup(() => ({ list: () => [], pendingAttempt }) as never);
+    await request(app).get('/api/terminals/subscriptions').expect(403);
+    expect(pendingAttempt).not.toHaveBeenCalled();
+    const response = await request(app)
+      .get('/api/terminals/subscriptions')
+      .set('authorization', 'Bearer operator')
+      .expect(200);
+    expect(response.body).toEqual({
+      enabled: true,
+      accounts: [],
+      pendingAttempt: { id: 'owned-attempt', state: 'pending' },
+    });
+    expect(pendingAttempt).toHaveBeenCalledWith('login-a');
+    expect(response.headers['cache-control']).toBe('private, no-store');
+    const another = await request(app)
+      .get('/api/terminals/subscriptions')
+      .set('authorization', 'Bearer another-operator')
+      .expect(200);
+    expect(another.body.pendingAttempt).toBeNull();
+    expect(JSON.stringify(another.body)).not.toContain('owned-attempt');
+    expect(pendingAttempt).toHaveBeenLastCalledWith('login-b');
+  });
   it('accepts bounded owner-authenticated history moves but rejects foreign origins and command-shaped selectors', async () => {
     const { app, service } = setup();
     const path = '/api/terminals/term-owned/scroll';
