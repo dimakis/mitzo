@@ -338,7 +338,9 @@ export function useOutputContributors(
         const contributor = (body as { contributor?: OutputContributor })?.contributor;
         return (
           contributor?.id === id &&
-          (contributor.status === 'idle' || contributor.status === 'stopping')
+          (contributor.status === 'idle' ||
+            contributor.status === 'stopping' ||
+            contributor.status === 'unavailable')
         );
       });
     },

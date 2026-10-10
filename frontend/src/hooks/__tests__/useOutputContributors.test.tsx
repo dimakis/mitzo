@@ -165,3 +165,67 @@ it('uses a fresh request identity for a new identical send after a confirmed rec
   expect(bodies).toHaveLength(2);
   expect(bodies[0].requestId).not.toBe(bodies[1].requestId);
 });
+it('accepts a matching terminal Stop receipt after the account becomes unavailable', async () => {
+  const contributor = {
+    id: 'joe',
+    label: 'Joe',
+    accountLabel: 'Personal ChatGPT',
+    model: 'luna-fixture',
+    sessionId: 'child',
+    status: 'running',
+    outputId: output.outputId,
+    outputRevision: 1,
+    messages: [],
+  };
+  vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+    if (init?.method === 'POST')
+      return json({ contributor: { ...contributor, status: 'unavailable' } });
+    if (String(url).endsWith('/contributors'))
+      return json({
+        contributors: [contributor],
+        eligibility: { available: false, accountIds: [], reason: 'Account unavailable' },
+      });
+    return reads(String(url));
+  });
+  const { result } = renderHook(() => useOutputContributors('source', true));
+  await waitFor(() => expect(result.current?.selected).toBeTruthy());
+  await act(async () => {
+    await expect(result.current!.onStop('joe')).resolves.toBeUndefined();
+  });
+});
+it.each([
+  { id: 'joe', status: 'running' },
+  { id: 'another-contributor', status: 'unavailable' },
+])('retains the Stop retry identity for an unconfirmed receipt (%s)', async (receipt) => {
+  const contributor = {
+    id: 'joe',
+    label: 'Joe',
+    accountLabel: 'Personal ChatGPT',
+    model: 'luna-fixture',
+    sessionId: 'child',
+    status: 'running',
+    outputId: output.outputId,
+    outputRevision: 1,
+    messages: [],
+  };
+  const bodies: Record<string, unknown>[] = [];
+  vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+    if (init?.method === 'POST') {
+      bodies.push(JSON.parse(init.body as string));
+      return json({ contributor: { ...contributor, ...receipt } });
+    }
+    if (String(url).endsWith('/contributors'))
+      return json({
+        contributors: [contributor],
+        eligibility: { available: false, accountIds: [], reason: 'Account unavailable' },
+      });
+    return reads(String(url));
+  });
+  const { result } = renderHook(() => useOutputContributors('source', true));
+  await waitFor(() => expect(result.current?.selected).toBeTruthy());
+  for (let attempt = 0; attempt < 2; attempt++)
+    await act(async () => {
+      await expect(result.current!.onStop('joe')).rejects.toThrow('did not confirm');
+    });
+  expect(bodies[0].requestId).toBe(bodies[1].requestId);
+});
