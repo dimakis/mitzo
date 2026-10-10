@@ -157,6 +157,7 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
   await expect(page.getByLabel('Descriptor')).toHaveValue('The architect');
   await page.screenshot({ path: testInfo.outputPath('agent-library.png'), fullPage: true });
   await page.getByRole('tab', { name: 'Context', exact: true }).click();
+  await expect(page.getByText(/local chats and supported OpenShell sandboxes/)).toBeVisible();
   await page.getByLabel('Compile chat context').check();
   await page
     .getByRole('textbox', { name: 'Documents (one per line)', exact: true })
@@ -169,6 +170,9 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
   await page.getByRole('button', { name: 'Compile preview', exact: true }).click();
   await expect(page.locator('.agent-library-prompt')).toContainText(
     'Compiled architecture context',
+  );
+  await expect(page.locator('.agent-library-context-preview')).toContainText(
+    'configured sample workspace',
   );
   await page.getByText('Sources and trimming', { exact: true }).click();
   await expect(page.locator('.agent-library-context-preview')).toContainText(

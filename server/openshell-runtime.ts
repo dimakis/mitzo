@@ -1,4 +1,15 @@
 import { atSymposiumReconciliationStageAsync } from './symposium-reconciliation-error.js';
+import {
+  AgentCompiledBootContextSchema,
+  AgentSandboxContextScopeSchema,
+  type AgentContextRecipe,
+} from '@mitzo/protocol';
+import {
+  SandboxAgentPresetsSchema,
+  sandboxAgentCompilerHash,
+  SANDBOX_CONTEXT_CONTEXGIN_COMMIT,
+  type SandboxAgentPresets,
+} from './agent-context-sandbox.js';
 import { attestEffectiveRuntimePolicy, runtimePolicyHash } from './openshell-runtime-policy.js';
 import { load } from 'js-yaml';
 import { knowledgeStoreFromEnvironment, type KnowledgeStore } from './knowledge-store-config.js';
@@ -334,6 +345,8 @@ export interface OpenShellRuntimeConfig {
   knowledgeStore?: KnowledgeStore;
   /** Trusted host release contract selected from MITZO_OPENSHELL_STACK_MANIFEST. */
   seedStackManifest?: Record<string, unknown>;
+  /** Host-owned mappings only; every preset compiles bounded references inside the task sandbox. */
+  agentContextPresets?: SandboxAgentPresets;
   serviceProviders: string[];
   grantableServiceProviders: string[];
   workspace: string;
@@ -654,6 +667,12 @@ export function openShellRuntimeConfig(env: NodeJS.ProcessEnv): OpenShellRuntime
   const seedStackManifest = stackManifestPath
     ? (JSON.parse(readFileSync(stackManifestPath, 'utf8')) as Record<string, unknown>)
     : undefined;
+  const presetConfig = env.MITZO_OPENSHELL_AGENT_CONTEXT_PRESETS;
+  if (presetConfig && Buffer.byteLength(presetConfig) > 65536)
+    throw Error('Sandbox context preset configuration is too large');
+  const agentContextPresets = presetConfig
+    ? SandboxAgentPresetsSchema.parse(JSON.parse(presetConfig))
+    : undefined;
   const serviceProviders = (env.MITZO_OPENSHELL_SERVICE_PROVIDERS || '')
     .split(',')
     .filter(Boolean)
@@ -699,6 +718,7 @@ export function openShellRuntimeConfig(env: NodeJS.ProcessEnv): OpenShellRuntime
     seed,
     knowledgeStore: knowledgeStoreFromEnvironment(env),
     ...(seedStackManifest ? { seedStackManifest } : {}),
+    ...(agentContextPresets ? { agentContextPresets } : {}),
     serviceProviders,
     grantableServiceProviders,
     workspace: identifier(env.OPENSHELL_WORKSPACE || 'default', 'workspace'),
@@ -2365,6 +2385,7 @@ export class OpenShellRuntimeManager {
   async verifyKnowledgeRuntime(
     runtime: OpenShellRuntime,
     signal: AbortSignal,
+    requireAgentContext = false,
   ): Promise<Record<string, unknown>> {
     // Retained task sandboxes may still run an older image. Verify their
     // actual protected compiler and frozen runtime inputs before adoption.
@@ -2403,7 +2424,77 @@ export class OpenShellRuntimeManager {
       if (actual[field] !== contract[field])
         throw new Error(`Runtime is incompatible with published knowledge: ${field} differs`);
     }
-    return contract;
+    if (
+      requireAgentContext &&
+      (actual.agentContextCompilerSha256 !== sandboxAgentCompilerHash() ||
+        contract.knowledgeCompilerCommit !== SANDBOX_CONTEXT_CONTEXGIN_COMMIT)
+    )
+      throw Error(
+        'Agent Library sandbox recipes require the reviewed agent context compiler runtime',
+      );
+    return requireAgentContext
+      ? { ...contract, agentContextCompilerSha256: actual.agentContextCompilerSha256 }
+      : contract;
+  }
+
+  async verifyAgentContextRuntime(
+    conversationId: string,
+    runtime: OpenShellRuntime,
+    signal: AbortSignal,
+  ) {
+    signal = AbortSignal.any([signal, AbortSignal.timeout(10000)]);
+    signal.throwIfAborted();
+    if (!runtime.sandboxId) throw Error('Agent context requires a physical sandbox identity');
+    const owned = await this.ownedSandbox(conversationId, runtime.sandboxId, signal);
+    if (owned.phase !== 'Ready' || owned.name !== runtime.sandboxName)
+      throw Error('Agent context sandbox ownership or readiness changed');
+    const contract = await this.verifyKnowledgeRuntime(runtime, signal, true);
+    const after = await this.ownedSandbox(conversationId, runtime.sandboxId, signal);
+    if (after.phase !== 'Ready' || after.name !== runtime.sandboxName)
+      throw Error('Agent context sandbox ownership or readiness changed');
+    signal.throwIfAborted();
+    return AgentSandboxContextScopeSchema.parse({
+      sandboxId: runtime.sandboxId,
+      sandboxName: runtime.sandboxName,
+      workspaceRoot: runtime.workdir,
+      runtimeContractImageDigest: contract.digest,
+      compilerSha256: contract.knowledgeCompilerSha256,
+      entrypointSha256: contract.agentContextCompilerSha256,
+      recipeSha256: contract.knowledgeRecipeSha256,
+      runtimeInputsSha256: contract.runtimeInputsSha256,
+    });
+  }
+
+  async compileAgentContext(
+    runtime: OpenShellRuntime,
+    recipe: Extract<AgentContextRecipe, { source: 'workspace' }>,
+    signal: AbortSignal,
+  ) {
+    const input = Buffer.from(JSON.stringify({ workspaceRoot: runtime.workdir, recipe })).toString(
+      'base64',
+    );
+    if (input.length > 65536) throw Error('Sandbox agent context request is too large');
+    const spec = openShellSshArgvProcessSpec(runtime, [
+      '/usr/bin/env',
+      '-i',
+      'PATH=/usr/bin:/bin',
+      'HOME=/nonexistent',
+      '/usr/bin/node',
+      '/usr/libexec/mitzo/compile-agent-context.mjs',
+      input,
+    ]);
+    const boundedSignal = AbortSignal.any([signal, AbortSignal.timeout(10000)]);
+    const output = await this.runSsh(spec.args, boundedSignal);
+    boundedSignal.throwIfAborted();
+    if (Buffer.byteLength(output) > 1048576)
+      throw Error('Sandbox agent context response is too large');
+    return z
+      .strictObject({
+        compilerRevision: z.string().min(1).max(128),
+        workspaceIdentity: z.string().regex(/^[a-f0-9]{64}$/),
+        context: AgentCompiledBootContextSchema,
+      })
+      .parse(JSON.parse(output));
   }
 
   /** Called only at admission or between turns, under the owning lifecycle fence. */

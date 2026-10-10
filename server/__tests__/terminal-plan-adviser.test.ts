@@ -169,6 +169,21 @@ it('keeps sign-in status operator-owned and cancels the loopback listener', asyn
   expect(f.host.status('operator', attempt.id).state).toBe('cancelled');
   await f.host.close();
 });
+it('recovers only the owning operator’s pending sign-in without exposing browser URLs or credentials', async () => {
+  const f = setup();
+  try {
+    expect(f.host.pendingAttempt('operator')).toBeNull();
+    const attempt = await f.host.start('operator', Date.now() + 60000, 'Personal');
+    expect(f.host.pendingAttempt('operator')).toEqual(attempt);
+    expect(f.host.pendingAttempt('another')).toBeNull();
+    expect(Object.keys(f.host.pendingAttempt('operator')!)).toEqual(['id', 'state']);
+    await f.host.cancel('operator', attempt.id);
+    expect(f.host.pendingAttempt('operator')).toBeNull();
+    expect(f.host.status('operator', attempt.id).state).toBe('cancelled');
+  } finally {
+    await f.host.close();
+  }
+});
 it.each(['', '&state=incorrect'])(
   'allows a new sign-in after an invalid callback state %s',
   async (state) => {

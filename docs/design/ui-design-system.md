@@ -59,6 +59,30 @@ or Save. Discard remains a visibly labelled destructive action; Done remains
 neutral. Save, loading, error and conflict states retain the existing behavior.
 Colors, fonts, spacing, focus, radii and motion come from the shared token source.
 
+## Token usage
+
+The conversation token popover groups latest context/request capacity separately
+from cumulative usage, with short explanatory notes. Native request totals and
+session input-context observations retain their distinct labels. Runtime-reported
+capacity is the effective context limit; unknown/stale capacity remains unknown.
+The native `details` disclosure explains repeated input, cache reuse, compaction
+and optimization without turning cumulative tokens into a cost estimate. It uses
+shared type/spacing/radius/color tokens, a `--control-height` summary target and
+visible keyboard focus. The existing `MotionPresence` and Escape behavior remain.
+Popover width is bounded by the composer's toolbar and the page
+gutters, including desktop layouts with both sidebars expanded. Its 70dvh maximum height is
+structural viewport geometry; internal scrolling keeps expanded explanations and
+reporting details reachable on short phones and with larger text.
+
+Offline acceptance screenshots show [the separated usage figures on a narrow
+phone](assets/token-usage-mobile-dark.png) and [expanded help with larger text,
+Teal accent and Georgia font](assets/token-help-mobile-light.png). The offline
+fixture covers keyboard disclosure, Escape, touch targets, scrolling and empty
+usage on mobile WebKit and mobile/desktop Chromium. An 800px desktop regression
+case verifies the collapsed and expanded popover stays inside the center panel
+and composer, with both sidebars open. The [narrow desktop acceptance
+capture](assets/token-usage-narrow-desktop.png) records that layout.
+
 ## Motion
 
 The [shared motion contract](frontend-motion.md) applies to mobile and desktop.
@@ -119,6 +143,10 @@ Adviser subscription management reuses `HomeDialog` for focus, dismissal and scr
 Inbox reuses the shared collection rows, full-content inspector, heading, icons and notification request controls. Its named views are Needs you, Briefings, Proposals, All and Archive. Source, Type, Status and Date are secondary refinements, with removable active filters. Technical provenance appears in expanded details. Search crosses named views; pagination and list/detail return preserve the query. The navigation badge counts unresolved actionable requests, not unread files. Archive is recoverable and remains separate from reading and resolution.
 
 Inbox keeps a reading surface of at least three shared control heights on phones. If the heading and refinements exceed the available vertical space, the collection itself can scroll while its list remains usable. Check short native viewports and large text with body scrolling locked.
+
+## Chat activity disclosure
+
+`AgentActivity` groups consecutive normalized thought/tool blocks between responses, including across provider message boundaries. Its one-line latest-activity preview uses the shared type/spacing/radius scales, semantic muted/error colors, `UiIcon`, a `--control-height` button with visible focus and `aria-expanded`, and `MotionPresence` for details. Failure counts remain visible when collapsed. Existing tool/thought controls retain full detail, while approvals, progress, web-access results and deduplicated setup cards stay outside the disclosure. Group identity follows the session and captured seat/account generation. Activity and thought content start open and remain readable while awaiting a reply, including between provider messages and after tool completion. Visible text from the same speaker collapses preceding activity; another speaker's reply and a new user turn cannot complete it. Manual reopening after a reply persists through further updates. No timer collapses thought content within this group. Empty or whitespace-only text does not split activity. Automatic collapse returns keyboard focus from closing details to the header while preserving focus elsewhere, including the composer, with both normal and reduced motion. No provider or account selects a separate visual treatment.
 
 ## Terminal output layout
 
