@@ -38,6 +38,15 @@ async function editKnowledgeDocument(page: Page, path: string, title: string) {
 }
 
 async function mockDocument(page: Page, content: string) {
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      'mitzo:service-health',
+      JSON.stringify({
+        services: [{ name: 'yapper', ok: true, detail: { tts: true } }],
+        checkedAt: 0,
+      }),
+    );
+  });
   const writes: Record<string, unknown>[] = [];
   await page.routeWebSocket('**/*', (socket) => socket.close());
   await page.route('**/api/**', (route) => {
@@ -53,6 +62,10 @@ async function mockDocument(page: Page, content: string) {
     if (url.pathname === '/api/files/roots') return route.fulfill({ json: [] });
     if (url.pathname === '/api/git/info')
       return route.fulfill({ json: { branch: 'main', repoPath: '/workspace', worktrees: [] } });
+    if (new URL(route.request().url()).pathname === '/api/service-health')
+      return route.fulfill({
+        json: { services: [{ name: 'yapper', ok: true, detail: { tts: true } }], checkedAt: 0 },
+      });
     return route.fulfill({ json: {} });
   });
   await page.goto('/files?path=report.md&sessionId=openai-api');
@@ -75,6 +88,10 @@ for (const sessionId of ['vertex', 'openai-api', 'openai-subscription']) {
       if (url.pathname === '/api/files/roots') return route.fulfill({ json: [] });
       if (new URL(route.request().url()).pathname === '/api/git/info')
         return route.fulfill({ json: { branch: 'main', repoPath: '/workspace', worktrees: [] } });
+      if (new URL(route.request().url()).pathname === '/api/service-health')
+        return route.fulfill({
+          json: { services: [{ name: 'yapper', ok: true, detail: { tts: true } }], checkedAt: 0 },
+        });
       return route.fulfill({ json: {} });
     });
     await page.goto(`/files?path=report.md&sessionId=${sessionId}`);
@@ -122,6 +139,10 @@ test('recovers a draft after reload and resolves a concurrent save conflict', as
     if (url.pathname === '/api/files/roots') return route.fulfill({ json: [] });
     if (new URL(route.request().url()).pathname === '/api/git/info')
       return route.fulfill({ json: { branch: 'main', repoPath: '/workspace', worktrees: [] } });
+    if (new URL(route.request().url()).pathname === '/api/service-health')
+      return route.fulfill({
+        json: { services: [{ name: 'yapper', ok: true, detail: { tts: true } }], checkedAt: 0 },
+      });
     return route.fulfill({ json: {} });
   });
   page.on('dialog', (dialog) => dialog.accept());
@@ -153,6 +174,10 @@ test('edits HTML while preserving a sandboxed live preview', async ({ page }) =>
       });
     if (new URL(route.request().url()).pathname === '/api/git/info')
       return route.fulfill({ json: { branch: 'main', repoPath: '/workspace', worktrees: [] } });
+    if (new URL(route.request().url()).pathname === '/api/service-health')
+      return route.fulfill({
+        json: { services: [{ name: 'yapper', ok: true, detail: { tts: true } }], checkedAt: 0 },
+      });
     return route.fulfill({ json: {} });
   });
   await page.goto('/files?path=page.html&sessionId=openai-subscription');
@@ -182,6 +207,10 @@ test('warns when unsaved changes cannot be backed up', async ({ page }) => {
     if (url.pathname === '/api/files/roots') return route.fulfill({ json: [] });
     if (url.pathname === '/api/git/info')
       return route.fulfill({ json: { branch: 'main', repoPath: '/workspace', worktrees: [] } });
+    if (new URL(route.request().url()).pathname === '/api/service-health')
+      return route.fulfill({
+        json: { services: [{ name: 'yapper', ok: true, detail: { tts: true } }], checkedAt: 0 },
+      });
     return route.fulfill({ json: {} });
   });
   await page.goto('/files?path=report.md&sessionId=vertex');
@@ -214,6 +243,10 @@ test('keeps a resolved worktree target when a same-content repository file appea
     if (url.pathname === '/api/files/roots') return route.fulfill({ json: [] });
     if (url.pathname === '/api/git/info')
       return route.fulfill({ json: { branch: 'main', repoPath: '/workspace', worktrees: [] } });
+    if (new URL(route.request().url()).pathname === '/api/service-health')
+      return route.fulfill({
+        json: { services: [{ name: 'yapper', ok: true, detail: { tts: true } }], checkedAt: 0 },
+      });
     return route.fulfill({ json: {} });
   });
   await page.goto('/files?path=' + encodeURIComponent(posted) + '&sessionId=vertex');
@@ -333,10 +366,13 @@ test('fullscreen and preview preserve an unsaved draft and keep save reachable',
   await expect(fullscreen).toBeVisible();
   if (!isMobile) await expect(source).toBeFocused();
   expect(
-    await page.locator('.viewer-header-action--save').evaluate((element) => {
-      (element as HTMLButtonElement).focus();
-      return document.activeElement === element;
-    }),
+    await page
+      .locator('.viewer-header')
+      .getByRole('button', { name: 'Save', exact: true, includeHidden: true })
+      .evaluate((element) => {
+        (element as HTMLButtonElement).focus();
+        return document.activeElement === element;
+      }),
   ).toBe(false);
   const fullscreenSave = fullscreen.getByRole('button', { name: 'Save', exact: true });
   await page.screenshot({ path: testInfo.outputPath('fullscreen-toolbar.png') });
@@ -575,6 +611,10 @@ test('Knowledge edits and saves its working copy with usable source, preview and
         },
       });
     }
+    if (new URL(route.request().url()).pathname === '/api/service-health')
+      return route.fulfill({
+        json: { services: [{ name: 'yapper', ok: true, detail: { tts: true } }], checkedAt: 0 },
+      });
     return route.fulfill({ json: {} });
   });
   await page.goto('/knowledge');
@@ -649,6 +689,10 @@ test('adopting a same-content saved Knowledge draft clears obsolete Vim undo his
           },
         },
       });
+    if (new URL(route.request().url()).pathname === '/api/service-health')
+      return route.fulfill({
+        json: { services: [{ name: 'yapper', ok: true, detail: { tts: true } }], checkedAt: 0 },
+      });
     return route.fulfill({ json: {} });
   });
   await page.goto('/knowledge');
@@ -720,6 +764,10 @@ test('folder-only saved Knowledge conflicts show both organizations before repla
         json: { draft: { ...remote, version: 3, directories: body.directories } },
       });
     }
+    if (new URL(route.request().url()).pathname === '/api/service-health')
+      return route.fulfill({
+        json: { services: [{ name: 'yapper', ok: true, detail: { tts: true } }], checkedAt: 0 },
+      });
     return route.fulfill({ json: {} });
   });
   await page.goto('/knowledge');
@@ -755,16 +803,6 @@ test('desktop Markdown syntax remains readable in light and dark source themes',
     await page.evaluate((value) => {
       document.documentElement.dataset.theme = value;
     }, theme);
-    const pageBackground = await page
-      .locator('.viewer-page')
-      .evaluate((element) => getComputedStyle(element).backgroundColor);
-    await expect
-      .poll(() =>
-        page
-          .getByRole('button', { name: 'Source', exact: true })
-          .evaluate((element) => getComputedStyle(element).backgroundColor),
-      )
-      .toBe(pageBackground);
     const colors = await source.evaluate((element) => {
       const background = getComputedStyle(element.closest('.cm-editor')!).backgroundColor;
       const luminance = (color: string) => {
@@ -914,6 +952,10 @@ test('fullscreen Knowledge comparisons scroll independently and preserve space f
       return route.fulfill({ json: { draft: savedDraft } });
     }
     if (url.pathname.endsWith('/review')) return route.fulfill({ json: { draft: savedDraft } });
+    if (new URL(route.request().url()).pathname === '/api/service-health')
+      return route.fulfill({
+        json: { services: [{ name: 'yapper', ok: true, detail: { tts: true } }], checkedAt: 0 },
+      });
     return route.fulfill({ json: {} });
   });
   await page.goto('/knowledge');
@@ -1012,6 +1054,10 @@ test('Knowledge reload lands on the Library and resumes the recovered copy only 
       });
     if (url.pathname === '/api/knowledge/document')
       return route.fulfill({ json: { path, revision: 'r1', content: '# Accepted voice guide' } });
+    if (new URL(route.request().url()).pathname === '/api/service-health')
+      return route.fulfill({
+        json: { services: [{ name: 'yapper', ok: true, detail: { tts: true } }], checkedAt: 0 },
+      });
     return route.fulfill({ json: {} });
   });
   await page.goto('/knowledge');
@@ -1043,4 +1089,237 @@ test('Knowledge reload lands on the Library and resumes the recovered copy only 
     serialized,
   );
   expect(authoringRequests).toEqual([]);
+});
+
+// These controls are shared by Files and Knowledge. Assert user-visible geometry
+// and accessibility so a route-wide button rule cannot turn them back into boxes.
+async function editorControlStyles(button: Locator) {
+  return button.evaluate((element) => {
+    const style = getComputedStyle(element);
+    const { width, height } = element.getBoundingClientRect();
+    return {
+      width,
+      height,
+      borderWidth: style.borderTopWidth,
+      borderStyle: style.borderTopStyle,
+      fontFamily: style.fontFamily,
+      color: style.color,
+      background: style.backgroundColor,
+    };
+  });
+}
+
+async function mockKnowledgeEditor(page: Page) {
+  await page.routeWebSocket('**/*', (socket) => socket.close());
+  await page.route('**/api/**', (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname === '/api/knowledge')
+      return route.fulfill({
+        json: {
+          revision: 'r1',
+          documents: [{ path: 'hub/principles.md', title: 'Working principles', area: 'Hub' }],
+          directories: ['hub'],
+          documentPaths: ['hub'],
+          drafts: [],
+          reviewEnabled: false,
+          acceptanceEnabled: false,
+          syncedAt: null,
+        },
+      });
+    if (url.pathname === '/api/knowledge/document')
+      return route.fulfill({
+        json: {
+          path: 'hub/principles.md',
+          revision: 'r1',
+          content:
+            '# Working principles\n\nKeep the document at the centre of the workspace.\n\n- Group related actions.\n- Keep editing and preview within reach.',
+        },
+      });
+    if (new URL(route.request().url()).pathname === '/api/service-health')
+      return route.fulfill({
+        json: { services: [{ name: 'yapper', ok: true, detail: { tts: true } }], checkedAt: 0 },
+      });
+    return route.fulfill({ json: {} });
+  });
+  await page.goto('/knowledge');
+  await editKnowledgeDocument(page, 'hub/principles.md', 'Working principles');
+}
+
+test('grouped editor keeps every action reachable with compact desktop and touch mobile controls', async ({
+  page,
+  isMobile,
+  browserName,
+}, testInfo) => {
+  if (isMobile) await page.setViewportSize({ width: 320, height: 740 });
+  await mockDocument(page, 'alpha');
+  if (!isMobile) {
+    const home = page.getByRole('button', { name: 'Home', exact: true });
+    const iconBounds = (await home.getByRole('img', { name: 'Mitzo', exact: true }).boundingBox())!;
+    const buttonBounds = (await home.boundingBox())!;
+    expect(iconBounds.width).toBeLessThanOrEqual(buttonBounds.width);
+    expect(iconBounds.height).toBeLessThanOrEqual(buttonBounds.height);
+  }
+  const editor = page.getByRole('region', { name: 'Document editor', exact: true });
+  for (const name of [
+    'Editor view',
+    'Editing keys',
+    'Edit history',
+    'Markdown formatting',
+    'Document actions',
+  ])
+    await expect(editor.getByRole('group', { name, exact: true })).toBeVisible();
+  const controls = [
+    'Source',
+    'Preview',
+    'Split',
+    'Standard',
+    'Vim',
+    'Undo',
+    'Redo',
+    'Bold',
+    'Italic',
+    'Inline code',
+    'Heading',
+    'List',
+    'Link',
+    'Fullscreen',
+    ...(isMobile ? [] : ['Relative line numbers']),
+  ];
+  for (const name of controls) {
+    const button = editor.getByRole('button', { name, exact: true });
+    await button.scrollIntoViewIfNeeded();
+    await expect(button).toBeInViewport();
+    const style = await editorControlStyles(button);
+    expect(style.borderStyle === 'none' || parseFloat(style.borderWidth) === 0, name).toBe(true);
+    if (isMobile) {
+      expect(style.height, name).toBeGreaterThanOrEqual(44);
+      expect(style.width, name).toBeGreaterThanOrEqual(44);
+    } else {
+      expect(style.height, name).toBeGreaterThanOrEqual(28);
+      expect(style.height, name).toBeLessThanOrEqual(36);
+    }
+  }
+  // Narrow layouts may wrap groups or scroll the tools, but must not widen the page.
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  );
+  const source = page.getByRole('textbox', { name: 'Document source' });
+  expect((await source.boundingBox())!.height).toBeGreaterThan(44);
+  await source.fill('changed');
+  for (const name of ['Save', 'Discard']) {
+    const button = page.getByRole('button', { name, exact: true });
+    await button.scrollIntoViewIfNeeded();
+    await expect(button).toBeInViewport();
+    await button.click({ trial: true });
+    if (isMobile) expect((await button.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  }
+  // Disabled history controls stay discoverable; enabled controls remain keyboard actions.
+  await editor.getByRole('button', { name: 'Bold', exact: true }).focus();
+  // Safari's default preference includes buttons in sequential focus with Option-Tab.
+  await page.keyboard.press(browserName === 'webkit' ? 'Alt+Tab' : 'Tab');
+  const italic = editor.getByRole('button', { name: 'Italic', exact: true });
+  await expect(italic).toBeFocused();
+  expect(
+    await italic.evaluate((element) => parseFloat(getComputedStyle(element).outlineWidth)),
+  ).toBeGreaterThan(0);
+  expect(
+    await italic.evaluate((element) => getComputedStyle(element, '::after').content),
+  ).toContain('Italic');
+  expect(await italic.evaluate((element) => getComputedStyle(element, '::after').display)).toBe(
+    'block',
+  );
+  await page.screenshot({
+    path: testInfo.outputPath(isMobile ? 'grouped-editor-320.png' : 'grouped-editor-focus.png'),
+  });
+  page.on('dialog', (dialog) => dialog.accept());
+  await page.getByRole('button', { name: 'Discard', exact: true }).click();
+  await expect(source).toHaveCount(0);
+  for (const name of ['Edit', 'Read', 'Share file', 'Download file']) {
+    const button = page.getByRole('button', { name, exact: true });
+    await expect(button).toBeInViewport();
+    await button.click({ trial: true });
+    if (isMobile) expect((await button.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  }
+  await page.getByRole('button', { name: 'Edit', exact: true }).click();
+  await expectSource(source, 'alpha');
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  await expect(source).toHaveCount(0);
+});
+
+test('all grouped Markdown formatting actions preserve selection and undo behavior', async ({
+  page,
+}) => {
+  await mockDocument(page, 'alpha');
+  const source = page.getByRole('textbox', { name: 'Document source' });
+  const expected = [
+    ['Bold', '**alpha**'],
+    ['Italic', '_alpha_'],
+    ['Inline code', '`alpha`'],
+    ['Heading', '## alpha'],
+    ['List', '- alpha'],
+    ['Link', '[alpha](https://)'],
+  ];
+  for (const [name, formatted] of expected) {
+    await source.focus();
+    await source.press('ControlOrMeta+a');
+    await page.getByRole('button', { name, exact: true }).click();
+    await expectSource(source, formatted);
+    await expect(source).toBeFocused();
+    await page.getByRole('button', { name: 'Undo', exact: true }).click();
+    await expectSource(source, 'alpha');
+  }
+});
+
+test('Files and Knowledge share quiet controls across themes and appearance preferences', async ({
+  page,
+  isMobile,
+}, testInfo) => {
+  if (isMobile) await page.setViewportSize({ width: 320, height: 740 });
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  const appearances = [
+    { theme: 'dark', accent: 'lavender', font: 'system' },
+    { theme: 'light', accent: 'teal', font: 'georgia' },
+  ];
+  const styles: Record<string, Awaited<ReturnType<typeof editorControlStyles>>> = {};
+  for (const route of ['files', 'knowledge']) {
+    if (route === 'files')
+      await mockDocument(
+        page,
+        '# Working principles\n\nKeep the document at the centre of the workspace.\n\n- Group related actions.\n- Keep editing and preview within reach.',
+      );
+    else await mockKnowledgeEditor(page);
+    for (const appearance of appearances) {
+      await page.evaluate(({ theme, accent, font }) => {
+        Object.assign(document.documentElement.dataset, { theme, accent, font });
+      }, appearance);
+      const key = `${appearance.theme}-${appearance.accent}-${appearance.font}`;
+      const sourceButton = page.getByRole('button', { name: 'Source', exact: true });
+      await expect(sourceButton).toHaveAttribute('aria-pressed', 'true');
+      const bold = page.getByRole('button', { name: 'Bold', exact: true });
+      const actual = await editorControlStyles(bold);
+      const fonts = await page
+        .getByRole('textbox', { name: 'Document source' })
+        .evaluate((element) => {
+          const root = getComputedStyle(document.documentElement);
+          return {
+            source: getComputedStyle(element).fontFamily,
+            mono: root.getPropertyValue('--font-mono').trim(),
+            ui: root.getPropertyValue('--font-ui').trim(),
+          };
+        });
+      // Font stacks may normalize quote marks when read as computed font-family.
+      const normalized = (value: string) =>
+        value
+          .replace(/BlinkMacSystemFont/g, 'system-ui')
+          .replace(/["']/g, '')
+          .replace(/\s+/g, '');
+      expect(normalized(actual.fontFamily)).toBe(normalized(fonts.ui));
+      expect(normalized(fonts.source)).toBe(normalized(fonts.mono));
+      if (route === 'files') styles[key] = actual;
+      else expect(actual).toEqual(styles[key]);
+      await page.getByRole('button', { name: 'Split', exact: true }).click();
+      await page.screenshot({ path: testInfo.outputPath(`grouped-${route}-${key}.png`) });
+      await page.getByRole('button', { name: 'Source', exact: true }).click();
+    }
+  }
 });
