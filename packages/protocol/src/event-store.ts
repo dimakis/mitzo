@@ -6132,15 +6132,22 @@ export class EventStore {
     acceptedAt: number;
   }): boolean {
     const claim = this.db!.prepare(
-      `SELECT c.session_id, c.binding_key, c.recipient_idempotency_key, d.config_revision
-      FROM symposium_seat_execution_claims c JOIN symposium_deliveries d ON d.delivery_id=c.delivery_id
-      JOIN symposium_delivery_recipients r ON r.delivery_id=c.delivery_id AND r.seat_id=c.seat_id
-      WHERE c.claim_token=? AND c.delivery_id=? AND c.seat_id=? AND d.status='delivering'
-        AND r.status='executing' AND r.idempotency_key=c.recipient_idempotency_key`,
+      `SELECT d.session_id, c.binding_key, a.idempotency_key AS recipient_idempotency_key,
+        d.config_revision
+      FROM symposium_recipient_attempts a JOIN symposium_deliveries d ON d.delivery_id=a.delivery_id
+      JOIN symposium_delivery_recipients r ON r.delivery_id=a.delivery_id AND r.seat_id=a.seat_id
+      LEFT JOIN symposium_seat_execution_claims c ON c.claim_token=a.claim_token
+      WHERE a.claim_token=? AND a.delivery_id=? AND a.seat_id=? AND a.cleanup_confirmed=0
+        AND r.idempotency_key=a.idempotency_key
+        AND ((d.status='delivering' AND r.status='executing' AND a.status='executing'
+          AND c.session_id=d.session_id AND c.delivery_id=a.delivery_id AND c.seat_id=a.seat_id
+          AND c.recipient_idempotency_key=a.idempotency_key)
+        OR (d.status='cancelled' AND r.status='cancelled' AND a.status='cancelled'
+          AND c.claim_token IS NULL))`,
     ).get(input.claimToken, input.deliveryId, input.seatId) as
       | {
           session_id: string;
-          binding_key: string;
+          binding_key: string | null;
           recipient_idempotency_key: string;
           config_revision: number;
         }
@@ -6189,10 +6196,31 @@ export class EventStore {
       ownership.idempotencyKey !== claim.recipient_idempotency_key
     )
       throw new Error('Exact accepted ordinary contributor ownership is required');
+    // Stop deletes the live dispatch claim before it drains the provider. A late
+    // ACK still identifies this retained attempt, but grants no new dispatch or
+    // cleanup authority. Reconstruct its key only from the proven current seat.
+    const bindingKey = JSON.stringify([
+      seat.accountBinding.provider,
+      seat.accountBinding.accountId,
+      seat.accountBinding.model,
+      seat.accountBinding.profileRevision,
+      seat.reasoningEffort ?? null,
+      seat.profileBinding!.profileId,
+      seat.profileBinding!.profileRevision,
+      seat.contextGrant!.grantId,
+      seat.contextGrant!.revision,
+      seat.authorityGrant!.grantId,
+      seat.authorityGrant!.revision,
+      seat.isolationRequest!.trustDomainId,
+      seat.isolationRequest!.revision,
+      membership.generation,
+    ]);
+    if (claim.binding_key !== null && claim.binding_key !== bindingKey)
+      throw new Error('Accepted ordinary contributor seat binding changed');
     this.bindSymposiumSeatThread({
       sessionId: claim.session_id,
       seatId: input.seatId,
-      bindingKey: claim.binding_key,
+      bindingKey,
       providerThreadId: input.providerThreadId,
       configRevision: claim.config_revision,
       createdAt: input.acceptedAt,

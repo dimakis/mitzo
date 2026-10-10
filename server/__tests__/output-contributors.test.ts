@@ -300,95 +300,144 @@ describe('ordinary contributors to registered outputs', () => {
     expect(completed.contributor.sessionId).not.toBe('unrelated-child');
     expect(completed.contributor.sessionId).not.toBe('wrong-account');
   });
-  it('targets the exact live child turn and reports idle only after terminal and query closure', async () => {
-    const { service, input, port, store, deps } = setup();
-    const interrupted = vi.fn();
-    vi.mocked(port.startChat).mockImplementation(
-      async (_transport, _clientId, _prompt, options) => {
-        const id = options.initialSessionId!;
-        store.upsertSession({
-          sessionId: id,
-          conversationSource: 'mitzo',
-          accountBinding: deps.currentAccounts().resolve(input.accountId, input.model),
-        });
-        store.append(id, 'contributor_execution', {
-          ...options.contributorExecution,
-          childSessionId: id,
-        });
-        await new Promise<void>((resolve) => {
-          options.ordinaryTurnLifecycle!.beforeDispatch(options.clientMsgId!);
-          options.ordinaryTurnLifecycle!.accepted(options.clientMsgId!, 'raw-thread', 'live-turn');
-          options.onQueryReady?.({
-            interrupt: async () => {
-              interrupted();
+  it.each(['before Stop', 'after Stop'] as const)(
+    'retains the exact child accepted %s and reports idle only after terminal and query closure',
+    async (acceptanceTiming) => {
+      const { service, input, port, store, deps } = setup();
+      const interrupted = vi.fn();
+      let closeQuery!: () => void;
+      let acknowledgeTurn!: () => void;
+      let finishTurn!: () => void;
+      vi.mocked(port.startChat).mockImplementation(
+        async (_transport, _clientId, _prompt, options) => {
+          const id = options.initialSessionId!;
+          store.upsertSession({
+            sessionId: id,
+            conversationSource: 'mitzo',
+            accountBinding: deps.currentAccounts().resolve(input.accountId, input.model),
+          });
+          store.append(id, 'contributor_execution', {
+            ...options.contributorExecution,
+            childSessionId: id,
+          });
+          await new Promise<void>((resolve) => {
+            closeQuery = resolve;
+            options.ordinaryTurnLifecycle!.beforeDispatch(options.clientMsgId!);
+            acknowledgeTurn = () =>
+              options.ordinaryTurnLifecycle!.accepted(
+                options.clientMsgId!,
+                'raw-thread',
+                'live-turn',
+              );
+            finishTurn = () => {
               options.ordinaryTurnLifecycle!.terminal(
                 options.clientMsgId!,
                 'live-turn',
                 'interrupted',
               );
               options.onTurnResult?.({});
-              resolve();
-            },
+            };
+            if (acceptanceTiming === 'before Stop') acknowledgeTurn();
+            options.onQueryReady?.({
+              interrupt: async () => {
+                interrupted();
+                if (acceptanceTiming === 'before Stop') {
+                  finishTurn();
+                  resolve();
+                }
+              },
+            });
           });
-        });
-      },
-    );
-    const contributor = await service.add('source', input);
-    const completion = service.message('source', contributor.id, {
-      requestId: 'live-request',
-      text: 'Continue',
-    });
-    await vi.waitFor(() =>
+        },
+      );
+      const contributor = await service.add('source', input);
+      const completion = service.message('source', contributor.id, {
+        requestId: 'live-request',
+        text: 'Continue',
+      });
+      await vi.waitFor(() =>
+        expect(
+          store.getUnsettledSymposiumSeatExecutions(contributor.id, 'contributor'),
+        ).toHaveLength(1),
+      );
+      await vi.waitFor(() => expect(port.startChat).toHaveBeenCalledTimes(1));
+      const stopping = service.stop('source', contributor.id, { requestId: 'stop-exact-turn' });
+      if (acceptanceTiming === 'after Stop') {
+        await vi.waitFor(() => expect(interrupted).toHaveBeenCalledTimes(1));
+        expect(store.getSymposiumDeliveries(contributor.id)[0].status).toBe('cancelled');
+        expect(acknowledgeTurn).not.toThrow();
+        finishTurn();
+        await vi.waitFor(() =>
+          expect(
+            store.getSymposiumRecipientAttempts(
+              store.getSymposiumDeliveries(contributor.id)[0].deliveryId,
+            )[0].acceptedAt,
+          ).not.toBeNull(),
+        );
+        expect(
+          store.getUnsettledSymposiumSeatExecutions(contributor.id, 'contributor'),
+        ).toHaveLength(1);
+        expect((await service.list('source')).contributors[0].status).toBe('stopping');
+        closeQuery();
+      }
+      const stopped = await stopping;
+      expect(interrupted).toHaveBeenCalledTimes(1);
+      expect(stopped.status).toBe('idle');
       expect(store.getUnsettledSymposiumSeatExecutions(contributor.id, 'contributor')).toHaveLength(
-        1,
-      ),
-    );
-    await vi.waitFor(() => expect(port.startChat).toHaveBeenCalledTimes(1));
-    const stopped = await service.stop('source', contributor.id, { requestId: 'stop-exact-turn' });
-    expect(interrupted).toHaveBeenCalledTimes(1);
-    expect(stopped.status).toBe('idle');
-    expect(store.getUnsettledSymposiumSeatExecutions(contributor.id, 'contributor')).toHaveLength(
-      0,
-    );
-    expect((await completion).delivery.status).toBe('cancelled');
-    expect(stopped.sessionId).toBeTruthy();
-    const retainedChild = stopped.sessionId!;
-    service.close();
-    store.close();
-    const reopenedStore = new EventStore(deps.databasePath);
-    cleanup.push(() => reopenedStore.close());
-    const reloaded = createOutputContributors({ ...deps, store: reopenedStore });
-    cleanup.unshift(() => reloaded.close());
-    vi.mocked(port.startChat).mockImplementation(async (_transport, _client, _prompt, options) => {
-      const child = options.resume ?? options.initialSessionId!;
-      reopenedStore.upsertSession({
-        sessionId: child,
-        conversationSource: 'mitzo',
-        accountBinding: deps.currentAccounts().resolve(input.accountId, input.model),
-      });
-      reopenedStore.append(child, 'contributor_execution', {
-        ...options.contributorExecution,
-        childSessionId: child,
-      });
-      options.ordinaryTurnLifecycle!.beforeDispatch(options.clientMsgId!);
-      options.ordinaryTurnLifecycle!.accepted(options.clientMsgId!, 'raw-thread', 'followup-turn');
-      options.ordinaryTurnLifecycle!.terminal(options.clientMsgId!, 'followup-turn', 'completed');
-      options.onTurnResult?.({});
-    });
-    expect((await reloaded.list('source')).contributors[0].sessionId).toBe(retainedChild);
-    expect(
-      (
-        await reloaded.message('source', contributor.id, {
-          requestId: 'after-stop',
-          text: 'Continue the same conversation',
-        })
-      ).delivery.status,
-    ).toBe('delivered');
-    expect(vi.mocked(port.startChat).mock.calls[1][3].resume).toBe(retainedChild);
-    expect(vi.mocked(port.startChat).mock.calls[1][3].initialSessionId).toBeUndefined();
-  });
+        0,
+      );
+      expect((await completion).delivery.status).toBe('cancelled');
+      expect(stopped.sessionId).toBeTruthy();
+      const retainedChild = stopped.sessionId!;
+      service.close();
+      store.close();
+      const reopenedStore = new EventStore(deps.databasePath);
+      cleanup.push(() => reopenedStore.close());
+      const reloaded = createOutputContributors({ ...deps, store: reopenedStore });
+      cleanup.unshift(() => reloaded.close());
+      vi.mocked(port.startChat).mockImplementation(
+        async (_transport, _client, _prompt, options) => {
+          const child = options.resume ?? options.initialSessionId!;
+          reopenedStore.upsertSession({
+            sessionId: child,
+            conversationSource: 'mitzo',
+            accountBinding: deps.currentAccounts().resolve(input.accountId, input.model),
+          });
+          reopenedStore.append(child, 'contributor_execution', {
+            ...options.contributorExecution,
+            childSessionId: child,
+          });
+          options.ordinaryTurnLifecycle!.beforeDispatch(options.clientMsgId!);
+          options.ordinaryTurnLifecycle!.accepted(
+            options.clientMsgId!,
+            'raw-thread',
+            'followup-turn',
+          );
+          options.ordinaryTurnLifecycle!.terminal(
+            options.clientMsgId!,
+            'followup-turn',
+            'completed',
+          );
+          options.onTurnResult?.({});
+        },
+      );
+      expect((await reloaded.list('source')).contributors[0].sessionId).toBe(retainedChild);
+      expect(
+        (
+          await reloaded.message('source', contributor.id, {
+            requestId: 'after-stop',
+            text: 'Continue the same conversation',
+          })
+        ).delivery.status,
+      ).toBe('delivered');
+      expect(vi.mocked(port.startChat).mock.calls[1][3].resume).toBe(retainedChild);
+      expect(vi.mocked(port.startChat).mock.calls[1][3].initialSessionId).toBeUndefined();
+    },
+  );
   it('fences unknown retained execution on reload and rechecks cancelled unsettled cleanup on repeated Stop', async () => {
     const { service, deps, input, port, store } = setup();
+    let acceptLate!: () => void;
+    let lateReceipt!: Parameters<EventStore['markSymposiumRecipientAccepted']>[0];
     vi.mocked(port.startChat).mockImplementation(
       async (_transport, _clientId, _prompt, options) => {
         const id = options.initialSessionId!;
@@ -402,11 +451,19 @@ describe('ordinary contributors to registered outputs', () => {
           childSessionId: id,
         });
         options.ordinaryTurnLifecycle!.beforeDispatch(options.clientMsgId!);
-        options.ordinaryTurnLifecycle!.accepted(
-          options.clientMsgId!,
-          'raw-thread',
-          'retained-turn',
-        );
+        lateReceipt = {
+          ...options.contributorExecution!,
+          providerThreadId: id,
+          providerTurnId: 'retained-turn',
+          acceptedAt: Date.now(),
+          retainSeatThread: true,
+        };
+        acceptLate = () =>
+          options.ordinaryTurnLifecycle!.accepted(
+            options.clientMsgId!,
+            'raw-thread',
+            'retained-turn',
+          );
         await new Promise<void>(() => {});
       },
     );
@@ -432,6 +489,14 @@ describe('ordinary contributors to registered outputs', () => {
     cleanup.unshift(() => reopened.close());
     const stopped = await reopened.stop('source', contributor.id, { requestId: 'stop-one' });
     expect(stopped.status).toBe('stopping');
+    expect(
+      store.markSymposiumRecipientAccepted({ ...lateReceipt, claimToken: 'stale-claim' }),
+    ).toBe(false);
+    expect(() =>
+      store.markSymposiumRecipientAccepted({ ...lateReceipt, providerThreadId: 'source' }),
+    ).toThrow('ordinary contributor ownership');
+    expect(acceptLate).not.toThrow();
+    expect((await reopened.list('source')).contributors[0].sessionId).toBeTruthy();
     expect(store.getUnsettledSymposiumSeatExecutions(contributor.id, 'contributor')).toHaveLength(
       1,
     );
