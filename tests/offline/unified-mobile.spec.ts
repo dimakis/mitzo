@@ -1266,6 +1266,141 @@ test('combined conversation empty and failed status remain readable without impl
   expect(queued).toHaveLength(0);
 });
 
+test('saved chat identity failures lock model controls until an explicit successful retry', async ({
+  page,
+  isMobile,
+}, testInfo) => {
+  test.setTimeout(60_000);
+  await page.setViewportSize({ width: isMobile ? 320 : 1280, height: 900 });
+  await page.addInitScript(() => localStorage.setItem('mitzo-workspace-controls-expanded', '1'));
+  let failure: '503' | 'network' | null = '503';
+  let recovery: 'briefing' | 'ordinary' = 'briefing';
+  let reads = 0;
+  const sessionId = 'saved-binding-check';
+  const binding = {
+    sessionId,
+    date: '2026-10-10',
+    revision: 'a'.repeat(64),
+    accountId: 'work-account',
+    model: 'luna-fixture',
+    createdAt: '2026-10-10T07:00:00Z',
+  };
+  await page.route('**/api/**', async (route) => {
+    const url = new URL(route.request().url());
+    if (url.hostname !== 'mitzo-ui.test') return route.abort();
+    if (route.request().method() !== 'GET')
+      return route.fulfill({ status: 405, json: { error: 'Offline fixture forbids writes' } });
+    if (
+      url.pathname === '/api/home/briefing-chats' &&
+      url.searchParams.get('sessionId') === sessionId
+    ) {
+      reads += 1;
+      if (failure === 'network') return route.abort('failed');
+      if (failure === '503')
+        return route.fulfill({ status: 503, json: { error: 'Briefing identity unavailable' } });
+      return route.fulfill({ json: recovery === 'briefing' ? [binding] : [] });
+    }
+    if (url.pathname === '/api/accounts')
+      return route.fulfill({
+        json: [
+          {
+            id: 'work-account',
+            label: 'Work OpenAI',
+            models: [
+              { id: 'luna-fixture', label: 'Luna fixture', reasoningEfforts: ['low', 'high'] },
+            ],
+          },
+        ],
+      });
+    if (url.pathname === `/api/sessions/${sessionId}/messages`) return route.fulfill({ json: [] });
+    if (url.pathname === `/api/sessions/${sessionId}/meta`)
+      return route.fulfill({
+        json: {
+          sessionType: 'chat',
+          accountBinding: {
+            accountId: 'work-account',
+            accountLabel: 'Work OpenAI',
+            model: 'luna-fixture',
+          },
+          modelSelection: {
+            model: 'luna-fixture',
+            models: [
+              { id: 'luna-fixture', label: 'Luna fixture', reasoningEfforts: ['low', 'high'] },
+              { id: 'alternative-fixture', label: 'Alternative fixture' },
+            ],
+          },
+        },
+      });
+    if (url.pathname === `/api/sessions/${sessionId}/symposium/status`)
+      return route.fulfill({ json: { sessionId, config: null, seats: [] } });
+    return route.fallback();
+  });
+  for (const failed of ['503', 'network'] as const) {
+    for (const recovered of ['briefing', 'ordinary'] as const) {
+      failure = failed;
+      recovery = recovered;
+      await page.goto(`/chat/${sessionId}`);
+      const retry = page.getByRole('button', { name: 'Retry briefing lookup', exact: true });
+      await expect(retry).toBeVisible();
+      const model = page.getByRole('combobox', { name: 'Model', exact: true });
+      await expect(model).toBeVisible();
+      await expect(model).toBeDisabled();
+      await expect(model).toHaveValue('luna-fixture');
+      await expect(page.locator('.chat-account-binding')).toHaveText('Work OpenAI');
+      const thinking = page.getByRole('combobox', { name: 'Thinking', exact: true });
+      await expect(thinking).toBeDisabled();
+      await expect(
+        page.getByRole('button', { name: 'Change account or model', exact: true }),
+      ).toHaveCount(0);
+      expect((await retry.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+      const alert = page.getByRole('alert').filter({ has: retry });
+      const alignment = await alert.evaluate((element) => {
+        const bounds = element.getBoundingClientRect();
+        const column = element.closest('.briefing-chat-banner')!.getBoundingClientRect();
+        return {
+          left: bounds.left - column.left,
+          right: column.right - bounds.right,
+          gutter: Number.parseFloat(
+            getComputedStyle(document.documentElement).getPropertyValue('--page-gutter'),
+          ),
+        };
+      });
+      expect(alignment.left).toBeGreaterThanOrEqual(alignment.gutter);
+      expect(alignment.right).toBeGreaterThanOrEqual(alignment.gutter);
+      await page.evaluate((light) => {
+        document.documentElement.dataset.theme = light ? 'light' : 'dark';
+        document.documentElement.dataset.accent = light ? 'teal' : 'lavender';
+        document.documentElement.dataset.font = light ? 'georgia' : 'system';
+      }, failed === 'network');
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+        page.viewportSize()!.width,
+      );
+      await page.screenshot({
+        path: testInfo.outputPath(`briefing-lookup-error-${failed}-${recovered}.png`),
+        animations: 'disabled',
+      });
+      failure = null;
+      const before = reads;
+      await retry.click();
+      await expect(retry).toHaveCount(0);
+      expect(reads).toBeGreaterThan(before);
+      if (recovered === 'briefing') {
+        await expect(page.getByText('Jeeves · 2026-10-10', { exact: true })).toBeVisible();
+        await expect(page.getByRole('link', { name: 'Read briefing', exact: true })).toBeVisible();
+        await expect(model).toBeDisabled();
+        await expect(thinking).toBeDisabled();
+        await expect(
+          page.getByRole('button', { name: 'Change account or model', exact: true }),
+        ).toBeVisible();
+      } else {
+        await expect(model).toBeEnabled();
+        await expect(thinking).toBeEnabled();
+        await expect(page.getByRole('link', { name: 'Read briefing', exact: true })).toHaveCount(0);
+      }
+    }
+  }
+});
+
 test('profile drafts stay behind Workspace and remain readable on mobile and desktop', async ({
   page,
   isMobile,
