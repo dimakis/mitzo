@@ -2,6 +2,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { createProtectedSdkCommandRunner } from '../protected-sdk-command.js';
+import type { SpawnOptions } from '@anthropic-ai/claude-agent-sdk';
 
 afterEach(() => vi.useRealTimers());
 function fixture() {
@@ -14,7 +15,7 @@ function fixture() {
     killed: false,
     off: EventEmitter.prototype.off,
   });
-  const spawn = vi.fn(() => child as never);
+  const spawn = vi.fn((_options: SpawnOptions) => child as never);
   const run = createProtectedSdkCommandRunner({ spawnClaudeCodeProcess: spawn });
   const options = { cwd: '/synthetic/work', env: { VALUE: 'synthetic value' }, timeout: 5000 };
   return { child, spawn, run, options };

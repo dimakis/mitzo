@@ -306,12 +306,10 @@ it('routes project hook commands through the optional protected runner, preservi
       SessionStart: [{ timeout: 2, hooks: [{ type: 'command', command: 'synthetic $VALUE' }] }],
     },
   });
-  const runner = vi
-    .fn()
-    .mockResolvedValue({
-      stdout: '{"additionalContext":"protected context"}',
-      stderr: 'synthetic diagnostic',
-    });
+  const runner = vi.fn().mockResolvedValue({
+    stdout: '{"additionalContext":"protected context"}',
+    stderr: 'synthetic diagnostic',
+  });
   const hooks = loadProjectHooks(
     TEST_DIR,
     { VALUE: 'project value', GH_TOKEN: 'excluded controller value' },
