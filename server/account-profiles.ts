@@ -14,8 +14,9 @@ import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join } from 'node:path';
 import { z } from 'zod';
-import type { AccountBinding } from '@mitzo/protocol';
+import { SessionRuntimeBindingV1Schema, type AccountBinding } from '@mitzo/protocol';
 import type { CodexAccountProfile } from './codex-account.js';
+import type { OrdinarySessionRuntimeCatalog } from './ordinary-session-runtime.js';
 
 const VertexProfile = z
   .object({
@@ -145,6 +146,45 @@ const Profile = z.discriminatedUnion('provider', [
 ]);
 const MODEL_DISCOVERY_TIMEOUT_MS = 60_000;
 
+/** Bind routing identity, not presentation or the mutable model allowlist. */
+function routingRevision(profile: z.infer<typeof Profile>): string {
+  return createHash('sha256')
+    .update(
+      JSON.stringify(
+        profile.provider === 'openai-codex'
+          ? [
+              profile.provider,
+              profile.credentialRef,
+              profile.email,
+              profile.planType,
+              profile.workspaceId,
+              profile.sandboxProvider,
+              profile.sandboxProviderType,
+              profile.sandboxProviderId,
+              profile.sandboxGrantId,
+              ...(profile.nativeAuth ? [profile.nativeAuth] : []),
+              ...(profile.nativeCatalogRevision ? [profile.nativeCatalogRevision] : []),
+            ]
+          : profile.provider === 'openai'
+            ? [
+                profile.provider,
+                profile.credentialRef,
+                profile.sandboxProvider,
+                profile.sandboxProviderId,
+              ]
+            : [
+                profile.provider,
+                profile.projectId,
+                profile.region,
+                profile.credentialRef,
+                profile.sandboxProvider,
+                profile.sandboxProviderId,
+              ],
+      ),
+    )
+    .digest('hex');
+}
+
 function supportedModels(
   provider: z.infer<typeof Profile>['provider'],
   models: z.infer<typeof CatalogModel>[],
@@ -250,6 +290,32 @@ export class AccountProfiles {
   privateCodexRoots(): string[] {
     return this.profiles.flatMap((profile) =>
       profile.provider === 'openai-codex' && profile.credentialRef ? [profile.credentialRef] : [],
+    );
+  }
+
+  /** Dormant local host-login configuration metadata, not authentication or readiness proof. */
+  ordinaryLocalCodexAccounts(): Extract<
+    OrdinarySessionRuntimeCatalog['accounts'][number],
+    { provider: 'openai-codex' }
+  >[] {
+    if (!this.options.codexEnabled) return [];
+    return this.profiles.flatMap((profile) =>
+      profile.provider === 'openai-codex' &&
+      !profile.nativeAuth &&
+      profile.credentialRef &&
+      SessionRuntimeBindingV1Schema.shape.account.shape.accountId.safeParse(profile.id).success &&
+      profile.planType.trim().length > 0 &&
+      profile.planType.trim().toLowerCase() !== 'api'
+        ? [
+            {
+              accountId: profile.id,
+              provider: profile.provider,
+              profileRevision: routingRevision(profile),
+              planType: profile.planType,
+              auth: { kind: 'host-login' as const },
+            },
+          ]
+        : [],
     );
   }
 
@@ -651,42 +717,7 @@ export class AccountProfiles {
     if (!model || !selectableModels.some((m) => m.id === model)) {
       throw new Error('Model is unavailable for this account. Select a model from its catalog.');
     }
-    // Bind routing identity, not presentation or the mutable model allowlist.
-    const profileRevision = createHash('sha256')
-      .update(
-        JSON.stringify(
-          profile.provider === 'openai-codex'
-            ? [
-                profile.provider,
-                profile.credentialRef,
-                profile.email,
-                profile.planType,
-                profile.workspaceId,
-                profile.sandboxProvider,
-                profile.sandboxProviderType,
-                profile.sandboxProviderId,
-                profile.sandboxGrantId,
-                ...(profile.nativeAuth ? [profile.nativeAuth] : []),
-                ...(profile.nativeCatalogRevision ? [profile.nativeCatalogRevision] : []),
-              ]
-            : profile.provider === 'openai'
-              ? [
-                  profile.provider,
-                  profile.credentialRef,
-                  profile.sandboxProvider,
-                  profile.sandboxProviderId,
-                ]
-              : [
-                  profile.provider,
-                  profile.projectId,
-                  profile.region,
-                  profile.credentialRef,
-                  profile.sandboxProvider,
-                  profile.sandboxProviderId,
-                ],
-        ),
-      )
-      .digest('hex');
+    const profileRevision = routingRevision(profile);
     return {
       accountId,
       accountLabel: profile.label,
