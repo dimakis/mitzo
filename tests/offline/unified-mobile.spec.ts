@@ -416,6 +416,17 @@ test('Today exposes real bookmarks, the tiny quote and all saved briefing meetin
   await page.getByRole('button', { name: 'Expand all meetings' }).click();
   await expect(page.getByText('Agenda 10.', { exact: true })).toBeVisible();
   await expect(page.getByText('Supporting issue 10.', { exact: true })).toBeHidden();
+  const firstMeeting = page.locator('summary').filter({ hasText: /^9:00 Meeting 1$/ });
+  await firstMeeting.click();
+  await expect(page.getByText('Agenda 1.', { exact: true })).toBeHidden();
+  await page.getByRole('button', { name: 'Expand all meetings' }).click();
+  await expect(page.getByText('Agenda 1.', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Collapse all' }).click();
+  await firstMeeting.click();
+  await expect(page.getByText('Agenda 1.', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Collapse all' }).click();
+  await expect(page.getByText('Agenda 1.', { exact: true })).toBeHidden();
+  await page.getByRole('button', { name: 'Expand all meetings' }).click();
   await page.getByRole('button', { name: 'Ask Jeeves', exact: true }).click();
   const popup = page.getByRole('dialog');
   await expect(popup).toBeVisible();
@@ -435,6 +446,84 @@ test('Today exposes real bookmarks, the tiny quote and all saved briefing meetin
   await popup.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(popup).toHaveCount(0);
   await page.screenshot({ path: testInfo.outputPath('briefing-reader.png') });
+});
+
+test('Today details and nickname controls inherit appearance and remain usable with larger text', async ({
+  page,
+  isMobile,
+}, testInfo) => {
+  test.setTimeout(60_000);
+  await page.setViewportSize({ width: isMobile ? 320 : 1280, height: 900 });
+  for (const variant of [
+    { theme: 'dark', accent: 'lavender', font: 'system' },
+    { theme: 'light', accent: 'teal', font: 'georgia' },
+  ]) {
+    await page.goto('/');
+    await expect(page.getByRole('heading', { name: 'Today', exact: true })).toBeVisible();
+    await expect(page.getByRole('link', { name: /Quote of the day by/ })).toBeVisible();
+    await page.evaluate((appearance) => {
+      const root = document.documentElement;
+      root.dataset.theme = appearance.theme;
+      root.dataset.accent = appearance.accent;
+      root.dataset.font = appearance.font;
+      root.style.fontSize = '18px';
+      localStorage.setItem('mitzo-font', appearance.font);
+      localStorage.setItem('mitzo-accent', appearance.accent);
+    }, variant);
+    async function inspect(name: string) {
+      const pageCanvas = page.locator('.workspace-page').first();
+      expect(
+        await pageCanvas.evaluate((element) => element.scrollWidth <= element.clientWidth),
+      ).toBe(true);
+      const controls = page.locator(
+        '.home-secondary, .home-search input, .home-names input, .briefing-page button',
+      );
+      const geometry = await controls.evaluateAll((elements) => {
+        const family = getComputedStyle(document.body).fontFamily;
+        const minimum = Number.parseFloat(
+          getComputedStyle(document.documentElement).getPropertyValue('--control-height'),
+        );
+        return elements.map((element) => ({
+          family: getComputedStyle(element).fontFamily === family,
+          height: element.getBoundingClientRect().height >= minimum,
+        }));
+      });
+      expect(geometry.every((control) => control.family && control.height)).toBe(true);
+      await page.screenshot({
+        path: testInfo.outputPath(`${name}-${variant.theme}-${variant.font}-${variant.accent}.png`),
+        animations: 'disabled',
+      });
+    }
+    await inspect('today');
+    await page.getByRole('button', { name: 'Manage pins' }).click();
+    const pinPopup = page.getByRole('dialog');
+    await expect(pinPopup).toBeVisible();
+    const popupBounds = (await pinPopup.boundingBox())!;
+    expect(popupBounds.x).toBeCloseTo((page.viewportSize()!.width - popupBounds.width) / 2, 0);
+    await page.screenshot({
+      path: testInfo.outputPath(`pins-${variant.theme}-${variant.font}-${variant.accent}.png`),
+      animations: 'disabled',
+    });
+    await pinPopup.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await page.getByRole('link', { name: 'Read briefing', exact: true }).click();
+    await expect(
+      page.getByRole('heading', { name: 'Morning briefing', exact: true }),
+    ).toBeVisible();
+    await inspect('briefing');
+    await page.getByRole('link', { name: '← Today', exact: true }).click();
+    await page.getByRole('link', { name: /Quote of the day by/ }).click();
+    await expect(page.getByRole('heading', { name: 'A thought for today' })).toBeVisible();
+    await inspect('quote');
+    await page.goto('/settings');
+    await expect(page.getByLabel('Briefing minion name')).toHaveValue('Jeeves');
+    await page.getByRole('combobox', { name: 'Theme', exact: true }).selectOption(variant.theme);
+    await page.evaluate(() => {
+      document.documentElement.style.fontSize = '18px';
+    });
+    await inspect('names');
+    await page.getByRole('button', { name: 'Save names', exact: true }).scrollIntoViewIfNeeded();
+    await expect(page.getByRole('button', { name: 'Save names', exact: true })).toBeInViewport();
+  }
 });
 
 test('Proposals opens full context and keeps the end of each collection above the tabs', async ({
