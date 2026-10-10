@@ -253,3 +253,36 @@ it('cancels an in-flight code exchange on operator logout', async () => {
   await expect(completion).rejects.toThrow();
   expect(f.service.catalog()).toEqual([]);
 });
+
+it('does not let a superseded refresh invalidate a newly verified sign-in', async () => {
+  const f = fixture(),
+    signal = new AbortController().signal;
+  const account = await f.service.complete('operator', f.callback(f.begin()), signal);
+  f.advance();
+  let release!: (response: Response) => void;
+  f.fetcher.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        release = resolve;
+      }),
+  );
+  const old = f.service.ready(account.id, 'gpt-6-luna', 'low', signal);
+  const rejected = expect(old).rejects.toThrow();
+  await f.service.complete('operator', f.callback(f.begin(account.id)), signal);
+  release(
+    new Response(
+      JSON.stringify({
+        access_token: 'old',
+        refresh_token: 'old',
+        id_token: 'old',
+        token_type: 'Bearer',
+        expires_in: 3600,
+        scope: 'openid resource.invoke chatgpt.tokens.use.direct',
+      }),
+    ),
+  );
+  await rejected;
+  expect(f.service.list()[0].state).toBe('connected');
+  const current = await f.service.ready(account.id, 'gpt-6-luna', 'low', signal);
+  expect(current.accessToken()).toBe('synthetic-plan-access');
+});

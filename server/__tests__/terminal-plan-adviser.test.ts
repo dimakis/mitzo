@@ -74,13 +74,11 @@ function setup() {
       save: () => {},
     },
   });
-  const ready = vi
-    .spyOn(accounts, 'ready')
-    .mockResolvedValue({
-      assertCurrent: () => {},
-      signal: new AbortController().signal,
-      accessToken: () => 'synthetic-plan-token',
-    });
+  const ready = vi.spyOn(accounts, 'ready').mockResolvedValue({
+    assertCurrent: () => {},
+    signal: new AbortController().signal,
+    accessToken: () => 'synthetic-plan-token',
+  });
   const host = new TerminalPlanAdviserHost({
     accounts,
     openBrowser: vi.fn(async () => {}),
@@ -133,6 +131,28 @@ it('refuses unavailable grants before a network request and does not try a legac
     ),
   ).rejects.toThrow();
   expect(f.fetcher).not.toHaveBeenCalled();
+});
+
+it('rejects config/model/thinking mismatches before obtaining a grant', async () => {
+  const f = setup();
+  await expect(
+    f.host.session(
+      {
+        model: 'different',
+        reasoningEffort: 'high',
+        systemPrompt: 'test',
+        maxTokens: 4096,
+        tools: [],
+      },
+      {
+        accountId: id,
+        model: 'gpt-6-luna',
+        reasoningEffort: 'low',
+        messages: [{ role: 'user', content: 'Help' }],
+      },
+    ),
+  ).rejects.toThrow();
+  expect(f.ready).not.toHaveBeenCalled();
 });
 it('keeps sign-in status operator-owned and cancels the loopback listener', async () => {
   const f = setup(),

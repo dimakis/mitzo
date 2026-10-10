@@ -388,6 +388,7 @@ export class ChatGptPlanAdviserAccounts {
   }
   private async refresh(account: Account, signal: AbortSignal): Promise<Account> {
     const generation = this.generation;
+    let refreshOwner = account;
     try {
       const tokens = await this.tokens(
         {
@@ -422,6 +423,7 @@ export class ChatGptPlanAdviserAccounts {
         ...this.state,
         accounts: this.state.accounts.map((row) => (row === account ? next : row)),
       });
+      refreshOwner = next;
       next.models = await this.models(next.accessToken, signal);
       signal.throwIfAborted();
       if (
@@ -434,7 +436,7 @@ export class ChatGptPlanAdviserAccounts {
       return next;
     } catch {
       const current = this.state.accounts.find((row) => row.id === account.id);
-      if (current?.state === 'connected') {
+      if (current === refreshOwner && current.state === 'connected') {
         current.state = 'reauth_required';
         this.controllers.get(account.id)?.abort();
         this.persist(this.state);

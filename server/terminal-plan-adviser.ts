@@ -33,6 +33,11 @@ export class TerminalPlanAdviserHost {
     return this.options.accounts.catalog();
   }
   async session(config: ModelSessionConfig, request: AdviserRequest): Promise<ModelSession> {
+    if (
+      config.model !== request.model ||
+      (config.reasoningEffort ?? null) !== (request.reasoningEffort ?? null)
+    )
+      throw Error('Adviser selection differs from its inference configuration');
     if (config.tools?.length || config.thinking)
       throw Error('Subscription advisers support text inference only');
     const signal = config.signal ?? AbortSignal.timeout(120000);
