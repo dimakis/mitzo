@@ -191,6 +191,28 @@ describe('enrolled workspace runtime', () => {
     });
     expect(() => createWorkspaceRuntimeClient(enrollment)).toThrow();
   });
+  it('preserves documented Google Workspace authentication settings without forwarding startup controls', async () => {
+    script(
+      fixtureDescription +
+        "else:\n assert os.environ.get('GOOGLE_WORKSPACE_CLI_KEYRING_BACKEND') == 'file'\n assert os.environ.get('GOOGLE_WORKSPACE_CLI_CLIENT_ID') == 'synthetic-client-id'\n assert os.environ.get('GOOGLE_WORKSPACE_CLI_CLIENT_SECRET') == 'synthetic-client-secret'\n assert 'PYTHONPATH' not in os.environ and 'NODE_OPTIONS' not in os.environ and 'EXTRA_SECRET' not in os.environ\n print(json.dumps({'startDate':'2026-10-10','endDate':'2026-10-12','events':[],'sprints':[]}))",
+    );
+    const client = createWorkspaceRuntimeClient(enrollment, {
+      env: {
+        HOME: root,
+        PATH: '/usr/bin:/bin',
+        GOOGLE_WORKSPACE_CLI_KEYRING_BACKEND: 'file',
+        GOOGLE_WORKSPACE_CLI_CLIENT_ID: 'synthetic-client-id',
+        GOOGLE_WORKSPACE_CLI_CLIENT_SECRET: 'synthetic-client-secret',
+        PYTHONPATH: '/evil',
+        NODE_OPTIONS: '--require evil',
+        EXTRA_SECRET: 'not-forwarded',
+      },
+    });
+    await expect(client.calendar({ date: '2026-10-10', days: 3 })).resolves.toHaveProperty(
+      'events',
+      [],
+    );
+  });
   it('does not inherit arbitrary environment or startup controls', async () => {
     script(
       fixtureDescription +

@@ -71,6 +71,9 @@ const environmentKeys = [
   'GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE',
   'GOOGLE_WORKSPACE_CLI_TOKEN',
   'GOOGLE_WORKSPACE_CLI_CONFIG_DIR',
+  'GOOGLE_WORKSPACE_CLI_KEYRING_BACKEND',
+  'GOOGLE_WORKSPACE_CLI_CLIENT_ID',
+  'GOOGLE_WORKSPACE_CLI_CLIENT_SECRET',
 ] as const;
 
 /** Own the provider process group so aborts cannot leave gws/Jira helpers running. */
