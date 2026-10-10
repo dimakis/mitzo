@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { createHash } from 'node:crypto';
 import express from 'express';
 import type { Server } from 'node:http';
 import { EventStore } from '../event-store.js';
@@ -232,6 +233,51 @@ describe('chat-rest-handler', () => {
   });
 
   // ─── POST /api/chat/send ────────────────────────────────────────────────
+  it('preserves the source snapshot through HTTP validation, durable acceptance and exact retry', async () => {
+    const content = '# Captured briefing\nFinal source detail';
+    const sourceSnapshots = [
+      {
+        kind: 'briefing',
+        date: '2026-10-09',
+        revision: createHash('sha256').update(content).digest('hex'),
+        content,
+      },
+    ];
+    const message = {
+      type: 'send',
+      sessionId: null,
+      prompt: 'Discuss the report',
+      clientMsgId: 'http-source',
+      sourceSnapshots,
+    };
+    const first = await request(testServer)
+      .post('/api/chat/send')
+      .set('X-Connection-ID', CONNECTION_ID)
+      .send(message);
+    const retry = await request(testServer)
+      .post('/api/chat/send')
+      .set('X-Connection-ID', CONNECTION_ID)
+      .send(message);
+    expect(first.status).toBe(202);
+    expect(retry.status).toBe(202);
+    expect(first.body).toEqual(retry.body);
+    expect(eventStore.getSendCommand('http-source')?.payload).toMatchObject({ sourceSnapshots });
+    expect(handleSendV2).toHaveBeenCalledWith(
+      CONNECTION_ID,
+      expect.anything(),
+      expect.objectContaining({ sourceSnapshots }),
+      expect.anything(),
+      expect.anything(),
+    );
+    const changed = await request(testServer)
+      .post('/api/chat/send')
+      .set('X-Connection-ID', CONNECTION_ID)
+      .send({
+        ...message,
+        sourceSnapshots: [{ ...sourceSnapshots[0], content: 'Different report' }],
+      });
+    expect(changed.status).toBe(409);
+  });
 
   it('rejects ordinary REST send and interrupt to Symposium before dispatch', async () => {
     vi.spyOn(eventStore, 'getSession').mockReturnValue({ symposiumConfig: '{}' } as never);

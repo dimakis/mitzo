@@ -3166,6 +3166,15 @@ it('sends an approved briefing snapshot and account without replacing either wit
   });
   lastWs.simulateMessage({ type: 'session_id', sessionId: 'briefing-chat' });
   expect(assigned).toHaveBeenCalledWith('briefing-chat');
+  const messageId = store.getState().messages.messages.at(-1)!.messageId;
+  lastWs.simulateMessage({
+    type: 'user_message',
+    sessionId: 'briefing-chat',
+    messageId,
+    text: 'Discuss this briefing',
+    sourceSnapshots: sent?.sourceSnapshots,
+  });
+  expect(store.getState().messages.messages.at(-1)?.sourceSnapshots).toEqual(sent?.sourceSnapshots);
 });
 
 it('releases a navigated launch for retry on its matching startup rejection', () => {

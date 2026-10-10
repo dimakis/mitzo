@@ -11,6 +11,38 @@ const ack = (id = 'one') =>
 afterEach(() => vi.useRealTimers());
 
 describe('send outbox', () => {
+  it('retains the exact source snapshot across reload and a transient HTTP retry', async () => {
+    vi.useFakeTimers();
+    let value: string | null = null;
+    const storage = {
+      getItem: () => value,
+      setItem: (_key: string, next: string) => {
+        value = next;
+      },
+    };
+    const sourceSnapshots = [
+      {
+        kind: 'briefing',
+        date: '2026-10-09',
+        revision: 'a'.repeat(64),
+        content: 'Exact captured report',
+      },
+    ];
+    const command = { ...prompt, sourceSnapshots };
+    const first = new SendOutbox({ fetch: vi.fn(), notify: vi.fn(), url: '/send', storage });
+    first.enqueue(command, 0);
+    const fetch = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('Temporary network loss'))
+      .mockResolvedValueOnce(ack());
+    const restored = new SendOutbox({ fetch, notify: vi.fn(), url: '/send', storage });
+    restored.start();
+    await vi.advanceTimersByTimeAsync(1100);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    for (const [, init] of fetch.mock.calls) expect(JSON.parse(init.body)).toEqual(command);
+    expect(JSON.parse(value!)).toEqual([]);
+    restored.stop();
+  });
   it('discards persisted prompts when authentication identity is lost', async () => {
     const values = new Map<string, string>();
     const storage = {
