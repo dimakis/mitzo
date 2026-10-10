@@ -352,10 +352,13 @@ export function createConnectionsRouter(options: {
         const schema =
           action === 'replace'
             ? common
-                .extend({ sameProject: z.literal(true), apiKey: z.string().min(1).max(16384) })
+                .extend({
+                  sameProject: z.boolean().optional(),
+                  apiKey: z.string().min(1).max(16384),
+                })
                 .strict()
             : action === 'synchronize'
-              ? common.extend({ sameProject: z.literal(true) }).strict()
+              ? common.extend({ sameProject: z.boolean().optional() }).strict()
               : common.strict();
         const parsed = schema.safeParse(req.body);
         if (!parsed.success) return res.status(400).json({ error: 'Invalid OpenAI key request' });
@@ -377,7 +380,6 @@ export function createConnectionsRouter(options: {
                 ? await options.openAIKeys.replace(
                     {
                       ...input,
-                      sameProject: true,
                       apiKey:
                         'apiKey' in parsed.data && typeof parsed.data.apiKey === 'string'
                           ? parsed.data.apiKey
@@ -385,7 +387,7 @@ export function createConnectionsRouter(options: {
                     },
                     signal,
                   )
-                : await options.openAIKeys.synchronize({ ...input, sameProject: true }, signal),
+                : await options.openAIKeys.synchronize(input, signal),
           );
         } catch (error) {
           return res.status(422).json({

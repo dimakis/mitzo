@@ -4,7 +4,7 @@ import request from 'supertest';
 import { createConnectionsRouter } from '../connections-router.js';
 vi.mock('../auth.js', () => ({ verifyPassphrase: (value: string) => value === 'correct' }));
 describe('OpenAI credential management routes', () => {
-  it('requires browser auth, fresh reauthorization, same origin, and same-project confirmation', async () => {
+  it('requires browser auth, fresh reauthorization, same origin, and account revision', async () => {
     const manager = {
       authorize: vi.fn(async () => ({ health: 'not_verified' })),
       list: vi.fn(async () => []),
@@ -69,9 +69,6 @@ describe('OpenAI credential management routes', () => {
       expect.any(AbortSignal),
     );
     expect(
-      (await post({ csrf, revision: 'v1', apiKey: 'PRIVATE', sameProject: false })).status,
-    ).toBe(400);
-    expect(
       (
         await post({
           csrf,
@@ -92,11 +89,9 @@ describe('OpenAI credential management routes', () => {
       ).status,
     ).toBe(403);
     expect(manager.replace).not.toHaveBeenCalled();
-    expect(
-      (await post({ csrf, revision: 'v1', apiKey: 'PRIVATE', sameProject: true })).status,
-    ).toBe(200);
+    expect((await post({ csrf, revision: 'v1', apiKey: 'PRIVATE' })).status).toBe(200);
     expect(manager.replace).toHaveBeenCalledWith(
-      { accountId: 'work', revision: 'v1', apiKey: 'PRIVATE', sameProject: true },
+      { accountId: 'work', revision: 'v1', apiKey: 'PRIVATE' },
       expect.any(AbortSignal),
     );
     manager.replace.mockRejectedValueOnce(new Error('PRIVATE_KEY from child process'));
@@ -111,11 +106,20 @@ describe('OpenAI credential management routes', () => {
         await request(app)
           .post('/api/connections/openai-keys/work/synchronize')
           .set('x-browser', 'yes')
-          .send({ csrf, revision: 'v1', sameProject: true })
+          .send({ csrf, revision: 'v1' })
       ).status,
     ).toBe(200);
     expect(manager.synchronize).toHaveBeenCalledWith(
-      { accountId: 'work', revision: 'v1', sameProject: true },
+      { accountId: 'work', revision: 'v1' },
+      expect.any(AbortSignal),
+    );
+    // Cached clients can still send this obsolete field; the server does not
+    // treat it as proof of the key's billing identity or forward it to custody.
+    expect(
+      (await post({ csrf, revision: 'v1', apiKey: 'PRIVATE', sameProject: false })).status,
+    ).toBe(200);
+    expect(manager.replace).toHaveBeenLastCalledWith(
+      { accountId: 'work', revision: 'v1', apiKey: 'PRIVATE' },
       expect.any(AbortSignal),
     );
   });
