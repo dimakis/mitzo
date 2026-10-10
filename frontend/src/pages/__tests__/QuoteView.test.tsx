@@ -56,10 +56,10 @@ describe('daily quote', () => {
     expect(screen.getByRole('link', { name: 'Read the source' }).getAttribute('href')).toBe(
       'https://example.com/source',
     );
-    const back = screen.getByRole('link', { name: 'Today', exact: true });
+    const back = screen.getByRole('link', { name: 'Today' });
     expect(back.querySelector('svg[data-icon="back"][aria-hidden="true"]')).toBeTruthy();
     for (const label of ['Explore the idea', 'Learn about the author', 'Read the source']) {
-      const external = screen.getByRole('link', { name: label, exact: true });
+      const external = screen.getByRole('link', { name: label });
       expect(external.querySelector('svg[data-icon="external"][aria-hidden="true"]')).toBeTruthy();
     }
     expect(data.fetch).toHaveBeenCalledWith('/api/home/quote?date=2026-10-09', expect.anything());

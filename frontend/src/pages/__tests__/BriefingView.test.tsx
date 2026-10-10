@@ -69,7 +69,7 @@ afterEach(() => {
 it('names the Today destination without exposing its decorative navigation icon', async () => {
   show();
   await screen.findByText('18:30 Meeting 9');
-  const back = screen.getByRole('link', { name: 'Today', exact: true });
+  const back = screen.getByRole('link', { name: 'Today' });
   expect(back.getAttribute('href')).toBe('/');
   expect(back.querySelector('svg[data-icon="back"][aria-hidden="true"]')).toBeTruthy();
 });
