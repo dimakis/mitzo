@@ -126,10 +126,19 @@ export class OpenShellOpenAIKeyGateway implements OpenAIKeyGateway {
   async pause(account: ManagedOpenAIAccount, signal: AbortSignal) {
     await this.inspect(account, signal);
     try {
-      for (const sandbox of await this.sandboxes.attachments(account.providerName, signal)) {
-        if (await this.sandboxes.sandboxStopped(sandbox, signal)) continue;
-        await this.sandboxes.stopSandbox(sandbox, signal);
-        if (!(await this.sandboxes.sandboxStopped(sandbox, signal))) throw new Error();
+      const attached = await this.sandboxes.attachments(account.providerName, signal);
+      // Retained histories can contain many workspaces. Bound concurrent control
+      // requests, and settle the entire batch before releasing the custody gate.
+      for (let offset = 0; offset < attached.length; offset += 4) {
+        signal.throwIfAborted();
+        const outcomes = await Promise.allSettled(
+          attached.slice(offset, offset + 4).map(async (sandbox) => {
+            if (await this.sandboxes.sandboxStopped(sandbox, signal)) return;
+            await this.sandboxes.stopSandbox(sandbox, signal);
+            if (!(await this.sandboxes.sandboxStopped(sandbox, signal))) throw new Error();
+          }),
+        );
+        if (outcomes.some((outcome) => outcome.status === 'rejected')) throw new Error();
       }
     } catch {
       throw new Error('OpenAI chats could not be paused');

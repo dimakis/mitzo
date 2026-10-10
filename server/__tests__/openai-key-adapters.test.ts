@@ -90,8 +90,8 @@ function gatewayFixture() {
   });
   const sandboxes = {
     attachments: vi.fn(async () => ['retained-chat']),
-    stopSandbox: vi.fn(async () => {}),
-    sandboxStopped: vi.fn(async () => true),
+    stopSandbox: vi.fn(async (_name: string, _signal: AbortSignal) => {}),
+    sandboxStopped: vi.fn(async (_name: string, _signal: AbortSignal) => true),
   };
   const api = {
     inspect: vi.fn(async () => {
@@ -139,6 +139,55 @@ function gatewayFixture() {
   };
 }
 describe('OpenShell OpenAI credential adapter', () => {
+  it('drains many attached chats concurrently within a bound and waits for every stop acknowledgement', async () => {
+    const f = gatewayFixture();
+    const names = Array.from({ length: 9 }, (_, index) => `chat-${index}`);
+    const stopped = new Set<string>();
+    let inFlight = 0;
+    let maximum = 0;
+    f.sandboxes.attachments.mockResolvedValue(names);
+    f.sandboxes.sandboxStopped.mockImplementation(async (name) => stopped.has(name));
+    f.sandboxes.stopSandbox.mockImplementation(async (name) => {
+      maximum = Math.max(maximum, ++inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      stopped.add(name);
+      inFlight--;
+    });
+    await f.gateway.pause(account, signal());
+    expect(maximum).toBeGreaterThan(1);
+    expect(maximum).toBeLessThanOrEqual(4);
+    expect(stopped.size).toBe(names.length);
+    expect(inFlight).toBe(0);
+    expect(f.api.replace).not.toHaveBeenCalled();
+  });
+  it('awaits in-flight drains after a failure and does not start the next batch or replace credentials', async () => {
+    const f = gatewayFixture();
+    f.sandboxes.attachments.mockResolvedValue(['failed', 'held', 'third', 'fourth', 'later']);
+    const stopped = new Set<string>();
+    f.sandboxes.sandboxStopped.mockImplementation(async (name) => stopped.has(name));
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    f.sandboxes.stopSandbox.mockImplementation(async (name) => {
+      if (name === 'failed') throw new Error('PRIVATE_ERROR');
+      if (name === 'held') await held;
+      stopped.add(name);
+    });
+    let settled = false;
+    const outcome = f.gateway.pause(account, signal()).catch((error: unknown) => {
+      settled = true;
+      return error;
+    });
+    await vi.waitFor(() =>
+      expect(f.sandboxes.stopSandbox).toHaveBeenCalledWith('held', expect.any(AbortSignal)),
+    );
+    expect(settled).toBe(false);
+    release();
+    expect(await outcome).toEqual(new Error('OpenAI chats could not be paused'));
+    expect(f.sandboxes.stopSandbox).not.toHaveBeenCalledWith('later', expect.any(AbortSignal));
+    expect(f.api.replace).not.toHaveBeenCalled();
+  });
   it('pins provider identity and policy, stops retained workloads, and keeps credential writes out of CLI argv/env', async () => {
     const f = gatewayFixture();
     expect(await f.gateway.inspect(account, signal())).toEqual({ version: '10' });

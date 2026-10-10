@@ -9,19 +9,21 @@ import {
 import type { OpenAIKeyHealth } from '../types/connections';
 import './OpenAIKeyControls.css';
 
-const updateExplanation = (code: string | null) => {
+const updateExplanation = (code: string | null, canFinish = false) => {
   switch (code) {
     case 'NOT_APPLIED':
       return 'The previous update did not save a replacement. Enter your new key again.';
     case 'CHAT_PAUSE_FAILED':
-      return 'The replacement was not saved because Mitzo could not safely pause all chats using this account. Check the affected workspaces before trying again.';
+      return 'The replacement was not saved because Mitzo could not pause all chats using this connection. Your previous key is unchanged.';
     case 'ACCOUNT_CHANGED':
-      return 'The account changed during the update. Refresh its status before trying again.';
+      return 'The replacement was not saved because the connection changed or its saved key could not be read. Refresh status before trying again.';
     case 'KEYCHAIN_WRITE_UNCONFIRMED':
       return 'Mitzo could not confirm whether the new key was saved on this Mac. Refresh status before trying again.';
     case 'CHAT_UPDATE_UNCONFIRMED':
     case 'SYNC_PENDING':
-      return 'The key update is incomplete. Refresh status to see whether it can be finished with the saved key.';
+      return canFinish
+        ? 'The key is saved on this Mac, but the chat update did not finish. Select Finish key update to continue.'
+        : 'The key update did not finish. Refresh status before trying again.';
     default:
       return 'The saved key needs attention. Replace it to restore this account.';
   }
@@ -42,12 +44,23 @@ export function OpenAIKeyControls({
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [checkedAt, setCheckedAt] = useState<number | null>(null);
+  const [updating, setUpdating] = useState(new Set<string>());
+  const onBusyChange = useCallback((accountId: string, busy: boolean) => {
+    setUpdating((previous) => {
+      const next = new Set(previous);
+      if (busy) next.add(accountId);
+      else next.delete(accountId);
+      return next;
+    });
+  }, []);
   const refresh = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      setAccounts(await getOpenAIKeyStatus());
+      const accounts = await getOpenAIKeyStatus();
+      setAccounts(accounts);
       setCheckedAt(Date.now());
+      return accounts;
     } catch {
       setError(
         'Could not refresh account status. The details below may be out of date. Try again.',
@@ -89,16 +102,21 @@ export function OpenAIKeyControls({
             }
             refresh={refresh}
             statusUnavailable={!!error || loading}
+            onBusyChange={onBusyChange}
           />
         ))}
       <div className="openai-key-refresh">
-        <button type="button" disabled={loading} onClick={() => void refresh()}>
+        <button
+          type="button"
+          disabled={loading || updating.size > 0}
+          onClick={() => void refresh()}
+        >
           {loading ? 'Checking…' : 'Refresh status'}
         </button>
         <span role="status">
           {loading
             ? 'Checking saved account status…'
-            : !error && checkedAt
+            : !error && checkedAt && updating.size === 0
               ? `Status refreshed at ${new Date(checkedAt).toLocaleTimeString()}.`
               : ''}
         </span>
@@ -116,42 +134,77 @@ function OpenAIKeyCard({
   onUpdated,
   refresh,
   statusUnavailable,
+  onBusyChange,
 }: {
   account: OpenAIKeyHealth;
   csrf: string;
   authorized: boolean;
   onReauthorizationNeeded: () => void;
   onUpdated: (result: OpenAIKeyHealth) => void;
-  refresh: () => Promise<void>;
+  refresh: () => Promise<OpenAIKeyHealth[] | undefined>;
   statusUnavailable: boolean;
+  onBusyChange: (accountId: string, busy: boolean) => void;
 }) {
   const [mode, setMode] = useState<Mode | null>(null);
   const [apiKey, setApiKey] = useState('');
-  const [sameProject, setSameProject] = useState(false);
   const [busy, setBusy] = useState<'authorize' | 'save' | null>(null);
   const [message, setMessage] = useState('');
   const [success, setSuccess] = useState(false);
   const ownRevision = useRef(account.revision);
+  const interrupted = useRef<Pick<OpenAIKeyHealth, 'revision' | 'verifiedAt'> | null>(null);
   const pendingOpen = useRef<Mode | null>(null);
   const keyInput = useRef<HTMLInputElement>(null);
-  const confirmation = useRef<HTMLInputElement>(null);
   const needsKeychainAuthorization = account.errorCode === 'KEYCHAIN_AUTHORIZATION_REQUIRED';
   useEffect(() => {
+    onBusyChange(account.accountId, busy !== null);
+    return () => onBusyChange(account.accountId, false);
+  }, [account.accountId, busy, onBusyChange]);
+  useEffect(() => {
+    const baseline = interrupted.current;
+    if (baseline && !busy && !statusUnavailable) {
+      const ready = account.health === 'ready' && !account.errorCode;
+      const knownFailure = [
+        'NOT_APPLIED',
+        'CHAT_PAUSE_FAILED',
+        'ACCOUNT_CHANGED',
+        'KEYCHAIN_WRITE_UNCONFIRMED',
+        'CHAT_UPDATE_UNCONFIRMED',
+        'SYNC_PENDING',
+      ].includes(account.errorCode ?? '');
+      if (ready || knownFailure) {
+        interrupted.current = null;
+        ownRevision.current = account.revision;
+        setApiKey('');
+        setMode(null);
+        const newReceipt =
+          ready &&
+          account.revision !== baseline.revision &&
+          account.verifiedAt !== null &&
+          account.verifiedAt !== baseline.verifiedAt;
+        setSuccess(newReceipt);
+        setMessage(
+          ready
+            ? newReceipt
+              ? 'The saved key is ready to use.'
+              : 'The previous key is still ready to use. The replacement was not confirmed.'
+            : updateExplanation(account.errorCode, account.canSynchronize),
+        );
+        return;
+      }
+    }
     if (ownRevision.current === account.revision) return;
     ownRevision.current = account.revision;
     setApiKey('');
-    setSameProject(false);
     setMode(null);
     if (mode || success) {
       setSuccess(false);
       setMessage('The account changed. Review its current status before entering a new key.');
     }
-  }, [account.revision, mode, success]);
+  }, [account, busy, statusUnavailable, mode, success]);
   useEffect(() => {
     if (!authorized) {
       setMode(null);
       setApiKey('');
-      setSameProject(false);
     }
   }, [authorized]);
   const accept = useCallback(
@@ -174,6 +227,7 @@ function OpenAIKeyCard({
       }
       setMessage('');
       setSuccess(false);
+      interrupted.current = null;
       if (needsKeychainAuthorization) {
         setBusy('authorize');
         try {
@@ -202,7 +256,6 @@ function OpenAIKeyCard({
         }
       }
       setApiKey('');
-      setSameProject(false);
       setMode(next);
     },
     [
@@ -232,14 +285,10 @@ function OpenAIKeyCard({
       return;
     }
     setSuccess(false);
+    interrupted.current = null;
     if (mode === 'replace' && !apiKey.trim()) {
       setMessage('Enter your replacement API key.');
       keyInput.current?.focus();
-      return;
-    }
-    if (!sameProject) {
-      setMessage('Confirm that this key belongs to the same OpenAI project.');
-      confirmation.current?.focus();
       return;
     }
     const oneShot = apiKey;
@@ -252,7 +301,6 @@ function OpenAIKeyCard({
         accountId: account.accountId,
         revision: account.revision,
         csrf,
-        sameProject,
       };
       const result =
         mode === 'replace'
@@ -264,13 +312,13 @@ function OpenAIKeyCard({
       setMessage(
         applied
           ? 'API key updated. This account is ready to use.'
-          : updateExplanation(result.errorCode),
+          : updateExplanation(result.errorCode, result.canSynchronize),
       );
     } catch (error) {
       const code = error instanceof OpenAIKeyFailure ? error.code : 'UPDATE_UNCONFIRMED';
       setMessage(
         code === 'KEY_VALIDATION_FAILED'
-          ? 'OpenAI could not validate this key with gpt-6-luna. No replacement was saved. Check the key, project and model access, then try again.'
+          ? 'OpenAI could not validate this key with gpt-6-luna. No replacement was saved. Check the key and model access, then try again.'
           : code === 'AUTHORIZATION_REQUIRED'
             ? 'Your authorization expired. Confirm your identity again before entering the key.'
             : code === 'ACCOUNT_CHANGED'
@@ -278,32 +326,42 @@ function OpenAIKeyCard({
               : 'Could not confirm the update. Refresh status before trying again; the key may already have been saved.',
       );
       if (code === 'AUTHORIZATION_REQUIRED') onReauthorizationNeeded();
+      if (code === 'UPDATE_UNCONFIRMED')
+        interrupted.current = { revision: account.revision, verifiedAt: account.verifiedAt };
+      setBusy(null);
       await refresh();
     } finally {
       setBusy(null);
-      setSameProject(false);
     }
   };
   return (
     <div className="connections-card openai-key-card">
       <h2>{account.label}</h2>
       <p className="openai-key-health" role="status">
-        {account.health === 'ready'
-          ? 'Ready to use'
-          : needsKeychainAuthorization
-            ? 'Keychain access needs approval'
-            : account.health === 'needs_attention'
-              ? 'Key update incomplete'
-              : account.health === 'unavailable'
-                ? 'Account status unavailable'
-                : 'Saved key has not been verified'}
+        {busy
+          ? busy === 'authorize'
+            ? 'Approve Keychain access on the Mac'
+            : 'Saving your new key'
+          : ['NOT_APPLIED', 'CHAT_PAUSE_FAILED', 'ACCOUNT_CHANGED'].includes(
+                account.errorCode ?? '',
+              )
+            ? 'New key not saved'
+            : account.health === 'ready'
+              ? 'Ready to use'
+              : needsKeychainAuthorization
+                ? 'Keychain access needs approval'
+                : account.health === 'needs_attention'
+                  ? 'Key update incomplete'
+                  : account.health === 'unavailable'
+                    ? 'Account status unavailable'
+                    : 'Saved key has not been verified'}
       </p>
-      {account.verifiedAt && (
+      {!busy && account.verifiedAt && (
         <p className="workspace-muted">
           Last verified: {new Date(account.verifiedAt).toLocaleString()}
         </p>
       )}
-      {message && (
+      {!busy && message && (
         <p
           className={`openai-key-feedback${success ? ' openai-key-feedback--success' : ''}`}
           role={success ? 'status' : 'alert'}
@@ -311,8 +369,8 @@ function OpenAIKeyCard({
           {message}
         </p>
       )}
-      {!message && account.errorCode && !needsKeychainAuthorization && (
-        <p role="alert">{updateExplanation(account.errorCode)}</p>
+      {!busy && !message && account.errorCode && !needsKeychainAuthorization && (
+        <p role="alert">{updateExplanation(account.errorCode, account.canSynchronize)}</p>
       )}
       {needsKeychainAuthorization && (
         <p className="workspace-muted">
@@ -372,18 +430,9 @@ function OpenAIKeyCard({
               using that saved key.
             </p>
           )}
-          <label className="connections-key-confirmation">
-            <input
-              ref={confirmation}
-              type="checkbox"
-              checked={sameProject}
-              onChange={(event) => setSameProject(event.target.checked)}
-            />
-            <span>This key belongs to the same OpenAI project as {account.label}.</span>
-          </label>
           <p className="workspace-muted openai-key-disclosure">
-            Mitzo checks the key with one brief gpt-6-luna request (low reasoning), billed to{' '}
-            {account.label}. Chats using this account pause during the update.
+            OpenAI bills the account associated with this key. Validation uses one brief gpt-6-luna
+            request (low reasoning). Chats pause while saving.
           </p>
           <div className="connections-actions">
             <button
@@ -397,7 +446,6 @@ function OpenAIKeyCard({
               type="button"
               onClick={() => {
                 setApiKey('');
-                setSameProject(false);
                 setMode(null);
                 setMessage('');
               }}
