@@ -691,8 +691,6 @@ export class EventStore {
     this.migrateConversationSource(db);
     this.migrateUserMessageIndex(db);
     this.sessionOutputs = new SessionOutputReferenceStore(db);
-    db.exec(`CREATE INDEX IF NOT EXISTS idx_output_contributor_association ON events(session_id,json_extract(payload,'$.outputId')) WHERE type='output_contributor_created';
-      CREATE INDEX IF NOT EXISTS idx_output_contributor_coordinator ON events(json_extract(payload,'$.coordinatorSessionId')) WHERE type='output_contributor_created';`);
 
     this.log.info('EventStore initialized', { dbPath });
 
@@ -1456,28 +1454,14 @@ export class EventStore {
   ): Array<OutputContributorBinding & { coordinatorSessionId: string }> {
     this.assertConversationIdentity(parentSessionId);
     if (!this.getSession(parentSessionId)) return [];
-    const rows = this.db!.prepare(
-      "SELECT payload FROM events WHERE session_id=? AND type='output_contributor_created' ORDER BY seq DESC LIMIT 100",
-    ).all(parentSessionId) as { payload: string }[];
-    return rows.map((row) => {
-      const { coordinatorSessionId, ...binding } = JSON.parse(row.payload);
-      if (typeof coordinatorSessionId !== 'string')
-        throw new Error('Invalid output contributor identity');
-      return { ...OutputContributorBindingSchema.parse(binding), coordinatorSessionId };
-    });
+    return this.sessionOutputs.getContributorBindings(parentSessionId);
   }
 
   /** Host-only exact association lookup, never caller-provided ownership. */
   getOutputContributorBinding(
     coordinatorSessionId: string,
   ): (OutputContributorBinding & { coordinatorSessionId: string }) | null {
-    const row = this.db!.prepare(
-      "SELECT payload FROM events WHERE type='output_contributor_created' AND json_extract(payload,'$.coordinatorSessionId')=? LIMIT 1",
-    ).get(coordinatorSessionId) as { payload: string } | undefined;
-    if (!row) return null;
-    const { coordinatorSessionId: retainedId, ...binding } = JSON.parse(row.payload);
-    if (retainedId !== coordinatorSessionId) throw new Error('Output contributor identity changed');
-    return { ...OutputContributorBindingSchema.parse(binding), coordinatorSessionId };
+    return this.sessionOutputs.getContributorBinding(coordinatorSessionId);
   }
 
   getOutputContributorForOutput(
@@ -1486,14 +1470,7 @@ export class EventStore {
   ): (OutputContributorBinding & { coordinatorSessionId: string }) | null {
     this.assertConversationIdentity(parentSessionId);
     if (!this.getSession(parentSessionId)) return null;
-    const row = this.db!.prepare(
-      "SELECT payload FROM events WHERE session_id=? AND type='output_contributor_created' AND json_extract(payload,'$.outputId')=? LIMIT 1",
-    ).get(parentSessionId, outputId) as { payload: string } | undefined;
-    if (!row) return null;
-    const { coordinatorSessionId, ...binding } = JSON.parse(row.payload);
-    if (typeof coordinatorSessionId !== 'string')
-      throw new Error('Output contributor identity changed');
-    return { ...OutputContributorBindingSchema.parse(binding), coordinatorSessionId };
+    return this.sessionOutputs.getContributorForOutput(parentSessionId, outputId);
   }
 
   /**
@@ -2467,27 +2444,12 @@ export class EventStore {
         ? OutputContributorBindingSchema.parse(input.outputBinding)
         : undefined;
       if (outputBinding) {
-        const { output } = this.readSessionOutput(
-          outputBinding.parentSessionId,
-          outputBinding.outputId,
+        this.assertConversationIdentity(outputBinding.parentSessionId);
+        if (!this.getSession(outputBinding.parentSessionId))
+          throw new Error('Session output not found');
+        this.sessionOutputs.assertContributorAvailable(outputBinding, (parentSessionId, outputId) =>
+          this.getOutputContributorForOutput(parentSessionId, outputId),
         );
-        const digest = createHash('sha256')
-          .update(
-            JSON.stringify([
-              output.sessionId,
-              output.outputId,
-              output.revision,
-              output.source.sha256,
-            ]),
-          )
-          .digest('hex');
-        if (
-          outputBinding.outputRevision !== output.revision ||
-          outputBinding.contextPackageDigest !== digest
-        )
-          throw new Error('Output contributor context revision conflict');
-        if (this.getOutputContributorForOutput(outputBinding.parentSessionId, output.outputId))
-          throw new Error('This output already has a contributor');
       }
       if (this.getSession(input.sessionId)) throw new Error('Symposium session identity conflict');
       const binding = AccountBindingSchema.parse(input.binding);
@@ -2509,11 +2471,10 @@ export class EventStore {
         input.sessionId,
         JSON.stringify(input.profileSelections),
       );
-      if (outputBinding)
-        this.append(outputBinding.parentSessionId, 'output_contributor_created', {
-          ...outputBinding,
-          coordinatorSessionId: input.sessionId,
-        });
+      if (outputBinding) {
+        this.assertConversationIdentity(outputBinding.parentSessionId);
+        this.sessionOutputs.recordContributor(outputBinding, input.sessionId);
+      }
       return { sessionId: input.sessionId, created: true };
     }).immediate();
   }
