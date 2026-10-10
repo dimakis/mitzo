@@ -3,6 +3,7 @@ import { GoogleAuth } from 'google-auth-library';
 import { AnthropicVertex } from '@anthropic-ai/vertex-sdk';
 import { ResponsesSession, type ModelSession, type ModelSessionConfig } from '@mitzo/harness';
 import { GeminiSession } from './gemini-session.js';
+import { geminiThinkingConfig } from './gemini-thinking.js';
 import { loadAccountProfiles } from './account-profiles.js';
 import { credentials } from './credentials.js';
 import { getConnectionsRuntime } from './connections-runtime.js';
@@ -58,6 +59,7 @@ export async function createTerminalAdviserSession(
     );
   }
   if (binding.provider === 'google-vertex') {
+    geminiThinkingConfig(config.model, config.reasoningEffort, true);
     const profile = profiles.googleProfile(binding);
     const auth = new GoogleAuth({
       keyFilename: profile.credentialRef,

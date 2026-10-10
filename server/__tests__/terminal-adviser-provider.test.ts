@@ -34,6 +34,39 @@ beforeEach(() => {
   mocks.provider = 'openai';
 });
 afterEach(() => vi.unstubAllGlobals());
+it.each([
+  ['gemini-3-flash-preview', 'low', { thinkingLevel: 'LOW' }],
+  ['gemini-3-flash-preview', 'high', { thinkingLevel: 'HIGH' }],
+  ['gemini-3.1-pro-preview', 'medium', { thinkingLevel: 'MEDIUM' }],
+  ['gemini-2.5-pro', 'low', { thinkingBudget: 512 }],
+  ['gemini-2.5-pro', 'high', { thinkingBudget: 2048 }],
+  ['gemini-2.5-flash', 'none', { thinkingBudget: 0 }],
+])(
+  'applies %s %s thinking in the actual intercepted provider request',
+  async (model, reasoningEffort, thinkingConfig) => {
+    mocks.provider = 'google-vertex';
+    const fetcher = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            candidates: [
+              { content: { role: 'model', parts: [{ text: 'Advice' }] }, finishReason: 'STOP' },
+            ],
+          }),
+        ),
+    );
+    vi.stubGlobal('fetch', fetcher);
+    const adviser = new TerminalAdviser(createTerminalAdviserSession);
+    await adviser.ask(
+      'test-login',
+      { accountId: 'test', model, reasoningEffort, messages: [{ role: 'user', content: 'Help' }] },
+      new AbortController().signal,
+    );
+    expect(JSON.parse(fetcher.mock.calls[0][1].body).generationConfig.thinkingConfig).toEqual(
+      thinkingConfig,
+    );
+  },
+);
 function openAIReply(text: string) {
   const events = [
     { type: 'response.created', response: { id: 'test-response', model: 'gpt-6-luna' } },

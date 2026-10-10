@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
+import { geminiThinkingConfig } from './gemini-thinking.js';
 import type {
   ContentBlock,
   ConversationMessage,
@@ -134,6 +135,11 @@ export class GeminiSession implements ModelSession {
     }
     this.running = true;
     try {
+      const thinkingConfig = geminiThinkingConfig(
+        this.config.model,
+        this.config.reasoningEffort,
+        this.options.textTranscript,
+      );
       const token = await this.options.getAccessToken();
       if (!token) throw new Error('Gemini credentials unavailable');
       this.config.signal?.throwIfAborted();
@@ -150,7 +156,10 @@ export class GeminiSession implements ModelSession {
           body: JSON.stringify({
             contents: input,
             systemInstruction: { parts: [{ text: this.config.systemPrompt }] },
-            generationConfig: { maxOutputTokens: this.config.maxTokens },
+            generationConfig: {
+              maxOutputTokens: this.config.maxTokens,
+              ...(thinkingConfig ? { thinkingConfig } : {}),
+            },
             ...(this.config.tools?.length
               ? {
                   tools: [

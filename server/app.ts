@@ -2,6 +2,7 @@ import { terminalAccountRoute } from './terminal-account-route.js';
 import { TerminalAdviser } from './terminal-adviser.js';
 import { createTerminalAdviserSession } from './terminal-adviser-model.js';
 import { TerminalService, TerminalStore } from './terminal-service.js';
+import { terminalAdviserCatalog } from './terminal-adviser-catalog.js';
 import { TmuxTerminalBackend } from './terminal-backend.js';
 import { createTerminalTargetResolver } from './terminal-targets.js';
 import { createTerminalRouter } from './terminal-router.js';
@@ -3182,10 +3183,10 @@ app.use(
     accounts: async () => {
       const profiles = loadAccountProfiles();
       // Subscription CLI agents do not establish an inference-only capability.
-      return profiles
-        .catalog()
-        .filter((account) => account.provider !== 'openai-codex')
-        .map((account) => ({ ...account, label: accountAliases.label(account.id, account.label) }));
+      return terminalAdviserCatalog(profiles.catalog()).map((account) => ({
+        ...account,
+        label: accountAliases.label(account.id, account.label),
+      }));
     },
     context: (id) => {
       const meta = id ? eventStore.getSession(id) : undefined;
