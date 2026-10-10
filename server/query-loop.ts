@@ -667,7 +667,11 @@ async function _runQueryLoopInner(
             span.setAttribute('session.id', resolvedSessionId);
             registry.setSessionId(clientId, resolvedSessionId);
             onSessionResolved?.(resolvedSessionId);
-            emit({ type: 'session_id', sessionId: msg.session_id });
+            emit({
+              type: 'session_id',
+              sessionId: msg.session_id,
+              ...(options?.initialClientMsgId ? { clientMsgId: options.initialClientMsgId } : {}),
+            });
             // Update session index with SDK session ID
             if (currentSession.wtId) {
               try {

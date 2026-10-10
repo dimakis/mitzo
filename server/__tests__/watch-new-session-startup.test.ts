@@ -145,8 +145,11 @@ it('captures the actual nil-account Watch startup assignment and exact first ech
     const packets = main.packets.map((packet) => JSON.parse(packet) as Record<string, unknown>);
     const assignment = packets.find((packet) => packet.type === 'session_id')!;
     const firstEcho = packets.find((packet) => packet.type === 'user_message')!;
-    expect(assignment).toEqual({ type: 'session_id', sessionId: mainSession });
-    expect(assignment).not.toHaveProperty('clientMsgId');
+    expect(assignment).toEqual({
+      type: 'session_id',
+      sessionId: mainSession,
+      clientMsgId: request.clientMsgId,
+    });
     expect(firstEcho).toMatchObject({
       v: 2,
       type: 'user_message',
@@ -169,7 +172,8 @@ it('captures the actual nil-account Watch startup assignment and exact first ech
     });
     expect(connections.get('watch-main')?.watchedSessions.has(mainSession)).toBe(true);
     // Real watcher registration precedes assignment; the enriched startup
-    // transport is never called, so it cannot add clientMsgId to this packet.
+    // transport is never called. The producer must preserve the exact command ID
+    // before watcher fan-out, independently of that transport wrapper.
     expect(driverCalls).toEqual([]);
 
     const mainPackets = [...main.packets];
