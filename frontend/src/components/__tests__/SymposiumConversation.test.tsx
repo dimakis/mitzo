@@ -215,40 +215,73 @@ it('mounts main access-request controls for the current Symposium conversation a
 });
 
 describe('SymposiumConversation', () => {
-  it('does not dispatch or remove persisted queued input while session type is pending', async () => {
-    const queued = JSON.stringify([{ text: 'queued follow-up', contextBlocks: [] }]);
-    localStorage.setItem('mitzo-queue-session', queued);
-    let finish!: (value: Response) => void;
-    vi.mocked(apiFetch).mockImplementationOnce(
-      () =>
-        new Promise<Response>((resolve) => {
-          finish = resolve;
-        }),
-    );
-    vi.mocked(apiFetch).mockImplementation(async () => json([]));
-    const onSend = vi.fn(() => true);
-    const view = (running: boolean) => (
-      <SymposiumConversation
-        sessionId="session"
-        chat={{ ...chat, running }}
-        ordinaryComposer={
-          <ChatInput sessionId="session" running={running} onSend={onSend} onStop={() => {}} />
-        }
-      />
-    );
-    const { rerender } = render(view(true));
-    rerender(view(false));
-    expect(onSend).not.toHaveBeenCalled();
-    expect(localStorage.getItem('mitzo-queue-session')).toBe(queued);
-    finish(json({ sessionId: 'session', config: null, seats: [] }));
-    await screen.findByText('queued follow-up');
-    expect(onSend).not.toHaveBeenCalled();
-    expect(localStorage.getItem('mitzo-queue-session')).toBe(queued);
-    rerender(view(true));
-    rerender(view(false));
-    expect(onSend).toHaveBeenCalledExactlyOnceWith('queued follow-up', undefined, undefined);
-    expect(localStorage.getItem('mitzo-queue-session')).toBeNull();
-  });
+  it.each(['accepted', 'failed'] as const)(
+    'does not dispatch or remove persisted queued input while session type is pending (%s receipt)',
+    async (receipt) => {
+      const queued = JSON.stringify([{ text: 'queued follow-up', contextBlocks: [] }]);
+      localStorage.setItem('mitzo-queue-session', queued);
+      let finish!: (value: Response) => void;
+      vi.mocked(apiFetch).mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            finish = resolve;
+          }),
+      );
+      vi.mocked(apiFetch).mockImplementation(async () => json([]));
+      const onSend = vi.fn<ComponentProps<typeof ChatInput>['onSend']>(() => true);
+      const view = (running: boolean) => (
+        <SymposiumConversation
+          sessionId="session"
+          chat={{ ...chat, running }}
+          ordinaryComposer={
+            <ChatInput sessionId="session" running={running} onSend={onSend} onStop={() => {}} />
+          }
+        />
+      );
+      const { rerender } = render(view(true));
+      rerender(view(false));
+      expect(onSend).not.toHaveBeenCalled();
+      expect(localStorage.getItem('mitzo-queue-session')).toBe(queued);
+      finish(json({ sessionId: 'session', config: null, seats: [] }));
+      await screen.findByText('queued follow-up');
+      expect(onSend).not.toHaveBeenCalled();
+      expect(localStorage.getItem('mitzo-queue-session')).toBe(queued);
+      rerender(view(true));
+      rerender(view(false));
+      expect(onSend).toHaveBeenCalledExactlyOnceWith(
+        'queued follow-up',
+        undefined,
+        undefined,
+        expect.any(Function),
+        expect.any(Function),
+      );
+      const retained = JSON.stringify([
+        { text: 'queued follow-up', contextBlocks: [], requiresRetry: true },
+      ]);
+      expect(localStorage.getItem('mitzo-queue-session')).toBe(retained);
+      const [, , , onDelivery, onSessionAssigned] = onSend.mock.calls[0];
+      act(() => {
+        onSessionAssigned?.('session');
+        onDelivery?.('uncertain');
+      });
+      expect(localStorage.getItem('mitzo-queue-session')).toBe(retained);
+      rerender(view(true));
+      rerender(view(false));
+      expect(onSend).toHaveBeenCalledTimes(1);
+      expect(localStorage.getItem('mitzo-queue-session')).toBe(retained);
+
+      act(() => onDelivery?.(receipt));
+      const settled = receipt === 'accepted' ? null : retained;
+      expect(localStorage.getItem('mitzo-queue-session')).toBe(settled);
+      rerender(view(true));
+      rerender(view(false));
+      expect(onSend).toHaveBeenCalledTimes(1);
+      expect(localStorage.getItem('mitzo-queue-session')).toBe(settled);
+      // A duplicate or contradictory late callback cannot change a settled receipt.
+      act(() => onDelivery?.(receipt === 'accepted' ? 'failed' : 'accepted'));
+      expect(localStorage.getItem('mitzo-queue-session')).toBe(settled);
+    },
+  );
 
   it('keeps a disabled input visible while session kind is being checked', () => {
     vi.mocked(apiFetch).mockReturnValue(new Promise(() => {}));
