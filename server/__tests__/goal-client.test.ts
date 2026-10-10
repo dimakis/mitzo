@@ -62,7 +62,7 @@ describe('createGoal', () => {
 
     // Verify the POST call
     const [url, opts] = mockFetch.mock.calls[1];
-    expect(url).toContain('/api/goals');
+    expect(url).toBe(`${process.env.CONTEXGIN_URL || 'http://localhost:4195'}/api/goals`);
     expect(opts.method).toBe('POST');
     expect(JSON.parse(opts.body)).toEqual({
       title: 'Fix bug',
