@@ -103,6 +103,7 @@ const fixtures: Record<string, unknown> = {
   },
   '/api/home/preferences': {
     revision: 1,
+    showDailyQuote: true,
     names: { briefing: 'Jeeves', terminal: 'Minion' },
     pins: [{ kind: 'session', id: 'session-0', title: 'Quarterly planning review' }],
   },
@@ -2651,3 +2652,155 @@ for (const appearance of [
     });
   });
 }
+
+test('daily quote setting preserves saved truth and suppresses delivery until enabled', async ({
+  page,
+  isMobile,
+}, testInfo) => {
+  await page.setViewportSize({ width: isMobile ? 320 : 1280, height: 900 });
+  let preferences = {
+    revision: 1,
+    showDailyQuote: false,
+    names: { briefing: 'Jeeves', terminal: 'Minion' },
+    pins: [{ kind: 'session', id: 'session-0', title: 'Quarterly planning review' }],
+  };
+  const writes: Record<string, unknown>[] = [];
+  let quoteRequests = 0;
+  let releasePreferences!: () => void;
+  const pending = new Promise<void>((resolve) => {
+    releasePreferences = resolve;
+  });
+  let holdPreferences = true;
+  let failSave = false;
+  let conflictSave = false;
+  page.on('request', (request) => {
+    if (new URL(request.url()).pathname === '/api/home/quote') quoteRequests++;
+  });
+  await page.route('**/api/home/preferences', async (route) => {
+    if (route.request().method() === 'GET') {
+      if (holdPreferences) await pending;
+      return route.fulfill({ json: preferences });
+    }
+    const patch = route.request().postDataJSON();
+    writes.push(patch);
+    if (failSave) return route.fulfill({ status: 503, json: { error: 'Offline save failure' } });
+    if (conflictSave) {
+      conflictSave = false;
+      preferences = {
+        ...preferences,
+        revision: preferences.revision + 1,
+        showDailyQuote: true,
+        names: { briefing: 'Remote name', terminal: 'Alfred' },
+        pins: [{ kind: 'session', id: 'session-1', title: 'Remote bookmark' }],
+      };
+    }
+    if (patch.revision !== preferences.revision)
+      return route.fulfill({ status: 409, json: { error: 'changed' } });
+    expect(Object.keys(patch).sort()).toEqual(['revision', 'showDailyQuote']);
+    preferences = { ...preferences, ...patch, revision: preferences.revision + 1 };
+    return route.fulfill({ json: preferences });
+  });
+  await page.goto('/');
+  await expect(page.getByRole('heading', { name: 'Today', exact: true })).toBeVisible();
+  expect(quoteRequests).toBe(0);
+  holdPreferences = false;
+  releasePreferences();
+  await expect(page.getByRole('button', { name: 'Manage pins' })).toBeEnabled();
+  await expect(page.getByRole('link', { name: /Quote of the day by/ })).toHaveCount(0);
+  expect(quoteRequests).toBe(0);
+  await page.goto('/settings');
+  const toggle = page.getByRole('checkbox', { name: 'Show daily quote on Today' });
+  await expect(toggle).toBeEnabled();
+  await expect(toggle).not.toBeChecked();
+  for (const variant of [
+    { theme: 'dark', font: 'system', accent: 'lavender' },
+    { theme: 'light', font: 'georgia', accent: 'teal' },
+  ]) {
+    await page.getByLabel('Theme', { exact: true }).selectOption(variant.theme);
+    await page.getByLabel('Font', { exact: true }).selectOption(variant.font);
+    await page
+      .getByRole('radio', { name: variant.accent === 'teal' ? 'Teal' : 'Lavender', exact: true })
+      .check();
+    await page.evaluate(() => {
+      document.documentElement.style.fontSize = '18px';
+    });
+    const geometry = await toggle.evaluate((element) => {
+      const label = element.closest('label')!;
+      const sample = document.createElement('span');
+      sample.style.color = 'var(--workspace-accent)';
+      document.body.append(sample);
+      const accent = getComputedStyle(element).accentColor === getComputedStyle(sample).color;
+      sample.remove();
+      return {
+        height: label.getBoundingClientRect().height,
+        inherited:
+          getComputedStyle(label).fontFamily === getComputedStyle(document.body).fontFamily,
+        accent,
+        overflow:
+          document.querySelector('.workspace-page')!.scrollWidth >
+          document.querySelector('.workspace-page')!.clientWidth,
+      };
+    });
+    expect(geometry.height).toBeGreaterThanOrEqual(44);
+    expect(geometry.inherited).toBe(true);
+    expect(geometry.accent).toBe(true);
+    expect(geometry.overflow).toBe(false);
+    await toggle.focus();
+    await page.screenshot({
+      path: testInfo.outputPath(`quote-setting-${variant.theme}-${variant.font}.png`),
+      animations: 'disabled',
+    });
+  }
+  failSave = true;
+  await toggle.click();
+  await expect(page.getByRole('alert').filter({ hasText: 'Couldn’t save' })).toBeVisible();
+  await expect(toggle).not.toBeChecked();
+  await expect(toggle).toBeDisabled();
+  const review = page.getByRole('button', { name: 'Review current setting', exact: true });
+  expect((await review.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  await review.click();
+  await expect(toggle).toBeEnabled();
+  expect(writes).toHaveLength(1);
+  failSave = false;
+  conflictSave = true;
+  await toggle.click();
+  await expect(
+    page.getByRole('alert').filter({ hasText: 'changed on another device' }),
+  ).toBeVisible();
+  await expect(toggle).toBeChecked();
+  await review.click();
+  await expect(toggle).toBeEnabled();
+  await toggle.click();
+  await expect(toggle).not.toBeChecked();
+  await expect(toggle).toBeEnabled();
+  expect(writes.at(-1)).toEqual({ revision: 2, showDailyQuote: false });
+  expect(preferences.names.briefing).toBe('Remote name');
+  expect(preferences.pins[0].id).toBe('session-1');
+  await toggle.click();
+  await expect(toggle).toBeEnabled();
+  await expect(toggle).toBeChecked();
+  await page.goto('/');
+  await expect(page.getByRole('link', { name: /Quote of the day by/ })).toBeVisible();
+  expect(quoteRequests).toBe(1);
+  await page.screenshot({
+    path: testInfo.outputPath('quote-enabled-today.png'),
+    animations: 'disabled',
+  });
+  await page.goto('/settings');
+  await expect(toggle).toBeEnabled();
+  await toggle.click();
+  await expect(toggle).toBeEnabled();
+  await expect(toggle).not.toBeChecked();
+  await page.goto('/');
+  await expect(page.getByRole('button', { name: 'Manage pins' })).toBeEnabled();
+  await expect(page.getByRole('link', { name: /Quote of the day by/ })).toHaveCount(0);
+  expect(quoteRequests).toBe(1);
+  await page.screenshot({
+    path: testInfo.outputPath('quote-disabled-today.png'),
+    animations: 'disabled',
+  });
+  await page.goto('/quotes/2026-10-10');
+  await expect(page.getByRole('heading', { name: 'A thought for today' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Read the source', exact: true })).toBeVisible();
+  expect(quoteRequests).toBe(2);
+});
