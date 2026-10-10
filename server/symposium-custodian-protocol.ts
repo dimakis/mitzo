@@ -3,6 +3,16 @@ import { z } from 'zod';
 /** A closed list, not a generic HTTP/host-command tunnel. Reauthorization and
  * publication prompts stay in the current browser controller; the retained owner requests each exact approval over the inherited channel. */
 const operations = {
+  'context.list': ['GET', '/api/context-packs'],
+  'context.create': ['POST', '/api/context-packs/drafts'],
+  'context.draft': ['GET', '/api/context-packs/drafts/:resourceId'],
+  'context.save': ['PUT', '/api/context-packs/drafts/:resourceId'],
+  'context.validate': ['POST', '/api/context-packs/drafts/:resourceId/validate'],
+  'context.preview': ['POST', '/api/context-packs/drafts/:resourceId/preview'],
+  'context.publish': ['POST', '/api/context-packs/drafts/:resourceId/publish'],
+  'context.revisions': ['GET', '/api/context-packs/:resourceId/revisions'],
+  'context.read': ['GET', '/api/context-packs/:resourceId/revisions/:revision'],
+  'context.impact': ['GET', '/api/context-packs/:resourceId/impact'],
   'library.list': ['GET', '/api/agent-library'],
   'library.draft': ['POST', '/api/agent-library/drafts'],
   'library.publish': ['POST', '/api/agent-library/publish'],
