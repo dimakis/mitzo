@@ -122,6 +122,21 @@ export function KnowledgeLibrary() {
   const closedEmpty =
     draft?.state === 'closed' && !copy?.documents.length && !copy?.directories?.length;
   const currentReview = !!draft?.review && draft.review.version === draft.version;
+  const notice =
+    library.notice === 'In review'
+      ? 'Sent for review'
+      : library.notice === 'Review draft saved'
+        ? 'Draft saved'
+        : library.notice;
+  const needsReview = !!draft && editable && (!currentReview || !draft.review?.ready);
+  const savedStatus =
+    draft?.review && !currentReview
+      ? 'Saved changes have not been sent'
+      : currentReview && draft?.review?.ready
+        ? 'Sent for review'
+        : draft
+          ? 'Draft saved'
+          : 'Accepted version';
   const showEditor =
     !!copy &&
     reading &&
@@ -336,7 +351,13 @@ export function KnowledgeLibrary() {
   const fullscreenStatus = (
     <>
       <div className="document-editor-status" role="status">
-        {busy ? 'Saving…' : dirty ? 'Unsaved changes' : library.notice || 'Accepted version'}
+        {busy
+          ? 'Saving…'
+          : dirty
+            ? 'Unsaved changes'
+            : draft?.review && !currentReview
+              ? savedStatus
+              : notice || savedStatus}
       </div>
       {library.error && (
         <div className="knowledge-alert" role="alert">
@@ -393,7 +414,7 @@ export function KnowledgeLibrary() {
           }}
           onEdit={() => {
             const request = ++readRequest.current;
-            void library.openDocument(reader.document).then((opened) => {
+            void library.openDocument(reader.document, true).then((opened) => {
               if (opened && request === readRequest.current) {
                 showWorkingCopy();
               }
@@ -419,18 +440,31 @@ export function KnowledgeLibrary() {
             </div>
             <div className="knowledge-editor-actions">
               <span role="status">
-                {dirty ? 'Unsaved changes' : library.notice || 'Accepted version'}
+                {dirty
+                  ? 'Unsaved changes'
+                  : draft?.review && !currentReview
+                    ? savedStatus
+                    : notice || savedStatus}
               </span>
               <button disabled={busy} onClick={() => setDetails(!details)} aria-expanded={details}>
                 Review details
               </button>
+              {needsReview && (
+                <button
+                  className="btn-primary"
+                  disabled={busy || !library.canSendForReview}
+                  onClick={() => void library.sendForReview()}
+                >
+                  Send for review
+                </button>
+              )}
               {editable && (
                 <button
                   className="btn-primary"
                   disabled={busy || !library.canSave}
                   onClick={() => void library.save()}
                 >
-                  {busy ? 'Saving…' : 'Save'}
+                  {busy ? 'Saving…' : 'Save draft'}
                 </button>
               )}
             </div>
@@ -468,6 +502,7 @@ export function KnowledgeLibrary() {
                   key={selected.path}
                   fullscreenStatus={fullscreenStatus}
                   historyResetKey={library.historyResetKey}
+                  saveLabel="Save draft"
                   content={selected.content}
                   ext={selected.path.match(/\.[^.]+$/)?.[0] || '.md'}
                   onChange={library.change}
@@ -512,7 +547,7 @@ export function KnowledgeLibrary() {
             {details && (
               <aside className="knowledge-review" aria-label="Review details">
                 <h3>Your changes</h3>
-                <p>Save keeps a durable draft and opens or updates its review.</p>
+                <p>Save draft keeps your changes. Send for review submits the whole saved draft.</p>
                 {draft ? (
                   <>
                     <p>
@@ -520,11 +555,7 @@ export function KnowledgeLibrary() {
                         ? 'Accepted · Waiting for publication'
                         : draft.state === 'closed'
                           ? 'Review closed'
-                          : currentReview
-                            ? draft.review?.ready
-                              ? 'In review'
-                              : 'Review draft saved'
-                            : 'Draft saved'}
+                          : savedStatus}
                     </p>
                     {draft.review && (
                       <a
@@ -536,15 +567,6 @@ export function KnowledgeLibrary() {
                         Open review ↗
                       </a>
                     )}
-                    {currentReview && editable && !draft.review?.ready && (
-                      <button
-                        className="btn-primary"
-                        disabled={busy || dirty || !!copy!.initialSaveConflict}
-                        onClick={() => void library.sendForReview()}
-                      >
-                        Send for review
-                      </button>
-                    )}
                     <button
                       disabled={busy || dirty || !!copy!.initialSaveConflict}
                       onClick={() => void library.reconcile()}
@@ -555,21 +577,24 @@ export function KnowledgeLibrary() {
                       Start new change
                     </button>
                     {library.gate?.reason && <p role="status">{library.gate.reason}</p>}
-                    {catalog?.acceptanceEnabled && currentReview && editable && (
-                      <button
-                        disabled={
-                          busy ||
-                          dirty ||
-                          !!copy!.initialSaveConflict ||
-                          !library.gate?.canAccept ||
-                          (library.gate.currentHead !== undefined &&
-                            library.gate.currentHead !== draft.review?.head)
-                        }
-                        onClick={() => void library.accept()}
-                      >
-                        Accept changes
-                      </button>
-                    )}
+                    {catalog?.acceptanceEnabled &&
+                      currentReview &&
+                      draft.review?.ready &&
+                      editable && (
+                        <button
+                          disabled={
+                            busy ||
+                            dirty ||
+                            !!copy!.initialSaveConflict ||
+                            !library.gate?.canAccept ||
+                            (library.gate.currentHead !== undefined &&
+                              library.gate.currentHead !== draft.review?.head)
+                          }
+                          onClick={() => void library.accept()}
+                        >
+                          Accept changes
+                        </button>
+                      )}
                     <p className="workspace-muted">
                       Acceptance requires current checks and reviewer approval. Publication and
                       delivery to chats happen separately.
@@ -623,8 +648,7 @@ export function KnowledgeLibrary() {
             <div className="knowledge-resume">
               <span>
                 {closedEmpty
-                  ? library.notice ||
-                    'This change is closed. Clear the working copy to start a new change.'
+                  ? notice || 'This change is closed. Clear the working copy to start a new change.'
                   : adding
                     ? 'Choose a document to add to your change set.'
                     : dirty
@@ -678,7 +702,7 @@ export function KnowledgeLibrary() {
                   disabled={busy || !library.canSave}
                   onClick={() => void library.save()}
                 >
-                  Save
+                  Save draft
                 </button>
               </div>
               {copy!.directories?.map((path) => (
@@ -798,11 +822,13 @@ export function KnowledgeLibrary() {
                         ? 'Accepted · Waiting for publication'
                         : item.review?.version === item.version
                           ? item.review.ready
-                            ? 'In review'
-                            : 'Review draft saved'
+                            ? 'Sent for review'
+                            : 'Draft saved'
                           : item.state === 'closed'
                             ? 'Closed'
-                            : 'Draft'}{' '}
+                            : item.review
+                              ? 'Saved changes have not been sent'
+                              : 'Draft saved'}{' '}
                       · {new Date(item.updatedAt).toLocaleDateString()}
                     </span>
                   </span>
