@@ -1821,12 +1821,15 @@ async function exerciseBriefingReloadRecovery(
     expect.objectContaining({ kind: 'briefing', date: binding.date, revision: binding.revision }),
   ]);
   expect(registrations).toHaveLength(0);
+  // HTTP delivery does not wait for the receiver's asynchronous socket startup.
+  if (nativeMode) await expect.poll(() => sockets).toBeGreaterThanOrEqual(1);
   await page.reload();
   await expect.poll(() => sends.length).toBe(2);
   releaseFirst?.();
   expect(sends[1]).toEqual(sends[0]);
   expect(turns.size).toBe(1);
   if (nativeMode) {
+    await expect.poll(() => sockets).toBeGreaterThanOrEqual(2);
     expect(sockets).toBeGreaterThanOrEqual(2);
     expect(websocketSends).toHaveLength(0);
     expect(chatSseRequests).toBe(0);
