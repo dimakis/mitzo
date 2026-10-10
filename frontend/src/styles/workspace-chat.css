@@ -379,7 +379,7 @@
   animation: none;
 }
 .chat-input--compact .mic-btn--transcribing svg {
-  animation: mic-spin 1s linear infinite;
+  animation: mic-spin var(--motion-duration-spin) linear infinite;
 }
 .chat-input--compact .chat-input-btn--stop {
   color: var(--danger);
@@ -1205,8 +1205,8 @@
 }
 .token-wheel-fill {
   transition:
-    stroke-dashoffset 0.2s,
-    opacity 0.2s;
+    stroke-dashoffset var(--motion-duration-standard) var(--motion-ease),
+    opacity var(--motion-duration-standard) var(--motion-ease);
 }
 .token-wheel-control .token-bar-detail-row span:last-child {
   min-width: 0;

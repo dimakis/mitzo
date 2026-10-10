@@ -127,8 +127,8 @@
   min-width: 0;
   background: var(--bg-secondary);
   transition:
-    border-color 0.15s,
-    transform 0.15s;
+    border-color var(--motion-duration-fast) var(--motion-ease),
+    transform var(--motion-duration-fast) var(--motion-ease);
 }
 .knowledge-library .knowledge-card:hover {
   border-color: var(--accent);

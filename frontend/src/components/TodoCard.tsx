@@ -100,19 +100,22 @@ export function TodoCard({
     }
 
     if (dx > 100) {
-      ref.current.style.transition = 'transform 0.2s, opacity 0.2s';
+      ref.current.style.transition =
+        'transform var(--motion-duration-standard) var(--motion-ease), opacity var(--motion-duration-standard) var(--motion-ease)';
       ref.current.style.transform = 'translateX(100%)';
       ref.current.style.opacity = '0';
       impactLight();
       timers.current.push(setTimeout(() => onAck(item.id), 200));
     } else if (dx < -100) {
-      ref.current.style.transition = 'transform 0.2s, opacity 0.2s';
+      ref.current.style.transition =
+        'transform var(--motion-duration-standard) var(--motion-ease), opacity var(--motion-duration-standard) var(--motion-ease)';
       ref.current.style.transform = 'translateX(-100%)';
       ref.current.style.opacity = '0';
       notifySuccess();
       timers.current.push(setTimeout(() => onDone(item.id), 200));
     } else {
-      ref.current.style.transition = 'transform 0.2s, opacity 0.2s';
+      ref.current.style.transition =
+        'transform var(--motion-duration-standard) var(--motion-ease), opacity var(--motion-duration-standard) var(--motion-ease)';
       ref.current.style.transform = 'translateX(0)';
       ref.current.style.opacity = '1';
       timers.current.push(

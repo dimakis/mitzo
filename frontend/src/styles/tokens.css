@@ -57,6 +57,8 @@
   --motion-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
   --motion-distance-popover: 4px;
   --motion-distance-sheet: 12px;
+  --motion-duration-spin: 800ms;
+  --motion-duration-status: 1200ms;
 
   /* Compatibility names resolve to the same semantic theme. Keep these aliases
      while existing chat, workspace and task components migrate incrementally. */
