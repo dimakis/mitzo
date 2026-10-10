@@ -103,3 +103,58 @@ it('keeps navigation recovery when browser storage writes are unavailable', asyn
   fireEvent.click(screen.getByRole('button', { name: 'Discard pack edits' }));
   storage.mockRestore();
 });
+it('opens immutable historical revisions for comparison before creating another draft', async () => {
+  const definition = {
+    version: 1,
+    id: 'review',
+    name: 'Current review',
+    description: '',
+    tokenBudget: 4000,
+    documents: [
+      {
+        path: 'hub/review.md',
+        revision: knowledge.revision,
+        mode: 'required',
+        headings: [],
+        priority: 50,
+      },
+    ],
+    retrievalGuidance: '',
+  };
+  const latest = {
+    id: 'review',
+    revision: 3,
+    hash: 'b'.repeat(64),
+    publishedAt: '2026-10-10T10:00:00Z',
+    definition,
+  };
+  const previous = {
+    ...latest,
+    revision: 2,
+    definition: { ...definition, name: 'Previous review' },
+  };
+  vi.mocked(apiFetch).mockImplementation(
+    async (path) =>
+      ({
+        ok: true,
+        json: async () =>
+          path === '/api/context-packs'
+            ? { packs: [latest], drafts: [] }
+            : path.endsWith('/revisions')
+              ? { revisions: [latest, previous] }
+              : { profiles: [] },
+      }) as Response,
+  );
+  render(
+    <MemoryRouter>
+      <ContextPackManager knowledge={knowledge} />
+    </MemoryRouter>,
+  );
+  fireEvent.click(await screen.findByRole('button', { name: /Current review/ }));
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Revision comparison and affected profiles' }),
+  );
+  fireEvent.click(await screen.findByRole('button', { name: 'View pack revision 2' }));
+  expect(screen.getByLabelText('Pack name')).toHaveValue('Previous review');
+  expect(screen.getByRole('button', { name: 'Publish pack revision' })).toBeDisabled();
+});

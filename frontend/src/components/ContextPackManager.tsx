@@ -53,6 +53,9 @@ export function ContextPackManager({ knowledge }: { knowledge: KnowledgeCatalog 
   const [busy, setBusy] = useState(false);
   const [details, setDetails] = useState(false);
   const [preview, setPreview] = useState<CompiledAgentContext>();
+  const [revisions, setRevisions] = useState<PublishedContextPack[]>([]);
+  const [historyError, setHistoryError] = useState('');
+  const selectionRequest = useRef(0);
   const [profiles, setProfiles] = useState<
     { name: string; profileId: string; revision: number; packRevision?: number }[]
   >([]);
@@ -128,12 +131,29 @@ export function ContextPackManager({ knowledge }: { knowledge: KnowledgeCatalog 
     });
     setPreview(undefined);
     setProfiles([]);
+    setRevisions([]);
+    setHistoryError('');
+    const selectedRequest = ++selectionRequest.current;
+    void request<{ revisions: PublishedContextPack[] }>(
+      `/api/context-packs/${encodeURIComponent(value.definition.id)}/revisions`,
+    )
+      .then((result) => {
+        if (mounted.current && selectedRequest === selectionRequest.current)
+          setRevisions(Array.isArray(result.revisions) ? result.revisions : []);
+      })
+      .catch(() => {
+        if (mounted.current && selectedRequest === selectionRequest.current)
+          setHistoryError('Revision history unavailable.');
+      });
     setError('');
     setNotice('');
     void request<{ profiles: typeof profiles }>(
       `/api/context-packs/${encodeURIComponent(value.definition.id)}/impact`,
     )
-      .then((result) => setProfiles(result.profiles))
+      .then((result) => {
+        if (mounted.current && selectedRequest === selectionRequest.current)
+          setProfiles(result.profiles);
+      })
       .catch(() =>
         setNotice('Profile impact is unavailable. Published profiles keep their pinned revisions.'),
       );
@@ -521,6 +541,25 @@ export function ContextPackManager({ knowledge }: { knowledge: KnowledgeCatalog 
               </button>
               <MotionPresence open={details} kind="disclosure">
                 <div className="agent-library-context-preview">
+                  <h3>Published revisions</h3>
+                  {historyError && <p>{historyError}</p>}
+                  <div className="agent-library-actions">
+                    {revisions.map((revision) => (
+                      <button
+                        disabled={busy || copy.dirty}
+                        key={revision.revision}
+                        onClick={() => open(revision)}
+                      >
+                        View pack revision {revision.revision}
+                      </button>
+                    ))}
+                  </div>
+                  {copy.base && (
+                    <p>
+                      Viewing immutable revision {copy.base.revision}. Editing creates a new draft
+                      against the latest published revision.
+                    </p>
+                  )}
                   <h3>Affected profiles</h3>
                   {profiles.length ? (
                     <ul>
