@@ -1,12 +1,10 @@
 // @vitest-environment jsdom
+import type { OutputContributorPanelProps } from '../../types/output-contributors';
 import { afterEach, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import type { SymposiumProvenance } from '@mitzo/protocol';
-import {
-  OutputContributorPanel,
-  type OutputContributorPanelProps,
-} from '../OutputContributorPanel';
+import { OutputContributorPanel } from '../OutputContributorPanel';
 vi.mock('../AccountModelPicker', () => ({
   AccountModelPicker: (props: {
     scope: string;
