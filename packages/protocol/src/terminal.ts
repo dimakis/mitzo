@@ -17,6 +17,17 @@ export const TerminalResizeBody = z
     rows: z.number().int().min(2).max(300),
   })
   .strict();
+export const TerminalScrollBody = z
+  .object({
+    lines: z
+      .number()
+      .int()
+      .min(-100)
+      .max(100)
+      .refine((value) => value !== 0)
+      .nullable(),
+  })
+  .strict();
 export interface TerminalInfo {
   id: string;
   kind: 'host' | 'sandbox';
