@@ -40,6 +40,9 @@ async function findLibraryDocument(name: RegExp, folder = 'hub') {
   if (parent.getAttribute('aria-expanded') === 'false') fireEvent.click(parent);
   return screen.findByRole('button', { name });
 }
+async function resumeRecoveredCopy() {
+  fireEvent.click(await screen.findByRole('button', { name: /^(Resume editing|Review changes)$/ }));
+}
 function setup() {
   return render(
     <MemoryRouter>
@@ -162,6 +165,7 @@ it('recovers unsaved work across remounts and preserves it on a review conflict'
   });
   first.unmount();
   setup();
+  await resumeRecoveredCopy();
   expect(
     ((await screen.findByRole('textbox', { name: 'Document source' })) as HTMLTextAreaElement)
       .value,
@@ -311,6 +315,7 @@ it('retries an uncertain first save with the same persisted request identity', a
   await screen.findByText('Connection lost before acknowledgement');
   first.unmount();
   setup();
+  await resumeRecoveredCopy();
   fireEvent.change(await screen.findByRole('textbox', { name: 'Document source' }), {
     target: { value: '# Revised' },
   });
@@ -586,6 +591,7 @@ it.each(['# Revised', '# Further local'])(
     expect(vi.mocked(apiFetch).mock.calls).toHaveLength(before);
     view.unmount();
     setup();
+    await resumeRecoveredCopy();
     await screen.findByRole('region', { name: 'Compare saved draft and working copy' });
     expect((screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(true);
     expect(
@@ -642,6 +648,7 @@ it('keeps the conflict when explicit reconciliation races another save and lets 
         : response(catalog),
   );
   setup();
+  await resumeRecoveredCopy();
   const source = (await screen.findByRole('textbox', {
     name: 'Document source',
   })) as HTMLTextAreaElement;
@@ -716,6 +723,7 @@ it('preserves edits on an existing draft version conflict and reconciles using t
   ).toBe('# My local edits');
   view.unmount();
   setup();
+  await resumeRecoveredCopy();
   await screen.findByRole('region', { name: 'Compare saved draft and working copy' });
   expect((screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(true);
   const before = vi.mocked(apiFetch).mock.calls.length;
@@ -774,6 +782,7 @@ it('keeps a failed saved-version fetch recoverable without allowing writes until
     expect((screen.getByRole('button', { name }) as HTMLButtonElement).disabled).toBe(true);
   view.unmount();
   setup();
+  await resumeRecoveredCopy();
   await screen.findByText(
     'The latest saved version is unavailable. Refresh the comparison to continue.',
   );
@@ -913,6 +922,7 @@ it('explicitly excludes catalog-confirmed removed documents while preserving and
   ).toBe(false);
   view.unmount();
   setup();
+  await resumeRecoveredCopy();
   await screen.findByRole('textbox', { name: 'Document source' });
   expect(JSON.parse(localStorage.getItem('mitzo-knowledge-working-copy:')!).documents).toEqual([
     removed,
@@ -1093,6 +1103,7 @@ it.each(['accepted', 'closed'])(
       return response({ draft: terminal });
     });
     const view = setup();
+    await resumeRecoveredCopy();
     await screen.findByRole('region', { name: 'Compare saved draft and working copy' });
     fireEvent.click(screen.getByRole('button', { name: 'Start new change with my edits' }));
     await screen.findByText('# Current accepted principles');
@@ -1103,6 +1114,7 @@ it.each(['accepted', 'closed'])(
     expect(recovery.initialSaveConflict).toBeUndefined();
     view.unmount();
     setup();
+    await resumeRecoveredCopy();
     await screen.findByRole('textbox', { name: 'Document source' });
     expect((screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(screen.getByRole('button', { name: 'Compare accepted version' }));
@@ -1227,6 +1239,7 @@ it('preserves an ordinary new-change intent across reload and retries its lost a
   await screen.findByText('# Principles');
   view.unmount();
   view = setup();
+  await resumeRecoveredCopy();
   const source = await screen.findByRole('textbox', { name: 'Document source' });
   expect((screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(true);
   const before = vi.mocked(apiFetch).mock.calls.length;
@@ -1241,6 +1254,7 @@ it('preserves an ordinary new-change intent across reload and retries its lost a
   expect(pending.pendingCreate.requestId).toMatch(/^[0-9a-f-]{36}$/);
   view.unmount();
   setup();
+  await resumeRecoveredCopy();
   await screen.findByRole('textbox', { name: 'Document source' });
   fireEvent.click(screen.getByRole('button', { name: 'Save' }));
   await screen.findByText('Review draft saved');
@@ -1461,6 +1475,7 @@ it('keeps the requested reader when replacing an unrelated edited document is ca
   const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
   try {
     setup();
+    await resumeRecoveredCopy();
     await screen.findByRole('textbox', { name: 'Document source' });
     fireEvent.click(screen.getByRole('button', { name: '← Library' }));
     fireEvent.click(await findLibraryDocument(/Release process/, 'teams'));
@@ -1499,6 +1514,7 @@ it('keeps Move open without partial edits when confirming a move into an older w
       : original(path, init),
   );
   setup();
+  await resumeRecoveredCopy();
   await screen.findByRole('textbox', { name: 'Document source' });
   fireEvent.click(screen.getByRole('button', { name: '← Library' }));
   await findLibraryDocument(/Release process/, 'teams');
@@ -1640,6 +1656,7 @@ it('reads accepted documents after returning from a recovered folder-only workin
       : original(path, init),
   );
   setup();
+  await resumeRecoveredCopy();
   await screen.findByText('New folder: hub/new-guides');
   fireEvent.click(screen.getByRole('button', { name: '← Library' }));
   const before = localStorage.getItem('mitzo-knowledge-working-copy:');
@@ -1776,6 +1793,7 @@ it('cancels an unopened document Move without adding it to the existing working 
       : original(path, init),
   );
   setup();
+  await resumeRecoveredCopy();
   await screen.findByRole('textbox', { name: 'Document source' });
   fireEvent.click(screen.getByRole('button', { name: '← Library' }));
   await findLibraryDocument(/Release process/, 'teams');
@@ -1813,6 +1831,7 @@ it('clears keyboard undo when the saved conflict is adopted with matching select
     }),
   );
   setup();
+  await resumeRecoveredCopy();
   const input = await screen.findByRole('textbox', { name: 'Document source' });
   const { EditorView } = await import('@codemirror/view');
   const view = EditorView.findFromDOM(input)!;
@@ -1891,3 +1910,72 @@ it('creates the first folder inside an empty enrolled knowledge directory', asyn
   expect(copy.directories).toEqual(['hub/context/guides']);
   expect((screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(false);
 });
+
+it.each(['touch', 'keyboard'])(
+  'lands recovered knowledge on the Library tree without opening the editor on a %s device',
+  async (device) => {
+    const keyboard = device === 'keyboard';
+    vi.stubGlobal(
+      'matchMedia',
+      vi.fn(() => ({ matches: keyboard, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+    );
+    const recovered = {
+      title: 'Voice guide',
+      baseRevision: 'r1',
+      documents: [
+        {
+          path: 'hub/principles.md',
+          base: '# Principles',
+          content: '# Voice guide\n\nKeep my recovered edits.',
+        },
+      ],
+      directories: ['hub/context/pending'],
+      selected: 'hub/principles.md',
+      saved: JSON.stringify(draft.documents),
+      savedDirectories: [],
+      draft,
+      pendingCreate: {
+        requestId: 'fa063b5a-42c9-4a98-a307-7cc44d2f20e1',
+        title: 'Voice guide',
+        baseRevision: 'r1',
+        documents: [
+          { path: 'hub/principles.md', content: '# Voice guide\n\nKeep my recovered edits.' },
+        ],
+        directories: ['hub/context/pending'],
+      },
+      initialSaveConflict: { ...draft, version: 2 },
+    };
+    const serialized = JSON.stringify(recovered);
+    localStorage.setItem('mitzo-knowledge-working-copy:', serialized);
+    let mount = setup();
+    await screen.findByRole('button', { name: 'Folder hub' });
+    expect(screen.getByRole('searchbox', { name: 'Search knowledge' })).toBeTruthy();
+    expect(screen.queryByRole('textbox', { name: 'Document source' })).toBeNull();
+    expect(mount.container.querySelector('.document-editor')).toBeNull();
+    expect(localStorage.getItem('mitzo-knowledge-working-copy:')).toBe(serialized);
+    mount.unmount();
+    mount = setup();
+    await screen.findByRole('button', { name: 'Folder hub' });
+    expect(screen.queryByRole('textbox', { name: 'Document source' })).toBeNull();
+    expect(mount.container.querySelector('.cm-editor')).toBeNull();
+    expect(localStorage.getItem('mitzo-knowledge-working-copy:')).toBe(serialized);
+    fireEvent.click(await findLibraryDocument(/Working principles/));
+    await screen.findByRole('article', { name: 'Working principles' });
+    expect(screen.getByRole('heading', { name: 'Voice guide' })).toBeTruthy();
+    expect(screen.queryByRole('textbox', { name: 'Document source' })).toBeNull();
+    expect(localStorage.getItem('mitzo-knowledge-working-copy:')).toBe(serialized);
+    fireEvent.click(screen.getByRole('button', { name: '← Library' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Resume editing' }));
+    const input = await screen.findByRole('textbox', { name: 'Document source' });
+    if (keyboard) {
+      const { EditorView } = await import('@codemirror/view');
+      expect(EditorView.findFromDOM(input)!.state.doc.toString()).toBe(
+        recovered.documents[0].content,
+      );
+    } else expect((input as HTMLTextAreaElement).value).toBe(recovered.documents[0].content);
+    expect(localStorage.getItem('mitzo-knowledge-working-copy:')).toBe(serialized);
+    expect(
+      screen.getByRole('region', { name: 'Compare saved draft and working copy' }),
+    ).toBeTruthy();
+  },
+);
