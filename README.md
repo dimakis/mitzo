@@ -36,7 +36,7 @@ Initial support covers regular-file GitHub projects up to 10,000 files and 64 Mi
 
 Experimental [Symposium conversations](docs/features/symposium-integrated-acceptance.md) combine implementer and independently configured read-only reviewer seats with selected context, attributed results and explicit Stop controls. Provider sign-in, physical runtime admission and live workflow acceptance remain required. Use the [canonical singleton staging procedure](docs/operations/symposium-singleton-staging.md) for qualification; production activation is separate.
 
-The **Reusable profile drafts** control in a chat expands a panel for reviewing, editing and explicitly saving proposed agent profiles. When no drafts exist, it explains how to request one; loading and connection errors remain visible. Saving a profile does not apply it to an agent. See [reusable profiles](docs/features/symposium.md#profiles-and-reusable-reviewer-recipes).
+In a chat on desktop or mobile, expand **Workspace** and select **Reusable profile drafts** to review, edit and explicitly save proposed agent profiles. The drafts control stays inside Workspace, leaving the conversation and composer clear. When no drafts exist, it explains how to request one; loading and connection errors remain visible. Saving a profile does not apply it to an agent. See [reusable profiles](docs/features/symposium.md#profiles-and-reusable-reviewer-recipes).
 
 The dormant [Symposium artifact snapshot observer](docs/features/symposium-artifact-snapshots.md) records bounded host observations; it does not yet enable automated review or publication.
 
@@ -105,6 +105,8 @@ npm run build && npm start
 Access from your phone: install [Tailscale](https://tailscale.com/download) on server and phone, then open `http://<tailscale-ip>:3100`. No HTTPS needed — Tailscale encrypts via WireGuard.
 
 ### Knowledge Library
+
+Returning to the Library during Edit preparation keeps you in the Library when that request finishes. Switching between Library and Drafts also cancels pending editor navigation while preserving the prepared document in your working copy.
 
 Open **Knowledge** for curated documents from the host-enrolled accepted Git source. Browse its expandable folder tree and open documents in a rendered reading view. Choose **Edit** for the Markdown editor with source, preview and split modes, formatting, undo/redo and working-copy recovery. **Move** and **New folder** preserve the hierarchy within the enrolled knowledge scopes; text and structural changes share the same working copy. Saved-draft conflicts compare new folders and original-to-destination moves before replacement. Individually enrolled guidance files stay in place, including under overlapping folder scopes. Browsing is independent of chats and sandboxes. **Save draft**, including Vim `:w` and Cmd/Ctrl+S, preserves the durable change set without publishing a PR. Collect edits across files, then **Send for review** creates or updates one PR for the exact saved batch. Later saves stay staged until you explicitly send them again. **Accept** requires current-head Centaur approval and passing required checks. Source acceptance, ContexGin publication and adoption by a chat remain separate.
 

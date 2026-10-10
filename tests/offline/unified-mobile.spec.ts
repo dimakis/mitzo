@@ -1076,3 +1076,108 @@ test('combined conversation empty and failed status remain readable without impl
   });
   expect(queued).toHaveLength(0);
 });
+
+test('profile drafts stay behind Workspace and remain readable on mobile and desktop', async ({
+  page,
+  isMobile,
+}, testInfo) => {
+  let state: 'empty' | 'error' | 'populated' = 'empty';
+  let draftReads = 0;
+  const proposal = {
+    proposalId: 'offline-draft',
+    suggestedProfileId: 'reviewer',
+    state: 'pending',
+    definition: {
+      name: 'Reusable reviewer for planning decisions and their supporting evidence',
+      role: 'reviewer',
+      instructions: 'Review the selected changes and explain each finding with evidence. '.repeat(
+        12,
+      ),
+      expectedOutput: 'A concise list of findings',
+      acceptanceCriteria: ['Every finding cites evidence'],
+      modelPolicyRole: 'reviewer',
+    },
+  };
+  await page.addInitScript(() => localStorage.removeItem('mitzo-workspace-controls-expanded'));
+  await page.route('**/api/**', async (route) => {
+    const url = new URL(route.request().url());
+    if (url.hostname !== 'mitzo-ui.test') return route.abort();
+    if (route.request().method() !== 'GET')
+      return route.fulfill({ status: 405, json: { error: 'Offline fixture forbids writes' } });
+    if (url.pathname === '/api/sessions/ui-drafts/messages') return route.fulfill({ json: [] });
+    if (url.pathname === '/api/sessions/ui-drafts/meta')
+      return route.fulfill({ json: { sessionType: 'chat' } });
+    if (url.pathname === '/api/sessions/ui-drafts/symposium/status')
+      return route.fulfill({ json: { sessionId: 'ui-drafts', config: null, seats: [] } });
+    if (url.pathname === '/api/symposium/profiles') return route.fulfill({ json: [] });
+    if (url.pathname === '/api/symposium/profile-proposals') {
+      draftReads += 1;
+      if (state === 'error')
+        return route.fulfill({ status: 503, json: { error: 'Draft service unavailable' } });
+      return route.fulfill({ json: state === 'populated' ? [proposal] : [] });
+    }
+    return route.fallback();
+  });
+  for (const width of isMobile ? [320, 390] : [1280]) {
+    await page.setViewportSize({ width, height: 900 });
+    for (const theme of ['dark', 'light']) {
+      state = 'empty';
+      const readsBefore = draftReads;
+      await page.goto('https://mitzo-ui.test/chat/ui-drafts');
+      await expect(page.getByPlaceholder('Message Mitzo...')).toBeVisible();
+      await page.evaluate((theme) => {
+        document.documentElement.dataset.theme = theme;
+        document.documentElement.dataset.accent = 'teal';
+        document.documentElement.dataset.font = 'georgia';
+      }, theme);
+      const workspace = page.getByRole('button', { name: /^Workspace controls/ });
+      const drafts = page.getByRole('button', { name: 'Reusable profile drafts', exact: true });
+      await expect(drafts).toBeHidden();
+      expect(draftReads).toBe(readsBefore);
+      await page.screenshot({
+        path: testInfo.outputPath(`drafts-collapsed-${width}-${theme}.png`),
+      });
+      await workspace.click();
+      await expect(drafts).toBeVisible();
+      expect(draftReads).toBe(readsBefore);
+      const touch = await drafts.boundingBox();
+      expect(touch!.height).toBeGreaterThanOrEqual(44);
+      for (const next of ['empty', 'error', 'populated'] as const) {
+        state = next;
+        await drafts.focus();
+        await expect(drafts).toBeFocused();
+        await page.keyboard.press('Enter');
+        const panel = page.getByRole('complementary', { name: 'Reusable profile drafts' });
+        await expect(panel).toBeVisible();
+        if (next === 'empty')
+          await expect(panel.getByText('No profile drafts in this chat yet.')).toBeVisible();
+        if (next === 'error')
+          await expect(panel.getByRole('alert')).toHaveText('Draft service unavailable');
+        if (next === 'populated') {
+          await expect(panel.getByRole('textbox', { name: 'Name', exact: true })).toHaveValue(
+            proposal.definition.name,
+          );
+          await panel
+            .getByRole('button', { name: 'Save reusable profile' })
+            .scrollIntoViewIfNeeded();
+          await expect(panel.getByRole('button', { name: 'Save reusable profile' })).toBeVisible();
+          const saveTarget = await panel
+            .getByRole('button', { name: 'Save reusable profile' })
+            .boundingBox();
+          expect(saveTarget!.height).toBeGreaterThanOrEqual(44);
+        }
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+          true,
+        );
+        await page.screenshot({
+          path: testInfo.outputPath(`drafts-${next}-${width}-${theme}.png`),
+        });
+        await drafts.click();
+        await expect(panel).toBeHidden();
+      }
+      await workspace.click();
+      await expect(drafts).toBeHidden();
+      await expect(page.getByPlaceholder('Message Mitzo...')).toBeVisible();
+    }
+  }
+});
