@@ -97,7 +97,7 @@ test('registered draft and ordinary contributor setup preserve revision, account
               definition: {
                 name: 'Bob',
                 descriptor: 'The architect',
-              role: 'coder',
+                role: 'coder',
                 instructions: 'Challenge assumptions',
                 expectedOutput: 'Decision brief',
                 acceptanceCriteria: ['Evidence'],

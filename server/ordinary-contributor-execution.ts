@@ -18,9 +18,7 @@ interface ContributorFacts {
 }
 interface ContributorOwner extends ContributorFacts {
   append(sessionId: string, type: string, payload: Record<string, unknown>): number;
-  getSymposiumDelivery(
-    deliveryId: string,
-  ):
+  getSymposiumDelivery(deliveryId: string):
     | {
         sessionId: string;
         recipients: Array<{ seatId: string; status: string; idempotencyKey: string }>;
