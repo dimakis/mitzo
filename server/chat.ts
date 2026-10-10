@@ -124,6 +124,7 @@ import {
   USER_CLOSEOUT_TIMEOUT_MS,
   ZERO_TURN_GRACE_MS,
   DEFAULT_AGENT_NAME,
+  DEFAULT_CONTEXGIN_URL,
 } from './constants.js';
 import { INTERNAL_TOKEN } from './internal-token.js';
 import { buildTaskSystemPrompt } from './task-context.js';
@@ -364,7 +365,7 @@ async function localBootContextFallback(repoRoot: string): Promise<BootContextMe
  */
 export async function fetchBootContext(
   agentName: string,
-  contexginUrl: string = process.env.CONTEXGIN_URL || 'http://localhost:8321',
+  contexginUrl: string = process.env.CONTEXGIN_URL || DEFAULT_CONTEXGIN_URL,
   repoRoot: string = BASE_REPO,
   allowLocalExecutableFallback = true,
 ): Promise<BootContextMessage> {
@@ -1685,17 +1686,11 @@ async function _startChatInner(
   // Fetch boot context BEFORE building system prompt so it's part of the
   // system prompt append and survives SDK context compaction.
   // fetchBootContext never throws and has a 5s AbortSignal timeout internally.
-  // Race with a 2s deadline so session startup isn't blocked when ContexGin is slow.
-  let raceTimer: ReturnType<typeof setTimeout> | undefined;
+  // Await the bounded fetch/fallback before opening any provider. A shorter race
+  // could discard a valid bundle while persisting empty context for the session.
   const bootContextMsg: BootContextMessage = openShellSelected
     ? { ...FALLBACK_BOOT_CONTEXT, source: 'sandbox', scope: 'sandbox' }
-    : await Promise.race([
-        fetchBootContext(agentName, undefined, undefined, !sdkCredentialBoundary),
-        new Promise<Awaited<ReturnType<typeof fetchBootContext>>>((resolve) => {
-          raceTimer = setTimeout(() => resolve({ ...FALLBACK_BOOT_CONTEXT }), 2000);
-        }),
-      ]);
-  clearTimeout(raceTimer);
+    : await fetchBootContext(agentName, undefined, undefined, !sdkCredentialBoundary);
   const bootContextAppend = bootContextMsg.fullMarkdown
     ? `\n\n# Boot Context\n${bootContextMsg.fullMarkdown}`
     : '';
