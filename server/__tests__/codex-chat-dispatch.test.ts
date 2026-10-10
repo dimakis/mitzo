@@ -7,6 +7,7 @@ import { AccountProfiles } from '../account-profiles.js';
 import { openResponsesChat } from '../responses-chat-session.js';
 import { credentials } from '../credentials.js';
 import { openCodexChat } from '../codex-chat-session.js';
+import { ConnectionRegistry } from '@mitzo/harness';
 import { capturePromptComparison } from '../prompt-compare.js';
 import { registerSession } from '../session-index.js';
 import { createWorktree } from '../worktree.js';
@@ -182,7 +183,13 @@ it('connects trusted contributor observers to the real ordinary query loop and e
   const lifecycle = { beforeDispatch: vi.fn(), accepted: vi.fn(), terminal: vi.fn() };
   const ready = vi.fn();
   const result = vi.fn();
+  const queryEvents = vi.fn();
   const childId = '5f68a371-73d1-4994-a512-b71d4bc44c66';
+  const viewer = { send: vi.fn(), isOpen: () => true };
+  const viewers = new ConnectionRegistry();
+  viewers.register('child-viewer', viewer);
+  viewers.watch('child-viewer', childId);
+  chat.setConnectionRegistry(viewers);
   vi.mocked(openCodexChat).mockImplementation(async (options) => {
     expect(options.ordinaryTurnLifecycle).toBe(lifecycle);
     expect(options.contributorGuidance).toBe('Selected contributor guidance.');
@@ -198,6 +205,33 @@ it('connects trusted contributor observers to the real ordinary query loop and e
         options.ordinaryTurnLifecycle!.beforeDispatch('exact-recipient');
         options.ordinaryTurnLifecycle!.accepted('exact-recipient', 'raw-thread', 'raw-turn');
         yield { type: 'system', subtype: 'init', session_id: childId };
+        yield {
+          type: 'stream_event',
+          event: { type: 'message_start', message: { id: 'reply-message' } },
+        };
+        yield {
+          type: 'stream_event',
+          event: { type: 'content_block_start', index: 0, content_block: { type: 'text' } },
+        };
+        yield {
+          type: 'stream_event',
+          event: {
+            type: 'content_block_delta',
+            index: 0,
+            delta: { type: 'text_delta', text: 'Complete ' },
+          },
+        };
+        // Viewing the child replaces its UI driver but must not replace the query observer.
+        chat.registry.get('private-contributor-client')!.transport = viewer;
+        yield {
+          type: 'stream_event',
+          event: {
+            type: 'content_block_delta',
+            index: 0,
+            delta: { type: 'text_delta', text: 'reply.' },
+          },
+        };
+        yield { type: 'stream_event', event: { type: 'content_block_stop', index: 0 } };
         options.ordinaryTurnLifecycle!.terminal('exact-recipient', 'raw-turn', 'completed');
         yield { type: 'result', session_id: childId, is_error: false };
       },
@@ -220,10 +254,19 @@ it('connects trusted contributor observers to the real ordinary query loop and e
         ordinaryTurnLifecycle: lifecycle,
         onQueryReady: ready,
         onTurnResult: result,
+        onQueryEvent: queryEvents,
       },
     );
     expect(ready).toHaveBeenCalledOnce();
     expect(result).toHaveBeenCalledOnce();
+    expect(
+      queryEvents.mock.calls
+        .map(([event]) => event)
+        .filter((event) => event.type === 'block_delta'),
+    ).toEqual([
+      expect.objectContaining({ sessionId: childId, delta: 'Complete ' }),
+      expect.objectContaining({ sessionId: childId, delta: 'reply.' }),
+    ]);
     expect(lifecycle.terminal).toHaveBeenCalledWith('exact-recipient', 'raw-turn', 'completed');
     expect(chat.eventStore.getSessionEvents(childId)).toEqual(
       expect.arrayContaining([expect.objectContaining({ type: 'workspace_retention' })]),
@@ -231,6 +274,7 @@ it('connects trusted contributor observers to the real ordinary query loop and e
     expect(chat.registry.findBySessionId(childId)).toBeNull();
     expect(query).not.toHaveBeenCalled();
   } finally {
+    viewers.remove('child-viewer');
     chat.eventStore.close();
     await rm(root, { recursive: true, force: true });
   }

@@ -480,6 +480,46 @@ describe('runQueryLoop', () => {
     expect(onTerminalOutcome).toHaveBeenCalledOnce();
   });
 
+  it('observes live normalized text once while pre-session buffering is backfilled for viewers', async () => {
+    const store = new EventStore(':memory:');
+    const observed: Readonly<Record<string, unknown>>[] = [];
+    const events = [
+      { type: 'stream_event', event: { type: 'message_start', message: { id: 'reply' } } },
+      {
+        type: 'stream_event',
+        event: { type: 'content_block_start', index: 0, content_block: { type: 'text' } },
+      },
+      {
+        type: 'stream_event',
+        event: {
+          type: 'content_block_delta',
+          index: 0,
+          delta: { type: 'text_delta', text: 'Once only.' },
+        },
+      },
+      { type: 'stream_event', event: { type: 'content_block_stop', index: 0 } },
+      { type: 'assistant', message: { content: [] }, session_id: 'resolved-child' },
+      { type: 'result', session_id: 'resolved-child' },
+    ];
+    try {
+      await runQueryLoop(
+        eventStream(events),
+        clientId,
+        registry,
+        abortController,
+        store,
+        undefined,
+        { onEvent: (event) => observed.push(event) },
+      );
+      expect(observed.filter((event) => event.type === 'block_delta')).toHaveLength(1);
+      expect(
+        store.getSessionEvents('resolved-child').filter((event) => event.type === 'block_delta'),
+      ).toHaveLength(1);
+    } finally {
+      store.close();
+    }
+  });
+
   it('emits message_start, block_start, block_delta, block_end, message_end, session_end for a text turn', async () => {
     const events: Record<string, unknown>[] = [
       { type: 'stream_event', event: { type: 'message_start', message: { id: 'msg-abc' } } },

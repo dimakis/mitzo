@@ -49,8 +49,16 @@ it('starts an independent ordinary session with exact account, mode, selected ex
       options = selection;
       selection.ordinaryTurnLifecycle!.beforeDispatch('recipient');
       selection.ordinaryTurnLifecycle!.accepted('recipient', 'raw-thread', 'raw-turn');
-      transport.send({ type: 'block_start', blockId: 'text', blockType: 'text' });
-      transport.send({ type: 'block_delta', blockId: 'text', delta: 'Reply.' });
+      for (const event of [
+        { type: 'block_start', blockId: 'text', blockType: 'text' },
+        { type: 'block_delta', blockId: 'text', delta: 'Reply.' },
+      ]) {
+        selection.onQueryEvent?.({
+          ...event,
+          sessionId: selection.resume ?? selection.initialSessionId,
+        });
+        transport.send(event);
+      }
       selection.ordinaryTurnLifecycle!.terminal('recipient', 'raw-turn', 'completed');
       selection.onTurnResult!({ is_error: false });
     }),
@@ -86,6 +94,89 @@ it('starts an independent ordinary session with exact account, mode, selected ex
   }).run(resume, callbacks);
   expect(options.resume).toBe('ordinary-child');
   expect(options.initialSessionId).toBeUndefined();
+});
+
+it.each(['watched-from-start', 'reattached-mid-reply', 'observer-and-driver'])(
+  'captures the exact reply independently of %s viewer routing',
+  async (route) => {
+    const f = input();
+    const viewer = { send: vi.fn(), isOpen: () => true };
+    const port: OrdinaryChatPort = {
+      stopChat: () => {},
+      startChat: async (transport, _client, _prompt, options) => {
+        options.ordinaryTurnLifecycle!.beforeDispatch('recipient');
+        options.ordinaryTurnLifecycle!.accepted('recipient', 'raw-thread', 'raw-turn');
+        const start = { type: 'block_start', blockId: 'text', blockType: 'text' };
+        const first = { type: 'block_delta', blockId: 'text', delta: 'Complete ' };
+        const second = { type: 'block_delta', blockId: 'text', delta: 'reply.' };
+        for (const event of [start, first]) {
+          options.onQueryEvent?.({
+            ...event,
+            sessionId: options.resume ?? options.initialSessionId,
+          });
+          (route === 'watched-from-start' ? viewer : transport).send(event);
+        }
+        // Restored UI history is only viewer delivery, never a fresh provider event.
+        viewer.send(start);
+        viewer.send(first);
+        options.onQueryEvent?.({
+          ...second,
+          sessionId: options.resume ?? options.initialSessionId,
+        });
+        (route === 'observer-and-driver' ? transport : viewer).send(second);
+        options.ordinaryTurnLifecycle!.terminal('recipient', 'raw-turn', 'completed');
+        options.onTurnResult!({ is_error: false });
+      },
+    };
+    await expect(
+      createOrdinarySymposiumTurn({
+        port,
+        binding: f.seat.accountBinding!,
+        cwd: '/task',
+        mode: 'agent',
+      }).run(f, { beforeDispatch: () => {}, accepted: () => {} }),
+    ).resolves.toMatchObject({ content: 'Complete reply.' });
+  },
+);
+
+it('keeps separate assistant messages when the normalized block index is reused', async () => {
+  const f = input();
+  const port: OrdinaryChatPort = {
+    stopChat: () => {},
+    startChat: async (_transport, _client, _prompt, options) => {
+      options.ordinaryTurnLifecycle!.beforeDispatch('recipient');
+      options.ordinaryTurnLifecycle!.accepted('recipient', 'raw-thread', 'raw-turn');
+      for (const [messageId, delta] of [
+        ['first', 'First paragraph.'],
+        ['second', 'Final paragraph.'],
+      ]) {
+        options.onQueryEvent?.({
+          type: 'block_start',
+          sessionId: options.initialSessionId,
+          messageId,
+          blockId: 'b0',
+          blockType: 'text',
+        });
+        options.onQueryEvent?.({
+          type: 'block_delta',
+          sessionId: options.initialSessionId,
+          messageId,
+          blockId: 'b0',
+          delta,
+        });
+      }
+      options.ordinaryTurnLifecycle!.terminal('recipient', 'raw-turn', 'completed');
+      options.onTurnResult!({ is_error: false });
+    },
+  };
+  await expect(
+    createOrdinarySymposiumTurn({
+      port,
+      binding: f.seat.accountBinding!,
+      cwd: '/task',
+      mode: 'agent',
+    }).run(f, { beforeDispatch: () => {}, accepted: () => {} }),
+  ).resolves.toMatchObject({ content: 'First paragraph.\n\nFinal paragraph.' });
 });
 
 it('rejects a stream closing without an exact provider terminal and keeps cancellation uncertain', async () => {

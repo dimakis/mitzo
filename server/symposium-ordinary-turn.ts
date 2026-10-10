@@ -31,6 +31,7 @@ export interface OrdinaryChatPort {
       ordinaryTurnLifecycle?: OrdinaryTurnLifecycle;
       onQueryReady?: (query: { interrupt(): Promise<void> }) => void;
       onTurnResult?: (result: { is_error?: boolean }, inputUuid?: string) => void;
+      onQueryEvent?: (event: Readonly<Record<string, unknown>>) => void;
     },
   ): Promise<void>;
   stopChat(clientId: string): void;
@@ -99,22 +100,23 @@ export function createOrdinarySymposiumTurn(deps: {
       const transport: SessionTransport = {
         isOpen: () => true,
         send(event) {
+          // Startup errors may precede the query loop. Replies are collected by
+          // the exact query observer, never this replaceable UI transport.
           if (event.type === 'error' && typeof event.error === 'string')
             failure ??= new Error(event.error);
-          if (
-            event.type === 'block_start' &&
-            event.blockType === 'text' &&
-            typeof event.blockId === 'string'
-          )
-            textBlocks.set(event.blockId, '');
-          if (
-            event.type === 'block_delta' &&
-            typeof event.blockId === 'string' &&
-            textBlocks.has(event.blockId) &&
-            typeof event.delta === 'string'
-          )
-            textBlocks.set(event.blockId, textBlocks.get(event.blockId)! + event.delta);
         },
+      };
+      const observeQuery = (event: Readonly<Record<string, unknown>>) => {
+        if (event.sessionId !== sessionId)
+          throw new Error('Ordinary Symposium query event belongs to another session');
+        if (event.type === 'error' && typeof event.error === 'string')
+          failure ??= new Error(event.error);
+        if (typeof event.blockId !== 'string') return;
+        const key = `${typeof event.messageId === 'string' ? event.messageId : ''}:${event.blockId}`;
+        if (event.type === 'block_start' && event.blockType === 'text' && !textBlocks.has(key))
+          textBlocks.set(key, '');
+        if (event.type === 'block_delta' && textBlocks.has(key) && typeof event.delta === 'string')
+          textBlocks.set(key, textBlocks.get(key)! + event.delta);
       };
       const exactCommand = (commandId: string) => {
         if (commandId !== input.idempotencyKey)
@@ -185,6 +187,7 @@ export function createOrdinarySymposiumTurn(deps: {
                 terminalConflict = true;
               },
             },
+            onQueryEvent: observeQuery,
             onQueryReady(ready) {
               query = ready;
               if (cancelled && !interruptAttempted) requestInterrupt();

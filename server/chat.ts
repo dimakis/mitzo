@@ -1081,6 +1081,8 @@ export async function startChat(
     contributorExecution?: OrdinaryContributorExecution;
     onQueryReady?: (query: { interrupt(): Promise<void> }) => void;
     onTurnResult?: (result: { is_error?: boolean }, inputUuid?: string) => void;
+    /** Trusted live-query observer, never a viewer transport or replay subscription. */
+    onQueryEvent?: (event: Readonly<Record<string, unknown>>) => void;
     telosTaskId?: string;
     agentName?: string;
     agentProfile?: AgentProfileSelection;
@@ -1183,6 +1185,8 @@ async function _startChatInner(
     contributorExecution?: OrdinaryContributorExecution;
     onQueryReady?: (query: { interrupt(): Promise<void> }) => void;
     onTurnResult?: (result: { is_error?: boolean }, inputUuid?: string) => void;
+    /** Trusted live-query observer, never a viewer transport or replay subscription. */
+    onQueryEvent?: (event: Readonly<Record<string, unknown>>) => void;
     telosTaskId?: string;
     agentName?: string;
     agentProfile?: AgentProfileSelection;
@@ -2164,6 +2168,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
         connRegistry: _connRegistry ?? undefined,
         onFirstEventOutcome: options.onFirstEventOutcome,
         onTerminalOutcome: options.onTerminalOutcome,
+        onEvent: options.onQueryEvent,
         initialClientMsgId: options.clientMsgId,
         initialImages: imagePreviews(options.images),
         initialContextBlocks: options.contextBlocks,
