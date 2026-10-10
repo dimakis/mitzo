@@ -83,7 +83,7 @@ export function BriefingChatBanner({
   return (
     <aside className="briefing-chat-banner">
       {source && (
-        <>
+        <div className="briefing-source-row">
           <span>
             {name} · {source.date}
           </span>
@@ -93,7 +93,7 @@ export function BriefingChatBanner({
           <button disabled={lookupLoading || !!lookupError} onClick={() => setPicker(true)}>
             Change account or model
           </button>
-        </>
+        </div>
       )}
       {lookupError && (
         <p role="alert" className="briefing-lookup-error">

@@ -108,6 +108,30 @@
   border: 1px solid var(--color-border);
 }
 
+.briefing-source-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: var(--space-2) var(--page-gutter);
+  font-size: var(--text-sm);
+}
+.briefing-source-row > span {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  color: var(--color-muted);
+}
+.briefing-source-row > a,
+.briefing-source-row > button {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--control-height);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  font: inherit;
+}
 .briefing-lookup-error {
   display: flex;
   align-items: center;

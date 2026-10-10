@@ -1422,6 +1422,7 @@ test('failed briefing registration survives a completed turn and reload without 
   let allowRegistration = false;
   let emptyReads = 0;
   let completed = false;
+  let nickname = 'Jeeves';
   await page.routeWebSocket('**/*', (socket) => {
     socket.onMessage((raw) => {
       const message = JSON.parse(String(raw));
@@ -1470,6 +1471,13 @@ test('failed briefing registration survives a completed turn and reload without 
     }
     if (route.request().method() !== 'GET')
       return route.fulfill({ status: 405, json: { error: 'Offline fixture forbids writes' } });
+    if (url.pathname === '/api/home/preferences')
+      return route.fulfill({
+        json: {
+          ...fixtures['/api/home/preferences'],
+          names: { briefing: nickname, terminal: 'Minion' },
+        },
+      });
     const models = [
       { id: 'luna-fixture', label: 'Luna fixture', reasoningEfforts: ['low', 'high'] },
     ];
@@ -1508,10 +1516,39 @@ test('failed briefing registration survives a completed turn and reload without 
   expect(posts).toEqual([binding]);
   await expect.poll(() => emptyReads).toBeGreaterThan(0);
   async function retained() {
-    await expect(page.getByText('Jeeves · 2026-10-10', { exact: true })).toBeVisible();
+    await expect(page.getByText(`${nickname} · 2026-10-10`, { exact: true })).toBeVisible();
     await expect(page.getByRole('link', { name: 'Read briefing', exact: true })).toHaveAttribute(
       'href',
       `/briefings/${binding.date}?revision=${binding.revision}`,
+    );
+    const label = page.getByText(`${nickname} · 2026-10-10`, { exact: true });
+    const read = page.getByRole('link', { name: 'Read briefing', exact: true });
+    const change = page.getByRole('button', { name: 'Change account or model', exact: true });
+    const layout = await label.evaluate((element) => {
+      const bounds = element.getBoundingClientRect();
+      const column = element.closest('.briefing-chat-banner')!.getBoundingClientRect();
+      return {
+        left: bounds.left - column.left,
+        gutter: Number.parseFloat(
+          getComputedStyle(document.documentElement).getPropertyValue('--page-gutter'),
+        ),
+        gap: Number.parseFloat(
+          getComputedStyle(document.documentElement).getPropertyValue('--space-2'),
+        ),
+      };
+    });
+    expect(layout.left).toBeGreaterThanOrEqual(layout.gutter);
+    const labelBounds = (await label.boundingBox())!;
+    const readBounds = (await read.boundingBox())!;
+    const rowGap =
+      readBounds.x >= labelBounds.x + labelBounds.width
+        ? readBounds.x - labelBounds.x - labelBounds.width
+        : readBounds.y - labelBounds.y - labelBounds.height;
+    expect(rowGap).toBeGreaterThanOrEqual(layout.gap);
+    for (const control of [read, change])
+      expect((await control.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+      page.viewportSize()!.width,
     );
     const model = page.getByRole('combobox', { name: 'Model', exact: true });
     await expect(model).toHaveValue(binding.model);
@@ -1566,6 +1603,14 @@ test('failed briefing registration survives a completed turn and reload without 
       animations: 'disabled',
     });
   }
+  nickname = 'M'.repeat(80);
+  await page.reload();
+  await expect(retry).toBeVisible();
+  await retained();
+  await page.screenshot({
+    path: testInfo.outputPath('briefing-registration-long-name.png'),
+    animations: 'disabled',
+  });
   allowRegistration = true;
   await retry.click();
   await expect(retry).toHaveCount(0);
