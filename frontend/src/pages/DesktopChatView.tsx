@@ -429,7 +429,10 @@ export function DesktopChatView() {
                   onChange={selectAccount}
                   onSummaryChange={setWorkspaceSummary}
                   disabled={
-                    messages.running || repositoryHandoff.loading || briefingChat.isBriefing
+                    messages.running ||
+                    repositoryHandoff.loading ||
+                    briefingChat.isBriefing ||
+                    briefingChat.loading
                   }
                 />
               ) : (

@@ -439,7 +439,12 @@ export function ChatView() {
                       ? launch?.accountSelection
                       : undefined
                 }
-                disabled={messages.running || repositoryHandoff.loading || briefingChat.isBriefing}
+                disabled={
+                  messages.running ||
+                  repositoryHandoff.loading ||
+                  briefingChat.isBriefing ||
+                  briefingChat.loading
+                }
                 sessionId={activeSessionId}
                 preferredModel={modelState}
                 onChange={selectAccount}

@@ -173,6 +173,37 @@ it('keeps the reviewed briefing account locked and labels the rich chat with the
     expect((within(dialog).getByLabelText('Account') as HTMLSelectElement).value).toBe('work'),
   );
 });
+it('waits for briefing identity before allowing inline model changes on a restored conversation', async () => {
+  let resolveBinding!: (response: Response) => void;
+  const identity = new Promise<Response>((resolve) => {
+    resolveBinding = resolve;
+  });
+  vi.mocked(apiFetch).mockImplementation(async (url) =>
+    String(url).includes('/home/briefing-chats')
+      ? identity
+      : new Response(
+          JSON.stringify({
+            accountBinding: { accountId: 'work', accountLabel: 'Work OpenAI', model: 'luna' },
+            modelSelection: { model: 'luna', models: [{ id: 'luna', label: 'Luna' }] },
+          }),
+        ),
+  );
+  const store = createTestStore();
+  store.setState({ sessions: { ...store.getState().sessions, active: 'restored' } });
+  render(
+    <MitzoStoreProvider value={store}>
+      <MemoryRouter initialEntries={['/chat/restored']}>
+        <Routes>
+          <Route path="/chat/:sessionId" element={<ChatView />} />
+        </Routes>
+      </MemoryRouter>
+    </MitzoStoreProvider>,
+  );
+  const model = (await screen.findByLabelText('Model')) as HTMLSelectElement;
+  expect(model.disabled).toBe(true);
+  await act(async () => resolveBinding(new Response('[]')));
+  await waitFor(() => expect(model.disabled).toBe(false));
+});
 
 it('updates web-search consent when the connection ID changes without a status change', () => {
   const store = createTestStore();
