@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { Router, type Response } from 'express';
+import { Router, type Request, type Response } from 'express';
 import { SessionOutputRegisterInputSchema, type SessionOutputReference } from '@mitzo/protocol';
 import type { SessionOutputReferences } from './session-output-references.js';
 
@@ -51,7 +51,7 @@ export function createSessionOutputRouter(options: {
   hasSession(sessionId: string): boolean;
 }) {
   const router = Router({ mergeParams: true });
-  router.use((req, res, next) => {
+  router.use((req: Request, res, next) => {
     res.setHeader('Cache-Control', 'private, no-store');
     try {
       if (typeof req.params.id !== 'string' || !options.hasSession(req.params.id)) {
@@ -63,14 +63,14 @@ export function createSessionOutputRouter(options: {
       failure(res, error);
     }
   });
-  router.get('/', (req, res) => {
+  router.get('/', (req: Request, res) => {
     try {
       res.json(options.references.list(req.params.id as string));
     } catch (error) {
       failure(res, error);
     }
   });
-  router.post('/', (req, res) => {
+  router.post('/', (req: Request, res) => {
     const input = SessionOutputRegisterInputSchema.safeParse(req.body);
     if (!input.success) {
       res.status(400).json({ error: 'Invalid session output input' });
@@ -82,7 +82,7 @@ export function createSessionOutputRouter(options: {
       failure(res, error);
     }
   });
-  router.get('/:outputId', (req, res) => {
+  router.get('/:outputId', (req: Request, res) => {
     if (typeof req.params.outputId !== 'string' || !/^[a-f0-9-]{36}$/.test(req.params.outputId)) {
       res.status(404).json({ error: 'Session output not found' });
       return;

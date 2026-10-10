@@ -285,10 +285,12 @@ export type { SessionRuntimeBindingV1 } from './session-runtime-binding.js';
 export {
   SessionOutputSourceSchema,
   SessionOutputRegisterInputSchema,
+  OutputContributorBindingSchema,
 } from './session-output-reference.js';
 export type {
   SessionOutputSource,
   SessionOutputRegisterInput,
   SessionOutputReference,
   SessionOutputCandidate,
+  OutputContributorBinding,
 } from './session-output-reference.js';

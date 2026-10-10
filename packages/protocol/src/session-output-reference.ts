@@ -16,6 +16,17 @@ export const SessionOutputRegisterInputSchema = z.strictObject({
 export type SessionOutputSource = z.infer<typeof SessionOutputSourceSchema>;
 export type SessionOutputRegisterInput = z.infer<typeof SessionOutputRegisterInputSchema>;
 
+export const OutputContributorBindingSchema = z.strictObject({
+  parentSessionId: z.string().min(1).max(200),
+  outputId: z.string().uuid(),
+  outputRevision: z.literal(1),
+  contextPackageDigest: z.string().regex(/^[a-f0-9]{64}$/),
+  mode: z.enum(['ask', 'agent', 'auto']),
+  label: z.string().trim().min(1).max(160),
+  additionalInstructions: z.string().max(6000),
+});
+export type OutputContributorBinding = z.infer<typeof OutputContributorBindingSchema>;
+
 export interface SessionOutputReference {
   outputId: string;
   sessionId: string;

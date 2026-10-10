@@ -1,6 +1,11 @@
 import { isRegisteredConversation } from './conversation-identity.js';
 import { SessionOutputReferenceStore } from './session-output-reference-store.js';
-import type { SessionOutputReference, SessionOutputCandidate } from './session-output-reference.js';
+import {
+  OutputContributorBindingSchema,
+  type OutputContributorBinding,
+  type SessionOutputReference,
+  type SessionOutputCandidate,
+} from './session-output-reference.js';
 import {
   SymposiumConfigurationOperationSchema,
   SymposiumConfigurationOperationReceiptSchema,
@@ -686,6 +691,8 @@ export class EventStore {
     this.migrateConversationSource(db);
     this.migrateUserMessageIndex(db);
     this.sessionOutputs = new SessionOutputReferenceStore(db);
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_output_contributor_association ON events(session_id,json_extract(payload,'$.outputId')) WHERE type='output_contributor_created';
+      CREATE INDEX IF NOT EXISTS idx_output_contributor_coordinator ON events(json_extract(payload,'$.coordinatorSessionId')) WHERE type='output_contributor_created';`);
 
     this.log.info('EventStore initialized', { dbPath });
 
@@ -1442,6 +1449,51 @@ export class EventStore {
   listSessionOutputCandidates(sessionId: string, limit = 10): SessionOutputCandidate[] {
     this.assertConversationIdentity(sessionId);
     return this.getSession(sessionId) ? this.sessionOutputs.candidates(sessionId, limit) : [];
+  }
+
+  getOutputContributorBindings(
+    parentSessionId: string,
+  ): Array<OutputContributorBinding & { coordinatorSessionId: string }> {
+    this.assertConversationIdentity(parentSessionId);
+    if (!this.getSession(parentSessionId)) return [];
+    const rows = this.db!.prepare(
+      "SELECT payload FROM events WHERE session_id=? AND type='output_contributor_created' ORDER BY seq DESC LIMIT 100",
+    ).all(parentSessionId) as { payload: string }[];
+    return rows.map((row) => {
+      const { coordinatorSessionId, ...binding } = JSON.parse(row.payload);
+      if (typeof coordinatorSessionId !== 'string')
+        throw new Error('Invalid output contributor identity');
+      return { ...OutputContributorBindingSchema.parse(binding), coordinatorSessionId };
+    });
+  }
+
+  /** Host-only exact association lookup, never caller-provided ownership. */
+  getOutputContributorBinding(
+    coordinatorSessionId: string,
+  ): (OutputContributorBinding & { coordinatorSessionId: string }) | null {
+    const row = this.db!.prepare(
+      "SELECT payload FROM events WHERE type='output_contributor_created' AND json_extract(payload,'$.coordinatorSessionId')=? LIMIT 1",
+    ).get(coordinatorSessionId) as { payload: string } | undefined;
+    if (!row) return null;
+    const { coordinatorSessionId: retainedId, ...binding } = JSON.parse(row.payload);
+    if (retainedId !== coordinatorSessionId) throw new Error('Output contributor identity changed');
+    return { ...OutputContributorBindingSchema.parse(binding), coordinatorSessionId };
+  }
+
+  getOutputContributorForOutput(
+    parentSessionId: string,
+    outputId: string,
+  ): (OutputContributorBinding & { coordinatorSessionId: string }) | null {
+    this.assertConversationIdentity(parentSessionId);
+    if (!this.getSession(parentSessionId)) return null;
+    const row = this.db!.prepare(
+      "SELECT payload FROM events WHERE session_id=? AND type='output_contributor_created' AND json_extract(payload,'$.outputId')=? LIMIT 1",
+    ).get(parentSessionId, outputId) as { payload: string } | undefined;
+    if (!row) return null;
+    const { coordinatorSessionId, ...binding } = JSON.parse(row.payload);
+    if (typeof coordinatorSessionId !== 'string')
+      throw new Error('Output contributor identity changed');
+    return { ...OutputContributorBindingSchema.parse(binding), coordinatorSessionId };
   }
 
   /**
@@ -2403,6 +2455,7 @@ export class EventStore {
     binding: AccountBinding;
     config: unknown;
     profileSelections: Record<string, { profileId: string; revision: number }>;
+    outputBinding?: OutputContributorBinding;
   }): { sessionId: string; created: boolean } {
     const config = SymposiumConfigSchema.parse(input.config);
     if (config.version !== 2 || config.state !== 'draft' || config.revision !== 1)
@@ -2410,6 +2463,32 @@ export class EventStore {
     return this.db!.transaction(() => {
       const retry = this.getSymposiumSessionAllocation(input.idempotencyKey, input.fingerprint);
       if (retry) return { sessionId: retry, created: false };
+      const outputBinding = input.outputBinding
+        ? OutputContributorBindingSchema.parse(input.outputBinding)
+        : undefined;
+      if (outputBinding) {
+        const { output } = this.readSessionOutput(
+          outputBinding.parentSessionId,
+          outputBinding.outputId,
+        );
+        const digest = createHash('sha256')
+          .update(
+            JSON.stringify([
+              output.sessionId,
+              output.outputId,
+              output.revision,
+              output.source.sha256,
+            ]),
+          )
+          .digest('hex');
+        if (
+          outputBinding.outputRevision !== output.revision ||
+          outputBinding.contextPackageDigest !== digest
+        )
+          throw new Error('Output contributor context revision conflict');
+        if (this.getOutputContributorForOutput(outputBinding.parentSessionId, output.outputId))
+          throw new Error('This output already has a contributor');
+      }
       if (this.getSession(input.sessionId)) throw new Error('Symposium session identity conflict');
       const binding = AccountBindingSchema.parse(input.binding);
       const anchor = config.seats.find((seat) => seat.id === config.anchorSeatId);
@@ -2430,6 +2509,11 @@ export class EventStore {
         input.sessionId,
         JSON.stringify(input.profileSelections),
       );
+      if (outputBinding)
+        this.append(outputBinding.parentSessionId, 'output_contributor_created', {
+          ...outputBinding,
+          coordinatorSessionId: input.sessionId,
+        });
       return { sessionId: input.sessionId, created: true };
     }).immediate();
   }
