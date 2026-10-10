@@ -29,6 +29,21 @@ export function bindAgentLibraryTransport(connectionId: string, auth: AuthSessio
     unregister();
   };
 }
+/** Scope retained-session recovery to middleware-verified authorization, never caller JSON. */
+export async function withAgentLibraryRecoveryAuthorization<T>(
+  auth: AuthSession | undefined,
+  operation: (operatorConnectionId?: string) => Promise<T>,
+): Promise<T> {
+  if (!auth) return operation(undefined);
+  const connectionId = `agent-recovery:${randomUUID()}`;
+  const release = bindAgentLibraryTransport(connectionId, auth);
+  try {
+    captureAgentLibraryAuthorization(connectionId);
+    return await operation(connectionId);
+  } finally {
+    release();
+  }
+}
 export async function readAgentLibraryProfile(
   selection: AgentProfileSelection,
   connectionId?: string,

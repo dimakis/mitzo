@@ -17,8 +17,33 @@ import {
   bindAgentLibraryTransport,
   readAgentLibraryProfile,
   captureAgentLibraryAuthorization,
+  withAgentLibraryRecoveryAuthorization,
 } from '../agent-library-transport.js';
 const cleanups: (() => void)[] = [];
+it('scopes a recovery to its verified login and releases the binding after admission', async () => {
+  const auth = { id: 'verified-recovery', expiresAt: Date.now() + 10000 };
+  let connectionId: string | undefined;
+  await withAgentLibraryRecoveryAuthorization(auth, async (id) => {
+    connectionId = id;
+    expect(captureAgentLibraryAuthorization(id).auth).toBe(auth);
+  });
+  expect(() => captureAgentLibraryAuthorization(connectionId)).toThrow(/authentication/);
+});
+it('refuses expired recovery authorization before invoking startup and detects logout during it', async () => {
+  const operation = vi.fn(async () => {});
+  await expect(
+    withAgentLibraryRecoveryAuthorization({ id: 'expired', expiresAt: Date.now() - 1 }, operation),
+  ).rejects.toThrow(/authentication/);
+  expect(operation).not.toHaveBeenCalled();
+  await withAgentLibraryRecoveryAuthorization(
+    { id: 'active', expiresAt: Date.now() + 10000 },
+    async (id) => {
+      const captured = captureAgentLibraryAuthorization(id);
+      mocks.revoked();
+      expect(() => captured.assertCurrent()).toThrow(/revoked/);
+    },
+  );
+});
 afterEach(() => {
   cleanups.splice(0).forEach((fn) => fn());
   vi.clearAllMocks();
