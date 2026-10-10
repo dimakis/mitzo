@@ -67,6 +67,10 @@ describe('HealthMonitor', () => {
       }),
     );
 
+    expect(mockFetch).toHaveBeenCalledWith(
+      `${process.env.CONTEXGIN_URL || 'http://localhost:4195'}/health`,
+      expect.any(Object),
+    );
     monitor.destroy();
   });
 
