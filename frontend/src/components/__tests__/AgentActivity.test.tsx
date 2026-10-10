@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { ChatArea } from '../ChatArea';
@@ -36,6 +36,60 @@ const messages: FinishedMessage[] = [
     blocks: [{ blockId: 'after', blockType: 'text', content: 'Here is the answer.' }],
   },
 ];
+
+it.each(['', ' \n '])(
+  'retains excerpt sharing when a finished reply ends in blank text %j',
+  (content) => {
+    const onShareMessage = vi.fn();
+    render(
+      <MemoryRouter>
+        <ChatArea
+          {...base}
+          messages={[
+            {
+              messageId: 'shareable-reply',
+              role: 'assistant',
+              blocks: [
+                thought,
+                { blockId: 'answer', blockType: 'text', content: 'Here is the answer.' },
+                { blockId: 'blank', blockType: 'text', content },
+              ],
+            },
+          ]}
+          current={null}
+          onShareMessage={onShareMessage}
+        />
+      </MemoryRouter>,
+    );
+    expect(
+      screen.getByRole('button', { name: /Agent at work/ }).getAttribute('aria-expanded'),
+    ).toBe('false');
+    fireEvent.click(screen.getByRole('button', { name: 'Share excerpt' }));
+    expect(onShareMessage).toHaveBeenCalledWith('shareable-reply', undefined);
+  },
+);
+
+it('retains excerpt sharing for a finished message containing only blank text', () => {
+  const onShareMessage = vi.fn();
+  render(
+    <MemoryRouter>
+      <ChatArea
+        {...base}
+        messages={[
+          {
+            messageId: 'blank-reply',
+            role: 'assistant',
+            blocks: [{ blockId: 'blank', blockType: 'text', content: '' }],
+          },
+        ]}
+        current={null}
+        onShareMessage={onShareMessage}
+      />
+    </MemoryRouter>,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Share excerpt' }));
+  expect(onShareMessage).toHaveBeenCalledWith('blank-reply', undefined);
+});
 
 it('collapses mixed activity across provider messages between visible responses and reveals every detail', () => {
   render(

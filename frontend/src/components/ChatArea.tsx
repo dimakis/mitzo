@@ -377,7 +377,11 @@ export function ChatArea({
             Share excerpt
           </button>
         );
-        const last = rows.at(-1);
+        // Blank text is omitted by activity grouping, so attach controls to a
+        // retained block (or a separate row when the message is entirely blank).
+        const last = [...rows]
+          .reverse()
+          .find((row) => row.block?.blockType !== 'text' || row.block.content?.trim());
         if (last)
           last.value = (
             <>
