@@ -1,3 +1,4 @@
+import { UiIcon } from '../components/UiIcon';
 import { Link, useParams } from 'react-router-dom';
 import { useDailyQuote } from '../hooks/useDailyQuote';
 import { WorkspacePageHeading } from '../components/WorkspacePageHeading';
@@ -6,7 +7,7 @@ function SafeSourceLink({ href, children }: { href: string; children: string }) 
   if (typeof href !== 'string' || !/^https:\/\//.test(href)) return <span>{children}</span>;
   return (
     <a href={href} target="_blank" rel="noreferrer">
-      {children} <span aria-hidden="true">↗</span>
+      {children} <UiIcon name="external" size={16} />
     </a>
   );
 }
@@ -17,7 +18,7 @@ export function QuoteView() {
   return (
     <main className="workspace-page quote-page">
       <Link className="workspace-text-link" to="/">
-        ← Today
+        <UiIcon name="back" size={16} /> Today
       </Link>
       <WorkspacePageHeading eyebrow={date} title="A thought for today" />
       {loading ? (

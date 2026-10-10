@@ -57,6 +57,21 @@ function show() {
   );
 }
 describe('Today pins', () => {
+  it('keeps navigation and named reorder controls independent of appearance fonts', () => {
+    show();
+    expect(
+      screen.getByRole('link', { name: /First/ }).querySelector('svg[data-icon="forward"]'),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Manage pins' }));
+    for (const [label, icon] of [
+      ['Move Second up', 'up'],
+      ['Move First down', 'down'],
+    ]) {
+      const control = screen.getByRole('button', { name: label });
+      expect(control.querySelector(`svg[data-icon="${icon}"][aria-hidden="true"]`)).toBeTruthy();
+      expect(control.textContent?.trim()).toBe('');
+    }
+  });
   it('preserves native modal centering against the global margin reset', () => {
     const styles = readFileSync(resolve(process.cwd(), 'frontend/src/styles/home.css'), 'utf8');
     expect(styles.match(/\.home-dialog\s*\{([^}]+)\}/)?.[1]).toMatch(/margin:\s*auto\s*;/);

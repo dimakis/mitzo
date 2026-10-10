@@ -1,3 +1,4 @@
+import { UiIcon } from './UiIcon';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { HomePin } from '@mitzo/protocol';
@@ -53,7 +54,7 @@ export function HomePins({ sessions }: { sessions: Session[] }) {
               <strong>{recordTitle(pin.title)}</strong>
               <small>{pin.kind === 'session' ? 'Session' : 'Work'} · Pinned to Today</small>
             </span>
-            <span aria-hidden="true">↗</span>
+            <UiIcon name="forward" size={16} />
           </Link>
         ))
       ) : (
@@ -142,7 +143,7 @@ function PinEditor({
                     disabled={index === 0 || home.saving}
                     onClick={() => move(index, -1)}
                   >
-                    ↑
+                    <UiIcon name="up" size={16} />
                   </button>
                   <button
                     className="home-secondary"
@@ -151,7 +152,7 @@ function PinEditor({
                     disabled={index === pins.length - 1 || home.saving}
                     onClick={() => move(index, 1)}
                   >
-                    ↓
+                    <UiIcon name="down" size={16} />
                   </button>
                   <button
                     className="home-secondary"

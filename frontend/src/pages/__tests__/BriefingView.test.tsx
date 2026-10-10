@@ -66,6 +66,13 @@ afterEach(() => {
   cleanup();
   vi.clearAllMocks();
 });
+it('names the Today destination without exposing its decorative navigation icon', async () => {
+  show();
+  await screen.findByText('18:30 Meeting 9');
+  const back = screen.getByRole('link', { name: 'Today', exact: true });
+  expect(back.getAttribute('href')).toBe('/');
+  expect(back.querySelector('svg[data-icon="back"][aria-hidden="true"]')).toBeTruthy();
+});
 it('shows all ten meetings and calendar first, folds supporting Jira without deleting it', async () => {
   show();
   await screen.findByText('18:30 Meeting 9');

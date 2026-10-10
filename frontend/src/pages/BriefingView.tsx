@@ -1,3 +1,4 @@
+import { UiIcon } from '../components/UiIcon';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams, useLocation } from 'react-router-dom';
 import { useMitzoStore } from '@mitzo/client/hooks';
@@ -178,7 +179,9 @@ export function BriefingView() {
   }
   return (
     <main className="briefing-page workspace-page">
-      <Link to="/">← Today</Link>
+      <Link to="/">
+        <UiIcon name="back" size={16} /> Today
+      </Link>
       <WorkspacePageHeading
         eyebrow={date}
         title="Morning briefing"

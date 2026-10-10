@@ -610,11 +610,21 @@ test('Today details and nickname controls inherit appearance and remain usable w
       });
     }
     await inspect('today');
+    await expect(
+      page.getByRole('link', { name: 'New session', exact: true }).locator('svg[data-icon="plus"]'),
+    ).toBeVisible();
     await page.getByRole('button', { name: 'Manage pins' }).click();
     const pinPopup = page.getByRole('dialog');
     await expect(pinPopup).toBeVisible();
     const popupBounds = (await pinPopup.boundingBox())!;
     expect(popupBounds.x).toBeCloseTo((page.viewportSize()!.width - popupBounds.width) / 2, 0);
+    for (const direction of ['up', 'down']) {
+      const control = pinPopup.getByRole('button', { name: new RegExp(`^Move .* ${direction}$`) });
+      await expect(
+        control.locator(`svg[data-icon="${direction}"][aria-hidden="true"]`),
+      ).toBeVisible();
+      expect((await control.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    }
     await page.screenshot({
       path: testInfo.outputPath(`pins-${variant.theme}-${variant.font}-${variant.accent}.png`),
       animations: 'disabled',
@@ -628,9 +638,24 @@ test('Today details and nickname controls inherit appearance and remain usable w
       10,
     );
     await inspect('briefing');
-    await page.getByRole('link', { name: '← Today', exact: true }).click();
+    const briefingBack = page
+      .locator('.briefing-page')
+      .getByRole('link', { name: 'Today', exact: true });
+    await expect(briefingBack.locator('svg[data-icon="back"][aria-hidden="true"]')).toBeVisible();
+    await briefingBack.click();
     await page.getByRole('link', { name: /Quote of the day by/ }).click();
     await expect(page.getByRole('heading', { name: 'A thought for today' })).toBeVisible();
+    await expect(
+      page
+        .locator('.quote-page')
+        .getByRole('link', { name: 'Today', exact: true })
+        .locator('svg[data-icon="back"]'),
+    ).toBeVisible();
+    await expect(
+      page
+        .getByRole('link', { name: 'Read the source', exact: true })
+        .locator('svg[data-icon="external"]'),
+    ).toBeVisible();
     await inspect('quote');
     await page.goto('/settings');
     await expect(page.getByLabel('Briefing minion name')).toHaveValue('Jeeves');
