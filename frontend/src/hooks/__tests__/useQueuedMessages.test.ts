@@ -11,6 +11,7 @@ function msg(text: string): QueuedMessage {
 beforeEach(() => localStorage.clear());
 afterEach(() => {
   cleanup();
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
   localStorage.clear();
 });
@@ -592,4 +593,529 @@ it('preserves the retry fence when switching to a stored queue while legacy inde
   expect(JSON.parse(localStorage.getItem('mitzo-queue-child')!)).toMatchObject([
     { text: 'Refused input', contextBlocks: ['exact'], requiresRetry: true },
   ]);
+});
+
+it('removes only the accepted live ID when quota denied every nonempty save but reads/removals work', () => {
+  const owner = renderHook(() => useQueuedMessages('a'));
+  const write = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+    throw new DOMException('Quota exceeded', 'QuotaExceededError');
+  });
+  let accepted!: QueuedMessage;
+  act(() => {
+    accepted = owner.result.current.restoreRejected(msg('Accepted A'));
+  });
+  const image = { data: 'private-later-image', mediaType: 'image/png', preview: 'private-preview' };
+  act(() =>
+    owner.result.current.enqueue({
+      ...msg('Unsent A'),
+      contextBlocks: ['Exact later context'],
+      images: [image],
+    }),
+  );
+  const later = owner.result.current.queue[1];
+  expect(localStorage.getItem('mitzo-queue-a')).toBeNull();
+  act(() => owner.result.current.removeSubmitted(accepted));
+  expect(owner.result.current.queue).toEqual([later]);
+  expect(owner.result.current.queue[0].images).toBe(later.images);
+  write.mockRestore();
+});
+it('reconciles prior failed saves with readable stale storage when acceptance persistence can succeed', () => {
+  const owner = renderHook(() => useQueuedMessages('a'));
+  act(() => owner.result.current.enqueue(msg('Submitted draft')));
+  const original = owner.result.current.queue[0];
+  const write = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+    throw new DOMException('Quota exceeded', 'QuotaExceededError');
+  });
+  let accepted!: QueuedMessage;
+  act(() => {
+    accepted = owner.result.current.restoreRejected(original);
+  });
+  const later = {
+    ...msg('Unsent A'),
+    contextBlocks: ['Later exact context'],
+    images: [{ data: 'image', mediaType: 'image/png', preview: 'private' }],
+  };
+  act(() => owner.result.current.enqueue(later));
+  const queuedLater = owner.result.current.queue[1];
+  expect(JSON.parse(localStorage.getItem('mitzo-queue-a')!)[0].queueEntryId).toBe(
+    original.queueEntryId,
+  );
+  write.mockRestore();
+  act(() => owner.result.current.removeSubmitted(accepted));
+  expect(owner.result.current.queue).toEqual([queuedLater]);
+  expect(owner.result.current.queue[0].images).toBe(later.images);
+  expect(JSON.parse(localStorage.getItem('mitzo-queue-a')!)).toEqual([
+    {
+      text: later.text,
+      contextBlocks: later.contextBlocks,
+      queueEntryId: queuedLater.queueEntryId,
+    },
+  ]);
+});
+it('keeps the original live payload and emits no stale sibling refresh when the acknowledgement write fails', () => {
+  const owner = renderHook(() => useQueuedMessages('a'));
+  let accepted!: QueuedMessage;
+  act(() => {
+    accepted = owner.result.current.restoreRejected(msg('Accepted A'));
+  });
+  const image = { data: 'private', mediaType: 'image/png', preview: 'private' };
+  act(() =>
+    owner.result.current.enqueue({
+      ...msg('Unsent A'),
+      contextBlocks: ['Exact context'],
+      images: [image],
+    }),
+  );
+  const later = owner.result.current.queue[1];
+  const sibling = renderHook(() => useQueuedMessages('a'));
+  const stale = JSON.parse(localStorage.getItem('mitzo-queue-a')!);
+  localStorage.setItem('mitzo-queue-a', JSON.stringify([stale[0]]));
+  const events: unknown[] = [];
+  const listener = (event: Event) => events.push((event as CustomEvent).detail);
+  window.addEventListener('mitzo-queue-changed', listener);
+  const write = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+    throw new DOMException('Quota exceeded', 'QuotaExceededError');
+  });
+  const remove = vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(() => {
+    throw new DOMException('Unavailable', 'SecurityError');
+  });
+  try {
+    act(() => owner.result.current.removeSubmitted(accepted));
+    expect(owner.result.current.queue).toEqual([later]);
+    expect(owner.result.current.queue[0].images).toBe(later.images);
+    expect(sibling.result.current.queue).toHaveLength(2);
+    expect(events).toEqual([]);
+  } finally {
+    window.removeEventListener('mitzo-queue-changed', listener);
+    write.mockRestore();
+    remove.mockRestore();
+  }
+  // Restore the complete saved snapshot once storage becomes usable.
+  localStorage.setItem('mitzo-queue-a', JSON.stringify(stale));
+  act(() => owner.result.current.removeSubmitted(accepted));
+  expect(owner.result.current.queue).toEqual([later]);
+});
+it('preserves a live-only later A payload when offscreen cleanup successfully removes its readable old key', () => {
+  const origin = renderHook(({ id }) => useQueuedMessages(id, 5, null), {
+    initialProps: { id: 'a' },
+  });
+  let accepted!: QueuedMessage;
+  act(() => {
+    accepted = origin.result.current.restoreRejected(msg('Accepted A'));
+  });
+  origin.rerender({ id: 'b' });
+  act(() => origin.result.current.enqueue(msg('B work')));
+  const activeA = renderHook(() => useQueuedMessages('a'));
+  const write = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+    throw new DOMException('Quota exceeded', 'QuotaExceededError');
+  });
+  const payload = {
+    ...msg('Later A'),
+    contextBlocks: ['Exact later A'],
+    images: [{ data: 'private-image', mediaType: 'image/png', preview: 'private' }],
+  };
+  act(() => activeA.result.current.enqueue(payload));
+  const later = activeA.result.current.queue[1];
+  act(() => origin.result.current.removeSubmitted(accepted));
+  expect(activeA.result.current.queue).toEqual([later]);
+  expect(activeA.result.current.queue[0].images).toBe(payload.images);
+  expect(origin.result.current.queue).toMatchObject([msg('B work')]);
+  write.mockRestore();
+});
+
+it('merges only unsaved local work while preserving fresh same-ID fields and authoritative external deletions', () => {
+  const owner = renderHook(() => useQueuedMessages('a'));
+  let accepted!: QueuedMessage;
+  act(() => {
+    accepted = owner.result.current.restoreRejected(msg('Accepted'));
+  });
+  const image = { data: 'private-existing-image', mediaType: 'image/png', preview: 'private' };
+  act(() =>
+    owner.result.current.enqueue({
+      ...msg('Old existing'),
+      contextBlocks: ['old context'],
+      images: [image],
+    }),
+  );
+  act(() => owner.result.current.enqueue(msg('Externally removed')));
+  const existing = owner.result.current.queue[1];
+  const removed = owner.result.current.queue[2];
+  const stored = JSON.parse(localStorage.getItem('mitzo-queue-a')!);
+  const write = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+    throw new DOMException('Quota exceeded', 'QuotaExceededError');
+  });
+  const extra = {
+    ...msg('Unsaved extra'),
+    contextBlocks: ['Exact unsaved context'],
+    images: [{ data: 'private-extra-image', mediaType: 'image/png', preview: 'private' }],
+  };
+  act(() => owner.result.current.enqueue(extra));
+  const unsaved = owner.result.current.queue[3];
+  write.mockRestore();
+  const fresh = {
+    ...stored[1],
+    text: 'Fresh existing',
+    contextBlocks: ['fresh context'],
+    requiresRetry: true,
+  };
+  localStorage.setItem('mitzo-queue-a', JSON.stringify([stored[0], fresh]));
+  act(() => owner.result.current.removeSubmitted(accepted));
+  expect(owner.result.current.queue).toEqual([{ ...fresh, images: existing.images }, unsaved]);
+  expect(
+    owner.result.current.queue.some((entry) => entry.queueEntryId === removed.queueEntryId),
+  ).toBe(false);
+  expect(owner.result.current.queue[0].images).toBe(existing.images);
+  expect(owner.result.current.queue[1].images).toBe(extra.images);
+  expect(JSON.parse(localStorage.getItem('mitzo-queue-a')!)).toEqual([
+    fresh,
+    {
+      text: unsaved.text,
+      contextBlocks: unsaved.contextBlocks,
+      queueEntryId: unsaved.queueEntryId,
+    },
+  ]);
+  expect(localStorage.getItem('mitzo-queue-a')).not.toContain('private-');
+});
+it('does not publish stale A cleanup or touch B when offscreen acknowledgement persistence fails, then reconciles the exact retry', () => {
+  const origin = renderHook(({ id }) => useQueuedMessages(id, 5, null), {
+    initialProps: { id: 'a' },
+  });
+  let accepted!: QueuedMessage;
+  act(() => {
+    accepted = origin.result.current.restoreRejected(msg('Accepted A'));
+  });
+  act(() => origin.result.current.enqueue(msg('Other A')));
+  origin.rerender({ id: 'b' });
+  act(() => origin.result.current.enqueue({ ...msg('B work'), contextBlocks: ['B context'] }));
+  const activeA = renderHook(() => useQueuedMessages('a'));
+  const image = { data: 'private-later-image', mediaType: 'image/png', preview: 'private' };
+  act(() =>
+    activeA.result.current.enqueue({
+      ...msg('Later A'),
+      contextBlocks: ['Later A context'],
+      images: [image],
+    }),
+  );
+  const beforeA = activeA.result.current.queue;
+  const beforeB = origin.result.current.queue;
+  const beforeStorage = localStorage.getItem('mitzo-queue-a');
+  const events: unknown[] = [];
+  const listener = (event: Event) => events.push((event as CustomEvent).detail);
+  window.addEventListener('mitzo-queue-changed', listener);
+  const write = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+    throw new DOMException('Quota exceeded', 'QuotaExceededError');
+  });
+  try {
+    act(() => origin.result.current.removeSubmitted(accepted));
+    expect(activeA.result.current.queue).toEqual(beforeA);
+    expect(origin.result.current.queue).toEqual(beforeB);
+    expect(localStorage.getItem('mitzo-queue-a')).toBe(beforeStorage);
+    expect(events).toEqual([]);
+    write.mockRestore();
+    act(() => origin.result.current.removeSubmitted(accepted));
+    expect(events).toEqual([{ key: 'mitzo-queue-a' }]);
+    expect(activeA.result.current.queue).toEqual(
+      beforeA.filter((entry) => entry.queueEntryId !== accepted.queueEntryId),
+    );
+    expect(activeA.result.current.queue.at(-1)!.images).toBe(beforeA.at(-1)!.images);
+    expect(origin.result.current.queue).toEqual(beforeB);
+  } finally {
+    window.removeEventListener('mitzo-queue-changed', listener);
+    write.mockRestore();
+  }
+});
+it('retains unsaved assigned queue work and its exact receipt owner when promotion writes fail', () => {
+  const owner = renderHook(({ id, assignment }) => useQueuedMessages(id, 5, assignment), {
+    initialProps: {
+      id: undefined as string | undefined,
+      assignment: null as DraftSessionAssignment | null,
+    },
+  });
+  const write = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+    throw new DOMException('Quota exceeded', 'QuotaExceededError');
+  });
+  let accepted!: QueuedMessage;
+  act(() => {
+    accepted = owner.result.current.restoreRejected(msg('Assigned input'));
+  });
+  const later = {
+    ...msg('Unsent assigned work'),
+    contextBlocks: ['exact assigned context'],
+    images: [{ data: 'private-image', mediaType: 'image/png', preview: 'private' }],
+  };
+  act(() => owner.result.current.enqueue(later));
+  const queuedLater = owner.result.current.queue[1];
+  owner.rerender({
+    id: 'assigned',
+    assignment: { fromSessionId: undefined, toSessionId: 'assigned' },
+  });
+  act(() => owner.result.current.removeSubmitted(accepted));
+  expect(owner.result.current.queue).toEqual([queuedLater]);
+  write.mockRestore();
+  act(() => owner.result.current.removeSubmitted(accepted));
+  expect(owner.result.current.queue).toEqual([queuedLater]);
+  expect(JSON.parse(localStorage.getItem('mitzo-queue-assigned')!)).toEqual([
+    {
+      text: later.text,
+      contextBlocks: later.contextBlocks,
+      queueEntryId: queuedLater.queueEntryId,
+    },
+  ]);
+});
+
+it('does not revive unmounted dirty memory over a reopened owner with fresh persisted work', () => {
+  const old = renderHook(() => useQueuedMessages('a'));
+  let accepted!: QueuedMessage;
+  act(() => {
+    accepted = old.result.current.restoreRejected(msg('Accepted A'));
+  });
+  const cleanupAccepted = old.result.current.removeSubmitted;
+  const write = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+    throw new DOMException('Quota exceeded', 'QuotaExceededError');
+  });
+  act(() =>
+    old.result.current.enqueue({
+      ...msg('Obsolete unsaved old work'),
+      contextBlocks: ['Old context'],
+      images: [{ data: 'old-private-image', mediaType: 'image/png', preview: 'old' }],
+    }),
+  );
+  old.unmount();
+  write.mockRestore();
+  const reopened = renderHook(() => useQueuedMessages('a'));
+  const image = { data: 'fresh-private-image', mediaType: 'image/png', preview: 'fresh' };
+  act(() =>
+    reopened.result.current.enqueue({
+      ...msg('Fresh reopened work'),
+      contextBlocks: ['Fresh context'],
+      images: [image],
+    }),
+  );
+  const fresh = reopened.result.current.queue[1];
+  act(() => cleanupAccepted(accepted));
+  expect(reopened.result.current.queue).toEqual([fresh]);
+  expect(reopened.result.current.queue[0].images).toBe(fresh.images);
+  expect(JSON.parse(localStorage.getItem('mitzo-queue-a')!)).toEqual([
+    { text: fresh.text, contextBlocks: fresh.contextBlocks, queueEntryId: fresh.queueEntryId },
+  ]);
+});
+it('uses the successful legacy migration baseline so a later quota failure cannot resurrect the replaced original input', () => {
+  const owner = renderHook(({ id }) => useQueuedMessages(id), {
+    initialProps: { id: undefined as string | undefined },
+  });
+  act(() => owner.result.current.enqueue(msg('Original input')));
+  const original = owner.result.current.queue[0];
+  const image = { data: 'private-other-image', mediaType: 'image/png', preview: 'private' };
+  act(() =>
+    owner.result.current.enqueue({
+      ...msg('Other work'),
+      contextBlocks: ['Exact other context'],
+      images: [image],
+    }),
+  );
+  const other = owner.result.current.queue[1];
+  owner.rerender({ id: 'assigned' });
+  const write = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+    throw new DOMException('Quota exceeded', 'QuotaExceededError');
+  });
+  let accepted!: QueuedMessage;
+  act(() => {
+    accepted = owner.result.current.restoreRejected(original);
+  });
+  write.mockRestore();
+  act(() => owner.result.current.removeSubmitted(accepted));
+  expect(owner.result.current.queue).toEqual([other]);
+  expect(owner.result.current.queue[0].images).toBe(other.images);
+  expect(JSON.parse(localStorage.getItem('mitzo-queue-assigned')!)).toEqual([
+    { text: other.text, contextBlocks: other.contextBlocks, queueEntryId: other.queueEntryId },
+  ]);
+  expect(localStorage.getItem('mitzo-queue-new')).toBeNull();
+});
+
+it('reconciles fresh stored fields and deletions when only the first acknowledgement write fails', () => {
+  const owner = renderHook(() => useQueuedMessages('a'));
+  let accepted!: QueuedMessage;
+  act(() => {
+    accepted = owner.result.current.restoreRejected(msg('Accepted A'));
+  });
+  const image = { data: 'private-existing', mediaType: 'image/png', preview: 'private' };
+  act(() =>
+    owner.result.current.enqueue({
+      ...msg('Old existing'),
+      contextBlocks: ['old context'],
+      images: [image],
+    }),
+  );
+  act(() => owner.result.current.enqueue(msg('Externally deleted')));
+  const existing = owner.result.current.queue[1];
+  const stored = JSON.parse(localStorage.getItem('mitzo-queue-a')!);
+  const fresh = {
+    ...stored[1],
+    text: 'Fresh existing',
+    contextBlocks: ['fresh context'],
+    requiresRetry: true,
+  };
+  const external = {
+    text: 'Fresh external',
+    contextBlocks: ['external context'],
+    queueEntryId: '8bdf6d2f-f2fa-424d-8c31-70da1b499a31',
+  };
+  localStorage.setItem('mitzo-queue-a', JSON.stringify([stored[0], fresh, external]));
+  const write = vi.spyOn(Storage.prototype, 'setItem').mockImplementationOnce(() => {
+    throw new DOMException('Quota exceeded', 'QuotaExceededError');
+  });
+  act(() => owner.result.current.removeSubmitted(accepted));
+  expect(write).toHaveBeenCalledTimes(2);
+  expect(owner.result.current.queue).toEqual([
+    { ...fresh, images: existing.images },
+    { ...external, images: [] },
+  ]);
+  expect(owner.result.current.queue[0].images).toBe(existing.images);
+  expect(JSON.parse(localStorage.getItem('mitzo-queue-a')!)).toEqual([fresh, external]);
+});
+it('preserves anonymous legacy entry occurrences when quota clears before exact acceptance', () => {
+  const anonymous = { text: 'Same legacy input', contextBlocks: ['same context'] };
+  localStorage.setItem('mitzo-queue-a', JSON.stringify([anonymous, anonymous]));
+  const owner = renderHook(() => useQueuedMessages('a'));
+  const write = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+    throw new DOMException('Quota exceeded', 'QuotaExceededError');
+  });
+  let accepted!: QueuedMessage;
+  act(() => {
+    accepted = owner.result.current.restoreRejected(owner.result.current.dequeue()!);
+  });
+  expect(owner.result.current.queue).toHaveLength(2);
+  write.mockRestore();
+  act(() => owner.result.current.removeSubmitted(accepted));
+  expect(owner.result.current.queue).toEqual([{ ...anonymous, images: [] }]);
+  expect(JSON.parse(localStorage.getItem('mitzo-queue-a')!)).toEqual([anonymous]);
+});
+
+it('reconciles the old key before navigating when quota clears after acknowledgement and effect writes failed', () => {
+  const owner = renderHook(({ id }) => useQueuedMessages(id, 5, null), {
+    initialProps: { id: 'a' },
+  });
+  let accepted!: QueuedMessage;
+  act(() => {
+    accepted = owner.result.current.restoreRejected(msg('Accepted A'));
+  });
+  act(() => owner.result.current.enqueue({ ...msg('Old A'), contextBlocks: ['old context'] }));
+  act(() => owner.result.current.enqueue(msg('Externally deleted A')));
+  const stored = JSON.parse(localStorage.getItem('mitzo-queue-a')!);
+  const fresh = {
+    ...stored[1],
+    text: 'Fresh A',
+    contextBlocks: ['fresh context'],
+    requiresRetry: true,
+  };
+  localStorage.setItem('mitzo-queue-a', JSON.stringify([stored[0], fresh]));
+  const write = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+    throw new DOMException('Quota exceeded', 'QuotaExceededError');
+  });
+  act(() => owner.result.current.removeSubmitted(accepted));
+  expect(owner.result.current.queue.map((entry) => entry.text)).toEqual([
+    'Old A',
+    'Externally deleted A',
+  ]);
+  write.mockRestore();
+  owner.rerender({ id: 'b' });
+  expect(owner.result.current.queue).toEqual([]);
+  expect(JSON.parse(localStorage.getItem('mitzo-queue-a')!)).toEqual([fresh]);
+  act(() => owner.result.current.enqueue({ ...msg('B work'), contextBlocks: ['B context'] }));
+  expect(owner.result.current.queue).toMatchObject([
+    { ...msg('B work'), contextBlocks: ['B context'] },
+  ]);
+  const reopened = renderHook(() => useQueuedMessages('a'));
+  expect(reopened.result.current.queue).toEqual([{ ...fresh, images: [] }]);
+});
+it('excludes the exact accepted ID when writes succeeded but verification reads previously failed', () => {
+  const owner = renderHook(() => useQueuedMessages('a'));
+  const set = Storage.prototype.setItem;
+  const get = Storage.prototype.getItem;
+  let verificationPending = false;
+  let failVerification = true;
+  vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key, value) {
+    set.call(this, key, value);
+    if (failVerification) verificationPending = true;
+  });
+  vi.spyOn(Storage.prototype, 'getItem').mockImplementation(function (this: Storage, key) {
+    if (verificationPending) {
+      verificationPending = false;
+      throw new DOMException('Read unavailable', 'SecurityError');
+    }
+    return get.call(this, key);
+  });
+  let accepted!: QueuedMessage;
+  act(() => {
+    accepted = owner.result.current.restoreRejected(msg('Accepted A'));
+  });
+  const image = { data: 'private-later-image', mediaType: 'image/png', preview: 'private' };
+  act(() =>
+    owner.result.current.enqueue({
+      ...msg('Other A'),
+      contextBlocks: ['Exact other context'],
+      images: [image],
+    }),
+  );
+  const other = owner.result.current.queue[1];
+  const stored = JSON.parse(get.call(localStorage, 'mitzo-queue-a')!);
+  expect(stored).toHaveLength(2);
+  // An exact accepted ID must also beat fresh edits to that same stored row.
+  set.call(
+    localStorage,
+    'mitzo-queue-a',
+    JSON.stringify([
+      {
+        ...stored[0],
+        text: 'Fresh edit of the accepted row',
+        contextBlocks: ['fresh accepted context'],
+      },
+      stored[1],
+    ]),
+  );
+  failVerification = false;
+  act(() => owner.result.current.removeSubmitted(accepted));
+  expect(owner.result.current.queue).toEqual([other]);
+  expect(owner.result.current.queue[0].images).toBe(other.images);
+  expect(JSON.parse(localStorage.getItem('mitzo-queue-a')!)).toEqual([
+    { text: other.text, contextBlocks: other.contextBlocks, queueEntryId: other.queueEntryId },
+  ]);
+});
+
+it('promotes the reconciled source after quota clears without copying stale fields into the assigned destination', () => {
+  const owner = renderHook(({ id, assignment }) => useQueuedMessages(id, 5, assignment), {
+    initialProps: { id: 'a', assignment: null as DraftSessionAssignment | null },
+  });
+  let accepted!: QueuedMessage;
+  act(() => {
+    accepted = owner.result.current.restoreRejected(msg('Accepted A'));
+  });
+  const image = { data: 'private-other-image', mediaType: 'image/png', preview: 'private' };
+  act(() =>
+    owner.result.current.enqueue({
+      ...msg('Old A'),
+      contextBlocks: ['old context'],
+      images: [image],
+    }),
+  );
+  act(() => owner.result.current.enqueue(msg('Externally deleted A')));
+  const other = owner.result.current.queue[1];
+  const stored = JSON.parse(localStorage.getItem('mitzo-queue-a')!);
+  const fresh = {
+    ...stored[1],
+    text: 'Fresh A',
+    contextBlocks: ['fresh context'],
+    requiresRetry: true,
+  };
+  localStorage.setItem('mitzo-queue-a', JSON.stringify([stored[0], fresh]));
+  const write = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+    throw new DOMException('Quota exceeded', 'QuotaExceededError');
+  });
+  act(() => owner.result.current.removeSubmitted(accepted));
+  write.mockRestore();
+  owner.rerender({ id: 'assigned', assignment: { fromSessionId: 'a', toSessionId: 'assigned' } });
+  expect(owner.result.current.queue).toEqual([{ ...fresh, images: other.images }]);
+  expect(owner.result.current.queue[0].images).toBe(other.images);
+  expect(JSON.parse(localStorage.getItem('mitzo-queue-assigned')!)).toEqual([fresh]);
+  expect(localStorage.getItem('mitzo-queue-a')).toBeNull();
 });
