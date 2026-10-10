@@ -1,10 +1,14 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import type { ImageAttachment } from '../types/chat';
+import type { DraftSessionAssignment } from './useDraft';
 
 const KEY_PREFIX = 'mitzo-queue-';
+const QUEUE_CHANGED_EVENT = 'mitzo-queue-changed';
 
 export interface QueuedMessage {
-  /** Definitive refusal is recoverable only through an explicit operator retry. */
+  /** Internal identity of one queue entry, independent of its text. */
+  queueEntryId?: string;
+  /** Submitted or refused input must never resume automatic queue drain. */
   requiresRetry?: boolean;
   text: string;
   images: ImageAttachment[];
@@ -13,6 +17,7 @@ export interface QueuedMessage {
 
 /** Stored shape omits images — base64 data is too large for localStorage. */
 interface StoredMessage {
+  queueEntryId?: string;
   requiresRetry?: boolean;
   text: string;
   contextBlocks: string[];
@@ -23,19 +28,21 @@ function queueKey(sessionId: string | undefined): string {
 }
 
 function toStored(msgs: QueuedMessage[]): StoredMessage[] {
-  return msgs.map(({ text, contextBlocks, requiresRetry }) => ({
+  return msgs.map(({ text, contextBlocks, requiresRetry, queueEntryId }) => ({
     text,
     contextBlocks,
     ...(requiresRetry ? { requiresRetry: true } : {}),
+    ...(queueEntryId ? { queueEntryId } : {}),
   }));
 }
 
 function fromStored(msgs: StoredMessage[]): QueuedMessage[] {
-  return msgs.map(({ text, contextBlocks, requiresRetry }) => ({
+  return msgs.map(({ text, contextBlocks, requiresRetry, queueEntryId }) => ({
     text,
     contextBlocks,
     images: [],
     ...(requiresRetry ? { requiresRetry: true } : {}),
+    ...(typeof queueEntryId === 'string' ? { queueEntryId } : {}),
   }));
 }
 
@@ -67,17 +74,35 @@ function saveQueue(sessionId: string | undefined, queue: QueuedMessage[]): void 
 export function useQueuedMessages(
   sessionId: string | undefined,
   maxQueued: number = 5,
+  // Legacy callers omit this; composers pass null until an exact assignment arrives.
+  assignment?: DraftSessionAssignment | null,
 ): {
   queue: QueuedMessage[];
   enqueue: (msg: QueuedMessage) => boolean;
   dequeue: () => QueuedMessage | undefined;
-  restoreRejected: (msg: QueuedMessage) => void;
+  restoreRejected: (msg: QueuedMessage) => QueuedMessage;
+  removeSubmitted: (msg: QueuedMessage) => void;
   remove: (index: number) => void;
   edit: (index: number) => QueuedMessage | undefined;
 } {
   const [queue, setQueueRaw] = useState<QueuedMessage[]>(() => loadQueue(sessionId));
   const queueRef = useRef(queue);
   const sessionRef = useRef(sessionId);
+  const submittedOwners = useRef(new Map<string, string | undefined>());
+  const suppressOwnEvent = useRef(false);
+
+  useEffect(() => {
+    const changed = (event: Event) => {
+      if (suppressOwnEvent.current) return;
+      if ((event as CustomEvent<{ key: string }>).detail?.key !== queueKey(sessionRef.current))
+        return;
+      const restored = loadQueue(sessionRef.current);
+      queueRef.current = restored;
+      setQueueRaw(restored);
+    };
+    window.addEventListener(QUEUE_CHANGED_EVENT, changed);
+    return () => window.removeEventListener(QUEUE_CHANGED_EVENT, changed);
+  }, []);
 
   // Keep ref in sync with state
   useEffect(() => {
@@ -96,7 +121,27 @@ export function useQueuedMessages(
     if (prev === sessionId) return;
 
     saveQueue(prev, queueRef.current);
-    if (prev !== undefined || sessionId === undefined) {
+    if (assignment && assignment.fromSessionId === prev && assignment.toSessionId === sessionId) {
+      // Keep submitted object identity (including images) for its eventual
+      // receipt. Existing destination work must survive the transfer too.
+      const destination = loadQueue(sessionId);
+      for (const entry of queueRef.current)
+        if (entry.queueEntryId && submittedOwners.current.has(entry.queueEntryId))
+          submittedOwners.current.set(entry.queueEntryId, sessionId);
+      const promoted = destination.length
+        ? [...destination, ...queueRef.current]
+        : queueRef.current;
+      queueRef.current = promoted;
+      setQueueRaw(promoted);
+      saveQueue(sessionId, promoted);
+      try {
+        localStorage.removeItem(queueKey(prev));
+      } catch {
+        /* Optional storage. */
+      }
+      return;
+    }
+    if (prev !== undefined || sessionId === undefined || assignment !== undefined) {
       const restored = loadQueue(sessionId);
       queueRef.current = restored;
       setQueueRaw(restored);
@@ -121,12 +166,14 @@ export function useQueuedMessages(
     } catch {
       // ignore
     }
-  }, [sessionId]);
+  }, [sessionId, assignment]);
 
   const enqueue = useCallback(
     (msg: QueuedMessage): boolean => {
       if (queueRef.current.length >= maxQueued) return false;
-      setQueueRaw((prev) => [...prev, msg]);
+      const next = [...queueRef.current, { ...msg, queueEntryId: crypto.randomUUID() }];
+      queueRef.current = next;
+      setQueueRaw(next);
       return true;
     },
     [maxQueued],
@@ -136,25 +183,77 @@ export function useQueuedMessages(
     const current = queueRef.current;
     if (current.length === 0 || current[0].requiresRetry) return undefined;
     const item = current[0];
-    setQueueRaw((prev) => prev.slice(1));
+    queueRef.current = current.slice(1);
+    setQueueRaw(queueRef.current);
     return item;
   }, []);
 
   // Return already-submitted input without discarding it when the ordinary queue is full.
   const restoreRejected = useCallback((msg: QueuedMessage) => {
-    setQueueRaw((prev) => [...prev, { ...msg, requiresRetry: true }]);
+    const retained = { ...msg, requiresRetry: true, queueEntryId: crypto.randomUUID() };
+    submittedOwners.current.set(retained.queueEntryId, sessionRef.current);
+    const next = [...queueRef.current.filter((item) => item !== msg), retained];
+    queueRef.current = next;
+    // The fence must exist before the caller dispatches its command, even if
+    // the page disappears before React's persistence effect can commit.
+    saveQueue(sessionRef.current, next);
+    setQueueRaw(next);
+    return retained;
+  }, []);
+
+  const removeSubmitted = useCallback((msg: QueuedMessage) => {
+    const id = msg.queueEntryId;
+    if (!id || !submittedOwners.current.has(id)) return;
+    const owner = submittedOwners.current.get(id);
+    const key = queueKey(owner);
+    // A receipt may arrive after navigation or unmount. Reread the owner's
+    // storage and remove only its exact entry; never write a captured queue back.
+    try {
+      const parsed: unknown = JSON.parse(localStorage.getItem(key) ?? '[]');
+      if (!Array.isArray(parsed)) return;
+      const remaining = parsed.filter((entry: StoredMessage) => entry.queueEntryId !== id);
+      if (sessionRef.current === owner) {
+        const liveById = new Map(queueRef.current.map((entry) => [entry.queueEntryId, entry]));
+        const restored = fromStored(remaining).map((entry) => ({
+          ...entry,
+          images: entry.queueEntryId ? (liveById.get(entry.queueEntryId)?.images ?? []) : [],
+        }));
+        queueRef.current = restored;
+        setQueueRaw(restored);
+      }
+      if (remaining.length) localStorage.setItem(key, JSON.stringify(remaining));
+      else localStorage.removeItem(key);
+      submittedOwners.current.delete(id);
+      suppressOwnEvent.current = true;
+      try {
+        window.dispatchEvent(new CustomEvent(QUEUE_CHANGED_EVENT, { detail: { key } }));
+      } finally {
+        suppressOwnEvent.current = false;
+      }
+    } catch {
+      // Browser storage remains optional; remove only the exact active entry.
+      if (sessionRef.current === owner) {
+        queueRef.current = queueRef.current.filter((item) => item.queueEntryId !== id);
+        setQueueRaw(queueRef.current);
+      }
+    }
   }, []);
 
   const remove = useCallback((index: number) => {
-    setQueueRaw((prev) => prev.filter((_, i) => i !== index));
+    const id = queueRef.current[index]?.queueEntryId;
+    if (id) submittedOwners.current.delete(id);
+    queueRef.current = queueRef.current.filter((_, i) => i !== index);
+    setQueueRaw(queueRef.current);
   }, []);
 
   const edit = useCallback((index: number): QueuedMessage | undefined => {
     const item = queueRef.current[index];
     if (!item) return undefined;
-    setQueueRaw((prev) => prev.filter((_, i) => i !== index));
+    if (item.queueEntryId) submittedOwners.current.delete(item.queueEntryId);
+    queueRef.current = queueRef.current.filter((_, i) => i !== index);
+    setQueueRaw(queueRef.current);
     return item;
   }, []);
 
-  return { queue, enqueue, dequeue, restoreRejected, remove, edit };
+  return { queue, enqueue, dequeue, restoreRejected, removeSubmitted, remove, edit };
 }

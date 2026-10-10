@@ -165,7 +165,7 @@ public actor MitzoWSClient {
     private func processServerMessage(_ message: ServerMessage) async {
         // Update seq if present
         switch message {
-        case .sessionId(let sessionId, let seq, _):
+        case .sessionId(let sessionId, let seq, _, _):
             if let seq = seq {
                 updateSeq(sessionId: sessionId, seq: seq)
             }

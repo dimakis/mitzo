@@ -95,18 +95,38 @@ vi.mock('../../components/ChatInput', () => ({
     onSend,
     onStop,
     running,
+    composerGeneration,
   }: {
     externalContextBlocks?: string[];
     sendDisabledReason?: string;
     onStop: () => void;
     running: boolean;
-    onSend: (text: string) => boolean;
+    composerGeneration?: number;
+    onSend: (
+      text: string,
+      images?: never[],
+      context?: string[],
+      receipt?: (status: 'accepted' | 'failed' | 'uncertain') => void,
+      assigned?: (id: string) => void,
+    ) => boolean;
   }) => (
     <div data-testid="chat-input">
       <span>{sendDisabledReason}</span>
       <span data-testid="composer-running">{String(running)}</span>
+      <span data-testid="composer-generation">{composerGeneration}</span>
       <button onClick={onStop}>Test Stop</button>
-      <button disabled={!!sendDisabledReason} onClick={() => onSend('hello')}>
+      <button
+        disabled={!!sendDisabledReason}
+        onClick={() =>
+          onSend(
+            'hello',
+            undefined,
+            undefined,
+            () => {},
+            () => {},
+          )
+        }
+      >
         Test send
       </button>
       external: {externalContextBlocks ? externalContextBlocks.length : 'none'}
@@ -262,6 +282,21 @@ function renderWithRouter(sessionId?: string) {
 }
 
 describe('DesktopChatView', () => {
+  it('passes genuine draft resets to the composer independently of session assignment', () => {
+    const store = createMockStore();
+    store.setState({ chatDraftRevision: 3 });
+    render(
+      <MemoryRouter>
+        <MitzoStoreProvider value={store}>
+          <DesktopChatView />
+        </MitzoStoreProvider>
+      </MemoryRouter>,
+    );
+    expect(screen.getByTestId('composer-generation').textContent).toBe('3');
+    act(() => store.setState({ chatDraftRevision: 4 }));
+    expect(screen.getByTestId('composer-generation').textContent).toBe('4');
+  });
+
   it('updates web-search consent when the connection ID changes without a status change', () => {
     const store = createMockStore();
     store.setState({
@@ -409,7 +444,12 @@ it('uses the account catalog on desktop and sends the explicit subscription choi
   fireEvent.click(screen.getByText('Test send'));
   expect(store.getState().sendMessage).toHaveBeenCalledWith(
     'hello',
-    expect.objectContaining({ accountId: 'personal', model: 'luna' }),
+    expect.objectContaining({
+      accountId: 'personal',
+      model: 'luna',
+      onDelivery: expect.any(Function),
+      onSessionAssigned: expect.any(Function),
+    }),
   );
 });
 

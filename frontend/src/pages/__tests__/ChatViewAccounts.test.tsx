@@ -96,18 +96,38 @@ vi.mock('../../components/ChatInput', () => ({
     onStop,
     running,
     sendDisabledReason,
+    composerGeneration,
   }: {
     initialText?: string;
     onStop: () => void;
     running: boolean;
-    onSend?: (text: string) => boolean;
+    onSend?: (
+      text: string,
+      images?: never[],
+      context?: string[],
+      receipt?: (status: 'accepted' | 'failed' | 'uncertain') => void,
+      assigned?: (id: string) => void,
+    ) => boolean;
     sendDisabledReason?: string;
+    composerGeneration?: number;
   }) => (
     <>
       <div data-testid="draft">{initialText}</div>
       <span data-testid="composer-running">{String(running)}</span>
+      <span data-testid="composer-generation">{composerGeneration}</span>
       <button onClick={onStop}>Test Stop</button>
-      <button disabled={!!sendDisabledReason} onClick={() => onSend?.('hello')}>
+      <button
+        disabled={!!sendDisabledReason}
+        onClick={() =>
+          onSend?.(
+            'hello',
+            undefined,
+            undefined,
+            () => {},
+            () => {},
+          )
+        }
+      >
         Test send
       </button>
     </>
@@ -118,6 +138,21 @@ afterEach(() => {
   sessionStorage.clear();
   localStorage.clear();
   vi.resetAllMocks();
+});
+
+it('passes genuine draft resets to the composer independently of session assignment', () => {
+  const store = createTestStore();
+  store.setState({ chatDraftRevision: 3 });
+  render(
+    <MitzoStoreProvider value={store}>
+      <MemoryRouter>
+        <ChatView />
+      </MemoryRouter>
+    </MitzoStoreProvider>,
+  );
+  expect(screen.getByTestId('composer-generation').textContent).toBe('3');
+  act(() => store.setState({ chatDraftRevision: 4 }));
+  expect(screen.getByTestId('composer-generation').textContent).toBe('4');
 });
 
 it('keeps the reviewed briefing account locked and labels the rich chat with the configured minion name', async () => {
@@ -744,6 +779,13 @@ it.each([true, false])(
     fireEvent.click(await screen.findByRole('button', { name: 'Use Work · Sonnet' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Ready repository launch' }));
     fireEvent.click(screen.getByRole('button', { name: 'Test send' }));
+    expect(sendMessage).toHaveBeenCalledWith(
+      'hello',
+      expect.objectContaining({
+        onDelivery: expect.any(Function),
+        onSessionAssigned: expect.any(Function),
+      }),
+    );
     expect(sessionStorage.getItem(key)).toBe(receipt);
     act(() =>
       store.setState({ sessions: { ...store.getState().sessions, active: 'assigned-chat' } }),

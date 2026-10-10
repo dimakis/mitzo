@@ -3197,36 +3197,74 @@ it('confirms a WebSocket launch from its matching persisted user message', () =>
   expect(onDelivery).toHaveBeenCalledExactlyOnceWith('accepted');
 });
 
-it.each(['unassigned', 'assigned'] as const)(
-  'rejects a foreign same-ID echo for an %s observed ordinary send',
-  async (assignment) => {
+it.each(['foreground', 'offscreen'] as const)(
+  'binds an unassigned send only through its scoped exact initial echo while %s',
+  async (scope) => {
     const store = createReadyStore();
-    if (assignment === 'assigned') await store.getState().switchSession('target');
     const onDelivery = vi.fn();
-    store.getState().sendMessage('Exact draft', { onDelivery });
+    const onSessionAssigned = vi.fn();
+    store.getState().sendMessage('Initial draft', { onDelivery, onSessionAssigned });
     const id = store.getState().messages.messages.at(-1)!.messageId;
+    const initialSocket = lastWs;
     lastWs.simulateMessage({ type: '_send_uncertain', clientMsgId: id });
-    expect(onDelivery).toHaveBeenCalledExactlyOnceWith('uncertain');
+    lastWs.simulateMessage({ type: 'user_message', messageId: id, text: 'Initial draft' });
     lastWs.simulateMessage({
       type: 'user_message',
-      sessionId: 'foreign',
-      messageId: id,
-      text: 'Exact draft',
+      sessionId: 'unrelated',
+      messageId: 'different',
+      text: 'Other input',
     });
     expect(onDelivery).toHaveBeenCalledExactlyOnceWith('uncertain');
-    lastWs.simulateMessage({ type: 'user_message', messageId: id, text: 'Exact draft' });
-    expect(onDelivery).toHaveBeenCalledExactlyOnceWith('uncertain');
-    if (assignment === 'unassigned')
-      lastWs.simulateMessage({ type: 'session_id', sessionId: 'target', clientMsgId: id });
-    const echo = { type: 'user_message', sessionId: 'target', messageId: id, text: 'Exact draft' };
+    expect(onSessionAssigned).not.toHaveBeenCalled();
+    expect(store.getState().sessions.active).toBeNull();
+    if (scope === 'offscreen') await store.getState().switchSession('other-chat');
+    const echo = {
+      type: 'user_message',
+      sessionId: 'target',
+      messageId: id,
+      text: 'Initial draft',
+    };
     lastWs.simulateMessage(echo);
     lastWs.simulateMessage(echo);
+    lastWs.simulateMessage({ type: 'session_id', sessionId: 'target', clientMsgId: id });
+    expect(onSessionAssigned).toHaveBeenCalledExactlyOnceWith('target');
     expect(onDelivery.mock.calls).toEqual([['uncertain'], ['accepted']]);
-    expect(lastWs.parsedSent().filter((m) => m.type === 'send')).toEqual([
-      expect.objectContaining({ clientMsgId: id, prompt: 'Exact draft' }),
-    ]);
+    expect(store.getState().sessions.active).toBe(scope === 'foreground' ? 'target' : 'other-chat');
+    expect(store.getState().messages.messages.some((m) => m.messageId === id)).toBe(
+      scope === 'foreground',
+    );
+    const sockets = [...new Set([initialSocket, lastWs])];
+    expect(
+      sockets.flatMap((socket) => socket.parsedSent()).filter((m) => m.type === 'send'),
+    ).toEqual([expect.objectContaining({ clientMsgId: id, prompt: 'Initial draft' })]);
   },
 );
+
+it('rejects a foreign same-ID echo for an assigned observed ordinary send', async () => {
+  const store = createReadyStore();
+  await store.getState().switchSession('target');
+  const onDelivery = vi.fn();
+  store.getState().sendMessage('Exact draft', { onDelivery });
+  const id = store.getState().messages.messages.at(-1)!.messageId;
+  lastWs.simulateMessage({ type: '_send_uncertain', clientMsgId: id, sessionId: 'target' });
+  expect(onDelivery).toHaveBeenCalledExactlyOnceWith('uncertain');
+  lastWs.simulateMessage({
+    type: 'user_message',
+    sessionId: 'foreign',
+    messageId: id,
+    text: 'Exact draft',
+  });
+  expect(onDelivery).toHaveBeenCalledExactlyOnceWith('uncertain');
+  lastWs.simulateMessage({ type: 'user_message', messageId: id, text: 'Exact draft' });
+  expect(onDelivery).toHaveBeenCalledExactlyOnceWith('uncertain');
+  const echo = { type: 'user_message', sessionId: 'target', messageId: id, text: 'Exact draft' };
+  lastWs.simulateMessage(echo);
+  lastWs.simulateMessage(echo);
+  expect(onDelivery.mock.calls).toEqual([['uncertain'], ['accepted']]);
+  expect(lastWs.parsedSent().filter((m) => m.type === 'send')).toEqual([
+    expect.objectContaining({ clientMsgId: id, prompt: 'Exact draft' }),
+  ]);
+});
 
 it('rejects foreign same-ID history and accepts the original ordinary send transcript once', async () => {
   const transport = mockTransport();

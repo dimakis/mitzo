@@ -403,13 +403,14 @@ func testSessionControlRejectionCodeRoundTrip(control: String) throws {
     let encoded = try JSONEncoder().encode(original)
     let decoded = try JSONDecoder().decode(ServerMessage.self, from: encoded)
 
-    guard case .sessionId(let sid, let seq, let ts) = decoded else {
+    guard case .sessionId(let sid, let seq, let ts, let clientMsgId) = decoded else {
         Issue.record("Expected session_id after round-trip")
         return
     }
     #expect(sid == "s-new")
     #expect(seq == 0)
     #expect(ts == 1714070400)
+    #expect(clientMsgId == nil)
 }
 
 @Test func testPermissionRequestRoundTrip() throws {
@@ -674,5 +675,19 @@ func testSessionControlRejectedCommandReceiptRoundTrip(control: String) throws {
             Issue.record("Expected nonterminal typed rejection after relay")
             continue
         }
+    }
+}
+
+@Test(arguments: [
+    "{\"type\":\"user_message\",\"sessionId\":\"child\",\"messageId\":\"send-47\",\"text\":\"retained input\"}",
+    "{\"type\":\"session_id\",\"sessionId\":\"assigned\",\"clientMsgId\":\"send-47\"}",
+    "{\"type\":\"native_command_result\",\"sessionId\":null,\"clientMsgId\":\"send-47\",\"command\":\"skills\",\"content\":\"Available skills\"}"
+]) func testWatchSendReceiptRelayPreservesCorrelation(json: String) throws {
+    let literal = Data(json.utf8)
+    let message = try JSONDecoder().decode(ServerMessage.self, from: literal)
+    let relayed = try JSONSerialization.jsonObject(with: JSONEncoder().encode(message)) as! [String: Any]
+    let original = try JSONSerialization.jsonObject(with: literal) as! [String: Any]
+    for key in ["sessionId", "clientMsgId", "messageId", "text", "command", "content"] {
+        #expect((relayed[key] as? NSObject) == (original[key] as? NSObject))
     }
 }

@@ -10,6 +10,12 @@ import {
 const KEY_PREFIX = 'mitzo-draft-';
 const DEBOUNCE_MS = 400;
 
+/** Exact ordinary command assignment reported by the authenticated client store. */
+export interface DraftSessionAssignment {
+  fromSessionId: string | undefined;
+  toSessionId: string;
+}
+
 function draftKey(sessionId: string | undefined): string {
   return `${KEY_PREFIX}${sessionId ?? 'new'}`;
 }
@@ -37,6 +43,8 @@ export function useDraft(
   sessionId: string | undefined,
   initialText?: string,
   draftStorageKey?: string,
+  // Legacy callers omit this; composers pass null until an exact assignment arrives.
+  assignment?: DraftSessionAssignment | null,
 ): [string, Dispatch<SetStateAction<string>>, () => void, () => void] {
   const key = draftStorageKey ?? draftKey(sessionId);
   const scoped = draftStorageKey !== undefined;
@@ -49,7 +57,7 @@ export function useDraft(
   const dirty = useRef(false);
   const mountedRef = useRef(false);
 
-  // Only assignment of the unassigned draft transfers ownership. Navigation
+  // Only an ordinary assignment transfers ownership. Navigation
   // keeps the previous conversation's draft and loads the destination's own.
   useEffect(() => {
     const previous = storageRef.current;
@@ -62,8 +70,10 @@ export function useDraft(
     const assigningOrdinaryDraft =
       !previous.scoped &&
       !scoped &&
-      previous.key === draftKey(undefined) &&
-      sessionId !== undefined;
+      sessionId !== undefined &&
+      ((assignment === undefined && previous.key === draftKey(undefined)) ||
+        (assignment?.toSessionId === sessionId &&
+          previous.key === draftKey(assignment.fromSessionId)));
     if (!assigningOrdinaryDraft) {
       storageRef.current = { key, scoped };
       const restored = readDraft(key, initialText, scoped);
@@ -93,7 +103,7 @@ export function useDraft(
     } catch {
       // localStorage unavailable — ignore
     }
-  }, [key, scoped, initialText, sessionId]);
+  }, [key, scoped, initialText, sessionId, assignment]);
 
   // Debounced save to localStorage on text change (skip initial render)
   useEffect(() => {

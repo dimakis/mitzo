@@ -3143,7 +3143,15 @@ test('rejected ordinary Stop preserves the live reply and queued image until ser
       const message = JSON.parse(String(raw));
       if (message.type === 'hello')
         emit({ type: 'welcome', protocolVersion: 2, connectionId: 'offline-child' });
-      if (message.type === 'send') sent.push(message);
+      if (message.type === 'send') {
+        sent.push(message);
+        emit({
+          type: 'user_message',
+          sessionId,
+          messageId: message.clientMsgId,
+          text: message.prompt,
+        });
+      }
       if (message.type === 'switch_session') {
         emit({ type: 'session_switched', sessionId, mode: 'agent' });
         emit({ type: 'session_state_changed', sessionId, state: 'running' });
@@ -3270,6 +3278,13 @@ test('rejected running Enter recovers exact input without overwriting newer draf
       if (message.type === 'hello')
         emit({ type: 'welcome', protocolVersion: 2, connectionId: 'offline-interrupt' });
       if (message.type === 'send' || message.type === 'interrupt') sent.push(message);
+      if (message.type === 'send')
+        emit({
+          type: 'user_message',
+          sessionId,
+          messageId: message.clientMsgId,
+          text: message.prompt,
+        });
       if (message.type === 'switch_session') {
         emit({ type: 'session_switched', sessionId, mode: 'agent' });
         emit({ type: 'session_state_changed', sessionId, state: 'running' });
@@ -3390,4 +3405,105 @@ test('rejected running Enter recovers exact input without overwriting newer draf
     });
   }
   expect(sent).toHaveLength(2);
+});
+
+test('rejected idle ordinary Send keeps attachments and an explicit retry without replacing newer input', async ({
+  page,
+  isMobile,
+}, testInfo) => {
+  await page.setViewportSize({ width: isMobile ? 320 : 1280, height: 900 });
+  const sessionId = 'idle-owned-child';
+  const sent: Record<string, unknown>[] = [];
+  let emit!: (message: Record<string, unknown>) => void;
+  await page.routeWebSocket('**/*', (socket) => {
+    emit = (message) => socket.send(JSON.stringify(message));
+    socket.onMessage((raw) => {
+      const message = JSON.parse(String(raw));
+      if (message.type === 'hello')
+        emit({ type: 'welcome', protocolVersion: 2, connectionId: 'offline-idle-child' });
+      if (message.type === 'switch_session') {
+        emit({ type: 'session_switched', sessionId, mode: 'agent' });
+        emit({ type: 'session_state_changed', sessionId, state: 'idle' });
+      }
+      if (message.type === 'send') sent.push(message);
+    });
+  });
+  await page.route('**/api/**', async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === `/api/sessions/${sessionId}/messages`) return route.fulfill({ json: [] });
+    if (path === `/api/sessions/${sessionId}/meta`)
+      return route.fulfill({
+        json: {
+          sessionType: 'chat',
+          accountBinding: {
+            accountId: 'work-account',
+            accountLabel: 'Work OpenAI',
+            model: 'luna-fixture',
+          },
+          modelSelection: {
+            model: 'luna-fixture',
+            models: [{ id: 'luna-fixture', label: 'Luna fixture' }],
+          },
+        },
+      });
+    if (path === `/api/sessions/${sessionId}/symposium/status`)
+      return route.fulfill({ json: { sessionId, config: null, seats: [] } });
+    return route.fallback();
+  });
+  await page.goto(`/chat/${sessionId}`);
+  const draft = page.getByRole('textbox', { name: 'Message Mitzo', exact: true });
+  await draft.fill('Exact refused ordinary input');
+  await page.locator('input[type=file]').setInputFiles({
+    name: 'owned.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=',
+      'base64',
+    ),
+  });
+  await expect(page.getByAltText('Attachment 1')).toBeVisible();
+  await draft.press('Enter');
+  await expect.poll(() => sent.length).toBe(1);
+  await expect(draft).toHaveValue('Exact refused ordinary input');
+  await draft.fill('Newer untouched ordinary draft');
+  emit({
+    type: 'session_control_rejected',
+    sessionId,
+    clientMsgId: sent[0].clientMsgId,
+    control: 'send',
+    code: 'contributor_owned',
+    error: 'Use contributor controls to send to this conversation.',
+  });
+  await expect(draft).toHaveValue('Newer untouched ordinary draft');
+  await expect(page.locator('.chat-input-queued')).toContainText('Exact refused ordinary input');
+  expect(
+    await page.evaluate(() => localStorage.getItem('mitzo-queue-idle-owned-child')),
+  ).not.toContain('data:image');
+  const retry = page.getByRole('button', { name: 'Send Now', exact: true });
+  await expect(retry).toBeVisible();
+  expect((await retry.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  for (const theme of ['dark', 'light']) {
+    await page.evaluate((theme) => {
+      document.documentElement.dataset.theme = theme;
+      document.documentElement.dataset.accent = 'teal';
+      document.documentElement.dataset.font = 'georgia';
+    }, theme);
+    await expect(draft).toBeInViewport();
+    await expect(retry).toBeInViewport();
+    await page.screenshot({
+      path: testInfo.outputPath(`ordinary-send-recovery-${theme}.png`),
+      animations: 'disabled',
+    });
+  }
+  await retry.click();
+  await expect.poll(() => sent.length).toBe(2);
+  expect(sent[1]).toMatchObject({
+    sessionId,
+    prompt: 'Exact refused ordinary input',
+    images: [expect.objectContaining({ mediaType: 'image/png' })],
+  });
+  expect(sent[1].clientMsgId).not.toBe(sent[0].clientMsgId);
+  emit({ type: 'user_message', sessionId, messageId: sent[1].clientMsgId, text: sent[1].prompt });
+  await expect(page.locator('.chat-input-queued')).toHaveCount(0);
+  await expect(draft).toHaveValue('Newer untouched ordinary draft');
 });

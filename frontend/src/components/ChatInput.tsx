@@ -23,7 +23,7 @@ import { impactMedium } from '../lib/haptics';
 import { TokenBar } from './TokenBar';
 import type { UseVoiceReturn } from '../hooks/useVoice';
 import type { TokensState as TokenState } from '@mitzo/client';
-import { useDraft } from '../hooks/useDraft';
+import { useDraft, type DraftSessionAssignment } from '../hooks/useDraft';
 import { useQueuedMessages } from '../hooks/useQueuedMessages';
 
 export interface ChatInputDraftControl {
@@ -32,7 +32,13 @@ export interface ChatInputDraftControl {
 }
 
 interface Props {
-  onSend: (text: string, images?: ImageAttachment[], contextBlocks?: string[]) => boolean;
+  onSend: (
+    text: string,
+    images?: ImageAttachment[],
+    contextBlocks?: string[],
+    onDelivery?: SendMessageOptions['onDelivery'],
+    onSessionAssigned?: SendMessageOptions['onSessionAssigned'],
+  ) => boolean;
   onStop: () => void;
   onInterrupt?: (
     text: string,
@@ -54,6 +60,8 @@ interface Props {
   onIsolationChange?: (enabled: boolean) => void;
   wtId?: string;
   sessionId?: string;
+  /** Advances for a genuine New/reset, independently of authenticated assignment. */
+  composerGeneration?: number;
   /** When provided, uses these context blocks instead of internal state. Hides @ picker. */
   externalContextBlocks?: string[];
   tokenState?: TokenState;
@@ -82,6 +90,7 @@ export function ChatInput({
   isolation,
   onIsolationChange,
   sessionId,
+  composerGeneration = 0,
   externalContextBlocks,
   tokenState,
   messages = EMPTY_MESSAGES,
@@ -89,7 +98,28 @@ export function ChatInput({
   bootContext,
   sessionContext,
 }: Props) {
-  const [text, setText, clearDraft, flushDraft] = useDraft(sessionId, initialText, draftStorageKey);
+  const sendPending = useRef<{ assignedSessionId?: string } | null>(null);
+  // Acceptance can precede the routed render. Keep its exact assignment until
+  // that ownership transfer is applied, independently of the pending receipt.
+  const assignedDraft = useRef<{
+    assignment: DraftSessionAssignment;
+    composerGeneration: number;
+  } | null>(null);
+  const proof = assignedDraft.current;
+  if (
+    proof &&
+    (proof.composerGeneration !== composerGeneration ||
+      (sessionId !== proof.assignment.fromSessionId && sessionId !== proof.assignment.toSessionId))
+  )
+    assignedDraft.current = null;
+  const assignment =
+    draftStorageKey === undefined ? (assignedDraft.current?.assignment ?? null) : null;
+  const [text, setText, clearDraft, flushDraft] = useDraft(
+    sessionId,
+    initialText,
+    draftStorageKey,
+    assignment,
+  );
   useImperativeHandle(draftControl, () => ({ storageKey: draftStorageKey, clear: clearDraft }), [
     draftStorageKey,
     clearDraft,
@@ -102,9 +132,18 @@ export function ChatInput({
     enqueue,
     dequeue,
     restoreRejected,
+    removeSubmitted,
     remove: removeQueued,
     edit: editQueued,
-  } = useQueuedMessages(sessionId);
+  } = useQueuedMessages(sessionId, 5, assignment);
+  useEffect(() => {
+    if (
+      assignment &&
+      sessionId === assignment.toSessionId &&
+      assignedDraft.current?.assignment === assignment
+    )
+      assignedDraft.current = null;
+  }, [assignment, sessionId]);
   const useExternal = externalContextBlocks !== undefined;
   const activeContextBlocks = useExternal ? externalContextBlocks : contextBlocks;
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -119,23 +158,32 @@ export function ChatInput({
     images,
     contextBlocks: activeContextBlocks,
     sessionId,
+    composerGeneration,
     scope: 0,
     revision: 0,
   });
   const previous = latestDraft.current;
-  if (previous.sessionId !== sessionId) interruptPending.current = null;
+  const generationChanged = previous.composerGeneration !== composerGeneration;
+  const scopeChanged = previous.sessionId !== sessionId || generationChanged;
+  if (scopeChanged) {
+    interruptPending.current = null;
+    if (generationChanged || sendPending.current?.assignedSessionId !== sessionId)
+      sendPending.current = null;
+    if (generationChanged) sendGuard.current = false;
+  }
   latestDraft.current = {
     text,
     images,
     contextBlocks: activeContextBlocks,
     sessionId,
-    scope: previous.scope + (previous.sessionId !== sessionId ? 1 : 0),
+    composerGeneration,
+    scope: previous.scope + (scopeChanged ? 1 : 0),
     revision:
       previous.revision +
       (previous.text !== text ||
       previous.images !== images ||
       previous.contextBlocks !== activeContextBlocks ||
-      previous.sessionId !== sessionId
+      scopeChanged
         ? 1
         : 0),
   };
@@ -171,20 +219,86 @@ export function ChatInput({
     autoResize();
   }, [text, autoResize]);
 
+  const sendOrdinary = useCallback(
+    (
+      payload: { text: string; images: ImageAttachment[]; contextBlocks: string[] },
+      queued = false,
+    ): boolean => {
+      const submitted = latestDraft.current;
+      const pending: { assignedSessionId?: string } = {};
+      sendPending.current = pending;
+      // Keep dequeued input under the existing explicit-retry fence until a
+      // definitive receipt. A missing receipt must never resume automatic drain.
+      const retained = queued ? restoreRejected(payload) : undefined;
+      let settled = false;
+      const onDelivery: NonNullable<SendMessageOptions['onDelivery']> = (status) => {
+        if (status === 'uncertain' || settled) return;
+        settled = true;
+        if (sendPending.current === pending) sendPending.current = null;
+        if (queued) {
+          if (status === 'accepted' && retained) removeSubmitted(retained);
+          return;
+        }
+        const latest = latestDraft.current;
+        const assigned =
+          latest.composerGeneration === submitted.composerGeneration &&
+          pending.assignedSessionId !== undefined &&
+          pending.assignedSessionId === latest.sessionId &&
+          latest.scope === submitted.scope + 1;
+        if (!mounted.current || (latest.scope !== submitted.scope && !assigned)) return;
+        if (latest.revision !== submitted.revision + (assigned ? 1 : 0)) {
+          if (status === 'failed') restoreRejected(payload);
+        } else if (status === 'accepted') {
+          clearDraft();
+          setImages([]);
+          if (!useExternal) setContextBlocks([]);
+        }
+      };
+      const sent = onSend(
+        payload.text,
+        payload.images.length ? payload.images : undefined,
+        payload.contextBlocks.length ? payload.contextBlocks : undefined,
+        onDelivery,
+        (assignedSessionId) => {
+          if (
+            mounted.current &&
+            sendPending.current === pending &&
+            latestDraft.current.scope === submitted.scope
+          ) {
+            pending.assignedSessionId = assignedSessionId;
+            if (draftStorageKey === undefined)
+              assignedDraft.current = {
+                composerGeneration: submitted.composerGeneration,
+                assignment: {
+                  fromSessionId: submitted.sessionId,
+                  toSessionId: assignedSessionId,
+                },
+              };
+          }
+        },
+      );
+      if (!sent) onDelivery('failed');
+      return sent;
+    },
+    [onSend, restoreRejected, removeSubmitted, clearDraft, useExternal, draftStorageKey],
+  );
+
   // Auto-send next queued message when agent finishes its turn
   useEffect(() => {
-    if (prevRunning.current && !running && queuedMessages.length > 0) {
+    if (
+      prevRunning.current &&
+      !running &&
+      !sendPending.current &&
+      !interruptPending.current &&
+      queuedMessages.length > 0
+    ) {
       const q = dequeue();
       if (q) {
-        onSend(
-          q.text,
-          q.images.length > 0 ? q.images : undefined,
-          q.contextBlocks.length > 0 ? q.contextBlocks : undefined,
-        );
+        sendOrdinary(q, true);
       }
     }
     prevRunning.current = running;
-  }, [running, queuedMessages, onSend, dequeue]);
+  }, [running, queuedMessages, sendOrdinary, dequeue]);
 
   // Show/hide slash picker based on input
   // TODO: Verify picker reopens correctly on backspace after space (e.g. "/simplify " → "/simplify")
@@ -204,21 +318,19 @@ export function ChatInput({
   }
 
   function handleSend() {
-    if (sendGuard.current || sendDisabledReason) return;
+    if (sendGuard.current || sendPending.current || interruptPending.current || sendDisabledReason)
+      return;
     const trimmed = text.trim();
     if (!trimmed && images.length === 0) return;
     sendGuard.current = true;
     if (draftStorageKey !== undefined) flushDraft();
-    const sent = onSend(
-      trimmed || 'What do you see in this image?',
-      images.length > 0 ? images : undefined,
-      activeContextBlocks.length > 0 ? activeContextBlocks : undefined,
-    );
+    const sent = sendOrdinary({
+      text: trimmed || 'What do you see in this image?',
+      images: [...images],
+      contextBlocks: [...activeContextBlocks],
+    });
     if (sent) {
       impactMedium();
-      clearDraft();
-      setImages([]);
-      if (!useExternal) setContextBlocks([]);
       autoResize();
       textareaRef.current?.focus();
     }
@@ -303,6 +415,7 @@ export function ChatInput({
     : null;
 
   function handleQueue() {
+    if (sendPending.current) return;
     const trimmed = text.trim();
     if (!trimmed && images.length === 0) return;
     const added = enqueue({
@@ -335,26 +448,40 @@ export function ChatInput({
 
   function fireQueuedAsInterrupt(index: number) {
     const q = queuedMessages[index];
-    if (!onInterrupt || !q || interruptPending.current || sendDisabledReason) return;
-    const scope = latestDraft.current.scope;
+    if (!q || sendPending.current || interruptPending.current || sendDisabledReason) return;
+    if (!running) {
+      removeQueued(index);
+      sendOrdinary(q, true);
+      return;
+    }
+    if (!onInterrupt) return;
     const pending = {};
     interruptPending.current = pending;
     removeQueued(index);
+    const retained = restoreRejected(q);
+    let settled = false;
     onInterrupt(
       q.text,
       q.images.length > 0 ? q.images : undefined,
       q.contextBlocks.length > 0 ? q.contextBlocks : undefined,
       (status) => {
-        if (status === 'uncertain') return;
+        if (status === 'uncertain' || settled) return;
+        settled = true;
         if (interruptPending.current === pending) interruptPending.current = null;
-        if (status === 'failed' && mounted.current && latestDraft.current.scope === scope)
-          restoreRejected(q);
+        if (status === 'accepted') removeSubmitted(retained);
       },
     );
   }
 
   function handleInterrupt() {
-    if (sendGuard.current || interruptPending.current || sendDisabledReason || !onInterrupt) return;
+    if (
+      sendGuard.current ||
+      sendPending.current ||
+      interruptPending.current ||
+      sendDisabledReason ||
+      !onInterrupt
+    )
+      return;
     const trimmed = text.trim();
     if (!trimmed && images.length === 0) return;
     sendGuard.current = true;
@@ -427,7 +554,7 @@ export function ChatInput({
             <button
               className="chat-input-queued-btn chat-input-queued-btn--fire"
               onClick={() => fireQueuedAsInterrupt(i)}
-              title="Send now (interrupt)"
+              title={running ? 'Send now (interrupt)' : 'Send now'}
             >
               Send Now
             </button>

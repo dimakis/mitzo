@@ -89,13 +89,14 @@ export class SessionControlRejected extends Error {
   ) {
     super(error);
   }
-  toMessage() {
+  toMessage(clientMsgId?: string) {
     return {
       type: 'session_control_rejected' as const,
       sessionId: this.sessionId,
       control: this.control,
       error: this.message,
       ...(this.code ? { code: this.code } : {}),
+      ...(clientMsgId ? { clientMsgId } : {}),
     };
   }
 }

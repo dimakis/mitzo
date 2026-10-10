@@ -285,6 +285,8 @@ export function DesktopChatView() {
     images?: ImageAttachment[],
     ctxBlocks?: string[],
     launching = false,
+    onDelivery?: import('@mitzo/client').SendMessageOptions['onDelivery'],
+    onSessionAssigned?: import('@mitzo/client').SendMessageOptions['onSessionAssigned'],
   ): boolean {
     if (repositoryHandoffReason || (repositoryHandoff.present && launching)) return false;
     if (launch?.briefing && !launching) return false;
@@ -299,6 +301,7 @@ export function DesktopChatView() {
     const options = {
       images,
       contextBlocks: ctxBlocks,
+      ...(onDelivery ? { onDelivery } : {}),
       ...(accountSelection ?? {}),
       ...(!activeSessionId && repositorySelection?.repositoryWorkspaceId
         ? {
@@ -331,6 +334,13 @@ export function DesktopChatView() {
       ...(!activeSessionId && agentProfile ? { agentProfile } : {}),
       ...(!activeSessionId && !isolation ? { isolation: false } : {}),
     };
+    if (onSessionAssigned) {
+      const originalAssignment = options.onSessionAssigned;
+      options.onSessionAssigned = (assignedId: string) => {
+        originalAssignment?.(assignedId);
+        onSessionAssigned(assignedId);
+      };
+    }
     try {
       const queued = launching ? sendLaunch(options) : storeSendMessage(text, options);
       forceScrollToBottom();
@@ -619,6 +629,7 @@ export function DesktopChatView() {
                   )}
                 <CodexQueueStatus sessionId={activeSessionId} />
                 <ChatInput
+                  composerGeneration={chatDraftRevision}
                   key={
                     repositoryHandoff.present
                       ? `${repositoryHandoff.scope}:${repositoryHandoff.preparation ? 'loaded' : 'loading'}`
@@ -636,7 +647,9 @@ export function DesktopChatView() {
                         ? 'Select an account before sending.'
                         : undefined)
                   }
-                  onSend={handleSend}
+                  onSend={(text, images, context, onDelivery, onSessionAssigned) =>
+                    handleSend(text, images, context, false, onDelivery, onSessionAssigned)
+                  }
                   onStop={handleStop}
                   onInterrupt={handleInterrupt}
                   running={repositoryHandoff.present ? false : messages.running}

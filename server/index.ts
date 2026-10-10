@@ -1,6 +1,7 @@
 // Load runtime configuration before bootstrap dependencies validate or capture it.
 import 'dotenv/config';
 import { SessionControlRejected } from './ordinary-contributor-execution.js';
+import { deliverLegacyChatMessage, routeLegacyChatSend } from './legacy-chat-delivery.js';
 import {
   createTerminalPlanAdviserHost,
   setTerminalPlanAdviserHost,
@@ -914,34 +915,35 @@ function sendToActiveChat(
   clientMsgId?: string,
   userIntent?: string,
 ): void {
-  void Promise.resolve(
-    sendToChat(
-      clientId,
-      prompt,
-      images,
-      contextBlocks,
-      clientMsgId,
-      undefined,
-      undefined,
-      undefined,
-      userIntent ?? prompt,
-    ),
-  )
-    .then((accepted) => {
-      if (!accepted) log.warn('active legacy send was not accepted', { clientId });
-    })
-    .catch((err: unknown) => {
-      const error = err instanceof Error ? err.message : 'Send failed';
-      log.error('active legacy send failed', { clientId, error });
-      try {
-        transport.send({ type: 'error', error });
-      } catch (deliveryError) {
-        log.warn('active legacy send error delivery failed', {
-          clientId,
-          error: String(deliveryError),
-        });
-      }
-    });
+  void deliverLegacyChatMessage(
+    transport,
+    () =>
+      sendToChat(
+        clientId,
+        prompt,
+        images,
+        contextBlocks,
+        clientMsgId,
+        undefined,
+        undefined,
+        undefined,
+        userIntent ?? prompt,
+      ),
+    clientMsgId,
+    (err) =>
+      log.error('active legacy send failed', {
+        clientId,
+        error: err instanceof Error ? err.message : 'Send failed',
+      }),
+    (deliveryError) => {
+      log.warn('active legacy send error delivery failed', {
+        clientId,
+        error: String(deliveryError),
+      });
+    },
+  ).then((accepted) => {
+    if (accepted === false) log.warn('active legacy send was not accepted', { clientId });
+  });
 }
 
 /**
@@ -1015,6 +1017,7 @@ function handleChatWs(
   }, HEARTBEAT_INTERVAL_MS);
 
   const processMessage = async (raw: Buffer | ArrayBuffer | Buffer[]) => {
+    let clientMsgId: string | undefined;
     try {
       const parsed = JSON.parse(raw.toString());
       const result = IncomingWsMessage.safeParse(parsed);
@@ -1040,6 +1043,7 @@ function handleChatWs(
       }
 
       const msg = result.data;
+      if (msg.type === 'send' || msg.type === 'interrupt') clientMsgId = msg.clientMsgId;
       // traceparent is stripped by zod — extract from raw parsed object
       const traceparent = (parsed as Record<string, unknown>).traceparent as string | undefined;
 
@@ -1140,115 +1144,130 @@ function handleChatWs(
             'ws.has_resume': !!msg.resume,
           },
           (span) => {
-            const requestedCwd = msg.cwd;
-            const validatedCwd = requestedCwd
-              ? isAllowedPath(requestedCwd)
-                ? requestedCwd
-                : BASE_REPO
-              : undefined;
-            const cwd = validatedCwd ?? registry.get(clientId)?.cwd ?? BASE_REPO;
-            const skillRegistry = buildSkillRegistry(cwd);
-            const resolution = resolveSlashCommand(msg.prompt, skillRegistry, NATIVE_COMMAND_NAMES);
-            span.setAttribute('ws.send.resolution', resolution.type);
+            return routeLegacyChatSend(
+              eventStore,
+              isActive(clientId) ? registry.get(clientId)?.sessionId : msg.resume,
+              () => {
+                const requestedCwd = msg.cwd;
+                const validatedCwd = requestedCwd
+                  ? isAllowedPath(requestedCwd)
+                    ? requestedCwd
+                    : BASE_REPO
+                  : undefined;
+                const cwd = validatedCwd ?? registry.get(clientId)?.cwd ?? BASE_REPO;
+                const skillRegistry = buildSkillRegistry(cwd);
+                const resolution = resolveSlashCommand(
+                  msg.prompt,
+                  skillRegistry,
+                  NATIVE_COMMAND_NAMES,
+                );
+                span.setAttribute('ws.send.resolution', resolution.type);
 
-            if (resolution.type === 'native') {
-              void nativeCommands
-                .execute(resolution.name, resolution.arguments, skillRegistry, { transport })
-                .then((result) => {
-                  if (result) {
-                    transport.send({
-                      type: 'native_command_result',
-                      v: 2,
-                      command: result.command,
-                      content: result.content,
+                if (resolution.type === 'native') {
+                  const commandSessionId = isActive(clientId)
+                    ? (registry.get(clientId)?.sessionId ?? null)
+                    : (msg.resume ?? null);
+                  void nativeCommands
+                    .execute(resolution.name, resolution.arguments, skillRegistry, { transport })
+                    .then((result) => {
+                      if (result) {
+                        transport.send({
+                          type: 'native_command_result',
+                          v: 2,
+                          clientMsgId: msg.clientMsgId,
+                          sessionId: commandSessionId,
+                          command: result.command,
+                          content: result.content,
+                        });
+                      }
+                    })
+                    .catch((err: unknown) => {
+                      transport.send({
+                        type: 'error',
+                        error: `Command /${resolution.name} failed: ${err instanceof Error ? err.message : 'unknown'}`,
+                      });
+                    });
+                  return;
+                } else if (resolution.type === 'error') {
+                  transport.send({ type: 'error', error: resolution.message });
+                } else if (resolution.type === 'skill') {
+                  if (resolution.allowedTools) {
+                    setSkillPolicy(registry, clientId, resolution.allowedTools);
+                  } else {
+                    clearSkillPolicy(registry, clientId);
+                  }
+                  transport.send({
+                    type: 'skill_invoked',
+                    v: 2,
+                    name: resolution.name,
+                    source: skillRegistry.get(resolution.name)?.scope || 'bundled',
+                    arguments: resolution.arguments,
+                    ...(resolution.collisions ? { collisions: resolution.collisions } : {}),
+                  });
+                  routeLegacySkillMessage(
+                    {
+                      transport,
+                      ws,
+                      clientId,
+                      resume: msg.resume,
+                      renderedPrompt: resolution.renderedPrompt,
+                      userIntent: msg.prompt,
+                      images: msg.images,
+                      contextBlocks: msg.contextBlocks,
+                      clientMsgId: msg.clientMsgId,
+                      startOptions: {
+                        resume: msg.resume,
+                        cwd: validatedCwd,
+                        model: msg.model,
+                        extraTools: msg.extraTools,
+                        isolation: msg.isolation,
+                        mode: msg.mode,
+                        images: msg.images,
+                        contextBlocks: msg.contextBlocks,
+                        clientMsgId: msg.clientMsgId,
+                      },
+                    },
+                    { isActive, sendToActiveChat, tryRouteToActiveSession, startChat },
+                  );
+                } else {
+                  clearSkillPolicy(registry, clientId);
+                  if (isActive(clientId)) {
+                    sendToActiveChat(
+                      transport,
+                      clientId,
+                      msg.prompt,
+                      msg.images,
+                      msg.contextBlocks,
+                      msg.clientMsgId,
+                      msg.prompt,
+                    );
+                  } else if (
+                    !tryRouteToActiveSession(
+                      ws,
+                      msg.resume,
+                      msg.prompt,
+                      msg.images,
+                      msg.contextBlocks,
+                      msg.clientMsgId,
+                      msg.prompt,
+                    )
+                  ) {
+                    startChat(transport, clientId, msg.prompt, {
+                      resume: msg.resume,
+                      cwd: validatedCwd,
+                      model: msg.model,
+                      extraTools: msg.extraTools,
+                      isolation: msg.isolation,
+                      mode: msg.mode,
+                      images: msg.images,
+                      contextBlocks: msg.contextBlocks,
+                      clientMsgId: msg.clientMsgId,
+                      userIntent: msg.prompt,
                     });
                   }
-                })
-                .catch((err: unknown) => {
-                  transport.send({
-                    type: 'error',
-                    error: `Command /${resolution.name} failed: ${err instanceof Error ? err.message : 'unknown'}`,
-                  });
-                });
-              return;
-            } else if (resolution.type === 'error') {
-              transport.send({ type: 'error', error: resolution.message });
-            } else if (resolution.type === 'skill') {
-              if (resolution.allowedTools) {
-                setSkillPolicy(registry, clientId, resolution.allowedTools);
-              } else {
-                clearSkillPolicy(registry, clientId);
-              }
-              transport.send({
-                type: 'skill_invoked',
-                v: 2,
-                name: resolution.name,
-                source: skillRegistry.get(resolution.name)?.scope || 'bundled',
-                arguments: resolution.arguments,
-                ...(resolution.collisions ? { collisions: resolution.collisions } : {}),
-              });
-              routeLegacySkillMessage(
-                {
-                  transport,
-                  ws,
-                  clientId,
-                  resume: msg.resume,
-                  renderedPrompt: resolution.renderedPrompt,
-                  userIntent: msg.prompt,
-                  images: msg.images,
-                  contextBlocks: msg.contextBlocks,
-                  clientMsgId: msg.clientMsgId,
-                  startOptions: {
-                    resume: msg.resume,
-                    cwd: validatedCwd,
-                    model: msg.model,
-                    extraTools: msg.extraTools,
-                    isolation: msg.isolation,
-                    mode: msg.mode,
-                    images: msg.images,
-                    contextBlocks: msg.contextBlocks,
-                    clientMsgId: msg.clientMsgId,
-                  },
-                },
-                { isActive, sendToActiveChat, tryRouteToActiveSession, startChat },
-              );
-            } else {
-              clearSkillPolicy(registry, clientId);
-              if (isActive(clientId)) {
-                sendToActiveChat(
-                  transport,
-                  clientId,
-                  msg.prompt,
-                  msg.images,
-                  msg.contextBlocks,
-                  msg.clientMsgId,
-                  msg.prompt,
-                );
-              } else if (
-                !tryRouteToActiveSession(
-                  ws,
-                  msg.resume,
-                  msg.prompt,
-                  msg.images,
-                  msg.contextBlocks,
-                  msg.clientMsgId,
-                  msg.prompt,
-                )
-              ) {
-                startChat(transport, clientId, msg.prompt, {
-                  resume: msg.resume,
-                  cwd: validatedCwd,
-                  model: msg.model,
-                  extraTools: msg.extraTools,
-                  isolation: msg.isolation,
-                  mode: msg.mode,
-                  images: msg.images,
-                  contextBlocks: msg.contextBlocks,
-                  clientMsgId: msg.clientMsgId,
-                  userIntent: msg.prompt,
-                });
-              }
-            }
+                }
+              },
+            );
           },
           contextFromTraceparent(traceparent),
         );
@@ -1317,7 +1336,9 @@ function handleChatWs(
       const message = err instanceof Error ? err.message : 'Unknown error';
       log.warn('failed to handle WS message', { clientId, error: message });
       transport.send(
-        err instanceof SessionControlRejected ? err.toMessage() : { type: 'error', error: message },
+        err instanceof SessionControlRejected
+          ? err.toMessage(clientMsgId)
+          : { type: 'error', error: message },
       );
     }
   };

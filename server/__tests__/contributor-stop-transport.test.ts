@@ -178,6 +178,7 @@ it.each(
           type: 'session_control_rejected',
           sessionId: 'child',
           control: type,
+          clientMsgId: message.clientMsgId,
           code: 'CONTRIBUTOR_DIRECTED_MESSAGE_REQUIRED',
           error: expect.stringMatching(/contributor directed messages/),
         }),
@@ -208,6 +209,127 @@ it.each(
     expect([...connRegistry.get('viewer')!.watchedSessions]).toEqual(['child', 'parent']);
   },
 );
+
+it.each([null, 'ordinary'])(
+  'correlates native WS acceptance with its command and session %s',
+  async (sessionId) => {
+    const { transport, ctx, nativeCommands } = fixture();
+    await dispatchV2Message(
+      'viewer',
+      transport,
+      JSON.stringify({
+        type: 'send',
+        sessionId,
+        prompt: '/skills',
+        clientMsgId: `skills-${sessionId}`,
+        mode: 'agent',
+      }),
+      ctx,
+    );
+    await vi.waitFor(() =>
+      expect(transport.send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'native_command_result',
+          command: 'skills',
+          content: 'Offline native command',
+          clientMsgId: `skills-${sessionId}`,
+          sessionId,
+        }),
+      ),
+    );
+    expect(nativeCommands.execute).toHaveBeenCalledTimes(1);
+    expect(startChat).not.toHaveBeenCalled();
+    expect(transport.send.mock.calls.some(([event]) => event.type === 'user_message')).toBe(false);
+  },
+);
+
+it('keeps overlapping native results bound to their original commands despite completion order', async () => {
+  const { transport, ctx, nativeCommands } = fixture();
+  let finishFirst!: (value: { command: string; content: string }) => void;
+  nativeCommands.execute.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finishFirst = resolve;
+      }),
+  );
+  for (const [sessionId, clientMsgId] of [
+    ['ordinary-a', 'first'],
+    ['ordinary-b', 'second'],
+  ]) {
+    await dispatchV2Message(
+      'viewer',
+      transport,
+      JSON.stringify({ type: 'send', sessionId, prompt: '/skills', clientMsgId, mode: 'agent' }),
+      ctx,
+    );
+  }
+  await vi.waitFor(() =>
+    expect(transport.send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'native_command_result',
+        clientMsgId: 'second',
+        sessionId: 'ordinary-b',
+      }),
+    ),
+  );
+  expect(transport.send.mock.calls.some(([event]) => event.clientMsgId === 'first')).toBe(false);
+  finishFirst({ command: 'skills', content: 'First result' });
+  await vi.waitFor(() =>
+    expect(transport.send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'native_command_result',
+        clientMsgId: 'first',
+        sessionId: 'ordinary-a',
+        content: 'First result',
+      }),
+    ),
+  );
+});
+
+it('keeps paid native assignment separate from exact result acceptance without calling a provider', async () => {
+  const { transport, ctx, nativeCommands, store } = fixture();
+  let finish!: (value: { command: string; content: string }) => void;
+  nativeCommands.execute.mockImplementationOnce(async (_name, _args, _registry, context) => {
+    context.deliberation!.onAdmitted();
+    return new Promise((resolve) => {
+      finish = resolve;
+    });
+  });
+  await dispatchV2Message(
+    'viewer',
+    transport,
+    JSON.stringify({
+      type: 'send',
+      sessionId: null,
+      prompt: '/deliberate improve draft',
+      clientMsgId: 'paid-command',
+      mode: 'agent',
+    }),
+    ctx,
+  );
+  const assignment = transport.send.mock.calls
+    .map(([event]) => event)
+    .find((event) => event.type === 'session_id');
+  expect(assignment).toMatchObject({ clientMsgId: 'paid-command', sessionId: expect.any(String) });
+  expect(transport.send.mock.calls.some(([event]) => event.type === 'native_command_result')).toBe(
+    false,
+  );
+  finish({ command: 'deliberate', content: 'Offline reasoning result' });
+  await vi.waitFor(() =>
+    expect(transport.send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'native_command_result',
+        clientMsgId: 'paid-command',
+        sessionId: assignment.sessionId,
+      }),
+    ),
+  );
+  expect(
+    store
+      .getSessionEvents(assignment.sessionId)
+      .filter((event) => event.type === 'native_command_result'),
+  ).toMatchObject([{ payload: { clientMsgId: 'paid-command', sessionId: assignment.sessionId } }]);
+});
 
 it.each(['ws', 'rest'])(
   'rejects public child Close through %s before user closeout',
