@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.9';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.25';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.26';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -108,7 +108,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/event-store.ts':
     '6db5a3fe818ce039148e3245249c80bd00a395cb9d15304ff825a37fca730627',
   '../../packages/protocol/src/types.ts':
-    'bdd789a67bbef05768a11bf471f3fb1a4ccf6af281e85d6fc4ac9a24d49963e1',
+    'ad52dbfecded75a6351f16a693d8975d9c863e5b2c06d6ad0901d2ae770709a0',
   '../repository-workspace-runtime.ts':
     '13db6d8d468d3e5ff4a9c8feaa06e5abbbb040196e8cf5b94b145297a5393a99',
   '../repository-workspace-router.ts':
