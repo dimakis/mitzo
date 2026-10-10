@@ -5661,7 +5661,11 @@ export class EventStore {
         return undefined;
       }
 
-      const thread = this.getSymposiumSeatThread(input.sessionId, input.seatId, input.bindingKey);
+      const thread = this.restoreAcceptedOutputContributorThread(
+        input.sessionId,
+        input.seatId,
+        input.bindingKey,
+      );
       const claimed = this.db!.prepare(
         `UPDATE symposium_delivery_recipients
          SET status = 'executing', provider_thread_id = ?, updated_at = ?
@@ -6103,6 +6107,11 @@ export class EventStore {
           row.provider_turn_id !== input.providerTurnId
         )
           throw new Error('Provider acceptance receipt conflict');
+        if (
+          input.retainSeatThread &&
+          !this.retainHistoricOrdinarySeatThread({ ...input, acceptedAt: row.accepted_at })
+        )
+          return false;
         return true;
       }
       if (input.retainSeatThread && !this.retainAcceptedOrdinarySeatThread(input)) return false;
@@ -6145,7 +6154,7 @@ export class EventStore {
           config_revision: number;
         }
       | undefined;
-    if (!claim) return false;
+    if (!claim) return this.retainHistoricOrdinarySeatThread(input);
     const attempt = this.getSymposiumRecipientAttemptByClaimToken(input.claimToken);
     const config = this.getActiveSymposiumConfig(claim.session_id);
     const seat = config.seats.find((value) => value.id === input.seatId);
@@ -6199,6 +6208,114 @@ export class EventStore {
       updatedAt: input.acceptedAt,
     });
     return true;
+  }
+
+  /** Cancellation removes live claims, but never the exact dispatched identity. */
+  private retainHistoricOrdinarySeatThread(input: {
+    deliveryId: string;
+    seatId: string;
+    claimToken: string;
+    providerThreadId: string;
+    acceptedAt: number;
+  }): boolean {
+    const attempt = this.getSymposiumRecipientAttemptByClaimToken(input.claimToken);
+    const delivery = this.getSymposiumDelivery(input.deliveryId);
+    if (
+      !attempt ||
+      !delivery ||
+      attempt.deliveryId !== input.deliveryId ||
+      attempt.seatId !== input.seatId ||
+      (attempt.acceptedAt === null && !['cancelled', 'recovery_required'].includes(attempt.status))
+    )
+      return false;
+    const provenance = attempt.provenance;
+    const bindingKey = retainedOrdinaryThreadBinding(provenance);
+    const output = this.getOutputContributorBinding(delivery.sessionId);
+    const child = this.getSession(input.providerThreadId);
+    const ownerRow = this.db!.prepare(
+      `SELECT payload FROM events WHERE session_id=? AND type='contributor_execution'
+        AND json_extract(payload,'$.claimToken')=? ORDER BY seq DESC LIMIT 1`,
+    ).get(input.providerThreadId, input.claimToken) as { payload: string } | undefined;
+    const owner = ownerRow ? JSON.parse(ownerRow.payload) : undefined;
+    if (
+      !bindingKey ||
+      !provenance ||
+      !('version' in provenance) ||
+      provenance.version !== 2 ||
+      !output ||
+      provenance.seatId !== input.seatId ||
+      provenance.configRevision !== delivery.configRevision ||
+      attempt.dispatchedContent === null ||
+      attempt.dispatchSeq === null ||
+      (attempt.acceptedAt !== null && !attempt.providerTurnId) ||
+      (attempt.providerThreadId !== null && attempt.providerThreadId !== input.providerThreadId) ||
+      child?.sessionType !== 'chat' ||
+      !child.accountBinding ||
+      !sameBinding(child.accountBinding, provenance.accountBinding) ||
+      input.providerThreadId === delivery.sessionId ||
+      input.providerThreadId === output.parentSessionId ||
+      owner?.childSessionId !== input.providerThreadId ||
+      owner.coordinatorSessionId !== delivery.sessionId ||
+      owner.deliveryId !== input.deliveryId ||
+      owner.seatId !== input.seatId ||
+      owner.claimToken !== input.claimToken ||
+      owner.idempotencyKey !== attempt.idempotencyKey
+    )
+      throw new Error('Exact accepted ordinary contributor ownership requires recovery');
+    this.bindSymposiumSeatThread({
+      sessionId: delivery.sessionId,
+      seatId: input.seatId,
+      bindingKey,
+      providerThreadId: input.providerThreadId,
+      configRevision: provenance.configRevision,
+      createdAt: attempt.acceptedAt ?? input.acceptedAt,
+      updatedAt: attempt.acceptedAt ?? input.acceptedAt,
+    });
+    return true;
+  }
+
+  /** Restore pre-fix ordinary acceptances before a new claim can allocate a child. */
+  private restoreAcceptedOutputContributorThread(
+    sessionId: string,
+    seatId: string,
+    bindingKey: string,
+  ) {
+    if (this.getOutputContributorBinding(sessionId)) {
+      const rows = this.db!.prepare(
+        `SELECT a.* FROM symposium_recipient_attempts a JOIN symposium_deliveries d USING(delivery_id)
+        WHERE d.session_id=? AND a.seat_id=? AND a.accepted_at IS NOT NULL
+          AND a.provider_thread_id IS NOT NULL ORDER BY a.attempt_id`,
+      ).all(sessionId, seatId) as Array<Record<string, unknown>>;
+      let ambiguous = false;
+      for (const row of rows) {
+        const attempt = rowToSymposiumRecipientAttempt(row);
+        const retained = retainedOrdinaryThreadBinding(attempt.provenance);
+        if (retained === bindingKey) {
+          if (
+            !attempt.claimToken ||
+            !attempt.providerThreadId ||
+            attempt.acceptedAt === null ||
+            !this.retainHistoricOrdinarySeatThread({
+              deliveryId: attempt.deliveryId,
+              seatId,
+              claimToken: attempt.claimToken,
+              providerThreadId: attempt.providerThreadId,
+              acceptedAt: attempt.acceptedAt,
+            })
+          )
+            throw new Error('Accepted ordinary contributor identity requires recovery');
+        } else if (
+          !retained &&
+          !this.db!.prepare(
+            'SELECT 1 FROM symposium_seat_threads WHERE session_id=? AND seat_id=? AND provider_thread_id=?',
+          ).get(sessionId, seatId, attempt.providerThreadId)
+        )
+          ambiguous = true;
+      }
+      if (ambiguous && !this.getSymposiumSeatThread(sessionId, seatId, bindingKey))
+        throw new Error('Accepted ordinary contributor identity requires recovery');
+    }
+    return this.getSymposiumSeatThread(sessionId, seatId, bindingKey);
   }
 
   getSymposiumSeatThread(
@@ -7013,6 +7130,36 @@ function rowToEvent(row: EventRow): StoredEvent {
     payload: JSON.parse(row.payload),
     createdAt: row.created_at,
   };
+}
+
+function retainedOrdinaryThreadBinding(provenance: SymposiumProvenance | null): string | undefined {
+  if (
+    !provenance ||
+    !('version' in provenance) ||
+    provenance.version !== 2 ||
+    provenance.accountBinding.provider !== 'openai-codex' ||
+    provenance.accountProfileRevision !== provenance.accountBinding.profileRevision ||
+    provenance.seatProfileRevision !== provenance.profileBinding.profileRevision ||
+    provenance.contextGrantRevision !== provenance.contextGrant.revision ||
+    provenance.authorityGrantRevision !== provenance.authorityGrant.revision
+  )
+    return undefined;
+  return JSON.stringify([
+    provenance.accountBinding.provider,
+    provenance.accountBinding.accountId,
+    provenance.accountBinding.model,
+    provenance.accountBinding.profileRevision,
+    provenance.reasoningEffort,
+    provenance.profileBinding.profileId,
+    provenance.profileBinding.profileRevision,
+    provenance.contextGrant.grantId,
+    provenance.contextGrant.revision,
+    provenance.authorityGrant.grantId,
+    provenance.authorityGrant.revision,
+    provenance.isolationDomainId,
+    provenance.isolationDomainRevision,
+    provenance.membershipGeneration,
+  ]);
 }
 
 function parseSymposiumProvenance(raw: string | null): SymposiumProvenance | undefined {
