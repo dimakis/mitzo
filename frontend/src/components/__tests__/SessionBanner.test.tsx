@@ -22,6 +22,32 @@ const bootContext = {
 };
 
 describe('SessionBanner', () => {
+  it('labels retained sandbox compilation without calling it a fallback', () => {
+    const { container } = render(
+      <SessionBanner bootContext={{ ...bootContext, source: 'sandbox' }} />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: /5 sources/ }));
+    expect(screen.getByText('Boot Context (Sandbox)')).toBeTruthy();
+    expect(screen.queryByText(/Fallback/)).toBeNull();
+    expect(container.querySelector('.session-banner-dot--ok')).toBeTruthy();
+  });
+
+  it.each(['sandbox', 'contexgin'] as const)(
+    'keeps an empty %s bundle in the warning state until compilation arrives',
+    (source) => {
+      const { container } = render(
+        <SessionBanner bootContext={{ ...bootContext, source, fullMarkdown: undefined }} />,
+      );
+      expect(container.querySelector('.session-banner-dot--warn')).toBeTruthy();
+    },
+  );
+
+  it('continues to label a local executable fallback as a fallback', () => {
+    render(<SessionBanner bootContext={{ ...bootContext, source: 'local-fallback' }} />);
+    fireEvent.click(screen.getByRole('button', { name: /5 sources/ }));
+    expect(screen.getByText('Boot Context (Fallback)')).toBeTruthy();
+  });
+
   it('returns null when both props are null', () => {
     const { container } = render(<SessionBanner bootContext={null} sessionContext={null} />);
     expect(container.innerHTML).toBe('');

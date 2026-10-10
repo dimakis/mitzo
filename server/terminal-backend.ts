@@ -35,41 +35,68 @@ interface TerminalSshGrant {
 export function terminalProcessSpec(
   record: TerminalRecord,
   namespace: string,
-  operation: 'attach' | 'resume' | 'check' | 'end',
+  operation: 'attach' | 'resume' | 'check' | 'end' | 'scroll',
   grant?: TerminalSshGrant,
   hostEnvironment: NodeJS.ProcessEnv = process.env,
+  lines: number | null = null,
 ) {
   if (!/^term-[0-9a-f-]{36}$/.test(record.id) || !/^mitzo-[a-zA-Z0-9_-]+$/.test(namespace))
     throw new Error('Invalid owned terminal selector');
+  if (
+    operation === 'scroll' &&
+    lines !== null &&
+    (!Number.isInteger(lines) || !lines || Math.abs(lines) > 100)
+  )
+    throw Error('Invalid terminal scroll');
+  const pane = `=${record.id}:`;
+  const scroll =
+    lines === null
+      ? ['if-shell', '-F', '-t', pane, '#{pane_in_mode}', `send-keys -X -t ${pane} cancel`]
+      : [
+          'copy-mode',
+          '-e',
+          '-t',
+          pane,
+          ';',
+          'send-keys',
+          '-X',
+          '-N',
+          String(Math.abs(lines)),
+          '-t',
+          pane,
+          lines < 0 ? 'scroll-up' : 'scroll-down',
+        ];
   const args = [
     '-L',
     namespace,
     '-f',
     '/dev/null',
-    ...(operation === 'attach'
-      ? [
-          'new-session',
-          '-A',
-          '-s',
-          record.id,
-          '-c',
-          record.cwd,
-          ';',
-          'set-option',
-          '-t',
-          record.id,
-          'status',
-          'off',
-        ]
-      : [
-          operation === 'resume'
-            ? 'attach-session'
-            : operation === 'check'
-              ? 'has-session'
-              : 'kill-session',
-          '-t',
-          record.id,
-        ]),
+    ...(operation === 'scroll'
+      ? scroll
+      : operation === 'attach'
+        ? [
+            'new-session',
+            '-A',
+            '-s',
+            record.id,
+            '-c',
+            record.cwd,
+            ';',
+            'set-option',
+            '-t',
+            record.id,
+            'status',
+            'off',
+          ]
+        : [
+            operation === 'resume'
+              ? 'attach-session'
+              : operation === 'check'
+                ? 'has-session'
+                : 'kill-session',
+            '-t',
+            record.id,
+          ]),
   ];
   if (record.kind === 'host')
     return { command: 'tmux', args, env: safeTerminalEnvironment(hostEnvironment) };
@@ -110,7 +137,11 @@ export class TmuxTerminalBackend implements TerminalBackend {
     private namespace: string,
     private hostEnvironment: NodeJS.ProcessEnv = process.env,
   ) {}
-  private async spec(record: TerminalRecord, operation: 'attach' | 'resume' | 'check' | 'end') {
+  private async spec(
+    record: TerminalRecord,
+    operation: 'attach' | 'resume' | 'check' | 'end' | 'scroll',
+    lines: number | null = null,
+  ) {
     if (record.kind === 'host')
       return terminalProcessSpec(
         record,
@@ -118,6 +149,7 @@ export class TmuxTerminalBackend implements TerminalBackend {
         operation,
         undefined,
         this.hostEnvironment,
+        lines,
       );
     const runtime = record.target?.runtime as
       (OpenShellRuntime & { sandboxId: string }) | undefined;
@@ -137,7 +169,14 @@ export class TmuxTerminalBackend implements TerminalBackend {
       this.gateways.set(key, gateway);
     }
     const grant = await gateway.createTerminalSsh(runtime.sandboxId, AbortSignal.timeout(15000));
-    return terminalProcessSpec(record, this.namespace, operation, grant);
+    return terminalProcessSpec(
+      record,
+      this.namespace,
+      operation,
+      grant,
+      this.hostEnvironment,
+      lines,
+    );
   }
   private async checkSession(record: TerminalRecord) {
     const check = await this.spec(record, 'check');
@@ -184,7 +223,36 @@ export class TmuxTerminalBackend implements TerminalBackend {
         },
       );
     });
+    // A reattached tmux pane may still be in history mode from the prior client.
+    let browsing = resume;
+    let scrollQueue = Promise.resolve();
+    const scroll = (lines: number | null, authorize: () => void, signal?: AbortSignal) => {
+      const operation = scrollQueue.then(async () => {
+        if (detached) throw Error('Terminal disconnected');
+        authorize();
+        if (lines === null && !browsing) return;
+        const spec = await this.spec(record, 'scroll', lines);
+        authorize();
+        if (detached) throw Error('Terminal disconnected');
+        // Mark before dispatch: a failed/aborted transport may already have entered copy mode.
+        browsing = true;
+        try {
+          await execute(spec.command, spec.args, {
+            env: spec.env,
+            timeout: 15000,
+            maxBuffer: 65536,
+            signal,
+          });
+          if (lines === null) browsing = false;
+        } catch {
+          throw Error('Terminal history unavailable');
+        }
+      });
+      scrollQueue = operation.catch(() => {});
+      return operation;
+    };
     return {
+      scroll,
       write: (value: string) => process.write(value),
       resize: (cols: number, rows: number) => process.resize(cols, rows),
       detach: () => {

@@ -1400,6 +1400,7 @@ export function handleInterruptV2(
         : undefined;
       startChat(transport, sessionClientId, msg.prompt, {
         resume: msg.sessionId,
+        operatorConnectionId: connectionId,
         accountId: msg.accountId ?? storedAccountId,
         resumePermission: found.session?.mode
           ? {

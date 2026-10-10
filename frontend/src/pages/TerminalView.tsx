@@ -11,6 +11,8 @@ import {
   type TerminalConsoleHandle,
   type TerminalStatus,
 } from '../components/TerminalConsole';
+import { useMotionPresence } from '../hooks/useMotionPresence';
+import { MotionPresence } from '../components/MotionPresence';
 import { UiIcon } from '../components/UiIcon';
 import type { WorkspaceSummary } from '../types/workspace';
 type Message = { role: 'user' | 'assistant'; content: string };
@@ -38,11 +40,13 @@ export function TerminalView() {
     draftRevision.current++;
     setCommand(value);
   }
-  const [controls, setControls] = useState(true),
+  const [controls, setControls] = useState(false),
     [adviserOpen, setAdviserOpen] = useState(false),
     [adviserVisited, setAdviserVisited] = useState(false),
     [optionsOpen, setOptionsOpen] = useState(false),
     [destinationOpen, setDestinationOpen] = useState(false);
+  const controlsPresence = useMotionPresence(controls, 'disclosure', false);
+  const adviserPresence = useMotionPresence(adviserOpen && controls, 'disclosure', false);
   const [destinations, setDestinations] = useState<{ sessionId: string; label: string }[]>([]),
     [search, setSearch] = useState('');
   const [command, setCommand] = useState(''),
@@ -158,8 +162,10 @@ export function TerminalView() {
       const keyboard = editing && height < fullHeight - 140;
       root.dataset.terminalKeyboard = String(keyboard);
       if (keyboard) {
-        if (!active?.closest('.terminal-adviser-panel')) setControls(false);
-        else requestAnimationFrame(() => active?.scrollIntoView({ block: 'nearest' }));
+        if (!active?.closest('.terminal-adviser-panel')) {
+          setControls(false);
+          setAdviserOpen(false);
+        } else requestAnimationFrame(() => active?.scrollIntoView({ block: 'nearest' }));
       }
     };
     update();
@@ -312,12 +318,32 @@ export function TerminalView() {
         >
           <UiIcon name="back" />
         </Link>
-        <h1>Terminal</h1>
+        <div className="terminal-heading-title">
+          <h1>Terminal</h1>
+          <small>{terminal?.label ?? (sessionId ? 'Chat environment' : 'Your Mac')}</small>
+        </div>
+        <button
+          type="button"
+          className="terminal-adviser-toggle"
+          title={`${assistant.name} · ${summary?.profile ?? 'Adviser'} · ${summary?.model ?? 'Choose account and model'} · ${summary?.thinking ?? ''}`}
+          aria-label={`${adviserOpen ? 'Hide' : 'Show'} ${assistant.name}`}
+          aria-expanded={adviserOpen}
+          onClick={() => {
+            setControls(!adviserOpen);
+            setAdviserVisited(true);
+            setAdviserOpen((value) => !value);
+          }}
+        >
+          <UiIcon name="agents" />
+        </button>
         <button
           type="button"
           aria-label={controls ? 'Collapse controls' : 'Show controls'}
           aria-expanded={controls}
-          onClick={() => setControls((value) => !value)}
+          onClick={() => {
+            if (controls) setAdviserOpen(false);
+            setControls((value) => !value);
+          }}
         >
           <UiIcon name={controls ? 'up' : 'down'} />
         </button>
@@ -329,9 +355,7 @@ export function TerminalView() {
         >
           <UiIcon name="more" />
         </button>
-      </header>
-      {optionsOpen && (
-        <div className="terminal-options">
+        <MotionPresence open={optionsOpen} className="terminal-options" kind="popover">
           <button
             type="button"
             disabled={!terminal || status === 'ended'}
@@ -339,36 +363,61 @@ export function TerminalView() {
           >
             End terminal session
           </button>
+          <button
+            type="button"
+            disabled={status !== 'connected'}
+            onClick={() => {
+              void console.current
+                ?.scroll(null)
+                .catch(() => setError('Terminal history unavailable'));
+              setOptionsOpen(false);
+            }}
+          >
+            Return to live output
+          </button>
+          <button
+            type="button"
+            disabled={status !== 'connected'}
+            onClick={() => {
+              void console.current
+                ?.scroll(-20)
+                .catch(() => setError('Terminal history unavailable'));
+              setOptionsOpen(false);
+            }}
+          >
+            Scroll output up
+          </button>
+          <button
+            type="button"
+            disabled={status !== 'connected'}
+            onClick={() => {
+              void console.current
+                ?.scroll(20)
+                .catch(() => setError('Terminal history unavailable'));
+              setOptionsOpen(false);
+            }}
+          >
+            Scroll output down
+          </button>
           <p className="workspace-muted">Closing this page keeps your shell running.</p>
-        </div>
-      )}
-      <section className="terminal-controls" aria-label="Terminal controls" hidden={!controls}>
-        <button
-          type="button"
-          className="terminal-adviser-toggle"
-          aria-label={`${adviserOpen ? 'Hide' : 'Show'} ${assistant.name}`}
-          aria-expanded={adviserOpen}
-          onClick={() => {
-            setAdviserVisited(true);
-            setAdviserOpen((value) => !value);
-          }}
-        >
-          <UiIcon name="agents" />
-          <span>
-            <strong>
-              {assistant.name}
-              {summary?.profile ? ` · ${summary.profile}` : ''}
-            </strong>
-            <small>
-              {summary?.model
-                ? `${summary.model} · ${summary.thinking || 'Model default'}`
-                : 'Terminal adviser · Suggestions only'}
-            </small>
-          </span>
-          <UiIcon name={adviserOpen ? 'up' : 'down'} />
-        </button>
+        </MotionPresence>
+      </header>
+      <section
+        ref={controlsPresence.ref}
+        className="terminal-controls"
+        aria-label="Terminal controls"
+        hidden={!controlsPresence.present}
+        inert={!controls}
+        aria-hidden={!controls || undefined}
+      >
         {adviserVisited && (
-          <div className="terminal-adviser-panel" hidden={!adviserOpen}>
+          <div
+            ref={adviserPresence.ref}
+            className="terminal-adviser-panel"
+            hidden={!adviserPresence.present}
+            inert={!adviserOpen || !controls}
+            aria-hidden={!adviserOpen || !controls || undefined}
+          >
             <div className="terminal-adviser-pickers">
               {contextReady ? (
                 <AccountModelPicker
@@ -538,10 +587,6 @@ export function TerminalView() {
             )}
           </section>
         )}
-        <div className="terminal-input-caption">
-          <span>Command {terminal?.kind === 'sandbox' ? 'in this sandbox' : 'on your Mac'}</span>
-          <span>You control input</span>
-        </div>
         <form
           className="terminal-command-form"
           onSubmit={(event) => {
@@ -623,7 +668,10 @@ export function TerminalView() {
             ↶
           </button>
         </div>
-        <div className="terminal-status" role="status">
+        <div
+          className={`terminal-status${status === 'connected' ? ' terminal-status-quiet' : ''}`}
+          role="status"
+        >
           {status === 'connected'
             ? 'Connected'
             : status === 'ended'

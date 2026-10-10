@@ -2807,3 +2807,321 @@ test('daily quote setting preserves saved truth and suppresses delivery until en
   await expect(page.getByRole('link', { name: 'Read the source', exact: true })).toBeVisible();
   expect(quoteRequests).toBe(2);
 });
+
+for (const appearance of [
+  { theme: 'dark', accent: 'lavender', font: 'system' },
+  { theme: 'light', accent: 'teal', font: 'georgia' },
+]) {
+  test(`chat activity groups every provider between responses in ${appearance.theme}`, async ({
+    page,
+  }, testInfo) => {
+    const sessionId = 'offline-activity';
+    let showReply = true;
+    const messages = [
+      {
+        messageId: 'user',
+        role: 'user',
+        blocks: [{ blockId: 'user', blockType: 'text', content: 'Check the records.' }],
+      },
+      {
+        messageId: 'before',
+        role: 'assistant',
+        blocks: [{ blockId: 'before', blockType: 'text', content: 'I will check the records.' }],
+      },
+      {
+        messageId: 'thinking',
+        role: 'assistant',
+        blocks: [
+          {
+            blockId: 'thought',
+            blockType: 'thinking',
+            content: 'Checking the latest records and their status.',
+          },
+        ],
+      },
+      {
+        messageId: 'tools',
+        role: 'assistant',
+        blocks: [
+          {
+            blockId: 'failed',
+            blockType: 'tool_use',
+            content: '',
+            toolName: 'Bash',
+            toolInput: 'read records',
+            toolResult: 'Permission denied',
+            toolError: true,
+          },
+          {
+            blockId: 'read',
+            blockType: 'tool_use',
+            content: '',
+            toolName: 'Read',
+            toolInput: '/workspace/very-long-report-name-with-records-and-updates.md',
+            toolResult: 'Records retrieved successfully',
+          },
+        ],
+      },
+      {
+        messageId: 'after',
+        role: 'assistant',
+        blocks: [{ blockId: 'after', blockType: 'text', content: 'Here are the results.' }],
+      },
+    ];
+    await page.addInitScript((appearance) => {
+      localStorage.setItem('mitzo-theme', appearance.theme);
+      localStorage.setItem('mitzo-accent', appearance.accent);
+      localStorage.setItem('mitzo-font', appearance.font);
+    }, appearance);
+    await page.route('**/api/**', async (route) => {
+      const path = new URL(route.request().url()).pathname;
+      if (path === `/api/sessions/${sessionId}/messages`)
+        return route.fulfill({ json: showReply ? messages : messages.slice(0, -1) });
+      if (path === `/api/sessions/${sessionId}/meta`)
+        return route.fulfill({ json: { sessionType: 'chat' } });
+      if (path === `/api/sessions/${sessionId}/symposium/status`)
+        return route.fulfill({ json: { sessionId, config: null, seats: [] } });
+      return route.fallback();
+    });
+    await page.goto(`/chat/${sessionId}`);
+    const toggle = page.getByRole('button', { name: /Agent at work/ });
+    await expect(toggle).toHaveCount(1);
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    await expect(toggle).toContainText('Read');
+    await expect(toggle).toContainText('1 failed');
+    await expect(page.getByText('I will check the records.', { exact: true })).toBeVisible();
+    await expect(page.getByText('Here are the results.', { exact: true })).toBeVisible();
+    const alignment = await page.locator('.msg-bubble-group--user').evaluate((user) => {
+      const chat = user.closest('.chat-messages')!;
+      return Math.abs(
+        user.getBoundingClientRect().right -
+          chat.getBoundingClientRect().right +
+          parseFloat(getComputedStyle(chat).paddingRight),
+      );
+    });
+    expect(alignment).toBeLessThan(2);
+    expect((await toggle.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    await page.screenshot({
+      path: testInfo.outputPath(`activity-collapsed-${appearance.theme}.png`),
+      animations: 'disabled',
+    });
+    await toggle.focus();
+    await page.keyboard.press('Enter');
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    await expect(page.getByRole('button', { name: /^Thought/ })).toBeVisible();
+    await expect(
+      page.getByText('Checking the latest records and their status.', { exact: true }),
+    ).toBeVisible();
+    await page.getByRole('button', { name: /^Read/ }).click();
+    await expect(page.getByText('Records retrieved successfully', { exact: true })).toBeVisible();
+    await page.screenshot({
+      path: testInfo.outputPath(`activity-expanded-${appearance.theme}.png`),
+      animations: 'disabled',
+    });
+    await toggle.focus();
+    await page.keyboard.press('Enter');
+    await expect(page.locator('.agent-activity-details')).toBeHidden();
+    await expect(toggle).toBeFocused();
+    await page.evaluate(() => {
+      document.documentElement.style.fontSize = '125%';
+    });
+    if (testInfo.project.name.startsWith('mobile'))
+      await page.setViewportSize({ width: 320, height: 740 });
+    await toggle.scrollIntoViewIfNeeded();
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth > innerWidth);
+    expect(overflow).toBe(false);
+    await page.screenshot({
+      path: testInfo.outputPath(`activity-large-text-${appearance.theme}.png`),
+      animations: 'disabled',
+    });
+    showReply = false;
+    await page.reload();
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    await expect(page.getByRole('button', { name: /^Read/ })).toBeVisible();
+    await expect(
+      page.getByText('Checking the latest records and their status.', { exact: true }),
+    ).toBeVisible();
+    await page.screenshot({
+      path: testInfo.outputPath(`activity-working-${appearance.theme}.png`),
+      animations: 'disabled',
+    });
+  });
+}
+
+for (const reducedMotion of ['no-preference', 'reduce'] as const) {
+  test(`chat activity live replies preserve grouping and keyboard focus with ${reducedMotion} motion`, async ({
+    page,
+  }, testInfo) => {
+    const sessionId = 'offline-activity-focus';
+    const live: { send?: (message: Record<string, unknown>) => void } = {};
+    await page.emulateMedia({ reducedMotion });
+    await page.routeWebSocket('**/*', (socket) => {
+      live.send = (message) => socket.send(JSON.stringify({ ...message, sessionId }));
+      socket.onMessage((raw) => {
+        const message = JSON.parse(String(raw));
+        if (message.type === 'hello')
+          socket.send(
+            JSON.stringify({
+              type: 'welcome',
+              protocolVersion: 2,
+              connectionId: 'offline-activity-focus',
+            }),
+          );
+      });
+    });
+    await page.route('**/api/**', async (route) => {
+      const path = new URL(route.request().url()).pathname;
+      if (path === `/api/sessions/${sessionId}/messages`)
+        return route.fulfill({
+          json: [
+            {
+              messageId: 'thought',
+              role: 'assistant',
+              blocks: [{ blockId: 'thought', blockType: 'thinking', content: 'Checking records' }],
+            },
+            {
+              messageId: 'empty',
+              role: 'assistant',
+              blocks: [{ blockId: 'empty', blockType: 'text', content: ' \n\t ' }],
+            },
+            {
+              messageId: 'read',
+              role: 'assistant',
+              blocks: [
+                {
+                  blockId: 'read',
+                  blockType: 'tool_use',
+                  content: '',
+                  toolName: 'Read',
+                  toolInput: '/workspace/report.md',
+                  toolResult: 'Report contents',
+                },
+              ],
+            },
+          ],
+        });
+      if (path === `/api/sessions/${sessionId}/meta`)
+        return route.fulfill({ json: { sessionType: 'chat' } });
+      if (path === `/api/sessions/${sessionId}/symposium/status`)
+        return route.fulfill({ json: { sessionId, config: null, seats: [] } });
+      return route.fallback();
+    });
+    await page.goto(`/chat/${sessionId}`);
+    const toggle = page.getByRole('button', { name: /Agent at work/ }).first();
+    await expect(page.getByRole('button', { name: /Agent at work/ })).toHaveCount(1);
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    const read = page.getByRole('button', { name: /^Read/ });
+    await read.focus();
+    await expect(read).toBeFocused();
+    await expect.poll(() => Boolean(live.send)).toBe(true);
+    live.send!({ type: 'message_start', messageId: 'reply' });
+    live.send!({ type: 'block_start', messageId: 'reply', blockId: 'answer', blockType: 'text' });
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    await expect(read).toBeFocused();
+    live.send!({
+      type: 'block_delta',
+      messageId: 'reply',
+      blockId: 'answer',
+      blockType: 'text',
+      delta: 'Here is the answer.',
+    });
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    await expect(toggle).toBeFocused();
+    await expect(page.locator('.agent-activity-details')).toBeHidden();
+    await expect(page.getByText('Here is the answer.', { exact: true })).toBeVisible();
+    live.send!({ type: 'message_start', messageId: 'next-working' });
+    live.send!({
+      type: 'block_start',
+      messageId: 'next-working',
+      blockId: 'next-thought',
+      blockType: 'thinking',
+    });
+    live.send!({
+      type: 'block_delta',
+      messageId: 'next-working',
+      blockId: 'next-thought',
+      blockType: 'thinking',
+      delta: 'Checking the next records',
+    });
+    const next = page.getByRole('button', { name: /Agent at work/ }).last();
+    await expect(page.getByRole('button', { name: /Agent at work/ })).toHaveCount(2);
+    await expect(next).toHaveAttribute('aria-expanded', 'true');
+    const composer = page.getByRole('textbox', { name: 'Message Mitzo', exact: true });
+    await composer.focus();
+    live.send!({ type: 'message_start', messageId: 'next-reply' });
+    live.send!({
+      type: 'block_start',
+      messageId: 'next-reply',
+      blockId: 'next-answer',
+      blockType: 'text',
+    });
+    live.send!({
+      type: 'block_delta',
+      messageId: 'next-reply',
+      blockId: 'next-answer',
+      blockType: 'text',
+      delta: 'Here is the next answer.',
+    });
+    await expect(next).toHaveAttribute('aria-expanded', 'false');
+    await expect(composer).toBeFocused();
+    await page.screenshot({
+      path: testInfo.outputPath(`activity-focus-${reducedMotion}.png`),
+      animations: 'disabled',
+    });
+  });
+}
+test('sandbox boot context is not presented as a fallback in Outputs / Sources', async ({
+  page,
+  isMobile,
+}, testInfo) => {
+  await page.setViewportSize({ width: isMobile ? 320 : 1280, height: 900 });
+  let sendBoot: (() => void) | undefined;
+  await page.routeWebSocket('**/*', (socket) => {
+    socket.onMessage((raw) => {
+      if (JSON.parse(String(raw)).type !== 'hello') return;
+      socket.send(
+        JSON.stringify({ type: 'welcome', protocolVersion: 2, connectionId: 'context-fixture' }),
+      );
+      sendBoot = () =>
+        socket.send(
+          JSON.stringify({
+            type: 'boot_context',
+            source: 'sandbox',
+            scope: 'sandbox',
+            sourceCount: 7,
+            tokenCount: 11995,
+            tokenBudget: 12000,
+            sources: [{ path: 'AGENTS.md', kind: 'reference' }],
+            included: [],
+            trimmed: [],
+            fullMarkdown: '# Published workspace guidance\nUse the accepted management context.',
+          }),
+        );
+    });
+  });
+  await page.goto('/chat');
+  await page.getByRole('button', { name: 'Open session tray', exact: true }).click();
+  await expect.poll(() => !!sendBoot).toBe(true);
+  sendBoot!();
+  const sources = page.getByRole('button', { name: /^Sources \d/ });
+  if ((await sources.getAttribute('aria-expanded')) !== 'true') await sources.click();
+  const header = page.getByRole('button', { name: /7 sources/ });
+  await expect(header).toBeVisible();
+  await header.click();
+  await expect(page.getByText('Boot Context (Sandbox)', { exact: true })).toBeVisible();
+  await expect(page.getByText('Boot Context (Fallback)', { exact: true })).toHaveCount(0);
+  await expect(page.locator('.session-banner-dot--ok')).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('sandbox-context-dark.png') });
+  await page.evaluate(() => {
+    document.documentElement.dataset.theme = 'light';
+    document.documentElement.dataset.accent = 'teal';
+    document.documentElement.dataset.font = 'georgia';
+  });
+  await header.focus();
+  await expect(header).toBeFocused();
+  await header.press('Enter');
+  await expect(page.getByText('Boot Context (Sandbox)', { exact: true })).toHaveCount(0);
+  await header.press('Enter');
+  await expect(page.getByText('Boot Context (Sandbox)', { exact: true })).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('sandbox-context-light.png') });
+});

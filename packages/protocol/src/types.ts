@@ -1,6 +1,7 @@
 import type { SourceSnapshot } from './source-snapshot.js';
 import type { AccountBinding } from './account-binding.js';
 import type { AgentLibraryVersion } from './agent-library.js';
+import type { AgentContextSnapshot } from './agent-context-recipe.js';
 import type { SessionType, SymposiumProvenance } from './symposium.js';
 export type { AccountBinding } from './account-binding.js';
 // Unified protocol types — single source of truth for both server and frontends.
@@ -450,6 +451,8 @@ export interface SessionMeta {
   agentName: string | null;
   /** Immutable library identity and behavior selected at chat admission. */
   agentProfile?: AgentLibraryVersion;
+  /** Immutable compiled context selected before the profile's first provider dispatch. */
+  agentContext?: AgentContextSnapshot;
   /** Serialized JSON of the boot_context payload (sources, tokens, sections). */
   bootContext: string | null;
   createdAt: number;

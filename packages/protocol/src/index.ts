@@ -260,7 +260,12 @@ export type { BackupRunStatus, BackupRun, BackupOverview } from './backup.js';
 export { isRegisteredConversation } from './conversation-identity.js';
 
 export { ModelTokenLimitsSchema, type ModelTokenLimits } from './token-limits.js';
-export { TerminalOpenBody, TerminalInputBody, TerminalResizeBody } from './terminal.js';
+export {
+  TerminalOpenBody,
+  TerminalInputBody,
+  TerminalResizeBody,
+  TerminalScrollBody,
+} from './terminal.js';
 export type { TerminalInfo, TerminalEvent } from './terminal.js';
 
 export { isReviewableTerminalCommand } from './terminal.js';
@@ -282,3 +287,10 @@ export {
 
 export { SessionRuntimeBindingV1Schema } from './session-runtime-binding.js';
 export type { SessionRuntimeBindingV1 } from './session-runtime-binding.js';
+export { AgentContextRecipeSchema, type AgentContextRecipe } from './agent-context-recipe.js';
+export {
+  AgentCompiledBootContextSchema,
+  CompiledAgentContextSchema,
+  type CompiledAgentContext,
+} from './agent-context-recipe.js';
+export { AgentContextSnapshotSchema, type AgentContextSnapshot } from './agent-context-recipe.js';

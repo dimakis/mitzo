@@ -1,3 +1,4 @@
+import { withAgentLibraryRecoveryAuthorization } from './agent-library-transport.js';
 import { terminalAccountRoute } from './terminal-account-route.js';
 import { TerminalAdviser } from './terminal-adviser.js';
 import { createTerminalAdviserSession } from './terminal-adviser-model.js';
@@ -992,7 +993,11 @@ if (custodianControllerClient)
     ),
   );
 receiveCustodianEvents(broadcastDurableSymposiumEvent);
-app.use('/api/agent-library', operatorAuthMiddleware, createAgentLibraryRouter(getAgentLibrary()));
+app.use(
+  '/api/agent-library',
+  operatorAuthMiddleware,
+  createAgentLibraryRouter(getAgentLibrary(), { workspaceRoot: BASE_REPO }),
+);
 const symposiumProfileStore = new SymposiumProfileStore(
   join(BASE_REPO || '.', '.mitzo', 'events.db'),
 );
@@ -2905,6 +2910,7 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
 async function reattachCodexQueue(
   id: string,
   binding: AccountBinding,
+  authorization?: AuthSession,
   waitForReady = false,
   deadline = Date.now() + CAPACITY_REATTACH_READY_TIMEOUT_MS,
 ): Promise<'ready' | 'reattaching' | 'unavailable'> {
@@ -2913,14 +2919,17 @@ async function reattachCodexQueue(
   const meta = eventStore.getSession(id);
   if (!meta) return 'unavailable';
   if (!existing && !codexReattachments.has(id)) {
-    const operation = startChat(new NullTransport(), `provider-recovery:${id}`, '', {
-      resume: id,
-      accountId: binding.accountId,
-      model: meta.selectedModel ?? binding.model,
-      reasoningEffort: meta.reasoningEffort,
-      agentName: meta.agentName ?? undefined,
-      reattachOnly: true,
-    })
+    const operation = withAgentLibraryRecoveryAuthorization(authorization, (operatorConnectionId) =>
+      startChat(new NullTransport(), `provider-recovery:${id}`, '', {
+        resume: id,
+        accountId: binding.accountId,
+        model: meta.selectedModel ?? binding.model,
+        reasoningEffort: meta.reasoningEffort,
+        agentName: meta.agentName ?? undefined,
+        reattachOnly: true,
+        operatorConnectionId,
+      }),
+    )
       .then(() => undefined)
       .catch((error: unknown) => {
         log.warn('provider reattachment failed', {
@@ -2964,13 +2973,13 @@ app.use(
       const runtime = session ? getCodexRuntime(session) : undefined;
       return runtime ? runtime.retryLatestFailed(confirmAmbiguous) : 'unavailable';
     },
-    capacityRetry: (id, binding, recoveryId, sourceCommandId) => {
+    capacityRetry: (id, binding, recoveryId, sourceCommandId, authorization) => {
       const deadline = Date.now() + CAPACITY_REATTACH_READY_TIMEOUT_MS;
       return retryCapacityAfterReattachment(
         { recoveryId, sourceCommandId },
         {
           read: () => readCodexCapacityRecovery(id, binding),
-          reattach: () => reattachCodexQueue(id, binding, true, deadline),
+          reattach: () => reattachCodexQueue(id, binding, authorization, true, deadline),
           retry: async () => {
             const session = registry.findBySessionId(id)?.session;
             const runtime = session ? getCodexRuntime(session) : undefined;
@@ -2989,7 +2998,7 @@ app.use(
         sourceCommandId,
         registry.findBySessionId(id)?.session,
       ),
-    reattach: (id, binding) => reattachCodexQueue(id, binding),
+    reattach: (id, binding, authorization) => reattachCodexQueue(id, binding, authorization),
   }),
 );
 

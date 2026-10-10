@@ -1,6 +1,6 @@
 # Agent Library
 
-Agent Library lives at `/agent-library`, alongside the existing Agents taskboard at `/tasks`. Desktop navigation and mobile More expose both. A profile has a user-chosen name, short descriptor, description, instructions, expected output, acceptance criteria, and an optional reusable recipe. Names such as **Bob · The architect** appear in Library, chat selection, and Symposium setup.
+Agent Library lives at `/agent-library`, alongside the existing Agents taskboard at `/tasks`. Desktop navigation and mobile More expose both. A profile has a user-chosen name, short descriptor, description, instructions, expected output, acceptance criteria, and optional advisory setup and compiled-context recipes. Names such as **Bob · The architect** appear in Library, chat selection, and Symposium setup.
 
 ## Storage and publication
 
@@ -20,16 +20,43 @@ New chats select a published profile alongside account/model selection. The v2 s
 
 Manual profile choices update the current chat URL, including an explicit return to Default Mitzo. Switching between desktop and mobile layouts preserves that choice and the other chat parameters.
 
-Resumes use the saved snapshot. Profile edits do not replace it, and an active chat cannot change its binding. Boot context, published knowledge adoption, account selection, permission modes, and sandbox ownership retain their existing paths. Recipes remain advisory setup guidance; they do not grant access, install tools, or replace sandbox context compilation. Prompt preview renders the profile guidance and identifies context as unresolved until execution.
+Resumes use the saved profile snapshot. Profile edits do not replace it, and an active chat cannot change its binding. Published knowledge adoption, account selection, permission modes, and sandbox ownership retain their existing paths. The older `recipe` field remains advisory reviewer setup guidance. The separate `contextRecipe` field selects actual compilation for local chats as described below; neither field grants access or installs tools.
 
 Library’s **Use as reviewer** action selects an existing chat and opens its existing add-agent setup with the chosen profile’s guidance. The setup remains editable and follows the same account, sharing, grant, activation, and recovery checks as a manually selected saved profile. This handoff creates no seat or provider turn by itself. Published profiles are also immediately available in the existing Symposium picker.
 
+## Compiled context recipes
+
+The Context tab can opt a profile into ContexGin compilation. A workspace recipe selects up to 20 relative `.md` or `.mdc` documents from the chat's existing workspace, a 256–32,000 token budget, and required or excluded heading paths. For example:
+
+```json
+{
+  "version": 1,
+  "source": "workspace",
+  "files": ["docs/architecture.md"],
+  "tokenBudget": 4000,
+  "required": [["docs/architecture.md", "Architecture", "Constraints"]],
+  "excluded": [["docs/architecture.md", "Architecture", "Background"]]
+}
+```
+
+Heading paths include the filename and each enclosing Markdown heading. Selectors match a case-insensitive prefix, including a whole file; they are not wildcard patterns. All heading levels participate independently. Root `AGENTS.md` is always required in full, with `CLAUDE.md` as fallback when it is absent. Recipes cannot exclude these canonical instructions, and required content exceeding the budget fails explicitly. Missing selected files, symbolic links, invalid UTF-8, oversized sources and unavailable required sections also fail before dispatch. Optional sections may be trimmed to fit.
+
+An existing host-configured ContexGin preset can instead be selected with `{ "version": 1, "source": "contexgin", "agentName": "architect" }`. The host chooses the ContexGin URL; its preset owns source selection and budget. Profiles cannot provide a service URL or runtime grants. Failed or mismatched preset responses fail explicitly.
+
+**Compile preview** uses the server's configured workspace or the selected preset without creating a chat or calling a provider. It shows the compiled prompt, source and token receipt, included and trimmed sections where available, and a context hash. The preset endpoint does not report section trimming; the preview identifies that limitation. A workspace preview is a sample of the configured workspace; a new chat compiles its own selected workspace. Preview bodies remain in the editor state and are excluded from portable exports.
+
+For local chats, compilation completes before provider dispatch. The conversation stores an immutable receipt binding the exact profile revision and hash, recipe, compiler revision, compiled payload and workspace-path identity. That identity checks context scope; existing runtime admission still controls workspace ownership. Logout during compilation aborts admission. First-use compilation failures end the undispatched admission while preserving task roots and history for inspection and retry.
+
+Cold resumes verify and reuse the saved compiled payload even if source documents changed. To use changed sources, start a new chat. A changed recipe, damaged receipt, different workspace path or incompatible compiler revision fails explicitly. Compilation does not automatically publish shared knowledge or record consumer adoption. Portable profiles contain recipe references, never conversation-owned compiled bodies.
+
+This increment supports local chats through their existing common prompt assembly. OpenShell profile startup with `contextRecipe` fails before provider preflight because its protected sandbox compiler requires separate integration. Symposium continues to use its existing explicit context sharing and grants. Leave `contextRecipe` unset for these uses; profile behavior and the advisory reviewer recipe remain reusable.
+
 ## Agent advisor
 
-**Create with advisor** opens a normal chat with a prepared brief asking about the agent’s job, success criteria, name, descriptor, and behavior. It uses the existing `SymposiumProposeProfile` tool when available. Proposals appear in the existing chat draft controls for explicit user review and save. That tool can propose guidance, but cannot publish a profile or issue runtime grants. Runtimes without the tool can return portable profile JSON for manual review/import; the UI does not simulate a successful proposal.
+**Create with advisor** opens a normal chat with a prepared brief asking about the agent’s job, success criteria, name, descriptor, behavior, and optional local-chat context sources. The brief distinguishes advisory reviewer recipes from compiled recipes and asks for confirmed document references or configured preset names. It uses the existing `SymposiumProposeProfile` tool when available. Proposals appear in the existing chat draft controls for explicit user review and save. That tool can propose guidance, but cannot publish a profile or issue runtime grants. Runtimes without the tool can return portable profile JSON for manual review/import; the UI does not simulate a successful proposal.
 
 ## Validation and rollout
 
-Unit tests cover owner separation, draft/publication conflicts, retries and restart, immutable historical identities, import integrity, private identity fields, exact chat admission, provider compatibility, logout during retained-owner lookup, and reviewer handoff without activation. A mocked SDK startup test checks prompt injection and persistence before dispatch. Offline browser tests serve the compiled app through request interception with synthetic catalogs, without any running Mitzo service or model calls.
+Unit tests cover owner separation, draft/publication conflicts, retries and restart, immutable historical identities, import integrity, private identity fields, exact chat admission, provider compatibility, logout during retained-owner lookup, and reviewer handoff without activation. Mocked startup tests check prompt injection, immutable context persistence, cold resume without recompilation, failure before dispatch, and operator revocation during compilation. Compiler tests cover heading selection, required budgets, source confinement, bounded preset responses, cancellation and receipt verification. Offline browser tests serve the compiled app through request interception with synthetic catalogs, without any running Mitzo service or model calls.
 
-This change does not deploy to staging or production. Live validation must follow the canonical staging procedure and the supported Luna/account declaration rules. Context-recipe execution beyond the existing runtime path, centralized tool grants, and automated catalog selection by task templates require explicit follow-up integration.
+This change does not deploy to staging or production. Live validation must follow the canonical staging procedure and the supported Luna/account declaration rules. OpenShell and Symposium compilation, centralized tool grants, and automated catalog selection by task templates require follow-up integration.
