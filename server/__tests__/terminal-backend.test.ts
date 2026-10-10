@@ -19,12 +19,20 @@ describe('terminal process boundary', () => {
     expect(spec.args).toEqual([
       '-L',
       'mitzo-test',
+      '-f',
+      '/dev/null',
       'new-session',
       '-A',
       '-s',
       record.id,
       '-c',
       record.cwd,
+      ';',
+      'set-option',
+      '-t',
+      record.id,
+      'status',
+      'off',
     ]);
   });
   it('does not forward server credentials or administrative configuration', () => {
@@ -94,7 +102,15 @@ describe('terminal process boundary', () => {
 
 it('never creates a fresh shell when resuming a missing persisted session', () => {
   const spec = terminalProcessSpec(record, 'mitzo-test', 'resume');
-  expect(spec.args).toEqual(['-L', 'mitzo-test', 'attach-session', '-t', record.id]);
+  expect(spec.args).toEqual([
+    '-L',
+    'mitzo-test',
+    '-f',
+    '/dev/null',
+    'attach-session',
+    '-t',
+    record.id,
+  ]);
   expect(spec.args).not.toContain('new-session');
 });
 

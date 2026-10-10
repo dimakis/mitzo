@@ -1,30 +1,48 @@
 import { Client, credentials, type ClientUnaryCall } from '@grpc/grpc-js';
+import { fromJSON, type ServiceDefinition } from '@grpc/proto-loader';
 import { closeSync, constants, fstatSync, openSync, readFileSync } from 'node:fs';
 import { createHash, createPrivateKey, X509Certificate } from 'node:crypto';
 import { isAbsolute, join } from 'node:path';
 import { z } from 'zod';
-import type { ManagedOpenAIAccount, OpenAIKeyGateway } from './openai-key-management.js';
-import { openShellKeyApiService } from './openshell-key-api-protocol.js';
-
+// Independent narrow SSH contract from the reviewed OpenShell v1 source.
+// Keeping this client separate preserves enrolled credential-mutation qualification.
+const terminalSshService = fromJSON(
+  {
+    nested: {
+      openshell: {
+        nested: {
+          v1: {
+            nested: {
+              CreateSshSessionRequest: { fields: { sandbox_id: { type: 'string', id: 1 } } },
+              CreateSshSessionResponse: {
+                fields: {
+                  sandbox_id: { type: 'string', id: 1 },
+                  token: { type: 'string', id: 2 },
+                  gateway_host: { type: 'string', id: 3 },
+                  gateway_port: { type: 'uint32', id: 4 },
+                  gateway_scheme: { type: 'string', id: 5 },
+                  host_key_fingerprint: { type: 'string', id: 7 },
+                  expires_at_ms: { type: 'int64', id: 8 },
+                },
+              },
+              OpenShell: {
+                methods: {
+                  CreateSshSession: {
+                    comment: 'Mint a terminal grant for an immutable physical ID.',
+                    requestType: 'CreateSshSessionRequest',
+                    responseType: 'CreateSshSessionResponse',
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+  { keepCase: true, longs: String, defaults: false },
+)['openshell.v1.OpenShell'] as ServiceDefinition;
 type Connection = { endpoint: string; ca: Buffer; cert: Buffer; key: Buffer };
-const Version = z
-  .string()
-  .regex(/^[1-9][0-9]*$/)
-  .refine((value) => BigInt(value) <= 18446744073709551615n);
-const Response = z.object({
-  provider: z.object({
-    metadata: z.object({
-      id: z.string().min(1),
-      name: z.string().min(1),
-      workspace: z.string().min(1),
-      resource_version: Version,
-    }),
-    type: z.literal('mitzo-openai-keychain-spike'),
-    credentials: z.record(z.string(), z.unknown()),
-    config: z.record(z.string(), z.unknown()).optional(),
-    profile_workspace: z.string().optional(),
-  }),
-});
 function endpoint(value: string) {
   const parsed = new URL(value);
   if (
@@ -68,8 +86,8 @@ function privateFile(path: string, key = false) {
   }
 }
 
-/** A Mitzo-owned client for the existing v1 API. CLI remains responsible for inventory/policy/drain. */
-export class OpenShellProviderKeyApi implements Pick<OpenAIKeyGateway, 'inspect' | 'replace'> {
+/** Authenticated, physical-ID SSH bootstrap; exposes no provider mutation or discovery. */
+export class TerminalSshApi {
   private pinnedConnection: string | undefined;
   constructor(
     private readonly options: {
@@ -77,7 +95,7 @@ export class OpenShellProviderKeyApi implements Pick<OpenAIKeyGateway, 'inspect'
       gateway: string;
       endpoint?: string;
       workspace: string;
-      protocol?: string;
+      protocol: 'openshell-v1';
     },
   ) {}
   private connection(): Connection {
@@ -128,12 +146,12 @@ export class OpenShellProviderKeyApi implements Pick<OpenAIKeyGateway, 'inspect'
   }
   private async unary(
     connection: Connection,
-    method: 'GetProvider' | 'UpdateProvider',
+    method: 'CreateSshSession',
     request: object,
     signal: AbortSignal,
   ): Promise<unknown> {
     signal.throwIfAborted();
-    const definition = openShellKeyApiService[method];
+    const definition = terminalSshService[method];
     const client = new Client(
       new URL(connection.endpoint).host,
       credentials.createSsl(connection.ca, connection.key, connection.cert),
@@ -180,81 +198,37 @@ export class OpenShellProviderKeyApi implements Pick<OpenAIKeyGateway, 'inspect'
       client.close();
     }
   }
-  private checked(value: unknown, account: ManagedOpenAIAccount) {
-    const provider = Response.parse(value).provider;
-    const metadata = provider.metadata;
-    if (
-      metadata.id !== account.providerId ||
-      metadata.name !== account.providerName ||
-      metadata.workspace !== this.options.workspace ||
-      Object.keys(provider.credentials).join(',') !== 'OPENAI_API_KEY' ||
-      Object.keys(provider.config ?? {}).length ||
-      (provider.profile_workspace && provider.profile_workspace !== this.options.workspace)
-    )
-      throw new Error();
-    return {
-      version: metadata.resource_version,
-      profileWorkspace: provider.profile_workspace ?? '',
-    };
-  }
-  private async read(connection: Connection, account: ManagedOpenAIAccount, signal: AbortSignal) {
-    return this.checked(
-      await this.unary(
-        connection,
-        'GetProvider',
-        { name: account.providerName, workspace: this.options.workspace },
-        signal,
-      ),
-      account,
-    );
-  }
-  async inspect(account: ManagedOpenAIAccount, signal: AbortSignal) {
+  /** The gateway mints a short-lived grant for the persisted physical ID, never a name. */
+  async createTerminalSsh(sandboxId: string, signal: AbortSignal) {
     try {
-      const value = await this.read(this.connection(), account, signal);
-      return { version: value.version };
-    } catch {
-      throw new Error('OpenAI gateway API is unavailable');
-    }
-  }
-  async replace(
-    account: ManagedOpenAIAccount,
-    value: string,
-    expectedVersion: string,
-    signal: AbortSignal,
-  ) {
-    try {
-      Version.parse(expectedVersion);
-      if (!value || Buffer.byteLength(value) > 16384) throw new Error();
+      if (!/^[A-Za-z0-9._-]{1,128}$/.test(sandboxId)) throw Error();
       const connection = this.connection();
-      const before = await this.read(connection, account, signal);
-      if (before.version !== expectedVersion) throw new Error();
-      // Preserve the caller's durable version. Never replace it with a new read's version or retry a conflict.
-      const result = this.checked(
-        await this.unary(
-          connection,
-          'UpdateProvider',
-          {
-            workspace: this.options.workspace,
-            provider: {
-              metadata: {
-                id: account.providerId,
-                name: account.providerName,
-                workspace: this.options.workspace,
-                resource_version: expectedVersion,
-              },
-              type: 'mitzo-openai-keychain-spike',
-              profile_workspace: before.profileWorkspace,
-              credentials: { OPENAI_API_KEY: value },
-            },
-          },
-          signal,
-        ),
-        account,
-      );
-      if (BigInt(result.version) !== BigInt(expectedVersion) + 1n) throw new Error();
-      return { version: result.version };
+      const grant = z
+        .object({
+          sandbox_id: z.literal(sandboxId),
+          token: z
+            .string()
+            .min(1)
+            .max(4096)
+            .regex(/^[A-Za-z0-9._~+/=-]+$/),
+          gateway_host: z
+            .string()
+            .min(1)
+            .max(253)
+            .regex(/^[A-Za-z0-9.:[\]_-]+$/),
+          gateway_port: z.number().int().min(1).max(65535),
+          gateway_scheme: z.literal('https'),
+          expires_at_ms: z.string().regex(/^[0-9]+$/),
+        })
+        .parse(await this.unary(connection, 'CreateSshSession', { sandbox_id: sandboxId }, signal));
+      const origin = new URL(
+        `${grant.gateway_scheme}://${grant.gateway_host}:${grant.gateway_port}`,
+      ).origin;
+      if (origin !== connection.endpoint || Number(grant.expires_at_ms) <= Date.now())
+        throw Error();
+      return { sandboxId, token: grant.token, proxyUrl: `${origin}/proxy/connect` };
     } catch {
-      throw new Error('OpenAI gateway API update could not be confirmed');
+      throw Error('Terminal SSH identity unavailable');
     }
   }
 }

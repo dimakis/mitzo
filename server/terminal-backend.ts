@@ -2,7 +2,7 @@ import * as pty from 'node-pty';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { openShellSshArgvProcessSpec } from './codex-app-server-client.js';
-import { OpenShellProviderKeyApi } from './openshell-key-api.js';
+import { TerminalSshApi } from './terminal-ssh-api.js';
 import type { OpenShellRuntime } from './openshell-runtime.js';
 import type { TerminalBackend, TerminalRecord } from './terminal-service.js';
 
@@ -23,14 +23,30 @@ export function terminalProcessSpec(
   namespace: string,
   operation: 'attach' | 'resume' | 'check' | 'end',
   grant?: TerminalSshGrant,
+  hostEnvironment: NodeJS.ProcessEnv = process.env,
 ) {
   if (!/^term-[0-9a-f-]{36}$/.test(record.id) || !/^mitzo-[a-zA-Z0-9_-]+$/.test(namespace))
     throw new Error('Invalid owned terminal selector');
   const args = [
     '-L',
     namespace,
+    '-f',
+    '/dev/null',
     ...(operation === 'attach'
-      ? ['new-session', '-A', '-s', record.id, '-c', record.cwd]
+      ? [
+          'new-session',
+          '-A',
+          '-s',
+          record.id,
+          '-c',
+          record.cwd,
+          ';',
+          'set-option',
+          '-t',
+          record.id,
+          'status',
+          'off',
+        ]
       : [
           operation === 'resume'
             ? 'attach-session'
@@ -41,7 +57,8 @@ export function terminalProcessSpec(
           record.id,
         ]),
   ];
-  if (record.kind === 'host') return { command: 'tmux', args, env: safeTerminalEnvironment() };
+  if (record.kind === 'host')
+    return { command: 'tmux', args, env: safeTerminalEnvironment(hostEnvironment) };
   if (!record.target?.runtime?.sandboxId) throw new Error('Sandbox terminal unavailable');
   const runtime = record.target.runtime;
   if (
@@ -74,10 +91,20 @@ export function terminalProcessSpec(
   };
 }
 export class TmuxTerminalBackend implements TerminalBackend {
-  private gateways = new Map<string, OpenShellProviderKeyApi>();
-  constructor(private namespace: string) {}
+  private gateways = new Map<string, TerminalSshApi>();
+  constructor(
+    private namespace: string,
+    private hostEnvironment: NodeJS.ProcessEnv = process.env,
+  ) {}
   private async spec(record: TerminalRecord, operation: 'attach' | 'resume' | 'check' | 'end') {
-    if (record.kind === 'host') return terminalProcessSpec(record, this.namespace, operation);
+    if (record.kind === 'host')
+      return terminalProcessSpec(
+        record,
+        this.namespace,
+        operation,
+        undefined,
+        this.hostEnvironment,
+      );
     const runtime = record.target?.runtime as
       (OpenShellRuntime & { sandboxId: string }) | undefined;
     if (!runtime?.sandboxId) throw Error('Sandbox terminal unavailable');
@@ -86,7 +113,7 @@ export class TmuxTerminalBackend implements TerminalBackend {
     const key = JSON.stringify([home, runtime.gateway, runtime.gatewayEndpoint, runtime.workspace]);
     let gateway = this.gateways.get(key);
     if (!gateway) {
-      gateway = new OpenShellProviderKeyApi({
+      gateway = new TerminalSshApi({
         home,
         gateway: runtime.gateway || 'openshell',
         endpoint: runtime.gatewayEndpoint,

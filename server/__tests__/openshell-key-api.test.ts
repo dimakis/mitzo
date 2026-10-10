@@ -20,9 +20,7 @@ message Provider {Meta metadata=1; string type=2; map<string,string> credentials
 message GetProviderRequest {string name=1; string workspace=2;}
 message UpdateProviderRequest {Provider provider=1; string workspace=3;}
 message ProviderResponse {Provider provider=1;}
-message CreateSshSessionRequest {string sandbox_id=1;}
-message CreateSshSessionResponse {string sandbox_id=1;string token=2;string gateway_host=3;uint32 gateway_port=4;string gateway_scheme=5;string host_key_fingerprint=7;int64 expires_at_ms=8;}
-service OpenShell {rpc CreateSshSession(CreateSshSessionRequest) returns(CreateSshSessionResponse);rpc GetProvider(GetProviderRequest) returns(ProviderResponse); rpc UpdateProvider(UpdateProviderRequest) returns(ProviderResponse);}`;
+service OpenShell {rpc GetProvider(GetProviderRequest) returns(ProviderResponse); rpc UpdateProvider(UpdateProviderRequest) returns(ProviderResponse);}`;
 const account = {
   id: 'work',
   label: 'Work',
@@ -131,21 +129,6 @@ beforeAll(async () => {
   const definition = loadSync(join(directory, 'contract.proto'), { keepCase: true, longs: String });
   server = new Server();
   server.addService(definition['openshell.v1.OpenShell'] as Parameters<Server['addService']>[0], {
-    CreateSshSession(
-      call: ServerUnaryCall<{ sandbox_id: string }, object>,
-      callback: sendUnaryData<object>,
-    ) {
-      seen.push(call.request);
-      const gateway = new URL(endpoint);
-      callback(null, {
-        sandbox_id: wrongId ? 'replacement' : call.request.sandbox_id,
-        token: 'EPHEMERAL_SYNTHETIC_TOKEN',
-        gateway_host: gateway.hostname,
-        gateway_port: Number(gateway.port),
-        gateway_scheme: 'https',
-        expires_at_ms: String(Date.now() + 60000),
-      });
-    },
     GetProvider(
       call: ServerUnaryCall<{ name: string; workspace: string }, object>,
       callback: sendUnaryData<object>,
@@ -326,16 +309,4 @@ it('keeps TLS verification enabled when the registered CA does not trust the gat
   } finally {
     writeFileSync(ca, trusted);
   }
-});
-
-it('mints a terminal SSH grant for an immutable sandbox ID with no name lookup', async () => {
-  const grant = await api().createTerminalSsh('original-id', signal());
-  expect(seen).toEqual([{ sandbox_id: 'original-id' }]);
-  expect(grant).toEqual({
-    sandboxId: 'original-id',
-    token: 'EPHEMERAL_SYNTHETIC_TOKEN',
-    proxyUrl: `${endpoint}/proxy/connect`,
-  });
-  wrongId = true;
-  await expect(api().createTerminalSsh('original-id', signal())).rejects.toThrow();
 });

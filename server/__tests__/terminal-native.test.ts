@@ -1,5 +1,5 @@
 import { it, expect, vi } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -12,8 +12,8 @@ it.skipIf(!available)(
   async () => {
     const home = mkdtempSync(join(tmpdir(), 'mitzo-terminal-test-'));
     const namespace = `mitzo-test-${randomUUID()}`;
-    vi.stubEnv('HOME', home);
-    vi.stubEnv('SHELL', '/bin/sh');
+    writeFileSync(join(home, '.tmux.conf'), 'set -g exit-unattached on\nset -g status on\n');
+    const environment = { ...process.env, HOME: home, SHELL: '/bin/sh' };
     const record: TerminalRecord = {
       id: `term-${randomUUID()}`,
       owner: 'test',
@@ -24,7 +24,7 @@ it.skipIf(!available)(
       state: 'running',
       createdAt: 1,
     };
-    const backend = new TmuxTerminalBackend(namespace);
+    const backend = new TmuxTerminalBackend(namespace, environment);
     let output = '';
     let live: Awaited<ReturnType<TmuxTerminalBackend['start']>> | undefined;
     try {
@@ -46,9 +46,14 @@ it.skipIf(!available)(
         }, 3000);
         live!.write("export MITZO_TEST_VALUE=persisted; printf 'READY_%s\\n' MARKER\r");
       });
+      expect(
+        spawnSync('tmux', ['-L', namespace, 'show-option', '-t', record.id, 'status'], {
+          encoding: 'utf8',
+        }).stdout.trim(),
+      ).toBe('status off');
       live.detach();
       output = '';
-      const reconstructed = new TmuxTerminalBackend(namespace);
+      const reconstructed = new TmuxTerminalBackend(namespace, environment);
       live = await reconstructed.start(record, true, {
         data: (value) => (output += value),
         exit: () => {},
@@ -61,8 +66,7 @@ it.skipIf(!available)(
     } finally {
       live?.detach();
       spawnSync('tmux', ['-L', namespace, 'kill-server'], { env: { ...process.env, HOME: home } });
-      vi.unstubAllEnvs();
-      rmSync(home, { recursive: true, force: true });
+      rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 20 });
     }
   },
   10000,
