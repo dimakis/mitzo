@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.9';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.34';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.35';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -28,7 +28,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../ws-handler-v2.ts': '2952b6ea0ad4307739603901b01725514896452ea70c9f2464d8c04c6f4d9052',
   '../codex-queue-routes.ts': '6873ee90c32da94dcfebd432535d4170942e53c980456927f9dd57e9917d9a53',
   '../agent-context-compiler.ts':
-    '79fdab301b04325d3fd04c129d7ea5ffab3fca234a919dd9f229227c27bfbe91',
+    '375a3124e1de8020574c5961d704f9ee8b68b5aa7a714055ed9c82e479f04442',
   '../../packages/protocol/src/agent-context-recipe.ts':
     'dbe9dd63fe439a1615ec605870528e350d5c1dbbb87517e4a78082dd4e5a7c83',
   // Library profile identity, operator ownership and admission are reviewed runtime inputs.

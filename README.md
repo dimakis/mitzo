@@ -723,7 +723,7 @@ npx playwright install webkit chromium # first-time browser test setup
 npm run test:design   # Static shared palette/font/token contract
 npm run test:ui       # Shared theme and mobile layouts with entirely offline fixtures
 npm run test:browser  # Connections scrolling in mobile WebKit and desktop Chromium (mocked APIs)
-npm run lint         # eslint
+npm run lint         # ESLint: server, frontend and shared packages (including tests, excluding dist)
 npm run format:check # prettier
 ```
 
