@@ -76,7 +76,7 @@ beforeEach(() => {
         draft: { ...draft, documents: createdDocuments, state: 'draft', review: undefined },
       });
     }
-    if (path.endsWith('/review'))
+    if (path.endsWith('/ready'))
       return response({ draft: { ...draft, documents: createdDocuments } });
     if (init?.method === 'PUT')
       return response({
@@ -116,22 +116,28 @@ it('curates accepted documents by search and area and opens a read-only reader b
   expect(localStorage.getItem('mitzo-knowledge-working-copy:')).toBeNull();
   fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
   await screen.findByRole('textbox', { name: 'Document source' });
-  for (const name of ['Source', 'Preview', 'Split', 'Undo', 'Redo', 'Save'])
+  for (const name of ['Source', 'Preview', 'Split', 'Undo', 'Redo', 'Save draft'])
     expect(screen.getByRole('button', { name })).toBeTruthy();
   expect(screen.queryByRole('complementary', { name: 'Review details' })).toBeNull();
 });
-it('Save durably creates a draft and opens review without exposing Git workflow', async () => {
+it('Save draft durably stages changes and only explicit Send opens review', async () => {
   setup();
   fireEvent.click(await findLibraryDocument(/Working principles/));
   fireEvent.click(await screen.findByRole('button', { name: 'Edit' }));
   const input = await screen.findByRole('textbox', { name: 'Document source' });
   fireEvent.change(input, { target: { value: '# Revised' } });
-  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
-  await screen.findByText('In review');
+  fireEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+  await screen.findAllByText('Draft saved');
   expect(
     vi.mocked(apiFetch).mock.calls.find(([path]) => path === '/api/knowledge/drafts')?.[1]?.body,
   ).toContain('"baseRevision":"r1"');
-  expect(vi.mocked(apiFetch).mock.calls.some(([path]) => path.endsWith('/d1/review'))).toBe(true);
+  expect(
+    vi
+      .mocked(apiFetch)
+      .mock.calls.some(([path]) => path.endsWith('/review') || path.endsWith('/ready')),
+  ).toBe(false);
+  fireEvent.click(screen.getByRole('button', { name: 'Send for review' }));
+  await screen.findAllByText('Sent for review');
   fireEvent.click(screen.getByRole('button', { name: 'Review details' }));
   expect(screen.getByRole('link', { name: 'Open review' }).getAttribute('href')).toBe(
     draft.review.url,
@@ -152,7 +158,7 @@ it('shows save errors inside fullscreen while preserving the working copy', asyn
   });
   fireEvent.click(screen.getByRole('button', { name: 'Fullscreen' }));
   const fullscreen = within(screen.getByRole('dialog', { name: 'Fullscreen document editor' }));
-  fireEvent.click(fullscreen.getByRole('button', { name: 'Save' }));
+  fireEvent.click(fullscreen.getByRole('button', { name: 'Save draft' }));
   await fullscreen.findByText('Could not save draft');
   expect((fullscreen.getByRole('textbox') as HTMLTextAreaElement).value).toBe('# Keep my changes');
 });
@@ -170,12 +176,12 @@ it('recovers unsaved work across remounts and preserves it on a review conflict'
     ((await screen.findByRole('textbox', { name: 'Document source' })) as HTMLTextAreaElement)
       .value,
   ).toBe('# Recovered');
-  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
-  await screen.findByText('In review');
+  fireEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+  await screen.findAllByText('Draft saved');
   fireEvent.change(screen.getByRole('textbox', { name: 'Document source' }), {
     target: { value: '# Keep this' },
   });
-  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Save draft' }));
   await screen.findByText('Accepted document changed. Compare before saving again.');
   expect(
     (screen.getByRole('textbox', { name: 'Document source' }) as HTMLTextAreaElement).value,
@@ -208,8 +214,10 @@ it('accepts only after reconciling the exact current review and reports waiting 
   fireEvent.change(await screen.findByRole('textbox', { name: 'Document source' }), {
     target: { value: '# Revised' },
   });
-  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
-  await screen.findByText('In review');
+  fireEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+  await screen.findAllByText('Draft saved');
+  fireEvent.click(screen.getByRole('button', { name: 'Send for review' }));
+  await screen.findAllByText('Sent for review');
   fireEvent.click(screen.getByRole('button', { name: 'Review details' }));
   const accept = screen.getByRole('button', { name: 'Accept changes' }) as HTMLButtonElement;
   expect(accept.disabled).toBe(true);
@@ -220,7 +228,7 @@ it('accepts only after reconciling the exact current review and reports waiting 
   expect(vi.mocked(apiFetch).mock.calls.find(([path]) => path.endsWith('/accept'))?.[1]?.body).toBe(
     '{"version":1,"head":"h1"}',
   );
-  expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
+  expect(screen.queryByRole('button', { name: 'Save draft' })).toBeNull();
 });
 it('keeps a failed review draft and requires an explicit choice before rebasing', async () => {
   const original = vi.mocked(apiFetch).getMockImplementation()!;
@@ -236,12 +244,12 @@ it('keeps a failed review draft and requires an explicit choice before rebasing'
   fireEvent.change(await screen.findByRole('textbox', { name: 'Document source' }), {
     target: { value: '# Revised' },
   });
-  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
-  await screen.findByText('In review');
+  fireEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+  await screen.findAllByText('Draft saved');
   fireEvent.change(screen.getByRole('textbox', { name: 'Document source' }), {
     target: { value: '# Keep this' },
   });
-  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Save draft' }));
   await screen.findByText('Accepted document changed. Compare before saving again.');
   fireEvent.click(screen.getByRole('button', { name: 'Compare accepted version' }));
   await screen.findByText('# New accepted');
@@ -285,8 +293,8 @@ it('starts a new change from retained edits after explicitly comparing accepted 
   fireEvent.change(await screen.findByRole('textbox', { name: 'Document source' }), {
     target: { value: '# Revised' },
   });
-  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
-  await screen.findByText('In review');
+  fireEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+  await screen.findAllByText('Draft saved');
   fireEvent.click(screen.getByRole('button', { name: 'Review details' }));
   fireEvent.click(screen.getByRole('button', { name: 'Start new change' }));
   await screen.findByRole('button', { name: 'Keep my edits in a new change' });
@@ -311,7 +319,7 @@ it('retries an uncertain first save with the same persisted request identity', a
   fireEvent.change(await screen.findByRole('textbox', { name: 'Document source' }), {
     target: { value: '# Revised' },
   });
-  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Save draft' }));
   await screen.findByText('Connection lost before acknowledgement');
   first.unmount();
   setup();
@@ -319,8 +327,8 @@ it('retries an uncertain first save with the same persisted request identity', a
   fireEvent.change(await screen.findByRole('textbox', { name: 'Document source' }), {
     target: { value: '# Revised' },
   });
-  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
-  await screen.findByText('In review');
+  fireEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+  await screen.findAllByText('Draft saved');
   const bodies = vi
     .mocked(apiFetch)
     .mock.calls.filter(([path]) => path === '/api/knowledge/drafts')
@@ -371,8 +379,8 @@ it('sends the exact saved review draft for review, preserving its source and req
     name: 'Document source',
   })) as HTMLTextAreaElement;
   fireEvent.change(source, { target: { value: '# Revised' } });
-  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
-  await screen.findByText('Review draft saved');
+  fireEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+  await screen.findAllByText('Draft saved');
   fireEvent.click(screen.getByRole('button', { name: 'Review details' }));
   const send = screen.getByRole('button', { name: 'Send for review' }) as HTMLButtonElement;
   expect(send.disabled).toBe(false);
@@ -382,10 +390,10 @@ it('sends the exact saved review draft for review, preserving its source and req
   expect(source.value).toBe('# Revised');
   expect(send.disabled).toBe(false);
   fireEvent.click(send);
-  await screen.findByText('Sent for review');
+  await screen.findAllByText('Sent for review');
   expect(source.value).toBe('# Revised');
   expect(vi.mocked(apiFetch).mock.calls.find(([path]) => path.endsWith('/ready'))?.[1]?.body).toBe(
-    '{"version":1,"head":"h1"}',
+    '{"version":1}',
   );
   expect(screen.queryByRole('button', { name: 'Send for review' })).toBeNull();
   expect(
@@ -407,8 +415,8 @@ it('preserves a saved review draft when sending for review fails', async () => {
   fireEvent.change(await screen.findByRole('textbox', { name: 'Document source' }), {
     target: { value: '# Revised' },
   });
-  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
-  await screen.findByText('Review draft saved');
+  fireEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+  await screen.findAllByText('Draft saved');
   fireEvent.click(screen.getByRole('button', { name: 'Review details' }));
   fireEvent.click(screen.getByRole('button', { name: 'Send for review' }));
   await screen.findByText('Review head changed. Refresh review status.');
@@ -428,7 +436,7 @@ it('requires a fresh review submission after saving newer document edits', async
         draft: {
           ...draft,
           version: 2,
-          review: { ...draft.review, version: 2, ready: false },
+          review: draft.review,
           documents: [{ ...draft.documents[0], content: '# Updated' }],
         },
       });
@@ -440,21 +448,21 @@ it('requires a fresh review submission after saving newer document edits', async
   fireEvent.change(await screen.findByRole('textbox', { name: 'Document source' }), {
     target: { value: '# Revised' },
   });
-  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
-  await screen.findByText('In review');
+  fireEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+  await screen.findAllByText('Draft saved');
+  fireEvent.click(screen.getByRole('button', { name: 'Send for review' }));
+  await screen.findAllByText('Sent for review');
   fireEvent.click(screen.getByRole('button', { name: 'Review details' }));
   expect(screen.queryByRole('button', { name: 'Send for review' })).toBeNull();
   fireEvent.change(screen.getByRole('textbox', { name: 'Document source' }), {
     target: { value: '# Updated' },
   });
-  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
-  await screen.findAllByText('Review draft saved');
+  fireEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+  await screen.findAllByText('Saved changes have not been sent');
   expect(
     (screen.getByRole('button', { name: 'Send for review' }) as HTMLButtonElement).disabled,
   ).toBe(false);
-  expect(
-    (screen.getByRole('button', { name: 'Accept changes' }) as HTMLButtonElement).disabled,
-  ).toBe(true);
+  expect(screen.queryByRole('button', { name: 'Accept changes' })).toBeNull();
 });
 it('does not create empty drafts or change a clean confirmed ready review on Save', async () => {
   setup();
@@ -463,15 +471,21 @@ it('does not create empty drafts or change a clean confirmed ready review on Sav
   const source = (await screen.findByRole('textbox', {
     name: 'Document source',
   })) as HTMLTextAreaElement;
-  expect((screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(true);
+  expect((screen.getByRole('button', { name: 'Save draft' }) as HTMLButtonElement).disabled).toBe(
+    true,
+  );
   fireEvent.keyDown(source, { key: 's', ctrlKey: true });
   expect(vi.mocked(apiFetch).mock.calls.some(([path]) => path === '/api/knowledge/drafts')).toBe(
     false,
   );
   fireEvent.change(source, { target: { value: '# Revised' } });
-  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
-  await screen.findByText('In review');
-  expect((screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+  await screen.findAllByText('Draft saved');
+  fireEvent.click(screen.getByRole('button', { name: 'Send for review' }));
+  await screen.findAllByText('Sent for review');
+  expect((screen.getByRole('button', { name: 'Save draft' }) as HTMLButtonElement).disabled).toBe(
+    true,
+  );
   const before = vi.mocked(apiFetch).mock.calls.length;
   fireEvent.keyDown(source, { key: 's', ctrlKey: true });
   await waitFor(() => expect(vi.mocked(apiFetch).mock.calls).toHaveLength(before));
@@ -485,17 +499,8 @@ it('retries an unconfirmed review at the same saved version without saving new d
   const original = vi.mocked(apiFetch).getMockImplementation()!;
   let attempts = 0;
   vi.mocked(apiFetch).mockImplementation(async (path, init) => {
-    if (path.endsWith('/review') && attempts++ === 0)
-      return response({
-        draft: {
-          ...draft,
-          state: 'draft',
-          review: undefined,
-          publication: { head: 'h1', version: 1 },
-          error: 'Review connection lost',
-        },
-        reviewError: 'Review connection lost',
-      });
+    if (path.endsWith('/ready') && attempts++ === 0)
+      return response({ error: 'Review connection lost' }, false);
     return original(path, init);
   });
   setup();
@@ -504,13 +509,17 @@ it('retries an unconfirmed review at the same saved version without saving new d
   fireEvent.change(await screen.findByRole('textbox', { name: 'Document source' }), {
     target: { value: '# Revised' },
   });
-  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+  await screen.findAllByText('Draft saved');
+  fireEvent.click(screen.getByRole('button', { name: 'Send for review' }));
   await screen.findByText('Review connection lost');
-  expect((screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(false);
-  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
-  await screen.findByText('In review');
+  expect((screen.getByRole('button', { name: 'Save draft' }) as HTMLButtonElement).disabled).toBe(
+    true,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Send for review' }));
+  await screen.findAllByText('Sent for review');
   expect(vi.mocked(apiFetch).mock.calls.some(([, init]) => init?.method === 'PUT')).toBe(false);
-  const reviews = vi.mocked(apiFetch).mock.calls.filter(([path]) => path.endsWith('/review'));
+  const reviews = vi.mocked(apiFetch).mock.calls.filter(([path]) => path.endsWith('/ready'));
   expect(reviews).toHaveLength(2);
   for (const [, init] of reviews) expect(JSON.parse(String(init?.body))).toEqual({ version: 1 });
 });
@@ -531,7 +540,9 @@ it('does not retry a clean unconfirmed review while review publishing is disable
   fireEvent.click(await screen.findByRole('button', { name: 'Drafts (1)' }));
   fireEvent.click(screen.getByRole('button', { name: /Working principles/ }));
   const source = await screen.findByRole('textbox', { name: 'Document source' });
-  expect((screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(true);
+  expect((screen.getByRole('button', { name: 'Save draft' }) as HTMLButtonElement).disabled).toBe(
+    true,
+  );
   const before = vi.mocked(apiFetch).mock.calls.length;
   fireEvent.keyDown(source, { key: 's', ctrlKey: true });
   expect(vi.mocked(apiFetch).mock.calls).toHaveLength(before);
@@ -569,17 +580,19 @@ it.each(['# Revised', '# Further local'])(
     fireEvent.change(await screen.findByRole('textbox', { name: 'Document source' }), {
       target: { value: '# Revised' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save draft' }));
     await screen.findByText('Lost first acknowledgement');
     fireEvent.change(screen.getByRole('textbox', { name: 'Document source' }), {
       target: { value: ownContent },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save draft' }));
     await screen.findByRole('region', { name: 'Compare saved draft and working copy' });
     expect(
       (screen.getByRole('textbox', { name: 'Document source' }) as HTMLTextAreaElement).value,
     ).toBe(ownContent);
-    expect((screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole('button', { name: 'Save draft' }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
     const recovery = JSON.parse(localStorage.getItem('mitzo-knowledge-working-copy:')!);
     expect(recovery.draft).toBeUndefined();
     expect(recovery.pendingCreate).toBeTruthy();
@@ -593,14 +606,16 @@ it.each(['# Revised', '# Further local'])(
     setup();
     await resumeRecoveredCopy();
     await screen.findByRole('region', { name: 'Compare saved draft and working copy' });
-    expect((screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole('button', { name: 'Save draft' }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
     expect(
       (screen.getByRole('textbox', { name: 'Document source' }) as HTMLTextAreaElement).value,
     ).toBe(ownContent);
     expect(screen.getByText('# Other device')).toBeTruthy();
     expect(vi.mocked(apiFetch).mock.calls.some(([, init]) => init?.method === 'PUT')).toBe(false);
     fireEvent.click(screen.getByRole('button', { name: 'Keep my edits and update saved draft' }));
-    await screen.findByText('Review draft saved');
+    await screen.findAllByText('Draft saved');
     const writes = vi.mocked(apiFetch).mock.calls.filter(([, init]) => init?.method === 'PUT');
     expect(writes).toHaveLength(1);
     expect(JSON.parse(String(writes[0][1]?.body))).toMatchObject({
@@ -655,7 +670,9 @@ it('keeps the conflict when explicit reconciliation races another save and lets 
   fireEvent.click(screen.getByRole('button', { name: 'Keep my edits and update saved draft' }));
   await screen.findByText('Draft changed in another window. Reload before saving.');
   expect(source.value).toBe('# My recovered edits');
-  expect((screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(true);
+  expect((screen.getByRole('button', { name: 'Save draft' }) as HTMLButtonElement).disabled).toBe(
+    true,
+  );
   const before = vi.mocked(apiFetch).mock.calls.length;
   fireEvent.keyDown(source, { key: 's', ctrlKey: true });
   expect(vi.mocked(apiFetch).mock.calls).toHaveLength(before);
@@ -707,12 +724,12 @@ it('preserves edits on an existing draft version conflict and reconciles using t
   fireEvent.change(await screen.findByRole('textbox', { name: 'Document source' }), {
     target: { value: '# Revised' },
   });
-  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
-  await screen.findByText('In review');
+  fireEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+  await screen.findAllByText('Draft saved');
   fireEvent.change(screen.getByRole('textbox', { name: 'Document source' }), {
     target: { value: '# My local edits' },
   });
-  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Save draft' }));
   await screen.findByRole('region', { name: 'Compare saved draft and working copy' });
   expect(screen.getByText('# Saved by another device')).toBeTruthy();
   const recovery = JSON.parse(localStorage.getItem('mitzo-knowledge-working-copy:')!);
@@ -725,7 +742,9 @@ it('preserves edits on an existing draft version conflict and reconciles using t
   setup();
   await resumeRecoveredCopy();
   await screen.findByRole('region', { name: 'Compare saved draft and working copy' });
-  expect((screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(true);
+  expect((screen.getByRole('button', { name: 'Save draft' }) as HTMLButtonElement).disabled).toBe(
+    true,
+  );
   const before = vi.mocked(apiFetch).mock.calls.length;
   fireEvent.keyDown(screen.getByRole('textbox', { name: 'Document source' }), {
     key: 's',
@@ -733,7 +752,7 @@ it('preserves edits on an existing draft version conflict and reconciles using t
   });
   expect(vi.mocked(apiFetch).mock.calls).toHaveLength(before);
   fireEvent.click(screen.getByRole('button', { name: 'Keep my edits and update saved draft' }));
-  await screen.findByText('Review draft saved');
+  await screen.findAllByText('Draft saved');
   const puts = vi.mocked(apiFetch).mock.calls.filter(([, init]) => init?.method === 'PUT');
   expect(puts).toHaveLength(2);
   expect(JSON.parse(String(puts[1][1]?.body))).toMatchObject({
@@ -766,19 +785,19 @@ it('keeps a failed saved-version fetch recoverable without allowing writes until
   fireEvent.change(await screen.findByRole('textbox', { name: 'Document source' }), {
     target: { value: '# Revised' },
   });
-  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
-  await screen.findByText('In review');
+  fireEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+  await screen.findAllByText('Draft saved');
   fireEvent.change(screen.getByRole('textbox', { name: 'Document source' }), {
     target: { value: '# Keep local' },
   });
-  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Save draft' }));
   await screen.findByText(
     'The latest saved version is unavailable. Refresh the comparison to continue.',
   );
   expect(
     (screen.getByRole('textbox', { name: 'Document source' }) as HTMLTextAreaElement).value,
   ).toBe('# Keep local');
-  for (const name of ['Save', 'Use saved draft', 'Keep my edits and update saved draft'])
+  for (const name of ['Save draft', 'Use saved draft', 'Keep my edits and update saved draft'])
     expect((screen.getByRole('button', { name }) as HTMLButtonElement).disabled).toBe(true);
   view.unmount();
   setup();
@@ -786,7 +805,9 @@ it('keeps a failed saved-version fetch recoverable without allowing writes until
   await screen.findByText(
     'The latest saved version is unavailable. Refresh the comparison to continue.',
   );
-  expect((screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(true);
+  expect((screen.getByRole('button', { name: 'Save draft' }) as HTMLButtonElement).disabled).toBe(
+    true,
+  );
   fireEvent.click(screen.getByRole('button', { name: 'Refresh saved comparison' }));
   await screen.findByText('# Current saved content');
   expect(
@@ -826,16 +847,18 @@ it('recovers a lost update acknowledgement through saved comparison when the nex
   fireEvent.change(await screen.findByRole('textbox', { name: 'Document source' }), {
     target: { value: '# Revised' },
   });
-  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
-  await screen.findByText('In review');
+  fireEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+  await screen.findAllByText('Draft saved');
   fireEvent.change(screen.getByRole('textbox', { name: 'Document source' }), {
     target: { value: remote.documents[0].content },
   });
-  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Save draft' }));
   await screen.findByText('Lost update acknowledgement');
-  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Save draft' }));
   await screen.findByRole('region', { name: 'Compare saved draft and working copy' });
-  expect((screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(true);
+  expect((screen.getByRole('button', { name: 'Save draft' }) as HTMLButtonElement).disabled).toBe(
+    true,
+  );
   fireEvent.click(screen.getByRole('button', { name: 'Keep my edits and update saved draft' }));
   await waitFor(() =>
     expect(
@@ -933,7 +956,7 @@ it('explicitly excludes catalog-confirmed removed documents while preserving and
   await screen.findByText('No longer in accepted knowledge');
   await screen.findByRole('button', { name: 'Exclude removed documents and save' });
   fireEvent.click(screen.getByRole('button', { name: 'Exclude removed documents and save' }));
-  await screen.findAllByText('Review draft saved');
+  await screen.findAllByText('Draft saved');
   const put = vi.mocked(apiFetch).mock.calls.find(([, init]) => init?.method === 'PUT');
   expect(JSON.parse(String(put?.[1]?.body))).toMatchObject({
     version: 1,
@@ -1014,8 +1037,8 @@ it('recovers an explicitly emptied draft and adds a current document using the l
     .mock.calls.find(([path]) => path.startsWith('/api/knowledge/document'));
   expect(read?.[0]).toContain('revision=r2');
   fireEvent.change(source, { target: { value: '# New notes edits' } });
-  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
-  await screen.findByText('Review draft saved');
+  fireEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+  await screen.findAllByText('Draft saved');
   const put = vi.mocked(apiFetch).mock.calls.find(([, init]) => init?.method === 'PUT');
   expect(JSON.parse(String(put?.[1]?.body))).toMatchObject({
     version: 1,
@@ -1116,11 +1139,13 @@ it.each(['accepted', 'closed'])(
     setup();
     await resumeRecoveredCopy();
     await screen.findByRole('textbox', { name: 'Document source' });
-    expect((screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole('button', { name: 'Save draft' }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
     fireEvent.click(screen.getByRole('button', { name: 'Compare accepted version' }));
     await screen.findByText('# Current accepted principles');
     fireEvent.click(screen.getByRole('button', { name: 'Keep my edits in a new change' }));
-    await screen.findByText('Review draft saved');
+    await screen.findAllByText('Draft saved');
     const post = vi.mocked(apiFetch).mock.calls.find(([path]) => path === '/api/knowledge/drafts');
     const body = JSON.parse(String(post?.[1]?.body));
     expect(body).toMatchObject({
@@ -1190,8 +1215,8 @@ it.each(['accepted', 'closed', 'in-review'])(
     fireEvent.click(await findLibraryDocument(/Replacement document/, 'teams'));
     const source = await screen.findByRole('textbox', { name: 'Document source' });
     fireEvent.change(source, { target: { value: '# New replacement edits' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
-    await screen.findByText('Review draft saved');
+    fireEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+    await screen.findAllByText('Draft saved');
     const post = vi.mocked(apiFetch).mock.calls.find(([path]) => path === '/api/knowledge/drafts');
     const body = JSON.parse(String(post?.[1]?.body));
     expect(body.baseRevision).toBe('r2');
@@ -1241,7 +1266,9 @@ it('preserves an ordinary new-change intent across reload and retries its lost a
   view = setup();
   await resumeRecoveredCopy();
   const source = await screen.findByRole('textbox', { name: 'Document source' });
-  expect((screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(true);
+  expect((screen.getByRole('button', { name: 'Save draft' }) as HTMLButtonElement).disabled).toBe(
+    true,
+  );
   const before = vi.mocked(apiFetch).mock.calls.length;
   fireEvent.keyDown(source, { key: 's', ctrlKey: true });
   expect(vi.mocked(apiFetch).mock.calls).toHaveLength(before);
@@ -1256,8 +1283,8 @@ it('preserves an ordinary new-change intent across reload and retries its lost a
   setup();
   await resumeRecoveredCopy();
   await screen.findByRole('textbox', { name: 'Document source' });
-  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
-  await screen.findByText('Review draft saved');
+  fireEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+  await screen.findAllByText('Draft saved');
   const bodies = vi
     .mocked(apiFetch)
     .mock.calls.filter(([path]) => path === '/api/knowledge/drafts')
@@ -1320,7 +1347,7 @@ it('creates a folder under an explicit parent and saves a folder-only change', a
   fireEvent.click(screen.getByRole('button', { name: 'Create folder' }));
   await screen.findByText('New folder: hub/guides');
   expect(screen.queryByRole('textbox', { name: 'Document source' })).toBeNull();
-  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Save draft' }));
   await waitFor(() =>
     expect(vi.mocked(apiFetch).mock.calls.some(([path]) => path === '/api/knowledge/drafts')).toBe(
       true,
@@ -1460,7 +1487,7 @@ it('keeps the requested reader visible when Edit cannot load its working copy', 
   fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
   await screen.findByRole('textbox', { name: 'Document source' });
 });
-it('keeps the requested reader when replacing an unrelated edited document is cancelled', async () => {
+it('appends a reader document without replacing unrelated edits or requesting confirmation', async () => {
   const own = [{ path: 'hub/principles.md', base: '# Principles', content: '# Keep my edits' }];
   localStorage.setItem(
     'mitzo-knowledge-working-copy:',
@@ -1481,12 +1508,11 @@ it('keeps the requested reader when replacing an unrelated edited document is ca
     fireEvent.click(await findLibraryDocument(/Release process/, 'teams'));
     await screen.findByRole('article', { name: 'Release process' });
     fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
-    await waitFor(() => expect(confirm).toHaveBeenCalled());
-    expect(screen.getByRole('article', { name: 'Release process' })).toBeTruthy();
-    expect(screen.queryByRole('textbox', { name: 'Document source' })).toBeNull();
-    expect(JSON.parse(localStorage.getItem('mitzo-knowledge-working-copy:')!).documents).toEqual(
-      own,
-    );
+    await screen.findByRole('textbox', { name: 'Document source' });
+    expect(confirm).not.toHaveBeenCalled();
+    expect(
+      JSON.parse(localStorage.getItem('mitzo-knowledge-working-copy:')!).documents.slice(0, 1),
+    ).toEqual(own);
   } finally {
     confirm.mockRestore();
   }
@@ -1591,7 +1617,7 @@ it('keeps a cancelled folder-only receipt accessible and lets the user explicitl
   });
   fireEvent.click(screen.getByRole('button', { name: 'Create folder' }));
   await screen.findByText('New folder: hub/guides');
-  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Save draft' }));
   await waitFor(() =>
     expect(JSON.parse(localStorage.getItem('mitzo-knowledge-working-copy:')!).draft?.id).toBe('d1'),
   );
@@ -1871,8 +1897,8 @@ it('reads first on a keyboard device and mounts the proper CodeMirror editor onl
   act(() => editor.dispatch({ selection: { anchor: 2, head: editor.state.doc.length } }));
   fireEvent.click(screen.getByRole('button', { name: 'Bold' }));
   expect(editor.state.doc.toString()).toBe('# **Principles**');
-  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
-  await screen.findByText('In review');
+  fireEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+  await screen.findAllByText('Draft saved');
   const saved = vi.mocked(apiFetch).mock.calls.find(([path]) => path === '/api/knowledge/drafts');
   expect(JSON.parse(String(saved?.[1]?.body)).documents).toEqual([
     { path: 'hub/principles.md', content: '# **Principles**' },
@@ -1908,7 +1934,9 @@ it('creates the first folder inside an empty enrolled knowledge directory', asyn
   const copy = JSON.parse(localStorage.getItem('mitzo-knowledge-working-copy:')!);
   expect(copy.documents).toEqual([]);
   expect(copy.directories).toEqual(['hub/context/guides']);
-  expect((screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(false);
+  expect((screen.getByRole('button', { name: 'Save draft' }) as HTMLButtonElement).disabled).toBe(
+    false,
+  );
 });
 
 type OrganizationDocuments = {
@@ -2112,6 +2140,121 @@ it.each(['touch', 'keyboard'])(
     expect(localStorage.getItem('mitzo-knowledge-working-copy:')).toBe(serialized);
     expect(
       screen.getByRole('region', { name: 'Compare saved draft and working copy' }),
+    ).toBeTruthy();
+  },
+);
+
+it('saves a two-document draft without publication and sends only the whole saved batch explicitly', async () => {
+  let version = 0;
+  let saved = { ...draft, state: 'draft', review: undefined } as Record<string, unknown>;
+  vi.mocked(apiFetch).mockImplementation(async (path, init) => {
+    if (path === '/api/knowledge') return response({ ...catalog, directories: ['hub', 'teams'] });
+    if (path.startsWith('/api/knowledge/document'))
+      return response({ content: path.includes('teams') ? '# Release' : '# Principles' });
+    if (path === '/api/knowledge/drafts' || init?.method === 'PUT') {
+      const body = JSON.parse(String(init?.body));
+      saved = {
+        ...saved,
+        ...body,
+        id: 'd1',
+        version: ++version,
+        state: 'draft',
+        documents: body.documents.map((document: { path: string; content: string }) => ({
+          ...document,
+          base: '# Principles',
+        })),
+      };
+      return response({ draft: saved });
+    }
+    if (path.endsWith('/ready')) {
+      saved = { ...saved, state: 'in-review', review: { ...draft.review, version, ready: true } };
+      return response({ draft: saved, canAccept: true, currentHead: 'h1' });
+    }
+    return response({ draft: saved });
+  });
+  setup();
+  fireEvent.click(await findLibraryDocument(/Working principles/));
+  fireEvent.click(await screen.findByRole('button', { name: 'Edit' }));
+  fireEvent.change(await screen.findByRole('textbox', { name: 'Document source' }), {
+    target: { value: '# First edit' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: '← Library' }));
+  fireEvent.click(await findLibraryDocument(/Release process/, 'teams'));
+  fireEvent.click(await screen.findByRole('button', { name: 'Edit' }));
+  fireEvent.change(await screen.findByRole('textbox', { name: 'Document source' }), {
+    target: { value: '# Second edit' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+  await waitFor(() => expect(version).toBe(1));
+  expect(
+    vi
+      .mocked(apiFetch)
+      .mock.calls.some(([path]) => path.endsWith('/review') || path.endsWith('/ready')),
+  ).toBe(false);
+  expect((saved.documents as { content: string }[]).map((document) => document.content)).toEqual([
+    '# First edit',
+    '# Second edit',
+  ]);
+  fireEvent.click(screen.getByRole('button', { name: 'Send for review' }));
+  await screen.findAllByText('Sent for review');
+  expect(vi.mocked(apiFetch).mock.calls.filter(([path]) => path.endsWith('/ready'))).toHaveLength(
+    1,
+  );
+  fireEvent.change(screen.getByRole('textbox', { name: 'Document source' }), {
+    target: { value: '# New saved edit' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+  await waitFor(() => expect(version).toBe(2));
+  expect(vi.mocked(apiFetch).mock.calls.filter(([path]) => path.endsWith('/ready'))).toHaveLength(
+    1,
+  );
+  expect(screen.getByText('Saved changes have not been sent')).toBeTruthy();
+  expect(
+    (screen.getByRole('button', { name: 'Send for review' }) as HTMLButtonElement).disabled,
+  ).toBe(false);
+  fireEvent.click(screen.getByRole('button', { name: 'Review details' }));
+  expect(screen.queryByRole('button', { name: 'Accept changes' })).toBeNull();
+});
+
+it.each(['shortcut', 'vim'])(
+  'keeps Knowledge %s saving local to the durable draft',
+  async (method) => {
+    vi.stubGlobal(
+      'matchMedia',
+      vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+    );
+    setup();
+    fireEvent.click(await findLibraryDocument(/Working principles/));
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit' }));
+    const input = await screen.findByRole('textbox', { name: 'Document source' });
+    const { EditorView } = await import('@codemirror/view');
+    const view = EditorView.findFromDOM(input)!;
+    act(() =>
+      view.dispatch({
+        changes: { from: 0, to: view.state.doc.length, insert: '# Keyboard draft' },
+      }),
+    );
+    if (method === 'vim') {
+      fireEvent.click(screen.getByRole('button', { name: 'Vim' }));
+      const { getCM, Vim } = await import('@replit/codemirror-vim');
+      act(() => Vim.handleEx(getCM(view)! as Parameters<typeof Vim.handleEx>[0], 'w'));
+    } else fireEvent.keyDown(input, { key: 's', ctrlKey: true });
+    await screen.findAllByText('Draft saved');
+    expect(
+      vi
+        .mocked(apiFetch)
+        .mock.calls.some(([path]) => path.endsWith('/review') || path.endsWith('/ready')),
+    ).toBe(false);
+    const saved = vi.mocked(apiFetch).mock.calls.find(([path]) => path === '/api/knowledge/drafts');
+    expect(JSON.parse(String(saved?.[1]?.body)).documents).toEqual([
+      { path: 'hub/principles.md', content: '# Keyboard draft' },
+    ]);
+    fireEvent.click(screen.getByRole('button', { name: 'Fullscreen' }));
+    expect(
+      within(screen.getByRole('dialog', { name: 'Fullscreen document editor' })).getByRole(
+        'button',
+        { name: 'Save draft' },
+      ),
     ).toBeTruthy();
   },
 );
