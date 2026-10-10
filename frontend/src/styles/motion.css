@@ -1,0 +1,38 @@
+/* Layout-neutral boundaries preserve flex/grid sizing and existing fixed controls. */
+.motion-routes,
+.motion-presence {
+  display: contents;
+}
+.motion-presence[data-motion='disclosure'] {
+  display: block;
+}
+.motion-presence[data-motion='disclosure'][data-motion-active] {
+  overflow: hidden;
+}
+
+button,
+[role='button'],
+.workspace-nav-link {
+  transition-property: background-color, border-color, color, opacity, scale;
+  transition-duration: var(--motion-duration-fast);
+  transition-timing-function: var(--motion-ease);
+}
+button:active:not(:disabled),
+.workspace-nav-link:active {
+  scale: 0.98;
+}
+
+/* Covers CSS feedback/status animations as well as the JS preference subscription. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+  button:active:not(:disabled),
+  .workspace-nav-link:active {
+    scale: none;
+  }
+}
