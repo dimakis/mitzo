@@ -1,276 +1,102 @@
-# Symposium implementation and acceptance
+# Symposium: current direction and source guide
 
-Telos parent: `6403fb22f9bb743c`. Phase 2.5: `c10fc341b0533a54`.
+Updated 10 October 2026. Start here for Symposium product work.
+Existing Telos item: `c0851ba23fcc5d04`; reuse it rather than create another parent
+or a task for every document. Tracker closure and source landing do not prove
+runtime acceptance or authorize deployment.
 
-Current consolidation gates: [integrated acceptance checklist](symposium-integrated-acceptance.md).
+## Product direction
 
-## Product sequence reset, 2 October 2026
+Artifacts are the enduring pieces of work. Agents and their sessions contribute
+to selected artifacts; they do not define those artifacts' lifetime. Begin with
+ordinary chat, without mandatory profile, outcome or artifact setup. Register
+useful work when requested, then associate it with a Telos outcome when appropriate.
+Registration, independent retention, review, publication and outcome verification
+are separate facts.
 
-The first milestone is adding an independently configured agent to an existing
-conversation. Custom guidance does not require a saved catalog profile or a
-predefined implementer/reviewer pair. Account, model, effort, context and
-permissions remain explicit session selections; independent context is the
-default. A saved profile is optional reusable guidance and never supplies
-credentials or session authority.
+An artifact set may contain a planning document, an inline draft, an external
+document and a code change set. Hundreds of changed files belong to a change set,
+with Git as the canonical source and exact revision/snapshot evidence for review.
+An external link does not establish retained content, current revision or agent
+access. Findings attach to the exact package and revisions inspected.
 
-The current source slice adds a generic **Add agent** entry on desktop and phone,
-custom seat guidance and explicit permission requests, using the existing host
-grant, admission, membership and delivery owners. Conversation controls approve,
-send and stop exact deliveries. Unknown dispatch or cleanup outcomes remain
-uncertain rather than automatically repeating an operation. These source changes
-do not establish live-model, physical sandbox or actual phone acceptance.
+Contributors use explicitly selected accounts, models, context and permissions.
+Reuse the existing Mitzo ordinary chat/resume route while keeping each contributor's
+thread and context independent. The bounded Codex candidate below implements this
+adapter; it requires no new account category or Symposium sign-in. The native
+Symposium adapter remains a separate execution boundary. Preserve credential
+boundaries, admission, cancellation, provenance and uncertain-operation reconciliation.
 
-Stable identity-based color accents accompany agent names in tabs, messages and
-delivery cards. Compose from **All** or an individual stream using an explicit
-recipient choice. The recipient selector and `@` picker change the target by seat
-identity while transcript tabs change only the view. Drafts stay with their
-recipient. Queue, approval, send and Stop are available on the named delivery in
-the combined timeline; selecting a recipient never queues or sends content.
+Reuse existing membership, directed delivery, attribution, findings and review
+history. Do not introduce another account store or scheduler. Basic collaboration
+must not depend on completing the broader automated review/fix/publication workflow.
 
-Next milestones reuse and improve the editable/versioned catalog, then select
-participants explicitly for structured review, authorized fixes and delta review.
-Application limits, meaningful criteria and final records remain required for
-that workflow. Recovery, supported account/provider/model/device combinations,
-ordinary-chat compatibility and migration/rollback qualification remain release
-requirements. Exact-artifact publication approval and deployment authorization
-are separate actions.
+The October 7 **Design Session UX for Approvals** discussion
+(`01a1182e-922e-7533-a627-9afab2ec77ad`) supplies the artifact-centered direction;
+the October 10 **Explain Symposium Account Separation** discussion
+(`01a123b1-df7a-7082-a0ef-7480820b07c8`) adds ordinary account/session reuse and
+guidance cleanup. Mockups and reviewed plans do not establish live capabilities.
+The candidate's transcript references do not establish independent content retention
+or artifact migration; preserve existing storage restrictions.
 
-This sequence supersedes inherited mandatory harness prerequisites. Prefer the
-supported app and focused existing tests for each named acceptance question;
-one failed experiment returns to diagnosis. Historical evidence below remains
-bounded to its recorded source and operation, not current full acceptance.
+## Bounded candidate and next validation
 
-## Status at 27 September 2026
+[PR #837](https://github.com/dimakis/mitzo/pull/837), reference `62d40d16`, is the
+written candidate for exact finalized transcript references and one additional
+ordinary Codex-backed contributor per selected output. Child-thread continuity,
+attributed replies, optional durable guidance and Stop/recovery have offline test
+coverage. Independent content retention, output revision editing and API/Vertex
+contributor adapters remain outside this bounded slice.
 
-This page describes the implemented feature stack and its acceptance evidence.
-It does not assert deployment or production readiness. The source now composes
-personal-account/model-refresh UI ([PR #627](https://github.com/dimakis/mitzo/pull/627)),
-reviewer setup ([PR #611](https://github.com/dimakis/mitzo/pull/611)), mounted review
-routes ([PR #613](https://github.com/dimakis/mitzo/pull/613)), immutable records
-([PR #615](https://github.com/dimakis/mitzo/pull/615)), publication preflight
-([PR #620](https://github.com/dimakis/mitzo/pull/620)), and session artifact
-preparation ([PR #624](https://github.com/dimakis/mitzo/pull/624)). The canonical
-product contract is the
-[workspace redesign Symposium reconciliation](../design/workspace-redesign/mitzo-redesign-launch-plan.md#symposium-reconciliation).
-
-The director, durable membership and delivery records, portable profiles,
-personal connection slots, explicit model refresh, shared reviewer setup,
-review workflows, immutable records, artifact preparation, and publication
-preflight have mocked tests. These guarded slices do not install a trusted
-native review host or publish a pull request. The panel reports the unavailable
-host capability; ordinary chat cannot bypass the gate.
-
-Phone device sign-in has been exercised against an isolated host. A separate
-attended native smoke completed two real `gpt-5.6-luna` turns through the personal
-ChatGPT route. The [sanitized evidence](../operations/evidence/symposium-luna-native-smoke.json)
-records exact replies, 16 streamed deltas, two replayed turns, and confirmed
-absence of the probe containers and local transport afterward. Its source commit
-is `9b67c2a6c0e4decf5bc81d4b43ea2230996ec072`; its charged account was the
-personal ChatGPT connection on the isolated test instance. It explicitly records
-`productionAdmission: false` and `fullAppAcceptance: false`.
-
-That smoke proves the tested native route, not the complete application workflow,
-review budgets, or artifact-bound terminal receipts. Full application admission
-still requires the exact reviewed build, current owned-host custody, provider
-bindings, policy/seed evidence, and physical artifact proof. Configuration alone
-cannot satisfy these gates.
-
-## One conversation, explicit reviewer setup
-
-The Add-reviewer implementation in PR #611 keeps one conversation stream and has responsive
-`ChatView` and `DesktopChatView` wrappers; they share the reviewer entry and
-conversation behavior. This is not a claim that they have been replaced by a
-single component.
-
-In PR #611, **Add reviewer / Ask another agent** uses a focused sheet with a saved profile
-revision, connection, model, and explicit context choice. Profile creation/import
-is behind profile management. Independent context is the default: the operator
-supplies the task package and selected references. It does not automatically read
-the repository, fetch referenced artifacts, or include prior conversation.
-Summary, selected turns, and full shared transcript are separate explicit choices.
-Private directed inputs are excluded from shared-history selection.
-
-A changed account requires acknowledging the data sent through that provider.
-Partial seat creation retains the existing seat for retry instead of silently
-creating a duplicate or changing its selected bindings. Removing a reviewer
-simplifies the composer while preserving the durable Symposium membership and
-isolated runtime history; it does not convert a version-2 session back to ordinary
-chat.
-
-**New Symposium** creates a draft with explicit account/model and profile choices.
-Draft creation does not authorize execution. Activation and addition to an active
-roster require current grants and provider admission for every active seat.
-
-## Personal accounts and model availability
-
-Connections supports multiple named personal ChatGPT slots with explicit Connect,
-Reconnect, Disconnect, and cleanup recovery. Every login targets an exact slot and
-displayed revision. Reconnect fences the old binding and does not silently rebind
-existing seats. Credential cleanup remains blocked while physical cleanup is
-uncertain, including uncertain sandbox creation in the owned workspace.
-
-[Device sign-in](../operations/symposium-device-auth.md) uses the supported
-OpenAI browser link and one-time code; the phone browser does not need a localhost
-callback. The ChatGPT security setting enabling device-code authentication is a
-prerequisite. Local-browser/SSH callback setup remains an explicit alternative.
-Receipts are scoped to the initiating authenticated session; another session
-cannot recover or cancel its pending code.
-
-Saved slot metadata survives restart. Personal authorization does not: a
-previously connected slot requires fresh sign-in. An interrupted credential
-operation remains in recovery until cleanup is proven. Metadata and unchecked
-credential files never reconstruct trust, and no work-account fallback is used.
-
-**Refresh supported models** performs account/model discovery without inference
-through the selected slot's exact owned provider. It publishes a new catalog
-revision only after verified sandbox and physical cleanup. Unavailable or
-undiscovered models cannot be selected by silently accepting a placeholder.
-A catalog refresh does not choose a model or update an active seat: the operator
-must explicitly confirm the current account/model selection again.
-
-## Runtime and physical authority
-
-The current production path gives each seat generation its own durable sandbox
-identity and exact provider attachment. It uses upstream OpenShell contracts
-without a private gateway patch. The historical version-1 shared sandbox is not
-the security model for this path.
-
-The legacy attestation contract permits OpenAI API writer seats. The distinct
-owned-native contract can describe OpenAI API and personal Codex seats, including
-reviewers, but only after its exact binary/image, custody, provider, and authority
-checks pass. Claude admission remains unavailable through these contracts.
-
-Shared artifacts use a separately admitted named volume: writer access is
-read-write and reviewer access is read-only. Host leases check the physical mount
-and retain writer reservations until exact stop/deletion evidence permits release.
-The session artifact service can prepare a bounded owned volume and durable
-mapping. A saved draft exposes Prepare/retry after reopening, without activating
-the roster or dispatching work. The service cannot
-mint runtime admission or replace a failed host attestation.
-
-TLS setup requires the Podman guest hostname as well as loopback in the gateway
-certificate. The newer runtime image also carries the guest CA/launcher fixes
-used by the attended smoke. These fixes do not automatically update production
-build pins. The measured image update replaced the older literal gate pins through
-[PR #629](https://github.com/dimakis/mitzo/pull/629) with physical and live evidence.
-Admission requires whichever reviewed pins are present in the selected source to
-match the actual image. A caller-supplied hash cannot override the schema.
-
-Personal provider receipts are necessary but do not replace the static
-attestation's exact provider-instance allowlist. A fresh dynamic provider must
-satisfy both checks. This implementation does not silently amend reviewed
-authority after login.
-
-## Durable delivery, attribution, and recovery
-
-Version-2 configuration supports one explicitly selected anchor and a bounded active roster
-of up to eight seats. Membership generations are append-only. Suspension or
-removal fences queued and running work before cleanup; replacement creates a new
-identity. Historical seat metadata remains available to interpret the ledger.
-
-Use **Transfer primary seat** to explicitly select an already admitted, reconciled
-seat before suspending, removing, or rebinding the original primary. Transfer
-requires an idle queue and confirmed execution and membership cleanup. It changes
-conversation routing and its account binding atomically, preserving all seat
-identities, grants, physical mounts, and membership history. A read-only reviewer
-stays read-only. Retained admissions are reverified against the new revision.
-
-Then remove the old writer through normal cleanup and explicitly select a new
-writer profile/account/model. Replacement admission still waits for confirmed
-cleanup and exclusive artifact-lease enforcement. This path is mocked-tested;
-physical primary transfer and writer replacement remain live acceptance gaps.
-Existing review records remain historical: transfer alone does not prove a new
-review or approval, and writer removal invalidates its membership/lease binding.
-
-Every recipient retains immutable configuration, account/profile, context/tool
-grant, and membership provenance. Provider acceptance receipts pin the exact
-attempt, native thread, and turn. Queued inputs are distinct from received inputs;
-dispatched inputs without acceptance evidence remain uncertain. Interception
-preserves original and delivered content.
-
-Concurrent seat streams render into the shared transcript with durable ordering.
-Replay does not relabel old events from current account/model selections. Restart,
-ambiguous completion, or failed cleanup cannot invent success or release a writer.
-Late results remain attributed to their original claim without reviving cancelled
-work.
-
-Provider usage preserves missing prices and unproven terminal totals as unknown.
-A known subtotal is not a proven complete bill. Native hard monetary/token
-enforcement requires trusted reservations and completion evidence beyond display
-accounting.
+Current-head CI and final Centaur LGTM remain pending. The next work is source
+acceptance and validation against the actual runtime, followed by separately
+authorized live qualification; do not reimplement the already-written adapter.
+Canonical staging enrollment and live qualification remain unproven. Source
+acceptance, runtime adoption and live acceptance are separate; no deployment
+is established by this guide.
+Use the [current acceptance checklist](symposium-integrated-acceptance.md).
+The UI follows the [shared design contract](../design/ui-design-system.md): show
+the work prominently, with discussion, contributors and Access in supporting roles.
 
 ## Profiles and reusable reviewer recipes
 
-Mitzo owns immutable, owner-scoped profile revisions with guidance, expected
-output, acceptance criteria, and optional version-1 recipes. Five editable
-starters cover code correctness, security, architecture, testability, and artifact
-review. Saving/importing a profile does not create a seat or change its binding.
+Reusable guidance remains separate from credentials and session-specific grants.
+The Agent Library and existing profile draft/catalog controls are source features;
+saving a profile does not activate it or prove provider availability. Profiles are
+optional guidance. Select account, model, context and authority for the contributor.
 
-Recipes suggest context categories, source kinds, skill references, read-only tool
-preferences, and compatible providers. They contain no credentials, transient
-paths, transcript, or session authority. Skill references do not install tools;
-context references do not grant access. ContexGin is an explicitly selected
-context source, with no implicit write-back.
+Ordinary chat's context-recipe compiler is accepted source. The candidate contributor
+adapter does not compile or authorize recipe context sources and explicitly rejects
+recipe-bearing saved profiles. Use Default Mitzo or a compatible saved profile without
+a context recipe. Accepted compiler source does not prove runtime context adoption.
 
-Conversational profile proposals require explicit review and Save. Applying a
-saved revision to a seat is a separate action with its own suspension/rebind and
-grant checks.
+## Reference map
 
-## Review records and publication boundary
+| Question                                                    | Read                                                                                                                                                                   |
+| ----------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Current direction, candidate and next validation            | This guide and the current acceptance checklist                                                                                                                        |
+| Live staging or enrollment                                  | [Canonical staging](../operations/canonical-staging.md), then [Symposium singleton staging](../operations/symposium-singleton-staging.md) for the selected operation   |
+| Existing native credentials, mounts, artifacts or ownership | Relevant `docs/operations/symposium-*` contract and current code owner                                                                                                 |
+| Prior implementation and acceptance evidence                | [Archived feature snapshot](../archive/symposium/2026-09-symposium.md) and [archived acceptance plan](../archive/symposium/2026-09-symposium-integrated-acceptance.md) |
+| Full review, fixes, criteria or publication                 | Relevant authority contracts when selected; not prerequisites for the first collaboration slice                                                                        |
 
-The application mounts authenticated review routes with persistence/coordinator
-services, immutable export and snapshot retrieval, and guarded publication
-preflight. These routes do not supply the trusted native review host, enforce a
-native spending cap, or authorize publication dispatch.
+Operating documents describe narrow contracts, not competing roadmaps. Read only
+what the selected operation needs. Historical pins, inventories, candidate hashes
+and receipts must be freshly reconciled before use.
 
-The review workflow records structured findings, fix/dismissal decisions, exact
-artifact revisions, and delta-review history. The interactive panel reports missing native capabilities honestly. The
-[current integrated acceptance contract](symposium-integrated-acceptance.md#application-policy-contract)
-requires persisted application limits; guaranteed native token/spend caps and
-mandatory final usage totals are deferred. Mocked coordinator tests do not prove
-live account/model acceptance or a complete autonomous review/fix loop.
+## Superseded tracking and evidence
 
-The immutable-record slice binds an owner/session/workflow to the verified
-artifact and exact history sequence, result, and evidence. Authenticated retrieval
-does not rewrite a snapshot. Repeating the same export returns the same record;
-changed history or artifact identity produces a distinct snapshot. Records are
-stored outside the reviewed Git branch.
+`6403fb22f9bb743c` and its seven children were superseded as execution instructions
+on October 3 by `c0851ba23fcc5d04`. Their records and completed foundation work remain
+historical. Old phases and task hints do not create current work or authorize
+replaying diagnostic recipes. Administrative closure is not feature completion.
 
-Publication preflight validates a trusted host binding and current review/artifact
-evidence. It is a guarded preparation step, not **Create PR**. Native review-host
-completion, durable terminal evidence and approved publication dispatch remain
-separate gates. No publication or production deployment is established by the
-native smoke.
+The former PR #678 checklist and larger package sequence are archived. PR #750
+consolidated source and #806 added diagnostics; neither establishes this new
+integration or a current working release. Consult exact receipts for prior claims.
+The existing native implementation still has a dedicated host/account path; the
+shared route has not been accepted by this documentation change.
 
-## Historical compatibility
-
-Earlier Phase 1/2 text described a two-seat, shared-sandbox foundation with injected
-executors. Version-1 records remain readable; that historical scope does not limit
-the current roster or authorize shared credentials. Version-2 membership history
-cannot be erased by deactivating the session into ordinary chat. The original
-foundation PR #446 is not a required dependency of this implementation.
-
-The current mocked suites cover persistence, privacy, admission, restart fencing,
-cleanup ordering, UI selection, and review-record integrity. Their results must
-remain distinct from the bounded live evidence above and from full application
-acceptance.
-
-## Model discovery recovery
-
-If discovery cleanup fails after the host has observed the sandbox identity and
-settled creation, Personal Connections can offer **Clean up model discovery**.
-This explicit action uses the current connection revision and the original host's
-retained journal/custody. It only cancels and deletes the exact discovery sandbox,
-checks gateway and physical absence, then proves retained provider and refresh
-credential cleanup before releasing the discovery marker. Credential cleanup refuses
-while any sandbox remains in the owned workspace; ambiguity keeps the connection
-quarantined. A retry resumes the unfinished cleanup phase. It never
-creates a sandbox, calls a model, publishes a catalog, reconnects, or rebinds a seat.
-Successful cleanup requires explicit fresh sign-in.
-
-The action is unavailable when the host lacks retained proof, including after
-restart, a legacy quarantine, or an uncertain dispatched create without a known
-sandbox identity. Empty inventories do not settle those cases. The authenticated
-`POST /api/symposium/personal/connections/:id/models/recover` endpoint requires
-`expectedRevision`; a stale revision or unavailable capability leaves quarantine
-intact. This is same-process recovery, not cross-custody migration.
+Production activation, provider enrollment and retained-owner/resource settlement
+remain separate, operation-specific requirements. Live model tests explicitly
+use a supported Luna model with the exact charged account announced beforehand.
