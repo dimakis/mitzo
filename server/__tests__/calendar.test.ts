@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeAll, afterEach } from 'vitest';
 import type { Express } from 'express';
 import request from 'supertest';
-import { mkdirSync, writeFileSync } from 'fs';
+import { mkdirSync, writeFileSync, readFileSync, realpathSync, linkSync, unlinkSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 
@@ -21,6 +21,8 @@ afterEach(() => {
 });
 
 const TEST_REPO = join(tmpdir(), `mitzo-test-repo-${process.pid}`);
+const TEST_ENROLLMENT = join(TEST_REPO, 'runtime-enrollment.json');
+const TEST_RUNTIME_CONFIG = join(TEST_REPO, 'runtime-config.json');
 
 vi.mock('../chat.js', () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -85,6 +87,21 @@ beforeAll(async () => {
   runtime.briefingsRoot = join(TEST_REPO, 'command_center', 'briefings');
   mkdirSync(runtime.briefingsRoot, { recursive: true });
   mkdirSync(TEST_REPO, { recursive: true });
+  writeFileSync(
+    TEST_RUNTIME_CONFIG,
+    JSON.stringify({ gwsExecutable: '/synthetic/gws', jiraLibPath: '/synthetic/jira' }),
+    { mode: 0o600 },
+  );
+  writeFileSync(
+    TEST_ENROLLMENT,
+    JSON.stringify({
+      kind: 'workspace-runtime-v1',
+      config: realpathSync(TEST_RUNTIME_CONFIG),
+      release: realpathSync(TEST_REPO) + '/installed-runtime',
+      python: '/synthetic/python',
+    }),
+    { mode: 0o600 },
+  );
   mkdirSync(join(TEST_REPO, 'mgmt_lib', 'inbox', 'archive'), { recursive: true });
 
   const mod = await import('../app.js');
@@ -144,8 +161,80 @@ describe('calendar routes', () => {
 });
 
 describe('enrolled calendar and briefing routes', () => {
+  it('blocks document writes to enrolled authority before any runtime use while preserving reports', async () => {
+    process.env.MITZO_WORKSPACE_RUNTIME_CONFIG = realpathSync(TEST_ENROLLMENT);
+    for (const file of [TEST_ENROLLMENT, TEST_RUNTIME_CONFIG]) {
+      const original = readFileSync(file, 'utf8');
+      const result = await request(app)
+        .put('/api/files/write')
+        .set('Cookie', authCookie)
+        .send({ path: file, content: '{"python":"/attacker"}', expectedContent: original });
+      expect(result.status).toBe(403);
+      expect(readFileSync(file, 'utf8')).toBe(original);
+    }
+    const output = join(runtime.briefingsRoot, '2026-10-10.md');
+    writeFileSync(output, '# Report');
+    const readable = await request(app)
+      .get('/api/files/read')
+      .query({ path: output })
+      .set('Cookie', authCookie);
+    expect(readable.status).toBe(200);
+  });
+
+  it('protects an enrolled authority file from inbox read, archive and deletion routes', async () => {
+    const authority = join(TEST_REPO, 'mgmt_lib', 'inbox', 'operator-runtime.md');
+    const original = readFileSync(TEST_ENROLLMENT, 'utf8');
+    writeFileSync(authority, original, { mode: 0o600 });
+    process.env.MITZO_WORKSPACE_RUNTIME_CONFIG = realpathSync(authority);
+    for (const method of ['get', 'post', 'delete'] as const) {
+      const path = '/api/inbox/operator-runtime.md' + (method === 'post' ? '/approve' : '');
+      const result = await request(app)[method](path).set('Cookie', authCookie);
+      expect(result.status).toBe(403);
+      expect(readFileSync(authority, 'utf8')).toBe(original);
+    }
+    delete process.env.MITZO_WORKSPACE_RUNTIME_CONFIG;
+    const afterRemoval = await request(app)
+      .delete('/api/inbox/operator-runtime.md')
+      .set('Cookie', authCookie);
+    expect(afterRemoval.status).toBe(403);
+    expect(readFileSync(authority, 'utf8')).toBe(original);
+    const listing = await request(app).get('/api/inbox').set('Cookie', authCookie);
+    expect(
+      listing.body.some((item: { filename: string }) => item.filename === 'operator-runtime.md'),
+    ).toBe(false);
+  });
+  it('fails closed before document writes through a hardlink alias', async () => {
+    const alias = join(TEST_REPO, 'runtime-config-alias.json');
+    linkSync(TEST_RUNTIME_CONFIG, alias);
+    process.env.MITZO_WORKSPACE_RUNTIME_CONFIG = realpathSync(TEST_ENROLLMENT);
+    try {
+      const original = readFileSync(alias, 'utf8');
+      const result = await request(app)
+        .put('/api/files/write')
+        .set('Cookie', authCookie)
+        .send({ path: alias, content: '{"gwsExecutable":"/attacker"}', expectedContent: original });
+      expect(result.status).toBe(403);
+      expect(readFileSync(TEST_RUNTIME_CONFIG, 'utf8')).toBe(original);
+    } finally {
+      unlinkSync(alias);
+    }
+  });
+  it('blocks inbox approval that would replace an archived operator enrollment', async () => {
+    const source = join(TEST_REPO, 'mgmt_lib', 'inbox', 'archived-authority.md');
+    const destination = join(TEST_REPO, 'mgmt_lib', 'inbox', 'archive', 'archived-authority.md');
+    const original = readFileSync(TEST_ENROLLMENT, 'utf8');
+    writeFileSync(source, '# ordinary draft');
+    writeFileSync(destination, original, { mode: 0o600 });
+    process.env.MITZO_WORKSPACE_RUNTIME_CONFIG = realpathSync(destination);
+    const result = await request(app)
+      .post('/api/inbox/archived-authority.md/approve')
+      .set('Cookie', authCookie);
+    expect(result.status).toBe(403);
+    expect(readFileSync(destination, 'utf8')).toBe(original);
+    expect(readFileSync(source, 'utf8')).toBe('# ordinary draft');
+  });
   it('keeps calendar response and clamping while using the enrolled runtime', async () => {
-    process.env.MITZO_WORKSPACE_RUNTIME_CONFIG = '/operator/enrollment.json';
+    process.env.MITZO_WORKSPACE_RUNTIME_CONFIG = realpathSync(TEST_ENROLLMENT);
     runtime.calendar.mockResolvedValue({
       startDate: '2026-10-10',
       endDate: '2026-11-09',
@@ -164,7 +253,7 @@ describe('enrolled calendar and briefing routes', () => {
     expect(result.body.endDate).toBe('2026-11-09');
   });
   it('fails closed instead of executing mutable calendar code', async () => {
-    process.env.MITZO_WORKSPACE_RUNTIME_CONFIG = '/operator/enrollment.json';
+    process.env.MITZO_WORKSPACE_RUNTIME_CONFIG = realpathSync(TEST_ENROLLMENT);
     runtime.calendar.mockRejectedValue(new Error('private information must not escape'));
     const result = await request(app)
       .get('/api/calendar')
@@ -180,7 +269,7 @@ describe('enrolled calendar and briefing routes', () => {
     });
   });
   it('returns a briefing path in the existing browser contract', async () => {
-    process.env.MITZO_WORKSPACE_RUNTIME_CONFIG = '/operator/enrollment.json';
+    process.env.MITZO_WORKSPACE_RUNTIME_CONFIG = realpathSync(TEST_ENROLLMENT);
     runtime.latestBriefing.mockResolvedValue({
       filename: '2026-10-10.md',
       path: join(runtime.briefingsRoot, '2026-10-10.md'),
@@ -206,7 +295,7 @@ describe('enrolled calendar and briefing routes', () => {
     );
   });
   it('rejects a briefing enrollment outside the existing document roots', async () => {
-    process.env.MITZO_WORKSPACE_RUNTIME_CONFIG = '/operator/enrollment.json';
+    process.env.MITZO_WORKSPACE_RUNTIME_CONFIG = realpathSync(TEST_ENROLLMENT);
     runtime.briefingsRoot = '/private/unrelated-documents';
     runtime.latestBriefing.mockResolvedValue(null);
     const result = await request(app)
@@ -217,7 +306,7 @@ describe('enrolled calendar and briefing routes', () => {
     expect(runtime.latestBriefing).not.toHaveBeenCalled();
   });
   it('distinguishes runtime failure from no saved briefing without leaking diagnostics', async () => {
-    process.env.MITZO_WORKSPACE_RUNTIME_CONFIG = '/operator/enrollment.json';
+    process.env.MITZO_WORKSPACE_RUNTIME_CONFIG = realpathSync(TEST_ENROLLMENT);
     runtime.latestBriefing.mockRejectedValue(new Error('credential details'));
     const result = await request(app)
       .get('/api/briefings/latest')

@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.9';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.24';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.25';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -103,7 +103,14 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../worktree.ts': 'e3fd6d93d33cb5403786c5a7da16dd229d8ba03ad06e8c3abaf6309c64adb34a',
   '../repository-task-checkout.ts':
     '32fd232781b0ba9573fa0e6a511a78ede54a8c33a80dee30f52d06283b4beab5',
-  '../native-tool-executor.ts': '6bca4beb98690334e83a0a88b35c80558ed01b7485f682aca0cc0af11b6cd766',
+
+  // Operator runtime enrollment, private metadata and write-authority admission.
+  '../workspace-runtime-private-paths.ts':
+    '0cade5b6ae92467e05d719d287974f6a99e5a9f0c3c81a7e2002af2d9d5e2bec',
+  '../codex-private-path.ts': '3cabc8c4374caf36653efdbbb77cd5fd1ae7a9a2396015b009bd234952f88b87',
+  '../workspace-runtime-client.ts':
+    'eb377ad70361797cb34de00c1974952b76cd81041da7668631b138cf5d44473f',
+  '../native-tool-executor.ts': '01f843a14d86ba8fb383a64c9bc273c8f0ed62c2f41f6450dd473661ca34e6b0',
   '../repository-workspaces.ts': 'b7e8cd755cdf6483d706f41d5deca216736b40dbd7863a3be20edfd32abb811c',
   '../../packages/protocol/src/event-store.ts':
     '2c5725fc66980246c5ea67e2dd57b5ac7322504b2cbca1e4a6b0f51ec4cdd299',

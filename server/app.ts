@@ -125,6 +125,7 @@ import {
 } from './codex-chat-session.js';
 import { createCodexQueueRouter } from './codex-queue-routes.js';
 import { createCodexPathProtection } from './codex-private-path.js';
+import { isWorkspaceRuntimeAuthorityWritePath } from './workspace-runtime-private-paths.js';
 import { selectedOpenShellAccountRoute } from './codex-chat-session.js';
 import { openShellRuntimeConfig, OpenShellRuntimeManager } from './openshell-runtime.js';
 import { readOpenShellArtifact, OpenShellArtifactReadError } from './openshell-artifact-reader.js';
@@ -3622,7 +3623,7 @@ app.put('/api/files/write', async (req, res) => {
   }
 
   const filePath = resolveArtifactPath(requestedPath, sessionId);
-  if (!isAllowedPath(filePath, sessionId)) {
+  if (!isAllowedPath(filePath, sessionId) || isWorkspaceRuntimeAuthorityWritePath(filePath)) {
     res.status(403).json({ error: 'Path not allowed' });
     return;
   }
@@ -3681,7 +3682,16 @@ app.get('/api/inbox', (_req, res) => {
     res.json([]);
     return;
   }
-  res.json(listInboxItems(inboxPath));
+  const privatePath = privatePathSnapshot();
+  res.json(
+    listInboxItems(inboxPath).filter((item) => {
+      try {
+        return !privatePath(join(inboxPath, item.filename));
+      } catch {
+        return false;
+      }
+    }),
+  );
 });
 
 app.post('/api/inbox', (req, res) => {
@@ -3708,6 +3718,30 @@ app.post('/api/inbox', (req, res) => {
   notificationCenter.update(item.filename, item.title, item.preview, item.filename);
   res.status(201).json(item);
   broadcastInboxUpdate();
+});
+
+// Inbox archive/delete can move documents too; enrolled operator authority is
+// never a document, including a JSON file with an .md filename.
+app.use('/api/inbox/:filename', (req, res, next) => {
+  const inboxPath = getRepoConfig().resolvedInboxPath;
+  if (!inboxPath) return next();
+  try {
+    const source = join(inboxPath, req.params.filename);
+    const privatePath = privatePathSnapshot();
+    const mutating = req.method !== 'GET' && req.method !== 'HEAD';
+    const destination = join(inboxPath, 'archive', req.params.filename);
+    if (
+      !privatePath(source) &&
+      (!mutating ||
+        (!isWorkspaceRuntimeAuthorityWritePath(source) &&
+          !privatePath(destination) &&
+          !isWorkspaceRuntimeAuthorityWritePath(destination)))
+    )
+      return next();
+  } catch {
+    /* Unreadable authority fails closed. */
+  }
+  res.status(403).json({ error: 'Path not allowed' });
 });
 
 app.get('/api/inbox/:filename', (req, res) => {

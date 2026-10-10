@@ -149,7 +149,10 @@ function physical(path: string, kind: 'file' | 'directory', privateFile = false)
     (kind === 'file' ? !stat.isFile() : !stat.isDirectory())
   )
     throw new Error('Workspace runtime path is not physical');
-  if (privateFile && (stat.uid !== process.getuid?.() || (stat.mode & 0o077) !== 0))
+  if (
+    privateFile &&
+    (stat.uid !== process.getuid?.() || stat.nlink !== 1 || (stat.mode & 0o077) !== 0)
+  )
     throw new Error('Workspace runtime configuration must be private');
 }
 function load(path: string) {

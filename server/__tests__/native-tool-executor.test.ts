@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   lstat,
@@ -267,6 +268,152 @@ describe('native tool execution through session permissions', () => {
       is_error: false,
       content: JSON.stringify({ answers: { 'Which account?': 'Work' } }),
     });
+  });
+  it('blocks native writes to enrolled runtime authority before runtime initialization', async () => {
+    const workspace = await realpath(join(root, 'worktree'));
+    const enrollment = join(workspace, 'runtime-enrollment.json');
+    const config = join(workspace, 'runtime-config.json');
+    const python = join(workspace, 'python');
+    const gws = join(workspace, 'gws');
+    await writeFile(python, 'synthetic interpreter');
+    await writeFile(gws, 'synthetic provider executable');
+    await writeFile(
+      config,
+      JSON.stringify({ gwsExecutable: gws, jiraLibPath: join(workspace, 'jira') }),
+      { mode: 0o600 },
+    );
+    await writeFile(
+      enrollment,
+      JSON.stringify({
+        kind: 'workspace-runtime-v1',
+        config,
+        release: join(workspace, 'runtime'),
+        python,
+      }),
+      { mode: 0o600 },
+    );
+    vi.stubEnv('MITZO_WORKSPACE_RUNTIME_CONFIG', enrollment);
+    for (const file_path of [enrollment, config, python, gws]) {
+      const original = await readFile(file_path, 'utf8');
+      expect(
+        await executor()(call('Write', { file_path, content: 'changed authority' }), abort.signal),
+      ).toMatchObject({ is_error: true });
+      expect(await readFile(file_path, 'utf8')).toBe(original);
+    }
+    expect(
+      await executor()(call('Write', { file_path: 'report.md', content: 'report' }), abort.signal),
+    ).toMatchObject({ is_error: false });
+  });
+  it('rejects shell writable roots containing enrolled authority instead of relying on exact-file deny rules', async () => {
+    const workspace = await realpath(join(root, 'worktree'));
+    const enrollment = join(workspace, 'runtime-enrollment.json');
+    const config = join(workspace, 'runtime-config.json');
+    await writeFile(
+      config,
+      JSON.stringify({ gwsExecutable: '/synthetic/gws', jiraLibPath: '/synthetic/jira' }),
+      { mode: 0o600 },
+    );
+    await writeFile(
+      enrollment,
+      JSON.stringify({
+        kind: 'workspace-runtime-v1',
+        config,
+        release: '/synthetic/runtime',
+        python: '/synthetic/python',
+      }),
+      { mode: 0o600 },
+    );
+    vi.stubEnv('MITZO_WORKSPACE_RUNTIME_CONFIG', enrollment);
+    registry.get('client')!.mode = 'auto';
+    vi.mocked(executeSandboxedCommand).mockClear();
+    const result = await executor()(
+      call('Bash', { command: 'mv runtime-enrollment.json moved.json' }),
+      abort.signal,
+    );
+    expect(result).toMatchObject({
+      is_error: true,
+      content: expect.stringContaining('overlaps workspace runtime authority'),
+    });
+    expect(executeSandboxedCommand).not.toHaveBeenCalled();
+    expect(JSON.parse(await readFile(enrollment, 'utf8')).config).toBe(config);
+    vi.unstubAllEnvs();
+    const afterRemoval = await executor()(
+      call('Bash', { command: 'mv runtime-config.json changed.json' }),
+      abort.signal,
+    );
+    expect(afterRemoval).toMatchObject({
+      is_error: true,
+      content: expect.stringContaining('overlaps workspace runtime authority'),
+    });
+    expect(executeSandboxedCommand).not.toHaveBeenCalled();
+  });
+  it('protects selected executable link paths even when their physical targets are outside the workspace', async () => {
+    const workspace = await realpath(join(root, 'worktree'));
+    const authority = await realpath(root);
+    const config = join(authority, 'runtime-config.json');
+    const enrollment = join(authority, 'runtime-enrollment.json');
+    const target = join(authority, 'gws-real');
+    await writeFile(target, 'synthetic provider');
+    const alias = join(workspace, 'gws-link');
+    await symlink(target, alias);
+    const parentAlias = join(authority, 'workspace-alias');
+    await symlink(workspace, parentAlias);
+    const selectedAlias = join(parentAlias, 'gws-link');
+    await writeFile(
+      config,
+      JSON.stringify({ gwsExecutable: selectedAlias, jiraLibPath: '/synthetic/jira' }),
+      { mode: 0o600 },
+    );
+    await writeFile(
+      enrollment,
+      JSON.stringify({
+        kind: 'workspace-runtime-v1',
+        config,
+        release: '/synthetic/runtime',
+        python: '/synthetic/python',
+      }),
+      { mode: 0o600 },
+    );
+    vi.stubEnv('MITZO_WORKSPACE_RUNTIME_CONFIG', enrollment);
+    registry.get('client')!.mode = 'auto';
+    vi.mocked(executeSandboxedCommand).mockClear();
+    expect(await executor()(call('Bash', { command: 'rm gws-link' }), abort.signal)).toMatchObject({
+      is_error: true,
+      content: expect.stringContaining('overlaps workspace runtime authority'),
+    });
+    expect(executeSandboxedCommand).not.toHaveBeenCalled();
+  });
+  it('keeps the external common Python interpreter readable and executable for unrelated shell workspaces', async () => {
+    const authority = await realpath(root);
+    const config = join(authority, 'runtime-config.json');
+    const enrollment = join(authority, 'runtime-enrollment.json');
+    const python = execFileSync('python3', ['-c', 'import sys; print(sys.executable)'], {
+      encoding: 'utf8',
+    }).trim();
+    await writeFile(
+      config,
+      JSON.stringify({ gwsExecutable: '/synthetic/gws', jiraLibPath: '/synthetic/jira' }),
+      { mode: 0o600 },
+    );
+    await writeFile(
+      enrollment,
+      JSON.stringify({
+        kind: 'workspace-runtime-v1',
+        config,
+        release: '/synthetic/runtime',
+        python,
+      }),
+      { mode: 0o600 },
+    );
+    vi.stubEnv('MITZO_WORKSPACE_RUNTIME_CONFIG', enrollment);
+    registry.get('client')!.mode = 'auto';
+    vi.mocked(executeSandboxedCommand).mockClear();
+    expect(
+      await executor()(call('Bash', { command: 'python3 -c "print(1)"' }), abort.signal),
+    ).toMatchObject({ is_error: false });
+    const denied = vi.mocked(executeSandboxedCommand).mock.calls.at(-1)![0].deniedRoots;
+    expect(denied).not.toContain(await realpath(python));
+    expect(denied).toContain(enrollment);
   });
   it('writes, edits and reads using SDK-compatible inputs and call IDs', async () => {
     const execute = executor();

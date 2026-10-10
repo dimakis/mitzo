@@ -1,4 +1,5 @@
 import { configuredKnowledgeLibraryPrivatePaths } from './knowledge-library-private-paths.js';
+import { workspaceRuntimePrivateFiles } from './workspace-runtime-private-paths.js';
 import { realpathSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { homedir } from 'node:os';
@@ -27,6 +28,7 @@ export function protectCodexProfileRoots(roots: string[]) {
 
 export function privateCodexRoots(extraRoots: string[] = []): string[] {
   protectCodexProfileRoots(configuredKnowledgeLibraryPrivatePaths());
+  protectCodexProfileRoots(workspaceRuntimePrivateFiles());
   return [
     codexPrivateDirectory(),
     process.env.CODEX_HOME || join(homedir(), '.codex'),
@@ -75,6 +77,7 @@ export function createCodexPathProtection(loadRoots: () => string[]) {
     // Fail closed even when account-profile roots were observed previously.
     try {
       protectCodexProfileRoots(configuredKnowledgeLibraryPrivatePaths());
+      protectCodexProfileRoots(workspaceRuntimePrivateFiles());
     } catch {
       return () => true;
     }

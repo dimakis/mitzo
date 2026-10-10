@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   chmodSync,
+  linkSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -180,6 +181,14 @@ describe('enrolled workspace runtime', () => {
     await expect(
       createWorkspaceRuntimeClient(enrollment).latestBriefing({ date: '2026-10-10' }),
     ).rejects.toThrow();
+  });
+  it('rejects hardlinked operator files rather than trusting one pathname', () => {
+    const configPath = JSON.parse(readFileSync(enrollment, 'utf8')).config;
+    linkSync(configPath, join(root, 'config-alias.json'));
+    expect(() => createWorkspaceRuntimeClient(enrollment)).toThrow();
+    rmSync(join(root, 'config-alias.json'));
+    linkSync(enrollment, join(root, 'enrollment-alias.json'));
+    expect(() => createWorkspaceRuntimeClient(enrollment)).toThrow();
   });
   it('rejects private file permission loss and unknown enrollment fields', async () => {
     chmodSync(enrollment, 0o644);
