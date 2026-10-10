@@ -267,7 +267,11 @@ async function setup(
   const onClosed = vi.fn();
   const onError = vi.fn();
   const onTransportClosed = vi.fn();
-  const requestUserInput = vi.fn(async () => ({ answers: { q1: { answers: ['Work'] } } }));
+  const requestUserInput = vi.fn(
+    async (_params: Record<string, unknown>, _signal: AbortSignal) => ({
+      answers: { q1: { answers: ['Work'] } },
+    }),
+  );
   const execute = vi.fn(
     async (_name: string, _input: Record<string, unknown>, _signal: AbortSignal) => ({
       content: 'ok',
