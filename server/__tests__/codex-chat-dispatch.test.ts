@@ -396,7 +396,10 @@ it('routes API accounts through OpenShell by default without resolving host cred
     expect(options.systemPrompt).toContain('/sandbox/workspaces/mgmt');
     expect(options.systemPrompt).not.toContain(root);
     expect(chat.eventStore.getSession('openshell-api-app')?.bootContext).toContain(
-      '"source":"sandbox"',
+      '"source":"contexgin"',
+    );
+    expect(chat.eventStore.getSession('openshell-api-app')?.bootContext).toContain(
+      '"scope":"sandbox"',
     );
     expect(chat.eventStore.getSession('openshell-api-app')?.cwd).toBe('/sandbox/workspaces/mgmt');
   } finally {
