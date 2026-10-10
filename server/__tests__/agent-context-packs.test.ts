@@ -206,8 +206,7 @@ it.each(['required', 'prioritized', 'excluded'] as const)(
       definition: selectedDefinition,
       hash: contextDigest(selectedDefinition),
     };
-    const packs = adapter();
-    packs.resolve.mockResolvedValue(selected);
+    const packs = { ...adapter(), resolve: async () => selected };
     packs.readDocument.mockResolvedValue({
       storeId: 'accepted-mgmt',
       path: document.path,
@@ -241,8 +240,7 @@ it.each([
       definition: selectedDefinition,
       hash: contextDigest(selectedDefinition),
     };
-    const packs = adapter();
-    packs.resolve.mockResolvedValue(selected);
+    const packs = { ...adapter(), resolve: async () => selected };
     packs.readDocument.mockResolvedValue({
       storeId: 'accepted-mgmt',
       path: document.path,
@@ -300,8 +298,7 @@ it.each([
       definition: selectedDefinition,
       hash: contextDigest(selectedDefinition),
     };
-    const packs = adapter();
-    packs.resolve.mockResolvedValue(selected);
+    const packs = { ...adapter(), resolve: async () => selected };
     packs.readDocument.mockResolvedValue({
       storeId: 'accepted-mgmt',
       path: document.path,
