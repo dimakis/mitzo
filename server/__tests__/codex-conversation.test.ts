@@ -539,7 +539,7 @@ it('replays retained sources when provider recovery starts a clean replacement t
   });
   const content = 'Saved exact report.\n'.repeat(6000);
   const source = {
-    kind: 'briefing',
+    kind: 'briefing' as const,
     date: '2026-10-09',
     revision: createHash('sha256').update(content).digest('hex'),
     content,
