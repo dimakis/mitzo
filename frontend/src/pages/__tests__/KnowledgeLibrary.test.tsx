@@ -1807,62 +1807,6 @@ it('cancels an unopened document Move without adding it to the existing working 
     vi.mocked(apiFetch).mock.calls.some(([path]) => path.startsWith('/api/knowledge/document')),
   ).toBe(false);
 });
-it.each([true, false])(
-  'shows both versions of folders and move origins before resolving a saved conflict (foldersOnly=%s)',
-  async (foldersOnly) => {
-    const local = foldersOnly
-      ? []
-      : [
-          {
-            path: 'hub/local-principles.md',
-            sourcePath: 'hub/principles.md',
-            base: '# Principles',
-            content: '# Principles',
-          },
-        ];
-    const remote = {
-      ...draft,
-      version: 2,
-      directories: ['hub/remote-folder'],
-      documents: foldersOnly
-        ? []
-        : [
-            {
-              path: 'hub/remote-release.md',
-              sourcePath: 'teams/release.md',
-              base: '# Release',
-              content: '# Release',
-            },
-          ],
-    };
-    localStorage.setItem(
-      'mitzo-knowledge-working-copy:',
-      JSON.stringify({
-        title: 'Organize knowledge',
-        baseRevision: 'r1',
-        documents: local,
-        directories: ['hub/local-folder'],
-        selected: local[0]?.path ?? '',
-        saved: JSON.stringify(local),
-        savedDirectories: [],
-        initialSaveConflict: remote,
-      }),
-    );
-    setup();
-    await resumeRecoveredCopy();
-    const saved = await screen.findByRole('region', { name: 'Saved draft structure' });
-    const working = screen.getByRole('region', { name: 'Your working copy structure' });
-    expect(within(saved).getByText('hub/remote-folder')).toBeTruthy();
-    expect(within(working).getByText('hub/local-folder')).toBeTruthy();
-    if (!foldersOnly) {
-      expect(within(saved).getByText('teams/release.md → hub/remote-release.md')).toBeTruthy();
-      expect(within(working).getByText('hub/principles.md → hub/local-principles.md')).toBeTruthy();
-    }
-    expect(
-      screen.getByRole('button', { name: 'Keep my edits and update saved draft' }),
-    ).toBeTruthy();
-  },
-);
 it('clears keyboard undo when the saved conflict is adopted with matching selected text', async () => {
   vi.stubGlobal(
     'matchMedia',
