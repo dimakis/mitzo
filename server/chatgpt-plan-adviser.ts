@@ -335,7 +335,7 @@ export class ChatGptPlanAdviserAccounts {
         refreshToken: tokens.refresh_token,
         idToken: tokens.id_token,
         grantedScopes: permitted(tokens.scope),
-        expiresAt: this.now() + tokens.expires_in * 1000,
+        expiresAt: tokens.receivedAt + tokens.expires_in * 1000,
         models,
         state: 'connected',
       };
@@ -370,7 +370,7 @@ export class ChatGptPlanAdviserAccounts {
       ),
     );
     permitted(tokens.scope);
-    return tokens;
+    return { ...tokens, receivedAt: this.now() };
   }
   private async models(accessToken: string, signal: AbortSignal) {
     const page = modelPage.parse(
@@ -432,7 +432,7 @@ export class ChatGptPlanAdviserAccounts {
         refreshToken: tokens.refresh_token,
         idToken: tokens.id_token,
         grantedScopes: permitted(tokens.scope),
-        expiresAt: this.now() + tokens.expires_in * 1000,
+        expiresAt: tokens.receivedAt + tokens.expires_in * 1000,
       };
       this.persist({
         ...this.state,

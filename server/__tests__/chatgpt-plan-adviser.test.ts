@@ -71,6 +71,7 @@ function fixture() {
     loseOwner: () => {
       owned = false;
     },
+    time: () => now,
     advance: () => {
       now += 3600000;
     },
@@ -306,4 +307,15 @@ it('invalidates an already acquired grant if credential storage ownership is los
   expect(() => grant.accessToken()).toThrow();
   expect(grant.signal.aborted).toBe(true);
   await expect(f.service.ready(account.id, 'gpt-6-luna', 'low', signal)).rejects.toThrow();
+});
+
+it('does not extend access-token expiry while identity or model discovery is delayed', async () => {
+  const f = fixture(),
+    receivedAt = f.time();
+  f.verify.mockImplementationOnce(async () => {
+    f.advance();
+    return { sub: 'signed-user', email: 'user@example.test' };
+  });
+  await f.service.complete('operator', f.callback(f.begin()), new AbortController().signal);
+  expect(f.state().accounts[0].expiresAt).toBe(receivedAt + 3600000);
 });
