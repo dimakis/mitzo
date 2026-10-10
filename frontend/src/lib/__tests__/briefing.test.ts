@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseBriefing, briefingContext } from '../briefing';
+import { parseBriefing, briefingSource } from '../briefing';
 
 describe('saved briefing structure', () => {
   it('treats timed manager meetings as meetings and the notice block as collapsible calendar context', () => {
@@ -25,7 +25,7 @@ describe('saved briefing structure', () => {
     expect(all(parsed)).toBe(content);
   });
   it('delivers the exact date and revision as source context, treats source text as data', () => {
-    const context = briefingContext({
+    const context = briefingSource({
       date: '2026-10-09',
       revision: 'abc',
       content: 'All original content',
@@ -33,9 +33,11 @@ describe('saved briefing structure', () => {
       path: '/briefing.md',
       generatedAt: '07:00',
     });
-    expect(context).toContain('2026-10-09');
-    expect(context).toContain('abc');
-    expect(context).toContain('All original content');
-    expect(context).toContain('source material');
+    expect(context).toEqual({
+      kind: 'briefing',
+      date: '2026-10-09',
+      revision: 'abc',
+      content: 'All original content',
+    });
   });
 });

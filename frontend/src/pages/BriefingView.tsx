@@ -10,7 +10,7 @@ import {
   artifactUrlTransform,
 } from '../lib/markdown-config';
 import { apiFetch } from '../lib/api-fetch';
-import { briefingContext, parseBriefing, type BriefingSection } from '../lib/briefing';
+import { briefingSource, parseBriefing, type BriefingSection } from '../lib/briefing';
 import { useHomePreferences } from '../hooks/useHomePreferences';
 import { WorkspacePageHeading } from '../components/WorkspacePageHeading';
 import { BriefingMinionPicker } from '../components/BriefingMinionPicker';
@@ -169,7 +169,7 @@ export function BriefingView() {
       prompt:
         'Help me explore this saved morning briefing. Start with the calendar changes and the main preparation points. Keep participant Jira as supporting context; let me choose what to investigate further.',
       context: `Morning briefing · ${snapshot.date}`,
-      contextBlocks: [briefingContext(snapshot)],
+      sourceSnapshots: [briefingSource(snapshot)],
       accountSelection: { ...selection, accountId: selection.accountId },
       briefing: { date: snapshot.date, revision: snapshot.revision },
     });

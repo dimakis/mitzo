@@ -125,7 +125,15 @@ it('cancel leaves chat untouched; Use selection stages the exact report without 
   fireEvent.click(screen.getByRole('button', { name: 'Use selection' }));
   await waitFor(() => expect(fixtures.pending).toHaveBeenCalled());
   const launch = fixtures.pending.mock.calls[0][0];
-  expect(launch.contextBlocks[0]).toContain(fixtures.report.content);
+  expect(launch.sourceSnapshots).toEqual([
+    {
+      kind: 'briefing',
+      date: fixtures.report.date,
+      revision: fixtures.report.revision,
+      content: fixtures.report.content,
+    },
+  ]);
+  expect(launch.contextBlocks).toBeUndefined();
   expect(launch.briefing).toEqual({
     date: fixtures.report.date,
     revision: fixtures.report.revision,

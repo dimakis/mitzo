@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useMitzoStore } from '@mitzo/client/hooks';
 import type { BriefingSnapshot } from '@mitzo/protocol';
 import { apiFetch } from '../lib/api-fetch';
-import { briefingContext } from '../lib/briefing';
+import { briefingSource } from '../lib/briefing';
 import { BriefingMinionPicker } from './BriefingMinionPicker';
 import type { AccountSelection } from './AccountModelPicker';
 import '../styles/briefing.css';
@@ -42,12 +42,16 @@ export function BriefingChatBanner({
       navigate(`/chat/${encodeURIComponent(existing.sessionId)}`);
       return;
     }
-    const prefix = `Saved morning briefing: ${source.date}\nRevision: ${source.revision}\n`;
-    let context = [
-      ...(launch?.contextBlocks ?? []),
-      ...messages.flatMap((message) => message.contextBlocks ?? []),
-    ].find((entry) => entry.startsWith(prefix));
-    if (!context) {
+    let captured = [
+      ...(launch?.sourceSnapshots ?? []),
+      ...messages.flatMap((message) => message.sourceSnapshots ?? []),
+    ].find(
+      (entry) =>
+        entry.kind === 'briefing' &&
+        entry.date === source.date &&
+        entry.revision === source.revision,
+    );
+    if (!captured) {
       const report = await apiFetch(`/api/home/briefing?date=${source.date}`);
       if (!report.ok) throw new Error('Original source unavailable');
       const snapshot: BriefingSnapshot = await report.json();
@@ -55,13 +59,13 @@ export function BriefingChatBanner({
         throw new Error(
           'This briefing has changed; open the new report to start a new conversation.',
         );
-      context = briefingContext(snapshot);
+      captured = briefingSource(snapshot);
     }
     stage({
       prompt:
         'Help me explore this saved morning briefing. Start with its calendar changes and main preparation points.',
       context: `Morning briefing · ${source.date}`,
-      contextBlocks: [context],
+      sourceSnapshots: [captured],
       briefing: source,
       accountSelection: { ...selection, accountId: selection.accountId },
     });

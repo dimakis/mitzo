@@ -5,14 +5,19 @@ import { MemoryRouter } from 'react-router-dom';
 import { BriefingChatBanner } from '../BriefingChatBanner';
 const state = vi.hoisted(() => ({
   pending: vi.fn(),
-  source: 'Saved morning briefing: 2026-10-09\nRevision: original\nAll original content',
+  source: {
+    kind: 'briefing',
+    date: '2026-10-09',
+    revision: 'a'.repeat(64),
+    content: 'All original content',
+  },
 }));
 vi.mock('@mitzo/client/hooks', () => ({
   useMitzoStore: (select: (s: unknown) => unknown) =>
     select({
       setPendingSession: state.pending,
       pendingSession: null,
-      messages: { messages: [{ contextBlocks: [state.source] }] },
+      messages: { messages: [{ sourceSnapshots: [state.source] }] },
     }),
 }));
 vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn(async () => new Response('[]')) }));
@@ -30,12 +35,16 @@ afterEach(() => {
 it('changes account in a popup while carrying the original captured context into a separate chat', async () => {
   render(
     <MemoryRouter>
-      <BriefingChatBanner name="Jeeves" source={{ date: '2026-10-09', revision: 'original' }} />
+      <BriefingChatBanner
+        name="Jeeves"
+        source={{ date: state.source.date, revision: state.source.revision }}
+      />
     </MemoryRouter>,
   );
   fireEvent.click(screen.getByRole('button', { name: 'Change account or model' }));
   fireEvent.click(screen.getByRole('button', { name: 'Use other account' }));
   await waitFor(() => expect(state.pending).toHaveBeenCalled());
-  expect(state.pending.mock.calls[0][0].contextBlocks).toEqual([state.source]);
+  expect(state.pending.mock.calls[0][0].sourceSnapshots).toEqual([state.source]);
+  expect(state.pending.mock.calls[0][0].contextBlocks).toBeUndefined();
   expect(state.pending.mock.calls[0][0].accountSelection.accountId).toBe('other');
 });

@@ -74,8 +74,9 @@ export interface SendMessageOptions {
 export interface PendingSession {
   prompt: string;
   context: string;
-  /** Reviewed source snapshots, delivered as context rather than a replacement system prompt. */
+  /** Configured reference block names. */
   contextBlocks?: string[];
+  /** Exact reviewed source data, independently delivered to provider prompt assembly. */
   sourceSnapshots?: SourceSnapshot[];
   accountSelection?: { accountId: string; model: string; reasoningEffort?: string | null };
   briefing?: { date: string; revision: string };
