@@ -986,7 +986,9 @@ async function openCodexChatBound(
   const dispose = hookRuntime?.dispose ?? (() => {});
   let startup: { context?: string };
   try {
-    if (runtimeManager) {
+    if (options.agentContext) {
+      startup = {};
+    } else if (runtimeManager) {
       // Enrolled sessions receive accepted guidance through prepareSystemPrompt
       // on each turn. A retained writable checkout can contain older guidance;
       // never install that context as persistent thread developer instructions.
@@ -1138,6 +1140,19 @@ async function openCodexChatBound(
       : `codex-cli:${SUPPORTED_CODEX_CLI_VERSION}`,
     getMode: () => options.session.mode,
     systemPrompt: baseSystemPrompt + (startup.context ? `\n\n${startup.context}` : ''),
+    // Host thread instructions already contain the retained snapshot. The exact
+    // turn/start acknowledgement associates it without duplicating developer context.
+    ...(!runtimeManager && options.agentContext
+      ? {
+          onProviderAccepted: (commandId: string, threadId: string, turnId: string) =>
+            options.onAgentContextAccepted?.(
+              commandId,
+              threadId,
+              turnId,
+              createHash('sha256').update(baseSystemPrompt).digest('hex'),
+            ),
+        }
+      : {}),
     beforeComplete: connectedOpenShell
       ? undefined
       : async (signal) => {

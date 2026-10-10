@@ -2065,3 +2065,68 @@ it('refuses cold repository resume without its artifact identity before ensuring
     ensure.mockRestore();
   }
 });
+
+it('acknowledges host Codex profile context only on exact provider turn acceptance without duplicate per-turn injection', async () => {
+  vi.clearAllMocks();
+  mocks.connect.mockResolvedValue({ definitions: [], close: mocks.mcpClose });
+  const { NativeHooks } = await import('../native-hooks.js');
+  const startup = vi
+    .spyOn(NativeHooks.prototype, 'run')
+    .mockResolvedValue({ context: 'UNRELATED DEFAULT CONTEXT', forcePrompt: false });
+  const accepted = vi.fn();
+  const agentContext = {
+    source: 'packs' as const,
+    compilerRevision: 'fixture',
+    recipeHash: 'a'.repeat(64),
+    payloadHash: 'b'.repeat(64),
+    profileId: 'architect',
+    revision: 1,
+    profileHash: 'c'.repeat(64),
+    provenance: {
+      packs: [{ id: 'architecture', revision: 1, hash: 'd'.repeat(64) }],
+      documents: [],
+      omissions: [],
+    },
+    context: {
+      type: 'boot_context' as const,
+      source: 'contexgin' as const,
+      sourceCount: 1,
+      tokenCount: 5,
+      tokenBudget: 1000,
+      sources: [{ path: 'architecture.md', kind: 'reference' }],
+      included: [],
+      trimmed: [],
+      fullMarkdown: 'PINNED HOST PROFILE',
+    },
+  };
+  const chat = await openCodexChat({
+    ...options(new AbortController()),
+    systemPrompt: 'platform\nPINNED HOST PROFILE',
+    agentContext,
+    onAgentContextAccepted: accepted,
+  });
+  try {
+    expect(accepted).not.toHaveBeenCalled();
+    expect(startup.mock.calls.some(([event]) => event === 'SessionStart')).toBe(false);
+    expect(mocks.conversationOptions?.prepareSystemPrompt).toBeUndefined();
+    const delivered = mocks.conversationOptions?.systemPrompt as string;
+    expect(delivered.match(/PINNED HOST PROFILE/g)).toHaveLength(1);
+    expect(delivered).not.toContain('UNRELATED DEFAULT CONTEXT');
+    const providerAccepted = mocks.conversationOptions?.onProviderAccepted as (
+      command: string,
+      thread: string,
+      turn: string,
+    ) => void;
+    expect(providerAccepted).toBeTypeOf('function');
+    providerAccepted('exact-command', 'exact-thread', 'exact-turn');
+    expect(accepted).toHaveBeenCalledWith(
+      'exact-command',
+      'exact-thread',
+      'exact-turn',
+      createHash('sha256').update(delivered).digest('hex'),
+    );
+  } finally {
+    chat.close();
+    startup.mockRestore();
+  }
+});
