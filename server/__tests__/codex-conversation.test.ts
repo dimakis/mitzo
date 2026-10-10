@@ -1,4 +1,7 @@
 import Database from 'better-sqlite3';
+import { createHash } from 'node:crypto';
+import { EventStore } from '../event-store.js';
+import { codexRolloverHistory, codexRolloverSources } from '../codex-rollover-context.js';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -198,6 +201,7 @@ async function setup(
   enableCapacityRecovery = false,
   runtimeConfig?: Record<string, unknown>,
   inheritedConfig: Record<string, unknown> = {},
+  savedHistory?: EventStore,
 ) {
   const dir = mkdtempSync(join(tmpdir(), 'mitzo-codex-'));
   const store = existingStore ?? new CodexConversationStore(join(dir, 'private.db'));
@@ -291,10 +295,14 @@ async function setup(
     onProviderAccepted,
     onProviderTerminal,
     onProviderTerminalConflict,
-    loadConversationHistory: () => [
-      { role: 'user', text: 'Keep the existing workstream.' },
-      { role: 'assistant', text: 'The workstream is active.' },
-    ],
+    loadSourceSnapshots: savedHistory ? () => codexRolloverSources(savedHistory, 'app') : undefined,
+    loadConversationHistory: () =>
+      savedHistory
+        ? codexRolloverHistory(savedHistory, 'app')
+        : [
+            { role: 'user', text: 'Keep the existing workstream.' },
+            { role: 'assistant', text: 'The workstream is active.' },
+          ],
     onActivity,
     verifyBinding,
     tools: [{ name: 'Read', description: 'Read', input_schema: { type: 'object' } }],
@@ -399,6 +407,73 @@ it('preserves prior conversation text once when refreshing a stale tool surface'
   const turns = resumed.requests.filter(({ method }) => method === 'turn/start');
   expect(turns).toHaveLength(2);
   expect(turns[1].params).not.toHaveProperty('additionalContext');
+});
+
+it('replays the exact saved briefing into a replacement provider thread after a cold restart', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mitzo-codex-saved-source-'));
+  const sourcePath = join(dir, 'events.db');
+  let history = new EventStore(sourcePath);
+  const content =
+    '\uFEFF# Saved morning briefing\n' +
+    'Calendar and meeting source detail.\n'.repeat(5000) +
+    'Exact final source line.';
+  const source = {
+    kind: 'briefing' as const,
+    date: '2026-10-09',
+    revision: createHash('sha256').update(content).digest('hex'),
+    content,
+  };
+  history.upsertSession({ sessionId: 'app', initialPrompt: 'Explain this briefing.' });
+  history.append('app', 'user_message', {
+    messageId: 'u0',
+    text: 'Explain this briefing.',
+    sourceSnapshots: [source],
+  });
+  history.append('app', 'block_delta', {
+    messageId: 'a0',
+    blockType: 'text',
+    delta: 'Captured report understood.',
+  });
+  history.append('app', 'message_end', { messageId: 'a0' });
+  // Move the original source beyond the recent text projection and rollover transcript bounds.
+  for (let i = 1; i <= 2800; i++) {
+    history.append('app', 'user_message', { messageId: `u${i}`, text: `Follow up ${i}` });
+    history.append('app', 'block_delta', {
+      messageId: `a${i}`,
+      blockType: 'text',
+      delta: `Answer ${i}`,
+    });
+    history.append('app', 'message_end', { messageId: `a${i}` });
+  }
+  history.close();
+  history = new EventStore(sourcePath);
+  const store = new CodexConversationStore(join(dir, 'private.db'));
+  cleanup.push(() => {
+    history.close();
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+  store.create('app', binding, '/workspace');
+  store.bindThread('app', binding, 'legacy-provider-thread');
+  const args: Parameters<typeof setup> = [];
+  args[0] = store;
+  args[4] = async () => binding;
+  args[23] = history;
+  const first = await setup(...args);
+  first.c.close();
+  const resumed = await setup(...args);
+  await resumed.c.send({ id: 'replacement', prompt: 'What changed in that calendar?' });
+  const turn = resumed.requests.find(({ method }) => method === 'turn/start');
+  const input = turn?.params.input as Array<{ type: string; text?: string }>;
+  const providerText = input.map((item) => item.text ?? '').join('\n');
+  expect(providerText).toContain(content);
+  expect(providerText).toContain(`date="${source.date}" revision="${source.revision}"`);
+  expect(input.at(-1)).toEqual({ type: 'text', text: 'What changed in that calendar?' });
+  expect(history.getSession('app')?.initialPrompt).toBe('Explain this briefing.');
+  expect(codexRolloverHistory(history, 'app').some((entry) => entry.text.includes(content))).toBe(
+    false,
+  );
+  expect(JSON.stringify(turn?.params.additionalContext ?? {})).not.toContain(content);
 });
 
 it('retains rollover context when the first replacement-thread turn fails', async () => {

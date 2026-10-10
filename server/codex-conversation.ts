@@ -1,3 +1,5 @@
+import { assembleSourceSnapshots } from './source-snapshot-context.js';
+import type { SourceSnapshot } from '@mitzo/protocol';
 import {
   CAPACITY_REATTACH_READY_TIMEOUT_MS,
   CapacityAdmissionTimeoutError,
@@ -177,6 +179,7 @@ export interface CodexConversationOptions {
   /** Ordinary OpenShell: defer initial/tool-refresh thread binding until the first turn ACK. */
   deferToolSurfaceReplacement?: boolean;
   loadConversationHistory?: () => ConversationHistoryEntry[];
+  loadSourceSnapshots?: () => SourceSnapshot[];
   onClosed?: () => void;
   onError?: (error: Error) => void;
   onTransportClosed?: (diagnostic: {
@@ -1269,6 +1272,7 @@ export class CodexConversation {
   ) {
     if (this.closed) throw new Error('Attempt continuity initialization closed');
     if (!state.threadId) throw new Error('Attempt continuity predecessor is unavailable');
+    this.savedSourceContext();
     const entries = this.opts.loadConversationHistory?.();
     if (
       !entries?.length ||
@@ -1375,7 +1379,23 @@ export class CodexConversation {
    * output or reasoning: copy only completed user and assistant text into a
    * bounded, one-shot context fragment for the first turn on the new thread.
    */
+  private savedSourceContext(): string | undefined {
+    const sources = this.opts.loadSourceSnapshots?.() ?? [];
+    if (!sources.length) return undefined;
+    // Validate each bounded snapshot independently; references never enter the
+    // privileged/64 KiB dialogue continuity envelope or additionalContext.
+    let bytes = 0;
+    return sources
+      .map((source) => {
+        bytes += Buffer.byteLength(source.content, 'utf8');
+        if (bytes > 2 * 1024 * 1024) throw new Error('Saved source snapshots exceed 2 MiB');
+        return assembleSourceSnapshots('', [source]);
+      })
+      .join('\n\n');
+  }
+
   private conversationRolloverContext(): string | undefined {
+    this.savedSourceContext();
     const entries = this.opts.loadConversationHistory?.() ?? [];
     if (!entries.length && !this.opts.loadConversationHistory) return undefined;
     const transcript = entries
@@ -1621,6 +1641,7 @@ export class CodexConversation {
       // Codex's additionalContext fragments are middle-truncated at 1,000
       // tokens. Attempt continuity promises the complete bounded transcript,
       // so replay it through supported text input, before the current request.
+      const savedSourceContext = rolloverContext ? this.savedSourceContext() : undefined;
       const attemptContext =
         this.opts.providerThreadLifecycle === 'attempt' && rolloverContext
           ? attemptReplayContext(rolloverContext)
@@ -1660,6 +1681,7 @@ export class CodexConversation {
             ? []
             : [
                 ...(attemptContext ? [{ type: 'text', text: attemptContext }] : []),
+                ...(savedSourceContext ? [{ type: 'text', text: savedSourceContext }] : []),
                 { type: 'text', text: preparedPrompt },
                 ...(command.images ?? []).map((image) => ({
                   type: 'image',
