@@ -198,8 +198,22 @@ it('compiles a profile pack from accepted Knowledge instead of the writable task
   const release = installContextPackRuntime(async () => ({
     contextPacks,
     sourceIdentity: 'github:owner/knowledge@main',
-    source: { allowed: () => true, read: sourceRead },
+    source: {
+      authorize: async (path: string, revision: string) => ({
+        path,
+        revision,
+        blob: 'b'.repeat(40),
+      }),
+      allowed: () => true,
+      read: sourceRead,
+    },
   }));
+  const projectStartup = vi.fn(async () => ({}));
+  const hooks = await import('../hook-bridge.js');
+  vi.mocked(hooks.loadProjectHooks).mockReturnValue({
+    SessionStart: [{ hooks: [projectStartup] }],
+    Stop: [],
+  });
   try {
     await writeFile(join(root, 'review.md'), 'Unaccepted task instruction must not enter context.');
     const { query } = await import('@anthropic-ai/claude-agent-sdk');
@@ -225,6 +239,16 @@ it('compiles a profile pack from accepted Knowledge instead of the writable task
     expect(append).toContain('Accepted review guidance.');
     expect(append).toContain('Use Jira for current status.');
     expect(append).not.toContain('Unaccepted task instruction');
+    expect(append).not.toContain('At cold start, use TelosFindArtifacts');
+    expect(append).not.toContain('Read CLAUDE.md and .cursor/rules/');
+    expect(vi.mocked(query).mock.calls[0][0].options?.settingSources).toEqual([]);
+    expect(
+      vi
+        .mocked(query)
+        .mock.calls[0][0].options?.hooks?.SessionStart?.some((group) =>
+          group.hooks.includes(projectStartup),
+        ),
+    ).not.toBe(true);
     const retained = chat.eventStore.getSession(sessionId)!;
     expect(retained.agentContext?.provenance?.documents[0]?.storeId).toBe(
       'github:owner/knowledge@main',

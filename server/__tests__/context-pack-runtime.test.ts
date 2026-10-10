@@ -23,6 +23,11 @@ function fixture() {
   });
   const published = contextPacks.publish(draft.id, draft.version);
   const source = {
+    authorize: vi.fn(async (path: string, revision: string) => ({
+      path,
+      revision,
+      blob: 'b'.repeat(40),
+    })),
     allowed: vi.fn((path: string) => path === 'review.md'),
     read: vi.fn(async (path: string, revision: string) => ({
       path,
@@ -44,6 +49,7 @@ it('resolves only the pinned accepted pack and binds reads to the enrolled sourc
   ).toEqual(published);
   const document = published.definition.documents[0]!;
   await packs.authorize(document);
+  expect(runtime.source.authorize).toHaveBeenCalledWith('review.md', revision, undefined);
   expect(await packs.readDocument(document)).toEqual({
     path: 'review.md',
     revision,
@@ -54,6 +60,15 @@ it('resolves only the pinned accepted pack and binds reads to the enrolled sourc
     packs.resolve({ id: published.id, revision: published.revision, hash: 'b'.repeat(64) }),
   ).rejects.toThrow(/hash|identity/i);
   expect(assertCurrent).toHaveBeenCalled();
+});
+it('checks accepted ancestry metadata again without reading source bodies on retained admission', async () => {
+  const { runtime, published } = fixture();
+  const packs = createAcceptedContextPacks(runtime, { assertCurrent: () => {} });
+  runtime.source.authorize.mockRejectedValueOnce(Error('Knowledge revision is no longer accepted'));
+  await expect(packs.authorize(published.definition.documents[0]!)).rejects.toThrow(
+    /no longer accepted/,
+  );
+  expect(runtime.source.read).not.toHaveBeenCalled();
 });
 it('rejects documents outside the host-enrolled Knowledge scope before reading', async () => {
   const { runtime, published } = fixture();

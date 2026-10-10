@@ -27,6 +27,11 @@ it('previews an unpublished pack from the accepted source without publishing a r
       contextPacks,
       sourceIdentity: 'github:owner/knowledge@main',
       source: {
+        authorize: async (path: string, revision: string) => ({
+          path,
+          revision,
+          blob: 'b'.repeat(40),
+        }),
         allowed: () => true,
         read: async (path: string, revision: string) => ({
           path,

@@ -8,7 +8,7 @@ export const contextPackSourceRef = (pin: ContextPackPin) =>
 
 /** Host composition supplies the accepted source. Neither recipes nor requests select it. */
 export interface ContextPackRuntime {
-  source: Pick<AcceptedKnowledgeSource, 'allowed' | 'read'>;
+  source: Pick<AcceptedKnowledgeSource, 'allowed' | 'read' | 'authorize'>;
   contextPacks: ContextPackStore;
   sourceIdentity: string;
 }
@@ -34,6 +34,8 @@ export function createAcceptedContextPacks(
     authority.assertCurrent();
     if (!runtime.source.allowed(document.path))
       throw Error('Context document is outside the authorized Knowledge scope');
+    await runtime.source.authorize(document.path, document.revision, signal);
+    signal?.throwIfAborted();
     await authority.authorizeDocument?.(document, signal);
     authority.assertCurrent();
   };

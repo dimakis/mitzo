@@ -22,7 +22,7 @@ import {
   hostGithubPublishingSource,
 } from './github-publishing-tool.js';
 import { localHttpBaseUrl, localServerUsesTls } from './local-server-url.js';
-import { TELOS_ARTIFACT_INSTRUCTIONS } from './telos-artifact-tools.js';
+import { telosArtifactInstructions } from './telos-artifact-tools.js';
 import { requireCustodianOrdinaryRuntime } from './custodian-ordinary-runtime.js';
 import {
   createWebAccessSdkServer,
@@ -213,6 +213,7 @@ import type {
 import { resolveChatAgentContext } from './agent-context-binding.js';
 import { createAcceptedContextPacks, getContextPackRuntime } from './context-pack-runtime.js';
 import { bootContextWithReceipt, recordAgentContextAcceptance } from './agent-context-delivery.js';
+import { retainAgentContextAuthority } from './agent-context-authority.js';
 import { captureAgentLibraryAuthorization } from './agent-library-transport.js';
 import { shouldAutoRename, extractRecentPrompts } from './auto-rename.js';
 import {
@@ -1095,7 +1096,7 @@ export async function startChat(
     options = { ...options, initialSessionId: repositoryStartupId };
     repositoryStartups.add(repositoryStartupId);
   }
-  const startupGuard: { admission?: ProviderDispatchAdmission } = {};
+  const startupGuard: { admission?: ProviderDispatchAdmission; releaseContext?: () => void } = {};
   let releaseOrdinaryStartup: (() => void) | undefined;
   return withSpanAsync(
     'chat.start',
@@ -1122,6 +1123,7 @@ export async function startChat(
         cleanupUndispatchedStartup(startupGuard.admission, clientId);
       } finally {
         releaseOrdinaryStartup?.();
+        startupGuard.releaseContext?.();
         if (repositoryStartupId) repositoryStartups.delete(repositoryStartupId);
       }
     });
@@ -1160,7 +1162,7 @@ async function _startChatInner(
     userIntent?: string;
     reattachOnly?: boolean;
   },
-  startupGuard: { admission?: ProviderDispatchAdmission },
+  startupGuard: { admission?: ProviderDispatchAdmission; releaseContext?: () => void },
 ) {
   const openShellAvailable =
     process.env.MITZO_OPENSHELL_ENABLED === '1' || !!process.env.MITZO_OPENSHELL_SANDBOX_NAME;
@@ -1730,7 +1732,13 @@ async function _startChatInner(
     !codexProfile && !apiCredentialRef && !gemini ? credentialSdkBoundary() : undefined;
 
   // Load project hooks from .claude/settings.json (e.g. SessionStart boot context)
-  const hooks = sdkCredentialBoundary ? undefined : loadProjectHooks(cwd, sessionEnv);
+  const projectHooks = sdkCredentialBoundary ? undefined : loadProjectHooks(cwd, sessionEnv);
+  const hooks =
+    agentProfile?.definition.contextRecipe && projectHooks
+      ? (Object.fromEntries(
+          Object.entries(projectHooks).filter(([name]) => name !== 'SessionStart'),
+        ) as typeof projectHooks)
+      : projectHooks;
 
   // Fetch boot context BEFORE building system prompt so it's part of the
   // system prompt append and survives SDK context compaction.
@@ -1738,10 +1746,13 @@ async function _startChatInner(
   // Await the bounded fetch/fallback before opening any provider. A shorter race
   // could discard a valid bundle while persisting empty context for the session.
   let agentContext: AgentContextSnapshot | undefined;
+  let prepareAgentContext: ((signal: AbortSignal) => Promise<void>) | undefined;
   try {
     const stored = options.resume ? eventStore.getSession(options.resume)?.agentContext : undefined;
     if (agentProfile?.definition.contextRecipe || stored) {
       const authorization = captureAgentLibraryAuthorization(options.operatorConnectionId);
+      const scope = retainAgentContextAuthority(authorization.auth, abortController);
+      startupGuard.releaseContext = scope.release;
       const contextRuntime =
         agentProfile?.definition.contextRecipe?.source === 'packs'
           ? await getContextPackRuntime()
@@ -1753,11 +1764,24 @@ async function _startChatInner(
         stored,
         workspaceRoot: cwd,
         signal: abortController.signal,
-        ...(contextRuntime
-          ? { packs: createAcceptedContextPacks(contextRuntime, authorization) }
-          : {}),
+        ...(contextRuntime ? { packs: createAcceptedContextPacks(contextRuntime, scope) } : {}),
       });
       authorization.assertCurrent();
+      scope.assertCurrent();
+      prepareAgentContext = async (signal) => {
+        signal.throwIfAborted();
+        scope.assertCurrent();
+        for (const document of agentContext?.provenance?.documents ?? []) {
+          if (
+            !contextRuntime ||
+            document.storeId !== contextRuntime.sourceIdentity ||
+            !contextRuntime.source.allowed(document.path)
+          )
+            throw Error('Agent context source scope changed');
+          await contextRuntime.source.authorize(document.path, document.revision, signal);
+          scope.assertCurrent();
+        }
+      };
       if (stateSessionId && agentContext)
         eventStore.upsertSession({ sessionId: stateSessionId, agentProfile, agentContext });
     }
@@ -1840,10 +1864,12 @@ This is an independent checkout with its own Git storage, not a linked worktree.
     repositoryChatContext(repositoryWorkspace) +
     'This is Mitzo, a mobile chat interface. The user is on their phone.\n' +
     SESSION_PERMISSION_INSTRUCTIONS +
-    TELOS_ARTIFACT_INSTRUCTIONS +
+    telosArtifactInstructions(!!agentContext) +
     '- Read operations are fine without asking.\n' +
     '- Keep responses concise — small screen.\n' +
-    '- Read CLAUDE.md and .cursor/rules/ for project context before doing substantive work.' +
+    (agentContext
+      ? ''
+      : '- Read CLAUDE.md and .cursor/rules/ for project context before doing substantive work.') +
     buildClientCapabilitiesPrompt() +
     workspacePrompt +
     (supportsHostTaskTools(openShellSelected) ? buildTaskPromptForSession(clientId) : '') +
@@ -1945,6 +1971,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
         messageId,
         systemPrompt: systemPromptAppend,
         agentContext,
+        prepareAgentContext,
         onAgentContextAccepted: agentContext ? acceptAgentContext : undefined,
         env: sessionEnv,
         mcpServers: allMcpServers,
@@ -2006,6 +2033,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
         systemPrompt: systemPromptAppend,
         env: sessionEnv,
         agentContext,
+        prepareAgentContext,
         onAgentContextAccepted: agentContext ? acceptAgentContext : undefined,
         mcpServers: allMcpServers,
         onDemandCreate: repositoryWorkspace ? undefined : buildOnDemandCreate(wtId, clientId),
@@ -2079,15 +2107,23 @@ This is an independent checkout with its own Git storage, not a linked worktree.
         abortController.signal,
         githubPublishing,
       );
+      await prepareAgentContext?.(abortController.signal);
+      const authorizedSdkInput = async function* () {
+        for await (const message of inputQueue) {
+          await prepareAgentContext?.(abortController.signal);
+          yield message;
+        }
+      };
       q = adaptSdkQuery(
         query({
-          prompt: inputQueue as AsyncIterable<SDKUserMessage>,
+          prompt: authorizedSdkInput(),
           options: {
             cwd,
             env: sessionEnv,
             abortController,
             includePartialMessages: true,
-            settingSources: sdkCredentialBoundary ? [] : ['project'],
+            settingSources:
+              sdkCredentialBoundary || agentContext?.source === 'packs' ? [] : ['project'],
             ...(sdkCredentialBoundary
               ? {
                   strictMcpConfig: true,

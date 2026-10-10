@@ -89,6 +89,11 @@ it('previews pinned Knowledge packs through the same source adapter as runtime s
       contextPacks,
       sourceIdentity: 'github:owner/knowledge@main',
       source: {
+        authorize: async (path: string, revision: string) => ({
+          path,
+          revision,
+          blob: 'b'.repeat(40),
+        }),
         allowed: () => true,
         read: async (path: string, revision: string) => ({
           path,
