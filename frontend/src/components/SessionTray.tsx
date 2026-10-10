@@ -43,8 +43,18 @@ function pendingAttachmentLabel(imageCount: number, contextCount: number): strin
 }
 
 function ResourceIcon({ kind }: { kind: SessionResource['kind'] }) {
-  const icon = { context: '◇', image: '▧', tool: '⌘', link: '◎', file: '□' }[kind];
-  return <span className="session-tray-resource-icon">{icon}</span>;
+  const icon = {
+    context: 'layers',
+    image: 'image',
+    tool: 'terminal',
+    link: 'connections',
+    file: 'file',
+  } as const;
+  return (
+    <span className="session-tray-resource-icon">
+      <UiIcon name={icon[kind]} size={16} />
+    </span>
+  );
 }
 
 function ResourceRow({ resource }: { resource: SessionResource }) {
@@ -228,7 +238,7 @@ export function SessionTray({
                     <span>Outputs</span>
                     <span className="session-tray-section-count">{outputsCount}</span>
                     <span className="session-tray-section-chevron" aria-hidden="true">
-                      {outputsExpanded ? '▾' : '▸'}
+                      <UiIcon name={outputsExpanded ? 'down' : 'forward'} size={16} />
                     </span>
                   </button>
                 </h2>
@@ -264,7 +274,7 @@ export function SessionTray({
                     <span>Sources</span>
                     <span className="session-tray-section-count">{sourcesCount}</span>
                     <span className="session-tray-section-chevron" aria-hidden="true">
-                      {sourcesExpanded ? '▾' : '▸'}
+                      <UiIcon name={sourcesExpanded ? 'down' : 'forward'} size={16} />
                     </span>
                   </button>
                 </h2>
@@ -275,7 +285,7 @@ export function SessionTray({
                   disabled={draftImages.length >= MAX_IMAGE_ATTACHMENTS}
                   onClick={onAddImages}
                 >
-                  +
+                  <UiIcon name="plus" size={16} />
                 </button>
               </div>
               {sourcesExpanded && (
@@ -293,7 +303,7 @@ export function SessionTray({
                           aria-label={`Remove pasted image ${index + 1}`}
                           onClick={() => onRemoveImage(index)}
                         >
-                          ×
+                          <UiIcon name="close" size={16} />
                         </button>
                       </div>
                     ))}

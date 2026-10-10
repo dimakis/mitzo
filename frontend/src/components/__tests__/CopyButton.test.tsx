@@ -13,6 +13,9 @@ describe('CopyButton', () => {
   it('renders with default aria-label', () => {
     render(<CopyButton text="hello" />);
     expect(screen.getByRole('button', { name: 'Copy to clipboard' })).toBeTruthy();
+    expect(screen.getByRole('button').querySelector('svg')?.getAttribute('aria-hidden')).toBe(
+      'true',
+    );
   });
 
   it('renders with custom className', () => {

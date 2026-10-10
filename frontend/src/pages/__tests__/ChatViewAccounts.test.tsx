@@ -7,6 +7,8 @@ import { createTestStore } from '../../test-utils/createTestStore';
 import { apiFetch } from '../../lib/api-fetch';
 import { ChatView } from '../ChatView';
 
+vi.mock('../../components/ChatAgentProfilePicker', () => ({ ChatAgentProfilePicker: () => null }));
+
 vi.mock('../../components/RepositoryChatPicker', () => ({
   RepositoryChatPicker: ({
     onChange,

@@ -1,17 +1,9 @@
+import { UiIcon } from './UiIcon';
+import { taskStatusIcons } from '../lib/status-icons';
 import { useState, useEffect, useRef } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import type { Task, TaskStatus, StageType } from '../types/task';
 import type { TaskDisplayMeta } from '../hooks/useTaskBoard';
-
-const STATUS_ICONS: Record<TaskStatus, string> = {
-  pending: '\u25CB', // ○
-  active: '\u25C9', // ◉
-  done: '\u2713', // ✓
-  pending_review: '\u25D4', // ◔
-  blocked: '\u2298', // ⊘
-  skipped: '\u2014', // —
-  failed: '\u2717', // ✗
-};
 
 const STATUS_LABELS: Record<TaskStatus, string> = {
   pending: 'pending',
@@ -174,7 +166,7 @@ export function TaskNode({
             onClick={() => setExpanded(!expanded)}
             aria-label={expanded ? 'Collapse' : 'Expand'}
           >
-            {expanded ? '\u25BC' : '\u25B6'}
+            <UiIcon name={expanded ? 'down' : 'forward'} size={16} />
           </button>
         )}
         <button
@@ -182,7 +174,7 @@ export function TaskNode({
           onClick={() => onStatusChange(task.id, NEXT_STATUS[task.status])}
           aria-label={`Status: ${task.status}`}
         >
-          {STATUS_ICONS[task.status]}
+          <UiIcon name={taskStatusIcons[task.status]} size={16} />
         </button>
         <div className="task-node-body">
           <span
@@ -204,7 +196,7 @@ export function TaskNode({
         )}
         {!isCompact && task.retryCount > 0 && task.status !== 'failed' && (
           <span className="task-node-retry" title={`Retry ${task.retryCount}/${task.maxRetries}`}>
-            {'\u21BB'}
+            <UiIcon name="retry" size={16} />
             {task.retryCount}
           </span>
         )}
@@ -215,7 +207,7 @@ export function TaskNode({
               onClick={() => onApprove(task.id)}
               title="Approve"
             >
-              &#x2713;
+              <UiIcon name="check" size={16} />
             </button>
           )}
           {task.status === 'pending_review' && onReject && (
@@ -224,7 +216,7 @@ export function TaskNode({
               onClick={() => onReject(task.id, '')}
               title="Reject"
             >
-              &#x2717;
+              <UiIcon name="close" size={16} />
             </button>
           )}
           {onAddChild && (
@@ -233,15 +225,16 @@ export function TaskNode({
               onClick={() => onAddChild(task.id)}
               title="Add sub-task"
             >
-              +
+              <UiIcon name="plus" size={16} />
             </button>
           )}
           <button
             className="task-node-action task-node-action--danger"
             onClick={() => onDelete(task.id)}
             title="Delete task"
+            aria-label="Delete task"
           >
-            &times;
+            <UiIcon name="trash" size={16} /> Delete
           </button>
         </div>
       </div>

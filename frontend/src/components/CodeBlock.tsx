@@ -1,3 +1,4 @@
+import { UiIcon } from './UiIcon';
 import { useMemo } from 'react';
 import hljs from 'highlight.js/lib/core';
 import { CopyButton } from './CopyButton';
@@ -158,7 +159,7 @@ export function CodeBlock({
               aria-label="Open in viewer"
               title="Open in viewer"
             >
-              ↗
+              <UiIcon name="file" size={16} />
             </button>
           )}
         </div>
@@ -173,7 +174,7 @@ export function CodeBlock({
               aria-label="Open in viewer"
               title="Open in viewer"
             >
-              ↗
+              <UiIcon name="file" size={16} />
             </button>
           )}
         </div>

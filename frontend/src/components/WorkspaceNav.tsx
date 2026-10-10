@@ -11,6 +11,7 @@ const primary = [
 const secondary = [
   { label: 'Notifications', icon: 'bell' as const, path: '/notifications', end: false },
   { label: 'Agents', icon: 'agents' as const, path: '/tasks', end: false },
+  { label: 'Agent Library', icon: 'files' as const, path: '/agent-library', end: false },
   { label: 'Calendar', icon: 'calendar' as const, path: '/calendar', end: false },
   { label: 'Knowledge', icon: 'files' as const, path: '/knowledge', end: false },
   { label: 'Connections', icon: 'connections' as const, path: '/connections-access', end: false },
@@ -41,6 +42,7 @@ export function WorkspaceNav({ desktop = false }: { desktop?: boolean }) {
             [
               '/notifications',
               '/tasks',
+              '/agent-library',
               '/calendar',
               '/files',
               '/knowledge',

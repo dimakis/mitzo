@@ -1,3 +1,4 @@
+import { UiIcon } from './UiIcon';
 import { useEffect, useState } from 'react';
 import type { StreamingBlock, FinishedBlock } from '../types/chat';
 
@@ -51,7 +52,9 @@ export function ThinkingBlock({ block, streaming = false }: Props) {
         <span className="tool-pill-name thinking-block-name">
           {isStreaming ? 'Thinking...' : 'Thought'}
         </span>
-        <span className="tool-pill-chevron">{expanded ? '▾' : '▸'}</span>
+        <span className="tool-pill-chevron">
+          <UiIcon name={expanded ? 'down' : 'forward'} size={16} />
+        </span>
       </button>
       {expanded && (
         <div className="tool-pill-detail">

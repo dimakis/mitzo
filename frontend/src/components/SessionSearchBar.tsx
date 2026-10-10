@@ -1,3 +1,4 @@
+import { UiIcon } from './UiIcon';
 import { useState, useRef, useEffect } from 'react';
 import type { SessionSearchResult } from '../types/chat';
 import { formatRelativeTime } from '../lib/formatTime';
@@ -53,7 +54,7 @@ export function SessionSearchBar({
         onClick={() => setOpen(true)}
         title="Search sessions"
       >
-        ⌕
+        <UiIcon name="search" size={16} />
       </button>
     );
   }
@@ -72,7 +73,7 @@ export function SessionSearchBar({
         }}
       />
       <button className="session-search-close" onClick={handleClose} title="Close search">
-        ✕
+        <UiIcon name="close" size={16} />
       </button>
       {active && (
         <div className="session-search-results">

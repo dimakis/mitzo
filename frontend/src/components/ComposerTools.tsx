@@ -88,7 +88,8 @@ export function ComposerTools({
           title="Attach image"
           aria-label="Attach image"
         >
-          +<span className="composer-tools-label">Attach image</span>
+          <UiIcon name="plus" size={16} />
+          <span className="composer-tools-label">Attach image</span>
         </button>
         {onIsolationChange && (
           <button
