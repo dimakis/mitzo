@@ -1477,6 +1477,8 @@ test('failed briefing registration survives a completed turn and reload without 
       return route.fulfill({ json: [{ id: 'work-account', label: 'Work OpenAI', models }] });
     if (url.pathname === '/api/repository-workspaces/catalog')
       return route.fulfill({ json: { available: false, repositories: [] } });
+    if (url.pathname === `/api/chat/web-search-consent/${sessionId}`)
+      return route.fulfill({ json: { ok: true, grant: 'denied', revision: 0, updatedAt: null } });
     if (url.pathname === `/api/sessions/${sessionId}/messages`) return route.fulfill({ json: [] });
     if (url.pathname === `/api/sessions/${sessionId}/meta`)
       return route.fulfill({
@@ -1525,6 +1527,7 @@ test('failed briefing registration survives a completed turn and reload without 
   await page.reload();
   await expect(retry).toBeVisible();
   await retained();
+  await expect(page.getByRole('button', { name: 'Web search permission: Denied' })).toBeVisible();
   const alert = page.getByRole('alert').filter({ has: retry });
   const geometry = await alert.evaluate((element) => {
     const bounds = element.getBoundingClientRect();
