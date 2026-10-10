@@ -150,6 +150,8 @@ export class TmuxTerminalBackend implements TerminalBackend {
         )
           throw new TerminalSessionMissing();
       }
+      // Process errors include SSH proxy arguments and their short-lived grant token.
+      // eslint-disable-next-line preserve-caught-error
       throw Error('Terminal transport unavailable');
     }
   }
