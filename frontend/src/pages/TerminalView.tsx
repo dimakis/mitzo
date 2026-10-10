@@ -368,6 +368,18 @@ export function TerminalView() {
             disabled={status !== 'connected'}
             onClick={() => {
               void console.current
+                ?.scroll(null)
+                .catch(() => setError('Terminal history unavailable'));
+              setOptionsOpen(false);
+            }}
+          >
+            Return to live output
+          </button>
+          <button
+            type="button"
+            disabled={status !== 'connected'}
+            onClick={() => {
+              void console.current
                 ?.scroll(-20)
                 .catch(() => setError('Terminal history unavailable'));
               setOptionsOpen(false);

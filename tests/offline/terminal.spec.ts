@@ -18,7 +18,8 @@ test.beforeEach(async ({ page }) => {
             start(controller) {
               const long = (window as unknown as { terminalLongOutput?: boolean })
                 .terminalLongOutput;
-              let position = 80,
+              const saved = localStorage.getItem('offline-terminal-history');
+              let position = saved === null ? 80 : Number(saved),
                 seq = 1;
               const draw = (history: boolean) =>
                 '\x1b[?1049h\x1b[H\x1b[2J' +
@@ -31,6 +32,8 @@ test.beforeEach(async ({ page }) => {
                 if (!long || init?.signal?.aborted) return;
                 const lines = (event as CustomEvent<{ lines: number | null }>).detail.lines;
                 position = lines === null ? 80 : Math.max(0, Math.min(80, position + lines));
+                if (lines === null) localStorage.removeItem('offline-terminal-history');
+                else localStorage.setItem('offline-terminal-history', String(position));
                 controller.enqueue(
                   new TextEncoder().encode(
                     'data: ' +
@@ -45,7 +48,7 @@ test.beforeEach(async ({ page }) => {
                     JSON.stringify({
                       type: 'snapshot',
                       data: long
-                        ? draw(false)
+                        ? draw(saved !== null)
                         : '~/tools/mitzo\r\n❯ pwd\r\n/Users/operator/tools/mitzo\r\n❯ git status --short\r\n M frontend/src/pages/TerminalView.tsx\r\n❯ ',
                       seq: 1,
                     }) +
@@ -474,4 +477,29 @@ test('scrolls long tmux output with touch and wheel while keeping controls compa
     true,
   );
   await page.screenshot({ path: testInfo.outputPath('terminal-compact-light.png') });
+});
+
+test('returns to live output after navigating away from retained history', async ({ page }) => {
+  await page.addInitScript(() => {
+    (window as unknown as { terminalLongOutput: boolean }).terminalLongOutput = true;
+  });
+  await page.goto('/terminal');
+  await expect(page.getByRole('status')).toContainText('Connected');
+  await page
+    .getByLabel('Interactive terminal')
+    .dispatchEvent('wheel', { deltaY: -160, deltaMode: 0 });
+  await expect(page.getByRole('button', { name: 'Live output', exact: true })).toBeVisible();
+  await expect(page.locator('.xterm-rows')).not.toContainText('Retained row 100');
+  // Exercise a fresh attachment, including a new window's transient component state.
+  await page.goto('/more');
+  await page.goto('/terminal');
+  await expect(page.getByRole('status')).toContainText('Connected');
+  await expect(page.locator('.xterm-rows')).not.toContainText('Retained row 100');
+  await page.getByRole('button', { name: 'Terminal options' }).click();
+  await page.getByRole('button', { name: 'Return to live output' }).click();
+  await expect(page.locator('.xterm-rows')).toContainText('Retained row 100');
+  expect(mutations.filter((item) => item.path.endsWith('/scroll')).at(-1)?.body).toEqual({
+    lines: null,
+  });
+  expect(mutations.filter((item) => item.path.endsWith('/input'))).toHaveLength(0);
 });

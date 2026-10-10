@@ -6,6 +6,7 @@ import { forwardRef, useImperativeHandle, useEffect } from 'react';
 const mocks = vi.hoisted(() => ({
   send: vi.fn(async () => {}),
   focus: vi.fn(),
+  scroll: vi.fn(async () => {}),
   review: vi.fn(() => 'private terminal output'),
   names: { briefing: 'Minion', terminal: 'Minion' },
 }));
@@ -13,6 +14,7 @@ vi.mock('../../components/TerminalConsole', () => ({
   TerminalConsole: forwardRef(function Mock(props: { onStatus: (state: string) => void }, ref) {
     useImperativeHandle(ref, () => ({
       send: mocks.send,
+      scroll: mocks.scroll,
       reviewOutput: mocks.review,
       focus: mocks.focus,
     }));
@@ -305,4 +307,13 @@ it('starts with compact controls while keeping adviser and destination reachable
   expect(
     screen.getByRole('button', { name: 'Choose terminal destination' }).closest('[hidden]'),
   ).toBeNull();
+});
+
+it('always offers return to live output after a terminal attachment without writing input', async () => {
+  setup('/terminal');
+  await screen.findByText('Shell output');
+  fireEvent.click(screen.getByRole('button', { name: 'Terminal options' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Return to live output' }));
+  await waitFor(() => expect(mocks.scroll).toHaveBeenCalledWith(null));
+  expect(mocks.send).not.toHaveBeenCalled();
 });
