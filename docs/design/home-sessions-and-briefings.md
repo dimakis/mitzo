@@ -51,12 +51,26 @@ silently fall back to a different account. Opening the reader or picker sends no
 model request. A confirmed chat uses the existing rich conversation UI and
 transports, with the exact saved report as launch context.
 
+V2 sends the report as a structured `sourceSnapshots` reference, separately from
+configured `contextBlocks` names. Prompt assembly validates its calendar date,
+2 MiB UTF-8 bound and SHA-256 revision before provider dispatch, and includes the
+entire report. History stores the original short user prompt alongside the
+snapshot, so restoration and account/model changes retain the same source without
+duplicating it in a chat bubble. Legacy V1 sends and native commands explicitly
+reject this source transport instead of silently discarding it.
+
 `GET /api/home/briefing-chats?date=...&revision=...` returns durable conversation
 references for that exact report version. POST registers a reference only after
 the ordinary session exists and its actual account/model match the selection.
 Other report revisions and older conversations remain separate. These references
 contain routing identifiers, not credentials. The EventStore remains the owner
 of conversation content and provider continuations.
+
+Deleting a conversation hides it from both briefing lookups and registration.
+Its retained history is preserved, and asking with that selection can start a
+fresh conversation. Nickname drafts also retain their original preferences
+revision: a concurrent edit requires explicit review of the current names before
+the draft can be saved again.
 
 ## Tiny daily quote
 
