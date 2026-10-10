@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   dispose: vi.fn(),
   write: vi.fn(),
   reset: vi.fn(),
+  wheel: vi.fn(),
   onData: vi.fn(() => ({ dispose: vi.fn() })),
 }));
 vi.mock('@xterm/xterm', () => ({
@@ -19,6 +20,7 @@ vi.mock('@xterm/xterm', () => ({
     };
     open(parent: HTMLElement) {
       this.element = parent;
+      parent.addEventListener('wheel', mocks.wheel);
     }
     loadAddon() {}
     dispose = mocks.dispose;
@@ -111,6 +113,8 @@ it('scrolls terminal history on a swipe without writing shell input', async () =
   );
   await waitFor(() => expect(mocks.write).toHaveBeenCalled());
   const target = view.getByLabelText('Interactive terminal');
+  expect(fireEvent.wheel(target, { ctrlKey: true, deltaY: 100, cancelable: true })).toBe(true);
+  expect(mocks.wheel).not.toHaveBeenCalled();
   fireEvent.touchStart(target, { touches: [{ identifier: 1, clientY: 100 }] });
   fireEvent.touchMove(target, { touches: [{ identifier: 1, clientY: 180 }] });
   fireEvent.touchEnd(target, { touches: [] });

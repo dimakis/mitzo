@@ -426,6 +426,10 @@ test('scrolls long tmux output with touch and wheel while keeping controls compa
   await expect(page.getByRole('status')).toContainText('Connected');
   await expect(page.locator('.xterm-rows')).toContainText('Retained row 081');
   const output = page.getByLabel('Interactive terminal');
+  await output.dispatchEvent('wheel', { ctrlKey: true, deltaY: 100, deltaMode: 0 });
+  expect(
+    mutations.filter((item) => item.path.endsWith('/scroll') || item.path.endsWith('/input')),
+  ).toHaveLength(0);
   const bounds = await output.boundingBox();
   const body = await page.locator('.terminal-page').boundingBox();
   expect(bounds!.height).toBeGreaterThan(300);

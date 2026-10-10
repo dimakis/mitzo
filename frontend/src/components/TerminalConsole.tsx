@@ -172,7 +172,12 @@ export const TerminalConsole = forwardRef<
       touch = undefined;
     };
     const wheel = (event: WheelEvent) => {
-      if (!event.deltaY || event.ctrlKey) return;
+      if (event.ctrlKey) {
+        // Keep browser pinch/zoom native, but do not let xterm convert it into TTY keys.
+        event.stopImmediatePropagation();
+        return;
+      }
+      if (!event.deltaY) return;
       event.preventDefault();
       event.stopImmediatePropagation();
       move(
