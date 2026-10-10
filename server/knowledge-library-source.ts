@@ -134,6 +134,7 @@ export class AcceptedKnowledgeSource {
     );
   }
   allowedMove(from: string, to: string) {
+    if (this.paths.some((scope) => scope.endsWith('.md') && scope === from)) return false;
     const owner = (path: string) =>
       this.paths
         .filter((scope) => !scope.endsWith('.md') && path.startsWith(scope + '/'))

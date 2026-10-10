@@ -281,6 +281,42 @@ test('desktop Vim motions, text objects, history and :w edit and save the same d
   await page.screenshot({ path: testInfo.outputPath('desktop-vim.png') });
 });
 
+test('Vim keeps Markdown formatting controls and shared undo available', async ({ page }) => {
+  const original = 'alpha beta';
+  await mockDocument(page, original);
+  await page.getByRole('button', { name: 'Vim', exact: true }).click();
+  const source = page.getByRole('textbox', { name: 'Document source' });
+  const mode = page.getByRole('status', { name: 'Vim mode' });
+  await expect(mode).toHaveText('NORMAL');
+  const formatting = ['Bold', 'Italic', 'Inline code', 'Heading', 'List', 'Link'];
+  for (const name of formatting)
+    await expect(page.getByRole('button', { name, exact: true })).toBeVisible();
+  for (const key of ['g', 'g', '0', 'v', 'e']) await source.press(key);
+  await expect(mode).toHaveText('VISUAL');
+  await page.getByRole('button', { name: 'Bold', exact: true }).click();
+  await expectSource(source, '**alpha** beta');
+  await expect(source).toBeFocused();
+  await source.press('Escape');
+  await expect(mode).toHaveText('NORMAL');
+  await source.press('u');
+  await expectSource(source, original);
+  await source.press('Control+r');
+  await expectSource(source, '**alpha** beta');
+  await source.press('i');
+  await expect(mode).toHaveText('INSERT');
+  for (const name of formatting)
+    await expect(page.getByRole('button', { name, exact: true })).toBeVisible();
+  await source.press('Escape');
+  await page.getByRole('button', { name: 'Preview', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Split', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Bold', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Vim', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+});
+
 test('fullscreen and preview preserve an unsaved draft and keep save reachable', async ({
   page,
   isMobile,
@@ -626,6 +662,78 @@ test('adopting a same-content saved Knowledge draft clears obsolete Vim undo his
   await expect(source).toBeFocused();
   await source.press('u');
   await expectSource(source, content);
+});
+
+test('folder-only saved Knowledge conflicts show both organizations before replacement', async ({
+  page,
+}) => {
+  const remote = {
+    id: 'fixture-folder-draft',
+    title: 'Folder change',
+    baseRevision: 'r1',
+    version: 2,
+    state: 'draft',
+    updatedAt: '2026-10-10T00:00:00Z',
+    documents: [],
+    directories: ['hub/saved-folder'],
+  };
+  await page.addInitScript((draft) => {
+    localStorage.setItem(
+      'mitzo-knowledge-working-copy:',
+      JSON.stringify({
+        title: draft.title,
+        baseRevision: 'r1',
+        documents: [],
+        directories: ['hub/local-folder'],
+        selected: '',
+        saved: '[]',
+        savedDirectories: [],
+        initialSaveConflict: draft,
+      }),
+    );
+  }, remote);
+  const writes: Record<string, unknown>[] = [];
+  await page.routeWebSocket('**/*', (socket) => socket.close());
+  await page.route('**/api/**', (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname === '/api/knowledge')
+      return route.fulfill({
+        json: {
+          revision: 'r1',
+          documents: [],
+          directories: ['hub'],
+          documentPaths: ['hub'],
+          drafts: [],
+          reviewEnabled: false,
+          acceptanceEnabled: false,
+          syncedAt: null,
+        },
+      });
+    if (url.pathname === '/api/knowledge/drafts/fixture-folder-draft') {
+      const body = route.request().postDataJSON();
+      writes.push(body);
+      return route.fulfill({
+        json: { draft: { ...remote, version: 3, directories: body.directories } },
+      });
+    }
+    return route.fulfill({ json: {} });
+  });
+  await page.goto('/knowledge');
+  const comparison = page.getByRole('region', { name: 'Compare saved draft and working copy' });
+  await expect(comparison).toHaveCount(0);
+  await page.getByRole('button', { name: 'Review changes', exact: true }).click();
+  await expect(comparison).toBeVisible();
+  await expect(comparison.getByRole('region', { name: 'Saved draft organization' })).toContainText(
+    'hub/saved-folder',
+  );
+  await expect(
+    comparison.getByRole('region', { name: 'Your working copy organization' }),
+  ).toContainText('hub/local-folder');
+  await comparison.getByRole('button', { name: 'Keep my edits and update saved draft' }).click();
+  await expect(comparison).toHaveCount(0);
+  expect(writes).toEqual([
+    { version: 2, baseRevision: 'r1', documents: [], directories: ['hub/local-folder'] },
+  ]);
 });
 
 test('desktop Markdown syntax remains readable in light and dark source themes', async ({

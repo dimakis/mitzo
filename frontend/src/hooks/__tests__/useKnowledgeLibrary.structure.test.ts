@@ -210,6 +210,91 @@ it('rejects moves between enrolled spokes and independently enrolled guidance pa
   expect(result.current.pendingDirectories).toEqual([]);
   expect(result.current.canMoveDocument('AGENTS.md', 'knowledge/first/AGENTS.md')).toBe(false);
 });
+it.each(['AGENTS.md', 'CLAUDE.md'])(
+  'rejects accepted and staged moves of individually enrolled %s under an overlapping folder',
+  async (filename) => {
+    const original = { path: `hub/${filename}`, title: 'Guidance', area: 'hub' };
+    const target = `hub/context/${filename}`;
+    fetch.mockImplementation(async (url: string) => ({
+      ok: true,
+      json: async () =>
+        url === '/api/knowledge'
+          ? {
+              ...catalog,
+              documentPaths: ['hub', original.path],
+              directories: ['hub'],
+              documents: [original],
+            }
+          : { content: 'original' },
+    }));
+    const { result } = renderHook(useKnowledgeLibrary);
+    await waitFor(() => expect(result.current.catalog).toBeTruthy());
+    expect(result.current.canMoveDocument(original.path, target)).toBe(false);
+    expect(result.current.canMoveDocument(`hub/context/${filename}`, `hub/other/${filename}`)).toBe(
+      true,
+    );
+    fetch.mockClear();
+    await act(async () => {
+      expect(await result.current.moveAcceptedDocument(original, target)).toBe(false);
+    });
+    expect(fetch).not.toHaveBeenCalled();
+    expect(result.current.copy).toBeNull();
+    expect(localStorage.getItem(key)).toBeNull();
+    await act(async () => {
+      await result.current.openDocument(original);
+    });
+    act(() => result.current.change('edited guidance'));
+    const before = localStorage.getItem(key);
+    fetch.mockClear();
+    act(() => {
+      expect(result.current.moveDocument(original.path, target)).toBe(false);
+    });
+    expect(result.current.selected?.path).toBe(original.path);
+    expect(result.current.selected?.content).toBe('edited guidance');
+    expect(localStorage.getItem(key)).toBe(before);
+    expect(fetch).not.toHaveBeenCalled();
+  },
+);
+
+it('checks a recovered moved document original against individually enrolled file scopes', async () => {
+  const document = {
+    path: 'hub/context/AGENTS.md',
+    sourcePath: 'hub/AGENTS.md',
+    base: 'original',
+    content: 'edited',
+  };
+  localStorage.setItem(
+    key,
+    JSON.stringify({
+      title: 'Recovered',
+      baseRevision: 'base',
+      documents: [document],
+      directories: [],
+      selected: document.path,
+      saved: '[]',
+    }),
+  );
+  fetch.mockImplementation(async () => ({
+    ok: true,
+    json: async () => ({
+      ...catalog,
+      documentPaths: ['hub', 'hub/AGENTS.md'],
+      directories: ['hub'],
+      documents: [],
+    }),
+  }));
+  const { result } = renderHook(useKnowledgeLibrary);
+  await waitFor(() => expect(result.current.catalog).toBeTruthy());
+  expect(result.current.canMoveDocument(document.path, 'hub/other/AGENTS.md')).toBe(false);
+  const before = localStorage.getItem(key);
+  fetch.mockClear();
+  act(() => {
+    expect(result.current.moveDocument(document.path, 'hub/other/AGENTS.md')).toBe(false);
+  });
+  expect(localStorage.getItem(key)).toBe(before);
+  expect(fetch).not.toHaveBeenCalled();
+});
+
 it('preserves moves and folders when a saved version conflicts, then resolves using the remote fence', async () => {
   const document = { path: 'knowledge/a.md', base: 'original', content: 'original' };
   const draft = {
