@@ -52,7 +52,12 @@ async function mockDocument(page: Page, content: string) {
   await page.route('**/api/**', (route) => {
     const url = new URL(route.request().url());
     if (url.pathname === '/api/service-health')
-      return route.fulfill({ json: { services: [], checkedAt: Date.now() } });
+      return route.fulfill({
+        json: {
+          services: [{ name: 'yapper', ok: true, detail: { tts: true } }],
+          checkedAt: Date.now(),
+        },
+      });
     if (url.pathname === '/api/files/read')
       return route.fulfill({ json: { path: 'report.md', ext: '.md', content } });
     if (url.pathname === '/api/files/write') {
