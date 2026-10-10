@@ -1393,3 +1393,40 @@ it('keeps the durable source snapshot when explicit assignment cannot save its d
   expect(owner.result.current.queue).toEqual([savedEntry]);
   expect(owner.result.current.queue[0].images).toBe(savedEntry.images);
 });
+
+it('rereads fresh peer work after only the first acceptance cleanup read fails', () => {
+  const owner = renderHook(() => useQueuedMessages('a'));
+  let accepted!: QueuedMessage;
+  act(() => {
+    accepted = owner.result.current.restoreRejected(msg('Accepted A'));
+  });
+  const image = { data: 'private-B-image', mediaType: 'image/png', preview: 'private' };
+  act(() => owner.result.current.enqueue({ ...msg('Old B'), images: [image] }));
+  const b = owner.result.current.queue[1];
+  const freshB = {
+    text: 'Fresh B',
+    contextBlocks: ['Fresh B context'],
+    queueEntryId: b.queueEntryId,
+  };
+  localStorage.setItem('mitzo-queue-a', JSON.stringify([accepted, freshB]));
+  const peer = renderHook(() => useQueuedMessages('a'));
+  act(() =>
+    peer.result.current.enqueue({ ...msg('New peer C'), contextBlocks: ['Exact C context'] }),
+  );
+  const c = peer.result.current.queue[2];
+  const get = Storage.prototype.getItem;
+  let failedReads = 0;
+  vi.spyOn(Storage.prototype, 'getItem').mockImplementation(function (this: Storage, key) {
+    if (key === 'mitzo-queue-a' && failedReads++ === 0)
+      throw new DOMException('Transient read failure', 'SecurityError');
+    return get.call(this, key);
+  });
+  act(() => owner.result.current.removeSubmitted(accepted));
+  expect(owner.result.current.queue).toEqual([{ ...freshB, images: b.images }, c]);
+  expect(owner.result.current.queue[0].images).toBe(b.images);
+  expect(JSON.parse(localStorage.getItem('mitzo-queue-a')!)).toEqual([
+    freshB,
+    { text: c.text, contextBlocks: c.contextBlocks, queueEntryId: c.queueEntryId },
+  ]);
+  expect(localStorage.getItem('mitzo-queue-a')).not.toContain(image.data);
+});

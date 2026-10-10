@@ -397,6 +397,8 @@ export function useQueuedMessages(
         // Keep ownership for a later exact cleanup retry. Storage is optional;
         // the accepted active entry must disappear without losing other live work.
         if (active) {
+          // An unverified read cannot authorize overwriting a newer owner snapshot.
+          persistence.current.dirty = true;
           queueRef.current = fallback;
           setQueueRaw(fallback);
         }
