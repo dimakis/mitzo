@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.9';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.37';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.40';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,7 +22,7 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
-  '../chat.ts': '53267de3775936c88dfd7bc2797becb533a0e42722ad72b8f58651c6b93b224b',
+  '../chat.ts': '9d422b15ec87d544b791f827c73077d3c385ae1446b9b595b810c189fb1ac60f',
   '../agent-context-binding.ts': 'ce0f8dba7f97f515be8ee00a441e3cc36344aad44f31e0b2fb33a160f8803e66',
   '../briefings.ts': '277b26171abc42266a3b621ff7ab10306792764cb55bbc635e41c4ba20e98d49',
   '../home-router.ts': '744708f3503d3ef46114998ce9bb6a68b3068a3c7d57e0c264298cdb69aac982',
@@ -30,9 +30,19 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../ws-handler-v2.ts': '2952b6ea0ad4307739603901b01725514896452ea70c9f2464d8c04c6f4d9052',
   '../codex-queue-routes.ts': '6873ee90c32da94dcfebd432535d4170942e53c980456927f9dd57e9917d9a53',
   '../agent-context-compiler.ts':
-    '375a3124e1de8020574c5961d704f9ee8b68b5aa7a714055ed9c82e479f04442',
+    'b3544c3b278017df095dc2e3a005c3d7235cf0be8f9510f980b00633294091bf',
   '../../packages/protocol/src/agent-context-recipe.ts':
-    'dbe9dd63fe439a1615ec605870528e350d5c1dbbb87517e4a78082dd4e5a7c83',
+    '95237765d7257eb1ae0ab1de3875d2eea11b8d460dadf1e49671b55a640344a1',
+  '../../scripts/agent-workspace-context.mjs':
+    'b49dbf16dacccce450192f19d12d3ec48c4fd4d2212602bb70632196d84d362f',
+  '../../docs/spikes/openshell-codex/compile-agent-context.mjs':
+    '75cc1a653dbb7d4c20ffbeab8fafcf20b19110ff64110a548d30c65305da20be',
+  '../../scripts/attest-knowledge-runtime.py':
+    '5737ec8e7fc19a17b6ef5a35c1898e834d2a5d2d2a9f7593b607eaaf1971cfeb',
+  '../agent-context-sandbox.ts': '387d6e2f403b604adeb4bffe8bd350683a5c15ba1fa2caf26a69f6e7b0d6741b',
+  '../codex-conversation.ts': '0cf804425230482d58a8e42663673743881e916df81c43ab27bba613e8cbf70e',
+  '../codex-conversation-store.ts':
+    'c36089ad3386e3a716c9c059428fa0ec14d66385d686682badc243087670d5ed',
   // Library profile identity, operator ownership and admission are reviewed runtime inputs.
   '../symposium-director-routes.ts':
     'e6cabfe7555434bbf426209e5a0de750195559e106b0bbb09c4885a34159ff36',
@@ -169,8 +179,8 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../connections-gateway.ts': '1a664e65926536d102d2fb0d5f4b7cfd7e2631d6d8bf51f2965025cdb87dc64b',
   '../openshell-runtime-policy.ts':
     'efecd458bf61fecd8198ecd330e0227e2c600ab21d6d2890cd2bac254e22b75f',
-  '../openshell-runtime.ts': '71e650b8114df6264ce0a5b81ae32a1907ee3562c177c9d0d59c1f4825849b0c',
-  '../codex-chat-session.ts': '7a0003a8d3f54b905b17c7921e6b2a9d6318a8fc17065f9de8bf1eb4c7165044',
+  '../openshell-runtime.ts': 'fc4eb72de3d539f062f7f3430072cce44308c71854988482b5b6921a12471e72',
+  '../codex-chat-session.ts': 'ec1a4bbff7ff08364ff8cf1c505050d9541badf39987d5fcd5f9cf70b997fadc',
   '../connections-runtime.ts': 'dbe641704a1d761d73740260fb28057054fdb34a64513fa77292d2fdb1954a84',
   'capabilities/operation-store.ts':
     '1a235f11d5578880e6dfa7ecf5779e2a011e24430774fc17429d7d22359b93f2',

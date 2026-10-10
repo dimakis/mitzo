@@ -47,6 +47,8 @@ cp "$root/run-mitzo-subscription-app-server" "$context/run-mitzo-subscription-ap
 cp "$root/initialize-mitzo-workspace" "$context/initialize-mitzo-workspace"
 cp "$root/run-mgmt-notebook" "$context/run-mgmt-notebook"
 cp "$root/compile-mgmt-context.mjs" "$context/compile-mgmt-context.mjs"
+cp "$root/compile-agent-context.mjs" "$context/compile-agent-context.mjs"
+cp "$repo_root/scripts/agent-workspace-context.mjs" "$context/agent-workspace-context.mjs"
 cp "$root/mitzo-checkpoint.py" "$context/mitzo-checkpoint.py"
 cp "$root/knowledge-write-scope.c" "$context/knowledge-write-scope.c"
 # Build from the exact reviewed source, never ambient node_modules bytes.
