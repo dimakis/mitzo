@@ -27,6 +27,17 @@ const Part = z
   .passthrough();
 const Content = z.object({ role: z.string(), parts: z.array(Part) });
 const ResponseBody = z.object({
+  responseId: z
+    .string()
+    .min(1)
+    .max(512)
+    .refine((value) =>
+      [...value].every(
+        (character) =>
+          character.charCodeAt(0) > 32 && character.charCodeAt(0) !== 127 && !/\s/.test(character),
+      ),
+    )
+    .optional(),
   candidates: z.array(z.object({ content: Content, finishReason: z.string() })),
   usageMetadata: z
     .object({
@@ -209,6 +220,14 @@ export class GeminiSession implements ModelSession {
       this.config.signal?.throwIfAborted();
       yield {
         type: 'message_start',
+        ...(parsed.data.responseId
+          ? {
+              providerReceipt: {
+                provider: 'google-vertex' as const,
+                responseId: parsed.data.responseId,
+              },
+            }
+          : {}),
         message: {
           id: randomUUID(),
           model: this.config.model,

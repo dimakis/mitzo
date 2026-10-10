@@ -39,6 +39,8 @@ export interface ConversationMessage {
 /** Fired when the model starts a new message. */
 export interface MessageStartEvent {
   type: 'message_start';
+  /** Remote response identity supplied by a trusted provider adapter, never a display UUID. */
+  providerReceipt?: { provider: 'google-vertex'; responseId: string };
   message: {
     id: string;
     model: string;

@@ -112,6 +112,7 @@ describe('durable native Responses turns', () => {
             ]
           : [{ text: 'done' }];
       return Response.json({
+        responseId: `vertex-provider-${turn}`,
         candidates: [{ finishReason: 'STOP', content: { role: 'model', parts } }],
       });
     });
@@ -136,6 +137,15 @@ describe('durable native Responses turns', () => {
       executeTool,
     };
     const events = await collect(new NativeResponsesRunner(opts).run('read note'));
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: 'stream_event',
+        event: expect.objectContaining({
+          type: 'message_start',
+          providerReceipt: { provider: 'google-vertex', responseId: 'vertex-provider-1' },
+        }),
+      }),
+    );
     expect(executeTool).toHaveBeenCalledTimes(1);
     expect(executeTool.mock.calls[0][0]).toMatchObject({ name: 'Read', input: { path: 'note' } });
     expect(store.load('gemini-app', googleBinding)?.status).toBe('idle');

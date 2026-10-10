@@ -376,18 +376,25 @@ export async function openResponsesChat(options: Options) {
                 !contextAccepted &&
                 !interrupted &&
                 !signal.aborted &&
-                options.binding.provider === 'openai' &&
                 event.type === 'stream_event' &&
-                event.event.type === 'message_start' &&
-                event.event.message.id
+                event.event.type === 'message_start'
               ) {
-                contextAccepted = true;
-                options.onAgentContextAccepted?.(
-                  publishingTurnId,
-                  options.conversationId,
-                  event.event.message.id,
-                  createHash('sha256').update(systemPrompt).digest('hex'),
-                );
+                const providerId =
+                  options.binding.provider === 'openai'
+                    ? event.event.message.id
+                    : options.binding.provider === 'google-vertex' &&
+                        event.event.providerReceipt?.provider === 'google-vertex'
+                      ? event.event.providerReceipt.responseId
+                      : undefined;
+                if (providerId) {
+                  contextAccepted = true;
+                  options.onAgentContextAccepted?.(
+                    publishingTurnId,
+                    options.conversationId,
+                    providerId,
+                    createHash('sha256').update(systemPrompt).digest('hex'),
+                  );
+                }
               }
               if (event.type === 'result') {
                 if (interrupted || signal.aborted) {

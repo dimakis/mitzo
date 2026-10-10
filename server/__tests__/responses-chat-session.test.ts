@@ -27,6 +27,22 @@ vi.mock('../native-responses-runner.js', () => ({
           calls.releaseInterruptedRun = resolve;
         });
       }
+      if (prompt.startsWith('vertex-'))
+        yield {
+          type: 'stream_event',
+          event: {
+            type: 'message_start',
+            message: { id: 'local-generated-id' },
+            ...(prompt === 'vertex-remote-id'
+              ? {
+                  providerReceipt: {
+                    provider: 'google-vertex',
+                    responseId: 'remote-vertex-response',
+                  },
+                }
+              : {}),
+          },
+        };
       if (prompt === 'provider-ack') {
         yield {
           type: 'stream_event',
@@ -1303,6 +1319,70 @@ it.each(['provider-ack', 'fail', 'stream-then-close'])(
             .digest('hex'),
         );
       } else expect(accepted).not.toHaveBeenCalled();
+    } finally {
+      chat.close();
+      registry.dispose();
+    }
+  },
+);
+
+it.each(['vertex-remote-id', 'vertex-local-id'])(
+  'requires actual Vertex provider receipt metadata (%s)',
+  async (prompt) => {
+    const registry = new SessionRegistry();
+    const abortController = new AbortController();
+    registry.register('vertex-client', {
+      transport: { send: () => {}, isOpen: () => true },
+      abortController,
+      mode: 'agent',
+      sessionId: 'vertex-app',
+      cwd: '/tmp',
+      sessionAllowList: new Set(),
+    });
+    const input = new AsyncQueue<{ message: { content: string }; mitzoMessageId: string }>();
+    input.push({ message: { content: prompt }, mitzoMessageId: 'vertex-command' });
+    input.close();
+    const accepted = vi.fn();
+    const chat = await openResponsesChat({
+      conversationId: 'vertex-app',
+      binding: {
+        accountId: 'fixture',
+        accountLabel: 'Fixture',
+        provider: 'google-vertex',
+        model: 'gemini-3.8-flash',
+        profileRevision: 'fixture',
+      },
+      gemini: {
+        accountId: 'fixture',
+        projectId: 'fixture',
+        region: 'global',
+        getAccessToken: async () => {
+          throw Error('No live credentials');
+        },
+      },
+      session: registry.get('vertex-client')!,
+      registry,
+      input,
+      systemPrompt: 'Pinned vertex context',
+      env: { PATH: '/usr/bin:/bin' },
+      mcpServers: {},
+      store: {} as never,
+      onAgentContextAccepted: accepted,
+    });
+    try {
+      for await (const event of chat) {
+        expect(event).toHaveProperty('type');
+      }
+      if (prompt === 'vertex-remote-id')
+        expect(accepted).toHaveBeenCalledWith(
+          'vertex-command',
+          'vertex-app',
+          'remote-vertex-response',
+          createHash('sha256')
+            .update(calls.options.at(-1)!.systemPrompt as string)
+            .digest('hex'),
+        );
+      else expect(accepted).not.toHaveBeenCalled();
     } finally {
       chat.close();
       registry.dispose();
