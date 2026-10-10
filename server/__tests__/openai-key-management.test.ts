@@ -620,6 +620,14 @@ it('preserves unresolved legacy drift across failed retries and restart until re
     external = false;
     await write(_ref, value, version);
   });
-  expect(await f.replace('verified-replacement')).toMatchObject({ health: 'ready' });
+  f.gateway.replace.mockRejectedValueOnce(new Error('interrupted gateway update'));
+  expect(await f.replace('verified-replacement')).toMatchObject({
+    health: 'needs_attention',
+    canSynchronize: true,
+  });
+  await expect(restarted.assertReady('work', signal())).rejects.toThrow('need attention');
+  expect(
+    await restarted.synchronize({ accountId: 'work', revision: await f.revision() }, signal()),
+  ).toMatchObject({ health: 'ready' });
   expect(await restarted.resolveKey('work', signal())).toBe('verified-replacement');
 });

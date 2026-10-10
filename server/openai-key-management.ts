@@ -154,7 +154,9 @@ export class OpenAIKeyManagement {
     // unversioned legacy value may have changed outside the controller. Do not
     // reopen consumers or offer to copy that unrecognized saved value.
     const unresolvedLegacyChange =
-      !completed && !!this.options.store.unresolvedLegacyChange(account.id);
+      !completed &&
+      keychain.version === null &&
+      !!this.options.store.unresolvedLegacyChange(account.id);
     const ready =
       !pending &&
       !bindingChanged &&
