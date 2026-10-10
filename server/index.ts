@@ -1,5 +1,9 @@
 // Load runtime configuration before bootstrap dependencies validate or capture it.
 import 'dotenv/config';
+import {
+  createTerminalPlanAdviserHost,
+  setTerminalPlanAdviserHost,
+} from './terminal-plan-adviser.js';
 import { bindAgentLibraryTransport } from './agent-library-transport.js';
 import { configuredGithubSeedBaselinePaths } from './github-seed-baselines.js';
 import {
@@ -17,6 +21,8 @@ import dns from 'node:dns';
 // Force IPv4-first DNS resolution. Works around undici's broken happy-eyeballs
 // (RFC 8305) that fails to fall back from IPv6 on networks with Tailscale ULA.
 dns.setDefaultResultOrder('ipv4first');
+const terminalPlanAdviserHost = createTerminalPlanAdviserHost(process.env);
+setTerminalPlanAdviserHost(terminalPlanAdviserHost);
 
 import './tracing.js';
 import { existsSync, mkdirSync, readFileSync } from 'fs';
@@ -1388,6 +1394,7 @@ async function shutdown(signal: string) {
 
   terminalService.detachAll();
   server.close();
+  await terminalPlanAdviserHost?.close();
   lifecycleAbort.abort();
   if (lifecycleTimer) clearInterval(lifecycleTimer);
   openShellLifecycle?.store.close();
