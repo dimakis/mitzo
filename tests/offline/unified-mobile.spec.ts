@@ -2816,6 +2816,7 @@ for (const appearance of [
     page,
   }, testInfo) => {
     const sessionId = 'offline-activity';
+    let showReply = true;
     const messages = [
       {
         messageId: 'user',
@@ -2874,7 +2875,8 @@ for (const appearance of [
     }, appearance);
     await page.route('**/api/**', async (route) => {
       const path = new URL(route.request().url()).pathname;
-      if (path === `/api/sessions/${sessionId}/messages`) return route.fulfill({ json: messages });
+      if (path === `/api/sessions/${sessionId}/messages`)
+        return route.fulfill({ json: showReply ? messages : messages.slice(0, -1) });
       if (path === `/api/sessions/${sessionId}/meta`)
         return route.fulfill({ json: { sessionType: 'chat' } });
       if (path === `/api/sessions/${sessionId}/symposium/status`)
@@ -2907,7 +2909,6 @@ for (const appearance of [
     await page.keyboard.press('Enter');
     await expect(toggle).toHaveAttribute('aria-expanded', 'true');
     await expect(page.getByRole('button', { name: /^Thought/ })).toBeVisible();
-    await page.getByRole('button', { name: /^Thought/ }).click();
     await expect(
       page.getByText('Checking the latest records and their status.', { exact: true }),
     ).toBeVisible();
@@ -2931,6 +2932,17 @@ for (const appearance of [
     expect(overflow).toBe(false);
     await page.screenshot({
       path: testInfo.outputPath(`activity-large-text-${appearance.theme}.png`),
+      animations: 'disabled',
+    });
+    showReply = false;
+    await page.reload();
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    await expect(page.getByRole('button', { name: /^Read/ })).toBeVisible();
+    await expect(
+      page.getByText('Checking the latest records and their status.', { exact: true }),
+    ).toBeVisible();
+    await page.screenshot({
+      path: testInfo.outputPath(`activity-working-${appearance.theme}.png`),
       animations: 'disabled',
     });
   });

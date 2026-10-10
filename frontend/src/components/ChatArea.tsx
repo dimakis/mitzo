@@ -266,6 +266,7 @@ export function ChatArea({
             {
               key: turnKey(msg.messageId, msg.symposiumProvenance),
               scope: 'user',
+              endsTurn: true,
               value: (
                 <UserBubble
                   key={turnKey(msg.messageId, msg.symposiumProvenance)}
@@ -316,7 +317,14 @@ export function ChatArea({
         const bid = block.blockId || `text-${index}`;
         let content: ReactNode;
         if (block.blockType === 'thinking' || block.blockType === 'redacted_thinking') {
-          content = <ThinkingBlock block={block} streaming={streaming} defaultExpanded={false} />;
+          content = (
+            <ThinkingBlock
+              block={block}
+              streaming={streaming}
+              defaultExpanded
+              autoCollapse={false}
+            />
+          );
         } else if (block.blockType === 'tool_use') {
           content = progress ? (
             <ProgressWidget items={progress.items} />
@@ -399,7 +407,12 @@ export function ChatArea({
 
         {groupActivityRows(transcriptRows).map((item) =>
           item.type === 'activity' ? (
-            <AgentActivity key={item.key} rows={item.rows} sessionId={sessionId} />
+            <AgentActivity
+              key={item.key}
+              rows={item.rows}
+              sessionId={sessionId}
+              replied={item.replied}
+            />
           ) : (
             <Fragment key={item.row.key}>{item.row.value}</Fragment>
           ),

@@ -8,11 +8,15 @@ import type { ActivityRow } from '../lib/groupActivityRows';
 export function AgentActivity({
   rows,
   sessionId,
+  replied,
 }: {
   rows: ActivityRow<ReactNode>[];
   sessionId?: string;
+  replied: boolean;
 }) {
-  const [expanded, setExpanded] = useState(false);
+  const [choice, setChoice] = useState<{ replied: boolean; expanded: boolean } | null>(null);
+  // Keep manual choices within a phase; the first reply starts a new collapsed phase.
+  const expanded = choice?.replied === replied ? choice.expanded : !replied;
   const detailsId = useId();
   const latest = rows.at(-1)!;
   const block = latest.block!;
@@ -41,7 +45,7 @@ export function AgentActivity({
         aria-label={`Agent at work: ${preview}${active ? ' · Running' : ''}${failed ? ` · ${failed} failed` : ''}`}
         aria-expanded={expanded}
         aria-controls={detailsId}
-        onClick={() => setExpanded((value) => !value)}
+        onClick={() => setChoice({ replied, expanded: !expanded })}
       >
         <UiIcon name={active ? 'running' : 'layers'} size={16} />
         <span className="agent-activity-label">Agent at work</span>

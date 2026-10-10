@@ -377,8 +377,9 @@ describe('ChatArea', () => {
       },
     ];
     render(<ChatArea {...defaultProps} messages={messages} />);
-    expect(screen.queryByTestId('thinking-block')).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: /Agent at work/ }));
+    expect(
+      screen.getByRole('button', { name: /Agent at work/ }).getAttribute('aria-expanded'),
+    ).toBe('true');
     expect(screen.getByTestId('thinking-block')).toBeTruthy();
   });
 
@@ -413,8 +414,9 @@ describe('ChatArea', () => {
         progressByToolId={{ progress: { progressId: 'progress', items: [] } }}
       />,
     );
-    expect(screen.queryByTestId('tool-pill')).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: /Agent at work/ }));
+    expect(
+      screen.getByRole('button', { name: /Agent at work/ }).getAttribute('aria-expanded'),
+    ).toBe('true');
     expect(screen.getByTestId('tool-pill').textContent).toContain('ordinary');
     expect(screen.getByTestId('tool-pill').getAttribute('data-session-id')).toBe('origin');
     expect(screen.getByTestId('progress-widget')).toBeTruthy();
@@ -457,8 +459,9 @@ describe('ChatArea', () => {
         progressByToolId={{ progress: { progressId: 'progress', items: [] } }}
       />,
     );
-    expect(screen.queryByTestId('tool-pill')).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: /Agent at work/ }));
+    expect(
+      screen.getByRole('button', { name: /Agent at work/ }).getAttribute('aria-expanded'),
+    ).toBe('true');
     expect(screen.getByTestId('tool-pill').textContent).toContain('ordinary');
     expect(screen.getByTestId('tool-pill').getAttribute('data-session-id')).toBe('origin');
     expect(screen.getByTestId('progress-widget')).toBeTruthy();

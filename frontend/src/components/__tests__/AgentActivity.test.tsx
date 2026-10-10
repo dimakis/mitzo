@@ -3,6 +3,7 @@ import { afterEach, expect, it } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { ChatArea } from '../ChatArea';
+import { progressToolLookupKey } from '@mitzo/client';
 import type { FinishedMessage, StreamingBlock } from '../../types/chat';
 
 afterEach(cleanup);
@@ -50,7 +51,6 @@ it('collapses mixed activity across provider messages between visible responses 
   expect(screen.getByText('Here is the answer.')).toBeTruthy();
   expect(screen.queryByText('Thought')).toBeNull();
   fireEvent.click(toggle);
-  fireEvent.click(screen.getByRole('button', { name: /Thought/ }));
   expect(screen.getByText('Checking the records')).toBeTruthy();
   fireEvent.click(screen.getByRole('button', { name: /^Read/ }));
   expect(screen.getByText('Report contents')).toBeTruthy();
@@ -58,7 +58,7 @@ it('collapses mixed activity across provider messages between visible responses 
   expect(screen.queryByText('Report contents')).toBeNull();
 });
 
-it('keeps the disclosure open through streaming updates and completion with the latest thought preview', () => {
+it('opens working activity, keeps it open between provider messages, then collapses when a reply appears', () => {
   const current = {
     messageId: 'live',
     blockOrder: ['tool'],
@@ -71,7 +71,10 @@ it('keeps the disclosure open through streaming updates and completion with the 
       <ChatArea {...base} messages={[]} current={current} running />
     </MemoryRouter>,
   );
-  fireEvent.click(screen.getByRole('button', { name: /Agent at work/ }));
+  expect(screen.getByRole('button', { name: /Agent at work/ }).getAttribute('aria-expanded')).toBe(
+    'true',
+  );
+  expect(screen.getByRole('button', { name: /^Read/ })).toBeTruthy();
   const next = {
     ...current,
     blockOrder: ['tool', 'thought'],
@@ -100,6 +103,64 @@ it('keeps the disclosure open through streaming updates and completion with the 
   expect(screen.getByRole('button', { name: /Agent at work/ }).getAttribute('aria-expanded')).toBe(
     'true',
   );
+  const reply = {
+    messageId: 'reply',
+    blockOrder: ['answer'],
+    blocks: new Map<string, StreamingBlock>([
+      ['answer', { blockId: 'answer', blockType: 'text', content: '', done: false }],
+    ]),
+  };
+  const finished: FinishedMessage[] = [
+    { messageId: 'live', role: 'assistant', blocks: [tool, thought] },
+  ];
+  rerender(
+    <MemoryRouter>
+      <ChatArea {...base} messages={finished} current={reply} running />
+    </MemoryRouter>,
+  );
+  expect(screen.getByRole('button', { name: /Agent at work/ }).getAttribute('aria-expanded')).toBe(
+    'true',
+  );
+  rerender(
+    <MemoryRouter>
+      <ChatArea
+        {...base}
+        messages={finished}
+        current={{
+          ...reply,
+          blocks: new Map([
+            [
+              'answer',
+              { blockId: 'answer', blockType: 'text', content: 'Here is the answer.', done: false },
+            ],
+          ]),
+        }}
+        running
+      />
+    </MemoryRouter>,
+  );
+  const toggle = screen.getByRole('button', { name: /Agent at work/ });
+  expect(toggle.getAttribute('aria-expanded')).toBe('false');
+  expect(screen.queryByText('Thought')).toBeNull();
+  fireEvent.click(toggle);
+  expect(toggle.getAttribute('aria-expanded')).toBe('true');
+  rerender(
+    <MemoryRouter>
+      <ChatArea
+        {...base}
+        messages={[
+          ...finished,
+          {
+            messageId: 'reply',
+            role: 'assistant',
+            blocks: [{ blockId: 'answer', blockType: 'text', content: 'Here is the full answer.' }],
+          },
+        ]}
+        current={null}
+      />
+    </MemoryRouter>,
+  );
+  expect(toggle.getAttribute('aria-expanded')).toBe('true');
 });
 
 it('keeps failed calls visible in the collapsed summary and does not merge across user messages', () => {
@@ -119,7 +180,14 @@ it('keeps failed calls visible in the collapsed summary and does not merge acros
             role: 'user',
             blocks: [{ blockId: 'user', blockType: 'text', content: 'Try again' }],
           },
-          { messageId: 'retry', role: 'assistant', blocks: [{ ...tool, blockId: 'retry' }] },
+          {
+            messageId: 'retry',
+            role: 'assistant',
+            blocks: [
+              { ...tool, blockId: 'retry' },
+              { blockId: 'answer', blockType: 'text', content: 'Reply to the retry' },
+            ],
+          },
         ]}
       />
     </MemoryRouter>,
@@ -127,6 +195,8 @@ it('keeps failed calls visible in the collapsed summary and does not merge acros
   const toggles = screen.getAllByRole('button', { name: /Agent at work/ });
   expect(toggles).toHaveLength(2);
   expect(toggles[0].textContent).toContain('1 failed');
+  expect(toggles[0].getAttribute('aria-expanded')).toBe('true');
+  expect(toggles[1].getAttribute('aria-expanded')).toBe('false');
 });
 
 it.each([
@@ -161,7 +231,7 @@ it.each([
     );
     const toggle = screen.getByRole('button', { name: /Agent at work/ });
     expect(toggle.textContent).toContain('Reasoning redacted');
-    fireEvent.click(toggle);
+    expect(toggle.getAttribute('aria-expanded')).toBe('true');
     expect(screen.getByRole('button', { name: new RegExp(`^${toolName}`) })).toBeTruthy();
   },
 );
@@ -208,7 +278,8 @@ it('isolates concurrent seats with colliding provider block IDs and keeps identi
   expect(screen.getByText(/Builder seat/)).toBeTruthy();
   expect(screen.getByText(/Reviewer seat/)).toBeTruthy();
   fireEvent.click(toggles[0]);
-  expect(toggles[1].getAttribute('aria-expanded')).toBe('false');
+  expect(toggles[0].getAttribute('aria-expanded')).toBe('false');
+  expect(toggles[1].getAttribute('aria-expanded')).toBe('true');
 });
 
 it('keeps prepared connection setup visible and deduplicated outside collapsed activity', () => {
@@ -245,4 +316,61 @@ it('keeps prepared connection setup visible and deduplicated outside collapsed a
   expect(screen.getAllByRole('link', { name: 'Add Home Assistant key' })).toHaveLength(1);
   fireEvent.click(screen.getByRole('button', { name: /Agent at work/ }));
   expect(screen.getAllByRole('link', { name: 'Add Home Assistant key' })).toHaveLength(1);
+});
+
+it('collapses only the speaker who replied, including activity separated by a progress card', () => {
+  const provenance = (seatId: string) => ({
+    seatId,
+    membershipGeneration: 1,
+    configRevision: 1,
+    accountProfileRevision: 'a',
+    seatProfileRevision: 'p',
+    contextGrantRevision: 1,
+    authorityGrantRevision: 1,
+    isolationDomainId: 'shared',
+    isolationDomainRevision: 1,
+  });
+  render(
+    <MemoryRouter>
+      <ChatArea
+        {...base}
+        current={null}
+        messages={[
+          {
+            messageId: 'builder',
+            role: 'assistant',
+            symposiumProvenance: provenance('builder'),
+            blocks: [
+              thought,
+              { ...tool, blockId: 'progress', toolId: 'progress', toolName: 'TodoWrite' },
+              tool,
+            ],
+          },
+          {
+            messageId: 'reviewer',
+            role: 'assistant',
+            symposiumProvenance: provenance('reviewer'),
+            blocks: [{ ...thought, blockId: 'reviewing' }],
+          },
+          {
+            messageId: 'answer',
+            role: 'assistant',
+            symposiumProvenance: provenance('builder'),
+            blocks: [{ blockId: 'answer', blockType: 'text', content: 'Builder reply' }],
+          },
+        ]}
+        progressByToolId={{
+          [progressToolLookupKey('builder', 'progress', provenance('builder'))]: {
+            progressId: 'progress',
+            items: [],
+          },
+        }}
+      />
+    </MemoryRouter>,
+  );
+  const toggles = screen.getAllByRole('button', { name: /Agent at work/ });
+  expect(toggles).toHaveLength(3);
+  expect(toggles[0].getAttribute('aria-expanded')).toBe('false');
+  expect(toggles[1].getAttribute('aria-expanded')).toBe('false');
+  expect(toggles[2].getAttribute('aria-expanded')).toBe('true');
 });

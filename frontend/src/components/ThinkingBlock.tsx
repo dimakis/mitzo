@@ -7,9 +7,15 @@ interface Props {
   block: StreamingBlock | FinishedBlock;
   streaming?: boolean;
   defaultExpanded?: boolean;
+  autoCollapse?: boolean;
 }
 
-export function ThinkingBlock({ block, streaming = false, defaultExpanded = true }: Props) {
+export function ThinkingBlock({
+  block,
+  streaming = false,
+  defaultExpanded = true,
+  autoCollapse = true,
+}: Props) {
   const [expanded, setExpanded] = useState(defaultExpanded);
   const [manual, setManual] = useState(false);
   const text = block.content || '';
@@ -18,10 +24,10 @@ export function ThinkingBlock({ block, streaming = false, defaultExpanded = true
   // Minimum 30 seconds; longer summaries get a full reading window at 200 wpm.
   const readingMs = Math.max(30_000, Math.ceil(text.trim().split(/\s+/).length * 300));
   useEffect(() => {
-    if (isStreaming || manual || !text) return;
+    if (!autoCollapse || isStreaming || manual || !text) return;
     const timer = setTimeout(() => setExpanded(false), readingMs);
     return () => clearTimeout(timer);
-  }, [isStreaming, manual, text, readingMs]);
+  }, [autoCollapse, isStreaming, manual, text, readingMs]);
 
   if (block.blockType === 'redacted_thinking') {
     return (
