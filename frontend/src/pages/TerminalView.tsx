@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
-import type { TerminalInfo } from '@mitzo/protocol';
+import { isReviewableTerminalCommand, type TerminalInfo } from '@mitzo/protocol';
 import { apiFetch } from '../lib/api-fetch';
 import { CommandHistory } from '../lib/terminal-history';
 import { useAssistantName } from '../hooks/useAssistantName';
@@ -27,7 +27,7 @@ export function TerminalView() {
         : '/more';
   const assistant = useAssistantName(),
     console = useRef<TerminalConsoleHandle>(null),
-    commandInput = useRef<HTMLInputElement>(null);
+    commandInput = useRef<HTMLTextAreaElement>(null);
   const [terminal, setTerminal] = useState<TerminalInfo | null>(null),
     [status, setStatus] = useState<TerminalStatus>('connecting'),
     [error, setError] = useState(''),
@@ -171,8 +171,16 @@ export function TerminalView() {
     if (next) previousSelection.current = next;
     setSelection(next);
   }, []);
+  useLayoutEffect(() => {
+    const input = commandInput.current;
+    if (input) {
+      input.style.height = 'auto';
+      input.style.height = `${Math.max(44, Math.min(104, input.scrollHeight + 2))}px`;
+    }
+  }, [command]);
   async function run() {
-    if (!command.trim() || !terminal || writing || status !== 'connected') return;
+    if (!isReviewableTerminalCommand(command) || !terminal || writing || status !== 'connected')
+      return;
     const value = command;
     setWriting(true);
     setError('');
@@ -192,6 +200,11 @@ export function TerminalView() {
     commandInput.current?.focus();
   }
   function stage(value: string) {
+    if (!isReviewableTerminalCommand(value)) {
+      setError('Remove invisible control characters before running this command.');
+      return;
+    }
+    setError('');
     setCommand(value);
     setHistoryOpen(false);
     commandInput.current?.focus();
@@ -506,7 +519,8 @@ export function TerminalView() {
             void run();
           }}
         >
-          <input
+          <textarea
+            rows={1}
             ref={commandInput}
             aria-label="Command"
             value={command}
@@ -515,18 +529,33 @@ export function TerminalView() {
             autoCapitalize="none"
             autoCorrect="off"
             spellCheck={false}
-            onChange={(event) => setCommand(event.target.value)}
+            onChange={(event) => {
+              setCommand(event.target.value);
+              if (event.target.value.trim() && !isReviewableTerminalCommand(event.target.value))
+                setError('Remove invisible control characters before running this command.');
+              else setError('');
+            }}
             onKeyDown={(event) => {
-              if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+              if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
                 event.preventDefault();
-                recall(event.key === 'ArrowUp' ? 'previous' : 'next');
+                void run();
+              }
+              if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+                const edge =
+                  event.key === 'ArrowUp'
+                    ? event.currentTarget.selectionStart === 0
+                    : event.currentTarget.selectionEnd === command.length;
+                if (!command.includes('\n') || edge) {
+                  event.preventDefault();
+                  recall(event.key === 'ArrowUp' ? 'previous' : 'next');
+                }
               }
             }}
           />
           <button
             className="workspace-primary"
             aria-label="Run command"
-            disabled={!command.trim() || writing || status !== 'connected'}
+            disabled={!isReviewableTerminalCommand(command) || writing || status !== 'connected'}
           >
             Run ↵
           </button>

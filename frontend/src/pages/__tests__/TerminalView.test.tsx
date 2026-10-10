@@ -119,3 +119,23 @@ it('preserves the adviser selection when its panel and all controls are collapse
     false,
   );
 });
+
+it('shows every line of a staged adviser command before executing it', async () => {
+  setup();
+  await screen.findByText('Shell output');
+  fireEvent.click(screen.getByRole('button', { name: 'Show Minion' }));
+  fireEvent.click(screen.getByText('Use Work Luna Low'));
+  vi.mocked(apiFetch).mockResolvedValue(
+    new Response(JSON.stringify({ text: 'Two commands', commands: ['printf first\npwd'] })),
+  );
+  fireEvent.change(screen.getByLabelText('Ask Minion'), { target: { value: 'help' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Ask adviser' }));
+  await screen.findByText('Two commands');
+  fireEvent.click(screen.getByRole('button', { name: /Use printf/ }));
+  const draft = screen.getByLabelText('Command') as HTMLTextAreaElement;
+  expect(draft.tagName).toBe('TEXTAREA');
+  expect(draft.value).toBe('printf first\npwd');
+  expect(mocks.send).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Run command' }));
+  await waitFor(() => expect(mocks.send).toHaveBeenCalledWith('printf first\npwd\r'));
+});

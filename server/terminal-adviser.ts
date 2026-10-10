@@ -1,3 +1,4 @@
+import { isReviewableTerminalCommand } from '@mitzo/protocol';
 import { z } from 'zod';
 import type { ModelSession, ModelSessionConfig } from '@mitzo/harness';
 export const AdviserBody = z
@@ -62,7 +63,7 @@ export class TerminalAdviser {
       if (!text.trim()) throw Error('Adviser did not return a response');
       const commands = [...text.matchAll(/```(?:sh|bash|shell|zsh)\s*\n([\s\S]*?)```/g)]
         .map((match) => match[1].trim())
-        .filter((command) => command && command.length <= 8192)
+        .filter(isReviewableTerminalCommand)
         .slice(0, 5);
       return { text, commands };
     } finally {

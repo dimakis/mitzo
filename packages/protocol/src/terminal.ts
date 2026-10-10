@@ -31,3 +31,23 @@ export type TerminalEvent =
   | { type: 'output'; data: string; seq: number }
   | { type: 'exit'; seq: number }
   | { type: 'error'; error: string };
+
+/** Command suggestions must stay visible and editable. Raw TTY input has a separate contract. */
+export function isReviewableTerminalCommand(value: string): boolean {
+  return (
+    value.length <= 8192 &&
+    !!value.trim() &&
+    Array.from(value).every((character) => {
+      const code = character.codePointAt(0)!;
+      return (
+        code === 9 ||
+        code === 10 ||
+        (code >= 32 &&
+          (code < 127 || code > 159) &&
+          !(code >= 0x202a && code <= 0x202e) &&
+          !(code >= 0x2066 && code <= 0x2069) &&
+          ![0x200b, 0x200e, 0x200f, 0xfeff].includes(code))
+      );
+    })
+  );
+}

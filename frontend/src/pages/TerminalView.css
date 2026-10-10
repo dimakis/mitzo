@@ -261,7 +261,10 @@
   color: var(--color-muted);
   font-size: 12px;
 }
-.terminal-command-form input {
+.terminal-command-form textarea {
+  resize: none;
+  line-height: 20px;
+  overflow-y: auto;
   font-family: var(--font-mono);
 }
 .terminal-keybar {

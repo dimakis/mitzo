@@ -81,3 +81,25 @@ it('rejects implicit output sharing, executable objects and oversized history', 
     }).success,
   ).toBe(false);
 });
+
+it('keeps multiline commands reviewable and rejects invisible terminal control sequences', async () => {
+  const adviser = new TerminalAdviser(async () => ({
+    provider: 'fake',
+    async *turn() {
+      yield {
+        type: 'content_block_delta',
+        index: 0,
+        delta: {
+          type: 'text_delta',
+          text: '```sh\necho first\npwd\n```\n```sh\necho safe\rHIDDEN\n```',
+        },
+      };
+    },
+  }));
+  const result = await adviser.ask(
+    'owner',
+    { accountId: 'work', model: 'luna', messages: [{ role: 'user', content: 'help' }] },
+    new AbortController().signal,
+  );
+  expect(result.commands).toEqual(['echo first\npwd']);
+});

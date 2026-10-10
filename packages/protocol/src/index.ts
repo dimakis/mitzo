@@ -248,3 +248,5 @@ export { isRegisteredConversation } from './conversation-identity.js';
 export { ModelTokenLimitsSchema, type ModelTokenLimits } from './token-limits.js';
 export { TerminalOpenBody, TerminalInputBody, TerminalResizeBody } from './terminal.js';
 export type { TerminalInfo, TerminalEvent } from './terminal.js';
+
+export { isReviewableTerminalCommand } from './terminal.js';
