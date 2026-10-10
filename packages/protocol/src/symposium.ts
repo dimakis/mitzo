@@ -7,6 +7,7 @@ import {
   type ArtifactAdmissionReferenceV1,
 } from './symposium-artifact-admission.js';
 import { z } from 'zod';
+import { AgentContextRecipeSchema } from './agent-context-recipe.js';
 import { AccountBindingSchema, AccountProviderSchema } from './account-binding.js';
 
 export type SessionType = 'chat' | 'symposium';
@@ -100,6 +101,7 @@ export const SymposiumProfileDefinitionSchema = z.strictObject({
   acceptanceCriteria: z.array(z.string().trim().min(1)).min(1),
   modelPolicyRole: z.string().trim().min(1),
   recipe: SymposiumProfileRecipeSchema.optional(),
+  contextRecipe: AgentContextRecipeSchema.optional(),
 });
 export type SymposiumProfileDefinition = z.infer<typeof SymposiumProfileDefinitionSchema>;
 

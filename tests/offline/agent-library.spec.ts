@@ -25,6 +25,7 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
   const errors: string[] = [];
   let catalogMode: 'content' | 'empty' | 'error' | 'loading' = 'content';
   let releaseCatalog: (() => void) | undefined;
+  let previewError = false;
   page.on('pageerror', (error) => errors.push(error.message));
   await page.routeWebSocket('**/*', (socket) => socket.close());
   await page.route('**/*', async (route) => {
@@ -44,6 +45,47 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
       }
       if (url.pathname.endsWith('/events'))
         return route.fulfill({ contentType: 'text/event-stream', body: 'retry: 60000\n\n' });
+      if (url.pathname === '/api/agent-library/preview') {
+        if (previewError)
+          return route.fulfill({
+            status: 503,
+            json: { error: 'Selected context source is unavailable' },
+          });
+        const definition = route.request().postDataJSON().definition;
+        const recipe = definition.contextRecipe;
+        const profilePrompt = `# Agent profile: ${definition.name}\n${definition.instructions}`;
+        if (!recipe) return route.fulfill({ json: { profilePrompt, contextResolved: false } });
+        const paths =
+          recipe.source === 'workspace' ? ['AGENTS.md', ...recipe.files] : ['preset-notes.md'];
+        const context = {
+          type: 'boot_context',
+          source: 'contexgin',
+          sourceCount: paths.length,
+          tokenCount: 120,
+          tokenBudget: recipe.source === 'workspace' ? recipe.tokenBudget : 5000,
+          sources: paths.map((path: string) => ({ path, kind: 'reference' })),
+          included: [],
+          trimmed: [],
+          fullMarkdown: '# Compiled architecture context\nUse immutable context bundles.',
+        };
+        return route.fulfill({
+          json: {
+            profilePrompt,
+            assembledPrompt: `${profilePrompt}\n\n${context.fullMarkdown}`,
+            contextResolved: true,
+            previewScope:
+              recipe.source === 'workspace' ? 'configured-workspace' : 'contexgin-preset',
+            compiledContext: {
+              source: recipe.source,
+              compilerRevision: 'offline-fixture',
+              recipeHash: 'a'.repeat(64),
+              payloadHash: 'b'.repeat(64),
+              ...(recipe.source === 'workspace' ? { workspaceIdentity: 'c'.repeat(64) } : {}),
+              context,
+            },
+          },
+        });
+      }
       if (url.pathname === '/api/agent-library/drafts') {
         const body = route.request().postDataJSON();
         const draft: AgentLibraryDraft = {
@@ -114,6 +156,30 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
   await expect(page.getByLabel('Agent name')).toHaveValue('Bob');
   await expect(page.getByLabel('Descriptor')).toHaveValue('The architect');
   await page.screenshot({ path: testInfo.outputPath('agent-library.png'), fullPage: true });
+  await page.getByRole('tab', { name: 'Context', exact: true }).click();
+  await page.getByLabel('Compile chat context').check();
+  await page
+    .getByRole('textbox', { name: 'Documents (one per line)', exact: true })
+    .fill(' docs/architecture.md \n');
+  await page.getByLabel('Token budget', { exact: true }).fill('4000');
+  await page
+    .getByRole('textbox', { name: 'Required sections (one per line)', exact: true })
+    .fill(' docs/architecture.md \n');
+  await page.getByRole('tab', { name: 'Prompt preview', exact: true }).click();
+  await page.getByRole('button', { name: 'Compile preview', exact: true }).click();
+  await expect(page.locator('.agent-library-prompt')).toContainText(
+    'Compiled architecture context',
+  );
+  await page.getByText('Sources and trimming', { exact: true }).click();
+  await expect(page.locator('.agent-library-context-preview')).toContainText(
+    'docs/architecture.md',
+  );
+  previewError = true;
+  await page.getByRole('button', { name: 'Compile preview', exact: true }).click();
+  await expect(page.getByRole('alert')).toContainText('Selected context source is unavailable');
+  await expect(page.locator('.agent-library-prompt')).toHaveCount(0);
+  previewError = false;
+  await page.getByRole('tab', { name: 'Identity', exact: true }).click();
   await page.getByLabel('Agent name').fill('Robert');
   await page.getByLabel('Descriptor').fill('The systems architect');
   await expect(page.getByRole('link', { name: 'Use in chat', exact: true })).toHaveCount(0);
@@ -147,6 +213,8 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
   await page.reload();
   await page.getByRole('button', { name: 'Export profile', exact: true }).click();
   await expect(page.getByLabel('Portable profile export')).toContainText('The systems architect');
+  await expect(page.getByLabel('Portable profile export')).toContainText('contextRecipe');
+  await expect(page.getByLabel('Portable profile export')).not.toContainText('payloadHash');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
     true,
   );
@@ -218,6 +286,31 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
         path: testInfo.outputPath(`agent-library-${theme}-${accent}-${font}.png`),
         fullPage: true,
       });
+      await page.getByRole('tab', { name: 'Context', exact: true }).click();
+      const contextSource = page.getByRole('combobox', { name: 'Context source', exact: true });
+      expect(
+        await contextSource.evaluate((element) => element.getBoundingClientRect().height),
+      ).toBeGreaterThanOrEqual(44);
+      await contextSource.focus();
+      await expect(contextSource).toBeFocused();
+      await page.screenshot({
+        path: testInfo.outputPath(`agent-context-editor-${theme}-${accent}-${font}.png`),
+        fullPage: true,
+      });
+      await page.getByRole('tab', { name: 'Prompt preview', exact: true }).click();
+      await page.getByRole('button', { name: 'Compile preview', exact: true }).click();
+      await expect(page.locator('.agent-library-prompt')).toContainText(
+        'Compiled architecture context',
+      );
+      await page.getByText('Sources and trimming', { exact: true }).click();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+        true,
+      );
+      await page.screenshot({
+        path: testInfo.outputPath(`agent-context-preview-${theme}-${accent}-${font}.png`),
+        fullPage: true,
+        animations: 'disabled',
+      });
     }
   }
   const savedIdentity = {
@@ -236,6 +329,17 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
   await expect(page.getByRole('button', { name: 'Use as reviewer', exact: true })).toBeInViewport();
   await page.screenshot({
     path: testInfo.outputPath('agent-library-large-text.png'),
+    fullPage: true,
+  });
+  await page.getByRole('tab', { name: 'Context', exact: true }).click();
+  expect(
+    await page
+      .getByRole('combobox', { name: 'Context source', exact: true })
+      .evaluate((element) => element.getBoundingClientRect().height),
+  ).toBeGreaterThanOrEqual(44);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({
+    path: testInfo.outputPath('agent-context-large-text.png'),
     fullPage: true,
   });
   Object.assign(catalog.versions[0].definition, savedIdentity);

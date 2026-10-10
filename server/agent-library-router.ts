@@ -3,6 +3,8 @@ import { z, ZodError } from 'zod';
 import type { AgentLibraryStore } from './agent-library-store.js';
 import { PortableProfileDefinitionSchema } from './symposium-profile-portability.js';
 import { buildAgentProfilePrompt } from './agent-library-prompt.js';
+import { compileAgentContext } from './agent-context-compiler.js';
+import { registerAuthSession, type AuthSession } from './auth.js';
 
 const OWNER = 'user'; // Stable authenticated subject, never the rotating login JTI.
 function failure(res: Response, error: unknown) {
@@ -17,10 +19,13 @@ function failure(res: Response, error: unknown) {
           : 400;
   res.status(status).json({ error: message });
 }
-export function createAgentLibraryRouter(store: AgentLibraryStore): Router {
+export function createAgentLibraryRouter(
+  store: AgentLibraryStore,
+  options: { workspaceRoot?: string; contexginUrl?: string } = {},
+): Router {
   const router = Router();
   router.use((_req, res, next) => {
-    if (!res.locals.authSession)
+    if (!res.locals.authSession || res.locals.authSession.expiresAt <= Date.now())
       return res.status(403).json({ error: 'Interactive operator authentication is required' });
     next();
   });
@@ -52,18 +57,56 @@ export function createAgentLibraryRouter(store: AgentLibraryStore): Router {
       failure(res, error);
     }
   });
-  router.post('/preview', (req, res) => {
+  router.post('/preview', async (req, res) => {
+    const controller = new AbortController();
+    let authorizationFailed = false;
+    let unregister = () => {};
+    const onClose = () => {
+      if (!res.writableEnded) controller.abort();
+    };
     try {
       const { definition } = z
         .strictObject({ definition: PortableProfileDefinitionSchema })
         .parse(req.body);
+      const profilePrompt = buildAgentProfilePrompt(definition);
+      const auth = res.locals.authSession as AuthSession;
+      if (definition.contextRecipe) {
+        res.on('close', onClose);
+        unregister = registerAuthSession(auth, () => {
+          authorizationFailed = true;
+          controller.abort();
+        });
+      }
+      const compiled = definition.contextRecipe
+        ? await compileAgentContext(definition.contextRecipe, {
+            ...options,
+            signal: controller.signal,
+          })
+        : undefined;
+      if (authorizationFailed || auth.expiresAt <= Date.now())
+        return res.status(403).json({ error: 'Agent Library authorization expired or revoked' });
       res.json({
-        profilePrompt: buildAgentProfilePrompt(definition),
-        contextResolved: false,
+        profilePrompt,
+        contextResolved: !!compiled,
         recipe: definition.recipe ?? null,
+        ...(compiled
+          ? {
+              compiledContext: compiled,
+              assembledPrompt: `${profilePrompt}\n\n# Boot Context\n${compiled.context.fullMarkdown}`,
+              previewScope:
+                definition.contextRecipe?.source === 'workspace'
+                  ? 'configured-workspace'
+                  : 'contexgin-preset',
+            }
+          : {}),
       });
     } catch (error) {
+      if (authorizationFailed)
+        return res.status(403).json({ error: 'Agent Library authorization expired or revoked' });
       failure(res, error);
+    } finally {
+      unregister();
+      res.off('close', onClose);
     }
   });
   const version = (profileId: string, revision: string) => {
