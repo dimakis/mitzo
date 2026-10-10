@@ -1,11 +1,8 @@
+import { ToolSetupCards } from './ToolSetupCards';
 import { MotionPresence } from './MotionPresence';
 import { UiIcon } from './UiIcon';
 import { useId, useState } from 'react';
 import { getToolStatus, type ToolBlock } from '../lib/tool-status';
-import { ConnectionSetupCard } from './ConnectionSetupCard';
-import { connectionSetupResult } from '../lib/connection-setup-result';
-import { RepositoryChatSetupCard } from './RepositoryChatSetupCard';
-import { repositoryChatPreparationResult } from '../lib/repository-chat-preparation';
 import { ToolPill } from './ToolPill';
 
 interface Props {
@@ -31,34 +28,7 @@ export function ToolGroup({ tools, sessionId }: Props) {
 
   return (
     <div className="tool-group">
-      {tools
-        .filter((tool, index) => {
-          const preparation = repositoryChatPreparationResult(tool, sessionId);
-          return (
-            preparation &&
-            !tools
-              .slice(index + 1)
-              .some(
-                (later) => repositoryChatPreparationResult(later, sessionId)?.id === preparation.id,
-              )
-          );
-        })
-        .map((tool) => (
-          <RepositoryChatSetupCard key={tool.blockId} block={tool} sessionId={sessionId} />
-        ))}
-      {tools
-        .filter((tool, index) => {
-          const setup = connectionSetupResult(tool, sessionId);
-          return (
-            setup &&
-            !tools
-              .slice(index + 1)
-              .some((later) => connectionSetupResult(later, sessionId)?.id === setup.id)
-          );
-        })
-        .map((tool) => (
-          <ConnectionSetupCard key={tool.blockId} block={tool} sessionId={sessionId} />
-        ))}
+      <ToolSetupCards tools={tools} sessionId={sessionId} />
       <button
         type="button"
         className="tool-group-header"
