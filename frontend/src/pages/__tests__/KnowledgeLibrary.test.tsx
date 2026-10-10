@@ -1891,3 +1891,137 @@ it('creates the first folder inside an empty enrolled knowledge directory', asyn
   expect(copy.directories).toEqual(['hub/context/guides']);
   expect((screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(false);
 });
+
+type OrganizationDocuments = {
+  path: string;
+  sourcePath?: string;
+  base: string;
+  content: string;
+}[];
+function recoverOrganizationConflict(
+  localFolders: string[],
+  savedFolders: string[],
+  localDocuments: OrganizationDocuments = [],
+  savedDocuments: OrganizationDocuments = [],
+  unavailable = false,
+) {
+  localStorage.setItem(
+    'mitzo-knowledge-working-copy:',
+    JSON.stringify({
+      title: 'Organization changes',
+      baseRevision: 'r1',
+      documents: localDocuments,
+      directories: localFolders,
+      selected: localDocuments[0]?.path || '',
+      saved: JSON.stringify(localDocuments),
+      savedDirectories: [],
+      savedComparisonUnavailable: unavailable,
+      initialSaveConflict: {
+        ...draft,
+        documents: savedDocuments,
+        directories: savedFolders,
+        version: 2,
+      },
+    }),
+  );
+}
+it.each([
+  [['hub/local-folder'], ['hub/saved-folder']],
+  [['hub/local-folder'], []],
+  [[], ['hub/saved-folder']],
+])(
+  'compares folder-only conflicts explicitly on both sides, including absent changes',
+  async (localFolders, savedFolders) => {
+    recoverOrganizationConflict(localFolders, savedFolders);
+    setup();
+    const comparison = await screen.findByRole('region', {
+      name: 'Compare saved draft and working copy',
+    });
+    const saved = within(comparison).getByRole('region', { name: 'Saved draft organization' });
+    const local = within(comparison).getByRole('region', {
+      name: 'Your working copy organization',
+    });
+    expect(
+      within(saved)
+        .queryAllByRole('listitem')
+        .map((item) => item.textContent),
+    ).toEqual(savedFolders);
+    expect(
+      within(local)
+        .queryAllByRole('listitem')
+        .map((item) => item.textContent),
+    ).toEqual(localFolders);
+    if (!savedFolders.length) expect(within(saved).getByText('No new folders.')).toBeTruthy();
+    if (!localFolders.length) expect(within(local).getByText('No new folders.')).toBeTruthy();
+    expect(within(saved).getByText('No document moves.')).toBeTruthy();
+    expect(within(local).getByText('No document moves.')).toBeTruthy();
+    expect(
+      within(comparison).getByRole('button', { name: 'Keep my edits and update saved draft' }),
+    ).toBeTruthy();
+  },
+);
+it('shows the source and destination of saved and local moves even when their text matches', async () => {
+  recoverOrganizationConflict(
+    [],
+    [],
+    [
+      {
+        path: 'hub/local.md',
+        sourcePath: 'hub/original.md',
+        base: 'Same text',
+        content: 'Same text',
+      },
+    ],
+    [
+      {
+        path: 'hub/saved.md',
+        sourcePath: 'teams/original.md',
+        base: 'Same text',
+        content: 'Same text',
+      },
+    ],
+  );
+  setup();
+  const comparison = await screen.findByRole('region', {
+    name: 'Compare saved draft and working copy',
+  });
+  const saved = within(comparison).getByRole('region', { name: 'Saved draft organization' });
+  const local = within(comparison).getByRole('region', { name: 'Your working copy organization' });
+  expect(within(saved).getByRole('listitem').textContent).toBe('teams/original.md → hub/saved.md');
+  expect(within(local).getByRole('listitem').textContent).toBe('hub/original.md → hub/local.md');
+  expect(within(saved).getByText('No new folders.')).toBeTruthy();
+  expect(within(local).getByText('No new folders.')).toBeTruthy();
+});
+it('withholds stale saved organization changes and blocks reconciliation when the comparison is unavailable', async () => {
+  recoverOrganizationConflict(
+    ['hub/local-folder'],
+    ['hub/stale-folder'],
+    [{ path: 'hub/local.md', sourcePath: 'hub/original.md', base: 'local', content: 'local' }],
+    [{ path: 'hub/stale.md', sourcePath: 'teams/stale.md', base: 'stale', content: 'stale' }],
+    true,
+  );
+  setup();
+  const comparison = await screen.findByRole('region', {
+    name: 'Compare saved draft and working copy',
+  });
+  const saved = within(comparison).getByRole('region', { name: 'Saved draft organization' });
+  const local = within(comparison).getByRole('region', { name: 'Your working copy organization' });
+  expect(within(saved).getByText('Awaiting latest saved version.')).toBeTruthy();
+  expect(within(saved).queryByText('hub/stale-folder')).toBeNull();
+  expect(within(saved).queryByText('teams/stale.md → hub/stale.md')).toBeNull();
+  expect(within(local).getByText('hub/local-folder')).toBeTruthy();
+  expect(within(local).getByText('hub/original.md → hub/local.md')).toBeTruthy();
+  for (const name of ['Use saved draft', 'Keep my edits and update saved draft']) {
+    const button = within(comparison).getByRole('button', { name }) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    fireEvent.click(button);
+  }
+  expect(
+    (
+      within(comparison).getByRole('button', {
+        name: 'Refresh saved comparison',
+      }) as HTMLButtonElement
+    ).disabled,
+  ).toBe(false);
+  expect(vi.mocked(apiFetch).mock.calls.some(([, init]) => init?.method === 'PUT')).toBe(false);
+});
