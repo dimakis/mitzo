@@ -966,7 +966,6 @@ describe('SseConnection', () => {
   it.each([
     ['switch_session', 'selected'],
     ['switch_session', null],
-    ['stop', 'selected'],
     ['reconnect', undefined],
   ] as const)('scopes %s POST errors to its requested session (%s)', async (type, sessionId) => {
     for (const networkFailure of [false, true]) {
@@ -989,6 +988,53 @@ describe('SseConnection', () => {
       conn.disconnect();
     }
   });
+
+  it.each(['stop', 'interrupt', 'close'])(
+    'keeps failed %s nonterminal even when queued before SSE readiness',
+    async (control) => {
+      for (const networkFailure of [false, true]) {
+        const fetch = networkFailure
+          ? vi.fn().mockRejectedValue(new Error('offline'))
+          : vi.fn().mockResolvedValue({
+              ok: false,
+              status: 409,
+              json: async () => ({
+                type: 'session_control_rejected',
+                sessionId: 'child',
+                control,
+                error: 'Use contributor controls',
+              }),
+            });
+        const conn = new SseConnection(createConfig({ fetch }));
+        const listener = vi.fn();
+        conn.onMessage(listener);
+        conn.connect();
+        expect(
+          conn.send({ type: control === 'close' ? 'session_close' : control, sessionId: 'child' }),
+        ).toBe(true);
+        expect(fetch).not.toHaveBeenCalled();
+        lastES()._emit('welcome', {
+          type: 'welcome',
+          protocolVersion: 2,
+          connectionId: 'conn-abc',
+        });
+        await vi.waitFor(() =>
+          expect(listener).toHaveBeenCalledWith(
+            expect.objectContaining({
+              type: 'session_control_rejected',
+              sessionId: 'child',
+              control,
+              error: networkFailure
+                ? expect.stringContaining('Please retry')
+                : 'Use contributor controls',
+            }),
+          ),
+        );
+        expect(listener).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'error' }));
+        conn.disconnect();
+      }
+    },
+  );
 
   it('returns false for unknown message types', () => {
     const conn = new SseConnection(createConfig());

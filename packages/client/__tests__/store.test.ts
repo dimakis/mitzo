@@ -1919,6 +1919,113 @@ describe('stopGeneration', () => {
   });
 });
 
+describe('rejected session controls', () => {
+  it.each(['stop', 'send', 'interrupt', 'close'])(
+    'keeps the active stream on a scoped %s rejection',
+    async (control) => {
+      const store = createReadyStore();
+      await store.getState().switchSession('child');
+      lastWs.simulateMessage({
+        type: 'session_state_changed',
+        sessionId: 'child',
+        state: 'running',
+      });
+      lastWs.simulateMessage({
+        type: 'message_start',
+        sessionId: 'child',
+        messageId: 'active-turn',
+      });
+      lastWs.simulateMessage({
+        type: 'block_start',
+        sessionId: 'child',
+        messageId: 'active-turn',
+        blockId: 'text',
+        blockType: 'text',
+      });
+      lastWs.simulateMessage({
+        type: 'block_delta',
+        sessionId: 'child',
+        messageId: 'active-turn',
+        blockId: 'text',
+        blockType: 'text',
+        delta: 'Retained reply',
+      });
+      lastWs.simulateMessage({
+        type: 'permission_request',
+        sessionId: 'child',
+        permId: 'permission',
+        toolName: 'Bash',
+        toolInput: 'inspect',
+      });
+      const permission = store.getState().messages.permission;
+      const stream = store.getState().messages.current;
+      expect(stream?.blocks.get('text')?.content).toBe('Retained reply');
+      const activeSocket = lastWs;
+      lastWs.simulateMessage({
+        type: 'session_control_rejected',
+        sessionId: 'other',
+        control,
+        error: 'Foreign rejection',
+      });
+      expect(store.getState().messages.messages).toHaveLength(0);
+      expect(lastWs).toBe(activeSocket);
+      lastWs.simulateMessage({
+        type: 'session_control_rejected',
+        sessionId: 'child',
+        control,
+        error: 'Use contributor controls',
+      });
+      expect(store.getState().messages.running).toBe(true);
+      expect(store.getState().messages.current).toBe(stream);
+      expect(store.getState().messages.permission).toBe(permission);
+      store.getState().respondToPermission('permission', 'once');
+      expect(lastWs.parsedSent().at(-1)).toMatchObject({
+        type: 'permission_response',
+        sessionId: 'child',
+        permId: 'permission',
+        decision: 'once',
+      });
+      expect(store.getState().messages.permission).toBe(permission);
+      lastWs.simulateMessage({
+        type: 'block_delta',
+        sessionId: 'child',
+        messageId: 'active-turn',
+        blockId: 'text',
+        blockType: 'text',
+        delta: ' continues',
+      });
+      expect(store.getState().messages.current?.blocks.get('text')?.content).toBe(
+        'Retained reply continues',
+      );
+      expect(store.getState().messages.messages.at(-1)?.blocks[0].content).toContain(
+        'Use contributor controls',
+      );
+      lastWs.simulateMessage({ type: 'session_state_changed', sessionId: 'child', state: 'idle' });
+      expect(store.getState().messages.running).toBe(false);
+      lastWs.simulateMessage({
+        type: 'session_state_changed',
+        sessionId: 'child',
+        state: 'running',
+      });
+      lastWs.simulateMessage({ type: 'error', sessionId: 'child', error: 'Provider failed' });
+      expect(store.getState().messages.running).toBe(false);
+      expect(store.getState().messages.current).toBeNull();
+      expect(store.getState().messages.messages.at(-1)?.blocks[0].content).toContain(
+        'Provider failed',
+      );
+    },
+  );
+  it('reports an unqueued Stop without changing running or its stream', async () => {
+    const store = createReadyStore();
+    await store.getState().switchSession('child');
+    lastWs.simulateMessage({ type: 'session_state_changed', sessionId: 'child', state: 'running' });
+    lastWs.readyState = WS_READY_STATE.CLOSED;
+    store.getState().stopGeneration();
+    expect(store.getState().sendError).toContain('Stop was not delivered');
+    expect(store.getState().messages.running).toBe(true);
+  });
+});
+
 describe('respondToPermission', () => {
   it('keeps the card until server acknowledgement after sending its decision', async () => {
     const store = createReadyStore();

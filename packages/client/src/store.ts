@@ -894,10 +894,11 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
 
     stopGeneration() {
       if (!parserState.currentSessionId) return;
-      connection.send({
+      const sent = connection.send({
         type: 'stop',
         sessionId: parserState.currentSessionId,
       });
+      if (!sent) set({ sendError: 'Not connected. Stop was not delivered. Please retry.' });
     },
 
     expirePermission(permId: string) {
@@ -1385,6 +1386,9 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     }
 
     const eventSessionId = msg.sessionId as string | undefined;
+    // A control refusal for another view is handled, not a replay failure.
+    if (msg.type === 'session_control_rejected' && eventSessionId !== parserState.currentSessionId)
+      return true;
     if (msg.type === 'session_id' && typeof eventSessionId === 'string') {
       if (typeof msg.clientMsgId === 'string')
         options.sendHandoff?.assign(msg.clientMsgId, eventSessionId);

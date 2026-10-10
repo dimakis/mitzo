@@ -93,13 +93,19 @@ vi.mock('../../components/ChatInput', () => ({
     externalContextBlocks,
     sendDisabledReason,
     onSend,
+    onStop,
+    running,
   }: {
     externalContextBlocks?: string[];
     sendDisabledReason?: string;
+    onStop: () => void;
+    running: boolean;
     onSend: (text: string) => boolean;
   }) => (
     <div data-testid="chat-input">
       <span>{sendDisabledReason}</span>
+      <span data-testid="composer-running">{String(running)}</span>
+      <button onClick={onStop}>Test Stop</button>
       <button disabled={!!sendDisabledReason} onClick={() => onSend('hello')}>
         Test send
       </button>
@@ -903,4 +909,24 @@ it('keeps desktop inline account and model changes locked when identity lookup f
   await waitFor(() =>
     expect((screen.getByLabelText('Model') as HTMLSelectElement).disabled).toBe(false),
   );
+});
+
+it('keeps Stop pending until server state confirms completion', () => {
+  const store = createMockStore();
+  const stop = vi.fn();
+  store.setState({
+    messages: { ...store.getState().messages, running: true },
+    stopGeneration: stop,
+  });
+  render(
+    <MemoryRouter>
+      <MitzoStoreProvider value={store}>
+        <DesktopChatView />
+      </MitzoStoreProvider>
+    </MemoryRouter>,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Test Stop' }));
+  expect(stop).toHaveBeenCalledTimes(1);
+  expect(store.getState().messages.running).toBe(true);
+  expect(screen.getByTestId('composer-running').textContent).toBe('true');
 });

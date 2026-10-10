@@ -2865,3 +2865,130 @@ test('sandbox boot context is not presented as a fallback in Outputs / Sources',
   await expect(page.getByText('Boot Context (Sandbox)', { exact: true })).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath('sandbox-context-light.png') });
 });
+
+test('rejected ordinary Stop preserves the live reply and queued image until server idle', async ({
+  page,
+  isMobile,
+}, testInfo) => {
+  await page.setViewportSize({ width: isMobile ? 320 : 1280, height: 900 });
+  const sessionId = 'owned-contributor-child';
+  const sent: Record<string, unknown>[] = [];
+  let confirmIdle!: () => void;
+  await page.routeWebSocket('**/*', (socket) => {
+    const emit = (message: Record<string, unknown>) => socket.send(JSON.stringify(message));
+    confirmIdle = () => emit({ type: 'session_state_changed', sessionId, state: 'idle' });
+    socket.onMessage((raw) => {
+      const message = JSON.parse(String(raw));
+      if (message.type === 'hello')
+        emit({ type: 'welcome', protocolVersion: 2, connectionId: 'offline-child' });
+      if (message.type === 'send') sent.push(message);
+      if (message.type === 'switch_session') {
+        emit({ type: 'session_switched', sessionId, mode: 'agent' });
+        emit({ type: 'session_state_changed', sessionId, state: 'running' });
+        emit({ type: 'message_start', sessionId, messageId: 'active-reply' });
+        emit({
+          type: 'block_start',
+          sessionId,
+          messageId: 'active-reply',
+          blockId: 'reply-text',
+          blockType: 'text',
+        });
+        emit({
+          type: 'block_delta',
+          sessionId,
+          messageId: 'active-reply',
+          blockId: 'reply-text',
+          blockType: 'text',
+          delta: 'An active child reply',
+        });
+      }
+      if (message.type === 'stop') {
+        emit({
+          type: 'session_control_rejected',
+          sessionId,
+          control: 'stop',
+          error: 'Use contributor controls to stop this conversation.',
+        });
+        emit({
+          type: 'block_delta',
+          sessionId,
+          messageId: 'active-reply',
+          blockId: 'reply-text',
+          blockType: 'text',
+          delta: ' continues after rejection.',
+        });
+      }
+    });
+  });
+  await page.route('**/api/**', async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === `/api/sessions/${sessionId}/messages`) return route.fulfill({ json: [] });
+    if (path === `/api/sessions/${sessionId}/meta`)
+      return route.fulfill({
+        json: {
+          sessionType: 'chat',
+          accountBinding: {
+            accountId: 'work-account',
+            accountLabel: 'Work OpenAI',
+            model: 'luna-fixture',
+          },
+          modelSelection: {
+            model: 'luna-fixture',
+            models: [{ id: 'luna-fixture', label: 'Luna fixture' }],
+          },
+        },
+      });
+    if (path === `/api/sessions/${sessionId}/symposium/status`)
+      return route.fulfill({ json: { sessionId, config: null, seats: [] } });
+    return route.fallback();
+  });
+  await page.goto(`/chat/${sessionId}`);
+  const stop = page.getByRole('button', { name: 'Stop generation', exact: true });
+  await expect(stop).toBeVisible();
+  const draft = page.getByRole('textbox', { name: 'Message Mitzo', exact: true });
+  await draft.fill('Queued child follow-up');
+  await page.locator('input[type="file"]').setInputFiles({
+    name: 'queued.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=',
+      'base64',
+    ),
+  });
+  await expect(page.getByAltText('Attachment 1')).toBeVisible();
+  await page.getByRole('button', { name: 'Queue message', exact: true }).click();
+  await draft.fill('Next untouched draft');
+  await stop.click();
+  await expect(
+    page.getByText('Use contributor controls to stop this conversation.', { exact: false }),
+  ).toBeVisible();
+  await expect(
+    page.getByText('An active child reply continues after rejection.', { exact: true }),
+  ).toBeVisible();
+  await expect(stop).toBeVisible();
+  await expect(draft).toHaveValue('Next untouched draft');
+  await expect(page.locator('.chat-input-queued')).toContainText('Queued child follow-up');
+  expect(sent).toHaveLength(0);
+  for (const theme of ['dark', 'light']) {
+    await page.evaluate((value) => {
+      document.documentElement.dataset.theme = value;
+      document.documentElement.dataset.accent = 'teal';
+      document.documentElement.dataset.font = 'georgia';
+    }, theme);
+    await expect(stop).toBeInViewport();
+    await expect(draft).toBeInViewport();
+    await page.screenshot({
+      path: testInfo.outputPath(`rejected-stop-${theme}.png`),
+      animations: 'disabled',
+    });
+  }
+  confirmIdle();
+  await expect.poll(() => sent.length).toBe(1);
+  expect(sent[0]).toMatchObject({
+    sessionId,
+    prompt: 'Queued child follow-up',
+    images: [expect.objectContaining({ mediaType: 'image/png' })],
+  });
+  await expect(draft).toHaveValue('Next untouched draft');
+  await expect(page.locator('.chat-input-queued')).toHaveCount(0);
+});

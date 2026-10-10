@@ -244,6 +244,7 @@ public enum ServerMessage: Codable, Sendable {
     case permissionRequest(PermissionRequestParams)
     case toolResult(ToolResultParams)
     case error(error: String)
+    case sessionControlRejected(SessionControlRejectedParams)
     case modeChanged(sessionId: String, mode: MitzoMode)
     case unknown(type: String)
 
@@ -326,6 +327,9 @@ public enum ServerMessage: Codable, Sendable {
         case "tool_result":
             let params = try ToolResultParams(from: decoder)
             self = .toolResult(params)
+
+        case "session_control_rejected":
+            self = .sessionControlRejected(try SessionControlRejectedParams(from: decoder))
 
         case "error":
             let error = try container.decode(String.self, forKey: AnyCodingKey("error"))
@@ -420,6 +424,10 @@ public enum ServerMessage: Codable, Sendable {
             try container.encode("tool_result", forKey: AnyCodingKey("type"))
             try params.encode(to: encoder)
 
+        case .sessionControlRejected(let params):
+            try container.encode("session_control_rejected", forKey: AnyCodingKey("type"))
+            try params.encode(to: encoder)
+
         case .error(let err):
             try container.encode("error", forKey: AnyCodingKey("type"))
             try container.encode(err, forKey: AnyCodingKey("error"))
@@ -436,6 +444,16 @@ public enum ServerMessage: Codable, Sendable {
 }
 
 // MARK: - Server Message Params
+
+public enum SessionControl: String, Codable, Sendable {
+    case stop, send, interrupt, close
+}
+
+public struct SessionControlRejectedParams: Codable, Sendable {
+    public let sessionId: String
+    public let control: SessionControl
+    public let error: String
+}
 
 public struct ReconnectedSession: Codable, Sendable {
     public let sessionId: String

@@ -558,6 +558,17 @@ export function parseServerMessage(
       });
       break;
 
+    case 'session_control_rejected': {
+      if (
+        typeof msg.sessionId === 'string' &&
+        typeof msg.control === 'string' &&
+        ['stop', 'send', 'interrupt', 'close'].includes(msg.control) &&
+        typeof msg.error === 'string'
+      )
+        result.messagesActions.push({ type: 'CONTROL_REJECTED', error: msg.error });
+      break;
+    }
+
     case 'error': {
       const errorMsg = msg.error as string;
 

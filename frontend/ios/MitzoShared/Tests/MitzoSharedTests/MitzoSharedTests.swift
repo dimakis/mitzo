@@ -175,6 +175,24 @@ import Foundation
     #expect(err == "something went wrong")
 }
 
+@Test(arguments: ["stop", "send", "interrupt", "close"])
+func testSessionControlRejectionRoundTrip(control: String) throws {
+    let json = """
+    {"type":"session_control_rejected","sessionId":"child","control":"\(control)","error":"Use contributor controls"}
+    """.data(using: .utf8)!
+    let message = try JSONDecoder().decode(ServerMessage.self, from: json)
+    // The iPhone relay re-encodes the decoded message before the Watch sees it.
+    let relayed = try JSONEncoder().encode(message)
+    let body = try JSONSerialization.jsonObject(with: relayed) as! [String: Any]
+    #expect(body["type"] as? String == "session_control_rejected")
+    #expect(body["sessionId"] as? String == "child")
+    #expect(body["control"] as? String == control)
+    #expect(body["error"] as? String == "Use contributor controls")
+    let received = try JSONDecoder().decode(ServerMessage.self, from: relayed)
+    let forwarded = try JSONSerialization.jsonObject(with: JSONEncoder().encode(received)) as! [String: Any]
+    #expect(NSDictionary(dictionary: forwarded) == NSDictionary(dictionary: body))
+}
+
 @Test func testUnknownTypeDecoding() throws {
     let json = """
     {"type":"future_message_type","data":"whatever"}

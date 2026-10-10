@@ -93,14 +93,20 @@ vi.mock('../../components/ChatInput', () => ({
   ChatInput: ({
     initialText,
     onSend,
+    onStop,
+    running,
     sendDisabledReason,
   }: {
     initialText?: string;
+    onStop: () => void;
+    running: boolean;
     onSend?: (text: string) => boolean;
     sendDisabledReason?: string;
   }) => (
     <>
       <div data-testid="draft">{initialText}</div>
+      <span data-testid="composer-running">{String(running)}</span>
+      <button onClick={onStop}>Test Stop</button>
       <button disabled={!!sendDisabledReason} onClick={() => onSend?.('hello')}>
         Test send
       </button>
@@ -747,3 +753,23 @@ it.each([true, false])(
     await waitFor(() => expect(sessionStorage.getItem(key)).toBe(queued ? null : receipt));
   },
 );
+
+it('keeps Stop pending until server state confirms completion', () => {
+  const store = createTestStore();
+  const stop = vi.fn();
+  store.setState({
+    messages: { ...store.getState().messages, running: true },
+    stopGeneration: stop,
+  });
+  render(
+    <MemoryRouter>
+      <MitzoStoreProvider value={store}>
+        <ChatView />
+      </MitzoStoreProvider>
+    </MemoryRouter>,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Test Stop' }));
+  expect(stop).toHaveBeenCalledTimes(1);
+  expect(store.getState().messages.running).toBe(true);
+  expect(screen.getByTestId('composer-running').textContent).toBe('true');
+});

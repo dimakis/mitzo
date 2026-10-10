@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, cleanup, fireEvent, act } from '@testing-library/react';
+import { useState } from 'react';
+import { INITIAL_MESSAGES_STATE, messagesReducer, parseServerMessage } from '@mitzo/client';
 import { ChatInput } from '../ChatInput';
 
 const { trayMessageRefs } = vi.hoisted(() => ({ trayMessageRefs: [] as unknown[] }));
@@ -166,4 +168,75 @@ describe('ChatInput with externalContextBlocks', () => {
     expect(onSend).toHaveBeenCalledTimes(2);
     expect(onSend).toHaveBeenNthCalledWith(2, 'second message', undefined, ['boot-context']);
   });
+});
+
+it('retains a queued image/context and active composer through rejected Stop until confirmed idle', async () => {
+  const onSend = vi.fn().mockReturnValue(true);
+  const callbacks = { onSessionAssigned: vi.fn(), onSessionExpired: vi.fn() };
+  function Harness() {
+    const [messages, setMessages] = useState({ ...INITIAL_MESSAGES_STATE, running: true });
+    function receive(msg: { type: string; [key: string]: unknown }) {
+      const result = parseServerMessage(msg, { currentSessionId: 'child' }, callbacks, 'v2');
+      setMessages((state) => result.messagesActions.reduce(messagesReducer, state));
+    }
+    return (
+      <>
+        <ChatInput
+          running={messages.running}
+          sessionId="child"
+          externalContextBlocks={['exact context']}
+          onSend={onSend}
+          onStop={() =>
+            receive({
+              type: 'session_control_rejected',
+              sessionId: 'child',
+              control: 'stop',
+              error: 'Use contributor controls',
+            })
+          }
+        />
+        <button
+          onClick={() =>
+            receive({ type: 'session_state_changed', sessionId: 'child', state: 'idle' })
+          }
+        >
+          Confirm idle
+        </button>
+        <div>{messages.messages.at(-1)?.blocks[0]?.content}</div>
+      </>
+    );
+  }
+  const { container } = render(<Harness />);
+  fireEvent.change(screen.getByLabelText('Message Mitzo'), {
+    target: { value: 'Queued exact draft' },
+  });
+  fireEvent.change(container.querySelector('input[type="file"]')!, {
+    target: { files: [new File(['image'], 'queued.png')] },
+  });
+  await screen.findByAltText('Attachment 1');
+  fireEvent.click(screen.getByRole('button', { name: 'Queue message' }));
+  fireEvent.change(screen.getByLabelText('Message Mitzo'), {
+    target: { value: 'Next untouched draft' },
+  });
+  fireEvent.change(container.querySelector('input[type="file"]')!, {
+    target: { files: [new File(['other'], 'next.png')] },
+  });
+  await screen.findByAltText('Attachment 1');
+  fireEvent.click(screen.getByRole('button', { name: 'Stop generation' }));
+  expect(screen.getByText('**Error:** Use contributor controls')).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Stop generation' })).toBeTruthy();
+  expect(screen.getByLabelText('Message Mitzo')).toHaveProperty('value', 'Next untouched draft');
+  expect(screen.getByAltText('Attachment 1')).toBeTruthy();
+  expect(JSON.parse(localStorage.getItem('mitzo-queue-child')!)).toEqual([
+    { text: 'Queued exact draft', contextBlocks: ['exact context'] },
+  ]);
+  expect(onSend).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm idle' }));
+  expect(onSend).toHaveBeenCalledExactlyOnceWith(
+    'Queued exact draft',
+    [{ data: 'resized', mediaType: 'image/png', preview: 'data:image/png;base64,resized' }],
+    ['exact context'],
+  );
+  expect(screen.getByLabelText('Message Mitzo')).toHaveProperty('value', 'Next untouched draft');
+  expect(screen.getByAltText('Attachment 1')).toBeTruthy();
 });

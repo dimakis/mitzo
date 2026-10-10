@@ -160,6 +160,11 @@ final class ChatViewModel: ObservableObject {
             isStreaming = false
             toolStatus = nil
 
+        case .sessionControlRejected(let params):
+            guard params.sessionId == resolvedSessionId else { return }
+            // Control refusal is feedback, not completion of the active turn.
+            messages.append(ChatMessage(role: .assistant, text: "Error: \(params.error)"))
+
         case .sessionEnd:
             isStreaming = false
             toolStatus = nil

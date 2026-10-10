@@ -144,6 +144,13 @@ interface PermissionResponseRejectedMsg {
   error: string;
 }
 
+interface SessionControlRejectedMsg {
+  type: 'session_control_rejected';
+  sessionId: string;
+  control: 'stop' | 'send' | 'interrupt' | 'close';
+  error: string;
+}
+
 interface ErrorMsg {
   type: 'error';
   error: string;
@@ -238,6 +245,7 @@ interface TaskDeletedMsg {
 }
 
 export type ServerMessage =
+  | SessionControlRejectedMsg
   | ClientIdMsg
   | ReattachedMsg
   | ReattachFailedMsg
