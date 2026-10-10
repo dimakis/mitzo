@@ -9,6 +9,7 @@ import {
   writeFileSync,
   symlinkSync,
   unlinkSync,
+  rmSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -39,6 +40,36 @@ const config = {
   MITZO_OPENSHELL_WEB_SEARCH: 'live',
   OPENSHELL_WORKSPACE: 'default',
 };
+
+function createFixtureReleaseScript(root: string): string {
+  const source = readFileSync(new URL('../../scripts/create-release.sh', import.meta.url), 'utf8');
+  const productionLock = 'LOCK_FILE="/tmp/com.mitzo.server.$(id -u).deploy.lock"';
+  if (source.split(productionLock).length !== 2) throw new Error('Unexpected release lock guard');
+  const fixtureLock = join(root, 'deployment.lock').replaceAll("'", "'\\''");
+  const script = join(root, 'create-release.sh');
+  writeFileSync(script, source.replace(productionLock, `LOCK_FILE='${fixtureLock}'`));
+  return script;
+}
+
+it('isolates the release fixture lock without changing the executable guard semantics', () => {
+  const root = mkdtempSync(join(tmpdir(), 'mitzo-release-lock-fixture-'));
+  try {
+    const script = createFixtureReleaseScript(root);
+    const fixtureSource = readFileSync(script, 'utf8');
+    const canonicalSource = readFileSync(
+      new URL('../../scripts/create-release.sh', import.meta.url),
+      'utf8',
+    );
+    const fixtureLock = `LOCK_FILE='${join(root, 'deployment.lock').replaceAll("'", "'\\''")}'`;
+    expect(fixtureSource).toContain(fixtureLock);
+    expect(fixtureSource).not.toContain('LOCK_FILE="/tmp/com.mitzo.server.');
+    expect(
+      fixtureSource.replace(fixtureLock, 'LOCK_FILE="/tmp/com.mitzo.server.$(id -u).deploy.lock"'),
+    ).toBe(canonicalSource);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 describe('OpenShell production bundle validation', () => {
   const headerProfile = {
@@ -487,6 +518,7 @@ describe('OpenShell production bundle validation', () => {
 
   it('releases only current origin/main from a detached checkout', () => {
     const root = mkdtempSync(join(tmpdir(), 'mitzo-detached-release-'));
+    const releaseScript = createFixtureReleaseScript(root);
     const remote = join(root, 'origin.git');
     const source = join(root, 'source');
     const releases = join(root, 'releases');
@@ -624,7 +656,7 @@ describe('OpenShell production bundle validation', () => {
       EXPECTED_SUPERVISOR_COMMIT: stack.supervisor.sourceCommit,
     };
 
-    const result = spawnSync('bash', [join(repoRoot, 'scripts/create-release.sh'), mainRevision], {
+    const result = spawnSync('bash', [releaseScript, mainRevision], {
       env: {
         ...process.env,
         PATH: `${bin}:${process.env.PATH}`,
@@ -648,21 +680,17 @@ describe('OpenShell production bundle validation', () => {
     );
 
     unlinkSync(join(preparedSeed, 'publication.json'));
-    const missingRecord = spawnSync(
-      'bash',
-      [join(repoRoot, 'scripts/create-release.sh'), mainRevision],
-      {
-        env: {
-          ...process.env,
-          PATH: `${bin}:${process.env.PATH}`,
-          MITZO_SOURCE_ROOT: source,
-          MITZO_RUNTIME_ROOT: source,
-          MITZO_RELEASE_ROOT: join(root, 'missing-record-releases'),
-          MITZO_RELEASE_SEED: logicalSeed,
-        },
-        encoding: 'utf8',
+    const missingRecord = spawnSync('bash', [releaseScript, mainRevision], {
+      env: {
+        ...process.env,
+        PATH: `${bin}:${process.env.PATH}`,
+        MITZO_SOURCE_ROOT: source,
+        MITZO_RUNTIME_ROOT: source,
+        MITZO_RELEASE_ROOT: join(root, 'missing-record-releases'),
+        MITZO_RELEASE_SEED: logicalSeed,
       },
-    );
+      encoding: 'utf8',
+    });
     expect(missingRecord.status).not.toBe(0);
     expect(missingRecord.stderr).toContain('dynamic seed has no publisher record');
     writeFileSync(join(preparedSeed, 'publication.json'), JSON.stringify(record));
@@ -670,26 +698,22 @@ describe('OpenShell production bundle validation', () => {
       join(preparedSeed, 'baseline.json'),
       JSON.stringify({ ...baseline, runtimeBaseCommit: '0'.repeat(40) }),
     );
-    const mismatchResult = spawnSync(
-      'bash',
-      [join(repoRoot, 'scripts/create-release.sh'), mainRevision],
-      {
-        env: {
-          ...process.env,
-          PATH: `${bin}:${process.env.PATH}`,
-          MITZO_SOURCE_ROOT: source,
-          MITZO_RUNTIME_ROOT: source,
-          MITZO_RELEASE_ROOT: join(root, 'mismatch-releases'),
-          EXPECTED_REVISION: mainRevision,
-          EXPECTED_BRANCH: 'main',
-          EXPECTED_SEED: seed,
-          MARKER: join(root, 'mismatch-publication-verified'),
-          MITZO_RELEASE_SEED: seed,
-          ...verificationEnv,
-        },
-        encoding: 'utf8',
+    const mismatchResult = spawnSync('bash', [releaseScript, mainRevision], {
+      env: {
+        ...process.env,
+        PATH: `${bin}:${process.env.PATH}`,
+        MITZO_SOURCE_ROOT: source,
+        MITZO_RUNTIME_ROOT: source,
+        MITZO_RELEASE_ROOT: join(root, 'mismatch-releases'),
+        EXPECTED_REVISION: mainRevision,
+        EXPECTED_BRANCH: 'main',
+        EXPECTED_SEED: seed,
+        MARKER: join(root, 'mismatch-publication-verified'),
+        MITZO_RELEASE_SEED: seed,
+        ...verificationEnv,
       },
-    );
+      encoding: 'utf8',
+    });
     expect(mismatchResult.status).not.toBe(0);
     expect(mismatchResult.stderr).toContain(
       'prepared seed runtime base does not match the stack lock',
@@ -709,20 +733,16 @@ describe('OpenShell production bundle validation', () => {
       encoding: 'utf8',
     }).trim();
     execFileSync('git', ['-C', source, 'push', 'origin', 'HEAD:refs/heads/review-fixture']);
-    const featureResult = spawnSync(
-      'bash',
-      [join(repoRoot, 'scripts/create-release.sh'), featureRevision],
-      {
-        env: {
-          ...process.env,
-          PATH: `${bin}:${process.env.PATH}`,
-          MITZO_SOURCE_ROOT: source,
-          MITZO_RUNTIME_ROOT: source,
-          MITZO_RELEASE_ROOT: join(root, 'feature-releases'),
-        },
-        encoding: 'utf8',
+    const featureResult = spawnSync('bash', [releaseScript, featureRevision], {
+      env: {
+        ...process.env,
+        PATH: `${bin}:${process.env.PATH}`,
+        MITZO_SOURCE_ROOT: source,
+        MITZO_RUNTIME_ROOT: source,
+        MITZO_RELEASE_ROOT: join(root, 'feature-releases'),
       },
-    );
+      encoding: 'utf8',
+    });
     expect(featureResult.status).not.toBe(0);
     expect(featureResult.stderr).toContain('is not current origin/main');
   }, 15_000);

@@ -4,7 +4,7 @@ import ReactMarkdown from 'react-markdown';
 import { isReviewableTerminalCommand, type TerminalInfo } from '@mitzo/protocol';
 import { apiFetch } from '../lib/api-fetch';
 import { CommandHistory } from '../lib/terminal-history';
-import { useAssistantName } from '../hooks/useAssistantName';
+import { useHomePreferences } from '../hooks/useHomePreferences';
 import { AccountModelPicker, type AccountSelection } from '../components/AccountModelPicker';
 import {
   TerminalConsole,
@@ -25,7 +25,8 @@ export function TerminalView() {
       : sessionId && !back
         ? `/chat/${encodeURIComponent(sessionId)}`
         : '/more';
-  const assistant = useAssistantName(),
+  const home = useHomePreferences();
+  const assistant = { name: home.preferences?.names.terminal || 'Minion' },
     console = useRef<TerminalConsoleHandle>(null),
     commandInput = useRef<HTMLTextAreaElement>(null);
   const [terminal, setTerminal] = useState<TerminalInfo | null>(null),

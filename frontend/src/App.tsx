@@ -17,6 +17,8 @@ import { hideSplash } from './lib/splash';
 import { saveTokenToWatch } from './lib/watch-auth';
 import { Login } from './pages/Login';
 import { Today } from './pages/Today';
+import { QuoteView } from './pages/QuoteView';
+import { BriefingView } from './pages/BriefingView';
 import { MoreView } from './pages/MoreView';
 import { ConnectionSetupView } from './pages/ConnectionSetupView';
 import { ConnectionsRoute } from './pages/ConnectionsRoute';
@@ -197,6 +199,26 @@ export function App() {
                   }
                 />
                 <Route path="/login" element={<Login />} />
+                <Route
+                  path="/briefings/:date"
+                  element={
+                    <ProtectedRoute>
+                      <PageRoute>
+                        <BriefingView />
+                      </PageRoute>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/quotes/:date"
+                  element={
+                    <ProtectedRoute>
+                      <PageRoute>
+                        <QuoteView />
+                      </PageRoute>
+                    </ProtectedRoute>
+                  }
+                />
                 <Route
                   path="/sessions/:sessionId/review-records/:recordId"
                   element={

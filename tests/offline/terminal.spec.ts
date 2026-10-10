@@ -4,6 +4,7 @@ import { resolve, extname } from 'node:path';
 const mutations: { path: string; body: Record<string, unknown> }[] = [];
 test.beforeEach(async ({ page }) => {
   mutations.length = 0;
+  let preferences = { revision: 0, names: { briefing: 'Minion', terminal: 'Minion' }, pins: [] };
   await page.addInitScript(() => {
     localStorage.setItem('mitzo-theme', 'dark');
     const original = window.fetch;
@@ -26,7 +27,9 @@ test.beforeEach(async ({ page }) => {
               init?.signal?.addEventListener('abort', () => {
                 try {
                   controller.close();
-                } catch {}
+                } catch {
+                  // Navigation can close the intercepted stream before abort cleanup.
+                }
               });
             },
           }),
@@ -44,6 +47,15 @@ test.beforeEach(async ({ page }) => {
     if (url.pathname.startsWith('/api/')) {
       if (request.method() !== 'GET')
         mutations.push({ path: url.pathname, body: request.postDataJSON() ?? {} });
+      if (url.pathname === '/api/home/preferences') {
+        if (request.method() === 'PUT') {
+          const patch = request.postDataJSON();
+          if (patch.revision !== preferences.revision)
+            return route.fulfill({ status: 409, json: { error: 'Conflict' } });
+          preferences = { ...preferences, names: patch.names, revision: preferences.revision + 1 };
+        }
+        return route.fulfill({ json: preferences });
+      }
       const body = request.method() === 'POST' ? request.postDataJSON() : undefined;
       const data =
         url.pathname === '/api/auth/check'
@@ -219,4 +231,29 @@ test('keeps command and adviser input reachable when the phone keyboard reduces 
     })
     .toBeLessThanOrEqual(420);
   await page.screenshot({ path: testInfo.outputPath('terminal-keyboard.png') });
+});
+
+test('Settings saves one workspace terminal name and the terminal uses it after navigation', async ({
+  page,
+}) => {
+  await page.addInitScript(() => localStorage.setItem('mitzo-assistant-name', 'Old browser name'));
+  await page.goto('/settings');
+  await expect(page.getByLabel('Terminal minion name')).toHaveValue('Minion');
+  await expect(page.getByLabel('Assistant name', { exact: true })).toHaveCount(0);
+  await page.getByLabel('Briefing minion name').fill('Jeeves');
+  await page.getByLabel('Terminal minion name').fill('Orbit');
+  await page.getByRole('button', { name: 'Save names', exact: true }).click();
+  await expect(page.getByRole('status')).toContainText('Names saved.');
+  await page.goto('/terminal');
+  await page.getByRole('button', { name: 'Show Orbit', exact: true }).click();
+  await expect(page.getByRole('textbox', { name: 'Ask Orbit', exact: true })).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: 'Show Old browser name', exact: true }),
+  ).toHaveCount(0);
+  expect(mutations.filter(({ path }) => path === '/api/home/preferences')).toEqual([
+    {
+      path: '/api/home/preferences',
+      body: { revision: 0, names: { briefing: 'Jeeves', terminal: 'Orbit' } },
+    },
+  ]);
 });

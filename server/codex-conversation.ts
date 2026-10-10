@@ -1,3 +1,5 @@
+import { assembleSourceSnapshots } from './source-snapshot-context.js';
+import type { SourceSnapshot } from '@mitzo/protocol';
 import {
   CAPACITY_REATTACH_READY_TIMEOUT_MS,
   CapacityAdmissionTimeoutError,
@@ -177,6 +179,7 @@ export interface CodexConversationOptions {
   /** Ordinary OpenShell: defer initial/tool-refresh thread binding until the first turn ACK. */
   deferToolSurfaceReplacement?: boolean;
   loadConversationHistory?: () => ConversationHistoryEntry[];
+  loadSourceSnapshots?: () => SourceSnapshot[];
   onClosed?: () => void;
   onError?: (error: Error) => void;
   onTransportClosed?: (diagnostic: {
@@ -268,6 +271,7 @@ function requiresProviderThreadReplacement(error: unknown): boolean {
 export class CodexConversation {
   private client: Rpc;
   private transportGeneration = 0;
+  private replaySavedSources = false;
   private capacityTimer?: ReturnType<typeof setTimeout>;
   private capacityInFlight = false;
   private capacityAdmissionDeadlines = new Map<string, number>();
@@ -478,6 +482,10 @@ export class CodexConversation {
       !!state.threadId && this.opts.providerThreadLifecycle === 'attempt';
     const replacingProviderThread =
       replacingAttemptHome || replacingStaleToolSurface || replacingFailedThread;
+    if (!state.threadId) {
+      this.savedSourceContext();
+      this.replaySavedSources = true;
+    }
     const result = replacingAttemptHome
       ? await this.replaceAttemptHome(this.client, state, threadOptions, toolSurfaceRevision)
       : replacingStaleToolSurface
@@ -1056,6 +1064,10 @@ export class CodexConversation {
       const replacingProviderThread =
         replacingInitialThread || replacingStaleToolSurface || state.recoveryStrategy === 'fork';
       if (!replacingProviderThread) this.mapper?.beginReconnectReplay();
+      if (replacingInitialThread) {
+        this.savedSourceContext();
+        this.replaySavedSources = true;
+      }
       const result = replacingInitialThread
         ? z
             .object({
@@ -1269,6 +1281,7 @@ export class CodexConversation {
   ) {
     if (this.closed) throw new Error('Attempt continuity initialization closed');
     if (!state.threadId) throw new Error('Attempt continuity predecessor is unavailable');
+    this.savedSourceContext();
     const entries = this.opts.loadConversationHistory?.();
     if (
       !entries?.length ||
@@ -1375,7 +1388,24 @@ export class CodexConversation {
    * output or reasoning: copy only completed user and assistant text into a
    * bounded, one-shot context fragment for the first turn on the new thread.
    */
+  private savedSourceContext(currentPrompt?: string): string | undefined {
+    const sources = this.opts.loadSourceSnapshots?.() ?? [];
+    if (!sources.length) return undefined;
+    // Validate each bounded snapshot independently; references never enter the
+    // privileged/64 KiB dialogue continuity envelope or additionalContext.
+    let bytes = 0;
+    return sources
+      .map((source) => {
+        bytes += Buffer.byteLength(source.content, 'utf8');
+        if (bytes > 2 * 1024 * 1024) throw new Error('Saved source snapshots exceed 2 MiB');
+        const reference = assembleSourceSnapshots('', [source]);
+        return currentPrompt?.includes(reference) ? '' : reference;
+      })
+      .join('\n\n');
+  }
+
   private conversationRolloverContext(): string | undefined {
+    this.savedSourceContext();
     const entries = this.opts.loadConversationHistory?.() ?? [];
     if (!entries.length && !this.opts.loadConversationHistory) return undefined;
     const transcript = entries
@@ -1409,6 +1439,11 @@ export class CodexConversation {
       state.threadId,
       state.lastCompletedTurnId,
     );
+    // A clean provider thread has no retained user source, unlike a fork.
+    const rolloverContext =
+      !lastCompletedTurnId && this.savedSourceContext()
+        ? this.conversationRolloverContext()
+        : (state.rolloverContext ?? undefined);
     const result = z
       .object({
         thread: z.object({ id: z.string().min(1) }),
@@ -1439,7 +1474,7 @@ export class CodexConversation {
         parent: state.threadId,
         thread: result.thread.id,
         revision: this.toolSurfaceRevision(),
-        context: state.rolloverContext ?? undefined,
+        context: rolloverContext,
         reason: 'provider_transport_failure',
       };
       return result;
@@ -1451,6 +1486,8 @@ export class CodexConversation {
       result.thread.id,
       'provider_transport_failure',
       lastCompletedTurnId,
+      undefined,
+      rolloverContext,
     );
     await this.opts.onThreadChanged?.(result.thread.id);
     return result;
@@ -1621,6 +1658,10 @@ export class CodexConversation {
       // Codex's additionalContext fragments are middle-truncated at 1,000
       // tokens. Attempt continuity promises the complete bounded transcript,
       // so replay it through supported text input, before the current request.
+      const savedSourceContext =
+        rolloverContext || this.replaySavedSources
+          ? this.savedSourceContext(preparedPrompt)
+          : undefined;
       const attemptContext =
         this.opts.providerThreadLifecycle === 'attempt' && rolloverContext
           ? attemptReplayContext(rolloverContext)
@@ -1660,6 +1701,7 @@ export class CodexConversation {
             ? []
             : [
                 ...(attemptContext ? [{ type: 'text', text: attemptContext }] : []),
+                ...(savedSourceContext ? [{ type: 'text', text: savedSourceContext }] : []),
                 { type: 'text', text: preparedPrompt },
                 ...(command.images ?? []).map((image) => ({
                   type: 'image',
@@ -1676,6 +1718,7 @@ export class CodexConversation {
         if (active.turnId && active.turnId !== result.turn.id)
           throw new Error('Codex turn identity changed');
         active.turnId = result.turn.id;
+        this.replaySavedSources = false;
         if (pending) {
           this.opts.store.acceptThreadReplacement(
             this.opts.conversationId,

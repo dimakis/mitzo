@@ -21,6 +21,7 @@ import { useSessionSearch } from '../useSessionSearch';
 
 function mockSearchResponse(results: unknown[] = []) {
   vi.mocked(apiFetch).mockResolvedValue({
+    ok: true,
     json: () => Promise.resolve({ results }),
   } as Response);
 }
@@ -38,6 +39,41 @@ afterEach(() => {
 });
 
 describe('useSessionSearch', () => {
+  it('surfaces HTTP failures and retries the same query without claiming an empty result', async () => {
+    vi.mocked(apiFetch).mockResolvedValue({
+      ok: false,
+      status: 503,
+      json: async () => ({}),
+    } as Response);
+    const { result } = renderHook(() => useSessionSearch());
+    act(() => result.current.setQuery('recovery'));
+    await act(async () => vi.advanceTimersByTime(300));
+    expect(result.current.error).toBe('Couldn’t search sessions. Try again.');
+    mockSearchResponse([
+      { sessionId: 'saved', summary: 'Recovery', snippet: 'Recovery', matchedAt: 1, updatedAt: 1 },
+    ]);
+    await act(async () => result.current.retry());
+    expect(result.current.error).toBeNull();
+    expect(result.current.results[0].sessionId).toBe('saved');
+  });
+
+  it('discards an old response as soon as a new query is typed, during its debounce', async () => {
+    let resolveJson!: (value: unknown) => void;
+    vi.mocked(apiFetch).mockResolvedValue({
+      ok: true,
+      json: () =>
+        new Promise((resolve) => {
+          resolveJson = resolve;
+        }),
+    } as Response);
+    const { result } = renderHook(() => useSessionSearch());
+    act(() => result.current.setQuery('old'));
+    await act(async () => vi.advanceTimersByTime(300));
+    act(() => result.current.setQuery('new'));
+    await act(async () => resolveJson({ results: [{ sessionId: 'wrong' }] }));
+    expect(result.current.results).toEqual([]);
+    expect(result.current.searching).toBe(true);
+  });
   it('starts with empty state', () => {
     const { result } = renderHook(() => useSessionSearch());
     expect(result.current.query).toBe('');
@@ -91,6 +127,7 @@ describe('useSessionSearch', () => {
     let resolveJson!: (v: unknown) => void;
     vi.mocked(apiFetch).mockReturnValue(
       Promise.resolve({
+        ok: true,
         json: () =>
           new Promise((r) => {
             resolveJson = r;

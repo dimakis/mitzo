@@ -40,14 +40,18 @@ test.beforeEach(async ({ page }) => {
     },
   }));
   await page.routeWebSocket('**/*', (socket) => socket.close());
-  await page.route('**/api/**', (route) =>
-    route.fulfill({
-      json:
-        new URL(route.request().url()).pathname === '/api/todos'
-          ? { profiles: ['centaur', 'manual', 'personal', 'work'], items }
-          : { artifacts: [], limit: 100 },
-    }),
-  );
+  await page.route('**/api/**', (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/api/todos')
+      return route.fulfill({
+        json: { profiles: ['centaur', 'manual', 'personal', 'work'], items },
+      });
+    if (path === '/api/home/preferences')
+      return route.fulfill({
+        json: { revision: 0, names: { briefing: 'Minion', terminal: 'Minion' }, pins: [] },
+      });
+    return route.fulfill({ json: { artifacts: [], limit: 100 } });
+  });
   await page.goto('/todos');
 });
 
@@ -88,9 +92,17 @@ test('Telos keeps long handovers compact and actions reachable on iOS', async ({
   }
   await page.setViewportSize({ width: 390, height: 844 });
   await page.screenshot({ path: 'test-results/telos-mobile.png' });
-  await card.getByRole('button', { name: summary, exact: true }).tap();
+  const title = card.getByRole('button', { name: /^Symposium — canonical recovery,/ });
+  await expect(title).toContainText(
+    'Symposium — canonical recovery, conversation testing and staging cleanup.',
+  );
+  const compactTitle = await title.innerText();
+  expect(compactTitle.length).toBeLessThanOrEqual(200);
+  expect(compactTitle).not.toBe(summary);
+  await title.tap();
   await expect(page).toHaveURL(/\/todos\/item-0$/);
   await expect(page.locator('.todo-detail-summary')).toHaveText(summary);
+  await expect(page.getByRole('button', { name: 'Pin to Today', exact: true })).toBeEnabled();
 });
 
 test('desktop and tablet Work lists retain a compact action bar without a second heading', async ({

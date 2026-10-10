@@ -45,6 +45,8 @@
     "observability:down": "docker compose down",
     "prepare": "husky || true",
     "check:security-backport": "node scripts/build-forge-security-backport.mjs --verify",
+    "quotes:build": "tsx scripts/build-quote-catalog.ts",
+    "quotes:check": "tsx scripts/build-quote-catalog.ts --check",
     "postinstall": "node scripts/prepare-terminal-native.mjs"
   },
   "dependencies": {

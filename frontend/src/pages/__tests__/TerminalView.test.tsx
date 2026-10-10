@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   send: vi.fn(async () => {}),
   focus: vi.fn(),
   review: vi.fn(() => 'private terminal output'),
+  names: { briefing: 'Minion', terminal: 'Minion' },
 }));
 vi.mock('../../components/TerminalConsole', () => ({
   TerminalConsole: forwardRef(function Mock(props: { onStatus: (state: string) => void }, ref) {
@@ -31,12 +32,17 @@ vi.mock('../../components/AccountModelPicker', () => ({
     );
   },
 }));
+vi.mock('../../hooks/useHomePreferences', () => ({
+  useHomePreferences: () => ({ preferences: { names: mocks.names } }),
+}));
 vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
 import { apiFetch } from '../../lib/api-fetch';
 import { TerminalView } from '../TerminalView';
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  mocks.names = { briefing: 'Minion', terminal: 'Minion' };
+  localStorage.clear();
 });
 function setup(path = '/terminal?sessionId=chat-a', state = 'running') {
   vi.mocked(apiFetch).mockImplementation(
@@ -273,4 +279,15 @@ it('offers an explicit new shell after the saved session is confirmed ended', as
       vi.mocked(apiFetch).mock.calls.filter(([path]) => path === '/api/terminals'),
     ).toHaveLength(2),
   );
+});
+
+it('uses the workspace terminal name independently of the briefing and legacy browser name', async () => {
+  mocks.names = { briefing: 'Jeeves', terminal: 'Orbit' };
+  localStorage.setItem('mitzo-assistant-name', 'Old browser name');
+  setup('/terminal');
+  await screen.findByText('Shell output');
+  fireEvent.click(screen.getByRole('button', { name: 'Show Orbit' }));
+  expect(screen.getByLabelText('Ask Orbit')).toBeTruthy();
+  expect(screen.queryByLabelText('Ask Jeeves')).toBeNull();
+  expect(screen.queryByLabelText('Ask Old browser name')).toBeNull();
 });

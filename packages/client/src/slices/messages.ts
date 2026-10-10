@@ -7,6 +7,7 @@
 
 import type {
   FinishedMessage,
+  SourceSnapshot,
   FinishedBlock,
   StreamingMessage,
   StreamingBlock,
@@ -165,6 +166,7 @@ type MessagesCoreAction =
       clientMsgId: string;
       images?: string[];
       contextBlocks?: string[];
+      sourceSnapshots?: SourceSnapshot[];
     }
   | { type: 'SESSION_STATE_CHANGED'; state: ClientSessionState }
   | { type: 'CONNECTION_LOST' }
@@ -181,6 +183,7 @@ type MessagesCoreAction =
       text: string;
       images?: string[];
       contextBlocks?: string[];
+      sourceSnapshots?: SourceSnapshot[];
     }
   | { type: 'WORKTREE_OPENED'; repoName: string; path: string }
   | { type: 'NATIVE_COMMAND_RESULT'; command: string; content: string }
@@ -945,14 +948,22 @@ function reduceLegacyMessages(state: MessagesState, action: MessagesAction): Mes
         const startedSeq = action.startedSeq ?? existing.startedSeq;
         const images = action.images ?? existing.images;
         const contextBlocks = action.contextBlocks ?? existing.contextBlocks;
+        const sourceSnapshots = action.sourceSnapshots ?? existing.sourceSnapshots;
         if (
           startedSeq === existing.startedSeq &&
           images === existing.images &&
-          contextBlocks === existing.contextBlocks
+          contextBlocks === existing.contextBlocks &&
+          sourceSnapshots === existing.sourceSnapshots
         )
           return state;
         const messages = [...state.messages];
-        messages[existingIndex] = { ...existing, startedSeq, images, contextBlocks };
+        messages[existingIndex] = {
+          ...existing,
+          startedSeq,
+          images,
+          contextBlocks,
+          sourceSnapshots,
+        };
         return { ...state, messages };
       }
       return {
@@ -966,6 +977,7 @@ function reduceLegacyMessages(state: MessagesState, action: MessagesAction): Mes
             timestamp: Date.now(),
             images: action.images,
             contextBlocks: action.contextBlocks,
+            sourceSnapshots: action.sourceSnapshots,
             blocks: [
               {
                 blockId: `user-text-${action.messageId}`,
@@ -990,6 +1002,7 @@ function reduceLegacyMessages(state: MessagesState, action: MessagesAction): Mes
             blocks: [],
             images: action.images,
             contextBlocks: action.contextBlocks,
+            sourceSnapshots: action.sourceSnapshots,
             ...(action.text
               ? {
                   blocks: [

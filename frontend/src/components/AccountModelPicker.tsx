@@ -1,6 +1,6 @@
 import { getDefaultAccountModel, setDefaultAccountModel } from '../lib/account-preference';
 import { SymposiumPersonalConnections } from './SymposiumPersonalConnections';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { z } from 'zod';
 import { apiFetch } from '../lib/api-fetch';
 import type { WorkspaceSummary } from '../types/workspace';
@@ -54,6 +54,26 @@ function withThinking(selection: AccountSelection, account: Account): AccountSel
   };
 }
 
+/** Visible form labels belong to staged dialogs; inline chat controls keep their geometry. */
+function PickerField({
+  label,
+  visible,
+  children,
+}: {
+  label: string;
+  visible: boolean;
+  children: ReactNode;
+}) {
+  return visible ? (
+    <label className="account-model-field">
+      <span>{label}</span>
+      {children}
+    </label>
+  ) : (
+    <>{children}</>
+  );
+}
+
 /** Catalog refreshes and draft confirmation belong to one conversation. */
 export function AccountModelPicker(props: Parameters<typeof SessionAccountModelPicker>[0]) {
   const sessionKey = `${props.scope === 'symposium' ? 'symposium' : props.scope === 'adviser' ? 'adviser' : (props.sessionId ?? 'new-chat')}:${props.requiredSelection?.accountId ?? ''}:${props.requiredSelection?.model ?? ''}`;
@@ -70,10 +90,14 @@ function SessionAccountModelPicker({
   scope = 'chat',
   requireExplicitSelection = false,
   requiredSelection,
+  draftOnly = false,
+  preferWorkOpenAI = false,
   initialSelection,
 }: {
-  scope?: 'chat' | 'symposium' | 'adviser';
+  draftOnly?: boolean;
+  preferWorkOpenAI?: boolean;
   initialSelection?: AccountSelection;
+  scope?: 'chat' | 'symposium' | 'adviser';
   requireExplicitSelection?: boolean;
   requiredSelection?: { accountId: string; model: string };
   disabled?: boolean;
@@ -301,11 +325,8 @@ function SessionAccountModelPicker({
           }
           const previous =
             (attempt ? selectionRef.current : null) ??
-            (scope === 'adviser'
-              ? initialSelection
-              : scope === 'chat' && !legacy
-                ? getDefaultAccountModel()
-                : null);
+            initialSelection ??
+            (scope === 'chat' && !legacy ? getDefaultAccountModel() : null);
           if (
             !legacy &&
             previous &&
@@ -318,7 +339,12 @@ function SessionAccountModelPicker({
             callbacks.current.onUnavailable?.();
             return;
           }
-          const first = catalog.find((a) => a.id === previous?.accountId) ?? catalog[0];
+          const first =
+            catalog.find((a) => a.id === previous?.accountId) ??
+            (preferWorkOpenAI
+              ? catalog.find((a) => /\bwork\b/i.test(a.label) && /openai/i.test(a.label))
+              : undefined) ??
+            catalog[0];
           const next = {
             ...(!legacy ? { accountId: first.id } : {}),
             model: first.models.some((m) => m.id === (previous?.model ?? preferredModel))
@@ -329,7 +355,8 @@ function SessionAccountModelPicker({
             { ...next, reasoningEffort: previous?.reasoningEffort },
             first,
           );
-          const confirm = scope === 'chat' && !legacy && (!previous || needsConfirmation);
+          const confirm =
+            !draftOnly && scope === 'chat' && !legacy && (!previous || needsConfirmation);
           setNeedsConfirmation(confirm);
           setDraftUnavailable(false);
           setSelection(selected);
@@ -378,7 +405,7 @@ function SessionAccountModelPicker({
         <button disabled={disabled} onClick={() => setAttempt((value) => value + 1)}>
           Retry accounts
         </button>
-        {scope === 'chat' && !sessionId && !legacy && !requiredSelection && (
+        {scope === 'chat' && !sessionId && !legacy && !requiredSelection && !draftOnly && (
           <button disabled={disabled} onClick={() => setLegacy(true)}>
             Use legacy server account
           </button>
@@ -431,37 +458,39 @@ function SessionAccountModelPicker({
       ) : legacy ? (
         <span>Legacy server account</span>
       ) : (
-        <select
-          disabled={disabled || !!requiredSelection}
-          aria-label="Account"
-          className="chat-model-select"
-          value={account.id}
-          onChange={(e) => {
-            setEditingAlias(false);
-            const nextAccount = accounts.find((a) => a.id === e.target.value)!;
-            const next = withThinking(
-              { accountId: nextAccount.id, model: nextAccount.models[0].id },
-              nextAccount,
-            );
-            setDraftUnavailable(false);
-            setNeedsConfirmation(false);
-            setSelection(next);
-            onChange(explicitSelection ? null : next);
-          }}
-        >
-          {!accounts.some((a) => a.id === account.id) && (
-            <option value={account.id} disabled>
-              {account.label}
-            </option>
-          )}
-          {accounts.map((a) => (
-            <option key={a.id} value={a.id}>
-              {a.label}
-            </option>
-          ))}
-        </select>
+        <PickerField label="Account" visible={draftOnly}>
+          <select
+            disabled={disabled || !!requiredSelection}
+            aria-label="Account"
+            className="chat-model-select"
+            value={account.id}
+            onChange={(e) => {
+              setEditingAlias(false);
+              const nextAccount = accounts.find((a) => a.id === e.target.value)!;
+              const next = withThinking(
+                { accountId: nextAccount.id, model: nextAccount.models[0].id },
+                nextAccount,
+              );
+              setDraftUnavailable(false);
+              setNeedsConfirmation(false);
+              setSelection(next);
+              onChange(explicitSelection ? null : next);
+            }}
+          >
+            {!accounts.some((a) => a.id === account.id) && (
+              <option value={account.id} disabled>
+                {account.label}
+              </option>
+            )}
+            {accounts.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.label}
+              </option>
+            ))}
+          </select>
+        </PickerField>
       )}
-      {scope === 'chat' && !legacy && (
+      {scope === 'chat' && !legacy && !draftOnly && (
         <button
           disabled={disabled}
           aria-label="Edit account alias"
@@ -519,54 +548,58 @@ function SessionAccountModelPicker({
           {aliasError && <span role="alert">{aliasError}</span>}
         </form>
       )}
-      <select
-        disabled={disabled || !!requiredSelection}
-        aria-label="Model"
-        className="chat-model-select"
-        value={selection.model}
-        onChange={(e) => {
-          const next = withThinking(
-            { accountId: selection.accountId, model: e.target.value },
-            account,
-          );
-          setDraftUnavailable(false);
-          setSelection(next);
-          onChange(explicitSelection || needsConfirmation ? null : next);
-        }}
-      >
-        {!account.models.some((m) => m.id === selection.model) && (
-          <option value={selection.model} disabled>
-            {selection.model} (unavailable)
-          </option>
-        )}
-        {account.models.map((m) => (
-          <option key={m.id} value={m.id}>
-            {m.label}
-          </option>
-        ))}
-      </select>
-      {!!account.models.find((m) => m.id === selection.model)?.reasoningEfforts?.length && (
+      <PickerField label="Model" visible={draftOnly}>
         <select
-          aria-label="Thinking"
+          disabled={disabled || !!requiredSelection}
+          aria-label="Model"
           className="chat-model-select"
-          disabled={disabled}
-          value={selection.reasoningEffort ?? ''}
+          value={selection.model}
           onChange={(e) => {
-            const next = { ...selection };
-            next.reasoningEffort = e.target.value || null;
+            const next = withThinking(
+              { accountId: selection.accountId, model: e.target.value },
+              account,
+            );
+            setDraftUnavailable(false);
             setSelection(next);
             onChange(explicitSelection || needsConfirmation ? null : next);
           }}
         >
-          <option value="">{scope === 'adviser' ? 'Adviser default' : 'Model default'}</option>
-          {account.models
-            .find((m) => m.id === selection.model)
-            ?.reasoningEfforts?.map((effort) => (
-              <option key={effort} value={effort}>
-                Thinking: {effort}
-              </option>
-            ))}
+          {!account.models.some((m) => m.id === selection.model) && (
+            <option value={selection.model} disabled>
+              {selection.model} (unavailable)
+            </option>
+          )}
+          {account.models.map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.label}
+            </option>
+          ))}
         </select>
+      </PickerField>
+      {!!account.models.find((m) => m.id === selection.model)?.reasoningEfforts?.length && (
+        <PickerField label="Thinking" visible={draftOnly}>
+          <select
+            aria-label="Thinking"
+            className="chat-model-select"
+            disabled={disabled}
+            value={selection.reasoningEffort ?? ''}
+            onChange={(e) => {
+              const next = { ...selection };
+              next.reasoningEffort = e.target.value || null;
+              setSelection(next);
+              onChange(explicitSelection || needsConfirmation ? null : next);
+            }}
+          >
+            <option value="">{scope === 'adviser' ? 'Adviser default' : 'Model default'}</option>
+            {account.models
+              .find((m) => m.id === selection.model)
+              ?.reasoningEfforts?.map((effort) => (
+                <option key={effort} value={effort}>
+                  Thinking: {effort}
+                </option>
+              ))}
+          </select>
+        </PickerField>
       )}
       {account.modelDiscovery?.stale && (
         <span role="status">Model refresh failed. Showing the last available list.</span>
@@ -590,7 +623,7 @@ function SessionAccountModelPicker({
           {account.models.find((model) => model.id === selection.model)?.label ?? selection.model}
         </button>
       )}
-      {scope === 'chat' && !sessionId && !legacy && !requiredSelection && (
+      {scope === 'chat' && !sessionId && !legacy && !requiredSelection && !draftOnly && (
         <>
           <button
             disabled={disabled || draftUnavailable}

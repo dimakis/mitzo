@@ -1690,6 +1690,38 @@ describe('legacy permission mode transition', () => {
 // ─── handleSendV2 auto-watch ─────────────────────────────────────────────────
 
 describe('handleSendV2 auto-watch', () => {
+  it('passes the explicit source snapshot into ordinary provider startup', async () => {
+    vi.mocked(startChat).mockClear();
+    const ctx = createContext();
+    const transport = mockTransport();
+    ctx.connRegistry.register('snapshot-driver', transport);
+    const sourceSnapshots = [
+      {
+        kind: 'briefing' as const,
+        date: '2026-10-09',
+        revision: 'a'.repeat(64),
+        content: 'Exact snapshot',
+      },
+    ];
+    await handleSendV2(
+      'snapshot-driver',
+      transport,
+      {
+        type: 'send',
+        sessionId: null,
+        prompt: 'Discuss',
+        clientMsgId: 'snapshot-launch',
+        sourceSnapshots,
+      },
+      ctx,
+    );
+    expect(startChat).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.any(String),
+      'Discuss',
+      expect.objectContaining({ sourceSnapshots }),
+    );
+  });
   it('watches + activates the session on the resume path with composite clientId', () => {
     (startChat as ReturnType<typeof vi.fn>).mockClear();
     const sessionReg = mockSessionRegistry();

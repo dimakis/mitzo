@@ -5,7 +5,74 @@ import { MitzoStoreProvider } from '@mitzo/client/hooks';
 import { createTestStore } from '../../test-utils/createTestStore';
 import { usePendingLaunch } from '../usePendingLaunch';
 import type { SendMessageOptions } from '@mitzo/client';
-afterEach(cleanup);
+import { apiFetch } from '../../lib/api-fetch';
+vi.mock('../../lib/api-fetch', () => ({
+  apiFetch: vi.fn(),
+  getApiBaseUrl: () => '',
+  AUTH_LOST_EVENT: 'mitzo:auth-lost',
+}));
+afterEach(() => {
+  cleanup();
+  localStorage.clear();
+  vi.resetAllMocks();
+});
+
+it('registers only exact source identity from a saved binding on assignment and preserves the caller observer', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(
+    new Response(
+      JSON.stringify({
+        date: '2026-10-09',
+        revision: 'a'.repeat(64),
+        sessionId: 'briefing-session',
+        accountId: 'work',
+        model: 'luna',
+        createdAt: '2026-10-09T07:00:00Z',
+      }),
+      { status: 201 },
+    ),
+  );
+  const savedBinding = {
+    date: '2026-10-09',
+    revision: 'a'.repeat(64),
+    createdAt: '2026-10-09T07:00:00Z',
+    sessionId: 'old',
+    accountId: 'old-account',
+    model: 'old-model',
+  };
+  const store = createTestStore();
+  let assigned: SendMessageOptions['onSessionAssigned'];
+  store.setState({
+    pendingSession: {
+      prompt: 'Discuss',
+      context: 'Briefing',
+      briefing: savedBinding,
+      accountSelection: { accountId: 'work', model: 'luna' },
+    },
+    sendMessage: (_text, options) => {
+      assigned = options?.onSessionAssigned;
+    },
+  });
+  const caller = vi.fn();
+  const { result } = renderHook(usePendingLaunch, {
+    wrapper: ({ children }) => <MitzoStoreProvider value={store}>{children}</MitzoStoreProvider>,
+  });
+  act(() => result.current.sendLaunch({ onSessionAssigned: caller }));
+  await act(async () => assigned?.('briefing-session'));
+  expect(caller).toHaveBeenCalledWith('briefing-session');
+  expect(apiFetch).toHaveBeenCalledWith(
+    '/api/home/briefing-chats',
+    expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({
+        date: '2026-10-09',
+        revision: 'a'.repeat(64),
+        sessionId: 'briefing-session',
+        accountId: 'work',
+        model: 'luna',
+      }),
+    }),
+  );
+});
 
 it('retains a failed launch, retries its identity, and dismisses only after acceptance', () => {
   const store = createTestStore();

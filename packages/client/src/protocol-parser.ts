@@ -1,3 +1,4 @@
+import { SourceSnapshotsSchema } from '@mitzo/protocol';
 /**
  * Protocol parser — maps ServerMessage → store actions.
  *
@@ -550,6 +551,7 @@ export function parseServerMessage(
           : {}),
         text: msg.text as string,
         images: Array.isArray(msg.images) ? (msg.images as string[]) : undefined,
+        sourceSnapshots: SourceSnapshotsSchema.safeParse(msg.sourceSnapshots).data,
         contextBlocks: Array.isArray(msg.contextBlocks)
           ? (msg.contextBlocks as string[])
           : undefined,

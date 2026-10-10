@@ -22,7 +22,7 @@ Minion is collapsed initially. A chat supplies an initial account, model and thi
 
 OpenAI API, Gemini Vertex and Claude Vertex accounts are supported. Personal ChatGPT subscription advisers remain unavailable: the existing CLI agent runtime does not establish a tool-free inference capability. Their saved eligible sandbox can still be the human terminal destination. No alternate account, model or host credentials are substituted. A subscription adviser needs a separately reviewed isolated adapter before enrollment.
 
-**Settings → Appearance → Assistant name** controls the shared helper display name, defaulting to Minion, and updates mounted consumers and other tabs. It is saved on the device alongside existing appearance preferences. Future companion/adviser surfaces should use `useAssistantName` and identify their role separately.
+**Settings → Your minions → Terminal minion name** controls the terminal helper’s display name, defaulting to Minion. The briefing name is configured independently in the same section. Names are saved for the workspace across devices with revision checks; the terminal reads its name from `useHomePreferences`.
 
 ## Acceptance and rollout
 
