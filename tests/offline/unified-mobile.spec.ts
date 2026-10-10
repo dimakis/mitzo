@@ -1647,6 +1647,9 @@ test('failed briefing registration survives a completed turn and reload without 
     accountId: 'work-account',
     model: 'luna-fixture',
   };
+  const changedSessionId = 'changed-briefing-registration';
+  const changedBinding = { ...binding, sessionId: changedSessionId, model: 'luna-other-fixture' };
+  const savedBindings: Record<string, unknown>[] = [];
   const posts: unknown[] = [];
   const turns: Record<string, unknown>[] = [];
   let registered = false;
@@ -1667,20 +1670,29 @@ test('failed briefing registration survives a completed turn and reload without 
         );
       if (message.type !== 'send') return;
       turns.push(message);
+      const assignedId = message.model === changedBinding.model ? changedSessionId : sessionId;
       socket.send(
-        JSON.stringify({ type: 'session_id', sessionId, clientMsgId: message.clientMsgId }),
+        JSON.stringify({
+          type: 'session_id',
+          sessionId: assignedId,
+          clientMsgId: message.clientMsgId,
+        }),
       );
-      socket.send(JSON.stringify({ type: 'session_state_changed', sessionId, state: 'running' }));
+      socket.send(
+        JSON.stringify({ type: 'session_state_changed', sessionId: assignedId, state: 'running' }),
+      );
       socket.send(
         JSON.stringify({
           type: 'user_message',
-          sessionId,
+          sessionId: assignedId,
           messageId: message.clientMsgId,
           text: message.prompt,
           sourceSnapshots: message.sourceSnapshots,
         }),
       );
-      socket.send(JSON.stringify({ type: 'session_state_changed', sessionId, state: 'idle' }));
+      socket.send(
+        JSON.stringify({ type: 'session_state_changed', sessionId: assignedId, state: 'idle' }),
+      );
       completed = true;
     });
   });
@@ -1693,11 +1705,14 @@ test('failed briefing registration survives a completed turn and reload without 
         if (!allowRegistration)
           return route.fulfill({ status: 503, json: { error: 'Offline registration failed' } });
         registered = true;
-        return route.fulfill({ json: { ...binding, createdAt: '2026-10-10T07:00:00Z' } });
+        const saved = { ...route.request().postDataJSON(), createdAt: '2026-10-10T07:00:00Z' };
+        if (!savedBindings.some((entry) => entry.sessionId === saved.sessionId))
+          savedBindings.push(saved);
+        return route.fulfill({ json: saved });
       }
       if (!registered) emptyReads += 1;
       return route.fulfill({
-        json: registered ? [{ ...binding, createdAt: '2026-10-10T07:00:00Z' }] : [],
+        json: registered ? savedBindings : [],
       });
     }
     if (route.request().method() !== 'GET')
@@ -1711,24 +1726,34 @@ test('failed briefing registration survives a completed turn and reload without 
       });
     const models = [
       { id: 'luna-fixture', label: 'Luna fixture', reasoningEfforts: ['low', 'high'] },
+      { id: 'luna-other-fixture', label: 'Luna other fixture', reasoningEfforts: ['low', 'high'] },
     ];
     if (url.pathname === '/api/accounts')
       return route.fulfill({ json: [{ id: 'work-account', label: 'Work OpenAI', models }] });
     if (url.pathname === '/api/repository-workspaces/catalog')
       return route.fulfill({ json: { available: false, repositories: [] } });
-    if (url.pathname === `/api/chat/web-search-consent/${sessionId}`)
+    if (
+      [sessionId, changedSessionId].some(
+        (id) => url.pathname === `/api/chat/web-search-consent/${id}`,
+      )
+    )
       return route.fulfill({ json: { ok: true, grant: 'denied', revision: 0, updatedAt: null } });
-    if (url.pathname === `/api/sessions/${sessionId}/messages`) return route.fulfill({ json: [] });
-    if (url.pathname === `/api/sessions/${sessionId}/meta`)
+    if ([sessionId, changedSessionId].some((id) => url.pathname === `/api/sessions/${id}/messages`))
+      return route.fulfill({ json: [] });
+    if ([sessionId, changedSessionId].some((id) => url.pathname === `/api/sessions/${id}/meta`))
       return route.fulfill({
         json: {
           sessionType: 'chat',
+          isHidden: false,
           accountBinding: {
             accountId: 'work-account',
             accountLabel: 'Work OpenAI',
             model: 'luna-fixture',
           },
-          modelSelection: { model: 'luna-fixture', models },
+          modelSelection: {
+            model: url.pathname.includes(changedSessionId) ? changedBinding.model : binding.model,
+            models,
+          },
         },
       });
     if (url.pathname === `/api/sessions/${sessionId}/symposium/status`)
@@ -1748,6 +1773,17 @@ test('failed briefing registration survives a completed turn and reload without 
   expect(completed).toBe(true);
   expect(turns).toHaveLength(1);
   expect(posts).toEqual([binding]);
+  await page.getByRole('button', { name: 'Change account or model', exact: true }).click();
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: 'Use selection', exact: true })
+    .click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(page).toHaveURL(new RegExp(`/chat/${sessionId}$`));
+  await expect(retry).toBeVisible();
+  expect(turns).toHaveLength(1);
+  expect(posts).toEqual([binding]);
+
   await expect.poll(() => emptyReads).toBeGreaterThan(0);
   async function retained() {
     await expect(page.getByText(`${nickname} · 2026-10-10`, { exact: true })).toBeVisible();
@@ -1861,6 +1897,21 @@ test('failed briefing registration survives a completed turn and reload without 
   await retained();
   expect(posts).toEqual([binding, binding]);
   expect(turns).toHaveLength(1);
+  await page.getByRole('button', { name: 'Change account or model', exact: true }).click();
+  const changedPicker = page.getByRole('dialog');
+  await changedPicker
+    .getByRole('combobox', { name: 'Model', exact: true })
+    .selectOption(changedBinding.model);
+  await changedPicker.getByRole('button', { name: 'Use selection', exact: true }).click();
+  await expect(page).toHaveURL(/\/chat$/);
+  await page.getByRole('button', { name: 'Send launch prompt', exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`/chat/${changedSessionId}$`));
+  await expect.poll(() => posts.length).toBe(3);
+  expect(posts).toEqual([binding, binding, changedBinding]);
+  expect(turns).toHaveLength(2);
+  expect(turns[1].sourceSnapshots).toEqual(turns[0].sourceSnapshots);
+  expect(turns[1].model).toBe(changedBinding.model);
+  await expect(retry).toHaveCount(0);
 });
 
 test('saved chat identity failures lock model controls until an explicit successful retry', async ({
