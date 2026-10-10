@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## UI design
+
+Every user-facing UI change follows [the UI design contract](docs/design/ui-design-system.md) and `frontend/AGENTS.md`. Read them before implementation. This includes new features and existing mobile/web pages; shared tokens, component reuse and the UI verification checklist are required.
+
 ## Commands
 
 ```bash
