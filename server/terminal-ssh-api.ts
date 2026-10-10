@@ -232,6 +232,8 @@ export class TerminalSshApi {
       return { sandboxId, token: grant.token, proxyUrl: `${origin}/proxy/connect` };
     } catch (error) {
       if (error instanceof TerminalSessionMissing) throw error;
+      // Gateway/transport diagnostics must not retain credentials or grant material.
+      // eslint-disable-next-line preserve-caught-error
       throw Error('Terminal SSH identity unavailable');
     }
   }
