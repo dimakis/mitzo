@@ -643,3 +643,22 @@ it('does not accept a different source receipt for an HTTP registration retry', 
   expect(bodies[2].requestId).not.toBe(bodies[0].requestId);
   expect(sessionStorage.length).toBe(1);
 });
+
+it('does not dispatch a captured mutation after navigation crosses its async identity fence', async () => {
+  vi.stubGlobal('crypto', { getRandomValues: webcrypto.getRandomValues.bind(webcrypto) });
+  vi.mocked(apiFetch).mockImplementation(async (url) => reads(String(url)));
+  const { result, rerender } = renderHook(({ id }) => useOutputContributors(id), {
+    initialProps: { id: 'source' },
+  });
+  await waitFor(() => expect(result.current?.outputs.length).toBe(1));
+  const register = result.current!.onRegister;
+  let pending!: Promise<void>;
+  act(() => {
+    pending = register({ source, content: 'Exact draft' }, 'Old draft');
+  });
+  rerender({ id: 'other' });
+  await act(async () => {
+    await expect(pending).rejects.toThrow('changed before this request started');
+  });
+  expect(vi.mocked(apiFetch).mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false);
+});
