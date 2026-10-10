@@ -18,6 +18,7 @@ const dirs: string[] = [];
 const cleanup: (() => void)[] = [];
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.useRealTimers();
   cleanup.splice(0).forEach((f) => f());
   dirs.splice(0).forEach((d) => rmSync(d, { recursive: true, force: true }));
 });
@@ -120,6 +121,215 @@ function setup() {
   return { service, store, deps, input, port, output };
 }
 describe('ordinary contributors to registered outputs', () => {
+  it.each([
+    { lateAcceptance: false, retained: 'current' },
+    { lateAcceptance: true, retained: 'current' },
+    { lateAcceptance: false, retained: 'unbound' },
+    { lateAcceptance: false, retained: 'ambiguous' },
+    { lateAcceptance: false, retained: 'conflicting' },
+    { lateAcceptance: false, retained: 'missing-claim' },
+    { lateAcceptance: false, retained: 'missing-owner' },
+    { lateAcceptance: false, retained: 'wrong-account' },
+    { lateAcceptance: false, retained: 'partial-recovery' },
+  ])(
+    'preserves confirmed Stop child continuity with $retained history (late acceptance $lateAcceptance)',
+    async ({ lateAcceptance, retained }) => {
+      const { service, deps, input, port, store } = setup();
+      let acceptedChild = '';
+      vi.mocked(port.startChat).mockImplementationOnce(
+        async (_transport, _client, _prompt, options) => {
+          acceptedChild = options.initialSessionId!;
+          store.upsertSession({
+            sessionId: acceptedChild,
+            conversationSource: 'mitzo',
+            accountBinding: deps.currentAccounts().resolve(input.accountId, input.model),
+          });
+          store.append(acceptedChild, 'contributor_execution', {
+            ...options.contributorExecution,
+            childSessionId: acceptedChild,
+          });
+          options.ordinaryTurnLifecycle!.beforeDispatch(options.clientMsgId!);
+          const accept = () =>
+            options.ordinaryTurnLifecycle!.accepted(
+              options.clientMsgId!,
+              'raw-thread',
+              'stopped-turn',
+            );
+          if (!lateAcceptance) accept();
+          await new Promise<void>((resolve) => {
+            options.onQueryReady?.({
+              interrupt: async () => {
+                if (lateAcceptance) accept();
+                options.ordinaryTurnLifecycle!.terminal(
+                  options.clientMsgId!,
+                  'stopped-turn',
+                  'interrupted',
+                );
+                options.onTurnResult?.({});
+                resolve();
+              },
+            });
+          });
+        },
+      );
+      const contributor = await service.add('source', input);
+      const first = service.message('source', contributor.id, {
+        requestId: 'first-stopped',
+        text: 'Continue',
+      });
+      await vi.waitFor(() => expect(port.startChat).toHaveBeenCalledOnce());
+      if (lateAcceptance) vi.useFakeTimers();
+      const stopping = service.stop('source', contributor.id, { requestId: 'stop-first' });
+      if (lateAcceptance) await vi.advanceTimersByTimeAsync(30_001);
+      const stopped = await stopping;
+      vi.useRealTimers();
+      expect(stopped.status).toBe('idle');
+      expect((await first).delivery.status).toBe('cancelled');
+      expect(
+        (await service.stop('source', contributor.id, { requestId: 'stop-first' })).status,
+      ).toBe('idle');
+      const cancelled = store.getSymposiumDeliveries(contributor.id)[0];
+      const accepted = store.getSymposiumRecipientAttempts(cancelled.deliveryId)[0];
+      if (!accepted.claimToken) throw Error('Expected exact accepted attempt');
+      expect(
+        store.markSymposiumRecipientAccepted({
+          deliveryId: cancelled.deliveryId,
+          seatId: 'contributor',
+          claimToken: accepted.claimToken,
+          providerThreadId: acceptedChild,
+          providerTurnId: 'stopped-turn',
+          acceptedAt: Date.now() + 1,
+          retainSeatThread: true,
+        }),
+      ).toBe(true);
+      expect(store.getSymposiumRecipientAttempts(cancelled.deliveryId)[0]).toEqual(accepted);
+      if (retained !== 'current') {
+        const db = new Database(deps.databasePath);
+        db.prepare('DELETE FROM symposium_seat_threads WHERE session_id=?').run(contributor.id);
+        if (retained === 'ambiguous')
+          db.prepare('UPDATE symposium_recipient_attempts SET symposium_provenance=NULL').run();
+        if (retained === 'missing-claim')
+          db.prepare('UPDATE symposium_recipient_attempts SET claim_token=NULL').run();
+        if (retained === 'missing-owner')
+          db.prepare("DELETE FROM events WHERE type='contributor_execution'").run();
+        if (retained === 'wrong-account')
+          db.prepare(
+            "UPDATE sessions SET account_binding=json_set(account_binding,'$.profileRevision','other') WHERE session_id=?",
+          ).run(acceptedChild);
+        if (retained === 'partial-recovery')
+          db.prepare(
+            `INSERT INTO symposium_recipient_attempts
+            (delivery_id,seat_id,attempt_number,idempotency_key,claim_token,symposium_provenance,status,
+             provider_thread_id,provider_turn_id,accepted_at,dispatched_content,dispatch_seq,
+             started_at,updated_at,cleanup_confirmed)
+            SELECT delivery_id,seat_id,attempt_number+1,idempotency_key,'unknown-claim',symposium_provenance,status,
+             'unowned-child','unowned-turn',accepted_at,dispatched_content,dispatch_seq,
+             started_at,updated_at,cleanup_confirmed FROM symposium_recipient_attempts LIMIT 1`,
+          ).run();
+        if (retained === 'conflicting') {
+          const provenance = store.getSymposiumRecipientAttempts(
+            store.getSymposiumDeliveries(contributor.id)[0].deliveryId,
+          )[0].provenance;
+          if (!provenance || !('version' in provenance))
+            throw Error('Expected exact retained provenance');
+          const bindingKey = JSON.stringify([
+            provenance.accountBinding.provider,
+            provenance.accountBinding.accountId,
+            provenance.accountBinding.model,
+            provenance.accountBinding.profileRevision,
+            provenance.reasoningEffort,
+            provenance.profileBinding.profileId,
+            provenance.profileBinding.profileRevision,
+            provenance.contextGrant.grantId,
+            provenance.contextGrant.revision,
+            provenance.authorityGrant.grantId,
+            provenance.authorityGrant.revision,
+            provenance.isolationDomainId,
+            provenance.isolationDomainRevision,
+            provenance.membershipGeneration,
+          ]);
+          db.prepare('INSERT INTO symposium_seat_threads VALUES (?,?,?,?,?,?,?)').run(
+            contributor.id,
+            'contributor',
+            bindingKey,
+            'conflicting-child',
+            provenance.configRevision,
+            1,
+            1,
+          );
+        }
+        db.close();
+      }
+      service.close();
+      store.close();
+      const reopenedStore = new EventStore(deps.databasePath);
+      cleanup.push(() => reopenedStore.close());
+      const reopened = createOutputContributors({ ...deps, store: reopenedStore });
+      cleanup.unshift(() => reopened.close());
+      if (retained !== 'partial-recovery')
+        expect((await reopened.list('source')).contributors[0].sessionId).toBe(acceptedChild);
+      const previousThreads = reopenedStore.getSymposiumSeatThreads(contributor.id);
+      let followupTurn = 0;
+      vi.mocked(port.startChat).mockImplementation(
+        async (_transport, _client, _prompt, options) => {
+          const id = options.resume ?? options.initialSessionId!;
+          reopenedStore.upsertSession({
+            sessionId: id,
+            conversationSource: 'mitzo',
+            accountBinding: deps.currentAccounts().resolve(input.accountId, input.model),
+          });
+          reopenedStore.append(id, 'contributor_execution', {
+            ...options.contributorExecution,
+            childSessionId: id,
+          });
+          options.ordinaryTurnLifecycle!.beforeDispatch(options.clientMsgId!);
+          const turnId = `followup-${++followupTurn}`;
+          options.ordinaryTurnLifecycle!.accepted(options.clientMsgId!, 'raw-thread', turnId);
+          options.ordinaryTurnLifecycle!.terminal(options.clientMsgId!, turnId, 'completed');
+          options.onTurnResult?.({});
+        },
+      );
+      const followup = reopened.message('source', contributor.id, {
+        requestId: 'after-stop',
+        text: 'Keep going',
+      });
+      if (
+        [
+          'ambiguous',
+          'conflicting',
+          'missing-claim',
+          'missing-owner',
+          'wrong-account',
+          'partial-recovery',
+        ].includes(retained)
+      ) {
+        await expect(followup).rejects.toThrow(/recovery|thread.*changed/);
+        expect(port.startChat).toHaveBeenCalledOnce();
+        expect(reopenedStore.getSymposiumSeatThreads(contributor.id)).toEqual(previousThreads);
+        expect(
+          reopenedStore.getUnsettledSymposiumSeatExecutions(contributor.id, 'contributor'),
+        ).toHaveLength(0);
+        const db = new Database(deps.databasePath);
+        expect(
+          db
+            .prepare(
+              'SELECT count(*) AS count FROM symposium_seat_execution_claims WHERE session_id=?',
+            )
+            .get(contributor.id),
+        ).toEqual({ count: 0 });
+        db.close();
+        return;
+      }
+      expect((await followup).delivery.status).toBe('delivered');
+      expect(vi.mocked(port.startChat).mock.calls[1][3].resume).toBe(acceptedChild);
+      expect(vi.mocked(port.startChat).mock.calls[1][3].initialSessionId).toBeUndefined();
+      await reopened.message('source', contributor.id, {
+        requestId: 'after-followup',
+        text: 'One more',
+      });
+      expect(vi.mocked(port.startChat).mock.calls[2][3].resume).toBe(acceptedChild);
+    },
+  );
   it.each([
     { version: 1 as const, source: 'contexgin' as const, agentName: 'writer' },
     {
