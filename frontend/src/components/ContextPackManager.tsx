@@ -56,6 +56,7 @@ export function ContextPackManager({ knowledge }: { knowledge: KnowledgeCatalog 
   const [revisions, setRevisions] = useState<PublishedContextPack[]>([]);
   const [historyError, setHistoryError] = useState('');
   const selectionRequest = useRef(0);
+  const copyGeneration = useRef(0);
   const [profiles, setProfiles] = useState<
     { name: string; profileId: string; revision: number; packRevision?: number }[]
   >([]);
@@ -64,9 +65,13 @@ export function ContextPackManager({ knowledge }: { knowledge: KnowledgeCatalog 
   const [json, setJson] = useState('');
   const mounted = useRef(true);
   useEffect(() => {
+    const selection = selectionRequest;
+    const generation = copyGeneration;
     mounted.current = true;
     return () => {
       mounted.current = false;
+      selection.current++;
+      generation.current++;
     };
   }, []);
   const refresh = async () => {
@@ -99,20 +104,35 @@ export function ContextPackManager({ knowledge }: { knowledge: KnowledgeCatalog 
     window.addEventListener('beforeunload', protect);
     return () => window.removeEventListener('beforeunload', protect);
   }, [copy]);
-  const run = async (action: () => Promise<void>) => {
+  const run = async (action: (isCurrent: () => boolean) => Promise<void>) => {
+    const generation = copyGeneration.current;
+    const isCurrent = () => mounted.current && generation === copyGeneration.current;
     setBusy(true);
     setError('');
     setNotice('');
     try {
-      await action();
+      await action(isCurrent);
     } catch (cause) {
-      if (mounted.current)
-        setError(cause instanceof Error ? cause.message : 'Context request failed');
+      if (isCurrent()) setError(cause instanceof Error ? cause.message : 'Context request failed');
     } finally {
-      if (mounted.current) setBusy(false);
+      if (isCurrent()) setBusy(false);
     }
   };
+  const replaceCopy = (value: Copy) => {
+    copyGeneration.current++;
+    selectionRequest.current++;
+    setCopy(value);
+    setPreview(undefined);
+    setProfiles([]);
+    setRevisions([]);
+    setHistoryError('');
+    setDocument('');
+    setError('');
+    setNotice('');
+    setBusy(false);
+  };
   const update = (definition: ContextPackDefinition) => {
+    copyGeneration.current++;
     setCopy((current) =>
       current ? { ...current, definition, dirty: true, requestId: crypto.randomUUID() } : null,
     );
@@ -124,16 +144,12 @@ export function ContextPackManager({ knowledge }: { knowledge: KnowledgeCatalog 
       setError('Save or discard your working copy before opening another pack.');
       return;
     }
-    setCopy({
+    replaceCopy({
       definition: structuredClone(value.definition),
       ...('revision' in value ? { base: value } : { draft: value }),
       dirty: false,
     });
-    setPreview(undefined);
-    setProfiles([]);
-    setRevisions([]);
-    setHistoryError('');
-    const selectedRequest = ++selectionRequest.current;
+    const selectedRequest = selectionRequest.current;
     void request<{ revisions: PublishedContextPack[] }>(
       `/api/context-packs/${encodeURIComponent(value.definition.id)}/revisions`,
     )
@@ -154,9 +170,12 @@ export function ContextPackManager({ knowledge }: { knowledge: KnowledgeCatalog 
         if (mounted.current && selectedRequest === selectionRequest.current)
           setProfiles(result.profiles);
       })
-      .catch(() =>
-        setNotice('Profile impact is unavailable. Published profiles keep their pinned revisions.'),
-      );
+      .catch(() => {
+        if (mounted.current && selectedRequest === selectionRequest.current)
+          setNotice(
+            'Profile impact is unavailable. Published profiles keep their pinned revisions.',
+          );
+      });
   };
   const acceptedReferences = {
     revision: knowledge?.revision,
@@ -218,7 +237,7 @@ export function ContextPackManager({ knowledge }: { knowledge: KnowledgeCatalog 
         <button
           disabled={busy || !!copy?.dirty}
           onClick={() => {
-            setCopy({
+            replaceCopy({
               definition: {
                 version: 1,
                 id: crypto.randomUUID(),
@@ -231,8 +250,6 @@ export function ContextPackManager({ knowledge }: { knowledge: KnowledgeCatalog 
               dirty: true,
               requestId: crypto.randomUUID(),
             });
-            setPreview(undefined);
-            setProfiles([]);
           }}
         >
           New pack
@@ -270,7 +287,7 @@ export function ContextPackManager({ knowledge }: { knowledge: KnowledgeCatalog 
               try {
                 const value = JSON.parse(json);
                 const definition = ContextPackDefinitionSchema.parse(value.definition ?? value);
-                setCopy({ definition, dirty: true, requestId: crypto.randomUUID() });
+                replaceCopy({ definition, dirty: true, requestId: crypto.randomUUID() });
                 setImporting(false);
                 setNotice('Imported working copy. Review source choices before saving.');
               } catch (cause) {
@@ -483,7 +500,7 @@ export function ContextPackManager({ knowledge }: { knowledge: KnowledgeCatalog 
                 <button
                   disabled={busy || !copy.dirty}
                   onClick={() =>
-                    void run(async () => {
+                    void run(async (isCurrent) => {
                       const definition = {
                         ...copy.definition,
                         documents: copy.definition.documents.map((source) => ({
@@ -502,7 +519,7 @@ export function ContextPackManager({ knowledge }: { knowledge: KnowledgeCatalog 
                           : { definition, requestId: copy.requestId },
                         copy.draft ? 'PUT' : 'POST',
                       );
-                      if (mounted.current) {
+                      if (isCurrent()) {
                         setCopy({
                           ...copy,
                           definition: result.draft.definition,
@@ -520,11 +537,12 @@ export function ContextPackManager({ knowledge }: { knowledge: KnowledgeCatalog 
                 <button
                   disabled={busy || !saved}
                   onClick={() =>
-                    void run(async () => {
+                    void run(async (isCurrent) => {
                       const result = await request<{ issues: string[] }>(
                         `/api/context-packs/drafts/${copy.draft!.id}/validate`,
                         { version: copy.draft!.version },
                       );
+                      if (!isCurrent()) return;
                       setNotice(
                         result.issues.length
                           ? result.issues.join('\n')
@@ -538,13 +556,13 @@ export function ContextPackManager({ knowledge }: { knowledge: KnowledgeCatalog 
                 <button
                   disabled={busy || !saved}
                   onClick={() =>
-                    void run(async () => {
+                    void run(async (isCurrent) => {
                       setPreview(undefined);
                       const result = await request<{ compiledContext: CompiledAgentContext }>(
                         `/api/context-packs/drafts/${copy.draft!.id}/preview`,
                         { version: copy.draft!.version },
                       );
-                      setPreview(result.compiledContext);
+                      if (isCurrent()) setPreview(result.compiledContext);
                     })
                   }
                 >
@@ -553,11 +571,12 @@ export function ContextPackManager({ knowledge }: { knowledge: KnowledgeCatalog 
                 <button
                   disabled={busy || !saved}
                   onClick={() =>
-                    void run(async () => {
+                    void run(async (isCurrent) => {
                       const result = await request<{ pack: PublishedContextPack }>(
                         `/api/context-packs/drafts/${copy.draft!.id}/publish`,
                         { version: copy.draft!.version },
                       );
+                      if (!isCurrent()) return;
                       setCopy({
                         definition: result.pack.definition,
                         base: result.pack,
@@ -575,6 +594,7 @@ export function ContextPackManager({ knowledge }: { knowledge: KnowledgeCatalog 
                 <button
                   disabled={busy || !copy.dirty}
                   onClick={() => {
+                    copyGeneration.current++;
                     setCopy(
                       copy.draft
                         ? {

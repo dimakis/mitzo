@@ -1,13 +1,199 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { ContextPackManager } from '../ContextPackManager';
 import { apiFetch } from '../../lib/api-fetch';
 vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
 afterEach(cleanup);
-beforeEach(() => sessionStorage.clear());
+beforeEach(() => {
+  sessionStorage.clear();
+  vi.mocked(apiFetch).mockClear();
+});
+const importedDefinition = {
+  version: 1,
+  id: 'pack-b',
+  name: 'Pack B',
+  description: '',
+  tokenBudget: 4000,
+  documents: [
+    {
+      path: 'hub/review.md',
+      revision: 'a'.repeat(40),
+      mode: 'required',
+      headings: [],
+      priority: 50,
+    },
+  ],
+  retrievalGuidance: '',
+};
+const draftA = {
+  id: 'draft-a',
+  version: 1,
+  state: 'draft',
+  baseRevision: 0,
+  definition: { ...importedDefinition, id: 'pack-a', name: 'Pack A' },
+};
+const revisionA = { revision: 7, definition: draftA.definition };
+const impactA = { name: 'Profile using A', profileId: 'profile-a', revision: 2 };
+function importPack(value = importedDefinition) {
+  fireEvent.click(screen.getByRole('button', { name: 'Import pack JSON' }));
+  fireEvent.change(screen.getByLabelText('Portable context pack JSON'), {
+    target: { value: JSON.stringify(value) },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Review imported pack' }));
+}
+function renderManager() {
+  return render(
+    <MemoryRouter>
+      <ContextPackManager knowledge={knowledge} />
+    </MemoryRouter>,
+  );
+}
+it('clears pack A review evidence on import and keeps it absent after saving and publishing B', async () => {
+  vi.mocked(apiFetch).mockImplementation(async (path, init) => {
+    const result =
+      path === '/api/context-packs'
+        ? { packs: [], drafts: [draftA] }
+        : path.endsWith('/revisions')
+          ? { revisions: [revisionA] }
+          : path.endsWith('/impact')
+            ? { profiles: [impactA] }
+            : path.endsWith('/preview')
+              ? {
+                  compiledContext: {
+                    source: 'packs',
+                    compilerRevision: 'compiler-a',
+                    recipeHash: 'recipe-a',
+                    payloadHash: 'payload-a',
+                    provenance: {
+                      packs: [{ id: 'pack-a', revision: 7, hash: 'proof-a' }],
+                      documents: [],
+                      omissions: [],
+                    },
+                    context: {
+                      tokenCount: 1,
+                      tokenBudget: 4000,
+                      sourceCount: 0,
+                      sources: [],
+                      trimmed: [],
+                      fullMarkdown: 'Compiled pack A',
+                    },
+                  },
+                }
+              : path.endsWith('/publish')
+                ? { pack: { revision: 1, definition: importedDefinition } }
+                : {
+                    draft: {
+                      id: 'draft-b',
+                      version: 1,
+                      state: 'draft',
+                      definition: JSON.parse(String(init?.body)).definition,
+                    },
+                  };
+    return { ok: true, json: async () => result } as Response;
+  });
+  renderManager();
+  fireEvent.click(await screen.findByRole('button', { name: /Pack A/ }));
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Revision comparison and affected profiles' }),
+  );
+  expect(await screen.findByText(/Profile using A/)).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Compile pack preview' }));
+  expect(await screen.findByText('Compiled pack A')).toBeTruthy();
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: 'Import pack JSON' })).toBeEnabled(),
+  );
+  importPack({ ...importedDefinition, version: 99 });
+  expect(screen.getByLabelText('Pack name')).toHaveValue('Pack A');
+  expect(screen.getByText('Compiled pack A')).toBeTruthy();
+  fireEvent.change(screen.getByLabelText('Portable context pack JSON'), {
+    target: { value: JSON.stringify(importedDefinition) },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Review imported pack' }));
+  const expectNoA = () => {
+    expect(screen.getByLabelText('Pack name')).toHaveValue('Pack B');
+    expect(screen.queryByText('Compiled pack A')).toBeNull();
+    expect(screen.queryByText('proof-a')).toBeNull();
+    expect(screen.queryByText(/Profile using A/)).toBeNull();
+    expect(screen.queryByRole('button', { name: 'View pack revision 7' })).toBeNull();
+  };
+  expectNoA();
+  fireEvent.click(screen.getByRole('button', { name: 'Save pack draft' }));
+  await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Draft saved'));
+  expectNoA();
+  fireEvent.click(screen.getByRole('button', { name: 'Publish pack revision' }));
+  await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Published revision 1'));
+  expectNoA();
+});
+it.each(['import', 'new'] as const)(
+  'ignores late pack A lookups after %s replaces the copy',
+  async (replacement) => {
+    let history!: (response: Response) => void;
+    let impact!: (response: Response) => void;
+    vi.mocked(apiFetch).mockImplementation(async (path) => {
+      if (path.endsWith('/revisions'))
+        return new Promise<Response>((resolve) => {
+          history = resolve;
+        });
+      if (path.endsWith('/impact'))
+        return new Promise<Response>((resolve) => {
+          impact = resolve;
+        });
+      return { ok: true, json: async () => ({ packs: [], drafts: [draftA] }) } as Response;
+    });
+    renderManager();
+    fireEvent.click(await screen.findByRole('button', { name: /Pack A/ }));
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Revision comparison and affected profiles' }),
+    );
+    if (replacement === 'import') importPack();
+    else fireEvent.click(screen.getByRole('button', { name: 'New pack' }));
+    await act(async () => {
+      history({ ok: true, json: async () => ({ revisions: [revisionA] }) } as Response);
+      impact({ ok: true, json: async () => ({ profiles: [impactA] }) } as Response);
+    });
+    expect(screen.queryByRole('button', { name: 'View pack revision 7' })).toBeNull();
+    expect(screen.queryByText(/Profile using A/)).toBeNull();
+  },
+);
+it('ignores late lookup errors after import and clears previous lookup errors on New', async () => {
+  let history!: (cause: Error) => void;
+  let impact!: (cause: Error) => void;
+  vi.mocked(apiFetch).mockImplementation(async (path) => {
+    if (path.endsWith('/revisions'))
+      return new Promise<Response>((_, reject) => {
+        history = reject;
+      });
+    if (path.endsWith('/impact'))
+      return new Promise<Response>((_, reject) => {
+        impact = reject;
+      });
+    return { ok: true, json: async () => ({ packs: [], drafts: [draftA] }) } as Response;
+  });
+  renderManager();
+  fireEvent.click(await screen.findByRole('button', { name: /Pack A/ }));
+  importPack();
+  await act(async () => {
+    history(Error('late'));
+    impact(Error('late'));
+  });
+  expect(screen.getByRole('status')).toHaveTextContent('Imported working copy');
+  fireEvent.click(screen.getByRole('button', { name: 'Discard pack edits' }));
+  fireEvent.click(screen.getByRole('button', { name: /Pack A/ }));
+  await act(async () => {
+    history(Error('unavailable'));
+    impact(Error('unavailable'));
+  });
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Revision comparison and affected profiles' }),
+  );
+  expect(screen.getByText('Revision history unavailable.')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'New pack' }));
+  expect(screen.queryByText('Revision history unavailable.')).toBeNull();
+  expect(screen.queryByText(/Profile impact is unavailable/)).toBeNull();
+});
 const knowledge = {
   revision: 'a'.repeat(40),
   documents: [{ path: 'hub/review.md', title: 'Review guidance', area: 'Hub' }],
