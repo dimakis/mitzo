@@ -57,6 +57,14 @@ function loadQueue(sessionId: string | undefined): QueuedMessage[] {
   }
 }
 
+function mergeLiveImages(stored: QueuedMessage[], live: QueuedMessage[]): QueuedMessage[] {
+  const imagesById = new Map(live.map((entry) => [entry.queueEntryId, entry.images]));
+  return stored.map((entry) => ({
+    ...entry,
+    images: entry.queueEntryId ? (imagesById.get(entry.queueEntryId) ?? []) : [],
+  }));
+}
+
 function saveQueue(sessionId: string | undefined, queue: QueuedMessage[]): void {
   try {
     const key = queueKey(sessionId);
@@ -96,7 +104,7 @@ export function useQueuedMessages(
       if (suppressOwnEvent.current) return;
       if ((event as CustomEvent<{ key: string }>).detail?.key !== queueKey(sessionRef.current))
         return;
-      const restored = loadQueue(sessionRef.current);
+      const restored = mergeLiveImages(loadQueue(sessionRef.current), queueRef.current);
       queueRef.current = restored;
       setQueueRaw(restored);
     };
@@ -213,11 +221,7 @@ export function useQueuedMessages(
       if (!Array.isArray(parsed)) return;
       const remaining = parsed.filter((entry: StoredMessage) => entry.queueEntryId !== id);
       if (sessionRef.current === owner) {
-        const liveById = new Map(queueRef.current.map((entry) => [entry.queueEntryId, entry]));
-        const restored = fromStored(remaining).map((entry) => ({
-          ...entry,
-          images: entry.queueEntryId ? (liveById.get(entry.queueEntryId)?.images ?? []) : [],
-        }));
+        const restored = mergeLiveImages(fromStored(remaining), queueRef.current);
         queueRef.current = restored;
         setQueueRaw(restored);
       }

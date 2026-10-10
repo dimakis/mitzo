@@ -15,6 +15,46 @@ afterEach(() => {
 });
 
 describe('useQueuedMessages', () => {
+  it('preserves a later active A image entry when an offscreen A receipt emits its key-only cleanup event', () => {
+    const origin = renderHook(({ id }) => useQueuedMessages(id, 5, null), {
+      initialProps: { id: 'a' },
+    });
+    let accepted: QueuedMessage;
+    act(() => {
+      accepted = origin.result.current.restoreRejected(msg('Old A'));
+    });
+    origin.rerender({ id: 'b' });
+    act(() => origin.result.current.enqueue(msg('B work')));
+    const activeA = renderHook(() => useQueuedMessages('a'));
+    const image = {
+      data: 'private-later-image',
+      mediaType: 'image/png',
+      preview: 'data:image/png;base64,private-later-image',
+    };
+    act(() => activeA.result.current.enqueue({ ...msg('Later A'), images: [image] }));
+    const later = activeA.result.current.queue.at(-1)!;
+    expect(later.queueEntryId).not.toBe(accepted!.queueEntryId);
+    const stored = JSON.parse(localStorage.getItem('mitzo-queue-a')!) as QueuedMessage[];
+    const freshLater = {
+      text: 'Fresh later A',
+      contextBlocks: ['fresh context'],
+      requiresRetry: true,
+      queueEntryId: later.queueEntryId,
+    };
+    localStorage.setItem(
+      'mitzo-queue-a',
+      JSON.stringify(
+        stored.map((entry) => (entry.queueEntryId === later.queueEntryId ? freshLater : entry)),
+      ),
+    );
+    act(() => origin.result.current.removeSubmitted(accepted!));
+    expect(activeA.result.current.queue).toEqual([{ ...freshLater, images: [image] }]);
+    expect(activeA.result.current.queue[0].images).toBe(later.images);
+    expect(origin.result.current.queue).toMatchObject([msg('B work')]);
+    expect(JSON.parse(localStorage.getItem('mitzo-queue-a')!)).toEqual([freshLater]);
+    expect(localStorage.getItem('mitzo-queue-a')).not.toContain('private-later-image');
+  });
+
   it.each(['navigate', 'active', 'unmount'] as const)(
     'cleans only an exact ID from fresh owner storage after %s and notifies reopened A using only its key',
     (transition) => {
