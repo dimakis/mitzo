@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.9';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.41';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.42';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -49,7 +49,10 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'c103af10de4adc81cdc474b3e69ef2b3de5e447d4dcf15da4fc1894c422b913b',
   '../../packages/protocol/src/session-output-reference-store.ts':
     '9ecd7ae7149f629807cffd0142e38c4a498aa10d3f1c8709cd67927e24ecf5e0',
-  '../chat.ts': 'b1578095efd1e3bd67e0a169ecf04e202a6deca6096aea193cc3c280385dcd39',
+  '../chat.ts': '2a5fb1eb15ad4b1b5f783d4ac674872542da7920237335bfe2a6493338cae8e9',
+  // Contributor execution lifetime is independent of viewer detach/expiry.
+  '../../packages/harness/src/session-registry.ts':
+    '5ad72e9be9d3289a13511aaa1bb107b527283493e5577e08912ea4fdc4740a81',
   '../agent-context-binding.ts': 'ce0f8dba7f97f515be8ee00a441e3cc36344aad44f31e0b2fb33a160f8803e66',
   '../app.ts': '5a3cdaa8e9d0c6def0775049dd1ff62c56b8021ddcf586d052005adc932a8444',
   '../ws-handler-v2.ts': '41f46bd0935957ec01f560406827301c17a38237a7be288afe23c36001ead70d',

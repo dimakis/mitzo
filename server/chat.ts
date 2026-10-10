@@ -1689,6 +1689,8 @@ async function _startChatInner(
   registry.register(clientId, {
     transport,
     abortController,
+    // startChat already checked this exact execution against the existing claim.
+    ...(options.contributorExecution ? { contributorExecutionOwner: true as const } : {}),
     mode,
     cwd,
     wtId,
