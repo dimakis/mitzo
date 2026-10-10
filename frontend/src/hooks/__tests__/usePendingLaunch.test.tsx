@@ -17,7 +17,7 @@ afterEach(() => {
   vi.resetAllMocks();
 });
 
-it('registers the exact briefing selection on assignment and preserves the caller observer', async () => {
+it('registers only exact source identity from a saved binding on assignment and preserves the caller observer', async () => {
   vi.mocked(apiFetch).mockResolvedValue(
     new Response(
       JSON.stringify({
@@ -31,13 +31,21 @@ it('registers the exact briefing selection on assignment and preserves the calle
       { status: 201 },
     ),
   );
+  const savedBinding = {
+    date: '2026-10-09',
+    revision: 'a'.repeat(64),
+    createdAt: '2026-10-09T07:00:00Z',
+    sessionId: 'old',
+    accountId: 'old-account',
+    model: 'old-model',
+  };
   const store = createTestStore();
   let assigned: SendMessageOptions['onSessionAssigned'];
   store.setState({
     pendingSession: {
       prompt: 'Discuss',
       context: 'Briefing',
-      briefing: { date: '2026-10-09', revision: 'a'.repeat(64) },
+      briefing: savedBinding,
       accountSelection: { accountId: 'work', model: 'luna' },
     },
     sendMessage: (_text, options) => {

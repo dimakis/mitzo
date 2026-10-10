@@ -34,7 +34,8 @@ export function usePendingLaunch() {
         if (reviewed?.briefing && reviewed.accountSelection)
           void registerBriefing(
             {
-              ...reviewed.briefing,
+              date: reviewed.briefing.date,
+              revision: reviewed.briefing.revision,
               sessionId,
               accountId: reviewed.accountSelection.accountId,
               model: reviewed.accountSelection.model,
