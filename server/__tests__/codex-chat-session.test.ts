@@ -138,6 +138,23 @@ it('forwards only recognized sanitized Codex diagnostics', () => {
     'Codex turn failed. Inspect queued work before retrying.',
   );
 });
+it('explains sandbox recipe compatibility and source failures without exposing compiler output', async () => {
+  const { SandboxAgentContextAdmissionError } = await import('../agent-context-sandbox.js');
+  const secret = Error('Bearer sk-private in /private/workspace and compiler stdout');
+  for (const [reason, expected] of [
+    ['runtime', 'compatible reviewed runtime'],
+    ['recipe', 'selected documents'],
+    ['scope', 'new chat'],
+    ['authorization', 'Sign in again'],
+  ] as const) {
+    const detail = new SandboxAgentContextAdmissionError(reason, secret);
+    const message = publicCodexStartupError(new CodexStartupError('context_preparation', detail));
+    expect(message).toContain(expected);
+    expect(message).toContain('No provider turn was started');
+    expect(message).not.toContain('sk-private');
+    expect(message).not.toContain('/private/workspace');
+  }
+});
 it('reports connection admission rejection without claiming a provider turn failed', () => {
   expect(
     publicCodexRuntimeError(new Error('Connection permissions changed. Start a new conversation.')),

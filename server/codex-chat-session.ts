@@ -34,7 +34,11 @@ import { isDeepStrictEqual } from 'node:util';
 import { codexPrivateDirectory } from './codex-private-path.js';
 import type { AccountBinding, ProviderAttemptToken } from '@mitzo/protocol';
 import type { AgentLibraryVersion, AgentContextSnapshot } from '@mitzo/protocol';
-import { resolveSandboxAgentContext } from './agent-context-sandbox.js';
+import {
+  resolveSandboxAgentContext,
+  SandboxAgentContextAdmissionError,
+  sandboxAgentContextAdmissionFailure,
+} from './agent-context-sandbox.js';
 import { contextDigest } from './agent-context-compiler.js';
 import { buildPermissionHandler, type ManagedSession, type SessionRegistry } from '@mitzo/harness';
 import {
@@ -220,6 +224,8 @@ function capabilityToolsForConversation(
 }
 /** Only transport safe, stable runtime diagnostics to the client. */
 export function publicCodexRuntimeError(error: Error): string {
+  if (error instanceof SandboxAgentContextAdmissionError)
+    return error.message + ' No provider turn was started.';
   if (error instanceof CodexStartupError) {
     let cause = error.cause;
     while (cause instanceof CodexStartupError) cause = cause.cause;
@@ -984,12 +990,14 @@ async function openCodexChatBound(
   const dispose = hookRuntime?.dispose ?? (() => {});
   let startup: { context?: string };
   let agentContext: AgentContextSnapshot | undefined;
+  let admittingSandboxContext = false;
   try {
     const savedAgentContext = options.eventStore.getSession(options.conversationId)?.agentContext;
-    if (
+    admittingSandboxContext = !!(
       (options.agentProfile?.definition.contextRecipe && connectedOpenShell) ||
       savedAgentContext?.sandbox
-    ) {
+    );
+    if (admittingSandboxContext) {
       if (!runtimeManager || !managedOpenShell || !options.assertAgentContextAuthorization)
         throw Error('Sandbox agent context requires an authenticated managed runtime');
       options.assertAgentContextAuthorization();
@@ -1032,7 +1040,10 @@ async function openCodexChatBound(
   } catch (error) {
     dispose();
     startupReservation?.();
-    throw new CodexStartupError('context_preparation', error);
+    throw new CodexStartupError(
+      'context_preparation',
+      admittingSandboxContext ? sandboxAgentContextAdmissionFailure(error, signal.aborted) : error,
+    );
   }
   const mcp = connectedOpenShell
     ? {

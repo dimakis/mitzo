@@ -13,6 +13,47 @@ import type { OpenShellRuntime, OpenShellRuntimeManager } from './openshell-runt
 export const SANDBOX_AGENT_COMPILER_REVISION =
   'mitzo-sandbox-context-v1:contexgin-683f9007db686e710ed9a5410468fe33df1c5382';
 export const SANDBOX_CONTEXT_CONTEXGIN_COMMIT = '683f9007db686e710ed9a5410468fe33df1c5382';
+const admissionMessages = {
+  runtime:
+    'Agent Library sandbox context needs a compatible reviewed runtime. Check the sandbox runtime configuration before retrying.',
+  recipe:
+    'The agent context recipe could not be compiled in this sandbox. Check selected documents, required sections and configured sandbox presets.',
+  scope:
+    'The saved agent context no longer matches this sandbox or runtime. Start a new chat to select fresh context.',
+  authorization:
+    'Agent profile authorization expired or was revoked. Sign in again before retrying.',
+  cancelled: 'Sandbox agent context preparation was cancelled. Retry when ready.',
+} as const;
+/** Only these fixed messages cross the operator boundary; upstream output stays in cause. */
+export class SandboxAgentContextAdmissionError extends Error {
+  constructor(
+    readonly reason: keyof typeof admissionMessages,
+    cause?: unknown,
+  ) {
+    super(admissionMessages[reason], { cause });
+    this.name = 'SandboxAgentContextAdmissionError';
+  }
+}
+export function sandboxAgentContextAdmissionFailure(error: unknown, aborted: boolean) {
+  const message = error instanceof Error ? error.message : '';
+  const reason =
+    aborted || (error instanceof Error && ['AbortError', 'TimeoutError'].includes(error.name))
+      ? 'cancelled'
+      : /^(Agent profile authorization|Interactive operator authentication|Operator revoked)/.test(
+            message,
+          )
+        ? 'authorization'
+        : /^(Saved sandbox agent|Agent context sandbox|OpenShell sandbox (identity|is not owned)|Sandbox agent context (runtime changed|returned another))/.test(
+              message,
+            )
+          ? 'scope'
+          : /^(Runtime is incompatible|Agent Library sandbox recipes|Sandbox agent context requires|Agent context requires)/.test(
+                message,
+              )
+            ? 'runtime'
+            : 'recipe';
+  return new SandboxAgentContextAdmissionError(reason, error);
+}
 export const sandboxAgentCompilerHash = () =>
   contextDigest({
     entrypoint:
