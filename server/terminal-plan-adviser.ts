@@ -186,6 +186,14 @@ export class TerminalPlanAdviserHost {
     if (!attempt || attempt.owner !== owner) throw Error('Adviser sign-in unavailable');
     return { id, state: attempt.state };
   }
+  /** Recover an in-progress sign-in under the existing authenticated owner.
+   * The browser URL, callback listener and credential material stay on this host. */
+  pendingAttempt(owner: string) {
+    const attempt = [...this.attempts.values()].find(
+      (entry) => entry.owner === owner && entry.state === 'pending',
+    );
+    return attempt ? { id: attempt.id, state: 'pending' as const } : null;
+  }
   async cancel(owner: string, id: string) {
     const attempt = this.attempts.get(id);
     if (!attempt || attempt.owner !== owner) throw Error('Adviser sign-in unavailable');

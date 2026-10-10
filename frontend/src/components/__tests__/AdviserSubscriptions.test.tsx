@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { AdviserSubscriptions } from '../AdviserSubscriptions';
 const mocks = vi.hoisted(() => ({ fetch: vi.fn(), changed: vi.fn() }));
 vi.mock('../../lib/api-fetch', () => ({ apiFetch: (...args: unknown[]) => mocks.fetch(...args) }));
@@ -14,7 +14,585 @@ beforeEach(() => {
     this.removeAttribute('open');
   };
 });
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
+it('recovers a host-owned pending sign-in on remount and allows cancellation without starting another attempt', async () => {
+  let pending = true;
+  mocks.fetch.mockImplementation(
+    async (url: string) =>
+      new Response(
+        JSON.stringify(
+          url.endsWith('/cancel')
+            ? ((pending = false), { ok: true })
+            : {
+                enabled: true,
+                accounts: [],
+                pendingAttempt: pending ? { id: 'owned-attempt', state: 'pending' } : null,
+              },
+        ),
+      ),
+  );
+  const first = render(<AdviserSubscriptions onAccountsChanged={mocks.changed} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Manage adviser accounts' }));
+  expect(
+    (await screen.findByRole('button', { name: 'Cancel sign-in' })).hasAttribute('disabled'),
+  ).toBe(false);
+  expect(
+    screen
+      .getByRole('button', { name: 'Continue with ChatGPT on your Mac' })
+      .hasAttribute('disabled'),
+  ).toBe(true);
+  first.unmount();
+  render(<AdviserSubscriptions onAccountsChanged={mocks.changed} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Manage adviser accounts' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Cancel sign-in' }));
+  await screen.findByText('Sign-in cancelled.');
+  expect(
+    screen
+      .getByRole('button', { name: 'Continue with ChatGPT on your Mac' })
+      .hasAttribute('disabled'),
+  ).toBe(false);
+  expect(mocks.fetch.mock.calls.some(([url]) => url.endsWith('/start'))).toBe(false);
+  expect(mocks.fetch.mock.calls.filter(([url]) => url.endsWith('/cancel'))).toHaveLength(1);
+});
+it('recovers a pending attempt on refresh after the sign-in response is lost', async () => {
+  let pending = false;
+  mocks.fetch.mockImplementation(async (url: string) => {
+    if (url.endsWith('/start')) {
+      pending = true;
+      throw Error('Lost response');
+    }
+    return new Response(
+      JSON.stringify({
+        enabled: true,
+        accounts: [],
+        pendingAttempt: pending ? { id: 'accepted-attempt', state: 'pending' } : null,
+      }),
+    );
+  });
+  render(<AdviserSubscriptions onAccountsChanged={mocks.changed} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Manage adviser accounts' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Continue with ChatGPT on your Mac' }));
+  await screen.findByRole('alert');
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh adviser accounts' }));
+  await screen.findByRole('button', { name: 'Cancel sign-in' });
+  expect(
+    screen
+      .getByRole('button', { name: 'Continue with ChatGPT on your Mac' })
+      .hasAttribute('disabled'),
+  ).toBe(true);
+  expect(screen.queryByRole('alert')).toBeNull();
+  expect(mocks.fetch.mock.calls.filter(([url]) => url.endsWith('/start'))).toHaveLength(1);
+});
+it('does not discard a known pending attempt when an older snapshot omits recovery metadata', async () => {
+  mocks.fetch.mockImplementation(
+    async (url: string) =>
+      new Response(
+        JSON.stringify(
+          url.endsWith('/start')
+            ? { id: 'known-attempt', state: 'pending' }
+            : { enabled: true, accounts: [] },
+        ),
+      ),
+  );
+  render(<AdviserSubscriptions onAccountsChanged={mocks.changed} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Manage adviser accounts' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Continue with ChatGPT on your Mac' }));
+  await screen.findByRole('button', { name: 'Cancel sign-in' });
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh adviser accounts' }));
+  await waitFor(() => expect(mocks.changed).toHaveBeenCalled());
+  expect(screen.getByRole('button', { name: 'Cancel sign-in' })).toBeTruthy();
+  expect(
+    screen
+      .getByRole('button', { name: 'Continue with ChatGPT on your Mac' })
+      .hasAttribute('disabled'),
+  ).toBe(true);
+});
+it('continues polling a recovered host-owned attempt until it completes', async () => {
+  vi.useFakeTimers();
+  let completed = false;
+  mocks.fetch.mockImplementation(async (url: string) => {
+    if (url.endsWith('/attempts/recovered-attempt')) {
+      completed = true;
+      return new Response(JSON.stringify({ id: 'recovered-attempt', state: 'connected' }));
+    }
+    return new Response(
+      JSON.stringify({
+        enabled: true,
+        accounts: [],
+        pendingAttempt: completed ? null : { id: 'recovered-attempt', state: 'pending' },
+      }),
+    );
+  });
+  await act(async () => {
+    render(<AdviserSubscriptions onAccountsChanged={mocks.changed} />);
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Manage adviser accounts' }));
+  expect(screen.getByRole('button', { name: 'Cancel sign-in' })).toBeTruthy();
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(2000);
+  });
+  expect(screen.getByRole('status').textContent).toContain('ChatGPT adviser connected');
+  expect(screen.queryByRole('button', { name: 'Cancel sign-in' })).toBeNull();
+  expect(mocks.changed).toHaveBeenCalledTimes(1);
+  expect(mocks.fetch.mock.calls.some(([url]) => url.endsWith('/start'))).toBe(false);
+});
+it.each(['complete', 'cancel', 'new-start', 'unmount', 'new-host-attempt'] as const)(
+  'applies a delayed completion snapshot only to its current page and request after %s',
+  async (transition) => {
+    vi.useFakeTimers();
+    let reads = 0;
+    let current: string | null = 'attempt-a';
+    let releaseSnapshot!: (response: Response) => void;
+    const snapshot = new Promise<Response>((resolve) => {
+      releaseSnapshot = resolve;
+    });
+    mocks.fetch.mockImplementation(async (url: string) => {
+      if (url.endsWith('/attempts/attempt-a')) {
+        current = null;
+        return new Response(JSON.stringify({ id: 'attempt-a', state: 'connected' }));
+      }
+      if (url.endsWith('/attempts/attempt-b'))
+        return new Response(JSON.stringify({ id: 'attempt-b', state: 'pending' }));
+      if (url.endsWith('/cancel')) return new Response(JSON.stringify({ ok: true }));
+      if (url.endsWith('/start')) {
+        current = 'attempt-b';
+        return new Response(JSON.stringify({ id: current, state: 'pending' }));
+      }
+      if (++reads === 2) return snapshot;
+      return new Response(
+        JSON.stringify({
+          enabled: true,
+          accounts: [],
+          pendingAttempt: current ? { id: current, state: 'pending' } : null,
+        }),
+      );
+    });
+    let view!: ReturnType<typeof render>;
+    await act(async () => {
+      view = render(<AdviserSubscriptions onAccountsChanged={mocks.changed} />);
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Manage adviser accounts' }));
+    await act(() => vi.advanceTimersByTimeAsync(2000));
+    expect(reads).toBe(2);
+    if (transition === 'cancel' || transition === 'new-start') {
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Cancel sign-in' }));
+      });
+      if (transition === 'new-start')
+        await act(async () => {
+          fireEvent.click(
+            screen.getByRole('button', { name: 'Continue with ChatGPT on your Mac' }),
+          );
+        });
+    }
+    if (transition === 'unmount') {
+      view.unmount();
+      current = 'attempt-b';
+      await act(async () => {
+        render(<AdviserSubscriptions onAccountsChanged={mocks.changed} />);
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'Manage adviser accounts' }));
+    }
+    await act(async () => {
+      releaseSnapshot(
+        new Response(
+          JSON.stringify({
+            enabled: true,
+            accounts: [
+              {
+                id: 'plan-a',
+                label: 'Completed account A',
+                email: 'a@example.test',
+                state: 'connected',
+              },
+            ],
+            pendingAttempt:
+              transition === 'new-host-attempt' ? { id: 'attempt-b', state: 'pending' } : null,
+          }),
+        ),
+      );
+    });
+    if (transition === 'complete') {
+      expect(screen.getByRole('status').textContent).toContain('ChatGPT adviser connected');
+      expect(screen.getByText('Completed account A')).toBeTruthy();
+      expect(mocks.changed).toHaveBeenCalledTimes(1);
+      expect(screen.queryByRole('button', { name: 'Cancel sign-in' })).toBeNull();
+    } else {
+      expect(
+        screen.queryByText('ChatGPT adviser connected. Choose its account and model.'),
+      ).toBeNull();
+      // A current snapshot with recovered B still updates the account catalog;
+      // a retired request must not notify or replace the new page/account list.
+      expect(mocks.changed).toHaveBeenCalledTimes(transition === 'new-host-attempt' ? 1 : 0);
+      expect(screen.queryByText('Completed account A') !== null).toBe(
+        transition === 'new-host-attempt',
+      );
+      if (transition === 'cancel') {
+        expect(screen.getByRole('status').textContent).toBe('Sign-in cancelled.');
+        expect(screen.queryByRole('button', { name: 'Cancel sign-in' })).toBeNull();
+        expect(
+          screen
+            .getByRole('button', { name: 'Continue with ChatGPT on your Mac' })
+            .hasAttribute('disabled'),
+        ).toBe(false);
+      } else {
+        expect(screen.getByRole('status').textContent).toBe(
+          'Finish sign-in in the browser on your Mac.',
+        );
+        expect(
+          screen.getByRole('button', { name: 'Cancel sign-in' }).hasAttribute('disabled'),
+        ).toBe(false);
+        expect(
+          screen
+            .getByRole('button', { name: 'Continue with ChatGPT on your Mac' })
+            .hasAttribute('disabled'),
+        ).toBe(true);
+        await act(() => vi.advanceTimersByTimeAsync(2000));
+        expect(mocks.fetch.mock.calls.some(([url]) => url.endsWith('/attempts/attempt-b'))).toBe(
+          true,
+        );
+      }
+    }
+    expect(mocks.fetch.mock.calls.filter(([url]) => url.endsWith('/start'))).toHaveLength(
+      transition === 'new-start' ? 1 : 0,
+    );
+  },
+);
+it('publishes B’s delayed completion after the older Cancel response preserves B', async () => {
+  vi.useFakeTimers();
+  let pending: string | null = 'attempt-a';
+  let completedB = false;
+  let finishPollA!: (response: Response) => void;
+  let finishCancelA!: (response: Response) => void;
+  let finishSnapshotB!: (response: Response) => void;
+  mocks.fetch.mockImplementation(async (url: string) => {
+    if (url.endsWith('/attempts/attempt-a'))
+      return new Promise<Response>((resolve) => {
+        finishPollA = resolve;
+      });
+    if (url.endsWith('/attempts/attempt-a/cancel'))
+      return new Promise<Response>((resolve) => {
+        finishCancelA = resolve;
+      });
+    if (url.endsWith('/attempts/attempt-b')) {
+      completedB = true;
+      pending = null;
+      return new Response(JSON.stringify({ id: 'attempt-b', state: 'connected' }));
+    }
+    if (completedB)
+      return new Promise<Response>((resolve) => {
+        finishSnapshotB = resolve;
+      });
+    return new Response(
+      JSON.stringify({
+        enabled: true,
+        accounts: [],
+        pendingAttempt: pending ? { id: pending, state: 'pending' } : null,
+      }),
+    );
+  });
+  await act(async () => {
+    render(<AdviserSubscriptions onAccountsChanged={mocks.changed} />);
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Manage adviser accounts' }));
+  await act(() => vi.advanceTimersByTimeAsync(2000));
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel sign-in' }));
+  pending = 'attempt-b';
+  await act(async () => {
+    finishPollA(new Response(JSON.stringify({ id: 'attempt-a', state: 'connected' })));
+  });
+  await act(async () => {
+    finishCancelA(new Response(JSON.stringify({ ok: true })));
+  });
+  expect(screen.getByRole('status').textContent).toBe('Finish sign-in in the browser on your Mac.');
+  expect(mocks.changed).not.toHaveBeenCalled();
+  await act(() => vi.advanceTimersByTimeAsync(2000));
+  expect(completedB).toBe(true);
+  expect(mocks.changed).not.toHaveBeenCalled();
+  await act(async () => {
+    finishSnapshotB(
+      new Response(
+        JSON.stringify({
+          enabled: true,
+          accounts: [
+            {
+              id: 'plan-b',
+              label: 'Completed account B',
+              email: 'b@example.test',
+              state: 'connected',
+            },
+          ],
+          pendingAttempt: null,
+        }),
+      ),
+    );
+  });
+  expect(screen.getByRole('status').textContent).toContain('ChatGPT adviser connected');
+  expect(screen.getByText('Completed account B')).toBeTruthy();
+  expect(screen.queryByRole('button', { name: 'Cancel sign-in' })).toBeNull();
+  expect(mocks.changed).toHaveBeenCalledTimes(1);
+  expect(mocks.fetch.mock.calls.some(([url]) => url.endsWith('/start'))).toBe(false);
+});
+it('keeps a newer host-owned pending attempt when an older completed poll refreshes accounts', async () => {
+  vi.useFakeTimers();
+  let current = 'attempt-a';
+  mocks.fetch.mockImplementation(async (url: string) => {
+    if (url.endsWith('/attempts/attempt-a')) {
+      current = 'attempt-b';
+      return new Response(JSON.stringify({ id: 'attempt-a', state: 'connected' }));
+    }
+    if (url.endsWith('/attempts/attempt-b'))
+      return new Response(JSON.stringify({ id: 'attempt-b', state: 'pending' }));
+    if (url.endsWith('/cancel')) return new Response(JSON.stringify({ ok: true }));
+    return new Response(
+      JSON.stringify({
+        enabled: true,
+        accounts: [],
+        pendingAttempt: { id: current, state: 'pending' },
+      }),
+    );
+  });
+  await act(async () => {
+    render(<AdviserSubscriptions onAccountsChanged={mocks.changed} />);
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Manage adviser accounts' }));
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(2000);
+  });
+  expect(screen.getByRole('status').textContent).toBe('Finish sign-in in the browser on your Mac.');
+  expect(
+    screen
+      .getByRole('button', { name: 'Continue with ChatGPT on your Mac' })
+      .hasAttribute('disabled'),
+  ).toBe(true);
+  expect(screen.getByRole('button', { name: 'Cancel sign-in' }).hasAttribute('disabled')).toBe(
+    false,
+  );
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(2000);
+  });
+  expect(mocks.fetch.mock.calls.some(([url]) => url.endsWith('/attempts/attempt-b'))).toBe(true);
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel sign-in' }));
+  });
+  expect(
+    mocks.fetch.mock.calls.filter(([url]) => url.endsWith('/cancel')).map(([url]) => url),
+  ).toEqual(['/api/terminals/subscriptions/attempts/attempt-b/cancel']);
+  expect(mocks.fetch.mock.calls.some(([url]) => url.endsWith('/start'))).toBe(false);
+});
+it('ignores an older completion refresh after cancellation and a newer local sign-in', async () => {
+  vi.useFakeTimers();
+  let reads = 0;
+  let current: string | null = 'attempt-a';
+  let finishRefresh!: (response: Response) => void;
+  mocks.fetch.mockImplementation(async (url: string) => {
+    if (url.endsWith('/attempts/attempt-a'))
+      return new Response(JSON.stringify({ id: 'attempt-a', state: 'connected' }));
+    if (url.endsWith('/start')) {
+      current = 'attempt-b';
+      return new Response(JSON.stringify({ id: 'attempt-b', state: 'pending' }));
+    }
+    if (url.endsWith('/cancel')) {
+      current = null;
+      return new Response(JSON.stringify({ ok: true }));
+    }
+    if (url.endsWith('/attempts/attempt-b'))
+      return new Response(JSON.stringify({ id: 'attempt-b', state: 'pending' }));
+    if (++reads === 2)
+      return new Promise<Response>((resolve) => {
+        finishRefresh = resolve;
+      });
+    return new Response(
+      JSON.stringify({
+        enabled: true,
+        accounts: [],
+        pendingAttempt: current ? { id: current, state: 'pending' } : null,
+      }),
+    );
+  });
+  await act(async () => {
+    render(<AdviserSubscriptions onAccountsChanged={mocks.changed} />);
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Manage adviser accounts' }));
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(2000);
+  });
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel sign-in' }));
+  });
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: 'Continue with ChatGPT on your Mac' }));
+  });
+  await act(async () => {
+    finishRefresh(
+      new Response(JSON.stringify({ enabled: true, accounts: [], pendingAttempt: null })),
+    );
+  });
+  expect(screen.getByRole('status').textContent).toBe('Finish sign-in in the browser on your Mac.');
+  expect(
+    screen
+      .getByRole('button', { name: 'Continue with ChatGPT on your Mac' })
+      .hasAttribute('disabled'),
+  ).toBe(true);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(2000);
+  });
+  expect(mocks.fetch.mock.calls.some(([url]) => url.endsWith('/attempts/attempt-b'))).toBe(true);
+  expect(mocks.changed).not.toHaveBeenCalled();
+});
+it('preserves a newer host attempt when Cancel of the previous attempt completes late', async () => {
+  vi.useFakeTimers();
+  let current = 'attempt-a';
+  let finishPoll!: (response: Response) => void;
+  let finishCancel!: (response: Response) => void;
+  mocks.fetch.mockImplementation(async (url: string) => {
+    if (url.endsWith('/attempts/attempt-a'))
+      return new Promise<Response>((resolve) => {
+        finishPoll = resolve;
+      });
+    if (url.endsWith('/attempts/attempt-a/cancel'))
+      return new Promise<Response>((resolve) => {
+        finishCancel = resolve;
+      });
+    if (url.endsWith('/attempts/attempt-b'))
+      return new Response(JSON.stringify({ id: 'attempt-b', state: 'pending' }));
+    if (url.endsWith('/attempts/attempt-b/cancel'))
+      return new Response(JSON.stringify({ ok: true }));
+    return new Response(
+      JSON.stringify({
+        enabled: true,
+        accounts: [],
+        pendingAttempt: { id: current, state: 'pending' },
+      }),
+    );
+  });
+  await act(async () => {
+    render(<AdviserSubscriptions onAccountsChanged={mocks.changed} />);
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Manage adviser accounts' }));
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(2000);
+  });
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel sign-in' }));
+  });
+  current = 'attempt-b';
+  await act(async () => {
+    finishPoll(new Response(JSON.stringify({ id: 'attempt-a', state: 'connected' })));
+  });
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(4000);
+  });
+  expect(
+    mocks.fetch.mock.calls.filter(([url]) => url === '/api/terminals/subscriptions'),
+  ).toHaveLength(1);
+  expect(
+    mocks.fetch.mock.calls.filter(([url]) => url.endsWith('/attempts/attempt-a')),
+  ).toHaveLength(1);
+  await act(async () => {
+    finishCancel(new Response(JSON.stringify({ ok: true })));
+  });
+  expect(screen.getByRole('status').textContent).toBe('Finish sign-in in the browser on your Mac.');
+  expect(screen.getByRole('button', { name: 'Cancel sign-in' }).hasAttribute('disabled')).toBe(
+    false,
+  );
+  expect(
+    screen
+      .getByRole('button', { name: 'Continue with ChatGPT on your Mac' })
+      .hasAttribute('disabled'),
+  ).toBe(true);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(2000);
+  });
+  expect(mocks.fetch.mock.calls.some(([url]) => url.endsWith('/attempts/attempt-b'))).toBe(true);
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel sign-in' }));
+  });
+  expect(mocks.fetch.mock.calls.some(([url]) => url.endsWith('/attempts/attempt-b/cancel'))).toBe(
+    true,
+  );
+  expect(mocks.fetch.mock.calls.some(([url]) => url.endsWith('/start'))).toBe(false);
+});
+it('continues polling the original attempt after failed Cancel invalidates its completion refresh', async () => {
+  vi.useFakeTimers();
+  let reads = 0;
+  let finishRefresh!: (response: Response) => void;
+  mocks.fetch.mockImplementation(async (url: string) => {
+    if (url.endsWith('/cancel')) return new Response('{}', { status: 500 });
+    if (url.endsWith('/attempts/attempt-a'))
+      return new Response(JSON.stringify({ id: 'attempt-a', state: 'connected' }));
+    if (++reads === 2)
+      return new Promise<Response>((resolve) => {
+        finishRefresh = resolve;
+      });
+    return new Response(
+      JSON.stringify({
+        enabled: true,
+        accounts: [],
+        pendingAttempt: { id: 'attempt-a', state: 'pending' },
+      }),
+    );
+  });
+  await act(async () => {
+    render(<AdviserSubscriptions onAccountsChanged={mocks.changed} />);
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Manage adviser accounts' }));
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(2000);
+  });
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel sign-in' }));
+  });
+  expect(screen.getByRole('alert').textContent).toContain('Account change could not be confirmed');
+  await act(async () => {
+    finishRefresh(
+      new Response(JSON.stringify({ enabled: true, accounts: [], pendingAttempt: null })),
+    );
+  });
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(2000);
+  });
+  expect(
+    mocks.fetch.mock.calls.filter(([url]) => url.endsWith('/attempts/attempt-a')),
+  ).toHaveLength(2);
+  expect(screen.getByRole('button', { name: 'Cancel sign-in' })).toBeTruthy();
+});
+it('keeps pending sign-in status when a disconnect refresh recovers an external attempt', async () => {
+  let disconnected = false;
+  mocks.fetch.mockImplementation(async (url: string) => {
+    if (url.endsWith('/disconnect')) {
+      disconnected = true;
+      return new Response(JSON.stringify({ revoked: true }));
+    }
+    return new Response(
+      JSON.stringify({
+        enabled: true,
+        accounts: [
+          {
+            id: 'plan',
+            label: 'Personal',
+            email: 'user@example.test',
+            state: disconnected ? 'disconnected' : 'connected',
+          },
+        ],
+        pendingAttempt: disconnected ? { id: 'external-attempt', state: 'pending' } : null,
+      }),
+    );
+  });
+  render(<AdviserSubscriptions onAccountsChanged={mocks.changed} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Manage adviser accounts' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Disconnect Personal' }));
+  await screen.findByRole('button', { name: 'Cancel sign-in' });
+  expect(screen.getByRole('status').textContent).toBe('Finish sign-in in the browser on your Mac.');
+  expect(
+    screen
+      .getByRole('button', { name: 'Continue with ChatGPT on your Mac' })
+      .hasAttribute('disabled'),
+  ).toBe(true);
+});
 it('keeps account setup collapsed and lets the host browser own subscription sign-in', async () => {
   mocks.fetch.mockImplementation(
     async (url: string, _init?: RequestInit) =>
