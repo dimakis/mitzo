@@ -311,3 +311,32 @@ describe('send outbox', () => {
     second.stop();
   });
 });
+
+it('keeps separate reviewed launches immutable even when their persisted numeric scopes collide', async () => {
+  vi.useFakeTimers();
+  const source = {
+    kind: 'briefing',
+    date: '2026-10-09',
+    revision: 'a'.repeat(64),
+    content: 'Report',
+  };
+  const first = { ...prompt, sourceSnapshots: [source], accountId: 'work', model: 'luna' };
+  const second = {
+    ...first,
+    clientMsgId: 'two',
+    sourceSnapshots: [{ ...source, date: '2026-10-10', revision: 'b'.repeat(64) }],
+    model: 'another',
+  };
+  const fetch = vi
+    .fn()
+    .mockResolvedValueOnce(ack())
+    .mockReturnValue(new Promise<Response>(() => {}));
+  const outbox = new SendOutbox({ url: '/send', fetch, notify: vi.fn() });
+  outbox.enqueue(first, 1);
+  outbox.enqueue(second, 1);
+  outbox.start();
+  await vi.advanceTimersByTimeAsync(0);
+  expect(fetch).toHaveBeenCalledTimes(2);
+  expect(JSON.parse(fetch.mock.calls[1][1].body)).toEqual(second);
+  outbox.stop();
+});
