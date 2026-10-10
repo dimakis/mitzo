@@ -75,7 +75,8 @@ export type OrdinarySessionRuntimeRequest = z.infer<typeof Request>;
  * Each target reference must identify that account's configured provider route.
  * Vertex classes require the configured project/region/ADC profile. The future
  * trusted projection must validate those source constraints before constructing
- * this credential-free catalog; no loader or projection is introduced here.
+ * this credential-free catalog. AccountProfiles projects local host-login Codex
+ * accounts only; other profile classes and target loading remain separate work.
  */
 export type OrdinarySessionRuntimeCatalog = z.infer<typeof Catalog>;
 
