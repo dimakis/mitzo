@@ -10,8 +10,8 @@ export function AgentContextPreview({ value }: { value: CompiledAgentContext }) 
       </p>
       <p>
         {value.source === 'workspace'
-          ? 'Preview uses the configured workspace. Each new chat compiles its own workspace; resumes reuse their saved context.'
-          : 'Preview uses the configured ContexGin preset. Each new chat saves the compiled result for later resumes.'}
+          ? 'Preview uses the configured sample workspace. New chats compile their own task workspace; resumes keep the saved recipe.'
+          : 'Preview uses the configured ContexGin preset. Sandbox chats use its configured sandbox recipe, so their sources can differ from this preview.'}
       </p>
       <details>
         <summary>Sources and trimming</summary>

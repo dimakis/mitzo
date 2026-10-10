@@ -188,8 +188,8 @@ it('fails before provider dispatch when a required context document is missing, 
     await rm(root, { recursive: true, force: true });
   }
 });
-it('refuses host recipe compilation for OpenShell before provider preflight or sandbox launch', async () => {
-  const { root, chat, transport, unbind } = await setup();
+it('routes recipe profiles to authenticated sandbox admission without compiling host files', async () => {
+  const { root, chat, transport, compiler, unbind } = await setup();
   try {
     vi.stubEnv('MITZO_OPENSHELL_ENABLED', '1');
     const profiles = new AccountProfiles(
@@ -198,9 +198,12 @@ it('refuses host recipe compilation for OpenShell before provider preflight or s
           id: 'fixture',
           label: 'Offline account',
           provider: 'openai-codex',
-          credentialRef: '/test/codex',
           email: 'fixture@example.com',
           planType: 'pro',
+          sandboxProvider: 'fixture-openai',
+          sandboxProviderType: 'openai-codex-oauth',
+          sandboxProviderId: 'provider-id',
+          sandboxGrantId: 'grant-id',
           models: [{ id: 'luna', label: 'Luna fixture' }],
         },
       ],
@@ -213,7 +216,8 @@ it('refuses host recipe compilation for OpenShell before provider preflight or s
     const codex = await import('../codex-chat-session.js');
     const open = vi
       .spyOn(codex, 'openCodexChat')
-      .mockRejectedValue(Error('Unexpected sandbox launch'));
+      .mockRejectedValue(Error('Offline sandbox admission intercepted; no model call'));
+    const compile = vi.spyOn(compiler, 'compileAgentContext');
     await chat.startChat(transport, 'sandbox-context', 'Review this', {
       cwd: root,
       accountId: 'fixture',
@@ -223,13 +227,15 @@ it('refuses host recipe compilation for OpenShell before provider preflight or s
       operatorConnectionId: 'operator',
     });
     expect(verify).not.toHaveBeenCalled();
-    expect(open).not.toHaveBeenCalled();
-    expect(transport.send.mock.calls).toContainEqual([
-      expect.objectContaining({
-        type: 'error',
-        error: expect.stringMatching(/context.*local chat/i),
-      }),
-    ]);
+    expect(open).toHaveBeenCalledOnce();
+    expect(compile).not.toHaveBeenCalled();
+    expect(open.mock.calls[0][0]).toMatchObject({
+      agentProfile: expect.objectContaining({ profileId: 'bob', revision: 3 }),
+      assertAgentContextAuthorization: expect.any(Function),
+    });
+    expect(() => open.mock.calls[0][0].assertAgentContextAuthorization!()).not.toThrow();
+    unbind();
+    expect(() => open.mock.calls[0][0].assertAgentContextAuthorization!()).toThrow(/revoked/i);
   } finally {
     unbind();
     chat.registry.dispose();
