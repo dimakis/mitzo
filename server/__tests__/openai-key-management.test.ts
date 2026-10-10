@@ -581,3 +581,45 @@ it('keeps a legacy key changed outside Mitzo blocked after a definite pre-write 
   expect(f.gateway.replace).not.toHaveBeenCalled();
   await expect(f.manager.resolveKey('work', signal())).rejects.toThrow('need attention');
 });
+
+it('preserves unresolved legacy drift across failed retries and restart until replacement completes', async () => {
+  const f = fixture();
+  let external = true;
+  f.gateway.pause.mockImplementationOnce(async () => {
+    f.keychain.read.mockImplementation(async () =>
+      external ? { value: 'externally-changed', version: null, managed: false } : f.saved(),
+    );
+  });
+  await f.replace();
+  for (let attempt = 0; attempt < 2; attempt++) {
+    f.gateway.pause.mockRejectedValueOnce(new Error('unsafe drain'));
+    expect(await f.replace()).toMatchObject({
+      health: 'needs_attention',
+      canSynchronize: false,
+    });
+    expect(f.store.latest('work')).toMatchObject({
+      phase: 'aborted',
+      errorCode: 'CHAT_PAUSE_FAILED',
+    });
+    await expect(f.manager.resolveKey('work', signal())).rejects.toThrow('need attention');
+  }
+  const reopened = new OpenAIKeyOperationStore(f.path);
+  stores.push(reopened);
+  const restarted = new OpenAIKeyManagement({ ...f.options, store: reopened });
+  expect((await restarted.list(signal()))[0]).toMatchObject({
+    health: 'needs_attention',
+    canSynchronize: false,
+  });
+  await expect(restarted.assertReady('work', signal())).rejects.toThrow('need attention');
+  await expect(
+    restarted.synchronize({ accountId: 'work', revision: await f.revision() }, signal()),
+  ).rejects.toThrow('Replacement key must be entered again');
+  expect(f.keychain.write).not.toHaveBeenCalled();
+  const write = f.keychain.write.getMockImplementation()!;
+  f.keychain.write.mockImplementationOnce(async (_ref, value, version) => {
+    external = false;
+    await write(_ref, value, version);
+  });
+  expect(await f.replace('verified-replacement')).toMatchObject({ health: 'ready' });
+  expect(await restarted.resolveKey('work', signal())).toBe('verified-replacement');
+});

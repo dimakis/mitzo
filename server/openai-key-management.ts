@@ -154,7 +154,7 @@ export class OpenAIKeyManagement {
     // unversioned legacy value may have changed outside the controller. Do not
     // reopen consumers or offer to copy that unrecognized saved value.
     const unresolvedLegacyChange =
-      !completed && latest?.phase === 'aborted' && latest.errorCode === 'ACCOUNT_CHANGED';
+      !completed && !!this.options.store.unresolvedLegacyChange(account.id);
     const ready =
       !pending &&
       !bindingChanged &&
@@ -187,7 +187,7 @@ export class OpenAIKeyManagement {
               : keychain.version === null && keychain.managed !== true,
       errorCode: needsAttention
         ? (pending?.errorCode ??
-          (unresolvedLegacyChange ? latest.errorCode : null) ??
+          (unresolvedLegacyChange ? (latest?.errorCode ?? 'ACCOUNT_CHANGED') : null) ??
           (bindingChanged && latest?.phase === 'aborted' ? latest.errorCode : null) ??
           'CREDENTIAL_DRIFT')
         : latest?.phase === 'aborted'

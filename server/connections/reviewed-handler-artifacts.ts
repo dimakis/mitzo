@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.9';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.25';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.26';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -70,9 +70,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../capability-conversation-binding.ts':
     '147a328d161f167aeeb31bf0017d5fea25cc3f22933392249a228d7bd61e89aa',
   // Secret custody and its browser/admission boundaries share the runtime review contract.
-  '../openai-key-management.ts': '46bb403300dab2880760d862bd9f5d24fde6a28ae900358e756224f14cb83a7d',
+  '../openai-key-management.ts': '80be22be4a31e210224e9df3a17adb6022a89a37288050617608069a0151e6f9',
   '../openai-key-operation-store.ts':
-    'dcd4bfc37e6098f194e19c9a797ca70eed189b19568c0272c778ecdec49f00a9',
+    '092e24a6ffd6a7305870b2baca2a8592e9933b91eed3bc0692a065e5e6c27c98',
   '../openai-enrollment-models.ts':
     '11a318042fbd8f7aecc09563c80456bfff424813a3d12a05d01bc768a0358263',
   '../openai-account-enrollment.ts':
