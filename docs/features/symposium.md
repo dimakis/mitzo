@@ -21,11 +21,11 @@ An external link does not establish retained content, current revision or agent
 access. Findings attach to the exact package and revisions inspected.
 
 Contributors use explicitly selected accounts, models, context and permissions.
-The intended simplification is to reuse ordinary account/session execution while
-keeping each contributor's thread and context independent. This is an integration
-direction, not a claim that existing ordinary credentials can already dispatch
-through the native Symposium adapter. Preserve credential boundaries, admission,
-cancellation, provenance and uncertain-operation reconciliation during integration.
+Reuse the existing Mitzo ordinary chat/resume route while keeping each contributor's
+thread and context independent. The bounded Codex candidate below implements this
+adapter; it requires no new account category or Symposium sign-in. The native
+Symposium adapter remains a separate execution boundary. Preserve credential
+boundaries, admission, cancellation, provenance and uncertain-operation reconciliation.
 
 Reuse existing membership, directed delivery, attribution, findings and review
 history. Do not introduce another account store or scheduler. Basic collaboration
@@ -36,14 +36,24 @@ The October 7 **Design Session UX for Approvals** discussion
 the October 10 **Explain Symposium Account Separation** discussion
 (`01a123b1-df7a-7082-a0ef-7480820b07c8`) adds ordinary account/session reuse and
 guidance cleanup. Mockups and reviewed plans do not establish live capabilities.
-Independent artifact identity, retention and migration contracts still need
-implementation evidence; preserve existing storage restrictions.
+The candidate's transcript references do not establish independent content retention
+or artifact migration; preserve existing storage restrictions.
 
-## One bounded next slice
+## Bounded candidate and next validation
 
-Map ordinary account/session execution to the existing Symposium dispatch owners
-for one artifact and one additional contributor. Validate selected context,
-directed replies, follow-up continuity, reload/replay and Stop before expanding.
+[PR #837](https://github.com/dimakis/mitzo/pull/837), reference `62d40d16`, is the
+written candidate for exact finalized transcript references and one additional
+ordinary Codex-backed contributor per selected output. Child-thread continuity,
+attributed replies, optional durable guidance and Stop/recovery have offline test
+coverage. Independent content retention, output revision editing and API/Vertex
+contributor adapters remain outside this bounded slice.
+
+Current-head CI and final Centaur LGTM remain pending. The next work is source
+acceptance and validation against the actual runtime, followed by separately
+authorized live qualification; do not reimplement the already-written adapter.
+Canonical staging enrollment and live qualification remain unproven. Source
+acceptance, runtime adoption and live acceptance are separate; no deployment
+is established by this guide.
 Use the [current acceptance checklist](symposium-integrated-acceptance.md).
 The UI follows the [shared design contract](../design/ui-design-system.md): show
 the work prominently, with discussion, contributors and Access in supporting roles.
@@ -55,11 +65,16 @@ The Agent Library and existing profile draft/catalog controls are source feature
 saving a profile does not activate it or prove provider availability. Profiles are
 optional guidance. Select account, model, context and authority for the contributor.
 
+Ordinary chat's context-recipe compiler is accepted source. The candidate contributor
+adapter does not compile or authorize recipe context sources and explicitly rejects
+recipe-bearing saved profiles. Use Default Mitzo or a compatible saved profile without
+a context recipe. Accepted compiler source does not prove runtime context adoption.
+
 ## Reference map
 
 | Question                                                    | Read                                                                                                                                                                   |
 | ----------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Current direction and next slice                            | This guide and the current acceptance checklist                                                                                                                        |
+| Current direction, candidate and next validation            | This guide and the current acceptance checklist                                                                                                                        |
 | Live staging or enrollment                                  | [Canonical staging](../operations/canonical-staging.md), then [Symposium singleton staging](../operations/symposium-singleton-staging.md) for the selected operation   |
 | Existing native credentials, mounts, artifacts or ownership | Relevant `docs/operations/symposium-*` contract and current code owner                                                                                                 |
 | Prior implementation and acceptance evidence                | [Archived feature snapshot](../archive/symposium/2026-09-symposium.md) and [archived acceptance plan](../archive/symposium/2026-09-symposium-integrated-acceptance.md) |

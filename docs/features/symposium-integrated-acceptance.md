@@ -2,18 +2,29 @@
 
 Use the [current source guide](symposium.md) and existing Telos item
 `c0851ba23fcc5d04`. This replaces the former frozen PR #678 package sequence as
-the next development plan. Its [archived snapshot](../archive/symposium/2026-09-symposium-integrated-acceptance.md)
+the current runtime validation checklist. Its [archived snapshot](../archive/symposium/2026-09-symposium-integrated-acceptance.md)
 retains historical operations, receipts and larger workflow gaps.
+
+[PR #837](https://github.com/dimakis/mitzo/pull/837), reference `62d40d16`, already
+contains the bounded ordinary Codex contributor implementation and offline coverage
+for exact transcript references, one additional contributor, child continuity,
+attribution, durable guidance and Stop. Current-head CI and final Centaur LGTM remain pending.
+Independent retention, output editing and API/Vertex contributor adapters are outside
+this slice. Recipe-bearing contributor profiles remain explicitly unsupported;
+ordinary chat's context-recipe compiler is accepted source.
 
 No gate below is marked complete by this cleanup. Select an exact accepted
 candidate and current runtime before testing; source, mocks, physical tests,
 live turns, device acceptance and deployment are separate evidence levels.
+Canonical staging enrollment and live qualification remain unproven; no deployment
+is established here.
 
-## Next collaboration slice
+## Collaboration runtime validation
 
-- [ ] **Shared execution contract.** Map the ordinary account/session adapter to
-      existing membership and dispatch owners. Demonstrate account/model eligibility
-      and independent contributor threads without another account store or scheduler.
+- [ ] **Shared execution contract.** Validate the candidate ordinary account/session
+      adapter against existing membership and dispatch owners in the selected runtime.
+      Demonstrate account/model eligibility and independent contributor threads.
+      Do not introduce another account store or scheduler.
       Preserve actual credential, grant and runtime boundaries.
 - [ ] **Artifact and context selection.** Select one output and revision/package.
       Record whether it is linked or independently retained. The additional agent
@@ -22,14 +33,14 @@ live turns, device acceptance and deployment are separate evidence levels.
 - [ ] **Real conversation.** Attributed streaming, targeted messages, a follow-up
       retaining context and reload/replay work through the application. Ordinary chat
       remains usable before and after contributor changes; attribution stays historical.
-- [ ] **Stop and recovery.** Persist cancellation, confirm actual stop/cleanup where
-      claimed, and reconcile uncertain operations by original ID. Restart or a
+- [ ] **Stop and recovery.** Validate persisted cancellation and actual stop/cleanup
+      where claimed, and reconcile uncertain operations by original ID. Restart or a
       missing listener must not invent success or repeat an external effect.
 - [ ] **Desktop and mobile.** Inspect artifacts, discussion, setup, recipients and
       Access under the shared design system. Offline browser coverage is distinct
       from actual iOS/live-runtime acceptance.
 
-Prove this slice before enlarging the automated review/fix/delta/criteria/publication
+Qualify this written slice before enlarging the automated review/fix/delta/criteria/publication
 workflow. That workflow remains unfinished; its artifact, semantic verification,
 approval, migration and release requirements are retained, not passed or waived.
 
