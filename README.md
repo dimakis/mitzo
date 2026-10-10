@@ -21,6 +21,14 @@ Ordinary OpenShell Codex chats reserve their account-bound native ledger before 
 
 Accounts with multiple managed connections can provision new sandboxes without exceeding the gateway's 63-character label-value limit. Oversized provider-policy fingerprints use a stable bounded hash; valid historical labels and connection assignments are preserved. New runtimes prefer an assigned managed GitHub connection over the legacy GitHub fallback, avoiding duplicate `GITHUB_TOKEN` credentials. Retained runtimes keep their existing automatic grants; conflicting GitHub attachments require recovery before startup.
 
+## Outputs and ordinary contributors
+
+Start in ordinary chat. After a useful reply finishes, **Keep as output** registers its exact text block with a stable output ID, revision and content hash. **In conversation** means the reference metadata is recorded; the text still depends on the original transcript's retention. Registration does not create a Telos item or independently save a copy of the draft.
+
+Select an output and **Add contributor** to choose an existing ordinary account/model, optional saved guidance and a session mode. This first slice supports one additional contributor per output on ordinary Codex accounts with verified acceptance and terminal hooks. Unsupported and native-only account routes remain unavailable. The contributor receives the selected exact draft, keeps its own conversation history, and uses the ordinary workspace and permission controls. Attributed replies appear under the selected output; **Open conversation** exposes the child's permission prompts. Follow-ups resume that child, while **Stop** retains uncertain work until its exact turn is confirmed stopped. No separate Symposium sign-in or required profile is introduced by this flow.
+
+This is an implementation slice with offline fixture coverage. Canonical staging enrollment, live continuity/Stop acceptance and production activation remain separate.
+
 ## Repository-backed chats (opt-in)
 
 With reviewed deployment configuration setting `MITZO_REPOSITORY_WORKSPACES_ENABLED=1`, a new ordinary OpenAI chat can select a repository from its assigned managed GitHub connection, preview the default branch’s exact commit, and prepare an independent feature-branch checkout before the first prompt. Mobile and desktop share the picker. Agents can also discover authorized repositories and prepare a new repository-chat draft through `ListRepositories` and `PrepareRepositoryChat`; the user reviews and starts it from a chat card. Credentials stay on the controller, and the selected repository remains bound to the conversation across restart and resume.
@@ -207,8 +215,7 @@ an all-seat audience, per-seat asides, and explicit excerpt sharing; queued
 messages require approval before dispatch. Uncertain retries retain the original
 request key for each audience and excerpt.
 
-Start a fresh session with **New Symposium** from either ChatView, without first
-sending an ordinary chat prompt. Select the dedicated Symposium account/model,
+Legacy native Symposium drafts use their dedicated account/model,
 a supported coder or reviewer role, and an exact saved profile revision; the
 profile picker also supports creating or importing a profile. **Create Symposium
 draft** allocates only durable session and roster metadata. Review the draft and

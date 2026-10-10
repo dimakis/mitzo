@@ -122,6 +122,11 @@ import { AccountBindingSchema, SymposiumConfigSchema } from '@mitzo/protocol';
 import { SymposiumProfileStore } from './symposium-profiles.js';
 import { getAgentLibrary } from './agent-library-runtime.js';
 import { createAgentLibraryRouter } from './agent-library-router.js';
+import { SessionOutputReferences } from './session-output-references.js';
+import { createSessionOutputRouter } from './session-output-routes.js';
+import { createOutputContributors } from './output-contributors.js';
+import { createOutputContributorRouter } from './output-contributor-routes.js';
+import { readAgentLibraryProfile } from './agent-library-transport.js';
 import { createSymposiumProfileRouter } from './symposium-profile-routes.js';
 import { SymposiumProfileProposalStore } from './symposium-profile-proposals.js';
 import { createSymposiumProfileProposalRouter } from './symposium-profile-proposal-routes.js';
@@ -215,6 +220,7 @@ import {
   hideAllSessions,
   renameSessionById,
   startChat,
+  stopChat,
   sendToChat,
   AVAILABLE_MODELS,
   BASE_REPO,
@@ -2804,6 +2810,45 @@ app.get(
     getMessages: (sessionId) => getMessages(sessionId),
     getSessionTranscript: (sessionId) => getSessionTranscript(sessionId),
     getReconnectTranscript: (sessionId, cursor) => getReconnectTranscript(sessionId, cursor),
+  }),
+);
+
+app.use(
+  '/api/sessions/:id/outputs',
+  operatorAuthMiddleware,
+  createSessionOutputRouter({
+    references: new SessionOutputReferences(eventStore),
+    hasSession: (id) => Boolean(eventStore.getSession(id)),
+  }),
+);
+
+const outputContributors = createOutputContributors({
+  store: eventStore,
+  databasePath: join(process.env.REPO_PATH || '.', '.mitzo', 'events.db'),
+  currentAccounts: loadAccountProfiles,
+  port: {
+    startChat: (transport, clientId, prompt, options) =>
+      startChat(transport, clientId, prompt, options),
+    stopChat: (clientId) => stopChat(clientId),
+  },
+  workspaceForSession: (id) => {
+    const source = eventStore.getSession(id);
+    if (!source || source.sessionType === 'symposium' || source.isHidden) return null;
+    const cwd = registry.findBySessionId(id)?.session.cwd ?? source.cwd;
+    try {
+      return cwd && isAllowedPath(cwd, id) && statSync(cwd).isDirectory() ? { cwd } : null;
+    } catch {
+      return null;
+    }
+  },
+  resolveProfile: readAgentLibraryProfile,
+});
+app.use(
+  '/api/sessions/:id/contributors',
+  operatorAuthMiddleware,
+  createOutputContributorRouter({
+    service: outputContributors,
+    hasSession: (id) => Boolean(eventStore.getSession(id)),
   }),
 );
 
