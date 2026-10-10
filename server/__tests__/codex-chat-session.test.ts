@@ -669,11 +669,23 @@ it('advertises reviewed per-chat provider grants to a managed OpenShell runtime'
       'message',
       'provider-thread',
       'provider-turn',
-      { ...adoptionEvidence, contextSha256: createHash('sha256').update(refreshed).digest('hex') },
+      {
+        ...adoptionEvidence,
+        contextSha256: createHash('sha256')
+          .update(
+            JSON.stringify({
+              developerInstructions: mocks.conversationOptions?.systemPrompt,
+              additionalContext: refreshed,
+            }),
+          )
+          .digest('hex'),
+      },
     );
     expect(refreshed).toContain('Fresh knowledge B');
     expect(refreshed).toContain('/sandbox/workspaces/knowledge/revision/mgmt');
-    expect(refreshed).toContain('GrantIntegrationAccess');
+    expect(String(mocks.conversationOptions?.systemPrompt) + refreshed).toContain(
+      'GrantIntegrationAccess',
+    );
     expect(adoption).toHaveBeenCalledWith(
       'conversation',
       expect.objectContaining({ sandboxId: 'verified-resource' }),
@@ -1876,16 +1888,27 @@ it('preserves first launch and valid restore while failing closed for a replacem
         context: string,
       ) => void;
       const delivered = await profilePrepare(AbortSignal.timeout(5000));
-      expect(delivered).toContain('PINNED PROFILE CONTEXT');
+      const developerInstructions = mocks.conversationOptions?.systemPrompt as string;
+      expect(developerInstructions).toContain('PINNED PROFILE CONTEXT');
+      expect(delivered).not.toContain('PINNED PROFILE CONTEXT');
       expect(delivered).not.toContain('FRESH ACCEPTED GUIDANCE');
-      expect(delivered.match(/PINNED PROFILE CONTEXT/g)).toHaveLength(1);
+      expect((developerInstructions + delivered).match(/PINNED PROFILE CONTEXT/g)).toHaveLength(1);
       expect(compile).not.toHaveBeenCalled();
+      const providerAck = mocks.conversationOptions?.onProviderAccepted as (
+        command: string,
+        thread: string,
+        turn: string,
+      ) => void;
+      providerAck('pack-command', 'thread', 'pack-turn');
       profileAcknowledge('pack-command', 'thread', 'pack-turn', delivered);
+      expect(profileAccepted).toHaveBeenCalledOnce();
       expect(profileAccepted).toHaveBeenCalledWith(
         'pack-command',
         'thread',
         'pack-turn',
-        createHash('sha256').update(delivered).digest('hex'),
+        createHash('sha256')
+          .update(JSON.stringify({ developerInstructions, additionalContext: delivered }))
+          .digest('hex'),
       );
       expect(adoption).toHaveBeenLastCalledWith(
         'valid-lifecycle-state',
@@ -1894,6 +1917,37 @@ it('preserves first launch and valid restore while failing closed for a replacem
         expect.objectContaining({ fullMarkdown: 'PINNED PROFILE CONTEXT' }),
       );
       profiled.close();
+      adoption.mockResolvedValue(undefined);
+      profileAccepted.mockClear();
+      const withoutPublication = await openCodexChat({
+        ...chatOptions('valid-lifecycle-state', true),
+        systemPrompt: 'base prompt\nPINNED PROFILE CONTEXT',
+        agentContext: profileContext,
+        onAgentContextAccepted: profileAccepted,
+      });
+      const emptyPrepare = mocks.conversationOptions?.prepareSystemPrompt as (
+        signal: AbortSignal,
+      ) => Promise<string | undefined>;
+      expect(await emptyPrepare(AbortSignal.timeout(5000))).toBeUndefined();
+      const persistent = mocks.conversationOptions?.systemPrompt as string;
+      expect(persistent.match(/PINNED PROFILE CONTEXT/g)).toHaveLength(1);
+      expect(profileAccepted).not.toHaveBeenCalled();
+      const emptyAck = mocks.conversationOptions?.onProviderAccepted as (
+        command: string,
+        thread: string,
+        turn: string,
+      ) => void;
+      emptyAck('no-publication-command', 'thread', 'no-publication-turn');
+      expect(profileAccepted).toHaveBeenCalledOnce();
+      expect(profileAccepted).toHaveBeenCalledWith(
+        'no-publication-command',
+        'thread',
+        'no-publication-turn',
+        createHash('sha256')
+          .update(JSON.stringify({ developerInstructions: persistent, additionalContext: null }))
+          .digest('hex'),
+      );
+      withoutPublication.close();
     } finally {
       enrollment.mockRestore();
       adoption.mockRestore();
@@ -2123,7 +2177,9 @@ it('acknowledges host Codex profile context only on exact provider turn acceptan
       'exact-command',
       'exact-thread',
       'exact-turn',
-      createHash('sha256').update(delivered).digest('hex'),
+      createHash('sha256')
+        .update(JSON.stringify({ developerInstructions: delivered, additionalContext: null }))
+        .digest('hex'),
     );
   } finally {
     chat.close();

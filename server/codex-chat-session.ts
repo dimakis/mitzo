@@ -1123,6 +1123,18 @@ async function openCodexChatBound(
     (managedConnection?.templateId === 'jira-readonly'
       ? '\nThis sandbox has verified read-only Jira access to https://redhat.atlassian.net. Use the scoped API base in JIRA_URL (not the browser site URL). Use the provider-approved /usr/bin/python3 or curl with JIRA_URL, JIRA_EMAIL, and the gateway-managed JIRA_API_TOKEN placeholder for Basic authorization. Never print credential values. Writes are denied by the gateway policy.\n'
       : '');
+  const persistentSystemPrompt =
+    baseSystemPrompt + (startup.context ? `\n\n${startup.context}` : '');
+  let pendingAdditionalContext: string | undefined;
+  const suppliedContextHash = (additionalContext: string | undefined) =>
+    createHash('sha256')
+      .update(
+        JSON.stringify({
+          developerInstructions: persistentSystemPrompt,
+          additionalContext: additionalContext ?? null,
+        }),
+      )
+      .digest('hex');
   let pendingKnowledge: Omit<KnowledgeAdoptionSelection, 'contextSha256'> | undefined;
   if (configuredRuntime)
     store().markStartupProviderInitializing(options.conversationId, options.binding);
@@ -1139,17 +1151,17 @@ async function openCodexChatBound(
       ? 'openshell-runtime-config-v1'
       : `codex-cli:${SUPPORTED_CODEX_CLI_VERSION}`,
     getMode: () => options.session.mode,
-    systemPrompt: baseSystemPrompt + (startup.context ? `\n\n${startup.context}` : ''),
-    // Host thread instructions already contain the retained snapshot. The exact
+    systemPrompt: persistentSystemPrompt,
+    // Thread instructions already contain the retained snapshot. The exact
     // turn/start acknowledgement associates it without duplicating developer context.
-    ...(!runtimeManager && options.agentContext
+    ...(options.agentContext
       ? {
           onProviderAccepted: (commandId: string, threadId: string, turnId: string) =>
             options.onAgentContextAccepted?.(
               commandId,
               threadId,
               turnId,
-              createHash('sha256').update(baseSystemPrompt).digest('hex'),
+              suppliedContextHash(pendingAdditionalContext),
             ),
         }
       : {}),
@@ -1163,6 +1175,7 @@ async function openCodexChatBound(
           prepareSystemPrompt: async (signal: AbortSignal) =>
             sharedOpenShellLifecycleCoordinator.admit(options.conversationId, async () => {
               pendingKnowledge = undefined;
+              pendingAdditionalContext = undefined;
               const selected = await runtimeManager!.adoptKnowledge(
                 options.conversationId,
                 managedOpenShell!,
@@ -1171,22 +1184,13 @@ async function openCodexChatBound(
                   ? [{ ...options.agentContext.context, scope: 'sandbox' as const }]
                   : []),
               );
-              if (!selected) return options.agentContext ? baseSystemPrompt : undefined;
+              if (!selected) return undefined;
               pendingKnowledge = selected.adoption;
               options.onBootContext?.(selected.context);
-              return (
-                baseSystemPrompt +
-                `\n\n# Published MGMT knowledge\nAccepted source: ${selected.sourceCommit}\nBundle: ${selected.payloadSha256}\nRead shared project instructions from ${selected.knowledgeRoot}/AGENTS.md. Search and read accepted knowledge under ${selected.knowledgeRoot}/memory/. This published view supersedes older accepted knowledge in the task checkout. Keep edits and new observations in the writable task workspace; do not modify the published knowledge view. A local commit is not evidence of publication or adoption elsewhere.\n\n${options.agentContext ? 'The agent profile boot context retains its separately recorded source revisions. This retrieval publication does not replace that pinned profile context.' : selected.context.fullMarkdown}`
-              );
+              pendingAdditionalContext = `\n\n# Published MGMT knowledge\nAccepted source: ${selected.sourceCommit}\nBundle: ${selected.payloadSha256}\nRead shared project instructions from ${selected.knowledgeRoot}/AGENTS.md. Search and read accepted knowledge under ${selected.knowledgeRoot}/memory/. This published view supersedes older accepted knowledge in the task checkout. Keep edits and new observations in the writable task workspace; do not modify the published knowledge view. A local commit is not evidence of publication or adoption elsewhere.\n\n${options.agentContext ? 'The agent profile boot context retains its separately recorded source revisions. This retrieval publication does not replace that pinned profile context.' : selected.context.fullMarkdown}`;
+              return pendingAdditionalContext;
             }),
           onApplicationContextAccepted: (commandId, threadId, turnId, context) => {
-            if (options.agentContext)
-              options.onAgentContextAccepted?.(
-                commandId,
-                threadId,
-                turnId,
-                createHash('sha256').update(context).digest('hex'),
-              );
             if (!pendingKnowledge) return;
             privateStorage.recordKnowledgeAdoption(
               options.conversationId,
@@ -1196,7 +1200,7 @@ async function openCodexChatBound(
               turnId,
               {
                 ...pendingKnowledge,
-                contextSha256: createHash('sha256').update(context).digest('hex'),
+                contextSha256: suppliedContextHash(context),
               },
             );
           },
