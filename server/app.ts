@@ -2875,6 +2875,8 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
     cwd: meta.cwd,
     mode: meta.mode,
     isActive: meta.isActive,
+    // Optional catalog refresh may yield while this conversation is deleted.
+    isHidden: eventStore.getSession(meta.sessionId)?.isHidden ?? true,
     state: meta.state,
     totalTokens,
     ...(meta.accountBinding
