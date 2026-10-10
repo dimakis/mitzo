@@ -338,6 +338,22 @@ test('motion: composer popover and resource sheet animate without losing the dra
   await page.getByRole('button', { name: 'Open session tray', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Close session tray', exact: true })).toBeVisible();
   await expect.poll(() => motionKinds(page)).toContain('mitzo:sheet');
+  const tray = await page.locator('.session-tray--toolbar').boundingBox();
+  expect(tray!.x).toBeGreaterThanOrEqual(0);
+  expect(tray!.x + tray!.width).toBeLessThanOrEqual(page.viewportSize()!.width);
+  await page.screenshot({
+    path: testInfo.outputPath('motion-session-tray-dark.png'),
+    animations: 'disabled',
+  });
+  await page.evaluate(() => {
+    document.documentElement.dataset.theme = 'light';
+    document.documentElement.dataset.accent = 'teal';
+    document.documentElement.dataset.font = 'georgia';
+  });
+  await page.screenshot({
+    path: testInfo.outputPath('motion-session-tray-light.png'),
+    animations: 'disabled',
+  });
   await page
     .getByRole('button', { name: 'Dismiss session tray', exact: true })
     .click({ position: { x: 8, y: 8 } });
@@ -517,9 +533,7 @@ test('one token change updates the accent and font on every main page', async ({
       document.documentElement.style.setProperty('--font-ui', 'Georgia');
     });
     const active = page.locator('.workspace-tabs [aria-current="page"]');
-    expect(await active.evaluate((element) => getComputedStyle(element).color)).toBe(
-      'rgb(54, 214, 183)',
-    );
+    await expect(active).toHaveCSS('color', 'rgb(54, 214, 183)');
     expect(
       await page
         .locator('h1')

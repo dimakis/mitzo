@@ -21,9 +21,20 @@ details[open] > :not(summary) {
 .knowledge-dialog,
 .access-drawer,
 .boot-context-modal,
-.document-editor-dialog[open],
 .perm-banner--visible {
   animation: motion-sheet-in var(--motion-duration-standard) var(--motion-ease);
+}
+.document-editor-dialog[open] {
+  /* Keep keyboard-bounded fullscreen editors within their visual viewport. */
+  animation: motion-fade-in var(--motion-duration-standard) var(--motion-ease);
+}
+@keyframes motion-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 @keyframes motion-popover-in {
   from {
