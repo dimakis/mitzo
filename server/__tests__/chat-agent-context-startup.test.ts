@@ -92,75 +92,141 @@ async function setup(contextRecipe?: AgentContextRecipe) {
 }
 const sessionId = 'aaaaaaaa-bbbb-4ccc-8ddd-565656565656';
 
-it('records SDK delivery only after the provider starts a message, preserving the compiled snapshot', async () => {
-  const { root, chat, transport, unbind } = await setup();
-  try {
-    const { query } = await import('@anthropic-ai/claude-agent-sdk');
-    vi.mocked(query).mockImplementation(
-      () =>
-        ({
-          close: vi.fn(),
-          interrupt: vi.fn(),
-          async *[Symbol.asyncIterator]() {
-            yield { type: 'system', subtype: 'init', session_id: sessionId, uuid: 'fixture-init' };
-            expect(
-              JSON.parse(chat.eventStore.getSession(sessionId)!.bootContext!).receipt.status,
-            ).toBe('prepared');
-            yield {
-              type: 'stream_event',
-              session_id: sessionId,
-              uuid: 'fixture-stream',
-              event: {
-                type: 'message_start',
+it.each([
+  [true, true],
+  [false, true],
+  [false, false],
+])(
+  'records first SDK delivery with supplied session identity=%s and command identity=%s',
+  async (suppliedIdentity, suppliedCommand) => {
+    const { root, chat, transport, unbind } = await setup();
+    try {
+      const { query } = await import('@anthropic-ai/claude-agent-sdk');
+      vi.mocked(query).mockImplementation(
+        () =>
+          ({
+            close: vi.fn(),
+            interrupt: vi.fn(),
+            async *[Symbol.asyncIterator]() {
+              const providerSessionId = vi.mocked(query).mock.calls[0][0].options!.sessionId!;
+              yield {
+                type: 'system',
+                subtype: 'init',
+                session_id: providerSessionId,
+                uuid: 'fixture-init',
+              };
+              expect(
+                JSON.parse(chat.eventStore.getSession(providerSessionId)!.bootContext!).receipt
+                  .status,
+              ).toBe('prepared');
+              yield {
+                type: 'stream_event',
+                session_id: providerSessionId,
+                uuid: 'fixture-stream',
+                event: {
+                  type: 'message_start',
+                  message: {
+                    id: 'provider-message',
+                    role: 'assistant',
+                    model: 'luna',
+                    content: [],
+                    usage: { input_tokens: 1, output_tokens: 0 },
+                  },
+                },
+              };
+              expect(
+                JSON.parse(chat.eventStore.getSession(providerSessionId)!.bootContext!).receipt,
+              ).toMatchObject({ status: 'accepted' });
+              expect(
+                chat.eventStore
+                  .getSessionEvents(providerSessionId)
+                  .filter((event) => event.type === 'agent_context_accepted'),
+              ).toMatchObject([
+                {
+                  payload: {
+                    providerTurnId: 'provider-message',
+                    commandId: suppliedCommand ? 'context-command' : expect.any(String),
+                    providerThreadId: providerSessionId,
+                  },
+                },
+              ]);
+              yield {
+                type: 'assistant',
+                session_id: providerSessionId,
+                uuid: 'fixture-assistant',
                 message: {
                   id: 'provider-message',
                   role: 'assistant',
                   model: 'luna',
-                  content: [],
-                  usage: { input_tokens: 1, output_tokens: 0 },
+                  content: [{ type: 'text', text: 'done' }],
+                  usage: { input_tokens: 1, output_tokens: 1 },
                 },
-              },
-            };
-            yield {
-              type: 'result',
-              subtype: 'success',
-              session_id: sessionId,
-              uuid: 'fixture-result',
-              result: 'done',
-              is_error: false,
-              usage: { input_tokens: 1, output_tokens: 0 },
-              num_turns: 1,
-              total_cost_usd: 0,
-              duration_ms: 1,
-              duration_api_ms: 1,
-            };
-          },
-        }) as never,
-    );
-    await chat.startChat(transport, 'sdk-receipt', 'Review', {
-      cwd: root,
-      isolation: false,
-      model: 'luna',
-      operatorConnectionId: 'operator',
-      initialSessionId: sessionId,
-      clientMsgId: 'context-command',
-      agentProfile: { profileId: 'bob', revision: 3 },
-    });
-    const session = chat.eventStore.getSession(sessionId)!;
-    expect(JSON.parse(session.bootContext!).receipt).toMatchObject({
-      status: 'accepted',
-      payloadHash: session.agentContext?.payloadHash,
-      profileId: 'bob',
-      profileRevision: 3,
-    });
-    expect(session.agentContext?.context.fullMarkdown).toContain('Use immutable context bundles.');
-  } finally {
-    unbind();
-    chat.registry.dispose();
-    chat.eventStore.close();
-    await rm(root, { recursive: true, force: true });
-  }
-});
+              };
+              yield {
+                type: 'stream_event',
+                session_id: providerSessionId,
+                uuid: 'fixture-later-stream',
+                event: {
+                  type: 'message_start',
+                  message: {
+                    id: 'later-provider-message',
+                    role: 'assistant',
+                    model: 'luna',
+                    content: [],
+                    usage: { input_tokens: 1, output_tokens: 0 },
+                  },
+                },
+              };
+              yield {
+                type: 'result',
+                subtype: 'success',
+                session_id: providerSessionId,
+                uuid: 'fixture-result',
+                result: 'done',
+                is_error: false,
+                usage: { input_tokens: 1, output_tokens: 0 },
+                num_turns: 1,
+                total_cost_usd: 0,
+                duration_ms: 1,
+                duration_api_ms: 1,
+              };
+            },
+          }) as never,
+      );
+      await chat.startChat(transport, 'sdk-receipt', 'Review', {
+        cwd: root,
+        isolation: false,
+        model: 'luna',
+        operatorConnectionId: 'operator',
+        ...(suppliedIdentity ? { initialSessionId: sessionId } : {}),
+        ...(suppliedCommand ? { clientMsgId: 'context-command' } : {}),
+        agentProfile: { profileId: 'bob', revision: 3 },
+      });
+      const session = chat.eventStore.getSession(
+        vi.mocked(query).mock.calls[0][0].options!.sessionId!,
+      )!;
+      expect(JSON.parse(session.bootContext!).receipt).toMatchObject({
+        status: 'accepted',
+        payloadHash: session.agentContext?.payloadHash,
+        profileId: 'bob',
+        profileRevision: 3,
+      });
+      expect(session.agentContext?.context.fullMarkdown).toContain(
+        'Use immutable context bundles.',
+      );
+      const events = chat.eventStore.getSessionEvents(session.sessionId);
+      const acceptances = events.filter((event) => event.type === 'agent_context_accepted');
+      expect(acceptances).toHaveLength(1);
+      const userMessage = events.find((event) => event.type === 'user_message');
+      expect(userMessage?.payload.messageId).toBe(acceptances[0].payload.commandId);
+    } finally {
+      unbind();
+      chat.registry.dispose();
+      chat.eventStore.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+);
 
 it('compiles a profile pack from accepted Knowledge instead of the writable task checkout', async () => {
   const contextPacks = new ContextPackStore(':memory:');

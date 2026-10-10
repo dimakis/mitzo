@@ -1837,7 +1837,7 @@ async function _startChatInner(
     providerTurnId: string,
     contextSha256: string,
   ) => {
-    const sessionId = session.sessionId ?? stateSessionId;
+    const sessionId = session.sessionId ?? stateSessionId ?? newSdkSessionId;
     if (!agentContext || !sessionId) throw Error('Prepared agent context identity is unavailable');
     const message = recordAgentContextAcceptance({
       store: eventStore,
@@ -2221,7 +2221,8 @@ This is an independent checkout with its own Git storage, not a linked worktree.
           message.type === 'stream_event'
         ) {
           const event = message.event as { type?: string; message?: { id?: string } } | undefined;
-          if (event?.type === 'message_start' && event.message?.id && session.sessionId) {
+          const providerSessionId = session.sessionId ?? stateSessionId ?? newSdkSessionId;
+          if (event?.type === 'message_start' && event.message?.id && providerSessionId) {
             acknowledged = true;
             const append =
               systemPromptAppend +
@@ -2230,7 +2231,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
               CONNECTION_TOOL_INSTRUCTIONS;
             acceptAgentContext(
               initialMessageId,
-              session.sessionId,
+              providerSessionId,
               event.message.id,
               createHash('sha256').update(append).digest('hex'),
             );
@@ -2254,7 +2255,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
         connRegistry: _connRegistry ?? undefined,
         onFirstEventOutcome: options.onFirstEventOutcome,
         onTerminalOutcome: options.onTerminalOutcome,
-        initialClientMsgId: options.clientMsgId,
+        initialClientMsgId: initialMessageId,
         initialImages: imagePreviews(options.images),
         initialContextBlocks: options.contextBlocks,
         initialSourceSnapshots: options.sourceSnapshots,
@@ -2264,7 +2265,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
             eventStore.upsertSession({
               sessionId,
               ...(accountBinding ? { accountBinding } : {}),
-              bootContext: JSON.stringify(bootContextMsg),
+              bootContext: JSON.stringify(session.bootContext ?? bootContextMsg),
               ...(agentProfile ? { agentProfile } : {}),
               ...(agentContext ? { agentContext } : {}),
             });
