@@ -7,7 +7,11 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { afterEach, expect, it, vi } from 'vitest';
-import { CodexConversation, codexTurnFailureDiagnostic } from '../codex-conversation.js';
+import {
+  CodexConversation,
+  codexTurnFailureDiagnostic,
+  type CodexConversationOptions,
+} from '../codex-conversation.js';
 import { CodexConversationStore } from '../codex-conversation-store.js';
 import {
   migrateRetainedRuntime,
@@ -205,6 +209,7 @@ async function setup(
   savedHistory?: EventStore,
   recordProviderRequest?: (method: string) => void,
   prepareAgentContext?: (signal: AbortSignal) => Promise<void>,
+  disableProjectDocuments = false,
 ) {
   const dir = mkdtempSync(join(tmpdir(), 'mitzo-codex-'));
   const store = existingStore ?? new CodexConversationStore(join(dir, 'private.db'));
@@ -265,7 +270,7 @@ async function setup(
       return {};
     }),
   };
-  const c = new CodexConversation({
+  const conversationOptions: CodexConversationOptions = {
     ownerKind: nativeTool?.ownerKind,
     conversationId: 'app',
     cwd: '/workspace',
@@ -288,6 +293,7 @@ async function setup(
     prepareTurn,
     prepareSystemPrompt,
     prepareAgentContext,
+    disableProjectDocuments,
     onApplicationContextAccepted,
     beforeRuntimeAdmission,
     reconnectGuard,
@@ -335,7 +341,8 @@ async function setup(
     executeTool: execute,
     onToolResultDurable: nativeTool?.onToolResultDurable,
     requestUserInput,
-  });
+  };
+  const c = new CodexConversation(conversationOptions);
   cleanup.push(() => {
     c.close();
     if (!existingStore) store.close();
@@ -356,6 +363,7 @@ async function setup(
     requestUserInput,
     getBinding: () => (c as unknown as { binding: AccountBinding }).binding,
     getProviderThread: () => providerThread,
+    conversationOptions,
   };
 }
 
@@ -4217,3 +4225,73 @@ it('does not transmit private developer instructions when source authority is de
   expect(requests).not.toContain('thread/resume');
   expect(requests).not.toContain('turn/start');
 });
+
+it.each([
+  ['host', false, undefined],
+  ['host', true, undefined],
+  ['sandbox', false, { web_search: 'disabled', project_doc_max_bytes: 65536 }],
+  ['sandbox', true, { web_search: 'disabled', project_doc_max_bytes: 65536 }],
+] as const)(
+  'enforces native project document policy on %s start, resume and fork (packs=%s)',
+  async (_route, packBound, runtimeConfig) => {
+    const args: Parameters<typeof setup> = [];
+    args[21] = runtimeConfig ? { ...runtimeConfig } : undefined;
+    args[22] = { project_doc_max_bytes: 65536 };
+    args[26] = packBound;
+    const first = await setup(...args);
+    const assertPolicy = (requests: typeof first.requests, method: string) => {
+      const request = requests.find((entry) => entry.method === method);
+      expect(request, `${method} must actually be dispatched`).toBeDefined();
+      const configuration = request!.params.config as Record<string, unknown>;
+      if (packBound) expect(configuration.project_doc_max_bytes).toBe(0);
+      else if (runtimeConfig) expect(configuration.project_doc_max_bytes).toBe(65536);
+      else expect(configuration).not.toHaveProperty('project_doc_max_bytes');
+    };
+    assertPolicy(first.requests, 'thread/start');
+    first.c.close();
+    args[0] = first.store;
+    const resumed = await setup(...args);
+    assertPolicy(resumed.requests, 'thread/resume');
+    resumed.c.close();
+    args[0] = undefined;
+    const forked = await setup(...args);
+    await forked.c.send({ id: 'clean-checkpoint', prompt: 'first' });
+    forked.callbacks.onNotification('turn/completed', {
+      threadId: forked.getProviderThread(),
+      turn: { id: 'turn-1', status: 'completed' },
+    });
+    await forked.c.send({ id: 'failed-turn', prompt: 'second' });
+    forked.callbacks.onNotification('turn/completed', {
+      threadId: forked.getProviderThread(),
+      turn: {
+        id: 'turn-2',
+        status: 'failed',
+        error: { message: 'stream disconnected before completion' },
+      },
+    });
+    await forked.c.send({ id: 'replacement-turn', prompt: 'third' });
+    assertPolicy(forked.requests, 'thread/fork');
+  },
+);
+
+it.each([false, true])(
+  'forwards immutable pack policy into approved search after caller option mutation (packs=%s)',
+  async (packBound) => {
+    const searchModule = await import('../codex-approved-search.js');
+    const search = vi
+      .spyOn(searchModule, 'searchCodex')
+      .mockResolvedValue('Mocked approved search');
+    const args: Parameters<typeof setup> = [];
+    args[21] = { web_search: 'live', project_doc_max_bytes: 65536 };
+    args[26] = packBound;
+    const { c, conversationOptions } = await setup(...args);
+    Object.assign(conversationOptions, { disableProjectDocuments: !packBound });
+    const signal = new AbortController().signal;
+    await expect(c.searchWeb('Approved query', signal)).resolves.toBe('Mocked approved search');
+    expect(search).toHaveBeenCalledWith(
+      'Approved query',
+      signal,
+      expect.objectContaining({ disableProjectDocuments: packBound }),
+    );
+  },
+);

@@ -546,6 +546,7 @@ export async function createCodexNativeSeat(
       : input.profileTools?.onToolResultDurable,
     startupSignal: execution.signal,
     prepareAgentContext: symposiumAgentContextAuthorization(execution),
+    disableProjectDocuments: execution.agentContext?.source === 'packs',
     observeStartupConfig: input.observeStartupConfig
       ? async (event, startupSignal = execution.signal) => {
           const assertCurrent = () => {

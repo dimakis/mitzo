@@ -394,6 +394,7 @@ it('does not advertise unavailable host tools to an OpenShell runtime', async ()
   );
   expect(mocks.conversationOptions?.systemPrompt).not.toContain('Mitzo supplies host tools');
   expect(mocks.conversationOptions?.runtimeConfig).toEqual({ web_search: 'disabled' });
+  expect(mocks.conversationOptions?.disableProjectDocuments).not.toBe(true);
   expect(mocks.conversationOptions?.tools).toEqual([
     expect.objectContaining({ name: 'ListConnections' }),
     expect.objectContaining({ name: 'RequestConnectionAccess' }),
@@ -1878,6 +1879,7 @@ it('preserves first launch and valid restore while failing closed for a replacem
         agentContext: profileContext,
         onAgentContextAccepted: profileAccepted,
       });
+      expect(mocks.conversationOptions?.disableProjectDocuments).toBe(true);
       const profilePrepare = mocks.conversationOptions?.prepareSystemPrompt as (
         signal: AbortSignal,
       ) => Promise<string>;
@@ -2162,6 +2164,7 @@ it('acknowledges host Codex profile context only on exact provider turn acceptan
   try {
     expect(accepted).not.toHaveBeenCalled();
     expect(startup.mock.calls.some(([event]) => event === 'SessionStart')).toBe(false);
+    expect(mocks.conversationOptions?.disableProjectDocuments).toBe(true);
     expect(mocks.conversationOptions?.prepareSystemPrompt).toBeUndefined();
     const delivered = mocks.conversationOptions?.systemPrompt as string;
     expect(delivered.match(/PINNED HOST PROFILE/g)).toHaveLength(1);

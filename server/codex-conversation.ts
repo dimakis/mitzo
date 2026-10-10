@@ -143,6 +143,8 @@ export interface CodexConversationOptions {
   runtimeCwd?: string;
   modelProvider?: string;
   runtimeConfig?: Record<string, unknown>;
+  /** Trusted retained pack selection; suppress task-checkout AGENTS.md discovery. */
+  readonly disableProjectDocuments?: boolean;
   webSearchBackend?: WebSearchBackend;
   webSearchDeploymentRevision?: string;
   getMode?: () => MitzoMode;
@@ -312,7 +314,9 @@ export class CodexConversation {
   private recoveryPhase?: 'starting_workspace' | 'reconnecting';
   private appliedWebSearchAccess: WebSearchAccess = 'disabled';
   private webSearchDeploymentCeiling: WebSearchAccess = 'disabled';
+  private readonly disableProjectDocuments: boolean;
   constructor(private opts: CodexConversationOptions) {
+    this.disableProjectDocuments = opts.disableProjectDocuments === true;
     this.client = this.createClient();
   }
   private createClient() {
@@ -663,6 +667,7 @@ export class CodexConversation {
       modelProvider: this.opts.modelProvider ?? 'openai',
       cwd: this.opts.runtimeCwd ?? this.opts.cwd,
       runtimeConfig: this.opts.runtimeConfig,
+      disableProjectDocuments: this.disableProjectDocuments,
       workspaceId: this.opts.profile.workspaceId,
     });
   }
@@ -1178,6 +1183,9 @@ export class CodexConversation {
         model_reasoning_summary: 'auto',
         ...runtimeConfig,
         web_search: policy.effective,
+        // Native Codex loads project documents independently of Mitzo's compiler.
+        // Enforce pack isolation from thread birth and on every replacement/resume.
+        ...(this.disableProjectDocuments ? { project_doc_max_bytes: 0 } : {}),
       },
       approvalPolicy: 'never',
       sandbox: 'read-only',

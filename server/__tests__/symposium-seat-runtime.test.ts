@@ -4918,3 +4918,43 @@ it('retains the awaited metadata fence across Codex initialization and later nat
   );
   await native.cancel();
 });
+
+it.each([undefined, 'workspace', 'packs'] as const)(
+  'selects native project document isolation only for Symposium packs (%s)',
+  async (source) => {
+    const work = fixture();
+    const { bindSymposiumAgentContextAuthorization } =
+      await import('../symposium-agent-context.js');
+    const execution = {
+      ...work.input,
+      ...(source
+        ? {
+            agentContext: {
+              source,
+              context: { fullMarkdown: 'Pinned profile instructions' },
+            } as import('@mitzo/protocol').AgentContextSnapshot,
+          }
+        : {}),
+    };
+    if (source) bindSymposiumAgentContextAuthorization(execution, async () => {});
+    let options: import('../codex-conversation.js').CodexConversationOptions | undefined;
+    const native = await createOpenAiCodexSeat({
+      sandbox: { workdir: '/task' } as never,
+      route: admitSymposiumSeatDispatch(work.facts, profiles, work.input, hostGrants),
+      execution,
+      store: {} as never,
+      createConversation: (opts) => {
+        options = opts;
+        return {
+          initialize: async () => {},
+          getThreadId: () => 'thread',
+          send: async () => {},
+          interrupt: async () => {},
+          close: () => {},
+        };
+      },
+    });
+    expect(options?.disableProjectDocuments === true).toBe(source === 'packs');
+    await native.cancel();
+  },
+);

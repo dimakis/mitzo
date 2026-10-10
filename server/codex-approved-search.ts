@@ -14,6 +14,8 @@ interface Options {
   modelProvider: string;
   cwd: string;
   runtimeConfig?: Record<string, unknown>;
+  /** Captured parent pack policy; preserve isolation in the separate native thread. */
+  readonly disableProjectDocuments?: boolean;
   workspaceId?: string;
 }
 
@@ -91,6 +93,7 @@ export async function searchCodex(
       ...codexRuntimeOverrides(configuration.config, options.workspaceId),
       web_search: 'live',
       'features.code_mode_host': false,
+      ...(options.disableProjectDocuments ? { project_doc_max_bytes: 0 } : {}),
     };
     const thread = z
       .object({

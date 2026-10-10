@@ -1155,6 +1155,7 @@ async function openCodexChatBound(
     systemPrompt: persistentSystemPrompt,
     startupSignal: signal,
     prepareAgentContext: options.prepareAgentContext,
+    disableProjectDocuments: options.agentContext?.source === 'packs',
     // Thread instructions already contain the retained snapshot. The exact
     // turn/start acknowledgement associates it without duplicating developer context.
     ...(options.agentContext
