@@ -2475,6 +2475,10 @@ export class OpenShellRuntimeManager {
     );
     if (input.length > 65536) throw Error('Sandbox agent context request is too large');
     const spec = openShellSshArgvProcessSpec(runtime, [
+      '/usr/bin/env',
+      '-i',
+      'PATH=/usr/bin:/bin',
+      'HOME=/nonexistent',
       '/usr/bin/node',
       '/usr/libexec/mitzo/compile-agent-context.mjs',
       input,

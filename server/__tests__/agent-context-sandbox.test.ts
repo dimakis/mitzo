@@ -1,4 +1,16 @@
 import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
+import {
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import { join, resolve } from 'node:path';
+import { tmpdir } from 'node:os';
 import { afterEach, expect, it, vi } from 'vitest';
 import type { AgentLibraryVersion, AgentContextRecipe } from '@mitzo/protocol';
 import {
@@ -14,6 +26,62 @@ import {
 import { contextDigest } from '../agent-context-compiler.js';
 
 afterEach(() => vi.restoreAllMocks());
+it('ignores sandbox-controlled Node preload configuration when executing the protected compiler', async () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'agent-compiler-env-')));
+  try {
+    const workdir = join(root, 'workspaces', 'task');
+    mkdirSync(workdir, { recursive: true });
+    writeFileSync(join(workdir, 'AGENTS.md'), '# Rules\nKeep the sandbox boundary.');
+    writeFileSync(join(workdir, 'design.md'), '# Design\nUse reviewed compiler bytes.');
+    const marker = join(root, 'preload-ran');
+    const poison = join(root, 'preload.mjs');
+    writeFileSync(
+      poison,
+      `import fs from 'node:fs'; fs.writeFileSync(${JSON.stringify(marker)}, 'injected');`,
+    );
+    const entrypoint = join(root, 'compiler.mjs');
+    writeFileSync(
+      entrypoint,
+      readFileSync(resolve('docs/spikes/openshell-codex/compile-agent-context.mjs'), 'utf8')
+        .replace(
+          '/usr/lib/contexgin/dist/index.js',
+          resolve('node_modules/contexgin/dist/index.js'),
+        )
+        .replace(
+          '/usr/libexec/mitzo/agent-workspace-context.mjs',
+          resolve('scripts/agent-workspace-context.mjs'),
+        )
+        .replaceAll('/sandbox/workspaces/', join(root, 'workspaces') + '/'),
+    );
+    const f = fixture();
+    f.runSsh.mockImplementation(async (args) => {
+      let command = args.at(-1)!;
+      const originalInput = /'([^']*)'$/.exec(command)![1];
+      const input = JSON.parse(Buffer.from(originalInput, 'base64').toString('utf8'));
+      input.workspaceRoot = workdir;
+      const encoded = Buffer.from(JSON.stringify(input)).toString('base64');
+      command = command
+        .replace(originalInput, encoded)
+        .replace('/usr/bin/node', process.execPath)
+        .replace('/usr/libexec/mitzo/compile-agent-context.mjs', entrypoint);
+      return execFileSync('/bin/sh', ['-c', command], {
+        encoding: 'utf8',
+        timeout: 3000,
+        env: { PATH: '/usr/bin:/bin', NODE_OPTIONS: '--import ' + poison },
+        maxBuffer: 1048576,
+      });
+    });
+    const compiled = await f.manager.compileAgentContext(
+      runtime,
+      workspaceRecipe,
+      new AbortController().signal,
+    );
+    expect(compiled.context.fullMarkdown).toContain('Use reviewed compiler bytes.');
+    expect(existsSync(marker)).toBe(false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 const conversationId = 'sandbox-bob';
 const runtime = {
   sandboxName: sandboxNameForConversation(conversationId),
