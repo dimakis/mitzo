@@ -1,3 +1,4 @@
+import { useMotionPresence } from '../hooks/useMotionPresence';
 import { agentProfileLabel } from '@mitzo/protocol';
 import { defaultSeatColor } from '../lib/theme-color';
 import {
@@ -437,6 +438,7 @@ function ReviewerForm({
     };
   }, [open]);
   const dialog = useRef<HTMLElement>(null);
+  const { ref: motionRef, present } = useMotionPresence(open, 'sheet');
   useEffect(() => {
     if (!open) return;
     const previous = document.activeElement as HTMLElement | null;
@@ -1031,8 +1033,11 @@ function ReviewerForm({
   return (
     <div
       className="reviewer-sheet-backdrop"
-      hidden={!open}
-      style={{ display: open ? undefined : 'none' }}
+      ref={motionRef}
+      hidden={!present}
+      inert={!open}
+      aria-hidden={!open || undefined}
+      style={{ display: present ? undefined : 'none' }}
     >
       <section
         ref={dialog}

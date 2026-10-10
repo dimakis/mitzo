@@ -1,3 +1,4 @@
+import { MotionPresence } from './MotionPresence';
 import { UiIcon } from './UiIcon';
 import { useState, useCallback, useId } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -188,7 +189,7 @@ export function ToolPill({ block, sessionId, showSetupCard = true }: Props) {
         block.toolName ?? '',
       ) &&
         !hasError && <GoogleSearchResult result={block.toolResult} />}
-      {expanded && (
+      <MotionPresence open={expanded} kind="disclosure" appear={false}>
         <div id={detailId} className="tool-pill-detail">
           {block.rawInput ? (
             <RawInputDetail raw={block.rawInput} onPopOut={handlePopOut} />
@@ -200,7 +201,7 @@ export function ToolPill({ block, sessionId, showSetupCard = true }: Props) {
           )}
           <ToolResult block={block} onPopOut={handlePopOut} />
         </div>
-      )}
+      </MotionPresence>
       {block.subagent && (
         <SubagentCard
           subagent={block.subagent}

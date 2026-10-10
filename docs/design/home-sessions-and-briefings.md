@@ -15,7 +15,7 @@ placing a complete body of Markdown in a link.
 ## Workspace state
 
 `HomeStore` owns `.mitzo/home.json` under the configured workspace root. Updates
-to names and ordered pins require the revision returned by GET
+to names, ordered pins and the daily quote setting require the revision returned by GET
 `/api/home/preferences`. Conflicting device edits return 409 instead of
 overwriting changes. Successful writes broadcast `home_preferences` through the
 existing authenticated SSE stream. The frontend also refreshes on visibility.
@@ -74,14 +74,25 @@ the draft can be saved again.
 
 ## Tiny daily quote
 
+**Settings → Today → Show daily quote on Today** is enabled by default and saved
+for the workspace across devices. Existing home files without `showDailyQuote`
+retain the enabled behavior. Today waits for preferences before mounting its quote
+link. When disabled, it makes no daily quote request and leaves cached snapshots
+and the shuffled deck untouched. Direct `/quotes/YYYY-MM-DD` links remain
+available and can still request a quote.
+
+The checkbox shows the saved server value while a change is in flight and after
+a failed write. A conflict reloads the latest value; **Review current setting**
+refreshes it before another choice. Retry never replays a stale change or writes
+nickname or pin fields.
+
 The quote mark beside Today opens the quotation, its edition and translator,
 editorial explanation, an example, author background and direct source links.
 The release catalogue is built from verified drafts; details of admission and
 daily selection are in [the authoring pipeline](../../content/quotes/README.md).
 CI rejects stale generated output. No model runs in daily delivery. The shuffled
 deck and complete daily snapshots are persisted in HomeStore and shared across
-devices. The seed contains three sourced entries; extending it requires source
-review through the same pipeline.
+devices. Extending the catalogue requires source review through the same pipeline.
 
 ## Activation
 

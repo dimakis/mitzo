@@ -39,6 +39,17 @@ The [approved before-and-after comparison](assets/icons-before-after.png) shows 
 
 The bottom navigation shares its height token with the conversation composer and session tray. The shell owns the safe areas once. Inner lists scroll within the remaining viewport and keep their final item above navigation.
 
+## Motion
+
+The [shared motion contract](frontend-motion.md) applies to mobile and desktop.
+`tokens.css` owns the 150ms feedback/menu and 200ms page/sheet/disclosure roles,
+their easing, and the small popover/sheet travel distances. `MobileShell` supplies
+navigation motion automatically. Reuse `MotionPresence` and `useMotionPresence`
+for surfaces, preserving drafts, focus, and subscriptions. Streaming content does
+not replay transitions. Reduce Motion disables animation and press scaling.
+`npm run test:design` also rejects literal timings/easing, broad transitions, and
+direct Web Animations calls outside the shared helper.
+
 ## Verification
 
 The token unit test scans production frontend source and rejects palette literals (including named CSS colors and RGB/HSL), CSS font-family/font shorthands and literal React fontFamily stacks outside the token file. It also rejects literal overrides of shared tokens, including spacing, type, radius and shell dimensions, in component CSS, embedded CSS strings/templates and literal inline custom properties. Font checks inspect the complete family value, including the family portion of shorthand declarations, rather than accepting any value starting with a variable. Existing scoped legacy color/text aliases and token-based color mixes remain valid when their inputs resolve to registered color tokens; spacing and font tokens are not color inputs. Shared scales, font roles and canonical color definitions cannot be reassigned by a page, even through another variable. Font-family references must resolve to registered shared font roles. Inline font checks inspect static expression branches, concatenation and template interpolation; preference IDs remain data. Only the canonical token-file path is exempt, so a feature cannot introduce a second palette by naming its stylesheet tokens.css. Synthetic preview data is excluded because it represents API payloads rather than app styling.

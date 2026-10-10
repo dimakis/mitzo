@@ -82,6 +82,12 @@ describe('useMediaQuery', () => {
 });
 
 describe('useIsDesktop', () => {
+  it('uses viewport width when matchMedia is unavailable', async () => {
+    vi.stubGlobal('matchMedia', undefined);
+    const { useIsDesktop } = await load();
+    const { result } = renderHook(() => useIsDesktop());
+    expect(result.current).toBe(window.innerWidth >= 768);
+  });
   it('returns result of min-width 768px query', async () => {
     currentMatches = true;
     const { useIsDesktop } = await load();

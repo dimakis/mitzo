@@ -1,0 +1,85 @@
+/* Layout-neutral boundaries preserve flex/grid sizing and existing fixed controls. */
+.motion-routes,
+.motion-presence {
+  display: contents;
+}
+.motion-presence[data-motion='disclosure'] {
+  display: block;
+}
+.motion-presence[data-motion='disclosure'][data-motion-active],
+.motion-disclosure[data-motion-active] {
+  overflow: hidden;
+}
+
+/* Async picker contents and native details animate when their content appears. */
+.slash-picker,
+.context-picker,
+.token-bar-detail,
+details[open] > :not(summary) {
+  animation: motion-popover-in var(--motion-duration-fast) var(--motion-ease);
+}
+.knowledge-dialog,
+.access-drawer,
+.boot-context-modal,
+.perm-banner--visible {
+  animation: motion-sheet-in var(--motion-duration-standard) var(--motion-ease);
+}
+.document-editor-dialog[open] {
+  /* Keep keyboard-bounded fullscreen editors within their visual viewport. */
+  animation: motion-fade-in var(--motion-duration-standard) var(--motion-ease);
+}
+@keyframes motion-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes motion-popover-in {
+  from {
+    opacity: 0;
+    translate: 0 var(--motion-distance-popover);
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+  }
+}
+@keyframes motion-sheet-in {
+  from {
+    opacity: 0;
+    translate: 0 var(--motion-distance-sheet);
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+  }
+}
+
+button,
+[role='button'],
+.workspace-nav-link {
+  transition-property: background-color, border-color, color, opacity, scale;
+  transition-duration: var(--motion-duration-fast);
+  transition-timing-function: var(--motion-ease);
+}
+button:active:not(:disabled):not(.session-tray-backdrop),
+.workspace-nav-link:active {
+  scale: 0.98;
+}
+
+/* Covers CSS feedback/status animations as well as the JS preference subscription. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+  button:active:not(:disabled),
+  .workspace-nav-link:active {
+    scale: none;
+  }
+}

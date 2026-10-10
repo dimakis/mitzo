@@ -1,0 +1,18 @@
+---
+description: Consistent brief motion for Mitzo's shared React and iOS interface
+globs: "frontend/src/**/*.{ts,tsx,css}"
+alwaysApply: false
+---
+
+# Frontend motion
+
+Follow `docs/design/frontend-motion.md` and `frontend/AGENTS.md`.
+
+- Routes inherit motion through `MobileShell`; never key pages to animate them.
+- Use `MotionPresence` for conditional surfaces, and `useMotionPresence` when
+  form state must stay mounted. Closing content becomes inert immediately.
+- Use the shared motion tokens, with `var(--motion-ease)` for interaction easing.
+  Example: `transition: opacity var(--motion-duration-fast) var(--motion-ease)`.
+- Use the shared `animateMotion` helper rather than direct Web Animations calls.
+- Respect Reduce Motion. Do not replay animations for streamed content updates.
+- Run `npm run test:design` and the relevant offline motion/layout tests.

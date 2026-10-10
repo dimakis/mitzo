@@ -1,3 +1,4 @@
+import { MotionPresence } from './MotionPresence';
 import { UiIcon, type UiIconName } from './UiIcon';
 import { sessionStatusIcons } from '../lib/status-icons';
 import { useState, useCallback } from 'react';
@@ -116,13 +117,13 @@ export function SessionOverview() {
           <UiIcon name="forward" size={16} />
         </span>
       </button>
-      {isOpen && (
+      <MotionPresence open={isOpen} kind="disclosure" appear={false}>
         <div className="overview-cards">
           {visible.map((a) => (
             <SessionActivityCard key={a.sessionId} activity={a} onTap={handleTap} />
           ))}
         </div>
-      )}
+      </MotionPresence>
     </div>
   );
 }

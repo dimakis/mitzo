@@ -19,6 +19,7 @@ import '../styles/desktop.css';
 import '../styles/workspace.css';
 import '../styles/workspace-chat.css';
 import '../styles/mobile-workspace.css';
+import '../styles/motion.css';
 
 const store = createMitzoStore({
   transport: { fetch: (url, init) => fetch(url, init) },

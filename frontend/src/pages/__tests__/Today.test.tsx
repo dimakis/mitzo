@@ -9,11 +9,14 @@ const data = vi.hoisted(() => ({
   ],
   preferences: {
     revision: 1,
+    showDailyQuote: true,
     names: { briefing: 'Jeeves', terminal: 'Minion' },
     pins: [{ kind: 'telos', id: 'goal-1', title: '# Canonical recovery\n\nLong body' }],
   },
   sessionsError: null as string | null,
   retrySessions: vi.fn(),
+  quoteRequests: 0,
+  fetchPreferences: (): Promise<unknown> => Promise.resolve(null),
   query: '',
   setQuery: vi.fn(),
   briefing: null as { path: string; generatedAt: string } | null,
@@ -47,9 +50,9 @@ vi.mock('../../lib/api-fetch', () => ({
     ok: true,
     json: async () =>
       url.includes('/preferences')
-        ? data.preferences
+        ? data.fetchPreferences()
         : url.includes('/quote')
-          ? null
+          ? (++data.quoteRequests, null)
           : data.fetchBriefing(url),
   }),
 }));
@@ -63,6 +66,9 @@ function show() {
 beforeEach(() => {
   localStorage.clear();
   data.briefing = null;
+  data.preferences.showDailyQuote = true;
+  data.quoteRequests = 0;
+  data.fetchPreferences = async () => data.preferences;
   data.sessionsError = null;
   data.query = '';
   data.setQuery.mockReset();
@@ -169,5 +175,40 @@ describe('Today', () => {
     expect(screen.getByRole('alert').textContent).toContain('Couldn’t load chats');
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
     expect(data.retrySessions).toHaveBeenCalledOnce();
+  });
+});
+
+describe('Today quote preference', () => {
+  it('never requests a quote while preferences are pending or saved off, then requests once when enabled', async () => {
+    let resolvePreferences!: (value: unknown) => void;
+    data.fetchPreferences = () =>
+      new Promise((resolve) => {
+        resolvePreferences = resolve;
+      });
+    show();
+    await act(async () => {});
+    expect(data.quoteRequests).toBe(0);
+    data.preferences.showDailyQuote = false;
+    data.fetchPreferences = async () => data.preferences;
+    await act(async () => resolvePreferences(data.preferences));
+    expect(data.quoteRequests).toBe(0);
+    data.preferences = { ...data.preferences, revision: 2, showDailyQuote: true };
+    await act(async () => {
+      window.dispatchEvent(new Event('mitzo-home-preferences-changed'));
+    });
+    expect(data.quoteRequests).toBe(1);
+    data.preferences = { ...data.preferences, revision: 3, showDailyQuote: false };
+    await act(async () => {
+      window.dispatchEvent(new Event('mitzo-home-preferences-changed'));
+    });
+    expect(data.quoteRequests).toBe(1);
+  });
+  it('does not request a quote when loading preferences fails', async () => {
+    data.fetchPreferences = async () => {
+      throw new Error('Offline');
+    };
+    show();
+    await act(async () => {});
+    expect(data.quoteRequests).toBe(0);
   });
 });

@@ -19,7 +19,7 @@
 .session-preview-stack {
   display: grid;
   gap: 12px;
-  animation: session-preview-in 160ms ease-out;
+  animation: session-preview-in var(--motion-duration-standard) var(--motion-ease);
 }
 .session-preview-card,
 .session-preview-actions {

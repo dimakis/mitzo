@@ -4,12 +4,15 @@ import { apiFetch } from '../lib/api-fetch';
 import { eventBus } from '../lib/event-bus-singleton';
 
 const LOCAL_CHANGE = 'mitzo-home-preferences-changed';
-export type HomePreferencePatch = Partial<Pick<HomePreferences, 'names' | 'pins'>>;
+export type HomePreferencePatch = Partial<
+  Pick<HomePreferences, 'names' | 'pins' | 'showDailyQuote'>
+>;
 
 function readPreferences(value: unknown): HomePreferences {
   if (!value || typeof value !== 'object') throw new Error('Invalid preferences');
   const result = value as HomePreferences;
   if (
+    (result.showDailyQuote !== undefined && typeof result.showDailyQuote !== 'boolean') ||
     !Number.isInteger(result.revision) ||
     result.revision < 0 ||
     typeof result.names?.briefing !== 'string' ||
@@ -25,7 +28,7 @@ function readPreferences(value: unknown): HomePreferences {
     )
   )
     throw new Error('Invalid preferences');
-  return result;
+  return { ...result, showDailyQuote: result.showDailyQuote ?? true };
 }
 
 /** Workspace preferences are server-owned. Revision checks protect edits on other devices. */
@@ -118,5 +121,10 @@ export function useHomePreferences() {
     },
     [reload],
   );
-  return { preferences, loading, saving, error, update, reload };
+  const review = useCallback(async () => {
+    setError(null);
+    setLoading(true);
+    await reload();
+  }, [reload]);
+  return { preferences, loading, saving, error, update, reload, review };
 }

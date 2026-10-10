@@ -83,7 +83,7 @@ function SwipeableSession({
 
   function snapTo(x: number) {
     if (!ref.current) return;
-    ref.current.style.transition = 'transform 0.2s';
+    ref.current.style.transition = 'transform var(--motion-duration-standard) var(--motion-ease)';
     ref.current.style.transform = `translateX(${x}px)`;
     setTimeout(() => {
       if (ref.current) ref.current.style.transition = '';
