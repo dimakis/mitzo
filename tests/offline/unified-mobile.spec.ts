@@ -1419,6 +1419,219 @@ test('combined conversation empty and failed status remain readable without impl
   expect(queued).toHaveLength(0);
 });
 
+async function exerciseSseBriefingRecovery(page: Page, hideAssigned = false) {
+  test.setTimeout(60_000);
+  await page.setViewportSize({ width: page.viewportSize()!.width, height: 900 });
+  await page.addInitScript(() => {
+    localStorage.removeItem('mitzo:transport');
+    localStorage.removeItem('mitzo-workspace-controls-expanded');
+  });
+  const sessionId = 'sse-restored-briefing-command';
+  const binding = {
+    sessionId,
+    date: '2026-10-10',
+    revision: 'a'.repeat(64),
+    accountId: 'work-account',
+    model: 'luna-fixture',
+  };
+  const sends: Record<string, unknown>[] = [];
+  const registrations: unknown[] = [];
+  const turns = new Set<string>();
+  let releaseFirst: (() => void) | undefined;
+  let releaseSecond: (() => void) | undefined;
+  let acceptRegistration = false;
+  let registered = false;
+  let hidden = false;
+  let sockets = 0;
+  await page.routeWebSocket('**/*', (socket) => {
+    sockets += 1;
+    socket.close();
+  });
+  await page.route('**/api/**', async (route) => {
+    const url = new URL(route.request().url());
+    const method = route.request().method();
+    if (url.hostname !== 'mitzo-ui.test') return route.abort();
+    if (url.pathname === '/api/chat/events')
+      return route.fulfill({
+        contentType: 'text/event-stream',
+        body: 'retry: 60000\nevent: welcome\ndata: {"connectionId":"offline-sse-restoration"}\n\n',
+      });
+    if (url.pathname === '/api/events')
+      return route.fulfill({ contentType: 'text/event-stream', body: 'retry: 60000\n\n' });
+    if (url.pathname === '/api/chat/send' && method === 'POST') {
+      const command = route.request().postDataJSON();
+      sends.push(command);
+      turns.add(command.clientMsgId);
+      if (sends.length === 1) {
+        await new Promise<void>((resolve) => {
+          releaseFirst = resolve;
+        });
+        await route
+          .fulfill({ json: { accepted: true, clientMsgId: command.clientMsgId, sessionId } })
+          .catch(() => {});
+        return;
+      }
+      if (sends.length === 2)
+        await new Promise<void>((resolve) => {
+          releaseSecond = resolve;
+        });
+      return route.fulfill({
+        json: { accepted: true, clientMsgId: command.clientMsgId, sessionId },
+      });
+    }
+    if (url.pathname === '/api/home/briefing-chats') {
+      if (method === 'POST') {
+        registrations.push(route.request().postDataJSON());
+        if (!acceptRegistration)
+          return route.fulfill({ status: 503, json: { error: 'Offline receipt retry' } });
+        registered = true;
+        return route.fulfill({ json: { ...binding, createdAt: '2026-10-10T07:00:00Z' } });
+      }
+      return route.fulfill({
+        json: registered ? [{ ...binding, createdAt: '2026-10-10T07:00:00Z' }] : [],
+      });
+    }
+    if (
+      method === 'POST' &&
+      ['/api/chat/reconnect', '/api/chat/switch', '/api/sessions/suspend'].includes(url.pathname)
+    )
+      return route.fulfill({ json: { ok: true } });
+    if (method !== 'GET')
+      return route.fulfill({ status: 405, json: { error: 'Offline fixture forbids writes' } });
+    const models = [
+      { id: 'luna-fixture', label: 'Luna fixture', reasoningEfforts: ['low', 'high'] },
+    ];
+    if (url.pathname === '/api/accounts')
+      return route.fulfill({ json: [{ id: 'work-account', label: 'Work OpenAI', models }] });
+    if (url.pathname === '/api/repository-workspaces/catalog')
+      return route.fulfill({ json: { available: false, repositories: [] } });
+    if (url.pathname === `/api/chat/web-search-consent/${sessionId}`)
+      return route.fulfill({ json: { ok: true, grant: 'denied', revision: 0, updatedAt: null } });
+    if (url.pathname === `/api/sessions/${sessionId}/messages`) return route.fulfill({ json: [] });
+    if (url.pathname === `/api/sessions/${sessionId}/meta`)
+      return route.fulfill({
+        json: {
+          sessionType: 'chat',
+          isHidden: hidden,
+          accountBinding: {
+            accountId: 'work-account',
+            accountLabel: 'Work OpenAI',
+            model: 'luna-fixture',
+          },
+          modelSelection: { model: 'luna-fixture', models },
+        },
+      });
+    if (url.pathname === `/api/sessions/${sessionId}/symposium/status`)
+      return route.fulfill({ json: { sessionId, config: null, seats: [] } });
+    return route.fallback();
+  });
+  await page.goto('https://mitzo-ui.test/briefings/2026-10-10?ask=1');
+  expect(await page.evaluate(() => localStorage.getItem('mitzo:transport'))).toBeNull();
+  const picker = page.getByRole('dialog');
+  await picker.getByRole('button', { name: 'Use selection', exact: true }).click();
+  await page.getByRole('button', { name: 'Send launch prompt', exact: true }).click();
+  await expect.poll(() => sends.length).toBe(1);
+  expect(sends[0].sessionId).toBeNull();
+  expect(sends[0].accountId).toBe(binding.accountId);
+  expect(sends[0].model).toBe(binding.model);
+  expect(sends[0].sourceSnapshots).toEqual([
+    expect.objectContaining({ kind: 'briefing', date: binding.date, revision: binding.revision }),
+  ]);
+  expect(registrations).toHaveLength(0);
+  await page.reload();
+  await expect.poll(() => sends.length).toBe(2);
+  releaseFirst?.();
+  expect(sends[1]).toEqual(sends[0]);
+  expect(turns.size).toBe(1);
+  expect(sockets).toBe(0);
+  // Stay in the same app process while the restored acknowledgement remains pending.
+  await page.getByRole('link', { name: 'Today', exact: true }).click();
+  await page.getByRole('link', { name: 'Read briefing', exact: true }).click();
+  await page.getByRole('button', { name: 'Ask Jeeves', exact: true }).click();
+  const waitingPicker = page.getByRole('dialog');
+  await waitingPicker.getByRole('button', { name: 'Use selection', exact: true }).click();
+  await expect(waitingPicker.getByRole('alert')).toHaveText(
+    'This briefing conversation is awaiting assignment. Let its existing message finish restoring before asking again.',
+  );
+  await page.screenshot({ path: test.info().outputPath('briefing-awaiting-assignment.png') });
+  await expect(page).toHaveURL(/\/briefings\/2026-10-10$/);
+  expect(sends).toHaveLength(2);
+  expect(registrations).toHaveLength(0);
+  releaseSecond?.();
+  await expect.poll(() => registrations.length).toBe(1);
+  await waitingPicker.getByRole('button', { name: 'Use selection', exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`/chat/${sessionId}$`));
+  const retry = page.getByRole('button', { name: 'Retry saving briefing link', exact: true });
+  await expect(retry).toBeVisible();
+  await expect(page.getByText('Jeeves · 2026-10-10', { exact: true })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Read briefing', exact: true })).toHaveAttribute(
+    'href',
+    `/briefings/${binding.date}?revision=${binding.revision}`,
+  );
+  const workspace = page.getByRole('button', { name: /^Workspace controls/ });
+  if ((await workspace.count()) && (await workspace.getAttribute('aria-expanded')) === 'false')
+    await workspace.click();
+  await expect(page.getByRole('combobox', { name: 'Model', exact: true })).toHaveValue(
+    binding.model,
+  );
+  await expect(page.getByRole('combobox', { name: 'Model', exact: true })).toBeDisabled();
+  await expect(page.getByRole('combobox', { name: 'Thinking', exact: true })).toBeDisabled();
+  await expect(page.locator('.chat-account-binding')).toHaveText('Work OpenAI');
+  expect(registrations).toEqual([binding]);
+  // Confirm authoritative visibility before reusing a locally retained assignment.
+  hidden = hideAssigned;
+  await page.goto('https://mitzo-ui.test/briefings/2026-10-10?ask=1');
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: 'Use selection', exact: true })
+    .click();
+  if (hideAssigned) {
+    await expect(page).toHaveURL(/\/chat$/);
+    await expect(
+      page.getByRole('button', { name: 'Send launch prompt', exact: true }),
+    ).toBeEnabled();
+    await expect(page.getByText('Jeeves · 2026-10-10', { exact: true })).toBeVisible();
+    expect(sends).toHaveLength(2);
+    expect(turns.size).toBe(1);
+    expect(registrations).toEqual([binding]);
+    return;
+  }
+  await expect(page).toHaveURL(new RegExp(`/chat/${sessionId}$`));
+  await expect(retry).toBeVisible();
+  if ((await workspace.count()) && (await workspace.getAttribute('aria-expanded')) === 'false')
+    await workspace.click();
+  await expect(page.getByRole('combobox', { name: 'Model', exact: true })).toBeDisabled();
+  expect(sends).toHaveLength(2);
+  expect(turns.size).toBe(1);
+  acceptRegistration = true;
+  await retry.click();
+  await expect(retry).toHaveCount(0);
+  expect(registrations).toEqual([binding, binding]);
+  await page.goto('https://mitzo-ui.test/briefings/2026-10-10?ask=1');
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: 'Use selection', exact: true })
+    .click();
+  await expect(page).toHaveURL(new RegExp(`/chat/${sessionId}$`));
+  if ((await workspace.count()) && (await workspace.getAttribute('aria-expanded')) === 'false')
+    await workspace.click();
+  await expect(page.getByRole('combobox', { name: 'Model', exact: true })).toBeDisabled();
+  expect(sends).toHaveLength(2);
+  expect(turns.size).toBe(1);
+}
+
+test('default SSE restores a briefing command after reload before assignment without a duplicate turn', async ({
+  page,
+}) => {
+  await exerciseSseBriefingRecovery(page);
+});
+
+test('default SSE allows a fresh draft when the recovered local conversation is hidden', async ({
+  page,
+}) => {
+  await exerciseSseBriefingRecovery(page, true);
+});
+
 test('failed briefing registration survives a completed turn and reload without resending it', async ({
   page,
   isMobile,
