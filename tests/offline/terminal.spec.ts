@@ -16,12 +16,37 @@ test.beforeEach(async ({ page }) => {
         return new Response(
           new ReadableStream({
             start(controller) {
+              const long = (window as unknown as { terminalLongOutput?: boolean })
+                .terminalLongOutput;
+              let position = 80,
+                seq = 1;
+              const draw = (history: boolean) =>
+                '\x1b[?1049h\x1b[H\x1b[2J' +
+                Array.from(
+                  { length: 20 },
+                  (_, i) => `Retained row ${String(position + i + 1).padStart(3, '0')}`,
+                ).join('\r\n') +
+                (history ? '\r\nHistory view' : '\r\nReady prompt');
+              window.addEventListener('offline-terminal-scroll', (event) => {
+                if (!long || init?.signal?.aborted) return;
+                const lines = (event as CustomEvent<{ lines: number | null }>).detail.lines;
+                position = lines === null ? 80 : Math.max(0, Math.min(80, position + lines));
+                controller.enqueue(
+                  new TextEncoder().encode(
+                    'data: ' +
+                      JSON.stringify({ type: 'output', data: draw(lines !== null), seq: ++seq }) +
+                      '\n\n',
+                  ),
+                );
+              });
               controller.enqueue(
                 new TextEncoder().encode(
                   'data: ' +
                     JSON.stringify({
                       type: 'snapshot',
-                      data: '~/tools/mitzo\r\n❯ pwd\r\n/Users/operator/tools/mitzo\r\n❯ git status --short\r\n M frontend/src/pages/TerminalView.tsx\r\n❯ ',
+                      data: long
+                        ? draw(false)
+                        : '~/tools/mitzo\r\n❯ pwd\r\n/Users/operator/tools/mitzo\r\n❯ git status --short\r\n M frontend/src/pages/TerminalView.tsx\r\n❯ ',
                       seq: 1,
                     }) +
                     '\n\n',
@@ -60,6 +85,14 @@ test.beforeEach(async ({ page }) => {
         return route.fulfill({ json: preferences });
       }
       const body = request.method() === 'POST' ? request.postDataJSON() : undefined;
+      if (url.pathname.endsWith('/scroll')) {
+        await page.evaluate(
+          (lines) =>
+            window.dispatchEvent(new CustomEvent('offline-terminal-scroll', { detail: { lines } })),
+          body.lines,
+        );
+        return route.fulfill({ json: { ok: true } });
+      }
       if (url.pathname === '/api/terminals/subscriptions')
         return route.fulfill({
           json: {
@@ -278,12 +311,18 @@ test('keeps the shared masthead and gives the terminal most of the mobile viewpo
   const height = await page
     .locator('.terminal-console')
     .evaluate((element) => element.getBoundingClientRect().height);
-  await page.getByRole('button', { name: 'Collapse controls' }).click();
-  expect(
-    await page
-      .locator('.terminal-console')
-      .evaluate((element) => element.getBoundingClientRect().height),
-  ).toBeGreaterThan(height + 75);
+  await expect(page.getByRole('button', { name: 'Show controls' })).toHaveAttribute(
+    'aria-expanded',
+    'false',
+  );
+  await page.getByRole('button', { name: 'Show controls' }).click();
+  await expect
+    .poll(() =>
+      page
+        .locator('.terminal-console')
+        .evaluate((element) => element.getBoundingClientRect().height),
+    )
+    .toBeLessThan(height - 35);
   await page.screenshot({ path: testInfo.outputPath('terminal-focus.png') });
 });
 
@@ -375,4 +414,60 @@ test('Settings saves one workspace terminal name and the terminal uses it after 
       body: { revision: 0, names: { briefing: 'Jeeves', terminal: 'Orbit' } },
     },
   ]);
+});
+
+test('scrolls long tmux output with touch and wheel while keeping controls compact', async ({
+  page,
+}, testInfo) => {
+  await page.addInitScript(() => {
+    (window as unknown as { terminalLongOutput: boolean }).terminalLongOutput = true;
+  });
+  await page.goto('/terminal');
+  await expect(page.getByRole('status')).toContainText('Connected');
+  await expect(page.locator('.xterm-rows')).toContainText('Retained row 081');
+  const output = page.getByLabel('Interactive terminal');
+  const bounds = await output.boundingBox();
+  const body = await page.locator('.terminal-page').boundingBox();
+  expect(bounds!.height).toBeGreaterThan(300);
+  if (testInfo.project.name.startsWith('mobile'))
+    expect(bounds!.height).toBeGreaterThan(body!.height * 0.65);
+  await output.evaluate((element) => {
+    const point = (y: number) => ({ identifier: 1, clientY: y, clientX: 100, target: element });
+    const fire = (type: string, y: number) => {
+      const event = new Event(type, { bubbles: true, cancelable: true });
+      Object.defineProperty(event, 'touches', { value: type === 'touchend' ? [] : [point(y)] });
+      element.dispatchEvent(event);
+    };
+    fire('touchstart', 100);
+    fire('touchmove', 180);
+    fire('touchend', 180);
+  });
+  await expect(page.getByRole('button', { name: 'Live output', exact: true })).toBeVisible();
+  expect(mutations.filter((item) => item.path.endsWith('/scroll')).at(-1)?.body.lines).toBeLessThan(
+    0,
+  );
+  await expect(page.locator('.xterm-rows')).not.toContainText('Retained row 100');
+  await page.getByRole('button', { name: 'Live output', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Live output', exact: true })).toHaveCount(0);
+  await expect(page.locator('.xterm-rows')).toContainText('Retained row 100');
+  expect(mutations.filter((item) => item.path.endsWith('/scroll')).at(-1)?.body).toEqual({
+    lines: null,
+  });
+  await output.dispatchEvent('wheel', { deltaY: 160, deltaMode: 0 });
+  await expect(page.getByRole('button', { name: 'Live output', exact: true })).toBeVisible();
+  expect(mutations.filter((item) => item.path.endsWith('/input'))).toHaveLength(0);
+  await page.screenshot({ path: testInfo.outputPath('terminal-compact-dark.png') });
+  await page.evaluate(() => {
+    document.documentElement.dataset.theme = 'light';
+    document.documentElement.dataset.accent = 'teal';
+    document.documentElement.dataset.font = 'georgia';
+  });
+  await page.setViewportSize({
+    ...page.viewportSize()!,
+    width: testInfo.project.name.startsWith('mobile') ? 320 : 1280,
+  });
+  expect(await page.locator('body').evaluate((element) => element.scrollWidth <= innerWidth)).toBe(
+    true,
+  );
+  await page.screenshot({ path: testInfo.outputPath('terminal-compact-light.png') });
 });

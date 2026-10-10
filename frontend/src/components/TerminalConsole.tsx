@@ -1,11 +1,13 @@
-import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 import { apiFetch, AUTH_LOST_EVENT } from '../lib/api-fetch';
+import { UiIcon } from './UiIcon';
 import { readTerminalStream } from '../lib/terminal-stream';
 export interface TerminalConsoleHandle {
   send(data: string): Promise<void>;
+  scroll(lines: number | null): Promise<void>;
   reviewOutput(): string;
   focus(): void;
 }
@@ -18,6 +20,8 @@ export const TerminalConsole = forwardRef<
     onError: (error: string) => void;
   }
 >(function TerminalConsole({ terminalId, onStatus, onError }, ref) {
+  const [browsing, setBrowsing] = useState(false);
+  const scroll = useRef<(lines: number | null) => Promise<void>>(async () => {});
   const element = useRef<HTMLDivElement>(null),
     terminal = useRef<Terminal | null>(null),
     send = useRef<(data: string) => Promise<void>>(async () => {
@@ -29,6 +33,7 @@ export const TerminalConsole = forwardRef<
     ref,
     () => ({
       send: (data) => send.current(data),
+      scroll: (lines) => scroll.current(lines),
       focus: () => terminal.current?.focus(),
       reviewOutput: () => {
         const term = terminal.current;
@@ -70,7 +75,10 @@ export const TerminalConsole = forwardRef<
       status('unavailable');
       callbacks.current.onError('Input was not acknowledged. Check the terminal before retrying.');
     };
+    let pendingScroll = 0,
+      flushingScroll = false;
     send.current = (data: string) => {
+      pendingScroll = 0;
       if (!connected || disposed || queued + data.length > 65536)
         return Promise.reject(Error('Terminal unavailable'));
       queued += data.length;
@@ -87,6 +95,7 @@ export const TerminalConsole = forwardRef<
             },
           );
           if (!response.ok) throw Error('Terminal input unavailable');
+          if (!disposed) setBrowsing(false);
         })
         .catch((cause) => {
           if (!disposed) error();
@@ -98,6 +107,85 @@ export const TerminalConsole = forwardRef<
       queue = operation.catch(() => {});
       return operation;
     };
+    scroll.current = (lines) => {
+      if (!connected || disposed) return Promise.reject(Error('Terminal unavailable'));
+      if (lines === null) pendingScroll = 0;
+      const operation = queue.then(async () => {
+        if (!connected || disposed) throw Error('Terminal unavailable');
+        const response = await apiFetch(`/api/terminals/${encodeURIComponent(terminalId)}/scroll`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ lines }),
+          signal: controller.signal,
+        });
+        if (!response.ok) throw Error('Terminal history unavailable');
+        if (!disposed) setBrowsing(lines !== null);
+      });
+      queue = operation.catch(() => {});
+      return operation;
+    };
+    const flushScroll = async () => {
+      if (flushingScroll || !pendingScroll || disposed) return;
+      flushingScroll = true;
+      const lines = Math.max(-100, Math.min(100, pendingScroll));
+      pendingScroll = 0;
+      try {
+        await scroll.current(lines);
+      } catch {
+        if (!disposed) callbacks.current.onError('Could not scroll terminal history. Try again.');
+      } finally {
+        flushingScroll = false;
+        if (pendingScroll) void flushScroll();
+      }
+    };
+    let remainder = 0;
+    const move = (pixels: number) => {
+      const rowHeight = (element.current?.getBoundingClientRect().height ?? 0) / term.rows || 16;
+      remainder += pixels / rowHeight;
+      const lines = Math.trunc(remainder);
+      remainder -= lines;
+      if (lines) {
+        pendingScroll = Math.max(-100, Math.min(100, pendingScroll + lines));
+        void flushScroll();
+      }
+    };
+    let touch: { id: number; y: number } | undefined;
+    const startTouch = (event: TouchEvent) => {
+      touch =
+        event.touches.length === 1
+          ? { id: event.touches[0].identifier, y: event.touches[0].clientY }
+          : undefined;
+      remainder = 0;
+    };
+    const moveTouch = (event: TouchEvent) => {
+      if (!touch || event.touches.length !== 1 || event.touches[0].identifier !== touch.id) {
+        touch = undefined;
+        return;
+      }
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      const y = event.touches[0].clientY;
+      move(touch.y - y);
+      touch.y = y;
+    };
+    const endTouch = () => {
+      touch = undefined;
+    };
+    const wheel = (event: WheelEvent) => {
+      if (!event.deltaY || event.ctrlKey) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      move(
+        event.deltaY *
+          (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? element.current!.clientHeight : 1),
+      );
+    };
+    const surface = element.current!;
+    surface.addEventListener('touchstart', startTouch, { capture: true, passive: true });
+    surface.addEventListener('touchmove', moveTouch, { capture: true, passive: false });
+    surface.addEventListener('touchend', endTouch, true);
+    surface.addEventListener('touchcancel', endTouch, true);
+    surface.addEventListener('wheel', wheel, { capture: true, passive: false });
     const input = term.onData((data) => {
       void send.current(data).catch(() => {});
     });
@@ -198,6 +286,11 @@ export const TerminalConsole = forwardRef<
       connected = false;
       controller.abort();
       input.dispose();
+      surface.removeEventListener('touchstart', startTouch, true);
+      surface.removeEventListener('touchmove', moveTouch, true);
+      surface.removeEventListener('touchend', endTouch, true);
+      surface.removeEventListener('touchcancel', endTouch, true);
+      surface.removeEventListener('wheel', wheel, true);
       observer.disconnect();
       appearance.disconnect();
       clearTimeout(resizeTimer);
@@ -206,5 +299,22 @@ export const TerminalConsole = forwardRef<
       terminal.current = null;
     };
   }, [terminalId]);
-  return <div className="terminal-console" ref={element} aria-label="Interactive terminal" />;
+  return (
+    <div className="terminal-console">
+      <div className="terminal-emulator" ref={element} aria-label="Interactive terminal" />
+      {browsing && (
+        <button
+          type="button"
+          className="terminal-live"
+          onClick={() =>
+            void scroll
+              .current(null)
+              .catch(() => callbacks.current.onError('Could not return to live output. Try again.'))
+          }
+        >
+          <UiIcon name="down" size={16} /> Live output
+        </button>
+      )}
+    </div>
+  );
 });

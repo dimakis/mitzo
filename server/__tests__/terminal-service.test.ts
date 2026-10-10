@@ -13,7 +13,12 @@ describe('operator terminals', () => {
   let target: TerminalTarget;
   let onData: (data: string) => void;
   let onExit: (reason?: 'disconnected') => void;
-  const process = { write: vi.fn(), resize: vi.fn(), detach: vi.fn() };
+  const process = {
+    write: vi.fn(),
+    resize: vi.fn(),
+    detach: vi.fn(),
+    scroll: vi.fn(async () => {}),
+  };
   let backend: TerminalBackend;
   let service: TerminalService;
   let pendingResolution: Promise<void> | undefined;
@@ -22,6 +27,7 @@ describe('operator terminals', () => {
     db = new Database(':memory:');
     target = { kind: 'host', label: 'Your Mac', cwd: '/home/operator', identity: 'host:v1' };
     process.write.mockReset();
+    process.scroll.mockReset();
     process.resize.mockReset();
     process.detach.mockReset();
     backend = {
@@ -48,6 +54,33 @@ describe('operator terminals', () => {
     db.close();
   });
 
+  it('scrolls only the owned terminal and leaves history before deliberate input', async () => {
+    const terminal = await service.open('operator-a', {});
+    const authority = { signal: new AbortController().signal, expiresAt: Date.now() + 60000 };
+    await expect(service.scroll('operator-b', terminal.id, -20, authority)).rejects.toThrow();
+    await expect(service.scroll('operator-a', terminal.id, 101, authority)).rejects.toThrow();
+    expect(process.scroll).not.toHaveBeenCalled();
+    await service.scroll('operator-a', terminal.id, -20, authority);
+    expect(process.scroll).toHaveBeenCalledWith(-20, expect.any(Function), authority.signal);
+    expect(process.write).not.toHaveBeenCalled();
+    await service.write('operator-a', terminal.id, 'pwd\r', authority);
+    expect(process.scroll).toHaveBeenLastCalledWith(null, expect.any(Function), authority.signal);
+    expect(process.write).toHaveBeenCalledWith('pwd\r');
+  });
+  it('does not send input when authority expires while leaving history', async () => {
+    const terminal = await service.open('operator-a', {});
+    const controller = new AbortController();
+    process.scroll.mockImplementationOnce(async () => {
+      controller.abort();
+    });
+    await expect(
+      service.write('operator-a', terminal.id, 'pwd\r', {
+        signal: controller.signal,
+        expiresAt: Date.now() + 60000,
+      }),
+    ).rejects.toThrow();
+    expect(process.write).not.toHaveBeenCalled();
+  });
   it('reuses an operator’s terminal after navigation without restarting its shell', async () => {
     const first = await service.open('operator-a', {});
     const unsubscribe = await service.subscribe('operator-a', first.id, vi.fn());

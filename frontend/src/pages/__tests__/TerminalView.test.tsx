@@ -198,6 +198,7 @@ it('preserves the adviser selection when its panel and all controls are collapse
   fireEvent.click(screen.getByRole('button', { name: 'Show Minion' }));
   fireEvent.click(screen.getByText('Use Work Luna Low'));
   fireEvent.click(screen.getByRole('button', { name: 'Hide Minion' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Show controls' }));
   fireEvent.click(screen.getByRole('button', { name: 'Collapse controls' }));
   fireEvent.click(screen.getByRole('button', { name: 'Show controls' }));
   fireEvent.click(screen.getByRole('button', { name: 'Show Minion' }));
@@ -290,4 +291,18 @@ it('uses the workspace terminal name independently of the briefing and legacy br
   expect(screen.getByLabelText('Ask Orbit')).toBeTruthy();
   expect(screen.queryByLabelText('Ask Jeeves')).toBeNull();
   expect(screen.queryByLabelText('Ask Old browser name')).toBeNull();
+});
+
+it('starts with compact controls while keeping adviser and destination reachable', async () => {
+  setup('/terminal');
+  await screen.findByText('Shell output');
+  expect(screen.getByRole('button', { name: 'Show controls' }).getAttribute('aria-expanded')).toBe(
+    'false',
+  );
+  expect(screen.queryByRole('button', { name: 'Choose terminal destination' })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Show Minion' }));
+  expect(screen.getByText('Use Work Luna Low').closest('[hidden]')).toBeNull();
+  expect(
+    screen.getByRole('button', { name: 'Choose terminal destination' }).closest('[hidden]'),
+  ).toBeNull();
 });

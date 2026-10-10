@@ -43,3 +43,9 @@ Personal Claude and Gemini subscriptions remain unavailable as adviser accounts.
 Unit tests use synthetic provider events and TLS gateway fixtures. The native smoke test uses a temporary HOME, `/bin/sh` and a unique tmux socket, preserving a shell value across backend reconstruction and cleaning up only its own resources. Offline browser tests intercept every request and serve compiled assets without a backend or preview server; they cover Safari, phone Chromium and desktop Chromium, masthead geometry, explicit command execution, reviewed context and keyboard layout.
 
 Live acceptance must use the canonical staging procedure after source acceptance and independently reviewed provider configuration. Any real model test must select a supported Luna model and state the exact model and charged account before calling it. This feature does not authorize production deployment, provider enrollment or an additional staging instance.
+
+## Output history and compact controls
+
+The terminal opens with one compact toolbar beneath the shared masthead. It shows the current destination; adviser and destination details stay folded away until requested. The adviser icon opens the existing account/model/thinking controls and suggestions. Command input and history shortcuts remain visible.
+
+Swipe the output up or down on a phone, or use a mouse wheel/trackpad on desktop. These gestures scroll the owned tmux pane's retained history through an operator-authenticated, bounded history operation, including inside an OpenShell sandbox via its pinned gateway. They do not send arrow keys or command text into the shell. Terminal options also provide labelled scroll actions. **Live output** leaves history mode; deliberate input returns to live mode before delivery. Navigation preserves the shell and its history.
