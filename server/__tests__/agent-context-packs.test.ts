@@ -190,33 +190,116 @@ it('uses optional document priority during actual ContexGin budget trimming', as
     expect.objectContaining({ path: 'context/low.md', reason: 'budget' }),
   );
 });
-it('fails explicitly for ambiguous repeated heading paths selected case insensitively', async () => {
-  const selectedDefinition = {
-    ...definition,
-    documents: [{ ...document, headings: [['architecture']] }],
-  };
-  const selected = {
-    ...pack,
-    definition: selectedDefinition,
-    hash: contextDigest(selectedDefinition),
-  };
-  const packs = {
-    ...adapter(),
-    resolve: async () => selected,
-    readDocument: async () => ({
+it.each([
+  {
+    headings: [['rules']],
+    content:
+      '# Rules\nKeep accepted guidance.\n# Appendix\nFirst appendix.\n# appendix\nSecond appendix.',
+    included: ['Keep accepted guidance.'],
+    omitted: ['First appendix.', 'Second appendix.'],
+  },
+  {
+    headings: [['rules']],
+    content:
+      '# Rules\nKeep accepted guidance.\n## Detail\nFirst detail.\n## detail\nSecond detail.',
+    included: ['Keep accepted guidance.', 'First detail.', 'Second detail.'],
+    omitted: [],
+  },
+  {
+    headings: [['guide', 'rules']],
+    content:
+      '# Guide\nIntroduction.\n## Rules\nKeep accepted guidance.\n## Appendix\nFirst appendix.\n## appendix\nSecond appendix.',
+    included: ['Keep accepted guidance.'],
+    omitted: ['Introduction.', 'First appendix.', 'Second appendix.'],
+  },
+  {
+    headings: [],
+    content: 'Document preamble.\n# Appendix\nFirst appendix.\n# appendix\nSecond appendix.',
+    included: ['Document preamble.', 'First appendix.', 'Second appendix.'],
+    omitted: [],
+  },
+])(
+  'compiles selected paths despite unselected duplicate headings: $headings',
+  async ({ headings, content, included, omitted }) => {
+    const selectedDefinition = {
+      ...definition,
+      documents: [{ ...document, headings }],
+    };
+    const selected = {
+      ...pack,
+      definition: selectedDefinition,
+      hash: contextDigest(selectedDefinition),
+    };
+    const packs = adapter();
+    packs.resolve.mockResolvedValue(selected);
+    packs.readDocument.mockResolvedValue({
       storeId: 'accepted-mgmt',
       path: document.path,
       revision,
-      content: '# Architecture\nFirst definition.\n# architecture\nConflicting second definition.',
-    }),
-  };
-  await expect(
-    compileAgentContext(
+      content,
+    });
+    const result = await compileAgentContext(
       { ...recipe, packs: [{ id: selected.id, revision: selected.revision, hash: selected.hash }] },
       { packs },
-    ),
-  ).rejects.toThrow(/ambiguous.*heading/i);
-});
+    );
+    for (const text of included) expect(result.context.fullMarkdown).toContain(text);
+    for (const text of omitted) expect(result.context.fullMarkdown).not.toContain(text);
+  },
+);
+it.each([
+  {
+    headings: [['architecture']],
+    mode: 'required' as const,
+    content: '# Architecture\nFirst definition.\n# architecture\nConflicting second definition.',
+  },
+  {
+    headings: [['guide', 'rules']],
+    mode: 'required' as const,
+    content: '# Guide\nIntroduction.\n## Rules\nFirst rules.\n## rules\nConflicting rules.',
+  },
+  {
+    headings: [['guide'], ['guide', 'rules']],
+    mode: 'prioritized' as const,
+    content: '# Guide\nIntroduction.\n## Rules\nFirst rules.\n## rules\nConflicting rules.',
+  },
+  {
+    headings: [['guide', 'rules']],
+    mode: 'excluded' as const,
+    content: '# Guide\nIntroduction.\n## Rules\nFirst rules.\n## rules\nConflicting rules.',
+  },
+])(
+  'fails for requested ambiguous heading paths selected case insensitively: $headings ($mode)',
+  async ({ headings, mode, content }) => {
+    const selectedDefinition = {
+      ...definition,
+      documents: [{ ...document, headings, mode }],
+    };
+    const selected = {
+      ...pack,
+      definition: selectedDefinition,
+      hash: contextDigest(selectedDefinition),
+    };
+    const packs = {
+      ...adapter(),
+      resolve: async () => selected,
+      readDocument: async () => ({
+        storeId: 'accepted-mgmt',
+        path: document.path,
+        revision,
+        content,
+      }),
+    };
+    await expect(
+      compileAgentContext(
+        {
+          ...recipe,
+          packs: [{ id: selected.id, revision: selected.revision, hash: selected.hash }],
+        },
+        { packs },
+      ),
+    ).rejects.toThrow(/ambiguous.*heading/i);
+  },
+);
 it('bounds global nodes including excluded material before compilation', async () => {
   const selectedDefinition = {
     ...definition,

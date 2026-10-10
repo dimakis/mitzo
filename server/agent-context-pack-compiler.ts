@@ -25,7 +25,7 @@ const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(va
 const textDigest = (value: string) => createHash('sha256').update(value, 'utf8').digest('hex');
 const matches = (path: string[], prefix: string[]) =>
   prefix.every((part, index) => path[index]?.toLowerCase() === part.toLowerCase());
-function sections(path: string, content: string, rejectAmbiguous = false): Node[] {
+function sections(path: string, content: string, selectors: string[][] = []): Node[] {
   const headings = new Set<string>();
   const result: Node[] = [];
   const add = (text: string, headingPath: string[]) => {
@@ -53,7 +53,12 @@ function sections(path: string, content: string, rejectAmbiguous = false): Node[
     const visit = (heading: (typeof tree)[number], parent: string[]) => {
       const headingPath = [...parent, heading.title];
       const key = JSON.stringify(headingPath.map((part) => part.toLowerCase()));
-      if (rejectAmbiguous && headings.has(key))
+      if (
+        headings.has(key) &&
+        selectors.some(
+          (selector) => selector.length === headingPath.length && matches(headingPath, selector),
+        )
+      )
         throw Error(`Ambiguous context heading: ${headingPath.join(' > ')}`);
       headings.add(key);
       add(heading.content, headingPath);
@@ -117,8 +122,8 @@ export async function compileContextPacks(
           contentHash,
         });
       }
-      const sourceNodes = sections(source.path, source.content, selection.headings.length > 0);
       const selectors = selection.headings.map((heading) => [selection.path, ...heading]);
+      const sourceNodes = sections(source.path, source.content, selectors);
       if (
         selectors.some(
           (selector) => !sourceNodes.some((node) => matches(node.origin.headingPath!, selector)),
