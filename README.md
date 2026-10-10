@@ -38,7 +38,7 @@ Initial support covers regular-file GitHub projects up to 10,000 files and 64 Mi
 - **Connections with clear account evidence** — setup, authentication checks and last successful use are shown separately. Services show identity, configured permissions and scope; older credential checks do not imply a broken connection. Distinct GitHub providers are labelled, unused integrations produce no warning cards, and web access is explained separately. See [Connections](docs/features/connections.md).
 - **Connect services from your chat** — ask for a task that needs Home Assistant or a documented REST API. The assistant prepares the connection and opens a focused secure credential form; Mitzo verifies the key privately and returns readiness to the originating chat. Authentication settings stay out of the ordinary flow, and detailed agent guidance loads only when needed. See [Chat-led service connections](docs/features/chat-led-connections.md).
 
-Experimental [Symposium conversations](docs/features/symposium-integrated-acceptance.md) combine implementer and independently configured read-only reviewer seats with selected context, attributed results and explicit Stop controls. Provider sign-in, physical runtime admission and live workflow acceptance remain required. Use the [canonical singleton staging procedure](docs/operations/symposium-singleton-staging.md) for qualification; production activation is separate.
+Experimental [Symposium conversations](docs/features/symposium.md) combine independently configured contributors with selected context, attributed results and explicit Stop controls. The current direction puts artifacts first and reuses ordinary account/session execution; that integration is not yet accepted. The [current acceptance checklist](docs/features/symposium-integrated-acceptance.md) distinguishes the next conversation slice from historical review/publication work. Provider sign-in, physical runtime admission and live acceptance remain required. Use the [canonical singleton staging procedure](docs/operations/symposium-singleton-staging.md) for qualification; production activation is separate.
 
 In a chat on desktop or mobile, expand **Workspace** and select **Reusable profile drafts** to review, edit and explicitly save proposed agent profiles. The drafts control stays inside Workspace, leaving the conversation and composer clear. When no drafts exist, it explains how to request one; loading and connection errors remain visible. Saving a profile does not apply it to an agent. See [reusable profiles](docs/features/symposium.md#profiles-and-reusable-reviewer-recipes).
 
@@ -353,7 +353,7 @@ reports the missing capability rather than falling back to ordinary chat. Mocked
 integration coverage establishes the workflow boundaries, not live production
 readiness. Reviewer and Claude admission require independent host attestation
 and live acceptance; environment settings alone do not enable them. See the
-[integration gaps](docs/features/symposium.md#review-records-and-publication-boundary).
+[integration gaps](docs/archive/symposium/2026-09-symposium.md#review-records-and-publication-boundary).
 
 A dormant Symposium publication executor now composes the existing forced-approval
 capability service with the saved review record, exact committed tree, current
@@ -901,7 +901,7 @@ Shared artifacts use the reviewed native working directory; see [canonical artif
 
 - [Owned Symposium evidence candidate collection](docs/features/symposium-owned-evidence.md)
 
-Native Symposium Codex turns use [validated cumulative token usage](docs/features/symposium.md#durable-delivery-attribution-and-recovery), keeping terminal accounting unknown because completion carries no final usage proof, including when cumulative updates arrive late. This does not enable budgeted review admission or claim a hard provider spending cap.
+Native Symposium Codex turns use [validated cumulative token usage](docs/archive/symposium/2026-09-symposium.md#durable-delivery-attribution-and-recovery), keeping terminal accounting unknown because completion carries no final usage proof, including when cumulative updates arrive late. This does not enable budgeted review admission or claim a hard provider spending cap.
 
 Discovery preflight rejection can undo an exact undispatched local journal under
 its retained lock; dispatched or replaced evidence still requires reconciliation.
@@ -939,12 +939,12 @@ A final seat or custody rejection from the retained workspace fence may undo loc
 Native model-discovery failures retain [private staged diagnostics](docs/features/symposium-discovery-diagnostics.md) without changing conservative cleanup or recovery gates.
 
 Symposium director controls support explicit primary routing transfer to an admitted seat
-without changing its permissions; original-writer cleanup and replacement still require live acceptance. See [Symposium lifecycle](docs/features/symposium.md#durable-delivery-attribution-and-recovery).
+without changing its permissions; original-writer cleanup and replacement still require live acceptance. See [Symposium lifecycle](docs/archive/symposium/2026-09-symposium.md#durable-delivery-attribution-and-recovery).
 
 Personal Connections offers explicit model-discovery cleanup only when the same
 running host retains an exact, known-sandbox recovery capability. Successful cleanup
 requires fresh sign-in and explicit seat rebind; unknown creation and legacy or
-restarted quarantine remain blocked. See [discovery recovery](docs/features/symposium.md#model-discovery-recovery).
+restarted quarantine remain blocked. See [discovery recovery](docs/archive/symposium/2026-09-symposium.md#model-discovery-recovery).
 
 A dormant [pending artifact seal fence](docs/operations/symposium-artifact-seal.md) denies
 new Symposium seat work while trusted-host sealing is pending. The pending fence alone
