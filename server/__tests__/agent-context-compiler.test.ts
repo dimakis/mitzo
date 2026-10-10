@@ -53,6 +53,12 @@ it('refuses exclusions and insufficient budgets that would remove required works
   await expect(
     compileAgentContext({ ...recipe, excluded: [['AGENTS.md']] }, { workspaceRoot: root }),
   ).rejects.toThrow(/instructions/);
+  await expect(
+    compileAgentContext(
+      { ...recipe, excluded: [['AGENTS.md', 'Required rules']] },
+      { workspaceRoot: root },
+    ),
+  ).rejects.toThrow(/instructions/);
   await writeFile(join(root, 'AGENTS.md'), '# Rules\n' + 'Mandatory rule. '.repeat(400));
   await expect(
     compileAgentContext({ ...recipe, tokenBudget: 256 }, { workspaceRoot: root }),
@@ -81,6 +87,31 @@ it('records optional trimming without truncating required instructions', async (
   expect(result.context.trimmed.map((section) => section.heading)).toContain(
     'docs/design.md > Design > Background',
   );
+});
+
+it('excludes nested headings even in short documents without delivering their private content', async () => {
+  const root = await workspace();
+  await writeFile(
+    join(root, 'docs/design.md'),
+    '# Design\nOverview.\n## Architecture\nPublic choice.\n### Private notes\nNever deliver this source text.\n### Rationale\nUse typed interfaces.',
+  );
+  const result = await compileAgentContext(
+    { ...recipe, excluded: [['docs/design.md', 'Design', 'Architecture', 'Private notes']] },
+    { workspaceRoot: root },
+  );
+  expect(result.context.fullMarkdown).toContain('Use typed interfaces.');
+  expect(result.context.fullMarkdown).toContain('Public choice.');
+  expect(result.context.fullMarkdown).not.toContain('Never deliver this source text.');
+  expect(result.context.fullMarkdown).not.toContain('Private notes');
+});
+it('resolves required top-level headings in documents with no level-two sections', async () => {
+  const root = await workspace();
+  await writeFile(join(root, 'docs/design.md'), '# Policy\nKeep state explicit.');
+  const result = await compileAgentContext(
+    { ...recipe, required: [['docs/design.md', 'Policy']], excluded: [] },
+    { workspaceRoot: root },
+  );
+  expect(result.context.fullMarkdown).toContain('Keep state explicit.');
 });
 it('prefers AGENTS.md and preserves all of legacy CLAUDE.md when canonical instructions are absent', async () => {
   const root = await workspace();
@@ -172,6 +203,11 @@ it.each([
   { agent: 'other', boot: { content: 'Wrong agent', tokens: 2, tokenBudget: 100, sources: [] } },
   { agent: 'architect', boot: {} },
   { agent: 'architect', boot: { content: '', tokens: 0, tokenBudget: 100, sources: [] } },
+  { agent: 'architect', boot: { content: '   \n', tokens: 2, tokenBudget: 100, sources: [] } },
+  {
+    agent: 'architect',
+    boot: { content: 'Uncounted content', tokens: 0, tokenBudget: 100, sources: [] },
+  },
   {
     agent: 'architect',
     boot: { content: 'Over budget', tokens: 101, tokenBudget: 100, sources: [] },

@@ -2,13 +2,7 @@ import { createHash } from 'node:crypto';
 import { constants } from 'node:fs';
 import { lstat, open, realpath } from 'node:fs/promises';
 import { join, relative, isAbsolute, sep } from 'node:path';
-import {
-  compile,
-  estimateTokens,
-  extractAllLevel2,
-  parseMarkdown,
-  type CompileOptions,
-} from 'contexgin';
+import { compile, estimateTokens, parseMarkdown, type CompileOptions } from 'contexgin';
 import {
   AgentContextRecipeSchema,
   AgentCompiledBootContextSchema,
@@ -21,7 +15,7 @@ import { DEFAULT_CONTEXGIN_URL } from './constants.js';
 
 // Pinned dependency plus this preloaded-document compiler contract; never a runtime grant.
 export const AGENT_CONTEXT_COMPILER_REVISION =
-  'mitzo-context-v1:contexgin-683f9007db686e710ed9a5410468fe33df1c5382';
+  'mitzo-context-v2:contexgin-683f9007db686e710ed9a5410468fe33df1c5382';
 export const contextDigest = (value: unknown) =>
   createHash('sha256').update(JSON.stringify(value)).digest('hex');
 type Options = {
@@ -93,14 +87,6 @@ function node(
     origin: { source: file, relativePath: file, format: 'markdown', headingPath },
   };
 }
-function matches(value: Node, selector: string[]) {
-  const path = value.origin.headingPath ?? [value.id];
-  return (
-    (selector.length === 1 && selector[0].toLowerCase() === value.id.toLowerCase()) ||
-    (selector.length <= path.length &&
-      selector.every((part, i) => part.toLowerCase() === path[i].toLowerCase()))
-  );
-}
 async function workspaceContext(
   recipe: Extract<AgentContextRecipe, { source: 'workspace' }>,
   options: Options,
@@ -122,26 +108,26 @@ async function workspaceContext(
     const content = await document(root, file, options.signal);
     if (content === null) throw Error(`Selected context document is unavailable: ${file}`);
     const tree = parseMarkdown(content);
-    const source = { path: file, relativePath: file, kind: 'reference' as const };
-    const sections = extractAllLevel2(tree, source);
-    if (!sections.length) nodes.push(node(file, content, [file], 0));
-    else {
-      const h2 = tree.flatMap((heading) =>
-        heading.level === 2 ? [heading] : heading.children.filter((child) => child.level === 2),
-      );
+    if (!tree.length) {
+      if (content.trim()) nodes.push(node(file, content, [file], 0));
+    } else {
       const preamble = content
         .split('\n')
-        .slice(0, Math.min(...h2.map((heading) => heading.line)) - 1)
+        .slice(0, tree[0].line - 1)
         .join('\n');
       if (preamble.trim()) nodes.push(node(file, preamble, [file], 0));
-      sections.forEach((section, index) =>
-        nodes.push(node(file, section.content, [file, ...section.headingPath], index + 1)),
-      );
+      let index = 1;
+      const visit = (heading: (typeof tree)[number], parent: string[]) => {
+        const path = [...parent, heading.title];
+        if (heading.content.trim()) nodes.push(node(file, heading.content, path, index++));
+        heading.children.forEach((child) => visit(child, path));
+      };
+      tree.forEach((heading) => visit(heading, [file]));
     }
     if (nodes.length > 500) throw Error('Context documents contain too many sections');
   }
   for (const selector of recipe.excluded) {
-    if (nodes.some((value) => value.required && matches(value, selector)))
+    if (canonical && selector[0].toLowerCase() === canonical.toLowerCase())
       throw Error('A context recipe cannot exclude required workspace instructions');
   }
   options.signal?.throwIfAborted();

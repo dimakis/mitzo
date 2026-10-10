@@ -59,14 +59,18 @@ export const AgentCompiledBootContextSchema = z
     type: z.literal('boot_context'),
     source: z.literal('contexgin'),
     sourceCount: z.number().int().nonnegative().max(500),
-    tokenCount: z.number().int().nonnegative().max(100000),
+    tokenCount: z.number().int().positive().max(100000),
     tokenBudget: z.number().int().positive().max(100000),
     sources: z
       .array(z.strictObject({ path: z.string().min(1).max(240), kind: z.string().min(1).max(40) }))
       .max(500),
     included: z.array(section).max(500),
     trimmed: z.array(section).max(500),
-    fullMarkdown: z.string().min(1).max(400000),
+    fullMarkdown: z
+      .string()
+      .min(1)
+      .max(400000)
+      .refine((value) => value.trim().length > 0, 'Compiled context is empty'),
   })
   .superRefine((context, ctx) => {
     if (context.sourceCount !== context.sources.length || context.tokenCount > context.tokenBudget)

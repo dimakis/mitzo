@@ -25,9 +25,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../chat.ts': '528aec4f04d2e49f698d68f12c60618a680b4ffb660cb29951642a54d78e65f1',
   '../agent-context-binding.ts': 'ce0f8dba7f97f515be8ee00a441e3cc36344aad44f31e0b2fb33a160f8803e66',
   '../agent-context-compiler.ts':
-    '37adfd9225f97cccdee556cf91d8a9e7642083df15a8d5bdc24599c92cb84db0',
+    '6921b13f4ed80317d3be4ee5630574058497d900e629121a6c71b9e7fc3a3517',
   '../../packages/protocol/src/agent-context-recipe.ts':
-    '1adb84447180719c11d0102f592333086813ec7577fcfbd38f4e3f51f6225b00',
+    'dbe9dd63fe439a1615ec605870528e350d5c1dbbb87517e4a78082dd4e5a7c83',
   // Library profile identity, operator ownership and admission are reviewed runtime inputs.
   '../symposium-director-routes.ts':
     'e6cabfe7555434bbf426209e5a0de750195559e106b0bbb09c4885a34159ff36',
