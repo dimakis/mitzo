@@ -193,6 +193,117 @@ it('uses a fresh request identity for a new identical send after a confirmed rec
   expect(bodies).toHaveLength(2);
   expect(bodies[0].requestId).not.toBe(bodies[1].requestId);
 });
+it('allows a fresh follow-up after authoritative idle despite a historically failed delivery, but refuses uncertain cleanup', async () => {
+  const messages = [
+    {
+      messageId: 'prior-reply',
+      role: 'assistant',
+      startedSeq: 8,
+      blocks: [{ blockId: 'prior-text', blockType: 'text', content: 'Retained attributed reply' }],
+    },
+  ];
+  let status = 'idle';
+  const contributor = () => ({
+    id: 'joe',
+    label: 'Joe',
+    accountLabel: 'Personal ChatGPT',
+    model: 'luna-fixture',
+    sessionId: 'child',
+    status,
+    outputId: output.outputId,
+    outputRevision: 1,
+    messages,
+  });
+  const bodies: Record<string, unknown>[] = [];
+  vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+    if (init?.method === 'POST') {
+      bodies.push(JSON.parse(init.body as string));
+      if (bodies.length === 1) {
+        status = 'unavailable';
+        return json({
+          delivery: {
+            deliveryId: 'historical-failed-delivery',
+            status: 'failed',
+            recipients: [
+              {
+                error: 'Provider diagnostic containing a private callback detail',
+              },
+            ],
+          },
+          contributor: contributor(),
+        });
+      }
+      return json({
+        delivery: { deliveryId: 'new-delivery', status: 'delivered' },
+        contributor: contributor(),
+      });
+    }
+    if (String(url).endsWith('/contributors'))
+      return json({
+        contributors: [contributor()],
+        eligibility: { available: true, accountIds: ['personal'], reason: 'Ordinary route' },
+      });
+    return reads(String(url));
+  });
+  const { result } = renderHook(() => useOutputContributors('source', true));
+  await waitFor(() => expect(result.current?.selected).toBeTruthy());
+  await act(async () => {
+    await expect(result.current!.onSend('joe', 'Failed turn')).rejects.toThrow(
+      'Contributor execution failed. Your draft is preserved. Check its conversation and current account before retrying.',
+    );
+  });
+  await waitFor(() => expect(result.current?.contributors[0].status).toBe('unavailable'));
+  await act(async () => {
+    await expect(result.current!.onSend('joe', 'Fresh follow-up')).rejects.toThrow('unavailable');
+  });
+  expect(bodies).toHaveLength(1);
+  status = 'idle';
+  act(() => result.current!.onRefresh());
+  await waitFor(() => expect(result.current?.contributors[0].status).toBe('idle'));
+  expect(result.current?.contributors[0].messages).toEqual(messages);
+  await act(async () => result.current!.onSend('joe', 'Failed turn'));
+  expect(bodies).toHaveLength(2);
+  expect(bodies[1].text).toBe('Failed turn');
+  expect(bodies[1].requestId).not.toBe(bodies[0].requestId);
+  expect(result.current?.contributors[0].messages).toEqual(messages);
+});
+it('retains the exact send request identity when the transport outcome is unknown', async () => {
+  const contributor = {
+    id: 'joe',
+    label: 'Joe',
+    accountLabel: 'Personal ChatGPT',
+    model: 'luna-fixture',
+    sessionId: 'child',
+    status: 'idle',
+    outputId: output.outputId,
+    outputRevision: 1,
+    messages: [],
+  };
+  const bodies: Record<string, unknown>[] = [];
+  vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+    if (init?.method === 'POST') {
+      bodies.push(JSON.parse(init.body as string));
+      throw Error('Response lost');
+    }
+    if (String(url).endsWith('/contributors'))
+      return json({
+        contributors: [contributor],
+        eligibility: { available: true, accountIds: ['personal'], reason: 'Ordinary route' },
+      });
+    return reads(String(url));
+  });
+  const { result } = renderHook(() => useOutputContributors('source', true));
+  await waitFor(() => expect(result.current?.selected).toBeTruthy());
+  for (let retry = 0; retry < 2; retry++)
+    await act(async () => {
+      await expect(result.current!.onSend('joe', 'Uncertain turn')).rejects.toThrow(
+        'Response lost',
+      );
+    });
+  expect(bodies).toHaveLength(2);
+  expect(bodies[1]).toEqual(bodies[0]);
+  expect(JSON.stringify(sessionStorage)).not.toContain('Uncertain turn');
+});
 it('accepts a matching terminal Stop receipt after the account becomes unavailable', async () => {
   const contributor = {
     id: 'joe',

@@ -35,6 +35,7 @@ test('registered draft and ordinary contributor setup preserve revision, account
   let eligible = true;
   let showContributor = false;
   let stopRequests = 0;
+  let messageRequests = 0;
   let selectedReadFailed = false;
   let failedReads = 0;
   const contributor = {
@@ -46,7 +47,20 @@ test('registered draft and ordinary contributor setup preserve revision, account
     status: 'stopping',
     outputId: output.outputId,
     outputRevision: 1,
-    messages: [],
+    messages: [
+      {
+        messageId: 'historical-reply',
+        role: 'assistant',
+        startedSeq: 8,
+        blocks: [
+          {
+            blockId: 'historical-text',
+            blockType: 'text',
+            content: 'Earlier attributed contribution remains in this conversation.',
+          },
+        ],
+      },
+    ],
   };
   const writes: { path: string; body: unknown }[] = [];
   const errors: string[] = [];
@@ -59,6 +73,23 @@ test('registered draft and ordinary contributor setup preserve revision, account
     if (path.startsWith('/api/')) {
       if (route.request().method() !== 'GET') {
         writes.push({ path, body: route.request().postDataJSON() });
+        if (path === `/api/sessions/${sessionId}/contributors/joe/messages`) {
+          messageRequests++;
+          if (messageRequests === 1) contributor.status = 'unavailable';
+          return route.fulfill({
+            json: {
+              contributor,
+              delivery: {
+                deliveryId: `delivery-${messageRequests}`,
+                status: messageRequests === 1 ? 'failed' : 'delivered',
+                recipients:
+                  messageRequests === 1
+                    ? [{ error: 'Private provider diagnostic must not appear in the UI' }]
+                    : [],
+              },
+            },
+          });
+        }
         if (path === `/api/sessions/${sessionId}/contributors/joe/stop`) {
           stopRequests++;
           if (stopRequests === 1)
@@ -320,6 +351,49 @@ test('registered draft and ordinary contributor setup preserve revision, account
     'Retain this follow-up through refresh failure.',
   );
   await expect(panel.getByRole('button', { name: 'Send to Joe', exact: true })).toBeEnabled();
+  await panel.getByRole('button', { name: 'Send to Joe', exact: true }).click();
+  await expect(panel.getByRole('alert')).toHaveText(
+    'Contributor execution failed. Your draft is preserved. Check its conversation and current account before retrying.',
+  );
+  await expect(panel.getByLabel('Message to Joe')).toHaveValue(
+    'Retain this follow-up through refresh failure.',
+  );
+  await expect(panel.getByRole('button', { name: 'Send to Joe', exact: true })).toBeDisabled();
+  await expect(
+    panel.getByText('Private provider diagnostic must not appear in the UI'),
+  ).toHaveCount(0);
+  await expect(
+    panel.getByText('Earlier attributed contribution remains in this conversation.'),
+  ).toBeVisible();
+  contributor.status = 'idle';
+  await panel.getByRole('button', { name: 'Refresh access' }).click();
+  await expect(panel.getByRole('button', { name: 'Send to Joe', exact: true })).toBeEnabled();
+  await expect(panel.getByLabel('Message to Joe')).toHaveValue(
+    'Retain this follow-up through refresh failure.',
+  );
+  await expect(panel.getByRole('alert')).toContainText('Contributor execution failed');
+  await panel.getByRole('alert').scrollIntoViewIfNeeded();
+  await page.screenshot({
+    path: testInfo.outputPath('contributor-failed-delivery-ready.png'),
+    fullPage: true,
+    animations: 'disabled',
+  });
+  await panel.getByRole('button', { name: 'Send to Joe', exact: true }).click();
+  await expect(panel.getByLabel('Message to Joe')).toHaveValue('');
+  const messageWrites = writes.filter((item) => item.path.endsWith('/joe/messages'));
+  expect(messageWrites).toHaveLength(2);
+  expect(messageWrites[0].body).toMatchObject({
+    text: 'Retain this follow-up through refresh failure.',
+  });
+  expect(messageWrites[1].body).toMatchObject({
+    text: 'Retain this follow-up through refresh failure.',
+  });
+  expect((messageWrites[0].body as { requestId: string }).requestId).not.toBe(
+    (messageWrites[1].body as { requestId: string }).requestId,
+  );
+  await expect(
+    panel.getByText('Earlier attributed contribution remains in this conversation.'),
+  ).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
     true,
   );
