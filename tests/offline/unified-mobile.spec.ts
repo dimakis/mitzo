@@ -106,6 +106,7 @@ const fixtures: Record<string, unknown> = {
     pins: [{ kind: 'session', id: 'session-0', title: 'Quarterly planning review' }],
   },
   '/api/home/briefing-chats': [],
+  '/api/agent-library': { drafts: [], versions: [] },
   '/api/accounts': [
     {
       id: 'work-account',
@@ -1508,6 +1509,9 @@ test('failed briefing registration survives a completed turn and reload without 
   const picker = page.getByRole('dialog');
   await expect(picker).toBeVisible();
   await picker.getByRole('button', { name: 'Use selection', exact: true }).click();
+  const profile = page.getByRole('combobox', { name: 'Agent profile', exact: true });
+  await expect(profile).toBeEnabled();
+  await expect(profile).toHaveValue('');
   await page.getByRole('button', { name: 'Send launch prompt', exact: true }).click();
   const retry = page.getByRole('button', { name: 'Retry saving briefing link', exact: true });
   await expect(retry).toBeVisible();
