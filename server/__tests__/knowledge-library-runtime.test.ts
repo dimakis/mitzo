@@ -77,6 +77,8 @@ it('uses a protected private bare mirror and fetches only trusted HTTPS accepted
   const f = await fixture();
   const runtime = (await knowledgeLibraryFromEnvironment(f.env, { runHost: f.run }))!;
   try {
+    expect(runtime.sourceIdentity).toBe('github:owner/knowledge@main');
+    expect(runtime.contextPacks.list()).toEqual({ packs: [], drafts: [] });
     expect(runtime.reviewEnabled).toBe(false);
     expect(runtime.acceptanceEnabled).toBe(false);
     expect(runtime.reviewService).toBeUndefined();
