@@ -1,0 +1,64 @@
+import { useLayoutEffect, useRef, useState } from 'react';
+import { animateMotion, type MotionKind } from '../lib/motion';
+import { useReducedMotion } from './useReducedMotion';
+
+/** Retain exits for their animation only. Disable motion when a surface becomes inline.
+ * Callers immediately hide closing surfaces from input and assistive technology. */
+export function useMotionPresence(open: boolean, kind: MotionKind, appear = true, enabled = true) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [retained, setRetained] = useState(open);
+  const initial = useRef(true);
+  const previousOpen = useRef(open);
+  const changed = useRef(false);
+  const reduced = useReducedMotion();
+
+  useLayoutEffect(() => {
+    const first = initial.current;
+    initial.current = false;
+    changed.current ||= previousOpen.current !== open;
+    previousOpen.current = open;
+    if (open) setRetained(true);
+    const root = ref.current;
+    if (
+      !root ||
+      !enabled ||
+      reduced ||
+      (!changed.current && !appear) ||
+      (first && !open) ||
+      (!open && root.hidden)
+    ) {
+      if (!open) setRetained(false);
+      return;
+    }
+    const surface =
+      kind === 'disclosure' || !root.classList.contains('motion-presence')
+        ? root
+        : ((root.firstElementChild as HTMLElement) ?? root);
+    const dialog = surface.querySelector<HTMLElement>('[role="dialog"]');
+    const animations = [animateMotion(surface, dialog ? 'page' : kind, open)];
+    if (dialog) animations.push(animateMotion(dialog, kind, open));
+    const active = animations.filter((animation) => animation !== null);
+    if (!active.length) {
+      if (!open) setRetained(false);
+      return;
+    }
+    root.dataset.motionActive = 'true';
+    let disposed = false;
+    void Promise.all(active.map((animation) => animation.finished))
+      .then(() => {
+        if (disposed) return;
+        delete root.dataset.motionActive;
+        if (!open) setRetained(false);
+      })
+      .catch(() => {
+        /* Cancellation is expected when interrupted or unmounted. */
+      });
+    return () => {
+      disposed = true;
+      delete root.dataset.motionActive;
+      active.forEach((animation) => animation.cancel());
+    };
+  }, [open, kind, appear, reduced, enabled]);
+
+  return { ref, present: open || retained };
+}

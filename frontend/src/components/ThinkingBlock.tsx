@@ -1,3 +1,4 @@
+import { MotionPresence } from './MotionPresence';
 import { UiIcon } from './UiIcon';
 import { useEffect, useState } from 'react';
 import type { StreamingBlock, FinishedBlock } from '../types/chat';
@@ -56,11 +57,11 @@ export function ThinkingBlock({ block, streaming = false }: Props) {
           <UiIcon name={expanded ? 'down' : 'forward'} size={16} />
         </span>
       </button>
-      {expanded && (
+      <MotionPresence open={expanded} kind="disclosure" appear={false}>
         <div className="tool-pill-detail">
           <pre className="thinking-block-text">{text}</pre>
         </div>
-      )}
+      </MotionPresence>
     </div>
   );
 }

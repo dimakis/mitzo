@@ -24,7 +24,7 @@
     background: var(--surface);
     border-color: var(--border);
     overflow-y: auto;
-    transition: width 0.2s ease;
+    transition: width var(--motion-duration-standard) var(--motion-ease);
   }
 
   .desktop-sidebar-left {
@@ -611,8 +611,8 @@
     padding: 2px 6px;
     line-height: 1;
     transition:
-      color 0.15s,
-      border-color 0.15s;
+      color var(--motion-duration-fast) var(--motion-ease),
+      border-color var(--motion-duration-fast) var(--motion-ease);
   }
 
   .session-close-btn:hover {
@@ -713,7 +713,7 @@
 
   .cc-section-chevron {
     font-size: var(--text-xs);
-    transition: transform 0.15s;
+    transition: transform var(--motion-duration-fast) var(--motion-ease);
     transform: rotate(0deg);
   }
 
@@ -810,7 +810,7 @@
     gap: 2px;
     flex-shrink: 0;
     opacity: 0;
-    transition: opacity 0.1s;
+    transition: opacity var(--motion-duration-fast) var(--motion-ease);
   }
 
   .cc-card:hover .cc-card-actions {
@@ -980,7 +980,7 @@
     height: 100%;
     background: var(--color-accent);
     border-radius: 2px;
-    transition: width 0.3s ease;
+    transition: width var(--motion-duration-standard) var(--motion-ease);
   }
 
   /* === Approval Gate === */
@@ -1014,7 +1014,7 @@
 
   .cc-task-list .task-node-actions {
     opacity: 0;
-    transition: opacity 0.1s;
+    transition: opacity var(--motion-duration-fast) var(--motion-ease);
   }
 
   .cc-task-list .task-node-row:hover .task-node-actions {

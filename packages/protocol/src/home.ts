@@ -8,6 +8,7 @@ export interface HomePreferences {
   revision: number;
   names: { briefing: string; terminal: string };
   pins: HomePin[];
+  showDailyQuote: boolean;
 }
 export interface PhilosophyQuote {
   id: string;

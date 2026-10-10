@@ -10,12 +10,18 @@ import { getConnectionsRuntime } from './connections-runtime.js';
 import { assertOpenAIKeyController } from './openai-key-controller.js';
 import { openAIKeyResourceBindings } from './openai-key-operation-store.js';
 import type { AdviserRequest } from './terminal-adviser.js';
+import { getTerminalPlanAdviserHost } from './terminal-plan-adviser.js';
 
 /** Native inference APIs only. No CLI agent, inherited tools, credentials or route fallback. */
 export async function createTerminalAdviserSession(
   config: ModelSessionConfig,
   request: AdviserRequest,
 ): Promise<ModelSession> {
+  if (request.accountId.startsWith('chatgpt_plan_')) {
+    const host = getTerminalPlanAdviserHost();
+    if (!host) throw Error('ChatGPT plan adviser host unavailable');
+    return host.session(config, request);
+  }
   const profiles = loadAccountProfiles();
   const binding = profiles.resolve(request.accountId, request.model);
   profiles.validateModelSelection(binding, request.model, request.reasoningEffort);

@@ -248,6 +248,38 @@ it('resolves exact owner profile revisions into immutable host grants', () => {
   ).toThrow(/immutable/i);
 });
 
+it.each([
+  ['The architect', 'Bob · The architect'],
+  [undefined, 'Bob'],
+] as const)(
+  'preserves the profile display label on first activation (descriptor: %s)',
+  (descriptor, name) => {
+    const deps = makeDeps();
+    const selected = deps.resolveProfile({ profileId: 'owner-review', revision: 2 })!;
+    grants.close();
+    grants = new SymposiumHostGrants(join(directory, 'events.db'), {
+      ...deps,
+      resolveProfile: () => ({
+        ...selected,
+        definition: { ...selected.definition, name: 'Bob', descriptor },
+      }),
+    });
+    config.seats[1].name = name;
+    const result = grants.activate({
+      sessionId: 'chat',
+      expectedRevision: 1,
+      actor: 'owner',
+      profileSelections: { reviewer: { profileId: 'owner-review', revision: 2 } },
+    });
+    expect(result.seats[1].name).toBe(name);
+    grants.close();
+    grants = new SymposiumHostGrants(join(directory, 'events.db'), deps);
+    expect(() =>
+      grants.verifySeat({ sessionId: 'chat', seat: result.seats[1], membershipGeneration: 1 }),
+    ).not.toThrow();
+  },
+);
+
 it('rejects missing revisions, unknown seats and profile authority expansion', () => {
   expect(() =>
     grants.activate({

@@ -224,3 +224,45 @@ it('pins a daily quote snapshot across reloads and catalogue updates and avoids 
   expect(store.dailyQuote('2026-10-12', catalog).quote.id).not.toBe(cycle[2]);
   expect(() => store.dailyQuote('2026-02-30', catalog)).toThrow();
 });
+
+it('defaults legacy home state to showing the quote without rewriting its cache', () => {
+  const path = join(root, 'home.json');
+  const legacy = {
+    version: 1,
+    revision: 3,
+    names: { briefing: 'Jeeves', terminal: 'Alfred' },
+    pins: [{ kind: 'session', id: 'one', title: 'Saved' }],
+    quotes: [],
+    remaining: ['next'],
+  };
+  const original = JSON.stringify(legacy);
+  writeFileSync(path, original);
+  const store = new HomeStore(path);
+  expect(store.preferences()).toMatchObject({ revision: 3, showDailyQuote: true });
+  expect(readFileSync(path, 'utf8')).toBe(original);
+  expect(store.update(3, { showDailyQuote: false })).toMatchObject({
+    revision: 4,
+    showDailyQuote: false,
+  });
+  expect(JSON.parse(readFileSync(path, 'utf8'))).toEqual({
+    ...legacy,
+    revision: 4,
+    showDailyQuote: false,
+    briefingChats: [],
+  });
+  expect(new HomeStore(path).preferences().showDailyQuote).toBe(false);
+  expect(() => store.update(3, { showDailyQuote: true })).toThrow(/changed/);
+  expect(store.preferences().showDailyQuote).toBe(false);
+  expect(store.update(4, { names: { briefing: 'Brew' } }).showDailyQuote).toBe(false);
+});
+it.each(['false', null, 0])(
+  'rejects a nonboolean quote setting without changing saved state: %j',
+  (showDailyQuote) => {
+    const path = join(root, 'home.json');
+    const store = new HomeStore(path);
+    store.update(0, { names: { briefing: 'Jeeves' } });
+    const original = readFileSync(path, 'utf8');
+    expect(() => store.update(1, { showDailyQuote } as never)).toThrow();
+    expect(readFileSync(path, 'utf8')).toBe(original);
+  },
+);

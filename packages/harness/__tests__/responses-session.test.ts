@@ -50,6 +50,60 @@ async function collect(session: ResponsesSession, messages = prompt) {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('ResponsesSession', () => {
+  it('uses a distinct plan grant for text-only inference without API credentials, tools or redirects', async () => {
+    const fetcher = vi.fn(async () => response(textEvents()));
+    vi.stubGlobal('fetch', fetcher);
+    const session = new ResponsesSession(
+      { ...config, tools: [], reasoningEffort: 'low' },
+      {
+        accountId: 'personal',
+        authentication: 'chatgpt-plan',
+        textTranscript: true,
+        getAccessToken: async () => 'synthetic-plan-token',
+      },
+    );
+    expect(session.provider).toBe('openai-chatgpt-plan');
+    await collect(session);
+    const [url, init] = fetcher.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe('https://api.openai.com/v1/responses');
+    expect(init.redirect).toBe('error');
+    expect(init.headers).toEqual(
+      expect.objectContaining({ Authorization: 'Bearer synthetic-plan-token' }),
+    );
+    expect(JSON.parse(init.body as string)).toEqual(
+      expect.objectContaining({
+        store: false,
+        stream: true,
+        input: prompt,
+        reasoning: { summary: 'auto', effort: 'low' },
+      }),
+    );
+    expect(JSON.parse(init.body as string).tools).toBeUndefined();
+    expect(JSON.parse(init.body as string).include).toBeUndefined();
+    expect(() => session.checkpoint()).toThrow();
+    expect(
+      () =>
+        new ResponsesSession(config, {
+          accountId: 'personal',
+          authentication: 'chatgpt-plan',
+          textTranscript: true,
+          apiKey: 'wrong-billing',
+          getAccessToken: async () => 'synthetic',
+        } as never),
+    ).toThrow();
+    expect(
+      () =>
+        new ResponsesSession(
+          { ...config, tools: [{ name: 'shell', description: '', input_schema: {} }] },
+          {
+            accountId: 'personal',
+            authentication: 'chatgpt-plan',
+            textTranscript: true,
+            getAccessToken: async () => 'synthetic',
+          },
+        ),
+    ).toThrow();
+  });
   it('refreshes an enrolled credential on each request and never falls back after resolver failure', async () => {
     const fetcher = vi.fn().mockImplementation(async () => response(textEvents()));
     vi.stubGlobal('fetch', fetcher);
