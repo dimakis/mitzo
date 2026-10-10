@@ -2,10 +2,53 @@ import { useRef, useState } from 'react';
 import { KnowledgeTree } from '../components/KnowledgeTree';
 import { KnowledgeReader } from '../components/KnowledgeReader';
 import { KnowledgeOrganizationDialog } from '../components/KnowledgeOrganizationDialog';
-import type { KnowledgeDocument } from '../types/knowledge';
+import type { KnowledgeDocument, KnowledgeDraft } from '../types/knowledge';
 import { DocumentEditor } from '../components/DocumentEditor';
 import { WorkspacePageHeading } from '../components/WorkspacePageHeading';
 import { useKnowledgeLibrary } from '../hooks/useKnowledgeLibrary';
+function DraftStructure({
+  label,
+  draft,
+  unavailable = false,
+}: {
+  label: string;
+  draft: Pick<KnowledgeDraft, 'documents' | 'directories'>;
+  unavailable?: boolean;
+}) {
+  const moves = draft.documents.filter((document) => document.sourcePath);
+  return (
+    <section aria-label={`${label} structure`}>
+      <h4>{label}</h4>
+      {unavailable ? (
+        <p>Awaiting latest saved version.</p>
+      ) : (
+        <>
+          {draft.directories?.length ? (
+            <ul>
+              {draft.directories.map((path) => (
+                <li key={path}>New folder: {path}</li>
+              ))}
+            </ul>
+          ) : (
+            <p>No new folders.</p>
+          )}
+          {moves.length ? (
+            <ul>
+              {moves.map((document) => (
+                <li key={document.path}>
+                  Move: {document.sourcePath} → {document.path}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>No document moves.</p>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
 export function KnowledgeLibrary() {
   const library = useKnowledgeLibrary();
   const { catalog, copy, selected, dirty, busy } = library;
@@ -49,14 +92,14 @@ export function KnowledgeLibrary() {
     setReading(true);
   }
   async function openReader(document: KnowledgeDocument) {
+    const request = ++readRequest.current;
     if (adding) {
-      if (await library.openDocument(document, true)) {
+      if ((await library.openDocument(document, true)) && request === readRequest.current) {
         showWorkingCopy();
         setAdding(false);
       }
       return;
     }
-    const request = ++readRequest.current;
     setReaderFailure(undefined);
     try {
       const value = await library.readDocument(document);
@@ -109,12 +152,21 @@ export function KnowledgeLibrary() {
         <section className="knowledge-comparison" aria-label="Compare saved draft and working copy">
           <h3>This saved draft changed on another device</h3>
           <p>
-            Your working copy is preserved. Compare every document before choosing which version to
-            keep. Updating the saved draft replaces its contents with your working copy.
+            Your working copy is preserved. Compare documents, new folders and moves before choosing
+            which version to keep. Updating the saved draft replaces its contents with your working
+            copy.
           </p>
           {copy!.savedComparisonUnavailable && (
             <p>The latest saved version is unavailable. Refresh the comparison to continue.</p>
           )}
+          <div className="knowledge-compare-panes">
+            <DraftStructure
+              label="Saved draft"
+              draft={copy!.initialSaveConflict}
+              unavailable={copy!.savedComparisonUnavailable}
+            />
+            <DraftStructure label="Working copy" draft={copy!} />
+          </div>
           {[
             ...new Set([
               ...copy!.initialSaveConflict.documents.map((d) => d.path),
@@ -334,8 +386,9 @@ export function KnowledgeLibrary() {
             setReaderFailure(undefined);
           }}
           onEdit={() => {
+            const request = ++readRequest.current;
             void library.openDocument(reader.document).then((opened) => {
-              if (opened) {
+              if (opened && request === readRequest.current) {
                 showWorkingCopy();
               }
             });
