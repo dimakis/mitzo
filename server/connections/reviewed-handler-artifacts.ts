@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.9';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.34';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.35';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -30,13 +30,14 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../agent-context-compiler.ts':
     'fc6d262171f8ae02500376d2546394be138b6675876d93bcc1da448e2aa37694',
   '../../packages/protocol/src/agent-context-recipe.ts':
-    'dbe9dd63fe439a1615ec605870528e350d5c1dbbb87517e4a78082dd4e5a7c83',
+    '95237765d7257eb1ae0ab1de3875d2eea11b8d460dadf1e49671b55a640344a1',
   '../../scripts/agent-workspace-context.mjs':
     '34c620c92540522e29bd3929bcdbfd68222defa30aa3e2581d088bcf3c44fe31',
   '../../docs/spikes/openshell-codex/compile-agent-context.mjs':
     'e7813d5d7d19a2e3d7098e4df02d4b12563cc04dda28782b03d7b3991dda50d0',
   '../../scripts/attest-knowledge-runtime.py':
     '5737ec8e7fc19a17b6ef5a35c1898e834d2a5d2d2a9f7593b607eaaf1971cfeb',
+  '../agent-context-sandbox.ts': '78fad7d2891f52f5e43e15a278c1629c279deb8ae2ccd29b5297244c41286ca2',
   // Library profile identity, operator ownership and admission are reviewed runtime inputs.
   '../symposium-director-routes.ts':
     'e6cabfe7555434bbf426209e5a0de750195559e106b0bbb09c4885a34159ff36',
@@ -160,7 +161,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../connections-gateway.ts': '1a664e65926536d102d2fb0d5f4b7cfd7e2631d6d8bf51f2965025cdb87dc64b',
   '../openshell-runtime-policy.ts':
     'efecd458bf61fecd8198ecd330e0227e2c600ab21d6d2890cd2bac254e22b75f',
-  '../openshell-runtime.ts': '71e650b8114df6264ce0a5b81ae32a1907ee3562c177c9d0d59c1f4825849b0c',
+  '../openshell-runtime.ts': '4f8e58490e7b5505bea67d0431c97da059074067319296fe2ad7ccfd0588a35f',
   '../codex-chat-session.ts': '7a0003a8d3f54b905b17c7921e6b2a9d6318a8fc17065f9de8bf1eb4c7165044',
   '../connections-runtime.ts': 'dbe641704a1d761d73740260fb28057054fdb34a64513fa77292d2fdb1954a84',
   'capabilities/operation-store.ts':
