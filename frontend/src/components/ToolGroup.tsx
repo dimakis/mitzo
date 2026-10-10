@@ -1,3 +1,4 @@
+import { MotionPresence } from './MotionPresence';
 import { UiIcon } from './UiIcon';
 import { useId, useState } from 'react';
 import { getToolStatus, type ToolBlock } from '../lib/tool-status';
@@ -79,13 +80,13 @@ export function ToolGroup({ tools, sessionId }: Props) {
           <UiIcon name={expanded ? 'down' : 'forward'} size={16} />
         </span>
       </button>
-      {expanded && (
+      <MotionPresence open={expanded} kind="disclosure" appear={false}>
         <div id={listId} className="tool-group-list">
           {tools.map((t, i) => (
             <ToolPill key={t.blockId || i} block={t} sessionId={sessionId} showSetupCard={false} />
           ))}
         </div>
-      )}
+      </MotionPresence>
     </div>
   );
 }

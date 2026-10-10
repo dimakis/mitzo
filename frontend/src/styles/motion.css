@@ -6,7 +6,8 @@
 .motion-presence[data-motion='disclosure'] {
   display: block;
 }
-.motion-presence[data-motion='disclosure'][data-motion-active] {
+.motion-presence[data-motion='disclosure'][data-motion-active],
+.motion-disclosure[data-motion-active] {
   overflow: hidden;
 }
 

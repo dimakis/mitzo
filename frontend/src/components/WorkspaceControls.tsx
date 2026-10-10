@@ -1,3 +1,4 @@
+import { useMotionPresence } from '../hooks/useMotionPresence';
 import { useId, useState, type ReactNode } from 'react';
 import { UiIcon } from './UiIcon';
 import type { WorkspaceSummary } from '../types/workspace';
@@ -23,6 +24,7 @@ export function WorkspaceControls({
       return false;
     }
   });
+  const { ref, present } = useMotionPresence(expanded || attention, 'disclosure', false);
   return (
     <section className="workspace-controls">
       <button
@@ -61,7 +63,14 @@ export function WorkspaceControls({
         <span className="conversation-state">{status}</span>
         <UiIcon name={expanded ? 'up' : 'down'} />
       </button>
-      <div id={id} hidden={!expanded && !attention}>
+      <div
+        id={id}
+        ref={ref}
+        className="motion-disclosure"
+        hidden={!present}
+        inert={!expanded && !attention}
+        aria-hidden={(!expanded && !attention) || undefined}
+      >
         {children}
       </div>
     </section>

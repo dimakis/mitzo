@@ -1,3 +1,4 @@
+import { MotionPresence } from './MotionPresence';
 import { useEffect, useId, useState } from 'react';
 import type { TokensState as TokenState } from '@mitzo/client';
 import { formatTokens } from '../lib/formatTokens';
@@ -110,7 +111,7 @@ export function TokenBar({ tokenState }: Props) {
           {sessionTotal > 0 ? `; Session ${formatTokens(sessionTotal)}` : ''}
         </span>
       </button>
-      {expanded && (
+      <MotionPresence open={expanded} kind="popover" appear={false}>
         <div className="token-bar-detail">
           <div className="token-bar-detail-row">
             <span>Agent context</span>
@@ -196,7 +197,7 @@ export function TokenBar({ tokenState }: Props) {
             <span>{tokenState.turnIndex}</span>
           </div>
         </div>
-      )}
+      </MotionPresence>
     </div>
   );
 }

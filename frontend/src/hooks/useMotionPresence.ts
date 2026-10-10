@@ -7,19 +7,31 @@ export function useMotionPresence(open: boolean, kind: MotionKind, appear = true
   const ref = useRef<HTMLDivElement>(null);
   const [retained, setRetained] = useState(open);
   const initial = useRef(true);
+  const previousOpen = useRef(open);
+  const changed = useRef(false);
   const reduced = useReducedMotion();
 
   useLayoutEffect(() => {
     const first = initial.current;
     initial.current = false;
+    changed.current ||= previousOpen.current !== open;
+    previousOpen.current = open;
     if (open) setRetained(true);
     const root = ref.current;
-    if (!root || reduced || (first && !appear)) {
+    if (
+      !root ||
+      reduced ||
+      (!changed.current && !appear) ||
+      (first && !open) ||
+      (!open && root.hidden)
+    ) {
       if (!open) setRetained(false);
       return;
     }
     const surface =
-      kind === 'disclosure' ? root : ((root.firstElementChild as HTMLElement) ?? root);
+      kind === 'disclosure' || !root.classList.contains('motion-presence')
+        ? root
+        : ((root.firstElementChild as HTMLElement) ?? root);
     const dialog = surface.querySelector<HTMLElement>('[role="dialog"]');
     const animations = [animateMotion(surface, dialog ? 'page' : kind, open)];
     if (dialog) animations.push(animateMotion(dialog, kind, open));

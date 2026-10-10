@@ -5,6 +5,8 @@ import { Link, MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MotionRoutes } from '../MotionRoutes';
 import { MotionPresence } from '../MotionPresence';
+import { CollapsibleSection } from '../CollapsibleSection';
+import { WorkspaceControls } from '../WorkspaceControls';
 
 let reduced = false;
 const listeners = new Set<() => void>();
@@ -102,6 +104,35 @@ describe('shared navigation motion', () => {
 });
 
 describe('shared presence motion', () => {
+  it('animates existing section toggles and hides closing content from accessibility immediately', async () => {
+    render(
+      <CollapsibleSection title="Section" storageKey="motion-section">
+        <button>Nested action</button>
+      </CollapsibleSection>,
+    );
+    expect(animate).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Section' }));
+    expect(animate).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('button', { name: 'Nested action' })).toBeNull();
+    expect(screen.getByText('Nested action')).toBeTruthy();
+    await act(async () => animations.at(-1)!.finish());
+    expect(screen.queryByText('Nested action')).toBeNull();
+  });
+
+  it('preserves mounted workspace settings through an animated close', async () => {
+    render(
+      <WorkspaceControls status="Ready">
+        <input aria-label="Setting" />
+      </WorkspaceControls>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: /Workspace controls/ }));
+    fireEvent.change(screen.getByLabelText('Setting'), { target: { value: 'saved draft' } });
+    fireEvent.click(screen.getByRole('button', { name: /Workspace controls/ }));
+    expect(animate).toHaveBeenCalled();
+    await act(async () => animations.at(-1)!.finish());
+    fireEvent.click(screen.getByRole('button', { name: /Workspace controls/ }));
+    expect((screen.getByLabelText('Setting') as HTMLInputElement).value).toBe('saved draft');
+  });
   it('keeps exiting surfaces visible but inert, then removes them after the exit completes', async () => {
     const view = render(
       <MotionPresence open>

@@ -18,6 +18,7 @@ export function MotionRoutes({ children }: { children: ReactNode }) {
     const start = () => {
       const surface =
         root.querySelector<HTMLElement>('.desktop-center') ??
+        root.querySelector<HTMLElement>('.mobile-workspace-body') ??
         (root.firstElementChild as HTMLElement | null);
       if (!surface || surface.classList.contains('auth-status')) return;
       animation = animateMotion(surface, 'page');
