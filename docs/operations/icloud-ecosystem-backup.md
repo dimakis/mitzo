@@ -156,17 +156,50 @@ References: [Restic backup](https://restic.readthedocs.io/en/stable/040_backup.h
 ## Manual service and dashboard
 
 `/settings/backups` is available from Settings on desktop and More → Settings on
-mobile. The iCloud destination card opens a three-step host setup guide with storage,
-encryption/recovery and verification instructions. The guide does not write host
-configuration or credentials; its check action rereads service readiness. Disabled
-backup/upload actions explain their prerequisites, and refresh remains available
-when status loading fails. Existing `/backups` links redirect to the new location. Its operator-only
-API is `GET /api/backups`, `POST /api/backups/run` and `POST /api/backups/refresh`.
-POST bodies must be empty JSON objects; paths, credentials, capture selection and
-host configuration cannot be supplied by an agent or browser. Actions return 202
-once admitted, then the dashboard polls durable status. No scheduler starts.
+mobile. “Set up backups” opens an actionable operator-only wizard. It prepares a
+dedicated private local folder, a dedicated iCloud folder, checksum-pinned Restic
+0.19.1 from its official release and the bundled native upload probe. The Mac must
+already have iCloud Drive and Swift command-line tools available. Preparation
+captures no application data and never installs packages or starts another service.
 
-The host must configure all of these before manual actions are available:
+The operator creates and saves a unique password in Apple Passwords or their
+preferred manager, pastes it into Mitzo, and confirms retrieval without this Mac.
+The password goes directly to a host Keychain entry scoped to the local repository;
+it is never returned to the dashboard, stored in the setup receipt, logged, or
+forwarded to agents. Repeated setup cannot rotate a configured repository password.
+An existing unregistered repository requires a recovery check and is preserved.
+
+`GET /api/backups/setup`, `POST /api/backups/setup/prepare` (empty JSON object), and
+`POST /api/backups/setup` (`password`, `recoveryConfirmed: true`) require an
+interactive operator session. Agents' internal tokens cannot use setup. The secret
+submission requires HTTPS or a loopback connection. Host paths and executables
+cannot be supplied by the browser. The client validates the resolved API URL, including the Capacitor API base, before
+serializing a password and rejects redirects for that request. The private
+`setup.json` receipt persists readiness across restarts; setup completion enables manual actions immediately,
+without changing `.env` or restarting Mitzo. The Keychain coordinate includes a
+hash of the host-owned repository path so independently isolated roots do not
+share a credential. No scheduler starts and setup never runs a backup implicitly.
+
+Tool preparation publishes complete immutable generations before atomically
+selecting one through `tools.json`. A failed selection retains either the previous
+complete generation or the newly complete generation, so an explicit retry can
+finish without deleting existing tools. The manifest includes the bundled Swift
+source hash; a changed source rebuilds the probe using pinned source bytes. View
+setup → Refresh backup tools adopts that generation without replacing the backup
+password or clearing recovery confirmation. Setup holds the backup admission
+fence while updating tools. Older qualified tool manifests can be upgraded;
+unregistered executables remain outside this adoption path.
+
+The existing operator-only API remains `GET /api/backups`, `POST /api/backups/run`
+and `POST /api/backups/refresh`. Run and refresh bodies remain empty JSON objects.
+Actions return 202 once admitted and the dashboard polls durable status. Disabled
+actions explain their prerequisites and refresh remains available after a loading
+failure. Existing `/backups` links redirect to `/settings/backups`.
+
+The following environment variables remain supported for explicitly administered
+legacy configurations. The in-app setup supplies host defaults when they are absent.
+
+Administrators may configure these instead of using in-app setup:
 
 - `MITZO_BACKUP_ROOT`: a dedicated absolute local directory, owned by the host
   operator with permissions 0700, outside iCloud and all source stores. The service

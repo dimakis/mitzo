@@ -22,3 +22,11 @@ export interface BackupOverview {
   lastCloudUpload: string | null;
   coverage: Array<{ name: string; supported: boolean; detail: string }>;
 }
+export interface BackupSetupOverview {
+  supported: boolean;
+  prepared: boolean;
+  configured: boolean;
+  busy: boolean;
+  localFolder: string;
+  cloudFolder: string;
+}

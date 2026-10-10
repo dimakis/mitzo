@@ -56,7 +56,7 @@ import {
   setCredentialConnectionsRuntime as setActiveCredentialConnectionsRuntime,
 } from './credential-connections-runtime.js';
 import type { CredentialConnections } from './credential-connections.js';
-import { createHostBackupService } from './backup/host.js';
+import { createHostBackupSetup } from './backup/setup-host.js';
 import { createBackupRouter } from './backup/router.js';
 import { bindMitzoTelosCoreCapture } from './backup/mitzo-telos-binding.js';
 import { NotificationStore } from './notification-store.js';
@@ -1961,10 +1961,8 @@ export const captureMitzoTelosCoreBackup = bindMitzoTelosCoreCapture({
   knowledge: async () => (await getKnowledgeLibraryRuntime())?.store,
 });
 
-app.use(
-  '/api/backups',
-  createBackupRouter(createHostBackupService(captureMitzoTelosCoreBackup), operatorAuthMiddleware),
-);
+const backupSetup = createHostBackupSetup(captureMitzoTelosCoreBackup);
+app.use('/api/backups', createBackupRouter(backupSetup, operatorAuthMiddleware, backupSetup));
 
 app.use(
   createTelosArtifactRouter({
