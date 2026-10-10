@@ -277,33 +277,32 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
 
   let reviewedAuthenticated = options.initiallyAuthenticated !== false;
   let reviewedSendScope = Date.now();
-  const reviewedOutbox =
-    !options.sseConfig && options.reviewedSendConfig
-      ? new SendOutbox({
-          url: options.reviewedSendConfig.url,
-          storage: options.reviewedSendConfig.storage,
-          fetch: options.transport.fetch.bind(options.transport),
-          requireDurableBriefings: true,
-          notify(event) {
-            wsListener(event);
-            if (
-              event.type === '_send_accepted' &&
-              typeof event.sessionId === 'string' &&
-              store.getState().sessions.active === event.sessionId
-            ) {
-              const sessionId = event.sessionId;
-              connection.send({ type: 'switch_session', sessionId });
-              fetchAndRestoreMessages(sessionId, undefined, false, () =>
-                connection.send({
-                  type: 'switch_session',
-                  sessionId,
-                  historyCursor: connection.getLastSeq(sessionId),
-                }),
-              );
-            }
-          },
-        })
-      : null;
+  const reviewedOutbox = options.reviewedSendConfig
+    ? new SendOutbox({
+        url: options.reviewedSendConfig.url,
+        storage: options.reviewedSendConfig.storage,
+        fetch: options.transport.fetch.bind(options.transport),
+        requireDurableBriefings: true,
+        notify(event) {
+          wsListener(event);
+          if (
+            event.type === '_send_accepted' &&
+            typeof event.sessionId === 'string' &&
+            store.getState().sessions.active === event.sessionId
+          ) {
+            const sessionId = event.sessionId;
+            connection.send({ type: 'switch_session', sessionId });
+            fetchAndRestoreMessages(sessionId, undefined, false, () =>
+              connection.send({
+                type: 'switch_session',
+                sessionId,
+                historyCursor: connection.getLastSeq(sessionId),
+              }),
+            );
+          }
+        },
+      })
+    : null;
   function pauseReviewedDelivery() {
     if (!reviewedAuthenticated) return;
     reviewedAuthenticated = false;
@@ -835,7 +834,9 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       }
       if (!sent) {
         set((s) => ({
-          sendError: 'Message could not be queued. Please retry.',
+          sendError: reviewed
+            ? 'The reviewed message could not be retained for recovery. Retry before sending.'
+            : 'Message could not be queued. Please retry.',
           messages: !parserState.currentSessionId
             ? messagesReducer(s.messages, { type: 'SESSION_STATE_CHANGED', state: 'idle' })
             : s.messages,

@@ -3,6 +3,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { createMitzoStore, WS_READY_STATE, type WebSocketLike } from '@mitzo/client';
 import { briefingCommandHandoff, localBriefingConversation } from '../../lib/briefing-registration';
 import { apiFetch } from '../../lib/api-fetch';
+import { createReviewedOutboxStorage } from '../../lib/reviewed-outbox-storage';
 vi.mock('../../lib/api-fetch', () => ({
   apiFetch: vi.fn(),
   getApiBaseUrl: () => '',
@@ -47,13 +48,34 @@ afterEach(() => {
 });
 
 const url = '/api/chat/send';
-function cold() {
+function cold(sse = false) {
   const socket = new Socket();
   const store = createMitzoStore({
     transport: { fetch: apiFetch },
     wsConfig: { buildUrl: () => 'ws://fixture.test', createWebSocket: () => socket },
     sendHandoff: briefingCommandHandoff,
-    reviewedSendConfig: { url, storage: localStorage },
+    reviewedSendConfig: {
+      url,
+      storage: createReviewedOutboxStorage(localStorage, 'https://fixture.test/api/chat/send'),
+    },
+    ...(sse
+      ? {
+          sseConfig: {
+            baseUrl: '',
+            fetch: apiFetch,
+            outboxStorage: sessionStorage,
+            createEventSource: () =>
+              ({
+                readyState: 0,
+                onmessage: null,
+                onerror: null,
+                addEventListener() {},
+                removeEventListener() {},
+                close() {},
+              }) as unknown as EventSource,
+          },
+        }
+      : {}),
     initiallyAuthenticated: false,
   });
   return { store, socket };
@@ -121,14 +143,20 @@ it.each(['before socket opens', 'accepted ACK lost'] as const)(
     expect(dispatches).toBe(1);
     await expect(localBriefingConversation(source, selection)).resolves.toBe('native-assigned');
     expect(fresh.socket.sent.filter((message) => message.type === 'send')).toEqual([]);
-    expect(JSON.parse(localStorage.getItem('mitzo-send-outbox:' + url)!)).toEqual([]);
+    expect(
+      JSON.parse(
+        createReviewedOutboxStorage(localStorage, 'https://fixture.test/api/chat/send').getItem(
+          'queue',
+        )!,
+      ),
+    ).toEqual([]);
   },
 );
 it('does not dispatch or leave an awaiting receipt when native full-command storage is unavailable', async () => {
   vi.useFakeTimers();
   const original = Storage.prototype.setItem;
   vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key, value) {
-    if (key === 'mitzo-send-outbox:' + url) throw new Error('Quota');
+    if (key.startsWith('mitzo-reviewed-send-outbox:')) throw new Error('Quota');
     original.call(this, key, value);
   });
   vi.mocked(apiFetch).mockResolvedValue(new Response('[]'));
@@ -140,7 +168,7 @@ it('does not dispatch or leave an awaiting receipt when native full-command stor
   await vi.advanceTimersByTimeAsync(0);
   expect(vi.mocked(apiFetch).mock.calls.filter(([path]) => String(path) === url)).toEqual([]);
   await expect(localBriefingConversation(source, selection)).resolves.toBeNull();
-  expect(store.getState().sendError).toContain('could not be queued');
+  expect(store.getState().sendError).toContain('could not be retained for recovery');
 });
 it('retains an ambiguously accepted reviewed command through auth loss and cold authenticated recovery', async () => {
   vi.useFakeTimers();
@@ -182,4 +210,103 @@ it('retains an ambiguously accepted reviewed command through auth loss and cold 
   expect(commands).toHaveLength(2);
   expect(commands[1]).toEqual(commands[0]);
   await expect(localBriefingConversation(source, selection)).resolves.toBe('auth-assigned');
+});
+
+it('reattaches the foreground native receiver and restores events missed before HTTP acknowledgement', async () => {
+  vi.useFakeTimers();
+  let command: Record<string, unknown>;
+  vi.mocked(apiFetch).mockImplementation(async (path, init) => {
+    if (String(path) === url) {
+      command = JSON.parse(String(init?.body));
+      return new Response(
+        JSON.stringify({
+          accepted: true,
+          clientMsgId: command.clientMsgId,
+          sessionId: 'foreground',
+        }),
+        { status: 202 },
+      );
+    }
+    if (String(path).includes('/messages?transcript=1'))
+      return new Response(
+        JSON.stringify({
+          messages: [
+            {
+              role: 'user',
+              messageId: command.clientMsgId,
+              text: 'Discuss original report',
+              blocks: [
+                { blockId: 'intent', blockType: 'text', content: 'Discuss original report' },
+              ],
+              sourceSnapshots: [source],
+            },
+          ],
+          current: {
+            messageId: 'response',
+            startedSeq: 2,
+            blocks: [
+              {
+                blockId: 'calendar',
+                blockType: 'text',
+                content: 'Calendar details emitted before ACK',
+                done: false,
+              },
+            ],
+          },
+          cursor: 3,
+        }),
+      );
+    return new Response('[]', { status: init?.method === 'POST' ? 503 : 200 });
+  });
+  const { store, socket } = cold();
+  store.getState().restoreAuthentication();
+  socket.open();
+  store
+    .getState()
+    .sendMessage('Discuss original report', { ...selection, sourceSnapshots: [source] });
+  await vi.advanceTimersByTimeAsync(0);
+  expect(store.getState().sessions.active).toBe('foreground');
+  expect(socket.sent.filter((message) => message.type === 'send')).toEqual([]);
+  expect(socket.sent.filter((message) => message.type === 'switch_session')).toEqual([
+    { type: 'switch_session', sessionId: 'foreground' },
+    { type: 'switch_session', sessionId: 'foreground', historyCursor: 3 },
+  ]);
+  expect(store.getState().messages.current?.blocks.get('calendar')?.content).toBe(
+    'Calendar details emitted before ACK',
+  );
+  expect(store.getState().messages.messages[0].sourceSnapshots).toEqual([source]);
+});
+
+it('recovers a browser SSE reviewed launch after a fresh context loses sessionStorage', async () => {
+  vi.useFakeTimers();
+  let accepting = false;
+  const commands: Record<string, unknown>[] = [];
+  vi.mocked(apiFetch).mockImplementation(async (path, init) => {
+    if (String(path) === url) {
+      const body = JSON.parse(String(init?.body));
+      commands.push(body);
+      if (!accepting) return new Promise<Response>(() => {});
+      return new Response(
+        JSON.stringify({ accepted: true, clientMsgId: body.clientMsgId, sessionId: 'sse-fresh' }),
+        { status: 202 },
+      );
+    }
+    if (String(path).endsWith('/meta')) return new Response(JSON.stringify({ isHidden: false }));
+    return new Response('[]', { status: init?.method === 'POST' ? 503 : 200 });
+  });
+  const first = cold(true);
+  first.store.getState().restoreAuthentication();
+  first.store
+    .getState()
+    .sendMessage('Discuss original report', { ...selection, sourceSnapshots: [source] });
+  await vi.advanceTimersByTimeAsync(0);
+  expect(commands).toHaveLength(1);
+  sessionStorage.clear();
+  accepting = true;
+  const fresh = cold(true);
+  fresh.store.getState().restoreAuthentication();
+  await vi.advanceTimersByTimeAsync(0);
+  expect(commands).toHaveLength(2);
+  expect(commands[1]).toEqual(commands[0]);
+  await expect(localBriefingConversation(source, selection)).resolves.toBe('sse-fresh');
 });

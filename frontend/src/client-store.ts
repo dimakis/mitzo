@@ -1,4 +1,5 @@
 import { briefingCommandHandoff } from './lib/briefing-registration';
+import { createReviewedOutboxStorage } from './lib/reviewed-outbox-storage';
 /**
  * Bootstrap @mitzo/client store for the browser environment.
  *
@@ -44,6 +45,7 @@ const sseConfig: SseConnectionConfig | undefined = useSSE
   ? {
       baseUrl: getApiBaseUrl(),
       outboxStorage: sessionStorage,
+      requireDurableBriefings: true,
       fetch: (url, init) => apiFetch(url, init),
       buildEventUrl: () => getEventSourceUrl('/api/chat/events'),
       suspendUrl: `${getApiBaseUrl()}/api/sessions/suspend`,
@@ -63,6 +65,17 @@ export const clientStore = createMitzoStore({
     suspendUrl: `${getApiBaseUrl()}/api/sessions/suspend`,
   },
   ...(sseConfig ? { sseConfig } : {}),
+  ...(typeof window !== 'undefined'
+    ? {
+        reviewedSendConfig: {
+          url: `${getApiBaseUrl()}/api/chat/send`,
+          storage: createReviewedOutboxStorage(
+            localStorage,
+            new URL(`${getApiBaseUrl()}/api/chat/send`, window.location.href).href,
+          ),
+        },
+      }
+    : {}),
   initiallyAuthenticated: false,
 });
 
