@@ -32,7 +32,7 @@ import { join } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { codexPrivateDirectory } from './codex-private-path.js';
-import type { AccountBinding, ProviderAttemptToken } from '@mitzo/protocol';
+import type { AccountBinding, ProviderAttemptToken, AgentContextSnapshot } from '@mitzo/protocol';
 import { buildPermissionHandler, type ManagedSession, type SessionRegistry } from '@mitzo/harness';
 import {
   webAccessDefinition,
@@ -498,6 +498,14 @@ interface Options {
   eventStore: EventStore;
   onDemandCreate?: NativeToolOptions['onDemandCreate'];
   onBootContext?: (context: OpenShellBootContext) => void;
+  /** Already resolved, authorized and persisted by common chat admission. */
+  agentContext?: AgentContextSnapshot;
+  onAgentContextAccepted?: (
+    commandId: string,
+    threadId: string,
+    turnId: string,
+    contextSha256: string,
+  ) => void;
   /** Recreate the provider runtime without admitting or replaying user intent. */
   reattachOnly?: boolean;
 }
@@ -982,7 +990,11 @@ async function openCodexChatBound(
       // Enrolled sessions receive accepted guidance through prepareSystemPrompt
       // on each turn. A retained writable checkout can contain older guidance;
       // never install that context as persistent thread developer instructions.
-      if (configuredRuntime?.knowledgeStore || options.repositoryWorkspace) {
+      if (
+        options.agentContext ||
+        configuredRuntime?.knowledgeStore ||
+        options.repositoryWorkspace
+      ) {
         startup = {};
       } else {
         const context = await runtimeManager!.compileContext(managedOpenShell!, signal);
@@ -1140,16 +1152,26 @@ async function openCodexChatBound(
                 options.conversationId,
                 managedOpenShell!,
                 signal,
+                ...(options.agentContext
+                  ? [{ ...options.agentContext.context, scope: 'sandbox' as const }]
+                  : []),
               );
-              if (!selected) return undefined;
+              if (!selected) return options.agentContext ? baseSystemPrompt : undefined;
               pendingKnowledge = selected.adoption;
               options.onBootContext?.(selected.context);
               return (
                 baseSystemPrompt +
-                `\n\n# Published MGMT knowledge\nAccepted source: ${selected.sourceCommit}\nBundle: ${selected.payloadSha256}\nRead shared project instructions from ${selected.knowledgeRoot}/AGENTS.md. Search and read accepted knowledge under ${selected.knowledgeRoot}/memory/. This published view supersedes older accepted knowledge in the task checkout. Keep edits and new observations in the writable task workspace; do not modify the published knowledge view. A local commit is not evidence of publication or adoption elsewhere.\n\n${selected.context.fullMarkdown}`
+                `\n\n# Published MGMT knowledge\nAccepted source: ${selected.sourceCommit}\nBundle: ${selected.payloadSha256}\nRead shared project instructions from ${selected.knowledgeRoot}/AGENTS.md. Search and read accepted knowledge under ${selected.knowledgeRoot}/memory/. This published view supersedes older accepted knowledge in the task checkout. Keep edits and new observations in the writable task workspace; do not modify the published knowledge view. A local commit is not evidence of publication or adoption elsewhere.\n\n${options.agentContext ? 'The agent profile boot context retains its separately recorded source revisions. This retrieval publication does not replace that pinned profile context.' : selected.context.fullMarkdown}`
               );
             }),
           onApplicationContextAccepted: (commandId, threadId, turnId, context) => {
+            if (options.agentContext)
+              options.onAgentContextAccepted?.(
+                commandId,
+                threadId,
+                turnId,
+                createHash('sha256').update(context).digest('hex'),
+              );
             if (!pendingKnowledge) return;
             privateStorage.recordKnowledgeAdoption(
               options.conversationId,

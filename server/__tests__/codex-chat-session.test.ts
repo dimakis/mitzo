@@ -1833,6 +1833,67 @@ it('preserves first launch and valid restore while failing closed for a replacem
       }
       expect(adoption).toHaveBeenCalledTimes(2);
       enrolled.close();
+      const profileAccepted = vi.fn();
+      compile.mockClear();
+      const profileContext = {
+        source: 'packs' as const,
+        compilerRevision: 'test',
+        recipeHash: '1'.repeat(64),
+        payloadHash: '2'.repeat(64),
+        profileId: 'architect',
+        revision: 1,
+        profileHash: '3'.repeat(64),
+        provenance: {
+          packs: [{ id: 'architecture', revision: 1, hash: '4'.repeat(64) }],
+          documents: [],
+          omissions: [],
+        },
+        context: {
+          type: 'boot_context' as const,
+          source: 'contexgin' as const,
+          sourceCount: 1,
+          tokenCount: 8,
+          tokenBudget: 1000,
+          sources: [{ path: 'context/architecture.md', kind: 'reference' }],
+          included: [],
+          trimmed: [],
+          fullMarkdown: 'PINNED PROFILE CONTEXT',
+        },
+      };
+      const profiled = await openCodexChat({
+        ...chatOptions('valid-lifecycle-state', true),
+        systemPrompt: 'base prompt\nPINNED PROFILE CONTEXT',
+        agentContext: profileContext,
+        onAgentContextAccepted: profileAccepted,
+      });
+      const profilePrepare = mocks.conversationOptions?.prepareSystemPrompt as (
+        signal: AbortSignal,
+      ) => Promise<string>;
+      const profileAcknowledge = mocks.conversationOptions?.onApplicationContextAccepted as (
+        command: string,
+        thread: string,
+        turn: string,
+        context: string,
+      ) => void;
+      const delivered = await profilePrepare(AbortSignal.timeout(5000));
+      expect(delivered).toContain('PINNED PROFILE CONTEXT');
+      expect(delivered).not.toContain('FRESH ACCEPTED GUIDANCE');
+      expect(delivered.match(/PINNED PROFILE CONTEXT/g)).toHaveLength(1);
+      expect(compile).not.toHaveBeenCalled();
+      profileAcknowledge('pack-command', 'thread', 'pack-turn', delivered);
+      expect(profileAccepted).toHaveBeenCalledWith(
+        'pack-command',
+        'thread',
+        'pack-turn',
+        createHash('sha256').update(delivered).digest('hex'),
+      );
+      expect(adoption).toHaveBeenLastCalledWith(
+        'valid-lifecycle-state',
+        expect.any(Object),
+        expect.any(AbortSignal),
+        expect.objectContaining({ fullMarkdown: 'PINNED PROFILE CONTEXT' }),
+      );
+      profiled.close();
     } finally {
       enrollment.mockRestore();
       adoption.mockRestore();
