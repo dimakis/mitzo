@@ -9,7 +9,7 @@ import {
   assertSymposiumSeatDispatchCurrent,
   type SymposiumDispatchFacts,
   type SymposiumHostGrantVerifier,
-} from './symposium-seat-runtime.js';
+} from './symposium-dispatch-boundary.js';
 
 export interface OrdinarySymposiumTurn {
   /** Resolve only after the exact ordinary turn has completed and its query is closed. */

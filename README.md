@@ -315,6 +315,14 @@ state migration, parent recovery and database rollback remain unsupported by thi
 
 ### Symposium native execution contracts
 
+Shared and native execution validate durable dispatch authority through
+`server/symposium-dispatch-boundary.ts`. That transport-neutral fence checks the
+current artifact, configuration, membership, trusted grants, admission and exact
+delivery. Adapters repeat validation immediately before provider dispatch after
+asynchronous startup. Native account routing remains in
+`server/symposium-seat-runtime.ts`; this separation preserves the existing
+delivery ledger and native recovery obligations.
+
 Native seat adapters route Codex and Claude through OpenShell and bind streamed
 events and provider-confirmed receipts to an exact delivery claim. A private
 host attempt registry records setup before launch and retains uncertain native
