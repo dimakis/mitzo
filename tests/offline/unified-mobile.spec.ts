@@ -507,8 +507,11 @@ test('Today details and nickname controls inherit appearance and remain usable w
     await pinPopup.getByRole('button', { name: 'Cancel', exact: true }).click();
     await page.getByRole('link', { name: 'Read briefing', exact: true }).click();
     await expect(
-      page.getByRole('heading', { name: 'Morning briefing', exact: true }),
+      page.getByRole('heading', { name: 'Morning briefing', exact: true, level: 1 }),
     ).toBeVisible();
+    await expect(page.locator('summary').filter({ hasText: /^\d+:00 Meeting \d+$/ })).toHaveCount(
+      10,
+    );
     await inspect('briefing');
     await page.getByRole('link', { name: '← Today', exact: true }).click();
     await page.getByRole('link', { name: /Quote of the day by/ }).click();
