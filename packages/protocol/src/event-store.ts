@@ -1,4 +1,6 @@
 import { isRegisteredConversation } from './conversation-identity.js';
+import { SessionOutputReferenceStore } from './session-output-reference-store.js';
+import type { SessionOutputReference, SessionOutputCandidate } from './session-output-reference.js';
 import {
   SymposiumConfigurationOperationSchema,
   SymposiumConfigurationOperationReceiptSchema,
@@ -509,6 +511,7 @@ function clientStateForExecution(phase: ExecutionPhase): ClientSessionState {
 
 export class EventStore {
   private db: Database.Database | null;
+  private readonly sessionOutputs: SessionOutputReferenceStore;
   private log: EventStoreLogger;
   private stmts: {
     append: Database.Statement;
@@ -682,6 +685,7 @@ export class EventStore {
     this.migrateSymposium(db);
     this.migrateConversationSource(db);
     this.migrateUserMessageIndex(db);
+    this.sessionOutputs = new SessionOutputReferenceStore(db);
 
     this.log.info('EventStore initialized', { dbPath });
 
@@ -1411,6 +1415,33 @@ export class EventStore {
     this.assertConversationIdentity(sessionId);
     const result = this.stmts.append.run(sessionId, type, JSON.stringify(payload), null, null);
     return Number(result.lastInsertRowid);
+  }
+
+  /** The caller must authorize this conversation using the normal session boundary. */
+  registerSessionOutput(sessionId: string, input: unknown): SessionOutputReference {
+    this.assertConversationIdentity(sessionId);
+    if (!this.getSession(sessionId)) throw new Error('Output requires a registered conversation');
+    return this.sessionOutputs.register(sessionId, input);
+  }
+  listSessionOutputs(sessionId: string, limit = 50): SessionOutputReference[] {
+    this.assertConversationIdentity(sessionId);
+    return this.getSession(sessionId) ? this.sessionOutputs.list(sessionId, limit) : [];
+  }
+  getSessionOutput(sessionId: string, outputId: string): SessionOutputReference | null {
+    this.assertConversationIdentity(sessionId);
+    return this.getSession(sessionId) ? this.sessionOutputs.get(sessionId, outputId) : null;
+  }
+  readSessionOutput(
+    sessionId: string,
+    outputId: string,
+  ): { output: SessionOutputReference; content: string } {
+    this.assertConversationIdentity(sessionId);
+    if (!this.getSession(sessionId)) throw new Error('Session output not found');
+    return this.sessionOutputs.read(sessionId, outputId);
+  }
+  listSessionOutputCandidates(sessionId: string, limit = 10): SessionOutputCandidate[] {
+    this.assertConversationIdentity(sessionId);
+    return this.getSession(sessionId) ? this.sessionOutputs.candidates(sessionId, limit) : [];
   }
 
   /**

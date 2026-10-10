@@ -282,3 +282,13 @@ export {
 
 export { SessionRuntimeBindingV1Schema } from './session-runtime-binding.js';
 export type { SessionRuntimeBindingV1 } from './session-runtime-binding.js';
+export {
+  SessionOutputSourceSchema,
+  SessionOutputRegisterInputSchema,
+} from './session-output-reference.js';
+export type {
+  SessionOutputSource,
+  SessionOutputRegisterInput,
+  SessionOutputReference,
+  SessionOutputCandidate,
+} from './session-output-reference.js';
