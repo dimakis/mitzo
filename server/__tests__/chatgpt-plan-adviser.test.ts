@@ -237,6 +237,129 @@ it('retains registration identity after sign-out and does not persist tokens', a
   expect(auth.searchParams.get('client_id')).toBe('oaiapp_test');
   expect(f.service.list()[0].state).toBe('disconnected');
 });
+it.each([
+  { revoked: true, refreshed: false },
+  { revoked: false, refreshed: false },
+  { revoked: true, refreshed: true },
+  { revoked: false, refreshed: true },
+])(
+  'does not let a pending reauthorization undo disconnect (%j)',
+  async ({ revoked, refreshed }) => {
+    const f = fixture(),
+      signal = new AbortController().signal;
+    const account = await f.service.complete('operator', f.callback(f.begin()), signal);
+    if (refreshed) f.advance();
+    const callback = f.callback(f.begin(account.id));
+    if (refreshed) {
+      await f.service.ready(account.id, 'gpt-6-luna', 'low', signal);
+    }
+    const original = f.fetcher.getMockImplementation()!;
+    f.fetcher.mockImplementation(async (url, init) => {
+      if (String(url).includes('openid-configuration'))
+        return new Response(
+          JSON.stringify({
+            issuer: 'https://auth.openai.com',
+            revocation_endpoint: 'https://auth.openai.com/revoke',
+          }),
+        );
+      if (String(url).endsWith('/revoke'))
+        return new Response(null, { status: revoked ? 200 : 503 });
+      return original(url, init);
+    });
+    expect(await f.service.disconnect(account.id, signal)).toEqual({ revoked });
+    f.fetcher.mockClear();
+    await expect(f.service.complete('operator', callback, signal)).rejects.toThrow();
+    expect(f.fetcher).not.toHaveBeenCalled();
+    expect(f.service.list()[0]).toMatchObject({ state: 'disconnected' });
+    expect(JSON.stringify(f.state())).not.toContain('synthetic');
+  },
+);
+
+it('retains a verified registration when discovery fails and reuses it after restart', async () => {
+  const f = fixture(),
+    signal = new AbortController().signal;
+  const original = f.fetcher.getMockImplementation()!;
+  f.fetcher.mockImplementation(async (url, init) =>
+    String(url).endsWith('/models') ? new Response(null, { status: 503 }) : original(url, init),
+  );
+  await expect(f.service.complete('operator', f.callback(f.begin()), signal)).rejects.toThrow();
+  expect(f.state().accounts).toHaveLength(1);
+  const account = f.state().accounts[0];
+  expect(account).toMatchObject({
+    clientId: 'oaiapp_test',
+    subject: 'signed-user',
+    accessToken: 'synthetic-plan-access',
+    refreshToken: 'synthetic-refresh',
+    state: 'reauth_required',
+    models: [],
+  });
+  expect(f.service.catalog()).toEqual([]);
+  await expect(f.service.ready(account.id, 'gpt-6-luna', 'low', signal)).rejects.toThrow();
+  f.fetcher.mockImplementation(original);
+  const restored = new ChatGptPlanAdviserAccounts({
+    store: { load: f.state, save: f.save },
+    fetch: f.fetcher,
+    verifyIdToken: f.verify,
+    now: f.time,
+  });
+  const auth = restored.begin(
+    'operator',
+    'http://127.0.0.1:1455/auth/callback',
+    'Personal',
+    account.id,
+  );
+  expect(new URL(auth).searchParams.get('client_id')).toBe('oaiapp_test');
+  await expect(restored.complete('operator', f.callback(auth), signal)).resolves.toMatchObject({
+    id: account.id,
+    state: 'connected',
+  });
+  expect(restored.catalog()).toHaveLength(1);
+});
+
+it('keeps replacement credentials available for disconnect when reauthorization discovery fails', async () => {
+  const f = fixture(),
+    signal = new AbortController().signal;
+  const account = await f.service.complete('operator', f.callback(f.begin()), signal);
+  const original = f.fetcher.getMockImplementation()!;
+  f.fetcher.mockImplementation(async (url, init) => {
+    if (String(url).endsWith('/oauth/token')) {
+      const tokens = await (await original(url, init)).json();
+      return new Response(
+        JSON.stringify({
+          ...tokens,
+          access_token: 'replacement-access',
+          refresh_token: 'replacement-refresh',
+        }),
+      );
+    }
+    if (String(url).endsWith('/models')) return new Response(null, { status: 503 });
+    return original(url, init);
+  });
+  await expect(
+    f.service.complete('operator', f.callback(f.begin(account.id)), signal),
+  ).rejects.toThrow();
+  expect(f.state().accounts[0]).toMatchObject({
+    clientId: 'oaiapp_test',
+    accessToken: 'replacement-access',
+    refreshToken: 'replacement-refresh',
+    state: 'reauth_required',
+  });
+  expect(f.service.catalog()).toEqual([]);
+  f.fetcher.mockImplementation(async (url, init) => {
+    if (String(url).includes('openid-configuration'))
+      return new Response(
+        JSON.stringify({
+          issuer: 'https://auth.openai.com',
+          revocation_endpoint: 'https://auth.openai.com/revoke',
+        }),
+      );
+    expect(new URLSearchParams(init!.body as string).get('token')).toBe('replacement-refresh');
+    return new Response(null, { status: 200 });
+  });
+  expect(await f.service.disconnect(account.id, signal)).toEqual({ revoked: true });
+  expect(f.service.list()[0]).toMatchObject({ state: 'disconnected' });
+});
+
 it('cancels an in-flight code exchange on operator logout', async () => {
   const f = fixture(),
     url = f.begin();

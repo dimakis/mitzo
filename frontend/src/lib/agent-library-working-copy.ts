@@ -20,6 +20,23 @@ const definition = SymposiumProfileDefinitionSchema.extend({
   acceptanceCriteria: z.array(z.string()),
   modelPolicyRole: z.string(),
   recipe: recipe.optional(),
+  contextRecipe: z
+    .discriminatedUnion('source', [
+      z.strictObject({
+        version: z.literal(1),
+        source: z.literal('workspace'),
+        files: z.array(z.string()),
+        tokenBudget: z.number(),
+        required: z.array(z.array(z.string())),
+        excluded: z.array(z.array(z.string())),
+      }),
+      z.strictObject({
+        version: z.literal(1),
+        source: z.literal('contexgin'),
+        agentName: z.string(),
+      }),
+    ])
+    .optional(),
 });
 const editor = z.strictObject({
   profileId: z.string().min(1),

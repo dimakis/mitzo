@@ -1,5 +1,6 @@
 import type { SymposiumProfileDefinition } from '@mitzo/protocol';
 import { SymposiumProfileRecipeEditor } from './SymposiumProfileRecipeEditor';
+import { AgentContextRecipeEditor } from './AgentContextRecipeEditor';
 
 export function AgentProfileEditor({
   value,
@@ -92,11 +93,18 @@ export function AgentProfileEditor({
         </>
       )}
       {tab === 'context' && (
-        <SymposiumProfileRecipeEditor
-          value={value.recipe}
-          onChange={(recipe) => update('recipe', recipe)}
-          disabled={disabled}
-        />
+        <>
+          <AgentContextRecipeEditor
+            value={value.contextRecipe}
+            onChange={(contextRecipe) => update('contextRecipe', contextRecipe)}
+            disabled={disabled}
+          />
+          <SymposiumProfileRecipeEditor
+            value={value.recipe}
+            onChange={(recipe) => update('recipe', recipe)}
+            disabled={disabled}
+          />
+        </>
       )}
     </fieldset>
   );

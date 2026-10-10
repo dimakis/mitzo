@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.9';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.30';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.31';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,18 +22,27 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../chat.ts': '528aec4f04d2e49f698d68f12c60618a680b4ffb660cb29951642a54d78e65f1',
+  '../agent-context-binding.ts': 'ce0f8dba7f97f515be8ee00a441e3cc36344aad44f31e0b2fb33a160f8803e66',
+  '../app.ts': '3a136e933a31552e46a11e8fdc8a4d5475f986497aee3601d2b6ad32e8572a30',
+  '../ws-handler-v2.ts': '2952b6ea0ad4307739603901b01725514896452ea70c9f2464d8c04c6f4d9052',
+  '../codex-queue-routes.ts': '6873ee90c32da94dcfebd432535d4170942e53c980456927f9dd57e9917d9a53',
+  '../agent-context-compiler.ts':
+    '79fdab301b04325d3fd04c129d7ea5ffab3fca234a919dd9f229227c27bfbe91',
+  '../../packages/protocol/src/agent-context-recipe.ts':
+    'dbe9dd63fe439a1615ec605870528e350d5c1dbbb87517e4a78082dd4e5a7c83',
   // Library profile identity, operator ownership and admission are reviewed runtime inputs.
   '../symposium-director-routes.ts':
     'e6cabfe7555434bbf426209e5a0de750195559e106b0bbb09c4885a34159ff36',
   '../agent-library-binding.ts': '21fccbe6ee53ec292f93be9de3f678b3e1d4e8a8d6e83798678e9da44fadf7fb',
   '../agent-library-transport.ts':
-    '979b9c57cbfe65e3e8145366d014b4b724b8d0ad9e4cb42fda0c9b0735c5e8ad',
+    '2211de0127965af69a78d49576f1c91d282be04b40654428bc5c8a2a053e8479',
   '../agent-library-store.ts': 'fac60510d3a4b45aa34777daf885142e067538726104c749f4ebe533861472c7',
-  '../agent-library-router.ts': '9fb62f90a0ecee38712d38277d921e0430f81a98990eabc58b95a34616bc0ace',
+  '../agent-library-router.ts': 'ce2036ce5ce0f490fe5c60c52c21a6c7a82938f7f3f77e20064a944de6b2c9c9',
   '../agent-library-runtime.ts': 'cc3be2fc2f61053d4430960a2328d41146463fdca701840a92ab65a89b29922d',
   '../agent-library-prompt.ts': '3be39c6cd2fb12c744c5f53e45b8c8b306398146edfcb2af479d4fa1c9159c28',
   '../symposium-profile-portability.ts':
-    'e4369b6e8e58c9d8e3f7bde1e906538f435892adc58c61bb3e531c15c6fbfbaf',
+    'aadefe0eab442dc27ce68b86654291299dc6664a185b903af44756f79ff26680',
   '../symposium-profiles.ts': '4138fce2cc44220fa90b3ef65b207b89c06a5f02cd24750a748f79d84d297c95',
   '../symposium-custodian-protocol.ts':
     'e8412230568f5b6c5716af8fd5a57720d32c128126888d026cf68e4d980ef7b5',
@@ -42,7 +51,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/agent-library.ts':
     'e5c0e87a605c4f7664d5b9c69411bafc8059301a8c37a8057d3bdf14f604900e',
   '../../packages/protocol/src/symposium.ts':
-    '97746c3687c89a8bf8334ac48020c7b484287d7c38cf8bc159aad51bee699a67',
+    '4982103491ebedb0047370db7f0c15b723eadb0de6d5e908d0d7367816876cda',
   '../repository-chat-tools.ts': '2b3c9c950c38fe2b94bac06d69fff2560eacf2d43b2240e31232f351b9c7d441',
   '../repository-task-copy.ts': 'cd15f77cfa45883556d10536296a28f7451d2259a5a3eb2a9aeb807d24c54d6d',
   '../credential-connection-schema.ts':
@@ -127,11 +136,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../native-tool-executor.ts': '6bca4beb98690334e83a0a88b35c80558ed01b7485f682aca0cc0af11b6cd766',
   '../repository-workspaces.ts': 'b7e8cd755cdf6483d706f41d5deca216736b40dbd7863a3be20edfd32abb811c',
   '../../packages/protocol/src/event-store.ts':
-    '6c23bb678b59d3fa75e27bdca1a16ee73fb361113cce1a95eb25dd1893cc3855',
+    '3a9bd3d71221751376d4864d075a3fc42dcba6726907f5901bdafbc16b9297c6',
   '../../packages/protocol/src/session-runtime-binding.ts':
     '8cef7a7a2dcab070d320cf20fd3f98c03dfe71a1570dbd16d8fedd7f9a9d7872',
   '../../packages/protocol/src/types.ts':
-    '9a749717fba4969a831682c8aa502ad2fc205a7eb17ddf825d07da4f7a04417f',
+    '70f1e9398533294c544475e0d7e5da9eac7e19b097991d58ee749616b50406ca',
   '../repository-workspace-runtime.ts':
     '13db6d8d468d3e5ff4a9c8feaa06e5abbbb040196e8cf5b94b145297a5393a99',
   '../repository-workspace-router.ts':
