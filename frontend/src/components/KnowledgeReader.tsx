@@ -1,3 +1,4 @@
+import { UiIcon } from './UiIcon';
 import ReactMarkdown from 'react-markdown';
 import {
   remarkPlugins,
@@ -31,7 +32,7 @@ export function KnowledgeReader({
       <div className="knowledge-editor-heading">
         <div>
           <button className="workspace-text-link" onClick={onBack}>
-            ← Library
+            <UiIcon name="back" size={16} /> Library
           </button>
           <p className="knowledge-reader-path">{document.path}</p>
         </div>

@@ -1055,6 +1055,8 @@ export function useKnowledgeLibrary() {
           ) {
             persist({
               ...active,
+              draft: { ...saved, error: error.message },
+
               initialSaveConflict: undefined,
               savedComparisonUnavailable: false,
             });

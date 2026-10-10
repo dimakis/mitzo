@@ -1,3 +1,4 @@
+import { UiIcon } from './UiIcon';
 import { useState, useCallback, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAttentionFeed, type AttentionItem } from '../hooks/useAttentionFeed';
@@ -27,7 +28,7 @@ function AttentionCard({
       style={{ '--card-accent': item.accentColor } as React.CSSProperties}
     >
       <span className="attention-card-icon" style={{ color: item.accentColor }}>
-        {item.icon}
+        <UiIcon name={item.icon} filled={item.icon === 'star'} />
       </span>
       <div className="attention-card-content">
         <div className="attention-card-title">{item.title}</div>
@@ -90,14 +91,14 @@ export function AttentionFeed() {
 
   return (
     <div className="attention-section">
-      <button className="overview-header" onClick={toggleOpen}>
+      <button className="overview-header" onClick={toggleOpen} aria-expanded={isOpen}>
         <span className="overview-header-title">What&apos;s Next</span>
         <span className="overview-header-summary">
           {loading ? 'loading...' : summaryParts.join(' \u00B7 ') || 'all clear'}
         </span>
         {hasUrgent && <span className="overview-badge">{tier1Count}</span>}
         <span className={`overview-chevron${isOpen ? ' overview-chevron--open' : ''}`}>
-          &rsaquo;
+          <UiIcon name="forward" size={16} />
         </span>
       </button>
       {isOpen && (
@@ -109,7 +110,7 @@ export function AttentionFeed() {
             <AttentionCard key={item.id} item={item} onTap={handleTap} />
           ))}
           {!loading && hasMore && (
-            <button className="attention-show-more" onClick={toggleShowAll}>
+            <button className="attention-show-more" onClick={toggleShowAll} aria-expanded={showAll}>
               {showAll ? 'Show less' : `Show all ${items.length}`}
             </button>
           )}

@@ -1,5 +1,6 @@
 import { ChatAgentProfilePicker } from '../components/ChatAgentProfilePicker';
 import type { AgentProfileSelection } from '@mitzo/protocol';
+import { UiIcon } from '../components/UiIcon';
 import {
   savedRepositoryDraft,
   repositoryDraftKey,
@@ -381,7 +382,7 @@ export function ChatView() {
       <div className="chat-mobile-topbar">
         <div className="conversation-heading">
           <Link to="/sessions" aria-label="Back to chats">
-            ← Chats
+            <UiIcon name="back" size={16} /> Chats
           </Link>
           <h1>{activeSessionId ? 'Conversation' : 'New chat'}</h1>
           <button
@@ -462,7 +463,7 @@ export function ChatView() {
                     }}
                     title="Close session"
                   >
-                    &times;
+                    <UiIcon name="close" size={16} />
                   </button>
                 )}
                 <VoiceSettings

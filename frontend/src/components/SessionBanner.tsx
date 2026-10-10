@@ -1,3 +1,4 @@
+import { UiIcon } from './UiIcon';
 import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import type { BootContextMeta, SectionMeta } from '@mitzo/client';
@@ -27,8 +28,10 @@ function SectionRow({ section, dimmed }: { section: SectionMeta; dimmed?: boolea
     <div
       className={`session-banner-section-row ${dimmed ? 'session-banner-section-row--dimmed' : ''}`}
     >
-      <button className="session-banner-section-button" onClick={toggle}>
-        <span className="session-banner-chevron-inline">{open ? '\u25BE' : '\u25B8'}</span>
+      <button className="session-banner-section-button" onClick={toggle} aria-expanded={open}>
+        <span className="session-banner-chevron-inline">
+          <UiIcon name={open ? 'down' : 'forward'} size={16} />
+        </span>
         <span className="session-banner-section-heading">{section.heading}</span>
         <span className="session-banner-section-tokens">{section.tokens}t</span>
       </button>
@@ -101,7 +104,11 @@ export function SessionBanner({ bootContext, sessionContext }: Props) {
   return (
     <>
       <div className="session-banner">
-        <button className="session-banner-header" onClick={() => setExpanded((e) => !e)}>
+        <button
+          className="session-banner-header"
+          onClick={() => setExpanded((e) => !e)}
+          aria-expanded={expanded}
+        >
           {bootContext && <span className={`session-banner-dot ${dotClass}`} />}
           <span className="session-banner-summary">
             {bootContext && (
@@ -114,7 +121,9 @@ export function SessionBanner({ bootContext, sessionContext }: Props) {
               <span className="session-banner-context-hint">{summaryLine(sessionContext)}</span>
             )}
           </span>
-          <span className="session-banner-chevron">{expanded ? '\u25BE' : '\u25B8'}</span>
+          <span className="session-banner-chevron">
+            <UiIcon name={expanded ? 'down' : 'forward'} size={16} />
+          </span>
         </button>
 
         {expanded && (
@@ -150,7 +159,7 @@ export function SessionBanner({ bootContext, sessionContext }: Props) {
                       Boot Context ({isContexgin ? 'ContexGin' : 'Fallback'})
                     </span>
                     <span className="session-banner-chevron-inline">
-                      {showBootDetails ? '\u25BE' : '\u25B8'}
+                      <UiIcon name={showBootDetails ? 'down' : 'forward'} size={16} />
                     </span>
                   </div>
                   {bootContext.fullMarkdown && (
@@ -194,6 +203,7 @@ export function SessionBanner({ bootContext, sessionContext }: Props) {
                       <>
                         <button
                           className="session-banner-trimmed-toggle"
+                          aria-expanded={showTrimmed}
                           onClick={(e) => {
                             e.stopPropagation();
                             setShowTrimmed((t) => !t);
@@ -202,7 +212,7 @@ export function SessionBanner({ bootContext, sessionContext }: Props) {
                           {bootContext.trimmed.length} section
                           {bootContext.trimmed.length !== 1 ? 's' : ''} trimmed
                           <span className="session-banner-chevron-inline">
-                            {showTrimmed ? '\u25BE' : '\u25B8'}
+                            <UiIcon name={showTrimmed ? 'down' : 'forward'} size={16} />
                           </span>
                         </button>
                         {showTrimmed &&
@@ -236,8 +246,12 @@ export function SessionBanner({ bootContext, sessionContext }: Props) {
             >
               <div className="boot-context-modal-header">
                 <h3>Boot Context (Full Markdown)</h3>
-                <button onClick={() => setShowModal(false)} className="boot-context-modal-close">
-                  ✕
+                <button
+                  onClick={() => setShowModal(false)}
+                  className="boot-context-modal-close"
+                  aria-label="Close boot context"
+                >
+                  <UiIcon name="close" size={16} />
                 </button>
               </div>
               <pre className="boot-context-modal-content">{bootContext.fullMarkdown}</pre>

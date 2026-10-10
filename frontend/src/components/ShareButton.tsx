@@ -1,3 +1,4 @@
+import { UiIcon } from './UiIcon';
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { shareFile, downloadFile } from '../lib/share-file';
@@ -87,14 +88,14 @@ function FileActionButton({
 
   const icon =
     state === 'busy'
-      ? '...'
+      ? 'loading'
       : state === 'done'
-        ? '\u2713'
+        ? 'check'
         : state === 'error'
-          ? '!'
+          ? 'error'
           : action === 'download'
-            ? '\u2193'
-            : '\u21A6';
+            ? 'download'
+            : 'share';
 
   return (
     <>
@@ -107,7 +108,7 @@ function FileActionButton({
         onClick={handleShare}
         disabled={state === 'busy'}
       >
-        {icon}
+        <UiIcon name={icon} size={16} />
       </button>
       {error && (
         <span className="share-error" role="alert">

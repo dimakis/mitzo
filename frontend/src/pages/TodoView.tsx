@@ -1,3 +1,4 @@
+import { UiIcon } from '../components/UiIcon';
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useMitzoStore } from '@mitzo/client/hooks';
@@ -247,7 +248,7 @@ function SectionHeader({
       <span className="todo-section-count">{count}</span>
       <span className="todo-section-line" />
       <span className={`todo-section-chevron${collapsed ? '' : ' todo-section-chevron--open'}`}>
-        &rsaquo;
+        <UiIcon name="forward" size={16} />
       </span>
     </button>
   );
@@ -365,7 +366,7 @@ export function TodoView({ selectedId }: { selectedId?: string } = {}) {
                 + Add outcome
               </button>
               <button className="todo-refresh" onClick={refresh} aria-label="Refresh Telos">
-                &#x21bb;
+                <UiIcon name="retry" size={16} />
               </button>
             </div>
           }
@@ -375,7 +376,9 @@ export function TodoView({ selectedId }: { selectedId?: string } = {}) {
       <div className="todo-scroll" ref={scrollRef}>
         <div className="todo-toolbar">
           <label className="todo-search">
-            <span aria-hidden="true">⌕</span>
+            <span aria-hidden="true">
+              <UiIcon name="search" size={16} />
+            </span>
             <input
               type="search"
               value={query}
@@ -432,12 +435,16 @@ export function TodoView({ selectedId }: { selectedId?: string } = {}) {
         {loading && <p className="todo-empty">Loading...</p>}
 
         {!loading && error && (
-          <EmptyState icon="!" title={error} subtitle="Tap refresh to try again" />
+          <EmptyState
+            icon={<UiIcon name="error" size={24} />}
+            title={error}
+            subtitle="Tap refresh to try again"
+          />
         )}
 
         {!loading && !error && items.length === 0 && (
           <EmptyState
-            icon={'\u2713'}
+            icon=<UiIcon name="check" size={16} />
             title="No active items"
             subtitle={
               <>
@@ -448,7 +455,11 @@ export function TodoView({ selectedId }: { selectedId?: string } = {}) {
         )}
 
         {!loading && !error && items.length > 0 && filteredItems.length === 0 && (
-          <EmptyState icon="⌕" title="No matching outcomes" subtitle="Try a broader search" />
+          <EmptyState
+            icon={<UiIcon name="search" size={24} />}
+            title="No matching outcomes"
+            subtitle="Try a broader search"
+          />
         )}
 
         {sections.map((section) => {

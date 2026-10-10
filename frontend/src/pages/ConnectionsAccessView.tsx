@@ -1,3 +1,4 @@
+import { UiIcon } from '../components/UiIcon';
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Link, useSearchParams } from 'react-router-dom';
@@ -368,11 +369,6 @@ function AccessDrawer({
         }}
       >
         <header className="access-drawer-heading">
-          {resource && (
-            <span className={`access-row-icon ${resource.section}`} aria-hidden="true">
-              {resource.section === 'accounts' ? '✧' : '↗'}
-            </span>
-          )}
           <div className="access-drawer-heading-copy">
             <p className="workspace-eyebrow">Connections</p>
             <h2 id="access-drawer-title">{title}</h2>
@@ -386,7 +382,7 @@ function AccessDrawer({
             aria-label="Close details"
             onClick={onClose}
           >
-            ×
+            <UiIcon name="close" size={16} />
           </button>
         </header>
         <div className="access-drawer-body">{children}</div>
@@ -511,7 +507,10 @@ export function ConnectionsAccessView() {
             description="Accounts and services for Mitzo. Choose an account inside a chat."
           />
           <Link ref={addConnection} className="access-add-connection" to="/connections">
-            <span aria-hidden="true">+</span> Add connection
+            <span aria-hidden="true">
+              <UiIcon name="plus" size={16} />
+            </span>{' '}
+            Add connection
           </Link>
         </div>
         {connected && (
@@ -586,9 +585,6 @@ export function ConnectionsAccessView() {
                           className="access-row"
                           aria-label={title}
                         >
-                          <span className={`access-row-icon ${section}`} aria-hidden="true">
-                            {section === 'accounts' ? '✧' : '↗'}
-                          </span>
                           <div className="access-row-copy">
                             <h3>
                               {title}
@@ -670,7 +666,10 @@ export function ConnectionsAccessView() {
                               setSelectedResourceId(resource.id);
                             }}
                           >
-                            Manage <span aria-hidden="true">›</span>
+                            Manage{' '}
+                            <span aria-hidden="true">
+                              <UiIcon name="forward" size={16} />
+                            </span>
                           </button>
                         </article>
                       );
@@ -712,7 +711,10 @@ export function ConnectionsAccessView() {
                     setWebsite(item);
                   }}
                 >
-                  View <span aria-hidden="true">›</span>
+                  View{' '}
+                  <span aria-hidden="true">
+                    <UiIcon name="forward" size={16} />
+                  </span>
                 </button>
               </div>
             ))}

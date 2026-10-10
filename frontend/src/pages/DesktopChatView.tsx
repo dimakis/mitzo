@@ -1,5 +1,6 @@
 import { ChatAgentProfilePicker } from '../components/ChatAgentProfilePicker';
 import type { AgentProfileSelection } from '@mitzo/protocol';
+import { UiIcon } from '../components/UiIcon';
 import {
   savedRepositoryDraft,
   repositoryDraftKey,
@@ -443,7 +444,7 @@ export function DesktopChatView() {
                       }}
                       title="Close session"
                     >
-                      &times;
+                      <UiIcon name="close" size={16} />
                     </button>
                   )}
                   <VoiceSettings

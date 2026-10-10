@@ -114,7 +114,7 @@ export function BackupsView() {
   return (
     <main className="workspace-page backups-page">
       <Link className="workspace-text-link" to="/settings">
-        ← Settings
+        <UiIcon name="back" size={16} /> Settings
       </Link>
       <WorkspacePageHeading
         title="Backups"

@@ -58,10 +58,11 @@ test('backup dashboard preserves scope and upload distinction on desktop and mob
   ).toHaveCount(0);
   await expect(page.getByRole('heading', { name: 'Backups', exact: true })).toBeVisible();
   if (!isMobile)
-    await expect(page.getByRole('link', { name: 'Settings', exact: true })).toHaveAttribute(
-      'aria-current',
-      'page',
-    );
+    await expect(
+      page
+        .getByRole('navigation', { name: 'Main navigation' })
+        .getByRole('link', { name: 'Settings', exact: true }),
+    ).toHaveAttribute('aria-current', 'page');
   await page.goto('/backups');
   await expect(page).toHaveURL(/\/settings\/backups$/);
   await expect(page.getByRole('heading', { name: 'Backups', exact: true })).toBeVisible();
