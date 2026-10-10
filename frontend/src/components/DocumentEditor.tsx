@@ -4,6 +4,7 @@ import { remarkPlugins, rehypePlugins } from '../lib/markdown-config';
 import { HtmlPreview } from './HtmlPreview';
 import type { DocumentSourceEditorHandle } from './DocumentSourceEditor';
 import { useDocumentEditorPreferences } from '../hooks/useDocumentEditorPreferences';
+import { UiIcon } from './UiIcon';
 
 const DocumentSourceEditor = lazy(async () => ({
   default: (await import('./DocumentSourceEditor')).DocumentSourceEditor,
@@ -139,11 +140,16 @@ export function DocumentEditor(props: Props) {
       >
         <div className="document-editor-toolbar">
           <div className="document-editor-controls">
-            <div className="document-editor-modes" aria-label="Editor view">
+            <div
+              className="document-editor-modes document-editor-views"
+              role="group"
+              aria-label="Editor view"
+            >
               {(['source', 'preview', 'split'] as const).map((value) => (
                 <button
                   key={value}
                   type="button"
+                  className="document-editor-control"
                   aria-pressed={mode === value}
                   onClick={() => setMode(value)}
                 >
@@ -151,107 +157,159 @@ export function DocumentEditor(props: Props) {
                 </button>
               ))}
             </div>
-            <div className="document-editor-modes" aria-label="Editing keys">
-              <button
-                type="button"
-                aria-pressed={!preferences.vim}
-                onClick={() => selectVim(false)}
-              >
-                Standard
-              </button>
-              <button type="button" aria-pressed={preferences.vim} onClick={() => selectVim(true)}>
-                Vim
-              </button>
+            <div className="document-editor-keys" role="group" aria-label="Editing keys">
+              <span className="document-editor-label">Keys</span>
+              <div className="document-editor-modes">
+                <button
+                  type="button"
+                  className="document-editor-control"
+                  aria-pressed={!preferences.vim}
+                  onClick={() => selectVim(false)}
+                >
+                  Standard
+                </button>
+                <button
+                  type="button"
+                  className="document-editor-control"
+                  aria-pressed={preferences.vim}
+                  onClick={() => selectVim(true)}
+                >
+                  Vim
+                </button>
+              </div>
+              {preferences.keyboard && (
+                <button
+                  type="button"
+                  className="document-editor-control document-editor-relative-lines"
+                  aria-label="Relative line numbers"
+                  title="Relative line numbers"
+                  aria-pressed={preferences.relativeLineNumbers}
+                  onClick={() =>
+                    preferences.setRelativeLineNumbers(!preferences.relativeLineNumbers)
+                  }
+                >
+                  <span className="document-editor-toggle" aria-hidden="true">
+                    {preferences.relativeLineNumbers && <UiIcon name="check" size={16} />}
+                  </span>
+                  Relative lines
+                </button>
+              )}
             </div>
-            {preferences.keyboard && (
-              <button
-                type="button"
-                aria-pressed={preferences.relativeLineNumbers}
-                onClick={() => preferences.setRelativeLineNumbers(!preferences.relativeLineNumbers)}
-              >
-                Relative line numbers
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={handleUndo}
-              disabled={saving || !(useKeyboard ? sourceHistory.canUndo : canUndo)}
-              title="Undo (⌘/Ctrl Z)"
-            >
-              Undo
-            </button>
-            <button
-              type="button"
-              onClick={handleRedo}
-              disabled={saving || !(useKeyboard ? sourceHistory.canRedo : canRedo)}
-              title="Redo (⌘/Ctrl Shift Z)"
-            >
-              Redo
-            </button>
-            {markdown && mode !== 'preview' && (
-              <>
-                <button
-                  type="button"
-                  disabled={saving}
-                  onClick={() => insert('**', '**')}
-                  aria-label="Bold"
-                >
-                  <strong>B</strong>
-                </button>
-                <button
-                  type="button"
-                  disabled={saving}
-                  onClick={() => insert('_', '_')}
-                  aria-label="Italic"
-                >
-                  <em>I</em>
-                </button>
-                <button
-                  type="button"
-                  disabled={saving}
-                  onClick={() => insert('`', '`')}
-                  aria-label="Inline code"
-                >
-                  Code
-                </button>
-                <button
-                  type="button"
-                  disabled={saving}
-                  onClick={() => insert('## ', '', 'Heading')}
-                >
-                  Heading
-                </button>
-                <button
-                  type="button"
-                  disabled={saving}
-                  onClick={() => insert('- ', '', 'List item')}
-                >
-                  List
-                </button>
-                <button
-                  type="button"
-                  disabled={saving}
-                  onClick={() => insert('[', '](https://)', 'Link text')}
-                >
-                  Link
-                </button>
-              </>
-            )}
           </div>
           <div className="document-editor-actions" role="group" aria-label="Document actions">
             <button
               type="button"
+              className="document-editor-control document-editor-icon-control"
               onClick={() => setFullscreen(!fullscreen)}
               aria-pressed={fullscreen}
+              aria-label={fullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+              title={fullscreen ? 'Exit fullscreen' : 'Fullscreen'}
             >
-              {fullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+              <UiIcon name={fullscreen ? 'fullscreenExit' : 'fullscreen'} size={16} />
             </button>
             {fullscreen && (
-              <button type="button" onClick={onSave} disabled={saving}>
+              <button
+                type="button"
+                className="document-editor-control document-editor-save"
+                onClick={onSave}
+                disabled={saving}
+              >
                 {saving ? 'Saving…' : props.saveLabel || 'Save'}
               </button>
             )}
           </div>
+        </div>
+        <div className="document-editor-tools">
+          <div className="document-editor-history" role="group" aria-label="Edit history">
+            <button
+              type="button"
+              className="document-editor-control document-editor-icon-control"
+              onClick={handleUndo}
+              disabled={saving || !(useKeyboard ? sourceHistory.canUndo : canUndo)}
+              title="Undo (⌘/Ctrl Z)"
+              aria-label="Undo"
+            >
+              <UiIcon name="undo" size={16} />
+            </button>
+            <button
+              type="button"
+              className="document-editor-control document-editor-icon-control"
+              onClick={handleRedo}
+              disabled={saving || !(useKeyboard ? sourceHistory.canRedo : canRedo)}
+              title="Redo (⌘/Ctrl Shift Z)"
+              aria-label="Redo"
+            >
+              <UiIcon name="redo" size={16} />
+            </button>
+          </div>
+          {markdown && mode !== 'preview' && (
+            <div
+              className="document-editor-formatting"
+              role="group"
+              aria-label="Markdown formatting"
+            >
+              <button
+                type="button"
+                className="document-editor-control document-editor-icon-control"
+                disabled={saving}
+                onClick={() => insert('**', '**')}
+                aria-label="Bold"
+                title="Bold (⌘/Ctrl B)"
+              >
+                <UiIcon name="bold" size={16} />
+              </button>
+              <button
+                type="button"
+                className="document-editor-control document-editor-icon-control"
+                disabled={saving}
+                onClick={() => insert('_', '_')}
+                aria-label="Italic"
+                title="Italic"
+              >
+                <UiIcon name="italic" size={16} />
+              </button>
+              <button
+                type="button"
+                className="document-editor-control document-editor-icon-control"
+                disabled={saving}
+                onClick={() => insert('`', '`')}
+                aria-label="Inline code"
+                title="Inline code"
+              >
+                <UiIcon name="code" size={16} />
+              </button>
+              <button
+                type="button"
+                className="document-editor-control document-editor-icon-control"
+                disabled={saving}
+                onClick={() => insert('## ', '', 'Heading')}
+                aria-label="Heading"
+                title="Heading"
+              >
+                <UiIcon name="heading" size={16} />
+              </button>
+              <button
+                type="button"
+                className="document-editor-control document-editor-icon-control"
+                disabled={saving}
+                onClick={() => insert('- ', '', 'List item')}
+                aria-label="List"
+                title="List"
+              >
+                <UiIcon name="list" size={16} />
+              </button>
+              <button
+                type="button"
+                className="document-editor-control document-editor-icon-control"
+                disabled={saving}
+                onClick={() => insert('[', '](https://)', 'Link text')}
+                aria-label="Link"
+                title="Link"
+              >
+                <UiIcon name="connections" size={16} />
+              </button>
+            </div>
+          )}
         </div>
         {fullscreen && props.fullscreenStatus && (
           <div className="document-editor-fullscreen-status">{props.fullscreenStatus}</div>
