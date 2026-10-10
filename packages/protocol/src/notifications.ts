@@ -2,7 +2,14 @@ import { z } from 'zod';
 import type { PermissionRequest } from './index.js';
 
 export const NotificationKind = z.enum(['approval', 'question', 'session', 'update', 'test']);
-export const NotificationFilter = z.enum(['all', 'needs', 'sessions', 'updates', 'history']);
+export const NotificationFilter = z.enum([
+  'all',
+  'needs',
+  'sessions',
+  'updates',
+  'history',
+  'archived',
+]);
 export type NotificationFilter = z.infer<typeof NotificationFilter>;
 export type NotificationResolution = 'allowed' | 'denied' | 'expired';
 export interface MitzoNotification {
@@ -19,6 +26,7 @@ export interface MitzoNotification {
   readAt: number | null;
   resolution: NotificationResolution | null;
   resolvedAt: number | null;
+  archivedAt?: number | null;
 }
 const time = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/);
 export const NotificationPreferences = z

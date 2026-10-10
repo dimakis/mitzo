@@ -10,7 +10,8 @@ interface DraftCreation {
   requestId: string;
   title: string;
   baseRevision: string;
-  documents: { path: string; content: string }[];
+  documents: { path: string; sourcePath?: string; content: string }[];
+  directories?: string[];
 }
 interface WorkingCopy {
   title: string;
@@ -20,9 +21,12 @@ interface WorkingCopy {
   initialSaveConflict?: KnowledgeDraft;
   savedComparisonUnavailable?: boolean;
   forkNeedsComparison?: boolean;
+  forkAccepted?: KnowledgeDraft;
   documents: KnowledgeDraft['documents'];
+  directories: string[];
   selected: string;
   saved: string;
+  savedDirectories?: string[];
 }
 const storageKey = `mitzo-knowledge-working-copy:${getApiBaseUrl()}`;
 function recover(): WorkingCopy | null {
@@ -36,9 +40,19 @@ function recover(): WorkingCopy | null {
       Array.isArray(value.documents) &&
       value.documents.every(
         (d: KnowledgeDraft['documents'][number]) =>
-          typeof d.path === 'string' && typeof d.base === 'string' && typeof d.content === 'string',
-      )
-      ? value
+          typeof d.path === 'string' &&
+          typeof d.base === 'string' &&
+          typeof d.content === 'string' &&
+          (d.sourcePath === undefined || typeof d.sourcePath === 'string'),
+      ) &&
+      (value.directories === undefined ||
+        (Array.isArray(value.directories) &&
+          value.directories.every((path: unknown) => typeof path === 'string')))
+      ? {
+          ...value,
+          directories: value.directories || [],
+          savedDirectories: value.savedDirectories || value.draft?.directories || [],
+        }
       : null;
   } catch {
     return null;
@@ -98,10 +112,13 @@ export function useKnowledgeLibrary() {
   current.current = copy;
   const inFlight = useRef(false);
   const selected = copy?.documents.find((d) => d.path === copy.selected);
-  const dirty = !!copy && JSON.stringify(copy.documents) !== copy.saved;
+  const dirty =
+    !!copy &&
+    (JSON.stringify(copy.documents) !== copy.saved ||
+      JSON.stringify(copy.directories) !== JSON.stringify(copy.savedDirectories || []));
   const canSave =
     !!copy &&
-    copy.documents.length > 0 &&
+    (copy.documents.length > 0 || copy.directories.length > 0) &&
     !copy.forkNeedsComparison &&
     !comparison?.documents.some((document) => document.content === null) &&
     !copy.initialSaveConflict &&
@@ -185,6 +202,8 @@ export function useKnowledgeLibrary() {
       baseRevision: draft.baseRevision,
       draft,
       documents: draft.documents,
+      directories: draft.directories || [],
+      savedDirectories: draft.directories || [],
       selected: draft.documents[0]?.path || '',
       saved: JSON.stringify(draft.documents),
     };
@@ -200,6 +219,8 @@ export function useKnowledgeLibrary() {
       draft,
       baseRevision: draft.baseRevision,
       documents: draft.documents,
+      directories: draft.directories || [],
+      savedDirectories: draft.directories || [],
       selected: draft.documents.some((d) => d.path === old.selected)
         ? old.selected
         : draft.documents[0]?.path || '',
@@ -228,7 +249,7 @@ export function useKnowledgeLibrary() {
         `/api/knowledge/drafts/${encodeURIComponent(draft.id)}`,
       );
       if (
-        !result.draft?.documents?.length ||
+        !Array.isArray(result.draft?.documents) ||
         !result.draft.documents.every(
           (d) => typeof d.content === 'string' && typeof d.base === 'string',
         )
@@ -240,23 +261,46 @@ export function useKnowledgeLibrary() {
     });
   }
   async function openDocument(document: KnowledgeDocument, add = false) {
+    let opened = false;
     await run(async () => {
       if (!catalog) return;
+      const staged = current.current?.documents.find(
+        (d) => d.path === document.path || d.sourcePath === document.path,
+      );
+      if (staged) {
+        persist({ ...current.current!, selected: staged.path });
+        resetHistory(staged.content);
+        opened = true;
+        return;
+      }
       if (!add && dirty && !window.confirm('Replace your unsaved working copy with this document?'))
         return;
       const data = await request<{ content: string }>(
         `/api/knowledge/document?${new URLSearchParams({ path: document.path, revision: catalog.revision })}`,
       );
       const item = { path: document.path, base: data.content, content: data.content };
+      const existing = current.current?.documents.find(
+        (d) => d.path === item.path || d.sourcePath === item.path,
+      );
+      if (add && existing) {
+        persist({ ...current.current!, selected: existing.path });
+        resetHistory(existing.content);
+        opened = true;
+        return;
+      }
       const old = current.current;
       if (add && old) {
-        if (old.documents.length && old.baseRevision !== catalog.revision)
+        if (
+          (old.documents.length || old.directories.length) &&
+          old.baseRevision !== catalog.revision
+        )
           throw new Error(
             'Refresh and compare this draft before adding a document from the latest library.',
           );
         persist({
           ...old,
-          baseRevision: old.documents.length ? old.baseRevision : catalog.revision,
+          baseRevision:
+            old.documents.length || old.directories.length ? old.baseRevision : catalog.revision,
           documents: [...old.documents.filter((d) => d.path !== item.path), item],
           selected: item.path,
         });
@@ -265,18 +309,313 @@ export function useKnowledgeLibrary() {
           title: document.title,
           baseRevision: catalog.revision,
           documents: [item],
+          directories: [],
           selected: item.path,
           saved: JSON.stringify([item]),
         });
+      opened = true;
       resetHistory(data.content);
       setNotice('');
       setComparison(null);
       setGate(null);
     });
+    return opened;
+  }
+  async function readDocument(document: KnowledgeDocument) {
+    const staged = current.current?.documents.find((d) => d.path === document.path);
+    if (staged) return { content: staged.content };
+    if (!catalog) return;
+    return request<{ content: string }>(
+      `/api/knowledge/document?${new URLSearchParams({ path: document.path, revision: catalog.revision })}`,
+    );
+  }
+  function validPath(path: string) {
+    const reserved = new Set([
+      '__pycache__',
+      'node_modules',
+      'scripts',
+      'tests',
+      'worktrees',
+      'dist',
+      'runtime',
+      'logs',
+      'coverage',
+      'build',
+    ]);
+    return (
+      path.length <= 512 &&
+      /^[\p{L}\p{N}_ /().-]+$/u.test(path) &&
+      path
+        .split('/')
+        .every(
+          (part) =>
+            !!part &&
+            new TextEncoder().encode(part).length <= 255 &&
+            part.trim() === part &&
+            part !== '.' &&
+            part !== '..' &&
+            !part.startsWith('.') &&
+            !reserved.has(part.toLowerCase()),
+        )
+    );
+  }
+  function directoryScope(path: string) {
+    const scopes =
+      catalog?.documentPaths ||
+      (catalog?.directories || []).filter((directory) => !directory.includes('/'));
+    return scopes
+      .filter((scope) => !scope.endsWith('.md') && path.startsWith(scope + '/'))
+      .sort((a, b) => b.length - a.length)[0];
+  }
+  function privateBoundary(path: string) {
+    const segments = path.split('/');
+    const index = segments.findIndex((segment) => /^private(?:[_-]|$)/i.test(segment));
+    return index < 0 ? '' : segments.slice(0, index + 1).join('/');
+  }
+  function canMoveDocument(from: string, to: string) {
+    const document = current.current?.documents.find((d) => d.path === from);
+    const source = document?.sourcePath || from;
+    if (catalog?.documentPaths?.some((scope) => scope.endsWith('.md') && scope === source))
+      return false;
+    const scope = directoryScope(source);
+    return (
+      validPath(to) &&
+      to.endsWith('.md') &&
+      !!scope &&
+      directoryScope(to) === scope &&
+      source.split('/')[0] === to.split('/')[0] &&
+      privateBoundary(source) === privateBoundary(to) &&
+      !current.current?.documents.some((d) => d.path === to && d.path !== from) &&
+      (!catalog?.documents.some((d) => d.path === to) || to === source || to === from)
+    );
+  }
+  function directoryOccupied(path: string) {
+    const inside = (candidate: string) => candidate === path || candidate.startsWith(path + '/');
+    return (
+      !!catalog?.directories?.some(inside) ||
+      !!current.current?.directories.some(inside) ||
+      !!catalog?.documents.some((document) => inside(document.path)) ||
+      !!current.current?.documents.some((document) => inside(document.path))
+    );
+  }
+  function canCreateInDirectory(parent: string) {
+    return (
+      validPath(parent) &&
+      !!directoryScope(parent + '/document.md') &&
+      !catalog?.documents.some((document) => document.path === parent) &&
+      !current.current?.documents.some((document) => document.path === parent)
+    );
+  }
+  function canCreateDirectory(path: string) {
+    const scope = directoryScope(path + '/document.md');
+    return validPath(path) && !!scope && path !== scope && !directoryOccupied(path);
+  }
+  function moveDocument(from: string, to: string) {
+    const old = current.current;
+    if (!old || inFlight.current) return false;
+    if (from === to) return true;
+    const document = old.documents.find((d) => d.path === from);
+    if (!document) return false;
+    const source = document.sourcePath || document.path;
+    if (!canMoveDocument(from, to)) {
+      setError('Choose an unused document path in the same knowledge scope.');
+      return false;
+    }
+    persist({
+      ...old,
+      documents: old.documents.map((d) => {
+        if (d !== document) return d;
+        const moved = { ...d, path: to };
+        if (to === source) delete moved.sourcePath;
+        else moved.sourcePath = source;
+        return moved;
+      }),
+      selected: old.selected === from ? to : old.selected,
+    });
+    setComparison(null);
+    setGate(null);
+    return true;
+  }
+  async function moveAcceptedDocument(document: KnowledgeDocument, target: string) {
+    if (!catalog || inFlight.current) return false;
+    const staged = current.current?.documents.find(
+      (item) => item.path === document.path || item.sourcePath === document.path,
+    );
+    if (staged) return moveDocument(staged.path, target);
+    if (document.path === target || !canMoveDocument(document.path, target)) {
+      setError('Choose an unused document path in the same knowledge scope.');
+      return false;
+    }
+    let moved = false;
+    await run(async () => {
+      const old = current.current;
+      if (
+        old &&
+        (old.documents.length || old.directories.length) &&
+        old.baseRevision !== catalog.revision
+      )
+        throw new Error(
+          'Refresh and compare this draft before moving a document from the latest library.',
+        );
+      const data = await request<{ content: string }>(
+        `/api/knowledge/document?${new URLSearchParams({ path: document.path, revision: catalog.revision })}`,
+      );
+      const item = {
+        path: target,
+        sourcePath: document.path,
+        base: data.content,
+        content: data.content,
+      };
+      persist(
+        old
+          ? {
+              ...old,
+              documents: [...old.documents, item],
+              selected: target,
+              baseRevision:
+                old.documents.length || old.directories.length
+                  ? old.baseRevision
+                  : catalog.revision,
+            }
+          : {
+              title: document.title,
+              baseRevision: catalog.revision,
+              documents: [item],
+              directories: [],
+              selected: target,
+              saved: JSON.stringify([
+                { path: document.path, base: data.content, content: data.content },
+              ]),
+            },
+      );
+      resetHistory(data.content);
+      setComparison(null);
+      setGate(null);
+      moved = true;
+    });
+    return moved;
+  }
+  function createDirectory(path: string) {
+    if (!catalog || inFlight.current) return false;
+    if (directoryOccupied(path)) {
+      setError('This folder or path already exists. Choose a new folder name.');
+      return false;
+    }
+    if (!canCreateDirectory(path)) {
+      setError('Choose a folder inside an existing knowledge scope.');
+      return false;
+    }
+    const old = current.current;
+    persist(
+      old
+        ? { ...old, directories: [...old.directories, path] }
+        : {
+            title: 'Organize knowledge',
+            baseRevision: catalog.revision,
+            documents: [],
+            directories: [path],
+            selected: '',
+            saved: '[]',
+            savedDirectories: [],
+          },
+    );
+    setGate(null);
+    return true;
+  }
+  async function removeDirectory(path: string) {
+    const old = current.current;
+    if (
+      !old ||
+      inFlight.current ||
+      old.initialSaveConflict ||
+      old.draft?.state === 'accepted' ||
+      old.draft?.state === 'closed' ||
+      !old.directories.includes(path)
+    )
+      return false;
+    let removed = false;
+    await run(async () => {
+      let active = current.current!;
+      if (active.pendingCreate) {
+        const creation = active.pendingCreate;
+        const result = await request<{ draft: KnowledgeDraft }>(
+          '/api/knowledge/drafts',
+          'POST',
+          creation,
+        );
+        const returned = result.draft.documents.map(({ path, sourcePath, content }) => ({
+          path,
+          ...(sourcePath ? { sourcePath } : {}),
+          content,
+        }));
+        if (
+          result.draft.id !== creation.requestId ||
+          result.draft.version !== 1 ||
+          result.draft.title !== creation.title ||
+          result.draft.baseRevision !== creation.baseRevision ||
+          JSON.stringify(returned) !== JSON.stringify(creation.documents) ||
+          JSON.stringify(result.draft.directories || []) !==
+            JSON.stringify(creation.directories || [])
+        ) {
+          persist({ ...active, initialSaveConflict: result.draft });
+          throw new Error(
+            'This saved draft changed elsewhere. Compare it before removing folders.',
+          );
+        }
+        active = {
+          ...active,
+          draft: result.draft,
+          pendingCreate: undefined,
+          saved: JSON.stringify(result.draft.documents),
+          savedDirectories: result.draft.directories || [],
+        };
+        persist(active);
+      }
+      const remaining = active.directories.filter((directory) => directory !== path);
+      if (active.draft && !active.documents.length && !remaining.length) {
+        if (active.draft.documents.length)
+          throw new Error(
+            'Save the document removal before cancelling this folder-only change. Your saved document review and folder are preserved.',
+          );
+        try {
+          const result = await request<{ draft: KnowledgeDraft }>(
+            `/api/knowledge/drafts/${encodeURIComponent(active.draft.id)}/cancel`,
+            'POST',
+            { version: active.draft.version },
+          );
+          if (
+            result.draft.id !== active.draft.id ||
+            result.draft.version !== active.draft.version ||
+            result.draft.state !== 'closed'
+          )
+            throw new Error(
+              'Cancellation could not be confirmed. Your saved folder change is preserved.',
+            );
+          updateDraft(result.draft);
+          persist({ ...current.current!, directories: [], savedDirectories: [] });
+          setNotice('Saved change cancelled.');
+        } catch (error) {
+          if (error instanceof KnowledgeApiError && error.status === 409) {
+            persist({
+              ...active,
+              initialSaveConflict: active.draft,
+              savedComparisonUnavailable: true,
+            });
+            setComparison(null);
+            setGate(null);
+            await loadSavedComparison();
+          }
+          throw error;
+        }
+      } else persist({ ...active, directories: remaining });
+      setGate(null);
+      removed = true;
+    });
+    return removed;
   }
   function change(value: string, record = true) {
     const old = current.current;
-    if (!old || busy) return;
+    if (!old || inFlight.current) return;
     persist({
       ...old,
       documents: old.documents.map((d) => (d.path === old.selected ? { ...d, content: value } : d)),
@@ -340,7 +679,12 @@ export function useKnowledgeLibrary() {
     newChange = false,
   ) {
     const active = current.current;
-    if (!active || active.initialSaveConflict || !(documents || active.documents).length) return;
+    if (
+      !active ||
+      active.initialSaveConflict ||
+      !((documents || active.documents).length || active.directories.length)
+    )
+      return;
     if (active.forkNeedsComparison && !(newChange && baseRevision && documents)) return;
     if (
       comparison?.documents.some(
@@ -352,6 +696,7 @@ export function useKnowledgeLibrary() {
       return;
     const changed =
       JSON.stringify(documents || active.documents) !== active.saved ||
+      JSON.stringify(active.directories) !== JSON.stringify(active.savedDirectories || []) ||
       (!!baseRevision && baseRevision !== active.baseRevision);
     if (
       !newChange &&
@@ -370,13 +715,18 @@ export function useKnowledgeLibrary() {
     await run(async () => {
       const old = current.current;
       if (!old) return;
-      const contents = (documents || old.documents).map(({ path, content }) => ({ path, content }));
+      const contents = (documents || old.documents).map(({ path, sourcePath, content }) => ({
+        path,
+        ...(sourcePath ? { sourcePath } : {}),
+        content,
+      }));
       let result: { draft: KnowledgeDraft; reviewError?: string };
       if (old.draft && !newChange) {
         result = changed
           ? await writeSavedDraft(old.draft.id, {
               version: old.draft.version,
               documents: contents,
+              directories: old.directories,
               ...(baseRevision || old.baseRevision !== old.draft.baseRevision
                 ? { baseRevision: baseRevision || old.baseRevision }
                 : {}),
@@ -392,21 +742,29 @@ export function useKnowledgeLibrary() {
           title: old.title,
           baseRevision: baseRevision || old.baseRevision,
           documents: contents,
+          directories: old.directories,
         };
         // Keep the exact initial request across uncertain acknowledgements and reloads.
         persist({
           ...old,
           draft: undefined,
           forkNeedsComparison: undefined,
+          forkAccepted: undefined,
           pendingCreate: creation,
           baseRevision: creation.baseRevision,
           documents: documents || old.documents,
         });
         result = await request('/api/knowledge/drafts', 'POST', creation);
-        const returned = result.draft.documents.map(({ path, content }) => ({ path, content }));
+        const returned = result.draft.documents.map(({ path, sourcePath, content }) => ({
+          path,
+          ...(sourcePath ? { sourcePath } : {}),
+          content,
+        }));
         if (
           result.draft.version !== 1 ||
-          JSON.stringify(returned) !== JSON.stringify(creation.documents)
+          JSON.stringify(returned) !== JSON.stringify(creation.documents) ||
+          JSON.stringify(result.draft.directories || []) !==
+            JSON.stringify(creation.directories || [])
         ) {
           // Do not adopt a newer write version until the operator compares and resolves it.
           persist({ ...current.current!, initialSaveConflict: result.draft });
@@ -416,10 +774,14 @@ export function useKnowledgeLibrary() {
           );
         }
         persist({ ...current.current!, draft: result.draft, pendingCreate: undefined });
-        if (JSON.stringify(contents) !== JSON.stringify(creation.documents)) {
+        if (
+          JSON.stringify(contents) !== JSON.stringify(creation.documents) ||
+          JSON.stringify(old.directories) !== JSON.stringify(creation.directories || [])
+        ) {
           result = await writeSavedDraft(result.draft.id, {
             version: result.draft.version,
             documents: contents,
+            directories: old.directories,
             ...(baseRevision || old.baseRevision !== result.draft.baseRevision
               ? { baseRevision: baseRevision || old.baseRevision }
               : {}),
@@ -455,10 +817,14 @@ export function useKnowledgeLibrary() {
       const remote = old?.initialSaveConflict;
       if (!old || !remote || old.savedComparisonUnavailable) return;
       const matchesSaved =
+        JSON.stringify(old.directories) === JSON.stringify(remote.directories || []) &&
         old.documents.length === remote.documents.length &&
         old.documents.every((document) =>
           remote.documents.some(
-            (saved) => saved.path === document.path && saved.content === document.content,
+            (saved) =>
+              saved.path === document.path &&
+              saved.sourcePath === document.sourcePath &&
+              saved.content === document.content,
           ),
         );
       if (useSaved || matchesSaved) {
@@ -474,7 +840,12 @@ export function useKnowledgeLibrary() {
       const result = await writeSavedDraft(remote.id, {
         version: remote.version,
         baseRevision: remote.baseRevision,
-        documents: old.documents.map(({ path, content }) => ({ path, content })),
+        directories: old.directories,
+        documents: old.documents.map(({ path, sourcePath, content }) => ({
+          path,
+          ...(sourcePath ? { sourcePath } : {}),
+          content,
+        })),
       });
       persist({
         ...old,
@@ -497,11 +868,17 @@ export function useKnowledgeLibrary() {
       title: old.title,
       baseRevision,
       documents,
+      directories: old.directories,
+      savedDirectories: old.savedDirectories,
       selected: documents.some((d) => d.path === old.selected)
         ? old.selected
         : documents[0]?.path || '',
       saved: old.saved,
       forkNeedsComparison: needsComparison,
+      forkAccepted:
+        (old.initialSaveConflict || old.draft)?.state === 'accepted'
+          ? old.initialSaveConflict || old.draft
+          : old.forkAccepted,
     });
     setComparison(null);
     setGate(null);
@@ -534,13 +911,45 @@ export function useKnowledgeLibrary() {
       const latest = await request<KnowledgeCatalog>('/api/knowledge/refresh', 'POST', {});
       setCatalog(latest);
       const acceptedPaths = new Set(latest.documents.map((document) => document.path));
+      const old = current.current;
+      if (old?.forkAccepted) {
+        const accepted = old.forkAccepted;
+        const documents = await Promise.all(
+          old.documents.map(async (document) => {
+            const receipt = accepted.documents.find(
+              (saved) =>
+                saved.sourcePath &&
+                (saved.sourcePath === document.sourcePath || saved.path === document.path),
+            );
+            if (!receipt || !acceptedPaths.has(receipt.path)) return document;
+            const data = await request<{ content: string }>(
+              `/api/knowledge/document?${new URLSearchParams({ path: receipt.path, revision: latest.revision })}`,
+            );
+            if (data.content !== receipt.content) return document;
+            const normalized = { ...document, base: data.content };
+            if (document.path === receipt.path) delete normalized.sourcePath;
+            else normalized.sourcePath = receipt.path;
+            return normalized;
+          }),
+        );
+        persist({
+          ...old,
+          documents,
+          directories: old.directories.filter(
+            (directory) =>
+              !accepted.directories?.includes(directory) ||
+              !latest.directories?.includes(directory),
+          ),
+          savedDirectories: [],
+        });
+      }
       const docs = await Promise.all(
         (current.current?.documents || []).map(async (document) => ({
           path: document.path,
-          content: acceptedPaths.has(document.path)
+          content: acceptedPaths.has(document.sourcePath || document.path)
             ? (
                 await request<{ content: string }>(
-                  `/api/knowledge/document?${new URLSearchParams({ path: document.path, revision: latest.revision })}`,
+                  `/api/knowledge/document?${new URLSearchParams({ path: document.sourcePath || document.path, revision: latest.revision })}`,
                 )
               ).content
             : null,
@@ -576,7 +985,7 @@ export function useKnowledgeLibrary() {
   async function reconcile() {
     await run(async () => {
       const draft = current.current?.draft;
-      if (!draft || current.current?.initialSaveConflict) return;
+      if (!draft || dirty || current.current?.initialSaveConflict) return;
       const result = await request<{
         draft: KnowledgeDraft;
         canAccept?: boolean;
@@ -598,7 +1007,8 @@ export function useKnowledgeLibrary() {
         draft.review.version !== draft.version ||
         draft.review.ready ||
         (draft.state !== 'draft' && draft.state !== 'in-review') ||
-        JSON.stringify(old.documents) !== old.saved
+        JSON.stringify(old.documents) !== old.saved ||
+        JSON.stringify(old.directories) !== JSON.stringify(old.savedDirectories || [])
       )
         return;
       const result = await request<{ draft: KnowledgeDraft }>(
@@ -637,6 +1047,17 @@ export function useKnowledgeLibrary() {
     comparison,
     gate,
     openDocument,
+    readDocument,
+    moveDocument,
+    moveAcceptedDocument,
+    canMoveDocument,
+    canCreateDirectory,
+    canCreateInDirectory,
+    createDirectory,
+    removeDirectory,
+    removePendingDirectory: removeDirectory,
+    directories: [...new Set([...(catalog?.directories || []), ...(copy?.directories || [])])],
+    pendingDirectories: copy?.directories || [],
     openDraft,
     change,
     save,
@@ -650,7 +1071,7 @@ export function useKnowledgeLibrary() {
     sendForReview,
     accept,
     select: (path: string) => {
-      if (copy && !busy) persist({ ...copy, selected: path });
+      if (current.current && !inFlight.current) persist({ ...current.current, selected: path });
     },
     undo: () => move(position - 1),
     redo: () => move(position + 1),

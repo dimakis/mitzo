@@ -539,3 +539,107 @@ it.each(['revoked', 'expired'])(
     }
   },
 );
+
+it('projects a move without losing original content and prepares recovery before push', async () => {
+  const draft = store.create('Move', await source.revision(), [
+    {
+      path: 'architecture/nested/renamed.md',
+      sourcePath: 'architecture/one.md',
+      base: '# Old\n',
+      content: '# Old\n',
+    },
+  ]);
+  const saved = await service().submit(draft.id, 1);
+  expect(git('show', saved.review!.head + ':architecture/nested/renamed.md')).toBe('# Old');
+  expect(git('ls-tree', '-r', '--name-only', saved.review!.head)).not.toContain(
+    'architecture/one.md',
+  );
+  expect(store.recoveryBundle(draft.id, saved.review!.head)).toBeDefined();
+});
+it('projects folder-only drafts as invisible zero-byte markers', async () => {
+  const draft = store.create('Folder', await source.revision(), [], undefined, [
+    'architecture/new',
+  ]);
+  const saved = await service().submit(draft.id, 1);
+  expect(git('show', saved.review!.head + ':architecture/new/.gitkeep')).toBe('');
+});
+it('refuses occupied move destinations without pushing', async () => {
+  writeFileSync(join(root, 'architecture/two.md'), '# Destination\n');
+  git('add', 'architecture/two.md');
+  git('commit', '-m', 'destination');
+  git('update-ref', 'refs/remotes/origin/main', 'HEAD');
+  const draft = store.create('Move', await source.revision(), [
+    {
+      path: 'architecture/two.md',
+      sourcePath: 'architecture/one.md',
+      base: '# Old\n',
+      content: '# Old\n',
+    },
+  ]);
+  await expect(service().submit(draft.id, 1)).rejects.toThrow('destination');
+  expect(publisher.push).not.toHaveBeenCalled();
+});
+
+it.each(['source', 'destination', 'folder'] as const)(
+  'refuses accepted %s changes after a move draft starts',
+  async (kind) => {
+    const draft = store.create(
+      'Move',
+      await source.revision(),
+      [
+        {
+          path: 'architecture/new/one.md',
+          sourcePath: 'architecture/one.md',
+          base: '# Old\n',
+          content: '# Old\n',
+        },
+      ],
+      undefined,
+      ['architecture/new'],
+    );
+    if (kind === 'source') writeFileSync(join(root, 'architecture/one.md'), '# Concurrent\n');
+    else {
+      mkdirSync(join(root, 'architecture/new'));
+      writeFileSync(
+        join(
+          root,
+          kind === 'destination' ? 'architecture/new/one.md' : 'architecture/new/other.txt',
+        ),
+        '# Concurrent\n',
+      );
+    }
+    git('add', '.');
+    git('commit', '-m', 'concurrent accepted change');
+    git('update-ref', 'refs/remotes/origin/main', 'HEAD');
+    await expect(service().submit(draft.id, 1)).rejects.toThrow(
+      kind === 'source' ? 'changed since' : 'destination',
+    );
+    expect(publisher.push).not.toHaveBeenCalled();
+    expect(store.get(draft.id).documents[0]?.sourcePath).toBe('architecture/one.md');
+  },
+);
+it('projects successive moves and move-back from the first accepted origin', async () => {
+  const draft = store.create('Move', await source.revision(), [
+    {
+      path: 'architecture/second.md',
+      sourcePath: 'architecture/one.md',
+      base: '# Old\n',
+      content: '# Old\n',
+    },
+  ]);
+  await service().submit(draft.id, 1);
+  store.save(draft.id, 1, [
+    {
+      path: 'architecture/third.md',
+      sourcePath: 'architecture/one.md',
+      base: '# Old\n',
+      content: '# Old\n',
+    },
+  ]);
+  const moved = await service().submit(draft.id, 2);
+  expect(git('ls-tree', '-r', '--name-only', moved.review!.head)).toBe('architecture/third.md');
+  store.save(draft.id, 2, [{ path: 'architecture/one.md', base: '# Old\n', content: '# Old\n' }]);
+  const returned = await service().submit(draft.id, 3);
+  expect(git('ls-tree', '-r', '--name-only', returned.review!.head)).toBe('architecture/one.md');
+  expect(returned.documents[0]?.sourcePath).toBeUndefined();
+});

@@ -8,6 +8,37 @@ Use **Send for review** for the explicit transition that marks the saved review 
 and lets the configured review automation begin. Saving changes after that returns
 the review to draft; send its new saved head for review again.
 
+Opening accepted documents reads their content without creating a working copy.
+Choose **Edit** to stage changes. Moves retain the original accepted source path and
+current text in the recovered working copy; moving back to the source path cancels
+that move. New folders and directory-only changes use the same draft, review and
+acceptance workflow as text edits. Moves stay within the same enrolled directory
+scope; individually enrolled guidance files cannot move, even when their parent
+directory is also enrolled. Empty folders are represented
+by reviewed `.gitkeep` markers. Saved draft versions and exact creation request IDs
+also cover structural operations, so uncertain responses can be retried without
+losing later edits or folders.
+
+Saved-draft conflict comparisons show the saved and local new folders and document
+moves, including each move's original and destination paths. Compare these
+structural changes before choosing which version to keep. If the saved version is
+unavailable, refresh it before reconciling.
+
+Removing the last folder from a saved folder-only change cancels its review. The
+server checks the saved draft version and canonical review identity and head before
+closing it, then verifies the result before clearing the local operation. A lost
+response keeps the folder recoverable for retry; a changed review blocks cancellation.
+GitHub does not provide an atomic head comparison for closing a pull request, so
+the server checks the head both before and after that mutation and preserves the
+saved receipt if the outcome is uncertain. Cancellation does not delete the branch
+or change accepted knowledge.
+
+An uncertain initial Save is settled by replaying its exact frozen request ID and
+payload before folders are changed. A missing draft read does not prove that the
+original request finished. Ambiguous or conflicting replay responses preserve the
+request and working copy for recovery. The cancellation route accepts only saved
+folder-only drafts; document and mixed changes cannot use it.
+
 Set `MITZO_KNOWLEDGE_LIBRARY_CONFIG` to an absolute physical host JSON file owned by
 the service user, with mode `0600` and a `0700` parent. Provision and independently
 review host enrollment before enabling it. A repository document cannot supply this
