@@ -5,6 +5,20 @@ import type { DraftSessionAssignment } from './useDraft';
 const KEY_PREFIX = 'mitzo-queue-';
 const QUEUE_CHANGED_EVENT = 'mitzo-queue-changed';
 
+function createQueueEntryId(): string {
+  const uuid = globalThis.crypto?.randomUUID?.();
+  if (uuid) return uuid;
+  // Remote HTTP keeps getRandomValues but omits secure-context randomUUID.
+  // These local entry IDs are correlation metadata, not security credentials.
+  const bytes = new Uint8Array(16);
+  if (globalThis.crypto?.getRandomValues) globalThis.crypto.getRandomValues(bytes);
+  else for (let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256);
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
 export interface QueuedMessage {
   /** Internal identity of one queue entry, independent of its text. */
   queueEntryId?: string;
@@ -21,16 +35,6 @@ interface StoredMessage {
   requiresRetry?: boolean;
   text: string;
   contextBlocks: string[];
-}
-
-// randomUUID requires a secure context; getRandomValues also works on remote HTTP.
-function createQueueEntryId(): string {
-  if (typeof crypto.randomUUID === 'function') return crypto.randomUUID();
-  const bytes = crypto.getRandomValues(new Uint8Array(16));
-  bytes[6] = (bytes[6] & 0x0f) | 0x40;
-  bytes[8] = (bytes[8] & 0x3f) | 0x80;
-  const hex = Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join('');
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
 function queueKey(sessionId: string | undefined): string {

@@ -16,6 +16,41 @@ afterEach(() => {
 });
 
 describe('useQueuedMessages', () => {
+  it('keeps distinct exact queue identities on supported remote HTTP without crypto.randomUUID', () => {
+    let nonce = 0;
+    vi.stubGlobal('crypto', {
+      getRandomValues: vi.fn((bytes: Uint8Array) => bytes.fill(++nonce)),
+    });
+    const owner = renderHook(() => useQueuedMessages('a'));
+    const payload = { ...msg('Same input'), contextBlocks: ['Exact context'] };
+    act(() => owner.result.current.enqueue(payload));
+    const queued = owner.result.current.queue[0];
+    let retained: QueuedMessage;
+    act(() => {
+      retained = owner.result.current.restoreRejected(queued);
+    });
+    act(() => owner.result.current.enqueue(payload));
+    const later = owner.result.current.queue[1];
+    expect(retained!.queueEntryId).toMatch(/^[a-f0-9-]{36}$/);
+    expect(later.queueEntryId).toMatch(/^[a-f0-9-]{36}$/);
+    expect(new Set([queued.queueEntryId, retained!.queueEntryId, later.queueEntryId]).size).toBe(3);
+    expect(JSON.parse(localStorage.getItem('mitzo-queue-a')!)).toEqual([
+      {
+        text: payload.text,
+        contextBlocks: payload.contextBlocks,
+        requiresRetry: true,
+        queueEntryId: retained!.queueEntryId,
+      },
+      {
+        text: payload.text,
+        contextBlocks: payload.contextBlocks,
+        queueEntryId: later.queueEntryId,
+      },
+    ]);
+    act(() => owner.result.current.removeSubmitted(retained!));
+    expect(owner.result.current.queue).toEqual([later]);
+  });
+
   it('keeps exact queue identities and late image cleanup on remote HTTP without randomUUID', () => {
     vi.stubGlobal('crypto', { getRandomValues: crypto.getRandomValues.bind(crypto) });
     const origin = renderHook(({ id }) => useQueuedMessages(id, 5, null), {
