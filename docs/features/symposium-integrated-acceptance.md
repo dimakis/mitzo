@@ -5,10 +5,11 @@ Use the [current source guide](symposium.md) and existing Telos item
 the current runtime validation checklist. Its [archived snapshot](../archive/symposium/2026-09-symposium-integrated-acceptance.md)
 retains historical operations, receipts and larger workflow gaps.
 
-[PR #837](https://github.com/dimakis/mitzo/pull/837), reference `62d40d16`, already
-contains the bounded ordinary Codex contributor implementation and offline coverage
+[PR #837](https://github.com/dimakis/mitzo/pull/837) records the bounded ordinary
+Codex contributor implementation and offline coverage
 for exact transcript references, one additional contributor, child continuity,
-attribution, durable guidance and Stop. Current-head CI and final Centaur LGTM remain pending.
+attribution, durable guidance and Stop. Its source acceptance and exact-head CI/review
+evidence are recorded on the PR; verify freshly accepted main before choosing a runtime candidate.
 Independent retention, output editing and API/Vertex contributor adapters are outside
 this slice. Recipe-bearing contributor profiles remain explicitly unsupported;
 ordinary chat's context-recipe compiler is accepted source.
