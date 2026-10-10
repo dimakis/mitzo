@@ -1,3 +1,4 @@
+import type { SymposiumDispatchFacts } from '../symposium-dispatch-boundary.js';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import {
@@ -39,7 +40,6 @@ import {
   admitSymposiumSeatDispatch,
   supportsSymposiumSeatCapability,
   symposiumSeatRuntimeId,
-  type SymposiumDispatchFacts,
 } from '../symposium-seat-runtime.js';
 import { SymposiumOrchestrator, type SymposiumSeatExecution } from '../symposium-orchestrator.js';
 import { EventStore } from '../event-store.js';

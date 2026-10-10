@@ -1,3 +1,7 @@
+import type {
+  SymposiumDispatchFacts,
+  SymposiumHostGrantVerifier,
+} from './symposium-dispatch-boundary.js';
 import { canonicalReviewJson } from './symposium-review-records.js';
 import {
   atSymposiumReconciliationStage,
@@ -68,8 +72,6 @@ import {
 import {
   admitSymposiumSeatDispatch,
   supportsSymposiumSeatCapability,
-  type SymposiumDispatchFacts,
-  type SymposiumHostGrantVerifier,
 } from './symposium-seat-runtime.js';
 
 export interface SymposiumPhysicalProviderIdentity {

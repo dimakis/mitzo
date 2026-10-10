@@ -1,156 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import { AccountProfiles } from '../account-profiles.js';
-import type { SymposiumSeatExecution } from '../symposium-orchestrator.js';
-import { AccountBindingSchema, type SymposiumConfig } from '@mitzo/protocol';
-import type { SymposiumDispatchFacts } from '../symposium-seat-runtime.js';
+import { symposiumDispatchFixture as fixture } from './fixtures/symposium-dispatch.js';
 import {
   admitSymposiumSharedDispatch,
   SymposiumSharedSeatExecutor,
   type OrdinarySymposiumTurn,
 } from '../symposium-shared-execution.js';
-
-function fixture() {
-  const profiles = new AccountProfiles([
-    {
-      id: 'personal',
-      label: 'Personal',
-      provider: 'openai',
-      credentialRef: { provider: 'keychain', service: 'mitzo', account: 'personal' },
-      models: [{ id: 'offline-model', label: 'Offline' }],
-    },
-  ]);
-  const binding = AccountBindingSchema.parse(profiles.resolve('personal', 'offline-model'));
-  const seat = {
-    id: 'contributor',
-    name: 'Contributor',
-    role: 'coder',
-    model: binding.model,
-    accountBinding: binding,
-    systemPrompt: 'Contribute only to the selected artifact.',
-    color: '#335577',
-    profileBinding: { profileId: 'inline', profileRevision: '1' },
-    contextGrant: {
-      grantId: 'context',
-      revision: 1,
-      classification: 'mixed' as const,
-      sourceRefs: [],
-    },
-    authorityGrant: {
-      grantId: 'authority',
-      revision: 1,
-      filesystem: 'write' as const,
-      tools: 'write' as const,
-      network: 'restricted' as const,
-    },
-    isolationRequest: {
-      trustDomainId: 'ordinary-session',
-      revision: 1,
-      placement: 'reuse-compatible' as const,
-    },
-  };
-  const controller = new AbortController();
-  const input: SymposiumSeatExecution = {
-    sessionId: 'parent',
-    deliveryId: 'delivery',
-    seat,
-    content: 'Selected artifact excerpt.',
-    idempotencyKey: 'recipient-key',
-    claimToken: 'claim',
-    signal: controller.signal,
-    provenance: {
-      version: 2,
-      seatId: seat.id,
-      seatLabel: seat.name,
-      seatRole: seat.role,
-      configRevision: 2,
-      accountProfileRevision: binding.profileRevision,
-      seatProfileRevision: '1',
-      contextGrantRevision: 1,
-      authorityGrantRevision: 1,
-      isolationDomainId: 'ordinary-session',
-      isolationDomainRevision: 1,
-      membershipGeneration: 1,
-      capturedAt: 1,
-      accountBinding: binding,
-      reasoningEffort: null,
-      profileBinding: seat.profileBinding,
-      contextGrant: { grantId: 'context', revision: 1 },
-      authorityGrant: { grantId: 'authority', revision: 1 },
-    },
-  };
-  const config: SymposiumConfig = {
-    version: 2,
-    revision: 2,
-    state: 'active',
-    anchorSeatId: seat.id,
-    activeSeatCap: 3,
-    seats: [seat],
-    turnRules: { mode: 'directed', maxTurns: 8 },
-    interceptMode: 'manual',
-  };
-  const facts: SymposiumDispatchFacts = {
-    assertSymposiumArtifactWorkAllowed: vi.fn(),
-    getActiveSymposiumConfig: () => config,
-    getLatestSymposiumMembership: () => ({
-      sessionId: 'parent',
-      seatId: seat.id,
-      generation: 1,
-      state: 'active',
-      action: 'admit',
-      configRevision: 2,
-      bindingKey: 'binding',
-      actor: 'user',
-      reason: 'Selected contributor',
-      idempotencyKey: 'member',
-      occurredAt: 1,
-      reconciliation: 'confirmed',
-      replacesSeatId: null,
-      replacedBySeatId: null,
-    }),
-    getLatestSymposiumAdmission: () => ({
-      admissionId: 'admission',
-      sessionId: 'parent',
-      seatId: seat.id,
-      membershipGeneration: 1,
-      decision: 'admitted',
-      reason: null,
-      idempotencyKey: 'admit',
-      configRevision: 2,
-      provider: binding.provider,
-      accountId: binding.accountId,
-      model: binding.model,
-      accountProfileRevision: binding.profileRevision,
-      isolationDomainId: 'ordinary-session',
-      isolationDomainRevision: 1,
-      decidedAt: 1,
-    }),
-    getSymposiumDelivery: () => ({
-      sessionId: 'parent',
-      status: 'delivering',
-      deliveredContent: input.content,
-      recipients: [
-        {
-          seatId: seat.id,
-          status: 'executing',
-          idempotencyKey: input.idempotencyKey,
-          membershipGeneration: 1,
-        },
-      ],
-    }),
-  };
-  const hostGrants = { verifySeat: vi.fn() };
-  const deps = {
-    facts,
-    currentProfiles: () => profiles,
-    hostGrants,
-    assertArtifactCurrent: vi.fn(),
-    recordAccepted: vi.fn(() => true),
-    recoverCancelled: vi.fn(async () => {
-      throw new Error('unknown exact attempt');
-    }),
-  };
-  return { input, controller, config, profiles, deps };
-}
 
 describe('ordinary account execution through existing Symposium owners', () => {
   it('admits an ordinary account without requiring a native sandbox provider or saved recipe', () => {
@@ -228,6 +82,78 @@ describe('ordinary account execution through existing Symposium owners', () => {
     });
     await expect(executor.execute(f.input)).rejects.toThrow(/configuration changed/);
   });
+
+  it.each(['configuration', 'grant', 'delivery', 'stop'])(
+    'fences %s changes while ordinary startup is pending before any provider dispatch',
+    async (state) => {
+      const f = fixture();
+      let resolveOpen!: (turn: OrdinarySymposiumTurn) => void;
+      const open = new Promise<OrdinarySymposiumTurn>((resolve) => {
+        resolveOpen = resolve;
+      });
+      const dispatch = vi.fn();
+      const run: OrdinarySymposiumTurn['run'] = vi.fn(async (_input, callbacks) => {
+        callbacks.beforeDispatch();
+        dispatch();
+        callbacks.accepted('child', 'turn');
+        return { providerThreadId: 'child', content: 'Contribution.' };
+      });
+      const cancelAndDrain = vi.fn(async () => {});
+      const executor = new SymposiumSharedSeatExecutor({ ...f.deps, openOrdinary: () => open });
+      const executing = executor.execute(f.input);
+      const rejected = expect(executing).rejects.toThrow(
+        state === 'configuration'
+          ? 'Symposium configuration changed before native dispatch'
+          : state === 'grant'
+            ? 'host grant revoked'
+            : state === 'delivery'
+              ? 'Symposium recipient delivery changed before native dispatch'
+              : 'Symposium ordinary attempt cancelled during startup',
+      );
+      if (state === 'configuration') f.config.revision++;
+      if (state === 'grant')
+        f.deps.hostGrants.verifySeat.mockImplementation(() => {
+          throw new Error('host grant revoked');
+        });
+      if (state === 'delivery') f.deps.facts.getSymposiumDelivery = () => null;
+      if (state === 'stop') f.controller.abort();
+      const stopped =
+        state === 'stop'
+          ? executor.cancel({
+              claimToken: f.input.claimToken,
+              idempotencyKey: f.input.idempotencyKey,
+            })
+          : undefined;
+      resolveOpen({ run, cancelAndDrain });
+      await rejected;
+      expect(dispatch).not.toHaveBeenCalled();
+      expect(f.deps.recordAccepted).not.toHaveBeenCalled();
+      await (stopped ??
+        executor.cancel({
+          claimToken: f.input.claimToken,
+          idempotencyKey: f.input.idempotencyKey,
+        }));
+      expect(cancelAndDrain).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it.each(['configuration', 'grant', 'delivery', 'stop'])(
+    'rejects %s before opening an ordinary turn',
+    async (state) => {
+      const f = fixture();
+      if (state === 'configuration') f.config.revision++;
+      if (state === 'grant')
+        f.deps.hostGrants.verifySeat.mockImplementation(() => {
+          throw new Error('host grant revoked');
+        });
+      if (state === 'delivery') f.deps.facts.getSymposiumDelivery = () => null;
+      if (state === 'stop') f.controller.abort(new Error('stopped'));
+      const openOrdinary = vi.fn();
+      const executor = new SymposiumSharedSeatExecutor({ ...f.deps, openOrdinary });
+      await expect(executor.execute(f.input)).rejects.toThrow();
+      expect(openOrdinary).not.toHaveBeenCalled();
+    },
+  );
 
   it('cannot complete a different thread or without an acceptance receipt', async () => {
     const f = fixture();
