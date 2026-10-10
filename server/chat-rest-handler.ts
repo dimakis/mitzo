@@ -6,6 +6,10 @@ import {
 } from './reasoning-command-admission.js';
 
 import { parseSlashCommand } from './slash-commands.js';
+import {
+  ContributorStopOwnershipError,
+  CONTRIBUTOR_STOP_REQUIRED_MESSAGE,
+} from './ordinary-contributor-execution.js';
 // HTTP POST endpoints for chat operations — thin wrappers around ws-handler-v2.
 
 import { Router } from 'express';
@@ -363,6 +367,12 @@ export function createChatRestRouter(
       handleStopV2(connectionId, msg, ctx);
       res.json({ ok: true });
     } catch (err) {
+      if (err instanceof ContributorStopOwnershipError) {
+        res
+          .status(409)
+          .json({ ok: false, code: err.code, error: CONTRIBUTOR_STOP_REQUIRED_MESSAGE });
+        return;
+      }
       log.error('POST /chat/stop failed', { connectionId, error: String(err) });
       res.status(500).json({ ok: false, error: 'Internal server error' });
     }

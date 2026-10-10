@@ -37,18 +37,36 @@ function owners(store: ContributorFacts, childSessionId: string) {
     throw new Error('Contributor child ownership changed');
   return records;
 }
+function hasUnsettledContributorExecution(store: ContributorFacts, childSessionId: string) {
+  return owners(store, childSessionId).some(
+    (record) =>
+      store.getUnsettledSymposiumSeatExecutions(record.coordinatorSessionId, record.seatId).length >
+      0,
+  );
+}
+export const CONTRIBUTOR_STOP_REQUIRED_MESSAGE =
+  'Use Stop on the contributor panel while this conversation has an active or unresolved contributor execution.';
+export class ContributorStopOwnershipError extends Error {
+  readonly code = 'CONTRIBUTOR_STOP_REQUIRED';
+  constructor() {
+    super(CONTRIBUTOR_STOP_REQUIRED_MESSAGE);
+    this.name = 'ContributorStopOwnershipError';
+  }
+}
+/** Public controls must not close a query whose exact terminal is owned by the contributor driver. */
+export function assertOrdinaryContributorStopAllowed(
+  store: ContributorFacts,
+  childSessionId: string,
+) {
+  if (hasUnsettledContributorExecution(store, childSessionId))
+    throw new ContributorStopOwnershipError();
+}
 /** Permission answers and viewing remain ordinary session operations. New sends are fenced. */
 export function assertOrdinaryContributorSendAllowed(
   store: ContributorFacts,
   childSessionId: string,
 ): void {
-  if (
-    owners(store, childSessionId).some(
-      (record) =>
-        store.getUnsettledSymposiumSeatExecutions(record.coordinatorSessionId, record.seatId)
-          .length > 0,
-    )
-  )
+  if (hasUnsettledContributorExecution(store, childSessionId))
     throw new Error(
       'Use contributor directed messages while its exact execution is active or unresolved',
     );

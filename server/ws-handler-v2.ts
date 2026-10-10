@@ -1,5 +1,10 @@
 import type { SourceSnapshot } from '@mitzo/protocol';
 import {
+  assertOrdinaryContributorStopAllowed,
+  ContributorStopOwnershipError,
+  CONTRIBUTOR_STOP_REQUIRED_MESSAGE,
+} from './ordinary-contributor-execution.js';
+import {
   claimChatCommand,
   reasoningSessionId,
   isReasoningSessionId,
@@ -1222,6 +1227,7 @@ export function handleSendV2(
 
 export function handleStopV2(connectionId: string, msg: StopMsg, ctx: V2HandlerContext): void {
   withSpan('ws.stop', { 'ws.connectionId': connectionId, 'ws.sessionId': msg.sessionId }, () => {
+    assertOrdinaryContributorStopAllowed(ctx.eventStore, msg.sessionId);
     if (
       cancelDeliberation(ctx.eventStore, msg.sessionId) ||
       cancelFusion(ctx.eventStore, msg.sessionId)
@@ -1915,7 +1921,16 @@ export async function dispatchV2Message(
       await handleSendV2(connectionId, transport, msg, ctx);
       break;
     case 'stop':
-      handleStopV2(connectionId, msg, ctx);
+      try {
+        handleStopV2(connectionId, msg, ctx);
+      } catch (error) {
+        if (!(error instanceof ContributorStopOwnershipError)) throw error;
+        transport.send({
+          type: 'error',
+          sessionId: msg.sessionId,
+          error: CONTRIBUTOR_STOP_REQUIRED_MESSAGE,
+        });
+      }
       break;
     case 'interrupt':
       await handleInterruptV2(connectionId, transport, msg, ctx);
