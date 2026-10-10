@@ -61,6 +61,7 @@ export const homeUpdateSchema = z
     revision: z.number().int().nonnegative(),
     names: namesSchema.partial().optional(),
     pins: pinsSchema.optional(),
+    showDailyQuote: z.boolean().optional(),
   })
   .strict();
 export const briefingChatSchema = z
@@ -78,6 +79,7 @@ const stateSchema = z
     revision: z.number().int().nonnegative(),
     names: namesSchema,
     pins: pinsSchema,
+    showDailyQuote: z.boolean().default(true),
     quotes: z
       .array(z.object({ date: z.string().refine(validDate), quote: quoteSchema }).strict())
       .max(60)
@@ -127,6 +129,7 @@ export class HomeStore {
           revision: 0,
           names: { briefing: 'Minion', terminal: 'Minion' },
           pins: [],
+          showDailyQuote: true,
           quotes: [],
           remaining: [],
           briefingChats: [],
@@ -172,8 +175,8 @@ export class HomeStore {
     }
   }
   preferences(): HomePreferences {
-    const { revision, names, pins } = this.read();
-    return { revision, names, pins };
+    const { revision, names, pins, showDailyQuote } = this.read();
+    return { revision, names, pins, showDailyQuote };
   }
   briefingChats(date: string, revision: string): BriefingChatBinding[] {
     if (!validDate(date) || !/^[a-f0-9]{64}$/.test(revision))
@@ -208,7 +211,11 @@ export class HomeStore {
   }
   update(
     revision: number,
-    changes: { names?: Partial<HomePreferences['names']>; pins?: HomePreferences['pins'] },
+    changes: {
+      names?: Partial<HomePreferences['names']>;
+      pins?: HomePreferences['pins'];
+      showDailyQuote?: boolean;
+    },
   ): HomePreferences {
     const patch = homeUpdateSchema.parse({ revision, ...changes });
     const state = this.read();
@@ -225,6 +232,7 @@ export class HomeStore {
             : patch.names.terminal || 'Minion',
       };
     if (patch.pins) state.pins = patch.pins;
+    if (patch.showDailyQuote !== undefined) state.showDailyQuote = patch.showDailyQuote;
     state.revision++;
     this.write(state);
     return this.preferences();
