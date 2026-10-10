@@ -1022,6 +1022,7 @@ it('keeps terminal adviser account, model and thinking independent of chat defau
     }),
   );
   expect(apiFetch).toHaveBeenCalledWith('/api/terminals/accounts', expect.any(Object));
+  expect(screen.getByRole('option', { name: 'Adviser default' })).toBeTruthy();
   expect(screen.queryByText('Make default for new chats')).toBeNull();
   expect(localStorage.getItem('mitzo-default-account-model')).toContain('other');
   fireEvent.change(screen.getByLabelText('Thinking'), { target: { value: 'low' } });

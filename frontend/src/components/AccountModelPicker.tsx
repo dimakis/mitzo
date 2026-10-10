@@ -113,6 +113,7 @@ function SessionAccountModelPicker({
   callbacks.current = { onChange, onUnavailable, onSummaryChange };
   const summaryAccount = accounts.find((a) => a.id === (selection?.accountId ?? ''));
   const selectedModel = summaryAccount?.models.find((m) => m.id === selection?.model);
+  const defaultThinking = scope === 'adviser' ? 'adviser default' : 'model default';
   const summary: WorkspaceSummary | null = error
     ? { profile: 'Profile unavailable' }
     : empty
@@ -124,10 +125,10 @@ function SessionAccountModelPicker({
             model: selectedModel?.label ?? selection.model,
             thinking:
               selection.reasoningEffort !== undefined
-                ? `Thinking: ${selection.reasoningEffort ?? 'model default'}`
+                ? `Thinking: ${selection.reasoningEffort ?? defaultThinking}`
                 : selectedModel
                   ? selectedModel.reasoningEfforts?.length
-                    ? 'Thinking: model default'
+                    ? `Thinking: ${defaultThinking}`
                     : 'Thinking: not configurable'
                   : 'Thinking: unknown',
           }
@@ -557,7 +558,7 @@ function SessionAccountModelPicker({
             onChange(explicitSelection || needsConfirmation ? null : next);
           }}
         >
-          <option value="">Model default</option>
+          <option value="">{scope === 'adviser' ? 'Adviser default' : 'Model default'}</option>
           {account.models
             .find((m) => m.id === selection.model)
             ?.reasoningEfforts?.map((effort) => (

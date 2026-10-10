@@ -98,9 +98,14 @@ function openAIReply(text: string) {
     headers: { 'content-type': 'text/event-stream' },
   });
 }
-it.each(['openai', 'google-vertex'])(
-  'supports consecutive reviewed-text turns through the real %s adapter without tools',
-  async (provider) => {
+it.each([
+  ['openai', 'gpt-6-luna'],
+  ['google-vertex', 'gemini-3-flash-preview'],
+  ['google-vertex', 'gemini-3.1-flash-lite'],
+  ['google-vertex', 'gemini-3.5-flash-lite'],
+])(
+  'supports consecutive reviewed-text turns through the real %s %s adapter without tools',
+  async (provider, model) => {
     mocks.provider = provider;
     const wire: Record<string, unknown>[] = [];
     vi.stubGlobal(
@@ -122,7 +127,6 @@ it.each(['openai', 'google-vertex'])(
       }),
     );
     const adviser = new TerminalAdviser(createTerminalAdviserSession);
-    const model = provider === 'openai' ? 'gpt-6-luna' : 'gemini-3-flash-preview';
     const first = await adviser.ask(
       'test-login',
       {
@@ -148,6 +152,12 @@ it.each(['openai', 'google-vertex'])(
       ).text,
     ).toBe('Check permissions.');
     expect(wire).toHaveLength(2);
+    if (model.includes('flash-lite'))
+      expect(
+        wire.map(
+          (request) => (request.generationConfig as { thinkingConfig: unknown }).thinkingConfig,
+        ),
+      ).toEqual([{ thinkingLevel: 'LOW' }, { thinkingLevel: 'LOW' }]);
     expect(wire[1].tools).toBeUndefined();
     if (provider === 'openai') expect(wire[1].input).toEqual(transcript);
     else
