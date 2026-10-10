@@ -1,3 +1,4 @@
+import { UiIcon } from '../components/UiIcon';
 import { useState, useMemo, useRef, type ComponentProps } from 'react';
 import { useCalendarData, type CalendarEvent } from '../hooks/useCalendarData';
 import { EventCard } from '../components/EventCard';
@@ -166,7 +167,7 @@ export function CalendarView({ desktop = false }: { desktop?: boolean } = {}) {
               {startLabel} &ndash; {endLabel}
             </button>
             <button className="cal-nav-next" aria-label="Next period" onClick={handleNext}>
-              &rsaquo;
+              <UiIcon name="forward" size={16} />
             </button>
           </div>
         }
@@ -290,7 +291,7 @@ export function CalendarView({ desktop = false }: { desktop?: boolean } = {}) {
                   setSelectedId(null);
                 }}
               >
-                ×
+                <UiIcon name="close" size={16} />
               </button>
               <p className="workspace-muted">{formatDateHeader(toLocalDate(selected.start))}</p>
               <h2>{selected.title}</h2>

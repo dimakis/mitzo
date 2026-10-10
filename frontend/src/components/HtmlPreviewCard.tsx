@@ -1,3 +1,4 @@
+import { UiIcon } from './UiIcon';
 import { useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { apiFetch } from '../lib/api-fetch';
@@ -55,7 +56,9 @@ export function HtmlPreviewCard({ filePath, sessionId }: Props) {
         <button className="html-preview-card-toggle" onClick={handleToggle}>
           <span className="html-preview-card-icon">HTML</span>
           <span className="html-preview-card-name">{fileName}</span>
-          <span className="html-preview-card-chevron">{expanded ? '\u25BE' : '\u25B8'}</span>
+          <span className="html-preview-card-chevron">
+            <UiIcon name={expanded ? 'down' : 'forward'} size={16} />
+          </span>
         </button>
         <button
           className="html-preview-card-open"

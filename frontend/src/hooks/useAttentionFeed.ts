@@ -1,3 +1,4 @@
+import type { UiIconName } from '../components/UiIcon';
 import { sessionAttentionReason } from '../lib/session-attention';
 import { useState, useEffect, useMemo } from 'react';
 import { apiFetch } from '../lib/api-fetch';
@@ -22,7 +23,7 @@ export interface AttentionItem {
   pinned?: boolean;
   meta: string;
   accentColor: string;
-  icon: string;
+  icon: UiIconName;
   /** Navigation target */
   navigateTo: string;
   /** Epoch ms used for recency sort within a tier (higher = more recent) */
@@ -65,7 +66,7 @@ function telosToAttention(items: TodoItem[]): AttentionItem[] {
         pinned: item.starred,
         meta: `${item.ageDays === 0 ? 'new' : `${item.ageDays}d`} · ${item.profile}`,
         accentColor: item.urgency >= 0.8 ? COLOR_RED : COLOR_AMBER,
-        icon: '\u2605', // ★
+        icon: 'star', // ★
         navigateTo: `/todos/${item.id}`,
         updatedAt,
       });
@@ -81,7 +82,7 @@ function telosToAttention(items: TodoItem[]): AttentionItem[] {
         pinned: item.starred,
         meta: `${item.ageDays === 0 ? 'new' : `${item.ageDays}d`} · ${item.profile}`,
         accentColor: item.starred ? COLOR_AMBER : COLOR_PURPLE,
-        icon: item.starred ? '\u2605' : '\u25CF', // ★ or ●
+        icon: item.starred ? 'star' : 'running', // ★ or ●
         navigateTo: `/todos/${item.id}`,
         updatedAt,
       });
@@ -122,10 +123,10 @@ function atbToAttention(tasks: Task[]): AttentionItem[] {
       accentColor: t.status === 'pending_review' ? COLOR_AMBER : COLOR_RED,
       icon:
         t.status === 'pending_review'
-          ? '\u25D4' // ◔
+          ? 'review' // ◔
           : t.status === 'blocked'
-            ? '\u2298' // ⊘
-            : '\u2717', // ✗
+            ? 'unavailable' // ⊘
+            : 'failed', // ✗
       navigateTo: `/tasks#task-${t.id}`,
       updatedAt: t.updatedAt || 0,
     }));
@@ -147,7 +148,7 @@ function sessionsToAttention(activities: SessionActivity[]): AttentionItem[] {
         title: a.title,
         meta: 'awaiting reply',
         accentColor: COLOR_PURPLE,
-        icon: '\u2709', // ✉
+        icon: 'chats', // ✉
         navigateTo: `/chat/${a.sessionId}`,
         updatedAt: a.lastEventAt || 0,
       });
@@ -168,7 +169,7 @@ function sessionsToAttention(activities: SessionActivity[]): AttentionItem[] {
               ? 'review needed'
               : 'waiting',
         accentColor: COLOR_RED,
-        icon: '\u26A0', // ⚠
+        icon: 'warning', // ⚠
         navigateTo: `/chat/${a.sessionId}`,
         updatedAt: a.lastEventAt || 0,
       });
@@ -184,7 +185,7 @@ function sessionsToAttention(activities: SessionActivity[]): AttentionItem[] {
         title: a.title,
         meta: 'uncommitted work',
         accentColor: COLOR_AMBER,
-        icon: '\u26A0', // ⚠
+        icon: 'worktree', // ⚠
         navigateTo: `/chat/${a.sessionId}`,
         updatedAt: a.lastEventAt || 0,
       });
@@ -200,7 +201,7 @@ function sessionsToAttention(activities: SessionActivity[]): AttentionItem[] {
         title: a.title,
         meta: 'done',
         accentColor: COLOR_GREEN,
-        icon: '\u2713', // ✓
+        icon: 'complete', // ✓
         navigateTo: `/chat/${a.sessionId}`,
         updatedAt: a.lastEventAt || 0,
       });

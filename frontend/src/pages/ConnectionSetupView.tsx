@@ -1,3 +1,4 @@
+import { UiIcon } from '../components/UiIcon';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import {
@@ -210,6 +211,7 @@ export function ConnectionSetupView() {
   return (
     <main className="workspace-page connection-setup-page">
       <Link className="connections-back workspace-text-link" to={back}>
+        <UiIcon name="back" size={16} />
         {setup ? 'Back to chat' : 'Connections'}
       </Link>
       <section className="connection-setup-surface" aria-labelledby="connection-setup-heading">
@@ -307,7 +309,7 @@ export function ConnectionSetupView() {
                   {safeHelpUrl &&
                     (trustedHomeAssistantHelp ? (
                       <a href={safeHelpUrl} target="_blank" rel="noopener noreferrer">
-                        Where to get your key ↗
+                        Where to get your key <UiIcon name="external" size={16} />
                       </a>
                     ) : (
                       <DocumentationReference

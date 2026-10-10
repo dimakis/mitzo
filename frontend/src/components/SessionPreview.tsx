@@ -117,7 +117,7 @@ export function SessionPreview({ session, onClose, onOpen, onRename, onDelete }:
               </p>
             </div>
             <button type="button" aria-label="Close preview" onClick={onClose} autoFocus>
-              ×
+              <UiIcon name="close" size={16} />
             </button>
           </header>
           <div className="session-preview-messages" aria-busy={!messages && !error}>

@@ -19,6 +19,55 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* Shared icon geometry is independent of the selected UI font. */
+.ui-icon {
+  flex-shrink: 0;
+  vertical-align: middle;
+}
+
+.ui-icon[data-icon='loading'] {
+  animation: mic-spin 1s linear infinite;
+}
+
+.task-board-add-btn[role='switch'],
+.cc-section-action-btn[role='switch'] {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: auto;
+  padding-inline: var(--space-2);
+  white-space: nowrap;
+  font-size: var(--text-sm);
+}
+
+.loop-controls-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+@media (pointer: coarse) {
+  button:has(> .ui-icon) {
+    min-width: var(--control-height);
+    min-height: var(--control-height);
+  }
+  .task-node-row {
+    flex-wrap: wrap;
+  }
+  .task-node .task-node-actions {
+    flex-basis: 100%;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-icon[data-icon='loading'] {
+    animation: none;
+  }
+}
+
 input,
 textarea,
 select {
@@ -245,7 +294,20 @@ textarea:focus {
 .page-header-actions {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
+  min-width: 0;
+  max-width: 100%;
   gap: var(--space-1);
+}
+
+.task-board-page .page-header {
+  flex-wrap: wrap;
+}
+
+@media (max-width: 760px) {
+  .task-board-page .page-header-actions {
+    flex-basis: 100%;
+  }
 }
 
 /* ── TabBar ─────────────────────────────────────────────── */
@@ -4133,7 +4195,12 @@ textarea:focus {
 
 .slash-picker-scope {
   flex-shrink: 0;
-  font-size: var(--text-s);
+  margin-left: auto;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  color: var(--color-muted);
+  font-size: var(--text-xs);
 }
 
 .slash-picker-name {
@@ -5527,9 +5594,14 @@ textarea:focus {
 }
 
 .todo-detail-criteria li::before {
-  content: '○';
+  content: '';
   position: absolute;
-  left: 2px;
+  left: 0;
+  top: var(--space-1);
+  width: var(--space-3);
+  height: var(--space-3);
+  border: 1px solid currentColor;
+  border-radius: 50%;
   color: var(--accent);
 }
 
@@ -6056,7 +6128,8 @@ textarea:focus {
   align-self: center;
 }
 
-.task-node-row:hover .task-node-actions {
+.task-node-row:hover .task-node-actions,
+.task-node-row:focus-within .task-node-actions {
   opacity: 1;
 }
 

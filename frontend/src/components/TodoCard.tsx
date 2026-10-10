@@ -1,3 +1,5 @@
+import { UiIcon } from './UiIcon';
+import { outcomeStatusIcons } from '../lib/status-icons';
 import { useRef, useEffect, useState } from 'react';
 import type { TodoItem } from '../types/todo';
 import { sourceIcon } from '../lib/todo-utils';
@@ -32,13 +34,6 @@ function urgencyWidth(urgency: number): number {
 }
 
 // ─── Status visuals ────────────────────────────────────────────────────────
-
-function getStatusIcon(item: TodoItem): string {
-  if (item.status === 'active') return '\u25CF'; // ●
-  if (item.status === 'acknowledged') return '\u25D0'; // ◐
-  if (item.status === 'completed') return '\u2713'; // ✓
-  return '\u25CB'; // ○ (snoozed)
-}
 
 function getStatusColor(item: TodoItem): string {
   if (item.status === 'active') return 'var(--color-accent)';
@@ -132,7 +127,7 @@ export function TodoCard({
   const ageLabel = item.ageDays === 0 ? 'new' : `${item.ageDays}d`;
   const children = item.children ?? [];
   const hasChildren = children.length > 0;
-  const icon = getStatusIcon(item);
+  const icon = outcomeStatusIcons[item.status];
   const color = getStatusColor(item);
   const borderClr = urgencyColor(item.urgency);
   const borderW = urgencyWidth(item.urgency);
@@ -159,7 +154,7 @@ export function TodoCard({
           {/* Line 1: icon + summary + star */}
           <div className="todo-card-line1">
             <span className="todo-card-icon" style={{ color }}>
-              {icon}
+              <UiIcon name={icon} />
             </span>
             <button
               className="todo-card-summary todo-card-open"
@@ -181,7 +176,7 @@ export function TodoCard({
                   setExpanded(!expanded);
                 }}
               >
-                {expanded ? '\u25BC' : '\u25B6'}
+                <UiIcon name={expanded ? 'down' : 'forward'} size={16} />
               </button>
             )}
             <button
@@ -193,7 +188,7 @@ export function TodoCard({
                 onStar(item.id);
               }}
             >
-              {item.starred ? '\u2605' : '\u2606'}
+              <UiIcon name="star" filled={item.starred} size={16} />
             </button>
           </div>
 
@@ -204,7 +199,9 @@ export function TodoCard({
             {source ? (
               <span className="todo-card-source">{sourceIcon(source.type)}</span>
             ) : (
-              <span className="todo-card-source todo-card-source--manual">+</span>
+              <span className="todo-card-source todo-card-source--manual">
+                <UiIcon name="plus" size={16} />
+              </span>
             )}
             {source?.author && (
               <>
@@ -222,7 +219,7 @@ export function TodoCard({
                   className="todo-card-links"
                   aria-label={`${item.links!.length} durable ${item.links!.length === 1 ? 'link' : 'links'}`}
                 >
-                  ↗ {item.links!.length}
+                  <UiIcon name="connections" size={16} /> {item.links!.length}
                 </span>
               </>
             )}

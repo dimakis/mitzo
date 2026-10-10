@@ -1,3 +1,4 @@
+import { UiIcon } from './UiIcon';
 import { useState, useCallback, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAttentionFeed, type AttentionItem } from '../hooks/useAttentionFeed';
@@ -27,7 +28,7 @@ function AttentionCard({
       style={{ '--card-accent': item.accentColor } as React.CSSProperties}
     >
       <span className="attention-card-icon" style={{ color: item.accentColor }}>
-        {item.icon}
+        <UiIcon name={item.icon} filled={item.icon === 'star'} />
       </span>
       <div className="attention-card-content">
         <div className="attention-card-title">{item.title}</div>
@@ -97,7 +98,7 @@ export function AttentionFeed() {
         </span>
         {hasUrgent && <span className="overview-badge">{tier1Count}</span>}
         <span className={`overview-chevron${isOpen ? ' overview-chevron--open' : ''}`}>
-          &rsaquo;
+          <UiIcon name="forward" size={16} />
         </span>
       </button>
       {isOpen && (

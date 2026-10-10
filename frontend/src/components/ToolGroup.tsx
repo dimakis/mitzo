@@ -1,3 +1,4 @@
+import { UiIcon } from './UiIcon';
 import { useId, useState } from 'react';
 import { getToolStatus, type ToolBlock } from '../lib/tool-status';
 import { ConnectionSetupCard } from './ConnectionSetupCard';
@@ -74,7 +75,9 @@ export function ToolGroup({ tools, sessionId }: Props) {
           {tools.length > 8 && <span className="tool-group-dots-more">+{tools.length - 8}</span>}
         </div>
         <span className="tool-group-label">{statusSummary}</span>
-        <span className="tool-group-chevron">{expanded ? '▾' : '▸'}</span>
+        <span className="tool-group-chevron">
+          <UiIcon name={expanded ? 'down' : 'forward'} size={16} />
+        </span>
       </button>
       {expanded && (
         <div id={listId} className="tool-group-list">

@@ -1032,7 +1032,7 @@ test('Knowledge reload lands on the Library and resumes the recovered copy only 
   expect(await page.evaluate(() => localStorage.getItem('mitzo-knowledge-working-copy:'))).toBe(
     serialized,
   );
-  await page.getByRole('button', { name: '← Library', exact: true }).click();
+  await page.getByRole('button', { name: 'Library', exact: true }).click();
   await page.getByRole('button', { name: 'Resume editing', exact: true }).click();
   await expectSource(source, content);
   expect(await page.evaluate(() => localStorage.getItem('mitzo-knowledge-working-copy:'))).toBe(

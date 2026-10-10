@@ -1,3 +1,4 @@
+import { UiIcon } from './UiIcon';
 import { ShareButton } from './ShareButton';
 import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
@@ -65,7 +66,9 @@ export function MarkdownPreviewCard({ filePath, sessionId }: Props) {
         <button className="md-preview-card-toggle" onClick={handleToggle}>
           <span className="md-preview-card-icon">MD</span>
           <span className="md-preview-card-name">{fileName}</span>
-          <span className="md-preview-card-chevron">{expanded ? '\u25BE' : '\u25B8'}</span>
+          <span className="md-preview-card-chevron">
+            <UiIcon name={expanded ? 'down' : 'forward'} size={16} />
+          </span>
         </button>
         <ShareButton filePath={openedPath} sessionId={sessionId} className="share-btn--visible" />
         <button

@@ -48,6 +48,13 @@ describe('SlashPicker', () => {
     expect(screen.getByText('/review')).toBeTruthy();
   });
 
+  it('identifies workspace, personal and built-in scopes in readable text', async () => {
+    await renderPicker();
+    expect(screen.getByText('/deploy').closest('button')?.textContent).toContain('Workspace');
+    expect(screen.getByText('/review').closest('button')?.textContent).toContain('Personal');
+    expect(screen.getByText('/simplify').closest('button')?.textContent).toContain('Built-in');
+  });
+
   it('filters skills by typed prefix', async () => {
     await renderPicker({ query: '/sim' });
     expect(screen.getByText('/simplify')).toBeTruthy();

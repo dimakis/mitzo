@@ -1,3 +1,4 @@
+import { UiIcon } from './UiIcon';
 import { useCallback } from 'react';
 import { useTaskBoard } from '../hooks/useTaskBoard';
 import { TaskNode } from './TaskNode';
@@ -65,12 +66,21 @@ export function TaskBoardSection() {
           <button
             className={`cc-section-action-btn ${spawnEnabled ? 'cc-spawn-enabled' : 'cc-spawn-disabled'}`}
             onClick={() => setSpawnEnabled(!spawnEnabled)}
+            role="switch"
+            aria-checked={spawnEnabled}
+            aria-label={spawnEnabled ? 'Disable session spawning' : 'Enable session spawning'}
             title={spawnEnabled ? 'Disable session spawning' : 'Enable session spawning'}
           >
-            {spawnEnabled ? '\u26A1' : '\u26D4'}
+            <UiIcon name="interrupt" size={16} />
+            <span>Auto-spawn {spawnEnabled ? 'on' : 'off'}</span>
           </button>
-          <button className="cc-section-action-btn" onClick={refresh} title="Refresh">
-            &#x21bb;
+          <button
+            className="cc-section-action-btn"
+            onClick={refresh}
+            title="Refresh"
+            aria-label="Refresh"
+          >
+            <UiIcon name="retry" size={16} />
           </button>
         </>
       }
@@ -90,21 +100,41 @@ export function TaskBoardSection() {
           <div className="cc-loop-actions">
             {state === 'running' && !awaitingApproval && (
               <>
-                <button className="cc-btn cc-btn--subtle" onClick={pauseLoop} title="Pause">
-                  &#x23F8;
+                <button
+                  className="cc-btn cc-btn--subtle"
+                  onClick={pauseLoop}
+                  title="Pause"
+                  aria-label="Pause"
+                >
+                  <UiIcon name="pause" size={16} />
                 </button>
-                <button className="cc-btn cc-btn--danger" onClick={stopLoop} title="Stop">
-                  &#x25A0;
+                <button
+                  className="cc-btn cc-btn--danger"
+                  onClick={stopLoop}
+                  title="Stop"
+                  aria-label="Stop"
+                >
+                  <UiIcon name="stop" size={16} />
                 </button>
               </>
             )}
             {state === 'paused' && !awaitingApproval && (
               <>
-                <button className="cc-btn cc-btn--approve" onClick={resumeLoop} title="Resume">
-                  &#x25B6;
+                <button
+                  className="cc-btn cc-btn--approve"
+                  onClick={resumeLoop}
+                  title="Resume"
+                  aria-label="Resume"
+                >
+                  <UiIcon name="play" size={16} />
                 </button>
-                <button className="cc-btn cc-btn--danger" onClick={stopLoop} title="Stop">
-                  &#x25A0;
+                <button
+                  className="cc-btn cc-btn--danger"
+                  onClick={stopLoop}
+                  title="Stop"
+                  aria-label="Stop"
+                >
+                  <UiIcon name="stop" size={16} />
                 </button>
               </>
             )}

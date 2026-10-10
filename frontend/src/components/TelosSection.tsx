@@ -1,16 +1,11 @@
+import { UiIcon } from './UiIcon';
+import { outcomeStatusIcons } from '../lib/status-icons';
 import { useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTodoData } from '../hooks/useTodoData';
 import { sourceIcon } from '../lib/todo-utils';
 import { CollapsibleSection } from './CollapsibleSection';
 import type { TodoItem } from '../types/todo';
-
-const STATUS_ICONS: Record<string, string> = {
-  active: '\u25CF', // ●
-  acknowledged: '\u25D0', // ◐
-  snoozed: '\u25CB', // ○
-  completed: '\u2713', // ✓
-};
 
 const STATUS_COLORS: Record<string, string> = {
   active: 'var(--color-accent)',
@@ -36,7 +31,7 @@ function TelosCard({
   onDone: (id: string) => void;
   onAck: (id: string) => void;
 }) {
-  const icon = item.starred ? '\u2605' : (STATUS_ICONS[item.status] ?? '\u25CF');
+  const icon = item.starred ? 'star' : outcomeStatusIcons[item.status];
   const color = item.starred
     ? 'var(--color-warning)'
     : (STATUS_COLORS[item.status] ?? 'var(--color-muted)');
@@ -54,7 +49,7 @@ function TelosCard({
       }}
     >
       <span className="cc-card-icon" style={{ color }}>
-        {icon}
+        <UiIcon name={icon} filled={item.starred} />
       </span>
       <div className="cc-card-content">
         <div className="cc-card-title">{item.summary}</div>
@@ -71,12 +66,22 @@ function TelosCard({
       </div>
       <div className="cc-card-actions" onClick={(e) => e.stopPropagation()}>
         {item.status === 'active' && (
-          <button className="cc-btn cc-btn--subtle" onClick={() => onAck(item.id)} title="Seen">
-            &#x25D0;
+          <button
+            className="cc-btn cc-btn--subtle"
+            onClick={() => onAck(item.id)}
+            title="Seen"
+            aria-label="Seen"
+          >
+            <UiIcon name="eye" size={16} />
           </button>
         )}
-        <button className="cc-btn cc-btn--subtle" onClick={() => onDone(item.id)} title="Done">
-          &#x2713;
+        <button
+          className="cc-btn cc-btn--subtle"
+          onClick={() => onDone(item.id)}
+          title="Done"
+          aria-label="Done"
+        >
+          <UiIcon name="check" size={16} />
         </button>
       </div>
     </div>
@@ -129,10 +134,15 @@ export function TelosSection() {
             onClick={() => setCreating(!creating)}
             title="Add item"
           >
-            +
+            <UiIcon name="plus" size={16} />
           </button>
-          <button className="cc-section-action-btn" onClick={refresh} title="Refresh">
-            &#x21bb;
+          <button
+            className="cc-section-action-btn"
+            onClick={refresh}
+            title="Refresh"
+            aria-label="Refresh"
+          >
+            <UiIcon name="retry" size={16} />
           </button>
         </>
       }

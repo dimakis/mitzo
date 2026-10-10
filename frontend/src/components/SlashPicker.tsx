@@ -21,9 +21,9 @@ interface Props {
 }
 
 const SCOPE_BADGES: Record<string, string> = {
-  repo: '📂',
-  user: '👤',
-  bundled: '📦',
+  repo: 'Workspace',
+  user: 'Personal',
+  bundled: 'Built-in',
 };
 
 export function SlashPicker({ query, onSelect, onClose, cwd }: Props) {
@@ -92,9 +92,9 @@ export function SlashPicker({ query, onSelect, onClose, cwd }: Props) {
               className="slash-picker-item"
               onClick={() => handleSelect(skill.name)}
             >
-              <span className="slash-picker-scope">{SCOPE_BADGES[skill.scope] || '?'}</span>
               <span className="slash-picker-name">/{skill.name}</span>
               <span className="slash-picker-desc">{skill.description}</span>
+              <span className="slash-picker-scope">{SCOPE_BADGES[skill.scope]}</span>
               {skill.collisions && skill.collisions.length > 0 && (
                 <span className="slash-picker-collision">
                   also in: {skill.collisions.map((c) => c.scope).join(', ')}

@@ -1352,7 +1352,7 @@ it('moves a document through same-area folder choices and preserves edited conte
   fireEvent.change(await screen.findByRole('textbox', { name: 'Document source' }), {
     target: { value: '# Keep edits when moved' },
   });
-  fireEvent.click(screen.getByRole('button', { name: '← Library' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Library' }));
   fireEvent.click(screen.getByRole('button', { name: 'Options for hub/principles.md' }));
   fireEvent.click(screen.getByRole('button', { name: 'Move document' }));
   const dialog = await screen.findByRole('dialog', { name: 'Move document' });
@@ -1379,7 +1379,7 @@ it('lets an invalid pending folder be removed without discarding unrelated docum
   fireEvent.change(await screen.findByRole('textbox', { name: 'Document source' }), {
     target: { value: '# Retain these edits' },
   });
-  fireEvent.click(screen.getByRole('button', { name: '← Library' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Library' }));
   fireEvent.click(screen.getByRole('button', { name: 'New folder' }));
   const dialog = screen.getByRole('dialog', { name: 'New folder' });
   fireEvent.click(within(dialog).getByRole('button', { name: 'Folder hub' }));
@@ -1477,7 +1477,7 @@ it('keeps the requested reader when replacing an unrelated edited document is ca
     setup();
     await resumeRecoveredCopy();
     await screen.findByRole('textbox', { name: 'Document source' });
-    fireEvent.click(screen.getByRole('button', { name: '← Library' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Library' }));
     fireEvent.click(await findLibraryDocument(/Release process/, 'teams'));
     await screen.findByRole('article', { name: 'Release process' });
     fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
@@ -1516,7 +1516,7 @@ it('keeps Move open without partial edits when confirming a move into an older w
   setup();
   await resumeRecoveredCopy();
   await screen.findByRole('textbox', { name: 'Document source' });
-  fireEvent.click(screen.getByRole('button', { name: '← Library' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Library' }));
   await findLibraryDocument(/Release process/, 'teams');
   fireEvent.click(screen.getByRole('button', { name: 'Options for teams/release.md' }));
   fireEvent.click(screen.getByRole('button', { name: 'Move document' }));
@@ -1658,7 +1658,7 @@ it('reads accepted documents after returning from a recovered folder-only workin
   setup();
   await resumeRecoveredCopy();
   await screen.findByText('New folder: hub/new-guides');
-  fireEvent.click(screen.getByRole('button', { name: '← Library' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Library' }));
   const before = localStorage.getItem('mitzo-knowledge-working-copy:');
   fireEvent.click(await findLibraryDocument(/Working principles/));
   await screen.findByRole('article', { name: 'Working principles' });
@@ -1795,7 +1795,7 @@ it('cancels an unopened document Move without adding it to the existing working 
   setup();
   await resumeRecoveredCopy();
   await screen.findByRole('textbox', { name: 'Document source' });
-  fireEvent.click(screen.getByRole('button', { name: '← Library' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Library' }));
   await findLibraryDocument(/Release process/, 'teams');
   const before = localStorage.getItem('mitzo-knowledge-working-copy:');
   fireEvent.click(screen.getByRole('button', { name: 'Options for teams/release.md' }));
@@ -2100,7 +2100,7 @@ it.each(['touch', 'keyboard'])(
     expect(screen.getByRole('heading', { name: 'Voice guide' })).toBeTruthy();
     expect(screen.queryByRole('textbox', { name: 'Document source' })).toBeNull();
     expect(localStorage.getItem('mitzo-knowledge-working-copy:')).toBe(serialized);
-    fireEvent.click(screen.getByRole('button', { name: '← Library' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Library' }));
     fireEvent.click(screen.getByRole('button', { name: 'Resume editing' }));
     const input = await screen.findByRole('textbox', { name: 'Document source' });
     if (keyboard) {
