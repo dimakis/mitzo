@@ -1,0 +1,205 @@
+.agent-library-page {
+  max-width: 1200px;
+  margin: 0 auto;
+}
+.agent-library-toolbar,
+.agent-library-actions {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  flex-wrap: wrap;
+  margin: var(--space-4) 0;
+}
+.agent-library-toolbar input {
+  flex: 1;
+  min-width: 160px;
+}
+.agent-library-page button,
+.agent-library-page .btn-primary {
+  min-height: var(--control-height);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  text-decoration: none;
+}
+.agent-library-page .btn-primary {
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+}
+.agent-library-page button:disabled {
+  opacity: 0.5;
+}
+.agent-library-page input,
+.agent-library-page textarea,
+.agent-library-page select {
+  width: 100%;
+  min-height: var(--control-height);
+  min-width: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font: inherit;
+}
+.agent-library-page textarea {
+  resize: vertical;
+}
+.agent-library-reviewer-launcher {
+  display: grid;
+  gap: var(--space-3);
+}
+.agent-library-page label {
+  display: grid;
+  gap: var(--space-2);
+  color: var(--color-muted);
+}
+.agent-library-layout {
+  display: grid;
+  grid-template-columns: minmax(185px, 1fr) minmax(0, 2.3fr);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-panel);
+  background: var(--color-surface);
+}
+.agent-library-directory {
+  padding: var(--space-3);
+  border-right: 1px solid var(--color-border);
+}
+.agent-library-entry {
+  display: grid;
+  width: 100%;
+  gap: var(--space-1h);
+  text-align: left;
+  margin-bottom: var(--space-2);
+  overflow-wrap: anywhere;
+}
+.agent-library-entry span,
+.agent-library-entry small {
+  color: var(--color-muted);
+}
+.agent-library-entry.selected {
+  background: var(--color-panel);
+  border-color: var(--color-accent);
+}
+.agent-library-entry .agent-library-descriptor,
+.agent-library-descriptor {
+  color: var(--color-accent);
+  margin: var(--space-1) 0;
+}
+.agent-library-detail {
+  min-width: 0;
+  padding: var(--space-5);
+}
+.agent-library-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  align-items: start;
+  flex-wrap: wrap;
+}
+.agent-library-heading h2 {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.agent-library-heading > span {
+  color: var(--color-muted);
+}
+.agent-library-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: var(--space-4) 0;
+  border-bottom: 1px solid var(--color-border);
+}
+.agent-library-tabs button {
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+}
+.agent-library-tabs button[aria-selected='true'] {
+  border-bottom-color: var(--color-accent);
+}
+.agent-library-fields {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+.agent-library-field-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3);
+}
+.agent-library-import {
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  margin-bottom: var(--space-4);
+}
+.agent-library-prompt {
+  font-family: var(--font-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: var(--color-bg);
+  padding: var(--space-4);
+  border-radius: var(--radius-control);
+}
+.agent-library-error {
+  color: var(--color-danger);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.agent-library-page .symposium-profile-recipe input[type='checkbox'] {
+  width: auto;
+  min-height: 0;
+  padding: 0;
+}
+.agent-library-page .symposium-profile-recipe label {
+  min-height: var(--control-height);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+.agent-library-page :focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: var(--space-1);
+}
+.agent-library-page .symposium-profile-recipe fieldset {
+  min-width: 0;
+  border: 1px solid var(--color-border);
+}
+@media (max-width: 760px) {
+  .agent-library-toolbar input {
+    flex-basis: 100%;
+  }
+  .agent-library-layout {
+    grid-template-columns: 1fr;
+  }
+  .agent-library-directory {
+    border-right: 0;
+    border-bottom: 1px solid var(--color-border);
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-2);
+  }
+  .agent-library-detail {
+    padding: var(--space-4);
+  }
+}
+@media (max-width: 440px) {
+  .agent-library-field-pair,
+  .agent-library-directory {
+    grid-template-columns: 1fr;
+  }
+  .agent-library-page input,
+  .agent-library-page textarea,
+  .agent-library-page select {
+    font-size: var(--text-base);
+  }
+}

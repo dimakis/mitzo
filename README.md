@@ -616,40 +616,40 @@ For iOS development, run `./scripts/build-ios.sh` to build the iOS web assets an
 
 ## Environment
 
-| Variable                        | Description                                                    | Required |
-| ------------------------------- | -------------------------------------------------------------- | -------- |
-| `AUTH_PASSPHRASE`               | Login passphrase                                               | Yes      |
-| `AUTH_SECRET`                   | JWT signing key (min 32 chars)                                 | Yes      |
-| `REPO_PATH`                     | Default repo for sessions                                      | Yes      |
-| `PORT`                          | Server port (default: `3100`)                                  | No       |
-| `COOKIE_MAX_AGE_HOURS`          | JWT cookie lifetime in hours (default: `24`)                   | No       |
-| `WORKTREE_ENABLED`              | Allow worktrees (default: `true`)                              | No       |
-| `MITZO_WORKTREE_CLEANUP_POLICY` | Stale cleanup policy: `report` (default) or `execute`          | No       |
-| `MCP_CONFIG_PATH`               | MCP config path (default: `~/.cursor/mcp.json`)                | No       |
-| `LOG_LEVEL`                     | Log verbosity: `debug`, `info`, `warn`, `error`                | No       |
-| `LOG_FILE_PATH`                 | Log file path (default: `logs/server.log`)                     | No       |
-| `LOGGER_SYNC`                   | Set to `1` for synchronous logging                             | No       |
-| `BASE_URL`                      | Public URL for notification deep links                         | No       |
-| `YAPPER_PROXY_TARGET`           | Yapper backend URL (default: `http://localhost:8700`)          | No       |
-| `CLAUDE_CODE_USE_VERTEX`        | Set to `1` to use Vertex AI for auto-rename                    | No       |
-| `ANTHROPIC_VERTEX_PROJECT_ID`   | GCP project ID (required when using Vertex)                    | No       |
-| `CLOUD_ML_REGION`               | GCP region for Vertex (default: `us-east5`)                    | No       |
-| `NTFY_URL`                      | ntfy server URL (default: `https://ntfy.sh`)                   | No       |
-| `NTFY_TOPIC`                    | ntfy topic for notifications                                   | No       |
-| `NTFY_AUTH_TOKEN`               | ntfy auth token                                                | No       |
-| `PUSHOVER_API_TOKEN`            | Pushover API token (for Apple Watch notifications)             | No       |
-| `PUSHOVER_USER_KEY`             | Pushover user key                                              | No       |
-| `APNS_KEY_PATH`                 | Path to Apple Push Notification Service .p8 key                | No       |
-| `APNS_KEY_ID`                   | APNS key ID                                                    | No       |
-| `APNS_TEAM_ID`                  | Apple Team ID                                                  | No       |
-| `APNS_BUNDLE_ID`                | iOS app bundle ID (default: `com.mitzo.app`)                   | No       |
-| `APNS_PRODUCTION`               | Use production APNS (default: `true`)                          | No       |
-| `OTEL_EXPORTER_OTLP_ENDPOINT`   | OpenTelemetry OTLP endpoint (e.g., `http://localhost:4318`)    | No       |
-| `LOKI_HOST`                     | Grafana Loki endpoint (e.g., `http://localhost:3200`)          | No       |
-| `TRACE_CONTENT_MAX_CHARS`       | Max chars for trace content (default: `16384`)                 | No       |
-| `CORS_ALLOWED_ORIGINS`          | Comma-separated CORS origins                                   | No       |
-| `CONTEXGIN_URL`                 | ContexGin Goal Registry URL (default: `http://localhost:8321`) | No       |
-| `MITZO_INTERNAL_TOKEN`          | Auto-generated token for inter-process auth                    | No       |
+| Variable                        | Description                                                                             | Required |
+| ------------------------------- | --------------------------------------------------------------------------------------- | -------- |
+| `AUTH_PASSPHRASE`               | Login passphrase                                                                        | Yes      |
+| `AUTH_SECRET`                   | JWT signing key (min 32 chars)                                                          | Yes      |
+| `REPO_PATH`                     | Default repo for sessions                                                               | Yes      |
+| `PORT`                          | Server port (default: `3100`)                                                           | No       |
+| `COOKIE_MAX_AGE_HOURS`          | JWT cookie lifetime in hours (default: `24`)                                            | No       |
+| `WORKTREE_ENABLED`              | Allow worktrees (default: `true`)                                                       | No       |
+| `MITZO_WORKTREE_CLEANUP_POLICY` | Stale cleanup policy: `report` (default) or `execute`                                   | No       |
+| `MCP_CONFIG_PATH`               | MCP config path (default: `~/.cursor/mcp.json`)                                         | No       |
+| `LOG_LEVEL`                     | Log verbosity: `debug`, `info`, `warn`, `error`                                         | No       |
+| `LOG_FILE_PATH`                 | Log file path (default: `logs/server.log`)                                              | No       |
+| `LOGGER_SYNC`                   | Set to `1` for synchronous logging                                                      | No       |
+| `BASE_URL`                      | Public URL for notification deep links                                                  | No       |
+| `YAPPER_PROXY_TARGET`           | Yapper backend URL (default: `http://localhost:8700`)                                   | No       |
+| `CLAUDE_CODE_USE_VERTEX`        | Set to `1` to use Vertex AI for auto-rename                                             | No       |
+| `ANTHROPIC_VERTEX_PROJECT_ID`   | GCP project ID (required when using Vertex)                                             | No       |
+| `CLOUD_ML_REGION`               | GCP region for Vertex (default: `us-east5`)                                             | No       |
+| `NTFY_URL`                      | ntfy server URL (default: `https://ntfy.sh`)                                            | No       |
+| `NTFY_TOPIC`                    | ntfy topic for notifications                                                            | No       |
+| `NTFY_AUTH_TOKEN`               | ntfy auth token                                                                         | No       |
+| `PUSHOVER_API_TOKEN`            | Pushover API token (for Apple Watch notifications)                                      | No       |
+| `PUSHOVER_USER_KEY`             | Pushover user key                                                                       | No       |
+| `APNS_KEY_PATH`                 | Path to Apple Push Notification Service .p8 key                                         | No       |
+| `APNS_KEY_ID`                   | APNS key ID                                                                             | No       |
+| `APNS_TEAM_ID`                  | Apple Team ID                                                                           | No       |
+| `APNS_BUNDLE_ID`                | iOS app bundle ID (default: `com.mitzo.app`)                                            | No       |
+| `APNS_PRODUCTION`               | Use production APNS (default: `true`)                                                   | No       |
+| `OTEL_EXPORTER_OTLP_ENDPOINT`   | OpenTelemetry OTLP endpoint (e.g., `http://localhost:4318`)                             | No       |
+| `LOKI_HOST`                     | Grafana Loki endpoint (e.g., `http://localhost:3200`)                                   | No       |
+| `TRACE_CONTENT_MAX_CHARS`       | Max chars for trace content (default: `16384`)                                          | No       |
+| `CORS_ALLOWED_ORIGINS`          | Comma-separated CORS origins                                                            | No       |
+| `CONTEXGIN_URL`                 | ContexGin boot context, agents, health and goals URL (default: `http://localhost:4195`) | No       |
+| `MITZO_INTERNAL_TOKEN`          | Auto-generated token for inter-process auth                                             | No       |
 
 See `.env.example` for a starter template.
 
@@ -847,6 +847,8 @@ MIT
 The Podman launch agent preserves the VM process group after `podman machine start` exits. Without `AbandonProcessGroup`, launchd terminates those child processes and OpenShell sandbox startup fails even though the start command reports success. After installation, verify `podman info` still succeeds once the launch agent has exited. Use the production `com.mitzo.server` launch agent as the sole supervisor for Mitzo; stop and remove legacy PM2 startup entries before handing over the listening port.
 
 The OpenAI Responses route uses bearer authentication in the Authorization header. Its base policy and gateway provider profile must disable request-body credential rewriting and retain enforced REST inspection. This requires a supervisor with the identity-aware streaming guard: literal placeholder examples in documents must pass unchanged, while actual credential identities in model input remain blocked. Production preflight checks both the configured base policy and live provider profile. Qualify the supervisor and policy together; changing only the policy on an older supervisor reintroduces documentation-triggered denials. Existing sandbox containers retain their supervisor image across stop/start and need a separately verified migration.
+
+[Agent Library](docs/features/agent-library.md) lives alongside the existing Agents taskboard. Give a profile a name and descriptor, such as **Bob, the architect**, edit and publish its guidance, or create a draft with the advisor. New chats pin the selected published revision; resumes keep that snapshot. Profiles can also open the existing Symposium reviewer setup. Portable import/export and prompt preview are available; context recipes remain advisory through the existing runtime and grant no additional access.
 
 Symposium's [reusable reviewer profiles](docs/features/symposium.md#profiles-and-reusable-reviewer-recipes) include five editable starters, versioned portable context recipes, skill/tool references and provider compatibility. Import/export preserves exact revisions; applying a profile and selecting account/context remain explicit.
 

@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.9';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.29';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.30';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,6 +22,27 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  // Library profile identity, operator ownership and admission are reviewed runtime inputs.
+  '../symposium-director-routes.ts':
+    'e6cabfe7555434bbf426209e5a0de750195559e106b0bbb09c4885a34159ff36',
+  '../agent-library-binding.ts': '21fccbe6ee53ec292f93be9de3f678b3e1d4e8a8d6e83798678e9da44fadf7fb',
+  '../agent-library-transport.ts':
+    '979b9c57cbfe65e3e8145366d014b4b724b8d0ad9e4cb42fda0c9b0735c5e8ad',
+  '../agent-library-store.ts': 'fac60510d3a4b45aa34777daf885142e067538726104c749f4ebe533861472c7',
+  '../agent-library-router.ts': '9fb62f90a0ecee38712d38277d921e0430f81a98990eabc58b95a34616bc0ace',
+  '../agent-library-runtime.ts': 'cc3be2fc2f61053d4430960a2328d41146463fdca701840a92ab65a89b29922d',
+  '../agent-library-prompt.ts': '3be39c6cd2fb12c744c5f53e45b8c8b306398146edfcb2af479d4fa1c9159c28',
+  '../symposium-profile-portability.ts':
+    'e4369b6e8e58c9d8e3f7bde1e906538f435892adc58c61bb3e531c15c6fbfbaf',
+  '../symposium-profiles.ts': '4138fce2cc44220fa90b3ef65b207b89c06a5f02cd24750a748f79d84d297c95',
+  '../symposium-custodian-protocol.ts':
+    'e8412230568f5b6c5716af8fd5a57720d32c128126888d026cf68e4d980ef7b5',
+  '../symposium-custodian-proxy.ts':
+    '0f29d436d35acea99d373241710b0646a50f83c063de473c39eb7b6605cc699e',
+  '../../packages/protocol/src/agent-library.ts':
+    'e5c0e87a605c4f7664d5b9c69411bafc8059301a8c37a8057d3bdf14f604900e',
+  '../../packages/protocol/src/symposium.ts':
+    '97746c3687c89a8bf8334ac48020c7b484287d7c38cf8bc159aad51bee699a67',
   '../repository-chat-tools.ts': '2b3c9c950c38fe2b94bac06d69fff2560eacf2d43b2240e31232f351b9c7d441',
   '../repository-task-copy.ts': 'cd15f77cfa45883556d10536296a28f7451d2259a5a3eb2a9aeb807d24c54d6d',
   '../credential-connection-schema.ts':
@@ -111,7 +132,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'eb377ad70361797cb34de00c1974952b76cd81041da7668631b138cf5d44473f',
   '../credential-sdk-boundary.ts':
     '792e61cd7a77d3625aeb36177f7a42c207d31f49aa85d99fb648ec0c850ea597',
-  '../chat.ts': '765f875492de6fca241a22b0f5984d57ab4673a6f98985ea7910f623892bf272',
+  '../chat.ts': '109f3d0b0304f9d4f56ad5b2f26d934d8a2eb0833ef62387421526238313acce',
   '../sandboxed-command-worker.ts':
     '5535426d39321039d3db591a2f52e8e3ae31b35b51c2c8ae278eeee548c8df56',
   '../protected-sdk-command.ts': '6ac04dfd2431c48ed85fcc612e49460c53b71c03909d81f4b02c4f14a759edcd',
@@ -119,11 +140,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../native-tool-executor.ts': '9c2f349a51febe5b8818358f558a67a4e324eda2f525d85a5578e84463f5dc01',
   '../repository-workspaces.ts': 'b7e8cd755cdf6483d706f41d5deca216736b40dbd7863a3be20edfd32abb811c',
   '../../packages/protocol/src/event-store.ts':
-    'a2d0d14da4c6cf1f455260608800b0b162356013dd1617ed2e12f5988b1be411',
+    'c1c5102b1798959737677b6edd249b9427a4960481003d2b3c1aea1e8fe71b73',
   '../../packages/protocol/src/session-runtime-binding.ts':
     '8cef7a7a2dcab070d320cf20fd3f98c03dfe71a1570dbd16d8fedd7f9a9d7872',
   '../../packages/protocol/src/types.ts':
-    'bdd789a67bbef05768a11bf471f3fb1a4ccf6af281e85d6fc4ac9a24d49963e1',
+    '2969c12a8f36101df25c0cb128701031361d7ea94d6db18828df6cc8746a50b5',
   '../repository-workspace-runtime.ts':
     '13db6d8d468d3e5ff4a9c8feaa06e5abbbb040196e8cf5b94b145297a5393a99',
   '../repository-workspace-router.ts':

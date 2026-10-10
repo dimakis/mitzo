@@ -75,6 +75,26 @@ afterEach(() => {
 describe('fetchBootContext', () => {
   const CONTEXGIN_URL = 'http://localhost:4195';
 
+  it('uses the documented daemon port when no URL is configured', async () => {
+    const previous = process.env.CONTEXGIN_URL;
+    delete process.env.CONTEXGIN_URL;
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ boot: { content: 'default daemon context', tokens: 6 } }),
+    });
+    try {
+      const result = await fetchBootContext('mitzo-conversational');
+      expect(mockFetch).toHaveBeenCalledWith(
+        'http://localhost:4195/api/agents/mitzo-conversational/context',
+        { signal: expect.any(AbortSignal) },
+      );
+      expect(result.fullMarkdown).toBe('default daemon context');
+    } finally {
+      if (previous === undefined) delete process.env.CONTEXGIN_URL;
+      else process.env.CONTEXGIN_URL = previous;
+    }
+  });
+
   it.each(['unreachable', 'http-error', 'missing-boot', 'malformed-json'])(
     'uses the protected runner for %s fallback without a host subprocess',
     async (failure) => {

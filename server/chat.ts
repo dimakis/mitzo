@@ -118,6 +118,7 @@ import { applyTierOverrides } from './tool-tiers.js';
 import { loadRepoConfig } from './repo-config.js';
 import { loadProjectHooks } from './hook-bridge.js';
 import { buildPermissionHandler } from './permission-handler.js';
+import { setSkillPolicy } from './skill-policy.js';
 import { runQueryLoop, broadcastToObservers } from './query-loop.js';
 import { clearSessionImages } from './image-store.js';
 import { AsyncQueue } from './async-queue.js';
@@ -128,6 +129,7 @@ import {
   USER_CLOSEOUT_TIMEOUT_MS,
   ZERO_TURN_GRACE_MS,
   DEFAULT_AGENT_NAME,
+  DEFAULT_CONTEXGIN_URL,
 } from './constants.js';
 import { INTERNAL_TOKEN } from './internal-token.js';
 import { buildTaskSystemPrompt } from './task-context.js';
@@ -202,6 +204,10 @@ export function setSessionsChangedCallback(cb: () => void): void {
 import { EventStore } from './event-store.js';
 import { capturePromptComparison } from './prompt-compare.js';
 import { accountSessionName } from './account-session-name.js';
+import { resolveChatAgentProfile } from './agent-library-binding.js';
+import { readAgentLibraryProfile } from './agent-library-transport.js';
+import { buildAgentProfilePrompt } from './agent-library-prompt.js';
+import type { AgentLibraryVersion, AgentProfileSelection } from '@mitzo/protocol';
 import { shouldAutoRename, extractRecentPrompts } from './auto-rename.js';
 import {
   registerSession,
@@ -380,7 +386,7 @@ async function localBootContextFallback(
  */
 export async function fetchBootContext(
   agentName: string,
-  contexginUrl: string = process.env.CONTEXGIN_URL || 'http://localhost:8321',
+  contexginUrl: string = process.env.CONTEXGIN_URL || DEFAULT_CONTEXGIN_URL,
   repoRoot: string = BASE_REPO,
   allowLocalExecutableFallback = true,
   protectedRunner?: ProtectedSdkCommandRunner,
@@ -1070,6 +1076,8 @@ export async function startChat(
     onTerminalOutcome?: (error?: Error) => void;
     telosTaskId?: string;
     agentName?: string;
+    agentProfile?: AgentProfileSelection;
+    operatorConnectionId?: string;
     userIntent?: string;
     reattachOnly?: boolean;
   },
@@ -1150,6 +1158,8 @@ async function _startChatInner(
     onTerminalOutcome?: (error?: Error) => void;
     telosTaskId?: string;
     agentName?: string;
+    agentProfile?: AgentProfileSelection;
+    operatorConnectionId?: string;
     userIntent?: string;
     reattachOnly?: boolean;
   },
@@ -1160,6 +1170,7 @@ async function _startChatInner(
   const initialMessageId = options.clientMsgId ?? randomUUID();
   let openShellRequested = false;
   let accountBinding;
+  let agentProfile: AgentLibraryVersion | undefined;
   let codexProfile: CodexAccountProfile | undefined;
   let apiKey: string | undefined;
   let enrolledOpenAIAccount = false;
@@ -1173,6 +1184,14 @@ async function _startChatInner(
       options.accountProfiles ??
       (options.accountId || storedBinding ? loadAccountProfiles() : undefined);
     accountBinding = resolveAccountSelection(options, storedBinding, !!options.resume, profiles);
+    if (options.agentProfile || storedMeta?.agentProfile)
+      agentProfile = await resolveChatAgentProfile({
+        requested: options.agentProfile,
+        stored: storedMeta?.agentProfile,
+        resume: !!options.resume,
+        provider: accountBinding?.provider,
+        lookup: (selection) => readAgentLibraryProfile(selection, options.operatorConnectionId),
+      });
     if (!accountBinding && openShellAvailable)
       throw new Error('OpenShell execution requires an explicit account selection');
     if (accountBinding) {
@@ -1600,6 +1619,7 @@ async function _startChatInner(
   if (options.initialSessionId) {
     eventStore.upsertSession({
       sessionId: options.initialSessionId,
+      ...(agentProfile ? { agentProfile } : {}),
       cwd,
       mode,
       initialPrompt: fullPrompt,
@@ -1627,6 +1647,7 @@ async function _startChatInner(
   });
 
   const session = registry.get(clientId)!;
+  if (options.skillAllowedTools) setSkillPolicy(registry, clientId, options.skillAllowedTools);
   session.model = options.model ?? session.model;
   session.inputQueue = inputQueue as { push: (msg: unknown) => void; close: () => void };
   _onSessionChange?.(clientId, 'start');
@@ -1710,23 +1731,17 @@ async function _startChatInner(
   // Fetch boot context BEFORE building system prompt so it's part of the
   // system prompt append and survives SDK context compaction.
   // fetchBootContext never throws and has a 5s AbortSignal timeout internally.
-  // Race with a 2s deadline so session startup isn't blocked when ContexGin is slow.
-  let raceTimer: ReturnType<typeof setTimeout> | undefined;
+  // Await the bounded fetch/fallback before opening any provider. A shorter race
+  // could discard a valid bundle while persisting empty context for the session.
   const bootContextMsg: BootContextMessage = openShellSelected
     ? { ...FALLBACK_BOOT_CONTEXT, source: 'sandbox', scope: 'sandbox' }
-    : await Promise.race([
-        fetchBootContext(
-          agentName,
-          undefined,
-          undefined,
-          !sdkCredentialIsolation,
-          projectCommandRunner,
-        ),
-        new Promise<Awaited<ReturnType<typeof fetchBootContext>>>((resolve) => {
-          raceTimer = setTimeout(() => resolve({ ...FALLBACK_BOOT_CONTEXT }), 2000);
-        }),
-      ]);
-  clearTimeout(raceTimer);
+    : await fetchBootContext(
+        agentName,
+        undefined,
+        undefined,
+        !sdkCredentialIsolation,
+        projectCommandRunner,
+      );
   const bootContextAppend = bootContextMsg.fullMarkdown
     ? `\n\n# Boot Context\n${bootContextMsg.fullMarkdown}`
     : '';
@@ -1768,6 +1783,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
     buildClientCapabilitiesPrompt() +
     workspacePrompt +
     (supportsHostTaskTools(openShellSelected) ? buildTaskPromptForSession(clientId) : '') +
+    (agentProfile ? `\n\n${buildAgentProfilePrompt(agentProfile.definition)}` : '') +
     bootContextAppend;
 
   // Fire-and-forget: load agent definition and store in session registry.
@@ -1817,6 +1833,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
     if (newSdkSessionId) {
       eventStore.upsertSession({
         sessionId: newSdkSessionId,
+        ...(agentProfile ? { agentProfile } : {}),
         accountBinding,
         bootContext: JSON.stringify(bootContextMsg),
         cwd,
@@ -2098,6 +2115,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
               sessionId,
               ...(accountBinding ? { accountBinding } : {}),
               bootContext: JSON.stringify(bootContextMsg),
+              ...(agentProfile ? { agentProfile } : {}),
             });
           }
           options.onSessionResolved?.(sessionId);

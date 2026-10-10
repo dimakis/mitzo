@@ -15,6 +15,10 @@ vi.mock('../prompt-compare.js', () => ({
   capturePromptComparison: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock('../mcp-config.js', () => ({ loadMcpServers: () => ({}) }));
+vi.mock('../auto-rename.js', async (original) => ({
+  ...(await original<object>()),
+  shouldAutoRename: () => false,
+}));
 afterEach(() => {
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
@@ -68,6 +72,8 @@ it('makes an accepted session routable before boot completes and preserves its p
         clientMsgId: 'original-prompt',
       },
     );
+    // Default chats remain routable synchronously while asynchronous boot context is pending.
+    expect(query).not.toHaveBeenCalled();
     expect(chat.registry.findBySessionId(sessionId)?.clientId).toBe('stable-driver');
     await expect(
       chat.sendToChat('stable-driver', 'rapid follow-up', undefined, undefined, 'follow-up'),
