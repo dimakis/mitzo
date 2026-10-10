@@ -1,5 +1,6 @@
 import { useEffect, useRef, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
+import { UiIcon } from './UiIcon';
 import '../styles/home.css';
 
 export function HomeDialog({
@@ -42,7 +43,7 @@ export function HomeDialog({
         <header>
           <h2>{title}</h2>
           <button type="button" className="home-secondary" aria-label="Close" onClick={onClose}>
-            ×
+            <UiIcon name="close" size={16} />
           </button>
         </header>
         {children}

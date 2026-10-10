@@ -73,6 +73,15 @@ it('names the Today destination without exposing its decorative navigation icon'
   expect(back.getAttribute('href')).toBe('/');
   expect(back.querySelector('svg[data-icon="back"][aria-hidden="true"]')).toBeTruthy();
 });
+it('uses decorative shared SVGs for meeting disclosures without adding to their titles', async () => {
+  show();
+  const summary = (await screen.findByText('9:30 Meeting 0')).closest('summary')!;
+  expect(summary.textContent).toBe('9:30 Meeting 0');
+  const icon = summary.querySelector('svg[data-icon="forward"]');
+  expect(icon).toBeTruthy();
+  expect(icon?.getAttribute('aria-hidden')).toBe('true');
+  expect(icon?.getAttribute('focusable')).toBe('false');
+});
 it('shows all ten meetings and calendar first, folds supporting Jira without deleting it', async () => {
   show();
   await screen.findByText('18:30 Meeting 9');

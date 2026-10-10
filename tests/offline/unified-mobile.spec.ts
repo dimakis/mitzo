@@ -626,6 +626,9 @@ test('Today details and nickname controls inherit appearance and remain usable w
       ).toBeVisible();
       expect((await control.boundingBox())!.height).toBeGreaterThanOrEqual(44);
     }
+    const close = pinPopup.getByRole('button', { name: 'Close', exact: true });
+    await expect(close.locator('svg[data-icon="close"][aria-hidden="true"]')).toBeVisible();
+    expect((await close.boundingBox())!.height).toBeGreaterThanOrEqual(44);
     await page.screenshot({
       path: testInfo.outputPath(`pins-${variant.theme}-${variant.font}-${variant.accent}.png`),
       animations: 'disabled',
@@ -638,6 +641,20 @@ test('Today details and nickname controls inherit appearance and remain usable w
     await expect(page.locator('summary').filter({ hasText: /^\d+:00 Meeting \d+$/ })).toHaveCount(
       10,
     );
+    const summary = page.locator('summary').filter({ hasText: /^9:00 Meeting 1$/ });
+    const marker = summary.locator('svg[data-icon="forward"][aria-hidden="true"]');
+    await expect(marker).toBeVisible();
+    expect((await marker.boundingBox())!.width).toBeCloseTo(16, 1);
+    expect((await marker.boundingBox())!.height).toBeCloseTo(16, 1);
+    expect(await summary.evaluate((element) => getComputedStyle(element, '::before').content)).toBe(
+      'none',
+    );
+    const closedTransform = await marker.evaluate((element) => getComputedStyle(element).transform);
+    await summary.click();
+    expect(await marker.evaluate((element) => getComputedStyle(element).transform)).not.toBe(
+      closedTransform,
+    );
+    await summary.click();
     await inspect('briefing');
     const briefingBack = page
       .locator('.briefing-page')

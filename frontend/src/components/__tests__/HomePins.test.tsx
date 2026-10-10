@@ -63,6 +63,8 @@ describe('Today pins', () => {
       screen.getByRole('link', { name: /First/ }).querySelector('svg[data-icon="forward"]'),
     ).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Manage pins' }));
+    const close = screen.getByRole('button', { name: 'Close' });
+    expect(close.querySelector('svg[data-icon="close"][aria-hidden="true"]')).toBeTruthy();
     for (const [label, icon] of [
       ['Move Second up', 'up'],
       ['Move First down', 'down'],
@@ -71,6 +73,9 @@ describe('Today pins', () => {
       expect(control.querySelector(`svg[data-icon="${icon}"][aria-hidden="true"]`)).toBeTruthy();
       expect(control.textContent?.trim()).toBe('');
     }
+    fireEvent.click(close);
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(data.update).not.toHaveBeenCalled();
   });
   it('preserves native modal centering against the global margin reset', () => {
     const styles = readFileSync(resolve(process.cwd(), 'frontend/src/styles/home.css'), 'utf8');

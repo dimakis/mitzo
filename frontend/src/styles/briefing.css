@@ -26,11 +26,10 @@
   cursor: pointer;
   font-weight: 600;
 }
-.briefing-section summary::before {
-  content: '›';
+.briefing-section summary > .ui-icon {
   color: var(--color-muted);
 }
-.briefing-section[open] > summary::before {
+.briefing-section[open] > summary > .ui-icon {
   transform: rotate(90deg);
 }
 .briefing-section .briefing-section {

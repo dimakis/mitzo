@@ -62,7 +62,10 @@ function Section({
   const container = section.kind === 'source' && containsMeeting(section);
   return (
     <details className={`briefing-section briefing-${section.kind}`} open={expanded || container}>
-      <summary>{section.title}</summary>
+      <summary>
+        <UiIcon name="forward" size={16} />
+        {section.title}
+      </summary>
       <div className="briefing-source">
         <BriefingMarkdown content={section.body} sourcePath={sourcePath} />
       </div>
