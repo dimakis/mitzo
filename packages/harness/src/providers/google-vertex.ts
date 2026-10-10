@@ -152,6 +152,7 @@ export class GoogleVertexModelProvider implements ModelProvider {
       if (code === 'ENOENT') {
         throw new Error(
           'gcloud CLI not found — install Google Cloud SDK or configure Application Default Credentials',
+          { cause: err },
         );
       }
       throw err;
