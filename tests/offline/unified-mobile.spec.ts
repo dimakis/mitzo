@@ -1742,10 +1742,16 @@ test('saved chat identity failures lock model controls until an explicit success
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
         page.viewportSize()!.width,
       );
+      const workspace = page.getByRole('button', { name: /^Workspace controls/ });
+      await workspace.click();
+      await expect(
+        page.getByRole('textbox', { name: 'Message Mitzo', exact: true }),
+      ).toBeInViewport();
       await page.screenshot({
         path: testInfo.outputPath(`briefing-lookup-error-${failed}-${recovered}.png`),
         animations: 'disabled',
       });
+      await workspace.click();
       failure = null;
       const before = reads;
       await retry.click();
