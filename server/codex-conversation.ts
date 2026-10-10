@@ -1379,7 +1379,7 @@ export class CodexConversation {
    * output or reasoning: copy only completed user and assistant text into a
    * bounded, one-shot context fragment for the first turn on the new thread.
    */
-  private savedSourceContext(): string | undefined {
+  private savedSourceContext(currentPrompt?: string): string | undefined {
     const sources = this.opts.loadSourceSnapshots?.() ?? [];
     if (!sources.length) return undefined;
     // Validate each bounded snapshot independently; references never enter the
@@ -1389,7 +1389,8 @@ export class CodexConversation {
       .map((source) => {
         bytes += Buffer.byteLength(source.content, 'utf8');
         if (bytes > 2 * 1024 * 1024) throw new Error('Saved source snapshots exceed 2 MiB');
-        return assembleSourceSnapshots('', [source]);
+        const reference = assembleSourceSnapshots('', [source]);
+        return currentPrompt?.includes(reference) ? '' : reference;
       })
       .join('\n\n');
   }
@@ -1429,6 +1430,11 @@ export class CodexConversation {
       state.threadId,
       state.lastCompletedTurnId,
     );
+    // A clean provider thread has no retained user source, unlike a fork.
+    const rolloverContext =
+      !lastCompletedTurnId && this.savedSourceContext()
+        ? this.conversationRolloverContext()
+        : (state.rolloverContext ?? undefined);
     const result = z
       .object({
         thread: z.object({ id: z.string().min(1) }),
@@ -1459,7 +1465,7 @@ export class CodexConversation {
         parent: state.threadId,
         thread: result.thread.id,
         revision: this.toolSurfaceRevision(),
-        context: state.rolloverContext ?? undefined,
+        context: rolloverContext,
         reason: 'provider_transport_failure',
       };
       return result;
@@ -1471,6 +1477,8 @@ export class CodexConversation {
       result.thread.id,
       'provider_transport_failure',
       lastCompletedTurnId,
+      undefined,
+      rolloverContext,
     );
     await this.opts.onThreadChanged?.(result.thread.id);
     return result;
@@ -1641,7 +1649,9 @@ export class CodexConversation {
       // Codex's additionalContext fragments are middle-truncated at 1,000
       // tokens. Attempt continuity promises the complete bounded transcript,
       // so replay it through supported text input, before the current request.
-      const savedSourceContext = rolloverContext ? this.savedSourceContext() : undefined;
+      const savedSourceContext = rolloverContext
+        ? this.savedSourceContext(preparedPrompt)
+        : undefined;
       const attemptContext =
         this.opts.providerThreadLifecycle === 'attempt' && rolloverContext
           ? attemptReplayContext(rolloverContext)

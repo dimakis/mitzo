@@ -1,3 +1,4 @@
+import Database from 'better-sqlite3';
 import { afterEach, expect, it } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
@@ -59,7 +60,7 @@ it.each(['hash', 'date', 'bytes'] as const)(
       text: 'Short intent',
       sourceSnapshots: [source],
     });
-    expect(() => codexRolloverSources(store, 'session')).toThrow();
+    expect(() => codexRolloverSources(store, 'session')).toThrow(/revision|invalid|source/i);
   },
 );
 
@@ -90,5 +91,42 @@ it('deduplicates repeated sources and keeps unrelated conversations and seat pay
   store.append('session', 'tool_result', {
     sourceSnapshots: [{ ...source, content: 'Adversarial tool source' }],
   });
+  for (const id of ['seat', 'provenance'])
+    store.append('session', 'user_message', {
+      messageId: id,
+      sourceSnapshots: [{ ...source, content: 'Private scoped source' }],
+    });
+  const db = new Database(join(dir, 'events.db'));
+  db.prepare(
+    "UPDATE events SET seat_id='seat' WHERE json_extract(payload, '$.messageId')='seat'",
+  ).run();
+  db.prepare(
+    "UPDATE events SET symposium_provenance='{}' WHERE json_extract(payload, '$.messageId')='provenance'",
+  ).run();
+  db.close();
   expect(codexRolloverSources(store, 'session')).toEqual([source]);
+});
+
+it('accepts the full 2 MiB UTF-8 allowance even with worst-case JSON escaping', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mitzo-rollover-escaped-'));
+  const store = new EventStore(join(dir, 'events.db'));
+  cleanup.push(() => {
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+  const content = '\0'.repeat(2 * 1024 * 1024);
+  const source = {
+    kind: 'briefing',
+    date: '2026-10-09',
+    revision: createHash('sha256').update(content).digest('hex'),
+    content,
+  };
+  store.append('session', 'user_message', {
+    messageId: 'source',
+    text: 'Short intent',
+    sourceSnapshots: [source],
+  });
+  expect(codexRolloverSources(store, 'session').map((value) => value.revision)).toEqual([
+    source.revision,
+  ]);
 });

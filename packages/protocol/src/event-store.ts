@@ -2223,20 +2223,28 @@ export class EventStore {
   /** Only ordinary user-attached sources, independent of the recent dialogue window.
    * Iterate distinct bounded JSON values rather than hydrating tool/permission payloads. */
   getConversationSourceSnapshots(sessionId: string): unknown[] {
+    const metadataBytes = Buffer.byteLength(
+      JSON.stringify([
+        { kind: 'briefing', date: '0000-00-00', revision: '0'.repeat(64), content: '' },
+      ]),
+      'utf8',
+    );
+    const maxRecordBytes = 6 * 2 * 1024 * 1024 + metadataBytes;
     const rows = this.db!.prepare(
-      `SELECT DISTINCT
-      json_extract(payload, '$.sourceSnapshots') AS sources
-      FROM events WHERE session_id=? AND type='user_message'
-      AND seat_id IS NULL AND symposium_provenance IS NULL
-      AND json_type(payload, '$.sourceSnapshots') IS NOT NULL`,
-    ).iterate(sessionId);
+      `SELECT CASE WHEN length(CAST(json_extract(payload, '$.sourceSnapshots') AS BLOB)) <= ?
+        THEN json_extract(payload, '$.sourceSnapshots') ELSE NULL END AS sources
+        FROM events WHERE session_id=? AND type='user_message'
+        AND seat_id IS NULL AND symposium_provenance IS NULL
+        AND json_type(payload, '$.sourceSnapshots') IS NOT NULL
+        GROUP BY sources ORDER BY MIN(seq)`,
+    ).iterate(maxRecordBytes, sessionId);
     const snapshots: unknown[] = [];
     let bytes = 0;
     for (const row of rows as Iterable<{ sources: unknown }>) {
       if (typeof row.sources !== 'string') throw new Error('Invalid saved source snapshot');
       bytes += Buffer.byteLength(row.sources, 'utf8');
       // JSON escaping can expand a valid 2 MiB text by at most six times.
-      if (bytes > 12 * 1024 * 1024 || snapshots.length >= 64)
+      if (bytes > 6 * 2 * 1024 * 1024 + 64 * metadataBytes || snapshots.length >= 64)
         throw new Error('Saved source snapshot projection exceeds bounds');
       snapshots.push(JSON.parse(row.sources));
     }
