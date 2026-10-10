@@ -96,12 +96,18 @@ export function AgentContextRecipeEditor({
       live = false;
     };
   }, [value?.source]);
+  const selectedPack =
+    packs.find((item) => `${item.definition.id}:${item.revision}` === packKey) || packs[0];
+  const alreadyPinned =
+    value?.source === 'packs' &&
+    !!selectedPack &&
+    value.packs.some((item) => item.id === selectedPack.definition.id);
   return (
     <fieldset className="agent-library-context-recipe" disabled={disabled}>
       <legend>Compiled chat context</legend>
       <p>
-        Compile documents for local chats. OpenShell and Symposium keep their existing context
-        setup.
+        Published packs support local chats, OpenShell and Symposium. Legacy workspace documents and
+        ContexGin presets compile context for local chats only.
       </p>
       <label className="agent-library-checkbox">
         <input
@@ -163,17 +169,10 @@ export function AgentContextRecipeEditor({
               </label>
               <button
                 type="button"
-                disabled={!packs.length}
+                disabled={!selectedPack || alreadyPinned}
                 onClick={() => {
-                  const pack =
-                    packs.find((item) => `${item.definition.id}:${item.revision}` === packKey) ||
-                    packs[0];
-                  if (
-                    pack &&
-                    !value.packs.some(
-                      (item) => item.id === pack.definition.id && item.revision === pack.revision,
-                    )
-                  )
+                  const pack = selectedPack;
+                  if (pack && !value.packs.some((item) => item.id === pack.definition.id))
                     onChange({
                       ...value,
                       packs: [
@@ -185,6 +184,9 @@ export function AgentContextRecipeEditor({
               >
                 Add pack revision
               </button>
+              {alreadyPinned && (
+                <p>Remove the existing pin before choosing another revision of this pack.</p>
+              )}
               {value.packs.map((pack, index) => (
                 <div key={`${pack.id}:${pack.revision}`}>
                   {pinnedPacks[`${pack.id}:${pack.revision}`] && (

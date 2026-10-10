@@ -128,3 +128,73 @@ it('resolves the selected historical pack name without upgrading its pin', async
     global.fetch = original;
   }
 });
+it('requires explicit removal before changing a pack identity to a newer revision', async () => {
+  const original = global.fetch;
+  const hash = 'b'.repeat(64);
+  const changes: AgentContextRecipe[] = [];
+  global.fetch = async (input) =>
+    ({
+      ok: true,
+      json: async () =>
+        String(input).endsWith('/revisions/2')
+          ? {
+              pack: {
+                id: 'review',
+                revision: 2,
+                hash,
+                definition: { id: 'review', name: 'Previous reviewer' },
+              },
+            }
+          : {
+              packs: [
+                {
+                  id: 'review',
+                  revision: 3,
+                  hash: 'a'.repeat(64),
+                  definition: { id: 'review', name: 'Latest reviewer' },
+                },
+              ],
+              drafts: [],
+            },
+    }) as Response;
+  function HistoricalEditor() {
+    const [value, setValue] = useState<AgentContextRecipe>({
+      version: 2,
+      source: 'packs',
+      packs: [{ id: 'review', revision: 2, hash }],
+      tokenBudget: 4000,
+    });
+    return (
+      <AgentContextRecipeEditor
+        value={value}
+        onChange={(next) => {
+          changes.push(next!);
+          setValue(next!);
+        }}
+      />
+    );
+  }
+  try {
+    render(<HistoricalEditor />);
+    await screen.findByText('Previous reviewer · revision 2');
+    const add = screen.getByRole('button', { name: 'Add pack revision' });
+    expect(add).toHaveProperty('disabled', true);
+    fireEvent.click(add);
+    expect(changes).toEqual([]);
+    expect(
+      screen.getByText(/Remove the existing pin before choosing another revision/),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(/Published packs support local chats, OpenShell and Symposium/),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Remove review' }));
+    expect(add).toHaveProperty('disabled', false);
+    fireEvent.click(add);
+    expect(changes.at(-1)).toMatchObject({
+      source: 'packs',
+      packs: [{ id: 'review', revision: 3, hash: 'a'.repeat(64) }],
+    });
+  } finally {
+    global.fetch = original;
+  }
+});
