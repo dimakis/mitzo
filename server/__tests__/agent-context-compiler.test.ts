@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { mkdtemp, mkdir, writeFile, rm, symlink } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, rm, symlink, realpath, chmod } from 'node:fs/promises';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -8,7 +8,69 @@ import { compileAgentContext, verifyCompiledAgentContext } from '../agent-contex
 
 const roots: string[] = [];
 afterEach(async () => {
+  vi.unstubAllEnvs();
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
+});
+
+async function runtimeAuthority(root: string, file = 'operator.md') {
+  const physical = await realpath(root);
+  const config = join(physical, 'runtime.json');
+  const enrollment = join(physical, file);
+  await writeFile(
+    config,
+    JSON.stringify({ gwsExecutable: '/synthetic/gws', jiraLibPath: '/synthetic/jira' }),
+    { mode: 0o600 },
+  );
+  await writeFile(
+    enrollment,
+    JSON.stringify({
+      kind: 'workspace-runtime-v1',
+      config,
+      release: join(physical, 'release'),
+      python: '/synthetic/python',
+    }),
+    { mode: 0o600 },
+  );
+  await chmod(enrollment, 0o600);
+  return enrollment;
+}
+
+it.each(['operator.md', 'AGENTS.md'])(
+  'never preloads enrolled authority into context through %s',
+  async (file) => {
+    const root = await workspace();
+    const enrollment = await runtimeAuthority(root, file);
+    vi.stubEnv('MITZO_WORKSPACE_RUNTIME_CONFIG', enrollment);
+    await expect(
+      compileAgentContext(
+        { ...recipe, files: [file], required: [], excluded: [] },
+        { workspaceRoot: root },
+      ),
+    ).rejects.toThrow(/Context document is not allowed/);
+  },
+);
+
+it('does not replay a context snapshot whose document has since become operator authority', async () => {
+  const root = await workspace();
+  const enrollment = await runtimeAuthority(root);
+  const selected = { ...recipe, files: ['operator.md'], required: [], excluded: [] };
+  const compiled = await compileAgentContext(selected, { workspaceRoot: root });
+  vi.stubEnv('MITZO_WORKSPACE_RUNTIME_CONFIG', enrollment);
+  await expect(
+    verifyCompiledAgentContext(compiled, selected, { workspaceRoot: root }),
+  ).rejects.toThrow(/Context document is not allowed/);
+});
+
+it('preserves ordinary workspace instructions and documents with runtime authority enrolled', async () => {
+  const root = await workspace();
+  vi.stubEnv('MITZO_WORKSPACE_RUNTIME_CONFIG', await runtimeAuthority(root));
+  const compiled = await compileAgentContext(recipe, { workspaceRoot: root });
+  expect(compiled.context.fullMarkdown).toContain('Keep user files safe.');
+  expect(compiled.context.fullMarkdown).toContain('Use queues.');
+  expect(compiled.context.fullMarkdown).not.toContain('workspace-runtime-v1');
+  expect(await verifyCompiledAgentContext(compiled, recipe, { workspaceRoot: root })).toEqual(
+    compiled,
+  );
 });
 function compileFileFixture(root: string, beforeOpen = '', afterOpen = '') {
   const script = `

@@ -1,10 +1,11 @@
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest';
 import type { Express } from 'express';
 import request from 'supertest';
-import { mkdirSync, writeFileSync, unlinkSync } from 'fs';
+import { mkdirSync, writeFileSync, unlinkSync, readFileSync, realpathSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { INTERNAL_TOKEN } from '../internal-token.js';
+import * as commands from '../protected-sdk-command.js';
 
 const TEST_REPO = join(tmpdir(), `mitzo-test-repo-${process.pid}`);
 const TODO_SCRIPT = join(TEST_REPO, 'command_center', 'todo_api.py');
@@ -394,4 +395,155 @@ print(json.dumps({"ok": True, "created": True, "item": payload}))
     expect(res.body.item.idempotencyKey).toMatch(/^client-7:[a-f0-9]{64}$/);
     expect(res.body.item.contextHints.sessionIds).toEqual(['client-7']);
   });
+});
+
+describe('enrolled mutable controller commands', () => {
+  const operator = join(TEST_REPO, 'operator');
+  const enrollment = join(operator, 'enrollment.json');
+  const config = join(operator, 'runtime.json');
+  const outcome = {
+    summary: 'Protected fixture outcome',
+    intent: 'Preserve the existing Todo contract.',
+    rationale: 'Controller entrypoints require the runtime fence.',
+    acceptanceCriteria: ['Authority remains unchanged'],
+    milestones: ['Run the existing entrypoint safely'],
+    profile: 'work',
+    idempotencyKey: 'fixture-request',
+  };
+  const runner = vi.fn<commands.ProtectedSdkCommandRunner>();
+  let factory: import('vitest').MockInstance<typeof commands.createWorkspaceRuntimeCommandRunner>;
+  beforeEach(() => {
+    mkdirSync(operator, { recursive: true });
+    writeFileSync(
+      config,
+      JSON.stringify({ gwsExecutable: '/synthetic/gws', jiraLibPath: '/synthetic/jira' }),
+      { mode: 0o600 },
+    );
+    writeFileSync(
+      enrollment,
+      JSON.stringify({
+        kind: 'workspace-runtime-v1',
+        config: realpathSync(config),
+        release: join(realpathSync(operator), 'release'),
+        python: join(realpathSync(operator), 'python'),
+      }),
+      { mode: 0o600 },
+    );
+    vi.stubEnv('MITZO_WORKSPACE_RUNTIME_CONFIG', realpathSync(enrollment));
+    runner.mockReset().mockImplementation(async (_command, args) => ({
+      stdout: JSON.stringify(
+        args.includes('--list') || args.includes('--refresh')
+          ? { profiles: ['work'], items: [] }
+          : { ok: true, created: true },
+      ),
+      stderr: '',
+    }));
+    factory = vi.spyOn(commands, 'createWorkspaceRuntimeCommandRunner').mockReturnValue(runner);
+    writeFileSync(
+      TODO_SCRIPT,
+      'import json\nprint(json.dumps({"profiles": ["work"], "items": []}))\n',
+    );
+  });
+  afterEach(() => {
+    factory.mockRestore();
+    vi.unstubAllEnvs();
+    unlinkSync(TODO_SCRIPT);
+  });
+
+  it('keeps operator authority intact after a document edit followed by opening Todos', async () => {
+    const original = readFileSync(enrollment, 'utf8');
+    const script = `import pathlib, json\npathlib.Path(${JSON.stringify(realpathSync(enrollment))}).write_text('compromised')\nprint(json.dumps({"profiles": ["work"], "items": []}))\n`;
+    const edit = await request(app)
+      .put('/api/files/write')
+      .set('Cookie', authCookie)
+      .send({
+        path: TODO_SCRIPT,
+        content: script,
+        expectedContent: readFileSync(TODO_SCRIPT, 'utf8'),
+      });
+    expect(edit.status).toBe(200);
+    const result = await request(app).get('/api/todos').set('Cookie', authCookie);
+    expect(result.status).toBe(200);
+    expect(runner).toHaveBeenCalledWith(
+      'python3',
+      [TODO_SCRIPT, '--list'],
+      expect.objectContaining({
+        cwd: process.cwd(),
+        env: process.env,
+        timeout: 30_000,
+        maxBuffer: 8 * 1024 * 1024,
+      }),
+    );
+    expect(readFileSync(enrollment, 'utf8')).toBe(original);
+  });
+
+  it.each([
+    ['get', '/api/todos?refresh=true&profile=work', undefined, 200, '--refresh'],
+    ['post', '/api/todos', { summary: 'Fixture', profile: 'work' }, 201, '--create'],
+    ['post', '/api/todos/item-1/action', { action: 'ack' }, 200, '--action'],
+    ['post', '/api/todos/outcomes', outcome, 201, '--create-outcome-json'],
+    [
+      'post',
+      '/api/internal/telos/outcomes',
+      { ...outcome, idempotencyKey: undefined },
+      200,
+      '--create-outcome-json',
+    ],
+  ] as const)(
+    'protects %s %s while retaining its response contract',
+    async (method, path, body, status, argument) => {
+      const requestBuilder = request(app)
+        [method](path)
+        .set('Cookie', authCookie)
+        .set('x-internal-token', INTERNAL_TOKEN);
+      const result = await (body ? requestBuilder.send(body) : requestBuilder);
+      expect(runner).toHaveBeenCalledWith(
+        'python3',
+        expect.arrayContaining([TODO_SCRIPT, argument]),
+        expect.objectContaining({ timeout: 30_000, maxBuffer: 8 * 1024 * 1024 }),
+      );
+      expect(result.status).toBe(status);
+    },
+  );
+
+  it('fails closed when runtime protection cannot initialize without executing the workspace script', async () => {
+    factory.mockImplementation(() => {
+      throw new Error('Fixture protection unavailable');
+    });
+    const original = readFileSync(enrollment, 'utf8');
+    writeFileSync(
+      TODO_SCRIPT,
+      `import pathlib\npathlib.Path(${JSON.stringify(realpathSync(enrollment))}).write_text('compromised')\n`,
+    );
+    const result = await request(app).get('/api/todos').set('Cookie', authCookie);
+    expect(result.status).toBe(502);
+    expect(runner).not.toHaveBeenCalled();
+    expect(readFileSync(enrollment, 'utf8')).toBe(original);
+  });
+
+  it.runIf(process.platform === 'darwin' && process.env.MITZO_TEST_OS_SANDBOX === '1')(
+    'physically denies enrolled authority reads and writes from the edited Todo entrypoint',
+    async () => {
+      factory.mockRestore();
+      const original = readFileSync(enrollment, 'utf8');
+      const report = join(TEST_REPO, 'todo-fence-report.json');
+      const script = `import pathlib, json\np=pathlib.Path(${JSON.stringify(realpathSync(enrollment))})\nresult={}\ntry:\n p.read_text()\n result['readDenied']=False\nexcept PermissionError:\n result['readDenied']=True\ntry:\n p.write_text('compromised')\n result['writeDenied']=False\nexcept PermissionError:\n result['writeDenied']=True\npathlib.Path(${JSON.stringify(report)}).write_text(json.dumps(result))\nprint(json.dumps({'profiles':['work'],'items':[]}))\n`;
+      const edit = await request(app)
+        .put('/api/files/write')
+        .set('Cookie', authCookie)
+        .send({
+          path: TODO_SCRIPT,
+          content: script,
+          expectedContent: readFileSync(TODO_SCRIPT, 'utf8'),
+        });
+      expect(edit.status).toBe(200);
+      const result = await request(app).get('/api/todos').set('Cookie', authCookie);
+      expect(result.status).toBe(200);
+      expect(JSON.parse(readFileSync(report, 'utf8'))).toEqual({
+        readDenied: true,
+        writeDenied: true,
+      });
+      expect(readFileSync(enrollment, 'utf8')).toBe(original);
+    },
+  );
 });

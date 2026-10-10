@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.9';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.39';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.43';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,17 +22,22 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
-  '../chat.ts': '275dda4b5891748eb10ad7a597023c9e40ac022ed62a1a005beee456ddc06c21',
+  '../chat.ts': '9d422b15ec87d544b791f827c73077d3c385ae1446b9b595b810c189fb1ac60f',
   '../agent-context-binding.ts': 'ce0f8dba7f97f515be8ee00a441e3cc36344aad44f31e0b2fb33a160f8803e66',
-  '../app.ts': '3a136e933a31552e46a11e8fdc8a4d5475f986497aee3601d2b6ad32e8572a30',
+  '../briefings.ts': '277b26171abc42266a3b621ff7ab10306792764cb55bbc635e41c4ba20e98d49',
+  '../home-router.ts': '744708f3503d3ef46114998ce9bb6a68b3068a3c7d57e0c264298cdb69aac982',
+  '../notification-store.ts': 'd73b922e8e04b1e6415d1c1388bcf75edb4b65c913d3636b9a63e16583bc035b',
+  '../unified-inbox.ts': '4ff43026cf624b1e260c522f5fd293533559d3419629ccb847a425e6d19102f7',
+  '../inbox.ts': '9af9b9103a285be2a344fa8b6530ed944226146574fc47ce03db3071a5f6a82e',
+  '../app.ts': '9996c50358b2ad5d6ef39edbc87231ccbe6702e0ed1684ba60803e2240e4661b',
   '../ws-handler-v2.ts': '2952b6ea0ad4307739603901b01725514896452ea70c9f2464d8c04c6f4d9052',
   '../codex-queue-routes.ts': '6873ee90c32da94dcfebd432535d4170942e53c980456927f9dd57e9917d9a53',
   '../agent-context-compiler.ts':
-    'fc6d262171f8ae02500376d2546394be138b6675876d93bcc1da448e2aa37694',
+    'b3544c3b278017df095dc2e3a005c3d7235cf0be8f9510f980b00633294091bf',
   '../../packages/protocol/src/agent-context-recipe.ts':
     '95237765d7257eb1ae0ab1de3875d2eea11b8d460dadf1e49671b55a640344a1',
   '../../scripts/agent-workspace-context.mjs':
-    '61ee6c960962ec630f75eeedf160f13d31fbb65338639a5305579d29166bd57d',
+    'b49dbf16dacccce450192f19d12d3ec48c4fd4d2212602bb70632196d84d362f',
   '../../docs/spikes/openshell-codex/compile-agent-context.mjs':
     '75cc1a653dbb7d4c20ffbeab8fafcf20b19110ff64110a548d30c65305da20be',
   '../../scripts/attest-knowledge-runtime.py':
@@ -143,7 +148,20 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../worktree.ts': 'e3fd6d93d33cb5403786c5a7da16dd229d8ba03ad06e8c3abaf6309c64adb34a',
   '../repository-task-checkout.ts':
     '32fd232781b0ba9573fa0e6a511a78ede54a8c33a80dee30f52d06283b4beab5',
-  '../native-tool-executor.ts': '6bca4beb98690334e83a0a88b35c80558ed01b7485f682aca0cc0af11b6cd766',
+  // Operator runtime enrollment, private metadata and write-authority admission.
+  '../workspace-runtime-private-paths.ts':
+    '97b20d22a5dbdb7b03adba3d85557267b78b088493fa5d622dd0dc63413ab0bb',
+  '../codex-private-path.ts': '65e1f4c0922b0e91eda19d86af4d835ff477bad4c337cabc7413d7ed656fb053',
+  '../workspace-runtime-client.ts':
+    'eb377ad70361797cb34de00c1974952b76cd81041da7668631b138cf5d44473f',
+  '../credential-sdk-boundary.ts':
+    'd577cd3f4addce8a09ec6e49272196143f28d6e88abf7a4405336542acbf2bfb',
+  '../sandboxed-command-worker.ts':
+    'f2cffea266ca292c2ba690725820e2c23d4a90fc3ed61619540a960bbfe72f23',
+  '../protected-sdk-command.ts': 'e7c59a2ebfd3fde4b0c7c8cdf7f69f9d231e2e5f1819a61e0514cd707bc6c32f',
+  '../native-hooks.ts': '5708a6e09129765ab760a6c078fb2571dc73dc1125c9be31b43f1865fe5e461b',
+  '../hook-bridge.ts': '8885c2b27079799d33958a17942bb7d8953d01540bf7cd4b3ade537ee39c2d12',
+  '../native-tool-executor.ts': '9c2f349a51febe5b8818358f558a67a4e324eda2f525d85a5578e84463f5dc01',
   '../repository-workspaces.ts': 'b7e8cd755cdf6483d706f41d5deca216736b40dbd7863a3be20edfd32abb811c',
   '../../packages/protocol/src/event-store.ts':
     '3a9bd3d71221751376d4864d075a3fc42dcba6726907f5901bdafbc16b9297c6',

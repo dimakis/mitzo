@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AccountProfiles } from '../account-profiles.js';
@@ -901,6 +901,87 @@ it('confines protected SDK sessions and excludes configured MCPs and parent proj
     expect(loadProjectHooks).not.toHaveBeenCalled();
   } finally {
     vi.mocked(loadMcpServers).mockReturnValue({});
+    chat.eventStore.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+it('retains project hooks, settings, configured MCPs and legacy boot context under a runtime-only SDK fence', async () => {
+  vi.resetModules();
+  const root = await mkdtemp(join(tmpdir(), 'mitzo-sdk-runtime-only-start-'));
+  vi.stubEnv('REPO_PATH', root);
+  vi.stubEnv('WORKTREE_ENABLED', 'false');
+  vi.stubEnv('MITZO_KEYCHAIN_CONNECTIONS_ENABLED', '0');
+  vi.stubEnv('MITZO_WORKSPACE_RUNTIME_CONFIG', join(root, 'operator-enrollment.json'));
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{}')));
+  const { loadMcpServers } = await import('../mcp-config.js');
+  vi.mocked(loadMcpServers).mockReturnValue({
+    project: { command: '/bin/echo', args: ['synthetic MCP'] },
+  });
+  const { loadProjectHooks } = await import('../hook-bridge.js');
+  vi.mocked(loadProjectHooks).mockClear();
+  const projectHooks = { SessionStart: [{ hooks: [vi.fn()] }] };
+  vi.mocked(loadProjectHooks).mockReturnValue(projectHooks as never);
+  const boundary = await import('../credential-sdk-boundary.js');
+  const protectedCommands = await import('../protected-sdk-command.js');
+  const projectRunner = vi.fn().mockResolvedValue({
+    stdout: '{"additionalContext":"synthetic local boot context"}',
+    stderr: '',
+  });
+  const runnerFactory = vi
+    .spyOn(protectedCommands, 'createWorkspaceRuntimeCommandRunner')
+    .mockReturnValue(projectRunner);
+  const outerSpawn = vi.fn();
+  const fence = vi.spyOn(boundary, 'credentialSdkBoundary').mockReturnValue({
+    credentialIsolation: false,
+    deniedRoots: [],
+    spawnClaudeCodeProcess: outerSpawn,
+  });
+  await mkdir(join(root, 'scripts'));
+  await writeFile(
+    join(root, 'scripts', 'build_boot_context.py'),
+    `print('{"additionalContext":"synthetic local boot context"}')\n`,
+  );
+  const send = vi.fn();
+  const chat = await import('../chat.js');
+  const { query } = await import('@anthropic-ai/claude-agent-sdk');
+  let inspected = false;
+  vi.mocked(query).mockImplementation(({ options }) => {
+    expect(options?.spawnClaudeCodeProcess).toBe(outerSpawn);
+    expect(options?.settingSources).toEqual(['project']);
+    expect(options?.strictMcpConfig).toBeUndefined();
+    expect(options?.mcpServers).toHaveProperty('project');
+    expect(options?.allowedTools).toContain('mcp__project__*');
+    expect(options?.hooks?.SessionStart).toBe(projectHooks.SessionStart);
+    inspected = true;
+    throw new Error('fixture stops before any model request');
+  });
+  try {
+    await chat.startChat({ send, isOpen: () => true }, 'runtime-only-sdk', 'hello', {
+      cwd: root,
+      isolation: false,
+      mode: 'auto',
+    });
+    expect(inspected).toBe(true);
+    expect(loadProjectHooks).toHaveBeenCalledWith(root, expect.any(Object), projectRunner);
+    expect(projectRunner).toHaveBeenCalledWith(
+      'python3',
+      [join(root, 'scripts', 'build_boot_context.py'), '--json'],
+      expect.objectContaining({ cwd: root, timeout: 5000 }),
+    );
+    expect(send.mock.calls.map(([message]) => message)).toContainEqual(
+      expect.objectContaining({
+        type: 'boot_context',
+        fullMarkdown: 'synthetic local boot context',
+      }),
+    );
+    expect(outerSpawn).not.toHaveBeenCalled();
+  } finally {
+    fence.mockRestore();
+    runnerFactory.mockRestore();
+    vi.mocked(loadProjectHooks).mockReturnValue(undefined);
+    vi.mocked(loadMcpServers).mockReturnValue({});
+    chat.registry.dispose();
     chat.eventStore.close();
     await rm(root, { recursive: true, force: true });
   }

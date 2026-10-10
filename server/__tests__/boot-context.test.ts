@@ -95,6 +95,156 @@ describe('fetchBootContext', () => {
     }
   });
 
+  it.each(['unreachable', 'http-error', 'missing-boot', 'malformed-json'])(
+    'uses the protected runner for %s fallback without a host subprocess',
+    async (failure) => {
+      if (failure === 'unreachable') mockFetch.mockRejectedValueOnce(new Error('offline fixture'));
+      else if (failure === 'http-error')
+        mockFetch.mockResolvedValueOnce({ ok: false, status: 503, text: async () => 'offline' });
+      else if (failure === 'missing-boot')
+        mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ agent: 'fixture' }) });
+      else
+        mockFetch.mockResolvedValueOnce({
+          ok: true,
+          json: async () => {
+            throw new SyntaxError('offline malformed fixture');
+          },
+        });
+      const protectedRunner = vi.fn().mockResolvedValue({
+        stdout: JSON.stringify({ additionalContext: '# Protected boot context' }),
+        stderr: 'fixture progress',
+      });
+      const marker = 'MITZO_BOOT_CONTEXT_FIXTURE_ENV';
+      const original = process.env[marker];
+      process.env[marker] = 'preserved-fixture';
+      try {
+        const result = await fetchBootContext(
+          'fixture',
+          CONTEXGIN_URL,
+          '/fake/repo',
+          true,
+          protectedRunner,
+        );
+        expect(protectedRunner).toHaveBeenCalledOnce();
+        const [command, args, options] = protectedRunner.mock.calls[0]!;
+        expect(command).toBe('python3');
+        expect(args).toEqual(['/fake/repo/scripts/build_boot_context.py', '--json']);
+        expect(options.cwd).toBe('/fake/repo');
+        expect(options.timeout).toBe(5000);
+        expect(options.env[marker]).toBe('preserved-fixture');
+        expect(mockExecFile).not.toHaveBeenCalled();
+        expect(result.source).toBe('local-fallback');
+        expect(result.sourceCount).toBe(5);
+        expect(result.fullMarkdown).toBe('# Protected boot context');
+        expect(result.tokenCount).toBe(Math.ceil('# Protected boot context'.length / 4));
+      } finally {
+        if (original === undefined) delete process.env[marker];
+        else process.env[marker] = original;
+      }
+    },
+  );
+
+  it.each(['runner-rejection', 'invalid-output'])(
+    'returns the same empty fallback on protected %s without unfenced retry',
+    async (failure) => {
+      mockFetch.mockRejectedValueOnce(new Error('offline fixture'));
+      const protectedRunner = vi.fn();
+      if (failure === 'runner-rejection')
+        protectedRunner.mockRejectedValueOnce(new Error('fixture failure'));
+      else protectedRunner.mockResolvedValueOnce({ stdout: 'not-json', stderr: '' });
+      const result = await fetchBootContext(
+        'fixture',
+        CONTEXGIN_URL,
+        '/fake/repo',
+        true,
+        protectedRunner,
+      );
+      expect(protectedRunner).toHaveBeenCalledOnce();
+      expect(mockExecFile).not.toHaveBeenCalled();
+      expect(result).toEqual({
+        type: 'boot_context',
+        source: 'local-fallback',
+        sourceCount: 0,
+        tokenCount: 0,
+        tokenBudget: 0,
+        sources: [],
+        included: [],
+        trimmed: [],
+      });
+    },
+  );
+
+  it('keeps credential-isolated executable fallback disabled with a runner supplied', async () => {
+    mockFetch.mockRejectedValueOnce(new Error('offline fixture'));
+    const protectedRunner = vi.fn();
+    const result = await fetchBootContext(
+      'fixture',
+      CONTEXGIN_URL,
+      '/fake/repo',
+      false,
+      protectedRunner,
+    );
+    expect(protectedRunner).not.toHaveBeenCalled();
+    expect(mockExecFile).not.toHaveBeenCalled();
+    expect(result.sourceCount).toBe(0);
+  });
+
+  it('does not execute the protected runner when ContexGin succeeds', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ boot: { content: 'server fixture', sources: [] } }),
+    });
+    const protectedRunner = vi.fn();
+    const result = await fetchBootContext(
+      'fixture',
+      CONTEXGIN_URL,
+      '/fake/repo',
+      true,
+      protectedRunner,
+    );
+    expect(protectedRunner).not.toHaveBeenCalled();
+    expect(mockExecFile).not.toHaveBeenCalled();
+    expect(result.source).toBe('contexgin');
+  });
+
+  it('protects an enrolled direct fetch caller without an explicit runner', async () => {
+    const commands = await import('../protected-sdk-command.js');
+    const runner = vi.fn().mockResolvedValue({
+      stdout: JSON.stringify({ additionalContext: 'protected direct caller' }),
+      stderr: '',
+    });
+    const factory = vi
+      .spyOn(commands, 'createWorkspaceRuntimeCommandRunner')
+      .mockReturnValue(runner);
+    mockFetch.mockRejectedValueOnce(new Error('offline fixture'));
+    try {
+      const result = await fetchBootContext('fixture', CONTEXGIN_URL, '/fake/repo');
+      expect(runner).toHaveBeenCalledOnce();
+      expect(mockExecFile).not.toHaveBeenCalled();
+      expect(result.fullMarkdown).toBe('protected direct caller');
+    } finally {
+      factory.mockRestore();
+    }
+  });
+
+  it('does not retry unfenced execution when runtime protection cannot initialize', async () => {
+    const commands = await import('../protected-sdk-command.js');
+    const factory = vi
+      .spyOn(commands, 'createWorkspaceRuntimeCommandRunner')
+      .mockImplementation(() => {
+        throw new Error('offline protection unavailable');
+      });
+    mockFetch.mockRejectedValueOnce(new Error('offline fixture'));
+    try {
+      const result = await fetchBootContext('fixture', CONTEXGIN_URL, '/fake/repo');
+      expect(mockExecFile).not.toHaveBeenCalled();
+      expect(result.sourceCount).toBe(0);
+      expect(result.fullMarkdown).toBeUndefined();
+    } finally {
+      factory.mockRestore();
+    }
+  });
+
   it('returns contexgin boot context on successful response', async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,

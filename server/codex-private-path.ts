@@ -1,4 +1,5 @@
 import { configuredKnowledgeLibraryPrivatePaths } from './knowledge-library-private-paths.js';
+import { workspaceRuntimePrivateFiles } from './workspace-runtime-private-paths.js';
 import { realpathSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { homedir } from 'node:os';
@@ -27,6 +28,7 @@ export function protectCodexProfileRoots(roots: string[]) {
 
 export function privateCodexRoots(extraRoots: string[] = []): string[] {
   protectCodexProfileRoots(configuredKnowledgeLibraryPrivatePaths());
+  protectCodexProfileRoots(workspaceRuntimePrivateFiles());
   return [
     codexPrivateDirectory(),
     process.env.CODEX_HOME || join(homedir(), '.codex'),
@@ -64,6 +66,21 @@ export function isPrivateCodexPath(path: string, extraRoots: string[] = []) {
   });
 }
 
+/** Freeze known private roots for one delivery/query, retaining canonical alias checks. */
+export function privateCodexPathSnapshot() {
+  const roots = privateCodexRoots();
+  return {
+    roots,
+    isPrivate: (path: string) => {
+      const target = canonical(path);
+      return roots.some((root) => {
+        const rel = relative(root, target);
+        return rel === '' || (!isAbsolute(rel) && rel !== '..' && !rel.startsWith('../'));
+      });
+    },
+  };
+}
+
 /** Snapshot once per request. Keep all previously known login roots protected even
  * when an account is removed or its configuration becomes temporarily unreadable.
  * Before the first valid snapshot, unknown private roots require fail-closed access.
@@ -75,6 +92,7 @@ export function createCodexPathProtection(loadRoots: () => string[]) {
     // Fail closed even when account-profile roots were observed previously.
     try {
       protectCodexProfileRoots(configuredKnowledgeLibraryPrivatePaths());
+      protectCodexProfileRoots(workspaceRuntimePrivateFiles());
     } catch {
       return () => true;
     }

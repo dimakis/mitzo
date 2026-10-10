@@ -8,6 +8,7 @@ import { TmuxTerminalBackend } from './terminal-backend.js';
 import { createTerminalTargetResolver } from './terminal-targets.js';
 import { createTerminalRouter } from './terminal-router.js';
 import { getTerminalPlanAdviserHost } from './terminal-plan-adviser.js';
+import { createWorkspaceRuntimeCommandRunner } from './protected-sdk-command.js';
 import { createPersonalRoutingDiagnosticHandler } from './symposium-routing-diagnostic-route.js';
 import { createRepositoryWorkspaceRouter } from './repository-workspace-router.js';
 import {
@@ -139,6 +140,7 @@ import {
 } from './codex-chat-session.js';
 import { createCodexQueueRouter } from './codex-queue-routes.js';
 import { createCodexPathProtection } from './codex-private-path.js';
+import { isWorkspaceRuntimeAuthorityWritePath } from './workspace-runtime-private-paths.js';
 import { selectedOpenShellAccountRoute } from './codex-chat-session.js';
 import { openShellRuntimeConfig, OpenShellRuntimeManager } from './openshell-runtime.js';
 import { readOpenShellArtifact, OpenShellArtifactReadError } from './openshell-artifact-reader.js';
@@ -293,7 +295,15 @@ import type { WorkflowTemplateStore, TemplateCreateInput } from './workflow-temp
 import { instantiateTemplate } from './workflow-templates.js';
 import type { SignalProcessor } from './signal-processor.js';
 import { listInboxItems, readInboxItem, approveInboxItem, createInboxItem } from './inbox.js';
-import { getLatestMorningBriefing, readMorningBriefing } from './briefings.js';
+import {
+  getLatestMorningBriefing,
+  readMorningBriefing,
+  readMorningBriefingSnapshot,
+} from './briefings.js';
+import {
+  createWorkspaceRuntimeClient,
+  workspaceRuntimeConfigured,
+} from './workspace-runtime-client.js';
 import { createHomeRouter } from './home-router.js';
 import { HomeStore } from './home-store.js';
 import { readQuoteCatalog } from './quote-catalog.js';
@@ -642,6 +652,7 @@ export const notificationCenter = new NotificationCenter(
     sessionTitle: (id) => eventStore.getSession(id)?.summary ?? undefined,
   },
 );
+const inboxRouter = unifiedInboxRouter(notificationCenter, () => getRepoConfig().resolvedInboxPath);
 setNotificationCenter(notificationCenter);
 if (process.env.NODE_ENV !== 'test') notificationCenter.start();
 
@@ -3737,7 +3748,7 @@ app.put('/api/files/write', async (req, res) => {
   }
 
   const filePath = resolveArtifactPath(requestedPath, sessionId);
-  if (!isAllowedPath(filePath, sessionId)) {
+  if (!isAllowedPath(filePath, sessionId) || isWorkspaceRuntimeAuthorityWritePath(filePath)) {
     res.status(403).json({ error: 'Path not allowed' });
     return;
   }
@@ -3761,37 +3772,77 @@ app.put('/api/files/write', async (req, res) => {
 
 // --- Inbox API ---
 
+/** Today and Home must select the same enrolled report under existing file authority. */
+async function selectRuntimeBriefing(date: string, signal?: AbortSignal) {
+  const client = createWorkspaceRuntimeClient(process.env.MITZO_WORKSPACE_RUNTIME_CONFIG ?? '');
+  if (!isAllowedPath(client.briefingsRoot)) throw new Error('Briefing root is not readable');
+  const briefing = await client.latestBriefing({ date }, signal);
+  if (briefing && !isAllowedPath(briefing.path))
+    throw new Error('Briefing artifact is not readable');
+  return briefing;
+}
+
 app.use(
   '/api/home',
   createHomeRouter({
     store: new HomeStore(join(BASE_REPO || '.', '.mitzo', 'home.json')),
     catalog: readQuoteCatalog,
-    briefing: (date) => readMorningBriefing(BASE_REPO || '.', date),
+    briefing: async (date, signal) => {
+      if (!workspaceRuntimeConfigured()) return readMorningBriefing(BASE_REPO || '.', date);
+      const selected = await selectRuntimeBriefing(date, signal);
+      return selected ? readMorningBriefingSnapshot(selected) : null;
+    },
     session: (id) => eventStore.getSession(id),
     changed: () => sseRegistry.broadcast('home_preferences', {}),
   }),
 );
 
-app.get('/api/briefings/latest', (req, res) => {
+app.get('/api/briefings/latest', async (req, res) => {
   const date = typeof req.query.date === 'string' ? req.query.date : '';
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
     res.status(400).json({ error: 'date must be YYYY-MM-DD' });
     return;
   }
-  res.json(getLatestMorningBriefing(BASE_REPO, date));
+  if (workspaceRuntimeConfigured()) {
+    const controller = new AbortController();
+    const cancel = () => {
+      if (!res.writableEnded) controller.abort();
+    };
+    res.once('close', cancel);
+    try {
+      const briefing = await selectRuntimeBriefing(date, controller.signal);
+      res.json(briefing);
+    } catch {
+      if (!res.destroyed) res.status(503).json({ error: 'Workspace runtime briefing unavailable' });
+    } finally {
+      res.removeListener('close', cancel);
+    }
+    return;
+  }
+  try {
+    res.json(getLatestMorningBriefing(BASE_REPO, date));
+  } catch {
+    res.status(503).json({ error: 'Saved briefing unavailable' });
+  }
 });
 
-app.use(
-  '/api/inbox',
-  unifiedInboxRouter(notificationCenter, () => getRepoConfig().resolvedInboxPath),
-);
+app.use('/api/inbox', inboxRouter);
 app.get('/api/inbox', (_req, res) => {
   const inboxPath = getRepoConfig().resolvedInboxPath;
   if (!inboxPath) {
     res.json([]);
     return;
   }
-  res.json(listInboxItems(inboxPath));
+  const privatePath = privatePathSnapshot();
+  res.json(
+    listInboxItems(inboxPath).filter((item) => {
+      try {
+        return !privatePath(join(inboxPath, item.filename));
+      } catch {
+        return false;
+      }
+    }),
+  );
 });
 
 app.post('/api/inbox', (req, res) => {
@@ -3818,6 +3869,30 @@ app.post('/api/inbox', (req, res) => {
   notificationCenter.update(item.filename, item.title, item.preview, item.filename);
   res.status(201).json(item);
   broadcastInboxUpdate();
+});
+
+// Inbox archive/delete can move documents too; enrolled operator authority is
+// never a document, including a JSON file with an .md filename.
+app.use('/api/inbox/:filename', (req, res, next) => {
+  const inboxPath = getRepoConfig().resolvedInboxPath;
+  if (!inboxPath) return next();
+  try {
+    const source = join(inboxPath, req.params.filename);
+    const privatePath = privatePathSnapshot();
+    const mutating = req.method !== 'GET' && req.method !== 'HEAD';
+    const destination = join(inboxPath, 'archive', req.params.filename);
+    if (
+      !privatePath(source) &&
+      (!mutating ||
+        (!isWorkspaceRuntimeAuthorityWritePath(source) &&
+          !privatePath(destination) &&
+          !isWorkspaceRuntimeAuthorityWritePath(destination)))
+    )
+      return next();
+  } catch {
+    /* Unreadable authority fails closed. */
+  }
+  res.status(403).json({ error: 'Path not allowed' });
 });
 
 app.get('/api/inbox/:filename', (req, res) => {
@@ -3950,7 +4025,23 @@ app.post('/api/push/notification-action', async (req, res) => {
 
 // --- Calendar API ---
 
-const execFileAsync = promisify(execFile);
+const legacyExecFileAsync = promisify(execFile);
+async function execFileAsync(
+  command: string,
+  args: string[],
+  options: { timeout: number; maxBuffer?: number },
+) {
+  // Mutable workspace entrypoints run with the same authority fence as hooks.
+  // An unavailable enrolled fence must never fall back to controller execution.
+  const protectedRunner = createWorkspaceRuntimeCommandRunner();
+  if (protectedRunner)
+    return protectedRunner(command, args, {
+      ...options,
+      cwd: process.cwd(),
+      env: process.env,
+    });
+  return legacyExecFileAsync(command, args, options);
+}
 const CALENDAR_SCRIPT = join(BASE_REPO, 'command_center', 'calendar_api.py');
 const CALENDAR_TIMEOUT_MS = 20_000;
 
@@ -3975,6 +4066,23 @@ app.get('/api/calendar', async (req, res) => {
       error,
     };
   };
+
+  if (workspaceRuntimeConfigured()) {
+    const controller = new AbortController();
+    const cancel = () => {
+      if (!res.writableEnded) controller.abort();
+    };
+    res.once('close', cancel);
+    try {
+      const client = createWorkspaceRuntimeClient(process.env.MITZO_WORKSPACE_RUNTIME_CONFIG ?? '');
+      res.json(await client.calendar({ date: dateParam, days: daysParam }, controller.signal));
+    } catch {
+      if (!res.destroyed) res.json(emptyResponse('Workspace runtime calendar unavailable'));
+    } finally {
+      res.removeListener('close', cancel);
+    }
+    return;
+  }
 
   // calendar_api.py lives in the mgmt repo (REPO_PATH), not in Mitzo
   if (!existsSync(CALENDAR_SCRIPT)) {

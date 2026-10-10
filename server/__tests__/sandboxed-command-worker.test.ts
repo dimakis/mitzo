@@ -125,3 +125,87 @@ it('transfers target environment over a pipe only after the OS sandbox, never th
   });
   expect(spawn.mock.calls[0][2].env).toBe(process.env);
 });
+
+it('uses a filesystem-only OS wrapper without initializing network proxies and preserves target environment transfer', async () => {
+  const { payload, manager, spawn } = fixture();
+  payload.filesystemOnly = true;
+  payload.env = {
+    AUTH_SECRET: 'synthetic project secret',
+    CUSTOM_MCP_TOKEN: 'synthetic MCP token',
+  };
+  const transfer = new PassThrough();
+  const chunks: Buffer[] = [];
+  transfer.on('data', (data) => chunks.push(data));
+  spawn.mockImplementation(() => {
+    const child = Object.assign(new EventEmitter(), { stdio: [null, null, null, transfer] });
+    queueMicrotask(() => child.emit('close', 0, null));
+    return child;
+  });
+  const wrapFilesystem = vi.fn().mockResolvedValue('filesystem-only command');
+  expect(
+    await runSandboxedWorker(payload, {
+      manager,
+      spawn: spawn as never,
+      platform: 'darwin',
+      wrapFilesystem,
+    }),
+  ).toBe(0);
+  expect(manager.initialize).not.toHaveBeenCalled();
+  expect(manager.wrapWithSandbox).not.toHaveBeenCalled();
+  expect(wrapFilesystem).toHaveBeenCalledWith(expect.stringContaining('fd: 3'), payload.config);
+  expect(spawn.mock.calls[0][1]).toEqual(['-c', 'filesystem-only command']);
+  expect(JSON.parse(Buffer.concat(chunks).toString()).env).toEqual(payload.env);
+});
+
+it('rejects malformed filesystem-only mode and unsupported platforms before executing a child', async () => {
+  const { payload, manager, spawn } = fixture();
+  payload.filesystemOnly = 'true' as never;
+  await expect(runSandboxedWorker(payload, { manager, spawn: spawn as never })).rejects.toThrow(
+    /filesystem-only/,
+  );
+  payload.filesystemOnly = true;
+  await expect(
+    runSandboxedWorker(payload, { manager, spawn: spawn as never, platform: 'linux' }),
+  ).rejects.toThrow(/macOS/);
+  expect(manager.initialize).not.toHaveBeenCalled();
+  expect(spawn).not.toHaveBeenCalled();
+});
+
+it('rechecks filesystem-only authority after wrapper preparation and before child spawn', async () => {
+  const { payload, manager, spawn } = fixture();
+  payload.filesystemOnly = true;
+  const wrapFilesystem = vi.fn(async () => {
+    renameSync(root, root + '-old');
+    mkdirSync(root);
+    return 'filesystem-only command';
+  });
+  await expect(
+    runSandboxedWorker(payload, {
+      manager,
+      spawn: spawn as never,
+      platform: 'darwin',
+      wrapFilesystem,
+    }),
+  ).rejects.toThrow(/Sandbox authority changed/);
+  expect(spawn).not.toHaveBeenCalled();
+});
+
+it('builds runtime-only policy with unrestricted networking and filesystem fencing while denying AppleEvents delegation', async () => {
+  const { payload, manager, spawn } = fixture();
+  payload.filesystemOnly = true;
+  const secret = join(root, 'operator.json');
+  await writeFile(secret, 'synthetic metadata');
+  payload.config.filesystem.denyRead = [secret];
+  payload.config.filesystem.denyWrite = [secret];
+  expect(
+    await runSandboxedWorker(payload, { manager, spawn: spawn as never, platform: 'darwin' }),
+  ).toBe(0);
+  const command = spawn.mock.calls[0][1][1];
+  expect(command).toContain('(allow network*)');
+  expect(command).not.toContain('(deny network');
+  expect(command).toContain('(global-name-prefix "")');
+  expect(command).not.toContain('(allow appleevent-send)');
+  expect(command).toMatch(/\(deny default(?:\s|\))/);
+  expect(command).toContain(secret);
+  expect(manager.initialize).not.toHaveBeenCalled();
+});

@@ -18,6 +18,11 @@ import { z } from 'zod';
 import { loadAccountProfiles } from './account-profiles.js';
 import { createCodexPathProtection, privateCodexRoots } from './codex-private-path.js';
 import {
+  workspaceRuntimeAuthorityPaths,
+  workspaceRuntimeSelectorEntries,
+  isWorkspaceRuntimeAuthorityWritePath,
+} from './workspace-runtime-private-paths.js';
+import {
   buildPermissionHandler,
   effectivePermissionMode,
   checkSkillPolicy,
@@ -194,6 +199,8 @@ export function createNativeToolExecutor(
         >();
         for (const requested of parsed.data.files) {
           const canonical = await canonicalPath(resolve(root, requested));
+          if (privatePathSnapshot()(canonical) || isWorkspaceRuntimeAuthorityWritePath(canonical))
+            return result('Private provider storage or runtime authority is unavailable', true);
           if (canonical === root || !canonical.startsWith(root + '/'))
             return result('Git commit path is outside the session workspace', true);
           const info = await lstat(canonical).catch((error: NodeJS.ErrnoException) => {
@@ -277,6 +284,29 @@ export function createNativeToolExecutor(
           ? [...session.worktreePaths.values()].map((entry) => entry.path)
           : [session.cwd];
         const writableRoots = await Promise.all(roots.map((p) => realpath(p)));
+        const selectedAuthority = workspaceRuntimeAuthorityPaths();
+        const runtimeAuthority = [
+          ...selectedAuthority,
+          ...(await Promise.all(selectedAuthority.map(canonicalPath))),
+        ];
+        const selectorEntries = workspaceRuntimeSelectorEntries();
+        if (
+          writableRoots.some((root) =>
+            selectorEntries.some((entry) => entry === root || entry.startsWith(root + '/')),
+          ) ||
+          writableRoots.some((root) =>
+            runtimeAuthority.some(
+              (authority) =>
+                root === authority ||
+                authority.startsWith(root + '/') ||
+                root.startsWith(authority + '/'),
+            ),
+          )
+        )
+          return result(
+            'Command workspace overlaps workspace runtime authority. Move operator enrollment and runtime files outside writable task roots.',
+            true,
+          );
         if (writableRoots.some((p) => privatePathSnapshot()(p)))
           return result('Private provider storage is unavailable', true);
         const output = await executeSandboxedCommand({
@@ -325,6 +355,8 @@ export function createNativeToolExecutor(
       input.file_path = approvedPath;
       if (isPrivate(input.file_path))
         return result('Private provider storage is unavailable', true);
+      if (block.name !== 'Read' && isWorkspaceRuntimeAuthorityWritePath(approvedPath))
+        return result('Workspace runtime authority is unavailable for writes', true);
       // Present the checked path under the registry's original root alias. This keeps
       // the shared guard and lazy creation working without mutating registry entries.
       const root = roots.find(
@@ -355,7 +387,8 @@ export function createNativeToolExecutor(
         return result('Tool input changed during approval; retry the tool', true);
       if (
         (await canonicalPath(input.file_path)) !== approvedPath ||
-        privatePathSnapshot()(input.file_path)
+        privatePathSnapshot()(input.file_path) ||
+        (block.name !== 'Read' && isWorkspaceRuntimeAuthorityWritePath(input.file_path))
       )
         return result('Tool path changed or became private during approval; retry the tool', true);
       if (
