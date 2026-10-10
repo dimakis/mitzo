@@ -156,7 +156,7 @@ export class OpenAIKeyManagement {
     const unresolvedLegacyChange =
       !completed &&
       keychain.version === null &&
-      !!this.options.store.unresolvedLegacyChange(account.id);
+      !!this.options.store.unresolvedLegacyChange(account.id, binding);
     const ready =
       !pending &&
       !bindingChanged &&

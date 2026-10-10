@@ -631,3 +631,38 @@ it('preserves unresolved legacy drift across failed retries and restart until re
   ).toMatchObject({ health: 'ready' });
   expect(await restarted.resolveKey('work', signal())).toBe('verified-replacement');
 });
+
+it('preserves legacy account binding drift across failed retries and restart until replacement completes', async () => {
+  const f = fixture();
+  f.gateway.pause.mockRejectedValueOnce(new Error('unsafe drain'));
+  await f.replace();
+  f.setAccounts([
+    { ...account, credentialRef: { ...account.credentialRef, account: 'new-reference' } },
+  ]);
+  expect((await f.manager.list(signal()))[0]).toMatchObject({
+    health: 'needs_attention',
+    canSynchronize: false,
+  });
+  for (let attempt = 0; attempt < 2; attempt++) {
+    f.gateway.pause.mockRejectedValueOnce(new Error('unsafe drain'));
+    expect(await f.replace()).toMatchObject({ health: 'needs_attention', canSynchronize: false });
+    await expect(f.manager.resolveKey('work', signal())).rejects.toThrow('need attention');
+  }
+  const reopened = new OpenAIKeyOperationStore(f.path);
+  stores.push(reopened);
+  const restarted = new OpenAIKeyManagement({ ...f.options, store: reopened });
+  await expect(restarted.assertReady('work', signal())).rejects.toThrow('need attention');
+  await expect(
+    restarted.synchronize({ accountId: 'work', revision: await f.revision() }, signal()),
+  ).rejects.toThrow('Replacement key must be entered again');
+  expect(f.keychain.write).not.toHaveBeenCalled();
+  f.gateway.replace.mockRejectedValueOnce(new Error('interrupted gateway update'));
+  expect(await f.replace('verified-replacement')).toMatchObject({
+    health: 'needs_attention',
+    canSynchronize: true,
+  });
+  expect(
+    await restarted.synchronize({ accountId: 'work', revision: await f.revision() }, signal()),
+  ).toMatchObject({ health: 'ready' });
+  expect(await restarted.resolveKey('work', signal())).toBe('verified-replacement');
+});

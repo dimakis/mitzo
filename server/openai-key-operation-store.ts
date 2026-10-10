@@ -94,18 +94,18 @@ export class OpenAIKeyOperationStore {
       )
       .get(accountId) as KeyOperation | undefined;
   }
-  unresolvedLegacyChange(accountId: string): KeyOperation | undefined {
-    // Failed attempts do not reconcile an earlier unversioned credential edit.
+  unresolvedLegacyChange(accountId: string, binding: string): KeyOperation | undefined {
+    // Failed attempts do not reconcile an earlier credential edit or binding change.
     // Only a later completed replacement receipt clears that history.
     return this.db
       .prepare(
         `SELECT * FROM openai_key_operations WHERE accountId=?
-        AND phase='aborted' AND errorCode='ACCOUNT_CHANGED'
+        AND ((phase='aborted' AND errorCode='ACCOUNT_CHANGED') OR binding != ?)
         AND revision > COALESCE((SELECT MAX(revision) FROM openai_key_operations
           WHERE accountId=? AND phase='complete'), 0)
         ORDER BY revision DESC LIMIT 1`,
       )
-      .get(accountId, accountId) as KeyOperation | undefined;
+      .get(accountId, binding, accountId) as KeyOperation | undefined;
   }
   pending(): KeyOperation[] {
     return this.db
