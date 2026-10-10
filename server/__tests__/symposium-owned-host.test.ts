@@ -1630,7 +1630,9 @@ it('keeps routing diagnostic construction absent for ordinary and unqualified ow
   await expect(createOwnedSymposiumHost(unsupported.options, unsupported.launch)).rejects.toThrow();
   expect(unsupported.launch).not.toHaveBeenCalled();
 });
-function diagnosticFixture() {
+function diagnosticFixture(
+  selection: 'local-854b-routing-v1' | 'local-854b-routing-v2' = 'local-854b-routing-v1',
+) {
   const f = fixture();
   const build = {
     ...runtimeContract.REVIEWED_SYMPOSIUM_CODEX_01591_IDENTITY_RUNTIME.build,
@@ -1639,13 +1641,13 @@ function diagnosticFixture() {
     supervisorImage: 'sha256:' + '3'.repeat(64),
   };
   vi.spyOn(runtimeContract, 'reviewedSymposiumRoutingDiagnosticBuild').mockImplementation(
-    (image, selection) => {
-      if (image !== build.image || selection !== 'local-854b-routing-v1')
+    (image, selected) => {
+      if (image !== build.image || selected !== selection)
         throw Error('Unqualified diagnostic tuple');
       return build as never;
     },
   );
-  f.options.admissionBuildSelection = 'local-854b-routing-v1';
+  f.options.admissionBuildSelection = selection;
   Object.assign(f.options.gateway, {
     workloadImage: build.image,
     cliSha256: build.cliSha256,
@@ -1659,10 +1661,31 @@ function diagnosticFixture() {
   writeFileSync(join(f.root, 'gateway.toml'), 'owned config', { mode: 0o400 });
   return { ...f, build, verifyNative };
 }
-it.each(['complete', 'failed', 'reconciliation_required'] as const)(
-  'wires only the qualified routing mode and retains positive original cleanup for %s before a late receipt change',
-  async (status) => {
-    const f = diagnosticFixture(),
+it('passes v2 diagnostic authority only from the trusted exact constructor tuple', async () => {
+  const f = diagnosticFixture('local-854b-routing-v2');
+  const compose = vi.spyOn(personalHost, 'createPersonalSubscriptionHost');
+  const host = await createOwnedSymposiumHost(f.options, f.launch);
+  try {
+    expect(compose.mock.calls[0][3]).toBeTypeOf('function');
+    expect(runtimeContract.reviewedSymposiumRoutingDiagnosticBuild).toHaveBeenCalledWith(
+      f.build.image,
+      'local-854b-routing-v2',
+    );
+  } finally {
+    host.stop();
+  }
+});
+it.each([
+  ['local-854b-routing-v1', 'complete'],
+  ['local-854b-routing-v1', 'failed'],
+  ['local-854b-routing-v1', 'reconciliation_required'],
+  ['local-854b-routing-v2', 'complete'],
+  ['local-854b-routing-v2', 'failed'],
+  ['local-854b-routing-v2', 'reconciliation_required'],
+] as const)(
+  'wires only %s and retains positive original cleanup for %s before a late receipt change',
+  async (selection, status) => {
+    const f = diagnosticFixture(selection),
       compose = vi.spyOn(personalHost, 'createPersonalSubscriptionHost');
     let journal: discoveryCore.DiscoveryReceipt | undefined;
     const raw = {
