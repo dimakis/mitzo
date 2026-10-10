@@ -31,6 +31,8 @@ Initial support covers regular-file GitHub projects up to 10,000 files and 64 Mi
 
 ## Features
 
+- **Mobile terminal** — open a persistent Mac shell from More or a chat’s environment from composer tools. Shared masthead, collapsible controls, command history and reviewed output sharing. Minion offers independent account/model/thinking selection and editable suggestions without execution tools; API and Vertex advisers are supported, while personal ChatGPT advisers need a separate isolated adapter. Rename the shared helper in Settings. See [mobile terminal](docs/features/mobile-terminal.md) for sandbox prerequisites and lifecycle boundaries.
+
 - **Connections with clear account evidence** — setup, authentication checks and last successful use are shown separately. Services show identity, configured permissions and scope; older credential checks do not imply a broken connection. Distinct GitHub providers are labelled, unused integrations produce no warning cards, and web access is explained separately. See [Connections](docs/features/connections.md).
 - **Connect services from your chat** — ask for a task that needs Home Assistant or a documented REST API. The assistant prepares the connection and opens a focused secure credential form; Mitzo verifies the key privately and returns readiness to the originating chat. Authentication settings stay out of the ordinary flow, and detailed agent guidance loads only when needed. See [Chat-led service connections](docs/features/chat-led-connections.md).
 
