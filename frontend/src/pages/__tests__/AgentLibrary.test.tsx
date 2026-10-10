@@ -229,6 +229,10 @@ it('offers an advisor chat that uses the existing profile proposal tool', async 
   expect(url.pathname).toBe('/chat');
   expect(url.searchParams.get('prompt')).toContain('SymposiumProposeProfile');
   expect(url.searchParams.get('prompt')).toContain('descriptor');
+  expect(url.searchParams.get('prompt')).toContain('contextRecipe');
+  expect(url.searchParams.get('prompt')).toContain('local chats');
+  expect(url.searchParams.get('prompt')).toContain('tokenBudget');
+  expect(url.searchParams.get('prompt')).toContain('OpenShell and Symposium');
 });
 
 it('recovers unsaved edits after navigation without replacing their save basis', async () => {
