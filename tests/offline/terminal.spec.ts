@@ -1,0 +1,222 @@
+import { expect, test } from '@playwright/test';
+import { readFile } from 'node:fs/promises';
+import { resolve, extname } from 'node:path';
+const mutations: { path: string; body: Record<string, unknown> }[] = [];
+test.beforeEach(async ({ page }) => {
+  mutations.length = 0;
+  await page.addInitScript(() => {
+    localStorage.setItem('mitzo-theme', 'dark');
+    const original = window.fetch;
+    window.fetch = async (input, init) => {
+      if (String(input).endsWith('/events') && String(input).includes('/api/terminals/')) {
+        return new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.enqueue(
+                new TextEncoder().encode(
+                  'data: ' +
+                    JSON.stringify({
+                      type: 'snapshot',
+                      data: '~/tools/mitzo\r\n❯ pwd\r\n/Users/operator/tools/mitzo\r\n❯ git status --short\r\n M frontend/src/pages/TerminalView.tsx\r\n❯ ',
+                      seq: 1,
+                    }) +
+                    '\n\n',
+                ),
+              );
+              init?.signal?.addEventListener('abort', () => {
+                try {
+                  controller.close();
+                } catch {}
+              });
+            },
+          }),
+          { headers: { 'Content-Type': 'text/event-stream' } },
+        );
+      }
+      return original(input, init);
+    };
+  });
+  await page.routeWebSocket('**/*', (socket) => socket.close());
+  await page.route('**/*', async (route) => {
+    const request = route.request(),
+      url = new URL(request.url());
+    if (url.hostname !== 'mitzo-ui.test') return route.abort();
+    if (url.pathname.startsWith('/api/')) {
+      if (request.method() !== 'GET')
+        mutations.push({ path: url.pathname, body: request.postDataJSON() ?? {} });
+      const body = request.method() === 'POST' ? request.postDataJSON() : undefined;
+      const data =
+        url.pathname === '/api/auth/check'
+          ? { authenticated: true }
+          : url.pathname === '/api/terminals'
+            ? {
+                id: 'term-offline',
+                kind: body?.sessionId ? 'sandbox' : 'host',
+                label: body?.sessionId ? 'This sandbox' : 'Your Mac',
+                cwd: body?.sessionId ? '/workspace/mitzo' : '/Users/operator',
+                state: 'running',
+                createdAt: 1,
+              }
+            : url.pathname === '/api/terminals/context'
+              ? {
+                  selection: { accountId: 'work', model: 'luna-test', reasoningEffort: 'low' },
+                  summary: { profile: 'Work OpenAI', model: 'Luna', thinking: 'Thinking: low' },
+                }
+              : url.pathname === '/api/terminals/accounts'
+                ? [
+                    {
+                      id: 'work',
+                      label: 'Work OpenAI',
+                      models: [
+                        {
+                          id: 'luna-test',
+                          label: 'Luna',
+                          reasoningEfforts: ['low', 'high'],
+                          defaultReasoningEffort: 'low',
+                        },
+                        {
+                          id: 'luna-fast-test',
+                          label: 'Luna Fast',
+                          reasoningEfforts: ['low', 'high'],
+                        },
+                      ],
+                    },
+                  ]
+                : url.pathname === '/api/terminals/destinations'
+                  ? [{ sessionId: 'chat-a', label: 'Explore terminal routing' }]
+                  : url.pathname.endsWith('/advice')
+                    ? { text: 'Check the working directory.\n```sh\npwd\n```', commands: ['pwd'] }
+                    : url.pathname === '/api/notifications'
+                      ? { items: [], needsYou: 0, unread: 0, total: 0, hasMore: false }
+                      : url.pathname === '/api/service-health'
+                        ? { services: [] }
+                        : url.pathname === '/api/config'
+                          ? { quickActions: [] }
+                          : {};
+      return route.fulfill({ json: data });
+    }
+    const root = resolve('frontend/dist'),
+      file =
+        url.pathname.startsWith('/assets/') || extname(url.pathname)
+          ? url.pathname.slice(1)
+          : 'index.html',
+      path = resolve(root, file);
+    if (!path.startsWith(root + '/')) return route.abort();
+    try {
+      await route.fulfill({
+        body: await readFile(path),
+        contentType:
+          (
+            {
+              '.js': 'application/javascript',
+              '.css': 'text/css',
+              '.html': 'text/html',
+              '.svg': 'image/svg+xml',
+              '.png': 'image/png',
+            } as Record<string, string>
+          )[extname(path)] ?? 'application/octet-stream',
+      });
+    } catch {
+      await route.fulfill({ status: 404, body: 'Missing offline asset' });
+    }
+  });
+});
+
+test('keeps the shared masthead and gives the terminal most of the mobile viewport', async ({
+  page,
+}, testInfo) => {
+  await page.goto('/more');
+  const mobile = testInfo.project.name.startsWith('mobile');
+  const brand = page.locator(
+    mobile ? '.mobile-workspace-masthead .mitzo-brand' : '.workspace-rail .mitzo-brand',
+  );
+  const before = await brand.boundingBox();
+  await page.getByRole('link', { name: 'Terminal', exact: true }).last().click();
+  await expect(page.getByRole('heading', { name: 'Terminal', exact: true })).toBeVisible();
+  await expect(page.getByRole('status')).toContainText('Connected');
+  expect(await brand.boundingBox()).toEqual(before);
+  expect(
+    await page
+      .locator('.terminal-console')
+      .evaluate((element) => element.getBoundingClientRect().height),
+  ).toBeGreaterThan(200);
+  expect(await page.locator('body').evaluate((element) => element.scrollWidth <= innerWidth)).toBe(
+    true,
+  );
+  await page.screenshot({ path: testInfo.outputPath('terminal-collapsed.png') });
+  const height = await page
+    .locator('.terminal-console')
+    .evaluate((element) => element.getBoundingClientRect().height);
+  await page.getByRole('button', { name: 'Collapse controls' }).click();
+  expect(
+    await page
+      .locator('.terminal-console')
+      .evaluate((element) => element.getBoundingClientRect().height),
+  ).toBeGreaterThan(height + 75);
+  await page.screenshot({ path: testInfo.outputPath('terminal-focus.png') });
+});
+
+test('reviews adviser output and stages commands before explicit execution', async ({
+  page,
+}, testInfo) => {
+  await page.goto('/terminal?sessionId=chat-a&returnTo=%2Fchat%2Fchat-a');
+  await expect(page.getByRole('status')).toContainText('Connected');
+  await expect(page.getByRole('link', { name: 'Back to chat' })).toHaveAttribute(
+    'href',
+    '/chat/chat-a',
+  );
+  await page.getByRole('button', { name: 'Show Minion' }).click();
+  await expect(page.getByLabel('Account', { exact: true })).toHaveValue('work');
+  await page.getByLabel('Thinking', { exact: true }).selectOption('high');
+  await page.getByRole('button', { name: 'Share output' }).click();
+  await page.getByLabel('Reviewed output').fill('Reviewed safe output');
+  await page.getByLabel('Ask Minion').fill('What should I check?');
+  await page.getByRole('button', { name: 'Ask adviser' }).click();
+  await page.getByRole('button', { name: 'Use pwd', exact: true }).click();
+  await expect(page.getByLabel('Command', { exact: true })).toHaveValue('pwd');
+  expect(mutations.filter((item) => item.path.endsWith('/input'))).toHaveLength(0);
+  expect(mutations.find((item) => item.path.endsWith('/advice'))?.body).toMatchObject({
+    accountId: 'work',
+    model: 'luna-test',
+    reasoningEffort: 'high',
+    output: 'Reviewed safe output',
+  });
+  await page.getByRole('button', { name: 'Hide Minion' }).click();
+  await page.getByRole('button', { name: 'Run command' }).click();
+  await expect(page.getByLabel('Command', { exact: true })).toHaveValue('');
+  expect(mutations.filter((item) => item.path.endsWith('/input'))).toEqual([
+    { path: '/api/terminals/term-offline/input', body: { data: 'pwd\r' } },
+  ]);
+  await page.getByRole('button', { name: 'Previous command' }).click();
+  await expect(page.getByLabel('Command', { exact: true })).toHaveValue('pwd');
+  await page.screenshot({ path: testInfo.outputPath('terminal-chat.png') });
+});
+
+test('keeps command and adviser input reachable when the phone keyboard reduces the viewport', async ({
+  page,
+}, testInfo) => {
+  test.skip(!testInfo.project.name.startsWith('mobile'), 'Phone keyboard layout');
+  await page.goto('/terminal');
+  await expect(page.getByRole('status')).toContainText('Connected');
+  const original = page.viewportSize()!;
+  await page.getByLabel('Command', { exact: true }).focus();
+  await page.setViewportSize({ ...original, height: 420 });
+  await expect
+    .poll(async () => {
+      const box = await page.getByLabel('Command', { exact: true }).boundingBox();
+      return box!.y + box!.height;
+    })
+    .toBeLessThanOrEqual(420);
+  await page.setViewportSize(original);
+  await page.getByRole('button', { name: 'Show controls' }).click();
+  await page.getByRole('button', { name: 'Show Minion' }).click();
+  await page.getByLabel('Ask Minion').focus();
+  await page.setViewportSize({ ...original, height: 420 });
+  await expect
+    .poll(async () => {
+      const box = await page.getByLabel('Ask Minion').boundingBox();
+      return box!.y + box!.height;
+    })
+    .toBeLessThanOrEqual(420);
+  await page.screenshot({ path: testInfo.outputPath('terminal-keyboard.png') });
+});

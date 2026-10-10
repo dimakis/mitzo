@@ -9,6 +9,7 @@ const primary = [
   { label: 'Work', icon: 'work' as const, path: '/todos', end: false },
 ];
 const secondary = [
+  { label: 'Terminal', icon: 'terminal' as const, path: '/terminal', end: false },
   { label: 'Notifications', icon: 'bell' as const, path: '/notifications', end: false },
   { label: 'Agents', icon: 'agents' as const, path: '/tasks', end: false },
   { label: 'Agent Library', icon: 'files' as const, path: '/agent-library', end: false },
@@ -17,7 +18,12 @@ const secondary = [
   { label: 'Connections', icon: 'connections' as const, path: '/connections-access', end: false },
 ];
 export function WorkspaceNav({ desktop = false }: { desktop?: boolean }) {
-  const { pathname } = useLocation();
+  const { pathname, search } = useLocation();
+  const parameters = new URLSearchParams(search);
+  const chatTerminal =
+    pathname === '/terminal' &&
+    (parameters.get('returnTo')?.startsWith('/chat') ||
+      (!parameters.has('returnTo') && parameters.has('sessionId')));
   const notifications = useNotifications();
   const items = [
     ...primary,
@@ -35,11 +41,14 @@ export function WorkspaceNav({ desktop = false }: { desktop?: boolean }) {
       {items.map(({ label, path, end, icon }) => {
         const active =
           (end ? pathname === path : pathname === path || pathname.startsWith(path + '/')) ||
-          (label === 'Chats' && (pathname === '/chat' || pathname.startsWith('/chat/'))) ||
+          (label === 'Chats' &&
+            (pathname === '/chat' || pathname.startsWith('/chat/') || chatTerminal)) ||
           (label === 'Connections' && pathname === '/connections') ||
           (!desktop &&
             label === 'More' &&
+            !chatTerminal &&
             [
+              '/terminal',
               '/notifications',
               '/tasks',
               '/agent-library',
