@@ -6,11 +6,27 @@ import { createTestStore } from '../../test-utils/createTestStore';
 import { usePendingLaunch } from '../usePendingLaunch';
 import type { SendMessageOptions } from '@mitzo/client';
 import { apiFetch } from '../../lib/api-fetch';
-vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
-afterEach(cleanup);
+vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn(), getApiBaseUrl: () => '' }));
+afterEach(() => {
+  cleanup();
+  localStorage.clear();
+  vi.resetAllMocks();
+});
 
 it('registers the exact briefing selection on assignment and preserves the caller observer', async () => {
-  vi.mocked(apiFetch).mockResolvedValue(new Response('{}', { status: 201 }));
+  vi.mocked(apiFetch).mockResolvedValue(
+    new Response(
+      JSON.stringify({
+        date: '2026-10-09',
+        revision: 'a'.repeat(64),
+        sessionId: 'briefing-session',
+        accountId: 'work',
+        model: 'luna',
+        createdAt: '2026-10-09T07:00:00Z',
+      }),
+      { status: 201 },
+    ),
+  );
   const store = createTestStore();
   let assigned: SendMessageOptions['onSessionAssigned'];
   store.setState({

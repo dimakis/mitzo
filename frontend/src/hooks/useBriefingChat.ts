@@ -1,3 +1,8 @@
+import {
+  confirmBriefingRegistration,
+  verifyBriefingRegistration,
+  useBriefingRegistration,
+} from '../lib/briefing-registration';
 import { useCallback, useEffect, useState } from 'react';
 import { useMitzoStore } from '@mitzo/client/hooks';
 import type { BriefingChatBinding } from '@mitzo/protocol';
@@ -24,6 +29,7 @@ function isBinding(value: unknown): value is BriefingChatBinding {
 
 /** Dated source identity survives normal rich-chat navigation and restore. */
 export function useBriefingChat(sessionId: string | null) {
+  const registration = useBriefingRegistration(sessionId);
   const launch = useMitzoStore((store) => store.pendingSession);
   const { preferences } = useHomePreferences();
   const [loaded, setLoaded] = useState<{
@@ -55,7 +61,10 @@ export function useBriefingChat(sessionId: string | null) {
         if (matches.length > 1 || (matches.length && !isBinding(matches[0])))
           throw new Error('Invalid saved binding');
         const binding: BriefingChatBinding | null = matches[0] ?? null;
-        if (!controller.signal.aborted) setLoaded({ sessionId, binding, attempt });
+        if (!controller.signal.aborted) {
+          if (binding) verifyBriefingRegistration(binding);
+          setLoaded({ sessionId, binding, attempt });
+        }
       } catch {
         if (!controller.signal.aborted)
           setLoaded((previous) => ({
@@ -69,8 +78,18 @@ export function useBriefingChat(sessionId: string | null) {
     })();
     return () => controller.abort();
   }, [sessionId, attempt]);
-  const binding = loaded?.sessionId === sessionId ? loaded.binding : null;
-  const error = loaded?.sessionId === sessionId ? loaded.error : undefined;
+  useEffect(() => {
+    if (loaded?.sessionId === sessionId && loaded.binding && !loaded.error)
+      confirmBriefingRegistration(loaded.binding);
+  }, [loaded, sessionId]);
+  const binding =
+    (loaded?.sessionId === sessionId ? loaded.binding : null) ??
+    registration.record?.binding ??
+    null;
+  const error =
+    (loaded?.sessionId === sessionId ? loaded.error : undefined) ||
+    registration.storageError ||
+    undefined;
   const loading = !!sessionId && (loaded?.sessionId !== sessionId || loaded.attempt !== attempt);
   const source = binding ?? (!sessionId ? launch?.briefing : null);
   return {

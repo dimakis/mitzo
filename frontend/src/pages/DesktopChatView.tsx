@@ -90,6 +90,7 @@ export function DesktopChatView() {
     sendMessage: storeSendMessage,
     sendLaunch,
     registrationError,
+    registrationSaving,
     retryRegistration,
   } = usePendingLaunch();
 
@@ -381,6 +382,7 @@ export function DesktopChatView() {
             }
             source={briefingChat.source}
             registrationError={registrationError}
+            registrationSaving={registrationSaving}
             retryRegistration={retryRegistration}
             lookupError={briefingChat.error}
             retryLookup={briefingChat.retry}

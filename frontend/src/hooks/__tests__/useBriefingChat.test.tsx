@@ -5,11 +5,15 @@ import { MitzoStoreProvider } from '@mitzo/client/hooks';
 import { createTestStore } from '../../test-utils/createTestStore';
 import { useBriefingChat } from '../useBriefingChat';
 import { apiFetch } from '../../lib/api-fetch';
-vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
+vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn(), getApiBaseUrl: () => '' }));
 vi.mock('../useHomePreferences', () => ({
   useHomePreferences: () => ({ preferences: { names: { briefing: 'Jeeves' } } }),
 }));
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  localStorage.clear();
+  vi.resetAllMocks();
+});
 it('recognizes a resumed briefing conversation by its persisted exact source revision', async () => {
   const binding = {
     sessionId: 'saved',

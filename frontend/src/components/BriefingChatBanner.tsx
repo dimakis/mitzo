@@ -12,6 +12,7 @@ export function BriefingChatBanner({
   name,
   source,
   registrationError,
+  registrationSaving,
   retryRegistration,
   lookupError,
   retryLookup,
@@ -22,6 +23,7 @@ export function BriefingChatBanner({
   name: string;
   source: { date: string; revision: string } | null | undefined;
   registrationError?: string;
+  registrationSaving?: boolean;
   retryRegistration?: () => void;
   lookupError?: string;
   retryLookup?: () => void;
@@ -102,9 +104,11 @@ export function BriefingChatBanner({
         </p>
       )}
       {registrationError && (
-        <p role="alert">
+        <p role="alert" className="briefing-lookup-error">
           {registrationError}{' '}
-          <button onClick={retryRegistration}>Retry saving briefing link</button>
+          <button disabled={registrationSaving} onClick={retryRegistration}>
+            Retry saving briefing link
+          </button>
         </p>
       )}
       {picker && (

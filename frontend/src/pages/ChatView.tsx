@@ -100,6 +100,7 @@ export function ChatView() {
     sendMessage: storeSendMessage,
     sendLaunch,
     registrationError,
+    registrationSaving,
     retryRegistration,
   } = usePendingLaunch();
 
@@ -408,6 +409,7 @@ export function ChatView() {
           }
           source={briefingChat.source}
           registrationError={registrationError}
+          registrationSaving={registrationSaving}
           retryRegistration={retryRegistration}
           lookupError={briefingChat.error}
           retryLookup={briefingChat.retry}
