@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.9';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.26';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.27';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -106,7 +106,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../native-tool-executor.ts': '6bca4beb98690334e83a0a88b35c80558ed01b7485f682aca0cc0af11b6cd766',
   '../repository-workspaces.ts': 'b7e8cd755cdf6483d706f41d5deca216736b40dbd7863a3be20edfd32abb811c',
   '../../packages/protocol/src/event-store.ts':
-    '6db5a3fe818ce039148e3245249c80bd00a395cb9d15304ff825a37fca730627',
+    '713355d171ddac255bec723a80540cf1e4077ab9d9c45cd882113dd189cd3ff9',
   '../../packages/protocol/src/types.ts':
     'ad52dbfecded75a6351f16a693d8975d9c863e5b2c06d6ad0901d2ae770709a0',
   '../repository-workspace-runtime.ts':
@@ -123,7 +123,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../openshell-runtime-policy.ts':
     'efecd458bf61fecd8198ecd330e0227e2c600ab21d6d2890cd2bac254e22b75f',
   '../openshell-runtime.ts': '71e650b8114df6264ce0a5b81ae32a1907ee3562c177c9d0d59c1f4825849b0c',
-  '../codex-chat-session.ts': '87a46ff513212d13a7d230d821fa31d3cfc02c30542ead74e832e318f2b2981f',
+  '../codex-chat-session.ts': '7a0003a8d3f54b905b17c7921e6b2a9d6318a8fc17065f9de8bf1eb4c7165044',
   '../connections-runtime.ts': 'dbe641704a1d761d73740260fb28057054fdb34a64513fa77292d2fdb1954a84',
   'capabilities/operation-store.ts':
     '1a235f11d5578880e6dfa7ecf5779e2a011e24430774fc17429d7d22359b93f2',
