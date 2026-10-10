@@ -6,46 +6,39 @@ import type { KnowledgeDocument, KnowledgeDraft } from '../types/knowledge';
 import { DocumentEditor } from '../components/DocumentEditor';
 import { WorkspacePageHeading } from '../components/WorkspacePageHeading';
 import { useKnowledgeLibrary } from '../hooks/useKnowledgeLibrary';
-function DraftStructure({
-  label,
-  draft,
-  unavailable = false,
+function OrganizationChanges({
+  directories = [],
+  documents,
 }: {
-  label: string;
-  draft: Pick<KnowledgeDraft, 'documents' | 'directories'>;
-  unavailable?: boolean;
+  directories?: string[];
+  documents: KnowledgeDraft['documents'];
 }) {
-  const moves = draft.documents.filter((document) => document.sourcePath);
+  const moves = documents.filter((document) => document.sourcePath);
   return (
-    <section aria-label={`${label} structure`}>
-      <h4>{label}</h4>
-      {unavailable ? (
-        <p>Awaiting latest saved version.</p>
+    <>
+      <h5>New folders</h5>
+      {directories.length ? (
+        <ul>
+          {directories.map((path) => (
+            <li key={path}>{path}</li>
+          ))}
+        </ul>
       ) : (
-        <>
-          {draft.directories?.length ? (
-            <ul>
-              {draft.directories.map((path) => (
-                <li key={path}>New folder: {path}</li>
-              ))}
-            </ul>
-          ) : (
-            <p>No new folders.</p>
-          )}
-          {moves.length ? (
-            <ul>
-              {moves.map((document) => (
-                <li key={document.path}>
-                  Move: {document.sourcePath} → {document.path}
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p>No document moves.</p>
-          )}
-        </>
+        <p>No new folders.</p>
       )}
-    </section>
+      <h5>Document moves</h5>
+      {moves.length ? (
+        <ul>
+          {moves.map((document) => (
+            <li key={document.path}>
+              {document.sourcePath} → {document.path}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p>No document moves.</p>
+      )}
+    </>
   );
 }
 
@@ -129,7 +122,11 @@ export function KnowledgeLibrary() {
   const closedEmpty =
     draft?.state === 'closed' && !copy?.documents.length && !copy?.directories?.length;
   const currentReview = !!draft?.review && draft.review.version === draft.version;
-  const showEditor = !!copy && reading && !reader && (!!selected || !!copy.directories?.length);
+  const showEditor =
+    !!copy &&
+    reading &&
+    !reader &&
+    (!!selected || !!copy.directories?.length || !!copy.initialSaveConflict);
   const structureChanged =
     !!copy?.directories?.length || !!copy?.documents.some((document) => document.sourcePath);
   const areaRoots = new Set(
@@ -152,20 +149,29 @@ export function KnowledgeLibrary() {
         <section className="knowledge-comparison" aria-label="Compare saved draft and working copy">
           <h3>This saved draft changed on another device</h3>
           <p>
-            Your working copy is preserved. Compare documents, new folders and moves before choosing
-            which version to keep. Updating the saved draft replaces its contents with your working
-            copy.
+            Your working copy is preserved. Compare every document, new folder and document move
+            before choosing which version to keep. Updating the saved draft replaces its contents
+            and organization changes with your working copy.
           </p>
           {copy!.savedComparisonUnavailable && (
             <p>The latest saved version is unavailable. Refresh the comparison to continue.</p>
           )}
           <div className="knowledge-compare-panes">
-            <DraftStructure
-              label="Saved draft"
-              draft={copy!.initialSaveConflict}
-              unavailable={copy!.savedComparisonUnavailable}
-            />
-            <DraftStructure label="Working copy" draft={copy!} />
+            <section aria-label="Saved draft organization">
+              <h4>Saved draft organization</h4>
+              {copy!.savedComparisonUnavailable ? (
+                <p>Awaiting latest saved version.</p>
+              ) : (
+                <OrganizationChanges
+                  directories={copy!.initialSaveConflict.directories}
+                  documents={copy!.initialSaveConflict.documents}
+                />
+              )}
+            </section>
+            <section aria-label="Your working copy organization">
+              <h4>Your working copy organization</h4>
+              <OrganizationChanges directories={copy!.directories} documents={copy!.documents} />
+            </section>
           </div>
           {[
             ...new Set([
@@ -621,7 +627,10 @@ export function KnowledgeLibrary() {
                 <button disabled={busy} onClick={library.discard}>
                   Discard working copy
                 </button>
-              ) : !copy.documents.length && !copy.directories?.length && editable ? (
+              ) : !copy.documents.length &&
+                !copy.directories?.length &&
+                !copy.initialSaveConflict &&
+                editable ? (
                 <button
                   disabled={busy}
                   onClick={() => {
@@ -636,7 +645,12 @@ export function KnowledgeLibrary() {
                 </button>
               ) : (
                 <button
-                  disabled={busy || (copy.documents.length === 0 && !copy.directories?.length)}
+                  disabled={
+                    busy ||
+                    (copy.documents.length === 0 &&
+                      !copy.directories?.length &&
+                      !copy.initialSaveConflict)
+                  }
                   onClick={() => {
                     showWorkingCopy();
                     setAdding(false);

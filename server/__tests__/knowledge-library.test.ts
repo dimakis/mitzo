@@ -317,6 +317,27 @@ it('keeps enrolled private boundaries and individually selected root guidance im
   expect(scoped.allowedMove('README.md', 'architecture/README.md')).toBe(false);
 });
 
+it.each(['AGENTS.md', 'CLAUDE.md'])(
+  'keeps individually enrolled %s immovable inside an overlapping folder scope',
+  async (filename) => {
+    mkdirSync(join(root, 'hub'), { recursive: true });
+    writeFileSync(join(root, 'hub', filename), '# Enrolled guidance\n');
+    git('add', 'hub');
+    git('commit', '-m', 'enrolled guidance');
+    git('update-ref', 'refs/remotes/origin/main', 'HEAD');
+    const original = `hub/${filename}`;
+    const scoped = new AcceptedKnowledgeSource(root, 'refs/remotes/origin/main', ['hub', original]);
+    const target = `hub/context/${filename}`;
+    expect(scoped.allowed(original)).toBe(true);
+    expect(scoped.allowed(target)).toBe(true);
+    expect(scoped.allowedMove(original, target)).toBe(false);
+    await expect(
+      scoped.validateStructure(await scoped.revision(), [{ path: target, sourcePath: original }]),
+    ).rejects.toThrow('Move is outside the library area');
+    expect(scoped.allowedMove(`hub/context/${filename}`, `hub/other/${filename}`)).toBe(true);
+  },
+);
+
 it('validates moves against non-Markdown entries, symlinks and directory parents', async () => {
   writeFileSync(join(root, 'architecture/occupied.md'), 'occupied');
   writeFileSync(join(root, 'architecture/blob'), 'not a directory');
