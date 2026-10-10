@@ -1428,13 +1428,69 @@ test('combined conversation empty and failed status remain readable without impl
   expect(queued).toHaveLength(0);
 });
 
-async function exerciseSseBriefingRecovery(page: Page, hideAssigned = false) {
+async function exerciseBriefingReloadRecovery(
+  page: Page,
+  hideAssigned = false,
+  nativeMode?: 'unready' | 'lost-ack',
+) {
   test.setTimeout(60_000);
   await page.setViewportSize({ width: page.viewportSize()!.width, height: 900 });
   await page.addInitScript(() => {
     localStorage.removeItem('mitzo:transport');
     localStorage.removeItem('mitzo-workspace-controls-expanded');
   });
+  if (nativeMode)
+    await page.addInitScript(() => {
+      // A fresh native web view cannot depend on the previous sessionStorage outbox.
+      sessionStorage.clear();
+      // Only platform presentation APIs are stubbed; chat uses the actual native-default selector.
+      const names = [
+        'App',
+        'Keyboard',
+        'StatusBar',
+        'SplashScreen',
+        'Haptics',
+        'PushNotifications',
+        'WatchAuthBridge',
+        'NativeBiometric',
+        'NotificationBadgeBridge',
+      ];
+      const methods = [
+        'addListener',
+        'removeListener',
+        'setResizeMode',
+        'setAccessoryBarVisible',
+        'setScroll',
+        'setStyle',
+        'setBackgroundColor',
+        'hide',
+        'impact',
+        'notification',
+        'selectionChanged',
+        'requestPermissions',
+        'register',
+        'configureNotificationServer',
+        'isAvailable',
+        'setBadge',
+        'saveToken',
+        'clearToken',
+      ];
+      Object.assign(window, {
+        CapacitorCustomPlatform: { name: 'ios' },
+        Capacitor: {
+          PluginHeaders: names.map((name) => ({
+            name,
+            methods: methods.map((name) => ({
+              name,
+              rtype: name === 'addListener' ? 'callback' : 'promise',
+            })),
+          })),
+          nativePromise: async (plugin: string) =>
+            plugin === 'PushNotifications' ? { receive: 'denied' } : {},
+          nativeCallback: () => 'offline-native-listener',
+        },
+      });
+    });
   const sessionId = 'sse-restored-briefing-command';
   const binding = {
     sessionId,
@@ -1452,23 +1508,44 @@ async function exerciseSseBriefingRecovery(page: Page, hideAssigned = false) {
   let registered = false;
   let hidden = false;
   let sockets = 0;
+  let chatSseRequests = 0;
+  const websocketSends: unknown[] = [];
   await page.routeWebSocket('**/*', (socket) => {
     sockets += 1;
-    socket.close();
+    if (!nativeMode) {
+      socket.close();
+      return;
+    }
+    const generation = sockets;
+    socket.onMessage((raw) => {
+      const message = JSON.parse(String(raw));
+      if (message.type === 'send') websocketSends.push(message);
+      if (message.type === 'hello' && (nativeMode === 'lost-ack' || generation > 1))
+        socket.send(
+          JSON.stringify({
+            type: 'welcome',
+            protocolVersion: 2,
+            connectionId: 'offline-native-ws',
+          }),
+        );
+    });
   });
   await page.route('**/api/**', async (route) => {
     const url = new URL(route.request().url());
     const method = route.request().method();
     if (url.hostname !== 'mitzo-ui.test') return route.abort();
-    if (url.pathname === '/api/chat/events')
+    if (url.pathname === '/api/chat/events') {
+      chatSseRequests += 1;
       return route.fulfill({
         contentType: 'text/event-stream',
         body: 'retry: 60000\nevent: welcome\ndata: {"connectionId":"offline-sse-restoration"}\n\n',
       });
+    }
     if (url.pathname === '/api/events')
       return route.fulfill({ contentType: 'text/event-stream', body: 'retry: 60000\n\n' });
     if (url.pathname === '/api/chat/send' && method === 'POST') {
       const command = route.request().postDataJSON();
+      if (nativeMode) expect(route.request().headers()['x-connection-id']).toBeUndefined();
       sends.push(command);
       turns.add(command.clientMsgId);
       if (sends.length === 1) {
@@ -1536,6 +1613,14 @@ async function exerciseSseBriefingRecovery(page: Page, hideAssigned = false) {
   });
   await page.goto('https://mitzo-ui.test/briefings/2026-10-10?ask=1');
   expect(await page.evaluate(() => localStorage.getItem('mitzo:transport'))).toBeNull();
+  if (nativeMode)
+    expect(
+      await page.evaluate(() =>
+        (
+          window as unknown as { Capacitor: { isNativePlatform(): boolean } }
+        ).Capacitor.isNativePlatform(),
+      ),
+    ).toBe(true);
   const picker = page.getByRole('dialog');
   await picker.getByRole('button', { name: 'Use selection', exact: true }).click();
   await page.getByRole('button', { name: 'Send launch prompt', exact: true }).click();
@@ -1552,7 +1637,11 @@ async function exerciseSseBriefingRecovery(page: Page, hideAssigned = false) {
   releaseFirst?.();
   expect(sends[1]).toEqual(sends[0]);
   expect(turns.size).toBe(1);
-  expect(sockets).toBe(0);
+  if (nativeMode) {
+    expect(sockets).toBeGreaterThanOrEqual(2);
+    expect(websocketSends).toHaveLength(0);
+    expect(chatSseRequests).toBe(0);
+  } else expect(sockets).toBe(0);
   // Stay in the same app process while the restored acknowledgement remains pending.
   await page.getByRole('link', { name: 'Today', exact: true }).click();
   await page.getByRole('link', { name: 'Read briefing', exact: true }).click();
@@ -1627,19 +1716,31 @@ async function exerciseSseBriefingRecovery(page: Page, hideAssigned = false) {
   await expect(page.getByRole('combobox', { name: 'Model', exact: true })).toBeDisabled();
   expect(sends).toHaveLength(2);
   expect(turns.size).toBe(1);
+  if (nativeMode) {
+    expect(websocketSends).toHaveLength(0);
+    expect(chatSseRequests).toBe(0);
+  }
 }
 
 test('default SSE restores a briefing command after reload before assignment without a duplicate turn', async ({
   page,
 }) => {
-  await exerciseSseBriefingRecovery(page);
+  await exerciseBriefingReloadRecovery(page);
 });
 
 test('default SSE allows a fresh draft when the recovered local conversation is hidden', async ({
   page,
 }) => {
-  await exerciseSseBriefingRecovery(page, true);
+  await exerciseBriefingReloadRecovery(page, true);
 });
+
+for (const nativeMode of ['unready', 'lost-ack'] as const) {
+  test(`native-default WS retains reviewed briefing delivery through cold reload with ${nativeMode} receipt`, async ({
+    page,
+  }) => {
+    await exerciseBriefingReloadRecovery(page, false, nativeMode);
+  });
+}
 
 test('reviewed launches let users collapse Workspace and reach Send at a short viewport', async ({
   page,
@@ -1715,6 +1816,14 @@ test('failed briefing registration survives a completed turn and reload without 
   let emptyReads = 0;
   let completed = false;
   let nickname = 'Jeeves';
+  const accepted = new Map<string, Record<string, unknown>>();
+  const websocketSends: unknown[] = [];
+  function accept(command: Record<string, unknown>) {
+    turns.push(command);
+    const assignedId = command.model === changedBinding.model ? changedSessionId : sessionId;
+    accepted.set(assignedId, command);
+    return assignedId;
+  }
   await page.routeWebSocket('**/*', (socket) => {
     socket.onMessage((raw) => {
       const message = JSON.parse(String(raw));
@@ -1726,37 +1835,48 @@ test('failed briefing registration survives a completed turn and reload without 
             connectionId: 'offline-registration',
           }),
         );
-      if (message.type !== 'send') return;
-      turns.push(message);
-      const assignedId = message.model === changedBinding.model ? changedSessionId : sessionId;
-      socket.send(
-        JSON.stringify({
-          type: 'session_id',
-          sessionId: assignedId,
-          clientMsgId: message.clientMsgId,
-        }),
-      );
-      socket.send(
-        JSON.stringify({ type: 'session_state_changed', sessionId: assignedId, state: 'running' }),
-      );
-      socket.send(
-        JSON.stringify({
-          type: 'user_message',
-          sessionId: assignedId,
-          messageId: message.clientMsgId,
-          text: message.prompt,
-          sourceSnapshots: message.sourceSnapshots,
-        }),
-      );
-      socket.send(
-        JSON.stringify({ type: 'session_state_changed', sessionId: assignedId, state: 'idle' }),
-      );
-      completed = true;
+      if (message.type === 'send') websocketSends.push(message);
+      if (message.type === 'switch_session') {
+        const command = accepted.get(message.sessionId);
+        if (!command) return;
+        socket.send(
+          JSON.stringify({
+            type: 'session_state_changed',
+            sessionId: message.sessionId,
+            state: 'running',
+          }),
+        );
+        socket.send(
+          JSON.stringify({
+            type: 'user_message',
+            sessionId: message.sessionId,
+            messageId: command.clientMsgId,
+            text: command.prompt,
+            sourceSnapshots: command.sourceSnapshots,
+          }),
+        );
+        socket.send(
+          JSON.stringify({
+            type: 'session_state_changed',
+            sessionId: message.sessionId,
+            state: 'idle',
+          }),
+        );
+        completed = true;
+      }
     });
   });
   await page.route('**/api/**', async (route) => {
     const url = new URL(route.request().url());
     if (url.hostname !== 'mitzo-ui.test') return route.abort();
+    if (url.pathname === '/api/chat/send' && route.request().method() === 'POST') {
+      expect(route.request().headers()['x-connection-id']).toBeUndefined();
+      const command = route.request().postDataJSON();
+      return route.fulfill({
+        json: { accepted: true, clientMsgId: command.clientMsgId, sessionId: accept(command) },
+      });
+    }
+
     if (url.pathname === '/api/home/briefing-chats') {
       if (route.request().method() === 'POST') {
         posts.push(route.request().postDataJSON());
@@ -1972,6 +2092,7 @@ test('failed briefing registration survives a completed turn and reload without 
   await expect.poll(() => posts.length).toBe(3);
   expect(posts).toEqual([binding, binding, changedBinding]);
   expect(turns).toHaveLength(2);
+  expect(websocketSends).toHaveLength(0);
   expect(turns[1].sourceSnapshots).toEqual(turns[0].sourceSnapshots);
   expect(turns[1].model).toBe(changedBinding.model);
   await expect(retry).toHaveCount(0);
