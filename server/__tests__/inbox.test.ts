@@ -1,5 +1,6 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { join } from 'path';
+import filesystem from 'node:fs';
 import { mkdirSync, writeFileSync, rmSync, readdirSync } from 'fs';
 import {
   listInboxItems,
@@ -8,6 +9,18 @@ import {
   discardInboxItem,
   createInboxItem,
 } from '../inbox.js';
+
+const archiveRace = vi.hoisted(() => ({ beforeUnlink: null as null | ((path: string) => void) }));
+vi.mock('fs', async (original) => {
+  const actual = await original<typeof import('fs')>();
+  return {
+    ...actual,
+    unlinkSync: (path: Parameters<typeof actual.unlinkSync>[0]) => {
+      archiveRace.beforeUnlink?.(String(path));
+      actual.unlinkSync(path);
+    },
+  };
+});
 
 const TMP_DIR = join(import.meta.dirname, '..', '..', '.test-inbox');
 
@@ -217,5 +230,30 @@ describe('createInboxItem', () => {
       body: 'Body',
     });
     expect(item).toBeNull();
+  });
+});
+
+describe('atomic archive claim', () => {
+  it('keeps a newer producer occurrence that arrives during archival', () => {
+    const active = join(TMP_DIR, 'active.md');
+    writeFileSync(active, SAMPLE_ITEM);
+    let replaced = false;
+    archiveRace.beforeUnlink = (path) => {
+      if (!replaced && String(path).startsWith(TMP_DIR)) {
+        const replacement = join(TMP_DIR, '.replacement');
+        writeFileSync(replacement, 'New occurrence');
+        filesystem.renameSync(replacement, active);
+        replaced = true;
+      }
+    };
+    try {
+      expect(approveInboxItem(TMP_DIR, 'active.md')).toBe(true);
+      expect(filesystem.readFileSync(active, 'utf8')).toBe('New occurrence');
+      expect(filesystem.readFileSync(join(TMP_DIR, 'archive', 'active.md'), 'utf8')).toBe(
+        SAMPLE_ITEM,
+      );
+    } finally {
+      archiveRace.beforeUnlink = null;
+    }
   });
 });

@@ -39,7 +39,7 @@ const outcomes = Array.from({ length: 12 }, (_, index) => ({
 }));
 const proposals = Array.from({ length: 12 }, (_, index) => ({
   filename: `proposal-${index}.md`,
-  agent: index % 2 ? 'planner' : 'dream_detector',
+  agent: index === 0 ? 'troubadour' : index % 2 ? 'planner' : 'dream_detector',
   title:
     index === 0
       ? '[cross-reference] planning.py ↔ Quarterly planning decisions and follow-up context.md'
@@ -170,115 +170,71 @@ const fixtures: Record<string, unknown> = {
     syncedAt: null,
   },
 };
-
-const iconTasks = (
-  ['pending', 'active', 'done', 'pending_review', 'blocked', 'skipped', 'failed'] as const
-).map((status, index) => ({
-  id: `icon-task-${status}`,
-  parentId: null,
-  title: `Icon check: ${status.replaceAll('_', ' ')}`,
-  description: null,
-  status,
-  sessionId: null,
-  sessionPolicy: 'auto',
-  priority: index,
-  depth: 0,
-  annotations: [],
-  summary: null,
-  requiresApproval: false,
-  tokenUsage: 0,
-  claimedBy: null,
-  claimedAt: null,
-  createdAt: Date.now(),
-  updatedAt: Date.now(),
-  completedAt: null,
-  stageType: null,
-  gateConfig: null,
-  artifacts: null,
-  retryCount: 0,
-  maxRetries: 0,
-  templateId: null,
-  children: [],
-}));
-
-for (const appearance of [
-  { theme: 'dark', accent: 'lavender', font: 'system' },
-  { theme: 'light', accent: 'mint', font: 'georgia' },
-]) {
-  test(`outline icons keep their meaning and geometry with ${appearance.theme}/${appearance.font}`, async ({
-    page,
-  }, testInfo) => {
-    await page.addInitScript((selection) => {
-      localStorage.setItem('mitzo-theme', selection.theme);
-      localStorage.setItem('mitzo-accent', selection.accent);
-      localStorage.setItem('mitzo-font', selection.font);
-    }, appearance);
-    if (testInfo.project.name.startsWith('mobile')) {
-      const viewport = page.viewportSize()!;
-      await page.setViewportSize({ width: 320, height: viewport.height });
-    }
-    await page.goto('/settings');
-    const backups = page.getByRole('link', { name: 'Backups', exact: true });
-    await expect(backups).toHaveText('Backups');
-    await expect(backups.locator('svg[data-icon="forward"]')).toHaveAttribute(
-      'aria-hidden',
-      'true',
-    );
-    await backups.scrollIntoViewIfNeeded();
-    await page.screenshot({
-      path: testInfo.outputPath(`icons-settings-${appearance.theme}.png`),
-      animations: 'disabled',
-    });
-
-    await page.route('**/api/tasks', (route) => route.fulfill({ json: iconTasks }));
-    await page.goto('/tasks');
-    const spawning = page.getByRole('switch', { name: /session spawning/ });
-    await expect(spawning).toHaveAttribute('aria-checked', 'false');
-    await expect(spawning.locator('svg')).toHaveAttribute('aria-hidden', 'true');
-    await page.getByRole('button', { name: 'Show tree order', exact: true }).click();
-    const actions = page.locator('.page-header-actions');
-    await expect(actions).toBeVisible();
-    const actionBounds = await actions.boundingBox();
-    expect(actionBounds!.x + actionBounds!.width).toBeLessThanOrEqual(page.viewportSize()!.width);
-    if (testInfo.project.name === 'desktop-chromium') {
-      await page.getByRole('button', { name: 'Tree and attention', exact: true }).click();
-    }
-    for (const [status, icon] of Object.entries({
-      pending: 'circle',
-      active: 'running',
-      done: 'complete',
-      pending_review: 'review',
-      blocked: 'unavailable',
-      skipped: 'minus',
-      failed: 'failed',
-    })) {
-      const control = page.getByRole('button', { name: `Status: ${status}`, exact: true });
-      await expect(control.locator(`svg[data-icon="${icon}"]`)).toHaveCount(1);
-      await expect(control).toHaveText('');
-    }
-    await page.screenshot({
-      path: testInfo.outputPath(`icons-taskboard-${appearance.theme}.png`),
-      animations: 'disabled',
-    });
-    if (testInfo.project.name.startsWith('mobile')) {
-      const size = await spawning.boundingBox();
-      expect(size?.height).toBeGreaterThanOrEqual(44);
-      expect(size?.width).toBeGreaterThanOrEqual(44);
-      const review = page.locator('.task-node--status-pending_review .task-node-body').first();
-      expect((await review.boundingBox())!.width).toBeGreaterThanOrEqual(140);
-      await expect(
-        page.locator('.task-node--status-pending_review .task-node-actions').first(),
-      ).toHaveCSS('opacity', '1');
-    }
-
-    await page.goto('/connections-access');
-    await expect(page.getByRole('heading', { name: 'Connections', exact: true })).toBeVisible();
-    await expect(page.locator('.access-row-icon')).toHaveCount(0);
-    await page.screenshot({
-      path: testInfo.outputPath(`icons-connections-${appearance.theme}.png`),
-      animations: 'disabled',
-    });
+type InboxFixtureRecord = {
+  id: string;
+  kind: string;
+  resolvedAt?: number | null;
+  archivedAt?: number | null;
+  inbox?: { category: string };
+  [key: string]: unknown;
+};
+const inboxRecords: InboxFixtureRecord[] = [
+  ...proposals.map((item) => ({
+    id: `inbox:${item.filename}`,
+    kind: 'update',
+    title: item.title,
+    body: item.preview,
+    inboxFilename: item.filename,
+    createdAt: Date.parse(item.timestamp),
+    readAt: 1,
+    resolvedAt: null,
+    resolution: null,
+    archivedAt: null,
+    inbox: {
+      agent: item.agent,
+      category: 'proposal',
+      severity: 'info',
+      needsAttention: false,
+      status: 'pending',
+      tags: item.tags,
+      content:
+        '# Full proposal context\n\nReview the original evidence before deciding on the next step.',
+    },
+  })),
+  ...(fixtures['/api/notifications'] as { items: { id: string; kind: string }[] }).items.map(
+    (item) => ({
+      ...item,
+      resolvedAt: null,
+      resolution: null,
+      archivedAt: null,
+    }),
+  ),
+];
+function inboxFixture(url: URL, records: InboxFixtureRecord[] = inboxRecords) {
+  const view = url.searchParams.get('view') || 'needs';
+  const query = (url.searchParams.get('query') || '').toLowerCase();
+  const filtered = records.filter((item) => {
+    if (query) return JSON.stringify(item).toLowerCase().includes(query);
+    if (view === 'archive') return item.archivedAt != null;
+    if (item.archivedAt != null) return false;
+    if (view === 'needs')
+      return ['approval', 'question'].includes(item.kind) && item.resolvedAt == null;
+    if (view === 'proposals') return item.inbox?.category === 'proposal';
+    if (view === 'briefings') return item.inbox?.category === 'briefing';
+    return true;
   });
+  const offset = Number(url.searchParams.get('offset')) || 0;
+  return {
+    items: filtered.slice(offset, offset + 50),
+    total: filtered.length,
+    needsYou: records.filter(
+      (item) =>
+        ['approval', 'question'].includes(item.kind) &&
+        item.resolvedAt == null &&
+        item.archivedAt == null,
+    ).length,
+    sources: ['planner', 'dream_detector', 'troubadour'],
+  };
 }
 const mime: Record<string, string> = {
   '.js': 'application/javascript',
@@ -307,6 +263,15 @@ test.beforeEach(async ({ page }) => {
       // No app mutation or model request can leave this fixture suite.
       if (route.request().method() !== 'GET')
         return route.fulfill({ status: 405, json: { error: 'Offline UI test' } });
+      if (url.pathname === '/api/inbox/feed') return route.fulfill({ json: inboxFixture(url) });
+      if (url.pathname.startsWith('/api/inbox/records/')) {
+        const id = decodeURIComponent(url.pathname.slice('/api/inbox/records/'.length));
+        const item = inboxRecords.find((record) => record.id === id);
+        return route.fulfill({
+          status: item ? 200 : 404,
+          json: item || { error: 'Unknown fixture' },
+        });
+      }
       if (url.pathname === '/api/knowledge/document') {
         const document = knowledgeDocuments.find(
           (item) => item.path === url.searchParams.get('path'),
@@ -692,22 +657,27 @@ test('Proposals opens full context and keeps the end of each collection above th
   isMobile,
 }) => {
   test.skip(!isMobile, 'Mobile collections');
-  await page.goto('/inbox');
-  await page.getByRole('button', { name: proposals[0].title, exact: true }).click();
+  await page.goto('/inbox?view=proposals');
+  await page
+    .getByRole('button', {
+      name: 'Possible connection: Quarterly planning decisions and follow-up context',
+      exact: true,
+    })
+    .click();
   await expect(
     page
-      .getByRole('region', { name: 'Proposal details' })
+      .getByRole('region', { name: 'Inbox details' })
       .getByText('Full proposal context', { exact: true }),
   ).toBeVisible();
   await expect(page.getByRole('button', { name: 'Review in session' })).toBeVisible();
-  await page.getByRole('button', { name: 'Back to proposals' }).click();
+  await page.getByRole('button', { name: 'Back to Inbox' }).click();
   await page.goBack();
-  await expect(page).toHaveURL(/\/inbox$/);
-  await expect(page.getByRole('region', { name: 'Proposal details' })).toHaveCount(0);
-  await page.getByRole('searchbox', { name: 'Search proposals' }).fill('Proposal 12');
+  await expect(page).toHaveURL(/\/inbox\?view=proposals$/);
+  await expect(page.getByRole('region', { name: 'Inbox details' })).toHaveCount(0);
+  await page.getByRole('searchbox', { name: 'Search your entire inbox' }).fill('Proposal 12');
   await expect(page.locator('.proposal-record')).toHaveCount(1);
   for (const [route, scroll, last] of [
-    ['/inbox', '.inbox-scroll', '.proposal-record'],
+    ['/inbox?view=proposals', '.inbox-scroll', '.proposal-record'],
     ['/todos', '.todo-scroll', '.todo-card'],
     ['/sessions', '.session-list-scroll', '.session-item'],
     ['/knowledge', '.knowledge-library', '.knowledge-tree-row:has(.knowledge-tree-more)'],
@@ -1096,61 +1066,56 @@ test('desktop Calendar uses the week canvas and dismissible event details', asyn
   }
 });
 
-test('desktop Notifications fills the workspace with compact activity rows', async ({
+test('desktop Inbox combines both feeds and retains notification preferences', async ({
   page,
   isMobile,
 }, testInfo) => {
-  test.skip(isMobile, 'Desktop notifications');
+  test.skip(isMobile, 'Desktop Inbox');
   for (const width of [900, 1440, 1920]) {
     await page.setViewportSize({ width, height: 1000 });
     await page.goto('/notifications');
-    const canvas = (await page.locator('.desktop-center').boundingBox())!;
-    const content = (await page.locator('.notifications-page').boundingBox())!;
-    expect(content.x).toBeCloseTo(canvas.x, 0);
-    expect(content.width).toBeCloseTo(canvas.width, 0);
-    const card = page.locator('.notification-card').first();
-    await expect(card).toBeVisible();
-    expect((await card.boundingBox())!.width).toBeGreaterThan(content.width - 60);
-    if (width >= 1440) {
-      expect((await card.boundingBox())!.height).toBeLessThan(160);
-      const action = (await card.getByRole('button', { name: 'View update' }).boundingBox())!;
-      const title = (await card.locator('h2').boundingBox())!;
-      expect(action.x).toBeGreaterThan(title.x + title.width);
-    }
+    await expect(page).toHaveURL(/\/inbox$/);
+    await page.getByRole('button', { name: 'All', exact: true }).click();
+    await expect(page.locator('.proposal-record').first()).toBeVisible();
+    expect(
+      await page.locator('.unified-inbox').evaluate((el) => el.scrollWidth <= el.clientWidth),
+    ).toBe(true);
     if (width === 1440)
       await page.screenshot({
-        path: testInfo.outputPath('notifications-desktop.png'),
+        path: testInfo.outputPath('inbox-desktop.png'),
         animations: 'disabled',
       });
-    await page.getByRole('button', { name: 'Preferences', exact: true }).click();
+    await page.getByRole('link', { name: 'Preferences', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'What reaches you' })).toBeVisible();
-    expect(
-      await page.locator('.notifications-page').evaluate((el) => el.scrollWidth <= el.clientWidth),
-    ).toBe(true);
   }
 });
 
-test('mobile Calendar and Notifications remain bounded and scrollable', async ({
+test('mobile Calendar and combined Inbox remain bounded and scrollable', async ({
   page,
   isMobile,
 }) => {
-  test.skip(!isMobile, 'Mobile calendar and notifications');
-  for (const route of ['/calendar', '/notifications']) {
+  test.skip(!isMobile, 'Mobile collections');
+  for (const route of ['/calendar', '/inbox?view=all']) {
     await page.goto(route);
-    const body = page.locator('.mobile-workspace-body');
-    expect(await body.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
-    const scroller = page.locator(route === '/calendar' ? '.cal-body' : '.notifications-page');
+    expect(
+      await page
+        .locator('.mobile-workspace-body')
+        .evaluate((el) => el.scrollWidth <= el.clientWidth),
+    ).toBe(true);
+    const scroller = page.locator(route === '/calendar' ? '.cal-body' : '.inbox-scroll');
     await expect(
       page.getByText(route === '/calendar' ? 'Meeting 12' : 'Session update 12', { exact: true }),
     ).toBeAttached();
     await scroller.evaluate((el) => {
       el.scrollTop = el.scrollHeight;
     });
-    const end = (await page
-      .getByText(route === '/calendar' ? 'Meeting 18' : 'Session update 12', { exact: true })
-      .boundingBox())!;
+    const end = (await (
+      route === '/calendar'
+        ? scroller.getByText('Meeting 18', { exact: true })
+        : scroller.locator('.proposal-record').last()
+    ).boundingBox())!;
     expect(end.y + end.height).toBeLessThanOrEqual(
-      (await page.locator('.workspace-tabs').boundingBox())!.y,
+      (await page.locator('.workspace-tabs').boundingBox())!.y + 1,
     );
   }
 });
@@ -1178,10 +1143,11 @@ test('short desktop Calendar keeps event details and actions reachable', async (
   }
 });
 
-test('notification archive actions stay usable on desktop and mobile', async ({
+test('combined Inbox archive is recoverable and live approvals stay protected', async ({
   page,
+  isMobile,
 }, testInfo) => {
-  const items = [
+  const records = [
     {
       id: 'done',
       kind: 'session',
@@ -1189,6 +1155,7 @@ test('notification archive actions stay usable on desktop and mobile', async ({
       body: 'Agent finished its turn.',
       createdAt: Date.now(),
       readAt: 1,
+      resolvedAt: null,
       resolution: null,
       archivedAt: null as number | null,
     },
@@ -1198,54 +1165,96 @@ test('notification archive actions stay usable on desktop and mobile', async ({
       title: 'Pending approval',
       body: 'Needs your decision',
       permId: 'live',
+      sessionId: 's1',
+      request: { toolName: 'Read', toolInput: 'README.md' },
       createdAt: Date.now(),
       readAt: null,
+      resolvedAt: null,
       resolution: null,
       archivedAt: null as number | null,
     },
   ];
+  await page.route('**/api/inbox/**', async (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname === '/api/inbox/feed')
+      return route.fulfill({ json: inboxFixture(url, records) });
+    const item = records.find(
+      (record) => record.id === decodeURIComponent(url.pathname.split('/').pop()!),
+    );
+    return route.fulfill({ status: item ? 200 : 404, json: item || {} });
+  });
   await page.route('**/api/notifications**', async (route) => {
     const url = new URL(route.request().url());
-    const path = url.pathname;
     if (route.request().method() === 'POST') {
-      if (path === '/api/notifications/archive-resolved') items[0].archivedAt = Date.now();
-      else if (path === '/api/notifications/done/archive') items[0].archivedAt = Date.now();
-      else if (path === '/api/notifications/done/restore') items[0].archivedAt = null;
-      else return route.fulfill({ status: 400, json: { error: 'Unexpected test action' } });
+      if (url.pathname === '/api/notifications/done/archive') records[0].archivedAt = Date.now();
+      if (url.pathname === '/api/notifications/done/restore') records[0].archivedAt = null;
       return route.fulfill({ json: { ok: true } });
     }
-    const archived = url.searchParams.get('filter') === 'archived';
-    const visible = items.filter((item) =>
-      archived ? item.archivedAt !== null : item.archivedAt === null,
-    );
     return route.fulfill({
       json: {
         ...(fixtures['/api/notifications'] as object),
-        items: visible,
-        total: visible.length,
+        items: records,
         needsYou: 1,
+        total: 2,
       },
     });
   });
-  await page.goto('/notifications');
-  const finished = page.getByRole('article').filter({ hasText: 'Finished work' });
-  const pending = page.getByRole('article').filter({ hasText: 'Pending approval' });
-  await expect(pending.getByRole('button', { name: 'Archive', exact: true })).toHaveCount(0);
-  await finished.getByRole('button', { name: 'Archive', exact: true }).click();
-  await expect(finished).toHaveCount(0);
-  await expect(pending).toBeVisible();
-  await page.getByRole('button', { name: 'Archived', exact: true }).click();
-  await finished.getByRole('button', { name: 'Restore', exact: true }).click();
-  await expect(finished).toHaveCount(0);
-  await page.getByRole('button', { name: 'All', exact: true }).click();
-  await expect(finished).toBeVisible();
-  await page.getByRole('button', { name: 'Archive resolved', exact: true }).click();
-  await expect(finished).toHaveCount(0);
-  await expect(pending).toBeVisible();
-  await page.screenshot({
-    path: testInfo.outputPath('notification-archive.png'),
-    animations: 'disabled',
-  });
+  await page.goto('/inbox?view=all');
+  await page.getByRole('button', { name: 'Pending approval', exact: true }).click();
+  await expect(
+    page
+      .getByRole('region', { name: 'Inbox details' })
+      .getByRole('heading', { name: 'Pending approval' }),
+  ).toBeVisible();
+  await expect(
+    page
+      .getByRole('region', { name: 'Inbox details' })
+      .getByRole('button', { name: 'Archive', exact: true }),
+  ).toHaveCount(0);
+  if (isMobile) await page.getByRole('button', { name: 'Back to Inbox' }).click();
+  await page.getByRole('button', { name: 'Finished work', exact: true }).click();
+  await page
+    .getByRole('region', { name: 'Inbox details' })
+    .getByRole('button', { name: 'Archive', exact: true })
+    .click();
+  await expect(page.getByRole('button', { name: 'Finished work', exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Finished work', exact: true })).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('inbox-archive.png'), animations: 'disabled' });
+});
+
+test('Inbox filters and list controls fit with large text and alternate appearance', async ({
+  page,
+  isMobile,
+}, testInfo) => {
+  await page.setViewportSize({ width: isMobile ? 320 : 1440, height: 900 });
+  await page.goto('/inbox?view=all');
+  await expect(page.locator('.proposal-record').first()).toBeVisible();
+  await page.getByRole('button', { name: 'Filters', exact: true }).click();
+  for (const theme of ['light', 'dark']) {
+    await page.evaluate((theme) => {
+      document.documentElement.dataset.theme = theme;
+      document.documentElement.style.setProperty('--color-accent', '#36d6b7');
+      document.documentElement.style.setProperty('--font-ui', 'Georgia');
+      document.documentElement.style.fontSize = '20px';
+    }, theme);
+    const list = page.locator('.inbox-scroll');
+    expect(await list.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+    for (const control of [
+      page.getByRole('button', { name: 'Mark updates read' }),
+      page.getByLabel('Source', { exact: true }),
+      page.getByLabel('Type', { exact: true }),
+    ]) {
+      const bounds = await control.boundingBox();
+      const width = page.viewportSize()!.width;
+      expect(bounds!.x).toBeGreaterThanOrEqual(0);
+      expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width);
+    }
+    await page.screenshot({
+      path: testInfo.outputPath(`inbox-${theme}-alternate.png`),
+      animations: 'disabled',
+    });
+  }
 });
 
 async function fixtureSymposium(
@@ -2213,3 +2222,113 @@ test('profile drafts stay behind Workspace and remain readable on mobile and des
     }
   }
 });
+
+const iconTasks = (
+  ['pending', 'active', 'done', 'pending_review', 'blocked', 'skipped', 'failed'] as const
+).map((status, index) => ({
+  id: `icon-task-${status}`,
+  parentId: null,
+  title: `Icon check: ${status.replaceAll('_', ' ')}`,
+  description: null,
+  status,
+  sessionId: null,
+  sessionPolicy: 'auto',
+  priority: index,
+  depth: 0,
+  annotations: [],
+  summary: null,
+  requiresApproval: false,
+  tokenUsage: 0,
+  claimedBy: null,
+  claimedAt: null,
+  createdAt: Date.now(),
+  updatedAt: Date.now(),
+  completedAt: null,
+  stageType: null,
+  gateConfig: null,
+  artifacts: null,
+  retryCount: 0,
+  maxRetries: 0,
+  templateId: null,
+  children: [],
+}));
+
+for (const appearance of [
+  { theme: 'dark', accent: 'lavender', font: 'system' },
+  { theme: 'light', accent: 'mint', font: 'georgia' },
+]) {
+  test(`outline icons keep their meaning and geometry with ${appearance.theme}/${appearance.font}`, async ({
+    page,
+  }, testInfo) => {
+    await page.addInitScript((selection) => {
+      localStorage.setItem('mitzo-theme', selection.theme);
+      localStorage.setItem('mitzo-accent', selection.accent);
+      localStorage.setItem('mitzo-font', selection.font);
+    }, appearance);
+    if (testInfo.project.name.startsWith('mobile')) {
+      const viewport = page.viewportSize()!;
+      await page.setViewportSize({ width: 320, height: viewport.height });
+    }
+    await page.goto('/settings');
+    const backups = page.getByRole('link', { name: 'Backups', exact: true });
+    await expect(backups).toHaveText('Backups');
+    await expect(backups.locator('svg[data-icon="forward"]')).toHaveAttribute(
+      'aria-hidden',
+      'true',
+    );
+    await backups.scrollIntoViewIfNeeded();
+    await page.screenshot({
+      path: testInfo.outputPath(`icons-settings-${appearance.theme}.png`),
+      animations: 'disabled',
+    });
+
+    await page.route('**/api/tasks', (route) => route.fulfill({ json: iconTasks }));
+    await page.goto('/tasks');
+    const spawning = page.getByRole('switch', { name: /session spawning/ });
+    await expect(spawning).toHaveAttribute('aria-checked', 'false');
+    await expect(spawning.locator('svg')).toHaveAttribute('aria-hidden', 'true');
+    await page.getByRole('button', { name: 'Show tree order', exact: true }).click();
+    const actions = page.locator('.page-header-actions');
+    await expect(actions).toBeVisible();
+    const actionBounds = await actions.boundingBox();
+    expect(actionBounds!.x + actionBounds!.width).toBeLessThanOrEqual(page.viewportSize()!.width);
+    if (testInfo.project.name === 'desktop-chromium') {
+      await page.getByRole('button', { name: 'Tree and attention', exact: true }).click();
+    }
+    for (const [status, icon] of Object.entries({
+      pending: 'circle',
+      active: 'running',
+      done: 'complete',
+      pending_review: 'review',
+      blocked: 'unavailable',
+      skipped: 'minus',
+      failed: 'failed',
+    })) {
+      const control = page.getByRole('button', { name: `Status: ${status}`, exact: true });
+      await expect(control.locator(`svg[data-icon="${icon}"]`)).toHaveCount(1);
+      await expect(control).toHaveText('');
+    }
+    await page.screenshot({
+      path: testInfo.outputPath(`icons-taskboard-${appearance.theme}.png`),
+      animations: 'disabled',
+    });
+    if (testInfo.project.name.startsWith('mobile')) {
+      const size = await spawning.boundingBox();
+      expect(size?.height).toBeGreaterThanOrEqual(44);
+      expect(size?.width).toBeGreaterThanOrEqual(44);
+      const review = page.locator('.task-node--status-pending_review .task-node-body').first();
+      expect((await review.boundingBox())!.width).toBeGreaterThanOrEqual(140);
+      await expect(
+        page.locator('.task-node--status-pending_review .task-node-actions').first(),
+      ).toHaveCSS('opacity', '1');
+    }
+
+    await page.goto('/connections-access');
+    await expect(page.getByRole('heading', { name: 'Connections', exact: true })).toBeVisible();
+    await expect(page.locator('.access-row-icon')).toHaveCount(0);
+    await page.screenshot({
+      path: testInfo.outputPath(`icons-connections-${appearance.theme}.png`),
+      animations: 'disabled',
+    });
+  });
+}

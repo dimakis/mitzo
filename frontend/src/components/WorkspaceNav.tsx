@@ -5,12 +5,11 @@ import { Link, useLocation } from 'react-router-dom';
 const primary = [
   { label: 'Today', icon: 'today' as const, path: '/', end: true },
   { label: 'Chats', icon: 'chats' as const, path: '/sessions', end: false },
-  { label: 'Proposals', icon: 'proposals' as const, path: '/inbox', end: false },
+  { label: 'Inbox', icon: 'proposals' as const, path: '/inbox', end: false },
   { label: 'Work', icon: 'work' as const, path: '/todos', end: false },
 ];
 const secondary = [
   { label: 'Terminal', icon: 'terminal' as const, path: '/terminal', end: false },
-  { label: 'Notifications', icon: 'bell' as const, path: '/notifications', end: false },
   { label: 'Agents', icon: 'agents' as const, path: '/tasks', end: false },
   { label: 'Agent Library', icon: 'files' as const, path: '/agent-library', end: false },
   { label: 'Calendar', icon: 'calendar' as const, path: '/calendar', end: false },
@@ -74,15 +73,14 @@ export function WorkspaceNav({ desktop = false }: { desktop?: boolean }) {
           >
             <UiIcon name={icon} />
             <span className="workspace-nav-label">{label}</span>
-            {(label === 'Notifications' || (!desktop && label === 'More')) &&
-              !!notifications?.feed?.needsYou && (
-                <span
-                  className="notification-badge"
-                  aria-label={`${notifications.feed.needsYou} requests need attention`}
-                >
-                  {notifications.feed.needsYou > 99 ? '99+' : notifications.feed.needsYou}
-                </span>
-              )}
+            {label === 'Inbox' && !!notifications?.feed?.needsYou && (
+              <span
+                className="notification-badge"
+                aria-label={`${notifications.feed.needsYou} requests need attention`}
+              >
+                {notifications.feed.needsYou > 99 ? '99+' : notifications.feed.needsYou}
+              </span>
+            )}
           </Link>
         );
       })}

@@ -59,6 +59,8 @@ import { bindMitzoTelosCoreCapture } from './backup/mitzo-telos-binding.js';
 import { NotificationStore } from './notification-store.js';
 import { NotificationCenter, setNotificationCenter } from './notification-center.js';
 import { notificationRouter } from './notification-routes.js';
+import { unifiedInboxRouter } from './unified-inbox-routes.js';
+import { discardInboxSource } from './unified-inbox.js';
 import {
   deliverNotification,
   sendBadgeUpdate,
@@ -288,13 +290,7 @@ import type { SessionOverviewEmitter } from './session-overview.js';
 import type { WorkflowTemplateStore, TemplateCreateInput } from './workflow-templates.js';
 import { instantiateTemplate } from './workflow-templates.js';
 import type { SignalProcessor } from './signal-processor.js';
-import {
-  listInboxItems,
-  readInboxItem,
-  approveInboxItem,
-  discardInboxItem,
-  createInboxItem,
-} from './inbox.js';
+import { listInboxItems, readInboxItem, approveInboxItem, createInboxItem } from './inbox.js';
 import { getLatestMorningBriefing, readMorningBriefing } from './briefings.js';
 import { createHomeRouter } from './home-router.js';
 import { HomeStore } from './home-store.js';
@@ -3772,6 +3768,10 @@ app.get('/api/briefings/latest', (req, res) => {
   res.json(getLatestMorningBriefing(BASE_REPO, date));
 });
 
+app.use(
+  '/api/inbox',
+  unifiedInboxRouter(notificationCenter, () => getRepoConfig().resolvedInboxPath),
+);
 app.get('/api/inbox', (_req, res) => {
   const inboxPath = getRepoConfig().resolvedInboxPath;
   if (!inboxPath) {
@@ -3832,6 +3832,7 @@ app.post('/api/inbox/:filename/approve', (req, res) => {
     res.status(404).json({ error: 'Item not found' });
     return;
   }
+  notificationCenter.feed('needs');
   res.json({ ok: true });
   broadcastInboxUpdate();
 });
@@ -3842,11 +3843,13 @@ app.delete('/api/inbox/:filename', (req, res) => {
     res.status(404).json({ error: 'Inbox not configured' });
     return;
   }
-  const ok = discardInboxItem(inboxPath, req.params.filename);
+  const ok = discardInboxSource(notificationCenter.store, inboxPath, req.params.filename);
   if (!ok) {
     res.status(404).json({ error: 'Item not found' });
     return;
   }
+  notificationCenter.feed('needs');
+  notificationCenter.changed();
   res.json({ ok: true });
   broadcastInboxUpdate();
 });

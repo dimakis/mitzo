@@ -27,6 +27,36 @@ export interface MitzoNotification {
   resolution: NotificationResolution | null;
   resolvedAt: number | null;
   archivedAt?: number | null;
+  inbox?: {
+    agent: string;
+    tags: string[];
+    category: 'briefing' | 'proposal' | 'alert' | 'maintenance' | 'report';
+    severity: 'info' | 'warning' | 'critical';
+    needsAttention: boolean;
+    content?: string;
+    status: string;
+    sourceArchived?: boolean;
+    sourceUpdatedAt?: number;
+  };
+}
+export const InboxQuery = z.object({
+  view: z.enum(['needs', 'briefings', 'proposals', 'all', 'archive']).default('needs'),
+  query: z.string().max(500).default(''),
+  source: z.string().max(150).default(''),
+  type: z
+    .enum(['', 'sessions', 'updates', 'approval', 'question', 'alert', 'maintenance'])
+    .default(''),
+  status: z.enum(['', 'unread', 'resolved']).default(''),
+  age: z.enum(['any', 'today', 'week', 'month']).default('any'),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+  offset: z.coerce.number().int().min(0).max(100000).default(0),
+});
+export type InboxQuery = z.infer<typeof InboxQuery>;
+export interface InboxFeed {
+  items: MitzoNotification[];
+  needsYou: number;
+  total: number;
+  sources: string[];
 }
 const time = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/);
 export const NotificationPreferences = z

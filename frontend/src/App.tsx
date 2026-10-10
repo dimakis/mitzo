@@ -30,7 +30,7 @@ import { ResponsiveChatView } from './components/ResponsiveChatView';
 import { KnowledgeLibrary } from './pages/KnowledgeLibrary';
 import { AgentLibrary } from './pages/AgentLibrary';
 import { FileViewer } from './pages/FileViewer';
-import { InboxView } from './pages/InboxView';
+import { UnifiedInboxView, InboxRedirect } from './pages/UnifiedInboxView';
 import { CalendarView } from './pages/CalendarView';
 import { TodoWorkspace } from './pages/TodoWorkspace';
 import { TaskBoard } from './pages/TaskBoard';
@@ -129,7 +129,7 @@ function ChatRoute() {
 function CollectionRoute({ page }: { page: 'proposals' | 'calendar' }) {
   const isDesktop = useIsDesktop();
   return page === 'proposals' ? (
-    <InboxView desktop={isDesktop} />
+    <UnifiedInboxView desktop={isDesktop} />
   ) : (
     <CalendarView desktop={isDesktop} />
   );
@@ -274,7 +274,7 @@ export function App() {
                   element={
                     <ProtectedRoute>
                       <PageRoute>
-                        <NotificationsView />
+                        <InboxRedirect />
                       </PageRoute>
                     </ProtectedRoute>
                   }
@@ -341,6 +341,16 @@ export function App() {
                     <ProtectedRoute>
                       <PageRoute>
                         <CollectionRoute page="proposals" />
+                      </PageRoute>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/settings/notifications"
+                  element={
+                    <ProtectedRoute>
+                      <PageRoute>
+                        <NotificationsView preferencesOnly />
                       </PageRoute>
                     </ProtectedRoute>
                   }

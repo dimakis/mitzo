@@ -36,16 +36,7 @@ it('desktop keeps every collection reachable and marks Today as current', () => 
       <DesktopNav />
     </MemoryRouter>,
   );
-  for (const name of [
-    'Today',
-    'Chats',
-    'Proposals',
-    'Work',
-    'Agents',
-    'Calendar',
-    'Knowledge',
-    'More',
-  ])
+  for (const name of ['Today', 'Chats', 'Inbox', 'Work', 'Agents', 'Calendar', 'Knowledge', 'More'])
     expect(screen.getByRole('link', { name })).toBeTruthy();
   expect(screen.getByRole('link', { name: 'Today' }).getAttribute('aria-current')).toBe('page');
 });
