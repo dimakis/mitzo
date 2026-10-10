@@ -80,3 +80,51 @@ it('selects immutable published pack revisions and leaves workspace choices avai
     global.fetch = original;
   }
 });
+it('resolves the selected historical pack name without upgrading its pin', async () => {
+  const original = global.fetch;
+  const onChange = () => {
+    throw Error('Historical lookup must not change the recipe');
+  };
+  const hash = 'b'.repeat(64);
+  global.fetch = async (input) =>
+    ({
+      ok: true,
+      json: async () =>
+        String(input).endsWith('/revisions/2')
+          ? {
+              pack: {
+                id: 'review',
+                revision: 2,
+                hash,
+                definition: { id: 'review', name: 'Previous reviewer' },
+              },
+            }
+          : {
+              packs: [
+                {
+                  id: 'review',
+                  revision: 3,
+                  hash: 'a'.repeat(64),
+                  definition: { id: 'review', name: 'Latest reviewer' },
+                },
+              ],
+              drafts: [],
+            },
+    }) as Response;
+  try {
+    render(
+      <AgentContextRecipeEditor
+        value={{
+          version: 2,
+          source: 'packs',
+          packs: [{ id: 'review', revision: 2, hash }],
+          tokenBudget: 4000,
+        }}
+        onChange={onChange}
+      />,
+    );
+    expect(await screen.findByText('Previous reviewer · revision 2')).toBeTruthy();
+  } finally {
+    global.fetch = original;
+  }
+});

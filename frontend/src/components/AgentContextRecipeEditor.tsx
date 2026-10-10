@@ -26,6 +26,55 @@ export function AgentContextRecipeEditor({
 }) {
   const [packs, setPacks] = useState<PublishedContextPack[]>([]);
   const [packKey, setPackKey] = useState('');
+  const [pinnedPacks, setPinnedPacks] = useState<Record<string, PublishedContextPack>>({});
+  const [pinErrors, setPinErrors] = useState<Record<string, string>>({});
+  const pinsKey = value?.source === 'packs' ? JSON.stringify(value.packs) : '';
+  useEffect(() => {
+    if (!pinsKey) return;
+    let live = true;
+    const pins: { id: string; revision: number; hash: string }[] = JSON.parse(pinsKey);
+    void Promise.all(
+      pins.map(async (pin) => {
+        const key = `${pin.id}:${pin.revision}`;
+        try {
+          const response = await apiFetch(
+            `/api/context-packs/${encodeURIComponent(pin.id)}/revisions/${pin.revision}`,
+          );
+          const result = await response.json();
+          if (
+            !response.ok ||
+            result.pack?.id !== pin.id ||
+            result.pack?.revision !== pin.revision ||
+            result.pack?.hash !== pin.hash
+          )
+            throw Error('Pinned revision unavailable or hash mismatch');
+          if (live) {
+            setPinnedPacks((current) => ({ ...current, [key]: result.pack }));
+            setPinErrors((current) => {
+              const next = { ...current };
+              delete next[key];
+              return next;
+            });
+          }
+        } catch (cause) {
+          if (live) {
+            setPinErrors((current) => ({
+              ...current,
+              [key]: cause instanceof Error ? cause.message : 'Pinned revision unavailable',
+            }));
+            setPinnedPacks((current) => {
+              const next = { ...current };
+              delete next[key];
+              return next;
+            });
+          }
+        }
+      }),
+    );
+    return () => {
+      live = false;
+    };
+  }, [pinsKey]);
   const [packError, setPackError] = useState('');
   useEffect(() => {
     if (value?.source !== 'packs') return;
@@ -89,8 +138,9 @@ export function AgentContextRecipeEditor({
           {value.source === 'packs' ? (
             <>
               <p>
-                Manage reusable source choices in Knowledge → Context. Each choice pins an immutable
-                revision.
+                Manage reusable source choices in{' '}
+                <a href="/knowledge?view=context">Knowledge → Context</a>. Each choice pins an
+                immutable revision.
               </p>
               {packError && <p role="alert">{packError}</p>}
               <label>
@@ -137,6 +187,15 @@ export function AgentContextRecipeEditor({
               </button>
               {value.packs.map((pack, index) => (
                 <div key={`${pack.id}:${pack.revision}`}>
+                  {pinnedPacks[`${pack.id}:${pack.revision}`] && (
+                    <p>
+                      {pinnedPacks[`${pack.id}:${pack.revision}`].definition.name} · revision{' '}
+                      {pack.revision}
+                    </p>
+                  )}
+                  {pinErrors[`${pack.id}:${pack.revision}`] && (
+                    <p role="alert">{pinErrors[`${pack.id}:${pack.revision}`]}</p>
+                  )}
                   <p>
                     {pack.id} · revision {pack.revision}
                   </p>
