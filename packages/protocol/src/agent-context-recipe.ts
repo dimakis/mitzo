@@ -86,3 +86,11 @@ export const CompiledAgentContextSchema = z
       ctx.addIssue({ code: 'custom', message: 'Compiled context workspace identity mismatch' });
   });
 export type CompiledAgentContext = z.infer<typeof CompiledAgentContextSchema>;
+
+/** Conversation-owned receipt; excluded from portable Library definitions and exports. */
+export const AgentContextSnapshotSchema = CompiledAgentContextSchema.safeExtend({
+  profileId: z.string().trim().min(1).max(128),
+  revision: z.number().int().positive(),
+  profileHash: digest,
+});
+export type AgentContextSnapshot = z.infer<typeof AgentContextSnapshotSchema>;

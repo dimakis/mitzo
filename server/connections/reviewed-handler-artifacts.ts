@@ -25,7 +25,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../agent-context-compiler.ts':
     '37adfd9225f97cccdee556cf91d8a9e7642083df15a8d5bdc24599c92cb84db0',
   '../../packages/protocol/src/agent-context-recipe.ts':
-    '7e8e25fc19e1d7ff515f60e092a18d553fa443f23e73003fe1fe7bb99bffb70f',
+    '1adb84447180719c11d0102f592333086813ec7577fcfbd38f4e3f51f6225b00',
   // Library profile identity, operator ownership and admission are reviewed runtime inputs.
   '../symposium-director-routes.ts':
     'e6cabfe7555434bbf426209e5a0de750195559e106b0bbb09c4885a34159ff36',
@@ -131,11 +131,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../native-tool-executor.ts': '6bca4beb98690334e83a0a88b35c80558ed01b7485f682aca0cc0af11b6cd766',
   '../repository-workspaces.ts': 'b7e8cd755cdf6483d706f41d5deca216736b40dbd7863a3be20edfd32abb811c',
   '../../packages/protocol/src/event-store.ts':
-    '6c23bb678b59d3fa75e27bdca1a16ee73fb361113cce1a95eb25dd1893cc3855',
+    '3a9bd3d71221751376d4864d075a3fc42dcba6726907f5901bdafbc16b9297c6',
   '../../packages/protocol/src/session-runtime-binding.ts':
     '8cef7a7a2dcab070d320cf20fd3f98c03dfe71a1570dbd16d8fedd7f9a9d7872',
   '../../packages/protocol/src/types.ts':
-    '9a749717fba4969a831682c8aa502ad2fc205a7eb17ddf825d07da4f7a04417f',
+    '70f1e9398533294c544475e0d7e5da9eac7e19b097991d58ee749616b50406ca',
   '../repository-workspace-runtime.ts':
     '13db6d8d468d3e5ff4a9c8feaa06e5abbbb040196e8cf5b94b145297a5393a99',
   '../repository-workspace-router.ts':

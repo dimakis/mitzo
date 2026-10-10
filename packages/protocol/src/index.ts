@@ -288,3 +288,4 @@ export {
   CompiledAgentContextSchema,
   type CompiledAgentContext,
 } from './agent-context-recipe.js';
+export { AgentContextSnapshotSchema, type AgentContextSnapshot } from './agent-context-recipe.js';
