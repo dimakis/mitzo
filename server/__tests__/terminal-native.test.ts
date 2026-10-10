@@ -54,12 +54,41 @@ it.skipIf(!available)(
       live.detach();
       output = '';
       const reconstructed = new TmuxTerminalBackend(namespace, environment);
+      const exits: Array<'disconnected' | undefined> = [];
       live = await reconstructed.start(record, true, {
         data: (value) => (output += value),
-        exit: () => {},
+        exit: (reason) => {
+          exits.push(reason);
+        },
       });
       live.write('printf \'VALUE_%s\\n\' "$MITZO_TEST_VALUE"\r');
       await vi.waitFor(() => expect(output).toContain('VALUE_persisted'), {
+        timeout: 3000,
+        interval: 20,
+      });
+      const client = spawnSync(
+        'tmux',
+        ['-L', namespace, 'list-clients', '-t', record.id, '-F', '#{client_pid}'],
+        { encoding: 'utf8' },
+      )
+        .stdout.trim()
+        .split('\n')
+        .at(-1)!;
+      expect(Number.isSafeInteger(Number(client)) && Number(client) > 0).toBe(true);
+      process.kill(Number(client), 'SIGTERM');
+      await vi.waitFor(() => expect(exits).toEqual(['disconnected']), {
+        timeout: 3000,
+        interval: 20,
+      });
+      output = '';
+      live = await new TmuxTerminalBackend(namespace, environment).start(record, true, {
+        data: (value) => {
+          output += value;
+        },
+        exit: () => {},
+      });
+      live.write('printf \'RECOVERED_%s\\n\' "$MITZO_TEST_VALUE"\r');
+      await vi.waitFor(() => expect(output).toContain('RECOVERED_persisted'), {
         timeout: 3000,
         interval: 20,
       });

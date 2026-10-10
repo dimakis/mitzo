@@ -80,6 +80,7 @@ export function TerminalView() {
         if (!info.id || !['host', 'sandbox'].includes(info.kind))
           throw Error('Invalid terminal response');
         setTerminal(info);
+        if (info.state === 'ended') setStatus('ended');
         if (!histories.has(info.id)) {
           if (histories.size >= 20) histories.delete(histories.keys().next().value!);
           histories.set(info.id, new CommandHistory());
@@ -485,7 +486,7 @@ export function TerminalView() {
         )}
       </section>
       <div className="terminal-output">
-        {terminal ? (
+        {terminal?.state === 'running' ? (
           <TerminalConsole
             key={`${terminal.id}:${attempt}`}
             ref={console}
@@ -495,7 +496,11 @@ export function TerminalView() {
           />
         ) : (
           <p className="workspace-muted">
-            {status === 'unavailable' ? 'Unable to open terminal' : 'Opening terminal…'}
+            {status === 'ended'
+              ? 'The saved shell has ended.'
+              : status === 'unavailable'
+                ? 'Unable to open terminal'
+                : 'Opening terminal…'}
           </p>
         )}
       </div>

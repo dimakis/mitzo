@@ -1,4 +1,5 @@
 import Database from 'better-sqlite3';
+import { TerminalSessionMissing } from '../terminal-errors.js';
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import {
   TerminalStore,
@@ -11,7 +12,7 @@ describe('operator terminals', () => {
   let db: Database.Database;
   let target: TerminalTarget;
   let onData: (data: string) => void;
-  let onExit: () => void;
+  let onExit: (reason?: 'disconnected') => void;
   const process = { write: vi.fn(), resize: vi.fn(), detach: vi.fn() };
   let backend: TerminalBackend;
   let service: TerminalService;
@@ -181,5 +182,28 @@ describe('operator terminals', () => {
       }),
     ).rejects.toThrow();
     expect(process.write).not.toHaveBeenCalled();
+  });
+  it('reattaches the same shell after a transport disconnect', async () => {
+    const terminal = await service.open('operator-a', {});
+    onExit('disconnected');
+    expect(service.get('operator-a', terminal.id).state).toBe('running');
+    expect((await service.open('operator-a', {})).id).toBe(terminal.id);
+    expect(backend.start).toHaveBeenLastCalledWith(
+      expect.objectContaining({ id: terminal.id }),
+      true,
+      expect.anything(),
+    );
+  });
+  it('preserves an uncertain resume and offers an explicitly new shell only after confirmed absence', async () => {
+    const terminal = await service.open('operator-a', {});
+    service.detachAll();
+    vi.mocked(backend.start).mockRejectedValueOnce(Error('Temporary transport failure'));
+    await expect(service.open('operator-a', {})).rejects.toThrow();
+    expect(service.get('operator-a', terminal.id).state).toBe('running');
+    expect((await service.open('operator-a', {})).id).toBe(terminal.id);
+    service.detachAll();
+    vi.mocked(backend.start).mockRejectedValueOnce(new TerminalSessionMissing());
+    expect(await service.open('operator-a', {})).toMatchObject({ id: terminal.id, state: 'ended' });
+    expect((await service.open('operator-a', {})).id).not.toBe(terminal.id);
   });
 });

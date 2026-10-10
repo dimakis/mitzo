@@ -1,3 +1,4 @@
+import { TerminalSessionMissing } from './terminal-errors.js';
 import { randomUUID } from 'node:crypto';
 import type Database from 'better-sqlite3';
 import {
@@ -32,7 +33,7 @@ export interface TerminalBackend {
     resume: boolean,
     callbacks: {
       data(data: string): void;
-      exit(): void;
+      exit(reason?: 'disconnected'): void;
     },
   ): Promise<TerminalProcess>;
   end(record: TerminalRecord): Promise<void>;
@@ -120,7 +121,11 @@ export class TerminalService {
       .list(owner)
       .find((record) => record.identity === target.identity && record.state === 'running');
     if (existing) {
-      await this.ensure(existing, true);
+      try {
+        await this.ensure(existing, true);
+      } catch (error) {
+        if (!(error instanceof TerminalSessionMissing)) throw error;
+      }
       return this.get(owner, existing.id);
     }
     if (
@@ -169,10 +174,15 @@ export class TerminalService {
           live.data = (live.data + data).slice(-128 * 1024);
           for (const listener of live.listeners) listener({ type: 'output', data, seq: live.seq });
         },
-        exit: () => {
-          this.store.state(record.id, 'ended');
+        exit: (reason) => {
+          if (reason !== 'disconnected') this.store.state(record.id, 'ended');
           live.seq++;
-          for (const listener of live.listeners) listener({ type: 'exit', seq: live.seq });
+          for (const listener of live.listeners)
+            listener(
+              reason === 'disconnected'
+                ? { type: 'error', error: 'Terminal transport disconnected; reconnecting' }
+                : { type: 'exit', seq: live.seq },
+            );
           this.live.delete(record.id);
         },
       })
@@ -180,9 +190,11 @@ export class TerminalService {
         live.process = process;
         return live;
       })
-      .catch(() => {
-        this.store.state(record.id, 'unavailable');
+      .catch((error) => {
+        if (error instanceof TerminalSessionMissing) this.store.state(record.id, 'ended');
+        else if (!resume) this.store.state(record.id, 'unavailable');
         this.live.delete(record.id);
+        if (error instanceof TerminalSessionMissing) throw error;
         throw new Error('Terminal could not be opened. Check the selected environment.');
       })
       .finally(() => {

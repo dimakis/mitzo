@@ -1,3 +1,4 @@
+import { TerminalSessionMissing } from './terminal-errors.js';
 import * as pty from 'node-pty';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -125,19 +126,39 @@ export class TmuxTerminalBackend implements TerminalBackend {
     const grant = await gateway.createTerminalSsh(runtime.sandboxId, AbortSignal.timeout(15000));
     return terminalProcessSpec(record, this.namespace, operation, grant);
   }
+  private async checkSession(record: TerminalRecord) {
+    const check = await this.spec(record, 'check');
+    try {
+      await execute(check.command, check.args, {
+        env: check.env,
+        timeout: 15000,
+        maxBuffer: 64 * 1024,
+      });
+    } catch (error) {
+      if (
+        error &&
+        typeof error === 'object' &&
+        'code' in error &&
+        error.code === 1 &&
+        'stderr' in error &&
+        typeof error.stderr === 'string'
+      ) {
+        const detail = error.stderr.trim();
+        if (
+          detail.startsWith('no server running on ') ||
+          detail === `can't find session: ${record.id}`
+        )
+          throw new TerminalSessionMissing();
+      }
+      throw Error('Terminal transport unavailable');
+    }
+  }
   async start(
     record: TerminalRecord,
     resume: boolean,
-    callbacks: { data(data: string): void; exit(): void },
+    callbacks: { data(data: string): void; exit(reason?: 'disconnected'): void },
   ) {
-    if (resume) {
-      const check = await this.spec(record, 'check');
-      await execute(check.command, check.args, {
-        env: check.env,
-        timeout: 15_000,
-        maxBuffer: 64 * 1024,
-      });
-    }
+    if (resume) await this.checkSession(record);
     const spec = await this.spec(record, resume ? 'resume' : 'attach');
     const process = pty.spawn(spec.command, spec.args, {
       name: 'xterm-256color',
@@ -151,7 +172,16 @@ export class TmuxTerminalBackend implements TerminalBackend {
       if (!detached) callbacks.data(value);
     });
     const exit = process.onExit(() => {
-      if (!detached) callbacks.exit();
+      if (detached) return;
+      void this.checkSession(record).then(
+        () => {
+          if (!detached) callbacks.exit('disconnected');
+        },
+        (error) => {
+          if (!detached)
+            callbacks.exit(error instanceof TerminalSessionMissing ? undefined : 'disconnected');
+        },
+      );
     });
     return {
       write: (value: string) => process.write(value),

@@ -37,7 +37,7 @@ afterEach(() => {
   cleanup();
   vi.clearAllMocks();
 });
-function setup(path = '/terminal?sessionId=chat-a') {
+function setup(path = '/terminal?sessionId=chat-a', state = 'running') {
   vi.mocked(apiFetch).mockImplementation(
     async (url) =>
       new Response(
@@ -51,7 +51,7 @@ function setup(path = '/terminal?sessionId=chat-a') {
                   label: 'This sandbox',
                   kind: 'sandbox',
                   cwd: '/workspace',
-                  state: 'running',
+                  state,
                 },
         ),
       ),
@@ -166,4 +166,30 @@ it('retains deliberately reviewed output in subsequent adviser turns', async () 
     content: 'help\n\nReviewed terminal output:\nredacted',
   });
   expect(body.output).toBeUndefined();
+});
+
+it('offers an explicit new shell after the saved session is confirmed ended', async () => {
+  setup('/terminal', 'ended');
+  vi.mocked(apiFetch).mockResolvedValue(
+    new Response(
+      JSON.stringify({
+        id: 'ended',
+        kind: 'host',
+        label: 'Your Mac',
+        cwd: '/workspace',
+        state: 'ended',
+      }),
+    ),
+  );
+  await screen.findByText('The saved shell has ended.');
+  expect(screen.queryByText('Shell output')).toBeNull();
+  expect(vi.mocked(apiFetch).mock.calls.filter(([path]) => path === '/api/terminals')).toHaveLength(
+    1,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Start new shell' }));
+  await waitFor(() =>
+    expect(
+      vi.mocked(apiFetch).mock.calls.filter(([path]) => path === '/api/terminals'),
+    ).toHaveLength(2),
+  );
 });
