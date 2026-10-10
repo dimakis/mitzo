@@ -295,7 +295,11 @@ import type { WorkflowTemplateStore, TemplateCreateInput } from './workflow-temp
 import { instantiateTemplate } from './workflow-templates.js';
 import type { SignalProcessor } from './signal-processor.js';
 import { listInboxItems, readInboxItem, approveInboxItem, createInboxItem } from './inbox.js';
-import { getLatestMorningBriefing, readMorningBriefing } from './briefings.js';
+import {
+  getLatestMorningBriefing,
+  readMorningBriefing,
+  readMorningBriefingSnapshot,
+} from './briefings.js';
 import {
   createWorkspaceRuntimeClient,
   workspaceRuntimeConfigured,
@@ -3767,12 +3771,26 @@ app.put('/api/files/write', async (req, res) => {
 
 // --- Inbox API ---
 
+/** Today and Home must select the same enrolled report under existing file authority. */
+async function selectRuntimeBriefing(date: string, signal?: AbortSignal) {
+  const client = createWorkspaceRuntimeClient(process.env.MITZO_WORKSPACE_RUNTIME_CONFIG ?? '');
+  if (!isAllowedPath(client.briefingsRoot)) throw new Error('Briefing root is not readable');
+  const briefing = await client.latestBriefing({ date }, signal);
+  if (briefing && !isAllowedPath(briefing.path))
+    throw new Error('Briefing artifact is not readable');
+  return briefing;
+}
+
 app.use(
   '/api/home',
   createHomeRouter({
     store: new HomeStore(join(BASE_REPO || '.', '.mitzo', 'home.json')),
     catalog: readQuoteCatalog,
-    briefing: (date) => readMorningBriefing(BASE_REPO || '.', date),
+    briefing: async (date, signal) => {
+      if (!workspaceRuntimeConfigured()) return readMorningBriefing(BASE_REPO || '.', date);
+      const selected = await selectRuntimeBriefing(date, signal);
+      return selected ? readMorningBriefingSnapshot(selected) : null;
+    },
     session: (id) => eventStore.getSession(id),
     changed: () => sseRegistry.broadcast('home_preferences', {}),
   }),
@@ -3791,11 +3809,7 @@ app.get('/api/briefings/latest', async (req, res) => {
     };
     res.once('close', cancel);
     try {
-      const client = createWorkspaceRuntimeClient(process.env.MITZO_WORKSPACE_RUNTIME_CONFIG ?? '');
-      if (!isAllowedPath(client.briefingsRoot)) throw new Error('Briefing root is not readable');
-      const briefing = await client.latestBriefing({ date }, controller.signal);
-      if (briefing && !isAllowedPath(briefing.path))
-        throw new Error('Briefing artifact is not readable');
+      const briefing = await selectRuntimeBriefing(date, controller.signal);
       res.json(briefing);
     } catch {
       if (!res.destroyed) res.status(503).json({ error: 'Workspace runtime briefing unavailable' });

@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.9';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.36';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.37';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -24,7 +24,9 @@ export function reviewedHandlerSourceFingerprint(source: string) {
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../chat.ts': '53267de3775936c88dfd7bc2797becb533a0e42722ad72b8f58651c6b93b224b',
   '../agent-context-binding.ts': 'ce0f8dba7f97f515be8ee00a441e3cc36344aad44f31e0b2fb33a160f8803e66',
-  '../app.ts': '0d585234ceb64d3373657b6a8a22e6eeeff4a4a12c467ed41631aa9f68562a83',
+  '../briefings.ts': '277b26171abc42266a3b621ff7ab10306792764cb55bbc635e41c4ba20e98d49',
+  '../home-router.ts': '744708f3503d3ef46114998ce9bb6a68b3068a3c7d57e0c264298cdb69aac982',
+  '../app.ts': 'a9f80762292d689454a4493ccb68d9e95ee7b644a42d930841629494e40364a5',
   '../ws-handler-v2.ts': '2952b6ea0ad4307739603901b01725514896452ea70c9f2464d8c04c6f4d9052',
   '../codex-queue-routes.ts': '6873ee90c32da94dcfebd432535d4170942e53c980456927f9dd57e9917d9a53',
   '../agent-context-compiler.ts':

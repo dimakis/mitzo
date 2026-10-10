@@ -311,6 +311,12 @@ describe('enrolled calendar and briefing routes', () => {
       .set('Cookie', authCookie);
     expect(result.status).toBe(503);
     expect(runtime.latestBriefing).not.toHaveBeenCalled();
+    const home = await request(app)
+      .get('/api/home/briefing')
+      .query({ date: '2026-10-10' })
+      .set('Cookie', authCookie);
+    expect(home.status).toBe(503);
+    expect(runtime.latestBriefing).not.toHaveBeenCalled();
   });
   it('distinguishes runtime failure from no saved briefing without leaking diagnostics', async () => {
     process.env.MITZO_WORKSPACE_RUNTIME_CONFIG = realpathSync(TEST_ENROLLMENT);
@@ -321,5 +327,102 @@ describe('enrolled calendar and briefing routes', () => {
       .set('Cookie', authCookie);
     expect(result.status).toBe(503);
     expect(result.body).toEqual({ error: 'Workspace runtime briefing unavailable' });
+    const home = await request(app)
+      .get('/api/home/briefing')
+      .query({ date: '2026-10-10' })
+      .set('Cookie', authCookie);
+    expect(home.status).toBe(503);
+    expect(home.body).toEqual({ error: 'Saved content is unavailable. Retry.' });
+  });
+  it.each(['enrollment', 'configuration'] as const)(
+    'denies private %s disguised as a dated briefing in both consumers',
+    async (kind) => {
+      const date = kind === 'enrollment' ? '2046-12-20' : '2046-12-21';
+      const authority = join(runtime.briefingsRoot, `${date}.md`);
+      const enrollment = JSON.parse(readFileSync(TEST_ENROLLMENT, 'utf8'));
+      const selectedEnrollment = join(TEST_REPO, `briefing-${kind}-enrollment.json`);
+      const secret = readFileSync(
+        kind === 'enrollment' ? TEST_ENROLLMENT : TEST_RUNTIME_CONFIG,
+        'utf8',
+      );
+      writeFileSync(authority, secret, { mode: 0o600 });
+      if (kind === 'configuration') {
+        writeFileSync(
+          selectedEnrollment,
+          JSON.stringify({ ...enrollment, config: realpathSync(authority) }),
+          { mode: 0o600 },
+        );
+      }
+      process.env.MITZO_WORKSPACE_RUNTIME_CONFIG = realpathSync(
+        kind === 'enrollment' ? authority : selectedEnrollment,
+      );
+      runtime.latestBriefing.mockResolvedValue({
+        filename: `${date}.md`,
+        path: authority,
+        date,
+        generatedAt: '2046-12-20T08:00:00Z',
+      });
+      try {
+        for (const endpoint of ['/api/briefings/latest', '/api/home/briefing']) {
+          const result = await request(app).get(endpoint).query({ date }).set('Cookie', authCookie);
+          expect(result.status).toBe(503);
+          expect(JSON.stringify(result.body)).not.toContain(secret);
+        }
+        delete process.env.MITZO_WORKSPACE_RUNTIME_CONFIG;
+        const removed = await request(app)
+          .get('/api/home/briefing')
+          .query({ date })
+          .set('Cookie', authCookie);
+        expect(removed.status).toBe(404);
+        expect(JSON.stringify(removed.body)).not.toContain(secret);
+      } finally {
+        unlinkSync(authority);
+        if (kind === 'configuration') unlinkSync(selectedEnrollment);
+      }
+    },
+  );
+  it('opens the enrolled Today selection instead of an unrelated legacy briefing', async () => {
+    const date = '2046-12-22';
+    const legacy = join(runtime.briefingsRoot, `${date}.md`);
+    writeFileSync(legacy, '# Legacy report');
+    const alternateRoot = join(TEST_REPO, 'reports', 'briefings');
+    mkdirSync(alternateRoot, { recursive: true });
+    runtime.briefingsRoot = realpathSync(alternateRoot);
+    const selected = join(runtime.briefingsRoot, `${date}.md`);
+    writeFileSync(selected, '# Enrolled report');
+    process.env.MITZO_WORKSPACE_RUNTIME_CONFIG = realpathSync(TEST_ENROLLMENT);
+    runtime.latestBriefing.mockResolvedValue({
+      filename: `${date}.md`,
+      path: selected,
+      date,
+      generatedAt: '2046-12-22T08:00:00Z',
+    });
+    try {
+      const today = await request(app)
+        .get('/api/briefings/latest')
+        .query({ date })
+        .set('Cookie', authCookie);
+      const opened = await request(app)
+        .get('/api/home/briefing')
+        .query({ date })
+        .set('Cookie', authCookie);
+      expect(today.status).toBe(200);
+      expect(opened.status).toBe(200);
+      expect(opened.body.path).toBe(today.body.path);
+      expect(opened.body.content).toBe('# Enrolled report');
+      expect(opened.body.revision).toMatch(/^[a-f0-9]{64}$/);
+      expect(runtime.latestBriefing).toHaveBeenCalledTimes(2);
+      expect(runtime.latestBriefing).toHaveBeenLastCalledWith({ date }, expect.any(AbortSignal));
+      delete process.env.MITZO_WORKSPACE_RUNTIME_CONFIG;
+      const unenrolled = await request(app)
+        .get('/api/home/briefing')
+        .query({ date })
+        .set('Cookie', authCookie);
+      expect(unenrolled.status).toBe(200);
+      expect(unenrolled.body.content).toBe('# Legacy report');
+    } finally {
+      unlinkSync(legacy);
+      unlinkSync(selected);
+    }
   });
 });
