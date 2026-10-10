@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.9';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.30';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.31';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,6 +22,33 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  // Exact-output selection and ordinary contributor claims share reviewed runtime admission.
+  '../app.ts': 'e64a7665670e1ba1de78288328796c0f2c8d8e3334edf24f04a28726e80c66da',
+  '../chat.ts': 'a46a2f97469698d708a5db9fdda04eb0cfd7a9471d81c90d4f7fe5debd4c83db',
+  '../account-profiles.ts': '6de5c87f62d5234cb68e3f857c8431160f63562fea3b78ec62e5dd2f381e3745',
+  '../ordinary-turn-lifecycle.ts':
+    '136bdac73de0f9280676a209a234972393ca14e84fca40616ac93f204c31e7de',
+  '../ordinary-contributor-guidance.ts':
+    '73384ce804421b34005e145073e7c94f7a07819bd77daed5a4c32163fa942e2c',
+  '../ordinary-contributor-execution.ts':
+    '48c7a6031253dca131675067d4bc7d1f60d190a0fc9794ff2c64a5de872877ef',
+  '../symposium-seat-runtime.ts':
+    'd8dc53ab2ef1f7410e4a5ec5a7701e921c5adea9c706bb48db2105766bdebecc',
+  '../symposium-host-grants.ts': '687977ab6508eddd3a6553668db90cc00dd9ae79da2c4f6383d91b1af877d320',
+  '../symposium-shared-execution.ts':
+    '5af4e80dfb5b91ca7a7a2fba06ba3ec3661e121d9cada5480d83719d8fc78b06',
+  '../symposium-ordinary-turn.ts':
+    'ee7095f9d69d62162c9610948db9ce8eb653921778ab97409ad67ec66d02f5c9',
+  '../output-contributors.ts': '2150e5edec001a2f16b42c6c3c548d585fd7a3f150e0b5d1bc91383a84faf622',
+  '../output-contributor-routes.ts':
+    '16c089ca63fac6fe1295742d60731cd79293b22d6853e545f1781203243dbcf7',
+  '../session-output-references.ts':
+    'f3cc6ec16ec1c2dc907566658c3f12b1776ee35f1bde662a77e97b9a08946841',
+  '../session-output-routes.ts': '2e08e938b4914797006231d1044b2c6c28693aa7fe1813a37d6ba1c9697649b2',
+  '../../packages/protocol/src/session-output-reference.ts':
+    'c103af10de4adc81cdc474b3e69ef2b3de5e447d4dcf15da4fc1894c422b913b',
+  '../../packages/protocol/src/session-output-reference-store.ts':
+    '9ecd7ae7149f629807cffd0142e38c4a498aa10d3f1c8709cd67927e24ecf5e0',
   // Library profile identity, operator ownership and admission are reviewed runtime inputs.
   '../symposium-director-routes.ts':
     'e6cabfe7555434bbf426209e5a0de750195559e106b0bbb09c4885a34159ff36',
@@ -127,7 +154,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../native-tool-executor.ts': '6bca4beb98690334e83a0a88b35c80558ed01b7485f682aca0cc0af11b6cd766',
   '../repository-workspaces.ts': 'b7e8cd755cdf6483d706f41d5deca216736b40dbd7863a3be20edfd32abb811c',
   '../../packages/protocol/src/event-store.ts':
-    '6c23bb678b59d3fa75e27bdca1a16ee73fb361113cce1a95eb25dd1893cc3855',
+    '6bf665f0bb71d58bfadd3c2c95cfdf695ed55a3c8f5d30de8b905a967563b9ee',
   '../../packages/protocol/src/session-runtime-binding.ts':
     '8cef7a7a2dcab070d320cf20fd3f98c03dfe71a1570dbd16d8fedd7f9a9d7872',
   '../../packages/protocol/src/types.ts':
@@ -146,7 +173,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../openshell-runtime-policy.ts':
     'efecd458bf61fecd8198ecd330e0227e2c600ab21d6d2890cd2bac254e22b75f',
   '../openshell-runtime.ts': '71e650b8114df6264ce0a5b81ae32a1907ee3562c177c9d0d59c1f4825849b0c',
-  '../codex-chat-session.ts': '7a0003a8d3f54b905b17c7921e6b2a9d6318a8fc17065f9de8bf1eb4c7165044',
+  '../codex-chat-session.ts': 'bd1ad344ffe7514b8248018cbe2b62ea48b0ba51bbe19c13a00dfdef43fb8c6b',
   '../connections-runtime.ts': 'dbe641704a1d761d73740260fb28057054fdb34a64513fa77292d2fdb1954a84',
   'capabilities/operation-store.ts':
     '1a235f11d5578880e6dfa7ecf5779e2a011e24430774fc17429d7d22359b93f2',
