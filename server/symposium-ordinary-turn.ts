@@ -218,6 +218,8 @@ export function createOrdinarySymposiumTurn(deps: {
             throw new Error('Ordinary Symposium provider termination is unconfirmed');
           if (terminal) deps.port.stopChat(clientId);
           await queryClosed;
+          if (terminalConflict)
+            throw new Error('Ordinary Symposium provider termination is unconfirmed');
         };
         await Promise.race([
           drain(),

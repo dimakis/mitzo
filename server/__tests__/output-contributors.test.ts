@@ -14,6 +14,7 @@ import type { OrdinaryChatPort } from '../symposium-ordinary-turn.js';
 const dirs: string[] = [];
 const cleanup: (() => void)[] = [];
 afterEach(() => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
   cleanup.splice(0).forEach((f) => f());
   dirs.splice(0).forEach((d) => rmSync(d, { recursive: true, force: true }));
@@ -109,6 +110,82 @@ function setup() {
   return { service, store, deps, input, port, output };
 }
 describe('ordinary contributors to registered outputs', () => {
+  it('retains the exact claim after terminal-without-closure timeout and confirms repeated Stop after closure', async () => {
+    const { service, input, port, store } = setup();
+    const parent = store.getSession('source');
+    let close!: () => void;
+    const closed = new Promise<void>((resolve) => {
+      close = resolve;
+    });
+    const interrupted = vi.fn();
+    vi.mocked(port.startChat).mockImplementation(async (_transport, _client, _prompt, options) => {
+      store.upsertSession({
+        sessionId: options.initialSessionId!,
+        conversationSource: 'mitzo',
+        cwd: options.cwd,
+      });
+      options.ordinaryTurnLifecycle!.beforeDispatch(options.clientMsgId!);
+      options.ordinaryTurnLifecycle!.accepted(options.clientMsgId!, 'raw-thread', 'retained-turn');
+      options.onQueryReady!({
+        interrupt: async () => {
+          interrupted();
+          options.ordinaryTurnLifecycle!.terminal(
+            options.clientMsgId!,
+            'retained-turn',
+            'interrupted',
+          );
+        },
+      });
+      await closed;
+    });
+    const contributor = await service.add('source', input);
+    const completion = service.message('source', contributor.id, {
+      requestId: 'retained-request',
+      text: 'Continue',
+    });
+    await vi.waitFor(() => expect(port.startChat).toHaveBeenCalledOnce());
+    const retained = store.getUnsettledSymposiumSeatExecutions(contributor.id, 'contributor');
+    expect(retained).toHaveLength(1);
+    vi.useFakeTimers();
+    let stopped: Awaited<ReturnType<typeof service.stop>> | undefined;
+    const stopping = service
+      .stop('source', contributor.id, { requestId: 'stop-before-close' })
+      .then((value) => {
+        stopped = value;
+      });
+    try {
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(stopped?.status).toBe('stopping');
+      expect(store.getUnsettledSymposiumSeatExecutions(contributor.id, 'contributor')).toEqual(
+        retained,
+      );
+      await expect(
+        service.message('source', contributor.id, {
+          requestId: 'competing-request',
+          text: 'Another turn',
+        }),
+      ).rejects.toThrow(/active/);
+      close();
+      expect((await completion).delivery.status).toBe('cancelled');
+      expect(
+        (await service.stop('source', contributor.id, { requestId: 'stop-after-close' })).status,
+      ).toBe('idle');
+      expect(store.getUnsettledSymposiumSeatExecutions(contributor.id, 'contributor')).toHaveLength(
+        0,
+      );
+      expect(port.startChat).toHaveBeenCalledOnce();
+      expect(interrupted).toHaveBeenCalledOnce();
+      expect(vi.mocked(port.startChat).mock.calls[0][3]).toMatchObject({
+        retainWorkspace: true,
+        cwd: parent!.cwd,
+      });
+      expect(store.getSession('source')).toEqual(parent);
+    } finally {
+      close();
+      await completion;
+      await stopping;
+    }
+  });
   it('targets the exact live child turn and reports idle only after terminal and query closure', async () => {
     const { service, input, port, store } = setup();
     const interrupted = vi.fn();
