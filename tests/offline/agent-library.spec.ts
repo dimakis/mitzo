@@ -117,12 +117,34 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
   await page.getByLabel('Agent name').fill('Robert');
   await page.getByLabel('Descriptor').fill('The systems architect');
   await expect(page.getByRole('link', { name: 'Use in chat', exact: true })).toHaveCount(0);
+  await page.getByRole('link', { name: isMobile ? 'More' : 'Today', exact: true }).click();
+  await page.goBack();
+  await expect(page.getByLabel('Agent name')).toHaveValue('Robert');
+  await expect(page.getByLabel('Descriptor')).toHaveValue('The systems architect');
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.reload();
+  await expect(page.getByLabel('Agent name')).toHaveValue('Robert');
+  await expect(page.getByLabel('Descriptor')).toHaveValue('The systems architect');
   await page.getByRole('button', { name: 'Save draft', exact: true }).click();
   await page.getByRole('button', { name: 'Publish revision', exact: true }).click();
   await expect(page.getByRole('link', { name: 'Use in chat', exact: true })).toHaveAttribute(
     'href',
     '/chat?agentProfile=bob&profileRevision=4',
   );
+  await page.getByLabel('Agent name').fill('Working Robert');
+  catalog.versions.unshift({
+    ...catalog.versions[0],
+    revision: 5,
+    definition: { ...catalog.versions[0].definition, name: 'Remote Robert' },
+  });
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.reload();
+  await expect(page.getByLabel('Agent name')).toHaveValue('Working Robert');
+  await expect(page.getByLabel('Agent name')).toBeEnabled();
+  await page.getByRole('button', { name: 'Discard unsaved edits', exact: true }).click();
+  await expect(page.getByLabel('Agent name')).toHaveValue('Remote Robert');
+  catalog.versions.shift();
+  await page.reload();
   await page.getByRole('button', { name: 'Export profile', exact: true }).click();
   await expect(page.getByLabel('Portable profile export')).toContainText('The systems architect');
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(

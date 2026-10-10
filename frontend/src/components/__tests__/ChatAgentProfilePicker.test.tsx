@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { ChatAgentProfilePicker } from '../ChatAgentProfilePicker';
 import { apiFetch } from '../../lib/api-fetch';
 vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
@@ -83,3 +83,47 @@ it('allows an explicit return to ordinary Mitzo behavior for a new chat', async 
   fireEvent.change(screen.getByLabelText('Agent profile'), { target: { value: '' } });
   expect(change).toHaveBeenLastCalledWith(null, undefined);
 });
+
+it.each([
+  ['', 'bob:3', { profileId: 'bob', revision: 3 }],
+  ['agentProfile=bob&profileRevision=3', '', null],
+] as const)(
+  'retains a manual choice across responsive screen replacement (%s)',
+  async (initial, choice, expected) => {
+    vi.mocked(apiFetch).mockResolvedValue(response({ drafts: [], versions: [version] }));
+    const change = vi.fn();
+    function Screen({ layout }: { layout: string }) {
+      const location = useLocation();
+      return (
+        <>
+          <output aria-label="Chat route">{location.search}</output>
+          <ChatAgentProfilePicker
+            key={layout}
+            sessionId={null}
+            search={location.search}
+            onChange={change}
+          />
+        </>
+      );
+    }
+    const mounted = render(
+      <MemoryRouter initialEntries={[`/chat?prompt=Keep+this&${initial}`]}>
+        <Screen layout="desktop" />
+      </MemoryRouter>,
+    );
+    await screen.findByRole('option', { name: 'Bob · The architect · r3' });
+    fireEvent.change(screen.getByLabelText('Agent profile'), { target: { value: choice } });
+    await waitFor(() => expect(change).toHaveBeenLastCalledWith(expected, undefined));
+    mounted.rerender(
+      <MemoryRouter initialEntries={[`/chat?prompt=Keep+this&${initial}`]}>
+        <Screen layout="mobile" />
+      </MemoryRouter>,
+    );
+    await screen.findByRole('option', { name: 'Bob · The architect · r3' });
+    await waitFor(() =>
+      expect(screen.getByLabelText('Agent profile')).toHaveProperty('value', choice),
+    );
+    expect(change).toHaveBeenLastCalledWith(expected, undefined);
+    expect(screen.getByLabelText('Chat route').textContent).toContain('prompt=Keep+this');
+  },
+);

@@ -76,7 +76,7 @@ function PickerField({
 
 /** Catalog refreshes and draft confirmation belong to one conversation. */
 export function AccountModelPicker(props: Parameters<typeof SessionAccountModelPicker>[0]) {
-  const sessionKey = `${props.scope === 'symposium' ? 'symposium' : (props.sessionId ?? 'new-chat')}:${props.requiredSelection?.accountId ?? ''}:${props.requiredSelection?.model ?? ''}`;
+  const sessionKey = `${props.scope === 'symposium' ? 'symposium' : props.scope === 'adviser' ? 'adviser' : (props.sessionId ?? 'new-chat')}:${props.requiredSelection?.accountId ?? ''}:${props.requiredSelection?.model ?? ''}`;
   return <SessionAccountModelPicker key={sessionKey} {...props} />;
 }
 
@@ -97,7 +97,7 @@ function SessionAccountModelPicker({
   draftOnly?: boolean;
   preferWorkOpenAI?: boolean;
   initialSelection?: AccountSelection;
-  scope?: 'chat' | 'symposium';
+  scope?: 'chat' | 'symposium' | 'adviser';
   requireExplicitSelection?: boolean;
   requiredSelection?: { accountId: string; model: string };
   disabled?: boolean;
@@ -137,6 +137,7 @@ function SessionAccountModelPicker({
   callbacks.current = { onChange, onUnavailable, onSummaryChange };
   const summaryAccount = accounts.find((a) => a.id === (selection?.accountId ?? ''));
   const selectedModel = summaryAccount?.models.find((m) => m.id === selection?.model);
+  const defaultThinking = scope === 'adviser' ? 'adviser default' : 'model default';
   const summary: WorkspaceSummary | null = error
     ? { profile: 'Profile unavailable' }
     : empty
@@ -148,10 +149,10 @@ function SessionAccountModelPicker({
             model: selectedModel?.label ?? selection.model,
             thinking:
               selection.reasoningEffort !== undefined
-                ? `Thinking: ${selection.reasoningEffort ?? 'model default'}`
+                ? `Thinking: ${selection.reasoningEffort ?? defaultThinking}`
                 : selectedModel
                   ? selectedModel.reasoningEfforts?.length
-                    ? 'Thinking: model default'
+                    ? `Thinking: ${defaultThinking}`
                     : 'Thinking: not configurable'
                   : 'Thinking: unknown',
           }
@@ -180,13 +181,15 @@ function SessionAccountModelPicker({
     setDraftUnavailable(false);
     callbacks.current.onChange(null);
     const baseUrl =
-      scope === 'symposium'
-        ? '/api/symposium/accounts'
-        : sessionId
-          ? `/api/sessions/${encodeURIComponent(sessionId)}/meta`
-          : legacy
-            ? '/api/models'
-            : '/api/accounts';
+      scope === 'adviser'
+        ? '/api/terminals/accounts'
+        : scope === 'symposium'
+          ? '/api/symposium/accounts'
+          : sessionId
+            ? `/api/sessions/${encodeURIComponent(sessionId)}/meta`
+            : legacy
+              ? '/api/models'
+              : '/api/accounts';
     const url = baseUrl + (attempt && scope === 'chat' ? '?refresh=1' : '');
     const controller = new AbortController();
     async function fetchMetadata() {
@@ -587,7 +590,7 @@ function SessionAccountModelPicker({
               onChange(explicitSelection || needsConfirmation ? null : next);
             }}
           >
-            <option value="">Model default</option>
+            <option value="">{scope === 'adviser' ? 'Adviser default' : 'Model default'}</option>
             {account.models
               .find((m) => m.id === selection.model)
               ?.reasoningEfforts?.map((effort) => (

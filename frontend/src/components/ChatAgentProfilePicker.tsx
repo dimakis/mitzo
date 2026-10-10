@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
   AgentProfileSelectionSchema,
   agentProfileLabel,
@@ -21,6 +21,7 @@ export function ChatAgentProfilePicker({
   disabled?: boolean;
   onChange(selection: AgentProfileSelection | null, blockedReason?: string): void;
 }) {
+  const [, setSearchParams] = useSearchParams();
   const [versions, setVersions] = useState<AgentLibraryVersion[]>([]);
   const [selected, setSelected] = useState<AgentProfileSelection | null>(null);
   const [pinned, setPinned] = useState<AgentLibraryVersion | null>(null);
@@ -130,6 +131,20 @@ export function ChatAgentProfilePicker({
             setSelected(selection);
             setError('');
             changed.current(selection, undefined);
+            setSearchParams(
+              (params) => {
+                const next = new URLSearchParams(params);
+                if (selection) {
+                  next.set('agentProfile', selection.profileId);
+                  next.set('profileRevision', String(selection.revision));
+                } else {
+                  next.delete('agentProfile');
+                  next.delete('profileRevision');
+                }
+                return next;
+              },
+              { replace: true },
+            );
           }}
         >
           <option value="">Default Mitzo</option>

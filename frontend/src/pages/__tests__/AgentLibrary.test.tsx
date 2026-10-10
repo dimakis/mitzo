@@ -10,6 +10,7 @@ vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
 afterEach(() => {
   cleanup();
   vi.resetAllMocks();
+  sessionStorage.clear();
 });
 const definition = {
   name: 'Bob',
@@ -25,7 +26,7 @@ const published = { profileId: 'bob', revision: 3, definition, contentHash: 'a'.
 const response = (body: unknown, ok = true) => ({ ok, json: async () => body }) as Response;
 function setup() {
   vi.mocked(apiFetch).mockResolvedValue(response({ drafts: [], versions: [published] }));
-  render(
+  return render(
     <MemoryRouter>
       <AgentLibrary />
     </MemoryRouter>,
@@ -132,4 +133,151 @@ it('offers an advisor chat that uses the existing profile proposal tool', async 
   expect(url.pathname).toBe('/chat');
   expect(url.searchParams.get('prompt')).toContain('SymposiumProposeProfile');
   expect(url.searchParams.get('prompt')).toContain('descriptor');
+});
+
+it('recovers unsaved edits after navigation without replacing their save basis', async () => {
+  const first = setup();
+  fireEvent.change(await screen.findByLabelText('Agent name'), { target: { value: 'My Bob' } });
+  first.unmount();
+  setup();
+  await screen.findByDisplayValue('My Bob');
+  expect(screen.getByText('Unsaved edits')).toBeTruthy();
+  vi.mocked(apiFetch).mockResolvedValue(response({ error: 'Draft version conflict' }, false));
+  fireEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+  await screen.findByRole('alert');
+  const save = vi.mocked(apiFetch).mock.calls.find(([path]) => path.endsWith('/drafts'))!;
+  expect(JSON.parse(save[1]!.body as string)).toMatchObject({
+    expectedVersion: 0,
+    expectedRevision: 3,
+    definition: { name: 'My Bob' },
+  });
+});
+
+it('recovers incomplete raw fields and recipe lines after refresh', async () => {
+  const first = setup();
+  fireEvent.change(await screen.findByLabelText('Agent name'), { target: { value: '' } });
+  fireEvent.change(screen.getByLabelText('Role'), { target: { value: 'unfinished role ' } });
+  fireEvent.click(screen.getByRole('tab', { name: 'Context' }));
+  fireEvent.click(screen.getByLabelText('Include reusable recipe'));
+  fireEvent.change(screen.getByLabelText('Skill references (one per line)'), {
+    target: { value: ' draft skill \n' },
+  });
+  first.unmount();
+  setup();
+  await screen.findByText('Unsaved edits');
+  expect(screen.getByLabelText('Agent name')).toHaveProperty('value', '');
+  expect(screen.getByLabelText('Role')).toHaveProperty('value', 'unfinished role ');
+  fireEvent.click(screen.getByRole('tab', { name: 'Context' }));
+  expect(screen.getByLabelText('Skill references (one per line)')).toHaveProperty(
+    'value',
+    ' draft skill \n',
+  );
+});
+
+it('removes recovery only after explicit discard or a confirmed save', async () => {
+  const first = setup();
+  fireEvent.change(await screen.findByLabelText('Agent name'), { target: { value: 'Temporary' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Discard unsaved edits' }));
+  first.unmount();
+  const second = setup();
+  await screen.findByDisplayValue('Bob');
+  fireEvent.change(screen.getByLabelText('Agent name'), { target: { value: 'Saved Bob' } });
+  vi.mocked(apiFetch).mockResolvedValue(
+    response({
+      profileId: 'bob',
+      version: 1,
+      baseRevision: 3,
+      definition: { ...definition, name: 'Saved Bob' },
+    }),
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+  await screen.findByText('Draft saved. Existing chats keep their published revision.');
+  second.unmount();
+  setup();
+  await screen.findByDisplayValue('Bob');
+  expect(screen.queryByText('Unsaved edits')).toBeNull();
+});
+
+it('does not let a save acknowledgment from an unmounted editor erase newer working edits', async () => {
+  const first = setup();
+  fireEvent.change(await screen.findByLabelText('Agent name'), { target: { value: 'First edit' } });
+  let acknowledge!: (value: Response) => void;
+  vi.mocked(apiFetch).mockReturnValueOnce(
+    new Promise((resolve) => {
+      acknowledge = resolve;
+    }),
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+  first.unmount();
+  const second = setup();
+  await screen.findByDisplayValue('First edit');
+  fireEvent.change(screen.getByLabelText('Agent name'), { target: { value: 'Newer edit' } });
+  acknowledge(
+    response({
+      profileId: 'bob',
+      version: 1,
+      baseRevision: 3,
+      definition: { ...definition, name: 'First edit' },
+    }),
+  );
+  await waitFor(() =>
+    expect(screen.getByLabelText('Agent name')).toHaveProperty('value', 'Newer edit'),
+  );
+  second.unmount();
+  setup();
+  await screen.findByDisplayValue('Newer edit');
+});
+
+it('protects a dirty editor from closing its tab and retains the retry key after an uncertain save', async () => {
+  const first = setup();
+  fireEvent.change(await screen.findByLabelText('Agent name'), {
+    target: { value: 'Working Bob' },
+  });
+  const unload = new Event('beforeunload', { cancelable: true });
+  window.dispatchEvent(unload);
+  expect(unload.defaultPrevented).toBe(true);
+  vi.mocked(apiFetch).mockRejectedValueOnce(Error('Connection lost'));
+  fireEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+  await screen.findByRole('alert');
+  const before = vi.mocked(apiFetch).mock.calls.find(([path]) => path.endsWith('/drafts'))!;
+  first.unmount();
+  setup();
+  await screen.findByDisplayValue('Working Bob');
+  vi.mocked(apiFetch).mockResolvedValueOnce(response({ error: 'offline' }, false));
+  fireEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+  await screen.findByRole('alert');
+  const after = vi
+    .mocked(apiFetch)
+    .mock.calls.filter(([path]) => path.endsWith('/drafts'))
+    .at(-1)!;
+  expect(JSON.parse(after[1]!.body as string)).toEqual(JSON.parse(before[1]!.body as string));
+});
+
+it('keeps recovered edits actionable when another device publishes a newer revision', async () => {
+  const first = setup();
+  fireEvent.change(await screen.findByLabelText('Agent name'), {
+    target: { value: 'My working name' },
+  });
+  first.unmount();
+  vi.mocked(apiFetch).mockResolvedValue(
+    response({
+      drafts: [],
+      versions: [
+        { ...published, revision: 4, definition: { ...definition, name: 'Shared newer name' } },
+        published,
+      ],
+    }),
+  );
+  render(
+    <MemoryRouter>
+      <AgentLibrary />
+    </MemoryRouter>,
+  );
+  await screen.findByDisplayValue('My working name');
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: 'Discard unsaved edits' })).toBeTruthy(),
+  );
+  expect(screen.getByLabelText('Agent name')).toHaveProperty('disabled', false);
+  fireEvent.click(screen.getByRole('button', { name: 'Discard unsaved edits' }));
+  await screen.findByDisplayValue('Shared newer name');
 });

@@ -1070,3 +1070,55 @@ it('requires confirmation after clearing the default even across catalog refresh
   fireEvent.click(await screen.findByRole('button', { name: /Use .*Haiku/ }));
   expect(onChange).toHaveBeenLastCalledWith({ accountId: 'other', model: 'haiku' });
 });
+
+it('keeps terminal adviser account, model and thinking independent of chat defaults', async () => {
+  const onChange = vi.fn();
+  localStorage.setItem(
+    'mitzo-default-account-model',
+    JSON.stringify({ accountId: 'other', model: 'other' }),
+  );
+  vi.mocked(apiFetch).mockResolvedValue(
+    new Response(
+      JSON.stringify([
+        {
+          id: 'work',
+          label: 'Work',
+          models: [
+            {
+              id: 'luna',
+              label: 'Luna',
+              reasoningEfforts: ['low', 'high'],
+              defaultReasoningEffort: 'low',
+            },
+          ],
+        },
+      ]),
+    ),
+  );
+  render(
+    <AccountModelPicker
+      scope="adviser"
+      sessionId={null}
+      preferredModel="luna"
+      initialSelection={{ accountId: 'work', model: 'luna', reasoningEffort: 'high' }}
+      onChange={onChange}
+    />,
+  );
+  await waitFor(() =>
+    expect(onChange).toHaveBeenLastCalledWith({
+      accountId: 'work',
+      model: 'luna',
+      reasoningEffort: 'high',
+    }),
+  );
+  expect(apiFetch).toHaveBeenCalledWith('/api/terminals/accounts', expect.any(Object));
+  expect(screen.getByRole('option', { name: 'Adviser default' })).toBeTruthy();
+  expect(screen.queryByText('Make default for new chats')).toBeNull();
+  expect(localStorage.getItem('mitzo-default-account-model')).toContain('other');
+  fireEvent.change(screen.getByLabelText('Thinking'), { target: { value: 'low' } });
+  expect(onChange).toHaveBeenLastCalledWith({
+    accountId: 'work',
+    model: 'luna',
+    reasoningEffort: 'low',
+  });
+});
