@@ -6,6 +6,7 @@ import type {
   OutputContributorPanelProps,
 } from '../components/OutputContributorPanel';
 import { apiFetch } from '../lib/api-fetch';
+import { createBrowserId, sha256Hex } from '../lib/browser-crypto';
 
 type View = Pick<
   OutputContributorPanelProps,
@@ -84,17 +85,11 @@ async function requestIdentity(
   operation: string,
   payload: unknown,
 ): Promise<{ id: string; key: string }> {
-  const hash = await crypto.subtle.digest(
-    'SHA-256',
-    new TextEncoder().encode(stablePayload(payload)),
-  );
-  const fingerprint = Array.from(new Uint8Array(hash), (byte) =>
-    byte.toString(16).padStart(2, '0'),
-  ).join('');
+  const fingerprint = sha256Hex(stablePayload(payload));
   const key = `mitzo-output-request:${encodeURIComponent(sessionId)}:${operation}:${fingerprint}`;
   const existing = sessionStorage.getItem(key);
   if (existing) return { id: existing, key };
-  const id = crypto.randomUUID();
+  const id = createBrowserId();
   sessionStorage.setItem(key, id);
   if (sessionStorage.getItem(key) !== id)
     throw Error('Could not retain this request identity. Retry before starting work.');

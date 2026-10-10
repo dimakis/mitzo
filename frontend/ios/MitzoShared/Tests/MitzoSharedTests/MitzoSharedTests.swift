@@ -168,7 +168,7 @@ import Foundation
     """.data(using: .utf8)!
 
     let msg = try JSONDecoder().decode(ServerMessage.self, from: json)
-    guard case .error(let err) = msg else {
+    guard case .error(let err, _, _) = msg else {
         Issue.record("Expected error")
         return
     }
@@ -635,7 +635,7 @@ func testSessionControlRejectionCodeRoundTrip(control: String) throws {
     let encoded = try JSONEncoder().encode(original)
     let decoded = try JSONDecoder().decode(ServerMessage.self, from: encoded)
 
-    guard case .error(let err) = decoded else {
+    guard case .error(let err, _, _) = decoded else {
         Issue.record("Expected error after round-trip")
         return
     }

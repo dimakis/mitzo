@@ -144,3 +144,144 @@ func watchRefusalMustMatchSessionControlAndCommand(kind: String) throws {
     #expect(draft.text.isEmpty)
     #expect(draft.pending == nil)
 }
+
+@Test func watchExactForkAssignmentTransfersExistingSubmissionOnce() throws {
+    var draft = WatchSendDraft()
+    draft.edit("Continue reasoning")
+    _ = draft.begin(sessionId: "ended-reasoning", clientMsgId: "fork")
+    let assignment = try receipt("""
+    {"type":"session_id","sessionId":"ordinary-child","clientMsgId":"fork"}
+    """)
+    let assigned = draft.receive(assignment)
+    #expect(assigned == .assigned(sessionId: "ordinary-child"))
+    #expect(draft.pending?.sessionId == "ordinary-child")
+    #expect(draft.pending?.prompt == "Continue reasoning")
+    #expect(draft.text == "Continue reasoning")
+    #expect(!draft.canSubmit)
+    let duplicate = draft.receive(assignment)
+    #expect(duplicate == nil)
+    let stale = try draft.receive(receipt("""
+    {"type":"session_id","sessionId":"ended-reasoning","clientMsgId":"fork"}
+    """))
+    #expect(stale == nil)
+    #expect(draft.pending?.sessionId == "ordinary-child")
+    let oldEcho = try draft.receive(receipt("""
+    {"type":"user_message","sessionId":"ended-reasoning","messageId":"fork","text":"Continue reasoning"}
+    """))
+    #expect(oldEcho == nil)
+    let accepted = try draft.receive(receipt("""
+    {"type":"user_message","sessionId":"ordinary-child","messageId":"fork","text":"Continue reasoning"}
+    """))
+    #expect(accepted == .accepted(clientMsgId: "fork"))
+    #expect(draft.pending == nil)
+    #expect(draft.text.isEmpty)
+}
+
+@Test(arguments: ["foreign-command", "missing-command"])
+func watchExistingSessionIgnoresUncorrelatedAssignment(kind: String) throws {
+    var draft = WatchSendDraft()
+    draft.edit("Continue")
+    _ = draft.begin(sessionId: "ended-reasoning", clientMsgId: "fork")
+    let field = kind == "foreign-command" ? ",\"clientMsgId\":\"foreign\"" : ""
+    let observed = try draft.receive(receipt("{\"type\":\"session_id\",\"sessionId\":\"other\"\(field)}"))
+    #expect(observed == nil)
+    #expect(draft.pending?.sessionId == "ended-reasoning")
+    #expect(draft.text == "Continue")
+}
+
+@Test(arguments: [false, true])
+func watchStartupErrorRoundTripSettlesExactPendingCommand(scoped: Bool) throws {
+    var draft = WatchSendDraft()
+    draft.edit("  Invalid startup  ")
+    _ = draft.begin(sessionId: "child", clientMsgId: "startup")
+    let field = scoped ? ",\"sessionId\":\"child\"" : ""
+    let original = try receipt("{\"type\":\"error\",\"error\":\"Startup rejected\",\"clientMsgId\":\"startup\"\(field)}")
+    // The iPhone relay decodes then re-encodes ServerMessage before Watch receives it.
+    let encoded = try JSONEncoder().encode(original)
+    let relayed = try JSONDecoder().decode(ServerMessage.self, from: encoded)
+    let fields = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+    #expect(fields["clientMsgId"] as? String == "startup")
+    if scoped { #expect(fields["sessionId"] as? String == "child") }
+    let rejected = draft.receive(relayed)
+    #expect(rejected == .rejected(clientMsgId: "startup"))
+    #expect(draft.pending == nil)
+    #expect(draft.text == "  Invalid startup  ")
+    #expect(draft.canSubmit)
+    let duplicate = draft.receive(relayed)
+    #expect(duplicate == nil)
+}
+
+@Test func watchStartupErrorPreservesNewerEditsAndExplicitRecovery() throws {
+    var draft = WatchSendDraft()
+    draft.edit("Original invalid command")
+    _ = draft.begin(sessionId: nil, clientMsgId: "startup")
+    draft.edit("Newer input")
+    let rejected = try draft.receive(receipt("""
+    {"type":"error","error":"Startup rejected","clientMsgId":"startup"}
+    """))
+    #expect(rejected == .rejected(clientMsgId: "startup"))
+    #expect(draft.pending == nil)
+    #expect(draft.text == "Newer input")
+    #expect(draft.rejectedText == "Original invalid command")
+    #expect(!draft.canSubmit)
+    draft.edit("")
+    let restored = draft.restoreRejected()
+    #expect(restored)
+    #expect(draft.text == "Original invalid command")
+    #expect(draft.pending == nil)
+}
+
+@Test(arguments: ["foreign-session", "foreign-command", "missing-command"])
+func watchStartupErrorMustCorrelateBeforeAcceptance(kind: String) throws {
+    var draft = WatchSendDraft()
+    draft.edit("Pending input")
+    _ = draft.begin(sessionId: "child", clientMsgId: "startup")
+    let session = kind == "foreign-session" ? "other" : "child"
+    let id = kind == "foreign-command" ? "other" : "startup"
+    let field = kind == "missing-command" ? "" : ",\"clientMsgId\":\"\(id)\""
+    let observed = try draft.receive(receipt("{\"type\":\"error\",\"sessionId\":\"\(session)\",\"error\":\"Unrelated error\"\(field)}"))
+    #expect(observed == nil)
+    #expect(draft.pending?.clientMsgId == "startup")
+    #expect(draft.text == "Pending input")
+}
+
+@Test func watchAcceptedInputCannotBeResurrectedByLateStartupError() throws {
+    var draft = WatchSendDraft()
+    draft.edit("Accepted input")
+    _ = draft.begin(sessionId: "child", clientMsgId: "accepted")
+    _ = draft.receive(try receipt("""
+    {"type":"user_message","sessionId":"child","messageId":"accepted","text":"Accepted input"}
+    """))
+    let observed = try draft.receive(receipt("""
+    {"type":"error","sessionId":"child","clientMsgId":"accepted","error":"Late error"}
+    """))
+    #expect(observed == nil)
+    #expect(draft.text.isEmpty)
+    #expect(draft.rejectedText == nil)
+    draft.edit("Next input")
+    _ = draft.begin(sessionId: "child", clientMsgId: "next")
+    let stale = try draft.receive(receipt("""
+    {"type":"error","clientMsgId":"accepted","error":"Duplicate late error"}
+    """))
+    #expect(stale == nil)
+    #expect(draft.pending?.clientMsgId == "next")
+    #expect(draft.text == "Next input")
+}
+
+@Test func watchForkAcceptanceKeepsSameTextNewerEditRevision() throws {
+    var draft = WatchSendDraft()
+    draft.edit("Continue")
+    _ = draft.begin(sessionId: "ended-reasoning", clientMsgId: "fork")
+    draft.edit("Intermediate")
+    draft.edit("Continue")
+    _ = draft.receive(try receipt("""
+    {"type":"session_id","sessionId":"ordinary-child","clientMsgId":"fork"}
+    """))
+    let accepted = try draft.receive(receipt("""
+    {"type":"user_message","sessionId":"ordinary-child","messageId":"fork","text":"Continue"}
+    """))
+    #expect(accepted == .accepted(clientMsgId: "fork"))
+    #expect(draft.text == "Continue")
+    #expect(draft.pending == nil)
+    #expect(draft.canSubmit)
+}

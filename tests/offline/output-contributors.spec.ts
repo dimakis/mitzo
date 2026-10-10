@@ -3,8 +3,9 @@ import { readFile } from 'node:fs/promises';
 import { extname, resolve } from 'node:path';
 import type { SessionOutputReference } from '@mitzo/protocol';
 
-test.use({ baseURL: 'https://mitzo-ui.test' });
-test('registered draft and ordinary contributor setup preserve revision, account and source chat', async ({
+// Supported remote HTTP intentionally lacks secure-context SubtleCrypto/randomUUID.
+test.use({ baseURL: 'http://mitzo-ui.test' });
+test('remote HTTP Keep, Add, Send and Stop preserve exact revisions and retry identities', async ({
   page,
   isMobile,
 }, testInfo) => {
@@ -32,6 +33,9 @@ test('registered draft and ordinary contributor setup preserve revision, account
   };
   const content =
     '## Product direction\n\nKeep artifacts central. Contributions stay attributed to independent conversations.\n\n```ts\nconst revision = 1;\n```';
+  let registered = false;
+  let registrationRequests = 0;
+  let addRequests = 0;
   let eligible = true;
   let showContributor = false;
   let stopRequests = 0;
@@ -73,6 +77,26 @@ test('registered draft and ordinary contributor setup preserve revision, account
     if (path.startsWith('/api/')) {
       if (route.request().method() !== 'GET') {
         writes.push({ path, body: route.request().postDataJSON() });
+        if (path === `/api/sessions/${sessionId}/outputs`) {
+          registrationRequests++;
+          if (registrationRequests === 1)
+            return route.fulfill({
+              status: 503,
+              json: { error: 'Registration confirmation unavailable' },
+            });
+          registered = true;
+          return route.fulfill({ json: { output } });
+        }
+        if (path === `/api/sessions/${sessionId}/contributors`) {
+          addRequests++;
+          if (addRequests === 1)
+            return route.fulfill({
+              status: 503,
+              json: { error: 'Offline fixture: execution is unavailable' },
+            });
+          showContributor = true;
+          return route.fulfill({ json: { contributor } });
+        }
         if (path === `/api/sessions/${sessionId}/contributors/joe/messages`) {
           messageRequests++;
           if (messageRequests === 1) contributor.status = 'unavailable';
@@ -108,7 +132,24 @@ test('registered draft and ordinary contributor setup preserve revision, account
       if (path.endsWith('/events'))
         return route.fulfill({ contentType: 'text/event-stream', body: 'retry: 60000\n\n' });
       if (path === `/api/sessions/${sessionId}/outputs`)
-        return route.fulfill({ json: { outputs: [output], candidates: [] } });
+        return route.fulfill({
+          json: {
+            outputs: registered ? [output] : [],
+            candidates: registered
+              ? []
+              : [
+                  {
+                    source: {
+                      messageId: output.source.messageId,
+                      blockId: output.source.blockId,
+                      messageEndSeq: output.source.messageEndSeq,
+                      sha256: output.source.sha256,
+                    },
+                    content,
+                  },
+                ],
+          },
+        });
       if (path === `/api/sessions/${sessionId}/outputs/${output.outputId}`) {
         if (selectedReadFailed) {
           failedReads++;
@@ -211,9 +252,37 @@ test('registered draft and ordinary contributor setup preserve revision, account
   await page.goto(`/chat/${sessionId}`);
   const panel = page.getByRole('region', { name: 'Outputs', exact: true });
   await expect(panel).toBeVisible();
+  expect(
+    await page.evaluate(() => ({
+      secure: window.isSecureContext,
+      subtle: typeof globalThis.crypto?.subtle,
+      uuid: typeof globalThis.crypto?.randomUUID,
+    })),
+  ).toEqual({ secure: false, subtle: 'undefined', uuid: 'undefined' });
+  expect(writes).toEqual([]);
+  await panel.getByRole('button', { name: 'Keep as output' }).click();
+  const keepDialog = page.getByRole('dialog', { name: 'Keep an output' });
+  await keepDialog.getByLabel('Output title').fill(output.title);
+  await keepDialog.getByRole('button', { name: 'Keep selected draft' }).click();
+  await expect(keepDialog.getByRole('alert')).toHaveText('Registration confirmation unavailable');
+  await expect(keepDialog.getByLabel('Output title')).toHaveValue(output.title);
+  await keepDialog.getByRole('button', { name: 'Keep selected draft' }).click();
+  await expect(keepDialog).toHaveCount(0);
+  const registrations = writes.filter((item) => item.path.endsWith('/outputs'));
+  expect(registrations).toHaveLength(2);
+  expect(registrations[0].body).toEqual(registrations[1].body);
+  expect(registrations[0].body).toMatchObject({
+    title: output.title,
+    source: {
+      messageId: output.source.messageId,
+      blockId: output.source.blockId,
+      messageEndSeq: output.source.messageEndSeq,
+      sha256: output.source.sha256,
+    },
+    requestId: expect.stringMatching(/^[a-f0-9-]{36}$/),
+  });
   await expect(panel.getByText('Product direction', { exact: true })).toBeVisible();
   await expect(panel.getByText(/depends on this conversation/)).toBeVisible();
-  expect(writes).toEqual([]);
   for (const [theme, accent, font] of [
     ['dark', 'lavender', 'system'],
     ['light', 'teal', 'georgia'],
@@ -277,8 +346,10 @@ test('registered draft and ordinary contributor setup preserve revision, account
       await dialog.getByRole('button', { name: 'Add to this output' }).click();
       await expect(dialog.getByRole('alert')).toContainText('execution is unavailable');
       await expect(dialog.getByLabel('Contributor name')).toHaveValue('Joe');
-      expect(writes[0].path).toBe(`/api/sessions/${sessionId}/contributors`);
-      expect(writes[0].body).toMatchObject({
+      const initialAdd = writes.find(
+        (item) => item.path === `/api/sessions/${sessionId}/contributors`,
+      )!;
+      expect(initialAdd.body).toMatchObject({
         outputId: output.outputId,
         outputRevision: 1,
         contextPackageDigest: 'b'.repeat(64),
@@ -286,8 +357,14 @@ test('registered draft and ordinary contributor setup preserve revision, account
         model: 'luna-fixture',
         profileSelection: { profileId: 'bob', revision: 3 },
       });
+      await dialog.getByRole('button', { name: 'Add to this output' }).click();
+      await expect(dialog).toHaveCount(0);
+      const adds = writes.filter((item) => item.path === `/api/sessions/${sessionId}/contributors`);
+      expect(adds).toHaveLength(2);
+      expect(adds[0].body).toEqual(adds[1].body);
+    } else {
+      await dialog.getByRole('button', { name: 'Close', exact: true }).click();
     }
-    await dialog.getByRole('button', { name: 'Close', exact: true }).click();
     await expect(panel.getByRole('button', { name: 'Add contributor' })).toBeFocused();
   }
   eligible = false;

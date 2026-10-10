@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { webcrypto } from 'node:crypto';
+import { createHash, webcrypto } from 'node:crypto';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import { apiFetch } from '../../lib/api-fetch';
@@ -444,4 +444,202 @@ it.each([
       await expect(result.current!.onStop('joe')).rejects.toThrow('did not confirm');
     });
   expect(bodies[0].requestId).toBe(bodies[1].requestId);
+});
+
+it.each(['register', 'add', 'send', 'stop'] as const)(
+  'retains exact %s request identities across HTTP retries, retiring only confirmed receipts',
+  async (operation) => {
+    vi.stubGlobal('crypto', { getRandomValues: webcrypto.getRandomValues.bind(webcrypto) });
+    const contributor = {
+      id: 'joe',
+      label: 'Joe',
+      accountLabel: 'Personal',
+      model: 'fixture',
+      sessionId: 'child',
+      status: 'idle',
+      outputId: output.outputId,
+      outputRevision: 1,
+    };
+    const input = {
+      accountId: 'personal',
+      model: 'fixture',
+      label: 'Joe',
+      instructions: 'Unicode café\r\n🧭',
+      mode: 'agent' as const,
+      outputId: output.outputId,
+      outputRevision: 1,
+      contextPackageDigest: 'b'.repeat(64),
+    };
+    const candidate = { source, content: 'Exact draft' };
+    const payload =
+      operation === 'register'
+        ? { title: 'Draft', source }
+        : operation === 'add'
+          ? input
+          : operation === 'send'
+            ? { text: input.instructions }
+            : {};
+    const canonical = (value: unknown): string =>
+      value && typeof value === 'object'
+        ? `{${Object.entries(value)
+            .sort(([a], [b]) => a.localeCompare(b))
+            .map(([key, item]) => `${JSON.stringify(key)}:${canonical(item)}`)
+            .join(',')}}`
+        : JSON.stringify(value);
+    const expectedHash = createHash('sha256').update(canonical(payload), 'utf8').digest('hex');
+    const bodies: Record<string, unknown>[] = [];
+    let confirmed = false;
+    vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+      if (init?.method === 'POST') {
+        bodies.push(JSON.parse(init.body as string));
+        if (!confirmed) throw Error('Response lost');
+        return json(
+          operation === 'register'
+            ? { output }
+            : operation === 'send'
+              ? { contributor, delivery: { deliveryId: 'delivered', status: 'delivered' } }
+              : { contributor },
+        );
+      }
+      if (String(url).endsWith('/contributors'))
+        return json({
+          contributors: [contributor],
+          eligibility: { available: true, reason: 'Ordinary route', accountIds: ['personal'] },
+        });
+      return reads(String(url));
+    });
+    const invoke = (props: NonNullable<ReturnType<typeof useOutputContributors>>) =>
+      operation === 'register'
+        ? props.onRegister(candidate, 'Draft')
+        : operation === 'add'
+          ? props.onAdd(input)
+          : operation === 'send'
+            ? props.onSend('joe', input.instructions)
+            : props.onStop('joe');
+    const mounted = renderHook(() => useOutputContributors('source'));
+    await waitFor(() =>
+      expect(mounted.result.current?.selected?.contextPackageDigest).toBeTruthy(),
+    );
+    await act(async () => {
+      await expect(invoke(mounted.result.current!)).rejects.toThrow('Response lost');
+    });
+    const key = `mitzo-output-request:source:${operation === 'send' || operation === 'stop' ? `${operation}:joe` : operation}:${expectedHash}`;
+    expect(sessionStorage.getItem(key)).toBe(bodies[0].requestId);
+    expect(bodies[0].requestId).toMatch(
+      /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/,
+    );
+    expect(bodies[0]).toEqual({ ...payload, requestId: bodies[0].requestId });
+    mounted.unmount();
+    const next = renderHook(() => useOutputContributors('source'));
+    await waitFor(() => expect(next.result.current?.selected?.contextPackageDigest).toBeTruthy());
+    await act(async () => {
+      await expect(invoke(next.result.current!)).rejects.toThrow('Response lost');
+    });
+    expect(bodies[1]).toEqual(bodies[0]);
+    confirmed = true;
+    await act(async () => {
+      await invoke(next.result.current!);
+    });
+    expect(bodies[2]).toEqual(bodies[0]);
+    expect(sessionStorage.getItem(key)).toBeNull();
+    await waitFor(() => expect(next.result.current?.loading).toBe(false));
+    await act(async () => {
+      await invoke(next.result.current!);
+    });
+    expect(bodies[3].requestId).not.toBe(bodies[0].requestId);
+    expect(sessionStorage.length).toBe(0);
+  },
+);
+
+it('keeps HTTP Add retries bound to the exact selected revision and context package', async () => {
+  vi.stubGlobal('crypto', undefined);
+  const bodies: Record<string, unknown>[] = [];
+  let digest = 'b'.repeat(64);
+  vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+    if (init?.method === 'POST') {
+      bodies.push(JSON.parse(init.body as string));
+      throw Error('Response lost');
+    }
+    if (String(url).endsWith(output.outputId))
+      return json({ output, content: 'Exact draft', contextPackageDigest: digest });
+    return reads(String(url));
+  });
+  const input = {
+    accountId: 'personal',
+    model: 'fixture',
+    label: 'Joe',
+    instructions: 'Private guidance',
+    mode: 'agent' as const,
+    outputId: output.outputId,
+    outputRevision: 1,
+    contextPackageDigest: digest,
+  };
+  const { result } = renderHook(() => useOutputContributors('source'));
+  await waitFor(() => expect(result.current?.selected?.contextPackageDigest).toBe(digest));
+  await act(async () => {
+    await expect(result.current!.onAdd(input)).rejects.toThrow('Response lost');
+  });
+  await act(async () => {
+    await expect(result.current!.onAdd({ ...input, outputRevision: 2 })).rejects.toThrow(
+      'selected draft or account access has changed',
+    );
+  });
+  expect(bodies).toHaveLength(1);
+  digest = 'c'.repeat(64);
+  act(() => result.current!.onRefresh());
+  await waitFor(() => expect(result.current?.selected?.contextPackageDigest).toBe(digest));
+  await act(async () => {
+    await expect(result.current!.onAdd(input)).rejects.toThrow(
+      'selected draft or account access has changed',
+    );
+  });
+  expect(bodies).toHaveLength(1);
+  const changed = { ...input, contextPackageDigest: digest };
+  await act(async () => {
+    await expect(result.current!.onAdd(changed)).rejects.toThrow('Response lost');
+  });
+  await act(async () => {
+    await expect(result.current!.onAdd(changed)).rejects.toThrow('Response lost');
+  });
+  expect(bodies[1]).toEqual(bodies[2]);
+  expect(bodies[1].requestId).not.toBe(bodies[0].requestId);
+  expect(bodies[0]).toEqual({ ...input, requestId: bodies[0].requestId });
+  expect(bodies[1]).toEqual({ ...changed, requestId: bodies[1].requestId });
+  expect(JSON.stringify(sessionStorage)).not.toContain(input.instructions);
+});
+it('does not accept a different source receipt for an HTTP registration retry', async () => {
+  vi.stubGlobal('crypto', undefined);
+  const bodies: Record<string, unknown>[] = [];
+  vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+    if (init?.method === 'POST') {
+      bodies.push(JSON.parse(init.body as string));
+      return json({ output });
+    }
+    return reads(String(url));
+  });
+  const { result } = renderHook(() => useOutputContributors('source'));
+  await waitFor(() => expect(result.current?.selected).toBeTruthy());
+  const candidate = {
+    source: { ...source, messageEndSeq: 5, sha256: 'c'.repeat(64) },
+    content: 'A newer finalized source',
+  };
+  for (let i = 0; i < 2; i++)
+    await act(async () => {
+      await expect(result.current!.onRegister(candidate, 'Draft')).rejects.toThrow(
+        'did not confirm this request',
+      );
+    });
+  expect(bodies).toHaveLength(2);
+  expect(bodies[0]).toEqual(bodies[1]);
+  expect(bodies[0]).toEqual({
+    source: candidate.source,
+    title: 'Draft',
+    requestId: bodies[0].requestId,
+  });
+  expect(sessionStorage.length).toBe(1);
+  await act(async () => {
+    await result.current!.onRegister({ source, content: 'Exact draft' }, 'Draft');
+  });
+  expect(bodies[2].requestId).not.toBe(bodies[0].requestId);
+  expect(sessionStorage.length).toBe(1);
 });

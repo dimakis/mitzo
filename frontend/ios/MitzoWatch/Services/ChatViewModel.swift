@@ -188,6 +188,11 @@ final class ChatViewModel: ObservableObject {
             if case .rejected = receipt { sendError = params.error }
             messages.append(ChatMessage(role: .assistant, text: "Error: \(params.error)"))
 
+        case .error(let error, _, _):
+            guard case .rejected = receipt else { return }
+            sendError = error
+            messages.append(ChatMessage(role: .assistant, text: "Error: \(error)"))
+
         case .sessionEnd:
             isStreaming = false
             toolStatus = nil

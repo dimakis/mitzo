@@ -12,6 +12,7 @@ public struct WatchSendDraft: Sendable {
         var params: SendParams
         let originalDraft: String
         let revision: UInt64
+        var assignmentReceived = false
     }
 
     public private(set) var text = ""
@@ -55,9 +56,11 @@ public struct WatchSendDraft: Sendable {
         let id = submitted.params.clientMsgId
         switch message {
         case .sessionId(let sessionId, _, _, let clientMsgId):
-            guard clientMsgId == id, submitted.params.sessionId == nil else { return nil }
+            // Following up on ended reasoning can fork an existing conversation.
+            guard clientMsgId == id, !submitted.assignmentReceived else { return nil }
             submitted.params = SendParams(sessionId: sessionId, prompt: submitted.params.prompt,
                                           clientMsgId: id)
+            submitted.assignmentReceived = true
             submission = submitted
             return .assigned(sessionId: sessionId)
         case .userMessage(let params):
@@ -70,6 +73,11 @@ public struct WatchSendDraft: Sendable {
         case .sessionControlRejected(let params):
             guard params.control == .send, params.clientMsgId == id,
                   params.sessionId == submitted.params.sessionId else { return nil }
+            return settle(submitted, accepted: false)
+        case .error(_, let sessionId, let clientMsgId):
+            // Startup validation can reject before a session is assigned.
+            guard clientMsgId == id,
+                  sessionId == nil || sessionId == submitted.params.sessionId else { return nil }
             return settle(submitted, accepted: false)
         default:
             // Lost/unknown transport receipts retain this command and prohibit replay.

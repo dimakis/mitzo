@@ -245,7 +245,7 @@ public enum ServerMessage: Codable, Sendable {
     case tokenUpdate(TokenUpdateParams)
     case permissionRequest(PermissionRequestParams)
     case toolResult(ToolResultParams)
-    case error(error: String)
+    case error(error: String, sessionId: String? = nil, clientMsgId: String? = nil)
     case sessionControlRejected(SessionControlRejectedParams)
     case modeChanged(sessionId: String, mode: MitzoMode)
     case unknown(type: String)
@@ -342,7 +342,9 @@ public enum ServerMessage: Codable, Sendable {
 
         case "error":
             let error = try container.decode(String.self, forKey: AnyCodingKey("error"))
-            self = .error(error: error)
+            let sessionId = try container.decodeIfPresent(String.self, forKey: AnyCodingKey("sessionId"))
+            let clientMsgId = try container.decodeIfPresent(String.self, forKey: AnyCodingKey("clientMsgId"))
+            self = .error(error: error, sessionId: sessionId, clientMsgId: clientMsgId)
 
         case "mode_changed":
             let sessionId = try container.decode(String.self, forKey: AnyCodingKey("sessionId"))
@@ -446,9 +448,11 @@ public enum ServerMessage: Codable, Sendable {
             try container.encode("session_control_rejected", forKey: AnyCodingKey("type"))
             try params.encode(to: encoder)
 
-        case .error(let err):
+        case .error(let err, let sessionId, let clientMsgId):
             try container.encode("error", forKey: AnyCodingKey("type"))
             try container.encode(err, forKey: AnyCodingKey("error"))
+            try container.encodeIfPresent(sessionId, forKey: AnyCodingKey("sessionId"))
+            try container.encodeIfPresent(clientMsgId, forKey: AnyCodingKey("clientMsgId"))
 
         case .modeChanged(let sessionId, let mode):
             try container.encode("mode_changed", forKey: AnyCodingKey("type"))
