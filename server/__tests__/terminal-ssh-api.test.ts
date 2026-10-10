@@ -3,9 +3,16 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { Server, ServerCredentials, type ServerUnaryCall, type sendUnaryData } from '@grpc/grpc-js';
+import {
+  Server,
+  ServerCredentials,
+  status,
+  type ServerUnaryCall,
+  type sendUnaryData,
+} from '@grpc/grpc-js';
 import { loadSync } from '@grpc/proto-loader';
 import { TerminalSshApi } from '../terminal-ssh-api.js';
+import { TerminalSessionMissing } from '../terminal-errors.js';
 
 // Independent v1 wire fixture from OpenShell b4c459f92446167afcb0a2dcf7d9fa6c8945e59c.
 const proto = `syntax="proto3"; package openshell.v1;
@@ -17,6 +24,7 @@ let home: string;
 let endpoint: string;
 let server: Server;
 let wrongId = false;
+let rpcError: number | undefined;
 let seen: object[];
 const signal = () => AbortSignal.timeout(5000);
 const api = (overrides = {}) =>
@@ -100,6 +108,10 @@ beforeAll(async () => {
       callback: sendUnaryData<object>,
     ) {
       seen.push(call.request);
+      if (rpcError !== undefined) {
+        callback({ code: rpcError, details: 'Synthetic failure' });
+        return;
+      }
       const gateway = new URL(endpoint);
       callback(null, {
         sandbox_id: wrongId ? 'replacement' : call.request.sandbox_id,
@@ -131,6 +143,7 @@ beforeAll(async () => {
 }, 20000);
 beforeEach(() => {
   wrongId = false;
+  rpcError = undefined;
   seen = [];
   writeFileSync(
     join(home, '.config/openshell/gateways/synthetic/metadata.json'),
@@ -153,4 +166,17 @@ it('mints a terminal SSH grant for an immutable sandbox ID with no name lookup',
   });
   wrongId = true;
   await expect(api().createTerminalSsh('original-id', signal())).rejects.toThrow();
+});
+it('recognizes confirmed physical sandbox absence while retaining uncertain transport failures', async () => {
+  rpcError = status.NOT_FOUND;
+  await expect(api().createTerminalSsh('original-id', signal())).rejects.toBeInstanceOf(
+    TerminalSessionMissing,
+  );
+  rpcError = status.UNAVAILABLE;
+  const failure = await api()
+    .createTerminalSsh('original-id', signal())
+    .catch((error) => error);
+  expect(failure).toBeInstanceOf(Error);
+  expect(failure).not.toBeInstanceOf(TerminalSessionMissing);
+  expect(seen).toEqual([{ sandbox_id: 'original-id' }, { sandbox_id: 'original-id' }]);
 });

@@ -4,6 +4,7 @@ import { closeSync, constants, fstatSync, openSync, readFileSync } from 'node:fs
 import { createHash, createPrivateKey, X509Certificate } from 'node:crypto';
 import { isAbsolute, join } from 'node:path';
 import { z } from 'zod';
+import { TerminalSessionMissing } from './terminal-errors.js';
 // Independent narrow SSH contract from the reviewed OpenShell v1 source.
 // Keeping this client separate preserves enrolled credential-mutation qualification.
 const terminalSshService = fromJSON(
@@ -169,7 +170,9 @@ export class TerminalSshApi {
           if (done) return;
           done = true;
           signal.removeEventListener('abort', cancel);
-          if (error) reject(new Error('Gateway API request failed'));
+          if (error && typeof error === 'object' && 'code' in error && error.code === 5)
+            reject(new TerminalSessionMissing());
+          else if (error) reject(new Error('Gateway API request failed'));
           else resolve(value);
         };
         const cancel = () => {
@@ -227,7 +230,8 @@ export class TerminalSshApi {
       if (origin !== connection.endpoint || Number(grant.expires_at_ms) <= Date.now())
         throw Error();
       return { sandboxId, token: grant.token, proxyUrl: `${origin}/proxy/connect` };
-    } catch {
+    } catch (error) {
+      if (error instanceof TerminalSessionMissing) throw error;
       throw Error('Terminal SSH identity unavailable');
     }
   }
