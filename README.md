@@ -108,6 +108,8 @@ Access from your phone: install [Tailscale](https://tailscale.com/download) on s
 
 Open **Knowledge** for curated documents from the host-enrolled accepted Git source. Browse its expandable folder tree and open documents in a rendered reading view. Choose **Edit** for the Markdown editor with source, preview and split modes, formatting, undo/redo and working-copy recovery. **Move** and **New folder** preserve the hierarchy within the enrolled knowledge scopes; text and structural changes share the same working copy. Browsing is independent of chats and sandboxes. **Save** preserves a durable change set and creates or updates its draft PR; **Send for review** submits the exact saved version. **Accept** requires current-head Centaur approval and passing required checks. Source acceptance, ContexGin publication and adoption by a chat remain separate.
 
+Opening Knowledge starts at the Library tree, including when a working copy was recovered. Choose **Resume editing** to continue that copy; recovery preserves its text, folders and saved review state.
+
 The Library requires independently reviewed private host enrollment through `MITZO_KNOWLEDGE_LIBRARY_CONFIG`, including explicit document scopes and optional publishing identity. Acceptance is disabled by default. See [Knowledge Library enrollment](docs/operations/knowledge-library.md). Drafts join core SQLite backups with bounded Git recovery bundles, preserving exact prepared review heads after restore into a fresh source mirror. **More → Workspace tools** retains the raw Files browser and existing artifact links; its worktree list loads only on request, with cached, bounded discovery.
 
 ### Managed Connections

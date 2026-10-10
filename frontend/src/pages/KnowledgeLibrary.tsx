@@ -12,7 +12,7 @@ export function KnowledgeLibrary() {
   const [tab, setTab] = useState<'library' | 'drafts'>('library');
   const [search, setSearch] = useState('');
   const [area, setArea] = useState('All knowledge');
-  const [reading, setReading] = useState(true);
+  const [reading, setReading] = useState(false);
   const [details, setDetails] = useState(false);
   const [adding, setAdding] = useState(false);
   const [reader, setReader] = useState<{ document: KnowledgeDocument; content: string }>();
