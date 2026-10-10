@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom';
+import { UiIcon } from '../components/UiIcon';
 import { CredentialConnectionsPanel } from '../components/CredentialConnectionsPanel';
 import { SymposiumPersonalConnections } from '../components/SymposiumPersonalConnections';
 import { OpenAIKeyControls } from '../components/OpenAIKeyControls';
@@ -372,6 +373,7 @@ export function ConnectionsView({ mode = 'add', connectionId }: ConnectionsViewP
   return (
     <main className="workspace-page connections-page connections-focused-page">
       <Link className="connections-back workspace-text-link" to="/connections-access">
+        <UiIcon name="back" size={16} />
         Connections
       </Link>
       <WorkspacePageHeading
@@ -468,9 +470,6 @@ export function ConnectionsView({ mode = 'add', connectionId }: ConnectionsViewP
               </div>
               <div className="access-row-group">
                 <article className="access-row">
-                  <span className="access-row-icon accounts" aria-hidden="true">
-                    ✧
-                  </span>
                   <div className="access-row-copy">
                     <h3>ChatGPT</h3>
                     <p>Use a personal ChatGPT subscription.</p>
@@ -487,9 +486,6 @@ export function ConnectionsView({ mode = 'add', connectionId }: ConnectionsViewP
                 </article>
                 {data?.openAIAccountsManaged && !loadError && !connectionsRefreshing && (
                   <article className="access-row">
-                    <span className="access-row-icon accounts" aria-hidden="true">
-                      ✧
-                    </span>
                     <div className="access-row-copy">
                       <h3>OpenAI API</h3>
                       <p>Add a new work account for new chats.</p>
@@ -507,9 +503,6 @@ export function ConnectionsView({ mode = 'add', connectionId }: ConnectionsViewP
               </div>
               <div className="access-row-group">
                 <article className="access-row">
-                  <span className="access-row-icon" aria-hidden="true">
-                    ⌘
-                  </span>
                   <div className="access-row-copy">
                     <h3>Authenticated API</h3>
                     <p>

@@ -1,3 +1,4 @@
+import { UiIcon } from '../components/UiIcon';
 import { Link } from 'react-router-dom';
 import { useTheme } from '../hooks/useTheme';
 import { WorkspacePageHeading } from '../components/WorkspacePageHeading';
@@ -77,7 +78,9 @@ export function SettingsView() {
         <h2>Data protection</h2>
         <Link className="workspace-record" to="/settings/backups">
           <span>Backups</span>
-          <span aria-hidden="true">↗</span>
+          <span aria-hidden="true">
+            <UiIcon name="forward" size={16} />
+          </span>
         </Link>
         <p className="workspace-muted">
           Manage encrypted backups, check coverage and review recent runs.

@@ -1,15 +1,11 @@
+import { UiIcon } from './UiIcon';
+import { progressStatusIcons } from '../lib/status-icons';
 import { useState } from 'react';
 import type { ProgressItem } from '@mitzo/protocol';
 
 interface Props {
   items: ProgressItem[];
 }
-
-const STATUS_ICONS: Record<ProgressItem['status'], string> = {
-  done: '\u2713',
-  in_progress: '\u25C9',
-  pending: '\u25CB',
-};
 
 export function ProgressWidget({ items }: Props) {
   const [expanded, setExpanded] = useState(true);
@@ -22,7 +18,11 @@ export function ProgressWidget({ items }: Props) {
 
   return (
     <div className={`progress-widget ${allDone ? 'progress-widget--done' : ''}`}>
-      <button className="progress-widget-header" onClick={() => setExpanded((e) => !e)}>
+      <button
+        className="progress-widget-header"
+        onClick={() => setExpanded((e) => !e)}
+        aria-expanded={expanded}
+      >
         <div className="progress-widget-bar">
           <div className="progress-widget-bar-fill" style={{ width: `${pct}%` }} />
         </div>
@@ -40,7 +40,9 @@ export function ProgressWidget({ items }: Props) {
             All tasks complete
           </span>
         )}
-        <span className="progress-widget-chevron">{expanded ? '\u25BE' : '\u25B8'}</span>
+        <span className="progress-widget-chevron">
+          <UiIcon name={expanded ? 'down' : 'forward'} size={16} />
+        </span>
       </button>
       {expanded && (
         <div className="progress-widget-list">
@@ -51,8 +53,10 @@ export function ProgressWidget({ items }: Props) {
             >
               <span
                 className={`progress-widget-icon ${item.status === 'in_progress' ? 'progress-widget-icon--pulse' : ''}`}
+                role="img"
+                aria-label={`Status: ${item.status.replaceAll('_', ' ')}`}
               >
-                {STATUS_ICONS[item.status]}
+                <UiIcon name={progressStatusIcons[item.status]} size={16} />
               </span>
               <span className="progress-widget-title">{item.title}</span>
             </div>

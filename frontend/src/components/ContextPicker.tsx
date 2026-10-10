@@ -1,3 +1,4 @@
+import { UiIcon } from './UiIcon';
 import { useState, useEffect, useRef } from 'react';
 import { apiFetch } from '../lib/api-fetch';
 
@@ -79,8 +80,11 @@ export function ContextPicker({ selected, onToggle, onClose }: Props) {
               key={block.name}
               className={`context-picker-item${isSelected ? ' context-picker-item--selected' : ''}`}
               onClick={() => onToggle(block.name)}
+              aria-pressed={isSelected}
             >
-              <span className="context-picker-check">{isSelected ? '✓' : ''}</span>
+              <span className="context-picker-check">
+                {isSelected && <UiIcon name="check" size={16} />}
+              </span>
               <span className="context-picker-name">{block.name}</span>
               <span className="context-picker-size">{formatSize(block.sizeBytes)}</span>
             </button>

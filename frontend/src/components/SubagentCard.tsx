@@ -1,3 +1,4 @@
+import { UiIcon } from './UiIcon';
 import { useState } from 'react';
 import type { FinishedSubagentState, StreamingSubagentState } from '@mitzo/protocol';
 import { ThinkingBlock } from './ThinkingBlock';
@@ -51,7 +52,9 @@ export function SubagentCard({ subagent, description, sessionId }: SubagentCardP
         {toolCount > 0 && <span className="tool-pill-badge">{toolCount}</span>}
         {usage && <span className="tool-pill-tokens">{formatTokens(usage)}</span>}
         {!done && <span className="tool-pill-status">Running...</span>}
-        <span className="tool-pill-chevron">{expanded ? '▾' : '▸'}</span>
+        <span className="tool-pill-chevron">
+          <UiIcon name={expanded ? 'down' : 'forward'} size={16} />
+        </span>
       </button>
 
       {expanded && (

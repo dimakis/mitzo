@@ -1,3 +1,4 @@
+import { UiIcon } from './UiIcon';
 import { useCallback, useEffect, useState } from 'react';
 
 const THRESHOLD = 200; // px from edge to show button
@@ -44,9 +45,7 @@ export function ScrollFab({ scrollRef }: Props) {
           onClick={scrollToTop}
           aria-label="Scroll to top"
         >
-          <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
-            <path d="M7.41 15.41L12 10.83l4.59 4.58L18 14l-6-6-6 6z" />
-          </svg>
+          <UiIcon name="send" />
         </button>
       )}
       {showBottom && (
@@ -55,9 +54,7 @@ export function ScrollFab({ scrollRef }: Props) {
           onClick={scrollToBottom}
           aria-label="Scroll to bottom"
         >
-          <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
-            <path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6z" />
-          </svg>
+          <UiIcon name="arrowDown" />
         </button>
       )}
     </div>

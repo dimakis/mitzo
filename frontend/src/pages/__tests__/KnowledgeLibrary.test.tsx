@@ -1379,7 +1379,7 @@ it('moves a document through same-area folder choices and preserves edited conte
   fireEvent.change(await screen.findByRole('textbox', { name: 'Document source' }), {
     target: { value: '# Keep edits when moved' },
   });
-  fireEvent.click(screen.getByRole('button', { name: '← Library' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Library' }));
   fireEvent.click(screen.getByRole('button', { name: 'Options for hub/principles.md' }));
   fireEvent.click(screen.getByRole('button', { name: 'Move document' }));
   const dialog = await screen.findByRole('dialog', { name: 'Move document' });
@@ -1406,7 +1406,7 @@ it('lets an invalid pending folder be removed without discarding unrelated docum
   fireEvent.change(await screen.findByRole('textbox', { name: 'Document source' }), {
     target: { value: '# Retain these edits' },
   });
-  fireEvent.click(screen.getByRole('button', { name: '← Library' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Library' }));
   fireEvent.click(screen.getByRole('button', { name: 'New folder' }));
   const dialog = screen.getByRole('dialog', { name: 'New folder' });
   fireEvent.click(within(dialog).getByRole('button', { name: 'Folder hub' }));
@@ -1504,7 +1504,7 @@ it('appends a reader document without replacing unrelated edits or requesting co
     setup();
     await resumeRecoveredCopy();
     await screen.findByRole('textbox', { name: 'Document source' });
-    fireEvent.click(screen.getByRole('button', { name: '← Library' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Library' }));
     fireEvent.click(await findLibraryDocument(/Release process/, 'teams'));
     await screen.findByRole('article', { name: 'Release process' });
     fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
@@ -1542,7 +1542,7 @@ it('keeps Move open without partial edits when confirming a move into an older w
   setup();
   await resumeRecoveredCopy();
   await screen.findByRole('textbox', { name: 'Document source' });
-  fireEvent.click(screen.getByRole('button', { name: '← Library' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Library' }));
   await findLibraryDocument(/Release process/, 'teams');
   fireEvent.click(screen.getByRole('button', { name: 'Options for teams/release.md' }));
   fireEvent.click(screen.getByRole('button', { name: 'Move document' }));
@@ -1684,7 +1684,7 @@ it('reads accepted documents after returning from a recovered folder-only workin
   setup();
   await resumeRecoveredCopy();
   await screen.findByText('New folder: hub/new-guides');
-  fireEvent.click(screen.getByRole('button', { name: '← Library' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Library' }));
   const before = localStorage.getItem('mitzo-knowledge-working-copy:');
   fireEvent.click(await findLibraryDocument(/Working principles/));
   await screen.findByRole('article', { name: 'Working principles' });
@@ -1821,7 +1821,7 @@ it('cancels an unopened document Move without adding it to the existing working 
   setup();
   await resumeRecoveredCopy();
   await screen.findByRole('textbox', { name: 'Document source' });
-  fireEvent.click(screen.getByRole('button', { name: '← Library' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Library' }));
   await findLibraryDocument(/Release process/, 'teams');
   const before = localStorage.getItem('mitzo-knowledge-working-copy:');
   fireEvent.click(screen.getByRole('button', { name: 'Options for teams/release.md' }));
@@ -2128,7 +2128,7 @@ it.each(['touch', 'keyboard'])(
     expect(screen.getByRole('heading', { name: 'Voice guide' })).toBeTruthy();
     expect(screen.queryByRole('textbox', { name: 'Document source' })).toBeNull();
     expect(localStorage.getItem('mitzo-knowledge-working-copy:')).toBe(serialized);
-    fireEvent.click(screen.getByRole('button', { name: '← Library' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Library' }));
     fireEvent.click(screen.getByRole('button', { name: 'Resume editing' }));
     const input = await screen.findByRole('textbox', { name: 'Document source' });
     if (keyboard) {
@@ -2226,7 +2226,7 @@ it('does not reopen an editor when pending Edit completes after returning to Lib
   await screen.findByRole('article', { name: 'Working principles' });
   fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
   await waitFor(() => expect(principlesReads).toBe(2));
-  fireEvent.click(screen.getByRole('button', { name: '← Library' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Library' }));
   await act(async () => {
     resolveEdit(response({ content: '# Principles' }));
   });
@@ -2314,7 +2314,7 @@ it('saves a two-document draft without publication and sends only the whole save
   fireEvent.change(await screen.findByRole('textbox', { name: 'Document source' }), {
     target: { value: '# First edit' },
   });
-  fireEvent.click(screen.getByRole('button', { name: '← Library' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Library' }));
   fireEvent.click(await findLibraryDocument(/Release process/, 'teams'));
   fireEvent.click(await screen.findByRole('button', { name: 'Edit' }));
   fireEvent.change(await screen.findByRole('textbox', { name: 'Document source' }), {
@@ -2392,5 +2392,58 @@ it.each(['shortcut', 'vim'])(
         { name: 'Save draft' },
       ),
     ).toBeTruthy();
+  },
+);
+
+it.each([false, true])(
+  'recovers a review conflict against %s changed saved draft',
+  async (savedChanged) => {
+    const unsent = { ...draft, state: 'draft', review: undefined };
+    const remote = savedChanged
+      ? { ...unsent, version: 2, documents: [{ ...draft.documents[0], content: '# Other window' }] }
+      : unsent;
+    const conflict =
+      'hub/principles.md changed since this draft started. Compare the accepted document and resolve before sending its review.';
+    let submitted = false;
+    vi.mocked(apiFetch).mockImplementation(async (path) => {
+      if (path === '/api/knowledge') return response({ ...catalog, drafts: [unsent] });
+      if (path === '/api/knowledge/refresh') return response({ ...catalog, revision: 'r2' });
+      if (path.endsWith('/ready')) {
+        submitted = true;
+        return { ...response({ error: conflict }, false), status: 409 };
+      }
+      if (path === '/api/knowledge/drafts/d1')
+        return response({ draft: submitted ? remote : unsent });
+      if (path.startsWith('/api/knowledge/document'))
+        return response({ content: '# Latest accepted' });
+      throw new Error(`Unexpected request: ${path}`);
+    });
+    const view = setup();
+    fireEvent.click(await screen.findByRole('button', { name: 'Drafts (1)' }));
+    fireEvent.click(screen.getByRole('button', { name: /Working principles/ }));
+    await screen.findByRole('textbox', { name: 'Document source' });
+    fireEvent.click(screen.getByRole('button', { name: 'Send for review' }));
+    await screen.findByText(conflict);
+    if (savedChanged) {
+      await screen.findByRole('region', { name: 'Compare saved draft and working copy' });
+      expect(screen.queryByRole('button', { name: 'Compare accepted version' })).toBeNull();
+      expect(
+        (screen.getByRole('button', { name: 'Send for review' }) as HTMLButtonElement).disabled,
+      ).toBe(true);
+    } else {
+      expect(
+        screen.queryByRole('region', { name: 'Compare saved draft and working copy' }),
+      ).toBeNull();
+      view.unmount();
+      setup();
+      await resumeRecoveredCopy();
+      fireEvent.click(await screen.findByRole('button', { name: 'Compare accepted version' }));
+      const comparison = await screen.findByRole('region', { name: 'Compare accepted and draft' });
+      expect(within(comparison).getByText('# Latest accepted')).toBeTruthy();
+      expect(within(comparison).getByText('# Revised')).toBeTruthy();
+      expect(JSON.parse(localStorage.getItem('mitzo-knowledge-working-copy:')!).draft.version).toBe(
+        1,
+      );
+    }
   },
 );

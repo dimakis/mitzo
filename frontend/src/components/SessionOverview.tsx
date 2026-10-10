@@ -1,3 +1,5 @@
+import { UiIcon, type UiIconName } from './UiIcon';
+import { sessionStatusIcons } from '../lib/status-icons';
 import { useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -10,13 +12,16 @@ import { formatRelativeTime } from '../lib/formatTime';
 
 // ─── State visuals ──────────────────────────────────────────────────────────
 
-const STATE_CONFIG: Record<SessionActivityState, { icon: string; color: string; label: string }> = {
-  init: { icon: '\u25CB', color: 'var(--color-muted)', label: 'init' },
-  working: { icon: '\u25CF', color: 'var(--color-accent)', label: 'working' },
-  waiting: { icon: '\u26A0', color: 'var(--color-danger)', label: 'waiting' },
-  done: { icon: '\u2713', color: 'var(--color-success)', label: 'done' },
-  idle: { icon: '\u25CB', color: 'var(--color-muted)', label: 'idle' },
-  paused: { icon: '\u23F8', color: 'var(--color-muted)', label: 'paused' },
+const STATE_CONFIG: Record<
+  SessionActivityState,
+  { icon: UiIconName; color: string; label: string }
+> = {
+  init: { icon: sessionStatusIcons.init, color: 'var(--color-muted)', label: 'init' },
+  working: { icon: sessionStatusIcons.working, color: 'var(--color-accent)', label: 'working' },
+  waiting: { icon: sessionStatusIcons.waiting, color: 'var(--color-danger)', label: 'waiting' },
+  done: { icon: sessionStatusIcons.done, color: 'var(--color-success)', label: 'done' },
+  idle: { icon: sessionStatusIcons.idle, color: 'var(--color-muted)', label: 'idle' },
+  paused: { icon: sessionStatusIcons.paused, color: 'var(--color-muted)', label: 'paused' },
 };
 
 // ─── Card ───────────────────────────────────────────────────────────────────
@@ -50,7 +55,7 @@ function SessionActivityCard({
       style={{ '--card-accent': config.color } as React.CSSProperties}
     >
       <span className="overview-card-icon" style={{ color: config.color }}>
-        {config.icon}
+        <UiIcon name={config.icon} />
       </span>
       <div className="overview-card-content">
         <div className="overview-card-title">
@@ -103,12 +108,12 @@ export function SessionOverview() {
 
   return (
     <div className="overview-section">
-      <button className="overview-header" onClick={toggleOpen}>
+      <button className="overview-header" onClick={toggleOpen} aria-expanded={isOpen}>
         <span className="overview-header-title">Active Sessions</span>
         <span className="overview-header-summary">{parts.join(' \u00B7 ')}</span>
         {attendCount > 0 && <span className="overview-badge">{attendCount}</span>}
         <span className={`overview-chevron${isOpen ? ' overview-chevron--open' : ''}`}>
-          &rsaquo;
+          <UiIcon name="forward" size={16} />
         </span>
       </button>
       {isOpen && (

@@ -1,3 +1,4 @@
+import { UiIcon } from './UiIcon';
 import { useState } from 'react';
 import type { LoopStatus } from '../types/task';
 import type { Task } from '../types/task';
@@ -64,7 +65,7 @@ export function LoopControls({
       return (
         <div className="loop-controls">
           <button className="loop-controls-start-trigger" onClick={() => setPickerOpen(true)}>
-            {'\u25B8'} Start a workflow...
+            <UiIcon name="play" size={16} /> Start a workflow...
           </button>
         </div>
       );
@@ -134,22 +135,29 @@ export function LoopControls({
     : state === 'paused'
       ? 'loop-controls-pill--paused'
       : 'loop-controls-pill--running';
-  const pillLabel = isReview
-    ? '\u26A0 Needs Review'
-    : state === 'paused'
-      ? 'Paused'
-      : '\u25CF Running';
+  const pillLabel = isReview ? 'Needs Review' : state === 'paused' ? 'Paused' : 'Running';
 
   return (
     <div className="loop-controls">
       <div className="loop-controls-inline-bar">
         <div className="loop-controls-inline-bar-top">
-          <span className={`loop-controls-pill ${pillClass}`}>{pillLabel}</span>
+          <span className={`loop-controls-pill ${pillClass}`}>
+            <UiIcon
+              name={isReview ? 'review' : state === 'paused' ? 'pause' : 'running'}
+              size={16}
+            />
+            {pillLabel}
+          </span>
           <div className="loop-controls-spacer" />
           <div className="loop-controls-actions">
             {state === 'running' && !awaitingApproval && (
-              <button className="loop-controls-btn" onClick={onPause} title="Pause">
-                {'\u23F8'}
+              <button
+                className="loop-controls-btn"
+                onClick={onPause}
+                title="Pause"
+                aria-label="Pause"
+              >
+                <UiIcon name="pause" size={16} />
               </button>
             )}
             {state === 'paused' && !awaitingApproval && (
@@ -157,16 +165,18 @@ export function LoopControls({
                 className="loop-controls-btn loop-controls-btn--start"
                 onClick={onResume}
                 title="Resume"
+                aria-label="Resume"
               >
-                {'\u25B6'}
+                <UiIcon name="play" size={16} />
               </button>
             )}
             <button
               className="loop-controls-btn loop-controls-btn--danger"
               onClick={onStop}
               title="Stop"
+              aria-label="Stop"
             >
-              {'\u25A0'}
+              <UiIcon name="stop" size={16} />
             </button>
           </div>
         </div>
@@ -193,10 +203,10 @@ export function LoopControls({
           <p className="loop-controls-approval-msg">Task breakdown ready for review</p>
           <div className="loop-controls-actions">
             <button className="loop-controls-btn loop-controls-btn--start" onClick={onApproveSpec}>
-              {'\u2713'} Approve
+              <UiIcon name="check" size={16} /> Approve
             </button>
             <button className="loop-controls-btn loop-controls-btn--danger" onClick={onRejectSpec}>
-              {'\u2717'} Reject
+              <UiIcon name="close" size={16} /> Reject
             </button>
           </div>
         </div>

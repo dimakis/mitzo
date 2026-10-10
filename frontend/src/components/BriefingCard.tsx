@@ -1,3 +1,4 @@
+import { UiIcon } from './UiIcon';
 import { useNavigate } from 'react-router-dom';
 
 export function BriefingCard() {
@@ -11,12 +12,16 @@ export function BriefingCard() {
 
   return (
     <button className="briefing-btn" onClick={handleStartSession}>
-      <span className="briefing-btn-icon">&#x2600;</span>
+      <span className="briefing-btn-icon">
+        <UiIcon name="sun" size={16} />
+      </span>
       <span className="briefing-btn-text">
         <span className="briefing-btn-title">Morning Briefing</span>
         <span className="briefing-btn-desc">Calendar, email, Jira</span>
       </span>
-      <span className="briefing-btn-arrow">&#x203A;</span>
+      <span className="briefing-btn-arrow">
+        <UiIcon name="forward" size={16} />
+      </span>
     </button>
   );
 }

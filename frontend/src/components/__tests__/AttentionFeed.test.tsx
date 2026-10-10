@@ -39,7 +39,7 @@ function makeItem(id: string, overrides: Partial<AttentionItem> = {}): Attention
     title: `Item ${id}`,
     meta: '1d',
     accentColor: '#fbbf24',
-    icon: '\u2605',
+    icon: 'star',
     navigateTo: `/todos/${id}`,
     updatedAt: Date.now(),
     ...overrides,

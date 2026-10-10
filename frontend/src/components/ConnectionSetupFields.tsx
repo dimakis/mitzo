@@ -1,3 +1,4 @@
+import { UiIcon } from './UiIcon';
 import type { ConnectionCredentialField, ConnectionTemplate } from '../types/connections';
 import { Link } from 'react-router-dom';
 import { riskCopy, templateKey, singleChoiceCustomFields } from '../lib/connections-form';
@@ -28,7 +29,7 @@ export function ServiceCatalog({
           key={templateKey(template)}
         >
           <span className="access-row-icon services" aria-hidden="true">
-            ↗
+            <UiIcon name="external" size={16} />
           </span>
           <div className="access-row-copy">
             <h3>{template.label}</h3>

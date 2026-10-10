@@ -356,6 +356,8 @@ describe('TodoDetailView', () => {
 
     expect(screen.getByText('Milestones')).toBeTruthy();
     expect(container.querySelector('.todo-detail-children-count')?.textContent).toBe('1/2');
+    expect(screen.getByRole('img', { name: 'Status: active' })).toBeTruthy();
+    expect(screen.getByRole('img', { name: 'Status: completed' })).toBeTruthy();
     expect(screen.getByText('Sub-task one')).toBeTruthy();
     expect(screen.getByText('Sub-task two (done)')).toBeTruthy();
 
