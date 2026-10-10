@@ -30,10 +30,12 @@ export const PlanAdviserAccountSchema = z
     expiresAt: z.number().int().positive(),
     state: z.enum(['connected', 'reauth_required', 'disconnected']),
     revocationPending: z.boolean().default(false),
-    models: z.array(CatalogModel.strict()).min(1).max(200),
+    models: z.array(CatalogModel.strict()).max(200),
   })
   .strict()
   .superRefine((account, context) => {
+    if (account.state === 'connected' && !account.models.length)
+      context.addIssue({ code: 'custom', message: 'Adviser model catalog is incomplete' });
     if (
       account.state !== 'disconnected' &&
       (!account.accessToken || !account.refreshToken || !account.idToken)
@@ -326,8 +328,6 @@ export class ChatGptPlanAdviserAccounts {
       assertCurrent();
       if (pending.account && identity.sub !== pending.account.subject)
         throw Error('Selected adviser identity changed');
-      const models = await this.models(tokens.access_token, signal);
-      assertCurrent();
       const id =
         'chatgpt_plan_' +
         createHash('sha256')
@@ -344,8 +344,8 @@ export class ChatGptPlanAdviserAccounts {
         idToken: tokens.id_token,
         grantedScopes: permitted(tokens.scope),
         expiresAt: tokens.receivedAt + tokens.expires_in * 1000,
-        models,
-        state: 'connected',
+        models: pending.account?.models ?? [],
+        state: 'reauth_required',
         revocationPending: pending.account?.revocationPending ?? false,
       };
       if (!pending.account && this.state.accounts.some((row) => row.id === id))
@@ -358,6 +358,13 @@ export class ChatGptPlanAdviserAccounts {
         ...this.state,
         accounts: [...this.state.accounts.filter((row) => row.id !== id), account],
       });
+      // Retain the verified registration and rotating credentials even if discovery fails.
+      // The row remains unavailable for inference until the catalog is confirmed.
+      const models = await this.models(account.accessToken, signal);
+      assertCurrent();
+      account.models = models;
+      account.state = 'connected';
+      this.persist(this.state);
       return this.list().find((row) => row.id === id)!;
     } catch {
       throw Error('ChatGPT adviser sign-in did not complete');
@@ -524,6 +531,7 @@ export class ChatGptPlanAdviserAccounts {
     this.assertOwnership();
     const account = this.state.accounts.find((row) => row.id === id);
     if (!account) throw Error('Adviser account unavailable');
+    if (this.pending?.account === account) this.pending = undefined;
     this.generation++;
     this.controllers.get(id)?.abort();
     account.state = 'disconnected';
