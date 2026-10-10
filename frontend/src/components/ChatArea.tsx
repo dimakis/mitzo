@@ -307,66 +307,70 @@ export function ChatArea({
         provenance?.configRevision,
         provenance && 'accountBinding' in provenance ? provenance.accountBinding : null,
       ]);
-      const rows = blocks.map((block, index): ActivityRow<ReactNode> => {
-        const progress = progressFor(msg.messageId, msg.symposiumProvenance, block.toolId);
-        const keepVisible =
-          Boolean(progress) ||
-          ['RequestWebAccess', 'mcp__mitzo-web-access__RequestWebAccess'].includes(
-            block.toolName ?? '',
-          );
-        const bid = block.blockId || `text-${index}`;
-        let content: ReactNode;
-        if (block.blockType === 'thinking' || block.blockType === 'redacted_thinking') {
-          content = (
-            <ThinkingBlock
-              block={block}
-              streaming={streaming}
-              defaultExpanded
-              autoCollapse={false}
-            />
-          );
-        } else if (block.blockType === 'tool_use') {
-          content = progress ? (
-            <ProgressWidget items={progress.items} />
-          ) : (
-            <ToolPill block={block} sessionId={sessionId} showSetupCard={keepVisible} />
-          );
-        } else {
-          content = (
-            <TextBubble
-              content={block.content ?? ''}
-              streaming={streaming}
-              timestamp={turn.kind === 'finished' ? turn.value.timestamp : undefined}
-              artifactSessionId={sessionId}
-              readAloud={
-                !streaming && voice?.ttsAvailable
-                  ? {
-                      active: speakingBlockId === bid,
-                      onSpeak: (text) => speakBlock(bid, text),
-                      onStop: stopBlock,
-                    }
-                  : undefined
-              }
-            />
-          );
-        }
-        return {
-          key: `${ownerKey}:${bid}`,
-          scope,
-          attribution: <SeatAttribution provenance={msg.symposiumProvenance} />,
-          block,
-          streaming,
-          keepVisible,
-          value: (
-            <div className={`msg-turn${streaming ? ' msg-turn--streaming' : ''}`}>
-              {index === 0 && (keepVisible || block.blockType === 'text') && (
-                <SeatAttribution provenance={msg.symposiumProvenance} />
-              )}
-              {content}
-            </div>
-          ),
-        };
-      });
+      // Filter non-visible text before assigning first/last-row controls so
+      // speaker attribution and sharing stay attached to retained content.
+      const rows = blocks
+        .filter((block) => block.blockType !== 'text' || block.content?.trim())
+        .map((block, index): ActivityRow<ReactNode> => {
+          const progress = progressFor(msg.messageId, msg.symposiumProvenance, block.toolId);
+          const keepVisible =
+            Boolean(progress) ||
+            ['RequestWebAccess', 'mcp__mitzo-web-access__RequestWebAccess'].includes(
+              block.toolName ?? '',
+            );
+          const bid = block.blockId || `text-${index}`;
+          let content: ReactNode;
+          if (block.blockType === 'thinking' || block.blockType === 'redacted_thinking') {
+            content = (
+              <ThinkingBlock
+                block={block}
+                streaming={streaming}
+                defaultExpanded
+                autoCollapse={false}
+              />
+            );
+          } else if (block.blockType === 'tool_use') {
+            content = progress ? (
+              <ProgressWidget items={progress.items} />
+            ) : (
+              <ToolPill block={block} sessionId={sessionId} showSetupCard={keepVisible} />
+            );
+          } else {
+            content = (
+              <TextBubble
+                content={block.content ?? ''}
+                streaming={streaming}
+                timestamp={turn.kind === 'finished' ? turn.value.timestamp : undefined}
+                artifactSessionId={sessionId}
+                readAloud={
+                  !streaming && voice?.ttsAvailable
+                    ? {
+                        active: speakingBlockId === bid,
+                        onSpeak: (text) => speakBlock(bid, text),
+                        onStop: stopBlock,
+                      }
+                    : undefined
+                }
+              />
+            );
+          }
+          return {
+            key: `${ownerKey}:${bid}`,
+            scope,
+            attribution: <SeatAttribution provenance={msg.symposiumProvenance} />,
+            block,
+            streaming,
+            keepVisible,
+            value: (
+              <div className={`msg-turn${streaming ? ' msg-turn--streaming' : ''}`}>
+                {index === 0 && (keepVisible || block.blockType === 'text') && (
+                  <SeatAttribution provenance={msg.symposiumProvenance} />
+                )}
+                {content}
+              </div>
+            ),
+          };
+        });
       if (!streaming && onShareMessage) {
         const share = (
           <button
@@ -377,11 +381,7 @@ export function ChatArea({
             Share excerpt
           </button>
         );
-        // Blank text is omitted by activity grouping, so attach controls to a
-        // retained block (or a separate row when the message is entirely blank).
-        const last = [...rows]
-          .reverse()
-          .find((row) => row.block?.blockType !== 'text' || row.block.content?.trim());
+        const last = rows.at(-1);
         if (last)
           last.value = (
             <>

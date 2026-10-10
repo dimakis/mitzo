@@ -91,6 +91,83 @@ it('retains excerpt sharing for a finished message containing only blank text', 
   expect(onShareMessage).toHaveBeenCalledWith('blank-reply', undefined);
 });
 
+it.each([
+  ['live', ''],
+  ['live', ' \n '],
+  ['restored', ''],
+  ['restored', ' \n '],
+])(
+  'retains speaker, account and model attribution after leading blank text in %s messages (%j)',
+  (phase, content) => {
+    const symposiumProvenance = {
+      version: 2 as const,
+      seatId: 'reviewer',
+      seatLabel: 'Original Reviewer',
+      seatRole: 'reviewer',
+      configRevision: 1,
+      membershipGeneration: 1,
+      capturedAt: 1,
+      accountBinding: {
+        accountId: 'work-reviewer',
+        accountLabel: 'Work Reviewer',
+        provider: 'openai-codex' as const,
+        model: 'model-r',
+        profileRevision: 'a1',
+      },
+      reasoningEffort: 'high',
+      profileBinding: { profileId: 'profile-r', profileRevision: 'p1' },
+      contextGrant: { grantId: 'context-r', revision: 1 },
+      authorityGrant: { grantId: 'authority-r', revision: 1 },
+      accountProfileRevision: 'a1',
+      seatProfileRevision: 'p1',
+      contextGrantRevision: 1,
+      authorityGrantRevision: 1,
+      isolationDomainId: 'shared',
+      isolationDomainRevision: 1,
+    };
+    const blank = { blockId: 'blank', blockType: 'text' as const, content };
+    const answer = { blockId: 'answer', blockType: 'text' as const, content: 'Attributed reply' };
+    const live = phase === 'live';
+    render(
+      <MemoryRouter>
+        <ChatArea
+          {...base}
+          messages={
+            live
+              ? []
+              : [
+                  {
+                    messageId: 'reply',
+                    role: 'assistant',
+                    symposiumProvenance,
+                    blocks: [blank, answer],
+                  },
+                ]
+          }
+          current={
+            live
+              ? {
+                  messageId: 'reply',
+                  symposiumProvenance,
+                  blockOrder: ['blank', 'answer'],
+                  blocks: new Map<string, StreamingBlock>([
+                    ['blank', { ...blank, done: true }],
+                    ['answer', { ...answer, done: false }],
+                  ]),
+                }
+              : null
+          }
+          running={live}
+        />
+      </MemoryRouter>,
+    );
+    expect(screen.getByText('Attributed reply')).toBeTruthy();
+    expect(screen.getByLabelText('Seat Original Reviewer')).toBeTruthy();
+    expect(screen.getByText('Work Reviewer')).toBeTruthy();
+    expect(screen.getByText('model-r')).toBeTruthy();
+  },
+);
+
 it('collapses mixed activity across provider messages between visible responses and reveals every detail', () => {
   render(
     <MemoryRouter>
