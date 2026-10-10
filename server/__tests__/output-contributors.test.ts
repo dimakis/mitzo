@@ -120,7 +120,163 @@ function setup() {
   };
   return { service, store, deps, input, port, output };
 }
+function failNextTurn(
+  { port, store, deps, input }: ReturnType<typeof setup>,
+  proof:
+    | 'confirmed'
+    | 'before-dispatch'
+    | 'missing-acceptance'
+    | 'missing-terminal'
+    | 'query-close-failed' = 'confirmed',
+) {
+  vi.mocked(port.startChat).mockImplementationOnce(async (transport, _client, _prompt, options) => {
+    const id = options.resume ?? options.initialSessionId!;
+    store.upsertSession({
+      sessionId: id,
+      conversationSource: 'mitzo',
+      accountBinding: deps.currentAccounts().resolve(input.accountId, input.model),
+    });
+    store.append(id, 'contributor_execution', {
+      ...options.contributorExecution,
+      childSessionId: id,
+    });
+    if (proof === 'before-dispatch') throw new Error('Offline contributor failed');
+    options.ordinaryTurnLifecycle!.beforeDispatch(options.clientMsgId!);
+    if (proof !== 'missing-acceptance')
+      options.ordinaryTurnLifecycle!.accepted(options.clientMsgId!, 'raw-thread', 'failed-turn');
+    transport.send({ type: 'error', error: 'Offline contributor failed' });
+    if (!['missing-acceptance', 'missing-terminal'].includes(proof))
+      options.ordinaryTurnLifecycle!.terminal(options.clientMsgId!, 'failed-turn', 'failed');
+    options.onTurnResult?.({ is_error: true });
+    if (proof === 'query-close-failed') throw new Error('Offline query closure unavailable');
+  });
+}
 describe('ordinary contributors to registered outputs', () => {
+  it.each(['confirmed', 'before-dispatch'] as const)(
+    'allows a fresh directed turn after %s failed cleanup without replaying or losing history',
+    async (proof) => {
+      const fixture = setup();
+      const { service, deps, input, port, store } = fixture;
+      const contributor = await service.add('source', input);
+      const previous = await service.message('source', contributor.id, {
+        requestId: 'successful-history',
+        text: 'First contribution',
+      });
+      failNextTurn(fixture, proof);
+      const failedRequest = { requestId: 'failed-request', text: 'Fail this contribution' };
+      const failed = await service.message('source', contributor.id, failedRequest);
+      expect(failed.delivery.status).toBe('failed');
+      expect(store.getUnsettledSymposiumExecutions(failed.delivery.deliveryId)).toEqual([]);
+      expect(failed.contributor).toMatchObject({
+        status: 'idle',
+        sessionId: previous.contributor.sessionId,
+      });
+      expect(failed.contributor.messages).toEqual(previous.contributor.messages);
+      const failedAttempt = store.getSymposiumRecipientAttempts(failed.delivery.deliveryId)[0];
+      expect(failedAttempt).toMatchObject({
+        status: 'failed',
+        error: 'Offline contributor failed',
+        providerThreadId: previous.contributor.sessionId,
+        providerTurnId: proof === 'confirmed' ? 'failed-turn' : null,
+        acceptedAt: proof === 'confirmed' ? expect.any(Number) : null,
+      });
+      expect(failed.delivery.recipients[0].error).toContain('Contributor execution failed');
+      service.close();
+      const reopened = createOutputContributors(deps);
+      cleanup.unshift(() => reopened.close());
+      expect((await reopened.list('source')).contributors[0].status).toBe('idle');
+      const replay = await reopened.message('source', contributor.id, failedRequest);
+      expect(replay.delivery.deliveryId).toBe(failed.delivery.deliveryId);
+      expect(replay.delivery.status).toBe('failed');
+      expect(port.startChat).toHaveBeenCalledTimes(2);
+      const next = await reopened.message('source', contributor.id, {
+        requestId: 'new-directed-request',
+        text: 'Try a new contribution',
+      });
+      expect(next.delivery.status).toBe('delivered');
+      expect(next.contributor.status).toBe('idle');
+      expect(next.contributor.messages).toHaveLength(2);
+      expect(next.contributor.messages[0]).toEqual(previous.contributor.messages[0]);
+      expect(vi.mocked(port.startChat).mock.calls[2][3].resume).toBe(
+        previous.contributor.sessionId,
+      );
+      expect(store.getSymposiumRecipientAttempts(failed.delivery.deliveryId)[0]).toEqual(
+        failedAttempt,
+      );
+      await reopened.message('source', contributor.id, failedRequest);
+      expect(port.startChat).toHaveBeenCalledTimes(3);
+    },
+  );
+  it.each(['missing-acceptance', 'missing-terminal', 'query-close-failed'] as const)(
+    'keeps failed execution fenced with %s proof',
+    async (proof) => {
+      const fixture = setup();
+      const { service, deps, input, port, store } = fixture;
+      const contributor = await service.add('source', input);
+      failNextTurn(fixture, proof);
+      const failed = await service.message('source', contributor.id, {
+        requestId: 'unknown-failed',
+        text: 'Attempt contribution',
+      });
+      expect(failed.delivery.status).toBe('failed');
+      expect(failed.contributor.status).toBe('stopping');
+      expect(store.getUnsettledSymposiumExecutions(failed.delivery.deliveryId)).toHaveLength(1);
+      service.close();
+      const reopened = createOutputContributors(deps);
+      cleanup.unshift(() => reopened.close());
+      expect((await reopened.list('source')).contributors[0].status).toBe('stopping');
+      await expect(
+        reopened.message('source', contributor.id, {
+          requestId: 'new-unknown-request',
+          text: 'Try again',
+        }),
+      ).rejects.toThrow('active');
+      expect(port.startChat).toHaveBeenCalledTimes(1);
+    },
+  );
+  it.each(['account', 'source', 'membership', 'admission', 'cleanup-record'] as const)(
+    'keeps confirmed failed cleanup unavailable after invalid %s',
+    async (invalid) => {
+      const fixture = setup();
+      const { service, deps, input, port, store } = fixture;
+      const contributor = await service.add('source', input);
+      failNextTurn(fixture);
+      const failed = await service.message('source', contributor.id, {
+        requestId: 'known-failed',
+        text: 'Attempt contribution',
+      });
+      expect(store.getUnsettledSymposiumExecutions(failed.delivery.deliveryId)).toEqual([]);
+      const db = new Database(deps.databasePath);
+      try {
+        if (invalid === 'account')
+          Object.assign(deps, {
+            currentAccounts: () => new AccountProfiles([], { codexEnabled: true }),
+          });
+        if (invalid === 'source')
+          db.prepare("DELETE FROM events WHERE session_id='source' AND type='block_delta'").run();
+        if (invalid === 'membership')
+          db.prepare(
+            "UPDATE symposium_membership_reconciliation SET status='recovery_required' WHERE session_id=?",
+          ).run(contributor.id);
+        if (invalid === 'admission')
+          db.prepare('DELETE FROM symposium_admissions WHERE session_id=?').run(contributor.id);
+        if (invalid === 'cleanup-record')
+          db.prepare('DELETE FROM symposium_recipient_attempts WHERE delivery_id=?').run(
+            failed.delivery.deliveryId,
+          );
+        expect((await service.list('source')).contributors[0].status).toBe('unavailable');
+        await expect(
+          service.message('source', contributor.id, {
+            requestId: 'new-invalid-request',
+            text: 'Try again',
+          }),
+        ).rejects.toThrow();
+        expect(port.startChat).toHaveBeenCalledTimes(1);
+      } finally {
+        db.close();
+      }
+    },
+  );
   it.each([
     { lateAcceptance: false, retained: 'current' },
     { lateAcceptance: true, retained: 'current' },
