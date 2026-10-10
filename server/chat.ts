@@ -211,6 +211,7 @@ import type {
   AgentContextSnapshot,
 } from '@mitzo/protocol';
 import { resolveChatAgentContext } from './agent-context-binding.js';
+import { captureAgentLibraryAuthorization } from './agent-library-transport.js';
 import { shouldAutoRename, extractRecentPrompts } from './auto-rename.js';
 import {
   registerSession,
@@ -1734,12 +1735,14 @@ async function _startChatInner(
   try {
     const stored = options.resume ? eventStore.getSession(options.resume)?.agentContext : undefined;
     if (agentProfile?.definition.contextRecipe || stored) {
+      const authorization = captureAgentLibraryAuthorization(options.operatorConnectionId);
       agentContext = await resolveChatAgentContext({
         profile: agentProfile,
         stored,
         workspaceRoot: cwd,
         signal: abortController.signal,
       });
+      authorization.assertCurrent();
       if (stateSessionId && agentContext)
         eventStore.upsertSession({ sessionId: stateSessionId, agentProfile, agentContext });
     }

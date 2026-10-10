@@ -77,10 +77,14 @@ async function setup() {
   };
   const transport = { send: vi.fn(), isOpen: () => true };
   const library = await import('../agent-library-transport.js');
+  const unbind = library.bindAgentLibraryTransport('operator', {
+    id: 'fixture-login',
+    expiresAt: Date.now() + 60000,
+  });
   vi.spyOn(library, 'readAgentLibraryProfile').mockResolvedValue(profile);
   const compiler = await import('../agent-context-compiler.js');
   const chat = await import('../chat.js');
-  return { root, profile, transport, compiler, chat, fetcher };
+  return { root, profile, transport, compiler, chat, fetcher, unbind };
 }
 const sessionId = 'aaaaaaaa-bbbb-4ccc-8ddd-565656565656';
 
@@ -88,7 +92,7 @@ it.each([false, true])(
   'pins compiled context before mocked SDK dispatch and reuses it on cold resume (resume=%s)',
   async (resume) => {
     const fixture = await setup();
-    const { root, profile, compiler, chat, transport, fetcher } = fixture;
+    const { root, profile, compiler, chat, transport, fetcher, unbind } = fixture;
     try {
       if (resume) {
         const compiled = await compiler.compileAgentContext(profile.definition.contextRecipe, {
@@ -146,6 +150,7 @@ it.each([false, true])(
         0,
       );
     } finally {
+      unbind();
       chat.registry.dispose();
       chat.eventStore.close();
       await rm(root, { recursive: true, force: true });
@@ -153,7 +158,7 @@ it.each([false, true])(
   },
 );
 it('fails before provider dispatch when a required context document is missing, and cleans the registered startup', async () => {
-  const { root, chat, transport } = await setup();
+  const { root, chat, transport, unbind } = await setup();
   try {
     await rm(join(root, 'docs/architecture.md'));
     const { query } = await import('@anthropic-ai/claude-agent-sdk');
@@ -166,6 +171,7 @@ it('fails before provider dispatch when a required context document is missing, 
         isolation: false,
         model: 'luna',
         initialSessionId: sessionId,
+        operatorConnectionId: 'operator',
         agentProfile: { profileId: 'bob', revision: 3 },
       })
       .catch(() => {});
@@ -176,13 +182,14 @@ it('fails before provider dispatch when a required context document is missing, 
     expect(chat.registry.get('missing-context')).toBeUndefined();
     expect(chat.eventStore.getSession(sessionId)?.agentContext).toBeUndefined();
   } finally {
+    unbind();
     chat.registry.dispose();
     chat.eventStore.close();
     await rm(root, { recursive: true, force: true });
   }
 });
 it('refuses host recipe compilation for OpenShell before provider preflight or sandbox launch', async () => {
-  const { root, chat, transport } = await setup();
+  const { root, chat, transport, unbind } = await setup();
   try {
     vi.stubEnv('MITZO_OPENSHELL_ENABLED', '1');
     const profiles = new AccountProfiles(
@@ -213,6 +220,7 @@ it('refuses host recipe compilation for OpenShell before provider preflight or s
       model: 'luna',
       accountProfiles: profiles,
       agentProfile: { profileId: 'bob', revision: 3 },
+      operatorConnectionId: 'operator',
     });
     expect(verify).not.toHaveBeenCalled();
     expect(open).not.toHaveBeenCalled();
@@ -223,6 +231,41 @@ it('refuses host recipe compilation for OpenShell before provider preflight or s
       }),
     ]);
   } finally {
+    unbind();
+    chat.registry.dispose();
+    chat.eventStore.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+it('rechecks operator authorization after compilation before saving context or dispatching a model', async () => {
+  const { root, chat, transport, compiler, unbind } = await setup();
+  try {
+    const original = compiler.compileAgentContext;
+    vi.spyOn(compiler, 'compileAgentContext').mockImplementation(async (recipe, options) => {
+      const result = await original(recipe, options);
+      unbind();
+      return result;
+    });
+    const { query } = await import('@anthropic-ai/claude-agent-sdk');
+    vi.mocked(query).mockImplementation(() => {
+      throw Error('Unexpected provider dispatch');
+    });
+    await chat.startChat(transport, 'revoked-context', 'Review this', {
+      cwd: root,
+      isolation: false,
+      model: 'luna',
+      initialSessionId: sessionId,
+      agentProfile: { profileId: 'bob', revision: 3 },
+      operatorConnectionId: 'operator',
+    });
+    expect(query).not.toHaveBeenCalled();
+    expect(transport.send.mock.calls).toContainEqual([
+      expect.objectContaining({ type: 'error', error: expect.stringContaining('revoked') }),
+    ]);
+    expect(chat.eventStore.getSession(sessionId)?.agentContext).toBeUndefined();
+  } finally {
+    unbind();
     chat.registry.dispose();
     chat.eventStore.close();
     await rm(root, { recursive: true, force: true });

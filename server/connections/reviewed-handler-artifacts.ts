@@ -22,7 +22,7 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
-  '../chat.ts': '58e8234fda59f85d6d23b93920a0d1fa5ad8ea45d74fbab4922bb351cc671881',
+  '../chat.ts': '528aec4f04d2e49f698d68f12c60618a680b4ffb660cb29951642a54d78e65f1',
   '../agent-context-binding.ts': 'ce0f8dba7f97f515be8ee00a441e3cc36344aad44f31e0b2fb33a160f8803e66',
   '../agent-context-compiler.ts':
     '37adfd9225f97cccdee556cf91d8a9e7642083df15a8d5bdc24599c92cb84db0',
@@ -33,7 +33,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'e6cabfe7555434bbf426209e5a0de750195559e106b0bbb09c4885a34159ff36',
   '../agent-library-binding.ts': '21fccbe6ee53ec292f93be9de3f678b3e1d4e8a8d6e83798678e9da44fadf7fb',
   '../agent-library-transport.ts':
-    '979b9c57cbfe65e3e8145366d014b4b724b8d0ad9e4cb42fda0c9b0735c5e8ad',
+    'd2ef44ab93b3e4e74a2464740e0a676fe3b9f9557ecc8544dc4842c0692ec263',
   '../agent-library-store.ts': 'fac60510d3a4b45aa34777daf885142e067538726104c749f4ebe533861472c7',
   '../agent-library-router.ts': '9fb62f90a0ecee38712d38277d921e0430f81a98990eabc58b95a34616bc0ace',
   '../agent-library-runtime.ts': 'cc3be2fc2f61053d4430960a2328d41146463fdca701840a92ab65a89b29922d',

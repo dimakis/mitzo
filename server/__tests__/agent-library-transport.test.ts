@@ -13,7 +13,11 @@ vi.mock('../auth.js', () => ({
 vi.mock('../symposium-custodian-mode.js', () => ({
   custodianControllerClient: { request: mocks.request, invalidate: mocks.invalidate },
 }));
-import { bindAgentLibraryTransport, readAgentLibraryProfile } from '../agent-library-transport.js';
+import {
+  bindAgentLibraryTransport,
+  readAgentLibraryProfile,
+  captureAgentLibraryAuthorization,
+} from '../agent-library-transport.js';
 const cleanups: (() => void)[] = [];
 afterEach(() => {
   cleanups.splice(0).forEach((fn) => fn());
@@ -61,4 +65,16 @@ it('invalidates an in-flight read on logout instead of returning its profile', a
     readAgentLibraryProfile({ profileId: 'bob', revision: 3 }, 'connection'),
   ).rejects.toThrow(/revoked/i);
   expect(mocks.invalidate).toHaveBeenCalledWith('verified-login');
+});
+
+it('rechecks the same verified operator after context compilation and refuses revoked or replaced bindings', () => {
+  const auth = { id: 'verified-login', expiresAt: Date.now() + 10000 };
+  cleanups.push(bindAgentLibraryTransport('connection', auth));
+  const captured = captureAgentLibraryAuthorization('connection');
+  expect(captured.auth).toBe(auth);
+  captured.assertCurrent();
+  mocks.revoked();
+  expect(() => captured.assertCurrent()).toThrow(/revoked/);
+  cleanups.push(bindAgentLibraryTransport('connection', { ...auth, id: 'another-login' }));
+  expect(() => captured.assertCurrent()).toThrow(/revoked/);
 });
