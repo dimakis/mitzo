@@ -9,7 +9,7 @@ import {
   type KeyboardEvent,
   type ChangeEvent,
 } from 'react';
-import type { BootContextMeta } from '@mitzo/client';
+import type { BootContextMeta, SendMessageOptions } from '@mitzo/client';
 import type { FinishedMessage, ImageAttachment, StreamingMessage } from '../types/chat';
 import { resizeImage } from '../lib/resizeImage';
 import { extractImageFiles } from '../lib/paste-images';
@@ -34,7 +34,12 @@ export interface ChatInputDraftControl {
 interface Props {
   onSend: (text: string, images?: ImageAttachment[], contextBlocks?: string[]) => boolean;
   onStop: () => void;
-  onInterrupt?: (text: string, images?: ImageAttachment[], contextBlocks?: string[]) => void;
+  onInterrupt?: (
+    text: string,
+    images?: ImageAttachment[],
+    contextBlocks?: string[],
+    onDelivery?: SendMessageOptions['onDelivery'],
+  ) => void;
   running: boolean;
   initialText?: string;
   /** Prompt storage ownership independent of the provider session identity. */
@@ -96,6 +101,7 @@ export function ChatInput({
     queue: queuedMessages,
     enqueue,
     dequeue,
+    restoreRejected,
     remove: removeQueued,
     edit: editQueued,
   } = useQueuedMessages(sessionId);
@@ -106,6 +112,39 @@ export function ChatInput({
   const initialApplied = useRef(false);
   const prevRunning = useRef(running);
   const sendGuard = useRef(false);
+  const interruptPending = useRef<object | null>(null);
+  const mounted = useRef(true);
+  const latestDraft = useRef({
+    text,
+    images,
+    contextBlocks: activeContextBlocks,
+    sessionId,
+    scope: 0,
+    revision: 0,
+  });
+  const previous = latestDraft.current;
+  if (previous.sessionId !== sessionId) interruptPending.current = null;
+  latestDraft.current = {
+    text,
+    images,
+    contextBlocks: activeContextBlocks,
+    sessionId,
+    scope: previous.scope + (previous.sessionId !== sessionId ? 1 : 0),
+    revision:
+      previous.revision +
+      (previous.text !== text ||
+      previous.images !== images ||
+      previous.contextBlocks !== activeContextBlocks ||
+      previous.sessionId !== sessionId
+        ? 1
+        : 0),
+  };
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   const autoResize = useCallback(() => {
     const el = textareaRef.current;
@@ -296,29 +335,54 @@ export function ChatInput({
 
   function fireQueuedAsInterrupt(index: number) {
     const q = queuedMessages[index];
-    if (!onInterrupt || !q) return;
+    if (!onInterrupt || !q || interruptPending.current || sendDisabledReason) return;
+    const scope = latestDraft.current.scope;
+    const pending = {};
+    interruptPending.current = pending;
     removeQueued(index);
     onInterrupt(
       q.text,
       q.images.length > 0 ? q.images : undefined,
       q.contextBlocks.length > 0 ? q.contextBlocks : undefined,
+      (status) => {
+        if (status === 'uncertain') return;
+        if (interruptPending.current === pending) interruptPending.current = null;
+        if (status === 'failed' && mounted.current && latestDraft.current.scope === scope)
+          restoreRejected(q);
+      },
     );
   }
 
   function handleInterrupt() {
-    if (sendGuard.current || sendDisabledReason) return;
-    if (!onInterrupt) return;
+    if (sendGuard.current || interruptPending.current || sendDisabledReason || !onInterrupt) return;
     const trimmed = text.trim();
     if (!trimmed && images.length === 0) return;
     sendGuard.current = true;
+    const pending = {};
+    interruptPending.current = pending;
+    const submitted = latestDraft.current;
     onInterrupt(
       trimmed || 'What do you see in this image?',
       images.length > 0 ? images : undefined,
       activeContextBlocks.length > 0 ? activeContextBlocks : undefined,
+      (status) => {
+        if (status === 'uncertain') return;
+        if (interruptPending.current === pending) interruptPending.current = null;
+        if (!mounted.current || latestDraft.current.scope !== submitted.scope) return;
+        if (latestDraft.current.revision !== submitted.revision) {
+          if (status === 'failed')
+            restoreRejected({ ...submitted, text: trimmed || 'What do you see in this image?' });
+          return;
+        }
+        if (status === 'accepted') {
+          clearDraft();
+          setImages([]);
+          if (!useExternal) setContextBlocks([]);
+        }
+      },
     );
-    clearDraft();
-    setImages([]);
-    if (!useExternal) setContextBlocks([]);
+    // Local transport acceptance cannot confirm an interrupt. Keep its exact input
+    // until an authoritative receipt, and protect edits made while it is pending.
     requestAnimationFrame(() => {
       sendGuard.current = false;
     });

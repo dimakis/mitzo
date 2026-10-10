@@ -712,7 +712,7 @@ export class SseConnection implements ChatConnection {
     const scope =
       typeof body.sessionId === 'string' && body.sessionId ? { sessionId: body.sessionId } : {};
     const control = ['stop', 'interrupt', 'close'].includes(endpoint) ? endpoint : undefined;
-    const controlFailure = (error: string, code?: string) => {
+    const controlFailure = (error: string, code?: string, clientMsgId?: string) => {
       if (!control || !scope.sessionId) return false;
       this.listener?.({
         type: 'session_control_rejected',
@@ -720,6 +720,7 @@ export class SseConnection implements ChatConnection {
         control,
         error,
         ...(code !== undefined ? { code } : {}),
+        ...(clientMsgId !== undefined ? { clientMsgId } : {}),
       });
       return true;
     };
@@ -733,6 +734,7 @@ export class SseConnection implements ChatConnection {
         if (control && scope.sessionId) {
           let error = `Could not ${endpoint} (${res.status}). Please retry.`;
           let code: string | undefined;
+          let clientMsgId: string | undefined;
           try {
             const rejected = await res.json();
             if (
@@ -743,11 +745,13 @@ export class SseConnection implements ChatConnection {
             ) {
               error = rejected.error;
               if (typeof rejected.code === 'string') code = rejected.code;
+              if (typeof body.clientMsgId === 'string' && rejected.clientMsgId === body.clientMsgId)
+                clientMsgId = body.clientMsgId;
             }
           } catch {
             // A lost or unreadable response cannot confirm cancellation.
           }
-          controlFailure(error, code);
+          controlFailure(error, code, clientMsgId);
           return;
         }
         if (endpoint === 'permission' && typeof body.permId === 'string') {

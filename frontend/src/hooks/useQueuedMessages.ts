@@ -4,6 +4,8 @@ import type { ImageAttachment } from '../types/chat';
 const KEY_PREFIX = 'mitzo-queue-';
 
 export interface QueuedMessage {
+  /** Definitive refusal is recoverable only through an explicit operator retry. */
+  requiresRetry?: boolean;
   text: string;
   images: ImageAttachment[];
   contextBlocks: string[];
@@ -11,6 +13,7 @@ export interface QueuedMessage {
 
 /** Stored shape omits images — base64 data is too large for localStorage. */
 interface StoredMessage {
+  requiresRetry?: boolean;
   text: string;
   contextBlocks: string[];
 }
@@ -20,7 +23,11 @@ function queueKey(sessionId: string | undefined): string {
 }
 
 function toStored(msgs: QueuedMessage[]): StoredMessage[] {
-  return msgs.map(({ text, contextBlocks }) => ({ text, contextBlocks }));
+  return msgs.map(({ text, contextBlocks, requiresRetry }) => ({
+    text,
+    contextBlocks,
+    ...(requiresRetry ? { requiresRetry: true } : {}),
+  }));
 }
 
 function fromStored(msgs: StoredMessage[]): QueuedMessage[] {
@@ -59,6 +66,7 @@ export function useQueuedMessages(
   queue: QueuedMessage[];
   enqueue: (msg: QueuedMessage) => boolean;
   dequeue: () => QueuedMessage | undefined;
+  restoreRejected: (msg: QueuedMessage) => void;
   remove: (index: number) => void;
   edit: (index: number) => QueuedMessage | undefined;
 } {
@@ -113,10 +121,15 @@ export function useQueuedMessages(
 
   const dequeue = useCallback((): QueuedMessage | undefined => {
     const current = queueRef.current;
-    if (current.length === 0) return undefined;
+    if (current.length === 0 || current[0].requiresRetry) return undefined;
     const item = current[0];
     setQueueRaw((prev) => prev.slice(1));
     return item;
+  }, []);
+
+  // Return already-submitted input without discarding it when the ordinary queue is full.
+  const restoreRejected = useCallback((msg: QueuedMessage) => {
+    setQueueRaw((prev) => [...prev, { ...msg, requiresRetry: true }]);
   }, []);
 
   const remove = useCallback((index: number) => {
@@ -130,5 +143,5 @@ export function useQueuedMessages(
     return item;
   }, []);
 
-  return { queue, enqueue, dequeue, remove, edit };
+  return { queue, enqueue, dequeue, restoreRejected, remove, edit };
 }

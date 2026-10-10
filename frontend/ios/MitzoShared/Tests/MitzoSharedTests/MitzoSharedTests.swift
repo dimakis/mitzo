@@ -656,3 +656,23 @@ func testSessionControlRejectionCodeRoundTrip(control: String) throws {
     }
     #expect(type == "future_type")
 }
+
+@Test(arguments: ["send", "interrupt"])
+func testSessionControlRejectedCommandReceiptRoundTrip(control: String) throws {
+    for correlated in [false, true] {
+        let receipt = correlated ? ",\"clientMsgId\":\"submitted-47\"" : ""
+        let literal = "{\"type\":\"session_control_rejected\",\"sessionId\":\"child\",\"control\":\"\(control)\",\"error\":\"Use contributor controls\"\(receipt)}"
+        let message = try JSONDecoder().decode(ServerMessage.self, from: Data(literal.utf8))
+        let encoded = try JSONEncoder().encode(message)
+        let object = try JSONSerialization.jsonObject(with: encoded) as! [String: Any]
+        #expect(object["sessionId"] as? String == "child")
+        #expect(object["control"] as? String == control)
+        #expect(object["error"] as? String == "Use contributor controls")
+        #expect(object["clientMsgId"] as? String == (correlated ? "submitted-47" : nil))
+        let relayed = try JSONDecoder().decode(ServerMessage.self, from: encoded)
+        guard case .sessionControlRejected = relayed else {
+            Issue.record("Expected nonterminal typed rejection after relay")
+            continue
+        }
+    }
+}

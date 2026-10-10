@@ -1726,3 +1726,44 @@ describe('SseConnection', () => {
     expect(mockFetch).not.toHaveBeenCalled();
   });
 });
+
+it('forwards only exact authoritative interrupt rejection identity, never fabricating a receipt on lost response', async () => {
+  for (const outcome of ['exact', 'wrong', 'lost']) {
+    const fetch =
+      outcome === 'lost'
+        ? vi.fn().mockRejectedValue(Error('Response lost'))
+        : vi.fn().mockResolvedValue({
+            ok: false,
+            status: 409,
+            json: async () => ({
+              type: 'session_control_rejected',
+              sessionId: 'child',
+              control: 'interrupt',
+              error: 'Use contributor controls',
+              clientMsgId: outcome === 'exact' ? 'submitted' : 'other',
+            }),
+          });
+    const conn = new SseConnection(createConfig({ fetch }));
+    const listener = vi.fn();
+    conn.onMessage(listener);
+    conn.connect();
+    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-abc' });
+    conn.send({
+      type: 'interrupt',
+      sessionId: 'child',
+      prompt: 'Exact draft',
+      clientMsgId: 'submitted',
+    });
+    await vi.waitFor(() =>
+      expect(
+        listener.mock.calls.some(([message]) => message.type === 'session_control_rejected'),
+      ).toBe(true),
+    );
+    const rejection = listener.mock.calls.find(
+      ([message]) => message.type === 'session_control_rejected',
+    )![0];
+    if (outcome === 'exact') expect(rejection.clientMsgId).toBe('submitted');
+    else expect(rejection).not.toHaveProperty('clientMsgId');
+    conn.disconnect();
+  }
+});

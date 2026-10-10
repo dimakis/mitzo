@@ -362,11 +362,24 @@ export function ChatView() {
     }
   }
 
-  function handleInterrupt(text: string, images?: ImageAttachment[], ctxBlocks?: string[]): void {
-    if (repositoryHandoff.present) return;
+  function handleInterrupt(
+    text: string,
+    images?: ImageAttachment[],
+    ctxBlocks?: string[],
+    onDelivery?: import('@mitzo/client').SendMessageOptions['onDelivery'],
+  ): void {
+    if (repositoryHandoff.present) {
+      onDelivery?.('failed');
+      return;
+    }
     voice.stopSpeaking();
     // Preserve the same per-turn Codex selection when interrupting an active turn.
-    storeInterruptMessage(text, { images, contextBlocks: ctxBlocks, ...(accountSelection ?? {}) });
+    storeInterruptMessage(text, {
+      images,
+      contextBlocks: ctxBlocks,
+      onDelivery,
+      ...(accountSelection ?? {}),
+    });
     forceScrollToBottom();
   }
 

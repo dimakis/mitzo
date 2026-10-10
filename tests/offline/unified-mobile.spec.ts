@@ -3254,3 +3254,140 @@ test('rejected ordinary Stop preserves the live reply and queued image until ser
   await expect(draft).toHaveValue('Next untouched draft');
   await expect(page.locator('.chat-input-queued')).toHaveCount(0);
 });
+
+test('rejected running Enter recovers exact input without overwriting newer draft or automatically replaying', async ({
+  page,
+  isMobile,
+}, testInfo) => {
+  await page.setViewportSize({ width: isMobile ? 320 : 1280, height: 900 });
+  const sessionId = 'owned-interrupt-child';
+  const sent: Record<string, unknown>[] = [];
+  let emit!: (message: Record<string, unknown>) => void;
+  await page.routeWebSocket('**/*', (socket) => {
+    emit = (message) => socket.send(JSON.stringify(message));
+    socket.onMessage((raw) => {
+      const message = JSON.parse(String(raw));
+      if (message.type === 'hello')
+        emit({ type: 'welcome', protocolVersion: 2, connectionId: 'offline-interrupt' });
+      if (message.type === 'send' || message.type === 'interrupt') sent.push(message);
+      if (message.type === 'switch_session') {
+        emit({ type: 'session_switched', sessionId, mode: 'agent' });
+        emit({ type: 'session_state_changed', sessionId, state: 'running' });
+        emit({ type: 'message_start', sessionId, messageId: 'live-reply' });
+        emit({
+          type: 'block_start',
+          sessionId,
+          messageId: 'live-reply',
+          blockId: 'reply',
+          blockType: 'text',
+        });
+        emit({
+          type: 'block_delta',
+          sessionId,
+          messageId: 'live-reply',
+          blockId: 'reply',
+          blockType: 'text',
+          delta: 'An active child reply',
+        });
+      }
+    });
+  });
+  await page.route('**/api/**', async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === `/api/sessions/${sessionId}/messages`) return route.fulfill({ json: [] });
+    if (path === `/api/sessions/${sessionId}/meta`)
+      return route.fulfill({
+        json: {
+          sessionType: 'chat',
+          accountBinding: {
+            accountId: 'work-account',
+            accountLabel: 'Work OpenAI',
+            model: 'luna-fixture',
+          },
+          modelSelection: {
+            model: 'luna-fixture',
+            models: [{ id: 'luna-fixture', label: 'Luna fixture' }],
+          },
+        },
+      });
+    if (path === `/api/sessions/${sessionId}/symposium/status`)
+      return route.fulfill({ json: { sessionId, config: null, seats: [] } });
+    return route.fallback();
+  });
+  await page.goto(`/chat/${sessionId}`);
+  await expect(page.getByRole('button', { name: 'Stop generation', exact: true })).toBeVisible();
+  const input = page.getByRole('textbox', { name: 'Message Mitzo', exact: true });
+  await input.fill('Independent queued input');
+  await page.getByRole('button', { name: 'Queue message', exact: true }).click();
+  await input.fill('Exact refused interrupt');
+  await page.locator('input[type=file]').setInputFiles({
+    name: 'interrupt.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=',
+      'base64',
+    ),
+  });
+  await expect(page.locator('.chat-input').getByAltText('Attachment 1')).toBeVisible();
+  await input.press('Enter');
+  await expect.poll(() => sent.filter((message) => message.type === 'interrupt').length).toBe(1);
+  const command = sent.find((message) => message.type === 'interrupt')!;
+  expect(command).toMatchObject({
+    prompt: 'Exact refused interrupt',
+    images: [expect.objectContaining({ mediaType: 'image/png' })],
+  });
+  await expect(input).toHaveValue('Exact refused interrupt');
+  await expect(page.locator('.chat-input').getByAltText('Attachment 1')).toBeVisible();
+  await input.fill('Newer untouched draft');
+  await page.getByRole('button', { name: 'Remove attachment 1' }).click();
+  emit({
+    type: 'session_control_rejected',
+    sessionId,
+    control: 'interrupt',
+    clientMsgId: command.clientMsgId,
+    error: 'Use contributor controls for this input.',
+  });
+  emit({
+    type: 'block_delta',
+    sessionId,
+    messageId: 'live-reply',
+    blockId: 'reply',
+    blockType: 'text',
+    delta: ' continues after interrupt refusal.',
+  });
+  await expect(
+    page.getByText('An active child reply continues after interrupt refusal.', { exact: true }),
+  ).toBeVisible();
+  await expect(input).toHaveValue('Newer untouched draft');
+  await expect(page.locator('.chat-input-queued')).toHaveCount(2);
+  await expect(page.locator('.chat-input-queued').nth(1)).toContainText('Exact refused interrupt');
+  await expect(
+    page.getByText('Use contributor controls for this input.', { exact: false }),
+  ).toBeVisible();
+  emit({ type: 'session_state_changed', sessionId, state: 'idle' });
+  await expect.poll(() => sent.filter((message) => message.type === 'send').length).toBe(1);
+  expect(sent.filter((message) => message.type === 'send')[0].prompt).toBe(
+    'Independent queued input',
+  );
+  emit({ type: 'session_state_changed', sessionId, state: 'running' });
+  await expect(page.getByRole('button', { name: 'Stop generation', exact: true })).toBeVisible();
+  emit({ type: 'session_state_changed', sessionId, state: 'idle' });
+  await expect(page.getByRole('button', { name: 'Send message', exact: true })).toBeVisible();
+  expect(sent.filter((message) => message.type === 'send')).toHaveLength(1);
+  await expect(input).toHaveValue('Newer untouched draft');
+  await page.getByRole('button', { name: 'Edit', exact: true }).click();
+  await expect(input).toHaveValue('Exact refused interrupt');
+  await expect(page.locator('.chat-input').getByAltText('Attachment 1')).toBeVisible();
+  for (const theme of ['dark', 'light']) {
+    await page.evaluate((theme) => {
+      document.documentElement.dataset.theme = theme;
+      document.documentElement.dataset.accent = 'teal';
+      document.documentElement.dataset.font = 'georgia';
+    }, theme);
+    await page.screenshot({
+      path: testInfo.outputPath(`recovered-interrupt-${theme}.png`),
+      animations: 'disabled',
+    });
+  }
+  expect(sent).toHaveLength(2);
+});

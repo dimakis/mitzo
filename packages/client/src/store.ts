@@ -324,8 +324,39 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
   // Keep recent command origins after receipts settle so duplicate errors stay scoped.
   const deliveryOrigins = new Map<
     string,
-    { historyRequest: number; launchGeneration: number; sessionId?: string }
+    {
+      historyRequest: number;
+      launchGeneration: number;
+      sessionId?: string;
+      control: 'send' | 'interrupt';
+    }
   >();
+
+  function observeDelivery(
+    clientMsgId: string,
+    opts: SendMessageOptions,
+    control: 'send' | 'interrupt',
+  ) {
+    deliveryObservers.set(clientMsgId, opts.onDelivery ?? (() => {}));
+    if (opts.onSessionAssigned) assignmentObservers.set(clientMsgId, opts.onSessionAssigned);
+    deliveryOrigins.set(clientMsgId, {
+      control,
+      historyRequest,
+      launchGeneration,
+      sessionId: parserState.currentSessionId,
+    });
+    for (const id of deliveryOrigins.keys()) {
+      if (deliveryOrigins.size <= 256) break;
+      if (!deliveryObservers.has(id)) {
+        deliveryOrigins.delete(id);
+        assignmentObservers.delete(id);
+      }
+    }
+
+    if (parserState.currentSessionId)
+      deliverySessions.set(clientMsgId, parserState.currentSessionId);
+    else unassignedDeliveries.set(clientMsgId, { historyRequest, launchGeneration });
+  }
 
   const unassignedDeliveries = new Map<
     string,
@@ -740,26 +771,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     sendMessage(text: string, opts?: SendMessageOptions) {
       const clientMsgId = `user-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       pendingOptimisticMessageIds.add(clientMsgId);
-      if (opts?.onDelivery || opts?.onSessionAssigned) {
-        deliveryObservers.set(clientMsgId, opts.onDelivery ?? (() => {}));
-        if (opts.onSessionAssigned) assignmentObservers.set(clientMsgId, opts.onSessionAssigned);
-        deliveryOrigins.set(clientMsgId, {
-          historyRequest,
-          launchGeneration,
-          sessionId: parserState.currentSessionId,
-        });
-        for (const id of deliveryOrigins.keys()) {
-          if (deliveryOrigins.size <= 256) break;
-          if (!deliveryObservers.has(id)) {
-            deliveryOrigins.delete(id);
-            assignmentObservers.delete(id);
-          }
-        }
-
-        if (parserState.currentSessionId)
-          deliverySessions.set(clientMsgId, parserState.currentSessionId);
-        else unassignedDeliveries.set(clientMsgId, { historyRequest, launchGeneration });
-      }
+      if (opts?.onDelivery || opts?.onSessionAssigned) observeDelivery(clientMsgId, opts, 'send');
 
       const buildPayload = (): Record<string, unknown> => {
         const msg: Record<string, unknown> = {
@@ -846,7 +858,10 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     },
 
     interruptMessage(text: string, opts?: SendMessageOptions) {
-      if (!parserState.currentSessionId || !get().messages.running) return;
+      if (!parserState.currentSessionId || !get().messages.running) {
+        opts?.onDelivery?.('failed');
+        return;
+      }
 
       const clientMsgId = `user-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
@@ -856,6 +871,18 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         prompt: text,
         clientMsgId,
       };
+      observeDelivery(clientMsgId, opts ?? {}, 'interrupt');
+      pendingOptimisticMessageIds.add(clientMsgId);
+      set((s) => ({
+        messages: messagesReducer(s.messages, {
+          type: 'USER_SEND',
+          text,
+          clientMsgId,
+          images: opts?.images?.map((img) => img.preview),
+          contextBlocks: opts?.contextBlocks,
+          sourceSnapshots: opts?.sourceSnapshots,
+        }),
+      }));
       const model = opts?.model ?? get().config.modelId;
       if (model) msg.model = model;
       if (opts?.accountId) msg.accountId = opts.accountId;
@@ -876,20 +903,9 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         : connection.send(msg);
       if (!sent) {
         set({ sendError: 'Not connected. Interrupt was not delivered.' });
+        settleDelivery(clientMsgId, 'failed');
         return;
       }
-
-      pendingOptimisticMessageIds.add(clientMsgId);
-      set((s) => ({
-        messages: messagesReducer(s.messages, {
-          type: 'USER_SEND',
-          text,
-          clientMsgId,
-          images: opts?.images?.map((img) => img.preview),
-          contextBlocks: opts?.contextBlocks,
-          sourceSnapshots: opts?.sourceSnapshots,
-        }),
-      }));
     },
 
     stopGeneration() {
@@ -1387,8 +1403,29 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
 
     const eventSessionId = msg.sessionId as string | undefined;
     // A control refusal for another view is handled, not a replay failure.
-    if (msg.type === 'session_control_rejected' && eventSessionId !== parserState.currentSessionId)
-      return true;
+    if (msg.type === 'session_control_rejected') {
+      if (
+        typeof msg.error !== 'string' ||
+        !['stop', 'send', 'interrupt', 'close'].includes(String(msg.control))
+      )
+        return true;
+      if (typeof msg.clientMsgId === 'string') {
+        const origin = deliveryOrigins.get(msg.clientMsgId);
+        // A receipt releases only the exact submitted command, even after navigation.
+        if (origin) {
+          if (origin.sessionId !== eventSessionId || origin.control !== msg.control) return true;
+          settleDelivery(msg.clientMsgId, 'failed');
+        } else if (
+          msg.control !== 'send' ||
+          eventSessionId !== parserState.currentSessionId ||
+          !pendingOptimisticMessageIds.has(msg.clientMsgId)
+        )
+          return true;
+        // Legacy ordinary send callers have no draft observer; retain their
+        // existing scoped error feedback rather than swallowing the refusal.
+      }
+      if (eventSessionId !== parserState.currentSessionId) return true;
+    }
     if (msg.type === 'session_id' && typeof eventSessionId === 'string') {
       if (typeof msg.clientMsgId === 'string')
         options.sendHandoff?.assign(msg.clientMsgId, eventSessionId);
@@ -1432,6 +1469,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     // Delivery receipts settle their original launch even when its chat is no longer visible.
     // Transcript updates below remain scoped to the current chat.
     if (msg.type === 'user_message' && typeof msg.messageId === 'string') {
+      const origin = deliveryOrigins.get(msg.messageId);
+      if (origin?.control === 'interrupt' && origin.sessionId !== eventSessionId) return true;
       settleDelivery(msg.messageId, 'accepted');
     }
 

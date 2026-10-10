@@ -344,10 +344,20 @@ export function DesktopChatView() {
     }
   }
 
-  function handleInterrupt(text: string, images?: ImageAttachment[], ctxBlocks?: string[]): void {
+  function handleInterrupt(
+    text: string,
+    images?: ImageAttachment[],
+    ctxBlocks?: string[],
+    onDelivery?: import('@mitzo/client').SendMessageOptions['onDelivery'],
+  ): void {
     if (repositoryHandoff.present) return;
     voice.stopSpeaking();
-    storeInterruptMessage(text, { images, contextBlocks: ctxBlocks, ...(accountSelection ?? {}) });
+    storeInterruptMessage(text, {
+      images,
+      contextBlocks: ctxBlocks,
+      onDelivery,
+      ...(accountSelection ?? {}),
+    });
     forceScrollToBottom();
   }
 

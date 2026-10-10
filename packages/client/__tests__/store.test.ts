@@ -3566,3 +3566,69 @@ it('preserves the unassigned repository receipt when startup fails before assign
   lastWs.simulateMessage({ type: 'session_id', sessionId: 'unrelated', clientMsgId: 'different' });
   expect(assigned).not.toHaveBeenCalled();
 });
+
+it('settles only a matching session/control/command interrupt rejection without losing live state', async () => {
+  const store = createReadyStore();
+  await store.getState().switchSession('child');
+  lastWs.simulateMessage({ type: 'session_state_changed', sessionId: 'child', state: 'running' });
+  lastWs.simulateMessage({ type: 'message_start', sessionId: 'child', messageId: 'live' });
+  const current = store.getState().messages.current;
+  const failed = vi.fn();
+  store.getState().interruptMessage('Rejected exact draft', { onDelivery: failed });
+  const command = lastWs.parsedSent().find((message) => message.type === 'interrupt')!;
+  for (const override of [
+    { sessionId: 'other' },
+    { clientMsgId: 'unrelated' },
+    { control: 'send' },
+  ]) {
+    lastWs.simulateMessage({
+      type: 'session_control_rejected',
+      sessionId: 'child',
+      control: 'interrupt',
+      clientMsgId: command.clientMsgId,
+      error: 'Use contributor controls',
+      ...override,
+    });
+    expect(failed).not.toHaveBeenCalled();
+    expect(
+      store
+        .getState()
+        .messages.messages.some((message) => message.messageId === command.clientMsgId),
+    ).toBe(true);
+  }
+  lastWs.simulateMessage({
+    type: 'session_control_rejected',
+    sessionId: 'child',
+    control: 'interrupt',
+    clientMsgId: command.clientMsgId,
+    error: 'Use contributor controls',
+  });
+  expect(failed).toHaveBeenCalledExactlyOnceWith('failed');
+  expect(
+    store.getState().messages.messages.some((message) => message.messageId === command.clientMsgId),
+  ).toBe(false);
+  expect(store.getState().messages.current).toBe(current);
+  expect(store.getState().messages.running).toBe(true);
+});
+
+it('keeps scoped refusal feedback for ordinary sends that have no composer delivery observer', async () => {
+  const store = createReadyStore();
+  await store.getState().switchSession('child');
+  lastWs.simulateMessage({ type: 'session_state_changed', sessionId: 'child', state: 'running' });
+  lastWs.simulateMessage({ type: 'message_start', sessionId: 'child', messageId: 'live' });
+  const stream = store.getState().messages.current;
+  store.getState().sendMessage('ordinary submitted input');
+  const command = lastWs.parsedSent().find((message) => message.type === 'send')!;
+  lastWs.simulateMessage({
+    type: 'session_control_rejected',
+    sessionId: 'child',
+    control: 'send',
+    clientMsgId: command.clientMsgId,
+    error: 'Use contributor controls',
+  });
+  expect(store.getState().messages.messages.at(-1)?.blocks[0]?.content).toContain(
+    'Use contributor controls',
+  );
+  expect(store.getState().messages.current).toBe(stream);
+  expect(store.getState().messages.running).toBe(true);
+});

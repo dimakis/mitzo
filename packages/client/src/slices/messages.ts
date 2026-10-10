@@ -159,7 +159,7 @@ type MessagesCoreAction =
   | { type: 'MESSAGE_SNAPSHOT'; messageId: string; startedSeq?: number; blocks: FinishedBlock[] }
   // Session / UI lifecycle
   | { type: 'ERROR'; error: string }
-  | { type: 'CONTROL_REJECTED'; error: string }
+  | { type: 'CONTROL_REJECTED'; error: string; clientMsgId?: string }
   | { type: 'SESSION_INFO'; branch: string; isWorktree: boolean; wtId?: string }
   | {
       type: 'USER_SEND';

@@ -565,7 +565,11 @@ export function parseServerMessage(
         ['stop', 'send', 'interrupt', 'close'].includes(msg.control) &&
         typeof msg.error === 'string'
       )
-        result.messagesActions.push({ type: 'CONTROL_REJECTED', error: msg.error });
+        result.messagesActions.push({
+          type: 'CONTROL_REJECTED',
+          error: msg.error,
+          ...(typeof msg.clientMsgId === 'string' ? { clientMsgId: msg.clientMsgId } : {}),
+        });
       break;
     }
 
