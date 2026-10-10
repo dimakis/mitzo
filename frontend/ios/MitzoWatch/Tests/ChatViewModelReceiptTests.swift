@@ -17,10 +17,11 @@ final class AppState {
 struct ChatViewModelReceiptTests {
     @MainActor static func main() async throws {
         try await assignedStartupFailureRetriesOnlyExplicitlyInNewSession()
+        try await newChatRequiresCorrelatedAssignmentBeforeEcho()
         try await forkRoutesEchoAndReply()
         try await startupRefusalPreservesNewerDraftAndActiveStream()
         try await acceptedInputIsNotRestoredByLaterErrors()
-        print("4 offline Watch view-model receipt cases passed")
+        print("5 offline Watch view-model receipt cases passed")
     }
 
     static func decode(_ json: String) throws -> ServerMessage {
@@ -35,6 +36,37 @@ struct ChatViewModelReceiptTests {
     @MainActor static func pendingId(_ vm: ChatViewModel) throws -> String {
         guard let id = vm.sendDraft.pending?.clientMsgId else { throw Failure.missingPending }
         return id
+    }
+
+    @MainActor static func newChatRequiresCorrelatedAssignmentBeforeEcho() async throws {
+        let app = AppState()
+        let vm = ChatViewModel(sessionId: nil, appState: app)
+        vm.sendDraft.edit("Initial Watch input")
+        await vm.send()
+        let id = try pendingId(vm)
+        guard case .send(let first) = app.sent.last else { throw Failure.missingPending }
+        precondition(first.sessionId == nil && first.clientMsgId == id)
+        vm.handleMessage(try decode("{\"type\":\"session_id\",\"sessionId\":\"uncorrelated-child\"}"))
+        vm.handleMessage(try decode("{\"type\":\"session_id\",\"sessionId\":\"foreign-child\",\"clientMsgId\":\"foreign-command\"}"))
+        precondition(vm.sendDraft.pending?.sessionId == nil && !vm.sendDraft.canSubmit)
+        vm.handleMessage(try decode("{\"type\":\"user_message\",\"sessionId\":\"uncorrelated-child\",\"messageId\":\"\(id)\",\"text\":\"Initial Watch input\"}"))
+        precondition(vm.sendDraft.pending?.clientMsgId == id && vm.sendDraft.text == "Initial Watch input")
+        vm.handleMessage(try decode("{\"type\":\"session_id\",\"sessionId\":\"watch-child\",\"clientMsgId\":\"\(id)\"}"))
+        precondition(vm.sendDraft.pending?.sessionId == "watch-child" && !vm.sendDraft.canSubmit)
+        vm.handleMessage(try decode("{\"type\":\"user_message\",\"sessionId\":\"watch-child\",\"messageId\":\"\(id)\",\"text\":\"Initial Watch input\"}"))
+        precondition(vm.sendDraft.pending == nil && vm.sendDraft.text.isEmpty)
+        precondition(vm.messages.filter { $0.id == id }.count == 1)
+        vm.handleMessage(try decode("{\"type\":\"message_start\",\"sessionId\":\"watch-child\",\"messageId\":\"reply\"}"))
+        precondition(vm.isStreaming && vm.currentStream?.messageId == "reply")
+        vm.handleMessage(try decode("{\"type\":\"block_start\",\"sessionId\":\"watch-child\",\"messageId\":\"reply\",\"blockId\":\"text\",\"blockType\":\"text\"}"))
+        vm.handleMessage(try decode("{\"type\":\"block_delta\",\"sessionId\":\"watch-child\",\"messageId\":\"reply\",\"blockId\":\"text\",\"blockType\":\"text\",\"delta\":\"Visible reply\"}"))
+        vm.handleMessage(try decode("{\"type\":\"message_end\",\"sessionId\":\"watch-child\",\"messageId\":\"reply\"}"))
+        precondition(vm.messages.last?.text == "Visible reply" && !vm.isStreaming)
+        vm.sendDraft.edit("Next input")
+        precondition(vm.sendDraft.canSubmit)
+        await vm.send()
+        guard case .send(let next) = app.sent.last else { throw Failure.missingPending }
+        precondition(next.sessionId == "watch-child" && next.clientMsgId != id && app.sent.count == 2)
     }
 
     @MainActor static func forkRoutesEchoAndReply() async throws {
