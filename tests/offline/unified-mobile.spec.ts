@@ -3070,3 +3070,58 @@ for (const reducedMotion of ['no-preference', 'reduce'] as const) {
     });
   });
 }
+test('sandbox boot context is not presented as a fallback in Outputs / Sources', async ({
+  page,
+  isMobile,
+}, testInfo) => {
+  await page.setViewportSize({ width: isMobile ? 320 : 1280, height: 900 });
+  let sendBoot: (() => void) | undefined;
+  await page.routeWebSocket('**/*', (socket) => {
+    socket.onMessage((raw) => {
+      if (JSON.parse(String(raw)).type !== 'hello') return;
+      socket.send(
+        JSON.stringify({ type: 'welcome', protocolVersion: 2, connectionId: 'context-fixture' }),
+      );
+      sendBoot = () =>
+        socket.send(
+          JSON.stringify({
+            type: 'boot_context',
+            source: 'sandbox',
+            scope: 'sandbox',
+            sourceCount: 7,
+            tokenCount: 11995,
+            tokenBudget: 12000,
+            sources: [{ path: 'AGENTS.md', kind: 'reference' }],
+            included: [],
+            trimmed: [],
+            fullMarkdown: '# Published workspace guidance\nUse the accepted management context.',
+          }),
+        );
+    });
+  });
+  await page.goto('/chat');
+  await page.getByRole('button', { name: 'Open session tray', exact: true }).click();
+  await expect.poll(() => !!sendBoot).toBe(true);
+  sendBoot!();
+  const sources = page.getByRole('button', { name: /^Sources \d/ });
+  if ((await sources.getAttribute('aria-expanded')) !== 'true') await sources.click();
+  const header = page.getByRole('button', { name: /7 sources/ });
+  await expect(header).toBeVisible();
+  await header.click();
+  await expect(page.getByText('Boot Context (Sandbox)', { exact: true })).toBeVisible();
+  await expect(page.getByText('Boot Context (Fallback)', { exact: true })).toHaveCount(0);
+  await expect(page.locator('.session-banner-dot--ok')).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('sandbox-context-dark.png') });
+  await page.evaluate(() => {
+    document.documentElement.dataset.theme = 'light';
+    document.documentElement.dataset.accent = 'teal';
+    document.documentElement.dataset.font = 'georgia';
+  });
+  await header.focus();
+  await expect(header).toBeFocused();
+  await header.press('Enter');
+  await expect(page.getByText('Boot Context (Sandbox)', { exact: true })).toHaveCount(0);
+  await header.press('Enter');
+  await expect(page.getByText('Boot Context (Sandbox)', { exact: true })).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('sandbox-context-light.png') });
+});
