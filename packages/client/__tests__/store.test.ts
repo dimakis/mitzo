@@ -3300,6 +3300,8 @@ it('rejects foreign same-ID history and accepts the original ordinary send trans
 it('scopes offscreen reconnect receipts to their requested session instead of another send ID', async () => {
   const transport = mockTransport();
   const store = createReadyStore(transport);
+  // Other test stores may reconnect during the transcript await and replace lastWs.
+  const receiptSocket = lastWs;
   await store.getState().switchSession('offscreen');
   const offscreenDelivery = vi.fn();
   store.getState().sendMessage('Offscreen draft', { onDelivery: offscreenDelivery });
@@ -3320,7 +3322,7 @@ it('scopes offscreen reconnect receipts to their requested session instead of an
       cursor: 3,
     }),
   });
-  lastWs.simulateMessage({
+  receiptSocket.simulateMessage({
     type: 'session_reconnect_snapshot',
     sessionId: 'offscreen',
     cursor: 3,
@@ -3329,14 +3331,14 @@ it('scopes offscreen reconnect receipts to their requested session instead of an
   await vi.waitFor(() => expect(offscreenDelivery).toHaveBeenCalledExactlyOnceWith('accepted'));
   expect(onDelivery).not.toHaveBeenCalled();
   expect(store.getState().sessions.active).toBe('target');
-  lastWs.simulateMessage({
+  receiptSocket.simulateMessage({
     type: 'user_message',
     sessionId: 'target',
     messageId: id,
     text: 'Exact draft',
   });
   expect(onDelivery).toHaveBeenCalledExactlyOnceWith('accepted');
-  expect(lastWs.parsedSent().filter((m) => m.type === 'send')).toHaveLength(2);
+  expect(receiptSocket.parsedSent().filter((m) => m.type === 'send')).toHaveLength(2);
 });
 
 it('releases a WebSocket launch for retry when startup fails before assignment', () => {
