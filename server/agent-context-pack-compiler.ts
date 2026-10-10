@@ -66,6 +66,12 @@ function sections(path: string, content: string, selectors: string[][] = []): No
     };
     tree.forEach((heading) => visit(heading, [path]));
   }
+  if (
+    selectors.some(
+      (selector) => !headings.has(JSON.stringify(selector.map((part) => part.toLowerCase()))),
+    )
+  )
+    throw Error(`Selected context heading is unavailable: ${path}`);
   return result;
 }
 export async function compileContextPacks(
@@ -124,12 +130,6 @@ export async function compileContextPacks(
       }
       const selectors = selection.headings.map((heading) => [selection.path, ...heading]);
       const sourceNodes = sections(source.path, source.content, selectors);
-      if (
-        selectors.some(
-          (selector) => !sourceNodes.some((node) => matches(node.origin.headingPath!, selector)),
-        )
-      )
-        throw Error(`Selected context heading is unavailable: ${source.path}`);
       for (const node of sourceNodes.filter(
         (node) =>
           !selectors.length ||

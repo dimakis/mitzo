@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.9';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.45';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.46';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -178,7 +178,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../agent-context-delivery.ts':
     'ccb083988e7c0563d9080a8553d9903abc1cf5b1d669b4583c215508faaee46a',
   '../agent-context-pack-compiler.ts':
-    'bb39d567c8e3177440f7f4b92b7331f0eae7fa9c8c919c2c663cb69fa12f0229',
+    'df2afaef1586ea8f56d8cf71fe94fecafd2bc421a1258c898ac5202061b4cca8',
   '../codex-conversation.ts': '91041d717070e1de6dba3139a6fd7731d3f93728405967205470b0bcd1ba139a',
   '../context-pack-composition.ts':
     'cae630948dd56814bda2601f3df7469712074899a53b3ff9017b08dce32638c0',

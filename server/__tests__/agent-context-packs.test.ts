@@ -190,6 +190,76 @@ it('uses optional document priority during actual ContexGin budget trimming', as
     expect.objectContaining({ path: 'context/low.md', reason: 'budget' }),
   );
 });
+it.each(['required', 'prioritized', 'excluded'] as const)(
+  'accepts an empty selected heading in %s mode without inventing content',
+  async (mode) => {
+    const selectedDefinition = {
+      ...definition,
+      documents: [
+        { ...document, headings: [['Rules']] },
+        { ...document, headings: [['Appendix']], mode },
+      ],
+      retrievalGuidance: '',
+    };
+    const selected = {
+      ...pack,
+      definition: selectedDefinition,
+      hash: contextDigest(selectedDefinition),
+    };
+    const packs = adapter();
+    packs.resolve.mockResolvedValue(selected);
+    packs.readDocument.mockResolvedValue({
+      storeId: 'accepted-mgmt',
+      path: document.path,
+      revision,
+      content: '# Rules\nKeep guidance.\n# Appendix\n',
+    });
+    const result = await compileAgentContext(
+      { ...recipe, packs: [{ id: selected.id, revision: selected.revision, hash: selected.hash }] },
+      { packs },
+    );
+    expect(result.context.included).toHaveLength(1);
+    expect(result.context.included[0].content).toContain('Keep guidance.');
+    expect(result.context.fullMarkdown).not.toContain('Appendix');
+    expect(result.provenance?.omissions).toEqual([]);
+  },
+);
+it.each([
+  { content: '# Appendix\n', error: /no content/i },
+  { content: '# Appendix\n# appendix\n', error: /ambiguous.*heading/i },
+  { content: '# Rules\nKeep guidance.\n', error: /unavailable/i },
+])(
+  'rejects unusable empty-only or unavailable selections: $content',
+  async ({ content, error }) => {
+    const selectedDefinition = {
+      ...definition,
+      documents: [{ ...document, headings: [['Appendix']] }],
+      retrievalGuidance: '',
+    };
+    const selected = {
+      ...pack,
+      definition: selectedDefinition,
+      hash: contextDigest(selectedDefinition),
+    };
+    const packs = adapter();
+    packs.resolve.mockResolvedValue(selected);
+    packs.readDocument.mockResolvedValue({
+      storeId: 'accepted-mgmt',
+      path: document.path,
+      revision,
+      content,
+    });
+    await expect(
+      compileAgentContext(
+        {
+          ...recipe,
+          packs: [{ id: selected.id, revision: selected.revision, hash: selected.hash }],
+        },
+        { packs },
+      ),
+    ).rejects.toThrow(error);
+  },
+);
 it.each([
   {
     headings: [['rules']],
