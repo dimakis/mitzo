@@ -16,10 +16,11 @@ final class AppState {
 @main
 struct ChatViewModelReceiptTests {
     @MainActor static func main() async throws {
+        try await assignedStartupFailureRetriesOnlyExplicitlyInNewSession()
         try await forkRoutesEchoAndReply()
         try await startupRefusalPreservesNewerDraftAndActiveStream()
         try await acceptedInputIsNotRestoredByLaterErrors()
-        print("3 offline Watch view-model receipt cases passed")
+        print("4 offline Watch view-model receipt cases passed")
     }
 
     static func decode(_ json: String) throws -> ServerMessage {
@@ -91,6 +92,36 @@ struct ChatViewModelReceiptTests {
         vm.handleMessage(try decode("{\"type\":\"error\",\"sessionId\":\"child\",\"clientMsgId\":\"\(id)\",\"error\":\"Late\"}"))
         precondition(vm.sendDraft.text.isEmpty && vm.sendDraft.rejectedText == nil && vm.sendError == nil)
         precondition(vm.messages.contains { $0.id == id })
+    }
+
+    @MainActor static func assignedStartupFailureRetriesOnlyExplicitlyInNewSession() async throws {
+        let app = AppState()
+        let vm = ChatViewModel(sessionId: "ended-reasoning", appState: app)
+        vm.sendDraft.edit("Forked input")
+        await vm.send()
+        let id = try pendingId(vm)
+        vm.handleMessage(try decode("{\"type\":\"session_id\",\"sessionId\":\"ordinary-child\",\"clientMsgId\":\"\(id)\"}"))
+        precondition(vm.sendDraft.pending?.sessionId == "ordinary-child" && !vm.sendDraft.canSubmit)
+        vm.sendDraft.edit("Newer draft")
+        vm.handleMessage(try decode("{\"type\":\"error\",\"clientMsgId\":\"\(id)\",\"error\":\"Startup rejected\"}"))
+        precondition(vm.sendDraft.pending == nil && app.sent.count == 1)
+        precondition(vm.sendDraft.text == "Newer draft" && vm.sendDraft.rejectedText == "Forked input")
+        precondition(vm.sendError == "Startup rejected" && !vm.messages.contains { $0.id == id })
+        vm.handleMessage(try decode("{\"type\":\"session_id\",\"sessionId\":\"ended-reasoning\",\"clientMsgId\":\"\(id)\"}"))
+        precondition(vm.sendDraft.text == "Newer draft" && app.sent.count == 1)
+        vm.sendDraft.edit("")
+        precondition(vm.sendDraft.restoreRejected())
+        precondition(app.sent.count == 1) // Restoring is not authorization to dispatch.
+        await vm.send() // Explicit operator retry.
+        guard case .send(let retry) = app.sent.last else { throw Failure.missingPending }
+        precondition(retry.sessionId == "ordinary-child" && retry.clientMsgId != id)
+        precondition(retry.prompt == "Forked input" && app.sent.count == 2)
+        vm.handleMessage(try decode("{\"type\":\"error\",\"clientMsgId\":\"\(id)\",\"error\":\"Old refusal\"}"))
+        vm.handleMessage(try decode("{\"type\":\"session_id\",\"sessionId\":\"ended-reasoning\",\"clientMsgId\":\"\(id)\"}"))
+        precondition(vm.sendDraft.pending?.clientMsgId == retry.clientMsgId && vm.sendError == nil)
+        vm.handleMessage(try decode("{\"type\":\"user_message\",\"sessionId\":\"ordinary-child\",\"messageId\":\"\(retry.clientMsgId)\",\"text\":\"Forked input\"}"))
+        precondition(vm.sendDraft.pending == nil && vm.sendDraft.text.isEmpty)
+        precondition(vm.messages.filter { $0.id == retry.clientMsgId }.count == 1)
     }
 
     enum Failure: Error { case missingPending }
