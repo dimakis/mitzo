@@ -35,6 +35,93 @@ const artifactRuntime = {
   },
   route: { kind: 'api' as const, provider: 'account-provider', model: 'test-model' },
 };
+it('records sandbox recipe delivery only against an exact native acknowledgement and retains it across restart', () => {
+  const { path } = setup();
+  let s = new CodexConversationStore(path);
+  s.create('recipe-chat', binding, '/sandbox/workspaces/project');
+  s.bindThread('recipe-chat', binding, 'thread-recipe');
+  s.enqueue('recipe-chat', binding, { id: 'command', prompt: 'continue' });
+  const command = s.claimNext('recipe-chat', binding)!;
+  const selection = {
+    profileId: 'bob',
+    revision: 3,
+    profileHash: 'a'.repeat(64),
+    recipeHash: 'b'.repeat(64),
+    payloadHash: 'c'.repeat(64),
+    snapshotHash: 'd'.repeat(64),
+    contextSha256: 'e'.repeat(64),
+    sandbox: {
+      sandboxId: 'physical-one',
+      sandboxName: 'sandbox-one',
+      workspaceRoot: '/sandbox/workspaces/project',
+      runtimeContractImageDigest: 'sha256:' + 'f'.repeat(64),
+      compilerSha256: '1'.repeat(64),
+      entrypointSha256: '2'.repeat(64),
+      recipeSha256: '3'.repeat(64),
+      runtimeInputsSha256: '4'.repeat(64),
+      effectiveRecipeHash: '5'.repeat(64),
+    },
+  };
+  expect(() =>
+    s.recordAgentContextAdoption(
+      'recipe-chat',
+      binding,
+      'command',
+      'thread-recipe',
+      'turn-one',
+      selection,
+    ),
+  ).toThrow(/acknowledg/i);
+  s.recordCapacityAck('recipe-chat', binding, command, 'thread-recipe', 'turn-one');
+  s.recordAgentContextAdoption(
+    'recipe-chat',
+    binding,
+    'command',
+    'thread-recipe',
+    'turn-one',
+    selection,
+  );
+  s.recordAgentContextAdoption(
+    'recipe-chat',
+    binding,
+    'command',
+    'thread-recipe',
+    'turn-one',
+    selection,
+  );
+  expect(() =>
+    s.recordAgentContextAdoption(
+      'recipe-chat',
+      binding,
+      'command',
+      'thread-recipe',
+      'turn-two',
+      selection,
+    ),
+  ).toThrow(/acknowledg|conflict/i);
+  expect(() =>
+    s.recordAgentContextAdoption('recipe-chat', binding, 'command', 'thread-recipe', 'turn-one', {
+      ...selection,
+      payloadHash: '0'.repeat(64),
+    }),
+  ).toThrow(/conflict/i);
+  expect(() =>
+    s.recordAgentContextAdoption(
+      'recipe-chat',
+      { ...binding, accountId: 'other' },
+      'command',
+      'thread-recipe',
+      'turn-one',
+      selection,
+    ),
+  ).toThrow();
+  s.close();
+  s = new CodexConversationStore(path);
+  expect(s.agentContextAdoptions('recipe-chat', binding)).toMatchObject([
+    { commandId: 'command', attempt: 1, threadId: 'thread-recipe', turnId: 'turn-one', selection },
+  ]);
+  s.close();
+});
 it('durably reserves undispatched startup and stops treating it as fresh before provider initialization', () => {
   const { path } = setup();
   let s = new CodexConversationStore(path);

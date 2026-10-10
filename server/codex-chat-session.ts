@@ -34,6 +34,13 @@ import { createHash, randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { codexPrivateDirectory } from './codex-private-path.js';
 import type { AccountBinding, ProviderAttemptToken } from '@mitzo/protocol';
+import type { AgentLibraryVersion, AgentContextSnapshot } from '@mitzo/protocol';
+import {
+  resolveSandboxAgentContext,
+  SandboxAgentContextAdmissionError,
+  sandboxAgentContextAdmissionFailure,
+} from './agent-context-sandbox.js';
+import { contextDigest } from './agent-context-compiler.js';
 import { buildPermissionHandler, type ManagedSession, type SessionRegistry } from '@mitzo/harness';
 import {
   webAccessDefinition,
@@ -218,6 +225,8 @@ function capabilityToolsForConversation(
 }
 /** Only transport safe, stable runtime diagnostics to the client. */
 export function publicCodexRuntimeError(error: Error): string {
+  if (error instanceof SandboxAgentContextAdmissionError)
+    return error.message + ' No provider turn was started.';
   if (error instanceof CodexStartupError) {
     let cause = error.cause;
     while (cause instanceof CodexStartupError) cause = cause.cause;
@@ -481,6 +490,9 @@ export function readCodexLifecycleQueue(conversationId: string, binding: Account
 interface Options {
   ordinaryTurnLifecycle?: OrdinaryTurnLifecycle;
   contributorGuidance?: string;
+  agentProfile?: AgentLibraryVersion;
+  /** Captured from verified operator transport, never caller JSON; admission only. */
+  assertAgentContextAuthorization?: () => void;
   repositoryWorkspace?: RepositoryChatWorkspace;
   publishingGitStorageRoots?: readonly string[];
   resume?: boolean;
@@ -980,8 +992,39 @@ async function openCodexChatBound(
   const hooks = hookRuntime?.hooks;
   const dispose = hookRuntime?.dispose ?? (() => {});
   let startup: { context?: string };
+  let agentContext: AgentContextSnapshot | undefined;
+  let admittingSandboxContext = false;
   try {
-    if (runtimeManager) {
+    const savedAgentContext = options.eventStore.getSession(options.conversationId)?.agentContext;
+    admittingSandboxContext = !!(
+      (options.agentProfile?.definition.contextRecipe && connectedOpenShell) ||
+      savedAgentContext?.sandbox
+    );
+    if (admittingSandboxContext) {
+      if (!runtimeManager || !managedOpenShell || !options.assertAgentContextAuthorization)
+        throw Error('Sandbox agent context requires an authenticated managed runtime');
+      options.assertAgentContextAuthorization();
+      // The startup reservation above already holds the owning lifecycle fence.
+      agentContext = await resolveSandboxAgentContext({
+        profile: options.agentProfile,
+        stored: savedAgentContext,
+        conversationId: options.conversationId,
+        runtime: managedOpenShell!,
+        manager: runtimeManager!,
+        presets: configuredRuntime?.agentContextPresets,
+        signal,
+      });
+      options.assertAgentContextAuthorization();
+      signal.throwIfAborted();
+      if (!agentContext?.sandbox) throw Error('Sandbox agent context snapshot is unavailable');
+      options.eventStore.upsertSession({
+        sessionId: options.conversationId,
+        agentProfile: options.agentProfile,
+        agentContext,
+      });
+      options.onBootContext?.({ ...agentContext.context, scope: 'sandbox' });
+      startup = {};
+    } else if (runtimeManager) {
       // Enrolled sessions receive accepted guidance through prepareSystemPrompt
       // on each turn. A retained writable checkout can contain older guidance;
       // never install that context as persistent thread developer instructions.
@@ -1000,7 +1043,10 @@ async function openCodexChatBound(
   } catch (error) {
     dispose();
     startupReservation?.();
-    throw new CodexStartupError('context_preparation', error);
+    throw new CodexStartupError(
+      'context_preparation',
+      admittingSandboxContext ? sandboxAgentContextAdmissionFailure(error, signal.aborted) : error,
+    );
   }
   const mcp = connectedOpenShell
     ? {
@@ -1113,6 +1159,9 @@ async function openCodexChatBound(
       ? '\nThis sandbox has verified read-only Jira access to https://redhat.atlassian.net. Use the scoped API base in JIRA_URL (not the browser site URL). Use the provider-approved /usr/bin/python3 or curl with JIRA_URL, JIRA_EMAIL, and the gateway-managed JIRA_API_TOKEN placeholder for Basic authorization. Never print credential values. Writes are denied by the gateway policy.\n'
       : '');
   let pendingKnowledge: Omit<KnowledgeAdoptionSelection, 'contextSha256'> | undefined;
+  let pendingAgentContextSha256: string | undefined;
+  const developerInstructions =
+    baseSystemPrompt + (startup.context ? `\n\n${startup.context}` : '');
   if (configuredRuntime)
     store().markStartupProviderInitializing(options.conversationId, options.binding);
   const runtime: CodexConversation = new CodexConversation({
@@ -1128,7 +1177,7 @@ async function openCodexChatBound(
       ? 'openshell-runtime-config-v1'
       : `codex-cli:${SUPPORTED_CODEX_CLI_VERSION}`,
     getMode: () => options.session.mode,
-    systemPrompt: baseSystemPrompt + (startup.context ? `\n\n${startup.context}` : ''),
+    systemPrompt: developerInstructions,
     beforeComplete: connectedOpenShell
       ? undefined
       : async (signal) => {
@@ -1139,20 +1188,64 @@ async function openCodexChatBound(
           prepareSystemPrompt: async (signal: AbortSignal) =>
             sharedOpenShellLifecycleCoordinator.admit(options.conversationId, async () => {
               pendingKnowledge = undefined;
+              pendingAgentContextSha256 = undefined;
+              if (agentContext?.sandbox) {
+                const scope = await runtimeManager!.verifyAgentContextRuntime(
+                  options.conversationId,
+                  managedOpenShell!,
+                  signal,
+                );
+                if (
+                  contextDigest({
+                    ...scope,
+                    effectiveRecipeHash: agentContext.sandbox.effectiveRecipeHash,
+                  }) !== contextDigest(agentContext.sandbox)
+                )
+                  throw Error('Saved sandbox agent context runtime changed; start a new chat');
+              }
               const selected = await runtimeManager!.adoptKnowledge(
                 options.conversationId,
                 managedOpenShell!,
                 signal,
               );
-              if (!selected) return undefined;
-              pendingKnowledge = selected.adoption;
-              options.onBootContext?.(selected.context);
-              return (
+              if (!selected && !agentContext) return undefined;
+              pendingKnowledge = selected?.adoption;
+              if (selected) options.onBootContext?.(selected.context);
+              const composed =
                 baseSystemPrompt +
-                `\n\n# Published MGMT knowledge\nAccepted source: ${selected.sourceCommit}\nBundle: ${selected.payloadSha256}\nRead shared project instructions from ${selected.knowledgeRoot}/AGENTS.md. Search and read accepted knowledge under ${selected.knowledgeRoot}/memory/. This published view supersedes older accepted knowledge in the task checkout. Keep edits and new observations in the writable task workspace; do not modify the published knowledge view. A local commit is not evidence of publication or adoption elsewhere.\n\n${selected.context.fullMarkdown}`
-              );
+                (agentContext
+                  ? `\n\n# Agent Library context (saved recipe)\n${agentContext.context.fullMarkdown}\n`
+                  : '') +
+                (selected
+                  ? `\n\n# Published MGMT knowledge\nAccepted source: ${selected.sourceCommit}\nBundle: ${selected.payloadSha256}\nRead shared project instructions from ${selected.knowledgeRoot}/AGENTS.md. Search and read accepted knowledge under ${selected.knowledgeRoot}/memory/. This published view supersedes older accepted knowledge in the task checkout and saved recipe. Keep edits and new observations in the writable task workspace; do not modify the published knowledge view. A local commit is not evidence of publication or adoption elsewhere.\n\n${selected.context.fullMarkdown}`
+                  : '');
+              if (agentContext)
+                pendingAgentContextSha256 = createHash('sha256').update(composed).digest('hex');
+              return composed;
             }),
           onApplicationContextAccepted: (commandId, threadId, turnId, context) => {
+            const contextSha256 = createHash('sha256').update(context).digest('hex');
+            if (agentContext?.sandbox) {
+              if (pendingAgentContextSha256 !== contextSha256)
+                throw Error('Agent context acknowledgement differs from prepared context');
+              privateStorage.recordAgentContextAdoption(
+                options.conversationId,
+                options.binding,
+                commandId,
+                threadId,
+                turnId,
+                {
+                  profileId: agentContext.profileId,
+                  revision: agentContext.revision,
+                  profileHash: agentContext.profileHash,
+                  recipeHash: agentContext.recipeHash,
+                  payloadHash: agentContext.payloadHash,
+                  snapshotHash: contextDigest(agentContext),
+                  sandbox: agentContext.sandbox,
+                  contextSha256,
+                },
+              );
+            }
             if (!pendingKnowledge) return;
             privateStorage.recordKnowledgeAdoption(
               options.conversationId,

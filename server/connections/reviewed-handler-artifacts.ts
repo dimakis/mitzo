@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.9';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.42';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.43';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -49,7 +49,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'c103af10de4adc81cdc474b3e69ef2b3de5e447d4dcf15da4fc1894c422b913b',
   '../../packages/protocol/src/session-output-reference-store.ts':
     '9ecd7ae7149f629807cffd0142e38c4a498aa10d3f1c8709cd67927e24ecf5e0',
-  '../chat.ts': '2a5fb1eb15ad4b1b5f783d4ac674872542da7920237335bfe2a6493338cae8e9',
+  '../chat.ts': '12676e5580237ddd4d4b41b91624852df6c2cdb2f150b4523fa536464a46695d',
   // Contributor execution lifetime is independent of viewer detach/expiry.
   '../../packages/harness/src/session-registry.ts':
     '5ad72e9be9d3289a13511aaa1bb107b527283493e5577e08912ea4fdc4740a81',
@@ -58,9 +58,19 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../ws-handler-v2.ts': '41f46bd0935957ec01f560406827301c17a38237a7be288afe23c36001ead70d',
   '../codex-queue-routes.ts': '6873ee90c32da94dcfebd432535d4170942e53c980456927f9dd57e9917d9a53',
   '../agent-context-compiler.ts':
-    '79fdab301b04325d3fd04c129d7ea5ffab3fca234a919dd9f229227c27bfbe91',
+    'fc6d262171f8ae02500376d2546394be138b6675876d93bcc1da448e2aa37694',
   '../../packages/protocol/src/agent-context-recipe.ts':
-    'dbe9dd63fe439a1615ec605870528e350d5c1dbbb87517e4a78082dd4e5a7c83',
+    '95237765d7257eb1ae0ab1de3875d2eea11b8d460dadf1e49671b55a640344a1',
+  '../../scripts/agent-workspace-context.mjs':
+    '61ee6c960962ec630f75eeedf160f13d31fbb65338639a5305579d29166bd57d',
+  '../../docs/spikes/openshell-codex/compile-agent-context.mjs':
+    '75cc1a653dbb7d4c20ffbeab8fafcf20b19110ff64110a548d30c65305da20be',
+  '../../scripts/attest-knowledge-runtime.py':
+    '5737ec8e7fc19a17b6ef5a35c1898e834d2a5d2d2a9f7593b607eaaf1971cfeb',
+  '../agent-context-sandbox.ts': '387d6e2f403b604adeb4bffe8bd350683a5c15ba1fa2caf26a69f6e7b0d6741b',
+  '../codex-conversation.ts': '0cf804425230482d58a8e42663673743881e916df81c43ab27bba613e8cbf70e',
+  '../codex-conversation-store.ts':
+    'c36089ad3386e3a716c9c059428fa0ec14d66385d686682badc243087670d5ed',
   // Library profile identity, operator ownership and admission are reviewed runtime inputs.
   '../symposium-director-routes.ts':
     'e6cabfe7555434bbf426209e5a0de750195559e106b0bbb09c4885a34159ff36',
@@ -184,8 +194,8 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../connections-gateway.ts': '1a664e65926536d102d2fb0d5f4b7cfd7e2631d6d8bf51f2965025cdb87dc64b',
   '../openshell-runtime-policy.ts':
     'efecd458bf61fecd8198ecd330e0227e2c600ab21d6d2890cd2bac254e22b75f',
-  '../openshell-runtime.ts': '71e650b8114df6264ce0a5b81ae32a1907ee3562c177c9d0d59c1f4825849b0c',
-  '../codex-chat-session.ts': 'bd1ad344ffe7514b8248018cbe2b62ea48b0ba51bbe19c13a00dfdef43fb8c6b',
+  '../openshell-runtime.ts': 'fc4eb72de3d539f062f7f3430072cce44308c71854988482b5b6921a12471e72',
+  '../codex-chat-session.ts': 'd96a3fe1a8f2dd74293e8494a441b4af812e5d7248cc3891cb334d203aac0b2e',
   '../connections-runtime.ts': 'dbe641704a1d761d73740260fb28057054fdb34a64513fa77292d2fdb1954a84',
   'capabilities/operation-store.ts':
     '1a235f11d5578880e6dfa7ecf5779e2a011e24430774fc17429d7d22359b93f2',
