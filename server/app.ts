@@ -7,6 +7,7 @@ import { TmuxTerminalBackend } from './terminal-backend.js';
 import { createTerminalTargetResolver } from './terminal-targets.js';
 import { createTerminalRouter } from './terminal-router.js';
 import { getTerminalPlanAdviserHost } from './terminal-plan-adviser.js';
+import { createWorkspaceRuntimeCommandRunner } from './protected-sdk-command.js';
 import { createPersonalRoutingDiagnosticHandler } from './symposium-routing-diagnostic-route.js';
 import { createRepositoryWorkspaceRouter } from './repository-workspace-router.js';
 import {
@@ -3999,7 +4000,23 @@ app.post('/api/push/notification-action', async (req, res) => {
 
 // --- Calendar API ---
 
-const execFileAsync = promisify(execFile);
+const legacyExecFileAsync = promisify(execFile);
+async function execFileAsync(
+  command: string,
+  args: string[],
+  options: { timeout: number; maxBuffer?: number },
+) {
+  // Mutable workspace entrypoints run with the same authority fence as hooks.
+  // An unavailable enrolled fence must never fall back to controller execution.
+  const protectedRunner = createWorkspaceRuntimeCommandRunner();
+  if (protectedRunner)
+    return protectedRunner(command, args, {
+      ...options,
+      cwd: process.cwd(),
+      env: process.env,
+    });
+  return legacyExecFileAsync(command, args, options);
+}
 const CALENDAR_SCRIPT = join(BASE_REPO, 'command_center', 'calendar_api.py');
 const CALENDAR_TIMEOUT_MS = 20_000;
 
