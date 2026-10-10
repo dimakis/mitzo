@@ -91,6 +91,7 @@ const fixtures: Record<string, unknown> = {
   '/api/auth/check': { authenticated: true },
   '/api/sessions': sessions,
   '/api/config': { quickActions: [] },
+  '/api/skills': [],
   '/api/version': { updateAvailable: false },
   '/api/todos': { profiles: ['manual', 'personal', 'work'], items: outcomes },
   '/api/tasks': [],
@@ -373,6 +374,88 @@ test('motion: Reduce Motion disables navigation and control animations', async (
   expect(await motionKinds(page)).toEqual([]);
   const animations = await page.evaluate(() => document.getAnimations().length);
   expect(animations).toBe(0);
+});
+
+test('motion: a wide mobile composer keeps inline actions accessible', async ({
+  page,
+}, testInfo) => {
+  await page.setViewportSize({ width: 600, height: 900 });
+  await page.goto('/chat');
+  const composer = page.locator('.chat-input--compact');
+  await expect(composer).toBeVisible();
+  expect(await composer.evaluate((element) => element.clientWidth)).toBeGreaterThan(520);
+  await expect(
+    page.getByRole('button', { name: 'More composer actions', exact: true }),
+  ).toBeHidden();
+  const tools = composer.locator('.composer-tools');
+  await expect(tools).not.toHaveAttribute('inert');
+  await expect(tools).not.toHaveAttribute('aria-hidden', 'true');
+  await expect(page.getByRole('button', { name: 'Attach image', exact: true })).toBeVisible();
+  const isolation = page.getByRole('button', { name: 'Worktree isolation', exact: true });
+  await expect(isolation).toBeVisible();
+  const isolated = await isolation.getAttribute('aria-pressed');
+  await isolation.click();
+  await expect(isolation).toHaveAttribute('aria-pressed', isolated === 'true' ? 'false' : 'true');
+  const draft = page.getByRole('textbox', { name: 'Message Mitzo', exact: true });
+  await page.getByRole('button', { name: 'Commands', exact: true }).click();
+  await expect(draft).toHaveValue('/');
+  await expect(draft).toBeFocused();
+  await page.screenshot({
+    path: testInfo.outputPath('motion-wide-mobile-composer.png'),
+    animations: 'disabled',
+  });
+});
+
+test('motion: a narrow desktop composer opens, closes, and follows container resizing', async ({
+  page,
+}, testInfo) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto('/chat');
+  const composer = page.locator('.chat-input--compact');
+  const draft = page.getByRole('textbox', { name: 'Message Mitzo', exact: true });
+  await draft.fill('Keep this container draft');
+  await composer.evaluate((element) => {
+    (element as HTMLElement).style.width = '480px';
+  });
+  const tools = composer.locator('.composer-tools');
+  const toggle = page.getByRole('button', { name: 'More composer actions', exact: true });
+  await expect(toggle).toBeVisible();
+  await expect(tools).toBeHidden();
+  await expect(tools).toHaveAttribute('inert');
+  await toggle.click();
+  await expect(page.getByRole('button', { name: 'Commands', exact: true })).toBeVisible();
+  await toggle.click();
+  await expect(tools).toBeHidden();
+  await expect(tools).toHaveAttribute('aria-hidden', 'true');
+  await toggle.click();
+  await page.keyboard.press('Escape');
+  await expect(tools).toBeHidden();
+  await expect(draft).toBeFocused();
+  // Resize the same mounted composer while the viewport remains desktop-sized.
+  await composer.evaluate((element) => {
+    (element as HTMLElement).style.width = '600px';
+  });
+  await expect(toggle).toBeHidden();
+  await expect(tools).toBeVisible();
+  await expect(tools).not.toHaveAttribute('inert');
+  await expect(tools).not.toHaveAttribute('aria-hidden', 'true');
+  await composer.evaluate((element) => {
+    (element as HTMLElement).style.width = '480px';
+  });
+  await expect(toggle).toBeVisible();
+  await expect(tools).toBeHidden();
+  await toggle.click();
+  await expect(page.getByRole('button', { name: 'Attach image', exact: true })).toBeVisible();
+  await expect(draft).toHaveValue('Keep this container draft');
+  await page.evaluate(() => {
+    document.documentElement.dataset.theme = 'light';
+    document.documentElement.dataset.accent = 'teal';
+    document.documentElement.dataset.font = 'georgia';
+  });
+  await page.screenshot({
+    path: testInfo.outputPath('motion-narrow-desktop-composer.png'),
+    animations: 'disabled',
+  });
 });
 
 test.beforeEach(async ({ page }) => {

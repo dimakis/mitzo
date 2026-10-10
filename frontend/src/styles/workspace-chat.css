@@ -999,6 +999,10 @@
   align-items: center;
   gap: 6px;
 }
+.composer-tools-anchor {
+  /* CSS is the source of truth for both the layout and its accessibility state. */
+  --composer-tools-layout: inline;
+}
 .chat-input--compact .composer-tools-toggle,
 .composer-tools-label {
   display: none;
@@ -1074,6 +1078,9 @@
   }
 }
 @container (max-width: 520px) {
+  .chat-input--compact .composer-tools-anchor {
+    --composer-tools-layout: popover;
+  }
   .chat-input--compact .composer-toolbar,
   .chat-input--compact .chat-input-command-strip,
   .chat-input--compact .composer-actions {

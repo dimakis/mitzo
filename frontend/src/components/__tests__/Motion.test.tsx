@@ -7,6 +7,7 @@ import { MotionRoutes } from '../MotionRoutes';
 import { MotionPresence } from '../MotionPresence';
 import { CollapsibleSection } from '../CollapsibleSection';
 import { WorkspaceControls } from '../WorkspaceControls';
+import { useMotionPresence } from '../../hooks/useMotionPresence';
 
 let reduced = false;
 const listeners = new Set<() => void>();
@@ -104,6 +105,27 @@ describe('shared navigation motion', () => {
 });
 
 describe('shared presence motion', () => {
+  it('cancels an exiting popover when it becomes an inline control', () => {
+    function ResponsiveSurface({ open, inline }: { open: boolean; inline: boolean }) {
+      const { ref, present } = useMotionPresence(open, 'popover', false, !inline);
+      return (
+        <div ref={ref} hidden={!inline && !present}>
+          Responsive actions
+        </div>
+      );
+    }
+    const view = render(<ResponsiveSurface open={false} inline={false} />);
+    view.rerender(<ResponsiveSurface open inline={false} />);
+    view.rerender(<ResponsiveSurface open={false} inline={false} />);
+    const exit = animations.at(-1)!;
+    view.rerender(<ResponsiveSurface open={false} inline />);
+    expect(exit.cancel).toHaveBeenCalled();
+    expect(animate).toHaveBeenCalledTimes(2);
+    expect(screen.getByText('Responsive actions').hidden).toBe(false);
+    view.rerender(<ResponsiveSurface open={false} inline={false} />);
+    expect(screen.getByText('Responsive actions').hidden).toBe(true);
+    expect(animate).toHaveBeenCalledTimes(2);
+  });
   it('animates existing section toggles and hides closing content from accessibility immediately', async () => {
     render(
       <CollapsibleSection title="Section" storageKey="motion-section">

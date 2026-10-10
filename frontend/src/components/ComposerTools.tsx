@@ -1,7 +1,6 @@
-import { useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { UiIcon } from './UiIcon';
 import { useMotionPresence } from '../hooks/useMotionPresence';
-import { useIsDesktop } from '../hooks/useMediaQuery';
 import { MotionPresence } from './MotionPresence';
 
 interface Props {
@@ -31,11 +30,31 @@ export function ComposerTools({
 }: Props) {
   const [toolsExpanded, setToolsExpanded] = useState(false);
   const [workspaceExpanded, setWorkspaceExpanded] = useState(false);
-  const isDesktop = useIsDesktop();
-  const open = isDesktop || toolsExpanded;
-  const { ref: motionRef, present } = useMotionPresence(open, 'popover', false);
+  const [inline, setInline] = useState(true);
+  const open = inline || toolsExpanded;
+  const { ref: motionRef, present } = useMotionPresence(toolsExpanded, 'popover', false, !inline);
+  const visible = inline || present;
   const toolsId = useId();
   const toolsRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const anchor = toolsRef.current;
+    if (!anchor) return;
+    // The container query owns the breakpoint; CSS also reports its layout mode.
+    const update = () => {
+      setInline(
+        getComputedStyle(anchor).getPropertyValue('--composer-tools-layout').trim() !== 'popover',
+      );
+    };
+    update();
+    const container = anchor.closest('.chat-input--compact') ?? anchor;
+    const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(update) : null;
+    observer?.observe(container);
+    window.addEventListener('resize', update);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener('resize', update);
+    };
+  }, []);
   useEffect(() => {
     if (!toolsExpanded && !workspaceExpanded) return;
     const close = () => {
@@ -74,8 +93,8 @@ export function ComposerTools({
         id={toolsId}
         ref={motionRef}
         className="composer-tools"
-        data-expanded={present}
-        hidden={!present}
+        data-expanded={!inline && present}
+        hidden={!visible}
         inert={!open}
         aria-hidden={!open || undefined}
       >

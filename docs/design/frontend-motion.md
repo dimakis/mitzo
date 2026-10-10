@@ -54,6 +54,14 @@ its `ref` on the existing surface, use `hidden={!present}`, and immediately set
 `inert={!open}` and `aria-hidden={!open || undefined}`. Workspace controls and the
 reviewer sheet illustrate this pattern. Keep existing focus and Escape handling.
 
+Composer actions follow their actual container layout, including wide mobile
+composers and narrow desktop panels. The CSS container query reports
+`--composer-tools-layout`; `ComposerTools` observes the composer with
+`ResizeObserver` and uses that mode for visibility, inertness, and accessibility.
+The viewport breakpoint does not decide whether these actions are inline. Motion
+tracks the manually opened popover only, and disabling presence animation for
+inline mode cancels an interrupted exit without hiding inline controls.
+
 Async picker content and native `<details>` have shared CSS entrance motion.
 The CSS layer also provides entrance motion for approval banners and the existing
 document/access dialogs. Use the shared presence primitives for new custom menus,

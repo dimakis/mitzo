@@ -2,8 +2,9 @@ import { useLayoutEffect, useRef, useState } from 'react';
 import { animateMotion, type MotionKind } from '../lib/motion';
 import { useReducedMotion } from './useReducedMotion';
 
-/** Retain exits for their animation only. Callers immediately hide them from input and AT. */
-export function useMotionPresence(open: boolean, kind: MotionKind, appear = true) {
+/** Retain exits for their animation only. Disable motion when a surface becomes inline.
+ * Callers immediately hide closing surfaces from input and assistive technology. */
+export function useMotionPresence(open: boolean, kind: MotionKind, appear = true, enabled = true) {
   const ref = useRef<HTMLDivElement>(null);
   const [retained, setRetained] = useState(open);
   const initial = useRef(true);
@@ -20,6 +21,7 @@ export function useMotionPresence(open: boolean, kind: MotionKind, appear = true
     const root = ref.current;
     if (
       !root ||
+      !enabled ||
       reduced ||
       (!changed.current && !appear) ||
       (first && !open) ||
@@ -56,7 +58,7 @@ export function useMotionPresence(open: boolean, kind: MotionKind, appear = true
       delete root.dataset.motionActive;
       active.forEach((animation) => animation.cancel());
     };
-  }, [open, kind, appear, reduced]);
+  }, [open, kind, appear, reduced, enabled]);
 
   return { ref, present: open || retained };
 }
