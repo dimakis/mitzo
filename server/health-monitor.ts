@@ -4,6 +4,7 @@
 import type { SseRegistry } from '@mitzo/harness';
 import type { ServiceHealthPayload, ServiceHealthStatus } from '@mitzo/protocol';
 import { createLogger } from './logger.js';
+import { DEFAULT_CONTEXGIN_URL } from './constants.js';
 
 const log = createLogger('health-monitor');
 
@@ -27,7 +28,7 @@ const SERVICES: ServiceCheck[] = [
   },
   {
     name: 'contexgin',
-    url: process.env.CONTEXGIN_URL || 'http://localhost:8321',
+    url: process.env.CONTEXGIN_URL || DEFAULT_CONTEXGIN_URL,
   },
 ];
 

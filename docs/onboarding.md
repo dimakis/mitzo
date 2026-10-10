@@ -96,7 +96,7 @@ Generate a secret with `openssl rand -hex 32` and paste the output as `AUTH_SECR
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | —                       | OTLP endpoint for tracing (e.g. `http://localhost:4318`)                          |
 | `LOKI_HOST`                   | —                       | Loki endpoint for log aggregation                                                 |
 | `MLFLOW_TRACKING_URI`         | —                       | MLflow endpoint for experiment tracking (e.g. `http://localhost:5050`)            |
-| `CONTEXGIN_URL`               | `http://localhost:8321` | ContexGin goal registry URL                                                       |
+| `CONTEXGIN_URL`               | `http://localhost:4195` | ContexGin boot context, agent definitions, health and goal registry URL           |
 
 ## Step 3: Generate HTTPS certificate
 

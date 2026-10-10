@@ -79,6 +79,23 @@ afterEach(() => {
 });
 
 describe('loadAgentDef', () => {
+  it('uses the documented daemon endpoint by default', async () => {
+    const previous = process.env.CONTEXGIN_URL;
+    delete process.env.CONTEXGIN_URL;
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => VALID_CONTEXGIN_RESPONSE });
+    try {
+      const loaded = await loadAgentDef('mitzo-conversational', '/workspace');
+      expect(loaded.source).toBe('contexgin');
+      expect(mockFetch).toHaveBeenCalledWith(
+        'http://localhost:4195/api/agents/mitzo-conversational/context',
+        { signal: expect.any(AbortSignal) },
+      );
+    } finally {
+      if (previous === undefined) delete process.env.CONTEXGIN_URL;
+      else process.env.CONTEXGIN_URL = previous;
+    }
+  });
+
   describe('ContexGin source', () => {
     it('loads agent definition from ContexGin API', async () => {
       mockFetch.mockResolvedValueOnce({
