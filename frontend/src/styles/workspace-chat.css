@@ -1231,6 +1231,10 @@
   font-size: var(--text-xs);
   border-radius: var(--radius-panel);
 }
+/* Compact details are anchored to the toolbar; use its width rather than the viewport. */
+.chat-input--compact .token-bar-detail {
+  max-width: 100%;
+}
 .token-bar-metric {
   margin-bottom: var(--space-3);
 }

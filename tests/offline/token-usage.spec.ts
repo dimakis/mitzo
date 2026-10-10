@@ -189,3 +189,45 @@ test('token usage stays hidden until usage is reported', async ({ page }) => {
   await expect(page.getByRole('textbox', { name: 'Message' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Token usage', exact: true })).toHaveCount(0);
 });
+
+test('token usage fits the narrow desktop center with both sidebars expanded', async ({
+  page,
+  isMobile,
+}, testInfo) => {
+  test.skip(isMobile, 'Desktop sidebars are not shown on mobile');
+  await page.setViewportSize({ width: 800, height: 800 });
+  await fixtureUsage(page);
+  await page.addInitScript(() => {
+    localStorage.setItem('mitzo-navigation-collapsed', '1');
+    localStorage.setItem('mitzo-sidebar-left-collapsed', '0');
+    localStorage.setItem('mitzo-sidebar-right-collapsed', '0');
+  });
+  await page.goto('/chat/token-fixture');
+  await expect(page.locator('.desktop-sidebar-left')).not.toHaveClass(/desktop-sidebar--collapsed/);
+  await expect(page.locator('.desktop-sidebar-right')).not.toHaveClass(
+    /desktop-sidebar--collapsed/,
+  );
+  await page.getByRole('button', { name: 'Token usage', exact: true }).click();
+  const panel = page.locator('.token-bar-detail');
+  for (const expanded of [false, true]) {
+    if (expanded) await panel.locator('summary').click();
+    const bounds = await panel.boundingBox();
+    const center = await page.locator('.desktop-center').boundingBox();
+    const toolbar = await page.locator('.composer-toolbar').boundingBox();
+    expect(bounds!.x).toBeGreaterThanOrEqual(center!.x);
+    expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(center!.x + center!.width);
+    expect(bounds!.width).toBeLessThanOrEqual(toolbar!.width + 1);
+    expect(await panel.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(
+      true,
+    );
+    if (expanded) {
+      const explanation = panel.getByText(/not a cost figure/);
+      await explanation.scrollIntoViewIfNeeded();
+      await expect(explanation).toBeInViewport();
+    }
+    await page.screenshot({
+      path: testInfo.outputPath(`token-narrow-desktop-${expanded ? 'expanded' : 'collapsed'}.png`),
+      animations: 'disabled',
+    });
+  }
+});

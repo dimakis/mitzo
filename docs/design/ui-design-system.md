@@ -69,7 +69,8 @@ The native `details` disclosure explains repeated input, cache reuse, compaction
 and optimization without turning cumulative tokens into a cost estimate. It uses
 shared type/spacing/radius/color tokens, a `--control-height` summary target and
 visible keyboard focus. The existing `MotionPresence` and Escape behavior remain.
-Popover width is bounded by the page gutters and its 70dvh maximum height is
+Popover width is bounded by the composer's toolbar and the page
+gutters, including desktop layouts with both sidebars expanded. Its 70dvh maximum height is
 structural viewport geometry; internal scrolling keeps expanded explanations and
 reporting details reachable on short phones and with larger text.
 
@@ -77,7 +78,10 @@ Offline acceptance screenshots show [the separated usage figures on a narrow
 phone](assets/token-usage-mobile-dark.png) and [expanded help with larger text,
 Teal accent and Georgia font](assets/token-help-mobile-light.png). The offline
 fixture covers keyboard disclosure, Escape, touch targets, scrolling and empty
-usage on mobile WebKit and mobile/desktop Chromium.
+usage on mobile WebKit and mobile/desktop Chromium. An 800px desktop regression
+case verifies the collapsed and expanded popover stays inside the center panel
+and composer, with both sidebars open. The [narrow desktop acceptance
+capture](assets/token-usage-narrow-desktop.png) records that layout.
 
 ## Motion
 
