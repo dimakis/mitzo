@@ -138,6 +138,56 @@ permissions, cleanup or UI code consumes this infrastructure in this increment.
 Existing `getSession`/list/protocol output remains compatible. In particular,
 no request field or selector claims the new choice is actionable.
 
+## Second increment: dormant configuration resolver
+
+[`resolveOrdinarySessionRuntime`](../../server/ordinary-session-runtime.ts) is a
+pure check of an explicit credential-free selection against an injected server
+configuration catalog. It requires exact account ID, provider and profile
+revision, an explicit harness and configured target ID, mutable permission mode,
+and an optional skill ceiling. Missing, ambiguous or unavailable identities
+fail with finite rejection codes; the resolver never chooses a default or falls
+back to another account, harness or target. Unknown fields are rejected without
+echoing parser errors or supplied values.
+
+The catalog declares enabled harnesses and configured local or OpenShell
+targets. Enabling a harness does not extend the existing ordinary route matrix
+above: only those six ordinary tuples are compatible. New OpenShell selection
+requires a dedicated ordinary target. Shared or retained targets remain outside
+this new contract; existing legacy dispatch is untouched. OpenShell Ask mode
+and any Codex skill ceiling, including an empty array, are rejected. Custodian
+configuration additionally excludes ordinary OpenAI/Codex host selection and
+requires enabled API dispatch for an OpenAI API sandbox route. This restriction
+does not extend to local Vertex routes.
+
+Provider-specific auth kinds describe configured profile classes only. Host
+ChatGPT requires an exclusive host login profile; brokered ChatGPT requires a
+complete `openai-codex-oauth` provider/type/ID/grant profile without host login.
+Its nonempty target references must identify the exact configured provider
+route. OpenAI API sandbox references require an explicit provider configuration
+and enabled API dispatch on the target; an empty mapping permits host-only API
+configuration. Vertex requires its configured project, region and ADC profile.
+These descriptions contain no credential references, provider/grant IDs or
+readiness booleans. They do not prove current authentication, authorization,
+isolation or readiness. A trusted projection from existing validated server
+configuration is a prerequisite for adoption and is not implemented here.
+
+Ordinary native `sandbox-chatgpt` selection remains unsupported; Symposium
+admission is separate. Legacy `openai-codex` profiles permit `planType: api`,
+which existing OpenShell code can interpret as API billing. This resolver
+conservatively rejects that value after trimming and case normalization. It
+neither treats it as a subscribed ChatGPT identity nor substitutes an `openai`
+account or billing route.
+
+A compatible result contains `SessionRuntimeBindingV1` and a **separate**
+selected `targetId`. V1 has no target identity field: persisting only its binding
+does not durably pin the selected target, and this result is not executable.
+Activation requires a reviewed persistence extension for the target reference,
+atomic new-session admission, exact retry/resume validation and command
+fingerprint checks before any runtime effects. The resolver has no loader,
+environment/filesystem/network/process access, credential reads or runtime
+consumer. AccountProfiles, startup, API/WS/UI, enrollment, queues and lifecycle
+authorities retain their existing behavior.
+
 ## Invariants for subsequent adoption
 
 1. A new conversation chooses an authorized account, validated model and
