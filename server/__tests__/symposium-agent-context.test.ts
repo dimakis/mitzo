@@ -79,6 +79,7 @@ function fixture() {
   }));
   const assertCurrent = vi.fn();
   const sourceAssertCurrent = vi.fn();
+  const authorize = vi.fn(async () => {});
   const binding = createSymposiumAgentContextBinding({
     store,
     profiles: { get: () => profile },
@@ -87,13 +88,22 @@ function fixture() {
       packs: {
         sourceIdentity: 'accepted-store',
         resolve: async () => pack,
-        authorize: async () => {},
+        authorize,
         readDocument,
         assertCurrent: sourceAssertCurrent,
       },
     }),
   });
-  return { binding, store, execution, readDocument, profile, assertCurrent, sourceAssertCurrent };
+  return {
+    binding,
+    store,
+    execution,
+    readDocument,
+    profile,
+    assertCurrent,
+    sourceAssertCurrent,
+    authorize,
+  };
 }
 it('persists exact prepared context and reuses immutable same-seat generation snapshots', async () => {
   const { binding, store, execution, readDocument } = fixture();
@@ -200,4 +210,16 @@ it('rejects a catalog definition whose saved immutable profile hash no longer ma
   const { binding, execution, profile } = fixture();
   profile.definition.instructions = 'Tampered';
   await expect(binding.prepare(execution)).rejects.toThrow(/profile integrity/);
+});
+
+it('revalidates accepted metadata on resume without rereading or replacing the prepared body', async () => {
+  const { binding, execution, authorize, readDocument, store } = fixture();
+  const prepared = await binding.prepare(execution);
+  const readCount = readDocument.mock.calls.length;
+  authorize.mockRejectedValue(Error('Pinned knowledge revision is no longer accepted'));
+  await expect(binding.prepare({ ...execution, claimToken: 'resume' })).rejects.toThrow(
+    /no longer accepted/,
+  );
+  expect(readDocument).toHaveBeenCalledTimes(readCount);
+  expect(store.getPrepared(execution)).toEqual(prepared);
 });
