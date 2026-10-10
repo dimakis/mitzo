@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.9';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.34';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.35';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,10 +22,8 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  // Contributor live-query capture and exact output ownership share runtime admission.
   '../query-loop.ts': 'e2b9cc2eceb00c45394c71b6d0307d4f05a0e902cade7a59b09ac684a4b75b28',
-  // Exact-output selection and ordinary contributor claims share reviewed runtime admission.
-  '../app.ts': '5a3cdaa8e9d0c6def0775049dd1ff62c56b8021ddcf586d052005adc932a8444',
-  '../chat.ts': 'ad9028c9ce6f551420d48bb1b032a093b5b82e68f6eabf7d0e30ccb75ff10a3d',
   '../account-profiles.ts': '6de5c87f62d5234cb68e3f857c8431160f63562fea3b78ec62e5dd2f381e3745',
   '../ordinary-turn-lifecycle.ts':
     '136bdac73de0f9280676a209a234972393ca14e84fca40616ac93f204c31e7de',
@@ -50,9 +48,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'c103af10de4adc81cdc474b3e69ef2b3de5e447d4dcf15da4fc1894c422b913b',
   '../../packages/protocol/src/session-output-reference-store.ts':
     '9ecd7ae7149f629807cffd0142e38c4a498aa10d3f1c8709cd67927e24ecf5e0',
-
+  '../chat.ts': 'd5287beb9edab7eb6f5a375c6536f1bce2bce66453be59acf57c93df5c7cc34b',
   '../agent-context-binding.ts': 'ce0f8dba7f97f515be8ee00a441e3cc36344aad44f31e0b2fb33a160f8803e66',
-
+  '../app.ts': '5a3cdaa8e9d0c6def0775049dd1ff62c56b8021ddcf586d052005adc932a8444',
   '../ws-handler-v2.ts': '2952b6ea0ad4307739603901b01725514896452ea70c9f2464d8c04c6f4d9052',
   '../codex-queue-routes.ts': '6873ee90c32da94dcfebd432535d4170942e53c980456927f9dd57e9917d9a53',
   '../agent-context-compiler.ts':
