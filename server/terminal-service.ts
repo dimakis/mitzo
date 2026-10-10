@@ -24,6 +24,8 @@ export interface TerminalRecord extends TerminalInfo {
   owner: string;
   identity: string;
   target?: TerminalTarget;
+  cleanupRetryAt?: number;
+  cleanupFailures?: number;
 }
 interface TerminalProcess {
   write(data: string): void;
@@ -61,6 +63,13 @@ export class TerminalStore {
       )
     )
       db.exec('ALTER TABLE operator_terminals ADD COLUMN cleanup_target TEXT');
+    for (const column of ['cleanup_retry_at', 'cleanup_failures'])
+      if (
+        !(db.pragma('table_info(operator_terminals)') as { name: string }[]).some(
+          (entry) => entry.name === column,
+        )
+      )
+        db.exec(`ALTER TABLE operator_terminals ADD COLUMN ${column} INTEGER NOT NULL DEFAULT 0`);
     this.owners = new TerminalOwnerStore(db);
   }
   create(record: TerminalRecord) {
@@ -82,7 +91,7 @@ export class TerminalStore {
       );
   }
   private rows(owner?: string): TerminalRecord[] {
-    const query = `SELECT id,owner,identity,kind,label,cwd,session_id AS sessionId,state,created_at AS createdAt,cleanup_target AS cleanupTarget FROM operator_terminals ${owner ? 'WHERE owner=?' : ''} ORDER BY created_at DESC`;
+    const query = `SELECT id,owner,identity,kind,label,cwd,session_id AS sessionId,state,created_at AS createdAt,cleanup_target AS cleanupTarget,cleanup_retry_at AS cleanupRetryAt,cleanup_failures AS cleanupFailures FROM operator_terminals ${owner ? 'WHERE owner=?' : ''} ORDER BY created_at DESC`;
     const records = (
       owner ? this.db.prepare(query).all(owner) : this.db.prepare(query).all()
     ) as (TerminalRecord & { cleanupTarget: string | null })[];
@@ -102,6 +111,14 @@ export class TerminalStore {
   }
   state(id: string, state: TerminalInfo['state']) {
     this.db.prepare('UPDATE operator_terminals SET state=? WHERE id=?').run(state, id);
+  }
+  retryCleanup(record: TerminalRecord) {
+    const delay = Math.min(3600000, 60000 * 2 ** Math.min(record.cleanupFailures ?? 0, 6));
+    this.db
+      .prepare(
+        'UPDATE operator_terminals SET cleanup_retry_at=?,cleanup_failures=cleanup_failures+1 WHERE id=?',
+      )
+      .run(Date.now() + delay, record.id);
   }
 }
 function cleanupTarget(target: TerminalTarget): TerminalTarget {
@@ -206,27 +223,45 @@ export class TerminalService {
     return this.reconciliation;
   }
   private async reconcileOwnersNow() {
-    for (const owner of this.store.owners.runningOwners()) {
-      if (!owner.revoked && owner.expiresAt > Date.now()) continue;
-      this.store.owners.retire(owner.id);
-      for (const record of this.store
-        .list(owner.id)
-        .filter((record) => record.state === 'running')) {
-        try {
-          await this.starts.get(record.id);
-          const saved =
-            record.kind === 'host' || record.target ? record : await this.verify(record);
-          if (saved.target) this.deps.validateCleanupTarget?.(saved.target);
-          await this.deps.backend.end(saved);
-        } catch (error) {
-          if (!(error instanceof TerminalSessionMissing)) continue;
+    const expired = new Set(
+      this.store.owners
+        .runningOwners()
+        .filter((owner) => owner.revoked || owner.expiresAt <= Date.now())
+        .map((owner) => owner.id),
+    );
+    for (const id of expired) this.store.owners.retire(id);
+    // One deduplicated sweep, bounded by the global physical shell quota. Reclaim
+    // local shells first; failed remote cleanup backs off durably for 1–60 minutes.
+    const candidates = this.store
+      .list()
+      .filter(
+        (record) =>
+          record.state === 'running' &&
+          expired.has(record.owner) &&
+          (record.cleanupRetryAt ?? 0) <= Date.now(),
+      )
+      .sort(
+        (a, b) =>
+          Number(a.kind !== 'host') - Number(b.kind !== 'host') || a.createdAt - b.createdAt,
+      )
+      .slice(0, 50);
+    for (const record of candidates) {
+      try {
+        await this.starts.get(record.id);
+        const saved = record.kind === 'host' || record.target ? record : await this.verify(record);
+        if (saved.target) this.deps.validateCleanupTarget?.(saved.target);
+        await this.deps.backend.end(saved);
+      } catch (error) {
+        if (!(error instanceof TerminalSessionMissing)) {
+          this.store.retryCleanup(record);
+          continue;
         }
-        this.store.state(record.id, 'ended');
-        const live = this.live.get(record.id);
-        live?.listeners.clear();
-        live?.process?.detach();
-        this.live.delete(record.id);
       }
+      this.store.state(record.id, 'ended');
+      const live = this.live.get(record.id);
+      live?.listeners.clear();
+      live?.process?.detach();
+      this.live.delete(record.id);
     }
   }
   private assertOwner(owner: string) {

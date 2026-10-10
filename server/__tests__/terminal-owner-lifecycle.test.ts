@@ -106,7 +106,7 @@ it('uses the persisted original sandbox cleanup receipt after its chat route cha
   );
   expect(store.read(login.id, terminal.id).state).toBe('ended');
 });
-it('retries uncertain cleanup without freeing capacity or changing the original target', async () => {
+it('retries uncertain cleanup with persistent backoff without freeing capacity or changing the original target', async () => {
   const login = bind('login-a');
   const terminal = await service.open(login.id, {});
   vi.mocked(backend.end).mockRejectedValueOnce(Error('Transport uncertain'));
@@ -114,6 +114,11 @@ it('retries uncertain cleanup without freeing capacity or changing the original 
   // The invalidation enqueues one attempt; another reconciliation retries it.
   await vi.waitFor(() => expect(backend.end).toHaveBeenCalledTimes(1));
   expect(store.read(login.id, terminal.id).state).toBe('running');
+  service.detachAll();
+  service = new TerminalService(new TerminalStore(db), { resolve: async () => target, backend });
+  await service.reconcileOwners();
+  expect(backend.end).toHaveBeenCalledTimes(1);
+  vi.setSystemTime(Date.now() + 60001);
   await service.reconcileOwners();
   expect(backend.end).toHaveBeenCalledTimes(2);
   expect(store.read(login.id, terminal.id).state).toBe('ended');
