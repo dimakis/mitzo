@@ -175,6 +175,8 @@ The server translates raw SDK stream events into a v2 block lifecycle protocol (
 
 The [durable child session allocation design](docs/design/session-service-core.md) describes the SessionService foundation for future bounded Task Board workers and Symposium seats. It records a child conversation and its parent/grant link in one transaction before runtime setup, fences cancellation across descendants, and retains uncertain starts or missing results for recovery. This foundation does not yet change the current Task Board or Symposium runtime paths.
 
+The [session runtime selection foundation](docs/design/session-runtime-selection.md) separates account identity, agent implementation and execution location in a dormant, immutable metadata contract. Explicit creation stores that contract with a new ordinary repository session; legacy sessions are not enrolled. Startup and resume do not consume it yet, and no runtime selector is exposed. The design maps existing routes and the incremental admission work required before enabling a choice.
+
 Symposium shutdown fences new admission and dispatch, drains retained seat and login
 cleanup, and awaits the owned gateway child before closing custody stores. A bounded
 failure reports incomplete cleanup and retains recovery evidence. This does not enable
