@@ -18,6 +18,7 @@ type Copy = {
   draft?: ContextPackDraft;
   base?: PublishedContextPack;
   dirty: boolean;
+  requestId?: string;
 };
 const storageKey = 'mitzo-context-pack-working-copy';
 function recover(): Copy | null {
@@ -102,7 +103,9 @@ export function ContextPackManager({ knowledge }: { knowledge: KnowledgeCatalog 
     }
   };
   const update = (definition: ContextPackDefinition) => {
-    setCopy((current) => (current ? { ...current, definition, dirty: true } : null));
+    setCopy((current) =>
+      current ? { ...current, definition, dirty: true, requestId: crypto.randomUUID() } : null,
+    );
     setPreview(undefined);
     setNotice('');
   };
@@ -146,6 +149,7 @@ export function ContextPackManager({ knowledge }: { knowledge: KnowledgeCatalog 
                 retrievalGuidance: '',
               },
               dirty: true,
+              requestId: crypto.randomUUID(),
             });
             setPreview(undefined);
             setProfiles([]);
@@ -185,7 +189,7 @@ export function ContextPackManager({ knowledge }: { knowledge: KnowledgeCatalog 
                 const definition = value.definition ?? value;
                 if (definition.version !== 1 || !Array.isArray(definition.documents))
                   throw Error('Use a portable context pack definition.');
-                setCopy({ definition, dirty: true });
+                setCopy({ definition, dirty: true, requestId: crypto.randomUUID() });
                 setImporting(false);
                 setNotice('Imported working copy. Review source choices before saving.');
               } catch (cause) {
@@ -408,7 +412,9 @@ export function ContextPackManager({ knowledge }: { knowledge: KnowledgeCatalog 
                         copy.draft
                           ? `/api/context-packs/drafts/${copy.draft.id}`
                           : '/api/context-packs/drafts',
-                        copy.draft ? { version: copy.draft.version, definition } : { definition },
+                        copy.draft
+                          ? { version: copy.draft.version, definition, requestId: copy.requestId }
+                          : { definition, requestId: copy.requestId },
                         copy.draft ? 'PUT' : 'POST',
                       );
                       if (mounted.current) {

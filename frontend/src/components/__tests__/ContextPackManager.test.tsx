@@ -60,6 +60,12 @@ it('pins accepted documents, preserves failed-save edits and requires explicit p
   fail = false;
   fireEvent.click(screen.getByRole('button', { name: 'Save pack draft' }));
   await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Draft saved'));
+  const retryBodies = vi
+    .mocked(apiFetch)
+    .mock.calls.filter(([path]) => path === '/api/context-packs/drafts')
+    .map(([, init]) => JSON.parse(String(init?.body)));
+  expect(retryBodies[0].requestId).toBeTruthy();
+  expect(retryBodies[1].requestId).toBe(retryBodies[0].requestId);
   const save = vi
     .mocked(apiFetch)
     .mock.calls.slice()
