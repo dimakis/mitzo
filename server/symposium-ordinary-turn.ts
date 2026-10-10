@@ -60,6 +60,7 @@ export function createOrdinarySymposiumTurn(deps: {
   let queryClosed: Promise<void> | undefined;
   let queryEnded = false;
   let interrupting: Promise<void> | undefined;
+  let interruptAttempted = false;
   let failure: Error | undefined;
   let sessionId = '';
   const clientId = `symposium-ordinary:${randomUUID()}`;
@@ -69,8 +70,12 @@ export function createOrdinarySymposiumTurn(deps: {
   });
   const requestInterrupt = () => {
     if (query && !terminal && !interrupting) {
-      interrupting = query.interrupt();
-      void interrupting.catch(() => {});
+      interruptAttempted = true;
+      const requested = query.interrupt();
+      interrupting = requested;
+      void requested.catch(() => {
+        if (interrupting === requested) interrupting = undefined;
+      });
     }
   };
   return {
@@ -160,7 +165,7 @@ export function createOrdinarySymposiumTurn(deps: {
                   throw new Error('Ordinary Symposium acceptance identity changed');
                 acceptedTurn = rawTurn;
                 callbacks.accepted(sessionId, rawTurn);
-                if (cancelled) requestInterrupt();
+                if (cancelled && !interruptAttempted) requestInterrupt();
               },
               terminal(commandId, rawTurn, status) {
                 exactCommand(commandId);
@@ -182,7 +187,7 @@ export function createOrdinarySymposiumTurn(deps: {
             },
             onQueryReady(ready) {
               query = ready;
-              if (cancelled) requestInterrupt();
+              if (cancelled && !interruptAttempted) requestInterrupt();
             },
             onTurnResult() {
               if (terminal) deps.port.stopChat(clientId);
@@ -207,9 +212,15 @@ export function createOrdinarySymposiumTurn(deps: {
       requestInterrupt();
       let timer: ReturnType<typeof setTimeout> | undefined;
       try {
+        const drain = async () => {
+          await Promise.race([terminalObserved, queryClosed ?? Promise.resolve()]);
+          if ((!terminal && dispatched) || terminalConflict)
+            throw new Error('Ordinary Symposium provider termination is unconfirmed');
+          if (terminal) deps.port.stopChat(clientId);
+          await queryClosed;
+        };
         await Promise.race([
-          terminalObserved,
-          queryClosed ?? Promise.resolve(),
+          drain(),
           new Promise<never>((_resolve, reject) => {
             timer = setTimeout(
               () => reject(new Error('Ordinary Symposium provider termination is unconfirmed')),
@@ -217,10 +228,6 @@ export function createOrdinarySymposiumTurn(deps: {
             );
           }),
         ]);
-        if ((!terminal && dispatched) || terminalConflict)
-          throw new Error('Ordinary Symposium provider termination is unconfirmed');
-        if (terminal) deps.port.stopChat(clientId);
-        await queryClosed;
         // An interrupt ACK/error is no longer relevant once the exact terminal
         // notification and query closure prove that this attempt has stopped.
       } catch (error) {

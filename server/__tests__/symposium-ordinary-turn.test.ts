@@ -151,6 +151,112 @@ it('Stop requests interruption and waits for matching provider completion and qu
   expect(drained).toBe(true);
 });
 
+it('allows an explicit later Stop to retry a rejected exact query interruption', async () => {
+  vi.useFakeTimers();
+  try {
+    const f = input();
+    let options!: Parameters<OrdinaryChatPort['startChat']>[3];
+    let close!: () => void;
+    const ended = new Promise<void>((resolve) => {
+      close = resolve;
+    });
+    const interrupt = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('interruption request failed'))
+      .mockImplementationOnce(async () => {
+        options.ordinaryTurnLifecycle!.terminal('recipient', 'raw-turn', 'interrupted');
+      });
+    const port: OrdinaryChatPort = {
+      stopChat: () => close(),
+      startChat: async (_transport, _client, _prompt, selected) => {
+        options = selected;
+        selected.ordinaryTurnLifecycle!.beforeDispatch('recipient');
+        selected.ordinaryTurnLifecycle!.accepted('recipient', 'raw-thread', 'raw-turn');
+        selected.onQueryReady!({ interrupt });
+        await ended;
+      },
+    };
+    const runner = createOrdinarySymposiumTurn({
+      port,
+      binding: f.seat.accountBinding!,
+      cwd: '/task',
+      mode: 'agent',
+      cancellationTimeoutMs: 10,
+    });
+    const running = runner
+      .run(f, { beforeDispatch: () => {}, accepted: () => {} })
+      .catch((error: unknown) => error);
+    await Promise.resolve();
+    const firstStop = runner.cancelAndDrain().catch((error: unknown) => error);
+    await vi.advanceTimersByTimeAsync(11);
+    expect(await firstStop).toMatchObject({ message: expect.stringMatching(/unconfirmed/) });
+    options.ordinaryTurnLifecycle!.accepted('recipient', 'raw-thread', 'raw-turn');
+    await Promise.resolve();
+    expect(interrupt).toHaveBeenCalledTimes(1);
+    const secondStop = runner.cancelAndDrain().catch((error: unknown) => error);
+    await vi.advanceTimersByTimeAsync(11);
+    expect(await secondStop).toBeUndefined();
+    expect(interrupt).toHaveBeenCalledTimes(2);
+    expect(await running).toMatchObject({ message: expect.stringMatching(/cancelled/) });
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it('keeps the cancellation deadline through query closure after an exact provider terminal', async () => {
+  vi.useFakeTimers();
+  try {
+    const f = input();
+    let options!: Parameters<OrdinaryChatPort['startChat']>[3];
+    let close!: () => void;
+    const ended = new Promise<void>((resolve) => {
+      close = resolve;
+    });
+    const port: OrdinaryChatPort = {
+      stopChat: vi.fn(),
+      startChat: async (_transport, _client, _prompt, selected) => {
+        options = selected;
+        selected.ordinaryTurnLifecycle!.beforeDispatch('recipient');
+        selected.ordinaryTurnLifecycle!.accepted('recipient', 'raw-thread', 'raw-turn');
+        selected.onQueryReady!({
+          interrupt: async () => {
+            options.ordinaryTurnLifecycle!.terminal('recipient', 'raw-turn', 'interrupted');
+          },
+        });
+        await ended;
+      },
+    };
+    const runner = createOrdinarySymposiumTurn({
+      port,
+      binding: f.seat.accountBinding!,
+      cwd: '/task',
+      mode: 'agent',
+      cancellationTimeoutMs: 10,
+    });
+    const running = runner
+      .run(f, { beforeDispatch: () => {}, accepted: () => {} })
+      .catch((error: unknown) => error);
+    await Promise.resolve();
+    let stopResult: unknown = 'pending';
+    const stopping = runner.cancelAndDrain().then(
+      () => {
+        stopResult = 'confirmed';
+      },
+      (error: unknown) => {
+        stopResult = error;
+      },
+    );
+    await vi.advanceTimersByTimeAsync(11);
+    expect(stopResult).toMatchObject({ message: expect.stringMatching(/unconfirmed/) });
+    close();
+    await stopping;
+    expect(await running).toMatchObject({ message: expect.stringMatching(/cancelled/) });
+    await expect(runner.cancelAndDrain()).resolves.toBeUndefined();
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 it('refuses implicit account routing and providers without exact lifecycle receipts', () => {
   const f = input();
   const port = { startChat: vi.fn(), stopChat: vi.fn() };
