@@ -78,3 +78,28 @@ it('pins accepted documents, preserves failed-save edits and requires explicit p
   });
   expect(vi.mocked(apiFetch).mock.calls.some(([path]) => path.endsWith('/publish'))).toBe(false);
 });
+it('keeps navigation recovery when browser storage writes are unavailable', async () => {
+  vi.mocked(apiFetch).mockResolvedValue({
+    ok: true,
+    json: async () => ({ packs: [], drafts: [] }),
+  } as Response);
+  const storage = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+    throw Error('Storage unavailable');
+  });
+  const view = render(
+    <MemoryRouter>
+      <ContextPackManager knowledge={knowledge} />
+    </MemoryRouter>,
+  );
+  fireEvent.click(await screen.findByRole('button', { name: 'New pack' }));
+  fireEvent.change(screen.getByLabelText('Pack name'), { target: { value: 'Memory copy' } });
+  view.unmount();
+  render(
+    <MemoryRouter>
+      <ContextPackManager knowledge={knowledge} />
+    </MemoryRouter>,
+  );
+  expect(await screen.findByLabelText('Pack name')).toHaveValue('Memory copy');
+  fireEvent.click(screen.getByRole('button', { name: 'Discard pack edits' }));
+  storage.mockRestore();
+});

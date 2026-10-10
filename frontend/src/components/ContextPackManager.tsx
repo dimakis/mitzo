@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { ContextPackDefinitionSchema } from '@mitzo/protocol';
 import type {
   CompiledAgentContext,
   ContextPackDefinition,
@@ -21,7 +22,10 @@ type Copy = {
   requestId?: string;
 };
 const storageKey = 'mitzo-context-pack-working-copy';
+let memoryCopy: Copy | null = null;
+let pendingStorage = false;
 function recover(): Copy | null {
+  if (pendingStorage) return memoryCopy;
   try {
     return JSON.parse(sessionStorage.getItem(storageKey) || 'null');
   } catch {
@@ -72,10 +76,13 @@ export function ContextPackManager({ knowledge }: { knowledge: KnowledgeCatalog 
     void refresh().catch((cause) => setError(cause.message));
   }, []);
   useEffect(() => {
+    memoryCopy = copy?.dirty ? copy : null;
     try {
       if (copy?.dirty) sessionStorage.setItem(storageKey, JSON.stringify(copy));
       else sessionStorage.removeItem(storageKey);
+      pendingStorage = false;
     } catch {
+      pendingStorage = true;
       if (copy?.dirty)
         setError(
           'Browser recovery storage is unavailable. Keep this page open until your draft is saved.',
@@ -186,9 +193,7 @@ export function ContextPackManager({ knowledge }: { knowledge: KnowledgeCatalog 
             onClick={() => {
               try {
                 const value = JSON.parse(json);
-                const definition = value.definition ?? value;
-                if (definition.version !== 1 || !Array.isArray(definition.documents))
-                  throw Error('Use a portable context pack definition.');
+                const definition = ContextPackDefinitionSchema.parse(value.definition ?? value);
                 setCopy({ definition, dirty: true, requestId: crypto.randomUUID() });
                 setImporting(false);
                 setNotice('Imported working copy. Review source choices before saving.');
