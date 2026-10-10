@@ -1,3 +1,6 @@
+import { useEffect, useState } from 'react';
+import { apiFetch } from '../lib/api-fetch';
+import type { PublishedContextPack } from '@mitzo/protocol';
 import type { AgentContextRecipe } from '@mitzo/protocol';
 
 const workspaceRecipe: AgentContextRecipe = {
@@ -21,6 +24,29 @@ export function AgentContextRecipeEditor({
   onChange(value: AgentContextRecipe | undefined): void;
   disabled?: boolean;
 }) {
+  const [packs, setPacks] = useState<PublishedContextPack[]>([]);
+  const [packKey, setPackKey] = useState('');
+  const [packError, setPackError] = useState('');
+  useEffect(() => {
+    if (value?.source !== 'packs') return;
+    let live = true;
+    apiFetch('/api/context-packs')
+      .then(async (response) => {
+        const result = await response.json();
+        if (!response.ok || !Array.isArray(result.packs))
+          throw Error(result.error || 'Context packs unavailable');
+        if (live) {
+          setPacks(result.packs);
+          setPackError('');
+        }
+      })
+      .catch((cause) => {
+        if (live) setPackError(cause.message);
+      });
+    return () => {
+      live = false;
+    };
+  }, [value?.source]);
   return (
     <fieldset className="agent-library-context-recipe" disabled={disabled}>
       <legend>Compiled chat context</legend>
@@ -47,17 +73,99 @@ export function AgentContextRecipeEditor({
               value={value.source}
               onChange={(event) =>
                 onChange(
-                  event.target.value === 'workspace'
-                    ? structuredClone(workspaceRecipe)
-                    : { version: 1, source: 'contexgin', agentName: 'mitzo-conversational' },
+                  event.target.value === 'packs'
+                    ? { version: 2, source: 'packs', packs: [], tokenBudget: 12000 }
+                    : event.target.value === 'workspace'
+                      ? structuredClone(workspaceRecipe)
+                      : { version: 1, source: 'contexgin', agentName: 'mitzo-conversational' },
                 )
               }
             >
+              <option value="packs">Published context packs</option>
               <option value="workspace">Workspace documents</option>
               <option value="contexgin">ContexGin preset</option>
             </select>
           </label>
-          {value.source === 'workspace' ? (
+          {value.source === 'packs' ? (
+            <>
+              <p>
+                Manage reusable source choices in Knowledge → Context. Each choice pins an immutable
+                revision.
+              </p>
+              {packError && <p role="alert">{packError}</p>}
+              <label>
+                Published context pack
+                <select
+                  value={
+                    packKey || (packs[0] ? `${packs[0].definition.id}:${packs[0].revision}` : '')
+                  }
+                  onChange={(event) => setPackKey(event.target.value)}
+                >
+                  {packs.map((pack) => (
+                    <option
+                      key={`${pack.definition.id}:${pack.revision}`}
+                      value={`${pack.definition.id}:${pack.revision}`}
+                    >
+                      {pack.definition.name} · revision {pack.revision}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                type="button"
+                disabled={!packs.length}
+                onClick={() => {
+                  const pack =
+                    packs.find((item) => `${item.definition.id}:${item.revision}` === packKey) ||
+                    packs[0];
+                  if (
+                    pack &&
+                    !value.packs.some(
+                      (item) => item.id === pack.definition.id && item.revision === pack.revision,
+                    )
+                  )
+                    onChange({
+                      ...value,
+                      packs: [
+                        ...value.packs,
+                        { id: pack.definition.id, revision: pack.revision, hash: pack.hash },
+                      ],
+                    });
+                }}
+              >
+                Add pack revision
+              </button>
+              {value.packs.map((pack, index) => (
+                <div key={`${pack.id}:${pack.revision}`}>
+                  <p>
+                    {pack.id} · revision {pack.revision}
+                  </p>
+                  <code>{pack.hash}</code>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onChange({ ...value, packs: value.packs.filter((_, i) => i !== index) })
+                    }
+                  >
+                    Remove {pack.id}
+                  </button>
+                </div>
+              ))}
+              {!packs.length && !packError && <p>No published context packs are available.</p>}
+              <label>
+                Token budget
+                <input
+                  type="number"
+                  min={256}
+                  max={32000}
+                  value={value.tokenBudget || ''}
+                  onChange={(event) =>
+                    onChange({ ...value, tokenBudget: Number(event.target.value) })
+                  }
+                />
+              </label>
+            </>
+          ) : value.source === 'workspace' ? (
             <>
               <label>
                 Documents (one per line)

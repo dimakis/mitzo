@@ -50,3 +50,33 @@ it('disables compilation controls with the containing editor', () => {
   render(<Editor disabled />);
   expect(screen.getByLabelText('Compile chat context')).toHaveProperty('disabled', true);
 });
+it('selects immutable published pack revisions and leaves workspace choices available', async () => {
+  const original = global.fetch;
+  global.fetch = async () =>
+    ({
+      ok: true,
+      json: async () => ({
+        packs: [
+          {
+            revision: 2,
+            hash: 'a'.repeat(64),
+            definition: { id: 'mitzo-reviewer', name: 'Mitzo reviewer' },
+          },
+        ],
+        drafts: [],
+      }),
+    }) as Response;
+  try {
+    render(<Editor />);
+    fireEvent.click(screen.getByLabelText('Compile chat context'));
+    fireEvent.change(screen.getByLabelText('Context source'), { target: { value: 'packs' } });
+    expect(await screen.findByLabelText('Published context pack')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Add pack revision' }));
+    expect(screen.getByText(/mitzo-reviewer · revision 2/)).toBeTruthy();
+    expect(screen.getByLabelText('Token budget')).toHaveProperty('value', '12000');
+    fireEvent.change(screen.getByLabelText('Context source'), { target: { value: 'workspace' } });
+    expect(screen.getByLabelText('Documents (one per line)')).toBeTruthy();
+  } finally {
+    global.fetch = original;
+  }
+});
