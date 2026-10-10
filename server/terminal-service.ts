@@ -7,6 +7,7 @@ import type Database from 'better-sqlite3';
 import {
   TerminalInputBody,
   TerminalResizeBody,
+  TerminalScrollBody,
   type TerminalInfo,
   type TerminalEvent,
 } from '@mitzo/protocol';
@@ -28,6 +29,7 @@ export interface TerminalRecord extends TerminalInfo {
   cleanupFailures?: number;
 }
 interface TerminalProcess {
+  scroll?(lines: number | null, authorize: () => void, signal?: AbortSignal): Promise<void>;
   write(data: string): void;
   resize(cols: number, rows: number): void;
   detach(): void;
@@ -429,7 +431,35 @@ export class TerminalService {
     const live = await this.ensure(this.store.read(owner, id));
     authorize();
     this.assertOwner(owner);
+    await live.process!.scroll?.(
+      null,
+      () => {
+        authorize();
+        this.assertOwner(owner);
+      },
+      authority?.signal,
+    );
+    authorize();
+    this.assertOwner(owner);
     live.process!.write(data);
+  }
+  async scroll(
+    owner: string,
+    id: string,
+    lines: number | null,
+    authority: { signal: AbortSignal; expiresAt: number },
+  ) {
+    const authorize = () => {
+      authority.signal.throwIfAborted();
+      if (authority.expiresAt <= Date.now()) throw Error('Operator session expired');
+      this.assertOwner(owner);
+    };
+    authorize();
+    if (!TerminalScrollBody.safeParse({ lines }).success) throw Error('Invalid terminal scroll');
+    const live = await this.ensure(this.store.read(owner, id));
+    authorize();
+    if (!live.process?.scroll) throw Error('Terminal history unavailable');
+    await live.process.scroll(lines, authorize, authority.signal);
   }
   async resize(owner: string, id: string, cols: number, rows: number) {
     if (!TerminalResizeBody.safeParse({ cols, rows }).success)

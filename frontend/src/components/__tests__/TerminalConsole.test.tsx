@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
 import { it, expect, vi, afterEach } from 'vitest';
-import { render, cleanup, waitFor } from '@testing-library/react';
+import { render, cleanup, waitFor, fireEvent } from '@testing-library/react';
 import { createRef } from 'react';
 const mocks = vi.hoisted(() => ({
   dispose: vi.fn(),
   write: vi.fn(),
   reset: vi.fn(),
+  wheel: vi.fn(),
   onData: vi.fn(() => ({ dispose: vi.fn() })),
 }));
 vi.mock('@xterm/xterm', () => ({
@@ -13,10 +14,14 @@ vi.mock('@xterm/xterm', () => ({
     cols = 80;
     rows = 24;
     options = {};
+    element?: HTMLElement;
     buffer = {
       active: { length: 1, getLine: () => ({ translateToString: () => 'selected output' }) },
     };
-    open() {}
+    open(parent: HTMLElement) {
+      this.element = parent;
+      parent.addEventListener('wheel', mocks.wheel);
+    }
     loadAddon() {}
     dispose = mocks.dispose;
     write = mocks.write;
@@ -78,5 +83,53 @@ it('reattaches output, keeps writes deliberate and detaches without ending the s
   expect(mocks.dispose).toHaveBeenCalled();
   expect(vi.mocked(apiFetch).mock.calls.some(([path]) => String(path).endsWith('/end'))).toBe(
     false,
+  );
+});
+
+it('scrolls terminal history on a swipe without writing shell input', async () => {
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      observe() {}
+      disconnect() {}
+    },
+  );
+  vi.mocked(apiFetch).mockImplementation(async (path) =>
+    String(path).endsWith('/events')
+      ? new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.enqueue(
+                new TextEncoder().encode('data: {"type":"snapshot","data":"prompt","seq":1}\n\n'),
+              );
+            },
+          }),
+        )
+      : new Response('{}'),
+  );
+  const ref = createRef<TerminalConsoleHandle>();
+  const view = render(
+    <TerminalConsole ref={ref} terminalId="owned" onStatus={vi.fn()} onError={vi.fn()} />,
+  );
+  await waitFor(() => expect(mocks.write).toHaveBeenCalled());
+  const target = view.getByLabelText('Interactive terminal');
+  expect(fireEvent.wheel(target, { ctrlKey: true, deltaY: 100, cancelable: true })).toBe(true);
+  expect(mocks.wheel).not.toHaveBeenCalled();
+  fireEvent.touchStart(target, { touches: [{ identifier: 1, clientY: 100 }] });
+  fireEvent.touchMove(target, { touches: [{ identifier: 1, clientY: 180 }] });
+  fireEvent.touchEnd(target, { touches: [] });
+  await waitFor(() =>
+    expect(apiFetch).toHaveBeenCalledWith(
+      '/api/terminals/owned/scroll',
+      expect.objectContaining({ body: JSON.stringify({ lines: -5 }) }),
+    ),
+  );
+  expect(vi.mocked(apiFetch).mock.calls.some(([path]) => String(path).endsWith('/input'))).toBe(
+    false,
+  );
+  await ref.current!.scroll(null);
+  expect(apiFetch).toHaveBeenCalledWith(
+    '/api/terminals/owned/scroll',
+    expect.objectContaining({ body: JSON.stringify({ lines: null }) }),
   );
 });
