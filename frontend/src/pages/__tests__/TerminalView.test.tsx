@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 import { it, expect, vi, afterEach } from 'vitest';
-import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, cleanup, waitFor, act } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { forwardRef, useImperativeHandle, useEffect } from 'react';
 const mocks = vi.hoisted(() => ({
   send: vi.fn(async () => {}),
+  focus: vi.fn(),
   review: vi.fn(() => 'private terminal output'),
 }));
 vi.mock('../../components/TerminalConsole', () => ({
@@ -12,7 +13,7 @@ vi.mock('../../components/TerminalConsole', () => ({
     useImperativeHandle(ref, () => ({
       send: mocks.send,
       reviewOutput: mocks.review,
-      focus: vi.fn(),
+      focus: mocks.focus,
     }));
     useEffect(() => props.onStatus('connected'), [props.onStatus]);
     return <div>Shell output</div>;
@@ -84,6 +85,45 @@ it('starts directly on the host from More and runs only after deliberate submit'
   expect(mocks.send).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole('button', { name: 'Run command' }));
   await waitFor(() => expect(mocks.send).toHaveBeenCalledWith('pwd\r'));
+});
+it('preserves edits made while the previous command acknowledgment is delayed', async () => {
+  setup('/terminal');
+  await screen.findByText('Shell output');
+  let acknowledge!: () => void;
+  mocks.send.mockImplementationOnce(
+    () =>
+      new Promise<void>((resolve) => {
+        acknowledge = resolve;
+      }),
+  );
+  fireEvent.change(screen.getByLabelText('Command'), { target: { value: 'pwd' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Run command' }));
+  fireEvent.change(screen.getByLabelText('Command'), { target: { value: 'ls -la' } });
+  await act(async () => acknowledge());
+  expect((screen.getByLabelText('Command') as HTMLTextAreaElement).value).toBe('ls -la');
+  expect(mocks.focus).not.toHaveBeenCalled();
+});
+it('preserves a staged suggestion while a previous Run is awaiting acknowledgment', async () => {
+  setup('/terminal');
+  await screen.findByText('Shell output');
+  fireEvent.click(screen.getByRole('button', { name: 'Show Minion' }));
+  fireEvent.click(screen.getByText('Use Work Luna Low'));
+  fireEvent.change(screen.getByLabelText('Ask Minion'), { target: { value: 'help' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Ask adviser' }));
+  await screen.findByText('Try checking');
+  let acknowledge!: () => void;
+  mocks.send.mockImplementationOnce(
+    () =>
+      new Promise<void>((resolve) => {
+        acknowledge = resolve;
+      }),
+  );
+  fireEvent.change(screen.getByLabelText('Command'), { target: { value: 'pwd' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Run command' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Use ls -la' }));
+  await act(async () => acknowledge());
+  expect((screen.getByLabelText('Command') as HTMLTextAreaElement).value).toBe('ls -la');
+  expect(mocks.focus).not.toHaveBeenCalled();
 });
 it('reviews output before sharing and stages an adviser suggestion without running it', async () => {
   setup();

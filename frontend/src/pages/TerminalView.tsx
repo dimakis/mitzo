@@ -32,6 +32,11 @@ export function TerminalView() {
     [status, setStatus] = useState<TerminalStatus>('connecting'),
     [error, setError] = useState(''),
     [attempt, setAttempt] = useState(0);
+  const draftRevision = useRef(0);
+  function setDraft(value: string) {
+    draftRevision.current++;
+    setCommand(value);
+  }
   const [controls, setControls] = useState(true),
     [adviserOpen, setAdviserOpen] = useState(false),
     [adviserVisited, setAdviserVisited] = useState(false),
@@ -64,7 +69,7 @@ export function TerminalView() {
     setReply(null);
     setReview(null);
     setMessages([]);
-    setCommand('');
+    setDraft('');
     setHistoryOpen(false);
     adviceRequest.current?.abort();
     void apiFetch('/api/terminals', {
@@ -183,13 +188,16 @@ export function TerminalView() {
     if (!isReviewableTerminalCommand(command) || !terminal || writing || status !== 'connected')
       return;
     const value = command;
+    const revision = draftRevision.current;
     setWriting(true);
     setError('');
     try {
       await console.current!.send(`${value}\r`);
       history.add(value);
-      setCommand('');
-      console.current?.focus();
+      if (draftRevision.current === revision) {
+        setDraft('');
+        console.current?.focus();
+      }
     } catch {
       setError('Input was not acknowledged. Check the terminal before retrying.');
     } finally {
@@ -197,7 +205,7 @@ export function TerminalView() {
     }
   }
   function recall(direction: 'previous' | 'next') {
-    setCommand(direction === 'previous' ? history.previous(command) : history.next());
+    setDraft(direction === 'previous' ? history.previous(command) : history.next());
     commandInput.current?.focus();
   }
   function stage(value: string) {
@@ -206,7 +214,7 @@ export function TerminalView() {
       return;
     }
     setError('');
-    setCommand(value);
+    setDraft(value);
     setHistoryOpen(false);
     commandInput.current?.focus();
   }
@@ -540,7 +548,7 @@ export function TerminalView() {
             autoCorrect="off"
             spellCheck={false}
             onChange={(event) => {
-              setCommand(event.target.value);
+              setDraft(event.target.value);
               if (event.target.value.trim() && !isReviewableTerminalCommand(event.target.value))
                 setError('Remove invisible control characters before running this command.');
               else setError('');
