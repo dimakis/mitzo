@@ -1,3 +1,4 @@
+import { UiIcon } from '../components/UiIcon';
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useMitzoStore } from '@mitzo/client/hooks';
@@ -223,7 +224,7 @@ export function InboxView({ desktop = false }: { desktop?: boolean } = {}) {
           aria-label="Back to proposals"
           onClick={closeProposal}
         >
-          ← Back to proposals
+          <UiIcon name="back" size={16} /> Back to proposals
         </button>
       )}
       {!showMobileDetail && (
@@ -242,7 +243,9 @@ export function InboxView({ desktop = false }: { desktop?: boolean } = {}) {
       {actionError && <p role="alert">{actionError}</p>}
       {loading && <p className="inbox-empty">Loading...</p>}
 
-      {!loading && items.length === 0 && <EmptyState icon={'\u2713'} title="No pending items" />}
+      {!loading && items.length === 0 && (
+        <EmptyState icon=<UiIcon name="check" size={16} /> title="No pending items" />
+      )}
 
       {!showMobileDetail && filtersAvailable && (
         <div className="inbox-filters">
@@ -306,7 +309,7 @@ export function InboxView({ desktop = false }: { desktop?: boolean } = {}) {
                     {item.tags.length > 2 && ` · +${item.tags.length - 2}`}
                   </small>
                   <span className="proposal-record-open" aria-hidden="true">
-                    Review →
+                    Review <UiIcon name="right" size={16} />
                   </span>
                 </span>
               </button>

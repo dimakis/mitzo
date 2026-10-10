@@ -1,3 +1,4 @@
+import { UiIcon } from '../components/UiIcon';
 import {
   savedRepositoryDraft,
   repositoryDraftKey,
@@ -430,7 +431,7 @@ export function DesktopChatView() {
                       }}
                       title="Close session"
                     >
-                      &times;
+                      <UiIcon name="close" size={16} />
                     </button>
                   )}
                   <VoiceSettings

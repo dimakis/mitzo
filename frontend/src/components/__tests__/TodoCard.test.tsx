@@ -123,7 +123,7 @@ describe('TodoCard', () => {
     );
     const starBtn = container.querySelector('.todo-card-star');
     expect(starBtn).toBeTruthy();
-    expect(starBtn?.textContent).toBe('☆');
+    expect(starBtn?.querySelector('svg')?.getAttribute('fill')).toBe('none');
   });
 
   it('shows one star control while preserving the outcome status', () => {
@@ -140,8 +140,10 @@ describe('TodoCard', () => {
       />,
     );
     const starBtn = container.querySelector('.todo-card-star');
-    expect(starBtn?.textContent).toBe('★');
-    expect(container.querySelector('.todo-card-icon')?.textContent).toBe('●');
+    expect(starBtn?.querySelector('svg')?.getAttribute('fill')).toBe('currentColor');
+    expect(container.querySelector('.todo-card-icon svg')?.getAttribute('data-icon')).toBe(
+      'running',
+    );
   });
 
   it('calls onStar with item id when star button is clicked', () => {
@@ -258,7 +260,7 @@ describe('TodoCard', () => {
 
   it('shows acknowledged icon for acknowledged status', () => {
     const ackItem = { ...mockItem, status: 'acknowledged' as const };
-    render(
+    const { container } = render(
       <TodoCard
         item={ackItem}
         onAck={vi.fn()}
@@ -269,7 +271,7 @@ describe('TodoCard', () => {
         onStartSession={vi.fn()}
       />,
     );
-    expect(screen.getByText('\u25D0')).toBeTruthy();
+    expect(container.querySelector('.todo-card-icon svg')?.getAttribute('data-icon')).toBe('eye');
   });
 
   it('triggers onAck on swipe right past threshold', () => {
@@ -385,10 +387,10 @@ describe('TodoCard', () => {
     );
     const expandBtn = container.querySelector('.todo-card-expand')!;
     expect(expandBtn).toBeTruthy();
-    expect(expandBtn.textContent).toBe('\u25B6');
+    expect(expandBtn.querySelector('svg')?.getAttribute('data-icon')).toBe('forward');
     expect(container.querySelector('.todo-card-children')).toBeNull();
     fireEvent.click(expandBtn);
-    expect(expandBtn.textContent).toBe('\u25BC');
+    expect(expandBtn.querySelector('svg')?.getAttribute('data-icon')).toBe('down');
     expect(container.querySelector('.todo-card-children')).toBeTruthy();
     expect(screen.getByText('Child task')).toBeTruthy();
     fireEvent.click(expandBtn);

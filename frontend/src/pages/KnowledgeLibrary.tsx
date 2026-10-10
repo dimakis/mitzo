@@ -1,3 +1,4 @@
+import { UiIcon } from '../components/UiIcon';
 import { useRef, useState } from 'react';
 import { KnowledgeTree } from '../components/KnowledgeTree';
 import { KnowledgeReader } from '../components/KnowledgeReader';
@@ -433,7 +434,7 @@ export function KnowledgeLibrary() {
                   setAdding(false);
                 }}
               >
-                ← Library
+                <UiIcon name="back" size={16} /> Library
               </button>
               <h2>{copy!.title}</h2>
               <p className="workspace-muted">{selected?.path || 'Folder changes'}</p>
@@ -564,7 +565,7 @@ export function KnowledgeLibrary() {
                         target="_blank"
                         rel="noopener noreferrer"
                       >
-                        Open review ↗
+                        Open review <UiIcon name="external" size={16} />
                       </a>
                     )}
                     <button
@@ -832,7 +833,9 @@ export function KnowledgeLibrary() {
                       · {new Date(item.updatedAt).toLocaleDateString()}
                     </span>
                   </span>
-                  <span aria-hidden="true">↗</span>
+                  <span aria-hidden="true">
+                    <UiIcon name="forward" size={16} />
+                  </span>
                 </button>
               ))}
               {catalog?.drafts.length === 0 && (

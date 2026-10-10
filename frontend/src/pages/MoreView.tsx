@@ -44,7 +44,7 @@ export function MoreView() {
                 </span>
                 <span>{label}</span>
                 <span className="more-link-chevron" aria-hidden="true">
-                  ›
+                  <UiIcon name="forward" size={16} />
                 </span>
               </Link>
             ))}

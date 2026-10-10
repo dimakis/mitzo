@@ -1,3 +1,4 @@
+import { UiIcon } from './UiIcon';
 import { useState, type ReactNode } from 'react';
 
 export interface CollapsibleSectionProps {
@@ -43,7 +44,7 @@ export function CollapsibleSection({
 
   return (
     <div className="cc-section">
-      <button className="cc-section-header" onClick={toggle}>
+      <button className="cc-section-header" onClick={toggle} aria-expanded={!collapsed}>
         <span className="cc-section-title">{title}</span>
         {badge !== undefined && badge > 0 && <span className="cc-section-badge">{badge}</span>}
         {actions && (
@@ -52,7 +53,7 @@ export function CollapsibleSection({
           </span>
         )}
         <span className={`cc-section-chevron${collapsed ? '' : ' cc-section-chevron--open'}`}>
-          &rsaquo;
+          <UiIcon name="forward" size={16} />
         </span>
       </button>
       {!collapsed && <div className="cc-section-body">{children}</div>}

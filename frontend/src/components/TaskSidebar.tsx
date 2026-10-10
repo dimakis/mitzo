@@ -1,3 +1,5 @@
+import { UiIcon } from './UiIcon';
+import { taskStatusIcons } from '../lib/status-icons';
 import { useState } from 'react';
 import type { Task } from '../types/task';
 
@@ -8,16 +10,6 @@ interface TaskSidebarProps {
   onApprove: (id: string) => void;
   onReject: (id: string, feedback: string) => void;
 }
-
-const STATUS_ICONS: Record<string, string> = {
-  pending: '\u25CB',
-  active: '\u25C9',
-  done: '\u2713',
-  pending_review: '\u25D4',
-  blocked: '\u2298',
-  skipped: '\u2014',
-  failed: '\u2717',
-};
 
 export function TaskSidebar({
   currentTask,
@@ -34,8 +26,12 @@ export function TaskSidebar({
 
   return (
     <div className={`task-sidebar${collapsed ? ' task-sidebar--collapsed' : ''}`}>
-      <button className="task-sidebar-toggle" onClick={() => setCollapsed(!collapsed)}>
-        {collapsed ? '\u25B6' : '\u25BC'} Task
+      <button
+        className="task-sidebar-toggle"
+        onClick={() => setCollapsed(!collapsed)}
+        aria-expanded={!collapsed}
+      >
+        <UiIcon name={collapsed ? 'forward' : 'down'} size={16} /> Task
       </button>
 
       {!collapsed && (
@@ -103,8 +99,12 @@ export function TaskSidebar({
                     key={s.id}
                     className={`task-sidebar-sibling${s.id === currentTask.id ? ' task-sidebar-sibling--active' : ''}`}
                   >
-                    <span className={`task-card-chip task-card-chip--${s.status}`}>
-                      {STATUS_ICONS[s.status] || '\u25CB'}
+                    <span
+                      className={`task-card-chip task-card-chip--${s.status}`}
+                      role="img"
+                      aria-label={`Status: ${s.status.replaceAll('_', ' ')}`}
+                    >
+                      <UiIcon name={taskStatusIcons[s.status]} size={16} />
                     </span>
                     {s.title}
                   </li>

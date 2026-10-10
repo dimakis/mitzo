@@ -1,27 +1,14 @@
+import { UiIcon } from './UiIcon';
 import { useState, type CSSProperties } from 'react';
 function TreeIcon({ kind }: { kind: 'down' | 'right' | 'file' | 'folder' | 'more' }) {
-  const paths = {
-    down: 'm6 9 6 6 6-6',
-    right: 'm9 6 6 6-6 6',
-    file: 'M14 2H6v20h12V6z M14 2v5h4 M9 12h6 M9 16h6',
-    folder: 'M3 5h7l2 3h9v12H3z',
-    more: 'M5 12h.01 M12 12h.01 M19 12h.01',
-  };
-  return (
-    <svg
-      width="17"
-      height="17"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.7"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d={paths[kind]} />
-    </svg>
-  );
+  const names = {
+    down: 'down',
+    right: 'forward',
+    file: 'file',
+    folder: 'files',
+    more: 'more',
+  } as const;
+  return <UiIcon name={names[kind]} size={16} />;
 }
 import type { KnowledgeDocument } from '../types/knowledge';
 

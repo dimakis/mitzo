@@ -1,3 +1,4 @@
+import { UiIcon } from './UiIcon';
 import { useCopyFeedback } from '../hooks/useCopyFeedback';
 
 interface CopyButtonProps {
@@ -15,7 +16,7 @@ export function CopyButton({ text, className, label = 'Copy to clipboard' }: Cop
       aria-label={copied ? 'Copied' : label}
       onClick={() => copy(text)}
     >
-      {copied ? '✓' : '⎘'}
+      <UiIcon name={copied ? 'check' : 'copy'} size={16} />
     </button>
   );
 }

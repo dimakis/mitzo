@@ -1,3 +1,5 @@
+import { UiIcon, type UiIconName } from './UiIcon';
+import { sessionStatusIcons } from '../lib/status-icons';
 import { useCallback } from 'react';
 import {
   useSessionOverview,
@@ -5,13 +7,16 @@ import {
   type SessionActivityState,
 } from '../hooks/useSessionOverview';
 
-const STATE_CONFIG: Record<SessionActivityState, { icon: string; color: string; label: string }> = {
-  init: { icon: '\u25CB', color: 'var(--color-muted)', label: 'init' },
-  working: { icon: '\u25CF', color: 'var(--color-accent)', label: 'working' },
-  waiting: { icon: '\u26A0', color: 'var(--color-danger)', label: 'waiting' },
-  done: { icon: '\u2713', color: 'var(--color-success)', label: 'done' },
-  idle: { icon: '\u25CB', color: 'var(--color-muted)', label: 'idle' },
-  paused: { icon: '\u23F8', color: 'var(--color-muted)', label: 'paused' },
+const STATE_CONFIG: Record<
+  SessionActivityState,
+  { icon: UiIconName; color: string; label: string }
+> = {
+  init: { icon: sessionStatusIcons.init, color: 'var(--color-muted)', label: 'init' },
+  working: { icon: sessionStatusIcons.working, color: 'var(--color-accent)', label: 'working' },
+  waiting: { icon: sessionStatusIcons.waiting, color: 'var(--color-danger)', label: 'waiting' },
+  done: { icon: sessionStatusIcons.done, color: 'var(--color-success)', label: 'done' },
+  idle: { icon: sessionStatusIcons.idle, color: 'var(--color-muted)', label: 'idle' },
+  paused: { icon: sessionStatusIcons.paused, color: 'var(--color-muted)', label: 'paused' },
 };
 
 function formatElapsed(ms: number): string {
@@ -50,7 +55,7 @@ function ActivityCard({
       onClick={() => onTap(activity.sessionId)}
     >
       <span className="cc-card-icon" style={{ color: config.color }}>
-        {config.icon}
+        <UiIcon name={config.icon} />
       </span>
       <div className="cc-card-content">
         <div className="cc-card-title">
