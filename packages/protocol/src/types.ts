@@ -1,5 +1,6 @@
 import type { SourceSnapshot } from './source-snapshot.js';
 import type { AccountBinding } from './account-binding.js';
+import type { AgentLibraryVersion } from './agent-library.js';
 import type { SessionType, SymposiumProvenance } from './symposium.js';
 export type { AccountBinding } from './account-binding.js';
 // Unified protocol types — single source of truth for both server and frontends.
@@ -447,6 +448,8 @@ export interface SessionMeta {
   executionTerminalReason: ExecutionTerminalReason | null;
   executionUpdatedAt: number | null;
   agentName: string | null;
+  /** Immutable library identity and behavior selected at chat admission. */
+  agentProfile?: AgentLibraryVersion;
   /** Serialized JSON of the boot_context payload (sources, tokens, sections). */
   bootContext: string | null;
   createdAt: number;

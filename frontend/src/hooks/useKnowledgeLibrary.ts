@@ -1040,21 +1040,23 @@ export function useKnowledgeLibrary() {
           await loadSavedComparison();
           const active = current.current;
           const saved = active?.initialSaveConflict;
-          // A submission conflict can be against accepted knowledge rather than
-          // another saved draft. Keep accepted comparison reachable in that case,
-          // including after recovering this working copy in a later visit.
+          // A 409 can also mean the accepted source changed. If the saved draft
+          // is unchanged, retain the source error and allow accepted comparison.
           if (
-            active &&
+            active?.draft?.id === draft.id &&
+            active.draft.version === draft.version &&
             saved?.id === draft.id &&
             saved.version === draft.version &&
             saved.baseRevision === draft.baseRevision &&
-            (saved.state === 'draft' || saved.state === 'in-review') &&
+            saved.state === draft.state &&
             JSON.stringify(saved.documents) === JSON.stringify(draft.documents) &&
-            JSON.stringify(saved.directories || []) === JSON.stringify(draft.directories || [])
+            JSON.stringify(saved.directories || []) === JSON.stringify(draft.directories || []) &&
+            JSON.stringify(saved.review) === JSON.stringify(draft.review)
           ) {
             persist({
               ...active,
               draft: { ...saved, error: error.message },
+
               initialSaveConflict: undefined,
               savedComparisonUnavailable: false,
             });

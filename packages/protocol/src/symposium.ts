@@ -92,6 +92,8 @@ export type SymposiumProfileRecipe = z.infer<typeof SymposiumProfileRecipeSchema
 /** Portable role guidance only. Runtime identity and grants remain session-scoped. */
 export const SymposiumProfileDefinitionSchema = z.strictObject({
   name: z.string().trim().min(1),
+  descriptor: z.string().trim().min(1).max(80).optional(),
+  description: z.string().trim().max(500).optional(),
   role: z.string().regex(/^[a-z][a-z0-9_-]{0,63}$/),
   instructions: z.string().trim().min(1),
   expectedOutput: z.string().trim().min(1),

@@ -6,6 +6,37 @@ import {
 } from '../symposium-custodian-protocol.js';
 
 describe('finite custodian protocol', () => {
+  it('round-trips opaque catalog IDs only on profile routes without changing other resource contracts', () => {
+    for (const profileId of ['my agent', 'design/architecture', 'agent%2Fother', 'équipe']) {
+      for (const operation of [
+        'library.read',
+        'library.export',
+        'profile.read',
+        'profile.export',
+      ] as const) {
+        const route = custodianRoute({ operation, resourceId: profileId, revision: '3' });
+        expect(route.path).toContain(`/${encodeURIComponent(profileId)}/3`);
+        expect(selectCustodianOperation(route.method, route.path)).toEqual({
+          operation,
+          resourceId: profileId,
+          revision: '3',
+        });
+        expect(
+          decodeCustodianRequest({
+            operation,
+            resourceId: profileId,
+            revision: '3',
+            requestId: 'read-1',
+            epoch: 1,
+            body: {},
+            query: {},
+            authorization: { id: 'operator', expiresAt: 1000 },
+          }).resourceId,
+        ).toBe(profileId);
+      }
+    }
+    expect(selectCustodianOperation('GET', '/api/agent-library/bad%encoding/3')).toBeNull();
+  });
   it('round-trips only the exact read-only configuration receipt and bounded stage key', () => {
     const sessionId = 'session-1';
     const resourceId = 'original-key:revise';

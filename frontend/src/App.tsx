@@ -27,6 +27,7 @@ import { WorkspacePageHeading } from './components/WorkspacePageHeading';
 import { SessionList } from './pages/SessionList';
 import { ResponsiveChatView } from './components/ResponsiveChatView';
 import { KnowledgeLibrary } from './pages/KnowledgeLibrary';
+import { AgentLibrary } from './pages/AgentLibrary';
 import { FileViewer } from './pages/FileViewer';
 import { InboxView } from './pages/InboxView';
 import { CalendarView } from './pages/CalendarView';
@@ -369,6 +370,16 @@ export function App() {
                     <ProtectedRoute>
                       <PageRoute>
                         <KnowledgeLibrary />
+                      </PageRoute>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/agent-library"
+                  element={
+                    <ProtectedRoute>
+                      <PageRoute>
+                        <AgentLibrary />
                       </PageRoute>
                     </ProtectedRoute>
                   }

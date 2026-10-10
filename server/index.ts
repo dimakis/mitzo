@@ -1,5 +1,6 @@
 // Load runtime configuration before bootstrap dependencies validate or capture it.
 import 'dotenv/config';
+import { bindAgentLibraryTransport } from './agent-library-transport.js';
 import { configuredGithubSeedBaselinePaths } from './github-seed-baselines.js';
 import {
   keychainConnectionConfig,
@@ -593,10 +594,12 @@ server.on('upgrade', async (req, socket, head) => {
   wss.handleUpgrade(req, socket, head, (ws) => {
     const connId = `conn-${crypto.randomUUID()}`;
     claimTransportConnection(connId, authSession.id);
+    const releaseLibrary = bindAgentLibraryTransport(connId, authSession);
     const unregisterAuth = registerAuthSession(authSession, (reason) => {
       ws.close(4401, reason === 'expired' ? 'Authentication expired' : 'Logged out');
     });
     ws.once('close', () => {
+      releaseLibrary();
       unregisterAuth();
       releaseTransportConnection(connId, authSession.id);
     });
@@ -670,6 +673,9 @@ app.get('/api/chat/events', (req, res) => {
   const authSession = res.locals.authSession as AuthSession | undefined;
 
   chatSseRegistry.add(connectionId, res, authSession?.id);
+  const releaseLibrary = authSession
+    ? bindAgentLibraryTransport(connectionId, authSession)
+    : () => undefined;
   if (authSession) claimTransportConnection(connectionId, authSession.id);
   connRegistry.register(connectionId, transport);
   let cleaned = false;
@@ -677,6 +683,7 @@ app.get('/api/chat/events', (req, res) => {
   const cleanup = () => {
     if (cleaned) return;
     cleaned = true;
+    releaseLibrary();
     unregisterAuth();
     if (authSession) releaseTransportConnection(connectionId, authSession.id);
     chatSseRegistry.remove(connectionId);

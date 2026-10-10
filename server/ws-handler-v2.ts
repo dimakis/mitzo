@@ -669,6 +669,16 @@ export function handleSendV2(
     { 'ws.connectionId': connectionId, 'ws.sessionId': msg.sessionId ?? 'new' },
     async (span) => {
       try {
+        if (msg.sessionId && msg.agentProfile) {
+          const pinned = ctx.eventStore.getSession(msg.sessionId)?.agentProfile;
+          if (
+            !pinned ||
+            pinned.profileId !== msg.agentProfile.profileId ||
+            pinned.revision !== msg.agentProfile.revision
+          )
+            throw Error('Choose a new chat to change its agent profile');
+        }
+
         if (msg.sessionId && ctx.eventStore.getSession(msg.sessionId)?.symposiumConfig)
           throw new Error('Use Symposium directed prompts for this session');
         if (!delivery?.identityClaimed) claimChatCommand(ctx.eventStore, msg);
@@ -1109,6 +1119,8 @@ export function handleSendV2(
             onStartupAdmission,
             telosTaskId: msg.telosTaskId,
             agentName: msg.agentName,
+            agentProfile: msg.agentProfile,
+            operatorConnectionId: connectionId,
             userIntent,
           }).catch((err: unknown) =>
             transport.send({
@@ -1175,6 +1187,8 @@ export function handleSendV2(
             onStartupAdmission,
             telosTaskId: msg.telosTaskId,
             agentName: msg.agentName,
+            agentProfile: msg.agentProfile,
+            operatorConnectionId: connectionId,
             userIntent,
           }).catch((err: unknown) =>
             transport.send({

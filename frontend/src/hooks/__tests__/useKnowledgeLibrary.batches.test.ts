@@ -201,6 +201,75 @@ it('freezes edits during sending and retries a lost response with the same saved
       .map(([, init]) => JSON.parse(init.body)),
   ).toEqual([{ version: 2 }, { version: 2 }]);
 });
+it('keeps accepted-source conflicts out of saved-draft comparison and rebases the existing batch', async () => {
+  recover();
+  let saved = { ...draft };
+  fetch.mockImplementation(async (url: string, init?: RequestInit) => {
+    if (url === '/api/knowledge') return { ok: true, json: async () => catalog };
+    if (url.endsWith('/ready')) {
+      if (saved.baseRevision === 'base')
+        return {
+          ok: false,
+          status: 409,
+          json: async () => ({
+            error: 'Accepted knowledge changed. Compare the accepted document.',
+          }),
+        };
+      return {
+        ok: true,
+        json: async () => ({
+          draft: {
+            ...saved,
+            state: 'in-review',
+            review: {
+              url: 'https://github.com/example/k/pull/1',
+              head: 'rebased',
+              version: saved.version,
+              ready: true,
+            },
+          },
+        }),
+      };
+    }
+    if (url === '/api/knowledge/refresh')
+      return { ok: true, json: async () => ({ ...catalog, revision: 'newer' }) };
+    if (url.startsWith('/api/knowledge/document?'))
+      return { ok: true, json: async () => ({ content: 'new accepted' }) };
+    if (init?.method === 'PUT') {
+      const body = JSON.parse(String(init.body));
+      saved = {
+        ...saved,
+        baseRevision: body.baseRevision,
+        version: saved.version + 1,
+        documents: body.documents.map((d: typeof item) => ({ ...d, base: 'new accepted' })),
+      };
+    }
+    return { ok: true, json: async () => ({ draft: saved }) };
+  });
+  const { result } = renderHook(useKnowledgeLibrary);
+  await waitFor(() => expect(result.current.catalog).toBeTruthy());
+  await act(async () => {
+    await result.current.sendForReview();
+  });
+  expect(result.current.copy?.initialSaveConflict).toBeUndefined();
+  expect(result.current.error).toContain('Accepted knowledge changed');
+  expect(result.current.copy?.draft?.id).toBe('batch');
+  expect(result.current.selected?.content).toBe('saved edit');
+  await act(async () => {
+    await result.current.compare();
+  });
+  expect(result.current.comparison?.revision).toBe('newer');
+  expect(result.current.comparison?.documents[0].content).toBe('new accepted');
+  await act(async () => {
+    await result.current.save('newer', [{ ...item, content: 'reconciled edit' }]);
+  });
+  expect(result.current.copy?.draft?.id).toBe('batch');
+  expect(result.current.copy?.draft?.version).toBe(3);
+  await act(async () => {
+    await result.current.sendForReview();
+  });
+  expect(result.current.copy?.draft?.review?.ready).toBe(true);
+});
 it('preserves a saved batch on send conflict and loads the comparison without adopting remote edits', async () => {
   recover();
   const { result } = renderHook(useKnowledgeLibrary);
