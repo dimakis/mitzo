@@ -20,13 +20,20 @@ Choose **Edit** to stage changes. Moves retain the original accepted source path
 current text in the recovered working copy; moving back to the source path cancels
 that move. New folders and directory-only changes use the same draft, review and
 acceptance workflow as text edits. Moves stay within the same enrolled directory
-scope; individually enrolled guidance files cannot move. Empty folders are represented
+scope; individually enrolled guidance files cannot move, even when their parent
+directory is also enrolled. Empty folders are represented
 by reviewed `.gitkeep` markers. Saved draft versions and exact creation request IDs
 also cover structural operations, so uncertain responses can be retried without
 losing later edits or folders.
 
+Saved-draft conflict comparisons show the saved and local new folders and document
+moves, including each move's original and destination paths. Compare these
+structural changes before choosing which version to keep. If the saved version is
+unavailable, refresh it before reconciling.
+
 Removing the last folder from a never-published saved folder-only change closes
-only that local draft. For a published folder-only change, the server checks the saved draft version and canonical review identity and head before
+only that local draft. For a published folder-only change, the server checks the
+saved draft version and canonical review identity and head before
 closing it, then verifies the result before clearing the local operation. A lost
 response keeps the folder recoverable for retry; a changed review blocks cancellation.
 GitHub does not provide an atomic head comparison for closing a pull request, so

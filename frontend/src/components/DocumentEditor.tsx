@@ -188,7 +188,7 @@ export function DocumentEditor(props: Props) {
             >
               Redo
             </button>
-            {markdown && mode !== 'preview' && !preferences.vim && (
+            {markdown && mode !== 'preview' && (
               <>
                 <button
                   type="button"
