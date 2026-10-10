@@ -4,6 +4,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { chmodSync, closeSync, openSync } from 'node:fs';
 import type { AccountBinding } from '@mitzo/protocol';
+import { AgentSandboxContextScopeSchema } from '@mitzo/protocol';
 import { z } from 'zod';
 import type { OpenShellRuntime, OpenShellAccountRoute } from './openshell-runtime.js';
 import { validateOpenShellCliEnvironment } from './openshell-cli-environment.js';
@@ -102,6 +103,19 @@ const KnowledgeAdoption = z
   })
   .strict();
 export type KnowledgeAdoptionSelection = z.infer<typeof KnowledgeAdoption>;
+const AgentContextAdoption = z.strictObject({
+  profileId: RuntimeString,
+  revision: z.number().int().positive(),
+  profileHash: z.string().regex(/^[a-f0-9]{64}$/),
+  recipeHash: z.string().regex(/^[a-f0-9]{64}$/),
+  payloadHash: z.string().regex(/^[a-f0-9]{64}$/),
+  snapshotHash: z.string().regex(/^[a-f0-9]{64}$/),
+  contextSha256: z.string().regex(/^[a-f0-9]{64}$/),
+  sandbox: AgentSandboxContextScopeSchema.safeExtend({
+    effectiveRecipeHash: z.string().regex(/^[a-f0-9]{64}$/),
+  }),
+});
+export type AgentContextAdoptionSelection = z.infer<typeof AgentContextAdoption>;
 
 const CommandInput = z
   .object({
@@ -265,6 +279,12 @@ export class CodexConversationStore {
       selection TEXT NOT NULL, accepted_at INTEGER NOT NULL,
       PRIMARY KEY(conversation_id, command_id, attempt),
       FOREIGN KEY(conversation_id, command_id) REFERENCES codex_commands(conversation_id,id));`);
+    this.db.exec(`CREATE TABLE IF NOT EXISTS codex_agent_context_adoptions (
+      conversation_id TEXT NOT NULL, command_id TEXT NOT NULL,
+      attempt INTEGER NOT NULL, thread_id TEXT NOT NULL, turn_id TEXT NOT NULL,
+      selection TEXT NOT NULL, accepted_at INTEGER NOT NULL,
+      PRIMARY KEY(conversation_id, command_id, attempt),
+      FOREIGN KEY(conversation_id, command_id) REFERENCES codex_commands(conversation_id,id));`);
     this.db.exec(`CREATE TABLE IF NOT EXISTS codex_capacity_native_acks (
       conversation_id TEXT NOT NULL REFERENCES codex_conversations(id),command_id TEXT NOT NULL,attempt INTEGER NOT NULL,
       thread_id TEXT NOT NULL,turn_id TEXT NOT NULL,generation INTEGER NOT NULL,accepted_at INTEGER NOT NULL,
@@ -415,6 +435,70 @@ export class CodexConversationStore {
     };
   }
   /** Acknowledged provider context, distinct from selection or successful file upload. */
+  recordAgentContextAdoption(
+    id: string,
+    binding: AccountBinding,
+    commandId: string,
+    threadId: string,
+    turnId: string,
+    selection: AgentContextAdoptionSelection,
+  ): void {
+    const encoded = JSON.stringify(AgentContextAdoption.parse(selection));
+    this.db.transaction(() => {
+      const state = this.read(id, binding);
+      const command = this.commands(id, binding).find((entry) => entry.id === commandId);
+      if (state.threadId !== threadId || command?.status !== 'running')
+        throw Error('Agent context adoption requires the running provider thread');
+      const native = this.db
+        .prepare(
+          'SELECT thread_id,turn_id,generation FROM codex_capacity_native_acks WHERE conversation_id=? AND command_id=? AND attempt=?',
+        )
+        .get(id, commandId, command.attempt) as
+        { thread_id: string; turn_id: string; generation: number } | undefined;
+      if (
+        !native ||
+        native.thread_id !== threadId ||
+        native.turn_id !== turnId ||
+        native.generation !== state.threadGeneration
+      )
+        throw Error('Agent context adoption requires the exact native acknowledgement');
+      const previous = this.db
+        .prepare(
+          'SELECT thread_id,turn_id,selection FROM codex_agent_context_adoptions WHERE conversation_id=? AND command_id=? AND attempt=?',
+        )
+        .get(id, commandId, command.attempt) as
+        { thread_id: string; turn_id: string; selection: string } | undefined;
+      if (previous) {
+        if (
+          previous.thread_id !== threadId ||
+          previous.turn_id !== turnId ||
+          previous.selection !== encoded
+        )
+          throw Error('Conflicting agent context adoption');
+        return;
+      }
+      this.db
+        .prepare('INSERT INTO codex_agent_context_adoptions VALUES (?,?,?,?,?,?,?)')
+        .run(id, commandId, command.attempt, threadId, turnId, encoded, Date.now());
+    })();
+  }
+  agentContextAdoptions(id: string, binding: AccountBinding) {
+    this.read(id, binding);
+    return (
+      this.db
+        .prepare(
+          'SELECT command_id AS commandId,attempt,thread_id AS threadId,turn_id AS turnId,selection,accepted_at AS acceptedAt FROM codex_agent_context_adoptions WHERE conversation_id=? ORDER BY accepted_at,command_id,attempt',
+        )
+        .all(id) as {
+        commandId: string;
+        attempt: number;
+        threadId: string;
+        turnId: string;
+        selection: string;
+        acceptedAt: number;
+      }[]
+    ).map((row) => ({ ...row, selection: AgentContextAdoption.parse(JSON.parse(row.selection)) }));
+  }
   recordKnowledgeAdoption(
     id: string,
     binding: AccountBinding,
