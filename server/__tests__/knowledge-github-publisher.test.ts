@@ -426,3 +426,13 @@ it('rechecks the host lease fence after slow reads immediately before closing', 
   ).toHaveLength(2);
   expect(run.mock.calls.some((call) => call[1][1] === 'close')).toBe(false);
 });
+
+it('checks the host lease immediately before ready after slow canonical reads', async () => {
+  const { publisher, run } = fixture();
+  const beforeReady = vi.fn(() => {
+    throw new Error('Ready lease expired');
+  });
+  await expect(publisher.sendForReview({ ...input, beforeReady })).rejects.toThrow('lease expired');
+  expect(beforeReady).toHaveBeenCalledOnce();
+  expect(run.mock.calls.some((call) => call[1][1] === 'ready')).toBe(false);
+});
