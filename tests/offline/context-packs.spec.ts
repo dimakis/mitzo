@@ -50,6 +50,8 @@ test('curates context packs with accepted pins, explicit publication and respons
           json: mode === 'empty' ? { packs: [], drafts: [] } : { packs, drafts },
         });
       }
+      if (url.pathname === '/api/context-packs/mitzo-reviewer/revisions')
+        return route.fulfill({ json: { revisions: packs } });
       if (url.pathname === '/api/context-packs/mitzo-reviewer/impact')
         return route.fulfill({
           json: {
@@ -165,7 +167,7 @@ test('curates context packs with accepted pins, explicit publication and respons
   if (isMobile) await page.setViewportSize({ width: 320, height: 844 });
   await page.goto('/knowledge?view=context');
   await expect(page.getByRole('region', { name: 'Context packs' })).toBeVisible();
-  await page.getByRole('button', { name: 'Mitzo reviewer Revision 1', exact: true }).click();
+  await page.getByRole('button', { name: /Mitzo reviewer.*Revision 1/ }).click();
   await page.getByLabel('Pack name').fill('Mitzo reviewer with release context');
   await expect(
     page.getByRole('button', { name: 'Publish pack revision', exact: true }),
@@ -182,6 +184,14 @@ test('curates context packs with accepted pins, explicit publication and respons
     .getByRole('button', { name: 'Revision comparison and affected profiles', exact: true })
     .click();
   await expect(page.getByText(/Mitzo code reviewer · profile revision 2/)).toBeVisible();
+  await page
+    .locator('.agent-library-context-preview')
+    .filter({ hasText: 'offline-compiler' })
+    .scrollIntoViewIfNeeded();
+  await page.screenshot({
+    path: testInfo.outputPath('context-pack-compiled-provenance.png'),
+    fullPage: true,
+  });
   await page.getByRole('button', { name: 'Publish pack revision', exact: true }).click();
   await expect(page.getByRole('status')).toContainText('Published revision 2');
   for (const [theme, accent, font] of [
@@ -198,7 +208,7 @@ test('curates context packs with accepted pins, explicit publication and respons
     );
     await page.reload();
     await page
-      .getByRole('button', { name: 'Mitzo reviewer with release context Revision 2', exact: true })
+      .getByRole('button', { name: /Mitzo reviewer with release context.*Revision 2/ })
       .click();
     await page.getByLabel('Pack name').focus();
     await expect(page.getByLabel('Pack name')).toBeFocused();
@@ -218,6 +228,13 @@ test('curates context packs with accepted pins, explicit publication and respons
     ).toBeInViewport();
     await page.screenshot({
       path: testInfo.outputPath(`context-packs-${theme}-${accent}-${font}.png`),
+      fullPage: true,
+    });
+    await page.locator('.knowledge-library').evaluate((element) => {
+      element.scrollTop = 0;
+    });
+    await page.screenshot({
+      path: testInfo.outputPath(`context-packs-top-${theme}-${accent}-${font}.png`),
       fullPage: true,
     });
   }
