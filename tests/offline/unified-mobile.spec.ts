@@ -1507,6 +1507,7 @@ async function exerciseBriefingReloadRecovery(
   let acceptRegistration = false;
   let registered = false;
   let hidden = false;
+  let slowMetadata = false;
   let sockets = 0;
   let chatSseRequests = 0;
   const websocketSends: unknown[] = [];
@@ -1594,7 +1595,8 @@ async function exerciseBriefingReloadRecovery(
     if (url.pathname === `/api/chat/web-search-consent/${sessionId}`)
       return route.fulfill({ json: { ok: true, grant: 'denied', revision: 0, updatedAt: null } });
     if (url.pathname === `/api/sessions/${sessionId}/messages`) return route.fulfill({ json: [] });
-    if (url.pathname === `/api/sessions/${sessionId}/meta`)
+    if (url.pathname === `/api/sessions/${sessionId}/meta`) {
+      if (slowMetadata) await new Promise<void>((resolve) => setTimeout(resolve, 350));
       return route.fulfill({
         json: {
           sessionType: 'chat',
@@ -1607,6 +1609,7 @@ async function exerciseBriefingReloadRecovery(
           modelSelection: { model: 'luna-fixture', models },
         },
       });
+    }
     if (url.pathname === `/api/sessions/${sessionId}/symposium/status`)
       return route.fulfill({ json: { sessionId, config: null, seats: [] } });
     return route.fallback();
@@ -1667,8 +1670,18 @@ async function exerciseBriefingReloadRecovery(
     `/briefings/${binding.date}?revision=${binding.revision}`,
   );
   const workspace = page.getByRole('button', { name: /^Workspace controls/ });
-  if ((await workspace.count()) && (await workspace.getAttribute('aria-expanded')) === 'false')
-    await workspace.click();
+  async function openWorkspace() {
+    await expect(page.getByText('Jeeves · 2026-10-10', { exact: true })).toBeVisible();
+    await expect(workspace).toBeVisible();
+    await expect(page.locator('.chat-account-binding')).toHaveText('Work OpenAI');
+    if ((await workspace.getAttribute('aria-expanded')) === 'false') await workspace.click();
+    await expect(workspace).toHaveAttribute('aria-expanded', 'true');
+    await expect(page.getByRole('combobox', { name: 'Model', exact: true })).toHaveValue(
+      binding.model,
+    );
+  }
+
+  await openWorkspace();
   await expect(page.getByRole('combobox', { name: 'Model', exact: true })).toHaveValue(
     binding.model,
   );
@@ -1696,8 +1709,7 @@ async function exerciseBriefingReloadRecovery(
   }
   await expect(page).toHaveURL(new RegExp(`/chat/${sessionId}$`));
   await expect(retry).toBeVisible();
-  if ((await workspace.count()) && (await workspace.getAttribute('aria-expanded')) === 'false')
-    await workspace.click();
+  await openWorkspace();
   await expect(page.getByRole('combobox', { name: 'Model', exact: true })).toBeDisabled();
   expect(sends).toHaveLength(2);
   expect(turns.size).toBe(1);
@@ -1706,13 +1718,14 @@ async function exerciseBriefingReloadRecovery(
   await expect(retry).toHaveCount(0);
   expect(registrations).toEqual([binding, binding]);
   await page.goto('https://mitzo-ui.test/briefings/2026-10-10?ask=1');
+  // Exercise delayed account hydration after the final reader-to-chat transition.
+  slowMetadata = true;
   await page
     .getByRole('dialog')
     .getByRole('button', { name: 'Use selection', exact: true })
     .click();
   await expect(page).toHaveURL(new RegExp(`/chat/${sessionId}$`));
-  if ((await workspace.count()) && (await workspace.getAttribute('aria-expanded')) === 'false')
-    await workspace.click();
+  await openWorkspace();
   await expect(page.getByRole('combobox', { name: 'Model', exact: true })).toBeDisabled();
   expect(sends).toHaveLength(2);
   expect(turns.size).toBe(1);
