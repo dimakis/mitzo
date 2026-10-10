@@ -302,3 +302,28 @@ it('rejects changing source bytes under one immutable identity during pack compo
     ),
   ).rejects.toThrow(/source.*content|source.*changed/i);
 });
+it('keeps pack guidance identity distinct from similarly named accepted documents', async () => {
+  const path = 'packs/architecture/retrieval-guidance.md';
+  const selectedDefinition = { ...definition, documents: [{ ...document, path }] };
+  const selected = {
+    ...pack,
+    definition: selectedDefinition,
+    hash: contextDigest(selectedDefinition),
+  };
+  const packs = {
+    ...adapter(),
+    resolve: async () => selected,
+    readDocument: async () => ({
+      storeId: 'accepted-mgmt',
+      path,
+      revision,
+      content: 'Accepted document instructions.',
+    }),
+  };
+  const result = await compileAgentContext(
+    { ...recipe, packs: [{ id: selected.id, revision: selected.revision, hash: selected.hash }] },
+    { packs },
+  );
+  expect(result.context.fullMarkdown).toContain('Accepted document instructions.');
+  expect(result.context.fullMarkdown).toContain(definition.retrievalGuidance);
+});
