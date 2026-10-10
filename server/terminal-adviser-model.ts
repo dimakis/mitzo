@@ -52,7 +52,10 @@ export async function createTerminalAdviserSession(
             return credentials.resolve(profile.credentialRef);
           })
         : await credentials.resolve(profile.credentialRef);
-    return new ResponsesSession({ ...config, tools: [] }, { accountId: binding.accountId, apiKey });
+    return new ResponsesSession(
+      { ...config, tools: [] },
+      { accountId: binding.accountId, apiKey, textTranscript: true },
+    );
   }
   if (binding.provider === 'google-vertex') {
     const profile = profiles.googleProfile(binding);
@@ -64,6 +67,7 @@ export async function createTerminalAdviserSession(
       { ...config, tools: [] },
       {
         accountId: binding.accountId,
+        textTranscript: true,
         projectId: profile.projectId,
         region: profile.region,
         getAccessToken: async () => {

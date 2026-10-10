@@ -43,6 +43,8 @@ export interface ResponsesCheckpoint {
 
 export interface ResponsesSessionOptions {
   accountId: string;
+  /** Stateless, text-only reviewed transcript. Incompatible with tools or checkpoints. */
+  textTranscript?: boolean;
   /** Explicit API credential resolved by the server; never inferred from another account. */
   apiKey: string;
   /** Enrolled rotation uses a fresh, account-bound secret for every request. Failure never falls back. */
@@ -322,6 +324,8 @@ export class ResponsesSession implements ModelSession {
     private config: ModelSessionConfig,
     private options: ResponsesSessionOptions,
   ) {
+    if (options.textTranscript && (config.tools?.length || options.checkpoint))
+      throw new Error('Text transcript inference cannot use tools or checkpoints');
     if (!options.accountId.trim()) throw new Error('OpenAI account ID is required');
     if (options.checkpoint && options.checkpoint.accountId !== options.accountId)
       throw new Error('OpenAI checkpoint account does not match');
@@ -355,12 +359,18 @@ export class ResponsesSession implements ModelSession {
     parentContext: Context,
   ): AsyncIterable<StreamEvent> {
     if (this.running) throw new Error('OpenAI session already has a running turn');
-    if (!isDeepStrictEqual(messages.slice(0, this.state.history.length), this.state.history))
+    if (
+      !this.options.textTranscript &&
+      !isDeepStrictEqual(messages.slice(0, this.state.history.length), this.state.history)
+    )
       throw new Error('OpenAI conversation history does not match its checkpoint');
-    const input = [
-      ...this.state.input,
-      ...inputMessages(messages.slice(this.state.history.length)),
-    ];
+    const input = this.options.textTranscript
+      ? messages.map((message) => {
+          if (typeof message.content !== 'string')
+            throw new Error('Text transcript requires text messages');
+          return { role: message.role, content: message.content };
+        })
+      : [...this.state.input, ...inputMessages(messages.slice(this.state.history.length))];
     this.running = true;
     const span = trace.getTracer('mitzo', '1.0.0').startSpan(
       'openai.responses.create',

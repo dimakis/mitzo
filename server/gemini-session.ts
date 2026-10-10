@@ -41,6 +41,8 @@ export interface GeminiOptions {
   region: string;
   getAccessToken(): Promise<string>;
   checkpoint?: ResponsesCheckpoint;
+  /** Stateless, text-only reviewed transcript. Incompatible with tools or checkpoints. */
+  textTranscript?: boolean;
 }
 const toolName = (name: string) =>
   `tool_${createHash('sha256').update(name).digest('hex').slice(0, 40)}`;
@@ -56,6 +58,8 @@ export class GeminiSession implements ModelSession {
     private config: ModelSessionConfig,
     private options: GeminiOptions,
   ) {
+    if (options.textTranscript && (config.tools?.length || options.checkpoint))
+      throw new Error('Text transcript inference cannot use tools or checkpoints');
     if (
       !options.accountId ||
       !options.projectId ||
@@ -83,17 +87,31 @@ export class GeminiSession implements ModelSession {
   }
   async *turn(messages: ConversationMessage[]): AsyncIterable<StreamEvent> {
     if (this.running) throw new Error('Gemini session already running');
-    if (!isDeepStrictEqual(messages.slice(0, this.state.history.length), this.state.history))
+    if (
+      !this.options.textTranscript &&
+      !isDeepStrictEqual(messages.slice(0, this.state.history.length), this.state.history)
+    )
       throw new Error('Gemini history does not match checkpoint');
     this.config.signal?.throwIfAborted();
-    const input = structuredClone(this.state.input);
+    const input = this.options.textTranscript ? [] : structuredClone(this.state.input);
     const calls = new Map<string, { name: string; id?: string }>();
     input.forEach((content, ci) =>
       Content.parse(content).parts.forEach((part, pi) => {
         if (part.functionCall) calls.set(callId(ci, pi), part.functionCall);
       }),
     );
-    for (const message of messages.slice(this.state.history.length)) {
+    for (const message of this.options.textTranscript
+      ? messages
+      : messages.slice(this.state.history.length)) {
+      if (this.options.textTranscript) {
+        if (typeof message.content !== 'string')
+          throw new Error('Text transcript requires text messages');
+        input.push({
+          role: message.role === 'assistant' ? 'model' : 'user',
+          parts: [{ text: message.content }],
+        });
+        continue;
+      }
       if (message.role !== 'user')
         throw new Error('Gemini assistant history requires a checkpoint');
       const parts =
