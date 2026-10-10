@@ -23,12 +23,25 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
     versions: [{ profileId: 'bob', revision: 3, definition, contentHash: 'a'.repeat(64) }],
   };
   const errors: string[] = [];
+  let catalogMode: 'content' | 'empty' | 'error' | 'loading' = 'content';
+  let releaseCatalog: (() => void) | undefined;
   page.on('pageerror', (error) => errors.push(error.message));
   await page.routeWebSocket('**/*', (socket) => socket.close());
   await page.route('**/*', async (route) => {
     const url = new URL(route.request().url());
     if (url.hostname !== 'mitzo-ui.test') return route.abort();
     if (url.pathname.startsWith('/api/')) {
+      if (url.pathname === '/api/agent-library') {
+        if (catalogMode === 'loading')
+          await new Promise<void>((resolve) => {
+            releaseCatalog = resolve;
+          });
+        if (catalogMode === 'error')
+          return route.fulfill({ status: 503, json: { error: 'Offline Library unavailable' } });
+        return route.fulfill({
+          json: catalogMode === 'empty' ? { drafts: [], versions: [] } : catalog,
+        });
+      }
       if (url.pathname.endsWith('/events'))
         return route.fulfill({ contentType: 'text/event-stream', body: 'retry: 60000\n\n' });
       if (url.pathname === '/api/agent-library/drafts') {
@@ -135,5 +148,100 @@ test('edits and publishes named agents while preserving Agents navigation', asyn
       '/tasks',
     );
   }
+  if (isMobile) await page.setViewportSize({ width: 320, height: 844 });
+  for (const theme of ['light', 'dark']) {
+    for (const [accent, font] of [
+      ['lavender', 'system'],
+      ['teal', 'georgia'],
+    ]) {
+      await page.evaluate(
+        ({ theme, accent, font }) => {
+          localStorage.setItem('mitzo-theme', theme);
+          localStorage.setItem('mitzo-accent', accent);
+          localStorage.setItem('mitzo-font', font);
+        },
+        { theme, accent, font },
+      );
+      await page.goto('/agent-library');
+      await expect(page.getByLabel('Agent name')).toHaveValue('Robert');
+      if (isMobile) {
+        await expect(page.locator('.mobile-workspace-masthead')).toBeVisible();
+        expect(
+          await page
+            .getByLabel('Search agents')
+            .evaluate((element) => element.getBoundingClientRect().width),
+        ).toBeGreaterThanOrEqual(224);
+      }
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+        true,
+      );
+      expect(
+        await page
+          .getByLabel('Agent name')
+          .evaluate((element) => element.getBoundingClientRect().height),
+      ).toBeGreaterThanOrEqual(44);
+      if (font === 'georgia')
+        expect(
+          await page
+            .getByLabel('Agent name')
+            .evaluate((element) => getComputedStyle(element).fontFamily),
+        ).toContain('Georgia');
+      await page
+        .getByRole('button', { name: 'Use as reviewer', exact: true })
+        .scrollIntoViewIfNeeded();
+      await expect(
+        page.getByRole('button', { name: 'Use as reviewer', exact: true }),
+      ).toBeInViewport();
+      await page.screenshot({
+        path: testInfo.outputPath(`agent-library-${theme}-${accent}-${font}.png`),
+        fullPage: true,
+      });
+    }
+  }
+  const savedIdentity = {
+    name: catalog.versions[0].definition.name,
+    description: catalog.versions[0].definition.description,
+  };
+  catalog.versions[0].definition.name = 'B'.repeat(80);
+  catalog.versions[0].definition.description = 'Compare designs and document evidence. '.repeat(10);
+  await page.reload();
+  await expect(page.getByLabel('Agent name')).toHaveValue('B'.repeat(80));
+  await page.evaluate(() => {
+    document.documentElement.style.fontSize = '20px';
+  });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.getByRole('button', { name: 'Use as reviewer', exact: true }).scrollIntoViewIfNeeded();
+  await expect(page.getByRole('button', { name: 'Use as reviewer', exact: true })).toBeInViewport();
+  await page.screenshot({
+    path: testInfo.outputPath('agent-library-large-text.png'),
+    fullPage: true,
+  });
+  Object.assign(catalog.versions[0].definition, savedIdentity);
+  await page.evaluate(() => {
+    document.documentElement.style.fontSize = '';
+  });
+  catalogMode = 'empty';
+  await page.reload();
+  await expect(page.getByText('Create your first agent, or start with the advisor.')).toBeVisible();
+  catalogMode = 'error';
+  await page.reload();
+  await expect(page.getByRole('alert')).toContainText('Offline Library unavailable');
+  catalogMode = 'loading';
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await expect(page.getByRole('status')).toContainText('Loading Agent Library');
+  await expect.poll(() => typeof releaseCatalog).toBe('function');
+  catalogMode = 'content';
+  releaseCatalog!();
+  await expect(page.getByLabel('Agent name')).toHaveValue('Robert');
+  await page.goto('/chat');
+  await page.getByRole('button', { name: /^Workspace controls/ }).click();
+  const profilePicker = page.getByRole('combobox', { name: 'Agent profile', exact: true });
+  await expect(profilePicker).toBeVisible();
+  await expect(profilePicker).toBeEnabled();
+  expect(
+    await profilePicker.evaluate((element) => element.getBoundingClientRect().height),
+  ).toBeGreaterThanOrEqual(44);
+  await profilePicker.focus();
+  await expect(profilePicker).toBeFocused();
   expect(errors).toEqual([]);
 });
