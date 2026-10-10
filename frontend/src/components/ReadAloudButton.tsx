@@ -1,3 +1,4 @@
+import { UiIcon } from './UiIcon';
 interface ReadAloudButtonProps {
   text: string;
   active: boolean;
@@ -19,7 +20,7 @@ export function ReadAloudButton({
       aria-label={active ? 'Stop reading' : 'Read aloud'}
       onClick={() => (active ? onStop() : onSpeak(text))}
     >
-      {active ? '\u23F9' : '\u{1F50A}'}
+      <UiIcon name={active ? 'stop' : 'volume'} size={16} />
     </button>
   );
 }

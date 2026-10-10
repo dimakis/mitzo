@@ -1,3 +1,4 @@
+import { UiIcon } from './UiIcon';
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMitzoStore } from '@mitzo/client/hooks';
@@ -118,21 +119,21 @@ export function InboxSection() {
               onClick={() => handleApprove(item.filename)}
               title="Approve"
             >
-              &#x2713;
+              <UiIcon name="check" size={16} />
             </button>
             <button
               className="cc-btn cc-btn--danger"
               onClick={() => handleDiscard(item.filename)}
               title="Discard"
             >
-              &#x2717;
+              <UiIcon name="close" size={16} />
             </button>
             <button
               className="cc-btn"
               onClick={() => handleStartSession(item)}
               title="Start session"
             >
-              &#x25B6;
+              <UiIcon name="play" size={16} />
             </button>
           </div>
         </div>

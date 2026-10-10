@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react';
+import { UiIcon } from './UiIcon';
 import { useSessionList } from '../hooks/useSessionList';
 import { useSessionOverview } from '../hooks/useSessionOverview';
 import { useSessionSearch } from '../hooks/useSessionSearch';
@@ -107,6 +108,7 @@ export function SessionPanel({ activeSessionId, onSelectSession, onNewChat }: Se
                     ) : s.closedBy ? (
                       <span
                         className={`session-panel-status session-panel-status--${s.closedBy}`}
+                        role="img"
                         title={
                           s.closedBy === 'user'
                             ? 'Closed by you'
@@ -115,11 +117,16 @@ export function SessionPanel({ activeSessionId, onSelectSession, onNewChat }: Se
                               : 'Abandoned'
                         }
                       >
-                        {s.closedBy === 'user'
-                          ? '\u2713'
-                          : s.closedBy === 'auto'
-                            ? '\u23F9'
-                            : '\u2205'}
+                        <UiIcon
+                          name={
+                            s.closedBy === 'user'
+                              ? 'check'
+                              : s.closedBy === 'auto'
+                                ? 'stop'
+                                : 'unavailable'
+                          }
+                          size={16}
+                        />
                       </span>
                     ) : null}
                     <div className="session-panel-item-text">
@@ -147,7 +154,7 @@ export function SessionPanel({ activeSessionId, onSelectSession, onNewChat }: Se
                     }}
                     title="Delete session"
                   >
-                    &times;
+                    <UiIcon name="close" size={16} />
                   </button>
                 </div>
               ))}

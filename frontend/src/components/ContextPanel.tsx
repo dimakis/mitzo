@@ -1,3 +1,4 @@
+import { UiIcon } from './UiIcon';
 import { useState, useEffect } from 'react';
 import type { ContextBlockEntry } from './ContextPicker';
 import { apiFetch } from '../lib/api-fetch';
@@ -63,8 +64,11 @@ export function ContextPanel({
                 key={block.name}
                 className={`context-panel-item${isSelected ? ' context-panel-item--selected' : ''}`}
                 onClick={() => onToggle(block.name)}
+                aria-pressed={isSelected}
               >
-                <span className="context-panel-check">{isSelected ? '✓' : ''}</span>
+                <span className="context-panel-check">
+                  {isSelected && <UiIcon name="check" size={16} />}
+                </span>
                 <span className="context-panel-name">{block.name}</span>
                 <span className="context-panel-size">{formatSize(block.sizeBytes)}</span>
               </button>

@@ -287,7 +287,11 @@ function SwipeableSession({
             </div>
           </details>
         </div>
-        {!editing && <span className="session-item-chevron">&rsaquo;</span>}
+        {!editing && (
+          <span className="session-item-chevron">
+            <UiIcon name="forward" size={16} />
+          </span>
+        )}
       </div>
       {previewing && (
         <SessionPreview

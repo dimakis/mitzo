@@ -1,3 +1,4 @@
+import { UiIcon } from '../components/UiIcon';
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useSessionList } from '../hooks/useSessionList';
@@ -81,7 +82,7 @@ export function Today() {
         titleAccessory={<DailyQuoteLink date={today} />}
         actions={
           <Link className="home-secondary" to="/chat">
-            New session <span aria-hidden="true">＋</span>
+            New session <UiIcon name="plus" size={16} />
           </Link>
         }
       />
@@ -117,7 +118,9 @@ export function Today() {
                   <strong>{recordTitle(result.summary || 'Untitled session')}</strong>
                   <small>{result.snippet}</small>
                 </span>
-                <span aria-hidden="true">↗</span>
+                <span aria-hidden="true">
+                  <UiIcon name="forward" size={16} />
+                </span>
               </Link>
             ))
           ) : (
@@ -163,7 +166,9 @@ export function Today() {
                         </small>
                       )}
                     </span>
-                    <span aria-hidden="true">↗</span>
+                    <span aria-hidden="true">
+                      <UiIcon name="forward" size={16} />
+                    </span>
                   </Link>
                 ))
               )}

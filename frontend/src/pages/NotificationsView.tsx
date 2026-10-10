@@ -487,7 +487,7 @@ export function NotificationsView() {
               setActionError('');
             }}
           >
-            ← All notifications
+            <UiIcon name="back" size={16} /> All notifications
           </button>
           {selected?.id === id && (
             <>

@@ -1,3 +1,4 @@
+import { UiIcon } from './UiIcon';
 import { useState, useEffect, useCallback } from 'react';
 import { apiFetch } from '../lib/api-fetch';
 
@@ -132,7 +133,7 @@ export function FileBrowserPanel({
       {preview ? (
         <div className="file-browser-preview">
           <button className="file-browser-back" onClick={() => setPreview(null)}>
-            &larr; {preview.name}
+            <UiIcon name="back" size={16} /> {preview.name}
           </button>
           <pre className="file-browser-preview-content">{preview.content}</pre>
         </div>

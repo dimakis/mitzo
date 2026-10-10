@@ -63,17 +63,17 @@ describe('TaskNode', () => {
   });
 
   it.each([
-    ['pending', '\u25CB'],
-    ['active', '\u25C9'],
-    ['done', '\u2713'],
-    ['pending_review', '\u25D4'],
-    ['blocked', '\u2298'],
-    ['skipped', '\u2014'],
-    ['failed', '\u2717'],
+    ['pending', 'circle'],
+    ['active', 'running'],
+    ['done', 'complete'],
+    ['pending_review', 'review'],
+    ['blocked', 'unavailable'],
+    ['skipped', 'minus'],
+    ['failed', 'failed'],
   ] as const)('renders correct label for status %s', (status, expectedIcon) => {
     const { container } = renderNode(makeTask({ status }));
     const statusBtn = container.querySelector('.task-node-status');
-    expect(statusBtn?.textContent).toBe(expectedIcon);
+    expect(statusBtn?.querySelector('svg')?.getAttribute('data-icon')).toBe(expectedIcon);
   });
 
   it('toggles expand/collapse for tasks with children', () => {
@@ -86,7 +86,7 @@ describe('TaskNode', () => {
     expect(screen.getByText('Child task')).toBeTruthy();
 
     // Click collapse
-    const chevron = screen.getByText('\u25BC');
+    const chevron = screen.getByRole('button', { name: 'Collapse' });
     fireEvent.click(chevron);
 
     // Children should be hidden

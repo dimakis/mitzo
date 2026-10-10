@@ -1,3 +1,4 @@
+import { UiIcon } from '../components/UiIcon';
 import { useMitzoStore } from '@mitzo/client/hooks';
 import { useNavigate, useLocation, useParams } from 'react-router-dom';
 import { useEffect, useState } from 'react';
@@ -204,7 +205,7 @@ export function TodoDetailView() {
               onClick={() => navigate(`/tasks?highlight=${item.goalId}`)}
               title="Click to view task"
             >
-              ↗ Task Board
+              <UiIcon name="forward" size={16} /> Task Board
             </span>
           )}
         </div>
@@ -262,8 +263,12 @@ export function TodoDetailView() {
                   });
                 }}
               >
-                <span className="todo-detail-child-status">
-                  {child.status === 'completed' ? '\u2713' : '\u25cb'}
+                <span
+                  className="todo-detail-child-status"
+                  role="img"
+                  aria-label={`Status: ${child.status}`}
+                >
+                  <UiIcon name={child.status === 'completed' ? 'complete' : 'circle'} size={16} />
                 </span>
                 <span className="todo-detail-child-summary">{child.summary}</span>
               </div>

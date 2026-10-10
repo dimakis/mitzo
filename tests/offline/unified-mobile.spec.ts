@@ -169,6 +169,116 @@ const fixtures: Record<string, unknown> = {
     syncedAt: null,
   },
 };
+
+const iconTasks = (
+  ['pending', 'active', 'done', 'pending_review', 'blocked', 'skipped', 'failed'] as const
+).map((status, index) => ({
+  id: `icon-task-${status}`,
+  parentId: null,
+  title: `Icon check: ${status.replaceAll('_', ' ')}`,
+  description: null,
+  status,
+  sessionId: null,
+  sessionPolicy: 'auto',
+  priority: index,
+  depth: 0,
+  annotations: [],
+  summary: null,
+  requiresApproval: false,
+  tokenUsage: 0,
+  claimedBy: null,
+  claimedAt: null,
+  createdAt: Date.now(),
+  updatedAt: Date.now(),
+  completedAt: null,
+  stageType: null,
+  gateConfig: null,
+  artifacts: null,
+  retryCount: 0,
+  maxRetries: 0,
+  templateId: null,
+  children: [],
+}));
+
+for (const appearance of [
+  { theme: 'dark', accent: 'lavender', font: 'system' },
+  { theme: 'light', accent: 'mint', font: 'georgia' },
+]) {
+  test(`outline icons keep their meaning and geometry with ${appearance.theme}/${appearance.font}`, async ({
+    page,
+  }, testInfo) => {
+    await page.addInitScript((selection) => {
+      localStorage.setItem('mitzo-theme', selection.theme);
+      localStorage.setItem('mitzo-accent', selection.accent);
+      localStorage.setItem('mitzo-font', selection.font);
+    }, appearance);
+    if (testInfo.project.name.startsWith('mobile')) {
+      const viewport = page.viewportSize()!;
+      await page.setViewportSize({ width: 320, height: viewport.height });
+    }
+    await page.goto('/settings');
+    const backups = page.getByRole('link', { name: 'Backups', exact: true });
+    await expect(backups).toHaveText('Backups');
+    await expect(backups.locator('svg[data-icon="forward"]')).toHaveAttribute(
+      'aria-hidden',
+      'true',
+    );
+    await backups.scrollIntoViewIfNeeded();
+    await page.screenshot({
+      path: testInfo.outputPath(`icons-settings-${appearance.theme}.png`),
+      animations: 'disabled',
+    });
+
+    await page.route('**/api/tasks', (route) => route.fulfill({ json: iconTasks }));
+    await page.goto('/tasks');
+    const spawning = page.getByRole('switch', { name: /session spawning/ });
+    await expect(spawning).toHaveAttribute('aria-checked', 'false');
+    await expect(spawning.locator('svg')).toHaveAttribute('aria-hidden', 'true');
+    await page.getByRole('button', { name: 'Show tree order', exact: true }).click();
+    const actions = page.locator('.page-header-actions');
+    await expect(actions).toBeVisible();
+    const actionBounds = await actions.boundingBox();
+    expect(actionBounds!.x + actionBounds!.width).toBeLessThanOrEqual(page.viewportSize()!.width);
+    if (testInfo.project.name === 'desktop-chromium') {
+      await page.getByRole('button', { name: 'Tree and attention', exact: true }).click();
+    }
+    for (const [status, icon] of Object.entries({
+      pending: 'circle',
+      active: 'running',
+      done: 'complete',
+      pending_review: 'review',
+      blocked: 'unavailable',
+      skipped: 'minus',
+      failed: 'failed',
+    })) {
+      const control = page.getByRole('button', { name: `Status: ${status}`, exact: true });
+      await expect(control.locator(`svg[data-icon="${icon}"]`)).toHaveCount(1);
+      await expect(control).toHaveText('');
+    }
+    await page.screenshot({
+      path: testInfo.outputPath(`icons-taskboard-${appearance.theme}.png`),
+      animations: 'disabled',
+    });
+    if (testInfo.project.name.startsWith('mobile')) {
+      const size = await spawning.boundingBox();
+      expect(size?.height).toBeGreaterThanOrEqual(44);
+      expect(size?.width).toBeGreaterThanOrEqual(44);
+      const review = page.locator('.task-node--status-pending_review .task-node-body').first();
+      expect((await review.boundingBox())!.width).toBeGreaterThanOrEqual(140);
+      await expect(
+        page.locator('.task-node--status-pending_review .task-node-actions').first(),
+      ).toHaveCSS('opacity', '1');
+    }
+
+    await page.goto('/connections-access');
+    await expect(page.getByRole('heading', { name: 'Connections', exact: true })).toBeVisible();
+    await expect(page.locator('.access-row-icon')).toHaveCount(0);
+    await page.screenshot({
+      path: testInfo.outputPath(`icons-connections-${appearance.theme}.png`),
+      animations: 'disabled',
+    });
+  });
+}
 const mime: Record<string, string> = {
   '.js': 'application/javascript',
   '.css': 'text/css',

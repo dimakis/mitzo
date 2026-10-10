@@ -1,3 +1,4 @@
+import { UiIcon } from './UiIcon';
 import { useState, useCallback, useId } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import type { StreamingBlock, FinishedBlock, RawToolInput } from '../types/chat';
@@ -51,7 +52,7 @@ function RawInputDetail({
               onClick={() => onPopOut(raw.path!)}
               aria-label="Open in viewer"
             >
-              ↗
+              <UiIcon name="file" size={16} />
             </button>
           )}
         </span>
@@ -177,7 +178,9 @@ export function ToolPill({ block, sessionId, showSetupCard = true }: Props) {
             {done && hasError && <span className="tool-pill-status">Failed</span>}
           </>
         )}
-        <span className="tool-pill-chevron">{expanded ? '▾' : '▸'}</span>
+        <span className="tool-pill-chevron">
+          <UiIcon name={expanded ? 'down' : 'forward'} size={16} />
+        </span>
       </button>
       {showSetupCard && <ConnectionSetupCard block={block} sessionId={sessionId} />}
       {showSetupCard && <RepositoryChatSetupCard block={block} sessionId={sessionId} />}

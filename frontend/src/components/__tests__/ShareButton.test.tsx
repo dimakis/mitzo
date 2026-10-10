@@ -23,7 +23,7 @@ describe('ShareButton', () => {
     render(<ShareButton filePath="/workspace/file.md" />);
     const btn = screen.getByRole('button', { name: 'Share file' });
     expect(btn).toBeTruthy();
-    expect(btn.textContent).toBe('\u21A6');
+    expect(btn.querySelector('svg')?.getAttribute('data-icon')).toBe('share');
   });
 
   it('offers a separate browser download action', async () => {
@@ -46,6 +46,12 @@ describe('ShareButton', () => {
 
     expect(mockShareFile).toHaveBeenCalledWith('/workspace/file.md');
     expect(screen.getByRole('button', { name: 'Shared' })).toBeTruthy();
+    expect(
+      screen
+        .getByRole('button', { name: 'Shared' })
+        .querySelector('svg')
+        ?.getAttribute('data-icon'),
+    ).toBe('check');
   });
 
   it('shows error state when share fails', async () => {
@@ -58,6 +64,12 @@ describe('ShareButton', () => {
     });
 
     expect(screen.getByRole('button', { name: 'Failed' })).toBeTruthy();
+    expect(
+      screen
+        .getByRole('button', { name: 'Failed' })
+        .querySelector('svg')
+        ?.getAttribute('data-icon'),
+    ).toBe('error');
   });
 
   it('is disabled while busy', async () => {

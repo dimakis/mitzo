@@ -1,3 +1,4 @@
+import { UiIcon } from '../components/UiIcon';
 import { useState } from 'react';
 import { useLocation, useSearchParams } from 'react-router-dom';
 import { AgentTaskWorkspace } from '../components/AgentTaskWorkspace';
@@ -117,30 +118,36 @@ export function TaskBoard({ desktop = false }: { desktop?: boolean } = {}) {
         <button
           className={`task-board-add-btn ${spawnEnabled ? 'cc-spawn-enabled' : 'cc-spawn-disabled'}`}
           onClick={() => setSpawnEnabled(!spawnEnabled)}
+          role="switch"
+          aria-checked={spawnEnabled}
+          aria-label={spawnEnabled ? 'Disable session spawning' : 'Enable session spawning'}
           title={spawnEnabled ? 'Disable session spawning' : 'Enable session spawning'}
         >
-          {spawnEnabled ? '\u26A1' : '\u26D4'}
+          <UiIcon name="interrupt" size={16} />
+          <span>Auto-spawn {spawnEnabled ? 'on' : 'off'}</span>
         </button>
         <button
           className={`task-board-sort-btn${showAll ? '' : ' task-board-sort-btn--active'}`}
           onClick={() => setShowAll(!showAll)}
           title={showAll ? 'Sort by attention' : 'Show tree order'}
         >
-          {showAll ? '\u2195' : '\u2B06'}
+          <UiIcon name="filter" size={16} />
         </button>
         <button
           className="task-board-add-btn"
           onClick={() => setCreating({ parentId: undefined })}
           title="Add task"
+          aria-label="Add task"
         >
-          +
+          <UiIcon name="plus" size={16} />
         </button>
         <button
           className="task-board-add-btn"
           onClick={() => setCreatingWorkflow(true)}
           title="New workflow"
+          aria-label="New workflow"
         >
-          {'\u2699'}
+          <UiIcon name="settings" size={16} />
         </button>
         <button
           className={`task-board-show-all${showAll ? ' task-board-show-all--active' : ''}`}
@@ -149,8 +156,13 @@ export function TaskBoard({ desktop = false }: { desktop?: boolean } = {}) {
         >
           {showAll ? 'Tree' : 'Tiers'}
         </button>
-        <button className="task-board-refresh" onClick={refresh} title="Refresh">
-          &#x21bb;
+        <button
+          className="task-board-refresh"
+          onClick={refresh}
+          title="Refresh"
+          aria-label="Refresh"
+        >
+          <UiIcon name="retry" size={16} />
         </button>
       </PageHeader>
 
@@ -200,7 +212,11 @@ export function TaskBoard({ desktop = false }: { desktop?: boolean } = {}) {
         {loading && <p className="task-board-empty">Loading...</p>}
 
         {!loading && tasks.length === 0 && (
-          <EmptyState icon={'\u2610'} title="No tasks yet" subtitle="Add a task to get started" />
+          <EmptyState
+            icon={<UiIcon name="review" size={24} />}
+            title="No tasks yet"
+            subtitle="Add a task to get started"
+          />
         )}
 
         {desktop && boardView ? (
