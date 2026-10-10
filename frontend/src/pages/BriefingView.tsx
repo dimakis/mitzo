@@ -89,6 +89,7 @@ export function BriefingView() {
   const [error, setError] = useState('');
   const [attempt, setAttempt] = useState(0);
   const [expanded, setExpanded] = useState(false);
+  const [bulkAction, setBulkAction] = useState(0);
   const [picker, setPicker] = useState(false);
   const [chats, setChats] = useState<SavedChat[]>([]);
   useEffect(() => {
@@ -214,8 +215,22 @@ export function BriefingView() {
             Assembled by the scheduled briefing job. {name} can help you explore this dated report.
           </p>
           <div className="briefing-actions">
-            <button onClick={() => setExpanded(true)}>Expand all meetings</button>
-            <button onClick={() => setExpanded(false)}>Collapse all</button>
+            <button
+              onClick={() => {
+                setExpanded(true);
+                setBulkAction((value) => value + 1);
+              }}
+            >
+              Expand all meetings
+            </button>
+            <button
+              onClick={() => {
+                setExpanded(false);
+                setBulkAction((value) => value + 1);
+              }}
+            >
+              Collapse all
+            </button>
             <Link to="/calendar">Open calendar</Link>
           </div>
           <div className="briefing-source">
@@ -223,7 +238,7 @@ export function BriefingView() {
           </div>
           {outline.children.map((section, index) => (
             <Section
-              key={`${snapshot.revision}:${index}:${expanded}`}
+              key={`${snapshot.revision}:${index}:${bulkAction}`}
               section={section}
               sourcePath={snapshot.path}
               expanded={expanded && section.kind !== 'calendar' && section.kind !== 'jira'}

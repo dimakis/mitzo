@@ -77,6 +77,22 @@ it('shows all ten meetings and calendar first, folds supporting Jira without del
   expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
   expect(screen.getByText('Briefing').tagName).toBe('P');
 });
+it('reapplies each bulk expansion action after a native meeting toggle', async () => {
+  show();
+  await screen.findByText('9:30 Meeting 0');
+  const firstMeeting = () => screen.getByText('9:30 Meeting 0').closest('details')!;
+  fireEvent.click(screen.getByRole('button', { name: 'Expand all meetings' }));
+  expect(firstMeeting().open).toBe(true);
+  // Native details state can change without a React prop change.
+  firstMeeting().open = false;
+  fireEvent.click(screen.getByRole('button', { name: 'Expand all meetings' }));
+  expect(firstMeeting().open).toBe(true);
+  fireEvent.click(screen.getByRole('button', { name: 'Collapse all' }));
+  expect(firstMeeting().open).toBe(false);
+  firstMeeting().open = true;
+  fireEvent.click(screen.getByRole('button', { name: 'Collapse all' }));
+  expect(firstMeeting().open).toBe(false);
+});
 it('keeps all meeting rows visible inside section containers and preserves linked notes', async () => {
   vi.mocked(apiFetch).mockResolvedValueOnce(
     new Response(
