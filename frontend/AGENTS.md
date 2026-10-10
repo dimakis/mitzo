@@ -13,3 +13,18 @@ Read [the UI design contract](../docs/design/ui-design-system.md) before changin
 - Record shared patterns/tokens used, checks performed and screenshots or visual inspection evidence in the PR's UI design section. If a check is inapplicable, explain why.
 
 Existing literal layout measurements are migration debt, not examples to copy. Use scale tokens for new/changed spacing, type and radii. Component geometry (for example a 1px border or a viewport calculation) may require an explicit value; explain an exception when it affects visual rhythm. Changes to the common design belong in the shared source and contract, with affected views checked together.
+
+## Motion
+
+For React and CSS changes under `src/`, follow
+[the shared motion contract](../docs/design/frontend-motion.md).
+
+- New routes inherit motion through `MobileShell`; do not key pages by pathname.
+- Use `MotionPresence` for menus, sheets, and disclosures. Keep the boundary
+  mounted through close, and preserve focus, keyboard, and draft behavior.
+- Use `useMotionPresence` for settings that must stay mounted while hidden; exit
+  content must immediately be inert and hidden from assistive technology.
+- Timing/easing comes from `styles/tokens.css`. Use the shared helper for Web
+  Animations; no private durations, `transition: all`, or unmount-delay timers.
+- Respect Reduce Motion and verify changes with `npm run test:design`, relevant
+  unit tests, and the offline browser motion/layout tests. These need no model calls.

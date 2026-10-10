@@ -1,3 +1,4 @@
+import { MotionRoutes } from './MotionRoutes';
 import { useLocation } from 'react-router-dom';
 import { useIsDesktop } from '../hooks/useMediaQuery';
 import { TabBar } from './TabBar';
@@ -34,6 +35,14 @@ function shouldHideTabBar(pathname: string): boolean {
 }
 
 export function MobileShell({ children }: { children: React.ReactNode }) {
+  return (
+    <MotionRoutes>
+      <MobileShellLayout>{children}</MobileShellLayout>
+    </MotionRoutes>
+  );
+}
+
+function MobileShellLayout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const isDesktop = useIsDesktop();
   const showTabBar = !isDesktop && !shouldHideTabBar(location.pathname);

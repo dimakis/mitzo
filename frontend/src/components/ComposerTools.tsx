@@ -1,6 +1,8 @@
 import { Link, useInRouterContext } from 'react-router-dom';
-import { useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { UiIcon } from './UiIcon';
+import { useMotionPresence } from '../hooks/useMotionPresence';
+import { MotionPresence } from './MotionPresence';
 
 interface Props {
   terminalHref?: string;
@@ -32,8 +34,31 @@ export function ComposerTools({
   const inRouter = useInRouterContext();
   const [toolsExpanded, setToolsExpanded] = useState(false);
   const [workspaceExpanded, setWorkspaceExpanded] = useState(false);
+  const [inline, setInline] = useState(true);
+  const open = inline || toolsExpanded;
+  const { ref: motionRef, present } = useMotionPresence(toolsExpanded, 'popover', false, !inline);
+  const visible = inline || present;
   const toolsId = useId();
   const toolsRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const anchor = toolsRef.current;
+    if (!anchor) return;
+    // The container query owns the breakpoint; CSS also reports its layout mode.
+    const update = () => {
+      setInline(
+        getComputedStyle(anchor).getPropertyValue('--composer-tools-layout').trim() !== 'popover',
+      );
+    };
+    update();
+    const container = anchor.closest('.chat-input--compact') ?? anchor;
+    const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(update) : null;
+    observer?.observe(container);
+    window.addEventListener('resize', update);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener('resize', update);
+    };
+  }, []);
   useEffect(() => {
     if (!toolsExpanded && !workspaceExpanded) return;
     const close = () => {
@@ -68,7 +93,15 @@ export function ComposerTools({
       >
         <UiIcon name="more" />
       </button>
-      <div id={toolsId} className="composer-tools" data-expanded={toolsExpanded}>
+      <div
+        id={toolsId}
+        ref={motionRef}
+        className="composer-tools"
+        data-expanded={!inline && present}
+        hidden={!visible}
+        inert={!open}
+        aria-hidden={!open || undefined}
+      >
         <button
           className="chat-input-btn chat-input-btn--skills"
           onClick={() => {
@@ -141,7 +174,7 @@ export function ComposerTools({
             <span className="composer-tools-label">Workspace</span>
           </button>
         )}
-        {workspaceExpanded && (
+        <MotionPresence open={workspaceExpanded} appear={false}>
           <dl className="composer-workspace-details">
             <dt>Workspace</dt>
             <dd>{isWorktree ? 'Isolated worktree' : 'Shared checkout'}</dd>
@@ -158,7 +191,7 @@ export function ComposerTools({
               </>
             )}
           </dl>
-        )}
+        </MotionPresence>
       </div>
     </div>
   );

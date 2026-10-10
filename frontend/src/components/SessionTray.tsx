@@ -11,6 +11,8 @@ import { ContextPanel } from './ContextPanel';
 import { SessionBanner } from './SessionBanner';
 import { UiIcon } from './UiIcon';
 import { createPortal } from 'react-dom';
+import { useMotionPresence } from '../hooks/useMotionPresence';
+import { MotionPresence } from './MotionPresence';
 
 type TraySnap = 'peek' | 'half' | 'full';
 
@@ -117,6 +119,14 @@ export function SessionTray({
   const pendingAttachmentCount = draftImages.length + selectedContextBlocks.length;
   const toolbarCount = resourceCount + selectedContextBlocks.length;
   const isOpen = snap !== 'peek';
+  const { ref: motionRef, present } = useMotionPresence(
+    isOpen && placement === 'toolbar',
+    'sheet',
+    false,
+  );
+  const lastOpenSnap = useRef(snap);
+  if (isOpen) lastOpenSnap.current = snap;
+  const visibleSnap = placement === 'toolbar' && present ? lastOpenSnap.current : snap;
 
   const keyForDraftImage = (image: ImageAttachment) => {
     let key = draftImageKeys.current.get(image);
@@ -151,19 +161,22 @@ export function SessionTray({
 
   const tray = (
     <>
-      {isOpen && (
+      <MotionPresence open={isOpen} kind="fade" appear={false}>
         <button
           type="button"
           className="session-tray-backdrop"
           aria-label="Dismiss session tray"
           onClick={() => setSnap('peek')}
         />
-      )}
+      </MotionPresence>
       <aside
         className={`session-tray${placement === 'toolbar' ? ' session-tray--toolbar' : ''}`}
-        hidden={placement === 'toolbar' && !isOpen}
+        ref={placement === 'toolbar' ? motionRef : undefined}
+        hidden={placement === 'toolbar' && !present}
+        inert={placement === 'toolbar' && !isOpen}
+        aria-hidden={(placement === 'toolbar' && !isOpen) || undefined}
         data-testid="session-tray"
-        data-snap={snap}
+        data-snap={visibleSnap}
         style={
           {
             '--session-tray-drag': `${placement === 'toolbar' ? -dragOffset : dragOffset}px`,

@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
 
-export function useMediaQuery(query: string): boolean {
-  const [matches, setMatches] = useState(() => window.matchMedia(query).matches);
+export function useMediaQuery(query: string, fallback = false): boolean {
+  const [matches, setMatches] = useState(() => window.matchMedia?.(query).matches ?? fallback);
 
   useEffect(() => {
-    const mql = window.matchMedia(query);
+    const mql = window.matchMedia?.(query);
+    if (!mql) return;
     setMatches(mql.matches);
 
     const handler = (e: MediaQueryListEvent | { matches: boolean }) => {
@@ -19,5 +20,5 @@ export function useMediaQuery(query: string): boolean {
 }
 
 export function useIsDesktop(): boolean {
-  return useMediaQuery('(min-width: 768px)');
+  return useMediaQuery('(min-width: 768px)', window.innerWidth >= 768);
 }
