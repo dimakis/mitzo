@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.9';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.33';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.34';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -33,6 +33,10 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'dbe9dd63fe439a1615ec605870528e350d5c1dbbb87517e4a78082dd4e5a7c83',
   '../../scripts/agent-workspace-context.mjs':
     '34c620c92540522e29bd3929bcdbfd68222defa30aa3e2581d088bcf3c44fe31',
+  '../../docs/spikes/openshell-codex/compile-agent-context.mjs':
+    'e7813d5d7d19a2e3d7098e4df02d4b12563cc04dda28782b03d7b3991dda50d0',
+  '../../scripts/attest-knowledge-runtime.py':
+    '5737ec8e7fc19a17b6ef5a35c1898e834d2a5d2d2a9f7593b607eaaf1971cfeb',
   // Library profile identity, operator ownership and admission are reviewed runtime inputs.
   '../symposium-director-routes.ts':
     'e6cabfe7555434bbf426209e5a0de750195559e106b0bbb09c4885a34159ff36',
