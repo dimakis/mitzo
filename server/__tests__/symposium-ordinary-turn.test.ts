@@ -39,6 +39,61 @@ function input(): SymposiumSeatExecution {
   };
 }
 
+it('keeps a terminal conflict observed during query closure uncertain', async () => {
+  const f = input();
+  let lifecycle!: NonNullable<
+    Parameters<OrdinaryChatPort['startChat']>[3]['ordinaryTurnLifecycle']
+  >;
+  let close!: () => void;
+  const closed = new Promise<void>((resolve) => {
+    close = resolve;
+  });
+  const port: OrdinaryChatPort = {
+    stopChat: vi.fn(() => {
+      lifecycle.terminalConflict!('recipient', 'raw-turn');
+      close();
+    }),
+    startChat: vi.fn(async (_transport, _client, _prompt, options) => {
+      lifecycle = options.ordinaryTurnLifecycle!;
+      lifecycle.beforeDispatch('recipient');
+      lifecycle.accepted('recipient', 'raw-thread', 'raw-turn');
+      lifecycle.terminal('recipient', 'raw-turn', 'interrupted');
+      await closed;
+    }),
+  };
+  const runner = createOrdinarySymposiumTurn({
+    port,
+    binding: f.seat.accountBinding!,
+    cwd: '/task',
+    mode: 'agent',
+  });
+  const running = runner.run(f, { beforeDispatch: () => {}, accepted: () => {} }).catch(() => {});
+  await Promise.resolve();
+  await expect(runner.cancelAndDrain()).rejects.toThrow(/unconfirmed/);
+  await running;
+});
+
+it('safely drains rejected startup before the trusted dispatch hook runs', async () => {
+  const f = input();
+  const port: OrdinaryChatPort = {
+    startChat: vi.fn(async () => {
+      throw new Error('Startup rejected');
+    }),
+    stopChat: vi.fn(),
+  };
+  const runner = createOrdinarySymposiumTurn({
+    port,
+    binding: f.seat.accountBinding!,
+    cwd: '/task',
+    mode: 'agent',
+  });
+  await expect(runner.run(f, { beforeDispatch: vi.fn(), accepted: vi.fn() })).rejects.toThrow(
+    'Startup rejected',
+  );
+  await expect(runner.cancelAndDrain()).resolves.toBeUndefined();
+  expect(port.stopChat).not.toHaveBeenCalled();
+});
+
 it('starts an independent ordinary session with exact account, mode, selected excerpt and guidance, then resumes it', async () => {
   const f = input();
   const stop = vi.fn();

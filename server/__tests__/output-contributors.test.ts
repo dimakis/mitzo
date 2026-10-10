@@ -153,6 +153,157 @@ function failNextTurn(
   });
 }
 describe('ordinary contributors to registered outputs', () => {
+  it('keeps a terminal conflict during query closure fenced after Stop', async () => {
+    const { service, input, port, store, deps } = setup();
+    const parent = store.getSession('source');
+    let options!: Parameters<OrdinaryChatPort['startChat']>[3];
+    let close!: () => void;
+    const closed = new Promise<void>((resolve) => {
+      close = resolve;
+    });
+    vi.mocked(port.startChat).mockImplementation(
+      async (_transport, _client, _prompt, selection) => {
+        options = selection;
+        const child = options.initialSessionId!;
+        store.upsertSession({
+          sessionId: child,
+          conversationSource: 'mitzo',
+          cwd: options.cwd,
+          accountBinding: deps.currentAccounts().resolve(input.accountId, input.model),
+        });
+        store.append(child, 'contributor_execution', {
+          ...options.contributorExecution,
+          childSessionId: child,
+        });
+        options.ordinaryTurnLifecycle!.beforeDispatch(options.clientMsgId!);
+        options.ordinaryTurnLifecycle!.accepted(
+          options.clientMsgId!,
+          'raw-thread',
+          'retained-turn',
+        );
+        options.onQueryReady!({
+          interrupt: async () => {
+            options.ordinaryTurnLifecycle!.terminal(
+              options.clientMsgId!,
+              'retained-turn',
+              'interrupted',
+            );
+          },
+        });
+        await closed;
+      },
+    );
+    vi.mocked(port.stopChat).mockImplementation(() => {
+      options.ordinaryTurnLifecycle!.terminalConflict!(options.clientMsgId!, 'retained-turn');
+      close();
+    });
+    const contributor = await service.add('source', input);
+    const completion = service.message('source', contributor.id, {
+      requestId: 'conflicting-request',
+      text: 'Continue',
+    });
+    await vi.waitFor(() => expect(port.startChat).toHaveBeenCalledOnce());
+    const retained = store.getUnsettledSymposiumSeatExecutions(contributor.id, 'contributor');
+    expect(retained).toHaveLength(1);
+    const stopped = await service.stop('source', contributor.id, { requestId: 'stop-conflict' });
+    expect((await completion).delivery.status).toBe('cancelled');
+    expect(stopped.status).toBe('stopping');
+    expect(store.getUnsettledSymposiumSeatExecutions(contributor.id, 'contributor')).toEqual(
+      retained,
+    );
+    await expect(
+      service.message('source', contributor.id, {
+        requestId: 'competing-request',
+        text: 'Another turn',
+      }),
+    ).rejects.toThrow(/active/);
+    expect(
+      (await service.stop('source', contributor.id, { requestId: 'retry-stop-conflict' })).status,
+    ).toBe('stopping');
+    expect(port.startChat).toHaveBeenCalledOnce();
+    expect(store.getSession('source')).toEqual(parent);
+  });
+  it('retains the exact claim after terminal-without-closure timeout and confirms repeated Stop after closure', async () => {
+    const { service, input, port, store, deps } = setup();
+    const parent = store.getSession('source');
+    let close!: () => void;
+    const closed = new Promise<void>((resolve) => {
+      close = resolve;
+    });
+    const interrupted = vi.fn();
+    vi.mocked(port.startChat).mockImplementation(async (_transport, _client, _prompt, options) => {
+      store.upsertSession({
+        sessionId: options.initialSessionId!,
+        conversationSource: 'mitzo',
+        cwd: options.cwd,
+        accountBinding: deps.currentAccounts().resolve(input.accountId, input.model),
+      });
+      store.append(options.initialSessionId!, 'contributor_execution', {
+        ...options.contributorExecution,
+        childSessionId: options.initialSessionId!,
+      });
+      options.ordinaryTurnLifecycle!.beforeDispatch(options.clientMsgId!);
+      options.ordinaryTurnLifecycle!.accepted(options.clientMsgId!, 'raw-thread', 'retained-turn');
+      options.onQueryReady!({
+        interrupt: async () => {
+          interrupted();
+          options.ordinaryTurnLifecycle!.terminal(
+            options.clientMsgId!,
+            'retained-turn',
+            'interrupted',
+          );
+        },
+      });
+      await closed;
+    });
+    const contributor = await service.add('source', input);
+    const completion = service.message('source', contributor.id, {
+      requestId: 'retained-request',
+      text: 'Continue',
+    });
+    await vi.waitFor(() => expect(port.startChat).toHaveBeenCalledOnce());
+    const retained = store.getUnsettledSymposiumSeatExecutions(contributor.id, 'contributor');
+    expect(retained).toHaveLength(1);
+    vi.useFakeTimers();
+    let stopped: Awaited<ReturnType<typeof service.stop>> | undefined;
+    const stopping = service
+      .stop('source', contributor.id, { requestId: 'stop-before-close' })
+      .then((value) => {
+        stopped = value;
+      });
+    try {
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(stopped?.status).toBe('stopping');
+      expect(store.getUnsettledSymposiumSeatExecutions(contributor.id, 'contributor')).toEqual(
+        retained,
+      );
+      await expect(
+        service.message('source', contributor.id, {
+          requestId: 'competing-request',
+          text: 'Another turn',
+        }),
+      ).rejects.toThrow(/active/);
+      close();
+      expect((await completion).delivery.status).toBe('cancelled');
+      expect(
+        (await service.stop('source', contributor.id, { requestId: 'stop-after-close' })).status,
+      ).toBe('idle');
+      expect(store.getUnsettledSymposiumSeatExecutions(contributor.id, 'contributor')).toHaveLength(
+        0,
+      );
+      expect(port.startChat).toHaveBeenCalledOnce();
+      expect(interrupted).toHaveBeenCalledOnce();
+      expect(vi.mocked(port.startChat).mock.calls[0][3]).toMatchObject({
+        retainWorkspace: true,
+        cwd: parent!.cwd,
+      });
+      expect(store.getSession('source')).toEqual(parent);
+    } finally {
+      close();
+      await completion;
+      await stopping;
+    }
+  });
   it.each([true, false])(
     'permits fresh explicit work only after failed provider cleanup is confirmed (%s)',
     async (confirmed) => {
