@@ -187,3 +187,23 @@ describe('Claude Vertex sealed page feed', () => {
     },
   );
 });
+
+it('refuses bound native Claude context before reading any sealed page', async () => {
+  const { bindSymposiumAgentContextAuthorization } = await import('../symposium-agent-context.js');
+  const current = { ...execution };
+  bindSymposiumAgentContextAuthorization(current, async () => {});
+  const readForHost = vi.fn();
+  const spawnProcess = vi.fn();
+  await expect(
+    createClaudeVertexSeat({
+      sandbox,
+      route,
+      execution: current,
+      spawnProcess,
+      requireModelReceipts: true,
+      reviewPages: { readForHost, markHostDelivered: vi.fn() },
+    }),
+  ).rejects.toThrow(/Native Claude recipe context requires a reviewed continuation fence/);
+  expect(readForHost).not.toHaveBeenCalled();
+  expect(spawnProcess).not.toHaveBeenCalled();
+});

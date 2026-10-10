@@ -7,7 +7,11 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { afterEach, expect, it, vi } from 'vitest';
-import { CodexConversation, codexTurnFailureDiagnostic } from '../codex-conversation.js';
+import {
+  CodexConversation,
+  codexTurnFailureDiagnostic,
+  type CodexConversationOptions,
+} from '../codex-conversation.js';
 import { CodexConversationStore } from '../codex-conversation-store.js';
 import {
   migrateRetainedRuntime,
@@ -247,6 +251,8 @@ async function setup(
   inheritedConfig: Record<string, unknown> = {},
   savedHistory?: EventStore,
   recordProviderRequest?: (method: string) => void,
+  prepareAgentContext?: (signal: AbortSignal) => Promise<void>,
+  disableProjectDocuments = false,
 ) {
   const dir = mkdtempSync(join(tmpdir(), 'mitzo-codex-'));
   const store = existingStore ?? new CodexConversationStore(join(dir, 'private.db'));
@@ -261,7 +267,11 @@ async function setup(
   const onClosed = vi.fn();
   const onError = vi.fn();
   const onTransportClosed = vi.fn();
-  const requestUserInput = vi.fn(async () => ({ answers: { q1: { answers: ['Work'] } } }));
+  const requestUserInput = vi.fn(
+    async (_params: Record<string, unknown>, _signal: AbortSignal) => ({
+      answers: { q1: { answers: ['Work'] } },
+    }),
+  );
   const execute = vi.fn(
     async (_name: string, _input: Record<string, unknown>, _signal: AbortSignal) => ({
       content: 'ok',
@@ -307,7 +317,7 @@ async function setup(
       return {};
     }),
   };
-  const c = new CodexConversation({
+  const conversationOptions: CodexConversationOptions = {
     ownerKind: nativeTool?.ownerKind,
     conversationId: 'app',
     cwd: '/workspace',
@@ -329,6 +339,8 @@ async function setup(
     beforeReconnect,
     prepareTurn,
     prepareSystemPrompt,
+    prepareAgentContext,
+    disableProjectDocuments,
     onApplicationContextAccepted,
     beforeRuntimeAdmission,
     reconnectGuard,
@@ -376,7 +388,8 @@ async function setup(
     executeTool: execute,
     onToolResultDurable: nativeTool?.onToolResultDurable,
     requestUserInput,
-  });
+  };
+  const c = new CodexConversation(conversationOptions);
   cleanup.push(() => {
     c.close();
     if (!existingStore) store.close();
@@ -397,6 +410,7 @@ async function setup(
     requestUserInput,
     getBinding: () => (c as unknown as { binding: AccountBinding }).binding,
     getProviderThread: () => providerThread,
+    conversationOptions,
   };
 }
 
@@ -4204,4 +4218,361 @@ it('preserves unavailable-project diagnostics through terminal results without r
   expect(JSON.stringify({ events, errors: onError.mock.calls })).not.toMatch(
     /sk-private|private.invalid|Bearer/,
   );
+});
+
+it('rechecks agent source authority after async turn preparation before any provider dispatch', async () => {
+  let current = true;
+  const accepted = vi.fn();
+  const args: Parameters<typeof setup> = [];
+  args[7] = async () => {
+    await Promise.resolve();
+    current = false;
+  };
+  args[10] = accepted;
+  args[25] = async () => {
+    if (!current) throw Error('Agent source authority revoked');
+  };
+  const { c, requests } = await setup(...args);
+  await expect(c.send({ id: 'revoked-context', prompt: 'first' })).rejects.toThrow(
+    'Agent source authority revoked',
+  );
+  expect(requests.filter((request) => request.method === 'turn/start')).toHaveLength(0);
+  expect(c.getTurnDispatchCount()).toBe(0);
+  expect(accepted).not.toHaveBeenCalled();
+});
+it('blocks revoked source authority on a later queued command without recording acceptance', async () => {
+  let current = true;
+  const accepted = vi.fn();
+  const args: Parameters<typeof setup> = [];
+  args[10] = accepted;
+  args[25] = async () => {
+    if (!current) throw Error('Agent source authority revoked');
+  };
+  const { c, requests, callbacks } = await setup(...args);
+  await c.send({ id: 'first-authorized', prompt: 'first' });
+  await c.send({ id: 'queued-revoked', prompt: 'second' });
+  current = false;
+  callbacks.onNotification('turn/completed', {
+    threadId: 'provider-thread',
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  await vi.waitFor(() => expect(c.isPaused()).toBe(true));
+  expect(requests.filter((request) => request.method === 'turn/start')).toHaveLength(1);
+  expect(accepted).toHaveBeenCalledOnce();
+});
+it('does not transmit private developer instructions when source authority is denied at thread setup', async () => {
+  const requests: string[] = [];
+  const args: Parameters<typeof setup> = [];
+  args[24] = (method) => requests.push(method);
+  args[25] = async () => {
+    throw Error('Source authority revoked before thread setup');
+  };
+  await expect(setup(...args)).rejects.toThrow('Source authority revoked before thread setup');
+  expect(requests).not.toContain('thread/start');
+  expect(requests).not.toContain('thread/resume');
+  expect(requests).not.toContain('turn/start');
+});
+
+it.each([
+  ['host', false, undefined],
+  ['host', true, undefined],
+  ['sandbox', false, { web_search: 'disabled', project_doc_max_bytes: 65536 }],
+  ['sandbox', true, { web_search: 'disabled', project_doc_max_bytes: 65536 }],
+] as const)(
+  'enforces independent native document preference on %s start, resume and fork (disabled=%s)',
+  async (_route, packBound, runtimeConfig) => {
+    const args: Parameters<typeof setup> = [];
+    args[21] = runtimeConfig ? { ...runtimeConfig } : undefined;
+    args[22] = { project_doc_max_bytes: 65536 };
+    args[26] = packBound;
+    const first = await setup(...args);
+    const assertPolicy = (requests: typeof first.requests, method: string) => {
+      const request = requests.find((entry) => entry.method === method);
+      expect(request, `${method} must actually be dispatched`).toBeDefined();
+      const configuration = request!.params.config as Record<string, unknown>;
+      if (packBound) expect(configuration.project_doc_max_bytes).toBe(0);
+      else if (runtimeConfig) expect(configuration.project_doc_max_bytes).toBe(65536);
+      else expect(configuration).not.toHaveProperty('project_doc_max_bytes');
+    };
+    assertPolicy(first.requests, 'thread/start');
+    first.c.close();
+    args[0] = first.store;
+    const resumed = await setup(...args);
+    assertPolicy(resumed.requests, 'thread/resume');
+    resumed.c.close();
+    args[0] = undefined;
+    const forked = await setup(...args);
+    await forked.c.send({ id: 'clean-checkpoint', prompt: 'first' });
+    forked.callbacks.onNotification('turn/completed', {
+      threadId: forked.getProviderThread(),
+      turn: { id: 'turn-1', status: 'completed' },
+    });
+    await forked.c.send({ id: 'failed-turn', prompt: 'second' });
+    forked.callbacks.onNotification('turn/completed', {
+      threadId: forked.getProviderThread(),
+      turn: {
+        id: 'turn-2',
+        status: 'failed',
+        error: { message: 'stream disconnected before completion' },
+      },
+    });
+    await forked.c.send({ id: 'replacement-turn', prompt: 'third' });
+    assertPolicy(forked.requests, 'thread/fork');
+  },
+);
+
+it.each([false, true])(
+  'forwards captured document preference and source into approved search after option mutation (disabled=%s)',
+  async (packBound) => {
+    const searchModule = await import('../codex-approved-search.js');
+    const search = vi
+      .spyOn(searchModule, 'searchCodex')
+      .mockResolvedValue('Mocked approved search');
+    const args: Parameters<typeof setup> = [];
+    args[21] = { web_search: 'live', project_doc_max_bytes: 65536 };
+    args[26] = packBound;
+    const { c, conversationOptions } = await setup(...args);
+    Object.assign(conversationOptions, {
+      disableProjectDocuments: !packBound,
+      agentContextSource: 'packs',
+    });
+    const signal = new AbortController().signal;
+    await expect(c.searchWeb('Approved query', signal)).resolves.toBe('Mocked approved search');
+    expect(search).toHaveBeenCalledWith(
+      'Approved query',
+      signal,
+      expect.objectContaining({
+        disableProjectDocuments: packBound,
+        agentContextSource: undefined,
+      }),
+    );
+  },
+);
+
+it.each([
+  'tool-success',
+  'tool-failure',
+  'question',
+  'duplicate',
+  'symposium-replay',
+  'durable-observer',
+] as const)(
+  'closes Codex before a host continuation can deliver revoked retained context (%s)',
+  async (path) => {
+    let current = true;
+    let replaying = false;
+    const accepted = vi.fn();
+    const authorize = vi.fn(async () => {
+      if (!current) throw Error('Retained accepted Knowledge was revoked during host work');
+    });
+    const observer = vi.fn(async () => {
+      if (path === 'durable-observer' || (path === 'symposium-replay' && replaying))
+        current = false;
+    });
+    const args: Parameters<typeof setup> = [];
+    args[10] = accepted;
+    args[25] = authorize;
+    if (path === 'symposium-replay' || path === 'durable-observer')
+      args[19] = { ownerKind: 'symposium', onToolResultDurable: observer };
+    const { c, callbacks, execute, requestUserInput, rpc, requests, onError } = await setup(
+      ...args,
+    );
+    await c.send({ id: 'accepted-command', prompt: 'Review' });
+    let continuationSignal: AbortSignal | undefined;
+    const call = {
+      threadId: 'provider-thread',
+      turnId: 'turn-1',
+      callId: 'host-call',
+      namespace: null,
+      tool: 'Read',
+      arguments: {},
+    };
+    const question = {
+      threadId: 'provider-thread',
+      turnId: 'turn-1',
+      itemId: 'question-1',
+      isBlocking: true,
+      autoResolutionMs: null,
+      questions: [
+        {
+          id: 'q1',
+          header: 'Scope',
+          question: 'Which scope?',
+          isSecret: false,
+          isOther: false,
+          options: [{ label: 'Current', description: 'Current task' }],
+        },
+      ],
+    };
+    if (path === 'duplicate' || path === 'symposium-replay') {
+      expect(
+        await callbacks.onRequest('item/tool/call', call, new AbortController().signal),
+      ).toMatchObject({ success: true });
+      if (path === 'duplicate') current = false;
+      replaying = true;
+    } else if (path === 'question') {
+      requestUserInput.mockImplementation(async (_params, signal) => {
+        continuationSignal = signal;
+        await Promise.resolve();
+        current = false;
+        return { answers: { q1: { answers: ['Current'] } } };
+      });
+    } else if (path === 'tool-success' || path === 'tool-failure') {
+      execute.mockImplementation(async (_name, _input, signal) => {
+        continuationSignal = signal;
+        await Promise.resolve();
+        current = false;
+        if (path === 'tool-failure') throw Error('Tool failed after Knowledge refresh');
+        return { content: 'Completed host work', isError: false };
+      });
+    }
+    let providerContinuations = 0;
+    try {
+      await callbacks.onRequest(
+        path === 'question' ? 'item/tool/requestUserInput' : 'item/tool/call',
+        path === 'question' ? question : call,
+        new AbortController().signal,
+      );
+    } catch {
+      // The transport translates host RPC errors into recoverable tool results.
+    }
+    if (!rpc.close.mock.calls.length) providerContinuations++;
+    expect(providerContinuations).toBe(0);
+    expect(rpc.close).toHaveBeenCalledOnce();
+    expect(onError).toHaveBeenCalledOnce();
+    expect(c.isPaused()).toBe(true);
+    if (continuationSignal) expect(continuationSignal.aborted).toBe(true);
+    expect(accepted).toHaveBeenCalledOnce();
+    expect(requests.filter((request) => request.method === 'turn/start')).toHaveLength(1);
+    current = true;
+    await expect(c.send({ id: 'must-not-revive', prompt: 'Continue' })).rejects.toThrow(
+      /unavailable|closed/,
+    );
+  },
+);
+
+it('preserves authorized Codex host continuations and their exact tool responses', async () => {
+  const authorize = vi.fn(async () => {});
+  const args: Parameters<typeof setup> = [];
+  args[25] = authorize;
+  const { c, callbacks, execute, rpc } = await setup(...args);
+  await c.send({ id: 'authorized-command', prompt: 'Review' });
+  const checksBeforeHostWork = authorize.mock.calls.length;
+  execute.mockResolvedValue({ content: 'Exact authorized result', isError: false });
+  const result = await callbacks.onRequest(
+    'item/tool/call',
+    {
+      threadId: 'provider-thread',
+      turnId: 'turn-1',
+      callId: 'authorized-tool',
+      namespace: null,
+      tool: 'Read',
+      arguments: {},
+    },
+    new AbortController().signal,
+  );
+  expect(result).toEqual({
+    success: true,
+    contentItems: [{ type: 'inputText', text: 'Exact authorized result' }],
+  });
+  expect(authorize).toHaveBeenCalledTimes(checksBeforeHostWork + 2);
+  expect(rpc.close).not.toHaveBeenCalled();
+});
+
+it.each([
+  'provider-completion',
+  'ledger-error-observer',
+  'mapper-flush',
+  'queue-observer',
+  'closed-observer',
+] as const)(
+  'guarantees actual Codex shutdown when close callbacks fail after source revocation (%s)',
+  async (failureStep) => {
+    let current = true;
+    const failure = Error(`Throwing close callback: ${failureStep}`);
+    const args: Parameters<typeof setup> = [];
+    args[25] = async () => {
+      if (!current) throw Error('Accepted source revoked');
+    };
+    const {
+      c,
+      callbacks,
+      execute,
+      rpc,
+      store,
+      onError,
+      onClosed,
+      conversationOptions,
+      getBinding,
+    } = await setup(...args);
+    await c.send({ id: 'guarded-close', prompt: 'Read' });
+    const completed = vi.fn(() => {
+      if (failureStep === 'provider-completion') throw failure;
+    });
+    conversationOptions.onProviderComplete = completed;
+    if (failureStep === 'ledger-error-observer') {
+      vi.spyOn(store, 'pauseForRecovery').mockImplementation(() => {
+        throw Error('Recovery ledger unavailable');
+      });
+      onError.mockImplementation((error) => {
+        if (error.message === 'Recovery ledger unavailable') throw failure;
+      });
+    }
+    if (failureStep === 'mapper-flush') {
+      const mapper = (c as unknown as { mapper: { flush(): void } }).mapper;
+      const flush = mapper.flush.bind(mapper);
+      vi.spyOn(mapper, 'flush').mockImplementation(() => {
+        if (!current) throw failure;
+        flush();
+      });
+    }
+    if (failureStep === 'queue-observer')
+      conversationOptions.onQueueChange = () => {
+        throw failure;
+      };
+    if (failureStep === 'closed-observer')
+      onClosed.mockImplementation(() => {
+        throw failure;
+      });
+    let toolSignal: AbortSignal | undefined;
+    execute.mockImplementation(async (_name, _input, signal) => {
+      toolSignal = signal;
+      current = false;
+      return { content: 'Host action completed', isError: false };
+    });
+    await expect(
+      callbacks.onRequest(
+        'item/tool/call',
+        {
+          threadId: 'provider-thread',
+          turnId: 'turn-1',
+          callId: 'close-failure-tool',
+          namespace: null,
+          tool: 'Read',
+          arguments: {},
+        },
+        new AbortController().signal,
+      ),
+    ).rejects.toBe(failure);
+    expect(rpc.close).toHaveBeenCalledOnce();
+    expect(toolSignal?.aborted).toBe(true);
+    expect(completed).toHaveBeenCalledWith('guarded-close', 'failed');
+    expect(onClosed).toHaveBeenCalledOnce();
+    if (failureStep !== 'ledger-error-observer')
+      expect(store.read('app', getBinding()).recovery).toBeTruthy();
+    c.close();
+    expect(rpc.close).toHaveBeenCalledOnce();
+  },
+);
+
+it('rejects trusted pack context before constructing any native client', () => {
+  const createClient = vi.fn();
+  expect(
+    () =>
+      new CodexConversation({
+        agentContextSource: 'packs',
+        createClient,
+      } as unknown as CodexConversationOptions),
+  ).toThrow(/trusted native continuation barrier/);
+  expect(createClient).not.toHaveBeenCalled();
 });

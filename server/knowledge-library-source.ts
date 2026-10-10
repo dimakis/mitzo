@@ -286,7 +286,8 @@ export class AcceptedKnowledgeSource {
       documentPaths: [...this.paths],
     });
   }
-  async read(path: string, revision: string, signal?: AbortSignal) {
+  /** Revalidates source authority using Git metadata only; never reads document body bytes. */
+  async authorize(path: string, revision: string, signal?: AbortSignal) {
     if (!oid.test(revision)) throw new Error('Knowledge revision is invalid');
     if (!this.allowed(path)) throw new Error('Document is outside the library');
     // Old accepted revisions stay addressable. Arbitrary task commits do not.
@@ -308,6 +309,11 @@ export class AcceptedKnowledgeSource {
     if (name !== path || !meta?.startsWith('100644 blob '))
       throw new Error('Document is outside the library');
     const blob = meta.split(' ')[2]!;
+    signal?.throwIfAborted();
+    return { path, revision, blob };
+  }
+  async read(path: string, revision: string, signal?: AbortSignal) {
+    const { blob } = await this.authorize(path, revision, signal);
     const size = Number(
       (
         await knowledgeGit(this.directory, ['cat-file', '-s', blob], undefined, undefined, signal)

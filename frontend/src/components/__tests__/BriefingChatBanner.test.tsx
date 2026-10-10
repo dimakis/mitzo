@@ -216,7 +216,7 @@ it.each(['hidden', 'unavailable', 'missing', 'malformed'] as const)(
     if (visibility === 'hidden') {
       await waitFor(() => expect(state.pending).toHaveBeenCalledOnce());
       expect(Object.entries(localStorage).some(([key]) => key.endsWith(':retained'))).toBe(false);
-      expect(screen.getByTestId('location').textContent).toBe('/chat');
+      await waitFor(() => expect(screen.getByTestId('location').textContent).toBe('/chat'));
     } else {
       await waitFor(() =>
         expect(screen.getByRole('alert').textContent).toContain(

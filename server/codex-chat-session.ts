@@ -1,3 +1,4 @@
+import { assertNativeCodexContextAdmission } from './native-codex-context-admission.js';
 import type { RepositoryChatWorkspace } from './repository-chat-startup.js';
 import { getRepositoryWorkspaces } from './repository-workspace-runtime.js';
 import {
@@ -18,7 +19,7 @@ import {
   isTelosArtifactTool,
   telosArtifactDefinitions,
   telosArtifactSchemas,
-  TELOS_ARTIFACT_INSTRUCTIONS,
+  telosArtifactInstructions,
 } from './telos-artifact-tools.js';
 import { requireCustodianOrdinaryRuntime } from './custodian-ordinary-runtime.js';
 import { custodianControllerMode, custodianOwnerMode } from './symposium-custodian-mode.js';
@@ -510,6 +511,15 @@ interface Options {
   eventStore: EventStore;
   onDemandCreate?: NativeToolOptions['onDemandCreate'];
   onBootContext?: (context: OpenShellBootContext) => void;
+  /** Already resolved, authorized and persisted by common chat admission. */
+  agentContext?: AgentContextSnapshot;
+  prepareAgentContext?: (signal: AbortSignal) => Promise<void>;
+  onAgentContextAccepted?: (
+    commandId: string,
+    threadId: string,
+    turnId: string,
+    contextSha256: string,
+  ) => void;
   /** Recreate the provider runtime without admitting or replaying user intent. */
   reattachOnly?: boolean;
 }
@@ -555,10 +565,25 @@ export async function openCodexChat(options: Options) {
   return duringCodexStartup('runtime_admission', () => openCodexChatAdmitted(options));
 }
 async function openCodexChatAdmitted(options: Options) {
+  const savedAgentContext = options.eventStore.getSession(options.conversationId)?.agentContext;
+  const selectedRecipe = options.agentProfile?.definition.contextRecipe;
+  assertNativeCodexContextAdmission(selectedRecipe, options.agentContext, savedAgentContext);
   if (options.profile.nativeAuth)
     throw new Error('Native personal ChatGPT accounts require the isolated Symposium runtime');
   const service = getConnectionsRuntime()?.service;
   const configuredRuntime = openShellRuntimeConfig(process.env);
+  if (
+    [options.agentContext, savedAgentContext].some(
+      (snapshot) => snapshot?.source === 'packs' && snapshot.sandbox,
+    ) ||
+    (savedAgentContext?.sandbox && (!configuredRuntime || selectedRecipe?.source === 'packs')) ||
+    (configuredRuntime &&
+      selectedRecipe &&
+      selectedRecipe.source !== 'packs' &&
+      savedAgentContext &&
+      !savedAgentContext.sandbox)
+  )
+    throw Error('Agent context compilation scope differs; start a new chat');
   if (configuredRuntime && !options.resume)
     store().reserveStartup(options.conversationId, options.binding, options.session.cwd!);
   if (service && configuredRuntime) {
@@ -615,6 +640,11 @@ async function openCodexChatBound(
   onDemandConnections: readonly Connection[] = [],
   deferInitialSend = false,
 ) {
+  assertNativeCodexContextAdmission(
+    options.agentProfile?.definition.contextRecipe,
+    options.agentContext,
+    options.eventStore.getSession(options.conversationId)?.agentContext,
+  );
   const managedConnection =
     managedConnections.find((connection) => connection.templateId === 'jira-readonly') ??
     managedConnections[0] ??
@@ -989,12 +1019,14 @@ async function openCodexChatBound(
   const hooks = hookRuntime?.hooks;
   const dispose = hookRuntime?.dispose ?? (() => {});
   let startup: { context?: string };
-  let agentContext: AgentContextSnapshot | undefined;
+  let agentContext = options.agentContext;
   let admittingSandboxContext = false;
   try {
     const savedAgentContext = options.eventStore.getSession(options.conversationId)?.agentContext;
     admittingSandboxContext = !!(
-      (options.agentProfile?.definition.contextRecipe && connectedOpenShell) ||
+      (options.agentProfile?.definition.contextRecipe &&
+        options.agentProfile.definition.contextRecipe.source !== 'packs' &&
+        connectedOpenShell) ||
       savedAgentContext?.sandbox
     );
     if (admittingSandboxContext) {
@@ -1021,11 +1053,17 @@ async function openCodexChatBound(
       });
       options.onBootContext?.({ ...agentContext.context, scope: 'sandbox' });
       startup = {};
+    } else if (agentContext) {
+      startup = {};
     } else if (runtimeManager) {
       // Enrolled sessions receive accepted guidance through prepareSystemPrompt
       // on each turn. A retained writable checkout can contain older guidance;
       // never install that context as persistent thread developer instructions.
-      if (configuredRuntime?.knowledgeStore || options.repositoryWorkspace) {
+      if (
+        options.agentContext ||
+        configuredRuntime?.knowledgeStore ||
+        options.repositoryWorkspace
+      ) {
         startup = {};
       } else {
         const context = await runtimeManager!.compileContext(managedOpenShell!, signal);
@@ -1150,15 +1188,37 @@ async function openCodexChatBound(
     GITHUB_PUBLISHING_INSTRUCTIONS +
     `\nWhen the user asks you to build a reusable Symposium agent profile in this conversation, use ${SYMPOSIUM_PROPOSE_PROFILE_TOOL} to submit portable guidance for review. The tool only drafts a proposal; tell the user to edit and save it in Mitzo. Do not include credentials, transcript text, session or machine paths, account bindings, or runtime grants.\n` +
     (connectedOpenShell
-      ? `\nOpenShell contains the provider loop and its built-in tools. Use those tools directly inside the supplied sandbox workspace. Current Mitzo mode: ${options.session.mode}. In Agent or Auto mode, a user request to edit that workspace is the required approval: execute it without asking again. ${TELOS_ARTIFACT_INSTRUCTIONS} Use ${TELOS_CREATE_OUTCOME_TOOL} for durable Telos capture; never use a sandbox-local todo script for persistent Telos work.${integrationTools.length ? ` Mitzo preflights explicit requests for grantable integrations before the turn begins. If you discover that you need a grantable service which the user did not request explicitly, call ${GRANT_INTEGRATION_TOOL} before using it. A CLI being installed does not mean its provider is attached, and a tunnel error from an unattached provider is not evidence of a gateway outage.` : ''}\n`
+      ? `\nOpenShell contains the provider loop and its built-in tools. Use those tools directly inside the supplied sandbox workspace. Current Mitzo mode: ${options.session.mode}. In Agent or Auto mode, a user request to edit that workspace is the required approval: execute it without asking again. ${telosArtifactInstructions(!!agentContext)} Use ${TELOS_CREATE_OUTCOME_TOOL} for durable Telos capture; never use a sandbox-local todo script for persistent Telos work.${integrationTools.length ? ` Mitzo preflights explicit requests for grantable integrations before the turn begins. If you discover that you need a grantable service which the user did not request explicitly, call ${GRANT_INTEGRATION_TOOL} before using it. A CLI being installed does not mean its provider is attached, and a tunnel error from an unattached provider is not evidence of a gateway outage.` : ''}\n`
       : HOST_TOOL_INSTRUCTIONS) +
     (managedConnection?.templateId === 'jira-readonly'
       ? '\nThis sandbox has verified read-only Jira access to https://redhat.atlassian.net. Use the scoped API base in JIRA_URL (not the browser site URL). Use the provider-approved /usr/bin/python3 or curl with JIRA_URL, JIRA_EMAIL, and the gateway-managed JIRA_API_TOKEN placeholder for Basic authorization. Never print credential values. Writes are denied by the gateway policy.\n'
       : '');
+  const persistentSystemPrompt =
+    baseSystemPrompt + (startup.context ? `\n\n${startup.context}` : '');
+  let pendingAdditionalContext: string | undefined;
+  const suppliedContextHash = (additionalContext: string | undefined) =>
+    createHash('sha256')
+      .update(
+        JSON.stringify({
+          developerInstructions: persistentSystemPrompt,
+          additionalContext: additionalContext ?? null,
+        }),
+      )
+      .digest('hex');
   let pendingKnowledge: Omit<KnowledgeAdoptionSelection, 'contextSha256'> | undefined;
   let pendingAgentContextSha256: string | undefined;
-  const developerInstructions =
-    baseSystemPrompt + (startup.context ? `\n\n${startup.context}` : '');
+  try {
+    assertNativeCodexContextAdmission(
+      options.agentProfile?.definition.contextRecipe,
+      options.agentContext,
+      options.eventStore.getSession(options.conversationId)?.agentContext,
+      agentContext,
+    );
+  } catch (error) {
+    finish();
+    startupReservation?.();
+    throw error;
+  }
   if (configuredRuntime)
     store().markStartupProviderInitializing(options.conversationId, options.binding);
   const runtime: CodexConversation = new CodexConversation({
@@ -1174,7 +1234,24 @@ async function openCodexChatBound(
       ? 'openshell-runtime-config-v1'
       : `codex-cli:${SUPPORTED_CODEX_CLI_VERSION}`,
     getMode: () => options.session.mode,
-    systemPrompt: developerInstructions,
+    systemPrompt: persistentSystemPrompt,
+    startupSignal: signal,
+    prepareAgentContext: options.prepareAgentContext,
+    agentContextSource: agentContext?.source,
+    disableProjectDocuments: agentContext?.source === 'packs',
+    // Thread instructions already contain the retained snapshot. The exact
+    // turn/start acknowledgement associates it without duplicating developer context.
+    ...(agentContext && !agentContext.sandbox
+      ? {
+          onProviderAccepted: (commandId: string, threadId: string, turnId: string) =>
+            options.onAgentContextAccepted?.(
+              commandId,
+              threadId,
+              turnId,
+              suppliedContextHash(pendingAdditionalContext),
+            ),
+        }
+      : {}),
     beforeComplete: connectedOpenShell
       ? undefined
       : async (signal) => {
@@ -1185,6 +1262,7 @@ async function openCodexChatBound(
           prepareSystemPrompt: async (signal: AbortSignal) =>
             sharedOpenShellLifecycleCoordinator.admit(options.conversationId, async () => {
               pendingKnowledge = undefined;
+              pendingAdditionalContext = undefined;
               pendingAgentContextSha256 = undefined;
               if (agentContext?.sandbox) {
                 const scope = await runtimeManager!.verifyAgentContextRuntime(
@@ -1204,21 +1282,25 @@ async function openCodexChatBound(
                 options.conversationId,
                 managedOpenShell!,
                 signal,
+                ...(agentContext?.source === 'packs'
+                  ? [{ ...agentContext.context, scope: 'sandbox' as const }]
+                  : []),
               );
-              if (!selected && !agentContext) return undefined;
+              if (!selected && !agentContext?.sandbox) return undefined;
               pendingKnowledge = selected?.adoption;
               if (selected) options.onBootContext?.(selected.context);
-              const composed =
-                baseSystemPrompt +
-                (agentContext
+              pendingAdditionalContext =
+                (agentContext?.sandbox
                   ? `\n\n# Agent Library context (saved recipe)\n${agentContext.context.fullMarkdown}\n`
                   : '') +
                 (selected
-                  ? `\n\n# Published MGMT knowledge\nAccepted source: ${selected.sourceCommit}\nBundle: ${selected.payloadSha256}\nRead shared project instructions from ${selected.knowledgeRoot}/AGENTS.md. Search and read accepted knowledge under ${selected.knowledgeRoot}/memory/. This published view supersedes older accepted knowledge in the task checkout and saved recipe. Keep edits and new observations in the writable task workspace; do not modify the published knowledge view. A local commit is not evidence of publication or adoption elsewhere.\n\n${selected.context.fullMarkdown}`
+                  ? `\n\n# Published MGMT knowledge\nAccepted source: ${selected.sourceCommit}\nBundle: ${selected.payloadSha256}\nRead shared project instructions from ${selected.knowledgeRoot}/AGENTS.md. Search and read accepted knowledge under ${selected.knowledgeRoot}/memory/. This published view supersedes older accepted knowledge in the task checkout${agentContext?.sandbox ? ' and saved recipe' : ''}. Keep edits and new observations in the writable task workspace; do not modify the published knowledge view. A local commit is not evidence of publication or adoption elsewhere.\n\n${agentContext?.source === 'packs' ? 'The agent profile boot context retains its separately recorded source revisions. This retrieval publication does not replace that pinned profile context.' : selected.context.fullMarkdown}`
                   : '');
-              if (agentContext)
-                pendingAgentContextSha256 = createHash('sha256').update(composed).digest('hex');
-              return composed;
+              if (agentContext?.sandbox)
+                pendingAgentContextSha256 = createHash('sha256')
+                  .update(pendingAdditionalContext)
+                  .digest('hex');
+              return pendingAdditionalContext;
             }),
           onApplicationContextAccepted: (commandId, threadId, turnId, context) => {
             const contextSha256 = createHash('sha256').update(context).digest('hex');
@@ -1242,6 +1324,12 @@ async function openCodexChatBound(
                   contextSha256,
                 },
               );
+              options.onAgentContextAccepted?.(
+                commandId,
+                threadId,
+                turnId,
+                suppliedContextHash(context),
+              );
             }
             if (!pendingKnowledge) return;
             privateStorage.recordKnowledgeAdoption(
@@ -1252,7 +1340,7 @@ async function openCodexChatBound(
               turnId,
               {
                 ...pendingKnowledge,
-                contextSha256: createHash('sha256').update(context).digest('hex'),
+                contextSha256: suppliedContextHash(context),
               },
             );
           },

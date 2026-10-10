@@ -65,6 +65,8 @@ The Agent Library and existing profile draft/catalog controls are source feature
 saving a profile does not activate it or prove provider availability. Profiles are
 optional guidance. Select account, model, context and authority for the contributor.
 
+Native Codex Symposium API and subscription seats reject pack recipes before provider setup, and native Claude seats reject all context recipes. Choose a profile without a context recipe for either native seat. Native Gemini Symposium dispatch is unsupported. Ordinary Claude SDK, OpenAI Responses and Gemini/Vertex chats support packs. Native pack delivery integration is preparation: Codex requires a reviewed native build and enrollment with a trusted source-authority barrier before every provider continuation. Application tool callbacks or project-instruction settings alone do not establish that barrier.
+
 Ordinary chat's context-recipe compiler is accepted source. The candidate contributor
 adapter does not compile or authorize recipe context sources and explicitly rejects
 recipe-bearing saved profiles. Use Default Mitzo or a compatible saved profile without

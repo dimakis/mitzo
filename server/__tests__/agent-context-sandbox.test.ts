@@ -22,6 +22,8 @@ import {
   resolveSandboxAgentContext,
   SANDBOX_AGENT_COMPILER_REVISION,
   sandboxAgentCompilerHash,
+  SandboxAgentPresetsSchema,
+  sandboxWorkspaceRecipe,
 } from '../agent-context-sandbox.js';
 import { contextDigest } from '../agent-context-compiler.js';
 
@@ -309,4 +311,36 @@ it('validates host preset configuration before runtime admission and rejects non
       }),
     }),
   ).toThrow();
+});
+
+it('maps sandbox workspace recipes and presets independently of recipe union order', () => {
+  const presets = SandboxAgentPresetsSchema.parse({ architect: workspaceRecipe });
+  expect(sandboxWorkspaceRecipe(workspaceRecipe)).toEqual(workspaceRecipe);
+  expect(
+    sandboxWorkspaceRecipe({ version: 1, source: 'contexgin', agentName: 'architect' }, presets),
+  ).toEqual(workspaceRecipe);
+});
+it('rejects pack recipes before sandbox workspace compilation or preset lookup', async () => {
+  const packRecipe: AgentContextRecipe = {
+    version: 2,
+    source: 'packs',
+    packs: [{ id: 'shared-core', revision: 1, hash: 'a'.repeat(64) }],
+    tokenBudget: 1000,
+  };
+  expect(SandboxAgentPresetsSchema.safeParse({ architect: packRecipe }).success).toBe(false);
+  expect(() => sandboxWorkspaceRecipe(packRecipe)).toThrow(/workspace|packs/i);
+  const f = fixture();
+  const compile = vi.spyOn(f.manager, 'compileAgentContext');
+  const verify = vi.spyOn(f.manager, 'verifyAgentContextRuntime');
+  await expect(
+    resolveSandboxAgentContext({
+      profile: profile(packRecipe),
+      conversationId,
+      runtime,
+      manager: f.manager,
+      signal: new AbortController().signal,
+    }),
+  ).rejects.toThrow(/workspace|packs/i);
+  expect(compile).not.toHaveBeenCalled();
+  expect(verify).not.toHaveBeenCalled();
 });

@@ -379,3 +379,36 @@ it('bounds filesystem segment bytes and rejects case variants of runtime paths',
   expect(safeKnowledgePath('architecture/' + 'é'.repeat(127) + '.md')).toBe(false);
   expect(safeKnowledgeDirectory('architecture/Node_Modules/new')).toBe(false);
 });
+it('authorizes accepted immutable document metadata without decoding its body and revokes rewritten history', async () => {
+  const revision = await source.revision();
+  const path = 'architecture/overview.md';
+  const blob = git('rev-parse', `${revision}:${path}`);
+  expect(await source.authorize(path, revision)).toEqual({ path, revision, blob });
+  // Metadata authorization does not read or decode Markdown bytes.
+  writeFileSync(join(root, path), Buffer.from([0xff]));
+  git('add', path);
+  git('commit', '-m', 'invalid body accepted metadata');
+  git('update-ref', 'refs/remotes/origin/main', 'HEAD');
+  const malformed = await source.revision();
+  expect(await source.authorize(path, malformed)).toMatchObject({ path, revision: malformed });
+  await expect(source.read(path, malformed)).rejects.toThrow(/UTF-8/);
+  const replacement = git('commit-tree', git('write-tree'), '-m', 'accepted history replacement');
+  git('update-ref', 'refs/remotes/origin/main', replacement);
+  await expect(source.authorize(path, revision)).rejects.toThrow(/Git operation failed/);
+  await expect(source.authorize(path, malformed)).rejects.toThrow(/Git operation failed/);
+  expect(await source.authorize(path, replacement)).toMatchObject({ path, revision: replacement });
+});
+it('metadata authorization rejects ungranted paths, nonregular blobs, absent entries, aliases and cancellation', async () => {
+  const revision = await source.revision();
+  for (const path of [
+    '../private.md',
+    'direct_reports/person.md',
+    'architecture/link.md',
+    'architecture/missing.md',
+  ])
+    await expect(source.authorize(path, revision)).rejects.toThrow(/outside/);
+  await expect(source.authorize('architecture/overview.md', 'HEAD')).rejects.toThrow(/revision/);
+  await expect(
+    source.authorize('architecture/overview.md', revision, AbortSignal.abort()),
+  ).rejects.toThrow();
+});

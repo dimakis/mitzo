@@ -1,3 +1,4 @@
+import { assertNativeCodexContextAdmission } from './native-codex-context-admission.js';
 import { assembleSourceSnapshots } from './source-snapshot-context.js';
 import type { SourceSnapshot } from '@mitzo/protocol';
 import {
@@ -126,6 +127,9 @@ export interface CodexConversationOptions {
   ) => Promise<string | void>;
   /** Select verified project context at a safe boundary; never append it as user text. */
   prepareSystemPrompt?: (signal: AbortSignal) => Promise<string | undefined>;
+  prepareAgentContext?: (signal: AbortSignal) => Promise<void>;
+  /** Trusted compiled context source, independent of native document preferences. */
+  readonly agentContextSource?: string;
   beforeComplete?: (signal: AbortSignal) => Promise<void>;
   /** Private bounded trusted observer; must stop its reads when the supplied signal aborts. */
   observeStartupConfig?: (
@@ -142,6 +146,8 @@ export interface CodexConversationOptions {
   runtimeCwd?: string;
   modelProvider?: string;
   runtimeConfig?: Record<string, unknown>;
+  /** Independent document preference; suppress task-checkout AGENTS.md discovery. */
+  readonly disableProjectDocuments?: boolean;
   webSearchBackend?: WebSearchBackend;
   webSearchDeploymentRevision?: string;
   getMode?: () => MitzoMode;
@@ -347,7 +353,12 @@ export class CodexConversation {
   private recoveryPhase?: 'starting_workspace' | 'reconnecting';
   private appliedWebSearchAccess: WebSearchAccess = 'disabled';
   private webSearchDeploymentCeiling: WebSearchAccess = 'disabled';
+  private readonly disableProjectDocuments: boolean;
+  private readonly agentContextSource?: string;
   constructor(private opts: CodexConversationOptions) {
+    assertNativeCodexContextAdmission({ source: opts.agentContextSource });
+    this.agentContextSource = opts.agentContextSource;
+    this.disableProjectDocuments = opts.disableProjectDocuments === true;
     this.client = this.createClient();
   }
   private createClient() {
@@ -535,12 +546,16 @@ export class CodexConversation {
                 modelProvider: z.string(),
               })
               .parse(
-                await this.client.request(state.threadId ? 'thread/resume' : 'thread/start', {
-                  ...(state.threadId ? { threadId: state.threadId } : {}),
-                  ...threadOptions,
-                  allowProviderModelFallback: false,
-                  ...(state.threadId ? {} : this.dynamicToolsOption()),
-                }),
+                await this.contextRequest(
+                  this.client,
+                  state.threadId ? 'thread/resume' : 'thread/start',
+                  {
+                    ...(state.threadId ? { threadId: state.threadId } : {}),
+                    ...threadOptions,
+                    allowProviderModelFallback: false,
+                    ...(state.threadId ? {} : this.dynamicToolsOption()),
+                  },
+                ),
               );
     if (
       result.model !== this.binding.model ||
@@ -564,6 +579,15 @@ export class CodexConversation {
     this.opts.emit({ type: 'system', subtype: 'init', session_id: this.opts.conversationId });
     this.opts.onQueueChange?.();
   }
+  private async contextRequest(client: Rpc, method: string, params: ObjectValue) {
+    const signal =
+      this.active?.abort.signal ?? this.opts.startupSignal ?? new AbortController().signal;
+    signal.throwIfAborted();
+    await this.opts.prepareAgentContext?.(signal);
+    signal.throwIfAborted();
+    if (this.closed) throw Error('Codex context dispatch closed');
+    return client.request(method, params);
+  }
   private async repairThreadOwnership(client: Rpc, options: Record<string, unknown>) {
     const pending = this.opts.store.pendingThreadOwnership(this.opts.conversationId, this.binding!);
     if (!pending) return;
@@ -575,7 +599,7 @@ export class CodexConversation {
         modelProvider: z.string(),
       })
       .parse(
-        await client.request('thread/resume', {
+        await this.contextRequest(client, 'thread/resume', {
           ...options,
           threadId: pending.threadId,
           allowProviderModelFallback: false,
@@ -685,6 +709,8 @@ export class CodexConversation {
       modelProvider: this.opts.modelProvider ?? 'openai',
       cwd: this.opts.runtimeCwd ?? this.opts.cwd,
       runtimeConfig: this.opts.runtimeConfig,
+      disableProjectDocuments: this.disableProjectDocuments,
+      agentContextSource: this.agentContextSource,
       workspaceId: this.opts.profile.workspaceId,
     });
   }
@@ -1112,7 +1138,7 @@ export class CodexConversation {
               modelProvider: z.string(),
             })
             .parse(
-              await client.request('thread/start', {
+              await this.contextRequest(client, 'thread/start', {
                 ...threadOptions,
                 allowProviderModelFallback: false,
                 ...this.dynamicToolsOption(),
@@ -1129,7 +1155,7 @@ export class CodexConversation {
                   modelProvider: z.string(),
                 })
                 .parse(
-                  await client.request('thread/resume', {
+                  await this.contextRequest(client, 'thread/resume', {
                     threadId: this.threadId,
                     ...threadOptions,
                     allowProviderModelFallback: false,
@@ -1200,6 +1226,9 @@ export class CodexConversation {
         model_reasoning_summary: 'auto',
         ...runtimeConfig,
         web_search: policy.effective,
+        // Native Codex loads project documents independently of Mitzo's compiler.
+        // Enforce pack isolation from thread birth and on every replacement/resume.
+        ...(this.disableProjectDocuments ? { project_doc_max_bytes: 0 } : {}),
       },
       approvalPolicy: 'never',
       sandbox: 'read-only',
@@ -1261,7 +1290,7 @@ export class CodexConversation {
           modelProvider: z.string(),
         })
         .parse(
-          await client.request('thread/resume', {
+          await this.contextRequest(client, 'thread/resume', {
             threadId: this.threadId,
             ...this.threadOptions(runtimeConfig, modelProvider, state),
             allowProviderModelFallback: false,
@@ -1339,7 +1368,7 @@ export class CodexConversation {
         modelProvider: z.string(),
       })
       .parse(
-        await client.request('thread/start', {
+        await this.contextRequest(client, 'thread/start', {
           ...threadOptions,
           allowProviderModelFallback: false,
           ...this.dynamicToolsOption(),
@@ -1384,7 +1413,7 @@ export class CodexConversation {
         modelProvider: z.string(),
       })
       .parse(
-        await client.request('thread/start', {
+        await this.contextRequest(client, 'thread/start', {
           ...threadOptions,
           allowProviderModelFallback: false,
           ...this.dynamicToolsOption(),
@@ -1488,13 +1517,13 @@ export class CodexConversation {
       })
       .parse(
         lastCompletedTurnId
-          ? await client.request('thread/fork', {
+          ? await this.contextRequest(client, 'thread/fork', {
               threadId: state.threadId,
               lastTurnId: lastCompletedTurnId,
               excludeTurns: true,
               ...threadOptions,
             })
-          : await client.request('thread/start', {
+          : await this.contextRequest(client, 'thread/start', {
               ...threadOptions,
               allowProviderModelFallback: false,
               ...this.dynamicToolsOption(),
@@ -1701,6 +1730,8 @@ export class CodexConversation {
           : null;
       if (continuation)
         assertCapacityAdmissionDeadline(this.capacityAdmissionDeadlines.get(command.id));
+      await this.opts.prepareAgentContext?.(active.abort.signal);
+      active.abort.signal.throwIfAborted();
       this.opts.onProviderDispatch?.(command.id);
       active.span = tracer.startSpan('codex.turn', {}, context.active());
       active.span.setAttribute('mitzo.route', 'chatgpt-subscription');
@@ -1724,6 +1755,7 @@ export class CodexConversation {
         this.opts.store.beginCapacityDispatch(this.opts.conversationId, this.binding!, command.id);
         this.capacityAdmissionDeadlines.delete(command.id);
       }
+      active.abort.signal.throwIfAborted();
       this.turnDispatchCount += 1;
       const result = z.object({ turn: z.object({ id: z.string().min(1) }) }).parse(
         await this.client.request('turn/start', {
@@ -2173,6 +2205,53 @@ export class CodexConversation {
     params: ObjectValue,
     signal: AbortSignal,
   ): Promise<ObjectValue> {
+    if (!this.opts.prepareAgentContext) return this.hostRequest(method, params, signal);
+    const active = this.active;
+    const generation = this.transportGeneration;
+    const continuationSignal = AbortSignal.any([
+      signal,
+      ...(active ? [active.abort.signal] : []),
+      ...(this.opts.startupSignal ? [this.opts.startupSignal] : []),
+    ]);
+    const authorize = async () => {
+      try {
+        if (this.closed || generation !== this.transportGeneration)
+          throw Error('Codex host continuation is closed or replaced');
+        continuationSignal.throwIfAborted();
+        await this.opts.prepareAgentContext!(continuationSignal);
+        continuationSignal.throwIfAborted();
+        if (this.closed || generation !== this.transportGeneration || this.active !== active)
+          throw Error('Codex host continuation identity changed');
+      } catch (error) {
+        if (!this.closed) {
+          try {
+            this.opts.onError?.(
+              new Error('Agent context authorization failed; Codex runtime closed.'),
+            );
+          } finally {
+            // Transport host-RPC exceptions become recoverable tool results.
+            // Close first so neither successful nor error replies can reach
+            // the provider and resume inference with revoked instructions.
+            this.close();
+          }
+        }
+        throw error;
+      }
+    };
+    await authorize();
+    try {
+      return await this.hostRequest(method, params, continuationSignal);
+    } finally {
+      // Covers questions, tool failures, duplicate uncertainty and durable
+      // replay/result observers, including authority changes while they await.
+      await authorize();
+    }
+  }
+  private async hostRequest(
+    method: string,
+    params: ObjectValue,
+    signal: AbortSignal,
+  ): Promise<ObjectValue> {
     if (method === 'item/tool/requestUserInput') {
       const input = CodexUserInput.parse(params);
       const active = this.active;
@@ -2314,41 +2393,64 @@ export class CodexConversation {
   close() {
     if (this.closed) return;
     this.closed = true;
-    this.stopCapacityScheduleForCleanup();
-    this.startupObserverAbort?.abort(new Error('Startup transport is closed or replaced'));
     this.paused = true;
-    this.finishTurnSpan('failed', 'close');
+    const active = this.active;
     const closeStatus =
-      this.active?.accepted && this.opts.deferToolSurfaceReplacement ? 'interrupted' : 'failed';
-    if (this.active) this.opts.onProviderComplete?.(this.active.command.id, closeStatus);
-    this.active?.abort.abort();
-    try {
-      if (this.binding)
-        this.opts.store.pauseForRecovery(
-          this.opts.conversationId,
-          this.binding,
-          this.active?.command.id,
-          closeStatus,
-          'resume',
-          undefined,
-          true,
-          true,
-        );
-    } catch (error) {
-      this.opts.onError?.(
-        error instanceof Error ? error : new Error('Codex recovery state could not be saved'),
-      );
-    }
-    this.active = undefined;
-    try {
-      this.mapper?.flush();
-    } finally {
+      active?.accepted && this.opts.deferToolSurfaceReplacement ? 'interrupted' : 'failed';
+    let failed = false;
+    let failure: unknown;
+    const attempt = (operation: () => void) => {
       try {
-        this.client.close();
+        operation();
+      } catch (error) {
+        if (!failed) failure = error;
+        failed = true;
+      }
+    };
+    try {
+      attempt(() => this.stopCapacityScheduleForCleanup());
+      attempt(() =>
+        this.startupObserverAbort?.abort(new Error('Startup transport is closed or replaced')),
+      );
+      attempt(() => this.finishTurnSpan('failed', 'close'));
+      attempt(() => {
+        if (active) this.opts.onProviderComplete?.(active.command.id, closeStatus);
+      });
+      attempt(() => {
+        try {
+          if (this.binding)
+            this.opts.store.pauseForRecovery(
+              this.opts.conversationId,
+              this.binding,
+              active?.command.id,
+              closeStatus,
+              'resume',
+              undefined,
+              true,
+              true,
+            );
+        } catch (error) {
+          this.opts.onError?.(
+            error instanceof Error ? error : new Error('Codex recovery state could not be saved'),
+          );
+        }
+      });
+      attempt(() => this.mapper?.flush());
+    } finally {
+      // Accounting, telemetry and event observers must never leave a closed
+      // conversation attached to a live provider or an uncancelled host tool.
+      try {
+        attempt(() => active?.abort.abort());
       } finally {
-        this.opts.onQueueChange?.();
-        this.opts.onClosed?.();
+        this.active = undefined;
+        try {
+          attempt(() => this.client.close());
+        } finally {
+          attempt(() => this.opts.onQueueChange?.());
+          attempt(() => this.opts.onClosed?.());
+        }
       }
     }
+    if (failed) throw failure;
   }
 }

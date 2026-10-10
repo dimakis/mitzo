@@ -116,3 +116,76 @@ it('rejects orphaned, mismatched, or corrupted context before creating a session
     expect(events.getSession('invalid')).toBeNull();
   }
 });
+function packBinding() {
+  const packRecipe = {
+    version: 2 as const,
+    source: 'packs' as const,
+    packs: [{ id: 'architecture', revision: 2, hash: 'a'.repeat(64) }],
+    tokenBudget: 256,
+  };
+  const packDefinition = { ...definition, contextRecipe: packRecipe };
+  const packProfile = { ...profile, definition: packDefinition, contentHash: hash(packDefinition) };
+  const provenance = {
+    packs: packRecipe.packs,
+    documents: [
+      {
+        storeId: 'accepted-mgmt',
+        path: 'README.md',
+        revision: 'b'.repeat(40),
+        contentHash: 'c'.repeat(64),
+      },
+    ],
+    omissions: [],
+  };
+  const packSnapshot = {
+    source: 'packs' as const,
+    compilerRevision: 'fixture-packs-v1',
+    recipeHash: hash(packRecipe),
+    payloadHash: hash({ context, provenance }),
+    provenance,
+    context,
+    profileId: packProfile.profileId,
+    revision: packProfile.revision,
+    profileHash: packProfile.contentHash,
+  };
+  return { packProfile, packSnapshot };
+}
+it('persists provenance-bound pack snapshots without weakening legacy payload verification', () => {
+  const events = store();
+  const { packProfile, packSnapshot } = packBinding();
+  events.upsertSession({
+    sessionId: 'pack-chat',
+    agentProfile: packProfile,
+    agentContext: packSnapshot,
+  });
+  expect(events.getSession('pack-chat')?.agentContext).toEqual(packSnapshot);
+  events.upsertSession({
+    sessionId: 'pack-chat',
+    agentContext: packSnapshot,
+    summary: 'Pinned pack',
+  });
+  expect(events.getSession('pack-chat')?.agentContext).toEqual(packSnapshot);
+});
+it('rejects tampered pack provenance, mismatched recipe pins and source kinds before persisting', () => {
+  const events = store();
+  const { packProfile, packSnapshot } = packBinding();
+  const differentPins = {
+    ...packSnapshot.provenance,
+    packs: [{ ...packSnapshot.provenance.packs[0], revision: 3 }],
+  };
+  for (const agentContext of [
+    { ...packSnapshot, provenance: { ...packSnapshot.provenance, documents: [] } },
+    { ...packSnapshot, payloadHash: hash(packSnapshot.context) },
+    {
+      ...packSnapshot,
+      provenance: differentPins,
+      payloadHash: hash({ context, provenance: differentPins }),
+    },
+    { ...snapshot, profileHash: packProfile.contentHash, recipeHash: packSnapshot.recipeHash },
+  ]) {
+    expect(() =>
+      events.upsertSession({ sessionId: 'invalid-pack', agentProfile: packProfile, agentContext }),
+    ).toThrow(/profile|payload/);
+    expect(events.getSession('invalid-pack')).toBeNull();
+  }
+});

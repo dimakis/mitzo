@@ -1,3 +1,5 @@
+import { assertNativeCodexContextAdmission } from './native-codex-context-admission.js';
+import { symposiumAgentContextAuthorization } from './symposium-agent-context.js';
 import { createHash } from 'node:crypto';
 import type { CodexAccountProfile } from './codex-account.js';
 import { resolveSymposiumSubscriptionRoute } from './symposium-subscription-native.js';
@@ -12,6 +14,14 @@ import type {
 } from '@mitzo/protocol';
 import type { AccountProfiles } from './account-profiles.js';
 import type { SymposiumSeatExecution } from './symposium-orchestrator.js';
+
+/** Prepared Symposium context authorization is issued only for published packs. */
+export function assertSymposiumNativeCodexContextAdmission(input: SymposiumSeatExecution): void {
+  assertNativeCodexContextAdmission(input.seat.contextRecipe, input.agentContext);
+  // Keep the trusted binding authoritative if caller-visible context fields change.
+  if (symposiumAgentContextAuthorization(input))
+    assertNativeCodexContextAdmission({ source: 'packs' });
+}
 
 /** Capability roles describe enforcement, not the custom agent's guidance or label. */
 export function supportsSymposiumSeatCapability(
@@ -145,6 +155,8 @@ export function admitSymposiumSeatDispatch(
   hostGrants: SymposiumHostGrantVerifier,
 ): SymposiumSeatRoute {
   input.signal.throwIfAborted();
+  if (['openai', 'openai-codex'].includes(input.seat.accountBinding?.provider ?? ''))
+    assertSymposiumNativeCodexContextAdmission(input);
   if ('version' in input.provenance && input.provenance.version === 3) {
     const retained = facts.getSymposiumArtifactReference?.(
       input.sessionId,

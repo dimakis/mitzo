@@ -234,6 +234,22 @@ it('offers an advisor chat that uses the existing profile proposal tool', async 
   expect(url.searchParams.get('prompt')).toContain('tokenBudget');
   expect(url.searchParams.get('prompt')).toContain('supported OpenShell sandboxes');
   expect(url.searchParams.get('prompt')).toContain('Symposium still requires');
+  expect(url.searchParams.get('prompt')).toContain(
+    'Ordinary Claude SDK, OpenAI Responses and Gemini/Vertex chats support published packs',
+  );
+  expect(url.searchParams.get('prompt')).toContain('Native Codex routes do not support packs');
+  expect(url.searchParams.get('prompt')).toContain(
+    'Keep profiles and pack definitions independent of account, model and runtime',
+  );
+  expect(url.searchParams.get('prompt')).not.toContain(
+    'use published packs for contextRecipe on Symposium seats',
+  );
+  expect(url.searchParams.get('prompt')).not.toContain(
+    'Published pack recipes support local chats, OpenShell',
+  );
+  expect(url.searchParams.get('prompt')).toContain(
+    'Native Codex and Claude Symposium seats require a profile without a context recipe',
+  );
 });
 
 it('recovers unsaved edits after navigation without replacing their save basis', async () => {

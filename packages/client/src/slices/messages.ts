@@ -42,6 +42,7 @@ export interface SectionMeta {
 }
 
 export interface BootContextMeta {
+  receipt?: import('@mitzo/protocol').AgentContextReceipt;
   source: 'contexgin' | 'local-fallback' | 'sandbox';
   sourceCount: number;
   tokenCount: number;

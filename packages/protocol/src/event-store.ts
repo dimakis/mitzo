@@ -6194,7 +6194,16 @@ export class EventStore {
         contextSnapshot.profileHash !== profile.contentHash ||
         profile.contentHash !== hash(profile.definition) ||
         contextSnapshot.recipeHash !== hash(profile.definition.contextRecipe) ||
-        contextSnapshot.payloadHash !== hash(contextSnapshot.context)
+        contextSnapshot.source !== profile.definition.contextRecipe.source ||
+        (profile.definition.contextRecipe.source === 'packs' &&
+          hash(contextSnapshot.provenance?.packs) !==
+            hash(profile.definition.contextRecipe.packs)) ||
+        contextSnapshot.payloadHash !==
+          hash(
+            contextSnapshot.provenance
+              ? { context: contextSnapshot.context, provenance: contextSnapshot.provenance }
+              : contextSnapshot.context,
+          )
       )
         throw Error('Compiled agent context does not match its profile or payload');
       if (existing?.agent_context && existing.agent_context !== JSON.stringify(contextSnapshot))

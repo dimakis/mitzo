@@ -3,13 +3,18 @@ import {
   type AgentContextSnapshot,
   type AgentLibraryVersion,
 } from '@mitzo/protocol';
-import { compileAgentContext, verifyCompiledAgentContext } from './agent-context-compiler.js';
+import {
+  compileAgentContext,
+  verifyCompiledAgentContext,
+  type AgentContextCompileOptions,
+} from './agent-context-compiler.js';
 
 /** Context selection cannot enroll another execution location or issue a source grant. */
 export async function resolveChatAgentContext(input: {
   profile?: AgentLibraryVersion;
   stored?: AgentContextSnapshot;
-  workspaceRoot: string;
+  workspaceRoot?: string;
+  packs?: AgentContextCompileOptions['packs'];
   signal: AbortSignal;
 }): Promise<AgentContextSnapshot | undefined> {
   const profile = input.profile;

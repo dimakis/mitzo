@@ -1,3 +1,4 @@
+import { symposiumAgentContextAuthorization } from './symposium-agent-context.js';
 import type { TurnInputWriteObserver } from './codex-turn-input-receipt.js';
 import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
@@ -19,7 +20,11 @@ import { CodexConversation, type CodexConversationOptions } from './codex-conver
 import type { CodexConversationStore, CodexCommandInput } from './codex-conversation-store.js';
 import type { SymposiumSeatExecution } from './symposium-orchestrator.js';
 import type { SymposiumNativeSeat } from './symposium-openshell-seat-executor.js';
-import { symposiumSeatRuntimeId, type SymposiumSeatRoute } from './symposium-seat-runtime.js';
+import {
+  assertSymposiumNativeCodexContextAdmission,
+  symposiumSeatRuntimeId,
+  type SymposiumSeatRoute,
+} from './symposium-seat-runtime.js';
 import type { SymposiumNativeProfileTools } from './symposium-native-profile-tools.js';
 import { symposiumSeatSystemPrompt } from './symposium-seat-prompt.js';
 
@@ -135,6 +140,7 @@ export async function createOpenAiCodexSeat(
   input: OpenAiCodexSeatInput,
 ): Promise<SymposiumNativeSeat> {
   const { route, execution } = input;
+  assertSymposiumNativeCodexContextAdmission(execution);
   if (route.kind !== 'openai-api')
     throw new Error('Codex native seat requires an OpenAI API route');
   const binding = execution.seat.accountBinding;
@@ -166,6 +172,7 @@ export async function createCodexNativeSeat(
   },
 ): Promise<SymposiumNativeSeat> {
   const { route, execution, sandbox } = input;
+  assertSymposiumNativeCodexContextAdmission(execution);
   if (
     input.observeDurableReviewToolResult &&
     (typeof input.observeDurableReviewToolResult !== 'function' ||
@@ -363,7 +370,10 @@ export async function createCodexNativeSeat(
     ...(input.route.kind === 'chatgpt-subscription-native'
       ? { providerThreadLifecycle: 'attempt' as const }
       : {}),
-    systemPrompt: [symposiumSeatSystemPrompt(execution.seat), input.profileTools?.instructions]
+    systemPrompt: [
+      symposiumSeatSystemPrompt(execution.seat, execution.agentContext),
+      input.profileTools?.instructions,
+    ]
       .filter(Boolean)
       .join('\n\n'),
     tools: input.profileTools?.tools ?? [],
@@ -541,6 +551,8 @@ export async function createCodexNativeSeat(
         }
       : input.profileTools?.onToolResultDurable,
     startupSignal: execution.signal,
+    prepareAgentContext: symposiumAgentContextAuthorization(execution),
+    disableProjectDocuments: execution.agentContext?.source === 'packs',
     observeStartupConfig: input.observeStartupConfig
       ? async (event, startupSignal = execution.signal) => {
           const assertCurrent = () => {
@@ -712,6 +724,9 @@ export async function createCodexNativeSeat(
   let conversation!: NativeCodexConversation;
   try {
     await inspectPrelaunch();
+    assertSymposiumNativeCodexContextAdmission(execution);
+    await options.prepareAgentContext?.(execution.signal);
+    assertSymposiumNativeCodexContextAdmission(execution);
     conversation = input.createConversation?.(options) ?? new CodexConversation(options);
     await conversation.initialize();
   } catch (error) {
@@ -755,6 +770,13 @@ export async function createCodexNativeSeat(
       ](symposiumSeatRuntimeId(execution), binding, previous, next);
     },
     async run(currentExecution, currentCallbacks) {
+      try {
+        assertSymposiumNativeCodexContextAdmission(execution);
+        assertSymposiumNativeCodexContextAdmission(currentExecution);
+      } catch (error) {
+        await closeAndConfirm(conversation);
+        throw error;
+      }
       if (input.observeDurableReviewToolResult && (observerVetoed || observerCompletionClosing))
         throw new Error('Durable review observer permanently vetoed or completed');
       if (currentExecution.claimToken !== execution.claimToken)

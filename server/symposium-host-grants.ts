@@ -299,6 +299,12 @@ export class SymposiumHostGrants {
     )
       throw new Error('Profile resolver returned a different revision');
     const selected = version?.definition;
+    if (
+      inputSeat.contextRecipe &&
+      (!selected?.contextRecipe ||
+        JSON.stringify(inputSeat.contextRecipe) !== JSON.stringify(selected.contextRecipe))
+    )
+      throw Error('A draft cannot supply a different context recipe from its selected profile');
     const seat: SeatConfig = selected
       ? SeatConfigSchema.parse({
           ...inputSeat,
@@ -307,6 +313,7 @@ export class SymposiumHostGrants {
           systemPrompt: selected.instructions,
           expectedOutput: selected.expectedOutput,
           acceptanceCriteria: selected.acceptanceCriteria,
+          contextRecipe: selected.contextRecipe,
         })
       : inputSeat;
     if (seat.profileBinding || seat.contextGrant || seat.authorityGrant || seat.isolationRequest)
@@ -321,7 +328,13 @@ export class SymposiumHostGrants {
       throw new Error('Profile is not compatible with the selected provider');
     this.deps.validateSelection(seat);
     const authorization = Authorization.parse(
-      this.deps.authorizeSeat({ sessionId, actor, seat: inputSeat, contextSourceRefs }),
+      this.deps.authorizeSeat({
+        sessionId,
+        actor,
+        // Preserve the approved role and authority ceiling while admitting the trusted recipe.
+        seat: { ...inputSeat, contextRecipe: seat.contextRecipe },
+        contextSourceRefs,
+      }),
     );
     // A portable role cannot raise the approved seat's executable authority.
     if (
@@ -370,6 +383,7 @@ export class SymposiumHostGrants {
           systemPrompt: seat.systemPrompt,
           expectedOutput: seat.expectedOutput,
           acceptanceCriteria: seat.acceptanceCriteria,
+          contextRecipe: seat.contextRecipe,
         }),
       )
       .digest('hex');

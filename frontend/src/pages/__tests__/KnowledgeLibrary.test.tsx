@@ -2447,3 +2447,19 @@ it.each([false, true])(
     }
   },
 );
+it('makes reusable context curation available under Knowledge', async () => {
+  const existing = vi.mocked(apiFetch).getMockImplementation()!;
+  vi.mocked(apiFetch).mockImplementation((path, init) =>
+    path === '/api/context-packs'
+      ? Promise.resolve(response({ packs: [], drafts: [] }))
+      : existing(path, init),
+  );
+  setup();
+  fireEvent.click(await screen.findByRole('button', { name: 'Context' }));
+  expect(await screen.findByRole('region', { name: 'Context packs' })).toBeTruthy();
+  expect(
+    screen.getByRole('link', { name: 'Create context with advisor' }).getAttribute('href'),
+  ).toContain('/chat?prompt=');
+  fireEvent.click(screen.getByRole('button', { name: 'Library' }));
+  expect(await findLibraryDocument(/Working principles/)).toBeTruthy();
+});

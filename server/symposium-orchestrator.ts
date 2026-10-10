@@ -23,6 +23,8 @@ const sharedReconciliationQueues = new WeakMap<EventStore, Map<string, Promise<v
  * Implementations must reconcile repeated idempotency keys to one provider turn.
  */
 export interface SymposiumSeatExecution {
+  /** Trusted host preparation only; never supplied by the routing/operator message body. */
+  agentContext?: import('@mitzo/protocol').AgentContextSnapshot;
   sessionId: string;
   deliveryId: string;
   seat: SeatConfig;

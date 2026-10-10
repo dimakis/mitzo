@@ -11,22 +11,27 @@ import {
   type CompiledAgentContext,
 } from '@mitzo/protocol';
 import { z } from 'zod';
+import { compileContextPacks, type AuthorizedContextPacks } from './agent-context-pack-compiler.js';
+export type { AuthorizedContextPacks } from './agent-context-pack-compiler.js';
 import { DEFAULT_CONTEXGIN_URL } from './constants.js';
 import { isPrivateCodexPath } from './codex-private-path.js';
 
 // Pinned dependency plus this preloaded-document compiler contract; never a runtime grant.
 export const AGENT_CONTEXT_COMPILER_REVISION =
   'mitzo-context-v3:contexgin-683f9007db686e710ed9a5410468fe33df1c5382';
+export const AGENT_PACK_CONTEXT_COMPILER_REVISION =
+  'mitzo-context-packs-v1:contexgin-683f9007db686e710ed9a5410468fe33df1c5382';
 export const contextDigest = (value: unknown) =>
   createHash('sha256').update(JSON.stringify(value)).digest('hex');
-type Options = {
+export type AgentContextCompileOptions = {
+  packs?: AuthorizedContextPacks;
   workspaceRoot?: string;
   contexginUrl?: string;
   fetch?: typeof fetch;
   signal?: AbortSignal;
 };
 
-async function rootIdentity(options: Options) {
+async function rootIdentity(options: AgentContextCompileOptions) {
   if (!options.workspaceRoot) throw Error('Select a chat workspace for context compilation');
   return realpath(options.workspaceRoot);
 }
@@ -38,7 +43,7 @@ function assertAllowedDocument(root: string, reference: string) {
 }
 async function presetContext(
   recipe: Extract<AgentContextRecipe, { source: 'contexgin' }>,
-  options: Options,
+  options: AgentContextCompileOptions,
 ) {
   const base = options.contexginUrl ?? process.env.CONTEXGIN_URL ?? DEFAULT_CONTEXGIN_URL;
   const response = await (options.fetch ?? fetch)(
@@ -96,7 +101,7 @@ async function presetContext(
 }
 export async function compileAgentContext(
   value: unknown,
-  options: Options = {},
+  options: AgentContextCompileOptions = {},
 ): Promise<CompiledAgentContext> {
   options.signal?.throwIfAborted();
   const recipe = AgentContextRecipeSchema.parse(value);
@@ -107,30 +112,72 @@ export async function compileAgentContext(
           { ...options, assertDocumentPath: assertAllowedPath },
           contexgin,
         )
-      : await presetContext(recipe, options);
+      : recipe.source === 'packs'
+        ? await compileContextPacks(recipe, options.packs, options.signal)
+        : await presetContext(recipe, options);
   options.signal?.throwIfAborted();
   return CompiledAgentContextSchema.parse({
     source: recipe.source,
-    compilerRevision: AGENT_CONTEXT_COMPILER_REVISION,
+    compilerRevision:
+      recipe.source === 'packs'
+        ? AGENT_PACK_CONTEXT_COMPILER_REVISION
+        : AGENT_CONTEXT_COMPILER_REVISION,
     recipeHash: contextDigest(recipe),
-    payloadHash: contextDigest(result.context),
+    payloadHash: contextDigest(
+      'provenance' in result
+        ? { context: result.context, provenance: result.provenance }
+        : result.context,
+    ),
     ...result,
   });
 }
 export async function verifyCompiledAgentContext(
   value: unknown,
   recipeValue: unknown,
-  options: Options = {},
+  options: AgentContextCompileOptions = {},
 ): Promise<CompiledAgentContext> {
   options.signal?.throwIfAborted();
   const recipe = AgentContextRecipeSchema.parse(recipeValue);
   const compiled = CompiledAgentContextSchema.parse(value);
   if (compiled.source !== recipe.source || compiled.recipeHash !== contextDigest(recipe))
     throw Error('Saved context recipe mismatch');
-  if (compiled.compilerRevision !== AGENT_CONTEXT_COMPILER_REVISION)
+  if (
+    recipe.source === 'packs' &&
+    contextDigest(compiled.provenance?.packs) !== contextDigest(recipe.packs)
+  )
+    throw Error('Saved context pack provenance mismatch');
+  if (
+    compiled.compilerRevision !==
+    (recipe.source === 'packs'
+      ? AGENT_PACK_CONTEXT_COMPILER_REVISION
+      : AGENT_CONTEXT_COMPILER_REVISION)
+  )
     throw Error('Saved context compiler revision is unsupported');
-  if (compiled.payloadHash !== contextDigest(compiled.context))
+  if (
+    compiled.payloadHash !==
+    contextDigest(
+      compiled.provenance
+        ? { context: compiled.context, provenance: compiled.provenance }
+        : compiled.context,
+    )
+  )
     throw Error('Saved context payload hash mismatch');
+  if (recipe.source === 'packs') {
+    const packs = options.packs;
+    if (!packs?.sourceIdentity)
+      throw Error('Runtime source authorization is required for retained context packs');
+    packs.assertCurrent();
+    for (const document of compiled.provenance!.documents) {
+      if (document.storeId !== packs.sourceIdentity)
+        throw Error('Saved context source namespace identity mismatch');
+      await packs.authorize(
+        { ...document, mode: 'required', headings: [], priority: 100 },
+        options.signal,
+      );
+      options.signal?.throwIfAborted();
+      packs.assertCurrent();
+    }
+  }
   if (recipe.source === 'workspace') {
     const root = await rootIdentity(options);
     if (compiled.workspaceIdentity !== contextDigest(root))

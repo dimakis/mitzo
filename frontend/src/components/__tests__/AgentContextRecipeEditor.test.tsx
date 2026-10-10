@@ -13,6 +13,16 @@ function Editor({ disabled = false }: { disabled?: boolean }) {
 it('makes compilation opt-in and lets the author choose documents and a bounded budget', () => {
   render(<Editor />);
   expect(screen.getByText(/local chats and supported OpenShell sandboxes/)).toBeTruthy();
+  expect(
+    screen.getByText(
+      /Native Codex and Claude Symposium seats require a profile without a context recipe/,
+    ),
+  ).toBeTruthy();
+  expect(
+    screen.getByText(
+      /Ordinary Claude SDK, OpenAI Responses and Gemini\/Vertex chats support published packs/,
+    ),
+  ).toBeTruthy();
   expect(screen.queryByLabelText('Context source')).toBeNull();
   fireEvent.click(screen.getByLabelText('Compile chat context'));
   expect(screen.getByLabelText('Context source')).toHaveProperty('value', 'workspace');
@@ -51,4 +61,154 @@ it('selects a named preset without exposing a server URL, host path or permissio
 it('disables compilation controls with the containing editor', () => {
   render(<Editor disabled />);
   expect(screen.getByLabelText('Compile chat context')).toHaveProperty('disabled', true);
+});
+it('selects immutable published pack revisions and leaves workspace choices available', async () => {
+  const original = global.fetch;
+  global.fetch = async () =>
+    ({
+      ok: true,
+      json: async () => ({
+        packs: [
+          {
+            revision: 2,
+            hash: 'a'.repeat(64),
+            definition: { id: 'mitzo-reviewer', name: 'Mitzo reviewer' },
+          },
+        ],
+        drafts: [],
+      }),
+    }) as Response;
+  try {
+    render(<Editor />);
+    fireEvent.click(screen.getByLabelText('Compile chat context'));
+    fireEvent.change(screen.getByLabelText('Context source'), { target: { value: 'packs' } });
+    expect(await screen.findByLabelText('Published context pack')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Add pack revision' }));
+    expect(screen.getByText(/mitzo-reviewer · revision 2/)).toBeTruthy();
+    expect(screen.getByLabelText('Token budget')).toHaveProperty('value', '12000');
+    fireEvent.change(screen.getByLabelText('Context source'), { target: { value: 'workspace' } });
+    expect(screen.getByLabelText('Documents (one per line)')).toBeTruthy();
+  } finally {
+    global.fetch = original;
+  }
+});
+it('resolves the selected historical pack name without upgrading its pin', async () => {
+  const original = global.fetch;
+  const onChange = () => {
+    throw Error('Historical lookup must not change the recipe');
+  };
+  const hash = 'b'.repeat(64);
+  global.fetch = async (input) =>
+    ({
+      ok: true,
+      json: async () =>
+        String(input).endsWith('/revisions/2')
+          ? {
+              pack: {
+                id: 'review',
+                revision: 2,
+                hash,
+                definition: { id: 'review', name: 'Previous reviewer' },
+              },
+            }
+          : {
+              packs: [
+                {
+                  id: 'review',
+                  revision: 3,
+                  hash: 'a'.repeat(64),
+                  definition: { id: 'review', name: 'Latest reviewer' },
+                },
+              ],
+              drafts: [],
+            },
+    }) as Response;
+  try {
+    render(
+      <AgentContextRecipeEditor
+        value={{
+          version: 2,
+          source: 'packs',
+          packs: [{ id: 'review', revision: 2, hash }],
+          tokenBudget: 4000,
+        }}
+        onChange={onChange}
+      />,
+    );
+    expect(await screen.findByText('Previous reviewer · revision 2')).toBeTruthy();
+  } finally {
+    global.fetch = original;
+  }
+});
+it('requires explicit removal before changing a pack identity to a newer revision', async () => {
+  const original = global.fetch;
+  const hash = 'b'.repeat(64);
+  const changes: AgentContextRecipe[] = [];
+  global.fetch = async (input) =>
+    ({
+      ok: true,
+      json: async () =>
+        String(input).endsWith('/revisions/2')
+          ? {
+              pack: {
+                id: 'review',
+                revision: 2,
+                hash,
+                definition: { id: 'review', name: 'Previous reviewer' },
+              },
+            }
+          : {
+              packs: [
+                {
+                  id: 'review',
+                  revision: 3,
+                  hash: 'a'.repeat(64),
+                  definition: { id: 'review', name: 'Latest reviewer' },
+                },
+              ],
+              drafts: [],
+            },
+    }) as Response;
+  function HistoricalEditor() {
+    const [value, setValue] = useState<AgentContextRecipe>({
+      version: 2,
+      source: 'packs',
+      packs: [{ id: 'review', revision: 2, hash }],
+      tokenBudget: 4000,
+    });
+    return (
+      <AgentContextRecipeEditor
+        value={value}
+        onChange={(next) => {
+          changes.push(next!);
+          setValue(next!);
+        }}
+      />
+    );
+  }
+  try {
+    render(<HistoricalEditor />);
+    await screen.findByText('Previous reviewer · revision 2');
+    const add = screen.getByRole('button', { name: 'Add pack revision' });
+    expect(add).toHaveProperty('disabled', true);
+    fireEvent.click(add);
+    expect(changes).toEqual([]);
+    expect(
+      screen.getByText(/Remove the existing pin before choosing another revision/),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(
+        /Published packs are unavailable on native Codex routes, including local and OpenShell chats/,
+      ),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Remove review' }));
+    expect(add).toHaveProperty('disabled', false);
+    fireEvent.click(add);
+    expect(changes.at(-1)).toMatchObject({
+      source: 'packs',
+      packs: [{ id: 'review', revision: 3, hash: 'a'.repeat(64) }],
+    });
+  } finally {
+    global.fetch = original;
+  }
 });

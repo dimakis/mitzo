@@ -194,6 +194,7 @@ export const SeatConfigSchema = z
     authorityRequest: SeatAuthorityRequestSchema.optional(),
     profileBinding: ProfileBindingSchema.optional(),
     contextGrant: ContextGrantSchema.optional(),
+    contextRecipe: AgentContextRecipeSchema.optional(),
     authorityGrant: AuthorityGrantSchema.optional(),
     isolationRequest: IsolationRequestSchema.optional(),
   })

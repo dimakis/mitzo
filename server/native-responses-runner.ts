@@ -23,6 +23,7 @@ interface NativeResponsesOptions extends Omit<
   gemini?: GeminiOptions;
   store: NativeResponsesStore;
   maxTurns?: number;
+  prepareAgentContext?: (signal: AbortSignal) => Promise<void>;
   selectedModel?: string;
   reasoningEffort?: string | null;
   executeTool: (block: ToolUseBlock, signal: AbortSignal) => Promise<ToolResultBlock>;
@@ -181,6 +182,10 @@ export class NativeResponsesRunner {
         tools: opts.tools,
         reasoningEffort: selectedReasoningEffort ?? undefined,
         signal: abort.signal,
+        beforeDispatch: async () => {
+          await opts.prepareAgentContext?.(abort.signal);
+          abort.signal.throwIfAborted();
+        },
       };
       const session = opts.gemini
         ? new GeminiSession(config, { ...opts.gemini, checkpoint })
