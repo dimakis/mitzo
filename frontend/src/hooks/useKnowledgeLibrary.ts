@@ -80,9 +80,6 @@ async function request<T>(path: string, method = 'GET', body?: unknown): Promise
     );
   return data;
 }
-function needsReview(draft: KnowledgeDraft) {
-  return draft.review?.version !== draft.version || Boolean(draft.error);
-}
 export function useKnowledgeLibrary() {
   const [catalog, setCatalog] = useState<KnowledgeCatalog | null>(null);
   const [copy, setCopy] = useState<WorkingCopy | null>(recover);
@@ -123,9 +120,17 @@ export function useKnowledgeLibrary() {
     !comparison?.documents.some((document) => document.content === null) &&
     !copy.initialSaveConflict &&
     (!copy.draft || copy.draft.state === 'draft' || copy.draft.state === 'in-review') &&
-    (dirty ||
-      !!copy.pendingCreate ||
-      (!!copy.draft && !!catalog?.reviewEnabled && needsReview(copy.draft)));
+    (dirty || !!copy.pendingCreate);
+  const canSendForReview =
+    !!copy?.draft &&
+    !!catalog?.reviewEnabled &&
+    !dirty &&
+    !copy.pendingCreate &&
+    !copy.forkNeedsComparison &&
+    !copy.initialSaveConflict &&
+    !comparison?.documents.some((document) => document.content === null) &&
+    (copy.draft.state === 'draft' || copy.draft.state === 'in-review') &&
+    !(copy.draft.review?.version === copy.draft.version && copy.draft.review.ready);
   useEffect(() => {
     let active = true;
     request<KnowledgeCatalog>('/api/knowledge')
@@ -212,19 +217,20 @@ export function useKnowledgeLibrary() {
     setGate(null);
     setComparison(null);
   }
-  function updateDraft(draft: KnowledgeDraft, reviewError?: string) {
+  function updateDraft(draft: KnowledgeDraft, reviewError?: string, preserveAuthoring = false) {
     const old = current.current!;
     persist({
       ...old,
       draft,
-      baseRevision: draft.baseRevision,
-      documents: draft.documents,
-      directories: draft.directories || [],
-      savedDirectories: draft.directories || [],
-      selected: draft.documents.some((d) => d.path === old.selected)
-        ? old.selected
-        : draft.documents[0]?.path || '',
-      saved: JSON.stringify(draft.documents),
+      baseRevision: preserveAuthoring ? old.baseRevision : draft.baseRevision,
+      documents: preserveAuthoring ? old.documents : draft.documents,
+      directories: preserveAuthoring ? old.directories : draft.directories || [],
+      savedDirectories: preserveAuthoring ? old.savedDirectories : draft.directories || [],
+      selected:
+        preserveAuthoring || draft.documents.some((d) => d.path === old.selected)
+          ? old.selected
+          : draft.documents[0]?.path || '',
+      saved: preserveAuthoring ? old.saved : JSON.stringify(draft.documents),
     });
     setCatalog((data) =>
       data ? { ...data, drafts: [draft, ...data.drafts.filter((d) => d.id !== draft.id)] } : data,
@@ -234,8 +240,8 @@ export function useKnowledgeLibrary() {
         ? 'Accepted · Waiting for publication'
         : draft.review?.version === draft.version
           ? draft.review.ready
-            ? 'In review'
-            : 'Review draft saved'
+            ? 'Sent for review'
+            : 'Draft saved'
           : 'Draft saved',
     );
     setError(reviewError || draft.error || '');
@@ -273,6 +279,11 @@ export function useKnowledgeLibrary() {
         opened = true;
         return;
       }
+      if (
+        add &&
+        (current.current?.draft?.state === 'accepted' || current.current?.draft?.state === 'closed')
+      )
+        throw new Error('Start a new change before adding documents to this finished draft.');
       if (!add && dirty && !window.confirm('Replace your unsaved working copy with this document?'))
         return;
       const data = await request<{ content: string }>(
@@ -703,13 +714,7 @@ export function useKnowledgeLibrary() {
     )
       return;
     // A clean confirmed Save must preserve the reviewed head, readiness and approvals.
-    if (
-      !newChange &&
-      !changed &&
-      !active.pendingCreate &&
-      (!active.draft || !catalog?.reviewEnabled || !needsReview(active.draft))
-    )
-      return;
+    if (!newChange && !changed && !active.pendingCreate) return;
     await run(async () => {
       const old = current.current;
       if (!old) return;
@@ -720,20 +725,14 @@ export function useKnowledgeLibrary() {
       }));
       let result: { draft: KnowledgeDraft; reviewError?: string };
       if (old.draft && !newChange) {
-        result = changed
-          ? await writeSavedDraft(old.draft.id, {
-              version: old.draft.version,
-              documents: contents,
-              directories: old.directories,
-              ...(baseRevision || old.baseRevision !== old.draft.baseRevision
-                ? { baseRevision: baseRevision || old.baseRevision }
-                : {}),
-            })
-          : await request(
-              `/api/knowledge/drafts/${encodeURIComponent(old.draft.id)}/review`,
-              'POST',
-              { version: old.draft.version },
-            );
+        result = await writeSavedDraft(old.draft.id, {
+          version: old.draft.version,
+          documents: contents,
+          directories: old.directories,
+          ...(baseRevision || old.baseRevision !== old.draft.baseRevision
+            ? { baseRevision: baseRevision || old.baseRevision }
+            : {}),
+        });
       } else {
         const creation = old.pendingCreate || {
           requestId: crypto.randomUUID(),
@@ -786,19 +785,6 @@ export function useKnowledgeLibrary() {
           });
           updateDraft(result.draft, result.reviewError);
           setComparison(null);
-          return;
-        }
-        updateDraft(result.draft);
-        try {
-          result = await request(
-            `/api/knowledge/drafts/${encodeURIComponent(result.draft.id)}/review`,
-            'POST',
-            { version: result.draft.version },
-          );
-        } catch (err) {
-          setError(
-            `Draft saved. ${err instanceof Error ? err.message : 'Review could not be opened.'}`,
-          );
           return;
         }
       }
@@ -1000,28 +986,73 @@ export function useKnowledgeLibrary() {
       const draft = old?.draft;
       if (
         !old ||
+        !draft ||
+        !catalog?.reviewEnabled ||
         old.initialSaveConflict ||
-        !draft?.review ||
-        draft.review.version !== draft.version ||
-        draft.review.ready ||
+        old.pendingCreate ||
+        old.forkNeedsComparison ||
+        comparison?.documents.some((document) => document.content === null) ||
         (draft.state !== 'draft' && draft.state !== 'in-review') ||
+        (draft.review?.version === draft.version && draft.review.ready) ||
         JSON.stringify(old.documents) !== old.saved ||
         JSON.stringify(old.directories) !== JSON.stringify(old.savedDirectories || [])
       )
         return;
-      const result = await request<{ draft: KnowledgeDraft }>(
-        `/api/knowledge/drafts/${encodeURIComponent(draft.id)}/ready`,
-        'POST',
-        { version: draft.version, head: draft.review.head },
-      );
-      updateDraft(result.draft);
-      setNotice('Sent for review');
+      try {
+        const result = await request<{ draft: KnowledgeDraft }>(
+          `/api/knowledge/drafts/${encodeURIComponent(draft.id)}/ready`,
+          'POST',
+          { version: draft.version },
+        );
+        if (
+          result.draft.id !== draft.id ||
+          result.draft.version !== draft.version ||
+          result.draft.state !== 'in-review' ||
+          result.draft.review?.version !== draft.version ||
+          result.draft.review.ready !== true
+        )
+          throw new Error(
+            'Review submission could not be confirmed. Your saved draft is preserved.',
+          );
+        const active = current.current;
+        if (active?.draft?.id !== draft.id || active.draft.version !== draft.version)
+          throw new Error(
+            'The working copy changed while sending. Refresh its saved review before continuing.',
+          );
+        updateDraft(result.draft, undefined, true);
+        setNotice('Sent for review');
+      } catch (error) {
+        if (
+          error instanceof KnowledgeApiError &&
+          error.status === 409 &&
+          current.current?.draft?.id === draft.id &&
+          current.current.draft.version === draft.version
+        ) {
+          persist({
+            ...current.current,
+            initialSaveConflict: draft,
+            savedComparisonUnavailable: true,
+          });
+          setComparison(null);
+          setGate(null);
+          await loadSavedComparison();
+        }
+        throw error;
+      }
     });
   }
   async function accept() {
     await run(async () => {
       const draft = current.current?.draft;
-      if (!draft?.review || !gate?.canAccept || dirty || current.current?.initialSaveConflict)
+      if (
+        !draft?.review ||
+        draft.review.version !== draft.version ||
+        !draft.review.ready ||
+        !gate?.canAccept ||
+        (gate.currentHead !== undefined && gate.currentHead !== draft.review.head) ||
+        dirty ||
+        current.current?.initialSaveConflict
+      )
         return;
       const result = await request<{ draft: KnowledgeDraft }>(
         `/api/knowledge/drafts/${encodeURIComponent(draft.id)}/accept`,
@@ -1037,6 +1068,7 @@ export function useKnowledgeLibrary() {
     selected,
     dirty,
     canSave,
+    canSendForReview,
     historyResetKey,
     busy,
     error,

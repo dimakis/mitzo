@@ -98,7 +98,7 @@ it('stores bases on the server and keeps drafts durable even when review is unav
     .send({ version: 1, documents: [{ path: 'architecture/one.md', content: '# Saved\n' }] });
   expect(saved.status).toBe(200);
   expect(saved.body.draft.documents[0].content).toBe('# Saved\n');
-  expect(saved.body.reviewError).toContain('not configured');
+  expect(saved.body.reviewError).toBeUndefined();
   expect(
     (
       await request(a)
@@ -221,6 +221,14 @@ it('sends only the current saved review for review and preserves its source', as
     reviewService: {
       config: { repository: 'test/knowledge', baseBranch: 'main' },
       assertIdle: (id: string) => store.assertIdle(id),
+      sendForReview: async (id: string, version: number) => {
+        await sendForReview();
+        return store.receipt(id, version, {
+          url: 'https://github.com/test/knowledge/pull/1',
+          head,
+          ready: true,
+        });
+      },
     } as unknown as KnowledgeReviewService,
     publisher: { sendForReview } as unknown as KnowledgeGithubPublisher,
   }));
@@ -578,3 +586,146 @@ it.each([
     expect(store.get(draft.id)).toEqual(original);
   },
 );
+
+it('keeps Save and the legacy review request local without refreshing or publishing', async () => {
+  const draft = store.create('Batch', await source.revision(), [
+    { path: 'architecture/one.md', base: '# Accepted\n', content: '# First\n' },
+  ]);
+  const submit = vi.fn();
+  const sendForReview = vi.fn();
+  const refresh = vi.fn();
+  const publisher = {
+    identity: vi.fn(),
+    read: vi.fn(),
+    readBranch: vi.fn(),
+    push: vi.fn(),
+    create: vi.fn(),
+    update: vi.fn(),
+    sendForReview: vi.fn(),
+  };
+  const a = app(async () => ({
+    source,
+    store,
+    syncedAt: null,
+    acceptanceEnabled: false,
+    refresh,
+    reviewService: {
+      submit,
+      sendForReview,
+      assertIdle: (id: string) => store.assertIdle(id),
+    } as unknown as KnowledgeReviewService,
+    publisher: publisher as unknown as KnowledgeGithubPublisher,
+  }));
+  const saved = await request(a)
+    .put('/api/knowledge/drafts/' + draft.id)
+    .set('x-operator', 'yes')
+    .send({ version: 1, documents: [{ path: 'architecture/one.md', content: '# Second\n' }] });
+  expect(saved.status).toBe(200);
+  expect(saved.body.draft).toMatchObject({ state: 'draft', version: 2 });
+  expect(saved.body.reviewError).toBeUndefined();
+  expect(
+    (
+      await request(a)
+        .post('/api/knowledge/drafts/' + draft.id + '/review')
+        .set('x-operator', 'yes')
+        .send({ version: 2 })
+    ).body.draft,
+  ).toEqual(saved.body.draft);
+  expect(
+    (
+      await request(a)
+        .post('/api/knowledge/drafts/' + draft.id + '/review')
+        .set('x-operator', 'yes')
+        .send({ version: 1 })
+    ).status,
+  ).toBe(409);
+  expect(submit).not.toHaveBeenCalled();
+  expect(sendForReview).not.toHaveBeenCalled();
+  expect(refresh).not.toHaveBeenCalled();
+  for (const call of Object.values(publisher)) expect(call).not.toHaveBeenCalled();
+});
+it('sends a saved batch without a client-selected head and retains the legacy expected-head fence', async () => {
+  const draft = store.create('Batch', await source.revision(), [
+    { path: 'architecture/one.md', base: '# Accepted\n', content: '# First\n' },
+  ]);
+  const head = 'a'.repeat(40);
+  const sendForReview = vi.fn(async (id: string, version: number) =>
+    store.receipt(id, version, {
+      url: 'https://github.com/test/knowledge/pull/1',
+      head,
+      ready: true,
+    }),
+  );
+  const a = app(async () => ({
+    source,
+    store,
+    syncedAt: null,
+    acceptanceEnabled: false,
+    refresh: vi.fn(),
+    reviewService: {
+      sendForReview,
+      assertIdle: (id: string) => store.assertIdle(id),
+    } as unknown as KnowledgeReviewService,
+    publisher: {} as KnowledgeGithubPublisher,
+  }));
+  const endpoint = '/api/knowledge/drafts/' + draft.id + '/ready';
+  expect(
+    (await request(a).post(endpoint).set('x-operator', 'yes').send({ version: 1, head })).status,
+  ).toBe(409);
+  expect(sendForReview).not.toHaveBeenCalled();
+  const sent = await request(a).post(endpoint).set('x-operator', 'yes').send({ version: 1 });
+  expect(sent.status).toBe(200);
+  expect(sent.body.draft.review).toMatchObject({ head, version: 1, ready: true });
+  expect(
+    (
+      await request(a)
+        .post(endpoint)
+        .set('x-operator', 'yes')
+        .send({ version: 1, head: 'b'.repeat(40) })
+    ).status,
+  ).toBe(409);
+});
+it('staging a newer version retains the old ready review and blocks accepting it', async () => {
+  const draft = store.create('Batch', await source.revision(), [
+    { path: 'architecture/one.md', base: '# Accepted\n', content: '# First\n' },
+  ]);
+  const head = 'a'.repeat(40);
+  store.receipt(draft.id, 1, {
+    url: 'https://github.com/test/knowledge/pull/1',
+    head,
+    ready: true,
+  });
+  const accept = vi.fn();
+  const submit = vi.fn();
+  const a = app(async () => ({
+    source,
+    store,
+    syncedAt: null,
+    acceptanceEnabled: true,
+    refresh: vi.fn(),
+    reviewService: {
+      submit,
+      assertIdle: (id: string) => store.assertIdle(id),
+    } as unknown as KnowledgeReviewService,
+    publisher: { accept } as unknown as KnowledgeGithubPublisher,
+  }));
+  const saved = await request(a)
+    .put('/api/knowledge/drafts/' + draft.id)
+    .set('x-operator', 'yes')
+    .send({ version: 1, documents: [{ path: 'architecture/one.md', content: '# Later\n' }] });
+  expect(saved.body.draft).toMatchObject({
+    state: 'draft',
+    version: 2,
+    review: { head, version: 1, ready: true },
+  });
+  expect(
+    (
+      await request(a)
+        .post('/api/knowledge/drafts/' + draft.id + '/accept')
+        .set('x-operator', 'yes')
+        .send({ version: 2, head })
+    ).status,
+  ).toBe(409);
+  expect(accept).not.toHaveBeenCalled();
+  expect(submit).not.toHaveBeenCalled();
+});

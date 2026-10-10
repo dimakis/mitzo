@@ -556,8 +556,8 @@ test('Knowledge edits and saves its working copy with usable source, preview and
   await page.getByRole('button', { name: 'Fullscreen', exact: true }).click();
   const modal = page.getByRole('dialog', { name: 'Fullscreen document editor' });
   expect((await source.boundingBox())!.height).toBeGreaterThan(isMobile ? 44 : 200);
-  await expect(modal.getByRole('button', { name: 'Save', exact: true })).toBeInViewport();
-  await modal.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(modal.getByRole('button', { name: 'Save draft', exact: true })).toBeInViewport();
+  await modal.getByRole('button', { name: 'Save draft', exact: true }).click();
   await expect(modal).toContainText('Draft saved');
   await expectSource(source, draft);
   expect(writes[0]).toMatchObject({
@@ -616,7 +616,7 @@ test('adopting a same-content saved Knowledge draft clears obsolete Vim undo his
   const source = page.getByRole('textbox', { name: 'Document source' });
   await source.fill(content);
   await expect(page.getByRole('button', { name: 'Undo', exact: true })).toBeEnabled();
-  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await page.getByRole('button', { name: 'Save draft', exact: true }).click();
   await expect(page.getByRole('region', { name: 'Compare saved draft' })).toBeVisible();
   await page.getByRole('button', { name: 'Use saved draft', exact: true }).click();
   await expectSource(source, content);
@@ -813,7 +813,7 @@ test('fullscreen Knowledge comparisons scroll independently and preserve space f
   await source.fill('# My release draft');
   await page.getByRole('button', { name: 'Fullscreen', exact: true }).click();
   const modal = page.getByRole('dialog', { name: 'Fullscreen document editor' });
-  await modal.getByRole('button', { name: 'Save', exact: true }).click();
+  await modal.getByRole('button', { name: 'Save draft', exact: true }).click();
   await expect(modal).toContainText('Accepted knowledge changed.');
   await modal.getByRole('button', { name: 'Compare accepted version', exact: true }).click();
   const comparison = modal.getByRole('region', { name: 'Compare accepted and draft' });

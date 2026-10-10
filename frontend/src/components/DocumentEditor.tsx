@@ -10,6 +10,7 @@ const DocumentSourceEditor = lazy(async () => ({
 }));
 
 interface Props {
+  saveLabel?: string;
   fullscreenStatus?: React.ReactNode;
   historyResetKey?: number;
   markdownComponents?: Components;
@@ -247,7 +248,7 @@ export function DocumentEditor(props: Props) {
             </button>
             {fullscreen && (
               <button type="button" onClick={onSave} disabled={saving}>
-                {saving ? 'Saving…' : 'Save'}
+                {saving ? 'Saving…' : props.saveLabel || 'Save'}
               </button>
             )}
           </div>
