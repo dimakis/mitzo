@@ -1,3 +1,4 @@
+import { assertNativeCodexContextAdmission } from './native-codex-context-admission.js';
 import { assembleSourceSnapshots } from './source-snapshot-context.js';
 import type { SourceSnapshot } from '@mitzo/protocol';
 import {
@@ -127,6 +128,8 @@ export interface CodexConversationOptions {
   /** Select verified project context at a safe boundary; never append it as user text. */
   prepareSystemPrompt?: (signal: AbortSignal) => Promise<string | undefined>;
   prepareAgentContext?: (signal: AbortSignal) => Promise<void>;
+  /** Trusted compiled context source, independent of native document preferences. */
+  readonly agentContextSource?: string;
   beforeComplete?: (signal: AbortSignal) => Promise<void>;
   /** Private bounded trusted observer; must stop its reads when the supplied signal aborts. */
   observeStartupConfig?: (
@@ -143,7 +146,7 @@ export interface CodexConversationOptions {
   runtimeCwd?: string;
   modelProvider?: string;
   runtimeConfig?: Record<string, unknown>;
-  /** Trusted retained pack selection; suppress task-checkout AGENTS.md discovery. */
+  /** Independent document preference; suppress task-checkout AGENTS.md discovery. */
   readonly disableProjectDocuments?: boolean;
   webSearchBackend?: WebSearchBackend;
   webSearchDeploymentRevision?: string;
@@ -351,7 +354,10 @@ export class CodexConversation {
   private appliedWebSearchAccess: WebSearchAccess = 'disabled';
   private webSearchDeploymentCeiling: WebSearchAccess = 'disabled';
   private readonly disableProjectDocuments: boolean;
+  private readonly agentContextSource?: string;
   constructor(private opts: CodexConversationOptions) {
+    assertNativeCodexContextAdmission({ source: opts.agentContextSource });
+    this.agentContextSource = opts.agentContextSource;
     this.disableProjectDocuments = opts.disableProjectDocuments === true;
     this.client = this.createClient();
   }
@@ -704,6 +710,7 @@ export class CodexConversation {
       cwd: this.opts.runtimeCwd ?? this.opts.cwd,
       runtimeConfig: this.opts.runtimeConfig,
       disableProjectDocuments: this.disableProjectDocuments,
+      agentContextSource: this.agentContextSource,
       workspaceId: this.opts.profile.workspaceId,
     });
   }

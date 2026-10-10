@@ -106,11 +106,12 @@ export function AgentContextRecipeEditor({
     <fieldset className="agent-library-context-recipe" disabled={disabled}>
       <legend>Compiled chat context</legend>
       <p>
-        Published packs support local chats, OpenShell and Symposium seats that support compiled
-        context. Workspace documents and ContexGin presets compile context for local chats and
-        supported OpenShell sandboxes. Symposium uses published packs with its existing context and
-        grant setup. Native Claude Symposium seats require a profile without a context recipe.
-        Ordinary Claude chats support published packs.
+        Ordinary Claude SDK, OpenAI Responses and Gemini/Vertex chats support published packs.
+        Published packs are unavailable on native Codex routes, including local and OpenShell chats,
+        Symposium seats and approved search threads. Native Codex and Claude Symposium seats require
+        a profile without a context recipe. Native Gemini Symposium dispatch is unsupported.
+        Workspace documents and ContexGin presets remain available for local chats and supported
+        OpenShell sandboxes. Pack profiles can still be curated independently of account and model.
       </p>
       <label className="agent-library-checkbox">
         <input

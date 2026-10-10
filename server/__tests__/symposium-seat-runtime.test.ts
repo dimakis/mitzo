@@ -4812,7 +4812,7 @@ describe('trusted prelaunch gate before the original controller', () => {
     }
   });
 });
-it('prepares pinned context before native setup and records adoption only after provider acceptance', async () => {
+it('refuses prepared pack authorization before sandbox setup or adoption', async () => {
   const work = fixture();
   const order: string[] = [];
   const snapshot = {
@@ -4866,61 +4866,12 @@ it('prepares pinned context before native setup and records adoption only after 
       };
     },
   });
-  await executor.execute(work.input);
-  expect(order).toEqual([
-    'prepared',
-    'reauthorized',
-    'sandbox',
-    'reauthorized',
-    'native',
-    'current',
-    'claim-accepted',
-    'context-accepted',
-  ]);
-  expect(accepted).toHaveBeenCalledWith(
-    expect.objectContaining({ claimToken: work.input.claimToken }),
-    prepared,
-    'thread',
-    'turn',
-  );
+  await expect(executor.execute(work.input)).rejects.toThrow(/trusted native continuation barrier/);
+  expect(order).toEqual(['prepared', 'reauthorized']);
+  expect(accepted).not.toHaveBeenCalled();
 });
-
-it('retains the awaited metadata fence across Codex initialization and later native turns', async () => {
-  const work = fixture();
-  const { bindSymposiumAgentContextAuthorization } = await import('../symposium-agent-context.js');
-  const authorize = vi.fn(async () => {});
-  bindSymposiumAgentContextAuthorization(work.input, authorize);
-  let options: import('../codex-conversation.js').CodexConversationOptions | undefined;
-  const initialize = vi.fn(async () => {
-    await options!.prepareAgentContext!(options!.startupSignal!);
-  });
-  const native = await createOpenAiCodexSeat({
-    sandbox: { workdir: '/task' } as never,
-    route: admitSymposiumSeatDispatch(work.facts, profiles, work.input, hostGrants),
-    execution: work.input,
-    store: {} as never,
-    createConversation: (opts) => {
-      options = opts;
-      return {
-        initialize,
-        getThreadId: () => 'thread',
-        send: async () => {},
-        interrupt: async () => {},
-        close: () => {},
-      };
-    },
-  });
-  expect(initialize).toHaveBeenCalledOnce();
-  expect(authorize).toHaveBeenCalledTimes(2);
-  authorize.mockRejectedValue(Error('Retained source lost accepted ancestry'));
-  await expect(options!.prepareAgentContext!(new AbortController().signal)).rejects.toThrow(
-    /accepted ancestry/,
-  );
-  await native.cancel();
-});
-
 it.each([undefined, 'workspace', 'packs'] as const)(
-  'selects native project document isolation only for Symposium packs (%s)',
+  'preserves legacy native admission and refuses prepared context (%s)',
   async (source) => {
     const work = fixture();
     const { bindSymposiumAgentContextAuthorization } =
@@ -4938,7 +4889,7 @@ it.each([undefined, 'workspace', 'packs'] as const)(
     };
     if (source) bindSymposiumAgentContextAuthorization(execution, async () => {});
     let options: import('../codex-conversation.js').CodexConversationOptions | undefined;
-    const native = await createOpenAiCodexSeat({
+    const opening = createOpenAiCodexSeat({
       sandbox: { workdir: '/task' } as never,
       route: admitSymposiumSeatDispatch(work.facts, profiles, work.input, hostGrants),
       execution,
@@ -4954,7 +4905,85 @@ it.each([undefined, 'workspace', 'packs'] as const)(
         };
       },
     });
-    expect(options?.disableProjectDocuments === true).toBe(source === 'packs');
-    await native.cancel();
+    if (source) {
+      await expect(opening).rejects.toThrow(/trusted native continuation barrier/);
+      expect(options).toBeUndefined();
+    } else {
+      const native = await opening;
+      expect(options?.disableProjectDocuments).toBe(false);
+      await native.cancel();
+    }
+  },
+);
+
+it.each(['recipe', 'snapshot', 'trusted binding'] as const)(
+  'rejects native Codex pack admission before setup (%s)',
+  async (kind) => {
+    const work = fixture();
+    const route = admitSymposiumSeatDispatch(work.facts, profiles, work.input, hostGrants);
+    const execution = { ...work.input, seat: { ...work.input.seat } };
+    if (kind === 'recipe') execution.seat.contextRecipe = { source: 'packs' } as never;
+    if (kind !== 'trusted binding')
+      execution.agentContext = {
+        source: 'packs',
+        context: { fullMarkdown: 'Pinned guidance' },
+      } as never;
+    const { bindSymposiumAgentContextAuthorization } =
+      await import('../symposium-agent-context.js');
+    bindSymposiumAgentContextAuthorization(execution, async () => {});
+    const createConversation = vi.fn(() => ({
+      initialize: async () => {},
+      getThreadId: () => 'thread',
+      send: async () => {},
+      interrupt: async () => {},
+      close: () => {},
+    }));
+    await expect(
+      createOpenAiCodexSeat({
+        sandbox: { workdir: '/task' } as never,
+        route,
+        execution,
+        store: {} as never,
+        createConversation,
+      }),
+    ).rejects.toThrow(/trusted native continuation barrier/);
+    expect(createConversation).not.toHaveBeenCalled();
+  },
+);
+
+it('rejects native Codex packs before source preparation and sandbox admission', () => {
+  const work = fixture();
+  work.input.seat = { ...work.input.seat, contextRecipe: { source: 'packs' } as never };
+  expect(() => admitSymposiumSeatDispatch(work.facts, profiles, work.input, hostGrants)).toThrow(
+    /trusted native continuation barrier/,
+  );
+});
+
+it.each(['copy', 'captured mutation'] as const)(
+  'refuses native Codex context added before a later run (%s)',
+  async (change) => {
+    const work = fixture();
+    const send = vi.fn(async () => {});
+    const close = vi.fn();
+    const native = await createOpenAiCodexSeat({
+      sandbox: { workdir: '/task' } as never,
+      route: admitSymposiumSeatDispatch(work.facts, profiles, work.input, hostGrants),
+      execution: work.input,
+      store: {} as never,
+      createConversation: () => ({
+        initialize: async () => {},
+        getThreadId: () => 'thread',
+        send,
+        interrupt: async () => {},
+        close,
+      }),
+    });
+    const current = change === 'copy' ? { ...work.input } : work.input;
+    current.agentContext = { source: 'packs' } as never;
+    await expect(native.run(current, {} as never)).rejects.toThrow(
+      /trusted native continuation barrier/,
+    );
+    expect(send).not.toHaveBeenCalled();
+    expect(close).toHaveBeenCalled();
   },
 );

@@ -4279,7 +4279,7 @@ it.each([
   ['sandbox', false, { web_search: 'disabled', project_doc_max_bytes: 65536 }],
   ['sandbox', true, { web_search: 'disabled', project_doc_max_bytes: 65536 }],
 ] as const)(
-  'enforces native project document policy on %s start, resume and fork (packs=%s)',
+  'enforces independent native document preference on %s start, resume and fork (disabled=%s)',
   async (_route, packBound, runtimeConfig) => {
     const args: Parameters<typeof setup> = [];
     args[21] = runtimeConfig ? { ...runtimeConfig } : undefined;
@@ -4322,7 +4322,7 @@ it.each([
 );
 
 it.each([false, true])(
-  'forwards immutable pack policy into approved search after caller option mutation (packs=%s)',
+  'forwards captured document preference and source into approved search after option mutation (disabled=%s)',
   async (packBound) => {
     const searchModule = await import('../codex-approved-search.js');
     const search = vi
@@ -4332,13 +4332,19 @@ it.each([false, true])(
     args[21] = { web_search: 'live', project_doc_max_bytes: 65536 };
     args[26] = packBound;
     const { c, conversationOptions } = await setup(...args);
-    Object.assign(conversationOptions, { disableProjectDocuments: !packBound });
+    Object.assign(conversationOptions, {
+      disableProjectDocuments: !packBound,
+      agentContextSource: 'packs',
+    });
     const signal = new AbortController().signal;
     await expect(c.searchWeb('Approved query', signal)).resolves.toBe('Mocked approved search');
     expect(search).toHaveBeenCalledWith(
       'Approved query',
       signal,
-      expect.objectContaining({ disableProjectDocuments: packBound }),
+      expect.objectContaining({
+        disableProjectDocuments: packBound,
+        agentContextSource: undefined,
+      }),
     );
   },
 );
@@ -4558,3 +4564,15 @@ it.each([
     expect(rpc.close).toHaveBeenCalledOnce();
   },
 );
+
+it('rejects trusted pack context before constructing any native client', () => {
+  const createClient = vi.fn();
+  expect(
+    () =>
+      new CodexConversation({
+        agentContextSource: 'packs',
+        createClient,
+      } as unknown as CodexConversationOptions),
+  ).toThrow(/trusted native continuation barrier/);
+  expect(createClient).not.toHaveBeenCalled();
+});

@@ -1,3 +1,4 @@
+import { assertNativeCodexContextAdmission } from './native-codex-context-admission.js';
 import { z } from 'zod';
 import type { CodexLifecycleTransport } from './codex-app-server-client.js';
 import { codexRuntimeOverrides } from './codex-runtime-policy.js';
@@ -14,8 +15,10 @@ interface Options {
   modelProvider: string;
   cwd: string;
   runtimeConfig?: Record<string, unknown>;
-  /** Captured parent pack policy; preserve isolation in the separate native thread. */
+  /** Captured parent document preference for the separate native search thread. */
   readonly disableProjectDocuments?: boolean;
+  /** Trusted parent context source; document preferences do not establish origin. */
+  readonly agentContextSource?: string;
   workspaceId?: string;
 }
 
@@ -25,6 +28,7 @@ export async function searchCodex(
   callerSignal: AbortSignal,
   options: Options,
 ): Promise<string> {
+  assertNativeCodexContextAdmission({ source: options.agentContextSource });
   const signal = AbortSignal.any([callerSignal, AbortSignal.timeout(90_000)]);
   let threadId: string | undefined;
   const turns = new Map<string, { searched: boolean; text: string[] }>();

@@ -14,9 +14,15 @@ it('makes compilation opt-in and lets the author choose documents and a bounded 
   render(<Editor />);
   expect(screen.getByText(/local chats and supported OpenShell sandboxes/)).toBeTruthy();
   expect(
-    screen.getByText(/Native Claude Symposium seats require a profile without a context recipe/),
+    screen.getByText(
+      /Native Codex and Claude Symposium seats require a profile without a context recipe/,
+    ),
   ).toBeTruthy();
-  expect(screen.getByText(/Ordinary Claude chats support published packs/)).toBeTruthy();
+  expect(
+    screen.getByText(
+      /Ordinary Claude SDK, OpenAI Responses and Gemini\/Vertex chats support published packs/,
+    ),
+  ).toBeTruthy();
   expect(screen.queryByLabelText('Context source')).toBeNull();
   fireEvent.click(screen.getByLabelText('Compile chat context'));
   expect(screen.getByLabelText('Context source')).toHaveProperty('value', 'workspace');
@@ -191,7 +197,9 @@ it('requires explicit removal before changing a pack identity to a newer revisio
       screen.getByText(/Remove the existing pin before choosing another revision/),
     ).toBeTruthy();
     expect(
-      screen.getByText(/Published packs support local chats, OpenShell and Symposium/),
+      screen.getByText(
+        /Published packs are unavailable on native Codex routes, including local and OpenShell chats/,
+      ),
     ).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Remove review' }));
     expect(add).toHaveProperty('disabled', false);

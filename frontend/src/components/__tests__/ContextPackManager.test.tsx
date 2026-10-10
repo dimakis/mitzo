@@ -406,6 +406,16 @@ it('prepares the curator with bounded accepted references and selected immutable
   expect(prompt).toContain('Review accepted decisions');
   expect(prompt).not.toContain('/Users/private');
   expect(prompt).toContain('manual import');
+  expect(prompt).toContain(
+    'Ordinary Claude SDK, OpenAI Responses and Gemini/Vertex chats support packs',
+  );
+  expect(prompt).toContain('Native Codex routes do not support packs');
+  expect(prompt).toContain(
+    'Native Codex and Claude Symposium seats require a profile without a context recipe',
+  );
+  expect(
+    screen.getByText(/Pack definitions remain independent of account, model and runtime/),
+  ).toBeTruthy();
   expect(screen.getByLabelText('Pack preview budget')).toBeTruthy();
   expect(screen.getByText(/final profile recipe budget controls/)).toBeTruthy();
 });

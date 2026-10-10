@@ -44,7 +44,7 @@ async function request<T>(path: string, body?: unknown, method = 'POST'): Promis
   return result;
 }
 const advisor =
-  'Help me draft a reusable context pack. Ask about the agent job, desired output, source choices and token budget. Use verified accepted Knowledge document references and exact accepted Git revisions, never invented paths or source revisions. Explain required, prioritized and excluded heading choices, retrieval guidance and rationale. Return portable JSON {"definition":{"version":1,"id":"chosen-slug","name":"Chosen name","description":"Purpose","tokenBudget":4000,"documents":[{"path":"verified.md","revision":"verified accepted Git SHA","mode":"prioritized","headings":[],"priority":50}],"retrievalGuidance":"When and how to retrieve more","rationale":"Why these choices"}} for manual import in Knowledge Context. This is a draft for explicit user save and publication; do not publish or grant access.';
+  'Help me draft a reusable context pack. Ask about the agent job, desired output, source choices and token budget. Use verified accepted Knowledge document references and exact accepted Git revisions, never invented paths or source revisions. Explain required, prioritized and excluded heading choices, retrieval guidance and rationale. Return portable JSON {"definition":{"version":1,"id":"chosen-slug","name":"Chosen name","description":"Purpose","tokenBudget":4000,"documents":[{"path":"verified.md","revision":"verified accepted Git SHA","mode":"prioritized","headings":[],"priority":50}],"retrievalGuidance":"When and how to retrieve more","rationale":"Why these choices"}} for manual import in Knowledge Context. Keep pack definitions independent of account, model and runtime. Ordinary Claude SDK, OpenAI Responses and Gemini/Vertex chats support packs. Native Codex routes do not support packs, including local and OpenShell chats, Symposium seats and approved search threads. Native Codex and Claude Symposium seats require a profile without a context recipe; native Gemini Symposium dispatch is unsupported. Legacy workspace/preset recipes remain supported for local chats and reviewed managed OpenShell sandboxes. Do not promise native pack delivery until a reviewed native build and enrollment provide a trusted continuation barrier. This is a draft for explicit user save and publication; do not publish or grant access.';
 export function ContextPackManager({ knowledge }: { knowledge: KnowledgeCatalog | null }) {
   const [catalog, setCatalog] = useState<Catalog>();
   const [copy, setCopy] = useState<Copy | null>(recover);
@@ -266,7 +266,10 @@ export function ContextPackManager({ knowledge }: { knowledge: KnowledgeCatalog 
       </div>
       <p>
         Reusable source choices for agents. Profiles pin published revisions; publishing a pack
-        leaves their current pins in place.
+        leaves their current pins in place. Pack definitions remain independent of account, model
+        and runtime. Ordinary Claude SDK, OpenAI Responses and Gemini/Vertex chats support packs;
+        native Codex routes currently cannot use them. Native Codex and Claude Symposium seats
+        require a profile without a context recipe.
       </p>
       {error && (
         <p role="alert" className="agent-library-error">

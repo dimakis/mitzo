@@ -157,11 +157,12 @@ it.each([
   [true, undefined],
   [true, 65536],
 ] as const)(
-  'retains native project document isolation in approved search (packs=%s, runtime bytes=%s)',
+  'retains independent native document preference in approved search (disabled=%s, runtime bytes=%s)',
   async (packBound, runtimeBytes) => {
     const f = fixture();
-    await searchCodex('Approved lookup', new AbortController().signal, {
-      createClient: f.createClient,
+    const createClient = vi.fn(f.createClient);
+    const search = searchCodex('Approved lookup', new AbortController().signal, {
+      createClient,
       verify: f.verify,
       model: 'selected-model',
       modelProvider: 'openshell',
@@ -171,6 +172,7 @@ it.each([
         ? {}
         : { runtimeConfig: { project_doc_max_bytes: runtimeBytes } }),
     });
+    await search;
     const thread = f.request.mock.calls.find(([method]) => method === 'thread/start');
     expect(thread).toBeDefined();
     const config = thread![1].config as Record<string, unknown>;
@@ -179,3 +181,21 @@ it.each([
     else expect(config.project_doc_max_bytes).toBe(runtimeBytes);
   },
 );
+
+it('rejects trusted pack-origin search before child client creation independently of document preferences', async () => {
+  const f = fixture();
+  const createClient = vi.fn(f.createClient);
+  await expect(
+    searchCodex('lookup', new AbortController().signal, {
+      createClient,
+      verify: f.verify,
+      model: 'selected',
+      modelProvider: 'openai',
+      cwd: '/tmp',
+      agentContextSource: 'packs',
+      disableProjectDocuments: false,
+    }),
+  ).rejects.toThrow(/trusted native continuation barrier/);
+  expect(createClient).not.toHaveBeenCalled();
+  expect(f.verify).not.toHaveBeenCalled();
+});

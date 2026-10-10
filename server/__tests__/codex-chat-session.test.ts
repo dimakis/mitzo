@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   setWebSearchGrant: vi.fn(),
   getWebSearchGrant: vi.fn(),
   store: vi.fn(),
+  reserveStartup: vi.fn(),
   setArtifactRuntime: vi.fn(),
   recordKnowledgeAdoption: vi.fn(),
   recordAgentContextAdoption: vi.fn(),
@@ -32,7 +33,7 @@ vi.mock('../codex-conversation-store.js', () => ({
       mocks.store();
     }
     recoverAtStartup() {}
-    reserveStartup() {}
+    reserveStartup = mocks.reserveStartup;
     assertStartupResumeSafe() {}
     startupNeedsProvisioning() {
       return false;
@@ -1893,104 +1894,17 @@ it('preserves first launch and valid restore while failing closed for a replacem
         },
       };
       const prepareProfile = vi.fn().mockResolvedValue(undefined);
-      const profiled = await openCodexChat({
-        ...chatOptions('valid-lifecycle-state', true),
-        systemPrompt: 'base prompt\nPINNED PROFILE CONTEXT',
-        agentProfile: {
-          profileId: profileContext.profileId,
-          revision: profileContext.revision,
-          contentHash: profileContext.profileHash,
-          definition: {
-            name: 'Architect',
-            role: 'agent',
-            instructions: 'Review the design.',
-            expectedOutput: 'Design brief',
-            acceptanceCriteria: [],
-            modelPolicyRole: 'agent',
-            contextRecipe: {
-              version: 2,
-              source: 'packs',
-              tokenBudget: 1000,
-              packs: profileContext.provenance.packs,
-            },
-          },
-        },
-        prepareAgentContext: prepareProfile,
-        agentContext: profileContext,
-        onAgentContextAccepted: profileAccepted,
-      });
-      expect(mocks.conversationOptions?.disableProjectDocuments).toBe(true);
-      expect(mocks.conversationOptions?.prepareAgentContext).toBe(prepareProfile);
-      const profilePrepare = mocks.conversationOptions?.prepareSystemPrompt as (
-        signal: AbortSignal,
-      ) => Promise<string>;
-      const profileAcknowledge = mocks.conversationOptions?.onApplicationContextAccepted as (
-        command: string,
-        thread: string,
-        turn: string,
-        context: string,
-      ) => void;
-      const delivered = await profilePrepare(AbortSignal.timeout(5000));
-      const developerInstructions = mocks.conversationOptions?.systemPrompt as string;
-      expect(developerInstructions).toContain('PINNED PROFILE CONTEXT');
-      expect(delivered).not.toContain('PINNED PROFILE CONTEXT');
-      expect(delivered).not.toContain('FRESH ACCEPTED GUIDANCE');
-      expect((developerInstructions + delivered).match(/PINNED PROFILE CONTEXT/g)).toHaveLength(1);
-      expect(compile).not.toHaveBeenCalled();
-      const providerAck = mocks.conversationOptions?.onProviderAccepted as (
-        command: string,
-        thread: string,
-        turn: string,
-      ) => void;
-      providerAck('pack-command', 'thread', 'pack-turn');
-      profileAcknowledge('pack-command', 'thread', 'pack-turn', delivered);
-      expect(profileAccepted).toHaveBeenCalledOnce();
-      expect(profileAccepted).toHaveBeenCalledWith(
-        'pack-command',
-        'thread',
-        'pack-turn',
-        createHash('sha256')
-          .update(JSON.stringify({ developerInstructions, additionalContext: delivered }))
-          .digest('hex'),
-      );
-      expect(adoption).toHaveBeenLastCalledWith(
-        'valid-lifecycle-state',
-        expect.any(Object),
-        expect.any(AbortSignal),
-        expect.objectContaining({ fullMarkdown: 'PINNED PROFILE CONTEXT' }),
-      );
-      profiled.close();
-      adoption.mockResolvedValue(undefined);
-      profileAccepted.mockClear();
-      const withoutPublication = await openCodexChat({
-        ...chatOptions('valid-lifecycle-state', true),
-        systemPrompt: 'base prompt\nPINNED PROFILE CONTEXT',
-        agentContext: profileContext,
-        onAgentContextAccepted: profileAccepted,
-      });
-      const emptyPrepare = mocks.conversationOptions?.prepareSystemPrompt as (
-        signal: AbortSignal,
-      ) => Promise<string | undefined>;
-      expect(await emptyPrepare(AbortSignal.timeout(5000))).toBeUndefined();
-      const persistent = mocks.conversationOptions?.systemPrompt as string;
-      expect(persistent.match(/PINNED PROFILE CONTEXT/g)).toHaveLength(1);
+      await expect(
+        openCodexChat({
+          ...chatOptions('valid-lifecycle-state', true),
+          agentContext: profileContext,
+          prepareAgentContext: prepareProfile,
+          onAgentContextAccepted: profileAccepted,
+        }),
+      ).rejects.toThrow(/trusted native continuation barrier/);
+      expect(prepareProfile).not.toHaveBeenCalled();
       expect(profileAccepted).not.toHaveBeenCalled();
-      const emptyAck = mocks.conversationOptions?.onProviderAccepted as (
-        command: string,
-        thread: string,
-        turn: string,
-      ) => void;
-      emptyAck('no-publication-command', 'thread', 'no-publication-turn');
-      expect(profileAccepted).toHaveBeenCalledOnce();
-      expect(profileAccepted).toHaveBeenCalledWith(
-        'no-publication-command',
-        'thread',
-        'no-publication-turn',
-        createHash('sha256')
-          .update(JSON.stringify({ developerInstructions: persistent, additionalContext: null }))
-          .digest('hex'),
-      );
-      withoutPublication.close();
+      expect(compile).not.toHaveBeenCalled();
     } finally {
       enrollment.mockRestore();
       adoption.mockRestore();
@@ -2163,7 +2077,7 @@ it('refuses cold repository resume without its artifact identity before ensuring
   }
 });
 
-it('acknowledges host Codex profile context only on exact provider turn acceptance without duplicate per-turn injection', async () => {
+it('rejects host Codex profile packs before startup or provider acceptance', async () => {
   vi.clearAllMocks();
   mocks.connect.mockResolvedValue({ definitions: [], close: mocks.mcpClose });
   const { NativeHooks } = await import('../native-hooks.js');
@@ -2196,37 +2110,20 @@ it('acknowledges host Codex profile context only on exact provider turn acceptan
       fullMarkdown: 'PINNED HOST PROFILE',
     },
   };
-  const chat = await openCodexChat({
-    ...options(new AbortController()),
-    systemPrompt: 'platform\nPINNED HOST PROFILE',
-    agentContext,
-    onAgentContextAccepted: accepted,
-  });
   try {
+    await expect(
+      openCodexChat({
+        ...options(new AbortController()),
+        systemPrompt: 'platform\nPINNED HOST PROFILE',
+        agentContext,
+        onAgentContextAccepted: accepted,
+      }),
+    ).rejects.toThrow(/trusted native continuation barrier/);
+    expect(startup).not.toHaveBeenCalled();
     expect(accepted).not.toHaveBeenCalled();
-    expect(startup.mock.calls.some(([event]) => event === 'SessionStart')).toBe(false);
-    expect(mocks.conversationOptions?.disableProjectDocuments).toBe(true);
-    expect(mocks.conversationOptions?.prepareSystemPrompt).toBeUndefined();
-    const delivered = mocks.conversationOptions?.systemPrompt as string;
-    expect(delivered.match(/PINNED HOST PROFILE/g)).toHaveLength(1);
-    expect(delivered).not.toContain('UNRELATED DEFAULT CONTEXT');
-    const providerAccepted = mocks.conversationOptions?.onProviderAccepted as (
-      command: string,
-      thread: string,
-      turn: string,
-    ) => void;
-    expect(providerAccepted).toBeTypeOf('function');
-    providerAccepted('exact-command', 'exact-thread', 'exact-turn');
-    expect(accepted).toHaveBeenCalledWith(
-      'exact-command',
-      'exact-thread',
-      'exact-turn',
-      createHash('sha256')
-        .update(JSON.stringify({ developerInstructions: delivered, additionalContext: null }))
-        .digest('hex'),
-    );
+    expect(mocks.initialize).not.toHaveBeenCalled();
+    expect(mocks.connect).not.toHaveBeenCalled();
   } finally {
-    chat.close();
     startup.mockRestore();
   }
 });
@@ -2447,8 +2344,8 @@ it.each(['new', 'resume', 'revoked', 'compiler failure'])(
   },
 );
 
-it.each(['supplied', 'retained'] as const)(
-  'refuses pack snapshots carrying sandbox compiler scope before provider initialization: %s',
+it.each(['supplied', 'retained', 'supplied-host', 'retained-host', 'recipe'] as const)(
+  'refuses native pack admission before runtime setup: %s',
   async (location) => {
     vi.clearAllMocks();
     mocks.connect.mockResolvedValue({ definitions: [], close: mocks.mcpClose });
@@ -2489,9 +2386,13 @@ it.each(['supplied', 'retained'] as const)(
       },
     };
     const base = options(new AbortController());
-    if (location === 'retained') {
+    const hostContext = { ...agentContext, sandbox: undefined };
+    const selectedContext = location.endsWith('host') ? hostContext : agentContext;
+    const { OpenShellRuntimeManager } = await import('../openshell-runtime.js');
+    const ensure = vi.spyOn(OpenShellRuntimeManager.prototype, 'ensure');
+    if (location.startsWith('retained')) {
       // Inject intentionally malformed retained metadata through the session lookup boundary.
-      const retainedSession = { agentContext } as unknown as ReturnType<
+      const retainedSession = { agentContext: selectedContext } as unknown as ReturnType<
         typeof base.eventStore.getSession
       >;
       vi.spyOn(base.eventStore, 'getSession').mockReturnValue(retainedSession);
@@ -2499,10 +2400,113 @@ it.each(['supplied', 'retained'] as const)(
     await expect(
       openCodexChat({
         ...base,
-        ...(location === 'supplied' ? { agentContext } : { resume: true }),
+        ...(location.startsWith('supplied')
+          ? { agentContext: selectedContext }
+          : location === 'recipe'
+            ? {
+                agentProfile: {
+                  profileId: 'architect',
+                  revision: 1,
+                  contentHash: 'c'.repeat(64),
+                  definition: {
+                    name: 'Architect',
+                    role: 'agent',
+                    instructions: 'Review.',
+                    expectedOutput: 'Review',
+                    acceptanceCriteria: [],
+                    modelPolicyRole: 'agent',
+                    contextRecipe: {
+                      version: 2,
+                      source: 'packs',
+                      tokenBudget: 1000,
+                      packs: [{ id: 'architecture', revision: 1, hash: 'd'.repeat(64) }],
+                    },
+                  },
+                },
+              }
+            : { resume: true }),
       }),
-    ).rejects.toThrow(/scope/);
+    ).rejects.toThrow(/trusted native continuation barrier/);
+    expect(ensure).not.toHaveBeenCalled();
+    ensure.mockRestore();
+    expect(mocks.reserveStartup).not.toHaveBeenCalled();
+    expect(mocks.connect).not.toHaveBeenCalled();
+    expect(mocks.recordAgentContextAdoption).not.toHaveBeenCalled();
     expect(mocks.initialize).not.toHaveBeenCalled();
     expect(mocks.send).not.toHaveBeenCalled();
+  },
+);
+
+it.each(['recipe', 'supplied', 'retained'] as const)(
+  'rechecks pack origin after account reservation await before bound runtime setup (%s)',
+  async (location) => {
+    vi.clearAllMocks();
+    mocks.conversationOptions = undefined;
+    const base = options(new AbortController());
+    Object.assign(base, { conversationId: 'mutation', binding: { accountId: 'work' } });
+    const mutate = () => {
+      if (location === 'recipe')
+        base.agentProfile = { definition: { contextRecipe: { source: 'packs' } } } as never;
+      if (location === 'supplied') base.agentContext = { source: 'packs' } as never;
+      if (location === 'retained')
+        vi.spyOn(base.eventStore, 'getSession').mockReturnValue({
+          agentContext: { source: 'packs' },
+        } as never);
+    };
+    vi.stubEnv('MITZO_OPENSHELL_ENABLED', '1');
+    vi.stubEnv('MITZO_OPENSHELL_IMAGE', 'fixture');
+    vi.stubEnv('MITZO_OPENSHELL_POLICY', '/fixture/policy');
+    vi.stubEnv('MITZO_OPENSHELL_SEED', '/fixture/seed');
+    const ensure = vi.spyOn(OpenShellRuntimeManager.prototype, 'ensure');
+    setConnectionsRuntime({
+      service: {
+        withAccountRuntimes: async (
+          _account: string,
+          callback: (connections: never[]) => Promise<unknown>,
+        ) => {
+          await Promise.resolve();
+          mutate();
+          return callback([]);
+        },
+        onDemandForAccount: () => [],
+      },
+    } as never);
+    try {
+      await expect(openCodexChat(base)).rejects.toThrow(/trusted native continuation barrier/);
+      expect(ensure).not.toHaveBeenCalled();
+      expect(mocks.connect).not.toHaveBeenCalled();
+      expect(mocks.conversationOptions).toBeUndefined();
+      expect(mocks.initialize).not.toHaveBeenCalled();
+      expect(mocks.recordAgentContextAdoption).not.toHaveBeenCalled();
+    } finally {
+      ensure.mockRestore();
+      setConnectionsRuntime(null);
+    }
+  },
+);
+
+it.each(['recipe', 'supplied', 'retained'] as const)(
+  'rechecks pack origin after async MCP setup before native constructor (%s)',
+  async (location) => {
+    vi.clearAllMocks();
+    mocks.conversationOptions = undefined;
+    const base = options(new AbortController());
+    mocks.connect.mockImplementationOnce(async () => {
+      await Promise.resolve();
+      if (location === 'recipe')
+        base.agentProfile = { definition: { contextRecipe: { source: 'packs' } } } as never;
+      if (location === 'supplied') base.agentContext = { source: 'packs' } as never;
+      if (location === 'retained')
+        vi.spyOn(base.eventStore, 'getSession').mockReturnValue({
+          agentContext: { source: 'packs' },
+        } as never);
+      return { definitions: [], close: mocks.mcpClose };
+    });
+    await expect(openCodexChat(base)).rejects.toThrow(/trusted native continuation barrier/);
+    expect(mocks.conversationOptions).toBeUndefined();
+    expect(mocks.initialize).not.toHaveBeenCalled();
+    expect(mocks.send).not.toHaveBeenCalled();
+    expect(mocks.recordAgentContextAdoption).not.toHaveBeenCalled();
+    expect(mocks.mcpClose).toHaveBeenCalled();
   },
 );

@@ -1,3 +1,4 @@
+import { assertNativeCodexContextAdmission } from './native-codex-context-admission.js';
 import type { RepositoryChatWorkspace } from './repository-chat-startup.js';
 import { getRepositoryWorkspaces } from './repository-workspace-runtime.js';
 import {
@@ -564,12 +565,13 @@ export async function openCodexChat(options: Options) {
   return duringCodexStartup('runtime_admission', () => openCodexChatAdmitted(options));
 }
 async function openCodexChatAdmitted(options: Options) {
+  const savedAgentContext = options.eventStore.getSession(options.conversationId)?.agentContext;
+  const selectedRecipe = options.agentProfile?.definition.contextRecipe;
+  assertNativeCodexContextAdmission(selectedRecipe, options.agentContext, savedAgentContext);
   if (options.profile.nativeAuth)
     throw new Error('Native personal ChatGPT accounts require the isolated Symposium runtime');
   const service = getConnectionsRuntime()?.service;
   const configuredRuntime = openShellRuntimeConfig(process.env);
-  const savedAgentContext = options.eventStore.getSession(options.conversationId)?.agentContext;
-  const selectedRecipe = options.agentProfile?.definition.contextRecipe;
   if (
     [options.agentContext, savedAgentContext].some(
       (snapshot) => snapshot?.source === 'packs' && snapshot.sandbox,
@@ -638,6 +640,11 @@ async function openCodexChatBound(
   onDemandConnections: readonly Connection[] = [],
   deferInitialSend = false,
 ) {
+  assertNativeCodexContextAdmission(
+    options.agentProfile?.definition.contextRecipe,
+    options.agentContext,
+    options.eventStore.getSession(options.conversationId)?.agentContext,
+  );
   const managedConnection =
     managedConnections.find((connection) => connection.templateId === 'jira-readonly') ??
     managedConnections[0] ??
@@ -1200,6 +1207,18 @@ async function openCodexChatBound(
       .digest('hex');
   let pendingKnowledge: Omit<KnowledgeAdoptionSelection, 'contextSha256'> | undefined;
   let pendingAgentContextSha256: string | undefined;
+  try {
+    assertNativeCodexContextAdmission(
+      options.agentProfile?.definition.contextRecipe,
+      options.agentContext,
+      options.eventStore.getSession(options.conversationId)?.agentContext,
+      agentContext,
+    );
+  } catch (error) {
+    finish();
+    startupReservation?.();
+    throw error;
+  }
   if (configuredRuntime)
     store().markStartupProviderInitializing(options.conversationId, options.binding);
   const runtime: CodexConversation = new CodexConversation({
@@ -1218,6 +1237,7 @@ async function openCodexChatBound(
     systemPrompt: persistentSystemPrompt,
     startupSignal: signal,
     prepareAgentContext: options.prepareAgentContext,
+    agentContextSource: agentContext?.source,
     disableProjectDocuments: agentContext?.source === 'packs',
     // Thread instructions already contain the retained snapshot. The exact
     // turn/start acknowledgement associates it without duplicating developer context.
