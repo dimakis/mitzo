@@ -129,6 +129,15 @@ export class SendOutbox {
     this.activeAbort = abort;
     let timeout: ReturnType<typeof setTimeout> | undefined;
     try {
+      if (reviewedBriefing(entry.body) && !entry.uncertain) {
+        // Persist possible acceptance before admission, not only while fetch is
+        // in flight. A lost response remains ambiguous during backoff/reload.
+        entry.uncertain = true;
+        if (!this.persist() && this.config.requireDurableBriefings) {
+          delete entry.uncertain;
+          throw new Error('Reviewed attempt could not be retained');
+        }
+      }
       const { response, receipt } = await Promise.race([
         this.config
           .fetch(this.config.url, {
