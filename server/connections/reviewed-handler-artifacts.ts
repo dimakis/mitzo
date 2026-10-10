@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.9';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.35';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.36';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,7 +22,7 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
-  '../chat.ts': '4938fa5073920839dc542b194640a575f56959f2726770cfed26e5d711785b76',
+  '../chat.ts': '275dda4b5891748eb10ad7a597023c9e40ac022ed62a1a005beee456ddc06c21',
   '../agent-context-binding.ts': 'ce0f8dba7f97f515be8ee00a441e3cc36344aad44f31e0b2fb33a160f8803e66',
   '../app.ts': '3a136e933a31552e46a11e8fdc8a4d5475f986497aee3601d2b6ad32e8572a30',
   '../ws-handler-v2.ts': '2952b6ea0ad4307739603901b01725514896452ea70c9f2464d8c04c6f4d9052',
@@ -38,6 +38,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/attest-knowledge-runtime.py':
     '5737ec8e7fc19a17b6ef5a35c1898e834d2a5d2d2a9f7593b607eaaf1971cfeb',
   '../agent-context-sandbox.ts': '78fad7d2891f52f5e43e15a278c1629c279deb8ae2ccd29b5297244c41286ca2',
+  '../codex-conversation.ts': '0cf804425230482d58a8e42663673743881e916df81c43ab27bba613e8cbf70e',
+  '../codex-conversation-store.ts':
+    'c36089ad3386e3a716c9c059428fa0ec14d66385d686682badc243087670d5ed',
   // Library profile identity, operator ownership and admission are reviewed runtime inputs.
   '../symposium-director-routes.ts':
     'e6cabfe7555434bbf426209e5a0de750195559e106b0bbb09c4885a34159ff36',
@@ -162,7 +165,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../openshell-runtime-policy.ts':
     'efecd458bf61fecd8198ecd330e0227e2c600ab21d6d2890cd2bac254e22b75f',
   '../openshell-runtime.ts': '4f8e58490e7b5505bea67d0431c97da059074067319296fe2ad7ccfd0588a35f',
-  '../codex-chat-session.ts': '7a0003a8d3f54b905b17c7921e6b2a9d6318a8fc17065f9de8bf1eb4c7165044',
+  '../codex-chat-session.ts': 'f55af8e5cafde3470c0cf3315ce3c769c416c1e1446fa95a9c88d5d31a1a381e',
   '../connections-runtime.ts': 'dbe641704a1d761d73740260fb28057054fdb34a64513fa77292d2fdb1954a84',
   'capabilities/operation-store.ts':
     '1a235f11d5578880e6dfa7ecf5779e2a011e24430774fc17429d7d22359b93f2',
