@@ -383,6 +383,47 @@ describe('native tool execution through session permissions', () => {
     });
     expect(executeSandboxedCommand).not.toHaveBeenCalled();
   });
+  it('protects writable intermediate links in an externally selected executable ancestor chain', async () => {
+    const workspace = await realpath(join(root, 'worktree'));
+    const authority = await realpath(root);
+    const providerDirectory = join(authority, 'provider');
+    const trustedDirectory = join(authority, 'trusted');
+    await mkdir(providerDirectory);
+    await mkdir(trustedDirectory);
+    await writeFile(join(providerDirectory, 'gws'), 'synthetic provider');
+    await symlink(providerDirectory, join(workspace, 'provider-link'));
+    await symlink(join(workspace, 'provider-link'), join(trustedDirectory, 'alias'));
+    const config = join(authority, 'runtime-config.json');
+    const enrollment = join(authority, 'runtime-enrollment.json');
+    await writeFile(
+      config,
+      JSON.stringify({
+        gwsExecutable: join(trustedDirectory, 'alias', 'gws'),
+        jiraLibPath: '/synthetic/jira',
+      }),
+      { mode: 0o600 },
+    );
+    await writeFile(
+      enrollment,
+      JSON.stringify({
+        kind: 'workspace-runtime-v1',
+        config,
+        release: '/synthetic/runtime',
+        python: '/synthetic/python',
+      }),
+      { mode: 0o600 },
+    );
+    vi.stubEnv('MITZO_WORKSPACE_RUNTIME_CONFIG', enrollment);
+    registry.get('client')!.mode = 'auto';
+    vi.mocked(executeSandboxedCommand).mockClear();
+    expect(
+      await executor()(call('Bash', { command: 'rm provider-link' }), abort.signal),
+    ).toMatchObject({
+      is_error: true,
+      content: expect.stringContaining('overlaps workspace runtime authority'),
+    });
+    expect(executeSandboxedCommand).not.toHaveBeenCalled();
+  });
   it('keeps the external common Python interpreter readable and executable for unrelated shell workspaces', async () => {
     const authority = await realpath(root);
     const config = join(authority, 'runtime-config.json');

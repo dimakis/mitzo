@@ -105,11 +105,18 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '32fd232781b0ba9573fa0e6a511a78ede54a8c33a80dee30f52d06283b4beab5',
   // Operator runtime enrollment, private metadata and write-authority admission.
   '../workspace-runtime-private-paths.ts':
-    '0cade5b6ae92467e05d719d287974f6a99e5a9f0c3c81a7e2002af2d9d5e2bec',
+    '97b20d22a5dbdb7b03adba3d85557267b78b088493fa5d622dd0dc63413ab0bb',
   '../codex-private-path.ts': '3cabc8c4374caf36653efdbbb77cd5fd1ae7a9a2396015b009bd234952f88b87',
   '../workspace-runtime-client.ts':
     'eb377ad70361797cb34de00c1974952b76cd81041da7668631b138cf5d44473f',
-  '../native-tool-executor.ts': '01f843a14d86ba8fb383a64c9bc273c8f0ed62c2f41f6450dd473661ca34e6b0',
+  '../credential-sdk-boundary.ts':
+    '792e61cd7a77d3625aeb36177f7a42c207d31f49aa85d99fb648ec0c850ea597',
+  '../chat.ts': '765f875492de6fca241a22b0f5984d57ab4673a6f98985ea7910f623892bf272',
+  '../sandboxed-command-worker.ts':
+    '5535426d39321039d3db591a2f52e8e3ae31b35b51c2c8ae278eeee548c8df56',
+  '../protected-sdk-command.ts': '6ac04dfd2431c48ed85fcc612e49460c53b71c03909d81f4b02c4f14a759edcd',
+  '../hook-bridge.ts': '8885c2b27079799d33958a17942bb7d8953d01540bf7cd4b3ade537ee39c2d12',
+  '../native-tool-executor.ts': '9c2f349a51febe5b8818358f558a67a4e324eda2f525d85a5578e84463f5dc01',
   '../repository-workspaces.ts': 'b7e8cd755cdf6483d706f41d5deca216736b40dbd7863a3be20edfd32abb811c',
   '../../packages/protocol/src/event-store.ts':
     'a2d0d14da4c6cf1f455260608800b0b162356013dd1617ed2e12f5988b1be411',

@@ -19,6 +19,7 @@ import { loadAccountProfiles } from './account-profiles.js';
 import { createCodexPathProtection, privateCodexRoots } from './codex-private-path.js';
 import {
   workspaceRuntimeAuthorityPaths,
+  workspaceRuntimeSelectorEntries,
   isWorkspaceRuntimeAuthorityWritePath,
 } from './workspace-runtime-private-paths.js';
 import {
@@ -288,7 +289,11 @@ export function createNativeToolExecutor(
           ...selectedAuthority,
           ...(await Promise.all(selectedAuthority.map(canonicalPath))),
         ];
+        const selectorEntries = workspaceRuntimeSelectorEntries();
         if (
+          writableRoots.some((root) =>
+            selectorEntries.some((entry) => entry === root || entry.startsWith(root + '/')),
+          ) ||
           writableRoots.some((root) =>
             runtimeAuthority.some(
               (authority) =>

@@ -1,5 +1,5 @@
 /** Discover operator authority before any runtime request or model tool can write it. */
-import { existsSync, lstatSync, readFileSync, realpathSync } from 'node:fs';
+import { existsSync, lstatSync, readFileSync, readlinkSync, realpathSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 
 function privateJson(path: string): Record<string, unknown> {
@@ -50,6 +50,33 @@ export function configuredWorkspaceRuntimePrivatePaths(
 
 const observedAuthority = new Set<string>();
 const observedPrivateFiles = new Set<string>();
+const observedSelectorEntries = new Set<string>();
+/** Resolve component-by-component, reserving every executable pointer entry.
+ * Entries are exact pointers, not protected directory subtrees (e.g. /tmp).
+ */
+function observeSelectorLinks(path: string) {
+  let components = resolve(path).split('/').filter(Boolean);
+  let directory = '/';
+  let hops = 0;
+  while (components.length) {
+    const entry = join(directory, components.shift()!);
+    let stat;
+    try {
+      stat = lstatSync(entry);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
+      throw error;
+    }
+    if (stat.isSymbolicLink()) {
+      if (++hops > 40) throw new Error('Workspace runtime selector link chain is invalid');
+      observedSelectorEntries.add(entry);
+      const target = readlinkSync(entry);
+      const next = isAbsolute(target) ? resolve(target) : resolve(dirname(entry), target);
+      components = [...next.split('/').filter(Boolean), ...components];
+      directory = '/';
+    } else directory = entry;
+  }
+}
 function canonical(path: string): string {
   try {
     return realpathSync(path);
@@ -69,6 +96,7 @@ export function workspaceRuntimeAuthorityPaths(): string[] {
     observedPrivateFiles.add(canonical(path));
   }
   for (const path of configured) {
+    observeSelectorLinks(path);
     observedAuthority.add(resolve(path));
     // Resolve parent aliases without following the final selected executable
     // link: that directory entry must not be replaceable from its real task root.
@@ -81,6 +109,10 @@ export function workspaceRuntimeAuthorityPaths(): string[] {
 export function workspaceRuntimePrivateFiles(): string[] {
   workspaceRuntimeAuthorityPaths();
   return [...observedPrivateFiles];
+}
+export function workspaceRuntimeSelectorEntries(): string[] {
+  workspaceRuntimeAuthorityPaths();
+  return [...observedSelectorEntries];
 }
 export function isWorkspaceRuntimeAuthorityWritePath(path: string): boolean {
   const targets = [resolve(path), canonical(resolve(path))];
