@@ -6,7 +6,7 @@ import prettier from 'eslint-config-prettier';
 
 export default tseslint.config(
   {
-    ignores: ['dist/', 'frontend/dist/', 'node_modules/', 'frontend/node_modules/', 'mcp-server/'],
+    ignores: ['**/dist/', 'node_modules/', 'frontend/node_modules/', 'mcp-server/'],
   },
 
   js.configs.recommended,
@@ -25,7 +25,11 @@ export default tseslint.config(
     files: ['packages/**/*.ts'],
     rules: {
       '@typescript-eslint/no-explicit-any': 'warn',
-      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
+      // Destructured siblings can intentionally exclude untrusted wire fields.
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        { argsIgnorePattern: '^_', ignoreRestSiblings: true },
+      ],
     },
   },
 

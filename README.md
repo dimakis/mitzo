@@ -722,7 +722,7 @@ npx playwright install webkit chromium # first-time browser test setup
 npm run test:design   # Static shared palette/font/token contract
 npm run test:ui       # Shared theme and mobile layouts with entirely offline fixtures
 npm run test:browser  # Connections scrolling in mobile WebKit and desktop Chromium (mocked APIs)
-npm run lint         # eslint
+npm run lint         # ESLint: server, frontend and shared packages (including tests, excluding dist)
 npm run format:check # prettier
 ```
 
@@ -862,7 +862,7 @@ The Podman launch agent preserves the VM process group after `podman machine sta
 
 The OpenAI Responses route uses bearer authentication in the Authorization header. Its base policy and gateway provider profile must disable request-body credential rewriting and retain enforced REST inspection. This requires a supervisor with the identity-aware streaming guard: literal placeholder examples in documents must pass unchanged, while actual credential identities in model input remain blocked. Production preflight checks both the configured base policy and live provider profile. Qualify the supervisor and policy together; changing only the policy on an older supervisor reintroduces documentation-triggered denials. Existing sandbox containers retain their supervisor image across stop/start and need a separately verified migration.
 
-[Agent Library](docs/features/agent-library.md) lives alongside the existing Agents taskboard. Give a profile a name and descriptor, such as **Bob, the architect**, edit and publish its guidance, or create a draft with the advisor. New chats pin the selected published revision; resumes keep that snapshot. Profiles can also open the existing Symposium reviewer setup. Portable import/export and prompt preview are available; context recipes remain advisory through the existing runtime and grant no additional access.
+[Agent Library](docs/features/agent-library.md) lives alongside the existing Agents taskboard. Give a profile a name and descriptor, such as **Bob, the architect**, edit and publish its guidance, or create a draft with the advisor. New chats pin the selected published revision; resumes keep that snapshot. Profiles can also open the existing Symposium reviewer setup. Portable import/export and compiled prompt preview are available. Optional ContexGin recipes compile selected workspace documents or a configured preset for local chats and pin the result for resumes. OpenShell and Symposium retain their existing context setup; recipes grant no additional access.
 
 Symposium's [reusable reviewer profiles](docs/features/symposium.md#profiles-and-reusable-reviewer-recipes) include five editable starters, versioned portable context recipes, skill/tool references and provider compatibility. Import/export preserves exact revisions; applying a profile and selecting account/context remain explicit.
 

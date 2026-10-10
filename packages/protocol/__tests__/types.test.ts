@@ -8,7 +8,6 @@ import type {
   MessageSnapshot,
   StreamingBlock,
   StreamingMessage,
-  FinishedBlock,
   FinishedMessage,
   PermissionRequest,
   ImageAttachment,

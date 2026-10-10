@@ -13,8 +13,37 @@ vi.mock('../auth.js', () => ({
 vi.mock('../symposium-custodian-mode.js', () => ({
   custodianControllerClient: { request: mocks.request, invalidate: mocks.invalidate },
 }));
-import { bindAgentLibraryTransport, readAgentLibraryProfile } from '../agent-library-transport.js';
+import {
+  bindAgentLibraryTransport,
+  readAgentLibraryProfile,
+  captureAgentLibraryAuthorization,
+  withAgentLibraryRecoveryAuthorization,
+} from '../agent-library-transport.js';
 const cleanups: (() => void)[] = [];
+it('scopes a recovery to its verified login and releases the binding after admission', async () => {
+  const auth = { id: 'verified-recovery', expiresAt: Date.now() + 10000 };
+  let connectionId: string | undefined;
+  await withAgentLibraryRecoveryAuthorization(auth, async (id) => {
+    connectionId = id;
+    expect(captureAgentLibraryAuthorization(id).auth).toBe(auth);
+  });
+  expect(() => captureAgentLibraryAuthorization(connectionId)).toThrow(/authentication/);
+});
+it('refuses expired recovery authorization before invoking startup and detects logout during it', async () => {
+  const operation = vi.fn(async () => {});
+  await expect(
+    withAgentLibraryRecoveryAuthorization({ id: 'expired', expiresAt: Date.now() - 1 }, operation),
+  ).rejects.toThrow(/authentication/);
+  expect(operation).not.toHaveBeenCalled();
+  await withAgentLibraryRecoveryAuthorization(
+    { id: 'active', expiresAt: Date.now() + 10000 },
+    async (id) => {
+      const captured = captureAgentLibraryAuthorization(id);
+      mocks.revoked();
+      expect(() => captured.assertCurrent()).toThrow(/revoked/);
+    },
+  );
+});
 afterEach(() => {
   cleanups.splice(0).forEach((fn) => fn());
   vi.clearAllMocks();
@@ -61,4 +90,16 @@ it('invalidates an in-flight read on logout instead of returning its profile', a
     readAgentLibraryProfile({ profileId: 'bob', revision: 3 }, 'connection'),
   ).rejects.toThrow(/revoked/i);
   expect(mocks.invalidate).toHaveBeenCalledWith('verified-login');
+});
+
+it('rechecks the same verified operator after context compilation and refuses revoked or replaced bindings', () => {
+  const auth = { id: 'verified-login', expiresAt: Date.now() + 10000 };
+  cleanups.push(bindAgentLibraryTransport('connection', auth));
+  const captured = captureAgentLibraryAuthorization('connection');
+  expect(captured.auth).toBe(auth);
+  captured.assertCurrent();
+  mocks.revoked();
+  expect(() => captured.assertCurrent()).toThrow(/revoked/);
+  cleanups.push(bindAgentLibraryTransport('connection', { ...auth, id: 'another-login' }));
+  expect(() => captured.assertCurrent()).toThrow(/revoked/);
 });
