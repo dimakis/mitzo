@@ -11,6 +11,8 @@ import { parseSlashCommand } from './slash-commands.js';
 import { Router } from 'express';
 import { isDeepStrictEqual } from 'node:util';
 import { acceptSendCommandAsync } from './send-command.js';
+import { bindAgentLibraryTransport } from './agent-library-transport.js';
+import type { AuthSession } from './auth.js';
 import type { Request, Response } from 'express';
 import {
   V2SendMessage,
@@ -226,15 +228,26 @@ export function createChatRestRouter(
             else delegate.send(event);
           },
         };
-        const outcome = await handleSendV2(connectionId, transport, command, ctx, {
-          initialSessionId: command.sessionId ? undefined : sessionId,
-          awaitStartupAdmission: true,
-          identityClaimed: true,
-          // REST inserts the global receipt before dispatch; WS inserts it in
-          // handleSendV2 so the same check can fence cross-transport retries.
-          receiptAdmitted: options.receiptAdmitted ?? true,
-        });
-        if (outcome === 'native') return options.preserveReceiptSession ? undefined : false;
+        // Headerless sends have no interactive stream identity. Scope profile
+        // admission to the middleware-verified login for this actual dispatch;
+        // exact concurrent receipt retries do not bind or overwrite this scope.
+        const releaseOperator =
+          !req.headers['x-connection-id'] && res.locals.authSession
+            ? bindAgentLibraryTransport(connectionId, res.locals.authSession as AuthSession)
+            : undefined;
+        try {
+          const outcome = await handleSendV2(connectionId, transport, command, ctx, {
+            initialSessionId: command.sessionId ? undefined : sessionId,
+            awaitStartupAdmission: true,
+            identityClaimed: true,
+            // REST inserts the global receipt before dispatch; WS inserts it in
+            // handleSendV2 so the same check can fence cross-transport retries.
+            receiptAdmitted: options.receiptAdmitted ?? true,
+          });
+          if (outcome === 'native') return options.preserveReceiptSession ? undefined : false;
+        } finally {
+          releaseOperator?.();
+        }
       };
       const parsed = parseSlashCommand(msg.prompt);
       const paidReasoning = !!parsed && paidReasoningCommand(parsed.name, parsed.arguments);

@@ -242,11 +242,17 @@ export * from './symposium-artifact-reader.js';
 
 export * from './symposium-configuration-operations.js';
 
-export { NotificationKind, NotificationFilter, NotificationPreferences } from './notifications.js';
+export {
+  NotificationKind,
+  NotificationFilter,
+  NotificationPreferences,
+  InboxQuery,
+} from './notifications.js';
 export type {
   MitzoNotification,
   NotificationResolution,
   NotificationFeed,
+  InboxFeed,
 } from './notifications.js';
 
 export type { BackupRunStatus, BackupRun, BackupOverview } from './backup.js';
@@ -254,6 +260,25 @@ export type { BackupRunStatus, BackupRun, BackupOverview } from './backup.js';
 export { isRegisteredConversation } from './conversation-identity.js';
 
 export { ModelTokenLimitsSchema, type ModelTokenLimits } from './token-limits.js';
+export { TerminalOpenBody, TerminalInputBody, TerminalResizeBody } from './terminal.js';
+export type { TerminalInfo, TerminalEvent } from './terminal.js';
+
+export { isReviewableTerminalCommand } from './terminal.js';
+
+export type {
+  HomePin,
+  HomePreferences,
+  PhilosophyQuote,
+  DailyQuote,
+  BriefingSnapshot,
+  BriefingChatBinding,
+} from './home.js';
+
+export {
+  SourceSnapshotSchema,
+  SourceSnapshotsSchema,
+  type SourceSnapshot,
+} from './source-snapshot.js';
 
 export { SessionRuntimeBindingV1Schema } from './session-runtime-binding.js';
 export type { SessionRuntimeBindingV1 } from './session-runtime-binding.js';

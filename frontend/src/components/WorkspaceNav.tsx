@@ -5,11 +5,11 @@ import { Link, useLocation } from 'react-router-dom';
 const primary = [
   { label: 'Today', icon: 'today' as const, path: '/', end: true },
   { label: 'Chats', icon: 'chats' as const, path: '/sessions', end: false },
-  { label: 'Proposals', icon: 'proposals' as const, path: '/inbox', end: false },
+  { label: 'Inbox', icon: 'proposals' as const, path: '/inbox', end: false },
   { label: 'Work', icon: 'work' as const, path: '/todos', end: false },
 ];
 const secondary = [
-  { label: 'Notifications', icon: 'bell' as const, path: '/notifications', end: false },
+  { label: 'Terminal', icon: 'terminal' as const, path: '/terminal', end: false },
   { label: 'Agents', icon: 'agents' as const, path: '/tasks', end: false },
   { label: 'Agent Library', icon: 'files' as const, path: '/agent-library', end: false },
   { label: 'Calendar', icon: 'calendar' as const, path: '/calendar', end: false },
@@ -17,7 +17,12 @@ const secondary = [
   { label: 'Connections', icon: 'connections' as const, path: '/connections-access', end: false },
 ];
 export function WorkspaceNav({ desktop = false }: { desktop?: boolean }) {
-  const { pathname } = useLocation();
+  const { pathname, search } = useLocation();
+  const parameters = new URLSearchParams(search);
+  const chatTerminal =
+    pathname === '/terminal' &&
+    (parameters.get('returnTo')?.startsWith('/chat') ||
+      (!parameters.has('returnTo') && parameters.has('sessionId')));
   const notifications = useNotifications();
   const items = [
     ...primary,
@@ -35,11 +40,16 @@ export function WorkspaceNav({ desktop = false }: { desktop?: boolean }) {
       {items.map(({ label, path, end, icon }) => {
         const active =
           (end ? pathname === path : pathname === path || pathname.startsWith(path + '/')) ||
-          (label === 'Chats' && (pathname === '/chat' || pathname.startsWith('/chat/'))) ||
+          (label === 'Today' &&
+            (pathname.startsWith('/briefings/') || pathname.startsWith('/quotes/'))) ||
+          (label === 'Chats' &&
+            (pathname === '/chat' || pathname.startsWith('/chat/') || chatTerminal)) ||
           (label === 'Connections' && pathname === '/connections') ||
           (!desktop &&
             label === 'More' &&
+            !chatTerminal &&
             [
+              '/terminal',
               '/notifications',
               '/tasks',
               '/agent-library',
@@ -63,15 +73,14 @@ export function WorkspaceNav({ desktop = false }: { desktop?: boolean }) {
           >
             <UiIcon name={icon} />
             <span className="workspace-nav-label">{label}</span>
-            {(label === 'Notifications' || (!desktop && label === 'More')) &&
-              !!notifications?.feed?.needsYou && (
-                <span
-                  className="notification-badge"
-                  aria-label={`${notifications.feed.needsYou} requests need attention`}
-                >
-                  {notifications.feed.needsYou > 99 ? '99+' : notifications.feed.needsYou}
-                </span>
-              )}
+            {label === 'Inbox' && !!notifications?.feed?.needsYou && (
+              <span
+                className="notification-badge"
+                aria-label={`${notifications.feed.needsYou} requests need attention`}
+              >
+                {notifications.feed.needsYou > 99 ? '99+' : notifications.feed.needsYou}
+              </span>
+            )}
           </Link>
         );
       })}

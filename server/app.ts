@@ -1,3 +1,11 @@
+import { terminalAccountRoute } from './terminal-account-route.js';
+import { TerminalAdviser } from './terminal-adviser.js';
+import { createTerminalAdviserSession } from './terminal-adviser-model.js';
+import { TerminalService, TerminalStore } from './terminal-service.js';
+import { terminalAdviserCatalog } from './terminal-adviser-catalog.js';
+import { TmuxTerminalBackend } from './terminal-backend.js';
+import { createTerminalTargetResolver } from './terminal-targets.js';
+import { createTerminalRouter } from './terminal-router.js';
 import { createPersonalRoutingDiagnosticHandler } from './symposium-routing-diagnostic-route.js';
 import { createRepositoryWorkspaceRouter } from './repository-workspace-router.js';
 import {
@@ -51,6 +59,8 @@ import { bindMitzoTelosCoreCapture } from './backup/mitzo-telos-binding.js';
 import { NotificationStore } from './notification-store.js';
 import { NotificationCenter, setNotificationCenter } from './notification-center.js';
 import { notificationRouter } from './notification-routes.js';
+import { unifiedInboxRouter } from './unified-inbox-routes.js';
+import { discardInboxSource } from './unified-inbox.js';
 import {
   deliverNotification,
   sendBadgeUpdate,
@@ -280,14 +290,11 @@ import type { SessionOverviewEmitter } from './session-overview.js';
 import type { WorkflowTemplateStore, TemplateCreateInput } from './workflow-templates.js';
 import { instantiateTemplate } from './workflow-templates.js';
 import type { SignalProcessor } from './signal-processor.js';
-import {
-  listInboxItems,
-  readInboxItem,
-  approveInboxItem,
-  discardInboxItem,
-  createInboxItem,
-} from './inbox.js';
-import { getLatestMorningBriefing } from './briefings.js';
+import { listInboxItems, readInboxItem, approveInboxItem, createInboxItem } from './inbox.js';
+import { getLatestMorningBriefing, readMorningBriefing } from './briefings.js';
+import { createHomeRouter } from './home-router.js';
+import { HomeStore } from './home-store.js';
+import { readQuoteCatalog } from './quote-catalog.js';
 import { registerToken, removeToken, setTokenStorePath } from './apns.js';
 import { SkillRegistry } from './skills.js';
 import type { SkillWatcher } from './skill-watcher.js';
@@ -2872,6 +2879,8 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
     cwd: meta.cwd,
     mode: meta.mode,
     isActive: meta.isActive,
+    // Optional catalog refresh may yield while this conversation is deleted.
+    isHidden: eventStore.getSession(meta.sessionId)?.isHidden ?? true,
     state: meta.state,
     totalTokens,
     ...(meta.accountBinding
@@ -3134,6 +3143,99 @@ async function readRemoteSessionArtifact(
   });
   return reader(sessionId, meta.accountBinding, meta.cwd, requestedPath);
 }
+
+export const terminalService = new TerminalService(new TerminalStore(taskStore.getDatabase()), {
+  backend: new TmuxTerminalBackend(
+    `mitzo-${createHash('sha256').update(mitzoDir).digest('hex').slice(0, 16)}`,
+  ),
+  validateCleanupTarget: (target) => {
+    if (target.kind === 'sandbox') {
+      if (!target.runtime) throw Error('Original sandbox cleanup receipt unavailable');
+      validateSessionArtifactRuntime(target.runtime, openShellRuntimeConfig(process.env));
+    }
+  },
+  resolve: createTerminalTargetResolver({
+    hostCwd: homedir(),
+    session: (id) => {
+      const meta = eventStore.getSession(id);
+      return meta
+        ? { ...meta, title: meta.summary || meta.initialPrompt || 'Chat workspace' }
+        : undefined;
+    },
+    allowedHost: isConfiguredAllowedPath,
+    remote: isRemoteSessionArtifact,
+    runtime: (id, binding) => getCodexConversationStore().readArtifactRuntime(id, binding),
+    currentRoute: (binding, id) =>
+      terminalAccountRoute(
+        loadAccountProfiles(),
+        binding,
+        eventStore.getSession(id)?.selectedModel ?? binding.model,
+      ),
+    validateRuntime: (runtime) =>
+      validateSessionArtifactRuntime(runtime, openShellRuntimeConfig(process.env)),
+    inspect: (id, runtime, route) => {
+      const config = openShellRuntimeConfig(process.env);
+      if (!config) throw Error('Sandbox runtime unavailable');
+      return new OpenShellRuntimeManager({ ...config, account: route }).inspect(
+        id,
+        runtime.sandboxId,
+        AbortSignal.timeout(15000),
+        runtime.sandboxName,
+      );
+    },
+  }),
+});
+terminalService.startOwnerMaintenance(registerAuthSession);
+app.use(
+  '/api/terminals',
+  createTerminalRouter({
+    service: terminalService,
+    authorize: operatorAuthMiddleware,
+    adviser: new TerminalAdviser(createTerminalAdviserSession),
+    accounts: async () => {
+      const profiles = loadAccountProfiles();
+      // Subscription CLI agents do not establish an inference-only capability.
+      return terminalAdviserCatalog(profiles.catalog()).map((account) => ({
+        ...account,
+        label: accountAliases.label(account.id, account.label),
+      }));
+    },
+    context: (id) => {
+      const meta = id ? eventStore.getSession(id) : undefined;
+      return meta?.accountBinding
+        ? {
+            summary: {
+              profile: accountAliases.label(
+                meta.accountBinding.accountId,
+                meta.accountBinding.accountLabel,
+              ),
+              model: meta.selectedModel ?? meta.accountBinding.model,
+              thinking: `Thinking: ${meta.reasoningEffort ?? 'model default'}`,
+            },
+            selection: {
+              accountId: meta.accountBinding.accountId,
+              model: meta.selectedModel ?? meta.accountBinding.model,
+              reasoningEffort: meta.reasoningEffort,
+            },
+          }
+        : {};
+    },
+    destinations: () =>
+      eventStore
+        .listSessions(200)
+        .filter(
+          (meta) =>
+            meta.cwd &&
+            meta.sessionType !== 'symposium' &&
+            !meta.isHidden &&
+            isRemoteSessionArtifact(meta.sessionId),
+        )
+        .map((meta) => ({
+          sessionId: meta.sessionId,
+          label: meta.summary || meta.initialPrompt || 'Untitled chat',
+        })),
+  }),
+);
 
 function readPreviewFile(filePath: string): {
   content?: string;
@@ -3646,6 +3748,17 @@ app.put('/api/files/write', async (req, res) => {
 
 // --- Inbox API ---
 
+app.use(
+  '/api/home',
+  createHomeRouter({
+    store: new HomeStore(join(BASE_REPO || '.', '.mitzo', 'home.json')),
+    catalog: readQuoteCatalog,
+    briefing: (date) => readMorningBriefing(BASE_REPO || '.', date),
+    session: (id) => eventStore.getSession(id),
+    changed: () => sseRegistry.broadcast('home_preferences', {}),
+  }),
+);
+
 app.get('/api/briefings/latest', (req, res) => {
   const date = typeof req.query.date === 'string' ? req.query.date : '';
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
@@ -3655,6 +3768,10 @@ app.get('/api/briefings/latest', (req, res) => {
   res.json(getLatestMorningBriefing(BASE_REPO, date));
 });
 
+app.use(
+  '/api/inbox',
+  unifiedInboxRouter(notificationCenter, () => getRepoConfig().resolvedInboxPath),
+);
 app.get('/api/inbox', (_req, res) => {
   const inboxPath = getRepoConfig().resolvedInboxPath;
   if (!inboxPath) {
@@ -3715,6 +3832,7 @@ app.post('/api/inbox/:filename/approve', (req, res) => {
     res.status(404).json({ error: 'Item not found' });
     return;
   }
+  notificationCenter.feed('needs');
   res.json({ ok: true });
   broadcastInboxUpdate();
 });
@@ -3725,11 +3843,13 @@ app.delete('/api/inbox/:filename', (req, res) => {
     res.status(404).json({ error: 'Inbox not configured' });
     return;
   }
-  const ok = discardInboxItem(inboxPath, req.params.filename);
+  const ok = discardInboxSource(notificationCenter.store, inboxPath, req.params.filename);
   if (!ok) {
     res.status(404).json({ error: 'Item not found' });
     return;
   }
+  notificationCenter.feed('needs');
+  notificationCenter.changed();
   res.json({ ok: true });
   broadcastInboxUpdate();
 });

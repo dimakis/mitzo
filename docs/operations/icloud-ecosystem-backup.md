@@ -83,6 +83,14 @@ Runtime paths must be resolved from the active deployment, not copied from a
 source checkout or inferred from this table. A group is incomplete until all of
 its required adapters are bound and its cross-store fence is demonstrated.
 
+The workspace's `.mitzo/home.json` is also required state: ordered Today pins,
+briefing/terminal nicknames, daily quote snapshots and shuffle deck, and briefing
+conversation bindings. Include it in the workspace-file inventory with its owning
+HomeStore's write fence. It is atomically replaced by the app; it is not covered by
+the SQLite core capture above. Restoring it without the corresponding EventStore
+can leave chat references unavailable. The source-controlled quote catalogue is
+release content and does not replace these saved daily selections.
+
 | Consistency group | Required data                                                                                                                                                           | Snapshot owner / unresolved contract                                                                                                                                                                       |
 | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Mitzo             | Event/task/workload stores, connections/capabilities, Codex and Responses continuation, Symposium profiles/artifacts and Telos artifact registrations, attachment bytes | Register the actual running owners and their connections. Coordinate conversation/task/attachment references and in-flight writes. Inspect new stores on accepted main, not only the older local checkout. |

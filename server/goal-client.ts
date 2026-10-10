@@ -5,10 +5,11 @@
  * All calls are fire-and-forget — ContexGin being down never blocks Mitzo.
  */
 import { createLogger } from './logger.js';
+import { DEFAULT_CONTEXGIN_URL } from './constants.js';
 
 const log = createLogger('goal-client');
 
-const CONTEXGIN_URL = process.env.CONTEXGIN_URL || 'http://localhost:8321';
+const CONTEXGIN_URL = process.env.CONTEXGIN_URL || DEFAULT_CONTEXGIN_URL;
 
 // ── Types ──────────────────────────────────────────────────────
 

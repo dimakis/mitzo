@@ -41,6 +41,16 @@ function ruleBody(styles: string, rule: string) {
 }
 
 describe('MobileShell navigation', () => {
+  it('uses the same wordmark on briefing and quote pages and leaves Today search in the page', () => {
+    const home = renderAt('/');
+    expect(screen.queryByRole('link', { name: 'Search chats' })).toBeNull();
+    home.unmount();
+    const briefing = renderAt('/briefings/2026-10-09');
+    expect(screen.getByRole('link', { name: 'Mitzo home' })).toBeTruthy();
+    briefing.unmount();
+    renderAt('/quotes/2026-10-09');
+    expect(screen.getByRole('link', { name: 'Mitzo home' })).toBeTruthy();
+  });
   it.each(['/', '/sessions', '/inbox', '/todos', '/more', '/connections-access', '/knowledge'])(
     'owns the full wordmark on %s',
     (path) => {

@@ -1,3 +1,4 @@
+import type { SourceSnapshot } from './source-snapshot.js';
 import type { AccountBinding } from './account-binding.js';
 import type { AgentLibraryVersion } from './agent-library.js';
 import type { SessionType, SymposiumProvenance } from './symposium.js';
@@ -192,6 +193,7 @@ export interface FinishedMessage {
   blocks: FinishedBlock[];
   images?: string[];
   contextBlocks?: string[];
+  sourceSnapshots?: SourceSnapshot[];
   timestamp?: number;
 }
 

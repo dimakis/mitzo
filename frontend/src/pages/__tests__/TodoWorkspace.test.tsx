@@ -47,8 +47,18 @@ vi.mock('../../hooks/useTodoData', () => ({
     refresh: vi.fn(),
   }),
 }));
-vi.mock('../../lib/api-fetch', () => ({
+vi.mock('../../lib/api-fetch', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/api-fetch')>()),
   apiFetch: vi.fn(async (url: string) => {
+    if (url === '/api/home/preferences')
+      return {
+        ok: true,
+        json: async () => ({
+          revision: 0,
+          names: { briefing: 'Minion', terminal: 'Minion' },
+          pins: [],
+        }),
+      };
     if (url === '/api/todos')
       return {
         ok: true,

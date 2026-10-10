@@ -12,22 +12,31 @@ vi.mock('../../hooks/useTheme', () => ({
   useTheme: () => ({ preference: 'dark', setTheme: vi.fn() }),
 }));
 afterEach(cleanup);
+it.each(['/briefings/2026-10-09', '/quotes/2026-10-09'])(
+  'keeps Today selected in mobile and desktop on %s',
+  (path) => {
+    const view = render(
+      <MemoryRouter initialEntries={[path]}>
+        <TabBar />
+      </MemoryRouter>,
+    );
+    expect(screen.getByRole('link', { name: 'Today' }).getAttribute('aria-current')).toBe('page');
+    view.unmount();
+    render(
+      <MemoryRouter initialEntries={[path]}>
+        <DesktopNav />
+      </MemoryRouter>,
+    );
+    expect(screen.getByRole('link', { name: 'Today' }).getAttribute('aria-current')).toBe('page');
+  },
+);
 it('desktop keeps every collection reachable and marks Today as current', () => {
   render(
     <MemoryRouter>
       <DesktopNav />
     </MemoryRouter>,
   );
-  for (const name of [
-    'Today',
-    'Chats',
-    'Proposals',
-    'Work',
-    'Agents',
-    'Calendar',
-    'Knowledge',
-    'More',
-  ])
+  for (const name of ['Today', 'Chats', 'Inbox', 'Work', 'Agents', 'Calendar', 'Knowledge', 'More'])
     expect(screen.getByRole('link', { name })).toBeTruthy();
   expect(screen.getByRole('link', { name: 'Today' }).getAttribute('aria-current')).toBe('page');
 });

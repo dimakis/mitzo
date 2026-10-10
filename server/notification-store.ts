@@ -4,7 +4,10 @@ import type {
   MitzoNotification,
   NotificationFilter,
   NotificationResolution,
+  InboxQuery,
 } from '@mitzo/protocol';
+const needs =
+  "resolved_at IS NULL AND (kind IN ('approval','question') OR COALESCE(json_extract(data, '$.inbox.needsAttention'),0)=1)";
 
 type Input = Omit<
   MitzoNotification,
@@ -68,6 +71,156 @@ export class NotificationStore {
       Row | undefined;
     return row ? item(row) : undefined;
   }
+  syncInbox(input: Input, at: number, archived = false): boolean {
+    if (input.inbox)
+      input = {
+        ...input,
+        inbox: { ...input.inbox, sourceArchived: archived, sourceUpdatedAt: at },
+      };
+    const old = this.get(input.id);
+    if (!old) {
+      this.record(input, at);
+      if (archived)
+        this.db
+          .prepare("UPDATE notifications SET archived_at=?, delivery_status='cancelled' WHERE id=?")
+          .run(at, input.id);
+    } else {
+      const data = JSON.stringify({ ...input, createdAt: old.createdAt });
+      const previous = this.db
+        .prepare('SELECT data FROM notifications WHERE id=?')
+        .get(input.id) as { data: string };
+      if (previous.data === data) return false;
+      // Update provenance/content while preserving human read/archive state.
+      const worse = old.inbox?.severity !== 'critical' && input.inbox?.severity === 'critical';
+      const reopened = old.inbox?.status === 'resolved' && input.inbox?.status === 'pending';
+      const freshCritical =
+        input.inbox?.severity === 'critical' &&
+        (old.inbox?.content !== input.inbox.content ||
+          (old.inbox?.sourceUpdatedAt !== undefined && old.inbox.sourceUpdatedAt !== at));
+      const renewed =
+        !archived && !!input.inbox?.needsAttention && (worse || reopened || freshCritical);
+      const archiveTransition = archived && old.inbox?.sourceArchived !== true;
+      this.db
+        .prepare(
+          `UPDATE notifications SET data=?, read_at=CASE WHEN ? THEN NULL ELSE read_at END,
+        resolved_at=CASE WHEN ? THEN NULL ELSE resolved_at END,
+        archived_at=CASE WHEN ? THEN ? WHEN ? THEN NULL ELSE archived_at END,
+        delivery_status=CASE WHEN ? THEN 'cancelled' ELSE delivery_status END WHERE id=?`,
+        )
+        .run(
+          data,
+          renewed ? 1 : 0,
+          renewed ? 1 : 0,
+          archiveTransition ? 1 : 0,
+          at,
+          renewed ? 1 : 0,
+          archiveTransition ? 1 : 0,
+          input.id,
+        );
+    }
+    if (input.inbox?.status === 'resolved') this.resolveInbox(input.id);
+    return true;
+  }
+  archiveMissingSource(id: string): boolean {
+    const record = this.get(id);
+    if (!record?.inbox || record.inbox.sourceArchived !== false) return false;
+    const row = this.db.prepare('SELECT data FROM notifications WHERE id=?').get(id) as {
+      data: string;
+    };
+    const data = JSON.parse(row.data) as Input & { createdAt: number };
+    data.inbox = { ...data.inbox!, sourceArchived: true };
+    this.db
+      .prepare(
+        "UPDATE notifications SET data=?, archived_at=COALESCE(archived_at, ?), delivery_status='cancelled' WHERE id=?",
+      )
+      .run(JSON.stringify(data), Date.now(), id);
+    return true;
+  }
+  resolveInbox(id: string, now = Date.now()): boolean {
+    return (
+      this.db
+        .prepare(
+          `UPDATE notifications SET resolved_at=COALESCE(resolved_at, ?), delivery_status='cancelled'
+      WHERE id=? AND json_extract(data, '$.inbox') IS NOT NULL`,
+        )
+        .run(now, id).changes > 0
+    );
+  }
+  inboxFeed(query: InboxQuery, now = Date.now()) {
+    this.expire(now);
+    const clauses: string[] = [
+      query.view === 'archive' ? 'archived_at IS NOT NULL' : 'archived_at IS NULL',
+    ];
+    const values: (string | number)[] = [];
+    // Search intentionally crosses the named views while respecting refinements.
+    if (!query.query.trim()) {
+      if (query.view === 'needs') clauses.push(needs);
+      if (query.view === 'briefings')
+        clauses.push("json_extract(data, '$.inbox.category')='briefing'");
+      if (query.view === 'proposals')
+        clauses.push("json_extract(data, '$.inbox.category')='proposal'");
+    } else {
+      clauses.push('instr(lower(data), lower(?)) > 0');
+      values.push(query.query.trim());
+      // Search covers archived records too; the Archive view remains archive-only.
+      if (query.view !== 'archive') clauses[0] = '1=1';
+    }
+    if (query.source) {
+      clauses.push("json_extract(data, '$.inbox.agent')=?");
+      values.push(query.source);
+    }
+    if (query.type === 'sessions') clauses.push("kind IN ('session','approval','question')");
+    else if (query.type === 'updates') clauses.push("kind IN ('update','test')");
+    else if (query.type === 'approval' || query.type === 'question') {
+      clauses.push('kind=?');
+      values.push(query.type);
+    } else if (query.type) {
+      clauses.push("json_extract(data, '$.inbox.category')=?");
+      values.push(query.type);
+    }
+    if (query.status === 'unread') clauses.push('read_at IS NULL');
+    if (query.status === 'resolved') clauses.push('resolved_at IS NOT NULL');
+    if (query.age !== 'any') {
+      const today = new Date(now);
+      today.setHours(0, 0, 0, 0);
+      const since =
+        query.age === 'today' ? today.getTime() : now - (query.age === 'week' ? 7 : 30) * 86400000;
+      clauses.push('created_at>=?');
+      values.push(since);
+    }
+    const where = clauses.join(' AND ');
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM notifications WHERE ${where} ORDER BY created_at DESC, id LIMIT ? OFFSET ?`,
+      )
+      .all(...values, query.limit, query.offset) as Row[];
+    const items = rows.map((row) => {
+      const record = item(row);
+      if (record.inbox) {
+        record.inbox = { ...record.inbox };
+        delete record.inbox.content;
+      }
+      return record;
+    });
+    const total = (
+      this.db.prepare(`SELECT COUNT(*) AS n FROM notifications WHERE ${where}`).get(...values) as {
+        n: number;
+      }
+    ).n;
+    const needsYou = (
+      this.db
+        .prepare(`SELECT COUNT(*) AS n FROM notifications WHERE archived_at IS NULL AND (${needs})`)
+        .get() as { n: number }
+    ).n;
+    const sources = (
+      this.db
+        .prepare(
+          "SELECT DISTINCT json_extract(data, '$.inbox.agent') AS agent FROM notifications WHERE json_extract(data, '$.inbox.agent') IS NOT NULL ORDER BY agent",
+        )
+        .all() as { agent: string }[]
+    ).map((r) => r.agent);
+    return { items, needsYou, total, sources };
+  }
   expire(now = Date.now()): number {
     return this.db
       .prepare(
@@ -126,7 +279,7 @@ export class NotificationStore {
         .prepare(
           `UPDATE notifications SET archived_at=COALESCE(archived_at, ?),
       delivery_status='cancelled' WHERE id=? AND
-      (resolved_at IS NOT NULL OR kind NOT IN ('approval','question'))`,
+      NOT (${needs})`,
         )
         .run(now, id).changes > 0
     );
@@ -136,8 +289,7 @@ export class NotificationStore {
     return this.db
       .prepare(
         `UPDATE notifications SET archived_at=?, delivery_status='cancelled'
-      WHERE archived_at IS NULL AND (resolved_at IS NOT NULL OR
-      (kind NOT IN ('approval','question') AND read_at IS NOT NULL))`,
+      WHERE archived_at IS NULL AND NOT (${needs}) AND (resolved_at IS NOT NULL OR read_at IS NOT NULL)`,
       )
       .run(now).changes;
   }
@@ -150,7 +302,7 @@ export class NotificationStore {
     this.expire(now);
     const category =
       filter === 'needs'
-        ? "kind IN ('approval','question') AND resolved_at IS NULL"
+        ? needs
         : filter === 'sessions'
           ? "kind='session'"
           : filter === 'updates'
@@ -169,9 +321,7 @@ export class NotificationStore {
     ).map(item);
     const needsYou = (
       this.db
-        .prepare(
-          "SELECT COUNT(*) AS n FROM notifications WHERE kind IN ('approval','question') AND resolved_at IS NULL AND archived_at IS NULL",
-        )
+        .prepare(`SELECT COUNT(*) AS n FROM notifications WHERE (${needs}) AND archived_at IS NULL`)
         .get() as { n: number }
     ).n;
     const total = (

@@ -5,7 +5,7 @@ import path from 'path';
 import { load as parseYaml } from 'js-yaml';
 import { z } from 'zod';
 import { createLogger } from './logger.js';
-import { DEFAULT_AGENT_DEFINITION } from './constants.js';
+import { DEFAULT_AGENT_DEFINITION, DEFAULT_CONTEXGIN_URL } from './constants.js';
 import type { AgentDefinitionSource, AgentDefinition, AgentContextConfig } from '@mitzo/protocol';
 
 const log = createLogger('agent-loader');
@@ -234,7 +234,7 @@ async function loadFromLocal(
 export async function loadAgentDef(
   agentName: string,
   cwd: string,
-  contexginUrl: string = process.env.CONTEXGIN_URL || 'http://localhost:8321',
+  contexginUrl: string = process.env.CONTEXGIN_URL || DEFAULT_CONTEXGIN_URL,
 ): Promise<LoadedAgentDefinition> {
   // Normalize name from WS protocol format (uppercase, underscores) to loader format.
   const name = normalizeAgentName(agentName);

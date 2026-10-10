@@ -1,3 +1,5 @@
+import { useBriefingChat } from '../hooks/useBriefingChat';
+import { BriefingChatBanner } from '../components/BriefingChatBanner';
 import { ChatAgentProfilePicker } from '../components/ChatAgentProfilePicker';
 import type { AgentProfileSelection } from '@mitzo/protocol';
 import { UiIcon } from '../components/UiIcon';
@@ -68,6 +70,7 @@ export function DesktopChatView() {
   const connection = useConnection();
   const tokens = useTokens();
   const activeSessionId = useMitzoStore((s) => s.sessions.active);
+  const briefingChat = useBriefingChat(activeSessionId);
   const preparationId = searchParams.get('repositoryPreparation');
   const repositoryHandoff = useRepositoryChatPreparation(preparationId, sessionId);
   const repositoryDraftControl = useRef<ChatInputDraftControl | null>(null);
@@ -97,6 +100,9 @@ export function DesktopChatView() {
     dismissLaunch,
     sendMessage: storeSendMessage,
     sendLaunch,
+    registrationError,
+    registrationSaving,
+    retryRegistration,
   } = usePendingLaunch();
 
   const connected = connection.status === 'connected';
@@ -159,6 +165,8 @@ export function DesktopChatView() {
       setAccountSelection(selection);
       if (selection) {
         if (
+          !!launch?.briefing ||
+          briefingChat.selectionLocked ||
           repositoryHandoff.present ||
           (activeSessionId !== null &&
             activeSessionId === repositoryHandoff.lastAssignedConversationId &&
@@ -178,6 +186,8 @@ export function DesktopChatView() {
       activeSessionId,
       repositoryHandoff.present,
       repositoryHandoff.lastAssignedConversationId,
+      launch?.briefing,
+      briefingChat.selectionLocked,
     ],
   );
 
@@ -271,6 +281,7 @@ export function DesktopChatView() {
     launching = false,
   ): boolean {
     if (repositoryHandoffReason || (repositoryHandoff.present && launching)) return false;
+    if (launch?.briefing && !launching) return false;
     if (!activeSessionId && agentProfileBlocked) return false;
     if (launching && activeSessionId) return sendLaunch();
     if (!activeSessionId && (!accountSelection || repositorySelection?.blocked)) return false;
@@ -372,6 +383,24 @@ export function DesktopChatView() {
       }
       center={
         <div className="desktop-chat-center workspace-chat">
+          {briefingChat.isBriefing && <h1>{briefingChat.name}</h1>}
+          <BriefingChatBanner
+            name={briefingChat.name}
+            initialSelection={
+              accountSelection ??
+              launch?.accountSelection ??
+              (briefingChat.binding
+                ? { accountId: briefingChat.binding.accountId, model: briefingChat.binding.model }
+                : undefined)
+            }
+            source={briefingChat.source}
+            registrationError={registrationError}
+            registrationSaving={registrationSaving}
+            retryRegistration={retryRegistration}
+            lookupError={briefingChat.error}
+            retryLookup={briefingChat.retry}
+            lookupLoading={briefingChat.loading}
+          />
           <WorkspaceControls
             attention={!!launch || repositoryHandoff.present}
             summary={workspaceSummary}
@@ -409,13 +438,17 @@ export function DesktopChatView() {
                           accountId: repositoryHandoff.preparation.accountId,
                           model: repositoryHandoff.preparation.model,
                         }
-                      : undefined
+                      : !activeSessionId
+                        ? launch?.accountSelection
+                        : undefined
                   }
                   sessionId={activeSessionId}
                   preferredModel={modelState}
                   onChange={selectAccount}
                   onSummaryChange={setWorkspaceSummary}
-                  disabled={messages.running || repositoryHandoff.loading}
+                  disabled={
+                    messages.running || repositoryHandoff.loading || briefingChat.selectionLocked
+                  }
                 />
               ) : (
                 <span>Waiting for repository preparation…</span>
@@ -576,6 +609,9 @@ export function DesktopChatView() {
                       : undefined
                   }
                   sendDisabledReason={
+                    (launch?.briefing
+                      ? 'Send the reviewed briefing prompt first, then ask a follow-up.'
+                      : undefined) ??
                     repositoryHandoffReason ??
                     (!activeSessionId ? agentProfileBlocked : undefined) ??
                     (!activeSessionId && repositorySelection?.blocked

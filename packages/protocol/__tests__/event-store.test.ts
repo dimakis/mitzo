@@ -863,6 +863,70 @@ describe('EventStore', () => {
     expect(store.searchSessions('needle', 2).map((s) => s.sessionId)).toEqual(['noisy', 'older']);
   });
 
+  it('finds titles anywhere in saved history and keeps message snippets when both match', () => {
+    store.upsertSession({
+      sessionId: 'title-only',
+      summary: 'Canonical recovery plan',
+      updatedAt: 1,
+    });
+    store.upsertSession({ sessionId: 'both', summary: 'Canonical follow-up', updatedAt: 2 });
+    store.append('both', 'user_message', { text: 'Discuss canonical recovery details' });
+    store.upsertSession({ sessionId: 'hidden', summary: 'Canonical hidden' });
+    store.hideSession('hidden');
+    store.upsertSession({
+      sessionId: 'legacy',
+      summary: 'Canonical artifact',
+      conversationSource: 'legacy',
+      isActive: false,
+    });
+    const results = store.searchSessions('canonical', 2);
+    expect(results.map((match) => match.sessionId)).toEqual(['both', 'title-only']);
+    expect(results[0].snippet).toContain('recovery details');
+    expect(results[1].snippet).toContain('Canonical recovery plan');
+  });
+
+  it('treats title search wildcards as literal text and deduplicates before the limit', () => {
+    store.upsertSession({ sessionId: 'literal', summary: '100% coverage_v2' });
+    store.append('literal', 'user_message', { text: '100% coverage_v2 review' });
+    store.upsertSession({ sessionId: 'ordinary', summary: '1000 coverageXv2' });
+    expect(store.searchSessions('100%', 1).map((match) => match.sessionId)).toEqual(['literal']);
+    expect(store.searchSessions('coverage_', 2).map((match) => match.sessionId)).toEqual([
+      'literal',
+    ]);
+  });
+
+  it('excludes hidden and internal SDK title records before limits without modifying usage', () => {
+    store.upsertSession({ sessionId: 'visible', summary: 'Needle title', updatedAt: 1 });
+    store.recordUsage('visible', {
+      inputTokens: 100,
+      outputTokens: 200,
+      cacheReadTokens: 300,
+      cacheCreationTokens: 400,
+      totalCostUsd: 1.25,
+      numTurns: 3,
+      durationMs: 20,
+      durationApiMs: 10,
+    });
+    const before = store.getSession('visible');
+    store.registerInternalSdkExecution({
+      sdkSessionId: 'internal',
+      parentSessionId: 'visible',
+      operationId: 'lookup',
+      purpose: 'web_search',
+      cwd: '/private/tool-workspace',
+    });
+    // A retained legacy/provider row must not turn a tool-owned identity into a conversation.
+    const db = (store as unknown as { db: { exec(sql: string): void } }).db;
+    db.exec(
+      "INSERT INTO sessions (session_id, summary, conversation_source, updated_at) VALUES ('internal', 'Needle title', 'mitzo', 9999999999999)",
+    );
+    store.upsertSession({ sessionId: 'hidden', summary: 'Needle title', updatedAt: 9999999999999 });
+    store.hideSession('hidden');
+    expect(store.searchSessions('needle', 1).map((match) => match.sessionId)).toEqual(['visible']);
+    expect(store.getSession('visible')).toEqual(before);
+    expect(store.getSession('internal')).toBeNull();
+  });
+
   describe('upsertSession', () => {
     it('persists verified SDK history across reopen without changing usage or prompts', () => {
       const root = mkdtempSync(join(tmpdir(), 'verified-sdk-history-'));

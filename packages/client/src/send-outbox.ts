@@ -2,6 +2,7 @@
 interface Entry {
   body: Record<string, unknown>;
   scope: number;
+  uncertain?: boolean;
 }
 interface Config {
   url: string;
@@ -10,6 +11,15 @@ interface Config {
   headers?: () => Record<string, string>;
   storage?: Pick<Storage, 'getItem' | 'setItem'>;
   timeoutMs?: number;
+  requireDurableBriefings?: boolean;
+}
+
+function reviewedBriefing(body: Record<string, unknown>): boolean {
+  return (
+    body.sessionId === null &&
+    Array.isArray(body.sourceSnapshots) &&
+    body.sourceSnapshots[0]?.kind === 'briefing'
+  );
 }
 
 export class SendOutbox {
@@ -54,7 +64,11 @@ export class SendOutbox {
   enqueue(body: Record<string, unknown>, scope: number): boolean {
     if (this.entries.length >= 100) return false;
     this.entries.push({ body: { ...body }, scope });
-    this.persist();
+    const durable = this.persist();
+    if (this.config.requireDurableBriefings && reviewedBriefing(body) && !durable) {
+      this.entries.pop();
+      return false;
+    }
     this.config.notify({
       type: '_send_pending',
       clientMsgId: body.clientMsgId,
@@ -75,9 +89,15 @@ export class SendOutbox {
     if (this.timer) clearTimeout(this.timer);
     this.timer = undefined;
     const rejected = this.entries.splice(0);
+    this.entries = rejected.filter((entry, index) => {
+      if (!reviewedBriefing(entry.body) || (!entry.uncertain && !(hadInFlight && index === 0)))
+        return false;
+      entry.uncertain = true;
+      return true;
+    });
     this.persist();
     for (const [index, entry] of rejected.entries()) {
-      const deliveryUncertain = hadInFlight && index === 0;
+      const deliveryUncertain = entry.uncertain || (hadInFlight && index === 0);
       this.config.notify({
         type: deliveryUncertain ? '_send_uncertain' : '_send_failed',
         clientMsgId: entry.body.clientMsgId,
@@ -89,11 +109,14 @@ export class SendOutbox {
     }
   }
 
-  private persist(): void {
+  private persist(): boolean {
     try {
-      this.config.storage?.setItem(this.key, JSON.stringify(this.entries));
+      if (!this.config.storage) return false;
+      this.config.storage.setItem(this.key, JSON.stringify(this.entries));
+      return true;
     } catch {
-      /* In-memory retries still work if storage is full/disabled. */
+      // Ordinary sends retain their existing in-memory fallback.
+      return false;
     }
   }
 
@@ -106,6 +129,15 @@ export class SendOutbox {
     this.activeAbort = abort;
     let timeout: ReturnType<typeof setTimeout> | undefined;
     try {
+      if (reviewedBriefing(entry.body) && !entry.uncertain) {
+        // Persist possible acceptance before admission, not only while fetch is
+        // in flight. A lost response remains ambiguous during backoff/reload.
+        entry.uncertain = true;
+        if (!this.persist() && this.config.requireDurableBriefings) {
+          delete entry.uncertain;
+          throw new Error('Reviewed attempt could not be retained');
+        }
+      }
       const { response, receipt } = await Promise.race([
         this.config
           .fetch(this.config.url, {
@@ -148,19 +180,40 @@ export class SendOutbox {
           (typeof receipt.sessionId !== 'string' && receipt.sessionId !== null)
         )
           throw new Error('Missing message acknowledgement');
-        this.entries.shift();
-        // Only unattempted follow-ups in the same draft inherit its session.
-        if (entry.body.sessionId === null && receipt.sessionId) {
-          for (const queued of this.entries) {
-            if (queued.scope === entry.scope && queued.body.sessionId === null)
-              queued.body.sessionId = receipt.sessionId;
-          }
-        }
+        const source = Array.isArray(entry.body.sourceSnapshots)
+          ? entry.body.sourceSnapshots[0]
+          : null;
+        const sourceHandoff =
+          entry.body.sessionId === null && source?.kind === 'briefing'
+            ? {
+                clientMsgId: entry.body.clientMsgId,
+                date: source.date,
+                revision: source.revision,
+                accountId: entry.body.accountId,
+                model: entry.body.model,
+                reasoningEffort: entry.body.reasoningEffort,
+              }
+            : undefined;
+        // A synchronous durable handoff must finish before dropping this exact command.
+        // If it throws, replay the original clientMsgId/body for the same server receipt.
         this.config.notify({
           type: '_send_accepted',
           ...receipt,
           originalSessionId: entry.body.sessionId,
+          ...(sourceHandoff ? { sourceHandoff } : {}),
         });
+        this.entries.shift();
+        // Only unattempted follow-ups in the same draft inherit its session.
+        if (entry.body.sessionId === null && receipt.sessionId) {
+          for (const queued of this.entries) {
+            if (
+              queued.scope === entry.scope &&
+              queued.body.sessionId === null &&
+              !reviewedBriefing(queued.body)
+            )
+              queued.body.sessionId = receipt.sessionId;
+          }
+        }
       }
       this.failures = 0;
       this.persist();

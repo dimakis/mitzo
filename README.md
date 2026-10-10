@@ -31,6 +31,10 @@ Initial support covers regular-file GitHub projects up to 10,000 files and 64 Mi
 
 ## Features
 
+- **Today: sessions, pins and saved briefings** — start a new session, search all saved titles/messages, or resume recent conversations. Pin sessions and TELOS records from their details; add, reorder and remove Today bookmarks without changing TELOS stars. The saved morning briefing retains every meeting and source, with calendar notices and supporting Jira folded. Discuss its exact dated version in the existing rich chat UI using a named minion and a reviewable account/model popup. Settings stores separate briefing/terminal names across workspace devices; Appearance continues to control fonts and accents locally. See [Today and briefings](docs/design/home-sessions-and-briefings.md).
+- **A tiny daily thought** — the quote beside Today opens its explanation, example, author background and source links. A sourced seed catalogue, reviewed authoring pipeline and persisted daily shuffle keep delivery consistent across devices without a model call on navigation. Extend the catalogue with `npm run quotes:build`; CI verifies it with `npm run quotes:check`. See [the quote pipeline](content/quotes/README.md).
+- **Mobile terminal** — open a persistent Mac shell from More or a chat’s environment from composer tools. Shared masthead, collapsible controls, command history and reviewed output sharing. Minion offers independent account/model/thinking selection and editable suggestions without execution tools; API and Vertex advisers are supported, while personal ChatGPT advisers need a separate isolated adapter. Rename the terminal helper in Settings. See [mobile terminal](docs/features/mobile-terminal.md) for sandbox prerequisites and lifecycle boundaries.
+
 - **Connections with clear account evidence** — setup, authentication checks and last successful use are shown separately. Services show identity, configured permissions and scope; older credential checks do not imply a broken connection. Distinct GitHub providers are labelled, unused integrations produce no warning cards, and web access is explained separately. See [Connections](docs/features/connections.md).
 - **Connect services from your chat** — ask for a task that needs Home Assistant or a documented REST API. The assistant prepares the connection and opens a focused secure credential form; Mitzo verifies the key privately and returns readiness to the originating chat. Authentication settings stay out of the ordinary flow, and detailed agent guidance loads only when needed. See [Chat-led service connections](docs/features/chat-led-connections.md).
 
@@ -126,7 +130,7 @@ Apple Keychain HTTPS connections support Home Assistant and custom APIs with tok
 
 Controls, navigation, resource types and work states share a restrained outline icon family that stays consistent across fonts and platforms. Internal destinations use chevrons, external links use an external-link icon, and command scopes are labelled Workspace, Personal or Built-in.
 
-Mobile collection pages share one full-wordmark masthead and icon navigation. Work has one outcome heading; Proposals provides search, readable rows and full-context review with explicit Archive/Discard actions. Focused conversations and item details retain their back navigation. Run `npm run test:ui` for offline WebKit/Chromium checks at narrow phone widths, live accent/font substitution, dark/light themes and collection scrolling; every request is intercepted and no backend or model is used. See [the UI design contract](docs/design/ui-design-system.md). Repository instructions require it for every UI change; the PR template records design evidence, and `npm run test:design` enforces palette/font ownership and shared-token overrides in CI.
+Mobile collection pages share one full-wordmark masthead and icon navigation. Work has one outcome heading; Inbox combines session requests, briefings and proposals with global search, readable rows, full-context review and recoverable Archive actions. Focused conversations and item details retain their back navigation. Run `npm run test:ui` for offline WebKit/Chromium checks at narrow phone widths, live accent/font substitution, dark/light themes and collection scrolling; every request is intercepted and no backend or model is used. See [the UI design contract](docs/design/ui-design-system.md). Repository instructions require it for every UI change; the PR template records design evidence, and `npm run test:design` enforces palette/font ownership and shared-token overrides in CI.
 
 Desktop **Calendar** uses the full workspace for seven day columns in Week view, with an explicit Today button. Select an event to open its meeting context and prep/join actions; Close or Escape dismisses the details and restores focus to the event. Day view shows an agenda, and Releases shows dates with milestones. **Notifications** fills the desktop workspace with compact activity rows and actions on the right, while mobile retains stacked cards. Use **Archive** on finished notifications, or **Archive resolved** to move resolved requests and read updates out of the feed. Pending approvals and questions remain visible. The **Archived** tab retains these items and offers **Restore**; archiving does not grant permissions or delete history.
 
@@ -500,8 +504,8 @@ Tasks with `sessionPolicy: spawn` run only in dedicated sessions. When session s
 | `apns.ts`                 | Apple Push Notification Service (iOS native) |
 | `notification-helpers.ts` | Shared notification formatting utilities     |
 
-The authenticated `/notifications` page uses a durable local SQLite feed at
-`.mitzo/notifications.db`. Desktop navigation and mobile **More** show the number
+The authenticated `/inbox` page combines agent output and session notifications in
+one durable local SQLite feed at `.mitzo/notifications.db`. Inbox navigation shows the number
 of unresolved requests, rather than the size of an unread backlog. Reading an
 item does not grant permission; a response on any client resolves the shared
 request. Expired or already resolved requests cannot be approved. Conversation
@@ -514,6 +518,15 @@ in an explicit timezone. Quiet hours defer pushes while requests retain their
 existing deadlines. Lock-screen previews are generic unless enabled. New Inbox
 POSTs appear in the feed; proposals and existing files do not trigger push or a
 historical replay. This does not change existing ntfy/Pushover configuration.
+
+Inbox offers Needs you, Briefings, Proposals, All and Archive, search across views,
+and secondary source/type/status/date filters with bounded pagination. Immutable
+Markdown remains the recovery source; reconciliation imports existing files and
+archive content without moving or deleting them or notifying about history.
+Legacy `pending` is not assumed to be an actionable request. Explicit producer
+action metadata admits alerts and review requests to Needs you. Read state,
+resolution and archive state remain independent. Notification preferences stay
+at `/settings/notifications`; existing notification deep links remain compatible.
 
 Configure the existing `APNS_*` environment variables and register an iPhone to
 enable native delivery. Push taps open the corresponding notification, session
@@ -618,40 +631,40 @@ For iOS development, run `./scripts/build-ios.sh` to build the iOS web assets an
 
 ## Environment
 
-| Variable                        | Description                                                    | Required |
-| ------------------------------- | -------------------------------------------------------------- | -------- |
-| `AUTH_PASSPHRASE`               | Login passphrase                                               | Yes      |
-| `AUTH_SECRET`                   | JWT signing key (min 32 chars)                                 | Yes      |
-| `REPO_PATH`                     | Default repo for sessions                                      | Yes      |
-| `PORT`                          | Server port (default: `3100`)                                  | No       |
-| `COOKIE_MAX_AGE_HOURS`          | JWT cookie lifetime in hours (default: `24`)                   | No       |
-| `WORKTREE_ENABLED`              | Allow worktrees (default: `true`)                              | No       |
-| `MITZO_WORKTREE_CLEANUP_POLICY` | Stale cleanup policy: `report` (default) or `execute`          | No       |
-| `MCP_CONFIG_PATH`               | MCP config path (default: `~/.cursor/mcp.json`)                | No       |
-| `LOG_LEVEL`                     | Log verbosity: `debug`, `info`, `warn`, `error`                | No       |
-| `LOG_FILE_PATH`                 | Log file path (default: `logs/server.log`)                     | No       |
-| `LOGGER_SYNC`                   | Set to `1` for synchronous logging                             | No       |
-| `BASE_URL`                      | Public URL for notification deep links                         | No       |
-| `YAPPER_PROXY_TARGET`           | Yapper backend URL (default: `http://localhost:8700`)          | No       |
-| `CLAUDE_CODE_USE_VERTEX`        | Set to `1` to use Vertex AI for auto-rename                    | No       |
-| `ANTHROPIC_VERTEX_PROJECT_ID`   | GCP project ID (required when using Vertex)                    | No       |
-| `CLOUD_ML_REGION`               | GCP region for Vertex (default: `us-east5`)                    | No       |
-| `NTFY_URL`                      | ntfy server URL (default: `https://ntfy.sh`)                   | No       |
-| `NTFY_TOPIC`                    | ntfy topic for notifications                                   | No       |
-| `NTFY_AUTH_TOKEN`               | ntfy auth token                                                | No       |
-| `PUSHOVER_API_TOKEN`            | Pushover API token (for Apple Watch notifications)             | No       |
-| `PUSHOVER_USER_KEY`             | Pushover user key                                              | No       |
-| `APNS_KEY_PATH`                 | Path to Apple Push Notification Service .p8 key                | No       |
-| `APNS_KEY_ID`                   | APNS key ID                                                    | No       |
-| `APNS_TEAM_ID`                  | Apple Team ID                                                  | No       |
-| `APNS_BUNDLE_ID`                | iOS app bundle ID (default: `com.mitzo.app`)                   | No       |
-| `APNS_PRODUCTION`               | Use production APNS (default: `true`)                          | No       |
-| `OTEL_EXPORTER_OTLP_ENDPOINT`   | OpenTelemetry OTLP endpoint (e.g., `http://localhost:4318`)    | No       |
-| `LOKI_HOST`                     | Grafana Loki endpoint (e.g., `http://localhost:3200`)          | No       |
-| `TRACE_CONTENT_MAX_CHARS`       | Max chars for trace content (default: `16384`)                 | No       |
-| `CORS_ALLOWED_ORIGINS`          | Comma-separated CORS origins                                   | No       |
-| `CONTEXGIN_URL`                 | ContexGin Goal Registry URL (default: `http://localhost:8321`) | No       |
-| `MITZO_INTERNAL_TOKEN`          | Auto-generated token for inter-process auth                    | No       |
+| Variable                        | Description                                                                             | Required |
+| ------------------------------- | --------------------------------------------------------------------------------------- | -------- |
+| `AUTH_PASSPHRASE`               | Login passphrase                                                                        | Yes      |
+| `AUTH_SECRET`                   | JWT signing key (min 32 chars)                                                          | Yes      |
+| `REPO_PATH`                     | Default repo for sessions                                                               | Yes      |
+| `PORT`                          | Server port (default: `3100`)                                                           | No       |
+| `COOKIE_MAX_AGE_HOURS`          | JWT cookie lifetime in hours (default: `24`)                                            | No       |
+| `WORKTREE_ENABLED`              | Allow worktrees (default: `true`)                                                       | No       |
+| `MITZO_WORKTREE_CLEANUP_POLICY` | Stale cleanup policy: `report` (default) or `execute`                                   | No       |
+| `MCP_CONFIG_PATH`               | MCP config path (default: `~/.cursor/mcp.json`)                                         | No       |
+| `LOG_LEVEL`                     | Log verbosity: `debug`, `info`, `warn`, `error`                                         | No       |
+| `LOG_FILE_PATH`                 | Log file path (default: `logs/server.log`)                                              | No       |
+| `LOGGER_SYNC`                   | Set to `1` for synchronous logging                                                      | No       |
+| `BASE_URL`                      | Public URL for notification deep links                                                  | No       |
+| `YAPPER_PROXY_TARGET`           | Yapper backend URL (default: `http://localhost:8700`)                                   | No       |
+| `CLAUDE_CODE_USE_VERTEX`        | Set to `1` to use Vertex AI for auto-rename                                             | No       |
+| `ANTHROPIC_VERTEX_PROJECT_ID`   | GCP project ID (required when using Vertex)                                             | No       |
+| `CLOUD_ML_REGION`               | GCP region for Vertex (default: `us-east5`)                                             | No       |
+| `NTFY_URL`                      | ntfy server URL (default: `https://ntfy.sh`)                                            | No       |
+| `NTFY_TOPIC`                    | ntfy topic for notifications                                                            | No       |
+| `NTFY_AUTH_TOKEN`               | ntfy auth token                                                                         | No       |
+| `PUSHOVER_API_TOKEN`            | Pushover API token (for Apple Watch notifications)                                      | No       |
+| `PUSHOVER_USER_KEY`             | Pushover user key                                                                       | No       |
+| `APNS_KEY_PATH`                 | Path to Apple Push Notification Service .p8 key                                         | No       |
+| `APNS_KEY_ID`                   | APNS key ID                                                                             | No       |
+| `APNS_TEAM_ID`                  | Apple Team ID                                                                           | No       |
+| `APNS_BUNDLE_ID`                | iOS app bundle ID (default: `com.mitzo.app`)                                            | No       |
+| `APNS_PRODUCTION`               | Use production APNS (default: `true`)                                                   | No       |
+| `OTEL_EXPORTER_OTLP_ENDPOINT`   | OpenTelemetry OTLP endpoint (e.g., `http://localhost:4318`)                             | No       |
+| `LOKI_HOST`                     | Grafana Loki endpoint (e.g., `http://localhost:3200`)                                   | No       |
+| `TRACE_CONTENT_MAX_CHARS`       | Max chars for trace content (default: `16384`)                                          | No       |
+| `CORS_ALLOWED_ORIGINS`          | Comma-separated CORS origins                                                            | No       |
+| `CONTEXGIN_URL`                 | ContexGin boot context, agents, health and goals URL (default: `http://localhost:4195`) | No       |
+| `MITZO_INTERNAL_TOKEN`          | Auto-generated token for inter-process auth                                             | No       |
 
 See `.env.example` for a starter template.
 

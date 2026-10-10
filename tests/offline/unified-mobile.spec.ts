@@ -39,7 +39,7 @@ const outcomes = Array.from({ length: 12 }, (_, index) => ({
 }));
 const proposals = Array.from({ length: 12 }, (_, index) => ({
   filename: `proposal-${index}.md`,
-  agent: index % 2 ? 'planner' : 'dream_detector',
+  agent: index === 0 ? 'troubadour' : index % 2 ? 'planner' : 'dream_detector',
   title:
     index === 0
       ? '[cross-reference] planning.py ↔ Quarterly planning decisions and follow-up context.md'
@@ -96,7 +96,25 @@ const fixtures: Record<string, unknown> = {
   '/api/todos': { profiles: ['manual', 'personal', 'work'], items: outcomes },
   '/api/tasks': [],
   '/api/inbox': proposals,
-  '/api/briefings/latest': null,
+  '/api/briefings/latest': {
+    date: '2026-10-10',
+    generatedAt: '2026-10-10T07:00:00Z',
+    path: '/workspace/report.md',
+  },
+  '/api/home/preferences': {
+    revision: 1,
+    names: { briefing: 'Jeeves', terminal: 'Minion' },
+    pins: [{ kind: 'session', id: 'session-0', title: 'Quarterly planning review' }],
+  },
+  '/api/home/briefing-chats': [],
+  '/api/agent-library': { drafts: [], versions: [] },
+  '/api/accounts': [
+    {
+      id: 'work-account',
+      label: 'Work OpenAI',
+      models: [{ id: 'luna-fixture', label: 'Luna fixture' }],
+    },
+  ],
   '/api/service-health': { services: [], checkedAt: Date.now() },
   '/api/notifications': {
     items: Array.from({ length: 12 }, (_, index) => ({
@@ -153,115 +171,71 @@ const fixtures: Record<string, unknown> = {
     syncedAt: null,
   },
 };
-
-const iconTasks = (
-  ['pending', 'active', 'done', 'pending_review', 'blocked', 'skipped', 'failed'] as const
-).map((status, index) => ({
-  id: `icon-task-${status}`,
-  parentId: null,
-  title: `Icon check: ${status.replaceAll('_', ' ')}`,
-  description: null,
-  status,
-  sessionId: null,
-  sessionPolicy: 'auto',
-  priority: index,
-  depth: 0,
-  annotations: [],
-  summary: null,
-  requiresApproval: false,
-  tokenUsage: 0,
-  claimedBy: null,
-  claimedAt: null,
-  createdAt: Date.now(),
-  updatedAt: Date.now(),
-  completedAt: null,
-  stageType: null,
-  gateConfig: null,
-  artifacts: null,
-  retryCount: 0,
-  maxRetries: 0,
-  templateId: null,
-  children: [],
-}));
-
-for (const appearance of [
-  { theme: 'dark', accent: 'lavender', font: 'system' },
-  { theme: 'light', accent: 'mint', font: 'georgia' },
-]) {
-  test(`outline icons keep their meaning and geometry with ${appearance.theme}/${appearance.font}`, async ({
-    page,
-  }, testInfo) => {
-    await page.addInitScript((selection) => {
-      localStorage.setItem('mitzo-theme', selection.theme);
-      localStorage.setItem('mitzo-accent', selection.accent);
-      localStorage.setItem('mitzo-font', selection.font);
-    }, appearance);
-    if (testInfo.project.name.startsWith('mobile')) {
-      const viewport = page.viewportSize()!;
-      await page.setViewportSize({ width: 320, height: viewport.height });
-    }
-    await page.goto('/settings');
-    const backups = page.getByRole('link', { name: 'Backups', exact: true });
-    await expect(backups).toHaveText('Backups');
-    await expect(backups.locator('svg[data-icon="forward"]')).toHaveAttribute(
-      'aria-hidden',
-      'true',
-    );
-    await backups.scrollIntoViewIfNeeded();
-    await page.screenshot({
-      path: testInfo.outputPath(`icons-settings-${appearance.theme}.png`),
-      animations: 'disabled',
-    });
-
-    await page.route('**/api/tasks', (route) => route.fulfill({ json: iconTasks }));
-    await page.goto('/tasks');
-    const spawning = page.getByRole('switch', { name: /session spawning/ });
-    await expect(spawning).toHaveAttribute('aria-checked', 'false');
-    await expect(spawning.locator('svg')).toHaveAttribute('aria-hidden', 'true');
-    await page.getByRole('button', { name: 'Show tree order', exact: true }).click();
-    const actions = page.locator('.page-header-actions');
-    await expect(actions).toBeVisible();
-    const actionBounds = await actions.boundingBox();
-    expect(actionBounds!.x + actionBounds!.width).toBeLessThanOrEqual(page.viewportSize()!.width);
-    if (testInfo.project.name === 'desktop-chromium') {
-      await page.getByRole('button', { name: 'Tree and attention', exact: true }).click();
-    }
-    for (const [status, icon] of Object.entries({
-      pending: 'circle',
-      active: 'running',
-      done: 'complete',
-      pending_review: 'review',
-      blocked: 'unavailable',
-      skipped: 'minus',
-      failed: 'failed',
-    })) {
-      const control = page.getByRole('button', { name: `Status: ${status}`, exact: true });
-      await expect(control.locator(`svg[data-icon="${icon}"]`)).toHaveCount(1);
-      await expect(control).toHaveText('');
-    }
-    await page.screenshot({
-      path: testInfo.outputPath(`icons-taskboard-${appearance.theme}.png`),
-      animations: 'disabled',
-    });
-    if (testInfo.project.name.startsWith('mobile')) {
-      const size = await spawning.boundingBox();
-      expect(size?.height).toBeGreaterThanOrEqual(44);
-      expect(size?.width).toBeGreaterThanOrEqual(44);
-      const review = page.locator('.task-node--status-pending_review .task-node-body').first();
-      expect((await review.boundingBox())!.width).toBeGreaterThanOrEqual(140);
-      await expect(
-        page.locator('.task-node--status-pending_review .task-node-actions').first(),
-      ).toHaveCSS('opacity', '1');
-    }
-
-    await page.goto('/connections-access');
-    await expect(page.getByRole('heading', { name: 'Connections', exact: true })).toBeVisible();
-    await expect(page.locator('.access-row-icon')).toHaveCount(0);
-    await page.screenshot({
-      path: testInfo.outputPath(`icons-connections-${appearance.theme}.png`),
-      animations: 'disabled',
-    });
+type InboxFixtureRecord = {
+  id: string;
+  kind: string;
+  resolvedAt?: number | null;
+  archivedAt?: number | null;
+  inbox?: { category: string };
+  [key: string]: unknown;
+};
+const inboxRecords: InboxFixtureRecord[] = [
+  ...proposals.map((item) => ({
+    id: `inbox:${item.filename}`,
+    kind: 'update',
+    title: item.title,
+    body: item.preview,
+    inboxFilename: item.filename,
+    createdAt: Date.parse(item.timestamp),
+    readAt: 1,
+    resolvedAt: null,
+    resolution: null,
+    archivedAt: null,
+    inbox: {
+      agent: item.agent,
+      category: 'proposal',
+      severity: 'info',
+      needsAttention: false,
+      status: 'pending',
+      tags: item.tags,
+      content:
+        '# Full proposal context\n\nReview the original evidence before deciding on the next step.',
+    },
+  })),
+  ...(fixtures['/api/notifications'] as { items: { id: string; kind: string }[] }).items.map(
+    (item) => ({
+      ...item,
+      resolvedAt: null,
+      resolution: null,
+      archivedAt: null,
+    }),
+  ),
+];
+function inboxFixture(url: URL, records: InboxFixtureRecord[] = inboxRecords) {
+  const view = url.searchParams.get('view') || 'needs';
+  const query = (url.searchParams.get('query') || '').toLowerCase();
+  const filtered = records.filter((item) => {
+    if (query) return JSON.stringify(item).toLowerCase().includes(query);
+    if (view === 'archive') return item.archivedAt != null;
+    if (item.archivedAt != null) return false;
+    if (view === 'needs')
+      return ['approval', 'question'].includes(item.kind) && item.resolvedAt == null;
+    if (view === 'proposals') return item.inbox?.category === 'proposal';
+    if (view === 'briefings') return item.inbox?.category === 'briefing';
+    return true;
   });
+  const offset = Number(url.searchParams.get('offset')) || 0;
+  return {
+    items: filtered.slice(offset, offset + 50),
+    total: filtered.length,
+    needsYou: records.filter(
+      (item) =>
+        ['approval', 'question'].includes(item.kind) &&
+        item.resolvedAt == null &&
+        item.archivedAt == null,
+    ).length,
+    sources: ['planner', 'dream_detector', 'troubadour'],
+  };
 }
 const mime: Record<string, string> = {
   '.js': 'application/javascript',
@@ -476,6 +450,15 @@ test.beforeEach(async ({ page }) => {
       // No app mutation or model request can leave this fixture suite.
       if (route.request().method() !== 'GET')
         return route.fulfill({ status: 405, json: { error: 'Offline UI test' } });
+      if (url.pathname === '/api/inbox/feed') return route.fulfill({ json: inboxFixture(url) });
+      if (url.pathname.startsWith('/api/inbox/records/')) {
+        const id = decodeURIComponent(url.pathname.slice('/api/inbox/records/'.length));
+        const item = inboxRecords.find((record) => record.id === id);
+        return route.fulfill({
+          status: item ? 200 : 404,
+          json: item || { error: 'Unknown fixture' },
+        });
+      }
       if (url.pathname === '/api/knowledge/document') {
         const document = knowledgeDocuments.find(
           (item) => item.path === url.searchParams.get('path'),
@@ -531,6 +514,30 @@ test.beforeEach(async ({ page }) => {
               '# Full proposal context\n\nReview the original evidence before deciding on the next step.',
           },
         });
+      if (url.pathname === '/api/home/quote')
+        return route.fulfill({
+          json: {
+            date: url.searchParams.get('date'),
+            quote: JSON.parse(await readFile(resolve('content/quotes/catalog.json'), 'utf8'))[0],
+          },
+        });
+      if (url.pathname === '/api/home/briefing')
+        return route.fulfill({
+          json: {
+            date: url.searchParams.get('date'),
+            filename: 'report.md',
+            path: '/workspace/report.md',
+            revision: 'a'.repeat(64),
+            generatedAt: '2026-10-10T07:00:00Z',
+            content:
+              '# Morning briefing\n\n## Calendar updates\n\nA meeting moved to 10:00.\n\n' +
+              Array.from(
+                { length: 10 },
+                (_, index) =>
+                  `## ${9 + index}:00 Meeting ${index + 1}\n\nAgenda ${index + 1}.\n\n### Jira context\n\nSupporting issue ${index + 1}.\n`,
+              ).join('\n'),
+          },
+        });
       if (url.pathname === '/api/files/read' && url.searchParams.get('path')?.endsWith('.html'))
         return route.fulfill({
           json: {
@@ -560,6 +567,7 @@ test.beforeEach(async ({ page }) => {
 });
 
 const routes = ['/', '/sessions', '/inbox', '/todos', '/more', '/connections-access', '/knowledge'];
+const todayDetailRoutes = ['/briefings/2026-10-10', '/quotes/2026-10-10'];
 
 test('every mobile collection keeps one wordmark, one palette and reachable navigation', async ({
   page,
@@ -569,7 +577,7 @@ test('every mobile collection keeps one wordmark, one palette and reachable navi
   for (const width of [320, 390, 440]) {
     await page.setViewportSize({ width, height: 844 });
     let reference: unknown;
-    for (const route of routes) {
+    for (const route of [...routes, ...todayDetailRoutes]) {
       await page.goto(route);
       await expect(page.locator('h1').first()).toBeVisible();
       const brand = page.getByRole('link', { name: 'Mitzo home' });
@@ -608,7 +616,7 @@ test('one token change updates the accent and font on every main page', async ({
   isMobile,
 }) => {
   test.skip(!isMobile, 'Mobile theme contract');
-  for (const route of routes) {
+  for (const route of [...routes, ...todayDetailRoutes]) {
     await page.goto(route);
     await expect(page.locator('h1').first()).toBeVisible();
     await page.evaluate(() => {
@@ -640,27 +648,221 @@ test('one token change updates the accent and font on every main page', async ({
   }
 });
 
+test('Today exposes real bookmarks, the tiny quote and all saved briefing meetings', async ({
+  page,
+  isMobile,
+}, testInfo) => {
+  await page.goto('/');
+  if (isMobile) await expect(page.getByRole('link', { name: 'Mitzo home' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Today', exact: true })).toBeVisible();
+  await expect(page.getByRole('searchbox', { name: 'Search sessions and messages' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'New session' })).toHaveAttribute('href', '/chat');
+  await expect(page.getByRole('heading', { name: 'Pinned to Today' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Your focus' })).toHaveCount(0);
+  const quote = page.getByRole('link', { name: /Quote of the day by/ });
+  await expect(quote).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('today-home.png') });
+  await quote.click();
+  await expect(page.getByRole('heading', { name: 'A thought for today' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Read the source' })).toHaveAttribute(
+    'href',
+    /^https:\/\//,
+  );
+  await page.goto('/');
+  await page.getByRole('link', { name: 'Read briefing' }).click();
+  await expect(
+    page.getByRole('heading', { name: 'Morning briefing', exact: true }).first(),
+  ).toBeVisible();
+  await expect(page.locator('summary').filter({ hasText: /^\d+:00 Meeting \d+$/ })).toHaveCount(10);
+  const calendar = page
+    .locator('details')
+    .filter({ has: page.locator('summary', { hasText: 'Calendar updates' }) })
+    .first();
+  await expect(calendar).not.toHaveAttribute('open', '');
+  await page.getByRole('button', { name: 'Expand all meetings' }).click();
+  await expect(page.getByText('Agenda 10.', { exact: true })).toBeVisible();
+  await expect(page.getByText('Supporting issue 10.', { exact: true })).toBeHidden();
+  const firstMeeting = page.locator('summary').filter({ hasText: /^9:00 Meeting 1$/ });
+  await firstMeeting.click();
+  await expect(page.getByText('Agenda 1.', { exact: true })).toBeHidden();
+  await page.getByRole('button', { name: 'Expand all meetings' }).click();
+  await expect(page.getByText('Agenda 1.', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Collapse all' }).click();
+  await firstMeeting.click();
+  await expect(page.getByText('Agenda 1.', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Collapse all' }).click();
+  await expect(page.getByText('Agenda 1.', { exact: true })).toBeHidden();
+  await page.getByRole('button', { name: 'Expand all meetings' }).click();
+  await page.getByRole('button', { name: 'Ask Jeeves', exact: true }).click();
+  const popup = page.getByRole('dialog');
+  await expect(popup).toBeVisible();
+  const popupBounds = (await popup.boundingBox())!;
+  const viewport = page.viewportSize()!;
+  expect(popupBounds.x).toBeCloseTo((viewport.width - popupBounds.width) / 2, 0);
+  expect(popupBounds.y).toBeCloseTo((viewport.height - popupBounds.height) / 2, 0);
+  const accountBounds = (await popup
+    .getByRole('combobox', { name: 'Account', exact: true })
+    .boundingBox())!;
+  expect(accountBounds.width).toBeGreaterThan(popupBounds.width - 80);
+  await expect(popup.getByRole('combobox', { name: 'Account', exact: true })).toBeVisible();
+  await expect(popup.getByRole('combobox', { name: 'Account', exact: true })).toHaveValue(
+    'work-account',
+  );
+  await page.screenshot({ path: testInfo.outputPath('briefing-picker.png') });
+  await popup.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(popup).toHaveCount(0);
+  await page.screenshot({ path: testInfo.outputPath('briefing-reader.png') });
+});
+
+test('Today details and nickname controls inherit appearance and remain usable with larger text', async ({
+  page,
+  isMobile,
+}, testInfo) => {
+  test.setTimeout(60_000);
+  await page.setViewportSize({ width: isMobile ? 320 : 1280, height: 900 });
+  for (const variant of [
+    { theme: 'dark', accent: 'lavender', font: 'system' },
+    { theme: 'light', accent: 'teal', font: 'georgia' },
+  ]) {
+    await page.goto('/');
+    await expect(page.getByRole('heading', { name: 'Today', exact: true })).toBeVisible();
+    await expect(page.getByRole('link', { name: /Quote of the day by/ })).toBeVisible();
+    await page.evaluate((appearance) => {
+      const root = document.documentElement;
+      root.dataset.theme = appearance.theme;
+      root.dataset.accent = appearance.accent;
+      root.dataset.font = appearance.font;
+      root.style.fontSize = '18px';
+      localStorage.setItem('mitzo-font', appearance.font);
+      localStorage.setItem('mitzo-accent', appearance.accent);
+    }, variant);
+    async function inspect(name: string) {
+      const pageCanvas = page.locator('.workspace-page').first();
+      expect(
+        await pageCanvas.evaluate((element) => element.scrollWidth <= element.clientWidth),
+      ).toBe(true);
+      const controls = page.locator(
+        '.home-secondary, .home-search input, .home-names input, .briefing-page button',
+      );
+      const geometry = await controls.evaluateAll((elements) => {
+        const family = getComputedStyle(document.body).fontFamily;
+        const minimum = Number.parseFloat(
+          getComputedStyle(document.documentElement).getPropertyValue('--control-height'),
+        );
+        return elements.map((element) => ({
+          family: getComputedStyle(element).fontFamily === family,
+          height: element.getBoundingClientRect().height >= minimum,
+        }));
+      });
+      expect(geometry.every((control) => control.family && control.height)).toBe(true);
+      await page.screenshot({
+        path: testInfo.outputPath(`${name}-${variant.theme}-${variant.font}-${variant.accent}.png`),
+        animations: 'disabled',
+      });
+    }
+    await inspect('today');
+    await expect(
+      page.getByRole('link', { name: 'New session', exact: true }).locator('svg[data-icon="plus"]'),
+    ).toBeVisible();
+    await page.getByRole('button', { name: 'Manage pins' }).click();
+    const pinPopup = page.getByRole('dialog');
+    await expect(pinPopup).toBeVisible();
+    const popupBounds = (await pinPopup.boundingBox())!;
+    expect(popupBounds.x).toBeCloseTo((page.viewportSize()!.width - popupBounds.width) / 2, 0);
+    for (const direction of ['up', 'down']) {
+      const control = pinPopup.getByRole('button', { name: new RegExp(`^Move .* ${direction}$`) });
+      await expect(
+        control.locator(`svg[data-icon="${direction}"][aria-hidden="true"]`),
+      ).toBeVisible();
+      expect((await control.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    }
+    const close = pinPopup.getByRole('button', { name: 'Close', exact: true });
+    await expect(close.locator('svg[data-icon="close"][aria-hidden="true"]')).toBeVisible();
+    expect((await close.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    await page.screenshot({
+      path: testInfo.outputPath(`pins-${variant.theme}-${variant.font}-${variant.accent}.png`),
+      animations: 'disabled',
+    });
+    await pinPopup.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await page.getByRole('link', { name: 'Read briefing', exact: true }).click();
+    await expect(
+      page.getByRole('heading', { name: 'Morning briefing', exact: true, level: 1 }),
+    ).toBeVisible();
+    await expect(page.locator('summary').filter({ hasText: /^\d+:00 Meeting \d+$/ })).toHaveCount(
+      10,
+    );
+    const summary = page.locator('summary').filter({ hasText: /^9:00 Meeting 1$/ });
+    const marker = summary.locator('svg[data-icon="forward"][aria-hidden="true"]');
+    await expect(marker).toBeVisible();
+    expect((await marker.boundingBox())!.width).toBeCloseTo(16, 1);
+    expect((await marker.boundingBox())!.height).toBeCloseTo(16, 1);
+    expect(await summary.evaluate((element) => getComputedStyle(element, '::before').content)).toBe(
+      'none',
+    );
+    const closedTransform = await marker.evaluate((element) => getComputedStyle(element).transform);
+    await summary.click();
+    expect(await marker.evaluate((element) => getComputedStyle(element).transform)).not.toBe(
+      closedTransform,
+    );
+    await summary.click();
+    await inspect('briefing');
+    const briefingBack = page
+      .locator('.briefing-page')
+      .getByRole('link', { name: 'Today', exact: true });
+    await expect(briefingBack.locator('svg[data-icon="back"][aria-hidden="true"]')).toBeVisible();
+    await briefingBack.click();
+    await page.getByRole('link', { name: /Quote of the day by/ }).click();
+    await expect(page.getByRole('heading', { name: 'A thought for today' })).toBeVisible();
+    await expect(
+      page
+        .locator('.quote-page')
+        .getByRole('link', { name: 'Today', exact: true })
+        .locator('svg[data-icon="back"]'),
+    ).toBeVisible();
+    await expect(
+      page
+        .getByRole('link', { name: 'Read the source', exact: true })
+        .locator('svg[data-icon="external"]'),
+    ).toBeVisible();
+    await inspect('quote');
+    await page.goto('/settings');
+    await expect(page.getByLabel('Briefing minion name')).toHaveValue('Jeeves');
+    await page.getByRole('combobox', { name: 'Theme', exact: true }).selectOption(variant.theme);
+    await page.evaluate(() => {
+      document.documentElement.style.fontSize = '18px';
+    });
+    await inspect('names');
+    await page.getByRole('button', { name: 'Save names', exact: true }).scrollIntoViewIfNeeded();
+    await expect(page.getByRole('button', { name: 'Save names', exact: true })).toBeInViewport();
+  }
+});
+
 test('Proposals opens full context and keeps the end of each collection above the tabs', async ({
   page,
   isMobile,
 }) => {
   test.skip(!isMobile, 'Mobile collections');
-  await page.goto('/inbox');
-  await page.getByRole('button', { name: proposals[0].title, exact: true }).click();
+  await page.goto('/inbox?view=proposals');
+  await page
+    .getByRole('button', {
+      name: 'Possible connection: Quarterly planning decisions and follow-up context',
+      exact: true,
+    })
+    .click();
   await expect(
     page
-      .getByRole('region', { name: 'Proposal details' })
+      .getByRole('region', { name: 'Inbox details' })
       .getByText('Full proposal context', { exact: true }),
   ).toBeVisible();
   await expect(page.getByRole('button', { name: 'Review in session' })).toBeVisible();
-  await page.getByRole('button', { name: 'Back to proposals' }).click();
+  await page.getByRole('button', { name: 'Back to Inbox' }).click();
   await page.goBack();
-  await expect(page).toHaveURL(/\/inbox$/);
-  await expect(page.getByRole('region', { name: 'Proposal details' })).toHaveCount(0);
-  await page.getByRole('searchbox', { name: 'Search proposals' }).fill('Proposal 12');
+  await expect(page).toHaveURL(/\/inbox\?view=proposals$/);
+  await expect(page.getByRole('region', { name: 'Inbox details' })).toHaveCount(0);
+  await page.getByRole('searchbox', { name: 'Search your entire inbox' }).fill('Proposal 12');
   await expect(page.locator('.proposal-record')).toHaveCount(1);
   for (const [route, scroll, last] of [
-    ['/inbox', '.inbox-scroll', '.proposal-record'],
+    ['/inbox?view=proposals', '.inbox-scroll', '.proposal-record'],
     ['/todos', '.todo-scroll', '.todo-card'],
     ['/sessions', '.session-list-scroll', '.session-item'],
     ['/knowledge', '.knowledge-library', '.knowledge-tree-row:has(.knowledge-tree-more)'],
@@ -1049,61 +1251,56 @@ test('desktop Calendar uses the week canvas and dismissible event details', asyn
   }
 });
 
-test('desktop Notifications fills the workspace with compact activity rows', async ({
+test('desktop Inbox combines both feeds and retains notification preferences', async ({
   page,
   isMobile,
 }, testInfo) => {
-  test.skip(isMobile, 'Desktop notifications');
+  test.skip(isMobile, 'Desktop Inbox');
   for (const width of [900, 1440, 1920]) {
     await page.setViewportSize({ width, height: 1000 });
     await page.goto('/notifications');
-    const canvas = (await page.locator('.desktop-center').boundingBox())!;
-    const content = (await page.locator('.notifications-page').boundingBox())!;
-    expect(content.x).toBeCloseTo(canvas.x, 0);
-    expect(content.width).toBeCloseTo(canvas.width, 0);
-    const card = page.locator('.notification-card').first();
-    await expect(card).toBeVisible();
-    expect((await card.boundingBox())!.width).toBeGreaterThan(content.width - 60);
-    if (width >= 1440) {
-      expect((await card.boundingBox())!.height).toBeLessThan(160);
-      const action = (await card.getByRole('button', { name: 'View update' }).boundingBox())!;
-      const title = (await card.locator('h2').boundingBox())!;
-      expect(action.x).toBeGreaterThan(title.x + title.width);
-    }
+    await expect(page).toHaveURL(/\/inbox$/);
+    await page.getByRole('button', { name: 'All', exact: true }).click();
+    await expect(page.locator('.proposal-record').first()).toBeVisible();
+    expect(
+      await page.locator('.unified-inbox').evaluate((el) => el.scrollWidth <= el.clientWidth),
+    ).toBe(true);
     if (width === 1440)
       await page.screenshot({
-        path: testInfo.outputPath('notifications-desktop.png'),
+        path: testInfo.outputPath('inbox-desktop.png'),
         animations: 'disabled',
       });
-    await page.getByRole('button', { name: 'Preferences', exact: true }).click();
+    await page.getByRole('link', { name: 'Preferences', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'What reaches you' })).toBeVisible();
-    expect(
-      await page.locator('.notifications-page').evaluate((el) => el.scrollWidth <= el.clientWidth),
-    ).toBe(true);
   }
 });
 
-test('mobile Calendar and Notifications remain bounded and scrollable', async ({
+test('mobile Calendar and combined Inbox remain bounded and scrollable', async ({
   page,
   isMobile,
 }) => {
-  test.skip(!isMobile, 'Mobile calendar and notifications');
-  for (const route of ['/calendar', '/notifications']) {
+  test.skip(!isMobile, 'Mobile collections');
+  for (const route of ['/calendar', '/inbox?view=all']) {
     await page.goto(route);
-    const body = page.locator('.mobile-workspace-body');
-    expect(await body.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
-    const scroller = page.locator(route === '/calendar' ? '.cal-body' : '.notifications-page');
+    expect(
+      await page
+        .locator('.mobile-workspace-body')
+        .evaluate((el) => el.scrollWidth <= el.clientWidth),
+    ).toBe(true);
+    const scroller = page.locator(route === '/calendar' ? '.cal-body' : '.inbox-scroll');
     await expect(
       page.getByText(route === '/calendar' ? 'Meeting 12' : 'Session update 12', { exact: true }),
     ).toBeAttached();
     await scroller.evaluate((el) => {
       el.scrollTop = el.scrollHeight;
     });
-    const end = (await page
-      .getByText(route === '/calendar' ? 'Meeting 18' : 'Session update 12', { exact: true })
-      .boundingBox())!;
+    const end = (await (
+      route === '/calendar'
+        ? scroller.getByText('Meeting 18', { exact: true })
+        : scroller.locator('.proposal-record').last()
+    ).boundingBox())!;
     expect(end.y + end.height).toBeLessThanOrEqual(
-      (await page.locator('.workspace-tabs').boundingBox())!.y,
+      (await page.locator('.workspace-tabs').boundingBox())!.y + 1,
     );
   }
 });
@@ -1131,10 +1328,11 @@ test('short desktop Calendar keeps event details and actions reachable', async (
   }
 });
 
-test('notification archive actions stay usable on desktop and mobile', async ({
+test('combined Inbox archive is recoverable and live approvals stay protected', async ({
   page,
+  isMobile,
 }, testInfo) => {
-  const items = [
+  const records = [
     {
       id: 'done',
       kind: 'session',
@@ -1142,6 +1340,7 @@ test('notification archive actions stay usable on desktop and mobile', async ({
       body: 'Agent finished its turn.',
       createdAt: Date.now(),
       readAt: 1,
+      resolvedAt: null,
       resolution: null,
       archivedAt: null as number | null,
     },
@@ -1151,54 +1350,96 @@ test('notification archive actions stay usable on desktop and mobile', async ({
       title: 'Pending approval',
       body: 'Needs your decision',
       permId: 'live',
+      sessionId: 's1',
+      request: { toolName: 'Read', toolInput: 'README.md' },
       createdAt: Date.now(),
       readAt: null,
+      resolvedAt: null,
       resolution: null,
       archivedAt: null as number | null,
     },
   ];
+  await page.route('**/api/inbox/**', async (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname === '/api/inbox/feed')
+      return route.fulfill({ json: inboxFixture(url, records) });
+    const item = records.find(
+      (record) => record.id === decodeURIComponent(url.pathname.split('/').pop()!),
+    );
+    return route.fulfill({ status: item ? 200 : 404, json: item || {} });
+  });
   await page.route('**/api/notifications**', async (route) => {
     const url = new URL(route.request().url());
-    const path = url.pathname;
     if (route.request().method() === 'POST') {
-      if (path === '/api/notifications/archive-resolved') items[0].archivedAt = Date.now();
-      else if (path === '/api/notifications/done/archive') items[0].archivedAt = Date.now();
-      else if (path === '/api/notifications/done/restore') items[0].archivedAt = null;
-      else return route.fulfill({ status: 400, json: { error: 'Unexpected test action' } });
+      if (url.pathname === '/api/notifications/done/archive') records[0].archivedAt = Date.now();
+      if (url.pathname === '/api/notifications/done/restore') records[0].archivedAt = null;
       return route.fulfill({ json: { ok: true } });
     }
-    const archived = url.searchParams.get('filter') === 'archived';
-    const visible = items.filter((item) =>
-      archived ? item.archivedAt !== null : item.archivedAt === null,
-    );
     return route.fulfill({
       json: {
         ...(fixtures['/api/notifications'] as object),
-        items: visible,
-        total: visible.length,
+        items: records,
         needsYou: 1,
+        total: 2,
       },
     });
   });
-  await page.goto('/notifications');
-  const finished = page.getByRole('article').filter({ hasText: 'Finished work' });
-  const pending = page.getByRole('article').filter({ hasText: 'Pending approval' });
-  await expect(pending.getByRole('button', { name: 'Archive', exact: true })).toHaveCount(0);
-  await finished.getByRole('button', { name: 'Archive', exact: true }).click();
-  await expect(finished).toHaveCount(0);
-  await expect(pending).toBeVisible();
-  await page.getByRole('button', { name: 'Archived', exact: true }).click();
-  await finished.getByRole('button', { name: 'Restore', exact: true }).click();
-  await expect(finished).toHaveCount(0);
-  await page.getByRole('button', { name: 'All', exact: true }).click();
-  await expect(finished).toBeVisible();
-  await page.getByRole('button', { name: 'Archive resolved', exact: true }).click();
-  await expect(finished).toHaveCount(0);
-  await expect(pending).toBeVisible();
-  await page.screenshot({
-    path: testInfo.outputPath('notification-archive.png'),
-    animations: 'disabled',
-  });
+  await page.goto('/inbox?view=all');
+  await page.getByRole('button', { name: 'Pending approval', exact: true }).click();
+  await expect(
+    page
+      .getByRole('region', { name: 'Inbox details' })
+      .getByRole('heading', { name: 'Pending approval' }),
+  ).toBeVisible();
+  await expect(
+    page
+      .getByRole('region', { name: 'Inbox details' })
+      .getByRole('button', { name: 'Archive', exact: true }),
+  ).toHaveCount(0);
+  if (isMobile) await page.getByRole('button', { name: 'Back to Inbox' }).click();
+  await page.getByRole('button', { name: 'Finished work', exact: true }).click();
+  await page
+    .getByRole('region', { name: 'Inbox details' })
+    .getByRole('button', { name: 'Archive', exact: true })
+    .click();
+  await expect(page.getByRole('button', { name: 'Finished work', exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Finished work', exact: true })).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('inbox-archive.png'), animations: 'disabled' });
+});
+
+test('Inbox filters and list controls fit with large text and alternate appearance', async ({
+  page,
+  isMobile,
+}, testInfo) => {
+  await page.setViewportSize({ width: isMobile ? 320 : 1440, height: 900 });
+  await page.goto('/inbox?view=all');
+  await expect(page.locator('.proposal-record').first()).toBeVisible();
+  await page.getByRole('button', { name: 'Filters', exact: true }).click();
+  for (const theme of ['light', 'dark']) {
+    await page.evaluate((theme) => {
+      document.documentElement.dataset.theme = theme;
+      document.documentElement.style.setProperty('--color-accent', '#36d6b7');
+      document.documentElement.style.setProperty('--font-ui', 'Georgia');
+      document.documentElement.style.fontSize = '20px';
+    }, theme);
+    const list = page.locator('.inbox-scroll');
+    expect(await list.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+    for (const control of [
+      page.getByRole('button', { name: 'Mark updates read' }),
+      page.getByLabel('Source', { exact: true }),
+      page.getByLabel('Type', { exact: true }),
+    ]) {
+      const bounds = await control.boundingBox();
+      const width = page.viewportSize()!.width;
+      expect(bounds!.x).toBeGreaterThanOrEqual(0);
+      expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width);
+    }
+    await page.screenshot({
+      path: testInfo.outputPath(`inbox-${theme}-alternate.png`),
+      animations: 'disabled',
+    });
+  }
 });
 
 async function fixtureSymposium(
@@ -1372,6 +1613,830 @@ test('combined conversation empty and failed status remain readable without impl
   expect(queued).toHaveLength(0);
 });
 
+async function exerciseBriefingReloadRecovery(
+  page: Page,
+  hideAssigned = false,
+  nativeMode?: 'unready' | 'lost-ack',
+) {
+  test.setTimeout(60_000);
+  await page.setViewportSize({ width: page.viewportSize()!.width, height: 900 });
+  await page.addInitScript(() => {
+    localStorage.removeItem('mitzo:transport');
+    localStorage.removeItem('mitzo-workspace-controls-expanded');
+    // Recreating either receiver cannot depend on the previous window's sessionStorage.
+    sessionStorage.clear();
+  });
+  if (nativeMode)
+    await page.addInitScript(() => {
+      // Only platform presentation APIs are stubbed; chat uses the actual native-default selector.
+      const names = [
+        'App',
+        'Keyboard',
+        'StatusBar',
+        'SplashScreen',
+        'Haptics',
+        'PushNotifications',
+        'WatchAuthBridge',
+        'NativeBiometric',
+        'NotificationBadgeBridge',
+      ];
+      const methods = [
+        'addListener',
+        'removeListener',
+        'setResizeMode',
+        'setAccessoryBarVisible',
+        'setScroll',
+        'setStyle',
+        'setBackgroundColor',
+        'hide',
+        'impact',
+        'notification',
+        'selectionChanged',
+        'requestPermissions',
+        'register',
+        'configureNotificationServer',
+        'isAvailable',
+        'setBadge',
+        'saveToken',
+        'clearToken',
+      ];
+      Object.assign(window, {
+        CapacitorCustomPlatform: { name: 'ios' },
+        Capacitor: {
+          PluginHeaders: names.map((name) => ({
+            name,
+            methods: methods.map((name) => ({
+              name,
+              rtype: name === 'addListener' ? 'callback' : 'promise',
+            })),
+          })),
+          nativePromise: async (plugin: string) =>
+            plugin === 'PushNotifications' ? { receive: 'denied' } : {},
+          nativeCallback: () => 'offline-native-listener',
+        },
+      });
+    });
+  const sessionId = 'sse-restored-briefing-command';
+  const binding = {
+    sessionId,
+    date: '2026-10-10',
+    revision: 'a'.repeat(64),
+    accountId: 'work-account',
+    model: 'luna-fixture',
+  };
+  const sends: Record<string, unknown>[] = [];
+  const registrations: unknown[] = [];
+  const turns = new Set<string>();
+  let releaseFirst: (() => void) | undefined;
+  let releaseSecond: (() => void) | undefined;
+  let acceptRegistration = false;
+  let registered = false;
+  let hidden = false;
+  let slowMetadata = false;
+  let sockets = 0;
+  let chatSseRequests = 0;
+  const websocketSends: unknown[] = [];
+  await page.routeWebSocket('**/*', (socket) => {
+    sockets += 1;
+    if (!nativeMode) {
+      socket.close();
+      return;
+    }
+    const generation = sockets;
+    socket.onMessage((raw) => {
+      const message = JSON.parse(String(raw));
+      if (message.type === 'send') websocketSends.push(message);
+      if (message.type === 'hello' && (nativeMode === 'lost-ack' || generation > 1))
+        socket.send(
+          JSON.stringify({
+            type: 'welcome',
+            protocolVersion: 2,
+            connectionId: 'offline-native-ws',
+          }),
+        );
+    });
+  });
+  await page.route('**/api/**', async (route) => {
+    const url = new URL(route.request().url());
+    const method = route.request().method();
+    if (url.hostname !== 'mitzo-ui.test') return route.abort();
+    if (url.pathname === '/api/chat/events') {
+      chatSseRequests += 1;
+      return route.fulfill({
+        contentType: 'text/event-stream',
+        body: 'retry: 60000\nevent: welcome\ndata: {"connectionId":"offline-sse-restoration"}\n\n',
+      });
+    }
+    if (url.pathname === '/api/events')
+      return route.fulfill({ contentType: 'text/event-stream', body: 'retry: 60000\n\n' });
+    if (url.pathname === '/api/chat/send' && method === 'POST') {
+      const command = route.request().postDataJSON();
+      expect(route.request().headers()['x-connection-id']).toBeUndefined();
+      sends.push(command);
+      turns.add(command.clientMsgId);
+      if (sends.length === 1) {
+        await new Promise<void>((resolve) => {
+          releaseFirst = resolve;
+        });
+        await route
+          .fulfill({ json: { accepted: true, clientMsgId: command.clientMsgId, sessionId } })
+          .catch(() => {});
+        return;
+      }
+      if (sends.length === 2)
+        await new Promise<void>((resolve) => {
+          releaseSecond = resolve;
+        });
+      return route.fulfill({
+        json: { accepted: true, clientMsgId: command.clientMsgId, sessionId },
+      });
+    }
+    if (url.pathname === '/api/home/briefing-chats') {
+      if (method === 'POST') {
+        registrations.push(route.request().postDataJSON());
+        if (!acceptRegistration)
+          return route.fulfill({ status: 503, json: { error: 'Offline receipt retry' } });
+        registered = true;
+        return route.fulfill({ json: { ...binding, createdAt: '2026-10-10T07:00:00Z' } });
+      }
+      return route.fulfill({
+        json: registered ? [{ ...binding, createdAt: '2026-10-10T07:00:00Z' }] : [],
+      });
+    }
+    if (
+      method === 'POST' &&
+      ['/api/chat/reconnect', '/api/chat/switch', '/api/sessions/suspend'].includes(url.pathname)
+    )
+      return route.fulfill({ json: { ok: true } });
+    if (method !== 'GET')
+      return route.fulfill({ status: 405, json: { error: 'Offline fixture forbids writes' } });
+    const models = [
+      { id: 'luna-fixture', label: 'Luna fixture', reasoningEfforts: ['low', 'high'] },
+    ];
+    if (url.pathname === '/api/accounts')
+      return route.fulfill({ json: [{ id: 'work-account', label: 'Work OpenAI', models }] });
+    if (url.pathname === '/api/repository-workspaces/catalog')
+      return route.fulfill({ json: { available: false, repositories: [] } });
+    if (url.pathname === `/api/chat/web-search-consent/${sessionId}`)
+      return route.fulfill({ json: { ok: true, grant: 'denied', revision: 0, updatedAt: null } });
+    if (url.pathname === `/api/sessions/${sessionId}/messages`) return route.fulfill({ json: [] });
+    if (url.pathname === `/api/sessions/${sessionId}/meta`) {
+      if (slowMetadata) await new Promise<void>((resolve) => setTimeout(resolve, 350));
+      return route.fulfill({
+        json: {
+          sessionType: 'chat',
+          isHidden: hidden,
+          accountBinding: {
+            accountId: 'work-account',
+            accountLabel: 'Work OpenAI',
+            model: 'luna-fixture',
+          },
+          modelSelection: { model: 'luna-fixture', models },
+        },
+      });
+    }
+    if (url.pathname === `/api/sessions/${sessionId}/symposium/status`)
+      return route.fulfill({ json: { sessionId, config: null, seats: [] } });
+    return route.fallback();
+  });
+  await page.goto('https://mitzo-ui.test/briefings/2026-10-10?ask=1');
+  expect(await page.evaluate(() => localStorage.getItem('mitzo:transport'))).toBeNull();
+  if (nativeMode)
+    expect(
+      await page.evaluate(() =>
+        (
+          window as unknown as { Capacitor: { isNativePlatform(): boolean } }
+        ).Capacitor.isNativePlatform(),
+      ),
+    ).toBe(true);
+  const picker = page.getByRole('dialog');
+  await picker.getByRole('button', { name: 'Use selection', exact: true }).click();
+  await page.getByRole('button', { name: 'Send launch prompt', exact: true }).click();
+  await expect.poll(() => sends.length).toBe(1);
+  expect(sends[0].sessionId).toBeNull();
+  expect(sends[0].accountId).toBe(binding.accountId);
+  expect(sends[0].model).toBe(binding.model);
+  expect(sends[0].sourceSnapshots).toEqual([
+    expect.objectContaining({ kind: 'briefing', date: binding.date, revision: binding.revision }),
+  ]);
+  expect(registrations).toHaveLength(0);
+  await page.reload();
+  await expect.poll(() => sends.length).toBe(2);
+  releaseFirst?.();
+  expect(sends[1]).toEqual(sends[0]);
+  expect(turns.size).toBe(1);
+  if (nativeMode) {
+    expect(sockets).toBeGreaterThanOrEqual(2);
+    expect(websocketSends).toHaveLength(0);
+    expect(chatSseRequests).toBe(0);
+  } else expect(sockets).toBe(0);
+  // Stay in the same app process while the restored acknowledgement remains pending.
+  await page.getByRole('link', { name: 'Today', exact: true }).click();
+  await page.getByRole('link', { name: 'Read briefing', exact: true }).click();
+  await page.getByRole('button', { name: 'Ask Jeeves', exact: true }).click();
+  const waitingPicker = page.getByRole('dialog');
+  await waitingPicker.getByRole('button', { name: 'Use selection', exact: true }).click();
+  await expect(waitingPicker.getByRole('alert')).toHaveText(
+    'This briefing conversation is awaiting assignment. Let its existing message finish restoring before asking again.',
+  );
+  await page.screenshot({ path: test.info().outputPath('briefing-awaiting-assignment.png') });
+  await expect(page).toHaveURL(/\/briefings\/2026-10-10$/);
+  expect(sends).toHaveLength(2);
+  expect(registrations).toHaveLength(0);
+  releaseSecond?.();
+  await expect.poll(() => registrations.length).toBe(1);
+  await waitingPicker.getByRole('button', { name: 'Use selection', exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`/chat/${sessionId}$`));
+  const retry = page.getByRole('button', { name: 'Retry saving briefing link', exact: true });
+  await expect(retry).toBeVisible();
+  await expect(page.getByText('Jeeves · 2026-10-10', { exact: true })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Read briefing', exact: true })).toHaveAttribute(
+    'href',
+    `/briefings/${binding.date}?revision=${binding.revision}`,
+  );
+  const workspace = page.getByRole('button', { name: /^Workspace controls/ });
+  async function openWorkspace() {
+    await expect(page.getByText('Jeeves · 2026-10-10', { exact: true })).toBeVisible();
+    await expect(workspace).toBeVisible();
+    await expect(page.locator('.chat-account-binding')).toHaveText('Work OpenAI');
+    if ((await workspace.getAttribute('aria-expanded')) === 'false') await workspace.click();
+    await expect(workspace).toHaveAttribute('aria-expanded', 'true');
+    await expect(page.getByRole('combobox', { name: 'Model', exact: true })).toHaveValue(
+      binding.model,
+    );
+  }
+
+  await openWorkspace();
+  await expect(page.getByRole('combobox', { name: 'Model', exact: true })).toHaveValue(
+    binding.model,
+  );
+  await expect(page.getByRole('combobox', { name: 'Model', exact: true })).toBeDisabled();
+  await expect(page.getByRole('combobox', { name: 'Thinking', exact: true })).toBeDisabled();
+  await expect(page.locator('.chat-account-binding')).toHaveText('Work OpenAI');
+  expect(registrations).toEqual([binding]);
+  // Confirm authoritative visibility before reusing a locally retained assignment.
+  hidden = hideAssigned;
+  await page.goto('https://mitzo-ui.test/briefings/2026-10-10?ask=1');
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: 'Use selection', exact: true })
+    .click();
+  if (hideAssigned) {
+    await expect(page).toHaveURL(/\/chat$/);
+    await expect(
+      page.getByRole('button', { name: 'Send launch prompt', exact: true }),
+    ).toBeEnabled();
+    await expect(page.getByText('Jeeves · 2026-10-10', { exact: true })).toBeVisible();
+    expect(sends).toHaveLength(2);
+    expect(turns.size).toBe(1);
+    expect(registrations).toEqual([binding]);
+    return;
+  }
+  await expect(page).toHaveURL(new RegExp(`/chat/${sessionId}$`));
+  await expect(retry).toBeVisible();
+  await openWorkspace();
+  await expect(page.getByRole('combobox', { name: 'Model', exact: true })).toBeDisabled();
+  expect(sends).toHaveLength(2);
+  expect(turns.size).toBe(1);
+  acceptRegistration = true;
+  await retry.click();
+  await expect(retry).toHaveCount(0);
+  expect(registrations).toEqual([binding, binding]);
+  await page.goto('https://mitzo-ui.test/briefings/2026-10-10?ask=1');
+  // Exercise delayed account hydration after the final reader-to-chat transition.
+  slowMetadata = true;
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: 'Use selection', exact: true })
+    .click();
+  await expect(page).toHaveURL(new RegExp(`/chat/${sessionId}$`));
+  await openWorkspace();
+  await expect(page.getByRole('combobox', { name: 'Model', exact: true })).toBeDisabled();
+  expect(sends).toHaveLength(2);
+  expect(turns.size).toBe(1);
+  if (nativeMode) {
+    expect(websocketSends).toHaveLength(0);
+    expect(chatSseRequests).toBe(0);
+  }
+}
+
+test('default SSE restores a briefing command after reload before assignment without a duplicate turn', async ({
+  page,
+}) => {
+  await exerciseBriefingReloadRecovery(page);
+});
+
+test('default SSE allows a fresh draft when the recovered local conversation is hidden', async ({
+  page,
+}) => {
+  await exerciseBriefingReloadRecovery(page, true);
+});
+
+for (const nativeMode of ['unready', 'lost-ack'] as const) {
+  test(`native-default WS retains reviewed briefing delivery through cold reload with ${nativeMode} receipt`, async ({
+    page,
+  }) => {
+    await exerciseBriefingReloadRecovery(page, false, nativeMode);
+  });
+}
+
+test('reviewed launches let users collapse Workspace and reach Send at a short viewport', async ({
+  page,
+  isMobile,
+}, testInfo) => {
+  await page.setViewportSize({ width: isMobile ? 320 : 1280, height: 640 });
+  await page.addInitScript(() => localStorage.removeItem('mitzo-workspace-controls-expanded'));
+  await page.route('**/api/home/preferences', (route) =>
+    route.fulfill({
+      json: {
+        ...fixtures['/api/home/preferences'],
+        names: { briefing: 'M'.repeat(80), terminal: 'Minion' },
+      },
+    }),
+  );
+  await page.goto('https://mitzo-ui.test/briefings/2026-10-10?ask=1');
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: 'Use selection', exact: true })
+    .click();
+  await page.evaluate(() => {
+    document.documentElement.dataset.theme = 'light';
+    document.documentElement.dataset.font = 'georgia';
+    document.documentElement.dataset.accent = 'teal';
+  });
+  const workspace = page.getByRole('button', { name: /^Workspace controls/ });
+  await expect(workspace).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.getByRole('combobox', { name: 'Model', exact: true })).toHaveValue(
+    'luna-fixture',
+  );
+  await workspace.click();
+  await expect(workspace).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.getByRole('combobox', { name: 'Model', exact: true })).toBeHidden();
+  const send = page.getByRole('button', { name: 'Send launch prompt', exact: true });
+  await send.scrollIntoViewIfNeeded();
+  await expect(send).toBeInViewport();
+  await expect
+    .poll(() =>
+      send.evaluate((element) => {
+        const rect = element.getBoundingClientRect();
+        return element.contains(
+          document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2),
+        );
+      }),
+    )
+    .toBe(true);
+  await send.click({ trial: true });
+  await page.screenshot({ path: testInfo.outputPath('briefing-short-launch-collapsed.png') });
+});
+
+test('failed briefing registration survives a completed turn and reload without resending it', async ({
+  page,
+  isMobile,
+}, testInfo) => {
+  test.setTimeout(60_000);
+  await page.setViewportSize({ width: isMobile ? 320 : 1280, height: 900 });
+  await page.addInitScript(() => localStorage.setItem('mitzo-workspace-controls-expanded', '1'));
+  const sessionId = 'assigned-briefing-registration';
+  const binding = {
+    sessionId,
+    date: '2026-10-10',
+    revision: 'a'.repeat(64),
+    accountId: 'work-account',
+    model: 'luna-fixture',
+  };
+  const changedSessionId = 'changed-briefing-registration';
+  const changedBinding = { ...binding, sessionId: changedSessionId, model: 'luna-other-fixture' };
+  const savedBindings: Record<string, unknown>[] = [];
+  const posts: unknown[] = [];
+  const turns: Record<string, unknown>[] = [];
+  let registered = false;
+  let allowRegistration = false;
+  let emptyReads = 0;
+  let completed = false;
+  let nickname = 'Jeeves';
+  const accepted = new Map<string, Record<string, unknown>>();
+  const websocketSends: unknown[] = [];
+  function accept(command: Record<string, unknown>) {
+    turns.push(command);
+    const assignedId = command.model === changedBinding.model ? changedSessionId : sessionId;
+    accepted.set(assignedId, command);
+    return assignedId;
+  }
+  await page.routeWebSocket('**/*', (socket) => {
+    socket.onMessage((raw) => {
+      const message = JSON.parse(String(raw));
+      if (message.type === 'hello')
+        socket.send(
+          JSON.stringify({
+            type: 'welcome',
+            protocolVersion: 2,
+            connectionId: 'offline-registration',
+          }),
+        );
+      if (message.type === 'send') websocketSends.push(message);
+      if (message.type === 'switch_session') {
+        const command = accepted.get(message.sessionId);
+        if (!command) return;
+        socket.send(
+          JSON.stringify({
+            type: 'session_state_changed',
+            sessionId: message.sessionId,
+            state: 'running',
+          }),
+        );
+        socket.send(
+          JSON.stringify({
+            type: 'user_message',
+            sessionId: message.sessionId,
+            messageId: command.clientMsgId,
+            text: command.prompt,
+            sourceSnapshots: command.sourceSnapshots,
+          }),
+        );
+        socket.send(
+          JSON.stringify({
+            type: 'session_state_changed',
+            sessionId: message.sessionId,
+            state: 'idle',
+          }),
+        );
+        completed = true;
+      }
+    });
+  });
+  await page.route('**/api/**', async (route) => {
+    const url = new URL(route.request().url());
+    if (url.hostname !== 'mitzo-ui.test') return route.abort();
+    if (url.pathname === '/api/chat/send' && route.request().method() === 'POST') {
+      expect(route.request().headers()['x-connection-id']).toBeUndefined();
+      const command = route.request().postDataJSON();
+      return route.fulfill({
+        json: { accepted: true, clientMsgId: command.clientMsgId, sessionId: accept(command) },
+      });
+    }
+
+    if (url.pathname === '/api/home/briefing-chats') {
+      if (route.request().method() === 'POST') {
+        posts.push(route.request().postDataJSON());
+        if (!allowRegistration)
+          return route.fulfill({ status: 503, json: { error: 'Offline registration failed' } });
+        registered = true;
+        const saved = { ...route.request().postDataJSON(), createdAt: '2026-10-10T07:00:00Z' };
+        if (!savedBindings.some((entry) => entry.sessionId === saved.sessionId))
+          savedBindings.push(saved);
+        return route.fulfill({ json: saved });
+      }
+      if (!registered) emptyReads += 1;
+      return route.fulfill({
+        json: registered ? savedBindings : [],
+      });
+    }
+    if (route.request().method() !== 'GET')
+      return route.fulfill({ status: 405, json: { error: 'Offline fixture forbids writes' } });
+    if (url.pathname === '/api/home/preferences')
+      return route.fulfill({
+        json: {
+          ...fixtures['/api/home/preferences'],
+          names: { briefing: nickname, terminal: 'Minion' },
+        },
+      });
+    const models = [
+      { id: 'luna-fixture', label: 'Luna fixture', reasoningEfforts: ['low', 'high'] },
+      { id: 'luna-other-fixture', label: 'Luna other fixture', reasoningEfforts: ['low', 'high'] },
+    ];
+    if (url.pathname === '/api/accounts')
+      return route.fulfill({ json: [{ id: 'work-account', label: 'Work OpenAI', models }] });
+    if (url.pathname === '/api/repository-workspaces/catalog')
+      return route.fulfill({ json: { available: false, repositories: [] } });
+    if (
+      [sessionId, changedSessionId].some(
+        (id) => url.pathname === `/api/chat/web-search-consent/${id}`,
+      )
+    )
+      return route.fulfill({ json: { ok: true, grant: 'denied', revision: 0, updatedAt: null } });
+    if ([sessionId, changedSessionId].some((id) => url.pathname === `/api/sessions/${id}/messages`))
+      return route.fulfill({ json: [] });
+    if ([sessionId, changedSessionId].some((id) => url.pathname === `/api/sessions/${id}/meta`))
+      return route.fulfill({
+        json: {
+          sessionType: 'chat',
+          isHidden: false,
+          accountBinding: {
+            accountId: 'work-account',
+            accountLabel: 'Work OpenAI',
+            model: 'luna-fixture',
+          },
+          modelSelection: {
+            model: url.pathname.includes(changedSessionId) ? changedBinding.model : binding.model,
+            models,
+          },
+        },
+      });
+    if (url.pathname === `/api/sessions/${sessionId}/symposium/status`)
+      return route.fulfill({ json: { sessionId, config: null, seats: [] } });
+    return route.fallback();
+  });
+  await page.goto('https://mitzo-ui.test/briefings/2026-10-10?ask=1');
+  const picker = page.getByRole('dialog');
+  await expect(picker).toBeVisible();
+  await picker.getByRole('button', { name: 'Use selection', exact: true }).click();
+  const profile = page.getByRole('combobox', { name: 'Agent profile', exact: true });
+  await expect(profile).toBeEnabled();
+  await expect(profile).toHaveValue('');
+  await page.getByRole('button', { name: 'Send launch prompt', exact: true }).click();
+  const retry = page.getByRole('button', { name: 'Retry saving briefing link', exact: true });
+  await expect(retry).toBeVisible();
+  expect(completed).toBe(true);
+  expect(turns).toHaveLength(1);
+  expect(posts).toEqual([binding]);
+  await page.getByRole('button', { name: 'Change account or model', exact: true }).click();
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: 'Use selection', exact: true })
+    .click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(page).toHaveURL(new RegExp(`/chat/${sessionId}$`));
+  await expect(retry).toBeVisible();
+  expect(turns).toHaveLength(1);
+  expect(posts).toEqual([binding]);
+
+  await expect.poll(() => emptyReads).toBeGreaterThan(0);
+  async function retained() {
+    await expect(page.getByText(`${nickname} · 2026-10-10`, { exact: true })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Read briefing', exact: true })).toHaveAttribute(
+      'href',
+      `/briefings/${binding.date}?revision=${binding.revision}`,
+    );
+    const label = page.getByText(`${nickname} · 2026-10-10`, { exact: true });
+    const read = page.getByRole('link', { name: 'Read briefing', exact: true });
+    const change = page.getByRole('button', { name: 'Change account or model', exact: true });
+    const layout = await label.evaluate((element) => {
+      const bounds = element.getBoundingClientRect();
+      const column = element.closest('.briefing-chat-banner')!.getBoundingClientRect();
+      return {
+        left: bounds.left - column.left,
+        gutter: Number.parseFloat(
+          getComputedStyle(document.documentElement).getPropertyValue('--page-gutter'),
+        ),
+        gap: Number.parseFloat(
+          getComputedStyle(document.documentElement).getPropertyValue('--space-2'),
+        ),
+      };
+    });
+    expect(layout.left).toBeGreaterThanOrEqual(layout.gutter);
+    const labelBounds = (await label.boundingBox())!;
+    const readBounds = (await read.boundingBox())!;
+    const rowGap =
+      readBounds.x >= labelBounds.x + labelBounds.width
+        ? readBounds.x - labelBounds.x - labelBounds.width
+        : readBounds.y - labelBounds.y - labelBounds.height;
+    expect(rowGap).toBeGreaterThanOrEqual(layout.gap);
+    for (const control of [read, change])
+      expect((await control.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+      page.viewportSize()!.width,
+    );
+    const model = page.getByRole('combobox', { name: 'Model', exact: true });
+    await expect(model).toHaveValue(binding.model);
+    await expect(model).toBeDisabled();
+    await expect(page.getByRole('combobox', { name: 'Thinking', exact: true })).toBeDisabled();
+    await expect(page.locator('.chat-account-binding')).toHaveText('Work OpenAI');
+  }
+  await retained();
+  await page.goto('https://mitzo-ui.test/');
+  await page.goto(`https://mitzo-ui.test/chat/${sessionId}`);
+  await expect(retry).toBeVisible();
+  await retained();
+  await page.reload();
+  await expect(retry).toBeVisible();
+  await retained();
+  await expect(page.getByRole('button', { name: 'Web search permission: Denied' })).toBeVisible();
+  const alert = page.getByRole('alert').filter({ has: retry });
+  const geometry = await alert.evaluate((element) => {
+    const bounds = element.getBoundingClientRect();
+    const column = element.closest('.briefing-chat-banner')!.getBoundingClientRect();
+    return {
+      left: bounds.left - column.left,
+      right: column.right - bounds.right,
+      gutter: Number.parseFloat(
+        getComputedStyle(document.documentElement).getPropertyValue('--page-gutter'),
+      ),
+    };
+  });
+  expect(geometry.left).toBeGreaterThanOrEqual(geometry.gutter);
+  expect(geometry.right).toBeGreaterThanOrEqual(geometry.gutter);
+  expect((await retry.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  for (const appearance of [
+    { theme: 'dark', accent: 'lavender', font: 'system' },
+    { theme: 'light', accent: 'teal', font: 'georgia' },
+  ]) {
+    await page.evaluate((appearance) => {
+      const root = document.documentElement;
+      root.dataset.theme = appearance.theme;
+      root.dataset.accent = appearance.accent;
+      root.dataset.font = appearance.font;
+    }, appearance);
+    const family = await retry.evaluate((element) => ({
+      control: getComputedStyle(element).fontFamily,
+      body: getComputedStyle(document.body).fontFamily,
+    }));
+    expect(family.control).toBe(family.body);
+    await retained();
+    const workspace = page.getByRole('button', { name: /^Workspace controls/ });
+    await workspace.click();
+    await expect(
+      page.getByRole('textbox', { name: 'Message Mitzo', exact: true }),
+    ).toBeInViewport();
+    await page.screenshot({
+      path: testInfo.outputPath(
+        `briefing-registration-error-${appearance.theme}-${appearance.font}-${appearance.accent}.png`,
+      ),
+      animations: 'disabled',
+    });
+    await workspace.click();
+  }
+  nickname = 'M'.repeat(80);
+  await page.reload();
+  await expect(retry).toBeVisible();
+  await retained();
+  const workspace = page.getByRole('button', { name: /^Workspace controls/ });
+  await workspace.click();
+  await expect(page.getByRole('textbox', { name: 'Message Mitzo', exact: true })).toBeInViewport();
+  await page.screenshot({
+    path: testInfo.outputPath('briefing-registration-long-name.png'),
+    animations: 'disabled',
+  });
+  await workspace.click();
+  allowRegistration = true;
+  await retry.click();
+  await expect(retry).toHaveCount(0);
+  await retained();
+  expect(posts).toEqual([binding, binding]);
+  expect(turns).toHaveLength(1);
+  // Restore the regular fixture after the separate long-name and appearance checks.
+  nickname = 'Jeeves';
+  await page.reload();
+  await expect(page.getByText('Jeeves · 2026-10-10', { exact: true })).toBeVisible();
+  await retained();
+  await page.getByRole('button', { name: 'Change account or model', exact: true }).click();
+  const changedPicker = page.getByRole('dialog');
+  await changedPicker
+    .getByRole('combobox', { name: 'Model', exact: true })
+    .selectOption(changedBinding.model);
+  await changedPicker.getByRole('button', { name: 'Use selection', exact: true }).click();
+  await expect(page).toHaveURL(/\/chat$/);
+  await page.getByRole('button', { name: 'Send launch prompt', exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`/chat/${changedSessionId}$`));
+  await expect.poll(() => posts.length).toBe(3);
+  expect(posts).toEqual([binding, binding, changedBinding]);
+  expect(turns).toHaveLength(2);
+  expect(websocketSends).toHaveLength(0);
+  expect(turns[1].sourceSnapshots).toEqual(turns[0].sourceSnapshots);
+  expect(turns[1].model).toBe(changedBinding.model);
+  await expect(retry).toHaveCount(0);
+});
+
+test('saved chat identity failures lock model controls until an explicit successful retry', async ({
+  page,
+  isMobile,
+}, testInfo) => {
+  test.setTimeout(60_000);
+  await page.setViewportSize({ width: isMobile ? 320 : 1280, height: 900 });
+  await page.addInitScript(() => localStorage.setItem('mitzo-workspace-controls-expanded', '1'));
+  let failure: '503' | 'network' | null = '503';
+  let recovery: 'briefing' | 'ordinary' = 'briefing';
+  let reads = 0;
+  const sessionId = 'saved-binding-check';
+  const binding = {
+    sessionId,
+    date: '2026-10-10',
+    revision: 'a'.repeat(64),
+    accountId: 'work-account',
+    model: 'luna-fixture',
+    createdAt: '2026-10-10T07:00:00Z',
+  };
+  await page.route('**/api/**', async (route) => {
+    const url = new URL(route.request().url());
+    if (url.hostname !== 'mitzo-ui.test') return route.abort();
+    if (route.request().method() !== 'GET')
+      return route.fulfill({ status: 405, json: { error: 'Offline fixture forbids writes' } });
+    if (
+      url.pathname === '/api/home/briefing-chats' &&
+      url.searchParams.get('sessionId') === sessionId
+    ) {
+      reads += 1;
+      if (failure === 'network') return route.abort('failed');
+      if (failure === '503')
+        return route.fulfill({ status: 503, json: { error: 'Briefing identity unavailable' } });
+      return route.fulfill({ json: recovery === 'briefing' ? [binding] : [] });
+    }
+    if (url.pathname === '/api/accounts')
+      return route.fulfill({
+        json: [
+          {
+            id: 'work-account',
+            label: 'Work OpenAI',
+            models: [
+              { id: 'luna-fixture', label: 'Luna fixture', reasoningEfforts: ['low', 'high'] },
+            ],
+          },
+        ],
+      });
+    if (url.pathname === `/api/sessions/${sessionId}/messages`) return route.fulfill({ json: [] });
+    if (url.pathname === `/api/sessions/${sessionId}/meta`)
+      return route.fulfill({
+        json: {
+          sessionType: 'chat',
+          accountBinding: {
+            accountId: 'work-account',
+            accountLabel: 'Work OpenAI',
+            model: 'luna-fixture',
+          },
+          modelSelection: {
+            model: 'luna-fixture',
+            models: [
+              { id: 'luna-fixture', label: 'Luna fixture', reasoningEfforts: ['low', 'high'] },
+              { id: 'alternative-fixture', label: 'Alternative fixture' },
+            ],
+          },
+        },
+      });
+    if (url.pathname === `/api/sessions/${sessionId}/symposium/status`)
+      return route.fulfill({ json: { sessionId, config: null, seats: [] } });
+    return route.fallback();
+  });
+  for (const failed of ['503', 'network'] as const) {
+    for (const recovered of ['briefing', 'ordinary'] as const) {
+      failure = failed;
+      recovery = recovered;
+      await page.goto(`/chat/${sessionId}`);
+      const retry = page.getByRole('button', { name: 'Retry briefing lookup', exact: true });
+      await expect(retry).toBeVisible();
+      const model = page.getByRole('combobox', { name: 'Model', exact: true });
+      await expect(model).toBeVisible();
+      await expect(model).toBeDisabled();
+      await expect(model).toHaveValue('luna-fixture');
+      await expect(page.locator('.chat-account-binding')).toHaveText('Work OpenAI');
+      const thinking = page.getByRole('combobox', { name: 'Thinking', exact: true });
+      await expect(thinking).toBeDisabled();
+      await expect(
+        page.getByRole('button', { name: 'Change account or model', exact: true }),
+      ).toHaveCount(0);
+      expect((await retry.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+      const alert = page.getByRole('alert').filter({ has: retry });
+      const alignment = await alert.evaluate((element) => {
+        const bounds = element.getBoundingClientRect();
+        const column = element.closest('.briefing-chat-banner')!.getBoundingClientRect();
+        return {
+          left: bounds.left - column.left,
+          right: column.right - bounds.right,
+          gutter: Number.parseFloat(
+            getComputedStyle(document.documentElement).getPropertyValue('--page-gutter'),
+          ),
+        };
+      });
+      expect(alignment.left).toBeGreaterThanOrEqual(alignment.gutter);
+      expect(alignment.right).toBeGreaterThanOrEqual(alignment.gutter);
+      await page.evaluate((light) => {
+        document.documentElement.dataset.theme = light ? 'light' : 'dark';
+        document.documentElement.dataset.accent = light ? 'teal' : 'lavender';
+        document.documentElement.dataset.font = light ? 'georgia' : 'system';
+      }, failed === 'network');
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+        page.viewportSize()!.width,
+      );
+      const workspace = page.getByRole('button', { name: /^Workspace controls/ });
+      await workspace.click();
+      await expect(
+        page.getByRole('textbox', { name: 'Message Mitzo', exact: true }),
+      ).toBeInViewport();
+      await page.screenshot({
+        path: testInfo.outputPath(`briefing-lookup-error-${failed}-${recovered}.png`),
+        animations: 'disabled',
+      });
+      await workspace.click();
+      failure = null;
+      const before = reads;
+      await retry.click();
+      await expect(retry).toHaveCount(0);
+      expect(reads).toBeGreaterThan(before);
+      if (recovered === 'briefing') {
+        await expect(page.getByText('Jeeves · 2026-10-10', { exact: true })).toBeVisible();
+        await expect(page.getByRole('link', { name: 'Read briefing', exact: true })).toBeVisible();
+        await expect(model).toBeDisabled();
+        await expect(thinking).toBeDisabled();
+        await expect(
+          page.getByRole('button', { name: 'Change account or model', exact: true }),
+        ).toBeVisible();
+      } else {
+        await expect(model).toBeEnabled();
+        await expect(thinking).toBeEnabled();
+        await expect(page.getByRole('link', { name: 'Read briefing', exact: true })).toHaveCount(0);
+      }
+    }
+  }
+});
+
 test('profile drafts stay behind Workspace and remain readable on mobile and desktop', async ({
   page,
   isMobile,
@@ -1476,3 +2541,113 @@ test('profile drafts stay behind Workspace and remain readable on mobile and des
     }
   }
 });
+
+const iconTasks = (
+  ['pending', 'active', 'done', 'pending_review', 'blocked', 'skipped', 'failed'] as const
+).map((status, index) => ({
+  id: `icon-task-${status}`,
+  parentId: null,
+  title: `Icon check: ${status.replaceAll('_', ' ')}`,
+  description: null,
+  status,
+  sessionId: null,
+  sessionPolicy: 'auto',
+  priority: index,
+  depth: 0,
+  annotations: [],
+  summary: null,
+  requiresApproval: false,
+  tokenUsage: 0,
+  claimedBy: null,
+  claimedAt: null,
+  createdAt: Date.now(),
+  updatedAt: Date.now(),
+  completedAt: null,
+  stageType: null,
+  gateConfig: null,
+  artifacts: null,
+  retryCount: 0,
+  maxRetries: 0,
+  templateId: null,
+  children: [],
+}));
+
+for (const appearance of [
+  { theme: 'dark', accent: 'lavender', font: 'system' },
+  { theme: 'light', accent: 'mint', font: 'georgia' },
+]) {
+  test(`outline icons keep their meaning and geometry with ${appearance.theme}/${appearance.font}`, async ({
+    page,
+  }, testInfo) => {
+    await page.addInitScript((selection) => {
+      localStorage.setItem('mitzo-theme', selection.theme);
+      localStorage.setItem('mitzo-accent', selection.accent);
+      localStorage.setItem('mitzo-font', selection.font);
+    }, appearance);
+    if (testInfo.project.name.startsWith('mobile')) {
+      const viewport = page.viewportSize()!;
+      await page.setViewportSize({ width: 320, height: viewport.height });
+    }
+    await page.goto('/settings');
+    const backups = page.getByRole('link', { name: 'Backups', exact: true });
+    await expect(backups).toHaveText('Backups');
+    await expect(backups.locator('svg[data-icon="forward"]')).toHaveAttribute(
+      'aria-hidden',
+      'true',
+    );
+    await backups.scrollIntoViewIfNeeded();
+    await page.screenshot({
+      path: testInfo.outputPath(`icons-settings-${appearance.theme}.png`),
+      animations: 'disabled',
+    });
+
+    await page.route('**/api/tasks', (route) => route.fulfill({ json: iconTasks }));
+    await page.goto('/tasks');
+    const spawning = page.getByRole('switch', { name: /session spawning/ });
+    await expect(spawning).toHaveAttribute('aria-checked', 'false');
+    await expect(spawning.locator('svg')).toHaveAttribute('aria-hidden', 'true');
+    await page.getByRole('button', { name: 'Show tree order', exact: true }).click();
+    const actions = page.locator('.page-header-actions');
+    await expect(actions).toBeVisible();
+    const actionBounds = await actions.boundingBox();
+    expect(actionBounds!.x + actionBounds!.width).toBeLessThanOrEqual(page.viewportSize()!.width);
+    if (testInfo.project.name === 'desktop-chromium') {
+      await page.getByRole('button', { name: 'Tree and attention', exact: true }).click();
+    }
+    for (const [status, icon] of Object.entries({
+      pending: 'circle',
+      active: 'running',
+      done: 'complete',
+      pending_review: 'review',
+      blocked: 'unavailable',
+      skipped: 'minus',
+      failed: 'failed',
+    })) {
+      const control = page.getByRole('button', { name: `Status: ${status}`, exact: true });
+      await expect(control.locator(`svg[data-icon="${icon}"]`)).toHaveCount(1);
+      await expect(control).toHaveText('');
+    }
+    await page.screenshot({
+      path: testInfo.outputPath(`icons-taskboard-${appearance.theme}.png`),
+      animations: 'disabled',
+    });
+    if (testInfo.project.name.startsWith('mobile')) {
+      const size = await spawning.boundingBox();
+      expect(size?.height).toBeGreaterThanOrEqual(44);
+      expect(size?.width).toBeGreaterThanOrEqual(44);
+      const review = page.locator('.task-node--status-pending_review .task-node-body').first();
+      expect((await review.boundingBox())!.width).toBeGreaterThanOrEqual(140);
+      await expect(
+        page.locator('.task-node--status-pending_review .task-node-actions').first(),
+      ).toHaveCSS('opacity', '1');
+    }
+
+    await page.goto('/connections-access');
+    await expect(page.getByRole('heading', { name: 'Connections', exact: true })).toBeVisible();
+    await expect(page.locator('.access-row-icon')).toHaveCount(0);
+    await page.screenshot({
+      path: testInfo.outputPath(`icons-connections-${appearance.theme}.png`),
+      animations: 'disabled',
+    });
+  });
+}
