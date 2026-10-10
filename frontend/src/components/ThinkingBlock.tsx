@@ -6,10 +6,11 @@ import type { StreamingBlock, FinishedBlock } from '../types/chat';
 interface Props {
   block: StreamingBlock | FinishedBlock;
   streaming?: boolean;
+  defaultExpanded?: boolean;
 }
 
-export function ThinkingBlock({ block, streaming = false }: Props) {
-  const [expanded, setExpanded] = useState(true);
+export function ThinkingBlock({ block, streaming = false, defaultExpanded = true }: Props) {
+  const [expanded, setExpanded] = useState(defaultExpanded);
   const [manual, setManual] = useState(false);
   const text = block.content || '';
   const isStreaming = streaming && !('done' in block && block.done);

@@ -8084,3 +8084,67 @@ option {
   grid-column: 4;
   grid-row: 1 / 3;
 }
+
+/* Shared activity disclosure for every provider's normalized transcript. */
+.chat-transcript-row,
+.agent-activity {
+  width: 100%;
+  min-width: 0;
+}
+
+.agent-activity-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: var(--control-height);
+  padding: var(--space-2) var(--space-3);
+  border: none;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--color-muted);
+  font-family: var(--font-ui);
+  font-size: var(--text-xs);
+  text-align: left;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.agent-activity-header:hover {
+  background: var(--hover);
+}
+
+.agent-activity-header:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.agent-activity-header > .ui-icon,
+.agent-activity-label,
+.agent-activity-error {
+  flex-shrink: 0;
+}
+
+.agent-activity-label {
+  color: var(--color-text);
+}
+
+.agent-activity-preview {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-activity-error {
+  color: var(--color-danger);
+}
+
+.agent-activity-details {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding-inline-start: var(--space-3);
+  border-inline-start: 1px solid var(--color-border);
+}

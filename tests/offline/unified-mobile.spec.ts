@@ -2804,3 +2804,117 @@ test('daily quote setting preserves saved truth and suppresses delivery until en
   await expect(page.getByRole('link', { name: 'Read the source', exact: true })).toBeVisible();
   expect(quoteRequests).toBe(2);
 });
+
+for (const appearance of [
+  { theme: 'dark', accent: 'lavender', font: 'system' },
+  { theme: 'light', accent: 'teal', font: 'georgia' },
+]) {
+  test(`chat activity groups every provider between responses in ${appearance.theme}`, async ({
+    page,
+  }, testInfo) => {
+    const sessionId = 'offline-activity';
+    const messages = [
+      {
+        messageId: 'before',
+        role: 'assistant',
+        blocks: [{ blockId: 'before', blockType: 'text', content: 'I will check the records.' }],
+      },
+      {
+        messageId: 'thinking',
+        role: 'assistant',
+        blocks: [
+          {
+            blockId: 'thought',
+            blockType: 'thinking',
+            content: 'Checking the latest records and their status.',
+          },
+        ],
+      },
+      {
+        messageId: 'tools',
+        role: 'assistant',
+        blocks: [
+          {
+            blockId: 'failed',
+            blockType: 'tool_use',
+            content: '',
+            toolName: 'Bash',
+            toolInput: 'read records',
+            toolResult: 'Permission denied',
+            toolError: true,
+          },
+          {
+            blockId: 'read',
+            blockType: 'tool_use',
+            content: '',
+            toolName: 'Read',
+            toolInput: '/workspace/very-long-report-name-with-records-and-updates.md',
+            toolResult: 'Records retrieved successfully',
+          },
+        ],
+      },
+      {
+        messageId: 'after',
+        role: 'assistant',
+        blocks: [{ blockId: 'after', blockType: 'text', content: 'Here are the results.' }],
+      },
+    ];
+    await page.addInitScript((appearance) => {
+      localStorage.setItem('mitzo-theme', appearance.theme);
+      localStorage.setItem('mitzo-accent', appearance.accent);
+      localStorage.setItem('mitzo-font', appearance.font);
+    }, appearance);
+    await page.route('**/api/**', async (route) => {
+      const path = new URL(route.request().url()).pathname;
+      if (path === `/api/sessions/${sessionId}/messages`) return route.fulfill({ json: messages });
+      if (path === `/api/sessions/${sessionId}/meta`)
+        return route.fulfill({ json: { sessionType: 'chat' } });
+      if (path === `/api/sessions/${sessionId}/symposium/status`)
+        return route.fulfill({ json: { sessionId, config: null, seats: [] } });
+      return route.fallback();
+    });
+    await page.goto(`/chat/${sessionId}`);
+    const toggle = page.getByRole('button', { name: /Agent at work/ });
+    await expect(toggle).toHaveCount(1);
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    await expect(toggle).toContainText('Read');
+    await expect(toggle).toContainText('1 failed');
+    await expect(page.getByText('I will check the records.', { exact: true })).toBeVisible();
+    await expect(page.getByText('Here are the results.', { exact: true })).toBeVisible();
+    expect((await toggle.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    await page.screenshot({
+      path: testInfo.outputPath(`activity-collapsed-${appearance.theme}.png`),
+      animations: 'disabled',
+    });
+    await toggle.focus();
+    await page.keyboard.press('Enter');
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    await expect(page.getByRole('button', { name: /^Thought/ })).toBeVisible();
+    await page.getByRole('button', { name: /^Thought/ }).click();
+    await expect(
+      page.getByText('Checking the latest records and their status.', { exact: true }),
+    ).toBeVisible();
+    await page.getByRole('button', { name: /^Read/ }).click();
+    await expect(page.getByText('Records retrieved successfully', { exact: true })).toBeVisible();
+    await page.screenshot({
+      path: testInfo.outputPath(`activity-expanded-${appearance.theme}.png`),
+      animations: 'disabled',
+    });
+    await toggle.focus();
+    await page.keyboard.press('Enter');
+    await expect(page.locator('.agent-activity-details')).toBeHidden();
+    await expect(toggle).toBeFocused();
+    await page.evaluate(() => {
+      document.documentElement.style.fontSize = '125%';
+    });
+    if (testInfo.project.name.startsWith('mobile'))
+      await page.setViewportSize({ width: 320, height: 740 });
+    await toggle.scrollIntoViewIfNeeded();
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth > innerWidth);
+    expect(overflow).toBe(false);
+    await page.screenshot({
+      path: testInfo.outputPath(`activity-large-text-${appearance.theme}.png`),
+      animations: 'disabled',
+    });
+  });
+}

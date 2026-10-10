@@ -25,14 +25,6 @@ vi.mock('../ToolPill', () => ({
   ),
 }));
 
-vi.mock('../ToolGroup', () => ({
-  ToolGroup: ({ tools, sessionId }: { tools: Array<{ blockId: string }>; sessionId?: string }) => (
-    <div data-testid="tool-group" data-session-id={sessionId}>
-      {tools.map((tool) => tool.blockId).join(',')}
-    </div>
-  ),
-}));
-
 vi.mock('../ProgressWidget', () => ({
   ProgressWidget: ({ items }: { items: Array<{ title: string }> }) => (
     <div data-testid="progress-widget">{items.map((item) => item.title).join(',')}</div>
@@ -385,10 +377,12 @@ describe('ChatArea', () => {
       },
     ];
     render(<ChatArea {...defaultProps} messages={messages} />);
+    expect(screen.queryByTestId('thinking-block')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /Agent at work/ }));
     expect(screen.getByTestId('thinking-block')).toBeTruthy();
   });
 
-  it('routes finished ordinary tool calls through ToolGroup while progress tools remain direct', () => {
+  it('routes finished ordinary tool calls through AgentActivity while progress tools remain direct', () => {
     const messages: FinishedMessage[] = [
       {
         messageId: 'a1',
@@ -419,12 +413,14 @@ describe('ChatArea', () => {
         progressByToolId={{ progress: { progressId: 'progress', items: [] } }}
       />,
     );
-    expect(screen.getByTestId('tool-group').textContent).toContain('ordinary');
-    expect(screen.getByTestId('tool-group').getAttribute('data-session-id')).toBe('origin');
+    expect(screen.queryByTestId('tool-pill')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /Agent at work/ }));
+    expect(screen.getByTestId('tool-pill').textContent).toContain('ordinary');
+    expect(screen.getByTestId('tool-pill').getAttribute('data-session-id')).toBe('origin');
     expect(screen.getByTestId('progress-widget')).toBeTruthy();
   });
 
-  it('routes streaming ordinary tool calls through ToolGroup while progress tools remain direct', () => {
+  it('routes streaming ordinary tool calls through AgentActivity while progress tools remain direct', () => {
     const current = {
       messageId: 'stream-1',
       blocks: new Map<string, StreamingBlock>([
@@ -461,8 +457,10 @@ describe('ChatArea', () => {
         progressByToolId={{ progress: { progressId: 'progress', items: [] } }}
       />,
     );
-    expect(screen.getByTestId('tool-group').textContent).toContain('ordinary');
-    expect(screen.getByTestId('tool-group').getAttribute('data-session-id')).toBe('origin');
+    expect(screen.queryByTestId('tool-pill')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /Agent at work/ }));
+    expect(screen.getByTestId('tool-pill').textContent).toContain('ordinary');
+    expect(screen.getByTestId('tool-pill').getAttribute('data-session-id')).toBe('origin');
     expect(screen.getByTestId('progress-widget')).toBeTruthy();
   });
 
