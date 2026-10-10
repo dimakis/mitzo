@@ -5,22 +5,22 @@ reauthorizes and selects **Replace API key**. If macOS has not authorized the si
 Mitzo Keychain helper for this item, this explicit action opens native authorization on
 the Mac. **Always Allow** retains access for that signed helper and item; it is never
 requested for Python or another interpreter. After authorization, the replacement form
-opens automatically. The operator enters a masked replacement once, and confirms
-that it belongs to the same work OpenAI project, then selects **Save API key**. The browser clears the key before waiting
+opens automatically. The operator enters a masked replacement once,
+and selects **Save API key**. No same/different-project assertion is required; OpenAI bills the account associated with the supplied key. The browser clears the key before waiting
 for the response and does not put it in browser storage.
 
 Validation first checks `gpt-6-luna` availability, then sends one fixed, tool-free Responses
 request with `reasoning.effort=low`, `store=false`, and at most 256 output tokens. The form
-discloses the model, reasoning setting and selected billing account before submission.
+discloses the model, reasoning setting and that billing follows the supplied key before submission.
 Failure leaves both stored credentials unchanged. The API check cannot independently
-establish the billing project behind a key; the same-project confirmation is required.
+establish the billing project behind a key. The form discloses that billing follows the supplied key without asking the operator to identify its OpenAI project. This replaces the credential for the selected Mitzo connection; it does not assert continuity of the external billing identity. Older clients may still send `sameProject`, but it is optional and not an admission requirement.
 
 ## Custody and recovery
 
 The existing Keychain item is authoritative because host API calls already use it and
 OpenShell does not export stored credentials. Mitzo replicates the validated key to the
 existing, pinned OpenShell provider. It does not create providers, alter account profiles,
-change their billing selection, or change network policy.
+change network policy, or assert that the replacement belongs to the previous billing identity.
 
 An atomic Keychain update writes the secret and an operation receipt together, preserving
 the existing item's access controls. The receipt includes an integrity check kept inside
@@ -116,3 +116,7 @@ Actual app/provider acceptance requires separately reviewed enrollment on the ca
 staging service. Use staging-owned credentials and Keychain names; never copy production
 credentials or configuration. State the exact Luna model and charged account before a
 live check. Production activation remains a separate explicit action.
+
+Many retained chats drain in batches of at most four. Each batch settles before the next starts; every workspace must be confirmed stopped before credentials change. A failed or uncertain stop refuses the write, with no force restart or retry. Failures before any credential write starts are definite not-saved outcomes when there was no prior pending update; configuration drift still blocks consumer admission. If the save deadline expires before any credential write starts, the journal returns a definite not-saved result and requires a fresh status revision before another mutation. The UI ends save progress before refreshing an interrupted request, and uses the journal’s known failure rather than guessing whether a key was saved.
+
+After a lost save response, refresh distinguishes a new completed receipt from an older ready key. A newly verified receipt reports that the saved key is ready; an unchanged older receipt explicitly leaves the replacement unconfirmed. Readiness alone never claims that the just-submitted replacement was saved.

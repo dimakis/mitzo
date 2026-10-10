@@ -91,7 +91,6 @@ export async function getOpenAIKeyStatus(): Promise<OpenAIKeyHealth[]> {
 type OpenAIKeySelection = {
   accountId: string;
   revision: string;
-  sameProject: boolean;
   csrf: string;
 };
 export async function authorizeOpenAIKey(input: {

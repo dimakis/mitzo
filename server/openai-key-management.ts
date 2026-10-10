@@ -56,7 +56,12 @@ export interface OpenAIKeyHealth {
   errorCode: string | null;
   verifiedAt: number | null;
 }
-type Selection = { accountId: string; revision: string; sameProject: boolean };
+type Selection = {
+  accountId: string;
+  revision: string;
+  /** Older clients sent this assertion. It cannot establish the key's billing identity. */
+  sameProject?: boolean;
+};
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 
 /** Keychain is canonical for the existing host consumer; the gateway is its managed replica.
@@ -144,8 +149,17 @@ export class OpenAIKeyManagement {
       keychain: keychain.version,
       gateway: gateway.version,
     });
+    const bindingChanged = !!latest && latest.binding !== binding;
+    // A pre-write abort proves this candidate was not installed, but an
+    // unversioned legacy value may have changed outside the controller. Do not
+    // reopen consumers or offer to copy that unrecognized saved value.
+    const unresolvedLegacyChange =
+      !completed &&
+      keychain.version === null &&
+      !!this.options.store.unresolvedLegacyChange(account.id, binding);
     const ready =
       !pending &&
+      !bindingChanged &&
       completed?.binding === binding &&
       keychain.version === completed.id &&
       gateway.version === completed.gatewayVersion;
@@ -154,19 +168,30 @@ export class OpenAIKeyManagement {
       (keychain.version !== null ||
         keychain.managed === true ||
         (latest?.phase === 'aborted' && latest.keychainBeforeVersion !== null));
-    const needsAttention = !!pending || (!!completed && !ready) || knownUnpairedKey;
+    const needsAttention =
+      !!pending ||
+      (!!completed && !ready) ||
+      knownUnpairedKey ||
+      bindingChanged ||
+      unresolvedLegacyChange;
     const status: OpenAIKeyHealth = {
       accountId: account.id,
       label: account.label,
       revision,
       health: ready ? 'ready' : needsAttention ? 'needs_attention' : 'not_verified',
-      canSynchronize: pending
-        ? pending.binding === binding && keychain.version === pending.id
-        : completed
-          ? completed.binding === binding && keychain.version === completed.id
-          : keychain.version === null && keychain.managed !== true,
+      canSynchronize:
+        bindingChanged || unresolvedLegacyChange
+          ? false
+          : pending
+            ? pending.binding === binding && keychain.version === pending.id
+            : completed
+              ? completed.binding === binding && keychain.version === completed.id
+              : keychain.version === null && keychain.managed !== true,
       errorCode: needsAttention
-        ? (pending?.errorCode ?? 'CREDENTIAL_DRIFT')
+        ? (pending?.errorCode ??
+          (unresolvedLegacyChange ? (latest?.errorCode ?? 'ACCOUNT_CHANGED') : null) ??
+          (bindingChanged && latest?.phase === 'aborted' ? latest.errorCode : null) ??
+          'CREDENTIAL_DRIFT')
         : latest?.phase === 'aborted'
           ? latest.errorCode
           : null,
@@ -291,7 +316,6 @@ export class OpenAIKeyManagement {
     });
   }
   private async selected(input: Selection, signal: AbortSignal) {
-    if (!input.sameProject) throw new Error('Confirm the same work project');
     const account = this.account(input.accountId);
     const state = await this.state(account, signal);
     if (!input.revision || state.status.revision !== input.revision)
@@ -402,12 +426,22 @@ export class OpenAIKeyManagement {
       failure = 'CHAT_UPDATE_UNCONFIRMED';
       await this.finish(operation, account, value, signal);
     } catch {
+      const notSaved = !writeStarted && !selected.pending;
       this.options.store.update(operation.id, {
-        ...(!writeStarted && failure === 'CHAT_PAUSE_FAILED' && !selected.pending
-          ? { phase: 'aborted' as const }
-          : {}),
+        ...(notSaved ? { phase: 'aborted' as const } : {}),
         errorCode: failure,
       });
+      if (notSaved && signal.aborted) {
+        // The journal proves no credential write started, including failure in
+        // the post-drain Keychain read. Do not reread with the expired signal.
+        // A fresh status check must establish a revision before another mutation.
+        return {
+          ...selected.status,
+          revision: '',
+          canSynchronize: false,
+          errorCode: failure,
+        };
+      }
     }
     return (await this.state(this.account(account.id), signal)).status;
   }

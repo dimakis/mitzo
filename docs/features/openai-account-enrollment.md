@@ -14,8 +14,7 @@ account profiles, API replies, error messages, or enrollment metadata.
 
 A successful setup creates a separate account. Select it explicitly when starting a new chat.
 Existing accounts, saved keys, provider bindings, and conversation billing remain unchanged.
-Use this flow for a different project; the separate same-project key replacement flow is not
-required and is not enabled by this feature. Enrolled accounts are excluded from that
+Use this flow to add a separate Mitzo connection. Key replacement updates an existing connection and is not enabled by this feature. Enrolled accounts are excluded from that
 replacement flow even if their IDs are listed in its operator configuration.
 
 ## Configuration
