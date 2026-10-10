@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import {
+  agentProfileLabel,
   SymposiumConfigurationOperationSchema,
   canonicalConfigurationOperationJson,
   type SymposiumConfigurationOperation,
@@ -301,7 +302,7 @@ export class SymposiumHostGrants {
     const seat: SeatConfig = selected
       ? SeatConfigSchema.parse({
           ...inputSeat,
-          name: selected.name,
+          name: agentProfileLabel(selected),
           role: selected.role,
           systemPrompt: selected.instructions,
           expectedOutput: selected.expectedOutput,
