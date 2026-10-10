@@ -76,6 +76,29 @@ afterEach(() => {
 });
 const post = (data: object = body) =>
   request(app).post('/sessions').set('Authorization', `Bearer ${token}`).send(data);
+
+it('retains the profile name and descriptor together in the seat identity', async () => {
+  profiles.save('user', {
+    profileId: 'named-builder',
+    expectedRevision: 0,
+    idempotencyKey: 'named-seed',
+    definition: {
+      name: 'Bob',
+      descriptor: 'The architect',
+      role: 'coder',
+      instructions: 'Implement reviewed designs.',
+      expectedOutput: 'Tested patch',
+      acceptanceCriteria: ['Tests pass'],
+      modelPolicyRole: 'coder',
+    },
+  });
+  await post({ ...body, profileSelection: { profileId: 'named-builder', revision: 1 } }).expect(
+    201,
+  );
+  expect(JSON.parse(store.getSession('allocated')!.symposiumConfig!).seats[0].name).toBe(
+    'Bob · The architect',
+  );
+});
 it('requires an operator login and rejects internal-token callers', async () => {
   expect((await request(app).post('/sessions').send(body)).status).toBe(403);
   expect(

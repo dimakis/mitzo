@@ -1,3 +1,4 @@
+import { agentProfileLabel } from '@mitzo/protocol';
 import { useEffect, useState } from 'react';
 import type { SymposiumProfileDefinition } from '@mitzo/protocol';
 import { SymposiumProfileRecipeEditor } from './SymposiumProfileRecipeEditor';
@@ -192,7 +193,7 @@ export function SymposiumProfilePicker({
               key={`${version.profileId}:${version.revision}`}
               value={`${version.profileId}:${version.revision}`}
             >
-              {version.definition.name} · v{version.revision}
+              {agentProfileLabel(version.definition)} · v{version.revision}
             </option>
           ))}
         </select>
@@ -294,6 +295,23 @@ export function SymposiumProfilePicker({
               <input
                 value={definition.name}
                 onChange={(event) => update('name', event.target.value)}
+              />
+            </label>
+            <label>
+              Descriptor
+              <input
+                maxLength={80}
+                value={definition.descriptor ?? ''}
+                placeholder="The architect"
+                onChange={(event) => update('descriptor', event.target.value || undefined)}
+              />
+            </label>
+            <label>
+              Description
+              <textarea
+                maxLength={500}
+                value={definition.description ?? ''}
+                onChange={(event) => update('description', event.target.value)}
               />
             </label>
             <label>

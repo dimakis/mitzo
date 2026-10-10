@@ -1,4 +1,12 @@
 // @mitzo/protocol — shared types, schemas, and utilities for the Mitzo v2 protocol.
+export type {
+  AgentLibraryDraft,
+  AgentLibraryVersion,
+  AgentLibraryCatalog,
+} from './agent-library.js';
+export { agentProfileLabel } from './agent-library.js';
+export { AgentProfileSelectionSchema, AgentLibraryVersionSchema } from './agent-library.js';
+export type { AgentProfileSelection } from './agent-library.js';
 
 // Types
 export type {

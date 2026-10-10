@@ -114,6 +114,7 @@ import { applyTierOverrides } from './tool-tiers.js';
 import { loadRepoConfig } from './repo-config.js';
 import { loadProjectHooks } from './hook-bridge.js';
 import { buildPermissionHandler } from './permission-handler.js';
+import { setSkillPolicy } from './skill-policy.js';
 import { runQueryLoop, broadcastToObservers } from './query-loop.js';
 import { clearSessionImages } from './image-store.js';
 import { AsyncQueue } from './async-queue.js';
@@ -198,6 +199,10 @@ export function setSessionsChangedCallback(cb: () => void): void {
 import { EventStore } from './event-store.js';
 import { capturePromptComparison } from './prompt-compare.js';
 import { accountSessionName } from './account-session-name.js';
+import { resolveChatAgentProfile } from './agent-library-binding.js';
+import { readAgentLibraryProfile } from './agent-library-transport.js';
+import { buildAgentProfilePrompt } from './agent-library-prompt.js';
+import type { AgentLibraryVersion, AgentProfileSelection } from '@mitzo/protocol';
 import { shouldAutoRename, extractRecentPrompts } from './auto-rename.js';
 import {
   registerSession,
@@ -1053,6 +1058,8 @@ export async function startChat(
     onTerminalOutcome?: (error?: Error) => void;
     telosTaskId?: string;
     agentName?: string;
+    agentProfile?: AgentProfileSelection;
+    operatorConnectionId?: string;
     userIntent?: string;
     reattachOnly?: boolean;
   },
@@ -1133,6 +1140,8 @@ async function _startChatInner(
     onTerminalOutcome?: (error?: Error) => void;
     telosTaskId?: string;
     agentName?: string;
+    agentProfile?: AgentProfileSelection;
+    operatorConnectionId?: string;
     userIntent?: string;
     reattachOnly?: boolean;
   },
@@ -1143,6 +1152,7 @@ async function _startChatInner(
   const initialMessageId = options.clientMsgId ?? randomUUID();
   let openShellRequested = false;
   let accountBinding;
+  let agentProfile: AgentLibraryVersion | undefined;
   let codexProfile: CodexAccountProfile | undefined;
   let apiKey: string | undefined;
   let enrolledOpenAIAccount = false;
@@ -1156,6 +1166,14 @@ async function _startChatInner(
       options.accountProfiles ??
       (options.accountId || storedBinding ? loadAccountProfiles() : undefined);
     accountBinding = resolveAccountSelection(options, storedBinding, !!options.resume, profiles);
+    if (options.agentProfile || storedMeta?.agentProfile)
+      agentProfile = await resolveChatAgentProfile({
+        requested: options.agentProfile,
+        stored: storedMeta?.agentProfile,
+        resume: !!options.resume,
+        provider: accountBinding?.provider,
+        lookup: (selection) => readAgentLibraryProfile(selection, options.operatorConnectionId),
+      });
     if (!accountBinding && openShellAvailable)
       throw new Error('OpenShell execution requires an explicit account selection');
     if (accountBinding) {
@@ -1583,6 +1601,7 @@ async function _startChatInner(
   if (options.initialSessionId) {
     eventStore.upsertSession({
       sessionId: options.initialSessionId,
+      ...(agentProfile ? { agentProfile } : {}),
       cwd,
       mode,
       initialPrompt: fullPrompt,
@@ -1610,6 +1629,7 @@ async function _startChatInner(
   });
 
   const session = registry.get(clientId)!;
+  if (options.skillAllowedTools) setSkillPolicy(registry, clientId, options.skillAllowedTools);
   session.model = options.model ?? session.model;
   session.inputQueue = inputQueue as { push: (msg: unknown) => void; close: () => void };
   _onSessionChange?.(clientId, 'start');
@@ -1737,6 +1757,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
     buildClientCapabilitiesPrompt() +
     workspacePrompt +
     (supportsHostTaskTools(openShellSelected) ? buildTaskPromptForSession(clientId) : '') +
+    (agentProfile ? `\n\n${buildAgentProfilePrompt(agentProfile.definition)}` : '') +
     bootContextAppend;
 
   // Fire-and-forget: load agent definition and store in session registry.
@@ -1786,6 +1807,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
     if (newSdkSessionId) {
       eventStore.upsertSession({
         sessionId: newSdkSessionId,
+        ...(agentProfile ? { agentProfile } : {}),
         accountBinding,
         bootContext: JSON.stringify(bootContextMsg),
         cwd,
@@ -2067,6 +2089,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
               sessionId,
               ...(accountBinding ? { accountBinding } : {}),
               bootContext: JSON.stringify(bootContextMsg),
+              ...(agentProfile ? { agentProfile } : {}),
             });
           }
           options.onSessionResolved?.(sessionId);
