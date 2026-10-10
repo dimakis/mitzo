@@ -229,10 +229,12 @@ do not establish physical provider cleanup. Context
 source grants default to empty; a reference does not itself load conversation
 history. Shared workspace access remains governed by the host-issued grant.
 
-Each agent has a stable color accent alongside its name. **All** is a read-only
-combined timeline; write in a named agent's stream. Type `@` or choose **Switch
-agent** to select a recipient and switch streams. Drafts stay with their agent,
-and recipient selection never dispatches a message automatically.
+Each agent has a stable color accent alongside its name. Compose from **All** or
+an individual stream by explicitly choosing a **Message recipient**. Type `@` or
+choose **Choose recipient** to change the target without changing the viewed
+conversation. Drafts stay with their recipient; switching transcript tabs never
+retargets them. Queue, approve, send, and Stop remain explicit actions beside the
+named delivery, including in the combined timeline.
 
 Adding a reviewer can prepare a stopped ordinary conversation's isolated roster,
 but admission still requires the verified runtime. Roster changes revalidate

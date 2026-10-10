@@ -556,12 +556,18 @@ describe('SymposiumConversation', () => {
     });
     render(<SymposiumConversation sessionId="session" chat={chat} ordinaryComposer={null} />);
     fireEvent.click(await screen.findByRole('tab', { name: 'Architect' }));
+    fireEvent.change(screen.getByRole('combobox', { name: 'Message recipient' }), {
+      target: { value: 'architect' },
+    });
     fireEvent.change(screen.getByRole('textbox', { name: 'Message for Architect' }), {
       target: { value: 'Hello' },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Queue for approval' }));
     await screen.findByText('Response lost');
     fireEvent.click(screen.getByRole('tab', { name: 'Reviewer' }));
+    fireEvent.change(screen.getByRole('combobox', { name: 'Message recipient' }), {
+      target: { value: 'reviewer' },
+    });
     fireEvent.change(screen.getByRole('textbox', { name: 'Message for Reviewer' }), {
       target: { value: 'Another message' },
     });
@@ -626,6 +632,9 @@ describe('SymposiumConversation', () => {
       screen.getByRole('button', { name: 'Queue excerpt for approval' }).hasAttribute('disabled'),
     ).toBe(true);
     expect(symposiumExcerptOperations.snapshot().session.request.originalContent).toBe('Plan');
+    fireEvent.change(screen.getByRole('combobox', { name: 'Message recipient' }), {
+      target: { value: 'architect' },
+    });
     fireEvent.change(screen.getByRole('textbox', { name: 'Message for Architect' }), {
       target: { value: 'Separate directed message' },
     });
@@ -759,7 +768,7 @@ it('simplifies after the last reviewer is removed but keeps isolated delivery ro
   expect(anchorTab.getAttribute('aria-selected')).toBe('true');
   expect(screen.getByRole('button', { name: 'Send to Architect' })).toBeTruthy();
   fireEvent.click(screen.getByRole('tab', { name: 'All' }));
-  expect(screen.queryByRole('button', { name: 'Send to Architect' })).toBeNull();
+  expect(screen.getByRole('button', { name: 'Send to Architect' })).toBeTruthy();
 });
 
 const directedDelivery = (deliveryStatus = 'awaiting_intervention') => ({
@@ -775,7 +784,7 @@ const directedDelivery = (deliveryStatus = 'awaiting_intervention') => ({
 });
 
 it.each(['awaiting_intervention', 'ready', 'executing', 'recovery_required'])(
-  'keeps All receipts readable without delivery mutations for %s',
+  'keeps All receipts readable with explicit controls and no automatic mutations for %s',
   async (deliveryStatus) => {
     vi.mocked(apiFetch).mockImplementation(async (url) =>
       json(
@@ -791,8 +800,8 @@ it.each(['awaiting_intervention', 'ready', 'executing', 'recovery_required'])(
     expect(screen.getByText('Original: Original request')).toBeTruthy();
     expect(screen.getByText('Approved content: Reviewed request')).toBeTruthy();
     expect(
-      screen.queryByRole('button', { name: /^(Approve delivery|Send to|Stop delivery)/ }),
-    ).toBeNull();
+      screen.getByRole('button', { name: 'Stop delivery to Architect, Reviewer' }),
+    ).toBeTruthy();
     fireEvent.click(screen.getByRole('tab', { name: 'Reviewer' }));
     expect(
       await screen.findByRole('button', { name: 'Stop delivery to Architect, Reviewer' }),
@@ -805,8 +814,8 @@ it.each(['awaiting_intervention', 'ready', 'executing', 'recovery_required'])(
       expect(screen.getByRole('button', { name: 'Send to Architect, Reviewer' })).toBeTruthy();
     fireEvent.click(screen.getByRole('tab', { name: 'All' }));
     expect(
-      screen.queryByRole('button', { name: /^(Approve delivery|Send to|Stop delivery)/ }),
-    ).toBeNull();
+      screen.getByRole('button', { name: 'Stop delivery to Architect, Reviewer' }),
+    ).toBeTruthy();
     expect(vi.mocked(apiFetch).mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false);
   },
 );
@@ -874,7 +883,7 @@ it('keeps Stop usable while dispatch awaits completion and names every recipient
   fireEvent.click(await screen.findByRole('tab', { name: 'Reviewer' }));
   fireEvent.click(await screen.findByRole('button', { name: 'Send to Architect, Reviewer' }));
   fireEvent.click(screen.getByRole('tab', { name: 'All' }));
-  expect(screen.queryByRole('button', { name: 'Stop delivery to Architect, Reviewer' })).toBeNull();
+  expect(screen.getByRole('button', { name: 'Stop delivery to Architect, Reviewer' })).toBeTruthy();
   expect(screen.getByText('Original: Original request')).toBeTruthy();
   fireEvent.click(screen.getByRole('tab', { name: 'Reviewer' }));
   const stop = screen.getByRole('button', { name: 'Stop delivery to Architect, Reviewer' });
@@ -1244,21 +1253,23 @@ it('retains Stop during an in-flight dispatch when a status refresh fails', asyn
   finishSend(json({}));
 });
 
-it('keeps All as a read-only timeline and directs the composer only to a selected agent ID', async () => {
+it('keeps recipient selection independent of the viewed agent stream', async () => {
   vi.mocked(apiFetch).mockImplementation(async (url) =>
     json(String(url).includes('/perspectives') ? page : status),
   );
-  render(
-    <SymposiumConversation
-      sessionId="session"
-      chat={chat}
-      ordinaryComposer={<div>Ordinary composer</div>}
-    />,
-  );
+  render(<SymposiumConversation sessionId="session" chat={chat} ordinaryComposer={null} />);
   await screen.findByRole('tab', { name: 'All' });
-  expect(screen.queryByRole('textbox', { name: /Message for/ })).toBeNull();
   fireEvent.click(screen.getByRole('tab', { name: 'Reviewer' }));
-  expect(await screen.findByRole('textbox', { name: 'Message for Reviewer' })).toBeTruthy();
+  expect(
+    (screen.getByRole('combobox', { name: 'Message recipient' }) as HTMLSelectElement).value,
+  ).toBe('');
+  expect(
+    (screen.getByRole('button', { name: 'Queue for approval' }) as HTMLButtonElement).disabled,
+  ).toBe(true);
+  fireEvent.change(screen.getByRole('combobox', { name: 'Message recipient' }), {
+    target: { value: 'reviewer' },
+  });
+  expect(screen.getByRole('textbox', { name: 'Message for Reviewer' })).toBeTruthy();
 });
 
 it('offers @ recipients only for admitted agents, excluding removed history from targeting', async () => {
@@ -1496,6 +1507,9 @@ it('retains the pending directed queue identity through the actual keyed session
   });
   const view = render(<ResponsiveChatView />);
   fireEvent.click(await screen.findByRole('tab', { name: 'Architect' }));
+  fireEvent.change(screen.getByRole('combobox', { name: 'Message recipient' }), {
+    target: { value: 'architect' },
+  });
   fireEvent.change(screen.getByRole('textbox', { name: 'Message for Architect' }), {
     target: { value: 'Original draft' },
   });
@@ -1507,6 +1521,9 @@ it('retains the pending directed queue identity through the actual keyed session
   navigation.active = 'session';
   view.rerender(<ResponsiveChatView />);
   fireEvent.click(await screen.findByRole('tab', { name: 'Architect' }));
+  fireEvent.change(screen.getByRole('combobox', { name: 'Message recipient' }), {
+    target: { value: 'architect' },
+  });
   fireEvent.change(screen.getByRole('textbox', { name: 'Message for Architect' }), {
     target: { value: 'Original draft' },
   });
@@ -1545,6 +1562,9 @@ it('keeps a lost directed queue fenced on return until its exact saved delivery 
   });
   const view = render(<ResponsiveChatView />);
   fireEvent.click(await screen.findByRole('tab', { name: 'Architect' }));
+  fireEvent.change(screen.getByRole('combobox', { name: 'Message recipient' }), {
+    target: { value: 'architect' },
+  });
   fireEvent.change(screen.getByRole('textbox', { name: 'Message for Architect' }), {
     target: { value: 'Original draft' },
   });
@@ -1556,6 +1576,9 @@ it('keeps a lost directed queue fenced on return until its exact saved delivery 
   navigation.active = 'session';
   view.rerender(<ResponsiveChatView />);
   fireEvent.click(await screen.findByRole('tab', { name: 'Architect' }));
+  fireEvent.change(screen.getByRole('combobox', { name: 'Message recipient' }), {
+    target: { value: 'architect' },
+  });
   fireEvent.change(screen.getByRole('textbox', { name: 'Message for Architect' }), {
     target: { value: 'A different draft' },
   });
@@ -1638,6 +1661,9 @@ it.each(['transport', 'body'] as const)(
     });
     const view = render(<ResponsiveChatView />);
     fireEvent.click(await screen.findByRole('tab', { name: 'Architect' }));
+    fireEvent.change(screen.getByRole('combobox', { name: 'Message recipient' }), {
+      target: { value: 'architect' },
+    });
     fireEvent.change(screen.getByRole('textbox', { name: 'Message for Architect' }), {
       target: { value: 'Original draft' },
     });
@@ -1668,6 +1694,9 @@ it.each(['transport', 'body'] as const)(
     navigation.active = 'session';
     view.rerender(<ResponsiveChatView />);
     fireEvent.click(await screen.findByRole('tab', { name: 'Architect' }));
+    fireEvent.change(screen.getByRole('combobox', { name: 'Message recipient' }), {
+      target: { value: 'architect' },
+    });
     fireEvent.change(screen.getByRole('textbox', { name: 'Message for Architect' }), {
       target: { value: 'Original draft' },
     });
@@ -1998,3 +2027,160 @@ it.each([
     }
   },
 );
+
+it('composes in All only after an explicit recipient choice without changing the viewed timeline', async () => {
+  const posts: { url: string; body: Record<string, unknown> }[] = [];
+  vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+    if (init?.method === 'POST') {
+      posts.push({ url: String(url), body: JSON.parse(String(init.body)) });
+      return json({
+        ...directedDelivery(),
+        ...posts.at(-1)!.body,
+        sessionId: 'session',
+        deliveredContent: null,
+      });
+    }
+    return json(String(url).includes('/perspectives') ? page : status);
+  });
+  render(<SymposiumConversation sessionId="session" chat={chat} ordinaryComposer={null} />);
+  const all = await screen.findByRole('tab', { name: 'All' });
+  const selector = screen.getByRole('combobox', { name: 'Message recipient' });
+  expect((selector as HTMLSelectElement).value).toBe('');
+  expect(
+    (screen.getByRole('button', { name: 'Queue for approval' }) as HTMLButtonElement).disabled,
+  ).toBe(true);
+  fireEvent.change(selector, { target: { value: 'reviewer' } });
+  expect(all.getAttribute('aria-selected')).toBe('true');
+  fireEvent.change(screen.getByRole('textbox', { name: 'Message for Reviewer' }), {
+    target: { value: 'Check this' },
+  });
+  expect(posts).toHaveLength(0);
+  fireEvent.click(screen.getByRole('button', { name: 'Queue for approval' }));
+  await waitFor(() => expect(posts).toHaveLength(1));
+  expect(posts[0]).toMatchObject({
+    url: '/api/sessions/session/symposium/deliveries',
+    body: { recipientSeatIds: ['reviewer'], originalContent: 'Check this' },
+  });
+  await waitFor(() =>
+    expect(
+      (screen.getByRole('textbox', { name: 'Message for Reviewer' }) as HTMLTextAreaElement).value,
+    ).toBe(''),
+  );
+  expect(posts).toHaveLength(1);
+});
+
+it('retains the explicitly chosen recipient and its draft when transcript views change', async () => {
+  const posts: Record<string, unknown>[] = [];
+  vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+    if (init?.method === 'POST') {
+      posts.push(JSON.parse(String(init.body)));
+      return json({
+        ...directedDelivery(),
+        ...posts.at(-1),
+        sessionId: 'session',
+        deliveredContent: null,
+      });
+    }
+    return json(String(url).includes('/perspectives') ? page : status);
+  });
+  render(<SymposiumConversation sessionId="session" chat={chat} ordinaryComposer={null} />);
+  await screen.findByRole('tab', { name: 'All' });
+  fireEvent.change(screen.getByRole('combobox', { name: 'Message recipient' }), {
+    target: { value: 'reviewer' },
+  });
+  fireEvent.change(screen.getByRole('textbox', { name: 'Message for Reviewer' }), {
+    target: { value: 'Reviewer aside' },
+  });
+  fireEvent.click(screen.getByRole('tab', { name: 'Architect' }));
+  expect(
+    (screen.getByRole('combobox', { name: 'Message recipient' }) as HTMLSelectElement).value,
+  ).toBe('reviewer');
+  expect(
+    (screen.getByRole('textbox', { name: 'Message for Reviewer' }) as HTMLTextAreaElement).value,
+  ).toBe('Reviewer aside');
+  fireEvent.click(screen.getByRole('button', { name: 'Queue for approval' }));
+  await waitFor(() => expect(posts).toHaveLength(1));
+  expect(posts[0].recipientSeatIds).toEqual(['reviewer']);
+});
+
+it('approves and dispatches only the selected delivery from All and keeps Stop available', async () => {
+  let delivery = {
+    ...directedDelivery(),
+    recipientSeatIds: ['reviewer'],
+    recipients: [{ seatId: 'reviewer', status: 'pending' }],
+  };
+  let finish!: (response: Response) => void;
+  const posts: string[] = [];
+  vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+    if (init?.method === 'POST') posts.push(String(url));
+    if (String(url).endsWith('/interventions')) {
+      expect(JSON.parse(String(init?.body)).action).toBe('approve');
+      delivery = { ...delivery, status: 'ready' };
+      return json(delivery);
+    }
+    if (String(url).endsWith('/dispatch'))
+      return new Promise<Response>((resolve) => {
+        finish = resolve;
+      });
+    if (String(url).endsWith('/cancel')) return json({ ...delivery, status: 'cancelled' });
+    return json(
+      String(url).includes('/perspectives')
+        ? page
+        : { ...status, runtimeAvailable: true, deliveries: [delivery] },
+    );
+  });
+  render(<SymposiumConversation sessionId="session" chat={chat} ordinaryComposer={null} />);
+  const approve = await screen.findByRole('button', { name: 'Approve delivery to Reviewer' });
+  expect(posts).toHaveLength(0);
+  expect(screen.queryByRole('button', { name: 'Send to Reviewer' })).toBeNull();
+  fireEvent.click(approve);
+  const send = await screen.findByRole('button', { name: 'Send to Reviewer' });
+  expect(posts).toEqual([
+    '/api/sessions/session/symposium/deliveries/review-delivery/interventions',
+  ]);
+  fireEvent.click(send);
+  await waitFor(() => expect(posts.filter((url) => url.endsWith('/dispatch'))).toHaveLength(1));
+  fireEvent.click(screen.getByRole('button', { name: 'Stop delivery to Reviewer' }));
+  await waitFor(() => expect(posts.filter((url) => url.endsWith('/cancel'))).toHaveLength(1));
+  expect(screen.getByRole('tab', { name: 'All' }).getAttribute('aria-selected')).toBe('true');
+  await act(async () => finish(json(delivery)));
+});
+
+it('never retargets a selected draft when that recipient loses admission', async () => {
+  let admitted = true;
+  vi.mocked(apiFetch).mockImplementation(async (url) =>
+    json(
+      String(url).includes('/perspectives')
+        ? page
+        : {
+            ...status,
+            config: { ...status.config, anchorSeatId: 'architect' },
+            seats: status.seats.map((seat) =>
+              seat.seatId === 'reviewer'
+                ? { ...seat, admitted, membership: { state: admitted ? 'active' : 'removed' } }
+                : seat,
+            ),
+          },
+    ),
+  );
+  render(<SymposiumConversation sessionId="session" chat={chat} ordinaryComposer={null} />);
+  await screen.findByRole('tab', { name: 'All' });
+  fireEvent.change(screen.getByRole('combobox', { name: 'Message recipient' }), {
+    target: { value: 'reviewer' },
+  });
+  fireEvent.change(screen.getByRole('textbox', { name: 'Message for Reviewer' }), {
+    target: { value: 'Private draft' },
+  });
+  admitted = false;
+  window.dispatchEvent(new Event('symposium-roster-changed'));
+  await waitFor(() =>
+    expect(
+      (screen.getByRole('button', { name: 'Queue for approval' }) as HTMLButtonElement).disabled,
+    ).toBe(true),
+  );
+  expect(
+    (screen.getByRole('textbox', { name: 'Message for Reviewer' }) as HTMLTextAreaElement).value,
+  ).toBe('Private draft');
+  fireEvent.click(screen.getByRole('button', { name: 'Queue for approval' }));
+  expect(vi.mocked(apiFetch).mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false);
+});
