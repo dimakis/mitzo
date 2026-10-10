@@ -499,7 +499,7 @@ export class OutputContributors {
         ? 'running'
         : unsettled
           ? 'stopping'
-          : available && !['failed', 'recovery_required'].includes(deliveries.at(-1)?.status ?? '')
+          : available && deliveries.at(-1)?.status !== 'recovery_required'
             ? 'idle'
             : 'unavailable',
       messages: messages.slice(-20),

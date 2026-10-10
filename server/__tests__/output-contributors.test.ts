@@ -122,6 +122,81 @@ function setup() {
   return { service, store, deps, input, port, output };
 }
 describe('ordinary contributors to registered outputs', () => {
+  it.each([true, false])(
+    'permits fresh explicit work only after failed provider cleanup is confirmed (%s)',
+    async (confirmed) => {
+      const { service, input, port, store } = setup();
+      let failedChild = '';
+      vi.mocked(port.startChat).mockImplementationOnce(
+        async (_transport, _client, _prompt, options) => {
+          failedChild = options.initialSessionId!;
+          store.upsertSession({
+            sessionId: failedChild,
+            conversationSource: 'mitzo',
+            accountBinding: options.accountProfiles!.resolve(input.accountId, input.model),
+          });
+          store.append(failedChild, 'contributor_execution', {
+            ...options.contributorExecution,
+            childSessionId: failedChild,
+          });
+          options.ordinaryTurnLifecycle!.beforeDispatch(options.clientMsgId!);
+          options.ordinaryTurnLifecycle!.accepted(
+            options.clientMsgId!,
+            'failed-thread',
+            'failed-turn',
+          );
+          if (confirmed) {
+            options.ordinaryTurnLifecycle!.terminal(options.clientMsgId!, 'failed-turn', 'failed');
+            options.onTurnResult?.({ is_error: true });
+          }
+          // Returning closes this exact query; only the confirmed variant has provider terminal proof.
+        },
+      );
+      const contributor = await service.add('source', input);
+      const result = await service.message('source', contributor.id, {
+        requestId: 'failed-request',
+        text: 'Try this',
+      });
+      expect(result.delivery.status).toBe('failed');
+      const failure = store.getSymposiumDelivery(result.delivery.deliveryId)!;
+      expect(store.getUnsettledSymposiumSeatExecutions(contributor.id, 'contributor')).toHaveLength(
+        confirmed ? 0 : 1,
+      );
+      expect(result.contributor.status).toBe(confirmed ? 'idle' : 'stopping');
+      expect((await service.list('source')).contributors[0].status).toBe(
+        confirmed ? 'idle' : 'stopping',
+      );
+      const replay = await service.message('source', contributor.id, {
+        requestId: 'failed-request',
+        text: 'Try this',
+      });
+      expect(replay.delivery.status).toBe('failed');
+      expect(port.startChat).toHaveBeenCalledOnce();
+      expect(store.getSymposiumDelivery(result.delivery.deliveryId)).toEqual(failure);
+      if (!confirmed) {
+        await expect(
+          service.message('source', contributor.id, {
+            requestId: 'new-explicit-request',
+            text: 'Corrected request',
+          }),
+        ).rejects.toThrow(/active or queued/);
+        expect(port.startChat).toHaveBeenCalledOnce();
+        return;
+      }
+      expect(
+        (await service.stop('source', contributor.id, { requestId: 'settled-stop' })).status,
+      ).toBe('idle');
+      const followup = await service.message('source', contributor.id, {
+        requestId: 'new-explicit-request',
+        text: 'Corrected request',
+      });
+      expect(followup.delivery.status).toBe('delivered');
+      expect(followup.contributor.status).toBe('idle');
+      expect(vi.mocked(port.startChat).mock.calls[1][3].resume).toBe(failedChild);
+      expect(store.getSymposiumDelivery(result.delivery.deliveryId)).toEqual(failure);
+    },
+  );
+
   it.each([
     { lateAcceptance: false, retained: 'current' },
     { lateAcceptance: true, retained: 'current' },

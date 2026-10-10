@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.9';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.39';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.40';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -39,7 +39,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '5af4e80dfb5b91ca7a7a2fba06ba3ec3661e121d9cada5480d83719d8fc78b06',
   '../symposium-ordinary-turn.ts':
     '9723bd4ee4acf6527fd624212b68068105545ceed0b855a5786632332f7e6be3',
-  '../output-contributors.ts': '1d72ae2b12e4117a4ca2874a57e323591b9151042f3dfb4b1102e122d85bd063',
+  '../output-contributors.ts': 'e9e4363910526e9db37930e06160614e002236f40353bcef5a3bed907b75c042',
   '../output-contributor-routes.ts':
     '4ab469643b1fc60e8bf2d7ca0b03c66f161cf8b9222d874804927b6eb0161501',
   '../session-output-references.ts':
