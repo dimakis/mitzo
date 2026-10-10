@@ -8,6 +8,12 @@ without discarding the current draft. Touch devices default to the native text e
 and standard selection behavior. Desktop and touch Vim preferences are remembered
 separately; enabling Vim on desktop does not change the touch default.
 
+The shared editor groups view choices (**Source**, **Preview**, **Split**) separately
+from editing-key preferences (**Standard**, **Vim**, **Relative line numbers**).
+Undo, redo and Markdown formatting use compact, labelled icon controls on their own
+row. Hover or keyboard focus identifies each icon; mobile controls retain full
+touch targets. Files and Knowledge use the same toolbar treatment.
+
 The Vim badge shows **NORMAL**, **INSERT**, or **VISUAL**. Common motions and
 operators work, including `h/j/k/l`, word motions, `gg/G`, `dd`, and text objects
 such as `ciw`. Press `i` to insert, `v` to select visually, and Escape to return
