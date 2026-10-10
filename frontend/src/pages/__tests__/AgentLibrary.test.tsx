@@ -4,6 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { MemoryRouter } from 'react-router-dom';
 import { AgentLibrary } from '../AgentLibrary';
 import { apiFetch } from '../../lib/api-fetch';
+import userEvent from '@testing-library/user-event';
 
 vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
 afterEach(() => {
@@ -101,6 +102,27 @@ it('retains working edits when another device has changed the saved draft', asyn
   await screen.findByRole('alert');
   expect(screen.getByLabelText('Agent name')).toHaveProperty('value', 'My Bob');
   expect(screen.getByRole('button', { name: 'Save draft' })).toHaveProperty('disabled', false);
+});
+it('preserves spaces and newlines while typing criteria and normalizes only when saving', async () => {
+  setup();
+  await screen.findByDisplayValue('Bob');
+  fireEvent.click(screen.getByRole('tab', { name: 'Instructions' }));
+  const area = screen.getByLabelText('Acceptance criteria');
+  const user = userEvent.setup();
+  await user.clear(area);
+  await user.type(area, 'Use evidence \n Compare options ');
+  expect(area).toHaveProperty('value', 'Use evidence \n Compare options ');
+  vi.mocked(apiFetch).mockImplementation(async (_path, init) => {
+    const body = JSON.parse(init!.body as string);
+    return response({ profileId: 'bob', version: 1, baseRevision: 3, definition: body.definition });
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Save draft' }));
+  await screen.findByText('Draft saved. Existing chats keep their published revision.');
+  const save = vi.mocked(apiFetch).mock.calls.find(([path]) => path.endsWith('/drafts'))!;
+  expect(JSON.parse(save[1]!.body as string).definition.acceptanceCriteria).toEqual([
+    'Use evidence',
+    'Compare options',
+  ]);
 });
 it('offers an advisor chat that uses the existing profile proposal tool', async () => {
   setup();

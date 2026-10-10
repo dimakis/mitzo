@@ -46,6 +46,7 @@ const normalize = (definition: SymposiumProfileDefinition): SymposiumProfileDefi
   ...definition,
   name: definition.name.trim(),
   descriptor: definition.descriptor?.trim() || undefined,
+  acceptanceCriteria: definition.acceptanceCriteria.map((s) => s.trim()).filter(Boolean),
   ...(definition.recipe
     ? {
         recipe: {
@@ -210,7 +211,7 @@ export function AgentLibrary() {
     !!editor.definition.descriptor?.trim() &&
     !!editor.definition.instructions.trim() &&
     !!editor.definition.expectedOutput.trim() &&
-    editor.definition.acceptanceCriteria.length > 0;
+    editor.definition.acceptanceCriteria.some((s) => s.trim());
   return (
     <main className="workspace-page agent-library-page">
       <WorkspacePageHeading

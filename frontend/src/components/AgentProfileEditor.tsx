@@ -86,15 +86,7 @@ export function AgentProfileEditor({
             <textarea
               rows={3}
               value={value.acceptanceCriteria.join('\n')}
-              onChange={(e) =>
-                update(
-                  'acceptanceCriteria',
-                  e.target.value
-                    .split('\n')
-                    .map((s) => s.trim())
-                    .filter(Boolean),
-                )
-              }
+              onChange={(e) => update('acceptanceCriteria', e.target.value.split('\n'))}
             />
           </label>
         </>
