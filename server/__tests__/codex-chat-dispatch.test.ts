@@ -607,6 +607,7 @@ it('routes an explicitly broker-bound ChatGPT subscription without reading a hos
 it('keeps Vertex on its native route when OpenShell is enabled', async () => {
   vi.resetModules();
   vi.clearAllMocks();
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{}')));
   const root = await mkdtemp(join(tmpdir(), 'mitzo-openshell-unsupported-'));
   await writeFile(
     join(root, '.mitzo.json'),

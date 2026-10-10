@@ -201,6 +201,46 @@ it('blocks ordinary send, interrupt and cold start while the contributor owner h
   }
 }, 15000);
 
+it('preserves trusted driver cleanup of its owned query while the durable cleanup fence remains unsettled', async () => {
+  const chat = await import('../chat.js');
+  const childId = 'trusted-contributor-cleanup-child';
+  chat.eventStore.upsertSession({ sessionId: childId });
+  chat.eventStore.append(childId, 'contributor_execution', {
+    childSessionId: childId,
+    coordinatorSessionId: 'coordinator',
+    deliveryId: 'delivery',
+    seatId: 'contributor',
+    claimToken: 'claim',
+    idempotencyKey: 'recipient',
+  });
+  const claims = vi
+    .spyOn(chat.eventStore, 'getUnsettledSymposiumSeatExecutions')
+    .mockReturnValue([{ attemptId: 1, claimToken: 'claim', idempotencyKey: 'recipient' }]);
+  const close = vi.fn();
+  const abortController = new AbortController();
+  chat.registry.register('trusted-contributor-driver', {
+    transport: { send: vi.fn(), isOpen: () => true },
+    abortController,
+    mode: 'agent',
+    sessionAllowList: new Set(),
+    sessionId: childId,
+  });
+  chat.registry.get('trusted-contributor-driver')!.queryInstance = {
+    close,
+  } as unknown as ManagedSession['queryInstance'];
+  try {
+    expect(() => chat.stopChat('trusted-contributor-driver')).not.toThrow();
+    expect(close).toHaveBeenCalledOnce();
+    expect(abortController.signal.aborted).toBe(true);
+    expect(
+      chat.eventStore.getUnsettledSymposiumSeatExecutions('coordinator', 'contributor'),
+    ).toHaveLength(1);
+  } finally {
+    claims.mockRestore();
+    chat.registry.abort('trusted-contributor-driver');
+  }
+});
+
 describe('cleanupSessionWorktrees', () => {
   let removeWorktreeMock: ReturnType<typeof vi.fn>;
   let hasUncommittedWorkMock: ReturnType<typeof vi.fn>;

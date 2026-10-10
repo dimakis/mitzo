@@ -168,8 +168,8 @@ it('rejects ordinary child controls on the actual parsed WebSocket path, then co
   const before = store.getUnsettledSymposiumSeatExecutions(contributor.id, 'contributor');
   try {
     const active = chat.registry.findBySessionId(child)!;
-    expect(() => chat.stopOrdinaryChat(active.clientId)).toThrow(/directed messages/);
-    expect(() => chat.closeSessionByUser(active.clientId)).toThrow(/directed messages/);
+    expect(() => chat.stopOrdinaryChat(active.clientId)).toThrow(/contributor panel/);
+    expect(() => chat.closeSessionByUser(active.clientId)).toThrow(/contributor panel/);
     // Public controls must not invoke native commands, close a zombie query, or queue closeout.
     const native = vi.spyOn(ctx.nativeCommands, 'execute');
     const savedQueue = chat.registry.findBySessionId(child)!.session!.inputQueue;

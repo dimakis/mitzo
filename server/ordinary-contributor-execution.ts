@@ -37,18 +37,36 @@ function owners(store: ContributorFacts, childSessionId: string) {
     throw new Error('Contributor child ownership changed');
   return records;
 }
+function hasUnsettledContributorExecution(store: ContributorFacts, childSessionId: string) {
+  return owners(store, childSessionId).some(
+    (record) =>
+      store.getUnsettledSymposiumSeatExecutions(record.coordinatorSessionId, record.seatId).length >
+      0,
+  );
+}
+export const CONTRIBUTOR_STOP_REQUIRED_MESSAGE =
+  'Use Stop on the contributor panel while this conversation has an active or unresolved contributor execution.';
+export class ContributorStopOwnershipError extends Error {
+  readonly code = 'CONTRIBUTOR_STOP_REQUIRED';
+  constructor() {
+    super(CONTRIBUTOR_STOP_REQUIRED_MESSAGE);
+    this.name = 'ContributorStopOwnershipError';
+  }
+}
+/** Public controls must not close a query whose exact terminal is owned by the contributor driver. */
+export function assertOrdinaryContributorStopAllowed(
+  store: ContributorFacts,
+  childSessionId: string,
+) {
+  if (hasUnsettledContributorExecution(store, childSessionId))
+    throw new ContributorStopOwnershipError();
+}
 /** Permission answers and viewing remain ordinary session operations. New sends are fenced. */
 export function assertOrdinaryContributorSendAllowed(
   store: ContributorFacts,
   childSessionId: string,
 ): void {
-  if (
-    owners(store, childSessionId).some(
-      (record) =>
-        store.getUnsettledSymposiumSeatExecutions(record.coordinatorSessionId, record.seatId)
-          .length > 0,
-    )
-  )
+  if (hasUnsettledContributorExecution(store, childSessionId))
     throw new Error(
       'Use contributor directed messages while its exact execution is active or unresolved',
     );
@@ -60,6 +78,7 @@ export class SessionControlRejected extends Error {
     readonly sessionId: string,
     readonly control: OrdinarySessionControl,
     error: string,
+    readonly code?: string,
   ) {
     super(error);
   }
@@ -69,6 +88,7 @@ export class SessionControlRejected extends Error {
       sessionId: this.sessionId,
       control: this.control,
       error: this.message,
+      ...(this.code ? { code: this.code } : {}),
     };
   }
 }
@@ -78,7 +98,9 @@ export function assertOrdinaryContributorControlAllowed(
   control: OrdinarySessionControl,
 ): void {
   try {
-    assertOrdinaryContributorSendAllowed(store, childSessionId);
+    if (control === 'stop' || control === 'close')
+      assertOrdinaryContributorStopAllowed(store, childSessionId);
+    else assertOrdinaryContributorSendAllowed(store, childSessionId);
   } catch (error) {
     throw new SessionControlRejected(
       childSessionId,
@@ -86,6 +108,7 @@ export function assertOrdinaryContributorControlAllowed(
       error instanceof Error
         ? error.message
         : 'Contributor execution ownership could not be verified',
+      error instanceof ContributorStopOwnershipError ? error.code : undefined,
     );
   }
 }
