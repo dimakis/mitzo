@@ -261,3 +261,6 @@ export {
   SourceSnapshotsSchema,
   type SourceSnapshot,
 } from './source-snapshot.js';
+
+export { SessionRuntimeBindingV1Schema } from './session-runtime-binding.js';
+export type { SessionRuntimeBindingV1 } from './session-runtime-binding.js';

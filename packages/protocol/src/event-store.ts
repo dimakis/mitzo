@@ -64,6 +64,10 @@ import type {
   ProviderAttemptToken,
 } from './types.js';
 import { AccountBindingSchema } from './account-binding.js';
+import {
+  SessionRuntimeBindingV1Schema,
+  type SessionRuntimeBindingV1,
+} from './session-runtime-binding.js';
 import { SymposiumConfigSchema, SymposiumProvenanceSchema } from './symposium.js';
 import type {
   SymposiumAdmissionRecord,
@@ -262,6 +266,7 @@ interface SessionRow {
   agent_name: string | null;
   boot_context: string | null;
   account_binding: string | null;
+  runtime_binding: string | null;
   selected_model: string | null;
   reasoning_effort: string | null;
   repository_workspace_id: string | null;
@@ -670,6 +675,7 @@ export class EventStore {
     this.migrateExecutionState(db);
     this.migrateBootContext(db);
     this.migrateModelSelection(db);
+    this.migrateSessionRuntimeBinding(db);
     this.migrateSdkTranscriptVerification(db);
     this.migrateSymposium(db);
     this.migrateConversationSource(db);
@@ -920,6 +926,14 @@ export class EventStore {
     if (!columnNames.has('reasoning_effort')) {
       db.exec('ALTER TABLE sessions ADD COLUMN reasoning_effort TEXT');
       this.log.info('migrated sessions table: added reasoning_effort');
+    }
+  }
+
+  private migrateSessionRuntimeBinding(db: Database.Database): void {
+    const columns = db.prepare('PRAGMA table_info(sessions)').all() as Array<{ name: string }>;
+    if (!columns.some((column) => column.name === 'runtime_binding')) {
+      db.exec('ALTER TABLE sessions ADD COLUMN runtime_binding TEXT');
+      this.log.info('migrated sessions table: added runtime_binding');
     }
   }
 
@@ -2418,6 +2432,7 @@ export class EventStore {
         })
       : undefined;
     return this.db!.transaction(() => {
+      this.assertNoOrdinaryRuntimeBinding(sessionId);
       if (metadata) {
         const previousReceipt = this.getSymposiumConfigurationOperation(
           sessionId,
@@ -2543,6 +2558,7 @@ export class EventStore {
     idempotencyKey: string;
   }): SymposiumConfig {
     return this.db!.transaction(() => {
+      this.assertNoOrdinaryRuntimeBinding(input.sessionId);
       this.assertSymposiumArtifactWorkAllowed(input.sessionId);
       const request = JSON.stringify(input);
       const prior = this.db!.prepare(
@@ -6091,10 +6107,73 @@ export class EventStore {
       throw new Error('Internal SDK executions cannot be admitted as conversations');
   }
 
+  /** Explicit absence is legacy; invalid/unsupported metadata always throws.
+   * Kept separate from SessionMeta until a separately reviewed dispatcher exists.
+   */
+  getSessionRuntimeBinding(sessionId: string): SessionRuntimeBindingV1 | null | undefined {
+    this.assertConversationIdentity(sessionId);
+    const row = this.stmts.getSession.get(sessionId) as SessionRow | undefined;
+    return row ? runtimeBindingFromRow(row) : undefined;
+  }
+
+  /** Enroll only a newly created row, atomically. An exact retry is a read and
+   * never updates metadata. This API neither resolves authorization nor launches.
+   */
+  createSessionWithRuntimeBinding(meta: SessionUpsert, input: unknown): void {
+    this.assertConversationIdentity(meta.sessionId);
+    if (
+      ['sessionType', 'symposiumConfig', 'symposiumRevision'].some((key) =>
+        Object.prototype.hasOwnProperty.call(meta, key),
+      )
+    )
+      throw new Error('Session runtime allocation is ordinary-only');
+    const binding = SessionRuntimeBindingV1Schema.parse(input);
+    assertRuntimeAccount(binding, meta.accountBinding);
+    assertRuntimeWorkspace(meta.repositoryWorkspaceId, meta.cwd);
+    this.db!.transaction(() => {
+      const existing = this.stmts.getSession.get(meta.sessionId) as SessionRow | undefined;
+      if (existing) {
+        const persisted = runtimeBindingFromRow(existing);
+        if (persisted === null) throw new Error('Cannot enroll an existing legacy session');
+        if (
+          JSON.stringify(persisted) !== JSON.stringify(binding) ||
+          existing.repository_workspace_id !== meta.repositoryWorkspaceId ||
+          existing.cwd !== meta.cwd
+        )
+          throw new Error('Session runtime binding or workspace cannot be replaced');
+        return;
+      }
+      if (this.db!.prepare('SELECT 1 FROM events WHERE session_id = ? LIMIT 1').get(meta.sessionId))
+        throw new Error('Cannot enroll an existing historical conversation');
+      this.upsertSession(meta);
+      this.db!.prepare('UPDATE sessions SET runtime_binding = ? WHERE session_id = ?').run(
+        JSON.stringify(binding),
+        meta.sessionId,
+      );
+    }).immediate();
+  }
+
+  private assertNoOrdinaryRuntimeBinding(sessionId: string): void {
+    if (this.getSessionRuntimeBinding(sessionId))
+      throw new Error('Symposium cannot change a runtime-bound ordinary session');
+  }
+
   upsertSession(meta: SessionUpsert): void {
+    if (Object.prototype.hasOwnProperty.call(meta, 'runtimeBinding'))
+      throw new Error('Runtime binding requires atomic new-session creation');
     this.assertConversationIdentity(meta.sessionId);
     const existing = this.stmts.getSession.get(meta.sessionId) as SessionRow | undefined;
     if (existing) {
+      const runtime = runtimeBindingFromRow(existing);
+      if (runtime !== null) {
+        if (meta.accountBinding !== undefined) assertRuntimeAccount(runtime, meta.accountBinding);
+        if (
+          (meta.repositoryWorkspaceId !== undefined &&
+            meta.repositoryWorkspaceId !== existing.repository_workspace_id) ||
+          (meta.cwd !== undefined && meta.cwd !== existing.cwd)
+        )
+          throw new Error('Runtime-bound session workspace cannot be replaced or cleared');
+      }
       const fields: string[] = [];
       const values: unknown[] = [];
       if (meta.repositoryWorkspaceId !== undefined) {
@@ -6828,4 +6907,42 @@ function matchesSeatProvenance(
     );
   }
   return true;
+}
+
+function assertRuntimeAccount(binding: SessionRuntimeBindingV1, input: unknown): void {
+  const account = AccountBindingSchema.parse(input);
+  if (
+    account.accountId !== binding.account.accountId ||
+    account.provider !== binding.account.provider ||
+    account.profileRevision !== binding.account.profileRevision
+  )
+    throw new Error('Session runtime account identity does not match account binding');
+}
+
+function assertRuntimeWorkspace(workspaceId: unknown, cwd: unknown): void {
+  if (
+    typeof workspaceId !== 'string' ||
+    !workspaceId.trim() ||
+    typeof cwd !== 'string' ||
+    !cwd.trim()
+  )
+    throw new Error('Session runtime requires existing workspace identity and cwd metadata');
+}
+
+function runtimeBindingFromRow(row: SessionRow): SessionRuntimeBindingV1 | null {
+  if (row.runtime_binding === null) return null;
+  try {
+    if (
+      row.session_type !== 'chat' ||
+      row.symposium_config !== null ||
+      row.symposium_revision !== 0
+    )
+      throw new Error('Runtime binding requires an ordinary session without Symposium state');
+    const binding = SessionRuntimeBindingV1Schema.parse(JSON.parse(row.runtime_binding));
+    assertRuntimeAccount(binding, JSON.parse(row.account_binding ?? 'null'));
+    assertRuntimeWorkspace(row.repository_workspace_id, row.cwd);
+    return binding;
+  } catch (error) {
+    throw new Error('Invalid or unsupported session runtime binding', { cause: error });
+  }
 }
