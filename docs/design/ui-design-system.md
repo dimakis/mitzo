@@ -39,6 +39,26 @@ The [approved before-and-after comparison](assets/icons-before-after.png) shows 
 
 The bottom navigation shares its height token with the conversation composer and session tray. The shell owns the safe areas once. Inner lists scroll within the remaining viewport and keep their final item above navigation.
 
+## Document editor controls
+
+`DocumentEditor` owns the shared editing toolbar in Files and Knowledge. Group
+Source/Preview/Split view selection separately from Standard/Vim editing keys and
+relative line numbers. Place Undo/Redo and the six Markdown formatting actions in
+a quiet icon row, with accessible button names and descriptions available on hover
+and keyboard focus. Fullscreen retains its labelled action and the existing save
+flow. Knowledge's general button styles must not override this shared pattern.
+
+Keep the source editor, selection, draft, history and preferences mounted when
+switching views. Compact desktop chrome uses the common control geometry; touch
+controls retain at least `--control-height`, with wrapping or an independently
+scrollable toolbar that keeps each control reachable. Visible Vim mode is status
+text, distinct from the preference that enables Vim.
+
+File-header actions use quiet secondary controls and a restrained accent for Edit
+or Save. Discard remains a visibly labelled destructive action; Done remains
+neutral. Save, loading, error and conflict states retain the existing behavior.
+Colors, fonts, spacing, focus, radii and motion come from the shared token source.
+
 ## Motion
 
 The [shared motion contract](frontend-motion.md) applies to mobile and desktop.
