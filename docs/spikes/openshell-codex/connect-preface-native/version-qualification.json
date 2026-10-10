@@ -1,0 +1,15 @@
+{
+  "format": "connect-preface-supervisor-version-qualification-v1",
+  "imageConfigId": "sha256:9b666aa70b8407e22f3ee24c875e65e2eefc9ba559ac03fb78e4d37e6db52995",
+  "elfSha256": "00029e7ffc06531dca649751b321ae829023908f1a70520e0346a86724c4680d",
+  "name": "mitzo-connect-preface-qualification-747e18d0-9ade-4b8f-be5e-3eb3706c4158",
+  "version": "openshell-supervisor 0.0.1-dev.4+g871837ae7",
+  "cleanupConfirmed": true,
+  "network": "none",
+  "readOnly": true,
+  "nonRoot": true,
+  "logDriver": "none",
+  "providerCredentials": false,
+  "modelCalls": 0,
+  "adopted": false
+}

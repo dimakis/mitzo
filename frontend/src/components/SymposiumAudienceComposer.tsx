@@ -65,12 +65,6 @@ export function SymposiumAudienceComposer({
       setBusy(false);
     }
   }
-  if (audience === 'all')
-    return (
-      <p className="symposium-boundary-note">
-        All is a combined timeline. Select an agent stream to write to that agent.
-      </p>
-    );
   return (
     <form
       className="symposium-audience-composer"
@@ -79,20 +73,41 @@ export function SymposiumAudienceComposer({
         void queue();
       }}
     >
+      {onSelectRecipient && (seats.length > 1 || audience !== seats[0]?.id) && (
+        <label>
+          Message recipient
+          <select
+            aria-label="Message recipient"
+            value={seats.some((seat) => seat.id === audience) ? audience : ''}
+            disabled={busy || seats.length === 0}
+            onChange={(event) => onSelectRecipient(event.target.value)}
+          >
+            <option value="">Choose an agent</option>
+            {seats.map((seat) => (
+              <option key={seat.id} value={seat.id}>
+                {seat.name}
+                {seats.filter(
+                  (candidate) => candidate.name.toLowerCase() === seat.name.toLowerCase(),
+                ).length > 1 && ` · ${seat.id.slice(-6)}`}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
       <label htmlFor="symposium-audience-text">Message for {audienceLabel}</label>
-      {onSelectRecipient && (
+      {onSelectRecipient && seats.length > 1 && (
         <button
           type="button"
           aria-label="Choose agent recipient"
           aria-expanded={pickerFor === audience}
           onClick={() => setPickerFor(pickerFor === audience ? null : audience)}
         >
-          @ Switch agent
+          @ Choose recipient
         </button>
       )}
       {pickerFor === audience && onSelectRecipient && (
         <section ref={picker} className="symposium-recipient-picker" aria-label="Agent recipients">
-          <p>Switch streams; drafts stay with their agent.</p>
+          <p>Choose a recipient; drafts stay with their agent.</p>
           {matches.map((seat) => (
             <button type="button" key={seat.id} onClick={() => chooseRecipient(seat.id)}>
               <SeatLabel seatId={seat.id} name={seat.name} />
@@ -118,6 +133,7 @@ export function SymposiumAudienceComposer({
         id="symposium-audience-text"
         aria-label={`Message for ${audienceLabel}`}
         value={value}
+        disabled={!audience || audience === 'all'}
         onChange={(event) => {
           const next = event.target.value;
           setDrafts((current) => ({ ...current, [audience]: next }));
@@ -130,7 +146,9 @@ export function SymposiumAudienceComposer({
             picker.current?.querySelector<HTMLButtonElement>('button')?.focus();
           }
         }}
-        placeholder={`Ask ${audienceLabel} an aside…`}
+        placeholder={
+          audience && audience !== 'all' ? `Ask ${audienceLabel}…` : 'Choose an agent to write to…'
+        }
       />
       <button type="submit" disabled={!canQueue}>
         Queue for approval

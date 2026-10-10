@@ -1,0 +1,17 @@
+---
+description: Persistent Mitzo design standard for every mobile and web UI change
+alwaysApply: true
+---
+
+# Mitzo UI design
+
+Before any user-facing UI work, read `docs/design/ui-design-system.md` and `frontend/AGENTS.md`. These are the repository's design contract for every feature and session.
+
+- Palette/font definitions live only in `frontend/src/styles/tokens.css`; use semantic variables and the shared type, spacing, radius and control-size scales.
+- Reuse shared shells, headings, icons, states and controls. Extend shared patterns for repeated UI; avoid independent page themes, logos, gutters or safe-area handling.
+- Preserve the Connections reference: quiet surfaces, clear hierarchy, grouped rows, restrained accents, direct copy and detail on request.
+- Validate mobile/desktop, light/dark, appearance preferences, accessibility and relevant content states using the contract's checks.
+- Run `npm run test:design`; for rendered changes, update offline fixtures and run `npm run test:ui`. Include UI evidence in the PR.
+- New shared tokens/patterns require a contract update and tests in the same PR. Existing layout literals are migration debt, not permission to copy them.
+
+Root `AGENTS.md` and `CLAUDE.md` carry the same entry point for tools that do not load Cursor rules. The detailed standard stays in one contract.

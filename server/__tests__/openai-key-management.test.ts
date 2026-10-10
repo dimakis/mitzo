@@ -46,7 +46,9 @@ function fixture() {
     }),
   };
   const gateway = {
-    inspect: vi.fn(async () => ({ version: gatewayVersion })),
+    inspect: vi.fn(async (_account: ManagedOpenAIAccount, _signal: AbortSignal) => ({
+      version: gatewayVersion,
+    })),
     pause: vi.fn(async () => {
       calls.push('pause');
     }),
@@ -77,7 +79,6 @@ function fixture() {
         accountId: 'work',
         revision: await revision(),
         apiKey: key,
-        sameProject: true,
       },
       signal(),
     );
@@ -220,6 +221,11 @@ describe('OpenAI key replacement and recovery', () => {
     expect(f.gateway.replace).not.toHaveBeenCalled();
     expect(result.health).toBe('needs_attention');
     expect(result.canSynchronize).toBe(false);
+    expect(f.store.latest('work')).toMatchObject({
+      phase: 'aborted',
+      errorCode: 'ACCOUNT_CHANGED',
+    });
+    await expect(f.manager.resolveKey('work', signal())).rejects.toThrow('need attention');
   });
   it('returns the same verified Keychain snapshot for host requests without a second unchecked read', async () => {
     const f = fixture();
@@ -273,7 +279,6 @@ describe('OpenAI key replacement and recovery', () => {
       {
         accountId: 'work',
         revision: (await restarted.list(signal()))[0]!.revision,
-        sameProject: true,
       },
       signal(),
     );
@@ -300,14 +305,15 @@ describe('OpenAI key replacement and recovery', () => {
     expect(f.gateway.replace).not.toHaveBeenCalled();
     expect(f.store.pending()).toEqual([]);
   });
-  it('requires the explicit same-project confirmation and rejects a stale form', async () => {
+  it('accepts a validated replacement without a project assertion and still rejects a stale form', async () => {
     const f = fixture();
     await expect(
       f.manager.replace(
-        { accountId: 'work', revision: await f.revision(), apiKey: 'key', sameProject: false },
+        { accountId: 'work', revision: await f.revision(), apiKey: 'key' },
         signal(),
       ),
-    ).rejects.toThrow('Confirm the same work project');
+    ).resolves.toMatchObject({ health: 'ready' });
+    f.validateKey.mockClear();
     const revision = await f.revision();
     f.driftGateway();
     await expect(
@@ -351,7 +357,6 @@ describe('OpenAI key replacement and recovery', () => {
       {
         accountId: 'work',
         revision: (await restarted.list(signal()))[0]!.revision,
-        sameProject: true,
       },
       signal(),
     );
@@ -496,4 +501,168 @@ it('preserves the previous verified key when a later replacement cannot drain ch
   expect(f.keychain.write).not.toHaveBeenCalled();
   expect(f.gateway.replace).not.toHaveBeenCalled();
   expect(await f.manager.resolveKey('work', signal())).toBe('new-key');
+});
+
+it('returns the journaled not-saved result when the deadline expires during chat drain', async () => {
+  const f = fixture();
+  const controller = new AbortController();
+  f.gateway.inspect.mockImplementation(async (_account, signal) => {
+    signal.throwIfAborted();
+    return { version: '10' };
+  });
+  f.gateway.pause.mockImplementationOnce(async () => {
+    controller.abort();
+    controller.signal.throwIfAborted();
+  });
+  const result = await f.manager.replace(
+    { accountId: 'work', revision: await f.revision(), apiKey: 'new-key' },
+    controller.signal,
+  );
+  expect(result).toMatchObject({
+    health: 'not_verified',
+    errorCode: 'CHAT_PAUSE_FAILED',
+    revision: '',
+    canSynchronize: false,
+  });
+  expect(f.keychain.write).not.toHaveBeenCalled();
+  expect(f.gateway.replace).not.toHaveBeenCalled();
+  expect(f.store.latest('work')).toMatchObject({
+    phase: 'aborted',
+    errorCode: 'CHAT_PAUSE_FAILED',
+  });
+});
+
+it('returns a definite not-saved result if the deadline expires in the Keychain read after drain', async () => {
+  const f = fixture();
+  const controller = new AbortController();
+  f.gateway.pause.mockImplementationOnce(async () => {
+    f.keychain.read.mockImplementationOnce(async () => {
+      controller.abort();
+      controller.signal.throwIfAborted();
+      return f.saved();
+    });
+  });
+  f.gateway.inspect.mockImplementation(async (_account, signal) => {
+    signal.throwIfAborted();
+    return { version: '10' };
+  });
+  const result = await f.manager.replace(
+    { accountId: 'work', revision: await f.revision(), apiKey: 'new-key' },
+    controller.signal,
+  );
+  expect(result).toMatchObject({
+    errorCode: 'ACCOUNT_CHANGED',
+    revision: '',
+    canSynchronize: false,
+  });
+  expect(f.store.latest('work')).toMatchObject({ phase: 'aborted', errorCode: 'ACCOUNT_CHANGED' });
+  expect(f.store.pending()).toHaveLength(0);
+  expect(f.keychain.write).not.toHaveBeenCalled();
+  expect(f.gateway.replace).not.toHaveBeenCalled();
+});
+
+it('keeps a legacy key changed outside Mitzo blocked after a definite pre-write abort', async () => {
+  const f = fixture();
+  f.gateway.pause.mockImplementationOnce(async () => {
+    f.keychain.read.mockResolvedValue({
+      value: 'externally-changed',
+      version: null,
+      managed: false,
+    });
+  });
+  const result = await f.replace();
+  expect(result).toMatchObject({
+    health: 'needs_attention',
+    errorCode: 'ACCOUNT_CHANGED',
+    canSynchronize: false,
+  });
+  expect(f.store.latest('work')).toMatchObject({ phase: 'aborted' });
+  expect(f.keychain.write).not.toHaveBeenCalled();
+  expect(f.gateway.replace).not.toHaveBeenCalled();
+  await expect(f.manager.resolveKey('work', signal())).rejects.toThrow('need attention');
+});
+
+it('preserves unresolved legacy drift across failed retries and restart until replacement completes', async () => {
+  const f = fixture();
+  let external = true;
+  f.gateway.pause.mockImplementationOnce(async () => {
+    f.keychain.read.mockImplementation(async () =>
+      external ? { value: 'externally-changed', version: null, managed: false } : f.saved(),
+    );
+  });
+  await f.replace();
+  for (let attempt = 0; attempt < 2; attempt++) {
+    f.gateway.pause.mockRejectedValueOnce(new Error('unsafe drain'));
+    expect(await f.replace()).toMatchObject({
+      health: 'needs_attention',
+      canSynchronize: false,
+    });
+    expect(f.store.latest('work')).toMatchObject({
+      phase: 'aborted',
+      errorCode: 'CHAT_PAUSE_FAILED',
+    });
+    await expect(f.manager.resolveKey('work', signal())).rejects.toThrow('need attention');
+  }
+  const reopened = new OpenAIKeyOperationStore(f.path);
+  stores.push(reopened);
+  const restarted = new OpenAIKeyManagement({ ...f.options, store: reopened });
+  expect((await restarted.list(signal()))[0]).toMatchObject({
+    health: 'needs_attention',
+    canSynchronize: false,
+  });
+  await expect(restarted.assertReady('work', signal())).rejects.toThrow('need attention');
+  await expect(
+    restarted.synchronize({ accountId: 'work', revision: await f.revision() }, signal()),
+  ).rejects.toThrow('Replacement key must be entered again');
+  expect(f.keychain.write).not.toHaveBeenCalled();
+  const write = f.keychain.write.getMockImplementation()!;
+  f.keychain.write.mockImplementationOnce(async (_ref, value, version) => {
+    external = false;
+    await write(_ref, value, version);
+  });
+  f.gateway.replace.mockRejectedValueOnce(new Error('interrupted gateway update'));
+  expect(await f.replace('verified-replacement')).toMatchObject({
+    health: 'needs_attention',
+    canSynchronize: true,
+  });
+  await expect(restarted.assertReady('work', signal())).rejects.toThrow('need attention');
+  expect(
+    await restarted.synchronize({ accountId: 'work', revision: await f.revision() }, signal()),
+  ).toMatchObject({ health: 'ready' });
+  expect(await restarted.resolveKey('work', signal())).toBe('verified-replacement');
+});
+
+it('preserves legacy account binding drift across failed retries and restart until replacement completes', async () => {
+  const f = fixture();
+  f.gateway.pause.mockRejectedValueOnce(new Error('unsafe drain'));
+  await f.replace();
+  f.setAccounts([
+    { ...account, credentialRef: { ...account.credentialRef, account: 'new-reference' } },
+  ]);
+  expect((await f.manager.list(signal()))[0]).toMatchObject({
+    health: 'needs_attention',
+    canSynchronize: false,
+  });
+  for (let attempt = 0; attempt < 2; attempt++) {
+    f.gateway.pause.mockRejectedValueOnce(new Error('unsafe drain'));
+    expect(await f.replace()).toMatchObject({ health: 'needs_attention', canSynchronize: false });
+    await expect(f.manager.resolveKey('work', signal())).rejects.toThrow('need attention');
+  }
+  const reopened = new OpenAIKeyOperationStore(f.path);
+  stores.push(reopened);
+  const restarted = new OpenAIKeyManagement({ ...f.options, store: reopened });
+  await expect(restarted.assertReady('work', signal())).rejects.toThrow('need attention');
+  await expect(
+    restarted.synchronize({ accountId: 'work', revision: await f.revision() }, signal()),
+  ).rejects.toThrow('Replacement key must be entered again');
+  expect(f.keychain.write).not.toHaveBeenCalled();
+  f.gateway.replace.mockRejectedValueOnce(new Error('interrupted gateway update'));
+  expect(await f.replace('verified-replacement')).toMatchObject({
+    health: 'needs_attention',
+    canSynchronize: true,
+  });
+  expect(
+    await restarted.synchronize({ accountId: 'work', revision: await f.revision() }, signal()),
+  ).toMatchObject({ health: 'ready' });
+  expect(await restarted.resolveKey('work', signal())).toBe('verified-replacement');
 });
