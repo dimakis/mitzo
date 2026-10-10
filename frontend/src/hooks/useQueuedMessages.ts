@@ -5,6 +5,20 @@ import type { DraftSessionAssignment } from './useDraft';
 const KEY_PREFIX = 'mitzo-queue-';
 const QUEUE_CHANGED_EVENT = 'mitzo-queue-changed';
 
+function createQueueEntryId(): string {
+  const uuid = globalThis.crypto?.randomUUID?.();
+  if (uuid) return uuid;
+  // Remote HTTP keeps getRandomValues but omits secure-context randomUUID.
+  // These local entry IDs are correlation metadata, not security credentials.
+  const bytes = new Uint8Array(16);
+  if (globalThis.crypto?.getRandomValues) globalThis.crypto.getRandomValues(bytes);
+  else for (let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256);
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
 export interface QueuedMessage {
   /** Internal identity of one queue entry, independent of its text. */
   queueEntryId?: string;
@@ -179,7 +193,7 @@ export function useQueuedMessages(
   const enqueue = useCallback(
     (msg: QueuedMessage): boolean => {
       if (queueRef.current.length >= maxQueued) return false;
-      const next = [...queueRef.current, { ...msg, queueEntryId: crypto.randomUUID() }];
+      const next = [...queueRef.current, { ...msg, queueEntryId: createQueueEntryId() }];
       queueRef.current = next;
       setQueueRaw(next);
       return true;
@@ -198,7 +212,7 @@ export function useQueuedMessages(
 
   // Return already-submitted input without discarding it when the ordinary queue is full.
   const restoreRejected = useCallback((msg: QueuedMessage) => {
-    const retained = { ...msg, requiresRetry: true, queueEntryId: crypto.randomUUID() };
+    const retained = { ...msg, requiresRetry: true, queueEntryId: createQueueEntryId() };
     submittedOwners.current.set(retained.queueEntryId, sessionRef.current);
     const next = [...queueRef.current.filter((item) => item !== msg), retained];
     queueRef.current = next;
