@@ -132,6 +132,34 @@ it('keeps the source output visible but disables execution when access refresh f
   expect(result.current?.eligibility.available).not.toBe(true);
   expect(result.current?.selected?.content).toBe('Exact draft');
 });
+it('never accepts a cached context digest for contributor creation after the selected-output read fails', async () => {
+  let failed = false;
+  vi.mocked(apiFetch).mockImplementation(async (url) =>
+    failed && String(url).endsWith(`/outputs/${output.outputId}`)
+      ? json({ error: 'Selected draft unavailable' }, 503)
+      : reads(String(url)),
+  );
+  const { result } = renderHook(() => useOutputContributors('source', true));
+  await waitFor(() => expect(result.current?.selected?.content).toBe('Exact draft'));
+  failed = true;
+  act(() => result.current!.onRefresh());
+  await waitFor(() => expect(result.current?.selected?.contextPackageDigest).toBeNull());
+  await act(async () => {
+    await expect(
+      result.current!.onAdd({
+        label: 'Joe',
+        accountId: 'personal',
+        model: 'luna-fixture',
+        instructions: 'Draft guidance',
+        mode: 'ask',
+        outputId: output.outputId,
+        outputRevision: 1,
+        contextPackageDigest: 'b'.repeat(64),
+      }),
+    ).rejects.toThrow('selected draft or account access has changed');
+  });
+  expect(vi.mocked(apiFetch).mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false);
+});
 it('uses a fresh request identity for a new identical send after a confirmed receipt', async () => {
   const contributor = {
     id: 'joe',

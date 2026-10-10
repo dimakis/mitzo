@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import type { SymposiumProvenance } from '@mitzo/protocol';
 import {
@@ -298,6 +298,156 @@ it('keeps Stop available after access fails without allowing another send', asyn
   expect(screen.getByRole('button', { name: 'Stop Joe' }).hasAttribute('disabled')).toBe(false);
   fireEvent.click(screen.getByRole('button', { name: 'Stop Joe' }));
   await waitFor(() => expect(value.onStop).toHaveBeenCalledWith('joe'));
+});
+it('allows an explicit Stop retry while cleanup is unresolved and only disables the in-flight request', async () => {
+  let fail!: (error: Error) => void;
+  const onStop = vi.fn(async () => {});
+  onStop.mockImplementationOnce(
+    () =>
+      new Promise<void>((_resolve, reject) => {
+        fail = reject;
+      }),
+  );
+  mount(
+    props({
+      outputs: [output],
+      selected: { output, content: 'Pinned draft', contextPackageDigest: 'b'.repeat(64) },
+      contributors: [
+        {
+          id: 'joe',
+          label: 'Joe',
+          accountLabel: 'Ordinary account',
+          model: 'luna-fixture',
+          sessionId: 'child-chat',
+          status: 'stopping',
+          outputId: 'output-1',
+          outputRevision: 1,
+        },
+      ],
+      onStop,
+    }),
+  );
+  expect(screen.getByRole('button', { name: 'Stop Joe' }).hasAttribute('disabled')).toBe(false);
+  fireEvent.click(screen.getByRole('button', { name: 'Stop Joe' }));
+  await waitFor(() => expect(onStop).toHaveBeenCalledTimes(1));
+  expect(screen.getByRole('button', { name: 'Stopping Joe…' }).hasAttribute('disabled')).toBe(true);
+  await act(async () => fail(Error('Interrupt could not be confirmed')));
+  await screen.findByRole('alert');
+  expect(screen.getByRole('button', { name: 'Stop Joe' }).hasAttribute('disabled')).toBe(false);
+  fireEvent.click(screen.getByRole('button', { name: 'Stop Joe' }));
+  await waitFor(() => expect(onStop).toHaveBeenCalledTimes(2));
+  expect(onStop).toHaveBeenNthCalledWith(2, 'joe');
+});
+it('preserves follow-up and guidance drafts through selected-output availability loss and recovery', () => {
+  const value = props({
+    outputs: [output],
+    selected: { output, content: 'Pinned draft', contextPackageDigest: 'b'.repeat(64) },
+    contributors: [
+      {
+        id: 'joe',
+        label: 'Joe',
+        accountLabel: 'Ordinary account',
+        model: 'luna-fixture',
+        sessionId: 'child-chat',
+        status: 'idle',
+        outputId: 'output-1',
+        outputRevision: 1,
+      },
+    ],
+  });
+  const view = mount(value);
+  fireEvent.change(screen.getByLabelText('Message to Joe'), {
+    target: { value: 'Keep the follow-up draft' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Add contributor' }));
+  fireEvent.change(screen.getByLabelText('Contributor name'), {
+    target: { value: 'Working name' },
+  });
+  fireEvent.change(screen.getByLabelText('Additional guidance'), {
+    target: { value: 'Keep the guidance draft' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Use ordinary account' }));
+  view.rerender(
+    <MemoryRouter>
+      <OutputContributorPanel
+        {...value}
+        selected={{ output, content: null, contextPackageDigest: null }}
+        error="Selected draft temporarily unavailable"
+      />
+    </MemoryRouter>,
+  );
+  expect(screen.getByLabelText('Message to Joe')).toHaveProperty(
+    'value',
+    'Keep the follow-up draft',
+  );
+  expect(screen.getByLabelText('Contributor name')).toHaveProperty('value', 'Working name');
+  expect(screen.getByLabelText('Additional guidance')).toHaveProperty(
+    'value',
+    'Keep the guidance draft',
+  );
+  expect(screen.getByRole('button', { name: 'Send to Joe' }).hasAttribute('disabled')).toBe(true);
+  expect(screen.getByRole('button', { name: 'Add to this output' }).hasAttribute('disabled')).toBe(
+    true,
+  );
+  view.rerender(
+    <MemoryRouter>
+      <OutputContributorPanel {...value} />
+    </MemoryRouter>,
+  );
+  expect(screen.getByLabelText('Message to Joe')).toHaveProperty(
+    'value',
+    'Keep the follow-up draft',
+  );
+  expect(screen.getByLabelText('Additional guidance')).toHaveProperty(
+    'value',
+    'Keep the guidance draft',
+  );
+  expect(screen.getByRole('button', { name: 'Add to this output' }).hasAttribute('disabled')).toBe(
+    false,
+  );
+  expect(value.onSend).not.toHaveBeenCalled();
+  expect(value.onAdd).not.toHaveBeenCalled();
+});
+it('resets local drafts only when the actual selected source identity changes', () => {
+  const value = props({
+    outputs: [output],
+    selected: { output, content: 'Pinned draft', contextPackageDigest: 'b'.repeat(64) },
+    contributors: [
+      {
+        id: 'joe',
+        label: 'Joe',
+        accountLabel: 'Ordinary account',
+        model: 'luna-fixture',
+        sessionId: 'child-chat',
+        status: 'idle',
+        outputId: 'output-1',
+        outputRevision: 1,
+      },
+    ],
+  });
+  const view = mount(value);
+  fireEvent.change(screen.getByLabelText('Message to Joe'), {
+    target: { value: 'Old source draft' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Add contributor' }));
+  fireEvent.change(screen.getByLabelText('Additional guidance'), {
+    target: { value: 'Old source guidance' },
+  });
+  const changedOutput = { ...output, source: { ...output.source, sha256: 'c'.repeat(64) } };
+  view.rerender(
+    <MemoryRouter>
+      <OutputContributorPanel
+        {...value}
+        selected={{
+          output: changedOutput,
+          content: 'Changed source',
+          contextPackageDigest: 'd'.repeat(64),
+        }}
+      />
+    </MemoryRouter>,
+  );
+  expect(screen.getByLabelText('Message to Joe')).toHaveProperty('value', '');
+  expect(screen.queryByLabelText('Additional guidance')).toBeNull();
 });
 it('retains the next directed draft while a contributor is running and offers Stop', () => {
   mount(

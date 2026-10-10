@@ -33,6 +33,21 @@ test('registered draft and ordinary contributor setup preserve revision, account
   const content =
     '## Product direction\n\nKeep artifacts central. Contributions stay attributed to independent conversations.\n\n```ts\nconst revision = 1;\n```';
   let eligible = true;
+  let showContributor = false;
+  let stopRequests = 0;
+  let selectedReadFailed = false;
+  let failedReads = 0;
+  const contributor = {
+    id: 'joe',
+    label: 'Joe',
+    accountLabel: 'Personal ChatGPT',
+    model: 'luna-fixture',
+    sessionId: 'child-chat',
+    status: 'stopping',
+    outputId: output.outputId,
+    outputRevision: 1,
+    messages: [],
+  };
   const writes: { path: string; body: unknown }[] = [];
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
@@ -44,6 +59,16 @@ test('registered draft and ordinary contributor setup preserve revision, account
     if (path.startsWith('/api/')) {
       if (route.request().method() !== 'GET') {
         writes.push({ path, body: route.request().postDataJSON() });
+        if (path === `/api/sessions/${sessionId}/contributors/joe/stop`) {
+          stopRequests++;
+          if (stopRequests === 1)
+            return route.fulfill({
+              status: 503,
+              json: { error: 'Cleanup is not confirmed. Retry Stop.' },
+            });
+          contributor.status = 'idle';
+          return route.fulfill({ json: { contributor } });
+        }
         return route.fulfill({
           status: 503,
           json: { error: 'Offline fixture: execution is unavailable' },
@@ -53,12 +78,20 @@ test('registered draft and ordinary contributor setup preserve revision, account
         return route.fulfill({ contentType: 'text/event-stream', body: 'retry: 60000\n\n' });
       if (path === `/api/sessions/${sessionId}/outputs`)
         return route.fulfill({ json: { outputs: [output], candidates: [] } });
-      if (path === `/api/sessions/${sessionId}/outputs/${output.outputId}`)
+      if (path === `/api/sessions/${sessionId}/outputs/${output.outputId}`) {
+        if (selectedReadFailed) {
+          failedReads++;
+          return route.fulfill({
+            status: 503,
+            json: { error: 'Selected draft temporarily unavailable' },
+          });
+        }
         return route.fulfill({ json: { output, content, contextPackageDigest: 'b'.repeat(64) } });
+      }
       if (path === `/api/sessions/${sessionId}/contributors`)
         return route.fulfill({
           json: {
-            contributors: [],
+            contributors: showContributor ? [contributor] : [],
             eligibility: {
               available: eligible,
               reason: eligible
@@ -230,6 +263,63 @@ test('registered draft and ordinary contributor setup preserve revision, account
   await panel.getByRole('button', { name: 'Refresh access' }).click();
   await expect(panel.getByText('Cancellation proof is unavailable')).toBeVisible();
   await expect(panel.getByRole('button', { name: 'Add contributor' })).toBeDisabled();
+  eligible = true;
+  showContributor = true;
+  await panel.getByRole('button', { name: 'Refresh access' }).click();
+  await expect(panel.getByRole('button', { name: 'Stop Joe', exact: true })).toBeEnabled();
+  await panel.getByLabel('Message to Joe').fill('Retain this follow-up through refresh failure.');
+  await panel.getByRole('button', { name: 'Stop Joe', exact: true }).click();
+  await expect(panel.getByRole('alert')).toContainText('Cleanup is not confirmed');
+  await expect(panel.getByRole('button', { name: 'Stop Joe', exact: true })).toBeEnabled();
+  await panel.getByRole('button', { name: 'Stop Joe', exact: true }).click();
+  await expect(panel.getByRole('button', { name: 'Stop Joe', exact: true })).toHaveCount(0);
+  const stopWrites = writes.filter((item) => item.path.endsWith('/joe/stop'));
+  expect(stopWrites).toHaveLength(2);
+  expect(stopWrites[0].body).toEqual(stopWrites[1].body);
+  await expect(panel.getByLabel('Message to Joe')).toHaveValue(
+    'Retain this follow-up through refresh failure.',
+  );
+  await panel.getByRole('button', { name: 'Add contributor', exact: true }).click();
+  const pendingDialog = page.getByRole('dialog', { name: 'Add contributor', exact: true });
+  await pendingDialog.getByLabel('Contributor name').fill('Retained name');
+  await pendingDialog.getByRole('button', { name: 'Use Personal ChatGPT · Luna fixture' }).click();
+  await pendingDialog
+    .getByLabel('Additional guidance')
+    .fill('Retain these exact draft assumptions.');
+  const writesBeforeFailure = writes.length;
+  selectedReadFailed = true;
+  await expect.poll(() => failedReads, { timeout: 10000 }).toBeGreaterThan(0);
+  await expect(pendingDialog.getByRole('button', { name: 'Add to this output' })).toBeDisabled();
+  await expect(pendingDialog.getByLabel('Contributor name')).toHaveValue('Retained name');
+  await expect(pendingDialog.getByLabel('Additional guidance')).toHaveValue(
+    'Retain these exact draft assumptions.',
+  );
+  await expect(pendingDialog.getByLabel('Additional guidance')).toBeFocused();
+  await expect(pendingDialog.getByRole('status')).toContainText(
+    'Selected draft temporarily unavailable',
+  );
+  await expect(panel.getByLabel('Message to Joe')).toHaveValue(
+    'Retain this follow-up through refresh failure.',
+  );
+  expect(writes).toHaveLength(writesBeforeFailure);
+  await pendingDialog.getByLabel('Additional guidance').scrollIntoViewIfNeeded();
+  await page.screenshot({
+    path: testInfo.outputPath('contributor-draft-read-failure.png'),
+    fullPage: true,
+    animations: 'disabled',
+  });
+  selectedReadFailed = false;
+  await expect(pendingDialog.getByRole('button', { name: 'Add to this output' })).toBeEnabled({
+    timeout: 10000,
+  });
+  await expect(pendingDialog.getByLabel('Additional guidance')).toHaveValue(
+    'Retain these exact draft assumptions.',
+  );
+  await pendingDialog.getByRole('button', { name: 'Close', exact: true }).click();
+  await expect(panel.getByLabel('Message to Joe')).toHaveValue(
+    'Retain this follow-up through refresh failure.',
+  );
+  await expect(panel.getByRole('button', { name: 'Send to Joe', exact: true })).toBeEnabled();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
     true,
   );

@@ -54,9 +54,19 @@ export interface OutputContributorPanelProps {
 
 /** Reset local drafts on an actual source/revision change; late operations remain on their old view. */
 export function OutputContributorPanel(props: OutputContributorPanelProps) {
+  const source = props.selected?.output.source;
   return (
     <OutputPanel
-      key={`${props.sessionId}:${props.selected?.output.outputId ?? ''}:${props.selected?.output.revision ?? ''}:${props.selected?.contextPackageDigest ?? ''}`}
+      key={JSON.stringify([
+        props.sessionId,
+        props.selected?.output.outputId,
+        props.selected?.output.revision,
+        source?.sessionId,
+        source?.messageId,
+        source?.blockId,
+        source?.messageEndSeq,
+        source?.sha256,
+      ])}
       {...props}
     />
   );
@@ -321,6 +331,9 @@ function ContributorRow({
           Wait for this contributor to finish, or use Stop. Your next message stays here.
         </p>
       )}
+      {contributor.status === 'stopping' && !stopping && (
+        <p role="status">Stop is not yet confirmed. You can retry Stop.</p>
+      )}
       <div className="home-inline-actions">
         <button
           className="home-secondary"
@@ -341,7 +354,7 @@ function ContributorRow({
           <button
             className="home-secondary"
             type="button"
-            disabled={stopping || contributor.status === 'stopping'}
+            disabled={stopping}
             onClick={() => void stop()}
           >
             {stopping ? `Stopping ${contributor.label}…` : `Stop ${contributor.label}`}
@@ -552,7 +565,7 @@ function OutputPanel(props: OutputContributorPanelProps) {
           onAdd={props.onAdd}
           accountIds={props.eligibility.accountIds}
           available={enabled}
-          accessReason={props.eligibility.reason}
+          accessReason={props.error ?? props.eligibility.reason}
           onClose={() => setAdding(false)}
         />
       )}
