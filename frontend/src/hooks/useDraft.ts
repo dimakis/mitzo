@@ -49,8 +49,8 @@ export function useDraft(
   const dirty = useRef(false);
   const mountedRef = useRef(false);
 
-  // When sessionId changes (e.g. new session gets assigned an ID),
-  // migrate draft from old key and load any existing draft for new key.
+  // Only assignment of the unassigned draft transfers ownership. Navigation
+  // keeps the previous conversation's draft and loads the destination's own.
   useEffect(() => {
     const previous = storageRef.current;
     if (previous.key === key) return;
@@ -59,7 +59,12 @@ export function useDraft(
     dirty.current = false;
     // Preparation drafts belong to their own receipt. Never move ordinary or
     // another preparation's text across this ownership boundary.
-    if (previous.scoped || scoped) {
+    const assigningOrdinaryDraft =
+      !previous.scoped &&
+      !scoped &&
+      previous.key === draftKey(undefined) &&
+      sessionId !== undefined;
+    if (!assigningOrdinaryDraft) {
       storageRef.current = { key, scoped };
       const restored = readDraft(key, initialText, scoped);
       textRef.current = restored;
@@ -88,7 +93,7 @@ export function useDraft(
     } catch {
       // localStorage unavailable — ignore
     }
-  }, [key, scoped, initialText]);
+  }, [key, scoped, initialText, sessionId]);
 
   // Debounced save to localStorage on text change (skip initial render)
   useEffect(() => {

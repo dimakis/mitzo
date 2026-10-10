@@ -11,6 +11,65 @@ beforeEach(() => localStorage.clear());
 afterEach(() => localStorage.clear());
 
 describe('useQueuedMessages', () => {
+  it('saves an enqueue batched with navigation under its original conversation', () => {
+    localStorage.setItem('mitzo-queue-b', JSON.stringify([msg('Existing B')]));
+    const { result, rerender } = renderHook(({ id }) => useQueuedMessages(id), {
+      initialProps: { id: 'a' },
+    });
+    act(() => {
+      result.current.enqueue(msg('Immediate A'));
+      rerender({ id: 'b' });
+    });
+    expect(result.current.queue).toEqual([msg('Existing B')]);
+    expect(JSON.parse(localStorage.getItem('mitzo-queue-a')!)).toEqual([
+      { text: 'Immediate A', contextBlocks: [] },
+    ]);
+    rerender({ id: 'a' });
+    expect(result.current.queue).toEqual([msg('Immediate A')]);
+  });
+
+  it.each(['empty', 'existing'] as const)(
+    'retains ordinary A and its retry fence across A → %s B → A',
+    (destination) => {
+      if (destination === 'existing')
+        localStorage.setItem('mitzo-queue-b', JSON.stringify([msg('Existing B')]));
+      const { result, rerender } = renderHook(({ id }) => useQueuedMessages(id), {
+        initialProps: { id: 'a' },
+      });
+      const refused = { ...msg('Refused A'), contextBlocks: ['Exact A'], requiresRetry: true };
+      act(() => result.current.enqueue(refused));
+      rerender({ id: 'b' });
+      expect(result.current.queue).toEqual(destination === 'existing' ? [msg('Existing B')] : []);
+      expect(JSON.parse(localStorage.getItem('mitzo-queue-a')!)).toEqual([
+        { text: 'Refused A', contextBlocks: ['Exact A'], requiresRetry: true },
+      ]);
+      act(() => result.current.enqueue(msg('Later B')));
+      rerender({ id: 'a' });
+      expect(result.current.queue).toEqual([refused]);
+      let next: QueuedMessage | undefined;
+      act(() => {
+        next = result.current.dequeue();
+      });
+      expect(next).toBeUndefined();
+      expect(
+        JSON.parse(localStorage.getItem('mitzo-queue-b')!).map((item: QueuedMessage) => item.text),
+      ).toEqual(destination === 'existing' ? ['Existing B', 'Later B'] : ['Later B']);
+    },
+  );
+
+  it('loads the separate unassigned queue without moving or deleting an assigned queue', () => {
+    localStorage.setItem('mitzo-queue-a', JSON.stringify([msg('A')]));
+    localStorage.setItem('mitzo-queue-new', JSON.stringify([msg('New')]));
+    const { result, rerender } = renderHook(({ id }: { id?: string }) => useQueuedMessages(id), {
+      initialProps: { id: 'a' as string | undefined },
+    });
+    rerender({ id: undefined });
+    expect(result.current.queue).toEqual([msg('New')]);
+    expect(JSON.parse(localStorage.getItem('mitzo-queue-a')!)).toEqual([
+      { text: 'A', contextBlocks: [] },
+    ]);
+  });
+
   it('initializes with empty queue when nothing is stored', () => {
     const { result } = renderHook(() => useQueuedMessages('sess-1'));
     expect(result.current.queue).toEqual([]);
@@ -135,16 +194,27 @@ describe('useQueuedMessages', () => {
   it('migrates queue when sessionId changes from undefined to real ID', () => {
     localStorage.setItem(
       'mitzo-queue-new',
-      JSON.stringify([{ text: 'queued', contextBlocks: ['ctx'] }]),
+      JSON.stringify([{ text: 'queued', contextBlocks: ['ctx'], requiresRetry: true }]),
     );
-    const { rerender } = renderHook(({ id }: { id: string | undefined }) => useQueuedMessages(id), {
-      initialProps: { id: undefined as string | undefined },
-    });
+    const { result, rerender } = renderHook(
+      ({ id }: { id: string | undefined }) => useQueuedMessages(id),
+      {
+        initialProps: { id: undefined as string | undefined },
+      },
+    );
 
     rerender({ id: 'sess-real' });
 
     expect(localStorage.getItem('mitzo-queue-sess-real')).toContain('queued');
     expect(localStorage.getItem('mitzo-queue-new')).toBeNull();
+    expect(result.current.queue).toEqual([
+      { text: 'queued', contextBlocks: ['ctx'], requiresRetry: true, images: [] },
+    ]);
+    let next: QueuedMessage | undefined;
+    act(() => {
+      next = result.current.dequeue();
+    });
+    expect(next).toBeUndefined();
   });
 
   it('loads existing queue for new sessionId during migration', () => {

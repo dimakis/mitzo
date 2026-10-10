@@ -12,6 +12,41 @@ afterEach(() => {
 });
 
 describe('useDraft', () => {
+  it.each(['', 'Existing B draft'])(
+    'preserves ordinary A across A → B → A when B initially contains %j',
+    (draftB) => {
+      vi.useFakeTimers();
+      if (draftB) localStorage.setItem('mitzo-draft-b', draftB);
+      const { result, rerender } = renderHook(({ id }) => useDraft(id), {
+        initialProps: { id: 'a' },
+      });
+      const draftA = 'Unsent A\n  exact spacing  ';
+      act(() => result.current[1](draftA));
+      rerender({ id: 'b' });
+      expect(result.current[0]).toBe(draftB);
+      expect(localStorage.getItem('mitzo-draft-a')).toBe(draftA);
+      act(() => result.current[1]('Edited B'));
+      rerender({ id: 'a' });
+      expect(result.current[0]).toBe(draftA);
+      expect(localStorage.getItem('mitzo-draft-b')).toBe('Edited B');
+      act(() => vi.advanceTimersByTime(500));
+      expect(localStorage.getItem('mitzo-draft-a')).toBe(draftA);
+      expect(localStorage.getItem('mitzo-draft-b')).toBe('Edited B');
+    },
+  );
+
+  it('loads the unassigned draft without migrating an assigned conversation into it', () => {
+    localStorage.setItem('mitzo-draft-a', 'A draft');
+    localStorage.setItem('mitzo-draft-new', 'Separate new draft');
+    const { result, rerender } = renderHook(({ id }: { id?: string }) => useDraft(id), {
+      initialProps: { id: 'a' as string | undefined },
+    });
+    rerender({ id: undefined });
+    expect(result.current[0]).toBe('Separate new draft');
+    expect(localStorage.getItem('mitzo-draft-a')).toBe('A draft');
+    expect(localStorage.getItem('mitzo-draft-new')).toBe('Separate new draft');
+  });
+
   it.each(['switch', 'unmount'] as const)(
     'flushes the dirty ordinary owner on immediate %s before a preparation opens',
     (transition) => {
@@ -235,12 +270,14 @@ describe('useDraft', () => {
     });
 
     expect(result.current[0]).toBe('draft in progress');
+    act(() => result.current[1]('Edited just before assignment'));
 
     // Simulate the session getting assigned a real ID
     rerender({ id: 'sess-real' });
 
     // Draft should have migrated to the new key
-    expect(localStorage.getItem('mitzo-draft-sess-real')).toBe('draft in progress');
+    expect(localStorage.getItem('mitzo-draft-sess-real')).toBe('Edited just before assignment');
+    expect(result.current[0]).toBe('Edited just before assignment');
     // Old key should be removed
     expect(localStorage.getItem('mitzo-draft-new')).toBeNull();
 

@@ -84,11 +84,24 @@ export function useQueuedMessages(
     queueRef.current = queue;
   }, [queue]);
 
+  // Persist before transferring ownership, including a queue edit batched with navigation.
+  useEffect(() => {
+    saveQueue(sessionRef.current, queue);
+  }, [queue]);
+
   // When sessionId changes, load queue for new session
   useEffect(() => {
     const prev = sessionRef.current;
     sessionRef.current = sessionId;
     if (prev === sessionId) return;
+
+    saveQueue(prev, queueRef.current);
+    if (prev !== undefined || sessionId === undefined) {
+      const restored = loadQueue(sessionId);
+      queueRef.current = restored;
+      setQueueRaw(restored);
+      return;
+    }
 
     // Migrate queue from 'new' key when session gets assigned an ID
     const oldKey = queueKey(prev);
@@ -109,11 +122,6 @@ export function useQueuedMessages(
       // ignore
     }
   }, [sessionId]);
-
-  // Persist whenever queue changes
-  useEffect(() => {
-    saveQueue(sessionRef.current, queue);
-  }, [queue]);
 
   const enqueue = useCallback(
     (msg: QueuedMessage): boolean => {
