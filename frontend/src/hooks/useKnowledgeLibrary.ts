@@ -375,6 +375,8 @@ export function useKnowledgeLibrary() {
   function canMoveDocument(from: string, to: string) {
     const document = current.current?.documents.find((d) => d.path === from);
     const source = document?.sourcePath || from;
+    if (catalog?.documentPaths?.some((scope) => scope.endsWith('.md') && scope === source))
+      return false;
     const scope = directoryScope(source);
     return (
       validPath(to) &&

@@ -162,7 +162,7 @@ it('blocks touch keyboard undo and redo while saving', () => {
   expect(redo).not.toHaveBeenCalled();
 });
 
-it('uses a keyboard editor and quiet Vim toolbar on a narrow desktop', async () => {
+it('keeps Markdown formatting available with Vim keys on a narrow desktop', async () => {
   keyboardDevice();
   setup();
   expect((await screen.findByRole('textbox', { name: 'Document source' })).tagName).not.toBe(
@@ -170,7 +170,15 @@ it('uses a keyboard editor and quiet Vim toolbar on a narrow desktop', async () 
   );
   fireEvent.click(screen.getByRole('button', { name: 'Vim' }));
   expect(screen.getByRole('status', { name: 'Vim mode' }).textContent).toBe('NORMAL');
-  expect(screen.queryByRole('button', { name: 'Bold' })).toBeNull();
+  for (const view of ['Source', 'Split']) {
+    fireEvent.click(screen.getByRole('button', { name: view }));
+    for (const name of ['Bold', 'Italic', 'Inline code', 'Heading', 'List', 'Link'])
+      expect(screen.getByRole('button', { name })).toBeTruthy();
+  }
+  fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+  for (const name of ['Bold', 'Italic', 'Inline code', 'Heading', 'List', 'Link'])
+    expect(screen.queryByRole('button', { name })).toBeNull();
+  expect(screen.getByRole('button', { name: 'Vim' }).getAttribute('aria-pressed')).toBe('true');
   expect(screen.getByRole('button', { name: 'Relative line numbers' })).toBeTruthy();
   expect(screen.getByRole('button', { name: 'Undo' })).toBeTruthy();
 });
@@ -341,4 +349,72 @@ it('passes an explicit history reset through even when document content is uncha
   rerender(<DocumentEditor {...props} content="**hello**" historyResetKey={1} />);
   expect(view.state.doc.toString()).toBe('**hello**');
   expect((screen.getByRole('button', { name: 'Undo' }) as HTMLButtonElement).disabled).toBe(true);
+});
+
+it.each(['.html', '.txt'])('keeps Markdown controls hidden for %s with Vim keys', async (ext) => {
+  keyboardDevice();
+  setup(ext);
+  await screen.findByRole('textbox', { name: 'Document source' });
+  fireEvent.click(screen.getByRole('button', { name: 'Vim' }));
+  for (const view of ['Source', 'Split', 'Preview']) {
+    fireEvent.click(screen.getByRole('button', { name: view }));
+    for (const name of ['Bold', 'Italic', 'Inline code', 'Heading', 'List', 'Link'])
+      expect(screen.queryByRole('button', { name })).toBeNull();
+  }
+});
+
+it.each(['NORMAL', 'INSERT'])(
+  'formats the keyboard selection and shares Undo/Redo while Vim starts in %s',
+  async (mode) => {
+    keyboardDevice();
+    const change = setup();
+    const input = await screen.findByRole('textbox', { name: 'Document source' });
+    const view = EditorView.findFromDOM(input)!;
+    act(() => view.dispatch({ selection: { anchor: 0, head: 5 } }));
+    fireEvent.click(screen.getByRole('button', { name: 'Vim' }));
+    if (mode === 'INSERT') {
+      fireEvent.keyDown(input, { key: 'i' });
+      act(() => view.dispatch({ selection: { anchor: 0, head: 5 } }));
+    }
+    expect(screen.getByRole('status', { name: 'Vim mode' }).textContent).toBe(mode);
+    fireEvent.click(screen.getByRole('button', { name: 'Bold' }));
+    expect(view.state.doc.toString()).toBe('**hello**');
+    expect(view.state.selection.main.from).toBe(2);
+    expect(view.state.selection.main.to).toBe(7);
+    expect(change).toHaveBeenLastCalledWith('**hello**');
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
+    expect(view.state.doc.toString()).toBe('hello');
+    fireEvent.click(screen.getByRole('button', { name: 'Redo' }));
+    expect(view.state.doc.toString()).toBe('**hello**');
+    expect(screen.getByRole('button', { name: 'Vim' }).getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByRole('status', { name: 'Vim mode' })).toBeTruthy();
+  },
+);
+
+it('shows all Markdown formatting controls disabled while saving in Vim', async () => {
+  keyboardDevice();
+  const change = vi.fn();
+  render(
+    <DocumentEditor
+      content="hello"
+      ext=".md"
+      onChange={change}
+      saving
+      onSave={vi.fn()}
+      undo={vi.fn()}
+      redo={vi.fn()}
+      canUndo={false}
+      canRedo={false}
+    />,
+  );
+  const input = await screen.findByRole('textbox', { name: 'Document source' });
+  const view = EditorView.findFromDOM(input)!;
+  fireEvent.click(screen.getByRole('button', { name: 'Vim' }));
+  for (const name of ['Bold', 'Italic', 'Inline code', 'Heading', 'List', 'Link']) {
+    const button = screen.getByRole('button', { name }) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    fireEvent.click(button);
+  }
+  expect(view.state.doc.toString()).toBe('hello');
+  expect(change).not.toHaveBeenCalled();
 });
