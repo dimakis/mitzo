@@ -160,7 +160,43 @@ it('never accepts a cached context digest for contributor creation after the sel
   });
   expect(vi.mocked(apiFetch).mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false);
 });
-it('uses a fresh request identity for a new identical send after a confirmed receipt', async () => {
+it.each(['delivered', 'failed'])(
+  'uses a fresh request identity for a new identical send after a confirmed %s receipt',
+  async (status) => {
+    const contributor = {
+      id: 'joe',
+      label: 'Joe',
+      accountLabel: 'Personal ChatGPT',
+      model: 'luna-fixture',
+      sessionId: 'child',
+      status: 'idle',
+      outputId: output.outputId,
+      outputRevision: 1,
+      messages: [],
+    };
+    const bodies: Record<string, unknown>[] = [];
+    vi.mocked(apiFetch).mockImplementation(async (url, init) => {
+      if (init?.method === 'POST') {
+        bodies.push(JSON.parse(init.body as string));
+        return json({ delivery: { deliveryId: `delivery-${bodies.length}`, status }, contributor });
+      }
+      if (String(url).endsWith('/contributors'))
+        return json({
+          contributors: [contributor],
+          eligibility: { available: true, accountIds: ['personal'], reason: 'Ordinary route' },
+        });
+      return reads(String(url));
+    });
+    const { result } = renderHook(() => useOutputContributors('source', true));
+    await waitFor(() => expect(result.current?.selected).toBeTruthy());
+    await act(async () => result.current!.onSend('joe', 'Check again'));
+    await waitFor(() => expect(result.current?.eligibility.available).toBe(true));
+    await act(async () => result.current!.onSend('joe', 'Check again'));
+    expect(bodies).toHaveLength(2);
+    expect(bodies[0].requestId).not.toBe(bodies[1].requestId);
+  },
+);
+it('keeps an uncertain send identity despite an idle snapshot, then retires its exact failed receipt', async () => {
   const contributor = {
     id: 'joe',
     label: 'Joe',
@@ -173,26 +209,57 @@ it('uses a fresh request identity for a new identical send after a confirmed rec
     messages: [],
   };
   const bodies: Record<string, unknown>[] = [];
+  let contributorReads = 0;
+  const retryIds = () =>
+    Array.from({ length: sessionStorage.length }, (_, index) =>
+      sessionStorage.getItem(sessionStorage.key(index)!),
+    );
   vi.mocked(apiFetch).mockImplementation(async (url, init) => {
     if (init?.method === 'POST') {
       bodies.push(JSON.parse(init.body as string));
-      return json({ delivery: { deliveryId: `delivery-${bodies.length}` }, contributor });
+      if (bodies.length === 1) return json({ error: 'Receipt unavailable' }, 503);
+      return json({
+        delivery: {
+          deliveryId: bodies.length === 2 ? 'confirmed-failed' : 'fresh-delivery',
+          status: bodies.length === 2 ? 'failed' : 'delivered',
+        },
+        contributor,
+      });
     }
-    if (String(url).endsWith('/contributors'))
+    if (String(url).endsWith('/contributors')) {
+      contributorReads++;
       return json({
         contributors: [contributor],
         eligibility: { available: true, accountIds: ['personal'], reason: 'Ordinary route' },
       });
+    }
     return reads(String(url));
   });
   const { result } = renderHook(() => useOutputContributors('source', true));
   await waitFor(() => expect(result.current?.selected).toBeTruthy());
-  await act(async () => result.current!.onSend('joe', 'Check again'));
-  await waitFor(() => expect(result.current?.eligibility.available).toBe(true));
-  await act(async () => result.current!.onSend('joe', 'Check again'));
-  expect(bodies).toHaveLength(2);
-  expect(bodies[0].requestId).not.toBe(bodies[1].requestId);
+  await act(async () => {
+    await expect(result.current!.onSend('joe', 'Check again')).rejects.toThrow(
+      'Receipt unavailable',
+    );
+  });
+  expect(retryIds()).toContain(bodies[0].requestId);
+  act(() => result.current!.onRefresh());
+  await waitFor(() => expect(contributorReads).toBeGreaterThan(1));
+  expect(result.current!.contributors[0].status).toBe('idle');
+  expect(retryIds()).toContain(bodies[0].requestId);
+  await act(async () => {
+    await result.current!.onSend('joe', 'Check again');
+  });
+  expect(bodies[1].requestId).toBe(bodies[0].requestId);
+  expect(retryIds()).not.toContain(bodies[0].requestId);
+  await act(async () => {
+    await result.current!.onSend('joe', 'Check again');
+  });
+  expect(bodies).toHaveLength(3);
+  expect(bodies[2].requestId).not.toBe(bodies[1].requestId);
+  expect(bodies.map(({ text }) => text)).toEqual(['Check again', 'Check again', 'Check again']);
 });
+
 it('accepts a matching terminal Stop receipt after the account becomes unavailable', async () => {
   const contributor = {
     id: 'joe',
