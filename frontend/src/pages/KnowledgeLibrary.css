@@ -327,6 +327,9 @@
   background: var(--bg-secondary);
   border-radius: 8px;
 }
+.knowledge-compare-panes li {
+  overflow-wrap: anywhere;
+}
 .knowledge-comparison h4 {
   overflow-wrap: anywhere;
 }

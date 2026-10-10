@@ -109,12 +109,68 @@ export function KnowledgeLibrary() {
         <section className="knowledge-comparison" aria-label="Compare saved draft and working copy">
           <h3>This saved draft changed on another device</h3>
           <p>
-            Your working copy is preserved. Compare every document before choosing which version to
-            keep. Updating the saved draft replaces its contents with your working copy.
+            Your working copy is preserved. Compare documents, new folders and moves before choosing
+            which version to keep. Updating the saved draft replaces its contents and structure with
+            your working copy.
           </p>
           {copy!.savedComparisonUnavailable && (
             <p>The latest saved version is unavailable. Refresh the comparison to continue.</p>
           )}
+          {copy!.directories?.length ||
+          copy!.initialSaveConflict.directories?.length ||
+          copy!.documents.some((document) => document.sourcePath) ||
+          copy!.initialSaveConflict.documents.some((document) => document.sourcePath) ? (
+            <div className="knowledge-compare-panes">
+              {[
+                {
+                  label: 'Saved draft structure',
+                  directories: copy!.initialSaveConflict.directories || [],
+                  documents: copy!.initialSaveConflict.documents,
+                  unavailable: copy!.savedComparisonUnavailable,
+                },
+                {
+                  label: 'Your working copy structure',
+                  directories: copy!.directories || [],
+                  documents: copy!.documents,
+                  unavailable: false,
+                },
+              ].map((version) => (
+                <section key={version.label} aria-label={version.label}>
+                  <h4>{version.label}</h4>
+                  {version.unavailable ? (
+                    <p>Awaiting latest saved version.</p>
+                  ) : (
+                    <>
+                      <h5>New folders</h5>
+                      {version.directories.length ? (
+                        <ul>
+                          {version.directories.map((path) => (
+                            <li key={path}>{path}</li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p>No new folders.</p>
+                      )}
+                      <h5>Document moves</h5>
+                      {version.documents.some((document) => document.sourcePath) ? (
+                        <ul>
+                          {version.documents
+                            .filter((document) => document.sourcePath)
+                            .map((document) => (
+                              <li key={document.path}>
+                                {document.sourcePath} → {document.path}
+                              </li>
+                            ))}
+                        </ul>
+                      ) : (
+                        <p>No document moves.</p>
+                      )}
+                    </>
+                  )}
+                </section>
+              ))}
+            </div>
+          ) : null}
           {[
             ...new Set([
               ...copy!.initialSaveConflict.documents.map((d) => d.path),
