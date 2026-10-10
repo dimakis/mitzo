@@ -50,10 +50,12 @@ function app(
     refresh: vi.fn(),
   }),
 ) {
+  const fixtureAuth = auth;
   const a = express();
   a.use(express.json());
   a.use((req, res, next) => {
-    if (req.header('x-operator') === 'yes') res.locals.authSession = auth;
+    res.set('X-Knowledge-Test-Fixture', encodeURIComponent(fixtureAuth.id));
+    if (req.header('x-operator') === 'yes') res.locals.authSession = fixtureAuth;
     next();
   });
   a.use('/api/knowledge', createKnowledgeLibraryRouter(runtime));
@@ -543,9 +545,12 @@ it.each([
 ] as const)(
   'restricts folder cancellation before any mutation for %s document drafts (folders: %s)',
   async (state, withFolders) => {
-    const draft = store.create(
+    const fixtureStore = store;
+    const fixtureSource = source;
+    const fixtureId = encodeURIComponent(auth.id);
+    const draft = fixtureStore.create(
       'Document change',
-      await source.revision(),
+      await fixtureSource.revision(),
       [
         {
           path: 'architecture/one.md',
@@ -558,19 +563,19 @@ it.each([
     );
     const head = 'a'.repeat(40);
     if (state !== 'draft')
-      store.receipt(draft.id, 1, { url: 'https://github.com/test/knowledge/pull/1', head });
-    if (state === 'closed') store.status(draft.id, 'closed');
-    const original = store.get(draft.id);
+      fixtureStore.receipt(draft.id, 1, { url: 'https://github.com/test/knowledge/pull/1', head });
+    if (state === 'closed') fixtureStore.status(draft.id, 'closed');
+    const original = fixtureStore.get(draft.id);
     const cancel = vi.fn(async () => ({ state: 'closed', head, canAccept: false }));
     const a = app(async () => ({
-      source,
-      store,
+      source: fixtureSource,
+      store: fixtureStore,
       syncedAt: null,
       acceptanceEnabled: false,
       refresh: vi.fn(),
       reviewService: {
         config: { repository: 'test/knowledge', baseBranch: 'main' },
-        assertIdle: (id: string) => store.assertIdle(id),
+        assertIdle: (id: string) => fixtureStore.assertIdle(id),
       } as unknown as KnowledgeReviewService,
       publisher: { cancel } as unknown as KnowledgeGithubPublisher,
     }));
@@ -578,12 +583,15 @@ it.each([
       .post('/api/knowledge/drafts/' + draft.id + '/cancel')
       .set('x-operator', 'yes')
       .send({ version: 1 });
-    expect(response.status).toBe(409);
+    expect(response.headers['x-knowledge-test-fixture'], response.text.slice(0, 500)).toBe(
+      fixtureId,
+    );
+    expect(response.status, response.text.slice(0, 500)).toBe(409);
     expect(response.body.error).toBe(
       'Only folder-only changes can be cancelled through this action.',
     );
     expect(cancel).not.toHaveBeenCalled();
-    expect(store.get(draft.id)).toEqual(original);
+    expect(fixtureStore.get(draft.id)).toEqual(original);
   },
 );
 
