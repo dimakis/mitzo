@@ -18,7 +18,7 @@ import type { OwnedSymposiumGateway } from './symposium-owned-gateway.js';
 import type {
   SymposiumDispatchFacts,
   SymposiumHostGrantVerifier,
-} from './symposium-seat-runtime.js';
+} from './symposium-dispatch-boundary.js';
 import { captureSymposiumWorkVertexProvider } from './symposium-work-vertex-provider.js';
 
 export interface SymposiumSeatPolicy {

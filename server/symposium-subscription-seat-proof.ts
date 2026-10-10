@@ -1,3 +1,7 @@
+import type {
+  SymposiumDispatchFacts,
+  SymposiumHostGrantVerifier,
+} from './symposium-dispatch-boundary.js';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
@@ -6,11 +10,7 @@ import type { AccountProfiles } from './account-profiles.js';
 import type { OpenShellRuntimeConfig } from './openshell-runtime.js';
 import { sandboxNameForConversation } from './openshell-runtime.js';
 import { validateOpenShellCliEnvironment } from './openshell-cli-environment.js';
-import {
-  admitSymposiumSeatDispatch,
-  type SymposiumDispatchFacts,
-  type SymposiumHostGrantVerifier,
-} from './symposium-seat-runtime.js';
+import { admitSymposiumSeatDispatch } from './symposium-seat-runtime.js';
 import {
   createOpenShellProviderIdentityResolver,
   snapshotSymposiumSeatProvider,
