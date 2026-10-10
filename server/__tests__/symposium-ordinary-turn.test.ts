@@ -189,3 +189,32 @@ it('keeps saved seat guidance immutable while appending separate user guidance',
   );
   expect(f.seat.systemPrompt).toBe('Selected guidance.');
 });
+
+it('includes saved expected output and acceptance criteria before separate user guidance', async () => {
+  const f = input();
+  f.seat.expectedOutput = 'A concise edited document.';
+  f.seat.acceptanceCriteria = ['Preserve the original intent.', 'Explain unresolved questions.'];
+  const original = structuredClone(f.seat);
+  let guide = '';
+  const port: OrdinaryChatPort = {
+    stopChat: () => {},
+    startChat: async (_transport, _client, _prompt, options) => {
+      guide = options.contributorGuidance!;
+      options.ordinaryTurnLifecycle!.beforeDispatch('recipient');
+      options.ordinaryTurnLifecycle!.accepted('recipient', 'raw-thread', 'raw-turn');
+      options.ordinaryTurnLifecycle!.terminal('recipient', 'raw-turn', 'completed');
+      options.onTurnResult!({ is_error: false });
+    },
+  };
+  await createOrdinarySymposiumTurn({
+    port,
+    binding: f.seat.accountBinding!,
+    cwd: '/task',
+    mode: 'agent',
+    additionalGuidance: 'Focus on accessibility.',
+  }).run(f, { beforeDispatch: () => {}, accepted: () => {} });
+  expect(guide).toBe(
+    'Selected guidance.\n\nExpected output: A concise edited document.\n\nAcceptance criteria:\n- Preserve the original intent.\n- Explain unresolved questions.\n\nAdditional user guidance for this contributor session:\nFocus on accessibility.',
+  );
+  expect(f.seat).toEqual(original);
+});

@@ -129,6 +129,12 @@ export function createOrdinarySymposiumTurn(deps: {
             operatorConnectionId: deps.operatorConnectionId,
             contributorGuidance:
               input.seat.systemPrompt +
+              (input.seat.expectedOutput
+                ? `\n\nExpected output: ${input.seat.expectedOutput}`
+                : '') +
+              (input.seat.acceptanceCriteria?.length
+                ? `\n\nAcceptance criteria:\n${input.seat.acceptanceCriteria.map((item) => `- ${item}`).join('\n')}`
+                : '') +
               (deps.additionalGuidance
                 ? `\n\nAdditional user guidance for this contributor session:\n${deps.additionalGuidance}`
                 : ''),
