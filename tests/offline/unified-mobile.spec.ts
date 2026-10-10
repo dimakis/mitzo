@@ -1632,6 +1632,55 @@ test('default SSE allows a fresh draft when the recovered local conversation is 
   await exerciseSseBriefingRecovery(page, true);
 });
 
+test('reviewed launches let users collapse Workspace and reach Send at a short viewport', async ({
+  page,
+  isMobile,
+}, testInfo) => {
+  await page.setViewportSize({ width: isMobile ? 320 : 1280, height: 640 });
+  await page.addInitScript(() => localStorage.removeItem('mitzo-workspace-controls-expanded'));
+  await page.route('**/api/home/preferences', (route) =>
+    route.fulfill({
+      json: {
+        ...fixtures['/api/home/preferences'],
+        names: { briefing: 'M'.repeat(80), terminal: 'Minion' },
+      },
+    }),
+  );
+  await page.goto('https://mitzo-ui.test/briefings/2026-10-10?ask=1');
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: 'Use selection', exact: true })
+    .click();
+  await page.evaluate(() => {
+    document.documentElement.dataset.theme = 'light';
+    document.documentElement.dataset.font = 'georgia';
+    document.documentElement.dataset.accent = 'teal';
+  });
+  const workspace = page.getByRole('button', { name: /^Workspace controls/ });
+  await expect(workspace).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.getByRole('combobox', { name: 'Model', exact: true })).toHaveValue(
+    'luna-fixture',
+  );
+  await workspace.click();
+  await expect(workspace).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.getByRole('combobox', { name: 'Model', exact: true })).toBeHidden();
+  const send = page.getByRole('button', { name: 'Send launch prompt', exact: true });
+  await send.scrollIntoViewIfNeeded();
+  await expect(send).toBeInViewport();
+  await expect
+    .poll(() =>
+      send.evaluate((element) => {
+        const rect = element.getBoundingClientRect();
+        return element.contains(
+          document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2),
+        );
+      }),
+    )
+    .toBe(true);
+  await send.click({ trial: true });
+  await page.screenshot({ path: testInfo.outputPath('briefing-short-launch-collapsed.png') });
+});
+
 test('failed briefing registration survives a completed turn and reload without resending it', async ({
   page,
   isMobile,
@@ -1897,6 +1946,11 @@ test('failed briefing registration survives a completed turn and reload without 
   await retained();
   expect(posts).toEqual([binding, binding]);
   expect(turns).toHaveLength(1);
+  // Restore the regular fixture after the separate long-name and appearance checks.
+  nickname = 'Jeeves';
+  await page.reload();
+  await expect(page.getByText('Jeeves · 2026-10-10', { exact: true })).toBeVisible();
+  await retained();
   await page.getByRole('button', { name: 'Change account or model', exact: true }).click();
   const changedPicker = page.getByRole('dialog');
   await changedPicker
