@@ -25,7 +25,7 @@ function fixture() {
       contributors: [contributor],
       eligibility: { available: false, accountIds: [], reason: 'Offline fixture' },
     })),
-    add: vi.fn(async () => contributor),
+    add: vi.fn(async (_parent: string, _input: unknown, _connectionId?: string) => contributor),
     message: vi.fn(async () => ({ contributor, delivery: { deliveryId: 'delivery' } })),
     stop: vi.fn(async () => contributor),
   };
@@ -38,6 +38,7 @@ function fixture() {
         res.sendStatus(403);
         return;
       }
+      res.locals.authSession = { id: 'private-owner', expiresAt: Date.now() + 10000 };
       next();
     },
     createOutputContributorRouter({
@@ -82,7 +83,12 @@ describe('operator-scoped output contributor routes', () => {
     const { service, contributor, input, post } = fixture();
     const add = await post('/api/sessions/source/contributors', input);
     expect(add.body).toEqual({ contributor });
-    expect(service.add).toHaveBeenCalledWith('source', input, 'profile-lookup-hint');
+    expect(service.add).toHaveBeenCalledWith(
+      'source',
+      input,
+      expect.stringMatching(/^agent-recovery:/),
+    );
+    expect(service.add.mock.calls[0][2]).not.toBe('profile-lookup-hint');
     const message = await post('/api/sessions/source/contributors/coordinator/messages', {
       requestId: 'turn-one',
       text: 'Continue',

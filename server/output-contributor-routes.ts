@@ -1,5 +1,7 @@
 import { Router, type Request, type Response } from 'express';
 import { ZodError } from 'zod';
+import type { AuthSession } from './auth.js';
+import { withAgentLibraryRecoveryAuthorization } from './agent-library-transport.js';
 import {
   type OutputContributors,
   OutputContributorAddInputSchema,
@@ -58,11 +60,13 @@ export function createOutputContributorRouter(options: {
       return;
     }
     try {
-      // This is only a selector. The profile resolver verifies its retained transport authentication.
-      const contributor = await options.service.add(
-        req.params.id as string,
-        parsed.data,
-        req.header('x-connection-id'),
+      // Profile admission belongs to this middleware-verified operator, never
+      // a connection selector supplied by another browser or request body.
+      const auth: AuthSession | undefined = res.locals.authSession;
+      const contributor = await withAgentLibraryRecoveryAuthorization(
+        auth,
+        (operatorConnectionId) =>
+          options.service.add(req.params.id as string, parsed.data, operatorConnectionId),
       );
       res.json({ contributor });
     } catch (error) {
