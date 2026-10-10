@@ -22,15 +22,16 @@ const recordSchema = z.strictObject({
   status: z.enum(['pending', 'failed', 'confirmed']),
   reasoningEffort: z.string().max(100).nullable().optional(),
 });
-type Record = z.infer<typeof recordSchema>;
+type RegistrationRecord = z.infer<typeof recordSchema>;
 const ACK = identity.extend({ createdAt: z.iso.datetime() });
 const CHANGED = 'mitzo-briefing-registration-changed';
-const memories = new Map<string, Map<string, Record>>();
+const memories = new Map<string, Map<string, RegistrationRecord>>();
 const writeErrors = new Map<string, Set<string>>();
 let authGeneration = 0;
-window.addEventListener(AUTH_LOST_EVENT, () => {
-  authGeneration++;
-});
+if (typeof window !== 'undefined')
+  window.addEventListener(AUTH_LOST_EVENT, () => {
+    authGeneration++;
+  });
 const inFlight = new Map<string, Promise<void>>();
 const SAVE_ERROR =
   'Conversation started, but its briefing link could not be saved. Retry saving the link.';
@@ -56,7 +57,7 @@ function read() {
   const cached = memory(scope);
   const failed = writeErrors.get(scope) ?? new Set<string>();
   let error = failed.size ? STORAGE_ERROR : '';
-  const entries = new Map<string, Record>();
+  const entries = new Map<string, RegistrationRecord>();
   try {
     const keys: string[] = [];
     for (let index = 0; index < localStorage.length; index++) {
@@ -87,7 +88,7 @@ function read() {
 function notify() {
   window.dispatchEvent(new Event(CHANGED));
 }
-function write(record: Record) {
+function write(record: RegistrationRecord) {
   const { records, scope } = read();
   const cached = memory(scope);
   const id = record.binding.sessionId;
@@ -132,7 +133,7 @@ function same(left: BriefingRegistrationIdentity, right: BriefingRegistrationIde
     (field) => left[field as keyof typeof left] === right[field as keyof typeof right],
   );
 }
-function replace(record: Record) {
+function replace(record: RegistrationRecord) {
   const current = read().records;
   const previous = current.find((entry) => entry.binding.sessionId === record.binding.sessionId);
   if (previous && !same(previous.binding, record.binding))
@@ -181,7 +182,7 @@ export function registerBriefing(
     (bytes
       ? Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join('')
       : `${Date.now()}:${Math.random()}`);
-  const record: Record = { binding: parsed, token, status: 'pending', reasoningEffort };
+  const record: RegistrationRecord = { binding: parsed, token, status: 'pending', reasoningEffort };
   replace(record);
   const current = () =>
     authGeneration === generation &&
@@ -259,4 +260,132 @@ export function useBriefingRegistration(sessionId: string | null) {
     retry: () =>
       record ? registerBriefing(record.binding, record.reasoningEffort) : Promise.resolve(),
   };
+}
+
+// Unassigned receipts contain only reviewed metadata; the full source stays in SendOutbox.
+const commandSchema = identity.omit({ sessionId: true }).extend({
+  clientMsgId: z.string().regex(/^[\w.:-]{1,200}$/),
+  reasoningEffort: z.string().max(100).nullable().optional(),
+});
+type CommandIntent = z.infer<typeof commandSchema>;
+function commandKey(clientMsgId: string) {
+  return `${key()}-commands:${encodeURIComponent(clientMsgId)}`;
+}
+function commands(): CommandIntent[] {
+  const intents: CommandIntent[] = [];
+  const prefix = `${key()}-commands:`;
+  for (let index = 0; index < localStorage.length; index++) {
+    const storedKey = localStorage.key(index);
+    if (!storedKey?.startsWith(prefix)) continue;
+    if (intents.length >= 100) throw new Error('Briefing command capacity reached');
+    const raw = localStorage.getItem(storedKey);
+    if (!raw || raw.length > 8 * 1024) throw new Error('Invalid briefing command receipt');
+    const intent = commandSchema.parse(JSON.parse(raw));
+    if (storedKey !== commandKey(intent.clientMsgId))
+      throw new Error('Invalid briefing command identity');
+    intents.push(intent);
+  }
+  return intents;
+}
+function durableRegistration(binding: BriefingRegistrationIdentity) {
+  try {
+    const raw = localStorage.getItem(durableKey(key(), binding.sessionId));
+    return !!raw && same(recordSchema.parse(JSON.parse(raw)).binding, binding);
+  } catch {
+    return false;
+  }
+}
+export const briefingCommandHandoff = {
+  prepare(command: Record<string, unknown>): boolean {
+    if (
+      command.sessionId !== null ||
+      !Array.isArray(command.sourceSnapshots) ||
+      !command.sourceSnapshots.length
+    )
+      return true;
+    const source = command.sourceSnapshots[0];
+    if (source?.kind !== 'briefing') return true;
+    try {
+      const intent = commandSchema.parse({
+        clientMsgId: command.clientMsgId,
+        date: source.date,
+        revision: source.revision,
+        accountId: command.accountId,
+        model: command.model,
+        reasoningEffort: command.reasoningEffort,
+      });
+      const existing = commands();
+      if (
+        existing.length >= 100 &&
+        !existing.some((entry) => entry.clientMsgId === intent.clientMsgId)
+      )
+        return false;
+      localStorage.setItem(commandKey(intent.clientMsgId), JSON.stringify(intent));
+      notify();
+      return true;
+    } catch {
+      return false;
+    }
+  },
+  assign(clientMsgId: string, sessionId: string, hint?: Record<string, unknown>) {
+    let raw: string | null;
+    try {
+      raw = localStorage.getItem(commandKey(clientMsgId));
+    } catch {
+      raw = null;
+      if (!hint) return;
+    }
+    let intent = raw ? commandSchema.parse(JSON.parse(raw)) : null;
+    // A restored legacy outbox also has the original immutable command metadata.
+    if (!intent && hint) intent = commandSchema.parse(hint);
+    if (!intent) return;
+    if (intent.clientMsgId !== clientMsgId)
+      throw new Error('Briefing command acknowledgement changed');
+    const binding = identity.parse({
+      date: intent.date,
+      revision: intent.revision,
+      accountId: intent.accountId,
+      model: intent.model,
+      sessionId,
+    });
+    void registerBriefing(binding, intent.reasoningEffort);
+    if (!durableRegistration(binding))
+      throw new Error('Assigned briefing identity could not be retained');
+    localStorage.removeItem(commandKey(clientMsgId));
+    notify();
+  },
+  reject(clientMsgId: string) {
+    try {
+      localStorage.removeItem(commandKey(clientMsgId));
+    } catch {
+      /* Ordinary delivery must not depend on briefing storage. */
+    }
+    notify();
+  },
+};
+export function localBriefingConversation(
+  source: { date: string; revision: string },
+  selection: { accountId?: string; model: string },
+): string | null {
+  const existing = read().records.find(
+    (entry) =>
+      entry.binding.date === source.date &&
+      entry.binding.revision === source.revision &&
+      entry.binding.accountId === selection.accountId &&
+      entry.binding.model === selection.model,
+  );
+  if (existing) return existing.binding.sessionId;
+  if (
+    commands().some(
+      (entry) =>
+        entry.date === source.date &&
+        entry.revision === source.revision &&
+        entry.accountId === selection.accountId &&
+        entry.model === selection.model,
+    )
+  )
+    throw new Error(
+      'This briefing conversation is awaiting assignment. Let its existing message finish restoring before asking again.',
+    );
+  return null;
 }

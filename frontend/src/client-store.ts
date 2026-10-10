@@ -1,3 +1,4 @@
+import { briefingCommandHandoff } from './lib/briefing-registration';
 /**
  * Bootstrap @mitzo/client store for the browser environment.
  *
@@ -50,6 +51,7 @@ const sseConfig: SseConnectionConfig | undefined = useSSE
   : undefined;
 
 export const clientStore = createMitzoStore({
+  sendHandoff: briefingCommandHandoff,
   transport: {
     fetch: (url, init) => apiFetch(url, init),
   },

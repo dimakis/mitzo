@@ -148,6 +148,28 @@ export class SendOutbox {
           (typeof receipt.sessionId !== 'string' && receipt.sessionId !== null)
         )
           throw new Error('Missing message acknowledgement');
+        const source = Array.isArray(entry.body.sourceSnapshots)
+          ? entry.body.sourceSnapshots[0]
+          : null;
+        const sourceHandoff =
+          entry.body.sessionId === null && source?.kind === 'briefing'
+            ? {
+                clientMsgId: entry.body.clientMsgId,
+                date: source.date,
+                revision: source.revision,
+                accountId: entry.body.accountId,
+                model: entry.body.model,
+                reasoningEffort: entry.body.reasoningEffort,
+              }
+            : undefined;
+        // A synchronous durable handoff must finish before dropping this exact command.
+        // If it throws, replay the original clientMsgId/body for the same server receipt.
+        this.config.notify({
+          type: '_send_accepted',
+          ...receipt,
+          originalSessionId: entry.body.sessionId,
+          ...(sourceHandoff ? { sourceHandoff } : {}),
+        });
         this.entries.shift();
         // Only unattempted follow-ups in the same draft inherit its session.
         if (entry.body.sessionId === null && receipt.sessionId) {
@@ -156,11 +178,6 @@ export class SendOutbox {
               queued.body.sessionId = receipt.sessionId;
           }
         }
-        this.config.notify({
-          type: '_send_accepted',
-          ...receipt,
-          originalSessionId: entry.body.sessionId,
-        });
       }
       this.failures = 0;
       this.persist();

@@ -180,6 +180,12 @@ export interface MitzoStoreOptions {
   sseConfig?: SseConnectionConfig;
   /** Start with transports latched off until restoreAuthentication() after an explicit login. */
   initiallyAuthenticated?: boolean;
+  /** Global durable command handoff, recreated at bootstrap and independent of UI observers. */
+  sendHandoff?: {
+    prepare(command: Record<string, unknown>): boolean;
+    assign(clientMsgId: string, sessionId: string, hint?: Record<string, unknown>): void;
+    reject(clientMsgId: string): void;
+  };
 }
 
 // ─── Tree helpers ───────────────────────────────────────────────────────────
@@ -746,6 +752,17 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         return msg;
       };
 
+      const msg = buildPayload();
+      if (options.sendHandoff && !options.sendHandoff.prepare(msg)) {
+        pendingOptimisticMessageIds.delete(clientMsgId);
+        set({
+          sendError:
+            'The reviewed conversation identity could not be retained. Retry before sending.',
+        });
+        settleDelivery(clientMsgId, 'failed');
+        return;
+      }
+
       set((s) => ({
         messages: messagesReducer(s.messages, {
           type: 'USER_SEND',
@@ -758,8 +775,6 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         sendError: null,
         sendStatus: null,
       }));
-
-      const msg = buildPayload();
 
       if (!parserState.currentSessionId) {
         awaitingSessionId = true;
@@ -778,6 +793,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
             ? messagesReducer(s.messages, { type: 'SESSION_STATE_CHANGED', state: 'idle' })
             : s.messages,
         }));
+        options.sendHandoff?.reject(clientMsgId);
         settleDelivery(clientMsgId, 'failed');
       }
     },
@@ -1222,6 +1238,18 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       msg.type === '_send_uncertain' ||
       msg.type === '_send_accepted'
     ) {
+      if (
+        msg.type === '_send_accepted' &&
+        typeof msg.clientMsgId === 'string' &&
+        typeof msg.sessionId === 'string'
+      )
+        options.sendHandoff?.assign(
+          msg.clientMsgId,
+          msg.sessionId,
+          msg.sourceHandoff as Record<string, unknown> | undefined,
+        );
+      if (msg.type === '_send_failed' && typeof msg.clientMsgId === 'string')
+        options.sendHandoff?.reject(msg.clientMsgId);
       const visible = store
         .getState()
         .messages.messages.some((m) => m.messageId === msg.clientMsgId);
@@ -1302,6 +1330,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
 
     const eventSessionId = msg.sessionId as string | undefined;
     if (msg.type === 'session_id' && typeof eventSessionId === 'string') {
+      if (typeof msg.clientMsgId === 'string')
+        options.sendHandoff?.assign(msg.clientMsgId, eventSessionId);
       // Correlated assignments survive navigation; only their original draft may be selected.
       const id =
         typeof msg.clientMsgId === 'string'
