@@ -389,7 +389,18 @@ export function ChatArea({
               {share}
             </>
           );
-        else rows.push({ key: `${ownerKey}:share`, scope, value: share });
+        else
+          rows.push({
+            key: `${ownerKey}:share`,
+            scope,
+            activityControl: true,
+            value: (
+              <div className="msg-turn">
+                <SeatAttribution provenance={msg.symposiumProvenance} />
+                {share}
+              </div>
+            ),
+          });
       }
       return rows;
     },

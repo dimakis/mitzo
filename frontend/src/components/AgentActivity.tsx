@@ -26,7 +26,7 @@ export function AgentActivity({
       detailsFocused.current = false;
     }
   }, [expanded]);
-  const latest = rows.at(-1)!;
+  const latest = [...rows].reverse().find((row) => row.block)!;
   const block = latest.block!;
   const tools = rows.flatMap((row) => (row.block?.blockType === 'tool_use' ? [row.block] : []));
   const failed = tools.filter((tool) => tool.toolError).length;

@@ -89,6 +89,58 @@ it('retains excerpt sharing for a finished message containing only blank text', 
   );
   fireEvent.click(screen.getByRole('button', { name: 'Share excerpt' }));
   expect(onShareMessage).toHaveBeenCalledWith('blank-reply', undefined);
+  expect(screen.queryByRole('button', { name: /Agent at work/ })).toBeNull();
+});
+
+it.each(['', ' \n '])('keeps blank-message sharing within continuous activity (%j)', (content) => {
+  const onShareMessage = vi.fn();
+  const finished: FinishedMessage[] = [
+    { messageId: 'thinking', role: 'assistant', blocks: [thought] },
+    {
+      messageId: 'blank-between',
+      role: 'assistant',
+      blocks: [{ blockId: 'blank', blockType: 'text', content }],
+    },
+    { messageId: 'reading', role: 'assistant', blocks: [tool] },
+    {
+      messageId: 'blank-after',
+      role: 'assistant',
+      blocks: [{ blockId: 'blank', blockType: 'text', content }],
+    },
+  ];
+  const chat = (messages: FinishedMessage[]) => (
+    <MemoryRouter>
+      <ChatArea {...base} messages={messages} current={null} onShareMessage={onShareMessage} />
+    </MemoryRouter>
+  );
+  const { rerender } = render(chat(finished.slice(0, 2)));
+  const toggle = screen.getByRole('button', { name: /Agent at work/ });
+  expect(toggle.textContent).toContain('Checking the records');
+  expect(toggle.getAttribute('aria-expanded')).toBe('true');
+  rerender(chat(finished));
+  expect(screen.getAllByRole('button', { name: /Agent at work/ })).toHaveLength(1);
+  expect(toggle.textContent).toContain('Read');
+  expect(toggle.textContent).toContain('/workspace/report.md');
+  expect(toggle.getAttribute('aria-expanded')).toBe('true');
+  const shares = screen.getAllByRole('button', { name: 'Share excerpt' });
+  expect(shares).toHaveLength(4);
+  fireEvent.click(shares[1]);
+  expect(onShareMessage).toHaveBeenCalledWith('blank-between', undefined);
+  rerender(
+    chat([
+      ...finished,
+      {
+        messageId: 'reply',
+        role: 'assistant',
+        blocks: [{ blockId: 'reply', blockType: 'text', content: 'Here is the answer.' }],
+      },
+    ]),
+  );
+  expect(toggle.getAttribute('aria-expanded')).toBe('false');
+  fireEvent.click(toggle);
+  expect(screen.getAllByRole('button', { name: 'Share excerpt' })).toHaveLength(5);
+  expect(screen.getByText('Checking the records')).toBeTruthy();
+  expect(screen.getByRole('button', { name: /^Read/ })).toBeTruthy();
 });
 
 it.each([

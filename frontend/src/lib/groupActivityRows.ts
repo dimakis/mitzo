@@ -9,6 +9,8 @@ export interface ActivityRow<T> {
   streaming?: boolean;
   keepVisible?: boolean;
   endsTurn?: boolean;
+  /** Message controls that can remain inside this speaker's preceding activity. */
+  activityControl?: boolean;
 }
 
 /** Group activity across provider message boundaries, but never across speakers or responses. */
@@ -23,7 +25,11 @@ export function groupActivityRows<T>(rows: ActivityRow<T>[]) {
       !row.keepVisible &&
       ['thinking', 'redacted_thinking', 'tool_use'].includes(row.block?.blockType ?? '');
     const previous = result.at(-1);
-    if (activity && previous?.type === 'activity' && previous.rows[0].scope === row.scope) {
+    if (
+      (activity || (row.activityControl && !row.keepVisible)) &&
+      previous?.type === 'activity' &&
+      previous.rows[0].scope === row.scope
+    ) {
       previous.rows.push(row);
     } else if (activity) {
       result.push({ type: 'activity', key: row.key, rows: [row], replied: false });
