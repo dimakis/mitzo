@@ -135,8 +135,7 @@ export async function compileContextPacks(
     }
     if (pack.definition.retrievalGuidance.trim()) {
       const path = `packs/${pin.id}/retrieval-guidance.md`;
-      const node = sections(path, pack.definition.retrievalGuidance)[0];
-      if (node) {
+      for (const node of sections(path, pack.definition.retrievalGuidance)) {
         node.required = true;
         candidates.set(node.id, { node, priority: 100, excluded: false });
       }

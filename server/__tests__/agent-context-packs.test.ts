@@ -127,3 +127,64 @@ it('keeps required source sections within budget and rejects revoked authorizati
   });
   await expect(compileAgentContext(recipe, { packs: revoked })).rejects.toThrow('Grant revoked');
 });
+it('delivers every nested retrieval guidance section as required context', async () => {
+  const packs = adapter();
+  const nested = {
+    ...definition,
+    retrievalGuidance:
+      '# Retrieval\nUse accepted references.\n## Exact revisions\nCite the selected source commit.\n### Boundaries\nPreserve private source grants.',
+  };
+  const selected = { ...pack, definition: nested, hash: contextDigest(nested) };
+  packs.resolve.mockResolvedValue(selected);
+  const result = await compileAgentContext(
+    { ...recipe, packs: [{ id: selected.id, revision: selected.revision, hash: selected.hash }] },
+    { packs },
+  );
+  expect(result.context.fullMarkdown).toContain('Use accepted references.');
+  expect(result.context.fullMarkdown).toContain('Cite the selected source commit.');
+  expect(result.context.fullMarkdown).toContain('Preserve private source grants.');
+});
+it('uses optional document priority during actual ContexGin budget trimming', async () => {
+  const selectedDefinition = {
+    ...definition,
+    documents: [
+      { ...document, path: 'context/low.md', mode: 'prioritized' as const, priority: 1 },
+      { ...document, path: 'context/high.md', mode: 'prioritized' as const, priority: 99 },
+    ],
+    retrievalGuidance: '',
+  };
+  const selected = {
+    ...pack,
+    definition: selectedDefinition,
+    hash: contextDigest(selectedDefinition),
+  };
+  const packs = {
+    ...adapter(),
+    resolve: async () => selected,
+    readDocument: async (selection: { path: string; revision: string }) => ({
+      storeId: 'accepted-mgmt',
+      path: selection.path,
+      revision: selection.revision,
+      content:
+        '# ' +
+        (selection.path.includes('high') ? 'High' : 'Low') +
+        '\n' +
+        (selection.path.includes('high') ? 'Priority guidance. ' : 'Background advice. ').repeat(
+          35,
+        ),
+    }),
+  };
+  const result = await compileAgentContext(
+    {
+      ...recipe,
+      tokenBudget: 256,
+      packs: [{ id: selected.id, revision: selected.revision, hash: selected.hash }],
+    },
+    { packs },
+  );
+  expect(result.context.fullMarkdown).toContain('Priority guidance.');
+  expect(result.context.fullMarkdown).not.toContain('Background advice.');
+  expect(result.provenance?.omissions).toContainEqual(
+    expect.objectContaining({ path: 'context/low.md', reason: 'budget' }),
+  );
+});
