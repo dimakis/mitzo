@@ -66,7 +66,21 @@ function mergeLiveImages(stored: QueuedMessage[], live: QueuedMessage[]): Queued
   }));
 }
 
-function saveQueue(sessionId: string | undefined, queue: QueuedMessage[]): void {
+function legacyKey(entry: StoredMessage): string {
+  return JSON.stringify([entry.text, entry.contextBlocks, entry.requiresRetry === true]);
+}
+
+function legacyCounts(entries: StoredMessage[]): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const entry of entries) {
+    if (entry.queueEntryId) continue;
+    const key = legacyKey(entry);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return counts;
+}
+
+function saveQueue(sessionId: string | undefined, queue: QueuedMessage[]): boolean {
   try {
     const key = queueKey(sessionId);
     if (queue.length === 0) {
@@ -74,8 +88,9 @@ function saveQueue(sessionId: string | undefined, queue: QueuedMessage[]): void 
     } else {
       localStorage.setItem(key, JSON.stringify(toStored(queue)));
     }
+    return true;
   } catch {
-    // localStorage full or unavailable — ignore
+    return false;
   }
 }
 
@@ -99,19 +114,81 @@ export function useQueuedMessages(
   const sessionRef = useRef(sessionId);
   const submittedOwners = useRef(new Map<string, string | undefined>());
   const suppressOwnEvent = useRef(false);
+  const mounted = useRef(false);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  // A readable snapshot is not authoritative for edits whose writes failed.
+  const storedQueues = useRef(new Map([[queueKey(sessionId), toStored(queue)]]));
+  const dirtyQueues = useRef(new Set<string>());
+  const persistQueue = useCallback((owner: string | undefined, next: QueuedMessage[]) => {
+    const key = queueKey(owner);
+    if (saveQueue(owner, next)) {
+      storedQueues.current.set(key, toStored(next));
+      dirtyQueues.current.delete(key);
+      return true;
+    }
+    dirtyQueues.current.add(key);
+    return false;
+  }, []);
+  const reconcileStored = useCallback((owner: string | undefined, stored: QueuedMessage[]) => {
+    const key = queueKey(owner);
+    const live = queueRef.current;
+    const baseline = storedQueues.current.get(key) ?? [];
+    const baselineIds = new Set(baseline.map((entry) => entry.queueEntryId));
+    // Observed entries stay storage-owned even if the subsequent optional save fails.
+    storedQueues.current.set(key, toStored(stored));
+    if (!dirtyQueues.current.has(key)) return mergeLiveImages(stored, live);
+    const liveIds = new Set(live.map((entry) => entry.queueEntryId));
+    const removedIds = new Set([...baselineIds].filter((id) => id && !liveIds.has(id)));
+    // Older stored rows have no IDs. Preserve their multiplicity while applying
+    // only the local removal delta; receipt matching still uses its modern ID.
+    const removedLegacy = legacyCounts(baseline);
+    const liveLegacy = legacyCounts(toStored(live));
+    const storedLegacy = legacyCounts(toStored(stored));
+    for (const [key, count] of removedLegacy) {
+      const liveCount = liveLegacy.get(key) ?? 0;
+      // A newer writer may already have applied the removal. Never subtract it twice.
+      removedLegacy.set(
+        key,
+        Math.max(0, Math.min(count - liveCount, (storedLegacy.get(key) ?? 0) - liveCount)),
+      );
+    }
+    const reconciled = mergeLiveImages(
+      stored.filter((entry) => {
+        if (entry.queueEntryId) return !removedIds.has(entry.queueEntryId);
+        const key = legacyKey(entry);
+        const removed = removedLegacy.get(key) ?? 0;
+        if (!removed) return true;
+        removedLegacy.set(key, removed - 1);
+        return false;
+      }),
+      live,
+    );
+    for (const entry of live) {
+      if (!entry.queueEntryId || baselineIds.has(entry.queueEntryId)) continue;
+      const index = reconciled.findIndex((item) => item.queueEntryId === entry.queueEntryId);
+      if (index < 0) reconciled.push(entry);
+      else reconciled[index] = entry;
+    }
+    return reconciled;
+  }, []);
 
   useEffect(() => {
     const changed = (event: Event) => {
       if (suppressOwnEvent.current) return;
       if ((event as CustomEvent<{ key: string }>).detail?.key !== queueKey(sessionRef.current))
         return;
-      const restored = mergeLiveImages(loadQueue(sessionRef.current), queueRef.current);
+      const restored = reconcileStored(sessionRef.current, loadQueue(sessionRef.current));
       queueRef.current = restored;
       setQueueRaw(restored);
     };
     window.addEventListener(QUEUE_CHANGED_EVENT, changed);
     return () => window.removeEventListener(QUEUE_CHANGED_EVENT, changed);
-  }, []);
+  }, [reconcileStored]);
 
   // Keep ref in sync with state
   useEffect(() => {
@@ -120,8 +197,8 @@ export function useQueuedMessages(
 
   // Persist before transferring ownership, including a queue edit batched with navigation.
   useEffect(() => {
-    saveQueue(sessionRef.current, queue);
-  }, [queue]);
+    persistQueue(sessionRef.current, queue);
+  }, [queue, persistQueue]);
 
   // When sessionId changes, load queue for new session
   useEffect(() => {
@@ -129,7 +206,7 @@ export function useQueuedMessages(
     sessionRef.current = sessionId;
     if (prev === sessionId) return;
 
-    saveQueue(prev, queueRef.current);
+    persistQueue(prev, queueRef.current);
     if (assignment && assignment.fromSessionId === prev && assignment.toSessionId === sessionId) {
       // Keep submitted object identity (including images) for its eventual
       // receipt. Existing destination work must survive the transfer too.
@@ -142,7 +219,7 @@ export function useQueuedMessages(
         : queueRef.current;
       queueRef.current = promoted;
       setQueueRaw(promoted);
-      saveQueue(sessionId, promoted);
+      persistQueue(sessionId, promoted);
       try {
         localStorage.removeItem(queueKey(prev));
       } catch {
@@ -152,6 +229,8 @@ export function useQueuedMessages(
     }
     if (prev !== undefined || sessionId === undefined || assignment !== undefined) {
       const restored = loadQueue(sessionId);
+      storedQueues.current.set(queueKey(sessionId), toStored(restored));
+      dirtyQueues.current.delete(queueKey(sessionId));
       queueRef.current = restored;
       setQueueRaw(restored);
       return;
@@ -167,7 +246,7 @@ export function useQueuedMessages(
       } else {
         const old = localStorage.getItem(oldKey);
         if (old) {
-          localStorage.setItem(newKey, old);
+          if (!persistQueue(sessionId, fromStored(JSON.parse(old)))) return;
           // Queue state stays the same — just moved the key
         }
       }
@@ -175,17 +254,18 @@ export function useQueuedMessages(
     } catch {
       // ignore
     }
-  }, [sessionId, assignment]);
+  }, [sessionId, assignment, persistQueue]);
 
   const enqueue = useCallback(
     (msg: QueuedMessage): boolean => {
       if (queueRef.current.length >= maxQueued) return false;
       const next = [...queueRef.current, { ...msg, queueEntryId: createBrowserId() }];
       queueRef.current = next;
+      persistQueue(sessionRef.current, next);
       setQueueRaw(next);
       return true;
     },
-    [maxQueued],
+    [maxQueued, persistQueue],
   );
 
   const dequeue = useCallback((): QueuedMessage | undefined => {
@@ -193,72 +273,91 @@ export function useQueuedMessages(
     if (current.length === 0 || current[0].requiresRetry) return undefined;
     const item = current[0];
     queueRef.current = current.slice(1);
+    persistQueue(sessionRef.current, queueRef.current);
     setQueueRaw(queueRef.current);
     return item;
-  }, []);
+  }, [persistQueue]);
 
   // Return already-submitted input without discarding it when the ordinary queue is full.
-  const restoreRejected = useCallback((msg: QueuedMessage) => {
-    const retained = { ...msg, requiresRetry: true, queueEntryId: createBrowserId() };
-    submittedOwners.current.set(retained.queueEntryId, sessionRef.current);
-    const next = [...queueRef.current.filter((item) => item !== msg), retained];
-    queueRef.current = next;
-    // The fence must exist before the caller dispatches its command, even if
-    // the page disappears before React's persistence effect can commit.
-    saveQueue(sessionRef.current, next);
-    setQueueRaw(next);
-    return retained;
-  }, []);
+  const restoreRejected = useCallback(
+    (msg: QueuedMessage) => {
+      const retained = { ...msg, requiresRetry: true, queueEntryId: createBrowserId() };
+      submittedOwners.current.set(retained.queueEntryId, sessionRef.current);
+      const next = [...queueRef.current.filter((item) => item !== msg), retained];
+      queueRef.current = next;
+      // The fence must exist before the caller dispatches its command, even if
+      // the page disappears before React's persistence effect can commit.
+      persistQueue(sessionRef.current, next);
+      setQueueRaw(next);
+      return retained;
+    },
+    [persistQueue],
+  );
 
-  const removeSubmitted = useCallback((msg: QueuedMessage) => {
-    const id = msg.queueEntryId;
-    if (!id || !submittedOwners.current.has(id)) return;
-    const owner = submittedOwners.current.get(id);
-    const key = queueKey(owner);
-    // A receipt may arrive after navigation or unmount. Reread the owner's
-    // storage and remove only its exact entry; never write a captured queue back.
-    try {
-      const parsed: unknown = JSON.parse(localStorage.getItem(key) ?? '[]');
-      if (!Array.isArray(parsed)) return;
-      const remaining = parsed.filter((entry: StoredMessage) => entry.queueEntryId !== id);
-      if (sessionRef.current === owner) {
-        const restored = mergeLiveImages(fromStored(remaining), queueRef.current);
-        queueRef.current = restored;
-        setQueueRaw(restored);
-      }
-      if (remaining.length) localStorage.setItem(key, JSON.stringify(remaining));
-      else localStorage.removeItem(key);
-      submittedOwners.current.delete(id);
-      suppressOwnEvent.current = true;
+  const removeSubmitted = useCallback(
+    (msg: QueuedMessage) => {
+      const id = msg.queueEntryId;
+      if (!id || !submittedOwners.current.has(id)) return;
+      const owner = submittedOwners.current.get(id);
+      const key = queueKey(owner);
+      // A receipt may arrive after navigation or unmount. Reread the owner's
+      // storage and remove only its exact entry; never write a captured queue back.
       try {
-        window.dispatchEvent(new CustomEvent(QUEUE_CHANGED_EVENT, { detail: { key } }));
-      } finally {
-        suppressOwnEvent.current = false;
+        const parsed: unknown = JSON.parse(localStorage.getItem(key) ?? '[]');
+        if (!Array.isArray(parsed)) return;
+        let remaining = parsed.filter((entry: StoredMessage) => entry.queueEntryId !== id);
+        if (mounted.current && sessionRef.current === owner) {
+          const restored = reconcileStored(owner, fromStored(parsed)).filter(
+            (entry) => entry.queueEntryId !== id,
+          );
+          remaining = toStored(restored);
+          queueRef.current = restored;
+          setQueueRaw(restored);
+        }
+        const persisted = persistQueue(owner, fromStored(remaining));
+        submittedOwners.current.delete(id);
+        // A key-only notification requires a successfully updated snapshot.
+        if (!persisted) return;
+        suppressOwnEvent.current = true;
+        try {
+          window.dispatchEvent(new CustomEvent(QUEUE_CHANGED_EVENT, { detail: { key } }));
+        } finally {
+          suppressOwnEvent.current = false;
+        }
+      } catch {
+        // Browser storage remains optional; remove only the exact active entry.
+        if (mounted.current && sessionRef.current === owner) {
+          queueRef.current = queueRef.current.filter((item) => item.queueEntryId !== id);
+          setQueueRaw(queueRef.current);
+        }
       }
-    } catch {
-      // Browser storage remains optional; remove only the exact active entry.
-      if (sessionRef.current === owner) {
-        queueRef.current = queueRef.current.filter((item) => item.queueEntryId !== id);
-        setQueueRaw(queueRef.current);
-      }
-    }
-  }, []);
+    },
+    [persistQueue, reconcileStored],
+  );
 
-  const remove = useCallback((index: number) => {
-    const id = queueRef.current[index]?.queueEntryId;
-    if (id) submittedOwners.current.delete(id);
-    queueRef.current = queueRef.current.filter((_, i) => i !== index);
-    setQueueRaw(queueRef.current);
-  }, []);
+  const remove = useCallback(
+    (index: number) => {
+      const id = queueRef.current[index]?.queueEntryId;
+      if (id) submittedOwners.current.delete(id);
+      queueRef.current = queueRef.current.filter((_, i) => i !== index);
+      persistQueue(sessionRef.current, queueRef.current);
+      setQueueRaw(queueRef.current);
+    },
+    [persistQueue],
+  );
 
-  const edit = useCallback((index: number): QueuedMessage | undefined => {
-    const item = queueRef.current[index];
-    if (!item) return undefined;
-    if (item.queueEntryId) submittedOwners.current.delete(item.queueEntryId);
-    queueRef.current = queueRef.current.filter((_, i) => i !== index);
-    setQueueRaw(queueRef.current);
-    return item;
-  }, []);
+  const edit = useCallback(
+    (index: number): QueuedMessage | undefined => {
+      const item = queueRef.current[index];
+      if (!item) return undefined;
+      if (item.queueEntryId) submittedOwners.current.delete(item.queueEntryId);
+      queueRef.current = queueRef.current.filter((_, i) => i !== index);
+      persistQueue(sessionRef.current, queueRef.current);
+      setQueueRaw(queueRef.current);
+      return item;
+    },
+    [persistQueue],
+  );
 
   return { queue, enqueue, dequeue, restoreRejected, removeSubmitted, remove, edit };
 }
