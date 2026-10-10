@@ -720,6 +720,8 @@ test('folder-only saved Knowledge conflicts show both organizations before repla
   });
   await page.goto('/knowledge');
   const comparison = page.getByRole('region', { name: 'Compare saved draft and working copy' });
+  await expect(comparison).toHaveCount(0);
+  await page.getByRole('button', { name: 'Review changes', exact: true }).click();
   await expect(comparison).toBeVisible();
   await expect(comparison.getByRole('region', { name: 'Saved draft organization' })).toContainText(
     'hub/saved-folder',
@@ -952,4 +954,89 @@ test('fullscreen Knowledge comparisons scroll independently and preserve space f
   // An uncertain initial creation keeps its request identity on retry.
   expect(writes.at(-1)?.requestId).toBe(writes[0].requestId);
   await expect(modal.getByRole('alert')).toHaveCount(0);
+});
+
+test('Knowledge reload lands on the Library and resumes the recovered copy only explicitly', async ({
+  page,
+}) => {
+  const path = 'hub/voice-guide.md';
+  const content = '# Voice guide\n\nKeep the recovered working copy.';
+  const savedDocuments = [{ path, base: '# Accepted voice guide', content: '# Saved voice guide' }];
+  const recovered = {
+    title: 'Voice guide',
+    baseRevision: 'r1',
+    documents: [{ path, base: '# Accepted voice guide', content }],
+    directories: ['hub/pending-guides'],
+    selected: path,
+    saved: JSON.stringify(savedDocuments),
+    savedDirectories: [],
+    draft: {
+      id: 'fixture-recovered-copy',
+      title: 'Voice guide',
+      baseRevision: 'r1',
+      version: 2,
+      state: 'draft',
+      documents: savedDocuments,
+      updatedAt: '2026-10-09T12:00:00Z',
+    },
+    pendingCreate: {
+      requestId: 'f95608ac-c6d4-4f2b-845b-313c70a19f8c',
+      title: 'Voice guide',
+      baseRevision: 'r1',
+      documents: [{ path, content }],
+      directories: ['hub/pending-guides'],
+    },
+  };
+  const serialized = JSON.stringify(recovered);
+  const authoringRequests: string[] = [];
+  await page.routeWebSocket('**/*', (socket) => socket.close());
+  await page.route('**/api/**', (route) => {
+    const url = new URL(route.request().url());
+    if (route.request().method() !== 'GET') authoringRequests.push(url.pathname);
+    if (url.pathname === '/api/knowledge')
+      return route.fulfill({
+        json: {
+          revision: 'r1',
+          documents: [{ path, title: 'Voice guide', area: 'Hub' }],
+          directories: ['hub'],
+          documentPaths: ['hub'],
+          drafts: [],
+          reviewEnabled: false,
+          acceptanceEnabled: false,
+          syncedAt: null,
+        },
+      });
+    if (url.pathname === '/api/knowledge/document')
+      return route.fulfill({ json: { path, revision: 'r1', content: '# Accepted voice guide' } });
+    return route.fulfill({ json: {} });
+  });
+  await page.goto('/knowledge');
+  await page.evaluate(
+    (copy) => localStorage.setItem('mitzo-knowledge-working-copy:', copy),
+    serialized,
+  );
+  await page.reload();
+  const source = page.getByRole('textbox', { name: 'Document source' });
+  await expect(page.getByRole('button', { name: 'Folder hub', exact: true })).toBeVisible();
+  await expect(page.getByRole('searchbox', { name: 'Search knowledge' })).toBeVisible();
+  await expect(source).toHaveCount(0);
+  await expect(page.locator('.cm-editor')).toHaveCount(0);
+  expect(await page.evaluate(() => localStorage.getItem('mitzo-knowledge-working-copy:'))).toBe(
+    serialized,
+  );
+  await selectKnowledgeDocument(page, path);
+  await expect(page.getByRole('article', { name: 'Voice guide' })).toContainText(
+    'Keep the recovered working copy.',
+  );
+  await expect(source).toHaveCount(0);
+  expect(await page.evaluate(() => localStorage.getItem('mitzo-knowledge-working-copy:'))).toBe(
+    serialized,
+  );
+  await page.getByRole('button', { name: '← Library', exact: true }).click();
+  await page.getByRole('button', { name: 'Resume editing', exact: true }).click();
+  await expectSource(source, content);
+  expect(await page.evaluate(() => localStorage.getItem('mitzo-knowledge-working-copy:'))).toBe(
+    serialized,
+  );
+  expect(authoringRequests).toEqual([]);
 });
