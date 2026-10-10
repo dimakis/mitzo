@@ -197,3 +197,74 @@ describe('useQueuedMessages', () => {
     expect(result.current.queue[0].images).toHaveLength(1);
   });
 });
+
+it('retains definitive refusal ownership across remount without persisting image data', () => {
+  const payload = {
+    text: 'Exact refused input',
+    contextBlocks: ['exact context'],
+    images: [
+      {
+        data: 'private-image-data',
+        mediaType: 'image/png',
+        preview: 'data:image/png;base64,private-image-data',
+      },
+    ],
+  };
+  const first = renderHook(() => useQueuedMessages('child'));
+  act(() => first.result.current.restoreRejected(payload));
+  expect(first.result.current.queue[0].images).toEqual(payload.images);
+  expect(JSON.parse(localStorage.getItem('mitzo-queue-child')!)).toEqual([
+    { text: payload.text, contextBlocks: payload.contextBlocks, requiresRetry: true },
+  ]);
+  expect(localStorage.getItem('mitzo-queue-child')).not.toContain('private-image-data');
+  first.unmount();
+  const hydrated = renderHook(() => useQueuedMessages('child'));
+  expect(hydrated.result.current.queue).toEqual([
+    { text: payload.text, contextBlocks: payload.contextBlocks, requiresRetry: true, images: [] },
+  ]);
+  let next: QueuedMessage | undefined;
+  act(() => {
+    next = hydrated.result.current.dequeue();
+  });
+  expect(next).toBeUndefined();
+  expect(hydrated.result.current.queue).toHaveLength(1);
+  act(() => {
+    next = hydrated.result.current.edit(0);
+  });
+  expect(next).toEqual({
+    text: payload.text,
+    contextBlocks: payload.contextBlocks,
+    requiresRetry: true,
+    images: [],
+  });
+  expect(hydrated.result.current.queue).toEqual([]);
+});
+
+it('preserves the retry fence when switching to a stored queue while legacy independent input still drains', () => {
+  localStorage.setItem(
+    'mitzo-queue-child',
+    JSON.stringify([
+      { text: 'Legacy independent', contextBlocks: [] },
+      { text: 'Refused input', contextBlocks: ['exact'], requiresRetry: true },
+    ]),
+  );
+  const { result, rerender } = renderHook(({ id }) => useQueuedMessages(id), {
+    initialProps: { id: 'other' },
+  });
+  rerender({ id: 'child' });
+  let next: QueuedMessage | undefined;
+  act(() => {
+    next = result.current.dequeue();
+  });
+  expect(next?.text).toBe('Legacy independent');
+  act(() => {
+    next = result.current.dequeue();
+  });
+  expect(next).toBeUndefined();
+  expect(result.current.queue).toEqual([
+    { text: 'Refused input', contextBlocks: ['exact'], requiresRetry: true, images: [] },
+  ]);
+  expect(JSON.parse(localStorage.getItem('mitzo-queue-child')!)).toEqual([
+    { text: 'Refused input', contextBlocks: ['exact'], requiresRetry: true },
+  ]);
+});

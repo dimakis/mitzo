@@ -31,7 +31,12 @@ function toStored(msgs: QueuedMessage[]): StoredMessage[] {
 }
 
 function fromStored(msgs: StoredMessage[]): QueuedMessage[] {
-  return msgs.map(({ text, contextBlocks }) => ({ text, contextBlocks, images: [] }));
+  return msgs.map(({ text, contextBlocks, requiresRetry }) => ({
+    text,
+    contextBlocks,
+    images: [],
+    ...(requiresRetry ? { requiresRetry: true } : {}),
+  }));
 }
 
 function loadQueue(sessionId: string | undefined): QueuedMessage[] {

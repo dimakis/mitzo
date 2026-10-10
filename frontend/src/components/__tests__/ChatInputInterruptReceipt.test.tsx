@@ -132,6 +132,7 @@ async function fixture() {
   return {
     ...view,
     renderScope: (sessionId: string) => view.rerender(<Harness sessionId={sessionId} />),
+    remount: () => render(<Harness />),
     store,
     receive,
     input,
@@ -311,3 +312,53 @@ it('cannot acknowledge an interrupt from another conversation even with the same
   expect(f.delivery).toHaveBeenCalledExactlyOnceWith('accepted');
   await waitFor(() => expect(f.input()).toHaveProperty('value', ''));
 });
+
+it.each(['Send Now', 'Edit'])(
+  'keeps a hydrated refused interrupt behind explicit %s recovery across later idle',
+  async (action) => {
+    const f = await fixture();
+    await f.compose('Exact refused input', 'refused.png');
+    fireEvent.click(screen.getByText('Select context'));
+    fireEvent.keyDown(f.input(), { key: 'Enter' });
+    const original = f.command();
+    fireEvent.change(f.input(), { target: { value: 'Newer untouched draft' } });
+    f.reject(original);
+    expect(screen.getByText('Exact refused input')).toBeTruthy();
+    expect(f.input()).toHaveProperty('value', 'Newer untouched draft');
+    f.unmount();
+    f.remount();
+    expect(f.input()).toHaveProperty('value', 'Newer untouched draft');
+    // Existing persistence excludes base64; this input must never be silently sent without its image.
+    expect(screen.queryByAltText('Attachment 1')).toBeNull();
+    f.receive({ type: 'session_state_changed', sessionId: 'child', state: 'idle' });
+    expect(f.onSend).not.toHaveBeenCalled();
+    expect(f.command()).toBe(original);
+    expect(screen.getByText('Exact refused input')).toBeTruthy();
+    expect(JSON.parse(localStorage.getItem('mitzo-queue-child')!)).toEqual([
+      { text: 'Exact refused input', contextBlocks: ['exact context'], requiresRetry: true },
+    ]);
+    f.receive({ type: 'session_state_changed', sessionId: 'child', state: 'running' });
+    fireEvent.click(screen.getByText(action));
+    if (action === 'Edit') {
+      expect(f.input()).toHaveProperty('value', 'Exact refused input');
+      expect(screen.getByText('exact context')).toBeTruthy();
+      fireEvent.keyDown(f.input(), { key: 'Enter' });
+    }
+    const retried = f.command();
+    expect(retried.clientMsgId).not.toBe(original.clientMsgId);
+    expect(retried).toMatchObject({
+      prompt: 'Exact refused input',
+      contextBlocks: ['exact context'],
+    });
+    expect(retried).not.toHaveProperty('images');
+    expect(f.onSend).not.toHaveBeenCalled();
+    f.receive({
+      type: 'user_message',
+      sessionId: 'child',
+      messageId: retried.clientMsgId,
+      text: 'Exact refused input',
+    });
+    expect(localStorage.getItem('mitzo-queue-child')).toBeNull();
+    expect(f.input()).toHaveProperty('value', action === 'Edit' ? '' : 'Newer untouched draft');
+  },
+);
