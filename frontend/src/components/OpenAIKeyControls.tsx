@@ -151,6 +151,7 @@ function OpenAIKeyCard({
   const [message, setMessage] = useState('');
   const [success, setSuccess] = useState(false);
   const ownRevision = useRef(account.revision);
+  const interrupted = useRef<Pick<OpenAIKeyHealth, 'revision' | 'verifiedAt'> | null>(null);
   const pendingOpen = useRef<Mode | null>(null);
   const keyInput = useRef<HTMLInputElement>(null);
   const needsKeychainAuthorization = account.errorCode === 'KEYCHAIN_AUTHORIZATION_REQUIRED';
@@ -159,6 +160,38 @@ function OpenAIKeyCard({
     return () => onBusyChange(account.accountId, false);
   }, [account.accountId, busy, onBusyChange]);
   useEffect(() => {
+    const baseline = interrupted.current;
+    if (baseline && !busy && !statusUnavailable) {
+      const ready = account.health === 'ready' && !account.errorCode;
+      const knownFailure = [
+        'NOT_APPLIED',
+        'CHAT_PAUSE_FAILED',
+        'ACCOUNT_CHANGED',
+        'KEYCHAIN_WRITE_UNCONFIRMED',
+        'CHAT_UPDATE_UNCONFIRMED',
+        'SYNC_PENDING',
+      ].includes(account.errorCode ?? '');
+      if (ready || knownFailure) {
+        interrupted.current = null;
+        ownRevision.current = account.revision;
+        setApiKey('');
+        setMode(null);
+        const newReceipt =
+          ready &&
+          account.revision !== baseline.revision &&
+          account.verifiedAt !== null &&
+          account.verifiedAt !== baseline.verifiedAt;
+        setSuccess(newReceipt);
+        setMessage(
+          ready
+            ? newReceipt
+              ? 'The saved key is ready to use.'
+              : 'The previous key is still ready to use. The replacement was not confirmed.'
+            : updateExplanation(account.errorCode, account.canSynchronize),
+        );
+        return;
+      }
+    }
     if (ownRevision.current === account.revision) return;
     ownRevision.current = account.revision;
     setApiKey('');
@@ -167,7 +200,7 @@ function OpenAIKeyCard({
       setSuccess(false);
       setMessage('The account changed. Review its current status before entering a new key.');
     }
-  }, [account.revision, mode, success]);
+  }, [account, busy, statusUnavailable, mode, success]);
   useEffect(() => {
     if (!authorized) {
       setMode(null);
@@ -194,6 +227,7 @@ function OpenAIKeyCard({
       }
       setMessage('');
       setSuccess(false);
+      interrupted.current = null;
       if (needsKeychainAuthorization) {
         setBusy('authorize');
         try {
@@ -251,6 +285,7 @@ function OpenAIKeyCard({
       return;
     }
     setSuccess(false);
+    interrupted.current = null;
     if (mode === 'replace' && !apiKey.trim()) {
       setMessage('Enter your replacement API key.');
       keyInput.current?.focus();
@@ -291,35 +326,10 @@ function OpenAIKeyCard({
               : 'Could not confirm the update. Refresh status before trying again; the key may already have been saved.',
       );
       if (code === 'AUTHORIZATION_REQUIRED') onReauthorizationNeeded();
+      if (code === 'UPDATE_UNCONFIRMED')
+        interrupted.current = { revision: account.revision, verifiedAt: account.verifiedAt };
       setBusy(null);
-      const refreshed = await refresh();
-      const current = refreshed?.find((item) => item.accountId === account.accountId);
-      if (code === 'UPDATE_UNCONFIRMED' && current?.health === 'ready' && !current.errorCode) {
-        accept(current);
-        const newReceipt =
-          current.revision !== account.revision &&
-          current.verifiedAt !== null &&
-          current.verifiedAt !== account.verifiedAt;
-        setSuccess(newReceipt);
-        setMessage(
-          newReceipt
-            ? 'The saved key is ready to use.'
-            : 'The previous key is still ready to use. The replacement was not confirmed.',
-        );
-      }
-      if (
-        code === 'UPDATE_UNCONFIRMED' &&
-        current?.errorCode &&
-        [
-          'NOT_APPLIED',
-          'CHAT_PAUSE_FAILED',
-          'ACCOUNT_CHANGED',
-          'KEYCHAIN_WRITE_UNCONFIRMED',
-          'CHAT_UPDATE_UNCONFIRMED',
-          'SYNC_PENDING',
-        ].includes(current.errorCode)
-      )
-        setMessage(updateExplanation(current.errorCode, current.canSynchronize));
+      await refresh();
     } finally {
       setBusy(null);
     }

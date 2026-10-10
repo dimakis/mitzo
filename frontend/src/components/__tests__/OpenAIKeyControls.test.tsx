@@ -338,3 +338,47 @@ it.each([true, false])(
     }
   },
 );
+
+it.each(['new receipt', 'previous receipt', 'not saved'])(
+  'reconciles a manual refresh after the save response and automatic refresh both fail (%s)',
+  async (outcome) => {
+    const ready = { ...initial, health: 'ready', verifiedAt: 100 };
+    vi.mocked(api.getOpenAIKeyStatus).mockResolvedValueOnce([ready as never]);
+    const f = await mount();
+    vi.mocked(api.replaceOpenAIKey).mockRejectedValueOnce(new Error('PRIVATE transport failure'));
+    vi.mocked(api.getOpenAIKeyStatus).mockRejectedValueOnce(new Error('PRIVATE refresh failure'));
+    try {
+      await act(async () => fireEvent.click(f.button('Replace API key')));
+      await act(async () =>
+        fireEvent.change(f.node.querySelector('input[type=password]')!, {
+          target: { value: 'SYNTHETIC_KEY' },
+        }),
+      );
+      await act(async () => fireEvent.click(f.button('Save API key')));
+      expect(f.node.textContent).toContain('may already have been saved');
+      expect(f.node.textContent).toContain('out of date');
+      vi.mocked(api.getOpenAIKeyStatus).mockResolvedValue([
+        {
+          ...ready,
+          revision: outcome === 'previous receipt' ? 'v1' : 'v2',
+          verifiedAt: outcome === 'new receipt' ? 200 : 100,
+          errorCode: outcome === 'not saved' ? 'CHAT_PAUSE_FAILED' : null,
+        } as never,
+      ]);
+      await act(async () => fireEvent.click(f.button('Refresh status')));
+      const expected =
+        outcome === 'new receipt'
+          ? 'The saved key is ready to use.'
+          : outcome === 'previous receipt'
+            ? 'The previous key is still ready to use. The replacement was not confirmed.'
+            : 'The replacement was not saved because Mitzo could not pause all chats';
+      expect(f.node.textContent).toContain(expected);
+      expect(f.node.textContent).not.toContain('may already have been saved');
+      expect(f.node.textContent).not.toContain('PRIVATE');
+      await act(async () => fireEvent.click(f.button('Refresh status')));
+      expect(f.node.textContent).toContain(expected);
+    } finally {
+      await act(async () => f.root.unmount());
+    }
+  },
+);

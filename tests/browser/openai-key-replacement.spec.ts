@@ -13,13 +13,15 @@ test('key replacement keeps readable billing disclosure, progress and durable re
     revision: 'v1',
     errorCode: null as string | null,
     canSynchronize: true,
-    verifiedAt: null,
+    verifiedAt: null as number | null,
   };
   let allowSave!: () => void;
   const saved = new Promise<void>((resolve) => {
     allowSave = resolve;
   });
   let holdRefresh = false;
+  let failRefresh = false;
+  let loseSaveResponse = false;
   let allowRefresh!: () => void;
   const refreshed = new Promise<void>((resolve) => {
     allowRefresh = resolve;
@@ -35,10 +37,15 @@ test('key replacement keeps readable billing disclosure, progress and durable re
     if (path === '/api/connections/reauthorize')
       return route.fulfill({ json: { csrf: 'fixture-csrf', expiresAt: Date.now() + 60000 } });
     if (path === '/api/connections/openai-keys') {
+      if (failRefresh) {
+        failRefresh = false;
+        return route.abort();
+      }
       if (holdRefresh) await refreshed;
       return route.fulfill({ json: { accounts: [account] } });
     }
     if (path === '/api/connections/openai-keys/work/replace') {
+      if (loseSaveResponse) return route.abort();
       expect(route.request().postDataJSON()).toMatchObject({
         apiKey: 'synthetic-key',
         revision: 'v1',
@@ -89,6 +96,21 @@ test('key replacement keeps readable billing disclosure, progress and durable re
   await expect(form.getByText(/The key is saved on this Mac/)).toBeVisible();
   await page.screenshot({
     path: test.info().outputPath('key-replacement-result.png'),
+    fullPage: true,
+  });
+  await form.getByRole('button', { name: 'Replace API key', exact: true }).click();
+  await form.getByLabel('New API key', { exact: true }).fill('synthetic-key');
+  loseSaveResponse = true;
+  failRefresh = true;
+  account = { ...account, revision: 'v3', health: 'ready', errorCode: null, verifiedAt: 200 };
+  await form.getByRole('button', { name: 'Save API key', exact: true }).click();
+  await expect(form.getByText(/The details below may be out of date/)).toBeVisible();
+  await expect(form.getByText(/the key may already have been saved/)).toBeVisible();
+  await form.getByRole('button', { name: 'Refresh status', exact: true }).click();
+  await expect(form.getByText('The saved key is ready to use.', { exact: true })).toBeVisible();
+  await expect(form.getByText(/the key may already have been saved/)).toHaveCount(0);
+  await page.screenshot({
+    path: test.info().outputPath('key-replacement-confirmed-refresh.png'),
     fullPage: true,
   });
 });
