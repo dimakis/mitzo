@@ -132,7 +132,7 @@ describe('ChatInput command strip', () => {
     );
     expect(container.querySelector('.composer-info')).toBeNull();
     fireEvent.click(usage);
-    expect(screen.getByText('Agent context').closest('.token-wheel-control')).toBeTruthy();
+    expect(screen.getByText('Current context').closest('.token-wheel-control')).toBeTruthy();
     expect(container.querySelector('.composer-toolbar')?.querySelector('textarea')).toBeNull();
   });
   it('keeps image attachment directly available while retaining the session tray source action', () => {
