@@ -60,6 +60,48 @@ function setup(ext = '.md') {
   return change;
 }
 describe('document editor', () => {
+  it('groups view, key preferences and formatting with named icon actions', async () => {
+    keyboardDevice();
+    setup();
+    await screen.findByRole('textbox', { name: 'Document source' });
+    const views = screen.getByRole('group', { name: 'Editor view' });
+    const keys = screen.getByRole('group', { name: 'Editing keys' });
+    const history = screen.getByRole('group', { name: 'Edit history' });
+    const formatting = screen.getByRole('group', { name: 'Markdown formatting' });
+    expect(
+      within(views)
+        .getAllByRole('button')
+        .map((button) => button.textContent),
+    ).toEqual(['Source', 'Preview', 'Split']);
+    expect(within(keys).getByText('Keys')).toBeTruthy();
+    expect(within(keys).getByRole('button', { name: 'Relative line numbers' })).toBeTruthy();
+    expect(within(keys).queryByRole('button', { name: 'Undo' })).toBeNull();
+    for (const name of ['Undo', 'Redo']) {
+      const button = within(history).getByRole('button', { name });
+      expect(button.querySelector('svg[aria-hidden="true"]')).toBeTruthy();
+      expect(button.textContent).toBe('');
+      expect(button.getAttribute('title')).toContain(name);
+    }
+    for (const name of ['Bold', 'Italic', 'Inline code', 'Heading', 'List', 'Link']) {
+      const button = within(formatting).getByRole('button', { name });
+      expect(button.querySelector('svg[aria-hidden="true"]')).toBeTruthy();
+      expect(button.textContent).toBe('');
+      expect(button.getAttribute('title')).toContain(name);
+    }
+    const fullscreen = screen.getByRole('button', { name: 'Fullscreen' });
+    expect(fullscreen.querySelector('svg[data-icon="fullscreen"]')).toBeTruthy();
+    fireEvent.click(fullscreen);
+    expect(
+      screen
+        .getByRole('button', { name: 'Exit fullscreen' })
+        .querySelector('svg[data-icon="fullscreenExit"]'),
+    ).toBeTruthy();
+    const save = screen.getByRole('button', { name: 'Save' });
+    expect(save.textContent).toBe('Save');
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+    expect(screen.queryByRole('group', { name: 'Markdown formatting' })).toBeNull();
+    expect(within(history).getByRole('button', { name: 'Undo' })).toBeTruthy();
+  });
   it('formats the selected Markdown and preserves selection', () => {
     const change = setup();
     const input = screen.getByRole('textbox', { name: 'Document source' }) as HTMLTextAreaElement;
