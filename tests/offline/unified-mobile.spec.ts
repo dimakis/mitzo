@@ -1401,6 +1401,176 @@ test('combined conversation empty and failed status remain readable without impl
   expect(queued).toHaveLength(0);
 });
 
+test('failed briefing registration survives a completed turn and reload without resending it', async ({
+  page,
+  isMobile,
+}, testInfo) => {
+  test.setTimeout(60_000);
+  await page.setViewportSize({ width: isMobile ? 320 : 1280, height: 900 });
+  await page.addInitScript(() => localStorage.setItem('mitzo-workspace-controls-expanded', '1'));
+  const sessionId = 'assigned-briefing-registration';
+  const binding = {
+    sessionId,
+    date: '2026-10-10',
+    revision: 'a'.repeat(64),
+    accountId: 'work-account',
+    model: 'luna-fixture',
+  };
+  const posts: unknown[] = [];
+  const turns: Record<string, unknown>[] = [];
+  let registered = false;
+  let allowRegistration = false;
+  let emptyReads = 0;
+  let completed = false;
+  await page.routeWebSocket('**/*', (socket) => {
+    socket.onMessage((raw) => {
+      const message = JSON.parse(String(raw));
+      if (message.type === 'hello')
+        socket.send(
+          JSON.stringify({
+            type: 'welcome',
+            protocolVersion: 2,
+            connectionId: 'offline-registration',
+          }),
+        );
+      if (message.type !== 'send') return;
+      turns.push(message);
+      socket.send(
+        JSON.stringify({ type: 'session_id', sessionId, clientMsgId: message.clientMsgId }),
+      );
+      socket.send(JSON.stringify({ type: 'session_state_changed', sessionId, state: 'running' }));
+      socket.send(
+        JSON.stringify({
+          type: 'user_message',
+          sessionId,
+          messageId: message.clientMsgId,
+          text: message.prompt,
+          sourceSnapshots: message.sourceSnapshots,
+        }),
+      );
+      socket.send(JSON.stringify({ type: 'session_state_changed', sessionId, state: 'idle' }));
+      completed = true;
+    });
+  });
+  await page.route('**/api/**', async (route) => {
+    const url = new URL(route.request().url());
+    if (url.hostname !== 'mitzo-ui.test') return route.abort();
+    if (url.pathname === '/api/home/briefing-chats') {
+      if (route.request().method() === 'POST') {
+        posts.push(route.request().postDataJSON());
+        if (!allowRegistration)
+          return route.fulfill({ status: 503, json: { error: 'Offline registration failed' } });
+        registered = true;
+        return route.fulfill({ json: { ...binding, createdAt: '2026-10-10T07:00:00Z' } });
+      }
+      if (!registered) emptyReads += 1;
+      return route.fulfill({
+        json: registered ? [{ ...binding, createdAt: '2026-10-10T07:00:00Z' }] : [],
+      });
+    }
+    if (route.request().method() !== 'GET')
+      return route.fulfill({ status: 405, json: { error: 'Offline fixture forbids writes' } });
+    const models = [
+      { id: 'luna-fixture', label: 'Luna fixture', reasoningEfforts: ['low', 'high'] },
+    ];
+    if (url.pathname === '/api/accounts')
+      return route.fulfill({ json: [{ id: 'work-account', label: 'Work OpenAI', models }] });
+    if (url.pathname === '/api/repository-workspaces/catalog')
+      return route.fulfill({ json: { available: false, repositories: [] } });
+    if (url.pathname === `/api/sessions/${sessionId}/messages`) return route.fulfill({ json: [] });
+    if (url.pathname === `/api/sessions/${sessionId}/meta`)
+      return route.fulfill({
+        json: {
+          sessionType: 'chat',
+          accountBinding: {
+            accountId: 'work-account',
+            accountLabel: 'Work OpenAI',
+            model: 'luna-fixture',
+          },
+          modelSelection: { model: 'luna-fixture', models },
+        },
+      });
+    if (url.pathname === `/api/sessions/${sessionId}/symposium/status`)
+      return route.fulfill({ json: { sessionId, config: null, seats: [] } });
+    return route.fallback();
+  });
+  await page.goto('https://mitzo-ui.test/briefings/2026-10-10?ask=1');
+  const picker = page.getByRole('dialog');
+  await expect(picker).toBeVisible();
+  await picker.getByRole('button', { name: 'Use selection', exact: true }).click();
+  await page.getByRole('button', { name: 'Send launch prompt', exact: true }).click();
+  const retry = page.getByRole('button', { name: 'Retry saving briefing link', exact: true });
+  await expect(retry).toBeVisible();
+  expect(completed).toBe(true);
+  expect(turns).toHaveLength(1);
+  expect(posts).toEqual([binding]);
+  await expect.poll(() => emptyReads).toBeGreaterThan(0);
+  async function retained() {
+    await expect(page.getByText('Jeeves · 2026-10-10', { exact: true })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Read briefing', exact: true })).toHaveAttribute(
+      'href',
+      `/briefings/${binding.date}?revision=${binding.revision}`,
+    );
+    const model = page.getByRole('combobox', { name: 'Model', exact: true });
+    await expect(model).toHaveValue(binding.model);
+    await expect(model).toBeDisabled();
+    await expect(page.getByRole('combobox', { name: 'Thinking', exact: true })).toBeDisabled();
+    await expect(page.locator('.chat-account-binding')).toHaveText('Work OpenAI');
+  }
+  await retained();
+  await page.goto('https://mitzo-ui.test/');
+  await page.goto(`https://mitzo-ui.test/chat/${sessionId}`);
+  await expect(retry).toBeVisible();
+  await retained();
+  await page.reload();
+  await expect(retry).toBeVisible();
+  await retained();
+  const alert = page.getByRole('alert').filter({ has: retry });
+  const geometry = await alert.evaluate((element) => {
+    const bounds = element.getBoundingClientRect();
+    const column = element.closest('.briefing-chat-banner')!.getBoundingClientRect();
+    return {
+      left: bounds.left - column.left,
+      right: column.right - bounds.right,
+      gutter: Number.parseFloat(
+        getComputedStyle(document.documentElement).getPropertyValue('--page-gutter'),
+      ),
+    };
+  });
+  expect(geometry.left).toBeGreaterThanOrEqual(geometry.gutter);
+  expect(geometry.right).toBeGreaterThanOrEqual(geometry.gutter);
+  expect((await retry.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  for (const appearance of [
+    { theme: 'dark', accent: 'lavender', font: 'system' },
+    { theme: 'light', accent: 'teal', font: 'georgia' },
+  ]) {
+    await page.evaluate((appearance) => {
+      const root = document.documentElement;
+      root.dataset.theme = appearance.theme;
+      root.dataset.accent = appearance.accent;
+      root.dataset.font = appearance.font;
+    }, appearance);
+    const family = await retry.evaluate((element) => ({
+      control: getComputedStyle(element).fontFamily,
+      body: getComputedStyle(document.body).fontFamily,
+    }));
+    expect(family.control).toBe(family.body);
+    await retained();
+    await page.screenshot({
+      path: testInfo.outputPath(
+        `briefing-registration-error-${appearance.theme}-${appearance.font}-${appearance.accent}.png`,
+      ),
+      animations: 'disabled',
+    });
+  }
+  allowRegistration = true;
+  await retry.click();
+  await expect(retry).toHaveCount(0);
+  await retained();
+  expect(posts).toEqual([binding, binding]);
+  expect(turns).toHaveLength(1);
+});
+
 test('saved chat identity failures lock model controls until an explicit successful retry', async ({
   page,
   isMobile,
