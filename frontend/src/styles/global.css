@@ -7115,6 +7115,7 @@ option {
 }
 
 .symposium-perspectives,
+.symposium-perspectives .symposium-perspective-panel,
 .symposium-perspectives [role='tabpanel'] {
   display: flex;
   flex: 1 1 auto;
@@ -7185,6 +7186,14 @@ option {
 }
 
 .symposium-audience-composer button,
+.symposium-audience-composer select {
+  min-height: var(--control-height);
+}
+
+.symposium-audience-composer select {
+  height: var(--control-height);
+}
+
 .symposium-share-preview button,
 .symposium-share-action {
   min-height: 2.5rem;
@@ -7838,6 +7847,7 @@ option {
 
 .symposium-perspective-tabs,
 .symposium-boundary-note,
+.symposium-perspectives .symposium-perspective-panel > button,
 .symposium-perspectives [role='tabpanel'] > button {
   flex-shrink: 0;
 }

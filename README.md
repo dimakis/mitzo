@@ -50,6 +50,8 @@ The dormant [Symposium artifact snapshot observer](docs/features/symposium-artif
 
 Qualified canonical staging builds expose a bounded Personal account-check diagnostic to the authenticated operator. It returns finite owned-supervisor observations without model execution or catalog publication; unavailable observations remain inconclusive. See the [staging diagnostic procedure](docs/operations/canonical-staging.md#bounded-personal-account-check-diagnostic).
 
+The source-qualified [CONNECT forwarding repair](docs/spikes/openshell-codex/connect-preface-native/README.md) preserves tunnel bytes consumed with the CONNECT header. Staging adoption and a successful Personal account read remain separate from offline qualification.
+
 Vertex readiness validates the pinned CLI’s blank failure-code column and empty-error `-` marker without accepting diagnostic text.
 
 Symposium director status resolves the verified runtime once per request and reuses it for per-seat diagnostics; each later request still performs fresh verification.
@@ -231,10 +233,12 @@ do not establish physical provider cleanup. Context
 source grants default to empty; a reference does not itself load conversation
 history. Shared workspace access remains governed by the host-issued grant.
 
-Each agent has a stable color accent alongside its name. **All** is a read-only
-combined timeline; write in a named agent's stream. Type `@` or choose **Switch
-agent** to select a recipient and switch streams. Drafts stay with their agent,
-and recipient selection never dispatches a message automatically.
+Each agent has a stable color accent alongside its name. Compose from **All** or
+an individual stream by explicitly choosing a **Message recipient**. Type `@` or
+choose **Choose recipient** to change the target without changing the viewed
+conversation. Drafts stay with their recipient; switching transcript tabs never
+retargets them. Queue, approve, send, and Stop remain explicit actions beside the
+named delivery, including in the combined timeline.
 
 Adding a reviewer can prepare a stopped ordinary conversation's isolated roster,
 but admission still requires the verified runtime. Roster changes revalidate

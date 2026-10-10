@@ -1,6 +1,7 @@
 import {
   SOURCE_QUALIFIED_SYMPOSIUM_LOCAL_B20_BUILD as localBuild,
   SOURCE_QUALIFIED_SYMPOSIUM_ROUTING_BUILD as routingBuild,
+  SOURCE_QUALIFIED_SYMPOSIUM_CONNECT_PREFACE_BUILD as connectPrefaceBuild,
 } from '../symposium-owned-runtime-contract.js';
 import { assertSymposiumAttestedClaudeProvider } from '../symposium-production-gate.js';
 import { collectOwnedAdmissionEvidence } from '../symposium-owned-evidence.js';
@@ -33,13 +34,15 @@ vi.mock('node:crypto', async (original) => {
         },
         digest(format: 'hex') {
           const bytes = Buffer.concat(parts);
-          return bytes.toString() === 'routing-test-cli'
-            ? 'a66f3eb90cef5d39073800f4f287cbe0dd137d754faeac218db52325a713e836'
-            : bytes.toString() === 'local-b20-test-cli'
-              ? '6ed96b7aa13655d6ecaeb822aee7526bc2170d85bd00f4506b13330703cb5dff'
-              : bytes.toString() === 'owned-native-test-cli'
-                ? '5a02cb78ef641da6badec1901677d4478c059a0080dbf4de13a6bbc503588dc8'
-                : actual.createHash(algorithm).update(bytes).digest(format);
+          return bytes.toString() === 'routing-v2-test-cli'
+            ? '63527180098c2f0917a8ca1dcb1029cb5640ea8fa8a8252c72f800b7a9f60a72'
+            : bytes.toString() === 'routing-test-cli'
+              ? 'a66f3eb90cef5d39073800f4f287cbe0dd137d754faeac218db52325a713e836'
+              : bytes.toString() === 'local-b20-test-cli'
+                ? '6ed96b7aa13655d6ecaeb822aee7526bc2170d85bd00f4506b13330703cb5dff'
+                : bytes.toString() === 'owned-native-test-cli'
+                  ? '5a02cb78ef641da6badec1901677d4478c059a0080dbf4de13a6bbc503588dc8'
+                  : actual.createHash(algorithm).update(bytes).digest(format);
         },
       };
     },
@@ -744,68 +747,80 @@ it('requires explicit trusted selection for exact local full tuple and rejects m
   }
 });
 
-it('requires the exact routing build plus physical evidence and independently measured native versions', () => {
-  const f = fixture();
-  writeFileSync(f.config.cli, 'routing-test-cli');
-  f.config.image = routingBuild.image;
-  const candidate = {
-    ...f.attestation,
-    cliVersion: routingBuild.version,
-    gatewayVersion: routingBuild.gatewayVersion,
-    cliSha256: routingBuild.cliSha256,
-    gatewaySha256: routingBuild.gatewaySha256,
-    image: routingBuild.image,
-    imageDigest: routingBuild.imageDigest,
-    sandboxRuntimeImage: routingBuild.sandboxRuntimeImage,
-    supervisorImage: routingBuild.supervisorImage,
-    controllerSha256: routingBuild.nativeArtifacts['/usr/bin/codex'],
-    nativeArtifacts: { ...routingBuild.nativeArtifacts },
-  };
-  const invoke = vi.fn((_cli: string, args: string[]) =>
-    args[0] === '--version'
-      ? `openshell ${routingBuild.version}`
-      : JSON.stringify({
-          gateway: f.config.gateway,
-          server: candidate.gatewayEndpoint,
-          version: routingBuild.gatewayVersion,
-          status: 'healthy',
-          compute_drivers: [
-            { name: 'podman', capabilities: { driver_version: routingBuild.gatewayVersion } },
-          ],
-        }),
-  );
-  expect(() => verifySymposiumProductionGate(f.config, candidate, f.physical, invoke)).toThrow();
-  expect(invoke).not.toHaveBeenCalled();
-  expect(
-    verifySymposiumProductionGate(f.config, candidate, f.physical, invoke, 'local-854b-routing-v1')
-      .readOnlyEnforced,
-  ).toBe(true);
-  expect(f.physical.verifyOwnedNativeHost).toHaveBeenCalledWith(
-    expect.objectContaining({
-      supervisorImage: routingBuild.supervisorImage,
-      cliSha256: routingBuild.cliSha256,
-    }),
-  );
-  for (const changed of [
-    { cliSha256: build.cliSha256 },
-    { gatewaySha256: localBuild.gatewaySha256 },
-    { supervisorImage: build.supervisorImage },
-    { gatewayVersion: routingBuild.version },
-    { cliVersion: build.version },
-    { image: build.image },
-    { nativeArtifacts: build.nativeArtifacts },
-  ])
+it.each([
+  ['local-854b-routing-v1', routingBuild],
+  ['local-854b-routing-v2', connectPrefaceBuild],
+] as const)(
+  'requires exact %s plus physical evidence and independently measured native versions',
+  (selection, selectedBuild) => {
+    const f = fixture();
+    const otherRoutingBuild = selectedBuild === routingBuild ? connectPrefaceBuild : routingBuild;
+    writeFileSync(
+      f.config.cli,
+      selectedBuild === routingBuild ? 'routing-test-cli' : 'routing-v2-test-cli',
+    );
+    f.config.image = selectedBuild.image;
+    const candidate = {
+      ...f.attestation,
+      cliVersion: selectedBuild.version,
+      gatewayVersion: selectedBuild.gatewayVersion,
+      cliSha256: selectedBuild.cliSha256,
+      gatewaySha256: selectedBuild.gatewaySha256,
+      image: selectedBuild.image,
+      imageDigest: selectedBuild.imageDigest,
+      sandboxRuntimeImage: selectedBuild.sandboxRuntimeImage,
+      supervisorImage: selectedBuild.supervisorImage,
+      controllerSha256: selectedBuild.nativeArtifacts['/usr/bin/codex'],
+      nativeArtifacts: { ...selectedBuild.nativeArtifacts },
+    };
+    const invoke = vi.fn((_cli: string, args: string[]) =>
+      args[0] === '--version'
+        ? `openshell ${selectedBuild.version}`
+        : JSON.stringify({
+            gateway: f.config.gateway,
+            server: candidate.gatewayEndpoint,
+            version: selectedBuild.gatewayVersion,
+            status: 'healthy',
+            compute_drivers: [
+              { name: 'podman', capabilities: { driver_version: selectedBuild.gatewayVersion } },
+            ],
+          }),
+    );
+    expect(() => verifySymposiumProductionGate(f.config, candidate, f.physical, invoke)).toThrow();
+    expect(invoke).not.toHaveBeenCalled();
+    expect(
+      verifySymposiumProductionGate(f.config, candidate, f.physical, invoke, selection)
+        .readOnlyEnforced,
+    ).toBe(true);
+    expect(f.physical.verifyOwnedNativeHost).toHaveBeenCalledWith(
+      expect.objectContaining({
+        supervisorImage: selectedBuild.supervisorImage,
+        cliSha256: selectedBuild.cliSha256,
+      }),
+    );
+    for (const changed of [
+      { cliSha256: otherRoutingBuild.cliSha256 },
+      { supervisorImage: otherRoutingBuild.supervisorImage },
+      { cliSha256: build.cliSha256 },
+      { gatewaySha256: localBuild.gatewaySha256 },
+      { supervisorImage: build.supervisorImage },
+      { gatewayVersion: selectedBuild.version },
+      { cliVersion: build.version },
+      { image: build.image },
+      { nativeArtifacts: build.nativeArtifacts },
+    ])
+      expect(() =>
+        verifySymposiumProductionGate(
+          f.config,
+          { ...candidate, ...changed } as never,
+          f.physical,
+          invoke,
+          selection,
+        ),
+      ).toThrow();
+    delete f.physical.verifyOwnedNativeHost;
     expect(() =>
-      verifySymposiumProductionGate(
-        f.config,
-        { ...candidate, ...changed } as never,
-        f.physical,
-        invoke,
-        'local-854b-routing-v1',
-      ),
+      verifySymposiumProductionGate(f.config, candidate, f.physical, invoke, selection),
     ).toThrow();
-  delete f.physical.verifyOwnedNativeHost;
-  expect(() =>
-    verifySymposiumProductionGate(f.config, candidate, f.physical, invoke, 'local-854b-routing-v1'),
-  ).toThrow();
-});
+  },
+);

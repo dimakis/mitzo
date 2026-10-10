@@ -84,6 +84,7 @@ it.each([
   { admissionBuildSelection: undefined, observeNativeTurnInput: false },
   { admissionBuildSelection: 'local-854b-b20-v1' as const, observeNativeTurnInput: true },
   { admissionBuildSelection: 'local-854b-routing-v1' as const, observeNativeTurnInput: false },
+  { admissionBuildSelection: 'local-854b-routing-v2' as const, observeNativeTurnInput: false },
 ])(
   'passes constructor hooks and optional trusted diagnostic %j before any child spawn',
   async ({ admissionBuildSelection, observeNativeTurnInput }) => {
