@@ -38,6 +38,8 @@ export async function resolveChatAgentProfile(input: {
     createHash('sha256').update(JSON.stringify(definition)).digest('hex') !== snapshot.contentHash
   )
     throw Error('Agent profile content hash mismatch');
+  if (definition.recipe && !input.provider)
+    throw Error('Choose an explicit account to verify agent profile provider compatibility');
   if (
     input.provider &&
     definition.recipe &&

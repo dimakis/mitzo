@@ -25,7 +25,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   // Library profile identity, operator ownership and admission are reviewed runtime inputs.
   '../symposium-director-routes.ts':
     'e6cabfe7555434bbf426209e5a0de750195559e106b0bbb09c4885a34159ff36',
-  '../agent-library-binding.ts': '18dfe637b95f7457c482c61ce91be02b84b4085455bc42df1c723cc820a4c4e7',
+  '../agent-library-binding.ts': '21fccbe6ee53ec292f93be9de3f678b3e1d4e8a8d6e83798678e9da44fadf7fb',
   '../agent-library-transport.ts':
     '979b9c57cbfe65e3e8145366d014b4b724b8d0ad9e4cb42fda0c9b0735c5e8ad',
   '../agent-library-store.ts': '401a25192724b2a91e4ef8743111dff184c0ba7e7b38f619bdd4a090e8828f45',

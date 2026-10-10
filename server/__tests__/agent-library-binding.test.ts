@@ -73,6 +73,16 @@ it('validates snapshot identity, hash, and provider compatibility before executi
   const withRecipe = { ...definition, recipe };
   await expect(
     resolveChatAgentProfile({
+      requested: { profileId: 'bob', revision: 3 },
+      lookup: async () => ({
+        ...snapshot,
+        definition: withRecipe,
+        contentHash: createHash('sha256').update(JSON.stringify(withRecipe)).digest('hex'),
+      }),
+    }),
+  ).rejects.toThrow(/explicit account/i);
+  await expect(
+    resolveChatAgentProfile({
       provider: 'openai',
       requested: { profileId: 'bob', revision: 3 },
       lookup: async () => ({
