@@ -1,3 +1,4 @@
+import { agentProfileLabel } from '@mitzo/protocol';
 import { defaultSeatColor } from '../lib/theme-color';
 import {
   SymposiumConfigurationOperationReceiptSchema,
@@ -320,19 +321,23 @@ export function ReviewerSheetHost({
   sessionId,
   children,
   generic = true,
+  initialProfile,
 }: {
   sessionId: string | null;
   children: ReactNode;
   generic?: boolean;
+  initialProfile?: SymposiumProfileSelection;
 }) {
+  const initialProfileId = initialProfile?.profileId;
+  const initialProfileRevision = initialProfile?.revision;
   const [open, setOpen] = useState(false);
   const [visited, setVisited] = useState(false);
   const [attempt, setAttempt] = useState(0);
   useEffect(() => {
-    setOpen(false);
-    setVisited(false);
+    setOpen(Boolean(sessionId && initialProfileId && initialProfileRevision));
+    setVisited(Boolean(sessionId && initialProfileId && initialProfileRevision));
     setAttempt(0);
-  }, [sessionId]);
+  }, [sessionId, initialProfileId, initialProfileRevision]);
   return (
     <ReviewerFlowContext.Provider
       value={
@@ -356,6 +361,7 @@ export function ReviewerSheetHost({
             key={`${sessionId}:${attempt}`}
             open={open}
             generic={generic}
+            initialProfile={initialProfile}
             sessionId={sessionId}
             onClose={() => setOpen(false)}
             onAnother={() => {
@@ -405,12 +411,14 @@ function ReviewerForm({
   open,
   onAnother,
   generic = false,
+  initialProfile,
 }: {
   sessionId: string;
   onClose(): void;
   open: boolean;
   onAnother(): void;
   generic?: boolean;
+  initialProfile?: SymposiumProfileSelection;
 }) {
   const base = `/api/sessions/${encodeURIComponent(sessionId)}/symposium`;
   const scope = reviewerOperationScope(sessionId, generic);
@@ -478,6 +486,38 @@ function ReviewerForm({
   const [localLocked, updateLocked] = useState(false);
   const locked = localLocked || Boolean(retained);
   const lockedRef = useRef(Boolean(retained));
+  const seedProfileId = initialProfile?.profileId;
+  const seedProfileRevision = initialProfile?.revision;
+  useEffect(() => {
+    if (!seedProfileId || !seedProfileRevision || approval || !generic || lockedRef.current) return;
+    let live = true;
+    const load = ++profileLoad.current;
+    setProfileLoading(true);
+    setShowProfile(true);
+    void request<{ definition: SymposiumProfileDefinition }>(
+      `/api/symposium/profiles/${encodeURIComponent(seedProfileId)}/${seedProfileRevision}`,
+    )
+      .then(({ definition }) => {
+        if (!live || load !== profileLoad.current || lockedRef.current) return;
+        setName(agentProfileLabel(definition));
+        setRole(definition.role);
+        setInstructions(definition.instructions);
+        setExpectedOutput(definition.expectedOutput);
+        setCriteria(definition.acceptanceCriteria.join('\n'));
+        // Match the existing saved-profile picker: copy guidance into the editable seat setup.
+        setProfile(null);
+      })
+      .catch((cause: unknown) => {
+        if (live && load === profileLoad.current)
+          setError(cause instanceof Error ? cause.message : 'Saved profile unavailable');
+      })
+      .finally(() => {
+        if (live && load === profileLoad.current) setProfileLoading(false);
+      });
+    return () => {
+      live = false;
+    };
+  }, [seedProfileId, seedProfileRevision, approval, generic]);
   const setLocked = (next: boolean) => {
     lockedRef.current = next;
     updateLocked(next);
@@ -1154,7 +1194,7 @@ function ReviewerForm({
                       )
                         .then(({ definition }) => {
                           if (load !== profileLoad.current || lockedRef.current) return;
-                          setName(definition.name);
+                          setName(agentProfileLabel(definition));
                           setRole(definition.role);
                           setInstructions(definition.instructions);
                           setExpectedOutput(definition.expectedOutput);

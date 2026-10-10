@@ -1,0 +1,47 @@
+.chat-agent-profile {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  flex-wrap: wrap;
+  min-width: 0;
+  color: var(--color-muted);
+}
+.chat-agent-profile label {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.chat-agent-profile select {
+  min-height: var(--control-height);
+  height: max(var(--control-height), calc(1.5em + var(--space-3) + 2px));
+  max-width: min(320px, 100%);
+  min-width: 0;
+  padding: var(--space-1h) var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+}
+.chat-agent-profile a {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--control-height);
+  color: var(--color-accent);
+}
+.chat-agent-profile :focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: var(--space-1);
+}
+.chat-agent-profile [role='alert'] {
+  color: var(--color-danger);
+  flex-basis: 100%;
+}
+@media (max-width: 440px) {
+  .chat-agent-profile select {
+    font-size: var(--text-base);
+    width: 100%;
+  }
+}

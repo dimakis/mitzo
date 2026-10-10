@@ -547,6 +547,42 @@ describe('Symposium director routes', () => {
         .status,
     ).toBe(404);
   });
+  it('carries pinned Library identity and guidance into primary setup without changing its account', async () => {
+    const { app, store } = fixture();
+    const binding = {
+      accountId: 'work',
+      accountLabel: 'Work',
+      provider: 'openai',
+      model: 'luna',
+      profileRevision: 'account-r1',
+    };
+    const definition = {
+      name: 'Bob',
+      descriptor: 'The architect',
+      role: 'agent',
+      instructions: 'Challenge architecture assumptions.',
+      expectedOutput: 'Decision brief',
+      acceptanceCriteria: ['Cite evidence'],
+      modelPolicyRole: 'agent',
+    };
+    store.getSession.mockReturnValue({
+      sessionId: 'chat',
+      sessionType: 'chat',
+      symposiumConfig: null,
+      symposiumRevision: 0,
+      isActive: false,
+      accountBinding: binding,
+      agentProfile: { profileId: 'bob', revision: 3, definition, contentHash: 'a'.repeat(64) },
+    } as never);
+    const response = await request(app)
+      .post('/api/sessions/chat/symposium/draft')
+      .send({ expectedAccountId: 'work' });
+    expect(response.status).toBe(200);
+    expect(response.body.seats[0].name).toBe('Bob · The architect');
+    expect(response.body.seats[0].systemPrompt).toContain('Challenge architecture assumptions.');
+    expect(response.body.seats[0].accountBinding).toEqual(binding);
+  });
+
   it('creates a revision-guarded draft from the existing session account binding', async () => {
     const { app, store } = fixture();
     store.getSession.mockReturnValue({

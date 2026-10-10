@@ -12,6 +12,20 @@ import { DesktopChatView } from '../DesktopChatView';
 import { PREFERRED_MODEL_KEY } from '../../lib/model-preference';
 import { useDraft } from '../../hooks/useDraft';
 const api = vi.hoisted(() => ({ fetch: vi.fn(), realComposer: false }));
+vi.mock('../../components/ChatAgentProfilePicker', () => ({
+  ChatAgentProfilePicker: ({
+    onChange,
+  }: {
+    onChange(selection: unknown, reason?: string): void;
+  }) => (
+    <>
+      <button onClick={() => onChange(null, 'Selected agent revision unavailable')}>
+        Choose unavailable profile
+      </button>
+      <button onClick={() => onChange({ profileId: 'bob', revision: 3 })}>Choose Bob</button>
+    </>
+  ),
+}));
 vi.mock('../../lib/api-fetch', () => ({ apiFetch: api.fetch, getApiBaseUrl: () => '' }));
 vi.mock('../../lib/keyboard', () => ({ onKeyboardToggle: () => () => {} }));
 vi.mock('../../hooks/useProgress', () => ({ useProgressByToolId: () => new Map() }));
@@ -196,6 +210,31 @@ for (const [layout, View] of [
   ['mobile', ChatView],
   ['desktop', DesktopChatView],
 ] as const) {
+  it(`${layout}: blocks unavailable agent guidance in the send handler and forwards an explicit replacement`, async () => {
+    api.fetch.mockImplementation(
+      async (url: string) =>
+        new Response(
+          JSON.stringify(
+            url.includes('/chat-preparation') ? { repositoryChat: preparation } : accounts,
+          ),
+        ),
+    );
+    const { send } = fixture(View);
+    await waitFor(() =>
+      expect(
+        (screen.getByRole('button', { name: 'Send task' }) as HTMLButtonElement).disabled,
+      ).toBe(false),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Choose unavailable profile' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Try send directly' }));
+    expect(send).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Choose Bob' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Try send directly' }));
+    expect(send).toHaveBeenCalledWith(
+      preparation.prompt,
+      expect.objectContaining({ agentProfile: { profileId: 'bob', revision: 3 } }),
+    );
+  });
   it.each(['rejected', 'throwing'] as const)(
     `${layout}: preserves immediate Send edits after a %s real transport and reload`,
     async (failure) => {

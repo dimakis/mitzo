@@ -13,6 +13,7 @@
  */
 
 import { z } from 'zod';
+import { AgentProfileSelectionSchema } from './agent-library.js';
 
 const ImageSchema = z.object({
   data: z.string(),
@@ -94,6 +95,7 @@ export const V2SendMessage = z.object({
   type: z.literal('send'),
   sessionId: z.string().min(1).nullable(),
   prompt: z.string().min(1),
+  agentProfile: AgentProfileSelectionSchema.optional(),
   clientMsgId: z.string().min(1).max(512),
   /** Explicit consent for a new command after an ambiguous provider outcome. */
   confirmAmbiguous: z.boolean().optional(),

@@ -21,6 +21,7 @@ const COLLECTION_ROUTES = new Set([
   '/calendar',
   '/notifications',
   '/tasks',
+  '/agent-library',
   '/files',
   '/knowledge',
   '/focus',

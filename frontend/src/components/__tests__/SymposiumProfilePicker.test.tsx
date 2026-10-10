@@ -24,6 +24,27 @@ const version = {
 };
 const response = (body: unknown) => ({ ok: true, json: async () => body }) as Response;
 
+it('shows a named agent descriptor and exposes separate identity fields', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(
+    response([
+      {
+        ...version,
+        definition: {
+          ...version.definition,
+          name: 'Bob',
+          descriptor: 'The architect',
+          description: 'Challenge designs.',
+        },
+      },
+    ]),
+  );
+  render(<SymposiumProfilePicker value={null} onChange={vi.fn()} />);
+  await screen.findByRole('option', { name: 'Bob · The architect · v2' });
+  fireEvent.click(screen.getByRole('button', { name: 'New profile' }));
+  expect(screen.getByLabelText('Descriptor')).toBeTruthy();
+  expect(screen.getByLabelText('Description')).toBeTruthy();
+});
+
 it('loads immutable versions and emits an explicit profile selection', async () => {
   vi.mocked(apiFetch).mockResolvedValue(response([version]));
   const onChange = vi.fn();

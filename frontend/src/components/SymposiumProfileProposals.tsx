@@ -200,6 +200,23 @@ function ProposalEditor({
         <input value={definition.name} onChange={(event) => update('name', event.target.value)} />
       </label>
       <label>
+        Descriptor
+        <input
+          maxLength={80}
+          value={definition.descriptor ?? ''}
+          placeholder="The architect"
+          onChange={(event) => update('descriptor', event.target.value || undefined)}
+        />
+      </label>
+      <label>
+        Description
+        <textarea
+          maxLength={500}
+          value={definition.description ?? ''}
+          onChange={(event) => update('description', event.target.value)}
+        />
+      </label>
+      <label>
         Role
         <input
           value={definition.role}

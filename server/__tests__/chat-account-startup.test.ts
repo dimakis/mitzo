@@ -15,6 +15,10 @@ vi.mock('../prompt-compare.js', () => ({
   capturePromptComparison: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock('../mcp-config.js', () => ({ loadMcpServers: vi.fn(() => ({})) }));
+vi.mock('../auto-rename.js', async (original) => ({
+  ...(await original<object>()),
+  shouldAutoRename: () => false,
+}));
 vi.mock('../hook-bridge.js', async (original) => ({
   ...(await original<object>()),
   loadProjectHooks: vi.fn(),
@@ -23,6 +27,89 @@ afterEach(() => {
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
 });
+
+it.each([false, true])(
+  'pins Library guidance and skill limits before offline SDK dispatch (resume=%s)',
+  async (resume) => {
+    vi.resetModules();
+    const root = await mkdtemp(join(tmpdir(), 'mitzo-library-startup-'));
+    vi.stubEnv('REPO_PATH', root);
+    vi.stubEnv('WORKTREE_ENABLED', 'false');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify({ boot: {} }))),
+    );
+    const { createHash } = await import('node:crypto');
+    const definition = {
+      name: 'Bob',
+      descriptor: 'The architect',
+      role: 'agent',
+      instructions: 'Challenge architecture assumptions.',
+      expectedOutput: 'Decision brief',
+      acceptanceCriteria: ['Use evidence'],
+      modelPolicyRole: 'agent',
+    };
+    const snapshot = {
+      profileId: 'bob',
+      revision: 3,
+      definition,
+      contentHash: createHash('sha256').update(JSON.stringify(definition)).digest('hex'),
+    };
+    const transport = await import('../agent-library-transport.js');
+    const read = vi.spyOn(transport, 'readAgentLibraryProfile').mockResolvedValue(snapshot);
+    const chat = await import('../chat.js');
+    const existingId = 'aaaaaaaa-bbbb-4ccc-8ddd-343434343434';
+    if (resume)
+      chat.eventStore.upsertSession({ sessionId: existingId, cwd: root, agentProfile: snapshot });
+    const { query } = await import('@anthropic-ai/claude-agent-sdk');
+    let dispatched = false;
+    let permissionCheck: Promise<unknown> | undefined;
+    vi.mocked(query).mockImplementation((args) => {
+      expect(args.options?.systemPrompt).toMatchObject({
+        append: expect.stringContaining('Bob · The architect'),
+      });
+      expect(args.options?.systemPrompt).toMatchObject({
+        append: expect.stringContaining('Challenge architecture assumptions.'),
+      });
+      expect(
+        chat.eventStore.getSession(args.options!.resume ?? args.options!.sessionId!)?.agentProfile,
+      ).toEqual(snapshot);
+      permissionCheck = Promise.resolve(
+        args.options!.canUseTool!(
+          'Bash',
+          { command: 'pwd' },
+          {
+            signal: new AbortController().signal,
+            toolUseID: 'restricted-call',
+          },
+        ),
+      );
+      dispatched = true;
+      throw Error('Offline SDK dispatch intercepted');
+    });
+    try {
+      await chat.startChat({ send: () => {}, isOpen: () => true }, 'library-startup', 'hello', {
+        cwd: root,
+        isolation: false,
+        model: 'luna',
+        mode: 'auto',
+        skillAllowedTools: ['Read'],
+        ...(resume ? { resume: existingId } : { agentProfile: { profileId: 'bob', revision: 3 } }),
+        operatorConnectionId: 'verified-transport',
+      });
+      expect(dispatched).toBe(true);
+      if (!resume)
+        expect(read).toHaveBeenCalledWith({ profileId: 'bob', revision: 3 }, 'verified-transport');
+      else expect(read).not.toHaveBeenCalled();
+      await expect(permissionCheck).resolves.toMatchObject({ behavior: 'deny' });
+    } finally {
+      read.mockRestore();
+      chat.eventStore.close();
+      chat.registry.dispose();
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+);
 it('links a startup error to safe logged diagnostics and the saved session', async () => {
   vi.resetModules();
   const root = await mkdtemp(join(tmpdir(), 'mitzo-startup-error-reference-'));
