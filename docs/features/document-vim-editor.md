@@ -24,7 +24,8 @@ knowledge remain separate actions.
 **Source**, **Preview**, and **Split** share the same unsaved content. **Fullscreen**
 expands the editing workspace and keeps save controls available; **Exit fullscreen**
 returns to the file layout with the draft intact. Markdown formatting controls
-remain available, and HTML previews retain their sandbox.
+remain available in both Standard and Vim source and split views, including Vim
+Normal, Insert and Visual modes. HTML previews retain their sandbox.
 
 Browser verification uses compiled frontend assets, intercepted file responses,
 and blocked WebSockets in the offline Playwright suite. It does not start a
