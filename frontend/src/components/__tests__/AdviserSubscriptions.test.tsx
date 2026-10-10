@@ -121,6 +121,93 @@ it('does not restore a cancelled attempt from an older account snapshot finishin
   expect(screen.queryByRole('button', { name: 'Cancel sign-in' })).toBeNull();
   expect(screen.getByText('Sign-in cancelled.')).toBeTruthy();
 });
+
+it.each(['complete', 'cancel', 'new-start', 'unmount', 'new-host-attempt'] as const)(
+  'publishes recovered completion only for its accepted current snapshot after %s',
+  async (transition) => {
+    vi.useFakeTimers();
+    let release!: (response: Response) => void;
+    const snapshot = new Promise<Response>((resolve) => {
+      release = resolve;
+    });
+    let reads = 0;
+    const pending = { id: 'recovered-attempt', state: 'pending' };
+    const newer = { id: 'newer-attempt', state: 'pending' };
+    mocks.fetch.mockImplementation(async (url: string) => {
+      if (url.endsWith('/cancel')) return new Response(JSON.stringify({ ok: true }));
+      if (url.endsWith('/start')) return new Response(JSON.stringify(newer));
+      if (url.includes('/attempts/'))
+        return new Response(JSON.stringify({ id: pending.id, state: 'connected' }));
+      if (++reads === 2) return snapshot;
+      return new Response(
+        JSON.stringify({
+          enabled: true,
+          accounts: [],
+          pendingAttempt: reads === 1 ? pending : newer,
+        }),
+      );
+    });
+    let view!: ReturnType<typeof render>;
+    await act(async () => {
+      view = render(<AdviserSubscriptions onAccountsChanged={mocks.changed} />);
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Manage adviser accounts' }));
+    await act(() => vi.advanceTimersByTimeAsync(2000));
+    expect(reads).toBe(2);
+    if (transition === 'cancel' || transition === 'new-start') {
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Cancel sign-in' }));
+      });
+      if (transition === 'new-start') {
+        await act(async () => {
+          fireEvent.click(
+            screen.getByRole('button', { name: 'Continue with ChatGPT on your Mac' }),
+          );
+        });
+      }
+    }
+    if (transition === 'unmount') {
+      view.unmount();
+      await act(async () => {
+        render(<AdviserSubscriptions onAccountsChanged={mocks.changed} />);
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'Manage adviser accounts' }));
+    }
+    await act(async () => {
+      release(
+        new Response(
+          JSON.stringify({
+            enabled: true,
+            accounts: [
+              { id: 'plan', label: 'Personal', email: 'user@example.test', state: 'connected' },
+            ],
+            pendingAttempt: transition === 'new-host-attempt' ? newer : null,
+          }),
+        ),
+      );
+    });
+    if (transition === 'complete') {
+      expect(mocks.changed).toHaveBeenCalledOnce();
+      expect(
+        screen.getByText('ChatGPT adviser connected. Choose its account and model.'),
+      ).toBeTruthy();
+      expect(screen.queryByRole('button', { name: 'Cancel sign-in' })).toBeNull();
+    } else {
+      expect(mocks.changed).not.toHaveBeenCalled();
+      expect(
+        screen.queryByText('ChatGPT adviser connected. Choose its account and model.'),
+      ).toBeNull();
+      if (transition !== 'cancel') {
+        await act(async () => {
+          fireEvent.click(screen.getByRole('button', { name: 'Cancel sign-in' }));
+        });
+        expect(mocks.fetch.mock.calls.filter(([url]) => url.endsWith('/cancel')).at(-1)![0]).toBe(
+          '/api/terminals/subscriptions/attempts/newer-attempt/cancel',
+        );
+      }
+    }
+  },
+);
 it('keeps account setup collapsed and lets the host browser own subscription sign-in', async () => {
   mocks.fetch.mockImplementation(
     async (url: string, _init?: RequestInit) =>

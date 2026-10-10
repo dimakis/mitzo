@@ -52,6 +52,7 @@ export function AdviserSubscriptions({
     if (mounted.current && request === version.current) {
       setSnapshot(data);
       setAttempt(data.pendingAttempt);
+      return { request, pendingAttempt: data.pendingAttempt };
     }
   }, []);
   useEffect(() => {
@@ -77,8 +78,15 @@ export function AdviserSubscriptions({
         const result = attemptSchema.parse(await response.json());
         if (disposed) return;
         if (result.state !== 'pending') {
-          await refresh();
-          if (!disposed) {
+          const applied = await refresh();
+          // This read may stop its own polling effect. Completion belongs to
+          // the accepted read and page lifetime, never a newer pending attempt.
+          if (
+            applied &&
+            mounted.current &&
+            version.current === applied.request &&
+            !applied.pendingAttempt
+          ) {
             setAttempt(result);
             changed.current();
             setMessage(
