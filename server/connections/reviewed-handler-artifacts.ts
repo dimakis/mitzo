@@ -22,8 +22,10 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../agent-context-compiler.ts':
+    '9fb06ccc138e81e5e6180b0e0ffa02a02a99b1962bb4b085ef66332e083cd89f',
   '../../packages/protocol/src/agent-context-recipe.ts':
-    'd4d8b553f9682b422aca67a0b0e59ccce5ded6b347d36441ca36eafcf2502f1f',
+    '7e8e25fc19e1d7ff515f60e092a18d553fa443f23e73003fe1fe7bb99bffb70f',
   // Library profile identity, operator ownership and admission are reviewed runtime inputs.
   '../symposium-director-routes.ts':
     'e6cabfe7555434bbf426209e5a0de750195559e106b0bbb09c4885a34159ff36',

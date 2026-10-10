@@ -283,3 +283,8 @@ export {
 export { SessionRuntimeBindingV1Schema } from './session-runtime-binding.js';
 export type { SessionRuntimeBindingV1 } from './session-runtime-binding.js';
 export { AgentContextRecipeSchema, type AgentContextRecipe } from './agent-context-recipe.js';
+export {
+  AgentCompiledBootContextSchema,
+  CompiledAgentContextSchema,
+  type CompiledAgentContext,
+} from './agent-context-recipe.js';

@@ -46,3 +46,43 @@ export const AgentContextRecipeSchema = z.discriminatedUnion('source', [
   }),
 ]);
 export type AgentContextRecipe = z.infer<typeof AgentContextRecipeSchema>;
+
+const digest = z.string().regex(/^[a-f0-9]{64}$/);
+const section = z.strictObject({
+  source: z.string().max(240),
+  heading: z.string().max(1000),
+  tokens: z.number().int().nonnegative().max(100000),
+  content: z.string().max(262144),
+});
+export const AgentCompiledBootContextSchema = z
+  .strictObject({
+    type: z.literal('boot_context'),
+    source: z.literal('contexgin'),
+    sourceCount: z.number().int().nonnegative().max(500),
+    tokenCount: z.number().int().nonnegative().max(100000),
+    tokenBudget: z.number().int().positive().max(100000),
+    sources: z
+      .array(z.strictObject({ path: z.string().min(1).max(240), kind: z.string().min(1).max(40) }))
+      .max(500),
+    included: z.array(section).max(500),
+    trimmed: z.array(section).max(500),
+    fullMarkdown: z.string().min(1).max(400000),
+  })
+  .superRefine((context, ctx) => {
+    if (context.sourceCount !== context.sources.length || context.tokenCount > context.tokenBudget)
+      ctx.addIssue({ code: 'custom', message: 'Invalid compiled context counts or budget' });
+  });
+export const CompiledAgentContextSchema = z
+  .strictObject({
+    source: z.enum(['workspace', 'contexgin']),
+    compilerRevision: z.string().min(1).max(128),
+    recipeHash: digest,
+    payloadHash: digest,
+    workspaceIdentity: digest.optional(),
+    context: AgentCompiledBootContextSchema,
+  })
+  .superRefine((compiled, ctx) => {
+    if ((compiled.source === 'workspace') !== (compiled.workspaceIdentity !== undefined))
+      ctx.addIssue({ code: 'custom', message: 'Compiled context workspace identity mismatch' });
+  });
+export type CompiledAgentContext = z.infer<typeof CompiledAgentContextSchema>;
