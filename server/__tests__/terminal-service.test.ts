@@ -15,7 +15,9 @@ describe('operator terminals', () => {
   const process = { write: vi.fn(), resize: vi.fn(), detach: vi.fn() };
   let backend: TerminalBackend;
   let service: TerminalService;
+  let pendingResolution: Promise<void> | undefined;
   beforeEach(() => {
+    pendingResolution = undefined;
     db = new Database(':memory:');
     target = { kind: 'host', label: 'Your Mac', cwd: '/home/operator', identity: 'host:v1' };
     process.write.mockReset();
@@ -30,10 +32,13 @@ describe('operator terminals', () => {
       end: vi.fn(async () => {}),
     };
     service = new TerminalService(new TerminalStore(db), {
-      resolve: async (request) => ({
-        ...target,
-        ...(request.sessionId ? { sessionId: request.sessionId } : {}),
-      }),
+      resolve: async (request) => {
+        await pendingResolution;
+        return {
+          ...target,
+          ...(request.sessionId ? { sessionId: request.sessionId } : {}),
+        };
+      },
       backend,
     });
   });
@@ -153,5 +158,28 @@ describe('operator terminals', () => {
       await expect(service.open('operator-a', {})).rejects.toThrow('could not be opened');
     }
     expect((await service.open('operator-a', {})).state).toBe('running');
+  });
+  it('does not deliver queued input after logout or expiry during environment verification', async () => {
+    const terminal = await service.open('operator-a', {});
+    let release!: () => void;
+    pendingResolution = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const controller = new AbortController();
+    const writing = service.write('operator-a', terminal.id, 'whoami\r', {
+      signal: controller.signal,
+      expiresAt: Date.now() + 60000,
+    });
+    controller.abort();
+    release();
+    await expect(writing).rejects.toThrow();
+    expect(process.write).not.toHaveBeenCalled();
+    await expect(
+      service.write('operator-a', terminal.id, 'whoami\r', {
+        signal: new AbortController().signal,
+        expiresAt: Date.now() - 1,
+      }),
+    ).rejects.toThrow();
+    expect(process.write).not.toHaveBeenCalled();
   });
 });

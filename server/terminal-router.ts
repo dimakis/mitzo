@@ -57,11 +57,9 @@ export function createTerminalRouter(options: {
       if (!controller.signal.aborted) res.json(result);
     } catch {
       if (!controller.signal.aborted)
-        res
-          .status(409)
-          .json({
-            error: 'Adviser unavailable. Check the selected account, model and thinking mode.',
-          });
+        res.status(409).json({
+          error: 'Adviser unavailable. Check the selected account, model and thinking mode.',
+        });
     } finally {
       unobserve();
     }
@@ -127,11 +125,19 @@ export function createTerminalRouter(options: {
       res.status(400).json({ error: 'Invalid terminal input' });
       return;
     }
+    const controller = new AbortController();
+    const auth = res.locals.authSession as AuthSession;
+    const unobserve = (options.observeAuth ?? registerAuthSession)(auth, () => controller.abort());
     try {
-      await options.service.write(res.locals.authSession.id, String(req.params.id), body.data.data);
+      await options.service.write(auth.id, String(req.params.id), body.data.data, {
+        signal: controller.signal,
+        expiresAt: auth.expiresAt,
+      });
       res.json({ ok: true });
     } catch {
       res.status(409).json({ error: 'Terminal unavailable' });
+    } finally {
+      unobserve();
     }
   });
   router.post('/:id/resize', requireSameOriginJson, async (req, res) => {

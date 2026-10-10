@@ -75,7 +75,12 @@ describe('operator terminal API', () => {
       .set('authorization', 'Bearer operator')
       .send({ data: 'pwd\r' })
       .expect(200);
-    expect(service.write).toHaveBeenCalledWith('login-a', 'term-owned', 'pwd\r');
+    expect(service.write).toHaveBeenCalledWith(
+      'login-a',
+      'term-owned',
+      'pwd\r',
+      expect.objectContaining({ signal: expect.any(AbortSignal), expiresAt: expect.any(Number) }),
+    );
   });
   it('does not disclose private exception messages in failures', async () => {
     const { app, service } = setup();

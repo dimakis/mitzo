@@ -199,9 +199,20 @@ export class TerminalService {
       live.listeners.delete(listener);
     };
   }
-  async write(owner: string, id: string, data: string) {
+  async write(
+    owner: string,
+    id: string,
+    data: string,
+    authority?: { signal: AbortSignal; expiresAt: number },
+  ) {
+    const authorize = () => {
+      authority?.signal.throwIfAborted();
+      if (authority && authority.expiresAt <= Date.now()) throw Error('Operator session expired');
+    };
+    authorize();
     if (!TerminalInputBody.safeParse({ data }).success) throw new Error('Invalid terminal input');
     const live = await this.ensure(this.store.read(owner, id));
+    authorize();
     live.process!.write(data);
   }
   async resize(owner: string, id: string, cols: number, rows: number) {
