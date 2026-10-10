@@ -122,30 +122,6 @@ export function createKnowledgeLibraryRouter(
     if (!parsed.success) throw new KnowledgeDraftConflict('Invalid draft identity');
     return parsed.data;
   }
-  async function submit(context: Context, draft: KnowledgeDraft) {
-    if (!context.runtime.reviewService)
-      return { draft, reviewError: 'Draft saved. Review publishing is not configured.' };
-    try {
-      await context.runtime.refresh();
-      context.assert();
-      const reviewed = await context.runtime.reviewService.submit(
-        draft.id,
-        draft.version,
-        context.signal,
-      );
-      context.assert();
-      return { draft: reviewed };
-    } catch (error) {
-      context.assert();
-      return {
-        draft: context.runtime.store.get(draft.id),
-        reviewError:
-          error instanceof KnowledgeDraftConflict
-            ? error.message
-            : 'Draft saved. Its review could not be confirmed. Retry Save to recover the same change.',
-      };
-    }
-  }
   router.get(
     '/',
     route(async (_req, res, context) => res.json(await catalog(context))),
@@ -258,7 +234,7 @@ export function createKnowledgeLibraryRouter(
         baseRevision,
         input.data.directories,
       );
-      return res.json(await submit(context, saved));
+      return res.json({ draft: saved });
     }),
   );
   router.post(
@@ -269,7 +245,8 @@ export function createKnowledgeLibraryRouter(
       const draft = context.runtime.store.get(id(req));
       if (draft.version !== input.data.version)
         throw new KnowledgeDraftConflict('Draft changed in another window. Reload before saving.');
-      return res.json(await submit(context, draft));
+      context.runtime.store.assertIdle(draft.id);
+      return res.json({ draft });
     }),
   );
   function reviewIdentity(context: Context, draft: KnowledgeDraft) {
@@ -331,35 +308,28 @@ export function createKnowledgeLibraryRouter(
     '/drafts/:id/ready',
     route(async (req, res, context) => {
       const input = z
-        .strictObject({ version: z.number().int().positive(), head: revision })
+        .strictObject({ version: z.number().int().positive(), head: revision.optional() })
         .safeParse(req.body);
       if (!input.success) return res.status(400).json({ error: 'Invalid review submission' });
-      if (!context.runtime.publisher)
+      if (!context.runtime.publisher || !context.runtime.reviewService)
         throw new KnowledgeDraftConflict('Review publishing is not configured');
       const draft = context.runtime.store.get(id(req));
       if (
-        draft.state !== 'in-review' ||
         draft.version !== input.data.version ||
-        draft.review?.version !== draft.version ||
-        draft.review.head !== input.data.head
+        (input.data.head && draft.review?.head !== input.data.head)
       )
-        throw new KnowledgeDraftConflict('Save the current draft before sending it for review');
-      const lease = context.runtime.store.acquire(draft.id);
-      try {
-        const sent = await context.runtime.publisher.sendForReview(reviewIdentity(context, draft));
-        context.assert();
-        if (sent.head !== draft.review.head || sent.draft !== false || sent.state !== 'in-review')
-          throw new KnowledgeDraftConflict('Review submission could not be confirmed');
-        const updated = context.runtime.store.receipt(
-          draft.id,
-          draft.version,
-          { ...draft.review, ready: true },
-          lease,
+        throw new KnowledgeDraftConflict(
+          'Saved draft or review changed. Reload before sending it for review.',
         );
-        return res.json({ draft: updated, canAccept: false });
-      } finally {
-        context.runtime.store.release(draft.id, lease);
-      }
+      await context.runtime.refresh();
+      context.assert();
+      const sent = await context.runtime.reviewService.sendForReview(
+        draft.id,
+        draft.version,
+        context.signal,
+      );
+      context.assert();
+      return res.json({ draft: sent, canAccept: false });
     }),
   );
   router.post(
