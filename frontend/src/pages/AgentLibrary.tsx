@@ -6,6 +6,8 @@ import {
   type AgentLibraryDraft,
   type AgentLibraryVersion,
   type SymposiumProfileDefinition,
+  CompiledAgentContextSchema,
+  type CompiledAgentContext,
 } from '@mitzo/protocol';
 import { apiFetch } from '../lib/api-fetch';
 import {
@@ -16,6 +18,7 @@ import {
 } from '../lib/agent-library';
 import { WorkspacePageHeading } from '../components/WorkspacePageHeading';
 import { AgentProfileEditor } from '../components/AgentProfileEditor';
+import { AgentContextPreview } from '../components/AgentContextPreview';
 import { AgentReviewerLauncher } from '../components/AgentReviewerLauncher';
 import {
   loadAgentLibraryWorkingCopy,
@@ -46,6 +49,23 @@ const normalize = (definition: SymposiumProfileDefinition): SymposiumProfileDefi
   name: definition.name.trim(),
   descriptor: definition.descriptor?.trim() || undefined,
   acceptanceCriteria: definition.acceptanceCriteria.map((s) => s.trim()).filter(Boolean),
+  ...(definition.contextRecipe
+    ? {
+        contextRecipe:
+          definition.contextRecipe.source === 'workspace'
+            ? {
+                ...definition.contextRecipe,
+                files: definition.contextRecipe.files.map((file) => file.trim()).filter(Boolean),
+                required: definition.contextRecipe.required
+                  .filter((selector) => selector.some((part) => part.trim()))
+                  .map((selector) => selector.map((part) => part.trim())),
+                excluded: definition.contextRecipe.excluded
+                  .filter((selector) => selector.some((part) => part.trim()))
+                  .map((selector) => selector.map((part) => part.trim())),
+              }
+            : { ...definition.contextRecipe, agentName: definition.contextRecipe.agentName.trim() },
+      }
+    : {}),
   ...(definition.recipe
     ? {
         recipe: {
@@ -72,6 +92,7 @@ export function AgentLibrary() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [preview, setPreview] = useState('');
+  const [compiledPreview, setCompiledPreview] = useState<CompiledAgentContext | null>(null);
   const [portable, setPortable] = useState('');
   const [importing, setImporting] = useState(false);
   const [importJson, setImportJson] = useState('');
@@ -107,6 +128,7 @@ export function AgentLibrary() {
     setDirty(false);
     setError('');
     setPreview('');
+    setCompiledPreview(null);
     setPortable('');
     saveKey.current = crypto.randomUUID();
     publishKey.current = crypto.randomUUID();
@@ -149,6 +171,7 @@ export function AgentLibrary() {
     setEditor(next);
     setDirty(true);
     setPreview('');
+    setCompiledPreview(null);
     publishKey.current = crypto.randomUUID();
   };
   const save = () =>
@@ -209,6 +232,7 @@ export function AgentLibrary() {
     setTab('identity');
     setError('');
     setPreview('');
+    setCompiledPreview(null);
     setPortable('');
   };
   const latest = new Map<string, AgentLibraryVersion>();
@@ -396,24 +420,33 @@ export function AgentLibrary() {
                   {tab === 'preview' && (
                     <>
                       <p>
-                        Profile guidance is combined with Mitzo instructions and the context
-                        authorized for the chat. Contextion sources are resolved where the agent
-                        runs.
+                        Preview the profile instructions and selected context. Mitzo adds its
+                        platform instructions when the chat starts.
                       </p>
                       <button
                         disabled={busy || !valid}
                         onClick={() =>
                           void execute(async () => {
-                            const result = await read<{ profilePrompt: string }>(
-                              '/api/agent-library/preview',
-                              { definition: normalize(editor.definition) },
-                            );
-                            setPreview(result.profilePrompt);
+                            setPreview('');
+                            setCompiledPreview(null);
+                            const result = await read<{
+                              profilePrompt: string;
+                              assembledPrompt?: string;
+                              compiledContext?: CompiledAgentContext;
+                            }>('/api/agent-library/preview', {
+                              definition: normalize(editor.definition),
+                            });
+                            const compiled = result.compiledContext
+                              ? CompiledAgentContextSchema.parse(result.compiledContext)
+                              : null;
+                            setCompiledPreview(compiled);
+                            setPreview(result.assembledPrompt ?? result.profilePrompt);
                           })
                         }
                       >
-                        Preview guidance
+                        {editor.definition.contextRecipe ? 'Compile preview' : 'Preview guidance'}
                       </button>
+                      {compiledPreview && <AgentContextPreview value={compiledPreview} />}
                       {preview && <pre className="agent-library-prompt">{preview}</pre>}
                     </>
                   )}

@@ -205,7 +205,13 @@ import { accountSessionName } from './account-session-name.js';
 import { resolveChatAgentProfile } from './agent-library-binding.js';
 import { readAgentLibraryProfile } from './agent-library-transport.js';
 import { buildAgentProfilePrompt } from './agent-library-prompt.js';
-import type { AgentLibraryVersion, AgentProfileSelection } from '@mitzo/protocol';
+import type {
+  AgentLibraryVersion,
+  AgentProfileSelection,
+  AgentContextSnapshot,
+} from '@mitzo/protocol';
+import { resolveChatAgentContext } from './agent-context-binding.js';
+import { captureAgentLibraryAuthorization } from './agent-library-transport.js';
 import { shouldAutoRename, extractRecentPrompts } from './auto-rename.js';
 import {
   registerSession,
@@ -1190,6 +1196,10 @@ async function _startChatInner(
         (accountBinding.provider === 'openai-codex' ||
           (accountBinding.provider === 'openai' &&
             process.env.MITZO_OPENSHELL_OPENAI_API_ENABLED !== '0'));
+      if (openShellRequested && agentProfile?.definition.contextRecipe)
+        throw Error(
+          'Compiled context recipes currently require a local chat; OpenShell uses its reviewed sandbox compiler',
+        );
       options = {
         ...options,
         ...resolveEffectiveAccountSelection(options, storedMeta, accountBinding),
@@ -1721,9 +1731,45 @@ async function _startChatInner(
   // fetchBootContext never throws and has a 5s AbortSignal timeout internally.
   // Await the bounded fetch/fallback before opening any provider. A shorter race
   // could discard a valid bundle while persisting empty context for the session.
-  const bootContextMsg: BootContextMessage = openShellSelected
-    ? { ...FALLBACK_BOOT_CONTEXT, source: 'sandbox', scope: 'sandbox' }
-    : await fetchBootContext(agentName, undefined, undefined, !sdkCredentialBoundary);
+  let agentContext: AgentContextSnapshot | undefined;
+  try {
+    const stored = options.resume ? eventStore.getSession(options.resume)?.agentContext : undefined;
+    if (agentProfile?.definition.contextRecipe || stored) {
+      const authorization = captureAgentLibraryAuthorization(options.operatorConnectionId);
+      agentContext = await resolveChatAgentContext({
+        profile: agentProfile,
+        stored,
+        workspaceRoot: cwd,
+        signal: abortController.signal,
+      });
+      authorization.assertCurrent();
+      if (stateSessionId && agentContext)
+        eventStore.upsertSession({ sessionId: stateSessionId, agentProfile, agentContext });
+    }
+  } catch (error: unknown) {
+    options.onStartupAdmission?.(error);
+    terminalizeUndispatchedStartup(initialProviderAdmission);
+    if (stateSessionId)
+      eventStore.setSessionState(stateSessionId, 'ENDED', {
+        clientId,
+        reason: 'context_admission_failed',
+      });
+    send(transport, {
+      type: 'error',
+      ...(stateSessionId ? { sessionId: stateSessionId } : {}),
+      error: error instanceof Error ? error.message : 'Agent context could not be compiled',
+    });
+    // Preserve task roots for inspection/retry; compilation has opened no provider.
+    inputQueue.close();
+    registry.abort(clientId);
+    _onSessionChange?.(clientId, 'end', session.sessionId);
+    return;
+  }
+  const bootContextMsg: BootContextMessage =
+    agentContext?.context ??
+    (openShellSelected
+      ? { ...FALLBACK_BOOT_CONTEXT, source: 'sandbox', scope: 'sandbox' }
+      : await fetchBootContext(agentName, undefined, undefined, !sdkCredentialBoundary));
   const bootContextAppend = bootContextMsg.fullMarkdown
     ? `\n\n# Boot Context\n${bootContextMsg.fullMarkdown}`
     : '';
@@ -1768,31 +1814,33 @@ This is an independent checkout with its own Git storage, not a linked worktree.
     (agentProfile ? `\n\n${buildAgentProfilePrompt(agentProfile.definition)}` : '') +
     bootContextAppend;
 
-  // Fire-and-forget: load agent definition and store in session registry.
-  loadAgentDef(agentName, cwd)
-    .then((loaded) => {
-      const s = registry.get(clientId);
-      if (s) {
-        s.agentDefinition = loaded.definition;
-        s.agentDefinitionSource = loaded.source;
-        log.info('agent definition stored', {
+  // Recipe-bound chats already have their exact Library definition and context.
+  // Loading the legacy definition would compile another, unrelated default bundle.
+  if (!agentContext)
+    loadAgentDef(agentName, cwd)
+      .then((loaded) => {
+        const s = registry.get(clientId);
+        if (s) {
+          s.agentDefinition = loaded.definition;
+          s.agentDefinitionSource = loaded.source;
+          log.info('agent definition stored', {
+            agent: agentName,
+            source: loaded.source,
+            identity: loaded.definition.identity.description,
+          });
+        } else {
+          log.warn('agent definition loaded but session already torn down', {
+            agent: agentName,
+            source: loaded.source,
+          });
+        }
+      })
+      .catch((err: unknown) => {
+        log.warn('agent definition load failed', {
           agent: agentName,
-          source: loaded.source,
-          identity: loaded.definition.identity.description,
+          error: err instanceof Error ? err.message : String(err),
         });
-      } else {
-        log.warn('agent definition loaded but session already torn down', {
-          agent: agentName,
-          source: loaded.source,
-        });
-      }
-    })
-    .catch((err: unknown) => {
-      log.warn('agent definition load failed', {
-        agent: agentName,
-        error: err instanceof Error ? err.message : String(err),
       });
-    });
 
   if (!openShellSelected) {
     capturePromptComparison(wtId, cwd, systemPromptAppend, repoWorktrees).catch(() => {});
@@ -1816,6 +1864,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
       eventStore.upsertSession({
         sessionId: newSdkSessionId,
         ...(agentProfile ? { agentProfile } : {}),
+        ...(agentContext ? { agentContext } : {}),
         accountBinding,
         bootContext: JSON.stringify(bootContextMsg),
         cwd,
@@ -2108,6 +2157,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
               ...(accountBinding ? { accountBinding } : {}),
               bootContext: JSON.stringify(bootContextMsg),
               ...(agentProfile ? { agentProfile } : {}),
+              ...(agentContext ? { agentContext } : {}),
             });
           }
           options.onSessionResolved?.(sessionId);
