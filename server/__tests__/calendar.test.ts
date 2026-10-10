@@ -161,6 +161,38 @@ describe('calendar routes', () => {
 });
 
 describe('enrolled calendar and briefing routes', () => {
+  it('revokes cached Inbox and notification delivery when an indexed file becomes authority', async () => {
+    const authority = join(TEST_REPO, 'mgmt_lib', 'inbox', 'cached-operator-runtime.md');
+    const original = readFileSync(TEST_ENROLLMENT, 'utf8');
+    writeFileSync(authority, original, { mode: 0o600 });
+    const id = 'inbox:cached-operator-runtime.md';
+    const indexed = await request(app)
+      .get(`/api/inbox/records/${encodeURIComponent(id)}`)
+      .set('Cookie', authCookie);
+    expect(indexed.status).toBe(200);
+    expect(indexed.body.inbox.content).toBe(original);
+    process.env.MITZO_WORKSPACE_RUNTIME_CONFIG = realpathSync(authority);
+    try {
+      for (const endpoint of ['/api/inbox/records/', '/api/notifications/']) {
+        const result = await request(app)
+          .get(endpoint + encodeURIComponent(id))
+          .set('Cookie', authCookie);
+        expect(result.status).toBe(404);
+        expect(JSON.stringify(result.body)).not.toContain(original);
+      }
+      for (const endpoint of [
+        '/api/inbox/feed?view=all',
+        '/api/inbox/feed?view=archive',
+        '/api/notifications?filter=all',
+      ]) {
+        const result = await request(app).get(endpoint).set('Cookie', authCookie);
+        expect(result.status).toBe(200);
+        expect(JSON.stringify(result.body)).not.toContain('cached-operator-runtime.md');
+      }
+    } finally {
+      unlinkSync(authority);
+    }
+  });
   it('blocks document writes to enrolled authority before any runtime use while preserving reports', async () => {
     process.env.MITZO_WORKSPACE_RUNTIME_CONFIG = realpathSync(TEST_ENROLLMENT);
     for (const file of [TEST_ENROLLMENT, TEST_RUNTIME_CONFIG]) {

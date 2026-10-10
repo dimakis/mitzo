@@ -652,6 +652,7 @@ export const notificationCenter = new NotificationCenter(
     sessionTitle: (id) => eventStore.getSession(id)?.summary ?? undefined,
   },
 );
+const inboxRouter = unifiedInboxRouter(notificationCenter, () => getRepoConfig().resolvedInboxPath);
 setNotificationCenter(notificationCenter);
 if (process.env.NODE_ENV !== 'test') notificationCenter.start();
 
@@ -3821,10 +3822,7 @@ app.get('/api/briefings/latest', async (req, res) => {
   res.json(getLatestMorningBriefing(BASE_REPO, date));
 });
 
-app.use(
-  '/api/inbox',
-  unifiedInboxRouter(notificationCenter, () => getRepoConfig().resolvedInboxPath),
-);
+app.use('/api/inbox', inboxRouter);
 app.get('/api/inbox', (_req, res) => {
   const inboxPath = getRepoConfig().resolvedInboxPath;
   if (!inboxPath) {

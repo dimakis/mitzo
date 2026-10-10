@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.9';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.40';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.41';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -26,7 +26,10 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../agent-context-binding.ts': 'ce0f8dba7f97f515be8ee00a441e3cc36344aad44f31e0b2fb33a160f8803e66',
   '../briefings.ts': '277b26171abc42266a3b621ff7ab10306792764cb55bbc635e41c4ba20e98d49',
   '../home-router.ts': '744708f3503d3ef46114998ce9bb6a68b3068a3c7d57e0c264298cdb69aac982',
-  '../app.ts': 'a9f80762292d689454a4493ccb68d9e95ee7b644a42d930841629494e40364a5',
+  '../notification-store.ts': 'd73b922e8e04b1e6415d1c1388bcf75edb4b65c913d3636b9a63e16583bc035b',
+  '../unified-inbox.ts': '4f26f10a15fdd286f39be986f43ceca543b4fed275b3d7b1ba1ef033375edf61',
+  '../inbox.ts': '9af9b9103a285be2a344fa8b6530ed944226146574fc47ce03db3071a5f6a82e',
+  '../app.ts': '7065c7adfb17ea34ce57525b07db644e3677b84c8402ce2a738ff0f7fd1ac52c',
   '../ws-handler-v2.ts': '2952b6ea0ad4307739603901b01725514896452ea70c9f2464d8c04c6f4d9052',
   '../codex-queue-routes.ts': '6873ee90c32da94dcfebd432535d4170942e53c980456927f9dd57e9917d9a53',
   '../agent-context-compiler.ts':
@@ -148,7 +151,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   // Operator runtime enrollment, private metadata and write-authority admission.
   '../workspace-runtime-private-paths.ts':
     '97b20d22a5dbdb7b03adba3d85557267b78b088493fa5d622dd0dc63413ab0bb',
-  '../codex-private-path.ts': '3cabc8c4374caf36653efdbbb77cd5fd1ae7a9a2396015b009bd234952f88b87',
+  '../codex-private-path.ts': '65e1f4c0922b0e91eda19d86af4d835ff477bad4c337cabc7413d7ed656fb053',
   '../workspace-runtime-client.ts':
     'eb377ad70361797cb34de00c1974952b76cd81041da7668631b138cf5d44473f',
   '../credential-sdk-boundary.ts':

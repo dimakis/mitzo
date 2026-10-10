@@ -1,5 +1,6 @@
-import { join } from 'node:path';
-import { statSync, existsSync } from 'node:fs';
+import { join, basename } from 'node:path';
+import { statSync, existsSync, realpathSync } from 'node:fs';
+import { privateCodexPathSnapshot } from './codex-private-path.js';
 import { InboxQuery, type MitzoNotification } from '@mitzo/protocol';
 import { listInboxItems, readInboxItem, parseFrontmatter, discardInboxItem } from './inbox.js';
 import { NotificationStore } from './notification-store.js';
@@ -36,7 +37,25 @@ export class UnifiedInbox {
   constructor(
     private store: NotificationStore,
     private directory: () => string | undefined,
-  ) {}
+  ) {
+    store.setInboxReadPolicy(() => {
+      const root = this.directory();
+      const policy = privateCodexPathSnapshot();
+      const privateNames = new Set(policy.roots.map((path) => basename(path)));
+      return (filename, sourcePath) => {
+        if (basename(filename) !== filename || filename.includes('..') || !filename.endsWith('.md'))
+          return false;
+        if (sourcePath) return !policy.isPrivate(sourcePath);
+        // Old ledgers lack provenance. Deny ambiguous private names and both source locations.
+        return (
+          !!root &&
+          !privateNames.has(filename) &&
+          !policy.isPrivate(join(root, filename)) &&
+          !policy.isPrivate(join(root, 'archive', filename))
+        );
+      };
+    });
+  }
   reconcile(): boolean {
     const root = this.directory();
     if (!root || !existsSync(root)) return false;
@@ -102,6 +121,7 @@ export class UnifiedInbox {
           },
           at,
           archived,
+          realpathSync(join(path, summary.filename)),
         );
         changed ||= updated;
       }

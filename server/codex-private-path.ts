@@ -66,6 +66,21 @@ export function isPrivateCodexPath(path: string, extraRoots: string[] = []) {
   });
 }
 
+/** Freeze known private roots for one delivery/query, retaining canonical alias checks. */
+export function privateCodexPathSnapshot() {
+  const roots = privateCodexRoots();
+  return {
+    roots,
+    isPrivate: (path: string) => {
+      const target = canonical(path);
+      return roots.some((root) => {
+        const rel = relative(root, target);
+        return rel === '' || (!isAbsolute(rel) && rel !== '..' && !rel.startsWith('../'));
+      });
+    },
+  };
+}
+
 /** Snapshot once per request. Keep all previously known login roots protected even
  * when an account is removed or its configuration becomes temporarily unreadable.
  * Before the first valid snapshot, unknown private roots require fail-closed access.

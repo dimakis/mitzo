@@ -55,9 +55,14 @@ export function createTerminalRouter(options: {
   );
   const planHost = options.planAdvisers ?? getTerminalPlanAdviserHost;
   router.get('/subscriptions', (_req, res) => {
+    res.setHeader('Cache-Control', 'private, no-store');
     try {
       const host = planHost();
-      res.json({ enabled: !!host, accounts: host?.list() ?? [] });
+      res.json({
+        enabled: !!host,
+        accounts: host?.list() ?? [],
+        pendingAttempt: host?.pendingAttempt(res.locals.authSession.id) ?? null,
+      });
     } catch {
       res.status(503).json({ error: 'Adviser accounts unavailable' });
     }
@@ -89,6 +94,7 @@ export function createTerminalRouter(options: {
     }
   });
   router.get('/subscriptions/attempts/:attempt', (req, res) => {
+    res.setHeader('Cache-Control', 'private, no-store');
     try {
       const host = planHost();
       if (!host) throw Error('Unavailable');
