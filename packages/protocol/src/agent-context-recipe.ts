@@ -138,3 +138,15 @@ export const AgentContextSnapshotSchema = CompiledAgentContextSchema.safeExtend(
   profileHash: digest,
 });
 export type AgentContextSnapshot = z.infer<typeof AgentContextSnapshotSchema>;
+
+/** Display/delivery metadata lives outside the immutable compiled payload. */
+export const AgentContextReceiptSchema = z.strictObject({
+  recipeHash: digest,
+  compilerRevision: z.string().min(1).max(128),
+  payloadHash: digest,
+  provenance: CompiledAgentContextSchema.shape.provenance,
+  status: z.enum(['prepared', 'accepted']),
+  profileId: z.string().trim().min(1).max(128),
+  profileRevision: z.number().int().positive(),
+});
+export type AgentContextReceipt = z.infer<typeof AgentContextReceiptSchema>;

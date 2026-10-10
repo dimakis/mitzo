@@ -1,4 +1,4 @@
-import { SourceSnapshotsSchema } from '@mitzo/protocol';
+import { AgentContextReceiptSchema, SourceSnapshotsSchema } from '@mitzo/protocol';
 /**
  * Protocol parser — maps ServerMessage → store actions.
  *
@@ -281,6 +281,9 @@ export function parseServerMessage(
       break;
 
     case 'boot_context': {
+      const receipt =
+        msg.receipt === undefined ? undefined : AgentContextReceiptSchema.safeParse(msg.receipt);
+      if (receipt && !receipt.success) return { messagesActions: [], resyncRequired: true };
       const source =
         msg.source === 'contexgin' || msg.source === 'sandbox' ? msg.source : 'local-fallback';
       const sourceCount = typeof msg.sourceCount === 'number' ? msg.sourceCount : 0;
@@ -341,6 +344,7 @@ export function parseServerMessage(
           included,
           trimmed,
           fullMarkdown,
+          ...(receipt?.success ? { receipt: receipt.data } : {}),
         },
       });
       break;

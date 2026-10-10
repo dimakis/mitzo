@@ -290,3 +290,5 @@ export {
 } from './agent-context-recipe.js';
 export { AgentContextSnapshotSchema, type AgentContextSnapshot } from './agent-context-recipe.js';
 export * from './agent-context-pack.js';
+
+export { AgentContextReceiptSchema, type AgentContextReceipt } from './agent-context-recipe.js';
