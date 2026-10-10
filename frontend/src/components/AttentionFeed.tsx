@@ -91,7 +91,7 @@ export function AttentionFeed() {
 
   return (
     <div className="attention-section">
-      <button className="overview-header" onClick={toggleOpen}>
+      <button className="overview-header" onClick={toggleOpen} aria-expanded={isOpen}>
         <span className="overview-header-title">What&apos;s Next</span>
         <span className="overview-header-summary">
           {loading ? 'loading...' : summaryParts.join(' \u00B7 ') || 'all clear'}
@@ -110,7 +110,7 @@ export function AttentionFeed() {
             <AttentionCard key={item.id} item={item} onTap={handleTap} />
           ))}
           {!loading && hasMore && (
-            <button className="attention-show-more" onClick={toggleShowAll}>
+            <button className="attention-show-more" onClick={toggleShowAll} aria-expanded={showAll}>
               {showAll ? 'Show less' : `Show all ${items.length}`}
             </button>
           )}

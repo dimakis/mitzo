@@ -26,7 +26,11 @@ export function TaskSidebar({
 
   return (
     <div className={`task-sidebar${collapsed ? ' task-sidebar--collapsed' : ''}`}>
-      <button className="task-sidebar-toggle" onClick={() => setCollapsed(!collapsed)}>
+      <button
+        className="task-sidebar-toggle"
+        onClick={() => setCollapsed(!collapsed)}
+        aria-expanded={!collapsed}
+      >
         <UiIcon name={collapsed ? 'forward' : 'down'} size={16} /> Task
       </button>
 

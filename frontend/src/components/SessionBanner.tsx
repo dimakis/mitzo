@@ -28,7 +28,7 @@ function SectionRow({ section, dimmed }: { section: SectionMeta; dimmed?: boolea
     <div
       className={`session-banner-section-row ${dimmed ? 'session-banner-section-row--dimmed' : ''}`}
     >
-      <button className="session-banner-section-button" onClick={toggle}>
+      <button className="session-banner-section-button" onClick={toggle} aria-expanded={open}>
         <span className="session-banner-chevron-inline">
           <UiIcon name={open ? 'down' : 'forward'} size={16} />
         </span>
@@ -104,7 +104,11 @@ export function SessionBanner({ bootContext, sessionContext }: Props) {
   return (
     <>
       <div className="session-banner">
-        <button className="session-banner-header" onClick={() => setExpanded((e) => !e)}>
+        <button
+          className="session-banner-header"
+          onClick={() => setExpanded((e) => !e)}
+          aria-expanded={expanded}
+        >
           {bootContext && <span className={`session-banner-dot ${dotClass}`} />}
           <span className="session-banner-summary">
             {bootContext && (
@@ -199,6 +203,7 @@ export function SessionBanner({ bootContext, sessionContext }: Props) {
                       <>
                         <button
                           className="session-banner-trimmed-toggle"
+                          aria-expanded={showTrimmed}
                           onClick={(e) => {
                             e.stopPropagation();
                             setShowTrimmed((t) => !t);

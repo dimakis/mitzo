@@ -108,6 +108,7 @@ export function SessionPanel({ activeSessionId, onSelectSession, onNewChat }: Se
                     ) : s.closedBy ? (
                       <span
                         className={`session-panel-status session-panel-status--${s.closedBy}`}
+                        role="img"
                         title={
                           s.closedBy === 'user'
                             ? 'Closed by you'

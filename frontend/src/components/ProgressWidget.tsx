@@ -18,7 +18,11 @@ export function ProgressWidget({ items }: Props) {
 
   return (
     <div className={`progress-widget ${allDone ? 'progress-widget--done' : ''}`}>
-      <button className="progress-widget-header" onClick={() => setExpanded((e) => !e)}>
+      <button
+        className="progress-widget-header"
+        onClick={() => setExpanded((e) => !e)}
+        aria-expanded={expanded}
+      >
         <div className="progress-widget-bar">
           <div className="progress-widget-bar-fill" style={{ width: `${pct}%` }} />
         </div>
@@ -49,6 +53,8 @@ export function ProgressWidget({ items }: Props) {
             >
               <span
                 className={`progress-widget-icon ${item.status === 'in_progress' ? 'progress-widget-icon--pulse' : ''}`}
+                role="img"
+                aria-label={`Status: ${item.status.replaceAll('_', ' ')}`}
               >
                 <UiIcon name={progressStatusIcons[item.status]} size={16} />
               </span>

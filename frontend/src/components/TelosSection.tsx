@@ -48,7 +48,12 @@ function TelosCard({
         // Right-click context menu will be wired later
       }}
     >
-      <span className="cc-card-icon" style={{ color }}>
+      <span
+        className="cc-card-icon"
+        style={{ color }}
+        role="img"
+        aria-label={`${item.starred ? 'Pinned; ' : ''}Status: ${item.status}`}
+      >
         <UiIcon name={icon} filled={item.starred} />
       </span>
       <div className="cc-card-content">

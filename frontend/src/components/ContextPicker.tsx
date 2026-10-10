@@ -80,6 +80,7 @@ export function ContextPicker({ selected, onToggle, onClose }: Props) {
               key={block.name}
               className={`context-picker-item${isSelected ? ' context-picker-item--selected' : ''}`}
               onClick={() => onToggle(block.name)}
+              aria-pressed={isSelected}
             >
               <span className="context-picker-check">
                 {isSelected && <UiIcon name="check" size={16} />}

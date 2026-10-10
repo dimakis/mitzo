@@ -63,7 +63,7 @@ export function MarkdownPreviewCard({ filePath, sessionId }: Props) {
   return (
     <div className="md-preview-card">
       <div className="md-preview-card-header">
-        <button className="md-preview-card-toggle" onClick={handleToggle}>
+        <button className="md-preview-card-toggle" onClick={handleToggle} aria-expanded={expanded}>
           <span className="md-preview-card-icon">MD</span>
           <span className="md-preview-card-name">{fileName}</span>
           <span className="md-preview-card-chevron">

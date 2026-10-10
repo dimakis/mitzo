@@ -373,6 +373,7 @@ export function ChatInput({
           <button
             className="chat-input-queued-btn chat-input-queued-btn--clear"
             onClick={() => removeQueued(i)}
+            aria-label={`Remove queued message ${i + 1}`}
           >
             <UiIcon name="close" size={16} />
           </button>

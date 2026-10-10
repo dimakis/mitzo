@@ -64,6 +64,7 @@ export function ContextPanel({
                 key={block.name}
                 className={`context-panel-item${isSelected ? ' context-panel-item--selected' : ''}`}
                 onClick={() => onToggle(block.name)}
+                aria-pressed={isSelected}
               >
                 <span className="context-panel-check">
                   {isSelected && <UiIcon name="check" size={16} />}

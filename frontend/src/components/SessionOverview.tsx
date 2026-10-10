@@ -108,7 +108,7 @@ export function SessionOverview() {
 
   return (
     <div className="overview-section">
-      <button className="overview-header" onClick={toggleOpen}>
+      <button className="overview-header" onClick={toggleOpen} aria-expanded={isOpen}>
         <span className="overview-header-title">Active Sessions</span>
         <span className="overview-header-summary">{parts.join(' \u00B7 ')}</span>
         {attendCount > 0 && <span className="overview-badge">{attendCount}</span>}

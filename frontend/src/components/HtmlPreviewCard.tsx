@@ -53,7 +53,11 @@ export function HtmlPreviewCard({ filePath, sessionId }: Props) {
   return (
     <div className="html-preview-card">
       <div className="html-preview-card-header">
-        <button className="html-preview-card-toggle" onClick={handleToggle}>
+        <button
+          className="html-preview-card-toggle"
+          onClick={handleToggle}
+          aria-expanded={expanded}
+        >
           <span className="html-preview-card-icon">HTML</span>
           <span className="html-preview-card-name">{fileName}</span>
           <span className="html-preview-card-chevron">

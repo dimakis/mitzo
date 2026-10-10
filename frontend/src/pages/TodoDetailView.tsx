@@ -260,7 +260,11 @@ export function TodoDetailView() {
                   });
                 }}
               >
-                <span className="todo-detail-child-status">
+                <span
+                  className="todo-detail-child-status"
+                  role="img"
+                  aria-label={`Status: ${child.status}`}
+                >
                   <UiIcon name={child.status === 'completed' ? 'complete' : 'circle'} size={16} />
                 </span>
                 <span className="todo-detail-child-summary">{child.summary}</span>

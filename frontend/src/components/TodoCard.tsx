@@ -153,7 +153,12 @@ export function TodoCard({
         >
           {/* Line 1: icon + summary + star */}
           <div className="todo-card-line1">
-            <span className="todo-card-icon" style={{ color }}>
+            <span
+              className="todo-card-icon"
+              style={{ color }}
+              role="img"
+              aria-label={`Status: ${item.status}`}
+            >
               <UiIcon name={icon} />
             </span>
             <button
