@@ -1,0 +1,293 @@
+// @vitest-environment jsdom
+import { it, expect, vi, afterEach } from 'vitest';
+import { render, screen, fireEvent, cleanup, waitFor, act } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
+import { forwardRef, useImperativeHandle, useEffect } from 'react';
+const mocks = vi.hoisted(() => ({
+  send: vi.fn(async () => {}),
+  focus: vi.fn(),
+  review: vi.fn(() => 'private terminal output'),
+  names: { briefing: 'Minion', terminal: 'Minion' },
+}));
+vi.mock('../../components/TerminalConsole', () => ({
+  TerminalConsole: forwardRef(function Mock(props: { onStatus: (state: string) => void }, ref) {
+    useImperativeHandle(ref, () => ({
+      send: mocks.send,
+      reviewOutput: mocks.review,
+      focus: mocks.focus,
+    }));
+    useEffect(() => props.onStatus('connected'), [props.onStatus]);
+    return <div>Shell output</div>;
+  }),
+}));
+vi.mock('../../components/AccountModelPicker', () => ({
+  AccountModelPicker: function MockPicker({ onChange }: { onChange: (value: unknown) => void }) {
+    useEffect(() => onChange(null), [onChange]);
+    return (
+      <button
+        onClick={() => onChange({ accountId: 'work', model: 'luna', reasoningEffort: 'low' })}
+      >
+        Use Work Luna Low
+      </button>
+    );
+  },
+}));
+vi.mock('../../hooks/useHomePreferences', () => ({
+  useHomePreferences: () => ({ preferences: { names: mocks.names } }),
+}));
+vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
+import { apiFetch } from '../../lib/api-fetch';
+import { TerminalView } from '../TerminalView';
+afterEach(() => {
+  cleanup();
+  vi.clearAllMocks();
+  mocks.names = { briefing: 'Minion', terminal: 'Minion' };
+  localStorage.clear();
+});
+function setup(path = '/terminal?sessionId=chat-a', state = 'running') {
+  vi.mocked(apiFetch).mockImplementation(
+    async (url) =>
+      new Response(
+        JSON.stringify(
+          String(url).endsWith('/advice')
+            ? { text: 'Try checking', commands: ['ls -la'] }
+            : String(url).includes('/context')
+              ? {}
+              : {
+                  id: 'owned',
+                  label: 'This sandbox',
+                  kind: 'sandbox',
+                  cwd: '/workspace',
+                  state,
+                },
+        ),
+      ),
+  );
+  return render(
+    <MemoryRouter initialEntries={[path]}>
+      <TerminalView />
+    </MemoryRouter>,
+  );
+}
+it('opens from chat into its own destination, keeps adviser collapsed and returns without ending', async () => {
+  const view = setup();
+  await screen.findByText('Shell output');
+  expect(apiFetch).toHaveBeenCalledWith(
+    '/api/terminals',
+    expect.objectContaining({ body: JSON.stringify({ sessionId: 'chat-a' }) }),
+  );
+  expect(screen.getByRole('link', { name: 'Back to chat' }).getAttribute('href')).toBe(
+    '/chat/chat-a',
+  );
+  expect(screen.queryByText('Use Work Luna Low')).toBeNull();
+  view.unmount();
+  expect(vi.mocked(apiFetch).mock.calls.some(([url]) => String(url).endsWith('/end'))).toBe(false);
+});
+it('starts directly on the host from More and runs only after deliberate submit', async () => {
+  setup('/terminal');
+  await screen.findByText('Shell output');
+  expect(apiFetch).toHaveBeenCalledWith('/api/terminals', expect.objectContaining({ body: '{}' }));
+  fireEvent.change(screen.getByLabelText('Command'), { target: { value: 'pwd' } });
+  expect(mocks.send).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Run command' }));
+  await waitFor(() => expect(mocks.send).toHaveBeenCalledWith('pwd\r'));
+});
+it('preserves edits made while the previous command acknowledgment is delayed', async () => {
+  setup('/terminal');
+  await screen.findByText('Shell output');
+  let acknowledge!: () => void;
+  mocks.send.mockImplementationOnce(
+    () =>
+      new Promise<void>((resolve) => {
+        acknowledge = resolve;
+      }),
+  );
+  fireEvent.change(screen.getByLabelText('Command'), { target: { value: 'pwd' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Run command' }));
+  fireEvent.change(screen.getByLabelText('Command'), { target: { value: 'ls -la' } });
+  await act(async () => acknowledge());
+  expect((screen.getByLabelText('Command') as HTMLTextAreaElement).value).toBe('ls -la');
+  expect(mocks.focus).not.toHaveBeenCalled();
+});
+it('preserves a staged suggestion while a previous Run is awaiting acknowledgment', async () => {
+  setup('/terminal');
+  await screen.findByText('Shell output');
+  fireEvent.click(screen.getByRole('button', { name: 'Show Minion' }));
+  fireEvent.click(screen.getByText('Use Work Luna Low'));
+  fireEvent.change(screen.getByLabelText('Ask Minion'), { target: { value: 'help' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Ask adviser' }));
+  await screen.findByText('Try checking');
+  let acknowledge!: () => void;
+  mocks.send.mockImplementationOnce(
+    () =>
+      new Promise<void>((resolve) => {
+        acknowledge = resolve;
+      }),
+  );
+  fireEvent.change(screen.getByLabelText('Command'), { target: { value: 'pwd' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Run command' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Use ls -la' }));
+  await act(async () => acknowledge());
+  expect((screen.getByLabelText('Command') as HTMLTextAreaElement).value).toBe('ls -la');
+  expect(mocks.focus).not.toHaveBeenCalled();
+});
+it('reviews output before sharing and stages an adviser suggestion without running it', async () => {
+  setup();
+  await screen.findByText('Shell output');
+  fireEvent.click(screen.getByRole('button', { name: 'Show Minion' }));
+  fireEvent.click(screen.getByText('Use Work Luna Low'));
+  expect(mocks.review).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Share output' }));
+  expect(mocks.review).toHaveBeenCalled();
+  expect(apiFetch).not.toHaveBeenCalledWith(expect.stringContaining('/advice'), expect.anything());
+  fireEvent.change(screen.getByLabelText('Reviewed output'), { target: { value: 'redacted' } });
+  fireEvent.change(screen.getByLabelText('Ask Minion'), { target: { value: 'help' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Ask adviser' }));
+  await screen.findByText('Try checking');
+  const call = vi.mocked(apiFetch).mock.calls.find(([url]) => String(url).endsWith('/advice'))!;
+  expect(JSON.parse(call[1]!.body as string).output).toBe('redacted');
+  fireEvent.click(screen.getByRole('button', { name: 'Use ls -la' }));
+  expect((screen.getByLabelText('Command') as HTMLInputElement).value).toBe('ls -la');
+  expect(mocks.send).not.toHaveBeenCalled();
+});
+it('preserves a newer question and reviewed output while the previous adviser reply is delayed', async () => {
+  setup('/terminal');
+  await screen.findByText('Shell output');
+  fireEvent.click(screen.getByRole('button', { name: 'Show Minion' }));
+  fireEvent.click(screen.getByText('Use Work Luna Low'));
+  fireEvent.click(screen.getByRole('button', { name: 'Share output' }));
+  fireEvent.change(screen.getByLabelText('Reviewed output'), {
+    target: { value: 'Submitted output' },
+  });
+  fireEvent.change(screen.getByLabelText('Ask Minion'), { target: { value: 'First question' } });
+  let respond!: (response: Response) => void;
+  vi.mocked(apiFetch).mockImplementationOnce(
+    () =>
+      new Promise<Response>((resolve) => {
+        respond = resolve;
+      }),
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Ask adviser' }));
+  fireEvent.change(screen.getByLabelText('Ask Minion'), { target: { value: 'Next question' } });
+  fireEvent.change(screen.getByLabelText('Reviewed output'), {
+    target: { value: 'New output awaiting review' },
+  });
+  await act(async () =>
+    respond(new Response(JSON.stringify({ text: 'First answer', commands: [] }))),
+  );
+  expect((screen.getByLabelText('Ask Minion') as HTMLInputElement).value).toBe('Next question');
+  expect((screen.getByLabelText('Reviewed output') as HTMLTextAreaElement).value).toBe(
+    'New output awaiting review',
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Ask adviser' }));
+  await screen.findByText('Try checking');
+  const requests = vi
+    .mocked(apiFetch)
+    .mock.calls.filter(([url]) => String(url).endsWith('/advice'));
+  const body = JSON.parse(requests[1][1]!.body as string);
+  expect(body.messages[0].content).toBe(
+    'First question\n\nReviewed terminal output:\nSubmitted output',
+  );
+  expect(body.messages[2].content).toBe('Next question');
+  expect(body.output).toBe('New output awaiting review');
+});
+
+it('preserves the adviser selection when its panel and all controls are collapsed', async () => {
+  setup();
+  await screen.findByText('Shell output');
+  fireEvent.click(screen.getByRole('button', { name: 'Show Minion' }));
+  fireEvent.click(screen.getByText('Use Work Luna Low'));
+  fireEvent.click(screen.getByRole('button', { name: 'Hide Minion' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Collapse controls' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Show controls' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Show Minion' }));
+  fireEvent.change(screen.getByLabelText('Ask Minion'), { target: { value: 'help' } });
+  expect((screen.getByRole('button', { name: 'Ask adviser' }) as HTMLButtonElement).disabled).toBe(
+    false,
+  );
+});
+
+it('shows every line of a staged adviser command before executing it', async () => {
+  setup();
+  await screen.findByText('Shell output');
+  fireEvent.click(screen.getByRole('button', { name: 'Show Minion' }));
+  fireEvent.click(screen.getByText('Use Work Luna Low'));
+  vi.mocked(apiFetch).mockResolvedValue(
+    new Response(JSON.stringify({ text: 'Two commands', commands: ['printf first\npwd'] })),
+  );
+  fireEvent.change(screen.getByLabelText('Ask Minion'), { target: { value: 'help' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Ask adviser' }));
+  await screen.findByText('Two commands');
+  fireEvent.click(screen.getByRole('button', { name: /Use printf/ }));
+  const draft = screen.getByLabelText('Command') as HTMLTextAreaElement;
+  expect(draft.tagName).toBe('TEXTAREA');
+  expect(draft.value).toBe('printf first\npwd');
+  expect(mocks.send).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: 'Run command' }));
+  await waitFor(() => expect(mocks.send).toHaveBeenCalledWith('printf first\npwd\r'));
+});
+
+it('retains deliberately reviewed output in subsequent adviser turns', async () => {
+  setup();
+  await screen.findByText('Shell output');
+  fireEvent.click(screen.getByRole('button', { name: 'Show Minion' }));
+  fireEvent.click(screen.getByText('Use Work Luna Low'));
+  fireEvent.click(screen.getByRole('button', { name: 'Share output' }));
+  fireEvent.change(screen.getByLabelText('Reviewed output'), { target: { value: 'redacted' } });
+  fireEvent.change(screen.getByLabelText('Ask Minion'), { target: { value: 'help' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Ask adviser' }));
+  await screen.findByText('Try checking');
+  fireEvent.change(screen.getByLabelText('Ask Minion'), { target: { value: 'why?' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Ask adviser' }));
+  await waitFor(() =>
+    expect(
+      vi.mocked(apiFetch).mock.calls.filter(([path]) => String(path).endsWith('/advice')),
+    ).toHaveLength(2),
+  );
+  const requests = vi
+    .mocked(apiFetch)
+    .mock.calls.filter(([path]) => String(path).endsWith('/advice'));
+  const body = JSON.parse(requests[1][1]!.body as string);
+  expect(body.messages[0]).toEqual({
+    role: 'user',
+    content: 'help\n\nReviewed terminal output:\nredacted',
+  });
+  expect(body.output).toBeUndefined();
+});
+
+it('offers an explicit new shell after the saved session is confirmed ended', async () => {
+  setup('/terminal', 'ended');
+  vi.mocked(apiFetch).mockResolvedValue(
+    new Response(
+      JSON.stringify({
+        id: 'ended',
+        kind: 'host',
+        label: 'Your Mac',
+        cwd: '/workspace',
+        state: 'ended',
+      }),
+    ),
+  );
+  await screen.findByText('The saved shell has ended.');
+  expect(screen.queryByText('Shell output')).toBeNull();
+  expect(vi.mocked(apiFetch).mock.calls.filter(([path]) => path === '/api/terminals')).toHaveLength(
+    1,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Start new shell' }));
+  await waitFor(() =>
+    expect(
+      vi.mocked(apiFetch).mock.calls.filter(([path]) => path === '/api/terminals'),
+    ).toHaveLength(2),
+  );
+});
+
+it('uses the workspace terminal name independently of the briefing and legacy browser name', async () => {
+  mocks.names = { briefing: 'Jeeves', terminal: 'Orbit' };
+  localStorage.setItem('mitzo-assistant-name', 'Old browser name');
+  setup('/terminal');
+  await screen.findByText('Shell output');
+  fireEvent.click(screen.getByRole('button', { name: 'Show Orbit' }));
+  expect(screen.getByLabelText('Ask Orbit')).toBeTruthy();
+  expect(screen.queryByLabelText('Ask Jeeves')).toBeNull();
+  expect(screen.queryByLabelText('Ask Old browser name')).toBeNull();
+});

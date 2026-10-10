@@ -1,0 +1,270 @@
+.home-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--control-height);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--workspace-line);
+  border-radius: var(--radius-control);
+  background: var(--workspace-bg);
+  color: var(--workspace-text);
+  font: inherit;
+  font-size: var(--text-s);
+  cursor: pointer;
+}
+.home-secondary:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.home-pin-control {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+.home-pin-control [role='alert'] {
+  color: var(--workspace-muted);
+  font-size: var(--text-xs);
+}
+.home-names form {
+  display: grid;
+  gap: var(--space-4);
+  max-width: 32.5rem;
+}
+.home-names label {
+  display: grid;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+}
+.home-names input {
+  min-height: var(--control-height);
+  min-width: 0;
+  padding: var(--space-2) var(--space-3);
+  background: var(--workspace-panel);
+  color: var(--workspace-text);
+  border: 1px solid var(--workspace-line);
+  border-radius: var(--radius-control);
+  font: inherit;
+}
+.home-names .home-secondary {
+  justify-self: start;
+}
+.home-inline-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.home-text-action {
+  min-height: var(--control-height);
+  padding: var(--space-2) 0;
+  background: transparent;
+  border: 0;
+  color: var(--workspace-accent);
+  font: inherit;
+  font-size: var(--text-xs);
+  cursor: pointer;
+}
+.home-text-action:disabled {
+  opacity: 0.5;
+}
+.home-record strong {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.home-dialog {
+  margin: auto;
+  width: min(35rem, calc(100vw - 2 * var(--page-gutter)));
+  max-height: calc(100dvh - 2 * var(--page-gutter));
+  padding: 0;
+  border: 1px solid var(--workspace-line);
+  border-radius: var(--workspace-radius);
+  background: var(--workspace-bg);
+  color: var(--workspace-text);
+  font: inherit;
+}
+.home-dialog::backdrop {
+  background: var(--color-overlay);
+}
+.home-dialog-content {
+  padding: var(--space-5);
+}
+.home-dialog header,
+.home-dialog footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.home-dialog h2 {
+  font-size: var(--text-lg);
+  font-weight: 550;
+  margin: 0;
+}
+.home-dialog footer {
+  margin-top: var(--space-5);
+  justify-content: flex-end;
+}
+.home-dialog p {
+  line-height: 1.6;
+  font-size: var(--text-sm);
+}
+.home-dialog button:focus-visible,
+.home-dialog input:focus-visible {
+  outline: 2px solid var(--workspace-accent);
+  outline-offset: 3px;
+}
+.home-pin-list {
+  list-style: none;
+  padding: 0;
+  margin: var(--space-4) 0;
+}
+.home-pin-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--workspace-line);
+  font-size: var(--text-sm);
+}
+.home-pin-list li > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.home-pin-tabs {
+  margin: var(--space-4) 0;
+}
+.home-pin-tabs [aria-pressed='true'] {
+  background: var(--workspace-panel);
+  border-color: var(--workspace-accent);
+}
+.home-search {
+  display: grid;
+  gap: var(--space-2);
+  font-size: var(--text-s);
+  color: var(--workspace-muted);
+}
+.home-search input {
+  width: 100%;
+  min-width: 0;
+  min-height: var(--control-height);
+  padding: var(--space-3) var(--space-3);
+  border: 1px solid var(--workspace-line);
+  border-radius: var(--radius-control);
+  color: var(--workspace-text);
+  background: var(--workspace-panel);
+  font: inherit;
+  font-size: var(--text-base);
+}
+@media (max-width: 480px) {
+  .home-pin-list li {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+  .home-dialog-content {
+    padding: var(--space-4);
+  }
+}
+.workspace-title-with-accessory {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
+.home-daily-quote {
+  display: inline-flex;
+  gap: var(--space-1h);
+  align-items: center;
+  min-height: var(--control-height);
+  max-width: 12ch;
+  font-size: var(--text-xxs);
+  text-decoration: none;
+}
+.home-daily-quote > span:first-child {
+  font-size: var(--text-xl);
+  line-height: 1;
+}
+.home-daily-quote > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.quote-page > article {
+  max-width: 45rem;
+}
+.quote-page blockquote {
+  margin: var(--space-5) 0;
+  padding: var(--space-2) 0 var(--space-2) var(--space-5);
+  border-left: 2px solid var(--workspace-accent);
+}
+.quote-page blockquote p {
+  font-size: clamp(var(--text-xl), 3vw, var(--text-page-title));
+  line-height: 1.5;
+}
+.quote-page blockquote footer {
+  color: var(--workspace-muted);
+  font-size: var(--text-s);
+}
+.quote-page section {
+  margin: var(--space-6) 0;
+}
+.quote-page section > a {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--control-height);
+  font-size: var(--text-s);
+}
+.today-page .today-heading {
+  margin-top: var(--space-4);
+  margin-bottom: var(--space-5);
+}
+.today-search {
+  margin-bottom: var(--space-6);
+}
+.today-home-grid .today-section:first-child {
+  margin-top: 0;
+}
+.home-section-heading {
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+.home-section-heading h2 {
+  margin: 0;
+}
+.home-section-heading > .home-inline-actions {
+  gap: var(--space-4);
+}
+.home-brief {
+  align-self: start;
+  margin-top: var(--space-6);
+}
+.home-brief h2 {
+  font-size: var(--text-xl);
+}
+.home-brief > p:not(.workspace-eyebrow) {
+  font-size: var(--text-sm);
+}
+.today-heading .workspace-heading-actions {
+  flex-shrink: 0;
+}
+@media (min-width: 1100px) {
+  .today-home-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
+    gap: var(--space-6);
+  }
+  .home-brief {
+    margin-top: 0;
+  }
+}
+@media (max-width: 380px) {
+  .today-heading .workspace-title-row {
+    flex-wrap: wrap;
+    gap: var(--space-2);
+  }
+}

@@ -20,6 +20,8 @@ import './styles/workspace-collections.css';
 import './pages/KnowledgeLibrary.css';
 import './styles/mobile-workspace.css';
 import './styles/appearance.css';
+import './pages/TerminalView.css';
+import './styles/motion.css';
 
 initTheme();
 

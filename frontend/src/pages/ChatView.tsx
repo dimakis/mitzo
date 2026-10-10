@@ -1,3 +1,5 @@
+import { useBriefingChat } from '../hooks/useBriefingChat';
+import { BriefingChatBanner } from '../components/BriefingChatBanner';
 import { ChatAgentProfilePicker } from '../components/ChatAgentProfilePicker';
 import type { AgentProfileSelection } from '@mitzo/protocol';
 import { UiIcon } from '../components/UiIcon';
@@ -78,6 +80,7 @@ export function ChatView() {
   const sendError = useMitzoStore((s) => s.sendError);
   const sendStatus = useMitzoStore((s) => s.sendStatus);
   const activeSessionId = useMitzoStore((s) => s.sessions.active);
+  const briefingChat = useBriefingChat(activeSessionId);
   const preparationId = searchParams.get('repositoryPreparation');
   const repositoryHandoff = useRepositoryChatPreparation(preparationId, sessionId);
   const repositoryDraftControl = useRef<ChatInputDraftControl | null>(null);
@@ -107,6 +110,9 @@ export function ChatView() {
     dismissLaunch,
     sendMessage: storeSendMessage,
     sendLaunch,
+    registrationError,
+    registrationSaving,
+    retryRegistration,
   } = usePendingLaunch();
 
   const connected = connection.status === 'connected';
@@ -169,6 +175,8 @@ export function ChatView() {
       setAccountSelection(selection);
       if (selection) {
         if (
+          !!launch?.briefing ||
+          briefingChat.selectionLocked ||
           repositoryHandoff.present ||
           (activeSessionId !== null &&
             activeSessionId === repositoryHandoff.lastAssignedConversationId &&
@@ -188,6 +196,8 @@ export function ChatView() {
       activeSessionId,
       repositoryHandoff.present,
       repositoryHandoff.lastAssignedConversationId,
+      launch?.briefing,
+      briefingChat.selectionLocked,
     ],
   );
 
@@ -283,6 +293,7 @@ export function ChatView() {
     launching = false,
   ): boolean {
     if (repositoryHandoffReason || (repositoryHandoff.present && launching)) return false;
+    if (launch?.briefing && !launching) return false;
     if (!activeSessionId && agentProfileBlocked) return false;
     if (launching && activeSessionId) return sendLaunch();
     if (!activeSessionId && (!accountSelection || repositorySelection?.blocked)) return false;
@@ -384,7 +395,13 @@ export function ChatView() {
           <Link to="/sessions" aria-label="Back to chats">
             <UiIcon name="back" size={16} /> Chats
           </Link>
-          <h1>{activeSessionId ? 'Conversation' : 'New chat'}</h1>
+          <h1>
+            {briefingChat.isBriefing
+              ? briefingChat.name
+              : activeSessionId
+                ? 'Conversation'
+                : 'New chat'}
+          </h1>
           <button
             onClick={() => {
               storeNewSession();
@@ -394,6 +411,23 @@ export function ChatView() {
             New chat
           </button>
         </div>
+        <BriefingChatBanner
+          name={briefingChat.name}
+          initialSelection={
+            accountSelection ??
+            launch?.accountSelection ??
+            (briefingChat.binding
+              ? { accountId: briefingChat.binding.accountId, model: briefingChat.binding.model }
+              : undefined)
+          }
+          source={briefingChat.source}
+          registrationError={registrationError}
+          registrationSaving={registrationSaving}
+          retryRegistration={retryRegistration}
+          lookupError={briefingChat.error}
+          retryLookup={briefingChat.retry}
+          lookupLoading={briefingChat.loading}
+        />
         <WorkspaceControls
           attention={!!launch || repositoryHandoff.present}
           summary={workspaceSummary}
@@ -419,9 +453,13 @@ export function ChatView() {
                         accountId: repositoryHandoff.preparation.accountId,
                         model: repositoryHandoff.preparation.model,
                       }
-                    : undefined
+                    : !activeSessionId
+                      ? launch?.accountSelection
+                      : undefined
                 }
-                disabled={messages.running || repositoryHandoff.loading}
+                disabled={
+                  messages.running || repositoryHandoff.loading || briefingChat.selectionLocked
+                }
                 sessionId={activeSessionId}
                 preferredModel={modelState}
                 onChange={selectAccount}
@@ -617,6 +655,9 @@ export function ChatView() {
                   : undefined
               }
               sendDisabledReason={
+                (launch?.briefing
+                  ? 'Send the reviewed briefing prompt first, then ask a follow-up.'
+                  : undefined) ??
                 repositoryHandoffReason ??
                 (!activeSessionId ? agentProfileBlocked : undefined) ??
                 (!activeSessionId && repositorySelection?.blocked

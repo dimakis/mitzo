@@ -3,12 +3,14 @@ import { Link } from 'react-router-dom';
 import { useTheme } from '../hooks/useTheme';
 import { WorkspacePageHeading } from '../components/WorkspacePageHeading';
 import { ACCENTS, FONTS, useAppearance } from '../hooks/useAppearance';
+import { MinionNameSettings } from '../components/MinionNameSettings';
 export function SettingsView() {
   const { preference, setTheme } = useTheme();
   const appearance = useAppearance();
   return (
     <main className="workspace-page settings-page">
       <WorkspacePageHeading title="Settings" description="Your preferences and data protection." />
+      <MinionNameSettings />
       <section className="appearance-section">
         <h2>Appearance</h2>
         <p className="workspace-muted">Make Mitzo feel like yours. Saved on this device.</p>

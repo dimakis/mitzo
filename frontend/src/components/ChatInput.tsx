@@ -1,3 +1,4 @@
+import { MotionPresence } from './MotionPresence';
 import {
   useState,
   useRef,
@@ -343,14 +344,14 @@ export function ChatInput({
           ))}
         </div>
       )}
-      {showSlashPicker && (
+      <MotionPresence open={showSlashPicker} kind="popover" appear={false}>
         <SlashPicker
           query={text.trimStart()}
           onSelect={handleSlashSelect}
           onClose={() => setShowSlashPicker(false)}
           cwd={cwd}
         />
-      )}
+      </MotionPresence>
       {voice?.recording && voice.partialTranscript && (
         <div className="voice-partial">{voice.partialTranscript}</div>
       )}
@@ -402,6 +403,11 @@ export function ChatInput({
             }}
           >
             <ComposerTools
+              terminalHref={
+                sessionId
+                  ? `/terminal?sessionId=${encodeURIComponent(sessionId)}&returnTo=${encodeURIComponent(`/chat/${sessionId}`)}`
+                  : undefined
+              }
               onCommands={() => {
                 if (!text.trim()) setText('/');
                 setShowSlashPicker(true);

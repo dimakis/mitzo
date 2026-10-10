@@ -2,13 +2,18 @@ import {
   readdirSync,
   readFileSync,
   writeFileSync,
-  renameSync,
   unlinkSync,
   existsSync,
   mkdirSync,
+  linkSync,
+  mkdtempSync,
+  rmdirSync,
+  renameSync,
 } from 'fs';
 import { join, basename } from 'path';
+import { randomUUID } from 'node:crypto';
 import { createLogger } from './logger.js';
+import { isPrivateCodexPath } from './codex-private-path.js';
 
 const log = createLogger('inbox');
 
@@ -26,7 +31,8 @@ function isSafeFilename(name: string): boolean {
   return base === name && !name.includes('..') && name.endsWith('.md');
 }
 
-function parseFrontmatter(raw: string): { meta: Record<string, string>; body: string } {
+export function parseFrontmatter(raw: string): { meta: Record<string, string>; body: string } {
+  raw = raw.replaceAll('\r\n', '\n');
   const match = raw.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
   if (!match) return { meta: {}, body: raw };
 
@@ -82,6 +88,7 @@ export function listInboxItems(inboxPath: string): InboxItemSummary[] {
   const items: InboxItemSummary[] = [];
   for (const filename of files) {
     try {
+      if (isPrivateCodexPath(join(inboxPath, filename))) continue;
       const raw = readFileSync(join(inboxPath, filename), 'utf-8');
       const { meta, body } = parseFrontmatter(raw);
       items.push({
@@ -108,6 +115,7 @@ export function listInboxItems(inboxPath: string): InboxItemSummary[] {
 export function readInboxItem(inboxPath: string, filename: string): string | null {
   if (!isSafeFilename(filename)) return null;
   try {
+    if (isPrivateCodexPath(join(inboxPath, filename))) return null;
     return readFileSync(join(inboxPath, filename), 'utf-8');
   } catch (err: unknown) {
     log.warn('failed to read inbox item', {
@@ -124,7 +132,41 @@ export function approveInboxItem(inboxPath: string, filename: string): boolean {
   if (!existsSync(src)) return false;
   const archiveDir = join(inboxPath, 'archive');
   mkdirSync(archiveDir, { recursive: true });
-  renameSync(src, join(archiveDir, filename));
+  const claimDirectory = mkdtempSync(join(inboxPath, '.archive-claim-'));
+  const claim = join(claimDirectory, 'item');
+  try {
+    renameSync(src, claim);
+  } catch (error) {
+    rmdirSync(claimDirectory);
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+    throw error;
+  }
+  let target = join(archiveDir, filename);
+  try {
+    for (;;) {
+      try {
+        linkSync(claim, target);
+        break;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+        target = join(
+          archiveDir,
+          `${filename.slice(0, -3)}_${randomUUID().replaceAll('-', '')}.md`,
+        );
+      }
+    }
+    unlinkSync(claim);
+    rmdirSync(claimDirectory);
+  } catch (error) {
+    try {
+      linkSync(claim, src);
+      unlinkSync(claim);
+      rmdirSync(claimDirectory);
+    } catch {
+      // Preserve the claim if a newer producer already owns the active name.
+    }
+    throw error;
+  }
   return true;
 }
 

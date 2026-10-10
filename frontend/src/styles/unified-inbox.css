@@ -1,0 +1,98 @@
+.unified-inbox .inbox-views,
+.unified-inbox .inbox-list-tools,
+.unified-inbox .inbox-pagination,
+.unified-inbox .inbox-result,
+.unified-inbox .inbox-applied-filters {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.unified-inbox .inbox-views {
+  padding: var(--space-2) 0;
+}
+.unified-inbox .inbox-views button,
+.unified-inbox .inbox-pagination button,
+.unified-inbox .inbox-result button,
+.unified-inbox .inbox-applied-filters button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--control-height);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-surface);
+  color: var(--color-muted);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
+  font-family: var(--font-ui);
+}
+.unified-inbox .inbox-views button[aria-pressed='true'] {
+  background: color-mix(in srgb, var(--color-accent) 12%, var(--color-bg));
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+}
+.unified-inbox .inbox-refinements {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+  padding: var(--space-3) 0;
+}
+.unified-inbox .inbox-refinements label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  color: var(--color-muted);
+  font-size: var(--text-sm);
+}
+.unified-inbox .inbox-refinements select {
+  min-width: 0;
+  width: 100%;
+  min-height: var(--control-height);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  padding: var(--space-2);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-family: var(--font-ui);
+}
+.unified-inbox .inbox-list-tools {
+  justify-content: space-between;
+  padding: var(--space-3);
+  font-size: var(--text-xs);
+}
+.unified-inbox .inbox-result {
+  padding: var(--space-3);
+  color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 12%, var(--color-bg));
+  border-radius: var(--radius-control);
+}
+.unified-inbox .inbox-pagination {
+  justify-content: space-between;
+  padding: var(--space-4) 0 var(--space-6);
+  font-size: var(--text-sm);
+}
+.unified-inbox .inbox-provenance {
+  padding: var(--space-4) 0;
+  border-top: 1px solid var(--color-border);
+  color: var(--color-muted);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+.unified-inbox .inbox-provenance summary {
+  min-height: var(--control-height);
+}
+.unified-inbox .proposal-record-footer {
+  flex-wrap: wrap;
+}
+.unified-inbox .collection-record strong {
+  overflow-wrap: anywhere;
+}
+
+/* Keep a usable reading surface when controls exceed a short native viewport. */
+.mobile-workspace-body .unified-inbox.proposals-mobile {
+  overflow-y: auto;
+}
+.mobile-workspace-body .unified-inbox.proposals-mobile :is(.inbox-scroll, .collection-inspector) {
+  min-height: calc(var(--control-height) * 3);
+}

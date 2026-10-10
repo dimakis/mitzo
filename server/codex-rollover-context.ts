@@ -1,3 +1,5 @@
+import { SourceSnapshotsSchema, type SourceSnapshot } from '@mitzo/protocol';
+import { assembleSourceSnapshots } from './source-snapshot-context.js';
 import type { EventStore } from './event-store.js';
 
 export interface ConversationHistoryEntry {
@@ -40,4 +42,21 @@ export function codexRolloverHistory(
   return entries
     .filter((entry) => entry.text.trim())
     .map(({ role, text }) => ({ role, text: text.trim() }));
+}
+
+/** Keep exact references separate from the bounded recent-dialogue transcript. */
+export function codexRolloverSources(store: EventStore, conversationId: string): SourceSnapshot[] {
+  const sources = new Map<string, SourceSnapshot>();
+  let bytes = 0;
+  for (const value of store.getConversationSourceSnapshots(conversationId)) {
+    for (const source of SourceSnapshotsSchema.parse(value)) {
+      assembleSourceSnapshots('', [source]);
+      const key = `${source.kind}:${source.date}:${source.revision}`;
+      if (sources.has(key)) continue;
+      bytes += Buffer.byteLength(source.content, 'utf8');
+      if (bytes > 2 * 1024 * 1024) throw new Error('Saved source snapshots exceed 2 MiB');
+      sources.set(key, source);
+    }
+  }
+  return [...sources.values()];
 }

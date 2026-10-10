@@ -1,3 +1,4 @@
+import { MotionPresence } from './MotionPresence';
 import { UiIcon } from './UiIcon';
 import { useState, type ReactNode } from 'react';
 
@@ -56,7 +57,9 @@ export function CollapsibleSection({
           <UiIcon name="forward" size={16} />
         </span>
       </button>
-      {!collapsed && <div className="cc-section-body">{children}</div>}
+      <MotionPresence open={!collapsed} kind="disclosure" appear={false}>
+        <div className="cc-section-body">{children}</div>
+      </MotionPresence>
     </div>
   );
 }

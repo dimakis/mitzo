@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { join } from 'path';
 import { mkdirSync, writeFileSync, rmSync } from 'fs';
+import { createHash } from 'node:crypto';
 
 const TMP_DIR = join(import.meta.dirname, '..', '..', '.test-assemble-prompt');
 
@@ -36,6 +37,43 @@ afterEach(() => {
 });
 
 describe('assemblePrompt — context blocks', () => {
+  it('delivers the exact saved source and revision independently of configured context names', () => {
+    const content = '# Saved briefing\n## 09:00 Meeting\nFinal preparation detail\n';
+    const revision = createHash('sha256').update(content).digest('hex');
+    const filePath = join(TMP_DIR, 'named.md');
+    writeFileSync(filePath, 'Configured reference');
+    mockContextBlocks['Named'] = filePath;
+    const result = assemblePrompt(
+      'Discuss this report',
+      TMP_DIR,
+      undefined,
+      ['Named'],
+      [{ kind: 'briefing', date: '2026-10-09', revision, content }],
+    );
+    expect(result).toContain(content);
+    expect(result).toContain(revision);
+    expect(result).toContain('2026-10-09');
+    expect(result).toContain('Configured reference');
+    expect(result).toContain('source material');
+    expect(result).toContain('Discuss this report');
+  });
+  it('rejects changed or oversized snapshots instead of silently omitting or truncating them', () => {
+    const content = 'Captured report';
+    const snapshot = {
+      kind: 'briefing' as const,
+      date: '2026-10-09',
+      revision: createHash('sha256').update(content).digest('hex'),
+      content,
+    };
+    expect(() =>
+      assemblePrompt('Q', TMP_DIR, undefined, undefined, [{ ...snapshot, content: 'Changed' }]),
+    ).toThrow(/revision/);
+    expect(() =>
+      assemblePrompt('Q', TMP_DIR, undefined, undefined, [
+        { ...snapshot, content: 'A'.repeat(2 * 1024 * 1024 + 1) },
+      ]),
+    ).toThrow();
+  });
   it('returns plain prompt when no context blocks provided', () => {
     const result = assemblePrompt('Hello Claude', TMP_DIR);
     expect(result).toBe('Hello Claude');

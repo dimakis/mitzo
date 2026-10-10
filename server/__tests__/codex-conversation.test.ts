@@ -1,4 +1,8 @@
+import { assembleSourceSnapshots } from '../source-snapshot-context.js';
 import Database from 'better-sqlite3';
+import { createHash } from 'node:crypto';
+import { EventStore } from '../event-store.js';
+import { codexRolloverHistory, codexRolloverSources } from '../codex-rollover-context.js';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -198,6 +202,8 @@ async function setup(
   enableCapacityRecovery = false,
   runtimeConfig?: Record<string, unknown>,
   inheritedConfig: Record<string, unknown> = {},
+  savedHistory?: EventStore,
+  recordProviderRequest?: (method: string) => void,
 ) {
   const dir = mkdtempSync(join(tmpdir(), 'mitzo-codex-'));
   const store = existingStore ?? new CodexConversationStore(join(dir, 'private.db'));
@@ -223,6 +229,7 @@ async function setup(
     initialize: vi.fn(async () => {}),
     close: vi.fn(),
     request: vi.fn(async (method: string, params: Record<string, unknown>): Promise<unknown> => {
+      recordProviderRequest?.(method);
       requests.push({ method, params });
       if (method === 'config/read') return { config: inheritedConfig };
       if (method === 'account/read')
@@ -291,10 +298,14 @@ async function setup(
     onProviderAccepted,
     onProviderTerminal,
     onProviderTerminalConflict,
-    loadConversationHistory: () => [
-      { role: 'user', text: 'Keep the existing workstream.' },
-      { role: 'assistant', text: 'The workstream is active.' },
-    ],
+    loadSourceSnapshots: savedHistory ? () => codexRolloverSources(savedHistory, 'app') : undefined,
+    loadConversationHistory: () =>
+      savedHistory
+        ? codexRolloverHistory(savedHistory, 'app')
+        : [
+            { role: 'user', text: 'Keep the existing workstream.' },
+            { role: 'assistant', text: 'The workstream is active.' },
+          ],
     onActivity,
     verifyBinding,
     tools: [{ name: 'Read', description: 'Read', input_schema: { type: 'object' } }],
@@ -400,6 +411,216 @@ it('preserves prior conversation text once when refreshing a stale tool surface'
   expect(turns).toHaveLength(2);
   expect(turns[1].params).not.toHaveProperty('additionalContext');
 });
+
+it.each([false, true])(
+  'replays the exact saved briefing into a replacement provider thread after a cold restart (current source: %s)',
+  async (currentSource) => {
+    const dir = mkdtempSync(join(tmpdir(), 'mitzo-codex-saved-source-'));
+    const sourcePath = join(dir, 'events.db');
+    let history = new EventStore(sourcePath);
+    const content =
+      '\uFEFF# Saved morning briefing\n' +
+      'Calendar and meeting source detail.\n'.repeat(5000) +
+      'Exact final source line.';
+    const source = {
+      kind: 'briefing' as const,
+      date: '2026-10-09',
+      revision: createHash('sha256').update(content).digest('hex'),
+      content,
+    };
+    history.upsertSession({ sessionId: 'app', initialPrompt: 'Explain this briefing.' });
+    history.append('app', 'user_message', {
+      messageId: 'u0',
+      text: 'Explain this briefing.',
+      sourceSnapshots: [source],
+    });
+    history.append('app', 'block_delta', {
+      messageId: 'a0',
+      blockType: 'text',
+      delta: 'Captured report understood.',
+    });
+    history.append('app', 'message_end', { messageId: 'a0' });
+    // Move the original source beyond the recent text projection and rollover transcript bounds.
+    const fixtureDb = new Database(sourcePath);
+    const insert = fixtureDb.prepare('INSERT INTO events (session_id,type,payload) VALUES (?,?,?)');
+    fixtureDb.transaction(() => {
+      for (let i = 1; i <= 2800; i++) {
+        insert.run(
+          'app',
+          'user_message',
+          JSON.stringify({ messageId: `u${i}`, text: `Follow up ${i}` }),
+        );
+        insert.run(
+          'app',
+          'block_delta',
+          JSON.stringify({ messageId: `a${i}`, blockType: 'text', delta: `Answer ${i}` }),
+        );
+        insert.run('app', 'message_end', JSON.stringify({ messageId: `a${i}` }));
+      }
+    })();
+    fixtureDb.close();
+    history.close();
+    history = new EventStore(sourcePath);
+    const store = new CodexConversationStore(join(dir, 'private.db'));
+    cleanup.push(() => {
+      history.close();
+      store.close();
+      rmSync(dir, { recursive: true, force: true });
+    });
+    store.create('app', binding, '/workspace');
+    store.bindThread('app', binding, 'legacy-provider-thread');
+    const args: Parameters<typeof setup> = [];
+    args[0] = store;
+    args[4] = async () => binding;
+    args[23] = history;
+    const first = await setup(...args);
+    first.c.close();
+    const resumed = await setup(...args);
+    const currentPrompt = currentSource
+      ? assembleSourceSnapshots('What changed in that calendar?', [source])
+      : 'What changed in that calendar?';
+    await resumed.c.send({ id: 'replacement', prompt: currentPrompt });
+    const turn = resumed.requests.find(({ method }) => method === 'turn/start');
+    const input = turn?.params.input as Array<{ type: string; text?: string }>;
+    const providerText = input.map((item) => item.text ?? '').join('\n');
+    expect(providerText).toContain(content);
+    expect(providerText).toContain(`date="${source.date}" revision="${source.revision}"`);
+    expect(input.at(-1)).toEqual({ type: 'text', text: currentPrompt });
+    expect(providerText.split(content)).toHaveLength(2);
+    expect(history.getSession('app')?.initialPrompt).toBe('Explain this briefing.');
+    expect(codexRolloverHistory(history, 'app').some((entry) => entry.text.includes(content))).toBe(
+      false,
+    );
+    expect(JSON.stringify(turn?.params.additionalContext ?? {})).not.toContain(content);
+  },
+);
+
+it('rejects a corrupt retained briefing before replacement thread creation', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mitzo-codex-corrupt-source-'));
+  const history = new EventStore(join(dir, 'events.db'));
+  const store = new CodexConversationStore(join(dir, 'private.db'));
+  cleanup.push(() => {
+    history.close();
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+  history.append('app', 'user_message', {
+    messageId: 'source',
+    text: 'Short intent',
+    sourceSnapshots: [
+      {
+        kind: 'briefing',
+        date: '2026-10-09',
+        revision: 'a'.repeat(64),
+        content: 'Modified saved content',
+      },
+    ],
+  });
+  store.create('app', binding, '/workspace');
+  store.bindThread('app', binding, 'legacy-thread');
+  const args: Parameters<typeof setup> = [];
+  args[0] = store;
+  args[4] = async () => binding;
+  args[23] = history;
+  args[24] = vi.fn();
+  await expect(setup(...args)).rejects.toThrow(
+    'Source snapshot revision does not match its content',
+  );
+  expect(args[24]).not.toHaveBeenCalledWith('thread/start');
+  expect(args[24]).not.toHaveBeenCalledWith('turn/start');
+});
+
+it('replays retained sources when provider recovery starts a clean replacement thread', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mitzo-codex-clean-source-'));
+  const history = new EventStore(join(dir, 'events.db'));
+  cleanup.push(() => {
+    history.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+  const content = 'Saved exact report.\n'.repeat(6000);
+  const source = {
+    kind: 'briefing' as const,
+    date: '2026-10-09',
+    revision: createHash('sha256').update(content).digest('hex'),
+    content,
+  };
+  history.upsertSession({ sessionId: 'app', initialPrompt: 'Explain the saved report.' });
+  history.append('app', 'user_message', {
+    messageId: 'source',
+    text: 'Explain the saved report.',
+    sourceSnapshots: [source],
+  });
+  const args: Parameters<typeof setup> = [];
+  args[4] = async () => binding;
+  args[23] = history;
+  const { c, callbacks, requests, getProviderThread } = await setup(...args);
+  const initialPrompt = assembleSourceSnapshots('Explain the saved report.', [source]);
+  await c.send({ id: 'initial', prompt: initialPrompt });
+  const first = requests.find((request) => request.method === 'turn/start');
+  const firstInput = first?.params.input as Array<{ text: string }>;
+  expect(firstInput).toHaveLength(1);
+  expect(firstInput[0].text).toBe(initialPrompt);
+  callbacks.onNotification('turn/completed', {
+    threadId: getProviderThread(),
+    turn: {
+      id: 'turn-1',
+      status: 'failed',
+      error: { message: 'stream disconnected before completion' },
+    },
+  });
+  await c.send({ id: 'new-request', prompt: 'What about the meetings?' });
+  expect(requests.filter((request) => request.method === 'thread/start')).toHaveLength(2);
+  const turn = requests.filter((request) => request.method === 'turn/start').at(-1);
+  const input = turn?.params.input as Array<{ text: string }>;
+  expect(input.some((item) => item.text.includes(content))).toBe(true);
+  expect(input.some((item) => item.text.includes(source.revision))).toBe(true);
+  expect(input.at(-1)?.text).toBe('What about the meetings?');
+});
+
+it.each(['cold', 'hot'] as const)(
+  'restores a saved source on %s replacement before the first provider acknowledgement',
+  async (restart) => {
+    const dir = mkdtempSync(join(tmpdir(), 'mitzo-codex-unbound-source-'));
+    const history = new EventStore(join(dir, 'events.db'));
+    const store = new CodexConversationStore(join(dir, 'private.db'));
+    cleanup.push(() => {
+      history.close();
+      store.close();
+      rmSync(dir, { recursive: true, force: true });
+    });
+    const content = 'Exact retained calendar.';
+    const source = {
+      kind: 'briefing',
+      date: '2026-10-09',
+      revision: createHash('sha256').update(content).digest('hex'),
+      content,
+    };
+    history.upsertSession({ sessionId: 'app', initialPrompt: 'Explain this briefing.' });
+    history.append('app', 'user_message', {
+      messageId: 'source',
+      text: 'Explain this briefing.',
+      sourceSnapshots: [source],
+    });
+    const args: Parameters<typeof setup> = [];
+    args[0] = store;
+    args[4] = async () => binding;
+    args[17] = true;
+    args[23] = history;
+    const initial = await setup(...args);
+    expect(store.read('app', binding).threadId).toBeNull();
+    let replacement = initial;
+    if (restart === 'cold') {
+      initial.c.close();
+      replacement = await setup(...args);
+    } else initial.callbacks.onClose(new Error('before first acknowledgement'));
+    await replacement.c.send({ id: 'new-intent', prompt: 'Discuss the calendar.' });
+    const turn = replacement.requests.filter((request) => request.method === 'turn/start').at(-1);
+    const input = turn?.params.input as Array<{ text: string }>;
+    expect(input.some((item) => item.text.includes(content))).toBe(true);
+    expect(input.some((item) => item.text.includes(source.revision))).toBe(true);
+    expect(input.at(-1)?.text).toBe('Discuss the calendar.');
+  },
+);
 
 it('retains rollover context when the first replacement-thread turn fails', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mitzo-codex-rollover-failure-'));

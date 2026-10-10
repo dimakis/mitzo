@@ -31,6 +31,7 @@ export interface SseConnectionConfig {
   /** URL for the sendBeacon suspend fallback. */
   suspendUrl?: string;
   outboxStorage?: Pick<Storage, 'getItem' | 'setItem'>;
+  requireDurableBriefings?: boolean;
 }
 
 const MAX_PENDING_SENDS = 100;
@@ -83,8 +84,8 @@ export class SseConnection implements ChatConnection {
   private boundOnVisibility: (() => void) | null = null;
   private boundOnPageShow: ((e: PageTransitionEvent) => void) | null = null;
   private boundOnPageHide: (() => void) | null = null;
-  private config: Required<Omit<SseConnectionConfig, 'outboxStorage'>> &
-    Pick<SseConnectionConfig, 'outboxStorage'>;
+  private config: Required<Omit<SseConnectionConfig, 'outboxStorage' | 'requireDurableBriefings'>> &
+    Pick<SseConnectionConfig, 'outboxStorage' | 'requireDurableBriefings'>;
 
   constructor(config: SseConnectionConfig) {
     this.config = {
@@ -98,6 +99,7 @@ export class SseConnection implements ChatConnection {
       url: `${config.baseUrl}/api/chat/send`,
       fetch: config.fetch,
       storage: config.outboxStorage,
+      requireDurableBriefings: config.requireDurableBriefings,
       headers: (): Record<string, string> =>
         this._connectionId ? { 'X-Connection-ID': this._connectionId } : {},
       notify: (event) => {

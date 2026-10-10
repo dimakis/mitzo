@@ -1,3 +1,4 @@
+import { MotionRoutes } from './MotionRoutes';
 import { useLocation } from 'react-router-dom';
 import { useIsDesktop } from '../hooks/useMediaQuery';
 import { TabBar } from './TabBar';
@@ -14,10 +15,12 @@ const COLLECTION_ROUTES = new Set([
   '/inbox',
   '/todos',
   '/more',
+  '/terminal',
   '/connections-access',
   '/connections',
   '/settings',
   '/settings/backups',
+  '/settings/notifications',
   '/calendar',
   '/notifications',
   '/tasks',
@@ -32,18 +35,32 @@ function shouldHideTabBar(pathname: string): boolean {
 }
 
 export function MobileShell({ children }: { children: React.ReactNode }) {
+  return (
+    <MotionRoutes>
+      <MobileShellLayout>{children}</MobileShellLayout>
+    </MotionRoutes>
+  );
+}
+
+function MobileShellLayout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const isDesktop = useIsDesktop();
   const showTabBar = !isDesktop && !shouldHideTabBar(location.pathname);
 
-  if (!isDesktop && COLLECTION_ROUTES.has(location.pathname)) {
+  const collection =
+    COLLECTION_ROUTES.has(location.pathname) ||
+    location.pathname.startsWith('/briefings/') ||
+    location.pathname.startsWith('/quotes/');
+  if (!isDesktop && collection) {
     return (
       <div className="mobile-workspace">
         <header className="mobile-workspace-masthead">
           <MitzoBrand />
-          <Link to="/sessions" aria-label="Search chats" className="mobile-workspace-search">
-            <UiIcon name="search" />
-          </Link>
+          {location.pathname !== '/' && (
+            <Link to="/sessions" aria-label="Search chats" className="mobile-workspace-search">
+              <UiIcon name="search" />
+            </Link>
+          )}
         </header>
         <div className="mobile-workspace-body">{children}</div>
         <TabBar />

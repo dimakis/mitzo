@@ -1,3 +1,4 @@
+import type { SourceSnapshot } from '@mitzo/protocol';
 import type { SessionTransport, ConnectionRegistry } from '@mitzo/harness';
 import { summarizeToolInput, getRawInput } from './tool-summary.js';
 import { extractToolResultText, extractToolResultImages } from './content-blocks.js';
@@ -195,6 +196,7 @@ export interface QueryLoopOptions {
   initialClientMsgId?: string;
   initialImages?: string[];
   initialContextBlocks?: string[];
+  initialSourceSnapshots?: SourceSnapshot[];
   connRegistry?: ConnectionRegistry;
   onSessionResolved?: (sessionId: string) => void;
   /** Report whether the provider produced its first event. */
@@ -694,6 +696,9 @@ async function _runQueryLoopInner(
                   messageId: options?.initialClientMsgId ?? `umsg-${now}-init`,
                   text: initialPrompt,
                   ...(options?.initialImages?.length ? { images: options.initialImages } : {}),
+                  ...(options?.initialSourceSnapshots?.length
+                    ? { sourceSnapshots: options.initialSourceSnapshots }
+                    : {}),
                   ...(options?.initialContextBlocks?.length
                     ? { contextBlocks: options.initialContextBlocks }
                     : {}),

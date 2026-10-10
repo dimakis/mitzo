@@ -11,6 +11,38 @@ const ack = (id = 'one') =>
 afterEach(() => vi.useRealTimers());
 
 describe('send outbox', () => {
+  it('retains the exact source snapshot across reload and a transient HTTP retry', async () => {
+    vi.useFakeTimers();
+    let value: string | null = null;
+    const storage = {
+      getItem: () => value,
+      setItem: (_key: string, next: string) => {
+        value = next;
+      },
+    };
+    const sourceSnapshots = [
+      {
+        kind: 'briefing',
+        date: '2026-10-09',
+        revision: 'a'.repeat(64),
+        content: 'Exact captured report',
+      },
+    ];
+    const command = { ...prompt, sourceSnapshots };
+    const first = new SendOutbox({ fetch: vi.fn(), notify: vi.fn(), url: '/send', storage });
+    first.enqueue(command, 0);
+    const fetch = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('Temporary network loss'))
+      .mockResolvedValueOnce(ack());
+    const restored = new SendOutbox({ fetch, notify: vi.fn(), url: '/send', storage });
+    restored.start();
+    await vi.advanceTimersByTimeAsync(1100);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    for (const [, init] of fetch.mock.calls) expect(JSON.parse(init.body)).toEqual(command);
+    expect(JSON.parse(value!)).toEqual([]);
+    restored.stop();
+  });
   it('discards persisted prompts when authentication identity is lost', async () => {
     const values = new Map<string, string>();
     const storage = {
@@ -278,4 +310,231 @@ describe('send outbox', () => {
     expect(JSON.parse(value!)).toEqual([]);
     second.stop();
   });
+});
+
+it('keeps separate reviewed launches immutable even when their persisted numeric scopes collide', async () => {
+  vi.useFakeTimers();
+  const source = {
+    kind: 'briefing',
+    date: '2026-10-09',
+    revision: 'a'.repeat(64),
+    content: 'Report',
+  };
+  const first = { ...prompt, sourceSnapshots: [source], accountId: 'work', model: 'luna' };
+  const second = {
+    ...first,
+    clientMsgId: 'two',
+    sourceSnapshots: [{ ...source, date: '2026-10-10', revision: 'b'.repeat(64) }],
+    model: 'another',
+  };
+  const fetch = vi
+    .fn()
+    .mockResolvedValueOnce(ack())
+    .mockReturnValue(new Promise<Response>(() => {}));
+  const outbox = new SendOutbox({ url: '/send', fetch, notify: vi.fn() });
+  outbox.enqueue(first, 1);
+  outbox.enqueue(second, 1);
+  outbox.start();
+  await vi.advanceTimersByTimeAsync(0);
+  expect(fetch).toHaveBeenCalledTimes(2);
+  expect(JSON.parse(fetch.mock.calls[1][1].body)).toEqual(second);
+  outbox.stop();
+});
+
+it('retains a reviewed command after a lost accepted response and auth loss during retry backoff', async () => {
+  vi.useFakeTimers();
+  let saved = '[]';
+  const storage = {
+    getItem: () => saved,
+    setItem: (_key: string, value: string) => {
+      saved = value;
+    },
+  };
+  const command = {
+    ...prompt,
+    sourceSnapshots: [
+      {
+        kind: 'briefing',
+        date: '2026-10-09',
+        revision: 'a'.repeat(64),
+        content: 'Captured report',
+      },
+    ],
+  };
+  const notify = vi.fn();
+  const firstFetch = vi.fn().mockRejectedValue(new Error('Accepted response lost'));
+  const first = new SendOutbox({
+    url: '/send',
+    fetch: firstFetch,
+    notify,
+    storage,
+    requireDurableBriefings: true,
+  });
+  first.start();
+  first.enqueue(command, 1);
+  first.enqueue({ ...command, clientMsgId: 'unattempted' }, 2);
+  await vi.advanceTimersByTimeAsync(0);
+  first.rejectAll('Authentication lost');
+  const retained = JSON.parse(saved);
+  expect(retained).toHaveLength(1);
+  expect(retained[0].body).toEqual(command);
+  expect(retained[0].uncertain).toBe(true);
+  expect(notify).toHaveBeenCalledWith(
+    expect.objectContaining({ type: '_send_uncertain', clientMsgId: 'one' }),
+  );
+  expect(notify).toHaveBeenCalledWith(
+    expect.objectContaining({ type: '_send_failed', clientMsgId: 'unattempted' }),
+  );
+  const recoveredFetch = vi.fn().mockResolvedValue(ack());
+  const fresh = new SendOutbox({
+    url: '/send',
+    fetch: recoveredFetch,
+    notify,
+    storage,
+    requireDurableBriefings: true,
+  });
+  fresh.start();
+  await vi.advanceTimersByTimeAsync(0);
+  expect(JSON.parse(recoveredFetch.mock.calls[0][1].body)).toEqual(command);
+  expect(JSON.parse(saved)).toEqual([]);
+  fresh.stop();
+});
+it('persists reviewed attempt uncertainty before provider admission and retains it through cold pre-retry auth loss', async () => {
+  vi.useFakeTimers();
+  let saved = '[]';
+  const storage = {
+    getItem: () => saved,
+    setItem: (_key: string, value: string) => {
+      saved = value;
+    },
+  };
+  const command = {
+    ...prompt,
+    sourceSnapshots: [
+      {
+        kind: 'briefing',
+        date: '2026-10-09',
+        revision: 'a'.repeat(64),
+        content: 'Captured report',
+      },
+    ],
+  };
+  const durableAtDispatch: unknown[] = [];
+  const fetch = vi.fn(async () => {
+    durableAtDispatch.push(JSON.parse(saved)[0].uncertain);
+    throw new Error('Accepted ACK lost');
+  });
+  const first = new SendOutbox({
+    url: '/send',
+    fetch,
+    notify: vi.fn(),
+    storage,
+    requireDurableBriefings: true,
+  });
+  first.start();
+  first.enqueue(command, 1);
+  await vi.advanceTimersByTimeAsync(0);
+  expect(fetch).toHaveBeenCalledOnce();
+  expect(durableAtDispatch).toEqual([true]);
+  first.stop();
+  const fresh = new SendOutbox({
+    url: '/send',
+    fetch: vi.fn(),
+    notify: vi.fn(),
+    storage,
+    requireDurableBriefings: true,
+  });
+  fresh.rejectAll('Authentication changed before replay');
+  expect(JSON.parse(saved)).toEqual([{ body: command, scope: 1, uncertain: true }]);
+});
+it('does not dispatch a reviewed command when the attempted-state persistence barrier fails', async () => {
+  vi.useFakeTimers();
+  let saved = '[]';
+  let blocked = true;
+  const storage = {
+    getItem: () => saved,
+    setItem: (_key: string, value: string) => {
+      if (blocked && JSON.parse(value)[0]?.uncertain) throw new Error('Quota at attempt');
+      saved = value;
+    },
+  };
+  const command = {
+    ...prompt,
+    sourceSnapshots: [
+      {
+        kind: 'briefing',
+        date: '2026-10-09',
+        revision: 'a'.repeat(64),
+        content: 'Captured report',
+      },
+    ],
+  };
+  const fetch = vi.fn().mockResolvedValue(ack());
+  const outbox = new SendOutbox({
+    url: '/send',
+    fetch,
+    notify: vi.fn(),
+    storage,
+    requireDurableBriefings: true,
+  });
+  outbox.start();
+  outbox.enqueue(command, 1);
+  await vi.advanceTimersByTimeAsync(0);
+  expect(fetch).not.toHaveBeenCalled();
+  expect(JSON.parse(saved)[0].body).toEqual(command);
+  blocked = false;
+  await vi.advanceTimersByTimeAsync(1000);
+  expect(fetch).toHaveBeenCalledOnce();
+  expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual(command);
+  expect(JSON.parse(saved)).toEqual([]);
+  outbox.stop();
+});
+
+it('removes attempted reviewed uncertainty on an authoritative HTTP rejection', async () => {
+  vi.useFakeTimers();
+  let saved = '[]';
+  const storage = {
+    getItem: () => saved,
+    setItem: (_key: string, value: string) => {
+      saved = value;
+    },
+  };
+  const command = {
+    ...prompt,
+    sourceSnapshots: [
+      {
+        kind: 'briefing',
+        date: '2026-10-09',
+        revision: 'a'.repeat(64),
+        content: 'Captured report',
+      },
+    ],
+  };
+  const notify = vi.fn();
+  const fetch = vi
+    .fn()
+    .mockResolvedValue(
+      new Response(JSON.stringify({ error: 'Account selection rejected' }), { status: 403 }),
+    );
+  const outbox = new SendOutbox({
+    url: '/send',
+    fetch,
+    notify,
+    storage,
+    requireDurableBriefings: true,
+  });
+  outbox.start();
+  outbox.enqueue(command, 1);
+  await vi.advanceTimersByTimeAsync(0);
+  expect(JSON.parse(saved)).toEqual([]);
+  expect(notify).toHaveBeenCalledWith(
+    expect.objectContaining({
+      type: '_send_failed',
+      clientMsgId: 'one',
+      error: 'Account selection rejected',
+    }),
+  );
+  outbox.rejectAll('Auth changed later');
+  expect(JSON.parse(saved)).toEqual([]);
+  outbox.stop();
 });

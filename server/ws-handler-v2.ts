@@ -1,3 +1,4 @@
+import type { SourceSnapshot } from '@mitzo/protocol';
 import {
   claimChatCommand,
   reasoningSessionId,
@@ -740,6 +741,10 @@ export function handleSendV2(
         const cwd = validatedCwd ?? storedMeta?.cwd ?? BASE_REPO;
         const skillRegistry = buildSkillRegistry(cwd);
         const resolution = resolveSlashCommand(msg.prompt, skillRegistry, NATIVE_COMMAND_NAMES);
+        if (msg.sourceSnapshots?.length && resolution.type === 'native')
+          throw new Error(
+            'Saved source snapshots require an ordinary chat prompt. Native commands do not consume them.',
+          );
         if (msg.repositoryWorkspaceId && resolution.type === 'native')
           throw new Error(
             'Native commands cannot launch a repository chat. Send an ordinary first prompt.',
@@ -845,6 +850,7 @@ export function handleSendV2(
                           extraTools: msg.extraTools,
                           images: msg.images,
                           contextBlocks: msg.contextBlocks,
+                          sourceSnapshots: msg.sourceSnapshots,
                         },
                       },
                       onAdmitted: () => {
@@ -960,6 +966,7 @@ export function handleSendV2(
               cwd,
               images: msg.images,
               contextBlocks: msg.contextBlocks,
+              sourceSnapshots: msg.sourceSnapshots,
               model: effectiveSelection.model,
               reasoningEffort: effectiveSelection.reasoningEffort,
             });
@@ -997,6 +1004,7 @@ export function handleSendV2(
               msg.clientMsgId,
               msg.accountId ? msg.model : undefined,
               msg.accountId ? msg.reasoningEffort : undefined,
+              ...(msg.sourceSnapshots?.length ? ([msg.sourceSnapshots] as const) : ([] as const)),
             );
             const ownerConnection =
               found.session?.ownerConnectionId ?? getOwnerConnection(found.clientId);
@@ -1047,6 +1055,9 @@ export function handleSendV2(
                     msg.accountId ? msg.reasoningEffort : undefined,
                     undefined,
                     userIntent,
+                    ...(msg.sourceSnapshots?.length
+                      ? ([msg.sourceSnapshots] as const)
+                      : ([] as const)),
                   )
                 : await sendToChat(
                     activeClientId,
@@ -1056,6 +1067,9 @@ export function handleSendV2(
                     msg.clientMsgId,
                     msg.accountId ? msg.model : undefined,
                     msg.accountId ? msg.reasoningEffort : undefined,
+                    ...((msg.sourceSnapshots?.length
+                      ? [undefined, undefined, msg.sourceSnapshots]
+                      : []) as [undefined?, undefined?, SourceSnapshot[]?]),
                   );
             if (!accepted) throw new Error('Session is not accepting input. Please retry.');
             span.setAttribute('routing.decision', isOwner ? 'active' : 'takeover');
@@ -1100,6 +1114,7 @@ export function handleSendV2(
             resumePermission,
             images: msg.images,
             contextBlocks: msg.contextBlocks,
+            sourceSnapshots: msg.sourceSnapshots,
             clientMsgId: msg.clientMsgId,
             onStartupAdmission,
             telosTaskId: msg.telosTaskId,
@@ -1126,6 +1141,7 @@ export function handleSendV2(
             cwd,
             images: msg.images,
             contextBlocks: msg.contextBlocks,
+            sourceSnapshots: msg.sourceSnapshots,
             model: effectiveSelection.model,
             reasoningEffort: effectiveSelection.reasoningEffort,
           });
@@ -1165,6 +1181,7 @@ export function handleSendV2(
             mode: msg.mode,
             images: msg.images,
             contextBlocks: msg.contextBlocks,
+            sourceSnapshots: msg.sourceSnapshots,
             clientMsgId: msg.clientMsgId,
             onSessionResolved,
             onStartupAdmission,
@@ -1290,6 +1307,7 @@ export function handleInterruptV2(
           msg.clientMsgId,
           msg.accountId ? msg.model : undefined,
           msg.accountId ? msg.reasoningEffort : undefined,
+          ...(msg.sourceSnapshots?.length ? ([msg.sourceSnapshots] as const) : ([] as const)),
         );
         const ownerConnection =
           found.session?.ownerConnectionId ?? getOwnerConnection(found.clientId);
@@ -1329,6 +1347,7 @@ export function handleInterruptV2(
           msg.clientMsgId,
           msg.accountId ? msg.model : undefined,
           msg.accountId ? msg.reasoningEffort : undefined,
+          ...(msg.sourceSnapshots?.length ? ([msg.sourceSnapshots] as const) : ([] as const)),
         );
         log.info('interrupt', { connectionId, sessionId: msg.sessionId });
         return;
@@ -1346,6 +1365,7 @@ export function handleInterruptV2(
         cwd: storedMeta?.cwd ?? BASE_REPO,
         images: msg.images,
         contextBlocks: msg.contextBlocks,
+        sourceSnapshots: msg.sourceSnapshots,
         model: effectiveSelection.model,
         reasoningEffort: effectiveSelection.reasoningEffort,
       });
@@ -1391,6 +1411,7 @@ export function handleInterruptV2(
         reasoningEffort: effectiveSelection.reasoningEffort,
         images: msg.images,
         contextBlocks: msg.contextBlocks,
+        sourceSnapshots: msg.sourceSnapshots,
         clientMsgId: msg.clientMsgId,
         agentName: found.session?.agentName,
         telosTaskId: found.session?.telosTaskId,

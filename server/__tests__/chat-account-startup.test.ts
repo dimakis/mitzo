@@ -3,6 +3,7 @@ import { mkdtemp, rm, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AccountProfiles } from '../account-profiles.js';
+import { createHash } from 'node:crypto';
 vi.mock('@anthropic-ai/claude-agent-sdk', async (original) => ({
   ...(await original<object>()),
   query: vi.fn(),
@@ -26,6 +27,111 @@ vi.mock('../hook-bridge.js', async (original) => ({
 afterEach(() => {
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
+});
+it('delivers the exact dated briefing snapshot to the mocked Codex provider and durable user history', async () => {
+  vi.resetModules();
+  const root = await mkdtemp(join(tmpdir(), 'mitzo-source-provider-'));
+  vi.stubEnv('REPO_PATH', root);
+  vi.stubEnv('WORKTREE_ENABLED', 'false');
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => new Response(JSON.stringify({ boot: {} }))),
+  );
+  const profiles = new AccountProfiles(
+    [
+      {
+        id: 'work',
+        label: 'OpenAI Work fixture',
+        provider: 'openai-codex',
+        credentialRef: '/test/codex',
+        email: 'fixture@example.com',
+        planType: 'pro',
+        models: [{ id: 'luna', label: 'Luna fixture' }],
+      },
+    ],
+    { codexEnabled: true },
+  );
+  const account = await import('../codex-account.js');
+  vi.spyOn(account, 'verifyCodexAccount').mockResolvedValue(
+    profiles.resolve('work', 'luna') as never,
+  );
+  const { CodexAppServerClient } = await import('../codex-app-server-client.js');
+  vi.spyOn(CodexAppServerClient, 'launch').mockReturnValue({
+    initialize: async () => {},
+    close: vi.fn(),
+  } as never);
+  const codex = await import('../codex-chat-session.js');
+  const open = vi
+    .spyOn(codex, 'openCodexChat')
+    .mockRejectedValue(new Error('Mocked provider captured input; do not start a real model'));
+  const chat = await import('../chat.js');
+  const content =
+    '# Morning briefing\n## 09:30 Meeting\n' +
+    'Source detail\n'.repeat(9000) +
+    'Final detail beyond 100 KB';
+  const snapshot = {
+    kind: 'briefing' as const,
+    date: '2026-10-09',
+    revision: createHash('sha256').update(content).digest('hex'),
+    content,
+  };
+  const sessionId = 'aaaaaaaa-bbbb-4ccc-8ddd-343434343434';
+  try {
+    await chat.startChat(
+      { send: () => {}, isOpen: () => true },
+      'source-provider',
+      'Discuss the saved report',
+      {
+        cwd: root,
+        isolation: false,
+        accountId: 'work',
+        model: 'luna',
+        accountProfiles: profiles,
+        initialSessionId: sessionId,
+        clientMsgId: 'source-message',
+        sourceSnapshots: [snapshot],
+      },
+    );
+    expect(open).toHaveBeenCalledOnce();
+    const actual = open.mock.calls[0][0].prompt;
+    expect(actual.includes(content)).toBe(true);
+    expect(actual).toContain(snapshot.revision);
+    expect(actual).toContain(snapshot.date);
+    expect(actual).toContain('Discuss the saved report');
+    const user = chat.eventStore
+      .getSessionEvents(sessionId)
+      .find((event) => event.type === 'user_message');
+    expect(user?.payload.sourceSnapshots).toEqual([snapshot]);
+    expect(user?.payload.text).toBe('Discuss the saved report');
+    const restored = await chat.getMessages(sessionId);
+    expect(restored.filter((message) => message.role === 'user')).toHaveLength(1);
+    expect(restored[0].sourceSnapshots).toEqual([snapshot]);
+    expect(restored[0].blocks[0].content).toBe('Discuss the saved report');
+    open.mockClear();
+    const rejectedTransport = { send: vi.fn(), isOpen: () => true };
+    const rejected = await chat
+      .startChat(rejectedTransport, 'invalid-source-provider', 'Discuss', {
+        cwd: root,
+        isolation: false,
+        accountId: 'work',
+        model: 'luna',
+        accountProfiles: profiles,
+        sourceSnapshots: [{ ...snapshot, content: 'Changed source with an old revision' }],
+      })
+      .then(
+        () => null,
+        (error: unknown) => error,
+      );
+    expect(open).not.toHaveBeenCalled();
+    const reported =
+      rejected instanceof Error
+        ? rejected.message
+        : rejectedTransport.send.mock.calls.map(([event]) => String(event.error ?? '')).join(' ');
+    expect(reported).toMatch(/revision/);
+  } finally {
+    chat.eventStore.close();
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 it.each([false, true])(

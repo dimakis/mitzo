@@ -1,4 +1,5 @@
-import { useId, useState, type ReactNode } from 'react';
+import { useMotionPresence } from '../hooks/useMotionPresence';
+import { useEffect, useId, useState, type ReactNode } from 'react';
 import { UiIcon } from './UiIcon';
 import type { WorkspaceSummary } from '../types/workspace';
 
@@ -23,6 +24,10 @@ export function WorkspaceControls({
       return false;
     }
   });
+  const [reviewExpanded, setReviewExpanded] = useState(attention);
+  useEffect(() => setReviewExpanded(attention), [attention]);
+  const open = expanded || reviewExpanded;
+  const { ref, present } = useMotionPresence(open, 'disclosure', false);
   return (
     <section className="workspace-controls">
       <button
@@ -30,10 +35,11 @@ export function WorkspaceControls({
         aria-label={['Workspace controls', summary?.profile, summary?.model, summary?.thinking]
           .filter(Boolean)
           .join(', ')}
-        aria-expanded={expanded || attention}
+        aria-expanded={open}
         aria-controls={id}
         onClick={() => {
-          const next = !expanded;
+          const next = !open;
+          setReviewExpanded(false);
           setExpanded(next);
           try {
             localStorage.setItem(STORAGE_KEY, next ? '1' : '0');
@@ -59,9 +65,16 @@ export function WorkspaceControls({
           )}
         </span>
         <span className="conversation-state">{status}</span>
-        <UiIcon name={expanded ? 'up' : 'down'} />
+        <UiIcon name={open ? 'up' : 'down'} />
       </button>
-      <div id={id} hidden={!expanded && !attention}>
+      <div
+        id={id}
+        ref={ref}
+        className="motion-disclosure"
+        hidden={!present}
+        inert={!open}
+        aria-hidden={!open || undefined}
+      >
         {children}
       </div>
     </section>

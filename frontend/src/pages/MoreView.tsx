@@ -15,8 +15,8 @@ export function MoreView() {
           {
             title: 'Workspace',
             items: [
+              ['Terminal', '/terminal', 'terminal'],
               ['Connections', '/connections-access', 'connections'],
-              ['Notifications', '/notifications', 'bell'],
               ['Calendar', '/calendar', 'calendar'],
               ['Agent taskboard', '/tasks', 'agents'],
               ['Agent Library', '/agent-library', 'files'],
@@ -30,6 +30,7 @@ export function MoreView() {
             title: 'Preferences',
             items: [
               ['Settings', '/settings', 'settings'],
+              ['Notification preferences', '/settings/notifications', 'bell'],
               ['API connections', '/connections?manage=api', 'connections'],
             ],
           },

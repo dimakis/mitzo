@@ -202,6 +202,13 @@ describe('enrolled calendar and briefing routes', () => {
     expect(
       listing.body.some((item: { filename: string }) => item.filename === 'operator-runtime.md'),
     ).toBe(false);
+    const feed = await request(app).get('/api/inbox/feed?view=all').set('Cookie', authCookie);
+    expect(feed.status).toBe(200);
+    expect(JSON.stringify(feed.body)).not.toContain('operator-runtime.md');
+    const record = await request(app)
+      .get('/api/inbox/records/inbox%3Aoperator-runtime.md')
+      .set('Cookie', authCookie);
+    expect(record.status).toBe(404);
   });
   it('fails closed before document writes through a hardlink alias', async () => {
     const alias = join(TEST_REPO, 'runtime-config-alias.json');

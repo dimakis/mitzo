@@ -46,6 +46,8 @@ const mocks = vi.hoisted(() => ({
     results: [],
     searching: false,
     active: false,
+    error: null as string | null,
+    retry: vi.fn(),
     clear: vi.fn(),
   },
 }));
@@ -63,6 +65,22 @@ function mount() {
     </MemoryRouter>,
   );
 }
+it('presents search failures with retry without claiming there were no matches', () => {
+  const previous = { active: mocks.search.active, error: mocks.search.error };
+  mocks.search.active = true;
+  mocks.search.error = 'Couldn’t search sessions. Try again.';
+  mocks.search.retry.mockClear();
+  try {
+    mount();
+    expect(screen.getByRole('alert').textContent).toContain(mocks.search.error);
+    expect(screen.queryByText('No matching conversations')).toBeNull();
+    expect(screen.queryByText('0 results')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(mocks.search.retry).toHaveBeenCalledOnce();
+  } finally {
+    Object.assign(mocks.search, previous);
+  }
+});
 it('renders a single list including live chats outside the loaded history page', () => {
   mount();
   expect(screen.getAllByText('Review UI')).toHaveLength(1);
