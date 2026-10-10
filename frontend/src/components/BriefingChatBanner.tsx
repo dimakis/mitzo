@@ -1,3 +1,4 @@
+import { localBriefingConversation } from '../lib/briefing-registration';
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useMitzoStore } from '@mitzo/client/hooks';
@@ -50,6 +51,12 @@ export function BriefingChatBanner({
       navigate(`/chat/${encodeURIComponent(existing.sessionId)}`);
       return;
     }
+    const retained = await localBriefingConversation(source, selection);
+    if (retained) {
+      setPicker(false);
+      navigate(`/chat/${encodeURIComponent(retained)}`);
+      return;
+    }
     let captured = [
       ...(launch?.sourceSnapshots ?? []),
       ...messages.flatMap((message) => message.sourceSnapshots ?? []),
@@ -74,7 +81,7 @@ export function BriefingChatBanner({
         'Help me explore this saved morning briefing. Start with its calendar changes and main preparation points.',
       context: `Morning briefing · ${source.date}`,
       sourceSnapshots: [captured],
-      briefing: source,
+      briefing: { date: source.date, revision: source.revision },
       accountSelection: { ...selection, accountId: selection.accountId },
     });
     setPicker(false);
