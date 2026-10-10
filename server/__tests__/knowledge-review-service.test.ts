@@ -19,6 +19,13 @@ let root: string, store: KnowledgeDraftStore, source: AcceptedKnowledgeSource;
 let review: GithubPullRequest | null, remoteHead: string | null;
 let publisher: GithubHostPublisher & {
   identity: ReturnType<typeof vi.fn<() => Promise<string>>>;
+  sendForReview: ReturnType<
+    typeof vi.fn<
+      (
+        input: KnowledgeReviewIdentity & { beforeReady?: () => void },
+      ) => Promise<KnowledgeReviewInspection & { state: 'in-review'; draft: false }>
+    >
+  >;
   inspect?: ReturnType<
     typeof vi.fn<(input: KnowledgeReviewIdentity) => Promise<KnowledgeReviewInspection>>
   >;
@@ -45,6 +52,13 @@ beforeEach(() => {
   remoteHead = null;
   publisher = {
     identity: vi.fn(async () => 'operator'),
+    sendForReview: vi.fn(async (input) => {
+      input.beforeReady?.();
+      if (!review || review.state !== 'open' || review.merged || remoteHead !== input.head)
+        throw new Error('Review changed');
+      review = { ...review, draft: false };
+      return { state: 'in-review', head: input.head, draft: false, canAccept: false };
+    }),
     inspect: vi.fn(async (input) => {
       if (remoteHead !== input.head) throw new Error('Merged head changed');
       return {
@@ -642,4 +656,211 @@ it('projects successive moves and move-back from the first accepted origin', asy
   const returned = await service().submit(draft.id, 3);
   expect(git('ls-tree', '-r', '--name-only', returned.review!.head)).toBe('architecture/one.md');
   expect(returned.documents[0]?.sourcePath).toBeUndefined();
+});
+
+it('coalesces locally saved versions and structural changes into one explicit review batch', async () => {
+  writeFileSync(join(root, 'architecture/two.md'), '# Other old\n');
+  git('add', 'architecture/two.md');
+  git('commit', '-m', 'another accepted file');
+  git('update-ref', 'refs/remotes/origin/main', 'HEAD');
+  const draft = store.create('Batch', await source.revision(), [
+    { path: 'architecture/one.md', base: '# Old\n', content: '# First\n' },
+  ]);
+  store.save(draft.id, 1, [
+    { path: 'architecture/one.md', base: '# Old\n', content: '# Second\n' },
+  ]);
+  store.save(
+    draft.id,
+    2,
+    [
+      {
+        path: 'architecture/new/one.md',
+        sourcePath: 'architecture/one.md',
+        base: '# Old\n',
+        content: '# Latest\n',
+      },
+      { path: 'architecture/two.md', base: '# Other old\n', content: '# Other latest\n' },
+    ],
+    undefined,
+    ['architecture/empty'],
+  );
+  expect(publisher.push).not.toHaveBeenCalled();
+  expect(publisher.create).not.toHaveBeenCalled();
+  const sent = await service().sendForReview(draft.id, 3);
+  expect(sent.review).toMatchObject({ version: 3, ready: true });
+  expect(git('show', sent.review!.head + ':architecture/new/one.md')).toBe('# Latest');
+  expect(git('show', sent.review!.head + ':architecture/two.md')).toBe('# Other latest');
+  expect(git('show', sent.review!.head + ':architecture/empty/.gitkeep')).toBe('');
+  expect(git('ls-tree', '-r', '--name-only', sent.review!.head)).not.toContain(
+    'architecture/one.md',
+  );
+  expect(publisher.push).toHaveBeenCalledOnce();
+  expect(publisher.create).toHaveBeenCalledOnce();
+  await service().sendForReview(draft.id, 3);
+  expect(publisher.push).toHaveBeenCalledOnce();
+  expect(publisher.create).toHaveBeenCalledOnce();
+  expect(publisher.update).not.toHaveBeenCalled();
+});
+it('keeps one lease through publication and the readiness mutation', async () => {
+  const draft = store.create('Batch', await source.revision(), [
+    { path: 'architecture/one.md', base: '# Old\n', content: '# New\n' },
+  ]);
+  publisher.sendForReview.mockImplementation(async (input) => {
+    expect(() => store.save(draft.id, 1, draft.documents)).toThrow('saving its review');
+    expect(input.beforeReady).toBeTypeOf('function');
+    input.beforeReady!();
+    review = { ...review!, draft: false };
+    return { state: 'in-review', head: input.head, draft: false, canAccept: false };
+  });
+  expect((await service().sendForReview(draft.id, 1)).review?.ready).toBe(true);
+});
+it('retries ambiguous ready acknowledgement without repushing or redrafting the confirmed head', async () => {
+  const draft = store.create('Batch', await source.revision(), [
+    { path: 'architecture/one.md', base: '# Old\n', content: '# New\n' },
+  ]);
+  const original = publisher.sendForReview.getMockImplementation()!;
+  publisher.sendForReview.mockImplementationOnce(async (input) => {
+    await original(input);
+    throw new Error('Ready response lost');
+  });
+  await expect(service().sendForReview(draft.id, 1)).rejects.toThrow('Retry Send');
+  const uncertain = store.get(draft.id);
+  const head = uncertain.review!.head;
+  expect(uncertain.review?.ready).toBe(false);
+  expect(store.recoveryBundle(draft.id, head)).toBeDefined();
+  const retried = await service().sendForReview(draft.id, 1);
+  expect(retried.review).toMatchObject({ head, version: 1, ready: true });
+  expect(publisher.push).toHaveBeenCalledOnce();
+  expect(publisher.create).toHaveBeenCalledOnce();
+  expect(publisher.update).not.toHaveBeenCalled();
+});
+it('preserves prepared recovery after an ambiguous push while newer edits stage locally', async () => {
+  const draft = store.create('Batch', await source.revision(), [
+    { path: 'architecture/one.md', base: '# Old\n', content: '# First\n' },
+  ]);
+  publisher.push = vi.fn(async ({ directory }) => {
+    remoteHead = directory;
+    throw new Error('Push acknowledgement lost');
+  });
+  await expect(service().sendForReview(draft.id, 1)).rejects.toThrow();
+  const prepared = store.get(draft.id).publication!;
+  const recovery = store.recoveryBundle(draft.id, prepared.head)!;
+  const staged = store.save(draft.id, 1, [
+    { path: 'architecture/one.md', base: '# Old\n', content: '# Latest\n' },
+  ]);
+  expect(staged.publication).toEqual(prepared);
+  expect(store.recoveryBundle(draft.id, prepared.head)).toEqual(recovery);
+  expect(publisher.push).toHaveBeenCalledOnce();
+  expect(publisher.create).not.toHaveBeenCalled();
+  publisher.push = vi.fn(async ({ directory }) => {
+    remoteHead = directory;
+  });
+  const sent = await service().sendForReview(draft.id, 2);
+  expect(git('show', sent.review!.head + ':architecture/one.md')).toBe('# Latest');
+  expect(git('merge-base', '--is-ancestor', prepared.head, sent.review!.head)).toBe('');
+  expect(publisher.push).toHaveBeenCalledOnce();
+  expect(publisher.create).toHaveBeenCalledOnce();
+});
+
+it('stages later versions without touching the existing ready review and sends only the latest batch', async () => {
+  const draft = store.create('Batch', await source.revision(), [
+    { path: 'architecture/one.md', base: '# Old\n', content: '# First\n' },
+  ]);
+  const first = await service().sendForReview(draft.id, 1);
+  const head = first.review!.head;
+  store.save(draft.id, 1, [
+    { path: 'architecture/one.md', base: '# Old\n', content: '# Second\n' },
+  ]);
+  store.save(draft.id, 2, [
+    { path: 'architecture/one.md', base: '# Old\n', content: '# Latest\n' },
+  ]);
+  expect(remoteHead).toBe(head);
+  expect(review?.draft).toBe(false);
+  expect(publisher.push).toHaveBeenCalledOnce();
+  expect(publisher.update).not.toHaveBeenCalled();
+  const sent = await service().sendForReview(draft.id, 3);
+  expect(sent.review).toMatchObject({ url: first.review!.url, version: 3, ready: true });
+  expect(git('show', sent.review!.head + ':architecture/one.md')).toBe('# Latest');
+  expect(publisher.create).toHaveBeenCalledOnce();
+  expect(publisher.push).toHaveBeenCalledTimes(2);
+  expect(publisher.update).toHaveBeenCalledOnce();
+});
+it('recovers an ambiguous push at the same saved version without a second push', async () => {
+  const draft = store.create('Batch', await source.revision(), [
+    { path: 'architecture/one.md', base: '# Old\n', content: '# New\n' },
+  ]);
+  vi.mocked(publisher.push).mockImplementationOnce(async ({ directory }) => {
+    remoteHead = directory;
+    throw new Error('Push response lost');
+  });
+  await expect(service().sendForReview(draft.id, 1)).rejects.toThrow();
+  const head = store.get(draft.id).publication!.head;
+  const retried = await service().sendForReview(draft.id, 1);
+  expect(retried.review).toMatchObject({ head, version: 1, ready: true });
+  expect(publisher.push).toHaveBeenCalledOnce();
+  expect(publisher.create).toHaveBeenCalledOnce();
+});
+it('recovers an ambiguous PR creation without another metadata update or duplicate review', async () => {
+  const draft = store.create('Batch', await source.revision(), [
+    { path: 'architecture/one.md', base: '# Old\n', content: '# New\n' },
+  ]);
+  const create = vi.mocked(publisher.create).getMockImplementation()!;
+  vi.mocked(publisher.create).mockImplementationOnce(async (input) => {
+    await create(input);
+    throw new Error('PR response lost');
+  });
+  await expect(service().sendForReview(draft.id, 1)).rejects.toThrow();
+  const head = store.get(draft.id).publication!.head;
+  expect((await service().sendForReview(draft.id, 1)).review).toMatchObject({ head, ready: true });
+  expect(publisher.push).toHaveBeenCalledOnce();
+  expect(publisher.create).toHaveBeenCalledOnce();
+  expect(publisher.update).not.toHaveBeenCalled();
+});
+
+it('blocks readiness after a lease expires without overwriting newer staged content', async () => {
+  const draft = store.create('Batch', await source.revision(), [
+    { path: 'architecture/one.md', base: '# Old\n', content: '# First\n' },
+  ]);
+  const now = Date.now();
+  let clock: ReturnType<typeof vi.spyOn> | undefined;
+  let readyMutated = false;
+  publisher.sendForReview.mockImplementation(async (input) => {
+    clock = vi.spyOn(Date, 'now').mockReturnValue(now + 181000);
+    store.save(draft.id, 1, [
+      { path: 'architecture/one.md', base: '# Old\n', content: '# Newer staged\n' },
+    ]);
+    input.beforeReady!();
+    readyMutated = true;
+    return { state: 'in-review', head: input.head, draft: false, canAccept: false };
+  });
+  try {
+    await expect(service().sendForReview(draft.id, 1)).rejects.toThrow('lease expired');
+    expect(readyMutated).toBe(false);
+    expect(store.get(draft.id)).toMatchObject({
+      state: 'draft',
+      version: 2,
+      documents: [{ content: '# Newer staged\n' }],
+      review: { version: 1, ready: false },
+    });
+  } finally {
+    clock?.mockRestore();
+  }
+});
+it('checks revoked authorization before readiness and keeps the exact published batch recoverable', async () => {
+  const draft = store.create('Batch', await source.revision(), [
+    { path: 'architecture/one.md', base: '# Old\n', content: '# First\n' },
+  ]);
+  const authorization = new AbortController();
+  let readyMutated = false;
+  publisher.sendForReview.mockImplementation(async (input) => {
+    authorization.abort();
+    input.beforeReady!();
+    readyMutated = true;
+    return { state: 'in-review', head: input.head, draft: false, canAccept: false };
+  });
+  await expect(service().sendForReview(draft.id, 1, authorization.signal)).rejects.toThrow();
+  const retained = store.get(draft.id);
+  expect(readyMutated).toBe(false);
+  expect(retained.review).toMatchObject({ version: 1, ready: false });
+  expect(store.recoveryBundle(draft.id, retained.publication!.head)).toBeDefined();
 });

@@ -249,7 +249,7 @@ export class KnowledgeGithubPublisher extends GitHubCliHostPublisher {
   }
   /** Explicit operator transition: request review without claiming acceptance. */
   async sendForReview(
-    input: KnowledgeReviewIdentity,
+    input: KnowledgeReviewIdentity & { beforeReady?: () => void },
   ): Promise<KnowledgeReviewInspection & { state: 'in-review'; draft: false }> {
     const number = this.checked(input);
     const signal = input.signal ?? AbortSignal.timeout(120_000);
@@ -270,8 +270,10 @@ export class KnowledgeGithubPublisher extends GitHubCliHostPublisher {
     const current = await this.readExact(input, number, signal);
     signal.throwIfAborted();
     assertOpenHead(current);
-    if (current.draft)
+    if (current.draft) {
+      input.beforeReady?.();
       await this.command('gh', ['pr', 'ready', number, '--repo', input.repository], signal);
+    }
     signal.throwIfAborted();
     const ready = await this.readExact(input, number, signal);
     signal.throwIfAborted();
