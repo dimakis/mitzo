@@ -64,21 +64,29 @@ function setup() {
         cwd: root,
         accountBinding: profiles.resolve('personal', 'offline-model'),
       });
+      store.append(id, 'contributor_execution', {
+        ...options.contributorExecution,
+        childSessionId: id,
+      });
       options.ordinaryTurnLifecycle!.beforeDispatch(options.clientMsgId!);
       options.ordinaryTurnLifecycle!.accepted(options.clientMsgId!, 'raw-thread', `turn-${++turn}`);
-      transport.send({
+      const startEvent = {
         type: 'block_start',
         messageId: 'reply',
         blockId: 'text',
         blockType: 'text',
-      });
-      transport.send({
+      } as const;
+      transport.send(startEvent);
+      options.onQueryEvent?.({ ...startEvent, sessionId: id });
+      const deltaEvent = {
         type: 'block_delta',
         messageId: 'reply',
         blockId: 'text',
         blockType: 'text',
         delta: 'Contributor reply',
-      });
+      } as const;
+      transport.send(deltaEvent);
+      options.onQueryEvent?.({ ...deltaEvent, sessionId: id });
       options.ordinaryTurnLifecycle!.terminal(options.clientMsgId!, `turn-${turn}`, 'completed');
       options.onTurnResult?.({});
     }),
@@ -109,13 +117,79 @@ function setup() {
   return { service, store, deps, input, port, output };
 }
 describe('ordinary contributors to registered outputs', () => {
+  it('retains accepted child identity only for a current claim and matching ordinary ownership/account', async () => {
+    const { service, input, port, store, deps } = setup();
+    const normalStart = vi.mocked(port.startChat).getMockImplementation()!;
+    vi.mocked(port.startChat).mockImplementation(async (...args) => {
+      const options = args[3];
+      const execution = options.contributorExecution!;
+      const receipt = {
+        deliveryId: execution.deliveryId,
+        seatId: execution.seatId,
+        claimToken: execution.claimToken,
+        providerThreadId: 'unrelated-child',
+        providerTurnId: 'probe-turn',
+        acceptedAt: Date.now(),
+        retainSeatThread: true,
+      };
+      const accountBinding = deps.currentAccounts().resolve(input.accountId, input.model);
+      store.upsertSession({
+        sessionId: 'unrelated-child',
+        conversationSource: 'mitzo',
+        accountBinding,
+      });
+      expect(store.markSymposiumRecipientAccepted({ ...receipt, claimToken: 'stale-claim' })).toBe(
+        false,
+      );
+      expect(() => store.markSymposiumRecipientAccepted(receipt)).toThrow(
+        'ordinary contributor ownership',
+      );
+      store.upsertSession({
+        sessionId: 'wrong-account',
+        conversationSource: 'mitzo',
+        accountBinding: { ...accountBinding, profileRevision: 'other-revision' },
+      });
+      store.append('wrong-account', 'contributor_execution', {
+        ...execution,
+        childSessionId: 'wrong-account',
+      });
+      expect(() =>
+        store.markSymposiumRecipientAccepted({ ...receipt, providerThreadId: 'wrong-account' }),
+      ).toThrow('ordinary contributor ownership');
+      expect(
+        store.getSymposiumRecipientAttemptByClaimToken(execution.claimToken)?.acceptedAt,
+      ).toBeNull();
+      const db = new Database(deps.databasePath, { readonly: true });
+      expect(db.prepare('SELECT COUNT(*) AS count FROM symposium_seat_threads').get()).toEqual({
+        count: 0,
+      });
+      db.close();
+      await normalStart(...args);
+    });
+    const contributor = await service.add('source', input);
+    const completed = await service.message('source', contributor.id, {
+      requestId: 'valid-owned-turn',
+      text: 'Continue',
+    });
+    expect(completed.delivery.status).toBe('delivered');
+    expect(completed.contributor.sessionId).not.toBe('unrelated-child');
+    expect(completed.contributor.sessionId).not.toBe('wrong-account');
+  });
   it('targets the exact live child turn and reports idle only after terminal and query closure', async () => {
-    const { service, input, port, store } = setup();
+    const { service, input, port, store, deps } = setup();
     const interrupted = vi.fn();
     vi.mocked(port.startChat).mockImplementation(
       async (_transport, _clientId, _prompt, options) => {
         const id = options.initialSessionId!;
-        store.upsertSession({ sessionId: id, conversationSource: 'mitzo' });
+        store.upsertSession({
+          sessionId: id,
+          conversationSource: 'mitzo',
+          accountBinding: deps.currentAccounts().resolve(input.accountId, input.model),
+        });
+        store.append(id, 'contributor_execution', {
+          ...options.contributorExecution,
+          childSessionId: id,
+        });
         await new Promise<void>((resolve) => {
           options.ordinaryTurnLifecycle!.beforeDispatch(options.clientMsgId!);
           options.ordinaryTurnLifecycle!.accepted(options.clientMsgId!, 'raw-thread', 'live-turn');
@@ -152,13 +226,56 @@ describe('ordinary contributors to registered outputs', () => {
       0,
     );
     expect((await completion).delivery.status).toBe('cancelled');
+    expect(stopped.sessionId).toBeTruthy();
+    const retainedChild = stopped.sessionId!;
+    service.close();
+    store.close();
+    const reopenedStore = new EventStore(deps.databasePath);
+    cleanup.push(() => reopenedStore.close());
+    const reloaded = createOutputContributors({ ...deps, store: reopenedStore });
+    cleanup.unshift(() => reloaded.close());
+    vi.mocked(port.startChat).mockImplementation(async (_transport, _client, _prompt, options) => {
+      const child = options.resume ?? options.initialSessionId!;
+      reopenedStore.upsertSession({
+        sessionId: child,
+        conversationSource: 'mitzo',
+        accountBinding: deps.currentAccounts().resolve(input.accountId, input.model),
+      });
+      reopenedStore.append(child, 'contributor_execution', {
+        ...options.contributorExecution,
+        childSessionId: child,
+      });
+      options.ordinaryTurnLifecycle!.beforeDispatch(options.clientMsgId!);
+      options.ordinaryTurnLifecycle!.accepted(options.clientMsgId!, 'raw-thread', 'followup-turn');
+      options.ordinaryTurnLifecycle!.terminal(options.clientMsgId!, 'followup-turn', 'completed');
+      options.onTurnResult?.({});
+    });
+    expect((await reloaded.list('source')).contributors[0].sessionId).toBe(retainedChild);
+    expect(
+      (
+        await reloaded.message('source', contributor.id, {
+          requestId: 'after-stop',
+          text: 'Continue the same conversation',
+        })
+      ).delivery.status,
+    ).toBe('delivered');
+    expect(vi.mocked(port.startChat).mock.calls[1][3].resume).toBe(retainedChild);
+    expect(vi.mocked(port.startChat).mock.calls[1][3].initialSessionId).toBeUndefined();
   });
   it('fences unknown retained execution on reload and rechecks cancelled unsettled cleanup on repeated Stop', async () => {
     const { service, deps, input, port, store } = setup();
     vi.mocked(port.startChat).mockImplementation(
       async (_transport, _clientId, _prompt, options) => {
         const id = options.initialSessionId!;
-        store.upsertSession({ sessionId: id, conversationSource: 'mitzo' });
+        store.upsertSession({
+          sessionId: id,
+          conversationSource: 'mitzo',
+          accountBinding: deps.currentAccounts().resolve(input.accountId, input.model),
+        });
+        store.append(id, 'contributor_execution', {
+          ...options.contributorExecution,
+          childSessionId: id,
+        });
         options.ordinaryTurnLifecycle!.beforeDispatch(options.clientMsgId!);
         options.ordinaryTurnLifecycle!.accepted(
           options.clientMsgId!,
@@ -199,6 +316,12 @@ describe('ordinary contributors to registered outputs', () => {
     ).toBe('stopping');
     expect(reconcile).toHaveBeenCalledTimes(1);
     expect(port.startChat).toHaveBeenCalledTimes(1);
+    await expect(
+      reopened.message('source', contributor.id, {
+        requestId: 'after-unknown-stop',
+        text: 'Continue',
+      }),
+    ).rejects.toThrow('active');
     await expect(
       reopened.message('other', contributor.id, { requestId: 'wrong-owner', text: 'Write' }),
     ).rejects.toThrow('not found');

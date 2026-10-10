@@ -333,7 +333,8 @@ export class OutputContributors {
             additionalGuidance: binding.additionalInstructions,
             accountProfiles: this.deps.currentAccounts(),
           }),
-        recordAccepted: (input) => this.deps.store.markSymposiumRecipientAccepted(input),
+        recordAccepted: (input) =>
+          this.deps.store.markSymposiumRecipientAccepted({ ...input, retainSeatThread: true }),
         recoverCancelled: async () => {
           throw new Error('Retained contributor termination requires reconciliation');
         },

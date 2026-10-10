@@ -6064,6 +6064,8 @@ export class EventStore {
     providerThreadId: string;
     providerTurnId: string;
     acceptedAt: number;
+    /** Trusted ordinary executor only. Native provider thread lifecycle remains unchanged. */
+    retainSeatThread?: boolean;
   }): boolean {
     if (
       !input.providerThreadId.trim() ||
@@ -6095,6 +6097,7 @@ export class EventStore {
           throw new Error('Provider acceptance receipt conflict');
         return true;
       }
+      if (input.retainSeatThread && !this.retainAcceptedOrdinarySeatThread(input)) return false;
       const updated = this.db!.prepare(
         `UPDATE symposium_recipient_attempts
         SET provider_thread_id = ?, provider_turn_id = ?, accepted_at = ?, updated_at = ?
@@ -6110,6 +6113,84 @@ export class EventStore {
       );
       return updated.changes === 1;
     }).immediate();
+  }
+
+  /** Retaining an accepted child identity never releases an uncertain execution fence. */
+  private retainAcceptedOrdinarySeatThread(input: {
+    deliveryId: string;
+    seatId: string;
+    claimToken: string;
+    providerThreadId: string;
+    acceptedAt: number;
+  }): boolean {
+    const claim = this.db!.prepare(
+      `SELECT c.session_id, c.binding_key, c.recipient_idempotency_key, d.config_revision
+      FROM symposium_seat_execution_claims c JOIN symposium_deliveries d ON d.delivery_id=c.delivery_id
+      JOIN symposium_delivery_recipients r ON r.delivery_id=c.delivery_id AND r.seat_id=c.seat_id
+      WHERE c.claim_token=? AND c.delivery_id=? AND c.seat_id=? AND d.status='delivering'
+        AND r.status='executing' AND r.idempotency_key=c.recipient_idempotency_key`,
+    ).get(input.claimToken, input.deliveryId, input.seatId) as
+      | {
+          session_id: string;
+          binding_key: string;
+          recipient_idempotency_key: string;
+          config_revision: number;
+        }
+      | undefined;
+    if (!claim) return false;
+    const attempt = this.getSymposiumRecipientAttemptByClaimToken(input.claimToken);
+    const config = this.getActiveSymposiumConfig(claim.session_id);
+    const seat = config.seats.find((value) => value.id === input.seatId);
+    const membership = this.getLatestSymposiumMembership(claim.session_id, input.seatId);
+    const admission = this.getLatestSymposiumAdmission(
+      claim.session_id,
+      input.seatId,
+      config.revision,
+    );
+    const child = this.getSession(input.providerThreadId);
+    const outputBinding = this.getOutputContributorBinding(claim.session_id);
+    const ownership = this.getLatestEvent(input.providerThreadId, 'contributor_execution')?.payload;
+    if (
+      !outputBinding ||
+      config.version !== 2 ||
+      config.revision !== claim.config_revision ||
+      !seat?.accountBinding ||
+      !attempt?.provenance ||
+      !('version' in attempt.provenance) ||
+      attempt.provenance.version !== 2 ||
+      !matchesSeatProvenance(config, seat, attempt.provenance) ||
+      membership?.state !== 'active' ||
+      membership.reconciliation !== 'confirmed' ||
+      membership.generation !== attempt.provenance.membershipGeneration ||
+      admission?.decision !== 'admitted' ||
+      admission.membershipGeneration !== membership.generation ||
+      admission.accountId !== seat.accountBinding.accountId ||
+      admission.provider !== seat.accountBinding.provider ||
+      admission.model !== seat.accountBinding.model ||
+      admission.accountProfileRevision !== seat.accountBinding.profileRevision ||
+      child?.sessionType !== 'chat' ||
+      !child.accountBinding ||
+      !sameBinding(child.accountBinding, seat.accountBinding) ||
+      input.providerThreadId === claim.session_id ||
+      input.providerThreadId === outputBinding.parentSessionId ||
+      ownership?.childSessionId !== input.providerThreadId ||
+      ownership.coordinatorSessionId !== claim.session_id ||
+      ownership.deliveryId !== input.deliveryId ||
+      ownership.seatId !== input.seatId ||
+      ownership.claimToken !== input.claimToken ||
+      ownership.idempotencyKey !== claim.recipient_idempotency_key
+    )
+      throw new Error('Exact accepted ordinary contributor ownership is required');
+    this.bindSymposiumSeatThread({
+      sessionId: claim.session_id,
+      seatId: input.seatId,
+      bindingKey: claim.binding_key,
+      providerThreadId: input.providerThreadId,
+      configRevision: claim.config_revision,
+      createdAt: input.acceptedAt,
+      updatedAt: input.acceptedAt,
+    });
+    return true;
   }
 
   getSymposiumSeatThread(
