@@ -15,6 +15,10 @@ vi.mock('../prompt-compare.js', () => ({
   capturePromptComparison: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock('../mcp-config.js', () => ({ loadMcpServers: vi.fn(() => ({})) }));
+vi.mock('../auto-rename.js', async (original) => ({
+  ...(await original<object>()),
+  shouldAutoRename: () => false,
+}));
 vi.mock('../hook-bridge.js', async (original) => ({
   ...(await original<object>()),
   loadProjectHooks: vi.fn(),

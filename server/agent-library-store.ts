@@ -1,5 +1,7 @@
 import Database from 'better-sqlite3';
 import { createHash } from 'node:crypto';
+import { mkdirSync } from 'node:fs';
+import { dirname } from 'node:path';
 import { z } from 'zod';
 import type { AgentLibraryCatalog, AgentLibraryDraft } from '@mitzo/protocol';
 import { PortableProfileDefinitionSchema } from './symposium-profile-portability.js';
@@ -50,6 +52,7 @@ export class AgentLibraryStore {
   private readonly db: Database.Database;
   private readonly profiles: SymposiumProfileStore;
   constructor(dbPath: string) {
+    if (dbPath !== ':memory:') mkdirSync(dirname(dbPath), { recursive: true, mode: 0o700 });
     this.db = new Database(dbPath);
     this.db.pragma('journal_mode = WAL');
     this.profiles = new SymposiumProfileStore(dbPath, this.db);

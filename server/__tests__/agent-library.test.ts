@@ -35,6 +35,23 @@ afterEach(() => {
   rmSync(directory, { recursive: true, force: true });
 });
 
+it('bootstraps a fresh storage directory before opening its durable catalog', () => {
+  const fresh = new AgentLibraryStore(join(directory, 'fresh', '.mitzo', 'events.db'));
+  try {
+    expect(fresh.list('user')).toEqual({ drafts: [], versions: [] });
+    expect(
+      fresh.saveDraft('user', {
+        profileId: 'bob',
+        expectedVersion: 0,
+        expectedRevision: 0,
+        idempotencyKey: 'fresh',
+        definition,
+      }).version,
+    ).toBe(1);
+  } finally {
+    fresh.close();
+  }
+});
 it('keeps drafts out of the published catalog and retains them across restart', () => {
   const saved = draft();
   expect(library.list('user')).toEqual({ drafts: [saved], versions: [] });

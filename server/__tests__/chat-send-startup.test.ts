@@ -15,6 +15,10 @@ vi.mock('../prompt-compare.js', () => ({
   capturePromptComparison: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock('../mcp-config.js', () => ({ loadMcpServers: () => ({}) }));
+vi.mock('../auto-rename.js', async (original) => ({
+  ...(await original<object>()),
+  shouldAutoRename: () => false,
+}));
 afterEach(() => {
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
