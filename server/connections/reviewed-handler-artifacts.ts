@@ -35,7 +35,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../agent-library-transport.ts':
     'd2ef44ab93b3e4e74a2464740e0a676fe3b9f9557ecc8544dc4842c0692ec263',
   '../agent-library-store.ts': 'fac60510d3a4b45aa34777daf885142e067538726104c749f4ebe533861472c7',
-  '../agent-library-router.ts': '9fb62f90a0ecee38712d38277d921e0430f81a98990eabc58b95a34616bc0ace',
+  '../agent-library-router.ts': 'ce2036ce5ce0f490fe5c60c52c21a6c7a82938f7f3f77e20064a944de6b2c9c9',
   '../agent-library-runtime.ts': 'cc3be2fc2f61053d4430960a2328d41146463fdca701840a92ab65a89b29922d',
   '../agent-library-prompt.ts': '3be39c6cd2fb12c744c5f53e45b8c8b306398146edfcb2af479d4fa1c9159c28',
   '../symposium-profile-portability.ts':

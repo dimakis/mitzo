@@ -991,7 +991,11 @@ if (custodianControllerClient)
     ),
   );
 receiveCustodianEvents(broadcastDurableSymposiumEvent);
-app.use('/api/agent-library', operatorAuthMiddleware, createAgentLibraryRouter(getAgentLibrary()));
+app.use(
+  '/api/agent-library',
+  operatorAuthMiddleware,
+  createAgentLibraryRouter(getAgentLibrary(), { workspaceRoot: BASE_REPO }),
+);
 const symposiumProfileStore = new SymposiumProfileStore(
   join(BASE_REPO || '.', '.mitzo', 'events.db'),
 );
