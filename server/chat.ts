@@ -1867,7 +1867,9 @@ This is an independent checkout with its own Git storage, not a linked worktree.
           .filter(Boolean)
           .map((root) => join(root, '.git')),
         onBootContext: (context) => {
-          const message: BootContextMessage = { ...context, source: 'sandbox' };
+          // Both sandbox startup and published-knowledge adoption use the pinned
+          // ContexGin compiler. Scope describes the location; source the compiler.
+          const message: BootContextMessage = { ...context, source: 'contexgin' };
           send(transport, { ...message, sessionId: conversationId });
           session.bootContext = message as unknown as Record<string, unknown>;
           eventStore.upsertSession({
