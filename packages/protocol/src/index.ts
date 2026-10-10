@@ -294,3 +294,10 @@ export type {
   SessionOutputCandidate,
   OutputContributorBinding,
 } from './session-output-reference.js';
+export { AgentContextRecipeSchema, type AgentContextRecipe } from './agent-context-recipe.js';
+export {
+  AgentCompiledBootContextSchema,
+  CompiledAgentContextSchema,
+  type CompiledAgentContext,
+} from './agent-context-recipe.js';
+export { AgentContextSnapshotSchema, type AgentContextSnapshot } from './agent-context-recipe.js';

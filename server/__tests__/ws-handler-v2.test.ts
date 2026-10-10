@@ -3665,6 +3665,7 @@ describe('handleInterruptV2 state-based routing', () => {
     });
 
     await vi.waitFor(() => expect(admitStartup).toBeTypeOf('function'));
+    expect(vi.mocked(startChat).mock.calls.at(-1)?.[3].operatorConnectionId).toBe('c1');
     expect(completed).toBe(false);
     admitStartup!();
     await delivery;
