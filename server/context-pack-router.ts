@@ -1,4 +1,5 @@
 import express from 'express';
+import { parseMarkdown } from 'contexgin';
 import { z } from 'zod';
 import {
   ContextPackDefinitionSchema,
@@ -36,26 +37,16 @@ const createBody = z.strictObject({
 });
 const saveBody = createBody.extend({ version: z.number().int().positive() });
 
-/** Selectors follow Markdown heading ancestry; fenced code cannot declare a section. */
+/** Match the exact pinned compiler grammar; portable selectors use heading ancestry. */
 function headingPaths(content: string) {
+  const tree = parseMarkdown(content);
   const paths: string[][] = [];
-  const stack: { level: number; heading: string }[] = [];
-  let fence: string | undefined;
-  for (const line of content.split('\n')) {
-    const marker = /^\s{0,3}(`{3,}|~{3,})/.exec(line)?.[1];
-    if (marker) {
-      if (!fence) fence = marker;
-      else if (marker[0] === fence[0] && marker.length >= fence.length) fence = undefined;
-      continue;
-    }
-    if (fence) continue;
-    const match = /^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$/.exec(line);
-    if (!match) continue;
-    const level = match[1]!.length;
-    while (stack.at(-1) && stack.at(-1)!.level >= level) stack.pop();
-    stack.push({ level, heading: match[2]! });
-    paths.push(stack.map((item) => item.heading));
-  }
+  const visit = (heading: (typeof tree)[number], parents: string[]) => {
+    const path = [...parents, heading.title];
+    paths.push(path);
+    heading.children.forEach((child) => visit(child, path));
+  };
+  tree.forEach((heading) => visit(heading, []));
   return paths;
 }
 export async function validateContextPackSources(
@@ -81,7 +72,11 @@ export async function validateContextPackSources(
       throw new Error('Knowledge document exceeds supported limits');
     const paths = headingPaths(result.content);
     for (const selector of doc.headings) {
-      const matches = paths.filter((path) => JSON.stringify(path) === JSON.stringify(selector));
+      const matches = paths.filter(
+        (path) =>
+          path.length === selector.length &&
+          selector.every((part, index) => part.toLowerCase() === path[index]?.toLowerCase()),
+      );
       if (matches.length !== 1)
         issues.push(
           `${doc.path}: ${selector.join(' / ')} ${matches.length ? 'is ambiguous' : 'was not found'}`,

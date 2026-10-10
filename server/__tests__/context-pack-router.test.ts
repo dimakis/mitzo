@@ -188,3 +188,33 @@ it('blocks publication when compilation fails and retains oversized linked-sourc
   ).toBe(422);
   expect(failing.store.getDraft(f.id).state).toBe('draft');
 });
+it('validates selectors with the pinned compiler heading grammar and case matching', async () => {
+  const { validateContextPackSources } = await import('../context-pack-router.js');
+  const lower = {
+    ...definition,
+    version: 1 as const,
+    documents: [{ ...definition.documents[0], mode: 'required' as const, headings: [['core']] }],
+  };
+  expect(
+    await validateContextPackSources(
+      lower,
+      { read: async () => ({ content: '# Core\n## Child\nEvidence' }) },
+      new AbortController().signal,
+    ),
+  ).toEqual([]);
+  const strict = { ...lower, documents: [{ ...lower.documents[0], headings: [['Core']] }] };
+  expect(
+    await validateContextPackSources(
+      strict,
+      { read: async () => ({ content: '# Core ##\nEvidence' }) },
+      new AbortController().signal,
+    ),
+  ).toHaveLength(1);
+  expect(
+    await validateContextPackSources(
+      lower,
+      { read: async () => ({ content: '# Core\nOne\n# Core\nTwo' }) },
+      new AbortController().signal,
+    ),
+  ).toEqual([expect.stringContaining('ambiguous')]);
+});
