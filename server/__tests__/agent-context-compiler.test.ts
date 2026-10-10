@@ -1,5 +1,6 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { mkdtemp, mkdir, writeFile, rm, symlink } from 'node:fs/promises';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AgentContextRecipe } from '@mitzo/protocol';
@@ -8,6 +9,103 @@ import { compileAgentContext, verifyCompiledAgentContext } from '../agent-contex
 const roots: string[] = [];
 afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
+});
+function compileFileFixture(root: string, beforeOpen = '', afterOpen = '') {
+  const script = `
+    import fs from 'node:fs/promises';
+    import { execFileSync } from 'node:child_process';
+    import { syncBuiltinESMExports } from 'node:module';
+    const root = await fs.realpath(${JSON.stringify(root)});
+    const file = root + '/docs/design.md';
+    const original = fs.open;
+    let bytesRead = 0;
+    fs.open = async (path, flags, mode) => {
+      ${beforeOpen}
+      const handle = await original(path, flags, mode);
+      ${afterOpen}
+      return handle;
+    };
+    syncBuiltinESMExports();
+    const { compileAgentContext } = await import(${JSON.stringify(new URL('../agent-context-compiler.ts', import.meta.url).href)});
+    try {
+      await compileAgentContext(${JSON.stringify(recipe)}, { workspaceRoot: root });
+      console.log(JSON.stringify({ ok: true, bytesRead }));
+    } catch (error) {
+      console.log(JSON.stringify({ error: error.message, bytesRead }));
+    }
+  `;
+  const child = spawnSync(
+    process.execPath,
+    ['--import', 'tsx', '--input-type=module', '-e', script],
+    {
+      encoding: 'utf8',
+      timeout: 3000,
+      killSignal: 'SIGKILL',
+    },
+  );
+  expect(child.error, child.stderr).toBeUndefined();
+  expect(child.status, child.stderr).toBe(0);
+  return JSON.parse(child.stdout.trim()) as { error?: string; ok?: boolean; bytesRead: number };
+}
+it('refuses workspaces missing both canonical instruction files', async () => {
+  const root = await workspace();
+  await rm(join(root, 'AGENTS.md'));
+  await expect(compileAgentContext(recipe, { workspaceRoot: root })).rejects.toThrow(
+    /canonical.*instructions/i,
+  );
+});
+it.each(['AGENTS.md', 'docs/design.md'])(
+  'refuses a FIFO source without awaiting a writer (%s)',
+  async (file) => {
+    const root = await workspace();
+    await rm(join(root, file));
+    execFileSync('mkfifo', [join(root, file)]);
+    expect(compileFileFixture(root).error).toMatch(/regular file/);
+  },
+);
+it('protects against a regular source being replaced by a FIFO before open', async () => {
+  const root = await workspace();
+  const result = compileFileFixture(
+    root,
+    `
+    if (path === file) {
+      await fs.rm(file);
+      execFileSync('mkfifo', [file]);
+    }
+  `,
+  );
+  expect(result.error).toMatch(/regular file/);
+});
+it('bounds bytes read when a source grows after the initial file-size check', async () => {
+  const root = await workspace();
+  const result = compileFileFixture(
+    root,
+    '',
+    `
+    if (path === file) {
+      const stat = handle.stat.bind(handle);
+      handle.stat = async () => {
+        const result = await stat();
+        await fs.writeFile(file, 'x'.repeat(2 * 1024 * 1024));
+        return result;
+      };
+      const read = handle.read.bind(handle);
+      handle.read = async (...args) => {
+        const result = await read(...args);
+        bytesRead += result.bytesRead;
+        return result;
+      };
+      const readFile = handle.readFile.bind(handle);
+      handle.readFile = async (...args) => {
+        const result = await readFile(...args);
+        bytesRead += result.byteLength;
+        return result;
+      };
+    }
+  `,
+  );
+  expect(result.error).toMatch(/too large/);
+  expect(result.bytesRead).toBeLessThanOrEqual(65537);
 });
 const recipe: AgentContextRecipe = {
   version: 1,

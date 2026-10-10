@@ -15,7 +15,7 @@ import { DEFAULT_CONTEXGIN_URL } from './constants.js';
 
 // Pinned dependency plus this preloaded-document compiler contract; never a runtime grant.
 export const AGENT_CONTEXT_COMPILER_REVISION =
-  'mitzo-context-v2:contexgin-683f9007db686e710ed9a5410468fe33df1c5382';
+  'mitzo-context-v3:contexgin-683f9007db686e710ed9a5410468fe33df1c5382';
 export const contextDigest = (value: unknown) =>
   createHash('sha256').update(JSON.stringify(value)).digest('hex');
 type Options = {
@@ -49,8 +49,13 @@ async function document(
     if (info.isSymbolicLink()) throw Error(`Context symlink is unsupported: ${reference}`);
     if (index < reference.split('/').length - 1 && !info.isDirectory())
       throw Error(`Context parent is not a directory: ${reference}`);
+    if (index === reference.split('/').length - 1 && !info.isFile())
+      throw Error(`Context document is not a regular file: ${reference}`);
   }
-  const handle = await open(current, constants.O_RDONLY | constants.O_NOFOLLOW);
+  const handle = await open(
+    current,
+    constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+  );
   try {
     const info = await handle.stat();
     if (!info.isFile()) throw Error(`Context document is not a regular file: ${reference}`);
@@ -62,10 +67,17 @@ async function document(
     const target = await lstat(resolved);
     if (target.dev !== info.dev || target.ino !== info.ino)
       throw Error(`Context document changed during selection: ${reference}`);
-    const bytes = await handle.readFile();
-    if (bytes.byteLength > 65536) throw Error(`Context document is too large: ${reference}`);
+    const bytes = Buffer.alloc(65537);
+    let size = 0;
+    while (size < bytes.length) {
+      signal?.throwIfAborted();
+      const { bytesRead } = await handle.read(bytes, size, bytes.length - size, null);
+      size += bytesRead;
+      if (!bytesRead) break;
+    }
+    if (size > 65536) throw Error(`Context document is too large: ${reference}`);
     signal?.throwIfAborted();
-    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes.subarray(0, size));
   } finally {
     await handle.close();
   }
@@ -103,6 +115,7 @@ async function workspaceContext(
       break;
     }
   }
+  if (!canonical) throw Error('Required canonical workspace instructions are unavailable');
   for (const file of recipe.files) {
     if (file === canonical || (file === 'CLAUDE.md' && canonical === 'AGENTS.md')) continue;
     const content = await document(root, file, options.signal);

@@ -25,7 +25,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../chat.ts': '528aec4f04d2e49f698d68f12c60618a680b4ffb660cb29951642a54d78e65f1',
   '../agent-context-binding.ts': 'ce0f8dba7f97f515be8ee00a441e3cc36344aad44f31e0b2fb33a160f8803e66',
   '../agent-context-compiler.ts':
-    '6921b13f4ed80317d3be4ee5630574058497d900e629121a6c71b9e7fc3a3517',
+    '79fdab301b04325d3fd04c129d7ea5ffab3fca234a919dd9f229227c27bfbe91',
   '../../packages/protocol/src/agent-context-recipe.ts':
     'dbe9dd63fe439a1615ec605870528e350d5c1dbbb87517e4a78082dd4e5a7c83',
   // Library profile identity, operator ownership and admission are reviewed runtime inputs.
