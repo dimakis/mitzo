@@ -285,3 +285,86 @@ func watchStartupErrorMustCorrelateBeforeAcceptance(kind: String) throws {
     #expect(draft.pending == nil)
     #expect(draft.canSubmit)
 }
+
+@Test(arguments: ["unchanged", "newer", "same-text-newer"])
+func watchFirstExactEchoBindsUnassignedStartupWithoutCorrelatedAssignment(edit: String) throws {
+    var draft = WatchSendDraft()
+    let id = "501d3b87-baee-42b5-8e98-6b61e2bbeb4a"
+    draft.edit("New Watch input")
+    _ = draft.begin(sessionId: nil, clientMsgId: id)
+    let assignment = try draft.receive(receipt("""
+    {"type":"session_id","sessionId":"sdk-child"}
+    """))
+    #expect(assignment == nil)
+    #expect(draft.pending?.sessionId == nil)
+    if edit != "unchanged" {
+        draft.edit("Newer input")
+        if edit == "same-text-newer" { draft.edit("New Watch input") }
+    }
+    let echo = try receipt("""
+    {"type":"user_message","sessionId":"sdk-child","messageId":"\(id)","text":"New Watch input"}
+    """)
+    let accepted = draft.receive(echo)
+    #expect(accepted == .accepted(clientMsgId: id))
+    #expect(draft.pending == nil)
+    #expect(draft.text == (edit == "unchanged" ? "" : edit == "newer" ? "Newer input" : "New Watch input"))
+    let duplicate = draft.receive(echo)
+    #expect(duplicate == nil)
+}
+
+@Test(arguments: ["", " \n "])
+func watchUnassignedEchoRequiresNonemptySessionId(session: String) throws {
+    var draft = WatchSendDraft()
+    let id = "501d3b87-baee-42b5-8e98-6b61e2bbeb4a"
+    draft.edit("Pending input")
+    _ = draft.begin(sessionId: nil, clientMsgId: id)
+    let data = try JSONSerialization.data(withJSONObject: [
+        "type": "user_message", "sessionId": session, "messageId": id, "text": "Pending input",
+    ])
+    let observed = try draft.receive(JSONDecoder().decode(ServerMessage.self, from: data))
+    #expect(observed == nil)
+    #expect(draft.pending?.clientMsgId == id)
+    #expect(draft.pending?.sessionId == nil)
+    #expect(draft.text == "Pending input")
+}
+
+@Test func watchUnassignedEchoIgnoresForeignOrMissingCommandAndMissingSession() throws {
+    var draft = WatchSendDraft()
+    let id = "501d3b87-baee-42b5-8e98-6b61e2bbeb4a"
+    draft.edit("Pending input")
+    _ = draft.begin(sessionId: nil, clientMsgId: id)
+    let foreign = try draft.receive(receipt("""
+    {"type":"user_message","sessionId":"foreign","messageId":"f841c8af-fb49-4df9-ae0b-c68f289887cb","text":"Other input"}
+    """))
+    #expect(foreign == nil)
+    #expect(throws: (any Error).self) {
+        try receipt("{\"type\":\"user_message\",\"sessionId\":\"child\",\"text\":\"Missing command\"}")
+    }
+    #expect(throws: (any Error).self) {
+        try receipt("{\"type\":\"user_message\",\"messageId\":\"\(id)\",\"text\":\"Missing session\"}")
+    }
+    #expect(draft.pending?.clientMsgId == id)
+    #expect(draft.pending?.sessionId == nil)
+    #expect(draft.text == "Pending input")
+}
+
+@Test func watchExactEchoCannotOverrideExplicitSessionAssignment() throws {
+    var draft = WatchSendDraft()
+    let id = "501d3b87-baee-42b5-8e98-6b61e2bbeb4a"
+    draft.edit("Assigned input")
+    _ = draft.begin(sessionId: nil, clientMsgId: id)
+    _ = draft.receive(try receipt("""
+    {"type":"session_id","sessionId":"assigned-child","clientMsgId":"\(id)"}
+    """))
+    let foreign = try draft.receive(receipt("""
+    {"type":"user_message","sessionId":"foreign","messageId":"\(id)","text":"Assigned input"}
+    """))
+    #expect(foreign == nil)
+    #expect(draft.pending?.sessionId == "assigned-child")
+    #expect(draft.text == "Assigned input")
+    let accepted = try draft.receive(receipt("""
+    {"type":"user_message","sessionId":"assigned-child","messageId":"\(id)","text":"Assigned input"}
+    """))
+    #expect(accepted == .accepted(clientMsgId: id))
+    #expect(draft.pending == nil)
+}

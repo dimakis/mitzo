@@ -3,6 +3,7 @@
 Compile actual Shared sources and typecheck against the Watch SDK. No app,
 simulator, relay, network, provider, credential or system trust setting is used.
 """
+import os
 import pathlib
 import subprocess
 import tempfile
@@ -34,7 +35,12 @@ with tempfile.TemporaryDirectory(prefix="mitzo-watch-receipts-") as folder:
          "-I", str(module), "-L", str(module), "-lMitzoShared",
          "-Xlinker", "-rpath", "-Xlinker", str(module),
          str(view_model), str(harness), "-o", str(binary)])
-    run([str(binary)])
+    fixture = temp / "watch-startup.json"
+    fixture_env = {**os.environ, "MITZO_WATCH_STARTUP_FIXTURE_OUTPUT": str(fixture)}
+    subprocess.run(["npm", "test", "--", "server/__tests__/watch-new-session-startup.test.ts"],
+                   check=True, cwd=root, env=fixture_env, timeout=120)
+    legacy = root / "server/__tests__/fixtures/watch-startup-legacy-wire.json"
+    run([str(binary), str(fixture), str(legacy)])
 
     sdk = subprocess.check_output(
         ["xcrun", "--sdk", "watchsimulator", "--show-sdk-path"], text=True, timeout=10,

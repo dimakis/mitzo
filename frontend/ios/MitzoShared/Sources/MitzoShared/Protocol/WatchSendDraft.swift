@@ -64,7 +64,11 @@ public struct WatchSendDraft: Sendable {
             submission = submitted
             return .assigned(sessionId: sessionId)
         case .userMessage(let params):
-            guard params.messageId == id, params.sessionId == submitted.params.sessionId else { return nil }
+            // Legacy SDK fan-out can omit the command ID from session_id.
+            // Its exact persisted echo may bind only an otherwise unassigned send.
+            guard params.messageId == id,
+                  !params.sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  submitted.params.sessionId == nil || params.sessionId == submitted.params.sessionId else { return nil }
             return settle(submitted, accepted: true)
         case .nativeCommandResult(let params):
             guard params.hasSessionId, params.clientMsgId == id,

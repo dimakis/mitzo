@@ -105,7 +105,11 @@ final class ChatViewModel: ObservableObject {
         switch receipt {
         case .assigned(let sessionId): resolvedSessionId = sessionId
         case .rejected(let clientMsgId): messages.removeAll { $0.id == clientMsgId }
-        case .accepted: sendError = nil
+        case .accepted:
+            if resolvedSessionId == nil, case .userMessage(let params) = message {
+                resolvedSessionId = params.sessionId
+            }
+            sendError = nil
         case nil: break
         }
         switch message {
