@@ -42,6 +42,7 @@ def main():
     parser.add_argument("--recipe", type=Path, default=Path("/sandbox/compile-mgmt-context.mjs"))
     parser.add_argument("--compiler-commit", required=True)
     parser.add_argument("--fingerprints-only", action="store_true")
+    parser.add_argument("--agent-recipes-root", type=Path)
     args = parser.parse_args()
     if not re.fullmatch(r"[a-f0-9]{40}", args.compiler_commit):
         parser.error("compiler commit must be a full lowercase SHA")
@@ -53,6 +54,18 @@ def main():
         "knowledgeCompilerSha256": fingerprint(args.compiler_root, args.compiler_commit),
         "knowledgeRecipeSha256": hashlib.sha256(args.recipe.read_bytes()).hexdigest(),
     }
+    agent_recipes = {}
+    if not args.fingerprints_only or args.agent_recipes_root is not None:
+        root = args.agent_recipes_root or Path("/usr/libexec/mitzo")
+        if root.is_symlink() or not root.is_dir():
+            parser.error("agent compiler root must be physical")
+        for name, filename in {"entrypoint": "compile-agent-context.mjs",
+                               "workspace": "agent-workspace-context.mjs"}.items():
+            path = root / filename
+            if path.is_symlink() or not path.is_file():
+                parser.error("agent compiler must be a physical regular file")
+            agent_recipes[name] = hashlib.sha256(path.read_bytes()).hexdigest()
+        result["agentContextCompilerSha256"] = hashlib.sha256(canonical(agent_recipes)).hexdigest()
     if not args.fingerprints_only:
         if platform.system() != "Linux":
             parser.error("target attestation must run inside the Linux runtime image")
@@ -65,6 +78,8 @@ def main():
                             "apiLauncher": "/sandbox/run-mitzo-app-server",
                             "subscriptionLauncher": "/sandbox/run-mitzo-subscription-app-server",
                         }.items()}
+        recipe_files["agentCompiler"] = agent_recipes["entrypoint"]
+        recipe_files["agentWorkspaceCompiler"] = agent_recipes["workspace"]
         result["knowledgeRecipeSha256"] = hashlib.sha256(canonical(recipe_files)).hexdigest()
         inputs = {name: hashlib.sha256(Path(path).read_bytes()).hexdigest() for name, path in {
             "mgmt/pyproject.toml": "/opt/mgmt-deps/pyproject.toml",

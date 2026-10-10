@@ -49,14 +49,49 @@ For local chats, compilation completes before provider dispatch. The conversatio
 
 Cold resumes verify and reuse the saved compiled payload even if source documents changed. To use changed sources, start a new chat. A changed recipe, damaged receipt, different workspace path or incompatible compiler revision fails explicitly. Compilation does not automatically publish shared knowledge or record consumer adoption. Portable profiles contain recipe references, never conversation-owned compiled bodies.
 
-This increment supports local chats through their existing common prompt assembly. OpenShell profile startup with `contextRecipe` fails before provider preflight because its protected sandbox compiler requires separate integration. Symposium continues to use its existing explicit context sharing and grants. Leave `contextRecipe` unset for these uses; profile behavior and the advisory reviewer recipe remain reusable.
+## OpenShell sandbox recipes
+
+Ordinary managed OpenShell API and brokered Codex chats compile workspace recipes inside the owning sandbox through `/usr/libexec/mitzo/compile-agent-context.mjs`. Relative references resolve in that conversation's writable task workspace, not the host preview workspace or another sandbox. The protected entrypoint uses the same bounded preloaded-document implementation as local chats, the pinned ContexGin library, and a cleared Node environment. It performs no service fetch, default discovery or runtime grant.
+
+Admission verifies physical sandbox identity, owning conversation/account, Ready state, and the installed compiler/recipe/runtime-input attestations before and after compilation. The image must contain the reviewed agent compiler and its exact ContexGin pin. Older images or missing compatibility pins fail explicitly; removing a rejection does not enroll an incompatible runtime. Unmanaged static sandboxes and isolated native personal/adviser runtimes are not enrolled by this change.
+
+A sandbox snapshot additionally binds the physical sandbox, task root, configured runtime image contract, installed dependency/compiler entrypoint/recipe/runtime-input hashes and effective workspace recipe hash. Cold resume verifies those identities and reuses saved bytes without reading changed source files. A changed preset, compiler or physical sandbox fails rather than silently rebinding the immutable snapshot, including after retained-runtime migration. Use a new conversation when that compatibility cannot be maintained. Existing task roots, history, branches and checkpoints remain preserved.
+
+The recipe is delivered at each safe turn through application context, separate from persistent thread developer instructions. Fresh accepted shared knowledge follows the saved recipe and explicitly supersedes older accepted knowledge copied into task documents. No task root is pulled or reset to refresh knowledge. A new receipt in the private Codex command ledger records exact profile/snapshot/payload/context and sandbox/runtime identities only after the matching native command attempt, thread, turn and generation are acknowledged. Preparation alone creates no adoption receipt.
+
+### Named sandbox presets
+
+`MITZO_OPENSHELL_AGENT_CONTEXT_PRESETS` is host-owned JSON mapping existing preset names to portable workspace recipes. It is bounded to 64 KiB and 100 entries; unknown fields, URLs, paths outside the task root and grants are rejected. For example:
+
+```json
+{
+  "architect": {
+    "version": 1,
+    "source": "workspace",
+    "files": ["docs/architecture.md"],
+    "tokenBudget": 4000,
+    "required": [["docs/architecture.md", "Architecture", "Constraints"]],
+    "excluded": []
+  }
+}
+```
+
+A portable `{ "source": "contexgin", "agentName": "architect", "version": 1 }` selects this configured sandbox mapping when used in OpenShell. It never copies a host service's compiled body into the sandbox or authorizes a caller-selected service. Local chats and the Library sample preview continue to use the host's ContexGin preset service. Their sources may differ from a configured sandbox mapping; the preview says so. An unavailable sandbox preset fails without fallback.
+
+### Complete application-context delivery
+
+The pinned Codex 0.160.0 provider truncates each additional-context value at 1,000 tokens. Mitzo divides long application context into ordered fragments of at most 800 UTF-8 bytes, preserving code points and all payload bytes. Keys contain a hash of the complete selection and a padded part index: changing any source selection changes every key, so the provider emits the complete changed generation rather than retaining only changed chunks. Total application text is bounded to 1 MiB. User input, provider thread identity and untrusted tool-surface rollover retain their existing paths.
+
+The source contract is verified against OpenAI's exact `79b1b666f2e8551f8abbbca34957227f67f3f553` [fragment implementation](https://github.com/openai/codex/blob/79b1b666f2e8551f8abbbca34957227f67f3f553/codex-rs/context-fragments/src/additional_context.rs) and [ordered context store](https://github.com/openai/codex/blob/79b1b666f2e8551f8abbbca34957227f67f3f553/codex-rs/core/src/state/additional_context.rs). Offline tests assert complete Unicode reassembly, a fact in the middle, required final rules, complete generation replacement, and unchanged user input. This proves transport construction and acknowledged identity, not live model recall.
+
+Symposium continues to use its explicit context sharing and grants. Leave `contextRecipe` unset for seats until that separate integration is implemented; identity, behavioral guidance and the advisory reviewer recipe remain reusable.
 
 ## Agent advisor
 
-**Create with advisor** opens a normal chat with a prepared brief asking about the agent’s job, success criteria, name, descriptor, behavior, and optional local-chat context sources. The brief distinguishes advisory reviewer recipes from compiled recipes and asks for confirmed document references or configured preset names. It uses the existing `SymposiumProposeProfile` tool when available. Proposals appear in the existing chat draft controls for explicit user review and save. That tool can propose guidance, but cannot publish a profile or issue runtime grants. Runtimes without the tool can return portable profile JSON for manual review/import; the UI does not simulate a successful proposal.
+**Create with advisor** opens a normal chat with a prepared brief asking about the agent’s job, success criteria, name, descriptor, behavior, and optional local or supported sandbox context sources. The brief distinguishes advisory reviewer recipes from compiled recipes and asks for confirmed document references or configured preset names. It uses the existing `SymposiumProposeProfile` tool when available. Proposals appear in the existing chat draft controls for explicit user review and save. That tool can propose guidance, but cannot publish a profile or issue runtime grants. Runtimes without the tool can return portable profile JSON for manual review/import; the UI does not simulate a successful proposal.
 
 ## Validation and rollout
 
 Unit tests cover owner separation, draft/publication conflicts, retries and restart, immutable historical identities, import integrity, private identity fields, exact chat admission, provider compatibility, logout during retained-owner lookup, and reviewer handoff without activation. Mocked startup tests check prompt injection, immutable context persistence, cold resume without recompilation, failure before dispatch, and operator revocation during compilation. Compiler tests cover heading selection, required budgets, source confinement, bounded preset responses, cancellation and receipt verification. Offline browser tests serve the compiled app through request interception with synthetic catalogs, without any running Mitzo service or model calls.
 
-This change does not deploy to staging or production. Live validation must follow the canonical staging procedure and the supported Luna/account declaration rules. OpenShell and Symposium compilation, centralized tool grants, and automated catalog selection by task templates require follow-up integration.
+This change does not deploy to staging or production. Live validation must follow the canonical staging procedure and the supported Luna/account declaration rules. Live compatible-runtime enrollment, Symposium compilation, centralized tool grants, and automated catalog selection by task templates remain separate acceptance/integration work.
