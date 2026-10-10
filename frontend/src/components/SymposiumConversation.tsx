@@ -706,7 +706,7 @@ export function SymposiumConversation({
       {!statusFresh && (
         <p role="status">
           Delivery status could not be refreshed. New approvals and sending are paused; Stop remains
-          available in the recipient agent stream.
+          available for active deliveries.
         </p>
       )}
       {sessionId && <SymposiumAccessRequests sessionId={sessionId} />}
