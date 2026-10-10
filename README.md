@@ -350,7 +350,7 @@ reports the missing capability rather than falling back to ordinary chat. Mocked
 integration coverage establishes the workflow boundaries, not live production
 readiness. Reviewer and Claude admission require independent host attestation
 and live acceptance; environment settings alone do not enable them. See the
-[integration gaps](docs/features/symposium.md#review-records-and-publication-boundary).
+[integration gaps](docs/archive/symposium/2026-09-symposium.md#review-records-and-publication-boundary).
 
 A dormant Symposium publication executor now composes the existing forced-approval
 capability service with the saved review record, exact committed tree, current
@@ -898,7 +898,7 @@ Shared artifacts use the reviewed native working directory; see [canonical artif
 
 - [Owned Symposium evidence candidate collection](docs/features/symposium-owned-evidence.md)
 
-Native Symposium Codex turns use [validated cumulative token usage](docs/features/symposium.md#durable-delivery-attribution-and-recovery), keeping terminal accounting unknown because completion carries no final usage proof, including when cumulative updates arrive late. This does not enable budgeted review admission or claim a hard provider spending cap.
+Native Symposium Codex turns use [validated cumulative token usage](docs/archive/symposium/2026-09-symposium.md#durable-delivery-attribution-and-recovery), keeping terminal accounting unknown because completion carries no final usage proof, including when cumulative updates arrive late. This does not enable budgeted review admission or claim a hard provider spending cap.
 
 Discovery preflight rejection can undo an exact undispatched local journal under
 its retained lock; dispatched or replaced evidence still requires reconciliation.
@@ -936,12 +936,12 @@ A final seat or custody rejection from the retained workspace fence may undo loc
 Native model-discovery failures retain [private staged diagnostics](docs/features/symposium-discovery-diagnostics.md) without changing conservative cleanup or recovery gates.
 
 Symposium director controls support explicit primary routing transfer to an admitted seat
-without changing its permissions; original-writer cleanup and replacement still require live acceptance. See [Symposium lifecycle](docs/features/symposium.md#durable-delivery-attribution-and-recovery).
+without changing its permissions; original-writer cleanup and replacement still require live acceptance. See [Symposium lifecycle](docs/archive/symposium/2026-09-symposium.md#durable-delivery-attribution-and-recovery).
 
 Personal Connections offers explicit model-discovery cleanup only when the same
 running host retains an exact, known-sandbox recovery capability. Successful cleanup
 requires fresh sign-in and explicit seat rebind; unknown creation and legacy or
-restarted quarantine remain blocked. See [discovery recovery](docs/features/symposium.md#model-discovery-recovery).
+restarted quarantine remain blocked. See [discovery recovery](docs/archive/symposium/2026-09-symposium.md#model-discovery-recovery).
 
 A dormant [pending artifact seal fence](docs/operations/symposium-artifact-seal.md) denies
 new Symposium seat work while trusted-host sealing is pending. The pending fence alone
