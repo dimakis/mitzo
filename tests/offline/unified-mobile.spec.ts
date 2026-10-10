@@ -1438,11 +1438,11 @@ async function exerciseBriefingReloadRecovery(
   await page.addInitScript(() => {
     localStorage.removeItem('mitzo:transport');
     localStorage.removeItem('mitzo-workspace-controls-expanded');
+    // Recreating either receiver cannot depend on the previous window's sessionStorage.
+    sessionStorage.clear();
   });
   if (nativeMode)
     await page.addInitScript(() => {
-      // A fresh native web view cannot depend on the previous sessionStorage outbox.
-      sessionStorage.clear();
       // Only platform presentation APIs are stubbed; chat uses the actual native-default selector.
       const names = [
         'App',
@@ -1545,7 +1545,7 @@ async function exerciseBriefingReloadRecovery(
       return route.fulfill({ contentType: 'text/event-stream', body: 'retry: 60000\n\n' });
     if (url.pathname === '/api/chat/send' && method === 'POST') {
       const command = route.request().postDataJSON();
-      if (nativeMode) expect(route.request().headers()['x-connection-id']).toBeUndefined();
+      expect(route.request().headers()['x-connection-id']).toBeUndefined();
       sends.push(command);
       turns.add(command.clientMsgId);
       if (sends.length === 1) {
