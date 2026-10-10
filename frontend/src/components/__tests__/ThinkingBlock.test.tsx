@@ -111,3 +111,17 @@ it('gives longer summaries enough reading time and respects manual expansion', (
   });
   expect(screen.getByText(content)).toBeTruthy();
 });
+
+it('lets the activity group own collapse timing while waiting for a reply', () => {
+  vi.useFakeTimers();
+  render(
+    <ThinkingBlock
+      block={{ blockId: 'b1', blockType: 'thinking', content: 'Still waiting for the reply' }}
+      autoCollapse={false}
+    />,
+  );
+  act(() => {
+    vi.advanceTimersByTime(120_000);
+  });
+  expect(screen.getByText('Still waiting for the reply')).toBeTruthy();
+});
