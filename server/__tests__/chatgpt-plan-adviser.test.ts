@@ -5,6 +5,7 @@ afterEach(() => vi.unstubAllGlobals());
 function fixture() {
   let state: PlanAdviserState = { hostId: 'urn:uuid:test-host', accounts: [] };
   let now = Date.now();
+  let owned = true;
   const save = vi.fn((next: PlanAdviserState) => {
     state = structuredClone(next);
   });
@@ -39,7 +40,13 @@ function fixture() {
     throw Error('Unexpected network request ' + String(url) + String(init?.method));
   });
   const service = new ChatGptPlanAdviserAccounts({
-    store: { load: () => structuredClone(state), save },
+    store: {
+      load: () => structuredClone(state),
+      save,
+      assertCurrent: () => {
+        if (!owned) throw Error('private ownership detail');
+      },
+    },
     fetch: fetcher,
     verifyIdToken: verify,
     now: () => now,
@@ -61,6 +68,9 @@ function fixture() {
     begin,
     callback,
     state: () => state,
+    loseOwner: () => {
+      owned = false;
+    },
     advance: () => {
       now += 3600000;
     },
@@ -285,4 +295,15 @@ it('does not let a superseded refresh invalidate a newly verified sign-in', asyn
   expect(f.service.list()[0].state).toBe('connected');
   const current = await f.service.ready(account.id, 'gpt-6-luna', 'low', signal);
   expect(current.accessToken()).toBe('synthetic-plan-access');
+});
+
+it('invalidates an already acquired grant if credential storage ownership is lost', async () => {
+  const f = fixture(),
+    signal = new AbortController().signal;
+  const account = await f.service.complete('operator', f.callback(f.begin()), signal);
+  const grant = await f.service.ready(account.id, 'gpt-6-luna', 'low', signal);
+  f.loseOwner();
+  expect(() => grant.accessToken()).toThrow();
+  expect(grant.signal.aborted).toBe(true);
+  await expect(f.service.ready(account.id, 'gpt-6-luna', 'low', signal)).rejects.toThrow();
 });

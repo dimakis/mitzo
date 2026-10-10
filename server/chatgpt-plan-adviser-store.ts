@@ -84,6 +84,9 @@ export class FilePlanAdviserStore implements PlanAdviserStore {
     )
       throw Error('Adviser storage ownership changed');
   }
+  assertCurrent() {
+    this.check();
+  }
   load(): PlanAdviserState {
     this.check();
     let fd: number;

@@ -54,6 +54,7 @@ type Account = PlanAdviserState['accounts'][number];
 export interface PlanAdviserStore {
   load(): PlanAdviserState;
   save(state: PlanAdviserState): void;
+  assertCurrent?(): void;
 }
 type VerifyIdentity = (
   token: string,
@@ -182,10 +183,23 @@ export class ChatGptPlanAdviserAccounts {
       throw Error('Adviser credential persistence could not be confirmed');
     }
   }
+  private assertOwnership() {
+    if (this.closed) throw Error('Adviser accounts are closed');
+    try {
+      this.options.store.assertCurrent?.();
+    } catch {
+      this.closed = true;
+      this.generation++;
+      for (const controller of this.controllers.values()) controller.abort();
+      throw Error('Adviser credential storage ownership changed');
+    }
+  }
   list() {
+    this.assertOwnership();
     return this.state.accounts.map(({ id, label, email, state }) => ({ id, label, email, state }));
   }
   catalog() {
+    this.assertOwnership();
     return this.state.accounts
       .filter((account) => account.state === 'connected')
       .map(({ id, label, models }) => ({
@@ -199,7 +213,7 @@ export class ChatGptPlanAdviserAccounts {
     return id.startsWith('chatgpt_plan_');
   }
   begin(owner: string, redirect: string, label: string, accountId?: string) {
-    if (this.closed) throw Error('Adviser accounts are closed');
+    this.assertOwnership();
     const uri = new URL(redirect);
     if (
       uri.protocol !== 'http:' ||
@@ -265,6 +279,7 @@ export class ChatGptPlanAdviserAccounts {
     this.exchangingOwner = owner;
     const generation = this.generation;
     const assertCurrent = () => {
+      this.assertOwnership();
       signal.throwIfAborted();
       if (this.closed || generation !== this.generation)
         throw Error('Adviser sign-in was cancelled');
@@ -445,7 +460,7 @@ export class ChatGptPlanAdviserAccounts {
     }
   }
   async ready(id: string, model: string, effort: string | null | undefined, signal: AbortSignal) {
-    if (this.closed) throw Error('Adviser accounts are closed');
+    this.assertOwnership();
     signal.throwIfAborted();
     let account = this.state.accounts.find((row) => row.id === id);
     if (!account || account.state !== 'connected')
@@ -481,6 +496,7 @@ export class ChatGptPlanAdviserAccounts {
     validate();
     const selected = account;
     const assertCurrent = () => {
+      this.assertOwnership();
       signal.throwIfAborted();
       if (
         controller!.signal.aborted ||
