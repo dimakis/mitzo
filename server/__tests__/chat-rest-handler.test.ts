@@ -558,6 +558,7 @@ describe('chat-rest-handler', () => {
         sessionId: 'child',
         control,
         error: 'Use contributor Stop',
+        ...('clientMsgId' in body ? { clientMsgId: body.clientMsgId } : {}),
       });
     },
   );

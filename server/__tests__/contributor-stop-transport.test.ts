@@ -7,10 +7,13 @@ import { EventStore } from '../event-store.js';
 import { SessionSseRegistry } from '../session-sse-registry.js';
 import { createChatRestRouter } from '../chat-rest-handler.js';
 import { dispatchV2Message, type V2HandlerContext } from '../ws-handler-v2.js';
-import { stopChat } from '../chat.js';
+import { stopChat, startChat, closeSessionByUser } from '../chat.js';
+import type { NativeCommandContext } from '../native-commands.js';
 
 vi.mock('../chat.js', () => ({
-  startChat: vi.fn(),
+  startChat: vi.fn(async (_transport, _client, _prompt, options) =>
+    options?.onStartupAdmission?.(),
+  ),
   sendToChat: vi.fn(),
   interruptChat: vi.fn(),
   preflightChatCommand: vi.fn(),
@@ -18,14 +21,14 @@ vi.mock('../chat.js', () => ({
   nativeStartupSessionId: vi.fn(),
   stopChat: vi.fn(),
   closeSessionByUser: vi.fn(),
-  isActive: vi.fn(),
+  isActive: vi.fn(() => true),
   reattachChat: vi.fn(),
   BASE_REPO: '/offline',
 }));
 vi.mock('../app.js', () => ({
-  buildSkillRegistry: vi.fn(),
+  buildSkillRegistry: vi.fn(() => ({ get: () => undefined })),
   isAllowedPath: vi.fn(),
-  NATIVE_COMMAND_NAMES: new Set(),
+  NATIVE_COMMAND_NAMES: new Set(['skills', 'deliberate']),
 }));
 
 const cleanup: (() => void)[] = [];
@@ -53,12 +56,27 @@ function fixture(live = true) {
   const connRegistry = new ConnectionRegistry();
   connRegistry.register('viewer', transport);
   connRegistry.watch('viewer', 'child');
+  connRegistry.setActive('viewer', 'parent');
   const sessionRegistry = {
     findBySessionId: vi.fn((id: string) =>
-      live ? { clientId: `driver:${id}`, session: {} } : null,
+      live ? { clientId: `driver:${id}`, session: { ownerConnectionId: 'viewer' } } : null,
+    ),
+    isAttached: vi.fn(() => true),
+  };
+  const nativeCommands = {
+    execute: vi.fn(
+      async (name: string, _args: string, _registry: unknown, context: NativeCommandContext) => {
+        context.deliberation?.onAdmitted();
+        return { command: name, content: 'Offline native command' };
+      },
     ),
   };
-  const ctx = { eventStore: store, connRegistry, sessionRegistry } as unknown as V2HandlerContext;
+  const ctx = {
+    eventStore: store,
+    connRegistry,
+    sessionRegistry,
+    nativeCommands,
+  } as unknown as V2HandlerContext;
   const sse = new SessionSseRegistry();
   sse.add(
     'viewer',
@@ -73,9 +91,9 @@ function fixture(live = true) {
     next();
   });
   app.use('/api/chat', createChatRestRouter(sse, ctx));
-  const post = (body: object) =>
-    request(app).post('/api/chat/stop').set('x-connection-id', 'viewer').send(body);
-  return { store, unsettled, transport, connRegistry, sessionRegistry, ctx, post };
+  const post = (body: object, path = '/stop') =>
+    request(app).post(`/api/chat${path}`).set('x-connection-id', 'viewer').send(body);
+  return { store, unsettled, transport, connRegistry, sessionRegistry, nativeCommands, ctx, post };
 }
 
 it.each([true, false])(
@@ -126,4 +144,144 @@ it('preserves ordinary Stop and allows child Stop after exact cleanup is confirm
   const response = await post({ type: 'stop', sessionId: 'child' });
   expect(response.status).toBe(200);
   expect(stopChat).toHaveBeenCalledWith('driver:child');
+});
+
+it.each(
+  [
+    { action: 'native send', type: 'send', prompt: '/deliberate improve the draft', path: '/send' },
+    { action: 'zombie send', type: 'send', prompt: 'ordinary prompt', path: '/send' },
+    {
+      action: 'zombie interrupt',
+      type: 'interrupt',
+      prompt: 'ordinary prompt',
+      path: '/interrupt',
+    },
+  ].flatMap((input) => ['ws', 'rest'].map((protocol) => ({ ...input, protocol }))),
+)(
+  'fences $action through $protocol before command admission, subscriptions or query close',
+  async ({ action, type, prompt, path, protocol }) => {
+    const { store, nativeCommands, transport, connRegistry, ctx, post } = fixture();
+    store.setSessionState('child', 'ENDED', { force: true, reason: 'offline zombie fixture' });
+    const events = store.getSessionEvents('child');
+    const claim = vi.spyOn(store, 'claimClientCommand');
+    const message = {
+      type,
+      sessionId: 'child',
+      prompt,
+      clientMsgId: `${protocol}-${action}`,
+      mode: 'agent',
+    };
+    if (protocol === 'ws') {
+      await dispatchV2Message('viewer', transport, JSON.stringify(message), ctx);
+      expect(transport.send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'session_control_rejected',
+          sessionId: 'child',
+          control: type,
+          code: 'CONTRIBUTOR_DIRECTED_MESSAGE_REQUIRED',
+          error: expect.stringMatching(/contributor directed messages/),
+        }),
+      );
+    } else {
+      const response = await post(
+        { ...message, contributorExecution: { claimToken: 'claim' } },
+        path,
+      );
+      expect(response.status).toBe(409);
+      expect(response.body.error).toMatch(/contributor directed messages/);
+      expect(response.body).toMatchObject({
+        type: 'session_control_rejected',
+        sessionId: 'child',
+        control: type,
+        code: 'CONTRIBUTOR_DIRECTED_MESSAGE_REQUIRED',
+        clientMsgId: message.clientMsgId,
+      });
+    }
+    expect(transport.send.mock.calls.some(([event]) => event.type === 'error')).toBe(false);
+    expect(claim).not.toHaveBeenCalled();
+    expect(store.getSendCommand(message.clientMsgId)).toBeUndefined();
+    expect(nativeCommands.execute).not.toHaveBeenCalled();
+    expect(startChat).not.toHaveBeenCalled();
+    expect(stopChat).not.toHaveBeenCalled();
+    expect(store.getSessionEvents('child')).toEqual(events);
+    expect(connRegistry.get('viewer')?.activeSession).toBe('parent');
+    expect([...connRegistry.get('viewer')!.watchedSessions]).toEqual(['child', 'parent']);
+  },
+);
+
+it.each(['ws', 'rest'])(
+  'rejects public child Close through %s before user closeout',
+  async (protocol) => {
+    const { store, transport, connRegistry, ctx, post } = fixture();
+    const events = store.getSessionEvents('child');
+    const message = { type: 'session_close', sessionId: 'child' };
+    if (protocol === 'ws') {
+      await dispatchV2Message('viewer', transport, JSON.stringify(message), ctx);
+      expect(transport.send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'session_close_ack',
+          accepted: false,
+          reason: expect.stringMatching(/contributor/),
+        }),
+      );
+    } else {
+      const response = await post(message, '/close');
+      expect(response.status).toBe(409);
+      expect(response.body.error).toMatch(/contributor/);
+    }
+    if (protocol === 'ws')
+      expect(transport.send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'session_control_rejected',
+          sessionId: 'child',
+          control: 'close',
+          code: 'CONTRIBUTOR_STOP_REQUIRED',
+        }),
+      );
+    expect(transport.send.mock.calls.some(([event]) => event.type === 'error')).toBe(false);
+    expect(closeSessionByUser).not.toHaveBeenCalled();
+    expect(stopChat).not.toHaveBeenCalled();
+    expect(store.getSessionEvents('child')).toEqual(events);
+    expect(connRegistry.get('viewer')?.activeSession).toBe('parent');
+    expect([...connRegistry.get('viewer')!.watchedSessions]).toEqual(['child', 'parent']);
+  },
+);
+
+it('allows ordinary native sends and settled-child Close', async () => {
+  const { unsettled, nativeCommands, transport, ctx } = fixture();
+  await dispatchV2Message(
+    'viewer',
+    transport,
+    JSON.stringify({
+      type: 'send',
+      sessionId: 'ordinary',
+      prompt: '/skills',
+      clientMsgId: 'ordinary-native',
+      mode: 'agent',
+    }),
+    ctx,
+  );
+  expect(nativeCommands.execute).toHaveBeenCalledOnce();
+  unsettled.mockReturnValue([]);
+  nativeCommands.execute.mockClear();
+  await dispatchV2Message(
+    'viewer',
+    transport,
+    JSON.stringify({
+      type: 'send',
+      sessionId: 'child',
+      prompt: '/skills',
+      clientMsgId: 'settled-native',
+      mode: 'agent',
+    }),
+    ctx,
+  );
+  expect(nativeCommands.execute).toHaveBeenCalledOnce();
+  await dispatchV2Message(
+    'viewer',
+    transport,
+    JSON.stringify({ type: 'session_close', sessionId: 'child' }),
+    ctx,
+  );
+  expect(closeSessionByUser).toHaveBeenCalledWith('driver:child');
 });

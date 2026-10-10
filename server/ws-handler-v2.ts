@@ -1800,6 +1800,7 @@ export function handleSessionClose(
     'ws.session_close',
     { 'ws.connectionId': connectionId, 'ws.sessionId': msg.sessionId },
     () => {
+      assertOrdinaryContributorControlAllowed(ctx.eventStore, msg.sessionId, 'close');
       const found = ctx.sessionRegistry.findBySessionId(msg.sessionId);
       const conn = ctx.connRegistry.get(connectionId);
 
@@ -1942,7 +1943,17 @@ export async function dispatchV2Message(
     }
   } catch (error) {
     if (!(error instanceof SessionControlRejected)) throw error;
-    transport.send(error.toMessage());
+    transport.send({
+      ...error.toMessage(),
+      ...('clientMsgId' in msg ? { clientMsgId: msg.clientMsgId } : {}),
+    });
+    if (msg.type === 'session_close')
+      transport.send({
+        type: 'session_close_ack',
+        sessionId: msg.sessionId,
+        accepted: false,
+        reason: error.message,
+      });
   }
 }
 

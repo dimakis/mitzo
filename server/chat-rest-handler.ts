@@ -303,7 +303,7 @@ export function createChatRestRouter(
       log.error('POST /chat/send failed', { connectionId, error: String(err) });
       if (err instanceof SessionControlRejected) {
         new SseTransport(connectionId, sseRegistry).send(err.toMessage());
-        res.status(409).json({ ok: false, ...err.toMessage() });
+        res.status(409).json({ ok: false, ...err.toMessage(), clientMsgId: msg.clientMsgId });
         return;
       }
       if (err instanceof ExecutionAdmissionError) {
@@ -358,7 +358,7 @@ export function createChatRestRouter(
       log.error('POST /chat/interrupt failed', { connectionId, error: String(err) });
       if (err instanceof SessionControlRejected) {
         new SseTransport(connectionId, sseRegistry).send(err.toMessage());
-        res.status(409).json({ ok: false, ...err.toMessage() });
+        res.status(409).json({ ok: false, ...err.toMessage(), clientMsgId: msg.clientMsgId });
         return;
       }
       if (err instanceof ExecutionAdmissionError) {

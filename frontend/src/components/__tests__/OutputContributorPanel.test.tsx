@@ -274,6 +274,76 @@ it('retains a directed draft when send fails and targets Stop to the same contri
   fireEvent.click(screen.getByRole('button', { name: 'Stop Joe' }));
   await waitFor(() => expect(value.onStop).toHaveBeenCalledWith('joe'));
 });
+it('preserves a failed-send draft and history while waiting for authoritative idle before another follow-up', async () => {
+  const contributor = {
+    id: 'joe',
+    label: 'Joe',
+    accountLabel: 'Personal ChatGPT',
+    model: 'luna-fixture',
+    sessionId: 'child-chat',
+    status: 'idle' as const,
+    outputId: output.outputId,
+    outputRevision: 1,
+    messages: [
+      {
+        messageId: 'previous-reply',
+        role: 'assistant' as const,
+        startedSeq: 8,
+        blocks: [
+          {
+            blockId: 'previous-text',
+            blockType: 'text' as const,
+            content: 'Earlier attributed contribution',
+          },
+        ],
+      },
+    ],
+  };
+  const onSend = vi.fn(async () => {});
+  onSend.mockRejectedValueOnce(
+    Error(
+      'Contributor execution failed. Your draft is preserved. Check its conversation and current account before retrying.',
+    ),
+  );
+  const value = props({
+    outputs: [output],
+    selected: { output, content: 'Pinned draft', contextPackageDigest: 'b'.repeat(64) },
+    contributors: [contributor],
+    onSend,
+  });
+  const view = mount(value);
+  fireEvent.change(screen.getByLabelText('Message to Joe'), {
+    target: { value: 'Preserved next-turn draft' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Send to Joe' }));
+  await screen.findByRole('alert');
+  for (const status of ['unavailable', 'idle'] as const) {
+    view.rerender(
+      <MemoryRouter>
+        <OutputContributorPanel {...value} contributors={[{ ...contributor, status }]} />
+      </MemoryRouter>,
+    );
+    expect(screen.getByLabelText('Message to Joe')).toHaveProperty(
+      'value',
+      'Preserved next-turn draft',
+    );
+    expect(screen.getByRole('alert').textContent).toContain('Contributor execution failed');
+    expect(screen.getByText('Earlier attributed contribution')).toBeTruthy();
+    expect(screen.getByText(`Personal ChatGPT · luna-fixture · ${status}`)).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Send to Joe' }).hasAttribute('disabled')).toBe(
+      status === 'unavailable',
+    );
+  }
+  fireEvent.change(screen.getByLabelText('Message to Joe'), {
+    target: { value: 'A fresh follow-up after confirmed cleanup' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Send to Joe' }));
+  await waitFor(() =>
+    expect(onSend).toHaveBeenLastCalledWith('joe', 'A fresh follow-up after confirmed cleanup'),
+  );
+  expect(onSend).toHaveBeenCalledTimes(2);
+  expect(screen.getByText('Earlier attributed contribution')).toBeTruthy();
+});
 it('keeps Stop available after access fails without allowing another send', async () => {
   const value = props({
     outputs: [output],

@@ -315,7 +315,7 @@ export function useOutputContributors(
         current.selected.output.revision !== contributor.outputRevision
       )
         throw Error('This contributor is unavailable for the selected draft.');
-      await mutate(
+      const body = await mutate(
         `send:${id}`,
         `contributors/${encodeURIComponent(id)}/messages`,
         { text },
@@ -327,6 +327,12 @@ export function useOutputContributors(
           return typeof value?.delivery?.deliveryId === 'string' && value.contributor?.id === id;
         },
       );
+      // This receipt ends the command even when execution failed. Preserve the
+      // compose draft through rejection; a deliberate retry gets a fresh ID.
+      if (body.delivery.status === 'failed')
+        throw Error(
+          'Contributor execution failed. Your draft is preserved. Check its conversation and current account before retrying.',
+        );
     },
     [current, mutate],
   );
