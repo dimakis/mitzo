@@ -117,9 +117,16 @@ No messages were sent to these tasks, and none were restarted or archived in pre
 
 ## Symposium reconciliation
 
+The October 7 artifact-centered design and October 10 account/session-reuse direction
+supersede this section's earlier placement sketch as the product entry point. Use
+[the current Symposium guide](../../features/symposium.md) and existing Telos item
+`c0851ba23fcc5d04`. The September discussion below remains useful design history;
+it does not restart its phase tree or make full review/publication a prerequisite
+for the first collaboration slice.
+
 The existing **Design Mitzo symposium UX** task calls for a focused Add reviewer flow in the same work session, a seat catalog, explicit profile + connection + model binding, controlled context packages, read-only review, structured findings, delta re-review and conversational profile creation. It warns against exposing every mode/account/authority control in the composer.
 
-Use that as the Symposium feature definition. Our basic two-seat mock demonstrates placement only. In particular:
+That September feature definition and basic two-seat placement mock are historical. Their relevant design principles remain:
 
 - Prefer Add reviewer / Ask another agent over the abstract Set up symposium action.
 - A saved profile excludes credentials, transient paths, transcript and session-specific authority.

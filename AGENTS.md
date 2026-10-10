@@ -2,6 +2,15 @@
 
 Read `CLAUDE.md` for repository commands, architecture, test discipline, and workflow. Preserve other sessions' branches, task files, provider history, and sandbox ownership.
 
+## Symposium source selection
+
+Start Symposium work with [the current source guide](docs/features/symposium.md)
+and existing Telos item `c0851ba23fcc5d04`. Earlier phase records, archived candidate
+checklists and diagnostic handovers are evidence, not cumulative execution instructions.
+Read narrow operating contracts for the selected operation; their custody, retention
+and staging constraints still apply. Do not revive superseded task hints or create
+another parent/phase tree merely because an old document describes unfinished work.
+
 ## UI design is a repository contract
 
 For any user-facing UI change, read [the UI design contract](docs/design/ui-design-system.md) and `frontend/AGENTS.md` before implementation. It applies to new features, existing pages, mobile and web in every session. Reuse shared tokens and components; keep palette/font definitions in `frontend/src/styles/tokens.css`, and use the shared spacing/type/radius scales. UI work is incomplete without the contract's validation and PR evidence. Evolve a missing shared pattern in the same PR rather than inventing a competing page theme.
