@@ -1,3 +1,4 @@
+import { createPortal } from 'react-dom';
 import { SymposiumAccessRequests } from './SymposiumAccessRequests';
 import {
   symposiumQueueOperations,
@@ -138,10 +139,12 @@ export function SymposiumConversation({
   sessionId,
   chat,
   ordinaryComposer,
+  profileToolsTarget,
 }: {
   sessionId: string | null;
   chat: ChatAreaProps;
   ordinaryComposer: ReactNode;
+  profileToolsTarget: HTMLElement | null;
 }) {
   const [status, setStatus] = useState<Status | null>(null);
   const [statusFresh, setStatusFresh] = useState(false);
@@ -539,6 +542,48 @@ export function SymposiumConversation({
     [items, selected],
   );
 
+  const profileTools =
+    sessionId && profileToolsTarget && status?.sessionId === sessionId
+      ? createPortal(
+          <div className="symposium-profile-tools">
+            <button
+              type="button"
+              aria-expanded={profilesOpen}
+              aria-controls={profilesOpen ? profilesPanelId : undefined}
+              onClick={() => setProfilesOpen((open) => !open)}
+            >
+              Reusable profile drafts
+              <UiIcon name={profilesOpen ? 'up' : 'down'} />
+            </button>
+            {profilesOpen && (
+              <>
+                {selected !== 'all' && status.seats.find((seat) => seat.seatId === selected) && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setSeatSeed({
+                        seatId: selected,
+                        ...status.seats.find((seat) => seat.seatId === selected)!.seat,
+                      })
+                    }
+                  >
+                    Draft reusable profile from this seat
+                  </button>
+                )}
+                <SymposiumProfileProposals
+                  key={sessionId}
+                  id={profilesPanelId}
+                  sessionId={sessionId}
+                  seatSeed={seatSeed}
+                  onSeatSeedDone={() => setSeatSeed(null)}
+                />
+              </>
+            )}
+          </div>,
+          profileToolsTarget,
+        )
+      : null;
+
   if (base && (!status || status.sessionId !== sessionId))
     return (
       <>
@@ -574,26 +619,7 @@ export function SymposiumConversation({
     return (
       <>
         {chat && <ChatArea {...chat} />}
-        {sessionId && (
-          <div className="symposium-profile-tools">
-            <button
-              type="button"
-              aria-expanded={profilesOpen}
-              aria-controls={profilesOpen ? profilesPanelId : undefined}
-              onClick={() => setProfilesOpen((open) => !open)}
-            >
-              Reusable profile drafts
-              <UiIcon name={profilesOpen ? 'up' : 'down'} />
-            </button>
-            {profilesOpen && (
-              <SymposiumProfileProposals
-                key={sessionId}
-                id={profilesPanelId}
-                sessionId={sessionId}
-              />
-            )}
-          </div>
-        )}
+        {profileTools}
         {ordinaryComposer}
       </>
     );
@@ -610,43 +636,7 @@ export function SymposiumConversation({
       <p className="symposium-boundary-note">
         Messages go to the agents you select. File access follows each agent’s permissions.
       </p>
-      <div className="symposium-profile-tools">
-        <button
-          type="button"
-          aria-expanded={profilesOpen}
-          aria-controls={profilesOpen ? profilesPanelId : undefined}
-          onClick={() => setProfilesOpen((open) => !open)}
-        >
-          Reusable profile drafts
-          <UiIcon name={profilesOpen ? 'up' : 'down'} />
-        </button>
-        {profilesOpen && (
-          <>
-            {selected !== 'all' && status.seats.find((seat) => seat.seatId === selected) && (
-              <button
-                type="button"
-                onClick={() =>
-                  setSeatSeed({
-                    seatId: selected,
-                    ...status.seats.find((seat) => seat.seatId === selected)!.seat,
-                  })
-                }
-              >
-                Draft reusable profile from this seat
-              </button>
-            )}
-            {sessionId && (
-              <SymposiumProfileProposals
-                key={sessionId}
-                id={profilesPanelId}
-                sessionId={sessionId}
-                seatSeed={seatSeed}
-                onSeatSeedDone={() => setSeatSeed(null)}
-              />
-            )}
-          </>
-        )}
-      </div>
+      {profileTools}
       {queuedOperation && (
         <section aria-label="Saved queued message">
           <p role="status">{queuedOperation.notice}</p>
