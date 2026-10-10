@@ -2144,6 +2144,142 @@ it.each(['touch', 'keyboard'])(
   },
 );
 
+it.each([false, true])(
+  'shows both saved and local structure before replacing a draft (moves: %s)',
+  async (moves) => {
+    const documents = moves
+      ? [
+          {
+            path: 'hub/context/guide.md',
+            sourcePath: 'hub/local.md',
+            base: '# Guide',
+            content: '# Guide',
+          },
+        ]
+      : [];
+    const savedDocuments = moves ? [{ ...documents[0], sourcePath: 'hub/remote.md' }] : [];
+    localStorage.setItem(
+      'mitzo-knowledge-working-copy:',
+      JSON.stringify({
+        title: 'Organize knowledge',
+        baseRevision: 'r1',
+        documents,
+        directories: ['hub/local-folder'],
+        selected: documents[0]?.path || '',
+        saved: '[]',
+        savedDirectories: [],
+        initialSaveConflict: {
+          ...draft,
+          state: 'draft',
+          review: undefined,
+          documents: savedDocuments,
+          directories: ['hub/remote-folder'],
+        },
+      }),
+    );
+    setup();
+    await resumeRecoveredCopy();
+    const comparison = await screen.findByRole('region', {
+      name: 'Compare saved draft and working copy',
+    });
+    const saved = within(comparison).getByRole('region', { name: 'Saved draft organization' });
+    const local = within(comparison).getByRole('region', {
+      name: 'Your working copy organization',
+    });
+    expect(saved.textContent).toContain('hub/remote-folder');
+    expect(local.textContent).toContain('hub/local-folder');
+    if (moves) {
+      expect(saved.textContent).toContain('hub/remote.md');
+      expect(local.textContent).toContain('hub/local.md');
+      expect(saved.textContent).toContain('hub/context/guide.md');
+      expect(local.textContent).toContain('hub/context/guide.md');
+    }
+    expect(
+      within(comparison)
+        .getByRole('button', { name: 'Keep my edits and update saved draft' })
+        .hasAttribute('disabled'),
+    ).toBe(false);
+    expect(vi.mocked(apiFetch).mock.calls.some(([, init]) => init?.method === 'PUT')).toBe(false);
+  },
+);
+
+it('does not reopen an editor when pending Edit completes after returning to Library', async () => {
+  let resolveEdit!: (value: Response) => void;
+  let resolveReader!: (value: Response) => void;
+  const edit = new Promise<Response>((resolve) => {
+    resolveEdit = resolve;
+  });
+  const reader = new Promise<Response>((resolve) => {
+    resolveReader = resolve;
+  });
+  let principlesReads = 0;
+  const original = vi.mocked(apiFetch).getMockImplementation()!;
+  vi.mocked(apiFetch).mockImplementation(async (path, init) => {
+    if (path.startsWith('/api/knowledge/document')) {
+      if (path.includes('teams%2Frelease.md')) return reader;
+      if (++principlesReads === 2) return edit;
+    }
+    return original(path, init);
+  });
+  setup();
+  fireEvent.click(await findLibraryDocument(/Working principles/));
+  await screen.findByRole('article', { name: 'Working principles' });
+  fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+  await waitFor(() => expect(principlesReads).toBe(2));
+  fireEvent.click(screen.getByRole('button', { name: 'Library' }));
+  await act(async () => {
+    resolveEdit(response({ content: '# Principles' }));
+  });
+  expect(screen.getByRole('searchbox')).toBeTruthy();
+  expect(screen.queryByRole('textbox', { name: 'Document source' })).toBeNull();
+  fireEvent.click(await findLibraryDocument(/Release process/, 'teams'));
+  await act(async () => {
+    resolveReader(response({ content: '# Release process' }));
+  });
+  expect(await screen.findByRole('article', { name: 'Release process' })).toBeTruthy();
+  expect(screen.queryByRole('textbox', { name: 'Document source' })).toBeNull();
+});
+
+it('keeps tab navigation when a pending add-document request completes', async () => {
+  localStorage.setItem(
+    'mitzo-knowledge-working-copy:',
+    JSON.stringify({
+      title: 'Retained change',
+      baseRevision: 'r1',
+      documents: [],
+      directories: [],
+      selected: '',
+      saved: '[]',
+      savedDirectories: [],
+    }),
+  );
+  let resolveDocument!: (value: Response) => void;
+  const pending = new Promise<Response>((resolve) => {
+    resolveDocument = resolve;
+  });
+  const original = vi.mocked(apiFetch).getMockImplementation()!;
+  vi.mocked(apiFetch).mockImplementation(async (path, init) =>
+    path.startsWith('/api/knowledge/document') ? pending : original(path, init),
+  );
+  setup();
+  fireEvent.click(await screen.findByRole('button', { name: '+ Add document' }));
+  fireEvent.click(await findLibraryDocument(/Working principles/));
+  await waitFor(() =>
+    expect(
+      vi.mocked(apiFetch).mock.calls.some(([path]) => path.startsWith('/api/knowledge/document')),
+    ).toBe(true),
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Drafts (0)' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Library' }));
+  await act(async () => {
+    resolveDocument(response({ content: '# Principles' }));
+  });
+  expect(screen.getByRole('searchbox')).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Library' }).getAttribute('aria-pressed')).toBe('true');
+  expect(screen.queryByRole('textbox', { name: 'Document source' })).toBeNull();
+  const copy = JSON.parse(localStorage.getItem('mitzo-knowledge-working-copy:')!);
+  expect(copy.documents[0]).toMatchObject({ path: 'hub/principles.md', content: '# Principles' });
+});
 it('saves a two-document draft without publication and sends only the whole saved batch explicitly', async () => {
   let version = 0;
   let saved = { ...draft, state: 'draft', review: undefined } as Record<string, unknown>;

@@ -86,14 +86,14 @@ export function KnowledgeLibrary() {
     setReading(true);
   }
   async function openReader(document: KnowledgeDocument) {
+    const request = ++readRequest.current;
     if (adding) {
-      if (await library.openDocument(document, true)) {
+      if ((await library.openDocument(document, true)) && request === readRequest.current) {
         showWorkingCopy();
         setAdding(false);
       }
       return;
     }
-    const request = ++readRequest.current;
     setReaderFailure(undefined);
     try {
       const value = await library.readDocument(document);
@@ -414,8 +414,9 @@ export function KnowledgeLibrary() {
             setReaderFailure(undefined);
           }}
           onEdit={() => {
+            const request = ++readRequest.current;
             void library.openDocument(reader.document, true).then((opened) => {
-              if (opened) {
+              if (opened && request === readRequest.current) {
                 showWorkingCopy();
               }
             });
@@ -564,7 +565,7 @@ export function KnowledgeLibrary() {
                         target="_blank"
                         rel="noopener noreferrer"
                       >
-                        Open review <UiIcon name="forward" size={16} />
+                        Open review <UiIcon name="external" size={16} />
                       </a>
                     )}
                     <button
@@ -619,12 +620,20 @@ export function KnowledgeLibrary() {
         <>
           <div className="knowledge-top">
             <div className="knowledge-switch" aria-label="Knowledge collection">
-              <button aria-pressed={tab === 'library'} onClick={() => setTab('library')}>
+              <button
+                aria-pressed={tab === 'library'}
+                onClick={() => {
+                  ++readRequest.current;
+                  setTab('library');
+                  setAdding(false);
+                }}
+              >
                 Library
               </button>
               <button
                 aria-pressed={tab === 'drafts'}
                 onClick={() => {
+                  ++readRequest.current;
                   setTab('drafts');
                   setAdding(false);
                 }}

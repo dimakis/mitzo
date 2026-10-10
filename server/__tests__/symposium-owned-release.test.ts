@@ -37,6 +37,7 @@ import {
 import {
   REVIEWED_SYMPOSIUM_CLAUDE_RUNTIME as reviewed,
   SOURCE_QUALIFIED_SYMPOSIUM_ROUTING_BUILD as routing,
+  SOURCE_QUALIFIED_SYMPOSIUM_CONNECT_PREFACE_BUILD as connectPreface,
 } from '../symposium-owned-runtime-contract.js';
 const roots: string[] = [];
 afterEach(() => {
@@ -553,57 +554,66 @@ it('requires and preserves an independently selected baseline through canonical 
   ).toThrow();
 });
 
-it('prepares and verifies the exact routing tuple only in canonical mode without claiming admission', () => {
-  const f = canonicalFixture();
-  Object.assign(f.config.gateway, {
-    cliSha256: routing.cliSha256,
-    executableSha256: routing.gatewaySha256,
-    workloadImage: routing.image,
-    sandboxRuntimeImage: routing.sandboxRuntimeImage,
-    supervisorImage: routing.supervisorImage,
-  });
-  f.save();
-  const digest = (path: string) =>
-    path === f.config.gateway.cliExecutable ? routing.cliSha256 : f.digest(path);
-  const plan = prepareOwnedRelease({ ...f.input, acceptedMainBaseline: f.baseline }, digest);
-  expect(plan.runtime).toEqual(routing);
-  expect(plan.admissionVerified).toBe(false);
-  expect(() => verifyOwnedRelease(plan, digest)).not.toThrow();
-  expect(() => verifyRetainedOwnedRelease(plan, digest)).not.toThrow();
-  expect(() =>
-    verifyOwnedRelease(plan, (path) =>
-      path === f.config.gateway.cliExecutable ? 'a'.repeat(64) : digest(path),
-    ),
-  ).toThrow();
-  expect(() =>
-    verifyRetainedOwnedRelease(
-      {
-        ...plan,
-        runtime: { ...routing, imageDigest: 'a'.repeat(64) } as unknown as typeof plan.runtime,
-      },
-      digest,
-    ),
-  ).toThrow();
-  Object.assign(f.config.gateway, { supervisorImage: reviewed.build.supervisorImage });
-  f.save();
-  expect(() =>
-    prepareOwnedRelease({ ...f.input, acceptedMainBaseline: f.baseline }, digest),
-  ).toThrow('tuple');
-});
-it('preserves ordinary release defaults and refuses a diagnostic successor outside canonical staging', () => {
-  const f = fixture();
-  Object.assign(f.config.gateway, {
-    cliSha256: routing.cliSha256,
-    executableSha256: routing.gatewaySha256,
-    workloadImage: routing.image,
-    sandboxRuntimeImage: routing.sandboxRuntimeImage,
-    supervisorImage: routing.supervisorImage,
-  });
-  f.save();
-  const digest = (path: string) =>
-    path === f.config.gateway.cliExecutable ? routing.cliSha256 : f.digest(path);
-  expect(() => prepareOwnedRelease(f.input, digest)).toThrow();
-});
+it.each([routing, connectPreface])(
+  'prepares and verifies exact $version only in canonical mode without claiming admission',
+  (selectedRouting) => {
+    const f = canonicalFixture();
+    Object.assign(f.config.gateway, {
+      cliSha256: selectedRouting.cliSha256,
+      executableSha256: selectedRouting.gatewaySha256,
+      workloadImage: selectedRouting.image,
+      sandboxRuntimeImage: selectedRouting.sandboxRuntimeImage,
+      supervisorImage: selectedRouting.supervisorImage,
+    });
+    f.save();
+    const digest = (path: string) =>
+      path === f.config.gateway.cliExecutable ? selectedRouting.cliSha256 : f.digest(path);
+    const plan = prepareOwnedRelease({ ...f.input, acceptedMainBaseline: f.baseline }, digest);
+    expect(plan.runtime).toEqual(selectedRouting);
+    expect(plan.admissionVerified).toBe(false);
+    expect(() => verifyOwnedRelease(plan, digest)).not.toThrow();
+    expect(() => verifyRetainedOwnedRelease(plan, digest)).not.toThrow();
+    expect(() =>
+      verifyOwnedRelease(plan, (path) =>
+        path === f.config.gateway.cliExecutable ? 'a'.repeat(64) : digest(path),
+      ),
+    ).toThrow();
+    expect(() =>
+      verifyRetainedOwnedRelease(
+        {
+          ...plan,
+          runtime: {
+            ...selectedRouting,
+            imageDigest: 'a'.repeat(64),
+          } as unknown as typeof plan.runtime,
+        },
+        digest,
+      ),
+    ).toThrow();
+    Object.assign(f.config.gateway, { supervisorImage: reviewed.build.supervisorImage });
+    f.save();
+    expect(() =>
+      prepareOwnedRelease({ ...f.input, acceptedMainBaseline: f.baseline }, digest),
+    ).toThrow('tuple');
+  },
+);
+it.each([routing, connectPreface])(
+  'preserves ordinary release defaults and refuses $version outside canonical staging',
+  (selectedRouting) => {
+    const f = fixture();
+    Object.assign(f.config.gateway, {
+      cliSha256: selectedRouting.cliSha256,
+      executableSha256: selectedRouting.gatewaySha256,
+      workloadImage: selectedRouting.image,
+      sandboxRuntimeImage: selectedRouting.sandboxRuntimeImage,
+      supervisorImage: selectedRouting.supervisorImage,
+    });
+    f.save();
+    const digest = (path: string) =>
+      path === f.config.gateway.cliExecutable ? selectedRouting.cliSha256 : f.digest(path);
+    expect(() => prepareOwnedRelease(f.input, digest)).toThrow();
+  },
+);
 
 it('pins the optional device-login program in public input verification and refuses a changed program', () => {
   const f = fixture(),
