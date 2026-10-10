@@ -1,6 +1,6 @@
 import { SeatLabel } from './SeatLabel';
 import { seatAccentColor } from '../lib/seat-color';
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, Fragment, type ReactNode } from 'react';
 import { UserBubble, TextBubble } from './MessageBubble';
 import { ThinkingBlock } from './ThinkingBlock';
 import { ToolPill } from './ToolPill';
@@ -401,9 +401,7 @@ export function ChatArea({
           item.type === 'activity' ? (
             <AgentActivity key={item.key} rows={item.rows} sessionId={sessionId} />
           ) : (
-            <div key={item.row.key} className="chat-transcript-row">
-              {item.row.value}
-            </div>
+            <Fragment key={item.row.key}>{item.row.value}</Fragment>
           ),
         )}
         {afterMessages}

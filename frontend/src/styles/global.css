@@ -8086,7 +8086,6 @@ option {
 }
 
 /* Shared activity disclosure for every provider's normalized transcript. */
-.chat-transcript-row,
 .agent-activity {
   width: 100%;
   min-width: 0;

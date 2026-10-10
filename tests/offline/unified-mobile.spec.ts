@@ -2818,6 +2818,11 @@ for (const appearance of [
     const sessionId = 'offline-activity';
     const messages = [
       {
+        messageId: 'user',
+        role: 'user',
+        blocks: [{ blockId: 'user', blockType: 'text', content: 'Check the records.' }],
+      },
+      {
         messageId: 'before',
         role: 'assistant',
         blocks: [{ blockId: 'before', blockType: 'text', content: 'I will check the records.' }],
@@ -2884,6 +2889,15 @@ for (const appearance of [
     await expect(toggle).toContainText('1 failed');
     await expect(page.getByText('I will check the records.', { exact: true })).toBeVisible();
     await expect(page.getByText('Here are the results.', { exact: true })).toBeVisible();
+    const alignment = await page.locator('.msg-bubble-group--user').evaluate((user) => {
+      const chat = user.closest('.chat-messages')!;
+      return Math.abs(
+        user.getBoundingClientRect().right -
+          chat.getBoundingClientRect().right +
+          parseFloat(getComputedStyle(chat).paddingRight),
+      );
+    });
+    expect(alignment).toBeLessThan(2);
     expect((await toggle.boundingBox())!.height).toBeGreaterThanOrEqual(44);
     await page.screenshot({
       path: testInfo.outputPath(`activity-collapsed-${appearance.theme}.png`),
