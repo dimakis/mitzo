@@ -53,6 +53,42 @@ export function assertOrdinaryContributorSendAllowed(
       'Use contributor directed messages while its exact execution is active or unresolved',
     );
 }
+export type OrdinarySessionControl = 'stop' | 'send' | 'interrupt' | 'close';
+/** A refused user control leaves the provider turn and its exact owner intact. */
+export class SessionControlRejected extends Error {
+  constructor(
+    readonly sessionId: string,
+    readonly control: OrdinarySessionControl,
+    error: string,
+  ) {
+    super(error);
+  }
+  toMessage() {
+    return {
+      type: 'session_control_rejected' as const,
+      sessionId: this.sessionId,
+      control: this.control,
+      error: this.message,
+    };
+  }
+}
+export function assertOrdinaryContributorControlAllowed(
+  store: ContributorFacts,
+  childSessionId: string,
+  control: OrdinarySessionControl,
+): void {
+  try {
+    assertOrdinaryContributorSendAllowed(store, childSessionId);
+  } catch (error) {
+    throw new SessionControlRejected(
+      childSessionId,
+      control,
+      error instanceof Error
+        ? error.message
+        : 'Contributor execution ownership could not be verified',
+    );
+  }
+}
 /** Trusted start only; authorizes one existing claim without creating execution authority. */
 export function authorizeOrdinaryContributorStart(
   store: ContributorOwner,

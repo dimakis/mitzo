@@ -9,6 +9,7 @@ import { SseTransport } from '../sse-transport.js';
 import { createChatRestRouter } from '../chat-rest-handler.js';
 import { ConnectionRegistry, SessionRegistry } from '@mitzo/harness';
 import type { V2HandlerContext } from '../ws-handler-v2.js';
+import { SessionControlRejected } from '../ordinary-contributor-execution.js';
 import { ExecutionAdmissionError } from '@mitzo/protocol/event-store';
 import {
   claimTransportConnection,
@@ -530,6 +531,60 @@ describe('chat-rest-handler', () => {
       error: 'clientMsgId is already admitted for a different request fingerprint',
       clientMsgId: 'msg-send-conflict',
     });
+  });
+
+  it.each([
+    ['stop', { type: 'stop', sessionId: 'child' }, handleStopV2],
+    [
+      'interrupt',
+      { type: 'interrupt', sessionId: 'child', prompt: 'Replace', clientMsgId: 'public-int' },
+      handleInterruptV2,
+    ],
+    ['close', { type: 'session_close', sessionId: 'child' }, handleSessionClose],
+  ] as const)(
+    'POST /%s reports a scoped nonterminal control refusal',
+    async (control, body, handler) => {
+      vi.mocked(handler).mockImplementationOnce(() => {
+        throw new SessionControlRejected('child', control, 'Use contributor Stop');
+      });
+      const res = await request(testServer)
+        .post(`/api/chat/${control}`)
+        .set('X-Connection-ID', CONNECTION_ID)
+        .send(body);
+      expect(res.status).toBe(409);
+      expect(res.body).toEqual({
+        ok: false,
+        type: 'session_control_rejected',
+        sessionId: 'child',
+        control,
+        error: 'Use contributor Stop',
+      });
+    },
+  );
+  it('rejects HTTP send before admitting a receipt or dispatching a native command for an unsettled child', async () => {
+    eventStore.append('child', 'contributor_execution', {
+      coordinatorSessionId: 'coordinator',
+      deliveryId: 'delivery',
+      seatId: 'seat',
+      claimToken: 'claim',
+      idempotencyKey: 'recipient',
+      childSessionId: 'child',
+    });
+    vi.spyOn(eventStore, 'getUnsettledSymposiumSeatExecutions').mockReturnValue([
+      { attemptId: 1, claimToken: 'claim', idempotencyKey: 'recipient' },
+    ]);
+    const res = await request(testServer)
+      .post('/api/chat/send')
+      .set('X-Connection-ID', CONNECTION_ID)
+      .send({ type: 'send', sessionId: 'child', prompt: '/skills', clientMsgId: 'public-send' });
+    expect(res.status).toBe(409);
+    expect(res.body).toMatchObject({
+      type: 'session_control_rejected',
+      sessionId: 'child',
+      control: 'send',
+    });
+    expect(eventStore.getSendCommand('public-send')).toBeUndefined();
+    expect(handleSendV2).not.toHaveBeenCalled();
   });
 
   // ─── POST /api/chat/stop ────────────────────────────────────────────────

@@ -1,5 +1,5 @@
 import {
-  assertOrdinaryContributorSendAllowed,
+  assertOrdinaryContributorControlAllowed,
   authorizeOrdinaryContributorStart,
   type OrdinaryContributorExecution,
 } from './ordinary-contributor-execution.js';
@@ -2570,7 +2570,8 @@ export async function sendToChat(
   return withSpanAsync('chat.send', { 'chat.clientId': clientId }, async () => {
     if (signal?.aborted) return false;
     const session = registry.get(clientId);
-    if (session?.sessionId) assertOrdinaryContributorSendAllowed(eventStore, session.sessionId);
+    if (session?.sessionId)
+      assertOrdinaryContributorControlAllowed(eventStore, session.sessionId, 'send');
     if (session?.sessionId && eventStore.getSession(session.sessionId)?.symposiumConfig)
       throw new Error('Use Symposium directed prompts for this session');
     if (!session?.inputQueue) return false;
@@ -2831,7 +2832,8 @@ export async function interruptChat(
 ): Promise<boolean> {
   return withSpanAsync('chat.interrupt', { 'chat.clientId': clientId }, async () => {
     const session = registry.get(clientId);
-    if (session?.sessionId) assertOrdinaryContributorSendAllowed(eventStore, session.sessionId);
+    if (session?.sessionId)
+      assertOrdinaryContributorControlAllowed(eventStore, session.sessionId, 'interrupt');
     if (session?.sessionId && eventStore.getSession(session.sessionId)?.symposiumConfig)
       throw new Error('Use Symposium directed prompts for this session');
     if (!session?.queryInstance || !session?.inputQueue) return false;
@@ -3242,6 +3244,9 @@ export function closeSessionByUser(clientId: string): void {
     const session = registry.get(clientId);
     if (!session) return;
 
+    if (session.sessionId)
+      assertOrdinaryContributorControlAllowed(eventStore, session.sessionId, 'close');
+
     // Mark as user-initiated close in the registry
     const episode = registry.markUserClose(clientId);
 
@@ -3315,6 +3320,13 @@ export function closeSessionByUser(clientId: string): void {
   });
 }
 
+/** Public ordinary control; contributor drivers retain stopChat after exact terminal proof. */
+export function stopOrdinaryChat(clientId: string): void {
+  const session = registry.get(clientId);
+  if (session?.sessionId)
+    assertOrdinaryContributorControlAllowed(eventStore, session.sessionId, 'stop');
+  stopChat(clientId);
+}
 export function stopChat(clientId: string) {
   withSpan('session.stop', { 'session.clientId': clientId }, () => {
     const session = registry.get(clientId);

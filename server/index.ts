@@ -1,5 +1,6 @@
 // Load runtime configuration before bootstrap dependencies validate or capture it.
 import 'dotenv/config';
+import { SessionControlRejected } from './ordinary-contributor-execution.js';
 import {
   createTerminalPlanAdviserHost,
   setTerminalPlanAdviserHost,
@@ -43,7 +44,7 @@ import {
   startChat,
   sendToChat,
   interruptChat,
-  stopChat,
+  stopOrdinaryChat,
   detachChat,
   reattachChat,
   isActive,
@@ -1307,7 +1308,7 @@ function handleChatWs(
           'ws.stop',
           { 'ws.client_id': clientId },
           () => {
-            stopChat(clientId);
+            stopOrdinaryChat(clientId);
           },
           contextFromTraceparent(traceparent),
         );
@@ -1315,7 +1316,9 @@ function handleChatWs(
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Unknown error';
       log.warn('failed to handle WS message', { clientId, error: message });
-      transport.send({ type: 'error', error: message });
+      transport.send(
+        err instanceof SessionControlRejected ? err.toMessage() : { type: 'error', error: message },
+      );
     }
   };
 
