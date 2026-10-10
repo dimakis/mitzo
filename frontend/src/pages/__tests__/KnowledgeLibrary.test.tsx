@@ -2394,3 +2394,56 @@ it.each(['shortcut', 'vim'])(
     ).toBeTruthy();
   },
 );
+
+it.each([false, true])(
+  'recovers a review conflict against %s changed saved draft',
+  async (savedChanged) => {
+    const unsent = { ...draft, state: 'draft', review: undefined };
+    const remote = savedChanged
+      ? { ...unsent, version: 2, documents: [{ ...draft.documents[0], content: '# Other window' }] }
+      : unsent;
+    const conflict =
+      'hub/principles.md changed since this draft started. Compare the accepted document and resolve before sending its review.';
+    let submitted = false;
+    vi.mocked(apiFetch).mockImplementation(async (path) => {
+      if (path === '/api/knowledge') return response({ ...catalog, drafts: [unsent] });
+      if (path === '/api/knowledge/refresh') return response({ ...catalog, revision: 'r2' });
+      if (path.endsWith('/ready')) {
+        submitted = true;
+        return { ...response({ error: conflict }, false), status: 409 };
+      }
+      if (path === '/api/knowledge/drafts/d1')
+        return response({ draft: submitted ? remote : unsent });
+      if (path.startsWith('/api/knowledge/document'))
+        return response({ content: '# Latest accepted' });
+      throw new Error(`Unexpected request: ${path}`);
+    });
+    const view = setup();
+    fireEvent.click(await screen.findByRole('button', { name: 'Drafts (1)' }));
+    fireEvent.click(screen.getByRole('button', { name: /Working principles/ }));
+    await screen.findByRole('textbox', { name: 'Document source' });
+    fireEvent.click(screen.getByRole('button', { name: 'Send for review' }));
+    await screen.findByText(conflict);
+    if (savedChanged) {
+      await screen.findByRole('region', { name: 'Compare saved draft and working copy' });
+      expect(screen.queryByRole('button', { name: 'Compare accepted version' })).toBeNull();
+      expect(
+        (screen.getByRole('button', { name: 'Send for review' }) as HTMLButtonElement).disabled,
+      ).toBe(true);
+    } else {
+      expect(
+        screen.queryByRole('region', { name: 'Compare saved draft and working copy' }),
+      ).toBeNull();
+      view.unmount();
+      setup();
+      await resumeRecoveredCopy();
+      fireEvent.click(await screen.findByRole('button', { name: 'Compare accepted version' }));
+      const comparison = await screen.findByRole('region', { name: 'Compare accepted and draft' });
+      expect(within(comparison).getByText('# Latest accepted')).toBeTruthy();
+      expect(within(comparison).getByText('# Revised')).toBeTruthy();
+      expect(JSON.parse(localStorage.getItem('mitzo-knowledge-working-copy:')!).draft.version).toBe(
+        1,
+      );
+    }
+  },
+);
