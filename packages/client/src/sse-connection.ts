@@ -712,9 +712,15 @@ export class SseConnection implements ChatConnection {
     const scope =
       typeof body.sessionId === 'string' && body.sessionId ? { sessionId: body.sessionId } : {};
     const control = ['stop', 'interrupt', 'close'].includes(endpoint) ? endpoint : undefined;
-    const controlFailure = (error: string) => {
+    const controlFailure = (error: string, code?: string) => {
       if (!control || !scope.sessionId) return false;
-      this.listener?.({ type: 'session_control_rejected', ...scope, control, error });
+      this.listener?.({
+        type: 'session_control_rejected',
+        ...scope,
+        control,
+        error,
+        ...(code !== undefined ? { code } : {}),
+      });
       return true;
     };
     try {
@@ -726,6 +732,7 @@ export class SseConnection implements ChatConnection {
       if (!res.ok) {
         if (control && scope.sessionId) {
           let error = `Could not ${endpoint} (${res.status}). Please retry.`;
+          let code: string | undefined;
           try {
             const rejected = await res.json();
             if (
@@ -733,12 +740,14 @@ export class SseConnection implements ChatConnection {
               rejected.sessionId === scope.sessionId &&
               rejected.control === control &&
               typeof rejected.error === 'string'
-            )
+            ) {
               error = rejected.error;
+              if (typeof rejected.code === 'string') code = rejected.code;
+            }
           } catch {
             // A lost or unreadable response cannot confirm cancellation.
           }
-          controlFailure(error);
+          controlFailure(error, code);
           return;
         }
         if (endpoint === 'permission' && typeof body.permId === 'string') {

@@ -1003,6 +1003,7 @@ describe('SseConnection', () => {
                 sessionId: 'child',
                 control,
                 error: 'Use contributor controls',
+                ...(control !== 'interrupt' ? { code: 'CONTRIBUTOR_STOP_REQUIRED' } : {}),
               }),
             });
         const conn = new SseConnection(createConfig({ fetch }));
@@ -1024,6 +1025,9 @@ describe('SseConnection', () => {
               type: 'session_control_rejected',
               sessionId: 'child',
               control,
+              ...(!networkFailure && control !== 'interrupt'
+                ? { code: 'CONTRIBUTOR_STOP_REQUIRED' }
+                : {}),
               error: networkFailure
                 ? expect.stringContaining('Please retry')
                 : 'Use contributor controls',
@@ -1031,6 +1035,12 @@ describe('SseConnection', () => {
           ),
         );
         expect(listener).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'error' }));
+        if (networkFailure || control === 'interrupt')
+          expect(
+            listener.mock.calls.find(
+              ([message]) => message.type === 'session_control_rejected',
+            )?.[0],
+          ).not.toHaveProperty('code');
         conn.disconnect();
       }
     },

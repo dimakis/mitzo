@@ -193,6 +193,20 @@ func testSessionControlRejectionRoundTrip(control: String) throws {
     #expect(NSDictionary(dictionary: forwarded) == NSDictionary(dictionary: body))
 }
 
+@Test(arguments: ["stop", "close"])
+func testSessionControlRejectionCodeRoundTrip(control: String) throws {
+    let json = """
+    {"type":"session_control_rejected","sessionId":"child","control":"\(control)","error":"Use contributor controls","code":"CONTRIBUTOR_STOP_REQUIRED"}
+    """.data(using: .utf8)!
+    let message = try JSONDecoder().decode(ServerMessage.self, from: json)
+    let relayed = try JSONEncoder().encode(message)
+    let body = try JSONSerialization.jsonObject(with: relayed) as! [String: Any]
+    #expect(body["code"] as? String == "CONTRIBUTOR_STOP_REQUIRED")
+    #expect(body["sessionId"] as? String == "child")
+    #expect(body["control"] as? String == control)
+    #expect(body["error"] as? String == "Use contributor controls")
+}
+
 @Test func testUnknownTypeDecoding() throws {
     let json = """
     {"type":"future_message_type","data":"whatever"}

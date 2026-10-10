@@ -453,6 +453,7 @@ public struct SessionControlRejectedParams: Codable, Sendable {
     public let sessionId: String
     public let control: SessionControl
     public let error: String
+    public let code: String?
 }
 
 public struct ReconnectedSession: Codable, Sendable {

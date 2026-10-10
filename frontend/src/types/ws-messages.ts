@@ -149,6 +149,7 @@ interface SessionControlRejectedMsg {
   sessionId: string;
   control: 'stop' | 'send' | 'interrupt' | 'close';
   error: string;
+  code?: string;
 }
 
 interface ErrorMsg {
