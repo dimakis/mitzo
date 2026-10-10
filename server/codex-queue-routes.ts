@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import type { AuthSession } from './auth.js';
 import { z } from 'zod';
 import type { AccountBinding } from '@mitzo/protocol';
 import type { CodexConversationStore } from './codex-conversation-store.js';
@@ -26,16 +27,19 @@ interface Dependencies {
     binding: AccountBinding,
     recoveryId: string,
     sourceCommandId: string,
+    authorization?: AuthSession,
   ): Promise<'queued' | 'unavailable'>;
   capacityStop?(
     sessionId: string,
     binding: AccountBinding,
     recoveryId: string,
     sourceCommandId: string,
+    authorization?: AuthSession,
   ): Promise<'stopped' | 'unavailable'>;
   reattach(
     sessionId: string,
     binding: AccountBinding,
+    authorization?: AuthSession,
   ): Promise<'ready' | 'reattaching' | 'unavailable'>;
 }
 /** Mounted after application authentication. Only saved, unclaimed work can be cancelled. */
@@ -79,6 +83,7 @@ export function createCodexQueueRouter(deps: Dependencies) {
               binding,
               parsed.data.recoveryId,
               parsed.data.sourceCommandId,
+              res.locals.authSession as AuthSession | undefined,
             )
           : 'unavailable';
         if (status === 'unavailable') {
@@ -133,7 +138,11 @@ export function createCodexQueueRouter(deps: Dependencies) {
       return;
     }
     try {
-      const result = await deps.reattach(req.params.id, binding);
+      const result = await deps.reattach(
+        req.params.id,
+        binding,
+        res.locals.authSession as AuthSession | undefined,
+      );
       if (result === 'unavailable') {
         res.status(409).json({ error: 'Mitzo could not restart the provider yet.' });
         return;
