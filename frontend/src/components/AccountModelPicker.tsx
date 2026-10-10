@@ -6,11 +6,8 @@ import { apiFetch } from '../lib/api-fetch';
 import type { WorkspaceSummary } from '../types/workspace';
 import { subscribeSymposiumAccountCatalog } from '../lib/symposium-account-catalog';
 
-export interface AccountSelection {
-  accountId?: string;
-  model: string;
-  reasoningEffort?: string | null;
-}
+import type { AccountSelection } from '../types/account-selection';
+export type { AccountSelection } from '../types/account-selection';
 interface Account {
   id: string;
   label: string;

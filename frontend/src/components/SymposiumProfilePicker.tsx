@@ -6,10 +6,8 @@ import { symposiumProfileTemplates } from '../lib/symposium-profile-templates';
 import './SymposiumProfilePicker.css';
 import { apiFetch } from '../lib/api-fetch';
 
-export interface SymposiumProfileSelection {
-  profileId: string;
-  revision: number;
-}
+import type { SymposiumProfileSelection } from '../types/symposium-profile';
+export type { SymposiumProfileSelection } from '../types/symposium-profile';
 interface Version extends SymposiumProfileSelection {
   definition: SymposiumProfileDefinition;
   contentHash: string;

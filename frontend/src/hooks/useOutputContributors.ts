@@ -4,7 +4,7 @@ import type {
   AddOutputContributor,
   OutputContributor,
   OutputContributorPanelProps,
-} from '../components/OutputContributorPanel';
+} from '../types/output-contributors';
 import { apiFetch } from '../lib/api-fetch';
 
 type View = Pick<
