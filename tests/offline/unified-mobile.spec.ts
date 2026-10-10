@@ -1596,21 +1596,31 @@ test('failed briefing registration survives a completed turn and reload without 
     }));
     expect(family.control).toBe(family.body);
     await retained();
+    const workspace = page.getByRole('button', { name: /^Workspace controls/ });
+    await workspace.click();
+    await expect(
+      page.getByRole('textbox', { name: 'Message Mitzo', exact: true }),
+    ).toBeInViewport();
     await page.screenshot({
       path: testInfo.outputPath(
         `briefing-registration-error-${appearance.theme}-${appearance.font}-${appearance.accent}.png`,
       ),
       animations: 'disabled',
     });
+    await workspace.click();
   }
   nickname = 'M'.repeat(80);
   await page.reload();
   await expect(retry).toBeVisible();
   await retained();
+  const workspace = page.getByRole('button', { name: /^Workspace controls/ });
+  await workspace.click();
+  await expect(page.getByRole('textbox', { name: 'Message Mitzo', exact: true })).toBeInViewport();
   await page.screenshot({
     path: testInfo.outputPath('briefing-registration-long-name.png'),
     animations: 'disabled',
   });
+  await workspace.click();
   allowRegistration = true;
   await retry.click();
   await expect(retry).toHaveCount(0);
