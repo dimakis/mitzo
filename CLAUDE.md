@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+For Symposium work, begin with [the current source guide](docs/features/symposium.md)
+and Telos item `c0851ba23fcc5d04`. Historical checklists and phase hints are evidence,
+not additional execution plans. Selected operating contracts remain applicable.
+
 ## UI design
 
 Every user-facing UI change follows [the UI design contract](docs/design/ui-design-system.md) and `frontend/AGENTS.md`. Read them before implementation. This includes new features and existing mobile/web pages; shared tokens, component reuse and the UI verification checklist are required.
