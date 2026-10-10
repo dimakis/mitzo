@@ -10,6 +10,7 @@ function setup() {
     list: vi.fn(() => []),
     get: vi.fn(() => ({ id: 'term-owned' })),
     write: vi.fn(async () => {}),
+    scroll: vi.fn(async () => {}),
     resize: vi.fn(async () => {}),
     end: vi.fn(async () => {}),
   };
@@ -32,6 +33,38 @@ function setup() {
   return { app, service };
 }
 describe('operator terminal API', () => {
+  it('accepts bounded owner-authenticated history moves but rejects foreign origins and command-shaped selectors', async () => {
+    const { app, service } = setup();
+    const path = '/api/terminals/term-owned/scroll';
+    await request(app).post(path).set('x-internal-token', 'agent').send({ lines: -20 }).expect(403);
+    await request(app)
+      .post(path)
+      .set('authorization', 'Bearer operator')
+      .set('origin', 'https://untrusted.test')
+      .send({ lines: -20 })
+      .expect(403);
+    for (const body of [
+      { lines: 101 },
+      { lines: 0 },
+      { lines: -1, command: 'sh' },
+      { lines: 'up' },
+    ])
+      await request(app).post(path).set('authorization', 'Bearer operator').send(body).expect(400);
+    expect(service.scroll).not.toHaveBeenCalled();
+    for (const lines of [-20, 20, null])
+      await request(app)
+        .post(path)
+        .set('authorization', 'Bearer operator')
+        .send({ lines })
+        .expect(200);
+    expect(service.scroll).toHaveBeenLastCalledWith(
+      'login-a',
+      'term-owned',
+      null,
+      expect.objectContaining({ signal: expect.any(AbortSignal), expiresAt: expect.any(Number) }),
+    );
+    expect(service.write).not.toHaveBeenCalled();
+  });
   it('rejects agent/internal credentials and never starts a process', async () => {
     const { app, service } = setup();
     await request(app).post('/api/terminals').set('x-internal-token', 'agent').send({}).expect(403);
