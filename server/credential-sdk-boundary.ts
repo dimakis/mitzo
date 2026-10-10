@@ -54,6 +54,16 @@ function runtimeFilesystemProtection() {
  * protects the whole provider process, including native Read, arbitrary Bash,
  * project hooks and stdio MCP descendants, independently of those settings. */
 export function credentialSdkBoundary(platform: NodeJS.Platform = process.platform) {
+  return createSdkBoundary(platform, false);
+}
+
+/** Controller project commands need the runtime fence for every provider, with
+ * no change to their credential environment or network policy. */
+export function runtimeFilesystemSdkBoundary(platform: NodeJS.Platform = process.platform) {
+  return createSdkBoundary(platform, true);
+}
+
+function createSdkBoundary(platform: NodeJS.Platform, runtimeOnly: boolean) {
   const initialRuntime = runtimeFilesystemProtection();
   const storage = [
     join(homedir(), '.mitzo', 'keychain-helper'),
@@ -63,9 +73,10 @@ export function credentialSdkBoundary(platform: NodeJS.Platform = process.platfo
       : []),
   ];
   const credentialIsolation =
-    process.env.MITZO_KEYCHAIN_CONNECTIONS_ENABLED === '1' ||
-    !!getCredentialConnectionsRuntime() ||
-    storage.some(existsSync);
+    !runtimeOnly &&
+    (process.env.MITZO_KEYCHAIN_CONNECTIONS_ENABLED === '1' ||
+      !!getCredentialConnectionsRuntime() ||
+      storage.some(existsSync));
   if (!credentialIsolation && initialRuntime.writeRoots.length === 0) return undefined;
   const deniedRoots = [
     ...new Set(

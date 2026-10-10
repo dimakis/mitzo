@@ -823,7 +823,7 @@ it('retains project hooks, settings, configured MCPs and legacy boot context und
     stderr: '',
   });
   const runnerFactory = vi
-    .spyOn(protectedCommands, 'createProtectedSdkCommandRunner')
+    .spyOn(protectedCommands, 'createWorkspaceRuntimeCommandRunner')
     .mockReturnValue(projectRunner);
   const outerSpawn = vi.fn();
   const fence = vi.spyOn(boundary, 'credentialSdkBoundary').mockReturnValue({

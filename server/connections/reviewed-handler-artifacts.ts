@@ -131,11 +131,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../workspace-runtime-client.ts':
     'eb377ad70361797cb34de00c1974952b76cd81041da7668631b138cf5d44473f',
   '../credential-sdk-boundary.ts':
-    '792e61cd7a77d3625aeb36177f7a42c207d31f49aa85d99fb648ec0c850ea597',
-  '../chat.ts': '109f3d0b0304f9d4f56ad5b2f26d934d8a2eb0833ef62387421526238313acce',
+    'd577cd3f4addce8a09ec6e49272196143f28d6e88abf7a4405336542acbf2bfb',
+  '../chat.ts': 'eaf13e2c701d1e5a66d91f4ff39e953b6fc22174b3c1cfac546da2e8be6fa146',
   '../sandboxed-command-worker.ts':
     '5535426d39321039d3db591a2f52e8e3ae31b35b51c2c8ae278eeee548c8df56',
-  '../protected-sdk-command.ts': '6ac04dfd2431c48ed85fcc612e49460c53b71c03909d81f4b02c4f14a759edcd',
+  '../protected-sdk-command.ts': 'e7c59a2ebfd3fde4b0c7c8cdf7f69f9d231e2e5f1819a61e0514cd707bc6c32f',
   '../hook-bridge.ts': '8885c2b27079799d33958a17942bb7d8953d01540bf7cd4b3ade537ee39c2d12',
   '../native-tool-executor.ts': '9c2f349a51febe5b8818358f558a67a4e324eda2f525d85a5578e84463f5dc01',
   '../repository-workspaces.ts': 'b7e8cd755cdf6483d706f41d5deca216736b40dbd7863a3be20edfd32abb811c',

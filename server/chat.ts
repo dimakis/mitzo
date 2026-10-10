@@ -10,7 +10,7 @@ import {
 } from './repository-chat-startup.js';
 import { credentialSdkBoundary } from './credential-sdk-boundary.js';
 import {
-  createProtectedSdkCommandRunner,
+  createWorkspaceRuntimeCommandRunner,
   type ProtectedSdkCommandRunner,
 } from './protected-sdk-command.js';
 import { createCredentialSdkServer, credentialSdkPermission } from './credential-sdk-tools.js';
@@ -334,9 +334,12 @@ async function localBootContextFallback(
 ): Promise<BootContextMessage> {
   const scriptPath = join(repoRoot, 'scripts', 'build_boot_context.py');
   try {
+    // Direct callers also inherit runtime protection when they omit a runner.
+    // A protection failure is caught below and never retries on the controller.
+    const runner = protectedRunner ?? createWorkspaceRuntimeCommandRunner();
     let stdout: string;
-    if (protectedRunner) {
-      ({ stdout } = await protectedRunner('python3', [scriptPath, '--json'], {
+    if (runner) {
+      ({ stdout } = await runner('python3', [scriptPath, '--json'], {
         cwd: repoRoot,
         env: { ...process.env },
         timeout: 5000,
@@ -1718,10 +1721,9 @@ async function _startChatInner(
     !codexProfile && !apiCredentialRef && !gemini ? credentialSdkBoundary() : undefined;
 
   const sdkCredentialIsolation = sdkCredentialBoundary?.credentialIsolation ?? false;
-  const projectCommandRunner =
-    sdkCredentialBoundary && !sdkCredentialIsolation
-      ? createProtectedSdkCommandRunner(sdkCredentialBoundary)
-      : undefined;
+  const projectCommandRunner = sdkCredentialIsolation
+    ? undefined
+    : createWorkspaceRuntimeCommandRunner();
 
   // Load project hooks from .claude/settings.json (e.g. SessionStart boot context)
   const hooks = sdkCredentialIsolation

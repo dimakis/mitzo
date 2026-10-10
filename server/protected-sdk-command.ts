@@ -1,5 +1,8 @@
 import type { SpawnOptions } from '@anthropic-ai/claude-agent-sdk';
-import type { ProtectedSdkProcess } from './credential-sdk-boundary.js';
+import {
+  runtimeFilesystemSdkBoundary,
+  type ProtectedSdkProcess,
+} from './credential-sdk-boundary.js';
 
 export interface ProtectedSdkCommandOptions {
   cwd: string;
@@ -17,6 +20,14 @@ export type ProtectedSdkCommandRunner = (
 
 interface Boundary {
   spawnClaudeCodeProcess(options: SpawnOptions & { captureStderr?: boolean }): ProtectedSdkProcess;
+}
+
+/** Unenrolled controller callbacks retain their original executor. */
+export function createWorkspaceRuntimeCommandRunner(
+  platform: NodeJS.Platform = process.platform,
+): ProtectedSdkCommandRunner | undefined {
+  const boundary = runtimeFilesystemSdkBoundary(platform);
+  return boundary ? createProtectedSdkCommandRunner(boundary) : undefined;
 }
 
 /** Project callbacks execute in the controller, so explicitly send their command

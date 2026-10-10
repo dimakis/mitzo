@@ -207,6 +207,44 @@ describe('fetchBootContext', () => {
     expect(result.source).toBe('contexgin');
   });
 
+  it('protects an enrolled direct fetch caller without an explicit runner', async () => {
+    const commands = await import('../protected-sdk-command.js');
+    const runner = vi.fn().mockResolvedValue({
+      stdout: JSON.stringify({ additionalContext: 'protected direct caller' }),
+      stderr: '',
+    });
+    const factory = vi
+      .spyOn(commands, 'createWorkspaceRuntimeCommandRunner')
+      .mockReturnValue(runner);
+    mockFetch.mockRejectedValueOnce(new Error('offline fixture'));
+    try {
+      const result = await fetchBootContext('fixture', CONTEXGIN_URL, '/fake/repo');
+      expect(runner).toHaveBeenCalledOnce();
+      expect(mockExecFile).not.toHaveBeenCalled();
+      expect(result.fullMarkdown).toBe('protected direct caller');
+    } finally {
+      factory.mockRestore();
+    }
+  });
+
+  it('does not retry unfenced execution when runtime protection cannot initialize', async () => {
+    const commands = await import('../protected-sdk-command.js');
+    const factory = vi
+      .spyOn(commands, 'createWorkspaceRuntimeCommandRunner')
+      .mockImplementation(() => {
+        throw new Error('offline protection unavailable');
+      });
+    mockFetch.mockRejectedValueOnce(new Error('offline fixture'));
+    try {
+      const result = await fetchBootContext('fixture', CONTEXGIN_URL, '/fake/repo');
+      expect(mockExecFile).not.toHaveBeenCalled();
+      expect(result.sourceCount).toBe(0);
+      expect(result.fullMarkdown).toBeUndefined();
+    } finally {
+      factory.mockRestore();
+    }
+  });
+
   it('returns contexgin boot context on successful response', async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,

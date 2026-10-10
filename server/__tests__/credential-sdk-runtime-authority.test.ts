@@ -15,8 +15,11 @@ import { spawn } from 'node:child_process';
 import { execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
-import { credentialSdkBoundary } from '../credential-sdk-boundary.js';
-import { createProtectedSdkCommandRunner } from '../protected-sdk-command.js';
+import { credentialSdkBoundary, runtimeFilesystemSdkBoundary } from '../credential-sdk-boundary.js';
+import {
+  createProtectedSdkCommandRunner,
+  createWorkspaceRuntimeCommandRunner,
+} from '../protected-sdk-command.js';
 
 vi.mock('../credential-connections-runtime.js', () => ({
   getCredentialConnectionsRuntime: () => undefined,
@@ -246,6 +249,27 @@ it.runIf(process.platform === 'darwin' && process.env.MITZO_TEST_OS_SANDBOX === 
 it('keeps original Keychain activation distinct from runtime-only filesystem isolation', () => {
   vi.stubEnv('MITZO_KEYCHAIN_CONNECTIONS_ENABLED', '1');
   expect(credentialSdkBoundary('darwin')!.credentialIsolation).toBe(true);
+});
+
+it('fences enrolled controller commands independently of Keychain while preserving their network and environment mode', async () => {
+  vi.stubEnv('MITZO_KEYCHAIN_CONNECTIONS_ENABLED', '1');
+  vi.stubEnv('ANTHROPIC_BASE_URL', 'http://127.0.0.1:9999');
+  expect(runtimeFilesystemSdkBoundary('darwin')!.credentialIsolation).toBe(false);
+  const runner = createWorkspaceRuntimeCommandRunner('darwin')!;
+  const promise = runner('synthetic-command', ['synthetic-argument'], {
+    cwd: join(root, 'work'),
+    env: { AUTH_SECRET: 'synthetic retained environment' },
+    timeout: 1000,
+  });
+  const argv = vi.mocked(spawn).mock.calls.at(-1)![1] as string[];
+  const payload = JSON.parse(readFileSync(argv.at(-1)!, 'utf8'));
+  expect(payload.filesystemOnly).toBe(true);
+  expect(payload.env.AUTH_SECRET).toBe('synthetic retained environment');
+  expect(payload.config.filesystem.denyRead).toContain(config);
+  expect(payload.config.filesystem.denyWrite).toContain(join(root, 'release'));
+  const child = vi.mocked(spawn).mock.results.at(-1)!.value as import('node:events').EventEmitter;
+  child.emit('close', 0, null);
+  await expect(promise).resolves.toEqual({ stdout: '', stderr: '' });
 });
 
 it('retains runtime-only project credentials and custom endpoint behavior while Keychain mode keeps credential restrictions', () => {
