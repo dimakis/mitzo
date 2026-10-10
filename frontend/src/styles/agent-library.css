@@ -250,3 +250,30 @@
     font-size: var(--text-base);
   }
 }
+.context-pack-manager {
+  min-width: 0;
+}
+.context-pack-manager > p {
+  margin: var(--space-3) 0;
+}
+.context-pack-manager code {
+  overflow-wrap: anywhere;
+  white-space: normal;
+  font-family: var(--font-mono);
+}
+.context-pack-manager .agent-library-actions {
+  margin: var(--space-4) 0;
+}
+.session-banner-receipt {
+  display: grid;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+  overflow-wrap: anywhere;
+}
+.session-banner-receipt p {
+  margin: 0;
+}
+.session-banner-receipt code {
+  font-family: var(--font-mono);
+  white-space: normal;
+}

@@ -1,3 +1,4 @@
+import { MotionPresence } from './MotionPresence';
 import { UiIcon } from './UiIcon';
 import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
@@ -70,6 +71,8 @@ export function SessionBanner({ bootContext, sessionContext }: Props) {
 
   // Reset expand states when context identity changes (e.g. session switch)
   const contextKey =
+    (bootContext?.receipt?.payloadHash ?? '') +
+    ':' +
     (bootContext?.tokenCount ?? '') +
     ':' +
     (bootContext?.sourceCount ?? '') +
@@ -126,7 +129,7 @@ export function SessionBanner({ bootContext, sessionContext }: Props) {
           </span>
         </button>
 
-        {expanded && (
+        <MotionPresence open={expanded} kind="disclosure">
           <div className="session-banner-body">
             {/* Session context (Telos item / inbox) */}
             {sessionContext && (
@@ -136,6 +139,13 @@ export function SessionBanner({ bootContext, sessionContext }: Props) {
               </div>
             )}
 
+            {bootContext?.receipt && (
+              <p className="session-banner-sub-label">
+                {bootContext.receipt.status === 'accepted'
+                  ? 'Accepted by provider'
+                  : 'Prepared · awaiting provider acknowledgment'}
+              </p>
+            )}
             {/* Boot context details */}
             {bootContext && (
               <div className="session-banner-boot">
@@ -170,14 +180,69 @@ export function SessionBanner({ bootContext, sessionContext }: Props) {
                         setShowModal(true);
                       }}
                       title="View full markdown"
+                      aria-label="View full markdown"
                     >
-                      ⧉
+                      <UiIcon name="file" size={16} />
                     </button>
                   )}
                 </div>
 
-                {showBootDetails && (
+                <MotionPresence open={showBootDetails} kind="disclosure">
                   <div className="session-banner-boot-content">
+                    {bootContext.receipt && (
+                      <div className="session-banner-receipt">
+                        <p>
+                          Profile {bootContext.receipt.profileId} · revision{' '}
+                          {bootContext.receipt.profileRevision}
+                        </p>
+                        <p>
+                          Compiler: <code>{bootContext.receipt.compilerRevision}</code>
+                        </p>
+                        <p>
+                          Context reference: <code>{bootContext.receipt.payloadHash}</code>
+                        </p>
+                        <p>
+                          Recipe reference: <code>{bootContext.receipt.recipeHash}</code>
+                        </p>
+                        {bootContext.receipt.provenance && (
+                          <>
+                            <div className="session-banner-sub-label">Pinned packs</div>
+                            {bootContext.receipt.provenance.packs.map((pack) => (
+                              <div key={`${pack.id}:${pack.revision}`}>
+                                <p>
+                                  {pack.id} · revision {pack.revision}
+                                </p>
+                                <code>{pack.hash}</code>
+                              </div>
+                            ))}
+                            <div className="session-banner-sub-label">
+                              Accepted source revisions
+                            </div>
+                            {bootContext.receipt.provenance.documents.map((document) => (
+                              <div key={`${document.path}:${document.revision}`}>
+                                <p>
+                                  {document.path} · {document.storeId}
+                                </p>
+                                <code>{document.revision}</code>
+                                <p>
+                                  Content hash: <code>{document.contentHash}</code>
+                                </p>
+                              </div>
+                            ))}
+                            <div className="session-banner-sub-label">Omitted sections</div>
+                            {bootContext.receipt.provenance.omissions.length ? (
+                              bootContext.receipt.provenance.omissions.map((section, index) => (
+                                <p key={index}>
+                                  {section.path} · {section.heading} · {section.reason}
+                                </p>
+                              ))
+                            ) : (
+                              <p>No sections omitted.</p>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    )}
                     <div className="session-banner-sub-label">Sources</div>
                     {bootContext.sources.map((src, idx) => (
                       <div key={idx} className="session-banner-source-row">
@@ -222,11 +287,11 @@ export function SessionBanner({ bootContext, sessionContext }: Props) {
                       </>
                     )}
                   </div>
-                )}
+                </MotionPresence>
               </div>
             )}
           </div>
-        )}
+        </MotionPresence>
       </div>
 
       {showModal &&
