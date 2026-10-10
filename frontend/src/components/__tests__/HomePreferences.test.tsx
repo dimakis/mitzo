@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { HomePinButton } from '../HomePinButton';
+import { HomeDisplaySettings } from '../HomeDisplaySettings';
 import { MinionNameSettings } from '../MinionNameSettings';
 import type { HomePreferences } from '@mitzo/protocol';
 
@@ -10,6 +11,7 @@ const data = vi.hoisted(() => ({
     revision: 0,
     names: { briefing: 'Minion', terminal: 'Minion' },
     pins: [],
+    showDailyQuote: true,
   } as HomePreferences,
   conflict: false,
   fetch: vi.fn(),
@@ -17,7 +19,12 @@ const data = vi.hoisted(() => ({
 vi.mock('../../lib/api-fetch', () => ({ apiFetch: (...args: unknown[]) => data.fetch(...args) }));
 vi.mock('../../lib/event-bus-singleton', () => ({ eventBus: { on: () => () => {} } }));
 beforeEach(() => {
-  data.preferences = { revision: 0, names: { briefing: 'Minion', terminal: 'Minion' }, pins: [] };
+  data.preferences = {
+    revision: 0,
+    names: { briefing: 'Minion', terminal: 'Minion' },
+    pins: [],
+    showDailyQuote: true,
+  };
   data.conflict = false;
   data.fetch.mockReset().mockImplementation(async (_url: string, options?: RequestInit) => {
     if (options?.method === 'PUT') {
@@ -238,4 +245,102 @@ describe('home preferences', () => {
     expect(data.preferences.pins).toEqual([]);
     expect(screen.queryByRole('button', { name: 'Unpin from Today' })).toBeNull();
   });
+});
+
+describe('daily quote visibility', () => {
+  it('saves only the quote setting at its reviewed revision, preserving names and pins', async () => {
+    data.preferences.pins = [{ kind: 'session', id: 'one', title: 'Saved' }];
+    render(<HomeDisplaySettings />);
+    const toggle = await screen.findByRole('checkbox', { name: 'Show daily quote on Today' });
+    await waitFor(() => expect((toggle as HTMLInputElement).disabled).toBe(false));
+    expect((toggle as HTMLInputElement).checked).toBe(true);
+    fireEvent.click(toggle);
+    await waitFor(() => expect((toggle as HTMLInputElement).checked).toBe(false));
+    expect(
+      JSON.parse(data.fetch.mock.calls.find((call) => call[1]?.method === 'PUT')![1].body),
+    ).toEqual({ revision: 0, showDailyQuote: false });
+    expect(data.preferences.names.briefing).toBe('Minion');
+    expect(data.preferences.pins).toHaveLength(1);
+  });
+  it('shows saved truth while saving and after failure, and retries only after reviewing current preferences', async () => {
+    const original = data.fetch.getMockImplementation()!;
+    let resolveSave!: (value: unknown) => void;
+    data.fetch.mockImplementation((url: string, options?: RequestInit) =>
+      options?.method === 'PUT'
+        ? new Promise((resolve) => {
+            resolveSave = resolve;
+          })
+        : original(url, options),
+    );
+    render(<HomeDisplaySettings />);
+    const toggle = await screen.findByRole('checkbox', { name: 'Show daily quote on Today' });
+    await waitFor(() => expect((toggle as HTMLInputElement).disabled).toBe(false));
+    fireEvent.click(toggle);
+    expect((toggle as HTMLInputElement).checked).toBe(true);
+    expect((toggle as HTMLInputElement).disabled).toBe(true);
+    await act(async () => resolveSave({ ok: false, status: 503 }));
+    expect((await screen.findByRole('alert')).textContent).toContain('Couldn’t save');
+    expect((toggle as HTMLInputElement).checked).toBe(true);
+    data.preferences = {
+      ...data.preferences,
+      revision: 1,
+      showDailyQuote: false,
+      names: { briefing: 'Remote', terminal: 'Alfred' },
+    };
+    fireEvent.click(screen.getByRole('button', { name: 'Review current setting' }));
+    await waitFor(() => expect((toggle as HTMLInputElement).checked).toBe(false));
+    expect(data.fetch.mock.calls.filter((call) => call[1]?.method === 'PUT')).toHaveLength(1);
+    expect(screen.queryByRole('alert')).toBeNull();
+    data.fetch.mockImplementation(original);
+    fireEvent.click(toggle);
+    await waitFor(() => expect(data.preferences.showDailyQuote).toBe(true));
+    expect(data.preferences.names.briefing).toBe('Remote');
+  });
+  it('refreshes a conflict without replaying a stale choice or overwriting another device', async () => {
+    render(<HomeDisplaySettings />);
+    const toggle = await screen.findByRole('checkbox', { name: 'Show daily quote on Today' });
+    await waitFor(() => expect((toggle as HTMLInputElement).disabled).toBe(false));
+    data.preferences = {
+      ...data.preferences,
+      revision: 1,
+      names: { briefing: 'Remote', terminal: 'Alfred' },
+      pins: [{ kind: 'telos', id: 'other', title: 'Other' }],
+    };
+    fireEvent.click(toggle);
+    expect((await screen.findByRole('alert')).textContent).toContain('changed on another device');
+    expect((toggle as HTMLInputElement).checked).toBe(true);
+    expect(data.preferences.showDailyQuote).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Review current setting' }));
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
+    fireEvent.click(toggle);
+    await waitFor(() => expect(data.preferences.showDailyQuote).toBe(false));
+    expect(data.preferences.names.briefing).toBe('Remote');
+    expect(data.preferences.pins[0].id).toBe('other');
+    expect(
+      JSON.parse(data.fetch.mock.calls.filter((call) => call[1]?.method === 'PUT').at(-1)![1].body),
+    ).toEqual({ revision: 1, showDailyQuote: false });
+  });
+  it('disables unavailable preferences and allows a load retry', async () => {
+    data.fetch.mockResolvedValueOnce({ ok: false });
+    render(<HomeDisplaySettings />);
+    await screen.findByRole('alert');
+    expect((screen.getByRole('checkbox') as HTMLInputElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    await waitFor(() =>
+      expect((screen.getByRole('checkbox') as HTMLInputElement).disabled).toBe(false),
+    );
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+  it.each(['false', null, 0])(
+    'rejects invalid quote preference responses: %j',
+    async (showDailyQuote) => {
+      data.fetch.mockResolvedValue({
+        ok: true,
+        json: async () => ({ ...data.preferences, showDailyQuote }),
+      });
+      render(<HomeDisplaySettings />);
+      expect((await screen.findByRole('alert')).textContent).toContain('Couldn’t load');
+      expect((screen.getByRole('checkbox') as HTMLInputElement).disabled).toBe(true);
+    },
+  );
 });

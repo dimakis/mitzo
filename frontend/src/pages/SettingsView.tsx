@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useTheme } from '../hooks/useTheme';
 import { WorkspacePageHeading } from '../components/WorkspacePageHeading';
 import { ACCENTS, FONTS, useAppearance } from '../hooks/useAppearance';
+import { HomeDisplaySettings } from '../components/HomeDisplaySettings';
 import { MinionNameSettings } from '../components/MinionNameSettings';
 export function SettingsView() {
   const { preference, setTheme } = useTheme();
@@ -10,6 +11,7 @@ export function SettingsView() {
   return (
     <main className="workspace-page settings-page">
       <WorkspacePageHeading title="Settings" description="Your preferences and data protection." />
+      <HomeDisplaySettings />
       <MinionNameSettings />
       <section className="appearance-section">
         <h2>Appearance</h2>

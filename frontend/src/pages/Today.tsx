@@ -79,7 +79,9 @@ export function Today() {
           day: 'numeric',
         })}
         title="Today"
-        titleAccessory={<DailyQuoteLink date={today} />}
+        titleAccessory={
+          home.preferences?.showDailyQuote === true ? <DailyQuoteLink date={today} /> : undefined
+        }
         actions={
           <Link className="home-secondary" to="/chat">
             New session <UiIcon name="plus" size={16} />
