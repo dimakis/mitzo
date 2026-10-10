@@ -8,6 +8,7 @@ test.beforeEach(async ({ page }) => {
   let planConnected = false;
   let planDisconnected = false;
   let planRevocationPending = false;
+  let planAttemptPending = false;
   await page.addInitScript(() => {
     localStorage.setItem('mitzo-theme', 'dark');
     const original = window.fetch;
@@ -100,6 +101,7 @@ test.beforeEach(async ({ page }) => {
         return route.fulfill({
           json: {
             enabled: true,
+            pendingAttempt: planAttemptPending ? { id: 'attempt-offline', state: 'pending' } : null,
             accounts:
               planConnected || planDisconnected
                 ? [
@@ -114,8 +116,16 @@ test.beforeEach(async ({ page }) => {
                 : [],
           },
         });
-      if (url.pathname === '/api/terminals/subscriptions/start')
+      if (url.pathname === '/api/terminals/subscriptions/start') {
+        if (planAttemptPending)
+          return route.fulfill({ status: 409, json: { error: 'Sign-in already pending' } });
+        planAttemptPending = true;
         return route.fulfill({ status: 202, json: { id: 'attempt-offline', state: 'pending' } });
+      }
+      if (url.pathname === '/api/terminals/subscriptions/attempts/attempt-offline/cancel') {
+        planAttemptPending = false;
+        return route.fulfill({ json: { ok: true } });
+      }
       if (url.pathname === '/api/terminals/subscriptions/plan-offline/disconnect') {
         planConnected = false;
         planDisconnected = true;
@@ -123,6 +133,7 @@ test.beforeEach(async ({ page }) => {
         return route.fulfill({ json: { revoked: false } });
       }
       if (url.pathname === '/api/terminals/subscriptions/attempts/attempt-offline') {
+        planAttemptPending = false;
         planConnected = true;
         return route.fulfill({ json: { id: 'attempt-offline', state: 'connected' } });
       }
@@ -217,6 +228,126 @@ test.beforeEach(async ({ page }) => {
       await route.fulfill({ status: 404, body: 'Missing offline asset' });
     }
   });
+});
+
+test('recovers an owned pending adviser sign-in after navigation and reload without another browser launch', async ({
+  page,
+  isMobile,
+}, testInfo) => {
+  await page.setViewportSize({ width: isMobile ? 320 : 1280, height: 900 });
+  let pollReads = 0;
+  await page.route('**/api/terminals/subscriptions/attempts/attempt-offline', async (route) => {
+    pollReads++;
+    await route.fulfill({ json: { id: 'attempt-offline', state: 'pending' } });
+  });
+  await page.goto('/terminal');
+  await page.getByRole('button', { name: 'Show Minion' }).click();
+  await page.getByRole('button', { name: 'Manage adviser accounts' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Adviser accounts' });
+  await dialog.getByRole('button', { name: 'Continue with ChatGPT on your Mac' }).click();
+  await expect(dialog.getByRole('button', { name: 'Cancel sign-in' })).toBeVisible();
+  for (const remount of ['navigate', 'reload']) {
+    if (remount === 'navigate') {
+      await page.goto('/more');
+      await page.goto('/terminal');
+    } else await page.reload();
+    await page.getByRole('button', { name: 'Show Minion' }).click();
+    await page.getByRole('button', { name: 'Manage adviser accounts' }).click();
+    await expect(dialog.getByRole('button', { name: 'Cancel sign-in' })).toBeVisible();
+    await expect(
+      dialog.getByRole('button', { name: 'Continue with ChatGPT on your Mac' }),
+    ).toBeDisabled();
+    await expect(dialog.getByRole('status')).toContainText(
+      'Finish sign-in in the browser on your Mac.',
+    );
+    if (remount === 'reload')
+      await page.evaluate(() => {
+        document.documentElement.dataset.theme = 'light';
+        document.documentElement.dataset.accent = 'teal';
+        document.documentElement.dataset.font = 'georgia';
+      });
+    await dialog.getByRole('button', { name: 'Refresh adviser accounts' }).click();
+    await expect(
+      dialog.getByRole('button', { name: 'Continue with ChatGPT on your Mac' }),
+    ).toBeDisabled();
+    const cancel = dialog.getByRole('button', { name: 'Cancel sign-in' });
+    await cancel.scrollIntoViewIfNeeded();
+    expect((await cancel.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    await page.screenshot({
+      path: testInfo.outputPath(`adviser-pending-${remount}.png`),
+      animations: 'disabled',
+    });
+  }
+  await expect.poll(() => pollReads).toBeGreaterThan(0);
+  await dialog.getByRole('button', { name: 'Cancel sign-in' }).click();
+  await expect(dialog.getByRole('status')).toContainText('Sign-in cancelled.');
+  await expect(
+    dialog.getByRole('button', { name: 'Continue with ChatGPT on your Mac' }),
+  ).toBeEnabled();
+  expect(mutations.filter((item) => item.path.endsWith('/subscriptions/start'))).toHaveLength(1);
+  expect(
+    mutations.filter((item) => item.path.endsWith('/attempts/attempt-offline/cancel')),
+  ).toHaveLength(1);
+  expect(mutations.filter((item) => item.path.endsWith('/input'))).toHaveLength(0);
+  expect(await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+});
+
+test('preserves the next pending sign-in recovered during an older completion refresh', async ({
+  page,
+}, testInfo) => {
+  let current: string | null = 'attempt-a';
+  let nextPolls = 0;
+  await page.route('**/api/terminals/subscriptions**', async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (route.request().method() !== 'GET')
+      mutations.push({ path, body: route.request().postDataJSON() ?? {} });
+    if (path.endsWith('/attempts/attempt-a')) {
+      current = 'attempt-b';
+      return route.fulfill({ json: { id: 'attempt-a', state: 'connected' } });
+    }
+    if (path.endsWith('/attempts/attempt-b')) {
+      nextPolls++;
+      return route.fulfill({ json: { id: 'attempt-b', state: 'pending' } });
+    }
+    if (path.endsWith('/attempts/attempt-b/cancel')) {
+      current = null;
+      return route.fulfill({ json: { ok: true } });
+    }
+    if (path === '/api/terminals/subscriptions')
+      return route.fulfill({
+        json: {
+          enabled: true,
+          accounts: [],
+          pendingAttempt: current ? { id: current, state: 'pending' } : null,
+        },
+      });
+    return route.fulfill({ status: 409, json: { error: 'Unexpected sign-in mutation' } });
+  });
+  await page.goto('/terminal');
+  await page.getByRole('button', { name: 'Show Minion' }).click();
+  await page.getByRole('button', { name: 'Manage adviser accounts' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Adviser accounts' });
+  await expect.poll(() => nextPolls, { timeout: 10000 }).toBeGreaterThan(0);
+  await expect(dialog.getByRole('status')).toHaveText('Finish sign-in in the browser on your Mac.');
+  await expect(
+    dialog.getByRole('button', { name: 'Continue with ChatGPT on your Mac' }),
+  ).toBeDisabled();
+  const cancel = dialog.getByRole('button', { name: 'Cancel sign-in' });
+  await expect(cancel).toBeEnabled();
+  await cancel.scrollIntoViewIfNeeded();
+  await page.screenshot({
+    path: testInfo.outputPath('adviser-next-attempt-pending.png'),
+    animations: 'disabled',
+  });
+  await cancel.click();
+  await expect(dialog.getByRole('status')).toHaveText('Sign-in cancelled.');
+  await expect(
+    dialog.getByRole('button', { name: 'Continue with ChatGPT on your Mac' }),
+  ).toBeEnabled();
+  expect(mutations.filter((item) => item.path.startsWith('/api/terminals/subscriptions'))).toEqual([
+    { path: '/api/terminals/subscriptions/attempts/attempt-b/cancel', body: {} },
+  ]);
+  expect(mutations.filter((item) => item.path.endsWith('/input'))).toHaveLength(0);
 });
 
 test('connects a subscription adviser through compact account management without terminal input', async ({
