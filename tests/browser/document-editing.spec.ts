@@ -13,6 +13,30 @@ async function expectSource(source: Locator, value: string) {
   await expect.poll(() => sourceText(source)).toBe(value);
 }
 
+async function selectKnowledgeDocument(page: Page, path: string) {
+  const ancestors = path.split('/').slice(0, -1);
+  for (let index = 0; index < ancestors.length; index++) {
+    const folder = page.getByRole('button', {
+      name: `Folder ${ancestors.slice(0, index + 1).join('/')}`,
+      exact: true,
+    });
+    await expect(folder).toBeVisible();
+    if ((await folder.getAttribute('aria-expanded')) === 'false') await folder.click();
+  }
+  const row = page.locator('.knowledge-tree-row').filter({
+    has: page.getByRole('button', { name: `Options for ${path}`, exact: true }),
+  });
+  await row.locator('.knowledge-tree-entry').click();
+}
+
+async function editKnowledgeDocument(page: Page, path: string, title: string) {
+  await selectKnowledgeDocument(page, path);
+  await expect(page.getByRole('article', { name: title, exact: true })).toBeVisible();
+  await expect(page.getByRole('textbox', { name: 'Document source' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Edit', exact: true }).click();
+  await expect(page.getByRole('textbox', { name: 'Document source' })).toBeVisible();
+}
+
 async function mockDocument(page: Page, content: string) {
   const writes: Record<string, unknown>[] = [];
   await page.routeWebSocket('**/*', (socket) => socket.close());
@@ -479,6 +503,8 @@ test('Knowledge edits and saves its working copy with usable source, preview and
         json: {
           revision: 'r1',
           documents: [{ path: 'hub/principles.md', title: 'Working principles', area: 'Hub' }],
+          directories: ['hub'],
+          documentPaths: ['hub'],
           drafts: [],
           reviewEnabled: false,
           acceptanceEnabled: false,
@@ -512,7 +538,7 @@ test('Knowledge edits and saves its working copy with usable source, preview and
     return route.fulfill({ json: {} });
   });
   await page.goto('/knowledge');
-  await page.getByRole('button', { name: /Working principles/ }).click();
+  await editKnowledgeDocument(page, 'hub/principles.md', 'Working principles');
   const source = page.getByRole('textbox', { name: 'Document source' });
   if (isMobile) await expect(source).toHaveJSProperty('tagName', 'TEXTAREA');
   else await expect(source).toHaveAttribute('contenteditable', 'true');
@@ -559,6 +585,8 @@ test('adopting a same-content saved Knowledge draft clears obsolete Vim undo his
         json: {
           revision: 'r1',
           documents: [{ path, title: 'Working principles', area: 'Hub' }],
+          directories: ['hub'],
+          documentPaths: ['hub'],
           drafts: [],
           reviewEnabled: false,
           acceptanceEnabled: false,
@@ -584,7 +612,7 @@ test('adopting a same-content saved Knowledge draft clears obsolete Vim undo his
     return route.fulfill({ json: {} });
   });
   await page.goto('/knowledge');
-  await page.getByRole('button', { name: /Working principles/ }).click();
+  await editKnowledgeDocument(page, 'hub/principles.md', 'Working principles');
   const source = page.getByRole('textbox', { name: 'Document source' });
   await source.fill(content);
   await expect(page.getByRole('button', { name: 'Undo', exact: true })).toBeEnabled();
@@ -731,6 +759,8 @@ test('fullscreen Knowledge comparisons scroll independently and preserve space f
   const catalog = () => ({
     revision: comparing ? 'r2' : 'r1',
     documents,
+    directories: ['hub', 'teams'],
+    documentPaths: ['hub', 'teams'],
     drafts: [],
     reviewEnabled: false,
     acceptanceEnabled: false,
@@ -775,11 +805,11 @@ test('fullscreen Knowledge comparisons scroll independently and preserve space f
     return route.fulfill({ json: {} });
   });
   await page.goto('/knowledge');
-  await page.getByRole('button', { name: /Working principles/ }).click();
+  await editKnowledgeDocument(page, 'hub/principles.md', 'Working principles');
   const source = page.getByRole('textbox', { name: 'Document source' });
   await source.fill('# My principles draft');
   await page.getByRole('button', { name: '+ Add document', exact: true }).click();
-  await page.getByRole('button', { name: /Release process/ }).click();
+  await selectKnowledgeDocument(page, 'teams/release.md');
   await source.fill('# My release draft');
   await page.getByRole('button', { name: 'Fullscreen', exact: true }).click();
   const modal = page.getByRole('dialog', { name: 'Fullscreen document editor' });
@@ -816,4 +846,89 @@ test('fullscreen Knowledge comparisons scroll independently and preserve space f
   // An uncertain initial creation keeps its request identity on retry.
   expect(writes.at(-1)?.requestId).toBe(writes[0].requestId);
   await expect(modal.getByRole('alert')).toHaveCount(0);
+});
+
+test('Knowledge reload lands on the Library and resumes the recovered copy only explicitly', async ({
+  page,
+}) => {
+  const path = 'hub/voice-guide.md';
+  const content = '# Voice guide\n\nKeep the recovered working copy.';
+  const savedDocuments = [{ path, base: '# Accepted voice guide', content: '# Saved voice guide' }];
+  const recovered = {
+    title: 'Voice guide',
+    baseRevision: 'r1',
+    documents: [{ path, base: '# Accepted voice guide', content }],
+    directories: ['hub/pending-guides'],
+    selected: path,
+    saved: JSON.stringify(savedDocuments),
+    savedDirectories: [],
+    draft: {
+      id: 'fixture-recovered-copy',
+      title: 'Voice guide',
+      baseRevision: 'r1',
+      version: 2,
+      state: 'draft',
+      documents: savedDocuments,
+      updatedAt: '2026-10-09T12:00:00Z',
+    },
+    pendingCreate: {
+      requestId: 'f95608ac-c6d4-4f2b-845b-313c70a19f8c',
+      title: 'Voice guide',
+      baseRevision: 'r1',
+      documents: [{ path, content }],
+      directories: ['hub/pending-guides'],
+    },
+  };
+  const serialized = JSON.stringify(recovered);
+  const authoringRequests: string[] = [];
+  await page.routeWebSocket('**/*', (socket) => socket.close());
+  await page.route('**/api/**', (route) => {
+    const url = new URL(route.request().url());
+    if (route.request().method() !== 'GET') authoringRequests.push(url.pathname);
+    if (url.pathname === '/api/knowledge')
+      return route.fulfill({
+        json: {
+          revision: 'r1',
+          documents: [{ path, title: 'Voice guide', area: 'Hub' }],
+          directories: ['hub'],
+          documentPaths: ['hub'],
+          drafts: [],
+          reviewEnabled: false,
+          acceptanceEnabled: false,
+          syncedAt: null,
+        },
+      });
+    if (url.pathname === '/api/knowledge/document')
+      return route.fulfill({ json: { path, revision: 'r1', content: '# Accepted voice guide' } });
+    return route.fulfill({ json: {} });
+  });
+  await page.goto('/knowledge');
+  await page.evaluate(
+    (copy) => localStorage.setItem('mitzo-knowledge-working-copy:', copy),
+    serialized,
+  );
+  await page.reload();
+  const source = page.getByRole('textbox', { name: 'Document source' });
+  await expect(page.getByRole('button', { name: 'Folder hub', exact: true })).toBeVisible();
+  await expect(page.getByRole('searchbox', { name: 'Search knowledge' })).toBeVisible();
+  await expect(source).toHaveCount(0);
+  await expect(page.locator('.cm-editor')).toHaveCount(0);
+  expect(await page.evaluate(() => localStorage.getItem('mitzo-knowledge-working-copy:'))).toBe(
+    serialized,
+  );
+  await selectKnowledgeDocument(page, path);
+  await expect(page.getByRole('article', { name: 'Voice guide' })).toContainText(
+    'Keep the recovered working copy.',
+  );
+  await expect(source).toHaveCount(0);
+  expect(await page.evaluate(() => localStorage.getItem('mitzo-knowledge-working-copy:'))).toBe(
+    serialized,
+  );
+  await page.getByRole('button', { name: '← Library', exact: true }).click();
+  await page.getByRole('button', { name: 'Resume editing', exact: true }).click();
+  await expectSource(source, content);
+  expect(await page.evaluate(() => localStorage.getItem('mitzo-knowledge-working-copy:'))).toBe(
+    serialized,
+  );
+  expect(authoringRequests).toEqual([]);
 });

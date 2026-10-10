@@ -35,6 +35,14 @@ const catalog = {
 function response(data: unknown, ok = true) {
   return { ok, json: async () => data } as Response;
 }
+async function findLibraryDocument(name: RegExp, folder = 'hub') {
+  const parent = await screen.findByRole('button', { name: `Folder ${folder}` });
+  if (parent.getAttribute('aria-expanded') === 'false') fireEvent.click(parent);
+  return screen.findByRole('button', { name });
+}
+async function resumeRecoveredCopy() {
+  fireEvent.click(await screen.findByRole('button', { name: /^(Resume editing|Review changes)$/ }));
+}
 function setup() {
   return render(
     <MemoryRouter>
@@ -96,13 +104,17 @@ afterEach(() => {
     else Reflect.deleteProperty(Range.prototype, name);
   }
 });
-it('curates accepted documents by search and area and opens the full editor', async () => {
+it('curates accepted documents by search and area and opens a read-only reader before Edit', async () => {
   setup();
-  await screen.findByRole('button', { name: /Working principles/ });
+  await findLibraryDocument(/Working principles/);
   fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'Release' } });
   expect(screen.queryByRole('button', { name: /Working principles/ })).toBeNull();
   fireEvent.change(screen.getByRole('searchbox'), { target: { value: '' } });
   fireEvent.click(screen.getByRole('button', { name: /Working principles/ }));
+  await screen.findByRole('article', { name: 'Working principles' });
+  expect(screen.queryByRole('textbox', { name: 'Document source' })).toBeNull();
+  expect(localStorage.getItem('mitzo-knowledge-working-copy:')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
   await screen.findByRole('textbox', { name: 'Document source' });
   for (const name of ['Source', 'Preview', 'Split', 'Undo', 'Redo', 'Save'])
     expect(screen.getByRole('button', { name })).toBeTruthy();
@@ -110,7 +122,8 @@ it('curates accepted documents by search and area and opens the full editor', as
 });
 it('Save durably creates a draft and opens review without exposing Git workflow', async () => {
   setup();
-  fireEvent.click(await screen.findByRole('button', { name: /Working principles/ }));
+  fireEvent.click(await findLibraryDocument(/Working principles/));
+  fireEvent.click(await screen.findByRole('button', { name: 'Edit' }));
   const input = await screen.findByRole('textbox', { name: 'Document source' });
   fireEvent.change(input, { target: { value: '# Revised' } });
   fireEvent.click(screen.getByRole('button', { name: 'Save' }));
@@ -132,7 +145,8 @@ it('shows save errors inside fullscreen while preserving the working copy', asyn
     return original(path, init);
   });
   setup();
-  fireEvent.click(await screen.findByRole('button', { name: /Working principles/ }));
+  fireEvent.click(await findLibraryDocument(/Working principles/));
+  fireEvent.click(await screen.findByRole('button', { name: 'Edit' }));
   fireEvent.change(await screen.findByRole('textbox', { name: 'Document source' }), {
     target: { value: '# Keep my changes' },
   });
@@ -144,12 +158,14 @@ it('shows save errors inside fullscreen while preserving the working copy', asyn
 });
 it('recovers unsaved work across remounts and preserves it on a review conflict', async () => {
   const first = setup();
-  fireEvent.click(await screen.findByRole('button', { name: /Working principles/ }));
+  fireEvent.click(await findLibraryDocument(/Working principles/));
+  fireEvent.click(await screen.findByRole('button', { name: 'Edit' }));
   fireEvent.change(await screen.findByRole('textbox', { name: 'Document source' }), {
     target: { value: '# Recovered' },
   });
   first.unmount();
   setup();
+  await resumeRecoveredCopy();
   expect(
     ((await screen.findByRole('textbox', { name: 'Document source' })) as HTMLTextAreaElement)
       .value,
@@ -187,7 +203,8 @@ it('accepts only after reconciling the exact current review and reports waiting 
     return original(path, init);
   });
   setup();
-  fireEvent.click(await screen.findByRole('button', { name: /Working principles/ }));
+  fireEvent.click(await findLibraryDocument(/Working principles/));
+  fireEvent.click(await screen.findByRole('button', { name: 'Edit' }));
   fireEvent.change(await screen.findByRole('textbox', { name: 'Document source' }), {
     target: { value: '# Revised' },
   });
@@ -214,7 +231,8 @@ it('keeps a failed review draft and requires an explicit choice before rebasing'
     return original(path, init);
   });
   setup();
-  fireEvent.click(await screen.findByRole('button', { name: /Working principles/ }));
+  fireEvent.click(await findLibraryDocument(/Working principles/));
+  fireEvent.click(await screen.findByRole('button', { name: 'Edit' }));
   fireEvent.change(await screen.findByRole('textbox', { name: 'Document source' }), {
     target: { value: '# Revised' },
   });
@@ -245,7 +263,8 @@ it('keeps a failed review draft and requires an explicit choice before rebasing'
 });
 it('undoes and redoes edits, and guards unloading while changes are unsaved', async () => {
   setup();
-  fireEvent.click(await screen.findByRole('button', { name: /Working principles/ }));
+  fireEvent.click(await findLibraryDocument(/Working principles/));
+  fireEvent.click(await screen.findByRole('button', { name: 'Edit' }));
   const input = (await screen.findByRole('textbox', {
     name: 'Document source',
   })) as HTMLTextAreaElement;
@@ -261,7 +280,8 @@ it('undoes and redoes edits, and guards unloading while changes are unsaved', as
 });
 it('starts a new change from retained edits after explicitly comparing accepted knowledge', async () => {
   setup();
-  fireEvent.click(await screen.findByRole('button', { name: /Working principles/ }));
+  fireEvent.click(await findLibraryDocument(/Working principles/));
+  fireEvent.click(await screen.findByRole('button', { name: 'Edit' }));
   fireEvent.change(await screen.findByRole('textbox', { name: 'Document source' }), {
     target: { value: '# Revised' },
   });
@@ -286,7 +306,8 @@ it('retries an uncertain first save with the same persisted request identity', a
     return original(path, init);
   });
   const first = setup();
-  fireEvent.click(await screen.findByRole('button', { name: /Working principles/ }));
+  fireEvent.click(await findLibraryDocument(/Working principles/));
+  fireEvent.click(await screen.findByRole('button', { name: 'Edit' }));
   fireEvent.change(await screen.findByRole('textbox', { name: 'Document source' }), {
     target: { value: '# Revised' },
   });
@@ -294,6 +315,7 @@ it('retries an uncertain first save with the same persisted request identity', a
   await screen.findByText('Connection lost before acknowledgement');
   first.unmount();
   setup();
+  await resumeRecoveredCopy();
   fireEvent.change(await screen.findByRole('textbox', { name: 'Document source' }), {
     target: { value: '# Revised' },
   });
@@ -343,7 +365,8 @@ it('sends the exact saved review draft for review, preserving its source and req
     return original(path, init);
   });
   setup();
-  fireEvent.click(await screen.findByRole('button', { name: /Working principles/ }));
+  fireEvent.click(await findLibraryDocument(/Working principles/));
+  fireEvent.click(await screen.findByRole('button', { name: 'Edit' }));
   const source = (await screen.findByRole('textbox', {
     name: 'Document source',
   })) as HTMLTextAreaElement;
@@ -379,7 +402,8 @@ it('preserves a saved review draft when sending for review fails', async () => {
     return original(path, init);
   });
   setup();
-  fireEvent.click(await screen.findByRole('button', { name: /Working principles/ }));
+  fireEvent.click(await findLibraryDocument(/Working principles/));
+  fireEvent.click(await screen.findByRole('button', { name: 'Edit' }));
   fireEvent.change(await screen.findByRole('textbox', { name: 'Document source' }), {
     target: { value: '# Revised' },
   });
@@ -411,7 +435,8 @@ it('requires a fresh review submission after saving newer document edits', async
     return original(path, init);
   });
   setup();
-  fireEvent.click(await screen.findByRole('button', { name: /Working principles/ }));
+  fireEvent.click(await findLibraryDocument(/Working principles/));
+  fireEvent.click(await screen.findByRole('button', { name: 'Edit' }));
   fireEvent.change(await screen.findByRole('textbox', { name: 'Document source' }), {
     target: { value: '# Revised' },
   });
@@ -433,7 +458,8 @@ it('requires a fresh review submission after saving newer document edits', async
 });
 it('does not create empty drafts or change a clean confirmed ready review on Save', async () => {
   setup();
-  fireEvent.click(await screen.findByRole('button', { name: /Working principles/ }));
+  fireEvent.click(await findLibraryDocument(/Working principles/));
+  fireEvent.click(await screen.findByRole('button', { name: 'Edit' }));
   const source = (await screen.findByRole('textbox', {
     name: 'Document source',
   })) as HTMLTextAreaElement;
@@ -473,7 +499,8 @@ it('retries an unconfirmed review at the same saved version without saving new d
     return original(path, init);
   });
   setup();
-  fireEvent.click(await screen.findByRole('button', { name: /Working principles/ }));
+  fireEvent.click(await findLibraryDocument(/Working principles/));
+  fireEvent.click(await screen.findByRole('button', { name: 'Edit' }));
   fireEvent.change(await screen.findByRole('textbox', { name: 'Document source' }), {
     target: { value: '# Revised' },
   });
@@ -537,7 +564,8 @@ it.each(['# Revised', '# Further local'])(
       return original(path, init);
     });
     const view = setup();
-    fireEvent.click(await screen.findByRole('button', { name: /Working principles/ }));
+    fireEvent.click(await findLibraryDocument(/Working principles/));
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit' }));
     fireEvent.change(await screen.findByRole('textbox', { name: 'Document source' }), {
       target: { value: '# Revised' },
     });
@@ -563,6 +591,7 @@ it.each(['# Revised', '# Further local'])(
     expect(vi.mocked(apiFetch).mock.calls).toHaveLength(before);
     view.unmount();
     setup();
+    await resumeRecoveredCopy();
     await screen.findByRole('region', { name: 'Compare saved draft and working copy' });
     expect((screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(true);
     expect(
@@ -619,6 +648,7 @@ it('keeps the conflict when explicit reconciliation races another save and lets 
         : response(catalog),
   );
   setup();
+  await resumeRecoveredCopy();
   const source = (await screen.findByRole('textbox', {
     name: 'Document source',
   })) as HTMLTextAreaElement;
@@ -672,7 +702,8 @@ it('preserves edits on an existing draft version conflict and reconciles using t
     return original(path, init);
   });
   const view = setup();
-  fireEvent.click(await screen.findByRole('button', { name: /Working principles/ }));
+  fireEvent.click(await findLibraryDocument(/Working principles/));
+  fireEvent.click(await screen.findByRole('button', { name: 'Edit' }));
   fireEvent.change(await screen.findByRole('textbox', { name: 'Document source' }), {
     target: { value: '# Revised' },
   });
@@ -692,6 +723,7 @@ it('preserves edits on an existing draft version conflict and reconciles using t
   ).toBe('# My local edits');
   view.unmount();
   setup();
+  await resumeRecoveredCopy();
   await screen.findByRole('region', { name: 'Compare saved draft and working copy' });
   expect((screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(true);
   const before = vi.mocked(apiFetch).mock.calls.length;
@@ -729,7 +761,8 @@ it('keeps a failed saved-version fetch recoverable without allowing writes until
     return original(path, init);
   });
   const view = setup();
-  fireEvent.click(await screen.findByRole('button', { name: /Working principles/ }));
+  fireEvent.click(await findLibraryDocument(/Working principles/));
+  fireEvent.click(await screen.findByRole('button', { name: 'Edit' }));
   fireEvent.change(await screen.findByRole('textbox', { name: 'Document source' }), {
     target: { value: '# Revised' },
   });
@@ -749,6 +782,7 @@ it('keeps a failed saved-version fetch recoverable without allowing writes until
     expect((screen.getByRole('button', { name }) as HTMLButtonElement).disabled).toBe(true);
   view.unmount();
   setup();
+  await resumeRecoveredCopy();
   await screen.findByText(
     'The latest saved version is unavailable. Refresh the comparison to continue.',
   );
@@ -787,7 +821,8 @@ it('recovers a lost update acknowledgement through saved comparison when the nex
     return original(path, init);
   });
   setup();
-  fireEvent.click(await screen.findByRole('button', { name: /Working principles/ }));
+  fireEvent.click(await findLibraryDocument(/Working principles/));
+  fireEvent.click(await screen.findByRole('button', { name: 'Edit' }));
   fireEvent.change(await screen.findByRole('textbox', { name: 'Document source' }), {
     target: { value: '# Revised' },
   });
@@ -887,6 +922,7 @@ it('explicitly excludes catalog-confirmed removed documents while preserving and
   ).toBe(false);
   view.unmount();
   setup();
+  await resumeRecoveredCopy();
   await screen.findByRole('textbox', { name: 'Document source' });
   expect(JSON.parse(localStorage.getItem('mitzo-knowledge-working-copy:')!).documents).toEqual([
     removed,
@@ -967,7 +1003,8 @@ it('recovers an explicitly emptied draft and adds a current document using the l
   expect(JSON.parse(localStorage.getItem('mitzo-knowledge-working-copy:')!).documents).toEqual([]);
   view.unmount();
   setup();
-  fireEvent.click(await screen.findByRole('button', { name: /Current release notes/ }));
+  fireEvent.click(await screen.findByRole('button', { name: '+ Add document' }));
+  fireEvent.click(await findLibraryDocument(/Current release notes/, 'teams'));
   const source = (await screen.findByRole('textbox', {
     name: 'Document source',
   })) as HTMLTextAreaElement;
@@ -1066,6 +1103,7 @@ it.each(['accepted', 'closed'])(
       return response({ draft: terminal });
     });
     const view = setup();
+    await resumeRecoveredCopy();
     await screen.findByRole('region', { name: 'Compare saved draft and working copy' });
     fireEvent.click(screen.getByRole('button', { name: 'Start new change with my edits' }));
     await screen.findByText('# Current accepted principles');
@@ -1076,6 +1114,7 @@ it.each(['accepted', 'closed'])(
     expect(recovery.initialSaveConflict).toBeUndefined();
     view.unmount();
     setup();
+    await resumeRecoveredCopy();
     await screen.findByRole('textbox', { name: 'Document source' });
     expect((screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(screen.getByRole('button', { name: 'Compare accepted version' }));
@@ -1147,7 +1186,8 @@ it.each(['accepted', 'closed', 'in-review'])(
     expect(empty.pendingCreate).toBeUndefined();
     view.unmount();
     setup();
-    fireEvent.click(await screen.findByRole('button', { name: /Replacement document/ }));
+    fireEvent.click(await screen.findByRole('button', { name: '+ Add document' }));
+    fireEvent.click(await findLibraryDocument(/Replacement document/, 'teams'));
     const source = await screen.findByRole('textbox', { name: 'Document source' });
     fireEvent.change(source, { target: { value: '# New replacement edits' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
@@ -1199,6 +1239,7 @@ it('preserves an ordinary new-change intent across reload and retries its lost a
   await screen.findByText('# Principles');
   view.unmount();
   view = setup();
+  await resumeRecoveredCopy();
   const source = await screen.findByRole('textbox', { name: 'Document source' });
   expect((screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(true);
   const before = vi.mocked(apiFetch).mock.calls.length;
@@ -1213,6 +1254,7 @@ it('preserves an ordinary new-change intent across reload and retries its lost a
   expect(pending.pendingCreate.requestId).toMatch(/^[0-9a-f-]{36}$/);
   view.unmount();
   setup();
+  await resumeRecoveredCopy();
   await screen.findByRole('textbox', { name: 'Document source' });
   fireEvent.click(screen.getByRole('button', { name: 'Save' }));
   await screen.findByText('Review draft saved');
@@ -1226,6 +1268,545 @@ it('preserves an ordinary new-change intent across reload and retries its lost a
   expect(vi.mocked(apiFetch).mock.calls.some(([, init]) => init?.method === 'PUT')).toBe(false);
 });
 
+it('keeps matching documents inside their folder ancestors and expands empty folders', async () => {
+  const original = vi.mocked(apiFetch).getMockImplementation()!;
+  vi.mocked(apiFetch).mockImplementation(async (path, init) =>
+    path === '/api/knowledge'
+      ? response({
+          ...catalog,
+          directories: ['hub', 'hub/empty', 'hub/context'],
+          documents: [{ path: 'hub/context/guide.md', title: 'Voice guide', area: 'Hub' }],
+        })
+      : original(path, init),
+  );
+  setup();
+  fireEvent.change(await screen.findByRole('searchbox'), { target: { value: 'Voice' } });
+  expect(screen.getByRole('button', { name: 'Folder hub' })).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Folder hub/context' })).toBeTruthy();
+  expect(screen.getByRole('button', { name: /Voice guide/ })).toBeTruthy();
+  fireEvent.change(screen.getByRole('searchbox'), { target: { value: '' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Folder hub' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Folder hub/empty' }));
+  expect(screen.getByText('This folder is empty.')).toBeTruthy();
+});
+
+it('creates a folder under an explicit parent and saves a folder-only change', async () => {
+  const original = vi.mocked(apiFetch).getMockImplementation()!;
+  vi.mocked(apiFetch).mockImplementation(async (path, init) => {
+    if (path === '/api/knowledge') return response({ ...catalog, directories: ['hub'] });
+    if (path === '/api/knowledge/drafts') {
+      const body = JSON.parse(String(init?.body));
+      return response({
+        draft: {
+          ...draft,
+          state: 'draft',
+          review: undefined,
+          documents: [],
+          directories: body.directories,
+        },
+      });
+    }
+    if (path.endsWith('/review'))
+      return response({ draft: { ...draft, documents: [], directories: ['hub/guides'] } });
+    return original(path, init);
+  });
+  setup();
+  fireEvent.click(await screen.findByRole('button', { name: 'Folder hub' }));
+  fireEvent.click(screen.getByRole('button', { name: 'New folder' }));
+  expect(screen.getByRole('dialog', { name: 'New folder' }).textContent).toContain('hub');
+  fireEvent.change(screen.getByRole('textbox', { name: 'Folder name' }), {
+    target: { value: 'guides' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Create folder' }));
+  await screen.findByText('New folder: hub/guides');
+  expect(screen.queryByRole('textbox', { name: 'Document source' })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  await waitFor(() =>
+    expect(vi.mocked(apiFetch).mock.calls.some(([path]) => path === '/api/knowledge/drafts')).toBe(
+      true,
+    ),
+  );
+  const body = JSON.parse(
+    String(
+      vi.mocked(apiFetch).mock.calls.find(([path]) => path === '/api/knowledge/drafts')?.[1]?.body,
+    ),
+  );
+  expect(body.directories).toEqual(['hub/guides']);
+  expect(body.documents).toEqual([]);
+});
+
+it('moves a document through same-area folder choices and preserves edited content', async () => {
+  const original = vi.mocked(apiFetch).getMockImplementation()!;
+  vi.mocked(apiFetch).mockImplementation(async (path, init) =>
+    path === '/api/knowledge'
+      ? response({
+          ...catalog,
+          directories: ['hub', 'hub/context', 'teams'],
+          documentPaths: ['hub', 'teams'],
+        })
+      : original(path, init),
+  );
+  setup();
+  fireEvent.click(await findLibraryDocument(/Working principles/));
+  fireEvent.click(await screen.findByRole('button', { name: 'Edit' }));
+  fireEvent.change(await screen.findByRole('textbox', { name: 'Document source' }), {
+    target: { value: '# Keep edits when moved' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: '← Library' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Options for hub/principles.md' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Move document' }));
+  const dialog = await screen.findByRole('dialog', { name: 'Move document' });
+  expect(within(dialog).queryByRole('button', { name: 'Folder teams' })).toBeNull();
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Folder hub/context' }));
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Move here' }));
+  await screen.findByText('Moved: hub/principles.md → hub/context/principles.md');
+  fireEvent.click(screen.getByRole('button', { name: 'Resume editing' }));
+  expect(
+    ((await screen.findByRole('textbox', { name: 'Document source' })) as HTMLTextAreaElement)
+      .value,
+  ).toBe('# Keep edits when moved');
+});
+
+it('lets an invalid pending folder be removed without discarding unrelated document edits', async () => {
+  const original = vi.mocked(apiFetch).getMockImplementation()!;
+  vi.mocked(apiFetch).mockImplementation(async (path, init) => {
+    if (path === '/api/knowledge') return response({ ...catalog, directories: ['hub'] });
+    return original(path, init);
+  });
+  setup();
+  fireEvent.click(await findLibraryDocument(/Working principles/));
+  fireEvent.click(await screen.findByRole('button', { name: 'Edit' }));
+  fireEvent.change(await screen.findByRole('textbox', { name: 'Document source' }), {
+    target: { value: '# Retain these edits' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: '← Library' }));
+  fireEvent.click(screen.getByRole('button', { name: 'New folder' }));
+  const dialog = screen.getByRole('dialog', { name: 'New folder' });
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Folder hub' }));
+  fireEvent.change(within(dialog).getByRole('textbox', { name: 'Folder name' }), {
+    target: { value: 'collision' },
+  });
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Create folder' }));
+  await screen.findByText('New folder: hub/collision');
+  fireEvent.click(screen.getByRole('button', { name: 'Remove new folder hub/collision' }));
+  await waitFor(() => expect(screen.queryByText('New folder: hub/collision')).toBeNull());
+  fireEvent.click(screen.getByRole('button', { name: 'Resume editing' }));
+  expect(
+    ((await screen.findByRole('textbox', { name: 'Document source' })) as HTMLTextAreaElement)
+      .value,
+  ).toBe('# Retain these edits');
+});
+
+it('starts an organization change when moving an unopened accepted document', async () => {
+  const original = vi.mocked(apiFetch).getMockImplementation()!;
+  vi.mocked(apiFetch).mockImplementation(async (path, init) =>
+    path === '/api/knowledge'
+      ? response({
+          ...catalog,
+          directories: ['hub', 'hub/context', 'teams'],
+          documentPaths: ['hub', 'teams'],
+        })
+      : original(path, init),
+  );
+  setup();
+  fireEvent.click(await screen.findByRole('button', { name: 'Folder hub' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Options for hub/principles.md' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Move document' }));
+  const dialog = await screen.findByRole('dialog', { name: 'Move document' });
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Folder hub/context' }));
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Move here' }));
+  await screen.findByText('Moved: hub/principles.md → hub/context/principles.md');
+  expect(screen.queryByRole('textbox', { name: 'Document source' })).toBeNull();
+  const stored = JSON.parse(localStorage.getItem('mitzo-knowledge-working-copy:')!);
+  expect(stored.documents).toEqual([
+    {
+      path: 'hub/context/principles.md',
+      sourcePath: 'hub/principles.md',
+      base: '# Principles',
+      content: '# Principles',
+    },
+  ]);
+});
+
+it('starts with compact collapsed areas and preserves user expansion while searching', async () => {
+  setup();
+  const hub = await screen.findByRole('button', { name: 'Folder hub' });
+  expect(hub.getAttribute('aria-expanded')).toBe('false');
+  expect(screen.queryByRole('button', { name: /Working principles/ })).toBeNull();
+  fireEvent.click(hub);
+  expect(screen.getByRole('button', { name: /Working principles/ })).toBeTruthy();
+  fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'Release' } });
+  expect(screen.getByRole('button', { name: /Release process/ })).toBeTruthy();
+  fireEvent.change(screen.getByRole('searchbox'), { target: { value: '' } });
+  expect(screen.getByRole('button', { name: /Working principles/ })).toBeTruthy();
+  expect(screen.queryByRole('button', { name: /Release process/ })).toBeNull();
+});
+
+it('keeps the requested reader visible when Edit cannot load its working copy', async () => {
+  const original = vi.mocked(apiFetch).getMockImplementation()!;
+  let reads = 0;
+  vi.mocked(apiFetch).mockImplementation(async (path, init) => {
+    if (path.startsWith('/api/knowledge/document') && ++reads === 2)
+      throw new Error('Editing is temporarily unavailable');
+    return original(path, init);
+  });
+  setup();
+  fireEvent.click(await findLibraryDocument(/Working principles/));
+  await screen.findByRole('article', { name: 'Working principles' });
+  fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+  await screen.findByText('Editing is temporarily unavailable');
+  expect(screen.getByRole('article', { name: 'Working principles' })).toBeTruthy();
+  expect(screen.queryByRole('textbox', { name: 'Document source' })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+  await screen.findByRole('textbox', { name: 'Document source' });
+});
+it('keeps the requested reader when replacing an unrelated edited document is cancelled', async () => {
+  const own = [{ path: 'hub/principles.md', base: '# Principles', content: '# Keep my edits' }];
+  localStorage.setItem(
+    'mitzo-knowledge-working-copy:',
+    JSON.stringify({
+      title: 'Working principles',
+      baseRevision: 'r1',
+      documents: own,
+      selected: own[0].path,
+      saved: JSON.stringify(draft.documents),
+    }),
+  );
+  const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
+  try {
+    setup();
+    await resumeRecoveredCopy();
+    await screen.findByRole('textbox', { name: 'Document source' });
+    fireEvent.click(screen.getByRole('button', { name: '← Library' }));
+    fireEvent.click(await findLibraryDocument(/Release process/, 'teams'));
+    await screen.findByRole('article', { name: 'Release process' });
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    await waitFor(() => expect(confirm).toHaveBeenCalled());
+    expect(screen.getByRole('article', { name: 'Release process' })).toBeTruthy();
+    expect(screen.queryByRole('textbox', { name: 'Document source' })).toBeNull();
+    expect(JSON.parse(localStorage.getItem('mitzo-knowledge-working-copy:')!).documents).toEqual(
+      own,
+    );
+  } finally {
+    confirm.mockRestore();
+  }
+});
+it('keeps Move open without partial edits when confirming a move into an older working copy fails', async () => {
+  const own = [{ path: 'hub/principles.md', base: '# Principles', content: '# Keep older edits' }];
+  localStorage.setItem(
+    'mitzo-knowledge-working-copy:',
+    JSON.stringify({
+      title: 'Working principles',
+      baseRevision: 'r0',
+      documents: own,
+      selected: own[0].path,
+      saved: JSON.stringify(draft.documents),
+    }),
+  );
+  const original = vi.mocked(apiFetch).getMockImplementation()!;
+  vi.mocked(apiFetch).mockImplementation(async (path, init) =>
+    path === '/api/knowledge'
+      ? response({
+          ...catalog,
+          directories: ['hub', 'teams', 'teams/context'],
+          documentPaths: ['hub', 'teams'],
+        })
+      : original(path, init),
+  );
+  setup();
+  await resumeRecoveredCopy();
+  await screen.findByRole('textbox', { name: 'Document source' });
+  fireEvent.click(screen.getByRole('button', { name: '← Library' }));
+  await findLibraryDocument(/Release process/, 'teams');
+  fireEvent.click(screen.getByRole('button', { name: 'Options for teams/release.md' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Move document' }));
+  const dialog = await screen.findByRole('dialog', { name: 'Move document' });
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Folder teams/context' }));
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Move here' }));
+  await screen.findAllByText(/Refresh and compare this draft before/);
+  expect(screen.getByRole('dialog', { name: 'Move document' })).toBeTruthy();
+  expect(JSON.parse(localStorage.getItem('mitzo-knowledge-working-copy:')!).documents).toEqual(own);
+});
+it('retains a matching empty folder under the selected area when no documents match search', async () => {
+  const original = vi.mocked(apiFetch).getMockImplementation()!;
+  vi.mocked(apiFetch).mockImplementation(async (path, init) =>
+    path === '/api/knowledge'
+      ? response({ ...catalog, directories: ['hub', 'hub/empty-guides', 'teams'] })
+      : original(path, init),
+  );
+  setup();
+  fireEvent.click(await screen.findByRole('button', { name: /^Hub/ }));
+  fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'empty-guides' } });
+  expect(screen.getByRole('button', { name: 'Folder hub' })).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Folder hub/empty-guides' })).toBeTruthy();
+  expect(screen.getByText('This folder is empty.')).toBeTruthy();
+});
+it('preserves the current reader and offers retry when a linked accepted document fails to load', async () => {
+  const original = vi.mocked(apiFetch).getMockImplementation()!;
+  let offline = true;
+  vi.mocked(apiFetch).mockImplementation(async (path, init) => {
+    if (path.startsWith('/api/knowledge/document')) {
+      if (path.includes('teams%2Frelease.md')) {
+        if (offline) throw new Error('Network unavailable');
+        return response({ content: '# Release' });
+      }
+      return response({ content: '# Principles\n\n[Release](../teams/release.md)' });
+    }
+    return original(path, init);
+  });
+  setup();
+  fireEvent.click(await findLibraryDocument(/Working principles/));
+  await screen.findByRole('article', { name: 'Working principles' });
+  fireEvent.click(screen.getByRole('link', { name: 'Release' }));
+  await screen.findByText(/Network unavailable/);
+  expect(screen.getByRole('article', { name: 'Working principles' })).toBeTruthy();
+  expect(screen.queryByRole('textbox', { name: 'Document source' })).toBeNull();
+  offline = false;
+  fireEvent.click(screen.getByRole('button', { name: 'Retry opening document' }));
+  await screen.findByRole('article', { name: 'Release process' });
+  expect(localStorage.getItem('mitzo-knowledge-working-copy:')).toBeNull();
+});
+
+it('keeps a cancelled folder-only receipt accessible and lets the user explicitly clear it', async () => {
+  const folderDraft = {
+    ...draft,
+    state: 'draft',
+    review: undefined,
+    documents: [],
+    directories: ['hub/guides'],
+  };
+  const original = vi.mocked(apiFetch).getMockImplementation()!;
+  vi.mocked(apiFetch).mockImplementation(async (path, init) => {
+    if (path === '/api/knowledge') return response({ ...catalog, directories: ['hub'] });
+    if (path === '/api/knowledge/drafts' || path.endsWith('/review'))
+      return response({ draft: folderDraft });
+    if (path.endsWith('/cancel')) return response({ draft: { ...folderDraft, state: 'closed' } });
+    return original(path, init);
+  });
+  setup();
+  fireEvent.click(await screen.findByRole('button', { name: 'Folder hub' }));
+  fireEvent.click(screen.getByRole('button', { name: 'New folder' }));
+  fireEvent.change(screen.getByRole('textbox', { name: 'Folder name' }), {
+    target: { value: 'guides' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Create folder' }));
+  await screen.findByText('New folder: hub/guides');
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  await waitFor(() =>
+    expect(JSON.parse(localStorage.getItem('mitzo-knowledge-working-copy:')!).draft?.id).toBe('d1'),
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Remove new folder hub/guides' }));
+  await screen.findByText('Saved change cancelled.');
+  expect(JSON.parse(localStorage.getItem('mitzo-knowledge-working-copy:')!).draft.state).toBe(
+    'closed',
+  );
+  expect((screen.getByRole('button', { name: 'New folder' }) as HTMLButtonElement).disabled).toBe(
+    true,
+  );
+  const clear = vi.spyOn(window, 'confirm').mockReturnValue(true);
+  fireEvent.click(screen.getByRole('button', { name: 'Discard working copy' }));
+  expect(clear).toHaveBeenCalled();
+  clear.mockRestore();
+  expect(localStorage.getItem('mitzo-knowledge-working-copy:')).toBeNull();
+  expect((screen.getByRole('button', { name: 'New folder' }) as HTMLButtonElement).disabled).toBe(
+    false,
+  );
+});
+it('ignores an older linked read after explicitly switching the current reader to Edit', async () => {
+  let resolveRead!: (value: Response) => void;
+  const pendingRead = new Promise<Response>((resolve) => {
+    resolveRead = resolve;
+  });
+  const original = vi.mocked(apiFetch).getMockImplementation()!;
+  vi.mocked(apiFetch).mockImplementation(async (path, init) => {
+    if (path.startsWith('/api/knowledge/document')) {
+      if (path.includes('teams%2Frelease.md')) return pendingRead;
+      return response({ content: '# Principles\n\n[Release](../teams/release.md)' });
+    }
+    return original(path, init);
+  });
+  setup();
+  fireEvent.click(await findLibraryDocument(/Working principles/));
+  await screen.findByRole('article', { name: 'Working principles' });
+  fireEvent.click(screen.getByRole('link', { name: 'Release' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+  await screen.findByRole('textbox', { name: 'Document source' });
+  await act(async () => {
+    resolveRead(response({ content: '# Slow release' }));
+  });
+  expect(screen.getByRole('textbox', { name: 'Document source' })).toBeTruthy();
+  expect(screen.queryByRole('article', { name: 'Release process' })).toBeNull();
+});
+
+it('reads accepted documents after returning from a recovered folder-only working copy', async () => {
+  const recovered = {
+    title: 'Organize knowledge',
+    baseRevision: 'r1',
+    documents: [],
+    directories: ['hub/new-guides'],
+    selected: '',
+    saved: '[]',
+    savedDirectories: [],
+  };
+  localStorage.setItem('mitzo-knowledge-working-copy:', JSON.stringify(recovered));
+  const original = vi.mocked(apiFetch).getMockImplementation()!;
+  vi.mocked(apiFetch).mockImplementation(async (path, init) =>
+    path === '/api/knowledge'
+      ? response({ ...catalog, directories: ['hub'] })
+      : original(path, init),
+  );
+  setup();
+  await resumeRecoveredCopy();
+  await screen.findByText('New folder: hub/new-guides');
+  fireEvent.click(screen.getByRole('button', { name: '← Library' }));
+  const before = localStorage.getItem('mitzo-knowledge-working-copy:');
+  fireEvent.click(await findLibraryDocument(/Working principles/));
+  await screen.findByRole('article', { name: 'Working principles' });
+  expect(screen.queryByRole('textbox', { name: 'Document source' })).toBeNull();
+  expect(localStorage.getItem('mitzo-knowledge-working-copy:')).toBe(before);
+  expect(JSON.parse(before!).documents).toEqual([]);
+});
+it('keeps New folder open and preserves the working copy when the name is already occupied', async () => {
+  const original = vi.mocked(apiFetch).getMockImplementation()!;
+  vi.mocked(apiFetch).mockImplementation(async (path, init) =>
+    path === '/api/knowledge'
+      ? response({ ...catalog, directories: ['hub', 'hub/guides'] })
+      : original(path, init),
+  );
+  setup();
+  fireEvent.click(await screen.findByRole('button', { name: 'Folder hub' }));
+  fireEvent.click(screen.getByRole('button', { name: 'New folder' }));
+  const before = localStorage.getItem('mitzo-knowledge-working-copy:');
+  fireEvent.change(screen.getByRole('textbox', { name: 'Folder name' }), {
+    target: { value: 'guides' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Create folder' }));
+  expect(screen.getByRole('dialog', { name: 'New folder' })).toBeTruthy();
+  expect(
+    (screen.getByRole('button', { name: 'Create folder' }) as HTMLButtonElement).disabled,
+  ).toBe(true);
+  expect(localStorage.getItem('mitzo-knowledge-working-copy:')).toBe(before);
+});
+
+it('clears empty-copy add intent when a folder becomes the pending change', async () => {
+  localStorage.setItem(
+    'mitzo-knowledge-working-copy:',
+    JSON.stringify({
+      title: 'New change',
+      baseRevision: 'r1',
+      documents: [],
+      directories: [],
+      selected: '',
+      saved: '[]',
+      savedDirectories: [],
+    }),
+  );
+  const original = vi.mocked(apiFetch).getMockImplementation()!;
+  vi.mocked(apiFetch).mockImplementation(async (path, init) =>
+    path === '/api/knowledge'
+      ? response({ ...catalog, directories: ['hub'] })
+      : original(path, init),
+  );
+  setup();
+  fireEvent.click(await screen.findByRole('button', { name: 'Folder hub' }));
+  fireEvent.click(screen.getByRole('button', { name: 'New folder' }));
+  fireEvent.change(screen.getByRole('textbox', { name: 'Folder name' }), {
+    target: { value: 'guides' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Create folder' }));
+  await screen.findByText('New folder: hub/guides');
+  const before = localStorage.getItem('mitzo-knowledge-working-copy:');
+  fireEvent.click(await findLibraryDocument(/Working principles/));
+  await screen.findByRole('article', { name: 'Working principles' });
+  expect(screen.queryByRole('textbox', { name: 'Document source' })).toBeNull();
+  expect(localStorage.getItem('mitzo-knowledge-working-copy:')).toBe(before);
+});
+
+it('opens an accepted file in the reader from a recovered empty change without changing its receipt', async () => {
+  const empty = {
+    title: 'Retained change',
+    baseRevision: 'r1',
+    documents: [],
+    directories: [],
+    selected: '',
+    saved: '[]',
+    savedDirectories: [],
+    draft: { ...draft, state: 'draft', documents: [], review: undefined },
+  };
+  localStorage.setItem('mitzo-knowledge-working-copy:', JSON.stringify(empty));
+  setup();
+  await screen.findByRole('button', { name: 'Folder hub' });
+  const before = localStorage.getItem('mitzo-knowledge-working-copy:');
+  fireEvent.click(await findLibraryDocument(/Working principles/));
+  await screen.findByRole('article', { name: 'Working principles' });
+  expect(screen.queryByRole('textbox', { name: 'Document source' })).toBeNull();
+  expect(localStorage.getItem('mitzo-knowledge-working-copy:')).toBe(before);
+});
+it('explicitly adds a document to the same recovered empty change and keeps its draft receipt', async () => {
+  const empty = {
+    title: 'Retained change',
+    baseRevision: 'r1',
+    documents: [],
+    directories: [],
+    selected: '',
+    saved: '[]',
+    savedDirectories: [],
+    draft: { ...draft, state: 'draft', documents: [], review: undefined },
+  };
+  localStorage.setItem('mitzo-knowledge-working-copy:', JSON.stringify(empty));
+  setup();
+  fireEvent.click(await screen.findByRole('button', { name: '+ Add document' }));
+  fireEvent.click(await findLibraryDocument(/Working principles/));
+  await screen.findByRole('textbox', { name: 'Document source' });
+  const copy = JSON.parse(localStorage.getItem('mitzo-knowledge-working-copy:')!);
+  expect(copy.title).toBe('Retained change');
+  expect(copy.draft.id).toBe('d1');
+  expect(copy.baseRevision).toBe('r1');
+  expect(copy.documents).toEqual([
+    { path: 'hub/principles.md', base: '# Principles', content: '# Principles' },
+  ]);
+  expect(vi.mocked(apiFetch).mock.calls.some(([path]) => path === '/api/knowledge/drafts')).toBe(
+    false,
+  );
+});
+
+it('cancels an unopened document Move without adding it to the existing working copy', async () => {
+  const own = [{ path: 'hub/principles.md', base: '# Principles', content: '# Keep edits' }];
+  localStorage.setItem(
+    'mitzo-knowledge-working-copy:',
+    JSON.stringify({
+      title: 'Working principles',
+      baseRevision: 'r1',
+      documents: own,
+      selected: own[0].path,
+      saved: JSON.stringify(draft.documents),
+    }),
+  );
+  const original = vi.mocked(apiFetch).getMockImplementation()!;
+  vi.mocked(apiFetch).mockImplementation(async (path, init) =>
+    path === '/api/knowledge'
+      ? response({
+          ...catalog,
+          directories: ['hub', 'teams', 'teams/context'],
+          documentPaths: ['hub', 'teams'],
+        })
+      : original(path, init),
+  );
+  setup();
+  await resumeRecoveredCopy();
+  await screen.findByRole('textbox', { name: 'Document source' });
+  fireEvent.click(screen.getByRole('button', { name: '← Library' }));
+  await findLibraryDocument(/Release process/, 'teams');
+  const before = localStorage.getItem('mitzo-knowledge-working-copy:');
+  fireEvent.click(screen.getByRole('button', { name: 'Options for teams/release.md' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Move document' }));
+  const dialog = await screen.findByRole('dialog', { name: 'Move document' });
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+  expect(localStorage.getItem('mitzo-knowledge-working-copy:')).toBe(before);
+  expect(
+    vi.mocked(apiFetch).mock.calls.some(([path]) => path.startsWith('/api/knowledge/document')),
+  ).toBe(false);
+});
 it('clears keyboard undo when the saved conflict is adopted with matching selected text', async () => {
   vi.stubGlobal(
     'matchMedia',
@@ -1250,6 +1831,7 @@ it('clears keyboard undo when the saved conflict is adopted with matching select
     }),
   );
   setup();
+  await resumeRecoveredCopy();
   const input = await screen.findByRole('textbox', { name: 'Document source' });
   const { EditorView } = await import('@codemirror/view');
   const view = EditorView.findFromDOM(input)!;
@@ -1267,3 +1849,133 @@ it('clears keyboard undo when the saved conflict is adopted with matching select
   expect(view.state.doc.toString()).toBe(remote.documents[0].content);
   expect((screen.getByRole('button', { name: 'Undo' }) as HTMLButtonElement).disabled).toBe(true);
 });
+
+it('reads first on a keyboard device and mounts the proper CodeMirror editor only after Edit', async () => {
+  vi.stubGlobal(
+    'matchMedia',
+    vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+  );
+  const { container } = setup();
+  fireEvent.click(await findLibraryDocument(/Working principles/));
+  await screen.findByRole('article', { name: 'Working principles' });
+  expect(container.querySelector('.cm-editor')).toBeNull();
+  expect(screen.queryByRole('textbox', { name: 'Document source' })).toBeNull();
+  expect(localStorage.getItem('mitzo-knowledge-working-copy:')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+  const input = await screen.findByRole('textbox', { name: 'Document source' });
+  expect(input.tagName).not.toBe('TEXTAREA');
+  expect(container.querySelector('.cm-editor')).toBeTruthy();
+  const { EditorView } = await import('@codemirror/view');
+  const editor = EditorView.findFromDOM(input)!;
+  expect(editor.state.doc.toString()).toBe('# Principles');
+  act(() => editor.dispatch({ selection: { anchor: 2, head: editor.state.doc.length } }));
+  fireEvent.click(screen.getByRole('button', { name: 'Bold' }));
+  expect(editor.state.doc.toString()).toBe('# **Principles**');
+  fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+  await screen.findByText('In review');
+  const saved = vi.mocked(apiFetch).mock.calls.find(([path]) => path === '/api/knowledge/drafts');
+  expect(JSON.parse(String(saved?.[1]?.body)).documents).toEqual([
+    { path: 'hub/principles.md', content: '# **Principles**' },
+  ]);
+});
+
+it('creates the first folder inside an empty enrolled knowledge directory', async () => {
+  const original = vi.mocked(apiFetch).getMockImplementation()!;
+  vi.mocked(apiFetch).mockImplementation(async (path, init) =>
+    path === '/api/knowledge'
+      ? response({
+          ...catalog,
+          documents: [],
+          directories: [],
+          documentPaths: ['hub/context', 'CONSTITUTION.md'],
+        })
+      : original(path, init),
+  );
+  setup();
+  fireEvent.click(await screen.findByRole('button', { name: 'New folder' }));
+  const dialog = screen.getByRole('dialog', { name: 'New folder' });
+  expect(within(dialog).queryByRole('button', { name: 'Folder CONSTITUTION.md' })).toBeNull();
+  const ancestor = within(dialog).getByRole('button', { name: 'Folder hub' });
+  expect((ancestor as HTMLButtonElement).disabled).toBe(true);
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Expand folder hub' }));
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Folder hub/context' }));
+  fireEvent.change(within(dialog).getByRole('textbox', { name: 'Folder name' }), {
+    target: { value: 'guides' },
+  });
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Create folder' }));
+  await screen.findByText('New folder: hub/context/guides');
+  expect(screen.queryByRole('textbox', { name: 'Document source' })).toBeNull();
+  const copy = JSON.parse(localStorage.getItem('mitzo-knowledge-working-copy:')!);
+  expect(copy.documents).toEqual([]);
+  expect(copy.directories).toEqual(['hub/context/guides']);
+  expect((screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(false);
+});
+
+it.each(['touch', 'keyboard'])(
+  'lands recovered knowledge on the Library tree without opening the editor on a %s device',
+  async (device) => {
+    const keyboard = device === 'keyboard';
+    vi.stubGlobal(
+      'matchMedia',
+      vi.fn(() => ({ matches: keyboard, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+    );
+    const recovered = {
+      title: 'Voice guide',
+      baseRevision: 'r1',
+      documents: [
+        {
+          path: 'hub/principles.md',
+          base: '# Principles',
+          content: '# Voice guide\n\nKeep my recovered edits.',
+        },
+      ],
+      directories: ['hub/context/pending'],
+      selected: 'hub/principles.md',
+      saved: JSON.stringify(draft.documents),
+      savedDirectories: [],
+      draft,
+      pendingCreate: {
+        requestId: 'fa063b5a-42c9-4a98-a307-7cc44d2f20e1',
+        title: 'Voice guide',
+        baseRevision: 'r1',
+        documents: [
+          { path: 'hub/principles.md', content: '# Voice guide\n\nKeep my recovered edits.' },
+        ],
+        directories: ['hub/context/pending'],
+      },
+      initialSaveConflict: { ...draft, version: 2 },
+    };
+    const serialized = JSON.stringify(recovered);
+    localStorage.setItem('mitzo-knowledge-working-copy:', serialized);
+    let mount = setup();
+    await screen.findByRole('button', { name: 'Folder hub' });
+    expect(screen.getByRole('searchbox', { name: 'Search knowledge' })).toBeTruthy();
+    expect(screen.queryByRole('textbox', { name: 'Document source' })).toBeNull();
+    expect(mount.container.querySelector('.document-editor')).toBeNull();
+    expect(localStorage.getItem('mitzo-knowledge-working-copy:')).toBe(serialized);
+    mount.unmount();
+    mount = setup();
+    await screen.findByRole('button', { name: 'Folder hub' });
+    expect(screen.queryByRole('textbox', { name: 'Document source' })).toBeNull();
+    expect(mount.container.querySelector('.cm-editor')).toBeNull();
+    expect(localStorage.getItem('mitzo-knowledge-working-copy:')).toBe(serialized);
+    fireEvent.click(await findLibraryDocument(/Working principles/));
+    await screen.findByRole('article', { name: 'Working principles' });
+    expect(screen.getByRole('heading', { name: 'Voice guide' })).toBeTruthy();
+    expect(screen.queryByRole('textbox', { name: 'Document source' })).toBeNull();
+    expect(localStorage.getItem('mitzo-knowledge-working-copy:')).toBe(serialized);
+    fireEvent.click(screen.getByRole('button', { name: '← Library' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Resume editing' }));
+    const input = await screen.findByRole('textbox', { name: 'Document source' });
+    if (keyboard) {
+      const { EditorView } = await import('@codemirror/view');
+      expect(EditorView.findFromDOM(input)!.state.doc.toString()).toBe(
+        recovered.documents[0].content,
+      );
+    } else expect((input as HTMLTextAreaElement).value).toBe(recovered.documents[0].content);
+    expect(localStorage.getItem('mitzo-knowledge-working-copy:')).toBe(serialized);
+    expect(
+      screen.getByRole('region', { name: 'Compare saved draft and working copy' }),
+    ).toBeTruthy();
+  },
+);
