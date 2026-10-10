@@ -168,8 +168,9 @@ and enabled API dispatch on the target; an empty mapping permits host-only API
 configuration. Vertex requires its configured project, region and ADC profile.
 These descriptions contain no credential references, provider/grant IDs or
 readiness booleans. They do not prove current authentication, authorization,
-isolation or readiness. A trusted projection from existing validated server
-configuration is a prerequisite for adoption and is not implemented here.
+isolation or readiness. Trusted projections from existing validated server
+configuration are prerequisites for adoption; the local Codex slice below is
+the first such projection.
 
 Ordinary native `sandbox-chatgpt` selection remains unsupported; Symposium
 admission is separate. Legacy `openai-codex` profiles permit `planType: api`,
@@ -185,8 +186,33 @@ Activation requires a reviewed persistence extension for the target reference,
 atomic new-session admission, exact retry/resume validation and command
 fingerprint checks before any runtime effects. The resolver has no loader,
 environment/filesystem/network/process access, credential reads or runtime
-consumer. AccountProfiles, startup, API/WS/UI, enrollment, queues and lifecycle
-authorities retain their existing behavior.
+consumer. Startup, API/WS/UI, enrollment, queues and lifecycle authorities retain
+their existing behavior.
+
+## Third increment: dormant local Codex account projection
+
+[`AccountProfiles.ordinaryLocalCodexAccounts`](../../server/account-profiles.ts)
+returns independent account metadata entries for the injected resolver catalog
+from its constructor-validated profile snapshot. The Codex gate must be enabled.
+Only ordinary host-login `openai-codex` profiles are included; native
+`sandbox-chatgpt`, brokered-only profiles, other providers and trim/case-normalized
+`api` or empty plans are excluded. Legacy account IDs outside the runtime
+reference schema are also excluded, so they cannot invalidate the projected
+catalog. A legacy sandbox provider name alone does not replace the validated
+host-login class.
+
+Entries contain only account ID, provider, exact routing profile revision, the
+configured plan type and `auth: { kind: 'host-login' }`. A shared routing digest
+calculation preserves the persisted revisions used by `resolve` for every
+provider and native profile. Label or model changes do not affect that identity;
+routing changes invalidate the old reference. The projection selects no model
+and performs no credential, environment, filesystem, network, process,
+authentication, discovery or runtime lookup. Existing constructor private-root
+protection remains intact and separate from projection effects.
+
+This method has no runtime consumer, target loader or catalog wiring. It supplies
+configuration metadata only; target persistence, admission and readiness still
+require their own reviewed increments.
 
 ## Invariants for subsequent adoption
 
