@@ -21,8 +21,8 @@ export function HomeDisplaySettings() {
       </label>
       {home.saving && <p role="status">Saving…</p>}
       {home.error && (
-        <div className="workspace-load-error" role="alert">
-          <span>{home.error}</span>
+        <>
+          <p role="alert">{home.error}</p>
           <button
             type="button"
             className="home-secondary"
@@ -31,7 +31,7 @@ export function HomeDisplaySettings() {
           >
             {home.preferences ? 'Review current setting' : 'Try again'}
           </button>
-        </div>
+        </>
       )}
     </section>
   );
