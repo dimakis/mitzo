@@ -62,7 +62,9 @@ it('pins accepted documents, preserves failed-save edits and requires explicit p
   await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Draft saved'));
   const save = vi
     .mocked(apiFetch)
-    .mock.calls.findLast(([path]) => path === '/api/context-packs/drafts');
+    .mock.calls.slice()
+    .reverse()
+    .find(([path]) => path === '/api/context-packs/drafts');
   expect(JSON.parse(String(save?.[1]?.body)).definition.documents[0]).toMatchObject({
     path: 'hub/review.md',
     revision: knowledge.revision,

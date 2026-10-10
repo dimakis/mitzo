@@ -31,6 +31,12 @@ const definition = SymposiumProfileDefinitionSchema.extend({
         excluded: z.array(z.array(z.string())),
       }),
       z.strictObject({
+        version: z.literal(2),
+        source: z.literal('packs'),
+        packs: z.array(z.strictObject({ id: z.string(), revision: z.number(), hash: z.string() })),
+        tokenBudget: z.number(),
+      }),
+      z.strictObject({
         version: z.literal(1),
         source: z.literal('contexgin'),
         agentName: z.string(),
