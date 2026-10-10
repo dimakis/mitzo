@@ -402,7 +402,6 @@ export class ChatGptPlanAdviserAccounts {
     return models;
   }
   private async refresh(account: Account, signal: AbortSignal): Promise<Account> {
-    const generation = this.generation;
     let refreshOwner = account;
     try {
       const tokens = await this.tokens(
@@ -419,7 +418,7 @@ export class ChatGptPlanAdviserAccounts {
       );
       if (
         identity.sub !== account.subject ||
-        generation !== this.generation ||
+        this.closed ||
         !this.state.accounts.includes(account) ||
         account.state !== 'connected'
       )
@@ -441,11 +440,7 @@ export class ChatGptPlanAdviserAccounts {
       refreshOwner = next;
       next.models = await this.models(next.accessToken, signal);
       signal.throwIfAborted();
-      if (
-        generation !== this.generation ||
-        !this.state.accounts.includes(next) ||
-        next.state !== 'connected'
-      )
+      if (this.closed || !this.state.accounts.includes(next) || next.state !== 'connected')
         throw Error('Adviser registration changed');
       this.persist(this.state);
       return next;

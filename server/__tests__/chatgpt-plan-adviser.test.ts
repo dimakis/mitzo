@@ -319,3 +319,39 @@ it('does not extend access-token expiry while identity or model discovery is del
   await f.service.complete('operator', f.callback(f.begin()), new AbortController().signal);
   expect(f.state().accounts[0].expiresAt).toBe(receivedAt + 3600000);
 });
+
+it('does not invalidate one account refresh when another account sign-in is cancelled', async () => {
+  const f = fixture(),
+    signal = new AbortController().signal;
+  const first = await f.service.complete('operator', f.callback(f.begin()), signal);
+  const secondCallback = f.callback(f.begin());
+  secondCallback.searchParams.set('client_id', 'oaiapp_second');
+  const second = await f.service.complete('operator', secondCallback, signal);
+  f.advance();
+  let release!: (response: Response) => void;
+  f.fetcher.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        release = resolve;
+      }),
+  );
+  const refreshing = f.service.ready(first.id, 'gpt-6-luna', 'low', signal);
+  void refreshing.catch(() => {});
+  f.begin(second.id);
+  f.service.cancel('operator');
+  release(
+    new Response(
+      JSON.stringify({
+        access_token: 'synthetic-renewed',
+        refresh_token: 'synthetic-renewed-refresh',
+        id_token: 'synthetic-id',
+        token_type: 'Bearer',
+        expires_in: 3600,
+        scope: 'openid resource.invoke chatgpt.tokens.use.direct',
+      }),
+    ),
+  );
+  const renewed = await refreshing;
+  expect(renewed.accessToken()).toBe('synthetic-renewed');
+  expect(f.service.list().find((account) => account.id === first.id)!.state).toBe('connected');
+});
