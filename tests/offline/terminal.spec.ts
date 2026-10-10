@@ -6,6 +6,8 @@ test.beforeEach(async ({ page }) => {
   mutations.length = 0;
   let preferences = { revision: 0, names: { briefing: 'Minion', terminal: 'Minion' }, pins: [] };
   let planConnected = false;
+  let planDisconnected = false;
+  let planRevocationPending = false;
   await page.addInitScript(() => {
     localStorage.setItem('mitzo-theme', 'dark');
     const original = window.fetch;
@@ -62,20 +64,28 @@ test.beforeEach(async ({ page }) => {
         return route.fulfill({
           json: {
             enabled: true,
-            accounts: planConnected
-              ? [
-                  {
-                    id: 'plan-offline',
-                    label: 'Personal ChatGPT',
-                    email: 'user@example.test',
-                    state: 'connected',
-                  },
-                ]
-              : [],
+            accounts:
+              planConnected || planDisconnected
+                ? [
+                    {
+                      id: 'plan-offline',
+                      label: 'Personal ChatGPT',
+                      email: 'user@example.test',
+                      state: planConnected ? 'connected' : 'disconnected',
+                      revocationPending: planRevocationPending,
+                    },
+                  ]
+                : [],
           },
         });
       if (url.pathname === '/api/terminals/subscriptions/start')
         return route.fulfill({ status: 202, json: { id: 'attempt-offline', state: 'pending' } });
+      if (url.pathname === '/api/terminals/subscriptions/plan-offline/disconnect') {
+        planConnected = false;
+        planDisconnected = true;
+        planRevocationPending = true;
+        return route.fulfill({ json: { revoked: false } });
+      }
       if (url.pathname === '/api/terminals/subscriptions/attempts/attempt-offline') {
         planConnected = true;
         return route.fulfill({ json: { id: 'attempt-offline', state: 'connected' } });
@@ -206,6 +216,41 @@ test('connects a subscription adviser through compact account management without
   await expect(dialog.getByRole('button', { name: 'Disconnect Personal ChatGPT' })).toBeVisible();
   expect(await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
   await page.screenshot({ path: testInfo.outputPath('adviser-accounts-light.png') });
+});
+
+test('retains remote sign-out recovery instructions after account refresh and navigation', async ({
+  page,
+}, testInfo) => {
+  await page.goto('/terminal');
+  await page.getByRole('button', { name: 'Show Minion' }).click();
+  await page.getByRole('button', { name: 'Manage adviser accounts' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Adviser accounts' });
+  await dialog.getByRole('button', { name: 'Continue with ChatGPT on your Mac' }).click();
+  await expect(dialog.getByRole('status')).toContainText('connected');
+  await dialog.getByRole('button', { name: 'Disconnect Personal ChatGPT' }).click();
+  const recovery = dialog.getByText(
+    'Remote sign-out was not confirmed; disconnect Mitzo in ChatGPT Settings.',
+  );
+  await expect(recovery).toBeVisible();
+  await dialog.getByRole('button', { name: 'Refresh adviser accounts' }).click();
+  await expect(recovery).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('adviser-revocation-dark.png') });
+  await page.goto('/more');
+  await page.goto('/terminal');
+  await page.getByRole('button', { name: 'Show Minion' }).click();
+  await page.getByRole('button', { name: 'Manage adviser accounts' }).click();
+  await expect(recovery).toBeVisible();
+  await page.evaluate(() => {
+    document.documentElement.dataset.theme = 'light';
+    document.documentElement.dataset.accent = 'teal';
+    document.documentElement.dataset.font = 'georgia';
+  });
+  await expect(
+    dialog.getByRole('button', { name: 'Sign in again to Personal ChatGPT' }),
+  ).toBeVisible();
+  expect(await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath('adviser-revocation-light.png') });
+  expect(mutations.filter((item) => item.path.endsWith('/input'))).toHaveLength(0);
 });
 
 test('keeps the shared masthead and gives the terminal most of the mobile viewport', async ({

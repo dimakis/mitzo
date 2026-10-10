@@ -1,4 +1,6 @@
 import { afterEach, expect, it, vi } from 'vitest';
+import { get } from 'node:http';
+import { connect } from 'node:net';
 import { ChatGptPlanAdviserAccounts } from '../chatgpt-plan-adviser.js';
 import { TerminalPlanAdviserHost, setTerminalPlanAdviserHost } from '../terminal-plan-adviser.js';
 import { createTerminalAdviserSession } from '../terminal-adviser-model.js';
@@ -166,4 +168,72 @@ it('keeps sign-in status operator-owned and cancels the loopback listener', asyn
   expect(cancel).toHaveBeenCalledWith('operator');
   expect(f.host.status('operator', attempt.id).state).toBe('cancelled');
   await f.host.close();
+});
+it.each(['', '&state=incorrect'])(
+  'allows a new sign-in after an invalid callback state %s',
+  async (state) => {
+    const f = setup(),
+      begun = vi.spyOn(f.accounts, 'begin');
+    try {
+      const attempt = await f.host.start('operator', Date.now() + 60000, 'Personal');
+      const callback = begun.mock.calls[0][1] + '?code=synthetic-code' + state;
+      const status = await new Promise<number | undefined>((resolve, reject) => {
+        get(callback, (response) => {
+          response.resume();
+          response.once('end', () => resolve(response.statusCode));
+        }).once('error', reject);
+      });
+      expect(status).toBe(400);
+      expect(f.host.status('operator', attempt.id).state).toBe('failed');
+      await expect(f.host.start('operator', Date.now() + 60000, 'Retry')).resolves.toMatchObject({
+        state: 'pending',
+      });
+      expect(f.fetcher).not.toHaveBeenCalled();
+    } finally {
+      await f.host.close();
+    }
+  },
+);
+it('claims a callback once even when a connection pipelines a second request', async () => {
+  const f = setup(),
+    begun = vi.spyOn(f.accounts, 'begin');
+  let finish!: () => void;
+  const completion = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  const complete = vi.spyOn(f.accounts, 'complete').mockImplementation(async () => {
+    await completion;
+    return {
+      id,
+      label: 'Personal',
+      email: 'test@example.com',
+      state: 'connected' as const,
+      revocationPending: false,
+    };
+  });
+  let response: Promise<string> | undefined;
+  try {
+    await f.host.start('operator', Date.now() + 60000, 'Personal');
+    const callback = new URL(begun.mock.calls[0][1]);
+    response = new Promise<string>((resolve, reject) => {
+      let output = '';
+      const socket = connect(Number(callback.port), '127.0.0.1', () => {
+        socket.write(
+          'GET /auth/callback?code=first HTTP/1.1\r\nHost: localhost\r\n\r\n' +
+            'GET /auth/callback?code=second HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n',
+        );
+      });
+      socket.on('data', (chunk) => (output += chunk.toString()));
+      socket.once('error', reject);
+      socket.once('end', () => resolve(output));
+    });
+    await vi.waitFor(() => expect(complete).toHaveBeenCalled());
+    expect(complete).toHaveBeenCalledTimes(1);
+    finish();
+    expect(await response).toContain('404 Not Found');
+  } finally {
+    finish();
+    await response;
+    await f.host.close();
+  }
 });

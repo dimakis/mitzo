@@ -65,6 +65,7 @@ it('hides opt-in setup when disabled and requires explicit disconnect when enabl
                     label: 'Personal',
                     email: 'user@example.test',
                     state: connected ? 'connected' : 'disconnected',
+                    revocationPending: !connected,
                   },
                 ],
               },
@@ -78,4 +79,41 @@ it('hides opt-in setup when disabled and requires explicit disconnect when enabl
   await screen.findByText(/Remote sign-out was not confirmed/);
   expect(mocks.changed).toHaveBeenCalled();
   expect(screen.getByRole('button', { name: 'Sign in again to Personal' })).toBeTruthy();
+});
+it('keeps remote revocation recovery visible after refresh, reopening and remounting', async () => {
+  let revocationPending = true;
+  mocks.fetch.mockImplementation(
+    async () =>
+      new Response(
+        JSON.stringify({
+          enabled: true,
+          accounts: [
+            {
+              id: 'plan',
+              label: 'Personal',
+              email: 'user@example.test',
+              state: 'disconnected',
+              revocationPending,
+            },
+          ],
+        }),
+      ),
+  );
+  const recovery = /Remote sign-out was not confirmed; disconnect Mitzo in ChatGPT Settings/;
+  const view = render(<AdviserSubscriptions onAccountsChanged={mocks.changed} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Manage adviser accounts' }));
+  await screen.findByText(recovery);
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh adviser accounts' }));
+  await waitFor(() => expect(mocks.changed).toHaveBeenCalled());
+  expect(screen.getByText(recovery)).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Manage adviser accounts' }));
+  expect(screen.getByText(recovery)).toBeTruthy();
+  view.unmount();
+  render(<AdviserSubscriptions onAccountsChanged={mocks.changed} />);
+  fireEvent.click(await screen.findByRole('button', { name: 'Manage adviser accounts' }));
+  await screen.findByText(recovery);
+  revocationPending = false;
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh adviser accounts' }));
+  await waitFor(() => expect(screen.queryByText(recovery)).toBeNull());
 });

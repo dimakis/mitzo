@@ -9,6 +9,7 @@ const accountSchema = z.object({
   label: z.string(),
   email: z.string(),
   state: z.enum(['connected', 'disconnected', 'reauth_required']),
+  revocationPending: z.boolean().default(false),
 });
 const snapshotSchema = z.object({ enabled: z.boolean(), accounts: z.array(accountSchema) });
 const attemptSchema = z.object({
@@ -155,6 +156,11 @@ export function AdviserSubscriptions({
                   <p className="workspace-muted">
                     {account.email} · {labels[account.state]}
                   </p>
+                  {account.revocationPending && (
+                    <p style={{ color: 'var(--color-warning)' }}>
+                      Remote sign-out was not confirmed; disconnect Mitzo in ChatGPT Settings.
+                    </p>
+                  )}
                 </div>
                 <div className="adviser-account-actions">
                   <button
@@ -192,7 +198,7 @@ export function AdviserSubscriptions({
                             setMessage(
                               result.revoked
                                 ? 'Adviser disconnected.'
-                                : 'Adviser disconnected locally. Remote sign-out was not confirmed; disconnect Mitzo in ChatGPT Settings.',
+                                : 'Adviser disconnected locally.',
                             );
                           }
                         })

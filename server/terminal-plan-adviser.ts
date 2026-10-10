@@ -119,6 +119,7 @@ export class TerminalPlanAdviserHost {
       current.unobserve = registerAuthSession({ id: owner, expiresAt }, () => {
         void this.cancel(owner, id);
       });
+      let callbackClaimed = false;
       listener.on('request', (req, res) => {
         // Never log incoming paths: callback URLs contain a short-lived authorization code.
         res.setHeader('Cache-Control', 'no-store');
@@ -129,12 +130,16 @@ export class TerminalPlanAdviserHost {
           !req.url ||
           req.url.length > 8192 ||
           !req.url.startsWith('/auth/callback?') ||
-          current.state !== 'pending'
+          current.state !== 'pending' ||
+          callbackClaimed
         ) {
           res.writeHead(404);
           res.end('Sign-in callback unavailable.');
           return;
         }
+        // Closing the listener does not prevent pipelined requests on an
+        // already accepted connection from reaching this handler.
+        callbackClaimed = true;
         listener.close();
         void this.options.accounts
           .complete(owner, new URL(req.url, redirect), controller.signal)
@@ -147,6 +152,10 @@ export class TerminalPlanAdviserHost {
             () => {
               if (!controller.signal.aborted) {
                 current.state = 'failed';
+                controller.abort();
+                // complete() rejects an invalid state before consuming its
+                // pending attempt. Release it before a human retries sign-in.
+                this.options.accounts.cancel(owner);
                 res.writeHead(400);
                 res.end('ChatGPT adviser sign-in did not complete. Return to Mitzo and retry.');
               }

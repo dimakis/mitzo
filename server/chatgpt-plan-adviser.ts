@@ -29,6 +29,7 @@ export const PlanAdviserAccountSchema = z
     grantedScopes: z.array(z.string()).max(30),
     expiresAt: z.number().int().positive(),
     state: z.enum(['connected', 'reauth_required', 'disconnected']),
+    revocationPending: z.boolean().default(false),
     models: z.array(CatalogModel.strict()).min(1).max(200),
   })
   .strict()
@@ -179,7 +180,8 @@ export class ChatGptPlanAdviserAccounts {
     } catch {
       this.generation++;
       for (const controller of this.controllers.values()) controller.abort();
-      for (const account of this.state.accounts) account.state = 'reauth_required';
+      for (const account of this.state.accounts)
+        if (account.state === 'connected') account.state = 'reauth_required';
       throw Error('Adviser credential persistence could not be confirmed');
     }
   }
@@ -196,7 +198,13 @@ export class ChatGptPlanAdviserAccounts {
   }
   list() {
     this.assertOwnership();
-    return this.state.accounts.map(({ id, label, email, state }) => ({ id, label, email, state }));
+    return this.state.accounts.map(({ id, label, email, state, revocationPending }) => ({
+      id,
+      label,
+      email,
+      state,
+      revocationPending,
+    }));
   }
   catalog() {
     this.assertOwnership();
@@ -338,6 +346,7 @@ export class ChatGptPlanAdviserAccounts {
         expiresAt: tokens.receivedAt + tokens.expires_in * 1000,
         models,
         state: 'connected',
+        revocationPending: pending.account?.revocationPending ?? false,
       };
       if (!pending.account && this.state.accounts.some((row) => row.id === id))
         throw Error('Choose the existing adviser registration');
@@ -465,14 +474,14 @@ export class ChatGptPlanAdviserAccounts {
       if (!selected || (effort && !selected.reasoningEfforts?.includes(effort)))
         throw Error('Adviser model or thinking mode unavailable');
     };
-    validate();
+    let pending = this.refreshes.get(id);
+    if (!pending) validate();
     let controller = this.controllers.get(id);
     if (!controller || controller.signal.aborted) {
       controller = new AbortController();
       this.controllers.set(id, controller);
     }
-    if (account.expiresAt <= this.now() + 60000) {
-      let pending = this.refreshes.get(id);
+    if (pending || account.expiresAt <= this.now() + 60000) {
       if (!pending) {
         pending = this.refresh(
           account,
@@ -512,14 +521,18 @@ export class ChatGptPlanAdviserAccounts {
     };
   }
   async disconnect(id: string, signal: AbortSignal) {
+    this.assertOwnership();
     const account = this.state.accounts.find((row) => row.id === id);
     if (!account) throw Error('Adviser account unavailable');
     this.generation++;
     this.controllers.get(id)?.abort();
     account.state = 'disconnected';
+    // Record uncertainty before contacting the provider so a crash cannot erase it.
+    if (account.refreshToken) account.revocationPending = true;
     this.persist(this.state);
     let revoked = false;
     try {
+      if (!account.refreshToken) throw Error('No retained remote grant to revoke');
       const metadata = z
         .object({ issuer: z.literal(issuer), revocation_endpoint: z.string().url() })
         .parse(
@@ -548,6 +561,7 @@ export class ChatGptPlanAdviserAccounts {
     } catch {
       /* Local access is already closed. Remote confirmation is separately reported. */
     }
+    if (revoked) account.revocationPending = false;
     account.accessToken = '';
     account.refreshToken = '';
     account.idToken = '';

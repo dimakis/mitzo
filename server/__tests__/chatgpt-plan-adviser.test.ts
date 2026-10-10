@@ -355,3 +355,110 @@ it('does not invalidate one account refresh when another account sign-in is canc
   expect(renewed.accessToken()).toBe('synthetic-renewed');
   expect(f.service.list().find((account) => account.id === first.id)!.state).toBe('connected');
 });
+
+it('awaits model discovery in an existing refresh even after token expiry is renewed', async () => {
+  const f = fixture(),
+    signal = new AbortController().signal;
+  const account = await f.service.complete('operator', f.callback(f.begin()), signal);
+  f.advance();
+  const original = f.fetcher.getMockImplementation()!;
+  let release!: (response: Response) => void;
+  let discovered!: () => void;
+  const discoveryStarted = new Promise<void>((resolve) => {
+    discovered = resolve;
+  });
+  f.fetcher.mockImplementation(async (url, init) => {
+    if (String(url).endsWith('/models')) {
+      discovered();
+      return new Promise<Response>((resolve) => {
+        release = resolve;
+      });
+    }
+    return original(url, init);
+  });
+  const first = f.service.ready(account.id, 'gpt-6-luna', 'high', signal);
+  const firstRejected = expect(first).rejects.toThrow();
+  await discoveryStarted;
+  let settled = false;
+  const second = f.service.ready(account.id, 'gpt-6-luna', 'high', signal);
+  void second.then(
+    () => {
+      settled = true;
+    },
+    () => {
+      settled = true;
+    },
+  );
+  const secondRejected = expect(second).rejects.toThrow();
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  expect(settled).toBe(false);
+  release(
+    new Response(
+      JSON.stringify({
+        models: [
+          {
+            slug: 'gpt-6-luna',
+            display_name: 'Luna',
+            visibility: 'list',
+            supported_reasoning_levels: [{ effort: 'low' }],
+          },
+        ],
+      }),
+    ),
+  );
+  await Promise.all([firstRejected, secondRejected]);
+});
+
+it('keeps disconnected rows valid after a storage failure and permits recovery with multiple rows', async () => {
+  const f = fixture(),
+    signal = new AbortController().signal;
+  const first = await f.service.complete('operator', f.callback(f.begin()), signal);
+  const callback = f.callback(f.begin());
+  callback.searchParams.set('client_id', 'oaiapp_second');
+  const second = await f.service.complete('operator', callback, signal);
+  await f.service.disconnect(first.id, signal);
+  await f.service.disconnect(second.id, signal);
+  f.save.mockImplementationOnce(() => {
+    throw Error('storage temporarily unavailable');
+  });
+  await expect(
+    f.service.complete('operator', f.callback(f.begin(first.id)), signal),
+  ).rejects.toThrow();
+  expect(f.service.list().map((row) => row.state)).toEqual(['disconnected', 'disconnected']);
+  await expect(
+    f.service.complete('operator', f.callback(f.begin(first.id)), signal),
+  ).resolves.toMatchObject({ state: 'connected' });
+  const secondRetry = f.callback(f.begin(second.id));
+  secondRetry.searchParams.set('client_id', 'oaiapp_second');
+  await expect(f.service.complete('operator', secondRetry, signal)).resolves.toMatchObject({
+    state: 'connected',
+  });
+});
+
+it('durably reports unconfirmed revocation across restart and reauthorization', async () => {
+  const f = fixture(),
+    signal = new AbortController().signal;
+  const account = await f.service.complete('operator', f.callback(f.begin()), signal);
+  expect(await f.service.disconnect(account.id, signal)).toEqual({ revoked: false });
+  expect(f.service.list()[0]).toMatchObject({ state: 'disconnected', revocationPending: true });
+  expect(JSON.stringify(f.state())).not.toContain('synthetic');
+  const restored = new ChatGptPlanAdviserAccounts({ store: { load: f.state, save: f.save } });
+  expect(restored.list()[0]).toMatchObject({ revocationPending: true });
+  expect(await restored.disconnect(account.id, signal)).toEqual({ revoked: false });
+  expect(restored.list()[0]).toMatchObject({ revocationPending: true });
+  await restored.close();
+  await f.service.complete('operator', f.callback(f.begin(account.id)), signal);
+  expect(f.service.list()[0]).toMatchObject({ revocationPending: true });
+  f.fetcher.mockImplementation(async (url) =>
+    String(url).includes('openid-configuration')
+      ? new Response(
+          JSON.stringify({
+            issuer: 'https://auth.openai.com',
+            revocation_endpoint: 'https://auth.openai.com/revoke',
+          }),
+        )
+      : new Response(null, { status: 200 }),
+  );
+  await f.service.disconnect(account.id, signal);
+  expect(f.service.list()[0]).toMatchObject({ state: 'disconnected', revocationPending: false });
+});
