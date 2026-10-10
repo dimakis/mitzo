@@ -91,6 +91,7 @@ export class FilePlanAdviserStore implements PlanAdviserStore {
       fd = openSync(this.path, constants.O_RDONLY | constants.O_NOFOLLOW);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT')
+        // eslint-disable-next-line preserve-caught-error -- Filesystem errors may carry private credential paths.
         throw Error('Adviser credential file unavailable');
       const state = { hostId: 'urn:uuid:' + randomUUID(), accounts: [] };
       this.save(state);
@@ -148,8 +149,8 @@ export class FilePlanAdviserStore implements PlanAdviserStore {
       closeSync(fd);
       try {
         unlinkSync(temp);
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      } catch {
+        // Any unfinished private temp file remains protected. Preserve the write's original failure.
       }
     }
   }

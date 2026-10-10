@@ -23,15 +23,22 @@ export const PlanAdviserAccountSchema = z
     clientId: z.string().regex(/^oaiapp_[A-Za-z0-9_-]+$/),
     subject: z.string().min(1).max(512),
     email: z.string().email(),
-    accessToken: z.string().min(1).max(16384),
-    refreshToken: z.string().min(1).max(16384),
-    idToken: z.string().min(1).max(16384),
+    accessToken: z.string().max(16384),
+    refreshToken: z.string().max(16384),
+    idToken: z.string().max(16384),
     grantedScopes: z.array(z.string()).max(30),
     expiresAt: z.number().int().positive(),
     state: z.enum(['connected', 'reauth_required', 'disconnected']),
     models: z.array(CatalogModel.strict()).min(1).max(200),
   })
-  .strict();
+  .strict()
+  .superRefine((account, context) => {
+    if (
+      account.state !== 'disconnected' &&
+      (!account.accessToken || !account.refreshToken || !account.idToken)
+    )
+      context.addIssue({ code: 'custom', message: 'Adviser credentials are incomplete' });
+  });
 export const PlanAdviserStateSchema = z
   .object({
     hostId: z.string().min(1).max(200),
@@ -140,6 +147,7 @@ export class ChatGptPlanAdviserAccounts {
     account?: Account;
   };
   private exchange = false;
+  private exchangingOwner?: string;
   private generation = 0;
   private refreshes = new Map<string, Promise<Account>>();
   private controllers = new Map<string, AbortController>();
@@ -234,7 +242,7 @@ export class ChatGptPlanAdviserAccounts {
     return url.toString();
   }
   cancel(owner: string) {
-    if (this.pending?.owner === owner) {
+    if (this.pending?.owner === owner || this.exchangingOwner === owner) {
       this.pending = undefined;
       this.generation++;
     }
@@ -252,6 +260,7 @@ export class ChatGptPlanAdviserAccounts {
       throw Error('Invalid or expired adviser sign-in');
     this.pending = undefined;
     this.exchange = true;
+    this.exchangingOwner = owner;
     const generation = this.generation;
     const assertCurrent = () => {
       signal.throwIfAborted();
@@ -327,6 +336,7 @@ export class ChatGptPlanAdviserAccounts {
       throw Error('ChatGPT adviser sign-in did not complete');
     } finally {
       this.exchange = false;
+      this.exchangingOwner = undefined;
     }
   }
   private async tokens(form: Record<string, string>, signal: AbortSignal) {
@@ -521,7 +531,11 @@ export class ChatGptPlanAdviserAccounts {
     } catch {
       /* Local access is already closed. Remote confirmation is separately reported. */
     }
-    this.persist({ ...this.state, accounts: this.state.accounts.filter((row) => row !== account) });
+    account.accessToken = '';
+    account.refreshToken = '';
+    account.idToken = '';
+    account.grantedScopes = [];
+    this.persist(this.state);
     return { revoked };
   }
 }

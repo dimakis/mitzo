@@ -205,3 +205,51 @@ it('rejects unavailable models/thinking and preserves signed identity when refre
   await expect(f.service.ready(account.id, 'gpt-6-luna', 'low', signal)).rejects.toThrow();
   expect(f.service.catalog()).toEqual([]);
 });
+
+it('retains registration identity after sign-out and does not persist tokens', async () => {
+  const f = fixture(),
+    signal = new AbortController().signal;
+  const account = await f.service.complete('operator', f.callback(f.begin()), signal);
+  f.fetcher.mockImplementation(async (url) =>
+    String(url).includes('openid-configuration')
+      ? new Response(
+          JSON.stringify({
+            issuer: 'https://auth.openai.com',
+            revocation_endpoint: 'https://auth.openai.com/revoke',
+          }),
+        )
+      : new Response(null),
+  );
+  await f.service.disconnect(account.id, signal);
+  expect(JSON.stringify(f.state())).not.toContain('synthetic');
+  const auth = new URL(f.begin(account.id));
+  expect(auth.searchParams.get('client_id')).toBe('oaiapp_test');
+  expect(f.service.list()[0].state).toBe('disconnected');
+});
+it('cancels an in-flight code exchange on operator logout', async () => {
+  const f = fixture(),
+    url = f.begin();
+  let release!: (response: Response) => void;
+  f.fetcher.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        release = resolve;
+      }),
+  );
+  const completion = f.service.complete('operator', f.callback(url), new AbortController().signal);
+  f.service.cancel('operator');
+  release(
+    new Response(
+      JSON.stringify({
+        access_token: 'synthetic',
+        refresh_token: 'synthetic',
+        id_token: 'synthetic',
+        token_type: 'Bearer',
+        expires_in: 3600,
+        scope: 'openid resource.invoke chatgpt.tokens.use.direct',
+      }),
+    ),
+  );
+  await expect(completion).rejects.toThrow();
+  expect(f.service.catalog()).toEqual([]);
+});
