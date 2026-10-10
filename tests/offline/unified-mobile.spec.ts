@@ -91,6 +91,7 @@ const fixtures: Record<string, unknown> = {
   '/api/auth/check': { authenticated: true },
   '/api/sessions': sessions,
   '/api/config': { quickActions: [] },
+  '/api/skills': [],
   '/api/version': { updateAvailable: false },
   '/api/todos': { profiles: ['manual', 'personal', 'work'], items: outcomes },
   '/api/tasks': [],
@@ -244,6 +245,192 @@ const mime: Record<string, string> = {
   '.svg': 'image/svg+xml',
   '.woff2': 'font/woff2',
 };
+
+async function recordMotion(page: Page) {
+  await page.addInitScript(() => {
+    const events: { kind: string; duration: number }[] = [];
+    Object.assign(window, { motionEvents: events });
+    const original = HTMLElement.prototype.animate;
+    HTMLElement.prototype.animate = function (frames, options) {
+      const animation = original.call(this, frames, options);
+      queueMicrotask(() =>
+        events.push({
+          kind: animation.id,
+          duration: Number(animation.effect?.getTiming().duration),
+        }),
+      );
+      return animation;
+    };
+  });
+}
+async function motionKinds(page: Page) {
+  return page.evaluate(() =>
+    (window as Window & { motionEvents: { kind: string }[] }).motionEvents.map(
+      (event) => event.kind,
+    ),
+  );
+}
+
+test('motion: navigation keeps layout and input stable across push and back', async ({
+  page,
+}, testInfo) => {
+  await recordMotion(page);
+  await page.goto('/sessions');
+  await expect(page.getByRole('link', { name: 'More', exact: true })).toBeVisible();
+  const nav = page.getByRole('navigation', { name: 'Main navigation' });
+  const before = await nav.boundingBox();
+  await page.getByRole('link', { name: 'More', exact: true }).click();
+  await expect(page).toHaveURL(/\/more$/);
+  await expect.poll(() => motionKinds(page)).toContain('mitzo:page');
+  expect(await nav.boundingBox()).toEqual(before);
+  await page.goBack();
+  await expect(page).toHaveURL(/\/sessions$/);
+  await expect
+    .poll(async () => (await motionKinds(page)).filter((kind) => kind === 'mitzo:page').length)
+    .toBe(2);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+    page.viewportSize()!.width,
+  );
+  await page.screenshot({
+    path: testInfo.outputPath('motion-navigation.png'),
+    animations: 'disabled',
+  });
+});
+
+test('motion: composer popover and resource sheet animate without losing the draft', async ({
+  page,
+}, testInfo) => {
+  test.skip(!testInfo.project.name.startsWith('mobile'), 'Composer popover is mobile only');
+  await recordMotion(page);
+  await page.goto('/chat');
+  const draft = page.getByRole('textbox', { name: /Message/ }).first();
+  await draft.fill('Keep this draft');
+  await page.getByRole('button', { name: 'More composer actions', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Commands', exact: true })).toBeVisible();
+  await expect.poll(() => motionKinds(page)).toContain('mitzo:popover');
+  await page.getByRole('button', { name: 'More composer actions', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Commands', exact: true })).toBeHidden();
+  await page.getByRole('button', { name: 'Open session tray', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Close session tray', exact: true })).toBeVisible();
+  await expect.poll(() => motionKinds(page)).toContain('mitzo:sheet');
+  const tray = await page.locator('.session-tray--toolbar').boundingBox();
+  expect(tray!.x).toBeGreaterThanOrEqual(0);
+  expect(tray!.x + tray!.width).toBeLessThanOrEqual(page.viewportSize()!.width);
+  await page.screenshot({
+    path: testInfo.outputPath('motion-session-tray-dark.png'),
+    animations: 'disabled',
+  });
+  await page.evaluate(() => {
+    document.documentElement.dataset.theme = 'light';
+    document.documentElement.dataset.accent = 'teal';
+    document.documentElement.dataset.font = 'georgia';
+  });
+  await page.screenshot({
+    path: testInfo.outputPath('motion-session-tray-light.png'),
+    animations: 'disabled',
+  });
+  await page
+    .getByRole('button', { name: 'Dismiss session tray', exact: true })
+    .click({ position: { x: 8, y: 8 } });
+  await expect(page.getByRole('button', { name: 'Close session tray', exact: true })).toBeHidden();
+  await expect(draft).toHaveValue('Keep this draft');
+  await expect(
+    page.getByRole('button', { name: 'More composer actions', exact: true }),
+  ).toBeInViewport();
+});
+
+test('motion: Reduce Motion disables navigation and control animations', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await recordMotion(page);
+  await page.goto('/sessions');
+  await page.getByRole('link', { name: 'More', exact: true }).click();
+  await expect(page).toHaveURL(/\/more$/);
+  expect(await motionKinds(page)).toEqual([]);
+  const animations = await page.evaluate(() => document.getAnimations().length);
+  expect(animations).toBe(0);
+});
+
+test('motion: a wide mobile composer keeps inline actions accessible', async ({
+  page,
+}, testInfo) => {
+  await page.setViewportSize({ width: 600, height: 900 });
+  await page.goto('/chat');
+  const composer = page.locator('.chat-input--compact');
+  await expect(composer).toBeVisible();
+  expect(await composer.evaluate((element) => element.clientWidth)).toBeGreaterThan(520);
+  await expect(
+    page.getByRole('button', { name: 'More composer actions', exact: true }),
+  ).toBeHidden();
+  const tools = composer.locator('.composer-tools');
+  await expect(tools).not.toHaveAttribute('inert');
+  await expect(tools).not.toHaveAttribute('aria-hidden', 'true');
+  await expect(page.getByRole('button', { name: 'Attach image', exact: true })).toBeVisible();
+  const isolation = page.getByRole('button', { name: 'Worktree isolation', exact: true });
+  await expect(isolation).toBeVisible();
+  const isolated = await isolation.getAttribute('aria-pressed');
+  await isolation.click();
+  await expect(isolation).toHaveAttribute('aria-pressed', isolated === 'true' ? 'false' : 'true');
+  const draft = page.getByRole('textbox', { name: 'Message Mitzo', exact: true });
+  await page.getByRole('button', { name: 'Commands', exact: true }).click();
+  await expect(draft).toHaveValue('/');
+  await expect(draft).toBeFocused();
+  await page.screenshot({
+    path: testInfo.outputPath('motion-wide-mobile-composer.png'),
+    animations: 'disabled',
+  });
+});
+
+test('motion: a narrow desktop composer opens, closes, and follows container resizing', async ({
+  page,
+}, testInfo) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto('/chat');
+  const composer = page.locator('.chat-input--compact');
+  const draft = page.getByRole('textbox', { name: 'Message Mitzo', exact: true });
+  await draft.fill('Keep this container draft');
+  await composer.evaluate((element) => {
+    (element as HTMLElement).style.width = '480px';
+  });
+  const tools = composer.locator('.composer-tools');
+  const toggle = page.getByRole('button', { name: 'More composer actions', exact: true });
+  await expect(toggle).toBeVisible();
+  await expect(tools).toBeHidden();
+  await expect(tools).toHaveAttribute('inert');
+  await toggle.click();
+  await expect(page.getByRole('button', { name: 'Commands', exact: true })).toBeVisible();
+  await toggle.click();
+  await expect(tools).toBeHidden();
+  await expect(tools).toHaveAttribute('aria-hidden', 'true');
+  await toggle.click();
+  await page.keyboard.press('Escape');
+  await expect(tools).toBeHidden();
+  await expect(draft).toBeFocused();
+  // Resize the same mounted composer while the viewport remains desktop-sized.
+  await composer.evaluate((element) => {
+    (element as HTMLElement).style.width = '600px';
+  });
+  await expect(toggle).toBeHidden();
+  await expect(tools).toBeVisible();
+  await expect(tools).not.toHaveAttribute('inert');
+  await expect(tools).not.toHaveAttribute('aria-hidden', 'true');
+  await composer.evaluate((element) => {
+    (element as HTMLElement).style.width = '480px';
+  });
+  await expect(toggle).toBeVisible();
+  await expect(tools).toBeHidden();
+  await toggle.click();
+  await expect(page.getByRole('button', { name: 'Attach image', exact: true })).toBeVisible();
+  await expect(draft).toHaveValue('Keep this container draft');
+  await page.evaluate(() => {
+    document.documentElement.dataset.theme = 'light';
+    document.documentElement.dataset.accent = 'teal';
+    document.documentElement.dataset.font = 'georgia';
+  });
+  await page.screenshot({
+    path: testInfo.outputPath('motion-narrow-desktop-composer.png'),
+    animations: 'disabled',
+  });
+});
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
@@ -437,9 +624,7 @@ test('one token change updates the accent and font on every main page', async ({
       document.documentElement.style.setProperty('--font-ui', 'Georgia');
     });
     const active = page.locator('.workspace-tabs [aria-current="page"]');
-    expect(await active.evaluate((element) => getComputedStyle(element).color)).toBe(
-      'rgb(54, 214, 183)',
-    );
+    await expect(active).toHaveCSS('color', 'rgb(54, 214, 183)');
     expect(
       await page
         .locator('h1')
