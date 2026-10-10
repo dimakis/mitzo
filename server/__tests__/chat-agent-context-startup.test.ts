@@ -5,6 +5,8 @@ import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { AccountProfiles } from '../account-profiles.js';
+import { AgentContextRecipeSchema, type AgentContextRecipe } from '@mitzo/protocol';
+import { ContextPackStore } from '../context-pack-store.js';
 
 vi.mock('@anthropic-ai/claude-agent-sdk', async (original) => ({
   ...(await original<object>()),
@@ -32,7 +34,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-async function setup() {
+async function setup(contextRecipe?: AgentContextRecipe) {
   vi.clearAllMocks();
   vi.resetModules();
   const root = await mkdtemp(join(tmpdir(), 'mitzo-context-startup-'));
@@ -60,14 +62,16 @@ async function setup() {
     expectedOutput: 'Decision brief',
     acceptanceCriteria: ['Use evidence'],
     modelPolicyRole: 'agent',
-    contextRecipe: {
-      version: 1 as const,
-      source: 'workspace' as const,
-      files: ['docs/architecture.md'],
-      tokenBudget: 1000,
-      required: [['docs/architecture.md', 'Architecture', 'Choices']],
-      excluded: [],
-    },
+    contextRecipe: contextRecipe
+      ? AgentContextRecipeSchema.parse(contextRecipe)
+      : {
+          version: 1 as const,
+          source: 'workspace' as const,
+          files: ['docs/architecture.md'],
+          tokenBudget: 1000,
+          required: [['docs/architecture.md', 'Architecture', 'Choices']],
+          excluded: [],
+        },
   };
   const profile = {
     profileId: 'bob',
@@ -87,6 +91,160 @@ async function setup() {
   return { root, profile, transport, compiler, chat, fetcher, unbind };
 }
 const sessionId = 'aaaaaaaa-bbbb-4ccc-8ddd-565656565656';
+
+it('records SDK delivery only after the provider starts a message, preserving the compiled snapshot', async () => {
+  const { root, chat, transport, unbind } = await setup();
+  try {
+    const { query } = await import('@anthropic-ai/claude-agent-sdk');
+    vi.mocked(query).mockImplementation(
+      () =>
+        ({
+          close: vi.fn(),
+          interrupt: vi.fn(),
+          async *[Symbol.asyncIterator]() {
+            yield { type: 'system', subtype: 'init', session_id: sessionId, uuid: 'fixture-init' };
+            expect(
+              JSON.parse(chat.eventStore.getSession(sessionId)!.bootContext!).receipt.status,
+            ).toBe('prepared');
+            yield {
+              type: 'stream_event',
+              session_id: sessionId,
+              uuid: 'fixture-stream',
+              event: {
+                type: 'message_start',
+                message: {
+                  id: 'provider-message',
+                  role: 'assistant',
+                  model: 'luna',
+                  content: [],
+                  usage: { input_tokens: 1, output_tokens: 0 },
+                },
+              },
+            };
+            yield {
+              type: 'result',
+              subtype: 'success',
+              session_id: sessionId,
+              uuid: 'fixture-result',
+              result: 'done',
+              is_error: false,
+              usage: { input_tokens: 1, output_tokens: 0 },
+              num_turns: 1,
+              total_cost_usd: 0,
+              duration_ms: 1,
+              duration_api_ms: 1,
+            };
+          },
+        }) as never,
+    );
+    await chat.startChat(transport, 'sdk-receipt', 'Review', {
+      cwd: root,
+      isolation: false,
+      model: 'luna',
+      operatorConnectionId: 'operator',
+      initialSessionId: sessionId,
+      clientMsgId: 'context-command',
+      agentProfile: { profileId: 'bob', revision: 3 },
+    });
+    const session = chat.eventStore.getSession(sessionId)!;
+    expect(JSON.parse(session.bootContext!).receipt).toMatchObject({
+      status: 'accepted',
+      payloadHash: session.agentContext?.payloadHash,
+      profileId: 'bob',
+      profileRevision: 3,
+    });
+    expect(session.agentContext?.context.fullMarkdown).toContain('Use immutable context bundles.');
+  } finally {
+    unbind();
+    chat.registry.dispose();
+    chat.eventStore.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+it('compiles a profile pack from accepted Knowledge instead of the writable task checkout', async () => {
+  const contextPacks = new ContextPackStore(':memory:');
+  const draft = contextPacks.create({
+    version: 1,
+    id: 'review',
+    name: 'Review',
+    description: '',
+    tokenBudget: 1000,
+    documents: [
+      {
+        path: 'review.md',
+        revision: 'a'.repeat(40),
+        mode: 'required',
+        headings: [],
+        priority: 100,
+      },
+    ],
+    retrievalGuidance: 'Use Jira for current status.',
+  });
+  const pack = contextPacks.publish(draft.id, draft.version);
+  const fixture = await setup({
+    version: 2,
+    source: 'packs',
+    tokenBudget: 1000,
+    packs: [{ id: pack.id, revision: pack.revision, hash: pack.hash }],
+  });
+  const { root, chat, transport, unbind } = fixture;
+  const { installContextPackRuntime } = await import('../context-pack-runtime.js');
+  const sourceRead = vi.fn(async (path: string, revision: string) => ({
+    path,
+    revision,
+    content: '# Review\nAccepted review guidance.',
+  }));
+  const release = installContextPackRuntime(async () => ({
+    contextPacks,
+    sourceIdentity: 'github:owner/knowledge@main',
+    source: { allowed: () => true, read: sourceRead },
+  }));
+  try {
+    await writeFile(join(root, 'review.md'), 'Unaccepted task instruction must not enter context.');
+    const { query } = await import('@anthropic-ai/claude-agent-sdk');
+    vi.mocked(query).mockImplementation(() => {
+      throw Error('Mocked provider dispatch');
+    });
+    await chat.startChat(transport, 'pack-context', 'Review', {
+      cwd: root,
+      isolation: false,
+      model: 'luna',
+      operatorConnectionId: 'operator',
+      initialSessionId: sessionId,
+      agentProfile: { profileId: 'bob', revision: 3 },
+    });
+    expect(
+      transport.send.mock.calls
+        .filter(([message]) => message.type === 'error')
+        .map(([message]) => message.error),
+    ).toEqual(['Mocked provider dispatch']);
+    expect(query).toHaveBeenCalledOnce();
+    const append = (vi.mocked(query).mock.calls[0][0].options?.systemPrompt as { append: string })
+      .append;
+    expect(append).toContain('Accepted review guidance.');
+    expect(append).toContain('Use Jira for current status.');
+    expect(append).not.toContain('Unaccepted task instruction');
+    const retained = chat.eventStore.getSession(sessionId)!;
+    expect(retained.agentContext?.provenance?.documents[0]?.storeId).toBe(
+      'github:owner/knowledge@main',
+    );
+    expect(JSON.parse(retained.bootContext!).receipt).toMatchObject({
+      status: 'prepared',
+      profileId: 'bob',
+      profileRevision: 3,
+      payloadHash: retained.agentContext?.payloadHash,
+    });
+    expect(sourceRead).toHaveBeenCalledWith('review.md', 'a'.repeat(40), expect.any(AbortSignal));
+  } finally {
+    release();
+    unbind();
+    chat.registry.dispose();
+    chat.eventStore.close();
+    contextPacks.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 it.each([false, true])(
   'pins compiled context before mocked SDK dispatch and reuses it on cold resume (resume=%s)',
@@ -142,8 +300,8 @@ it.each([false, true])(
       expect(append).not.toContain('Changed live source');
       expect(capture.session?.agentContext?.profileHash).toBe(profile.contentHash);
       expect(capture.session?.agentContext?.payloadHash).toMatch(/^[a-f0-9]{64}$/);
-      expect(JSON.parse(capture.session?.bootContext ?? 'null')).toEqual(
-        capture.session?.agentContext?.context,
+      expect(JSON.parse(capture.session?.bootContext ?? 'null')).toMatchObject(
+        capture.session!.agentContext!.context,
       );
       expect(compile).toHaveBeenCalledTimes(resume ? 0 : 1);
       expect(fetcher.mock.calls.filter(([url]) => String(url).includes('/context'))).toHaveLength(

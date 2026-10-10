@@ -8,6 +8,8 @@ import request from 'supertest';
 import { AgentLibraryStore } from '../agent-library-store.js';
 import { createAgentLibraryRouter } from '../agent-library-router.js';
 import { selectCustodianOperation, custodianRoute } from '../symposium-custodian-protocol.js';
+import { ContextPackStore } from '../context-pack-store.js';
+import { createAcceptedContextPacks } from '../context-pack-runtime.js';
 
 const definition = {
   name: 'Bob',
@@ -62,6 +64,66 @@ const compiledDefinition = {
     excluded: [],
   },
 };
+it('previews pinned Knowledge packs through the same source adapter as runtime startup', async () => {
+  const contextPacks = new ContextPackStore(':memory:');
+  try {
+    const packDraft = contextPacks.create({
+      version: 1,
+      id: 'review',
+      name: 'Review',
+      description: '',
+      tokenBudget: 1000,
+      documents: [
+        {
+          path: 'review.md',
+          revision: 'a'.repeat(40),
+          mode: 'required',
+          headings: [],
+          priority: 100,
+        },
+      ],
+      retrievalGuidance: '',
+    });
+    const pack = contextPacks.publish(packDraft.id, packDraft.version);
+    const runtime = {
+      contextPacks,
+      sourceIdentity: 'github:owner/knowledge@main',
+      source: {
+        allowed: () => true,
+        read: async (path: string, revision: string) => ({
+          path,
+          revision,
+          content: '# Review\nAccepted shared review method.',
+        }),
+      },
+    };
+    const server = app(true, {
+      contextPacks: async (signal) =>
+        createAcceptedContextPacks(runtime, { assertCurrent: () => signal.throwIfAborted() }),
+    });
+    const response = await request(server)
+      .post('/api/agent-library/preview')
+      .send({
+        definition: {
+          ...definition,
+          contextRecipe: {
+            version: 2,
+            source: 'packs',
+            tokenBudget: 1000,
+            packs: [{ id: pack.id, revision: pack.revision, hash: pack.hash }],
+          },
+        },
+      })
+      .expect(200);
+    expect(response.body.previewScope).toBe('accepted-knowledge-packs');
+    expect(response.body.assembledPrompt).toContain('Accepted shared review method.');
+    expect(response.body.compiledContext.provenance.documents[0].storeId).toBe(
+      runtime.sourceIdentity,
+    );
+  } finally {
+    contextPacks.close();
+  }
+});
 it('requires interactive operator authentication for reads and writes', async () => {
   const server = app(false);
   await request(server).get('/api/agent-library').expect(403);

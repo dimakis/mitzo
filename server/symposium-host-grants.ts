@@ -299,6 +299,12 @@ export class SymposiumHostGrants {
     )
       throw new Error('Profile resolver returned a different revision');
     const selected = version?.definition;
+    if (
+      inputSeat.contextRecipe &&
+      (!selected?.contextRecipe ||
+        JSON.stringify(inputSeat.contextRecipe) !== JSON.stringify(selected.contextRecipe))
+    )
+      throw Error('A draft cannot supply a different context recipe from its selected profile');
     const seat: SeatConfig = selected
       ? SeatConfigSchema.parse({
           ...inputSeat,
@@ -307,6 +313,7 @@ export class SymposiumHostGrants {
           systemPrompt: selected.instructions,
           expectedOutput: selected.expectedOutput,
           acceptanceCriteria: selected.acceptanceCriteria,
+          contextRecipe: selected.contextRecipe,
         })
       : inputSeat;
     if (seat.profileBinding || seat.contextGrant || seat.authorityGrant || seat.isolationRequest)
@@ -370,6 +377,7 @@ export class SymposiumHostGrants {
           systemPrompt: seat.systemPrompt,
           expectedOutput: seat.expectedOutput,
           acceptanceCriteria: seat.acceptanceCriteria,
+          contextRecipe: seat.contextRecipe,
         }),
       )
       .digest('hex');

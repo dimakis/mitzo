@@ -1,6 +1,10 @@
 import type { AuthorizedContextPacks } from './agent-context-compiler.js';
 import type { AcceptedKnowledgeSource } from './knowledge-library-source.js';
 import type { ContextPackStore } from './context-pack-store.js';
+import type { ContextPackPin } from '@mitzo/protocol';
+
+export const contextPackSourceRef = (pin: ContextPackPin) =>
+  `context-pack:${pin.id}:${pin.revision}:${pin.hash}`;
 
 /** Host composition supplies the accepted source. Neither recipes nor requests select it. */
 export interface ContextPackRuntime {
@@ -34,6 +38,7 @@ export function createAcceptedContextPacks(
     authority.assertCurrent();
   };
   return {
+    sourceIdentity: runtime.sourceIdentity,
     assertCurrent: () => authority.assertCurrent(),
     authorize,
     async resolve(pin) {

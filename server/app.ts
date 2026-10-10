@@ -124,6 +124,17 @@ import { AccountBindingSchema, SymposiumConfigSchema } from '@mitzo/protocol';
 import { SymposiumProfileStore } from './symposium-profiles.js';
 import { getAgentLibrary } from './agent-library-runtime.js';
 import { createAgentLibraryRouter } from './agent-library-router.js';
+import { createContextPackRouter } from './context-pack-router.js';
+import {
+  createAcceptedContextPacks,
+  installContextPackRuntime,
+  contextPackSourceRef,
+} from './context-pack-runtime.js';
+import { contextPackRouterDependencies } from './context-pack-composition.js';
+import {
+  SymposiumAgentContextStore,
+  createSymposiumAgentContextBinding,
+} from './symposium-agent-context.js';
 import { createSymposiumProfileRouter } from './symposium-profile-routes.js';
 import { SymposiumProfileProposalStore } from './symposium-profile-proposals.js';
 import { createSymposiumProfileProposalRouter } from './symposium-profile-proposal-routes.js';
@@ -553,6 +564,7 @@ const getKnowledgeLibraryRuntime = createKnowledgeLibraryLoader(() =>
     ].filter(Boolean),
   }),
 );
+installContextPackRuntime(getKnowledgeLibraryRuntime);
 app.use(
   '/api/knowledge',
   operatorAuthMiddleware,
@@ -994,11 +1006,29 @@ if (custodianControllerClient)
   );
 receiveCustodianEvents(broadcastDurableSymposiumEvent);
 app.use(
+  '/api/context-packs',
+  operatorAuthMiddleware,
+  createContextPackRouter(async () => {
+    const runtime = await getKnowledgeLibraryRuntime();
+    return runtime ? contextPackRouterDependencies(runtime, getAgentLibrary()) : undefined;
+  }),
+);
+app.use(
   '/api/agent-library',
   operatorAuthMiddleware,
-  createAgentLibraryRouter(getAgentLibrary(), { workspaceRoot: BASE_REPO }),
+  createAgentLibraryRouter(getAgentLibrary(), {
+    workspaceRoot: BASE_REPO,
+    contextPacks: async (signal) => {
+      const runtime = await getKnowledgeLibraryRuntime();
+      if (!runtime) throw Error('Knowledge Library is not configured');
+      return createAcceptedContextPacks(runtime, { assertCurrent: () => signal.throwIfAborted() });
+    },
+  }),
 );
 const symposiumProfileStore = new SymposiumProfileStore(
+  join(BASE_REPO || '.', '.mitzo', 'events.db'),
+);
+const symposiumAgentContextStore = new SymposiumAgentContextStore(
   join(BASE_REPO || '.', '.mitzo', 'events.db'),
 );
 const symposiumAccessRequests = new SymposiumAccessRequests(
@@ -1366,6 +1396,47 @@ let symposiumRuntimeForSession: (sessionId: string) => SymposiumOrchestrator | n
       profileProposalStore: symposiumProfileProposalStore,
       accessRequests: symposiumAccessRequests,
       profileCatalogStore: symposiumProfileStore,
+      agentContext: createSymposiumAgentContextBinding({
+        store: symposiumAgentContextStore,
+        profiles: symposiumProfileStore,
+        assertCurrent: (execution) => {
+          execution.signal.throwIfAborted();
+          const generation = execution.provenance.membershipGeneration;
+          if (generation === undefined) throw Error('Context membership generation is unavailable');
+          symposiumHostGrants.verifySeat({
+            sessionId: execution.sessionId,
+            seat: execution.seat,
+            membershipGeneration: generation,
+          });
+          const recipe = execution.seat.contextRecipe;
+          if (
+            recipe?.source === 'packs' &&
+            recipe.packs.some(
+              (pin) => !execution.seat.contextGrant?.sourceRefs.includes(contextPackSourceRef(pin)),
+            )
+          )
+            throw Error('The selected context packs are outside the host-issued context grant');
+        },
+        compileOptions: async (execution) => {
+          const runtime = await getKnowledgeLibraryRuntime();
+          if (!runtime) throw Error('Knowledge Library is not configured for this agent');
+          return {
+            packs: createAcceptedContextPacks(runtime, {
+              assertCurrent: () => {
+                execution.signal.throwIfAborted();
+                const generation = execution.provenance.membershipGeneration;
+                if (generation === undefined)
+                  throw Error('Context membership generation is unavailable');
+                symposiumHostGrants.verifySeat({
+                  sessionId: execution.sessionId,
+                  seat: execution.seat,
+                  membershipGeneration: generation,
+                });
+              },
+            }),
+          };
+        },
+      }),
       reviewStore: symposiumReviewStore,
       resolveProviderIdentity: createOpenShellProviderIdentityResolver(runtimeConfig),
       runtimeConfig,
@@ -1445,15 +1516,19 @@ const symposiumHostGrants = new SymposiumHostGrants(join(BASE_REPO || '.', '.mit
     symposiumProfileStore.get('user', selection.profileId, selection.revision),
   authorizeSeat: ({ sessionId, seat, contextSourceRefs }) => {
     const sessionSource = `session:${sessionId}`;
+    const packSources =
+      seat.contextRecipe?.source === 'packs'
+        ? seat.contextRecipe.packs.map(contextPackSourceRef)
+        : [];
     if (
       contextSourceRefs.length > 0 &&
-      (contextSourceRefs.length !== 1 || contextSourceRefs[0] !== sessionSource)
+      contextSourceRefs.some((ref) => ref !== sessionSource && !packSources.includes(ref))
     )
       throw new Error('Only this conversation context can be admitted');
     const writable = seat.role === 'implementer' || seat.role === 'coder';
     return {
       classification: 'mixed' as const,
-      sourceRefs: contextSourceRefs,
+      sourceRefs: [...new Set([...contextSourceRefs, ...packSources])],
       authority: {
         filesystem:
           seat.authorityRequest?.filesystem ?? (writable ? ('write' as const) : ('read' as const)),

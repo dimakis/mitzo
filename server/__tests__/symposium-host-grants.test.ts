@@ -120,6 +120,40 @@ it('mints immutable host grants, activates with CAS, and verifies exact seat aut
   ).not.toThrow();
 });
 
+it('binds the exact selected profile context recipe without accepting a caller recipe', () => {
+  const recipe = {
+    version: 2 as const,
+    source: 'packs' as const,
+    tokenBudget: 18000,
+    packs: [{ id: 'mitzo-review', revision: 2, hash: 'a'.repeat(64) }],
+  };
+  grants.close();
+  const deps = makeDeps();
+  const selected = deps.resolveProfile({ profileId: 'owner-review', revision: 2 })!;
+  grants = new SymposiumHostGrants(join(directory, 'events.db'), {
+    ...deps,
+    resolveProfile: () => ({
+      ...selected,
+      definition: { ...selected.definition, contextRecipe: recipe },
+    }),
+  });
+  const result = grants.activate({
+    sessionId: 'chat',
+    expectedRevision: 1,
+    actor: 'owner',
+    profileSelections: { reviewer: { profileId: 'owner-review', revision: 2 } },
+  });
+  const seat = result.seats.find((value) => value.id === 'reviewer')!;
+  expect(seat.contextRecipe).toEqual(recipe);
+  expect(() =>
+    grants.verifySeat({
+      sessionId: 'chat',
+      membershipGeneration: 1,
+      seat: { ...seat, contextRecipe: { ...recipe, tokenBudget: 12000 } },
+    }),
+  ).toThrow();
+});
+
 it('rejects forged grants, changed prompts, account revisions, and cross-session reuse', () => {
   grants.activate({ sessionId: 'chat', expectedRevision: 1, actor: 'owner' });
   const seat = config.seats[1];

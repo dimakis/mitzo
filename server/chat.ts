@@ -211,6 +211,8 @@ import type {
   AgentContextSnapshot,
 } from '@mitzo/protocol';
 import { resolveChatAgentContext } from './agent-context-binding.js';
+import { createAcceptedContextPacks, getContextPackRuntime } from './context-pack-runtime.js';
+import { bootContextWithReceipt, recordAgentContextAcceptance } from './agent-context-delivery.js';
 import { captureAgentLibraryAuthorization } from './agent-library-transport.js';
 import { shouldAutoRename, extractRecentPrompts } from './auto-rename.js';
 import {
@@ -1196,7 +1198,11 @@ async function _startChatInner(
         (accountBinding.provider === 'openai-codex' ||
           (accountBinding.provider === 'openai' &&
             process.env.MITZO_OPENSHELL_OPENAI_API_ENABLED !== '0'));
-      if (openShellRequested && agentProfile?.definition.contextRecipe)
+      if (
+        openShellRequested &&
+        agentProfile?.definition.contextRecipe &&
+        agentProfile.definition.contextRecipe.source !== 'packs'
+      )
         throw Error(
           'Compiled context recipes currently require a local chat; OpenShell uses its reviewed sandbox compiler',
         );
@@ -1736,11 +1742,20 @@ async function _startChatInner(
     const stored = options.resume ? eventStore.getSession(options.resume)?.agentContext : undefined;
     if (agentProfile?.definition.contextRecipe || stored) {
       const authorization = captureAgentLibraryAuthorization(options.operatorConnectionId);
+      const contextRuntime =
+        agentProfile?.definition.contextRecipe?.source === 'packs'
+          ? await getContextPackRuntime()
+          : undefined;
+      if (agentProfile?.definition.contextRecipe?.source === 'packs' && !contextRuntime)
+        throw Error('Knowledge Library is not configured for the selected agent context');
       agentContext = await resolveChatAgentContext({
         profile: agentProfile,
         stored,
         workspaceRoot: cwd,
         signal: abortController.signal,
+        ...(contextRuntime
+          ? { packs: createAcceptedContextPacks(contextRuntime, authorization) }
+          : {}),
       });
       authorization.assertCurrent();
       if (stateSessionId && agentContext)
@@ -1766,7 +1781,7 @@ async function _startChatInner(
     return;
   }
   const bootContextMsg: BootContextMessage =
-    agentContext?.context ??
+    (agentContext ? bootContextWithReceipt(agentContext) : undefined) ??
     (openShellSelected
       ? { ...FALLBACK_BOOT_CONTEXT, source: 'sandbox', scope: 'sandbox' }
       : await fetchBootContext(agentName, undefined, undefined, !sdkCredentialBoundary));
@@ -1776,7 +1791,7 @@ async function _startChatInner(
 
   // Send boot context to UI immediately (sessionId may be undefined for new sessions — OK,
   // it's a display-only hint; the client doesn't key on it for boot context).
-  if (!openShellSelected)
+  if (!openShellSelected || agentContext)
     send(transport, {
       ...bootContextMsg,
       ...(stateSessionId ? { sessionId: stateSessionId } : {}),
@@ -1791,6 +1806,27 @@ async function _startChatInner(
       bootContext: JSON.stringify(bootContextMsg),
     });
   }
+
+  const acceptAgentContext = (
+    commandId: string,
+    providerThreadId: string,
+    providerTurnId: string,
+    contextSha256: string,
+  ) => {
+    const sessionId = session.sessionId ?? stateSessionId;
+    if (!agentContext || !sessionId) throw Error('Prepared agent context identity is unavailable');
+    const message = recordAgentContextAcceptance({
+      store: eventStore,
+      sessionId,
+      snapshot: agentContext,
+      commandId,
+      providerThreadId,
+      providerTurnId,
+      contextSha256,
+    });
+    session.bootContext = message as unknown as Record<string, unknown>;
+    send(transport, { ...message, sessionId });
+  };
 
   // Build the system prompt append string (used by both query and comparison)
   const workspacePrompt = repositoryWorkspace
@@ -1908,6 +1944,8 @@ This is an independent checkout with its own Git storage, not a linked worktree.
         images: options.images,
         messageId,
         systemPrompt: systemPromptAppend,
+        agentContext,
+        onAgentContextAccepted: agentContext ? acceptAgentContext : undefined,
         env: sessionEnv,
         mcpServers: allMcpServers,
         eventStore,
@@ -1916,7 +1954,9 @@ This is an independent checkout with its own Git storage, not a linked worktree.
           .filter(Boolean)
           .map((root) => join(root, '.git')),
         onBootContext: (context) => {
-          const message: BootContextMessage = { ...context, source: 'sandbox' };
+          const message: BootContextMessage = agentContext
+            ? bootContextWithReceipt(agentContext)
+            : { ...context, source: 'sandbox' };
           send(transport, { ...message, sessionId: conversationId });
           session.bootContext = message as unknown as Record<string, unknown>;
           eventStore.upsertSession({
@@ -1965,6 +2005,8 @@ This is an independent checkout with its own Git storage, not a linked worktree.
         eventStore,
         systemPrompt: systemPromptAppend,
         env: sessionEnv,
+        agentContext,
+        onAgentContextAccepted: agentContext ? acceptAgentContext : undefined,
         mcpServers: allMcpServers,
         onDemandCreate: repositoryWorkspace ? undefined : buildOnDemandCreate(wtId, clientId),
         publishingGitStorageRoots: [BASE_REPO, ...Object.values(getRepoConfig().repos)]
@@ -2128,8 +2170,39 @@ This is an independent checkout with its own Git storage, not a linked worktree.
     // The session is registered and the provider query is ready. Worktree and
     // provider setup failures above must be reported before admitting a spawn.
     if (!apiKey && !gemini) options.onStartupAdmission?.();
+    const queryEvents = q as unknown as AsyncIterable<Record<string, unknown>>;
+    const sdkContextEvents = async function* () {
+      let acknowledged = false;
+      for await (const message of queryEvents) {
+        if (
+          !acknowledged &&
+          agentContext &&
+          !codexProfile &&
+          !apiKey &&
+          !gemini &&
+          message.type === 'stream_event'
+        ) {
+          const event = message.event as { type?: string; message?: { id?: string } } | undefined;
+          if (event?.type === 'message_start' && event.message?.id && session.sessionId) {
+            acknowledged = true;
+            const append =
+              systemPromptAppend +
+              WEB_ACCESS_INSTRUCTIONS +
+              GITHUB_PUBLISHING_INSTRUCTIONS +
+              CONNECTION_TOOL_INSTRUCTIONS;
+            acceptAgentContext(
+              initialMessageId,
+              session.sessionId,
+              event.message.id,
+              createHash('sha256').update(append).digest('hex'),
+            );
+          }
+        }
+        yield message;
+      }
+    };
     await runQueryLoop(
-      q as unknown as AsyncIterable<Record<string, unknown>>,
+      sdkContextEvents(),
       clientId,
       registry,
       abortController,
