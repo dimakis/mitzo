@@ -7,7 +7,10 @@ import { createHash } from 'node:crypto';
 import { EventStore } from '../event-store.js';
 import { AccountProfiles } from '../account-profiles.js';
 import { SymposiumOrchestrator } from '../symposium-orchestrator.js';
-import { createOutputContributors } from '../output-contributors.js';
+import {
+  createOutputContributors,
+  OutputContributorAddInputSchema,
+} from '../output-contributors.js';
 import { outputContextPackageDigest } from '../session-output-routes.js';
 import type { OrdinaryChatPort } from '../symposium-ordinary-turn.js';
 
@@ -117,6 +120,128 @@ function setup() {
   return { service, store, deps, input, port, output };
 }
 describe('ordinary contributors to registered outputs', () => {
+  it.each([
+    { version: 1 as const, source: 'contexgin' as const, agentName: 'writer' },
+    {
+      version: 1 as const,
+      source: 'workspace' as const,
+      files: ['AGENTS.md'],
+      tokenBudget: 512,
+      required: [['Scope']],
+      excluded: [],
+    },
+  ])(
+    'rejects saved $source context recipes before allocation or provider startup',
+    async (contextRecipe) => {
+      const { service, deps, store, input, port } = setup();
+      const definition = {
+        name: 'Compiled writer',
+        role: 'coder' as const,
+        instructions: 'Use the selected material.',
+        expectedOutput: 'Draft',
+        acceptanceCriteria: ['Use the required context'],
+        modelPolicyRole: 'coder',
+        contextRecipe,
+      };
+      const profile = {
+        profileId: 'compiled-writer',
+        revision: 1,
+        definition,
+        contentHash: createHash('sha256').update(JSON.stringify(definition)).digest('hex'),
+      };
+      Object.assign(deps, { resolveProfile: vi.fn(async () => profile) });
+      const allocate = vi.spyOn(store, 'createSymposiumSession');
+      await expect(
+        service.add(
+          'source',
+          {
+            ...input,
+            profileSelection: { profileId: profile.profileId, revision: profile.revision },
+          },
+          'verified-transport',
+        ),
+      ).rejects.toThrow('context recipes');
+      expect(allocate).not.toHaveBeenCalled();
+      expect(store.getOutputContributorBindings('source')).toEqual([]);
+      expect(port.startChat).not.toHaveBeenCalled();
+    },
+  );
+
+  it('rejects recipe-bearing saved profiles during recovery of a previously allocated draft', async () => {
+    const { service, deps, store, input, port } = setup();
+    const definition = {
+      name: 'Compiled writer',
+      role: 'coder' as const,
+      instructions: 'Use the selected material.',
+      expectedOutput: 'Draft',
+      acceptanceCriteria: ['Use required context'],
+      modelPolicyRole: 'coder',
+      contextRecipe: { version: 1 as const, source: 'contexgin' as const, agentName: 'writer' },
+    };
+    const profile = {
+      profileId: 'compiled-writer',
+      revision: 1,
+      definition,
+      contentHash: createHash('sha256').update(JSON.stringify(definition)).digest('hex'),
+    };
+    Object.assign(deps, { resolveProfile: vi.fn(async () => profile) });
+    const selected = OutputContributorAddInputSchema.parse({
+      ...input,
+      profileSelection: { profileId: profile.profileId, revision: profile.revision },
+    });
+    const { requestId, ...selection } = selected;
+    store.createSymposiumSession({
+      idempotencyKey: `output-contributor:source:${requestId}`,
+      fingerprint: createHash('sha256').update(JSON.stringify(selection)).digest('hex'),
+      sessionId: 'previously-allocated-draft',
+      summary: 'Draft interrupted before activation',
+      binding: deps.currentAccounts().resolve(input.accountId, input.model),
+      config: {
+        version: 2,
+        revision: 1,
+        state: 'draft',
+        anchorSeatId: 'contributor',
+        activeSeatCap: 1,
+        seats: [
+          {
+            id: 'contributor',
+            name: definition.name,
+            role: 'coder',
+            model: input.model,
+            accountBinding: deps.currentAccounts().resolve(input.accountId, input.model),
+            systemPrompt: definition.instructions,
+            color: '#335577',
+          },
+        ],
+        turnRules: { mode: 'directed', maxTurns: 64 },
+        interceptMode: 'manual',
+      },
+      profileSelections: { contributor: selected.profileSelection! },
+      outputBinding: {
+        parentSessionId: 'source',
+        outputId: input.outputId,
+        outputRevision: 1,
+        contextPackageDigest: input.contextPackageDigest,
+        mode: input.mode,
+        label: input.label,
+        additionalInstructions: input.instructions,
+      },
+    });
+    service.close();
+    const reopened = createOutputContributors(deps);
+    cleanup.unshift(() => reopened.close());
+    await expect(reopened.add('source', selected, 'verified-transport')).rejects.toThrow(
+      'context recipes',
+    );
+    expect(store.getOutputContributorBindings('source')).toHaveLength(1);
+    expect(JSON.parse(store.getSession('previously-allocated-draft')!.symposiumConfig!).state).toBe(
+      'draft',
+    );
+    expect(
+      store.getLatestSymposiumMembership('previously-allocated-draft', 'contributor'),
+    ).toBeUndefined();
+    expect(port.startChat).not.toHaveBeenCalled();
+  });
   it('retains accepted child identity only for a current claim and matching ordinary ownership/account', async () => {
     const { service, input, port, store, deps } = setup();
     const normalStart = vi.mocked(port.startChat).getMockImplementation()!;

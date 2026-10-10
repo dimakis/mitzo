@@ -5,9 +5,15 @@ import {
   OutputContributorAddInputSchema,
   OutputContributorMessageInputSchema,
   OutputContributorStopInputSchema,
+  UnsupportedOutputContributorContextError,
+  UNSUPPORTED_OUTPUT_CONTRIBUTOR_CONTEXT_MESSAGE,
 } from './output-contributors.js';
 
 function failure(res: Response, error: unknown) {
+  if (error instanceof UnsupportedOutputContributorContextError) {
+    res.status(409).json({ error: UNSUPPORTED_OUTPUT_CONTRIBUTOR_CONTEXT_MESSAGE });
+    return;
+  }
   if (error instanceof ZodError) {
     res.status(400).json({ error: 'Invalid contributor input' });
     return;

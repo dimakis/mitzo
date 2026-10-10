@@ -20,6 +20,22 @@ import { SymposiumSharedSeatExecutor } from './symposium-shared-execution.js';
 import { createOrdinarySymposiumTurn, type OrdinaryChatPort } from './symposium-ordinary-turn.js';
 import { outputContextPackageDigest } from './session-output-routes.js';
 
+export const UNSUPPORTED_OUTPUT_CONTRIBUTOR_CONTEXT_MESSAGE =
+  'Output contributors do not support saved profile context recipes yet. Choose Default Mitzo or a profile without a context recipe.';
+export class UnsupportedOutputContributorContextError extends Error {
+  constructor() {
+    super(UNSUPPORTED_OUTPUT_CONTRIBUTOR_CONTEXT_MESSAGE);
+    this.name = 'UnsupportedOutputContributorContextError';
+  }
+}
+function validateSavedContributorProfile(profile: AgentLibraryVersion) {
+  // This slice freezes profile guidance; it cannot compile or authorize recipe context sources.
+  if (profile.definition.contextRecipe !== undefined)
+    throw new UnsupportedOutputContributorContextError();
+  if (profile.definition.role !== 'coder')
+    throw new Error('Selected profile needs unsupported reviewer isolation');
+}
+
 export const OutputContributorAddInputSchema = z.strictObject({
   requestId: z.string().trim().min(1).max(128),
   outputId: z.string().uuid(),
@@ -201,8 +217,7 @@ export class OutputContributors {
         provider: account.provider,
         lookup: (selected) => this.deps.resolveProfile(selected, operatorConnectionId),
       });
-      if (profile && profile.definition.role !== 'coder')
-        throw new Error('Selected profile needs unsupported reviewer isolation');
+      if (profile) validateSavedContributorProfile(profile);
       if (profile) this.resolvedProfiles.set(`${profile.profileId}:${profile.revision}`, profile);
       const seat: SeatConfig = {
         id: SEAT,
@@ -249,16 +264,19 @@ export class OutputContributors {
         binding.coordinatorSessionId,
       );
       for (const selection of Object.values(selectedProfiles)) {
-        if (!this.resolvedProfiles.has(`${selection.profileId}:${selection.revision}`)) {
-          const profile = await resolveChatAgentProfile({
-            requested: selection,
-            provider: config.seats[0].accountBinding!.provider,
-            lookup: (choice) => this.deps.resolveProfile(choice, operatorConnectionId),
-          });
-          if (!profile || profile.definition.role !== 'coder')
-            throw new Error('Selected profile needs unsupported reviewer isolation');
-          this.resolvedProfiles.set(`${selection.profileId}:${selection.revision}`, profile);
+        const profileKey = `${selection.profileId}:${selection.revision}`;
+        let profile = this.resolvedProfiles.get(profileKey);
+        if (!profile) {
+          profile =
+            (await resolveChatAgentProfile({
+              requested: selection,
+              provider: config.seats[0].accountBinding!.provider,
+              lookup: (choice) => this.deps.resolveProfile(choice, operatorConnectionId),
+            })) ?? undefined;
+          if (!profile) throw new Error('Selected profile needs unsupported reviewer isolation');
         }
+        validateSavedContributorProfile(profile);
+        this.resolvedProfiles.set(profileKey, profile);
       }
       config = this.hostGrants.activate({
         sessionId: binding.coordinatorSessionId,

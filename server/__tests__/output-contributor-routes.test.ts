@@ -2,7 +2,11 @@ import { describe, expect, it, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import { createOutputContributorRouter } from '../output-contributor-routes.js';
-import type { OutputContributors } from '../output-contributors.js';
+import {
+  type OutputContributors,
+  UnsupportedOutputContributorContextError,
+  UNSUPPORTED_OUTPUT_CONTRIBUTOR_CONTEXT_MESSAGE,
+} from '../output-contributors.js';
 
 function fixture() {
   const contributor = {
@@ -121,6 +125,16 @@ describe('operator-scoped output contributor routes', () => {
     const response = await post('/api/sessions/source/contributors', input);
     expect(response.status).toBe(409);
     expect(JSON.stringify(response.body)).not.toContain('secret');
+    expect(service.add).toHaveBeenCalledTimes(1);
+  });
+  it('explains unsupported profile recipes using only the fixed safe message', async () => {
+    const { post, service, input } = fixture();
+    const error = new UnsupportedOutputContributorContextError();
+    error.message = 'Private recipe /private/token password=secret';
+    service.add.mockRejectedValueOnce(error);
+    const response = await post('/api/sessions/source/contributors', input);
+    expect(response.status).toBe(409);
+    expect(response.body).toEqual({ error: UNSUPPORTED_OUTPUT_CONTRIBUTOR_CONTEXT_MESSAGE });
     expect(service.add).toHaveBeenCalledTimes(1);
   });
 });
