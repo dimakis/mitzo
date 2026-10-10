@@ -594,12 +594,20 @@ export function KnowledgeLibrary() {
         <>
           <div className="knowledge-top">
             <div className="knowledge-switch" aria-label="Knowledge collection">
-              <button aria-pressed={tab === 'library'} onClick={() => setTab('library')}>
+              <button
+                aria-pressed={tab === 'library'}
+                onClick={() => {
+                  ++readRequest.current;
+                  setTab('library');
+                  setAdding(false);
+                }}
+              >
                 Library
               </button>
               <button
                 aria-pressed={tab === 'drafts'}
                 onClick={() => {
+                  ++readRequest.current;
                   setTab('drafts');
                   setAdding(false);
                 }}

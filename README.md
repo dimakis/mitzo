@@ -104,7 +104,7 @@ Access from your phone: install [Tailscale](https://tailscale.com/download) on s
 
 ### Knowledge Library
 
-Returning to the Library during Edit preparation keeps you in the Library when that request finishes.
+Returning to the Library during Edit preparation keeps you in the Library when that request finishes. Switching between Library and Drafts also cancels pending editor navigation while preserving the prepared document in your working copy.
 
 Open **Knowledge** for curated documents from the host-enrolled accepted Git source. Browse its expandable folder tree and open documents in a rendered reading view. Choose **Edit** for the Markdown editor with source, preview and split modes, formatting, undo/redo and working-copy recovery. **Move** and **New folder** preserve the hierarchy within the enrolled knowledge scopes; text and structural changes share the same working copy. Saved-draft conflicts compare new folders and original-to-destination moves before replacement. Individually enrolled guidance files stay in place, including under overlapping folder scopes. Browsing is independent of chats and sandboxes. **Save** preserves a durable change set and creates or updates its draft PR; **Send for review** submits the exact saved version. **Accept** requires current-head Centaur approval and passing required checks. Source acceptance, ContexGin publication and adoption by a chat remain separate.
 

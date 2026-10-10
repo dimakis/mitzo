@@ -2211,3 +2211,44 @@ it('does not reopen an editor when pending Edit completes after returning to Lib
   expect(await screen.findByRole('article', { name: 'Release process' })).toBeTruthy();
   expect(screen.queryByRole('textbox', { name: 'Document source' })).toBeNull();
 });
+
+it('keeps tab navigation when a pending add-document request completes', async () => {
+  localStorage.setItem(
+    'mitzo-knowledge-working-copy:',
+    JSON.stringify({
+      title: 'Retained change',
+      baseRevision: 'r1',
+      documents: [],
+      directories: [],
+      selected: '',
+      saved: '[]',
+      savedDirectories: [],
+    }),
+  );
+  let resolveDocument!: (value: Response) => void;
+  const pending = new Promise<Response>((resolve) => {
+    resolveDocument = resolve;
+  });
+  const original = vi.mocked(apiFetch).getMockImplementation()!;
+  vi.mocked(apiFetch).mockImplementation(async (path, init) =>
+    path.startsWith('/api/knowledge/document') ? pending : original(path, init),
+  );
+  setup();
+  fireEvent.click(await screen.findByRole('button', { name: '+ Add document' }));
+  fireEvent.click(await findLibraryDocument(/Working principles/));
+  await waitFor(() =>
+    expect(
+      vi.mocked(apiFetch).mock.calls.some(([path]) => path.startsWith('/api/knowledge/document')),
+    ).toBe(true),
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Drafts (0)' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Library' }));
+  await act(async () => {
+    resolveDocument(response({ content: '# Principles' }));
+  });
+  expect(screen.getByRole('searchbox')).toBeTruthy();
+  expect(screen.getByRole('button', { name: 'Library' }).getAttribute('aria-pressed')).toBe('true');
+  expect(screen.queryByRole('textbox', { name: 'Document source' })).toBeNull();
+  const copy = JSON.parse(localStorage.getItem('mitzo-knowledge-working-copy:')!);
+  expect(copy.documents[0]).toMatchObject({ path: 'hub/principles.md', content: '# Principles' });
+});
