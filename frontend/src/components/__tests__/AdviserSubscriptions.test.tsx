@@ -139,6 +139,203 @@ it('continues polling a recovered host-owned attempt until it completes', async 
   expect(mocks.changed).toHaveBeenCalledTimes(1);
   expect(mocks.fetch.mock.calls.some(([url]) => url.endsWith('/start'))).toBe(false);
 });
+it.each(['complete', 'cancel', 'new-start', 'unmount', 'new-host-attempt'] as const)(
+  'applies a delayed completion snapshot only to its current page and request after %s',
+  async (transition) => {
+    vi.useFakeTimers();
+    let reads = 0;
+    let current: string | null = 'attempt-a';
+    let releaseSnapshot!: (response: Response) => void;
+    const snapshot = new Promise<Response>((resolve) => {
+      releaseSnapshot = resolve;
+    });
+    mocks.fetch.mockImplementation(async (url: string) => {
+      if (url.endsWith('/attempts/attempt-a')) {
+        current = null;
+        return new Response(JSON.stringify({ id: 'attempt-a', state: 'connected' }));
+      }
+      if (url.endsWith('/attempts/attempt-b'))
+        return new Response(JSON.stringify({ id: 'attempt-b', state: 'pending' }));
+      if (url.endsWith('/cancel')) return new Response(JSON.stringify({ ok: true }));
+      if (url.endsWith('/start')) {
+        current = 'attempt-b';
+        return new Response(JSON.stringify({ id: current, state: 'pending' }));
+      }
+      if (++reads === 2) return snapshot;
+      return new Response(
+        JSON.stringify({
+          enabled: true,
+          accounts: [],
+          pendingAttempt: current ? { id: current, state: 'pending' } : null,
+        }),
+      );
+    });
+    let view!: ReturnType<typeof render>;
+    await act(async () => {
+      view = render(<AdviserSubscriptions onAccountsChanged={mocks.changed} />);
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Manage adviser accounts' }));
+    await act(() => vi.advanceTimersByTimeAsync(2000));
+    expect(reads).toBe(2);
+    if (transition === 'cancel' || transition === 'new-start') {
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Cancel sign-in' }));
+      });
+      if (transition === 'new-start')
+        await act(async () => {
+          fireEvent.click(
+            screen.getByRole('button', { name: 'Continue with ChatGPT on your Mac' }),
+          );
+        });
+    }
+    if (transition === 'unmount') {
+      view.unmount();
+      current = 'attempt-b';
+      await act(async () => {
+        render(<AdviserSubscriptions onAccountsChanged={mocks.changed} />);
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'Manage adviser accounts' }));
+    }
+    await act(async () => {
+      releaseSnapshot(
+        new Response(
+          JSON.stringify({
+            enabled: true,
+            accounts: [
+              {
+                id: 'plan-a',
+                label: 'Completed account A',
+                email: 'a@example.test',
+                state: 'connected',
+              },
+            ],
+            pendingAttempt:
+              transition === 'new-host-attempt' ? { id: 'attempt-b', state: 'pending' } : null,
+          }),
+        ),
+      );
+    });
+    if (transition === 'complete') {
+      expect(screen.getByRole('status').textContent).toContain('ChatGPT adviser connected');
+      expect(screen.getByText('Completed account A')).toBeTruthy();
+      expect(mocks.changed).toHaveBeenCalledTimes(1);
+      expect(screen.queryByRole('button', { name: 'Cancel sign-in' })).toBeNull();
+    } else {
+      expect(
+        screen.queryByText('ChatGPT adviser connected. Choose its account and model.'),
+      ).toBeNull();
+      // A current snapshot with recovered B still updates the account catalog;
+      // a retired request must not notify or replace the new page/account list.
+      expect(mocks.changed).toHaveBeenCalledTimes(transition === 'new-host-attempt' ? 1 : 0);
+      expect(screen.queryByText('Completed account A') !== null).toBe(
+        transition === 'new-host-attempt',
+      );
+      if (transition === 'cancel') {
+        expect(screen.getByRole('status').textContent).toBe('Sign-in cancelled.');
+        expect(screen.queryByRole('button', { name: 'Cancel sign-in' })).toBeNull();
+        expect(
+          screen
+            .getByRole('button', { name: 'Continue with ChatGPT on your Mac' })
+            .hasAttribute('disabled'),
+        ).toBe(false);
+      } else {
+        expect(screen.getByRole('status').textContent).toBe(
+          'Finish sign-in in the browser on your Mac.',
+        );
+        expect(
+          screen.getByRole('button', { name: 'Cancel sign-in' }).hasAttribute('disabled'),
+        ).toBe(false);
+        expect(
+          screen
+            .getByRole('button', { name: 'Continue with ChatGPT on your Mac' })
+            .hasAttribute('disabled'),
+        ).toBe(true);
+        await act(() => vi.advanceTimersByTimeAsync(2000));
+        expect(mocks.fetch.mock.calls.some(([url]) => url.endsWith('/attempts/attempt-b'))).toBe(
+          true,
+        );
+      }
+    }
+    expect(mocks.fetch.mock.calls.filter(([url]) => url.endsWith('/start'))).toHaveLength(
+      transition === 'new-start' ? 1 : 0,
+    );
+  },
+);
+it('publishes B’s delayed completion after the older Cancel response preserves B', async () => {
+  vi.useFakeTimers();
+  let pending: string | null = 'attempt-a';
+  let completedB = false;
+  let finishPollA!: (response: Response) => void;
+  let finishCancelA!: (response: Response) => void;
+  let finishSnapshotB!: (response: Response) => void;
+  mocks.fetch.mockImplementation(async (url: string) => {
+    if (url.endsWith('/attempts/attempt-a'))
+      return new Promise<Response>((resolve) => {
+        finishPollA = resolve;
+      });
+    if (url.endsWith('/attempts/attempt-a/cancel'))
+      return new Promise<Response>((resolve) => {
+        finishCancelA = resolve;
+      });
+    if (url.endsWith('/attempts/attempt-b')) {
+      completedB = true;
+      pending = null;
+      return new Response(JSON.stringify({ id: 'attempt-b', state: 'connected' }));
+    }
+    if (completedB)
+      return new Promise<Response>((resolve) => {
+        finishSnapshotB = resolve;
+      });
+    return new Response(
+      JSON.stringify({
+        enabled: true,
+        accounts: [],
+        pendingAttempt: pending ? { id: pending, state: 'pending' } : null,
+      }),
+    );
+  });
+  await act(async () => {
+    render(<AdviserSubscriptions onAccountsChanged={mocks.changed} />);
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Manage adviser accounts' }));
+  await act(() => vi.advanceTimersByTimeAsync(2000));
+  fireEvent.click(screen.getByRole('button', { name: 'Cancel sign-in' }));
+  pending = 'attempt-b';
+  await act(async () => {
+    finishPollA(new Response(JSON.stringify({ id: 'attempt-a', state: 'connected' })));
+  });
+  await act(async () => {
+    finishCancelA(new Response(JSON.stringify({ ok: true })));
+  });
+  expect(screen.getByRole('status').textContent).toBe('Finish sign-in in the browser on your Mac.');
+  expect(mocks.changed).not.toHaveBeenCalled();
+  await act(() => vi.advanceTimersByTimeAsync(2000));
+  expect(completedB).toBe(true);
+  expect(mocks.changed).not.toHaveBeenCalled();
+  await act(async () => {
+    finishSnapshotB(
+      new Response(
+        JSON.stringify({
+          enabled: true,
+          accounts: [
+            {
+              id: 'plan-b',
+              label: 'Completed account B',
+              email: 'b@example.test',
+              state: 'connected',
+            },
+          ],
+          pendingAttempt: null,
+        }),
+      ),
+    );
+  });
+  expect(screen.getByRole('status').textContent).toContain('ChatGPT adviser connected');
+  expect(screen.getByText('Completed account B')).toBeTruthy();
+  expect(screen.queryByRole('button', { name: 'Cancel sign-in' })).toBeNull();
+  expect(mocks.changed).toHaveBeenCalledTimes(1);
+  expect(mocks.fetch.mock.calls.some(([url]) => url.endsWith('/start'))).toBe(false);
+});
 it('keeps a newer host-owned pending attempt when an older completed poll refreshes accounts', async () => {
   vi.useFakeTimers();
   let current = 'attempt-a';
