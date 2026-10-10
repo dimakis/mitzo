@@ -1,6 +1,11 @@
+import { useState } from 'react';
 import { useMitzoStore } from '@mitzo/client/hooks';
 import type { SendMessageOptions } from '@mitzo/client';
-import { registerBriefing, useBriefingRegistration } from '../lib/briefing-registration';
+import {
+  briefingRegistrationCapacityAvailable,
+  registerBriefing,
+  useBriefingRegistration,
+} from '../lib/briefing-registration';
 
 /** Shared launch state survives navigation until delivery is acknowledged or dismissed. */
 export function usePendingLaunch() {
@@ -10,8 +15,19 @@ export function usePendingLaunch() {
   const storeSendLaunch = useMitzoStore((s) => s.sendPendingSession);
   const sessionId = useMitzoStore((s) => s.sessions.active);
   const registration = useBriefingRegistration(sessionId);
+  const [capacityError, setCapacityError] = useState<{
+    launch: typeof launch;
+    message: string;
+  } | null>(null);
   function sendLaunch(opts?: SendMessageOptions): boolean {
     const reviewed = launch;
+    if (reviewed?.briefing && !briefingRegistrationCapacityAvailable()) {
+      setCapacityError({
+        launch: reviewed,
+        message: 'Save the existing briefing links before starting another minion conversation.',
+      });
+      return false;
+    }
     return storeSendLaunch({
       ...opts,
       onSessionAssigned(sessionId) {
@@ -40,7 +56,8 @@ export function usePendingLaunch() {
     dismissLaunch,
     sendMessage,
     sendLaunch,
-    registrationError: registration.error,
+    registrationError:
+      registration.error || (capacityError?.launch === launch ? capacityError.message : ''),
     registrationSaving: registration.saving,
     retryRegistration: registration.retry,
   };

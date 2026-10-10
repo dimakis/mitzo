@@ -6,7 +6,11 @@ import { createTestStore } from '../../test-utils/createTestStore';
 import { usePendingLaunch } from '../usePendingLaunch';
 import type { SendMessageOptions } from '@mitzo/client';
 import { apiFetch } from '../../lib/api-fetch';
-vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn(), getApiBaseUrl: () => '' }));
+vi.mock('../../lib/api-fetch', () => ({
+  apiFetch: vi.fn(),
+  getApiBaseUrl: () => '',
+  AUTH_LOST_EVENT: 'mitzo:auth-lost',
+}));
 afterEach(() => {
   cleanup();
   localStorage.clear();

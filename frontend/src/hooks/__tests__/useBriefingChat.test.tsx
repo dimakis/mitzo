@@ -5,7 +5,11 @@ import { MitzoStoreProvider } from '@mitzo/client/hooks';
 import { createTestStore } from '../../test-utils/createTestStore';
 import { useBriefingChat } from '../useBriefingChat';
 import { apiFetch } from '../../lib/api-fetch';
-vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn(), getApiBaseUrl: () => '' }));
+vi.mock('../../lib/api-fetch', () => ({
+  apiFetch: vi.fn(),
+  getApiBaseUrl: () => '',
+  AUTH_LOST_EVENT: 'mitzo:auth-lost',
+}));
 vi.mock('../useHomePreferences', () => ({
   useHomePreferences: () => ({ preferences: { names: { briefing: 'Jeeves' } } }),
 }));

@@ -7,7 +7,11 @@ import { createTestStore } from '../../test-utils/createTestStore';
 import { apiFetch } from '../../lib/api-fetch';
 import { usePendingLaunch } from '../usePendingLaunch';
 import { useBriefingChat } from '../useBriefingChat';
-vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn(), getApiBaseUrl: () => '' }));
+vi.mock('../../lib/api-fetch', () => ({
+  apiFetch: vi.fn(),
+  getApiBaseUrl: () => '',
+  AUTH_LOST_EVENT: 'mitzo:auth-lost',
+}));
 vi.mock('../useHomePreferences', () => ({ useHomePreferences: () => ({ preferences: null }) }));
 afterEach(() => {
   cleanup();

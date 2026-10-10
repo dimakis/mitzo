@@ -1,6 +1,6 @@
 import { useMemo, useSyncExternalStore } from 'react';
 import { z } from 'zod';
-import { apiFetch, getApiBaseUrl } from './api-fetch';
+import { apiFetch, getApiBaseUrl, AUTH_LOST_EVENT } from './api-fetch';
 
 const identity = z.strictObject({
   date: z
@@ -22,12 +22,15 @@ const recordSchema = z.strictObject({
   status: z.enum(['pending', 'failed', 'confirmed']),
   reasoningEffort: z.string().max(100).nullable().optional(),
 });
-const recordsSchema = z.array(recordSchema).max(256);
 type Record = z.infer<typeof recordSchema>;
 const ACK = identity.extend({ createdAt: z.iso.datetime() });
 const CHANGED = 'mitzo-briefing-registration-changed';
-const memories = new Map<string, string>();
-const writeErrors = new Set<string>();
+const memories = new Map<string, Map<string, Record>>();
+const writeErrors = new Map<string, Set<string>>();
+let authGeneration = 0;
+window.addEventListener(AUTH_LOST_EVENT, () => {
+  authGeneration++;
+});
 const inFlight = new Map<string, Promise<void>>();
 const SAVE_ERROR =
   'Conversation started, but its briefing link could not be saved. Retry saving the link.';
@@ -37,38 +40,92 @@ function key() {
   const backend = new URL(getApiBaseUrl() || window.location.origin, window.location.href);
   return `mitzo-briefing-registrations:${backend.origin}${backend.pathname.replace(/\/$/, '')}`;
 }
+function durableKey(scope: string, sessionId: string) {
+  return `${scope}:${encodeURIComponent(sessionId)}`;
+}
+function memory(scope: string) {
+  let entries = memories.get(scope);
+  if (!entries) {
+    entries = new Map();
+    memories.set(scope, entries);
+  }
+  return entries;
+}
 function read() {
   const scope = key();
-  let error = writeErrors.has(scope) ? STORAGE_ERROR : '';
-  let raw: string;
+  const cached = memory(scope);
+  const failed = writeErrors.get(scope) ?? new Set<string>();
+  let error = failed.size ? STORAGE_ERROR : '';
+  const entries = new Map<string, Record>();
   try {
-    raw = localStorage.getItem(scope) ?? '[]';
-    if (raw.length > 256 * 1024) throw new Error('Registration storage exceeds bounds');
-    recordsSchema.parse(JSON.parse(raw));
+    const keys: string[] = [];
+    for (let index = 0; index < localStorage.length; index++) {
+      const storedKey = localStorage.key(index);
+      if (storedKey?.startsWith(`${scope}:`)) keys.push(storedKey);
+      if (keys.length > 256) throw new Error('Registration storage capacity reached');
+    }
+    for (const id of cached.keys())
+      if (!keys.includes(durableKey(scope, id)) && !failed.has(id)) cached.delete(id);
+    for (const storedKey of keys) {
+      const raw = localStorage.getItem(storedKey);
+      if (!raw || raw.length > 8 * 1024) throw new Error('Invalid registration storage');
+      const record = recordSchema.parse(JSON.parse(raw));
+      if (storedKey !== durableKey(scope, record.binding.sessionId))
+        throw new Error('Invalid registration scope');
+      entries.set(record.binding.sessionId, record);
+      cached.set(record.binding.sessionId, record);
+    }
   } catch {
-    raw = memories.get(scope) ?? '[]';
     error = STORAGE_ERROR;
   }
-  // A failed write must retain the reviewed identity for this application process.
-  if (writeErrors.has(scope)) raw = memories.get(scope) ?? raw;
-  return { records: JSON.parse(raw) as Record[], error, scope };
+  // Keep at most one additional assigned identity when capacity changes after dispatch.
+  if (error)
+    for (const [id, record] of cached)
+      if (!entries.has(id) || failed.has(id)) entries.set(id, record);
+  return { records: [...entries.values()], error, scope };
 }
 function notify() {
   window.dispatchEvent(new Event(CHANGED));
 }
-function write(records: Record[]) {
-  const scope = key();
-  const raw = JSON.stringify(records);
-  memories.set(scope, raw);
+function write(record: Record) {
+  const { records, scope } = read();
+  const cached = memory(scope);
+  const id = record.binding.sessionId;
+  recordSchema.parse(record);
+  const raw = JSON.stringify(record);
+  if (raw.length > 8 * 1024 || (!cached.has(id) && cached.size >= 257))
+    throw new Error('Briefing retry capacity reached');
+  cached.set(id, record);
+  const failed = writeErrors.get(scope) ?? new Set<string>();
+  writeErrors.set(scope, failed);
   try {
-    recordsSchema.parse(records);
-    if (raw.length > 256 * 1024) throw new Error('Registration storage exceeds bounds');
-    localStorage.setItem(scope, raw);
-    writeErrors.delete(scope);
+    if (
+      !localStorage.getItem(durableKey(scope, id)) &&
+      records.filter((entry) => entry.binding.sessionId !== id).length >= 256
+    )
+      throw new Error('Briefing retry capacity reached');
+    localStorage.setItem(durableKey(scope, id), raw);
+    failed.delete(id);
   } catch {
-    writeErrors.add(scope);
+    failed.add(id);
   }
   notify();
+}
+function remove(sessionId: string) {
+  const scope = key();
+  try {
+    localStorage.removeItem(durableKey(scope, sessionId));
+    memory(scope).delete(sessionId);
+    writeErrors.get(scope)?.delete(sessionId);
+  } catch {
+    const failed = writeErrors.get(scope) ?? new Set<string>();
+    failed.add(sessionId);
+    writeErrors.set(scope, failed);
+  }
+  notify();
+}
+export function briefingRegistrationCapacityAvailable() {
+  return read().records.length < 256;
 }
 function same(left: BriefingRegistrationIdentity, right: BriefingRegistrationIdentity) {
   return Object.keys(left).every(
@@ -80,10 +137,7 @@ function replace(record: Record) {
   const previous = current.find((entry) => entry.binding.sessionId === record.binding.sessionId);
   if (previous && !same(previous.binding, record.binding))
     throw new Error('Reviewed briefing identity changed');
-  write([
-    ...current.filter((entry) => entry.binding.sessionId !== record.binding.sessionId),
-    record,
-  ]);
+  write(record);
 }
 export function verifyBriefingRegistration(value: unknown) {
   const current = read().records;
@@ -107,8 +161,7 @@ export function confirmBriefingRegistration(value: unknown) {
   const current = read().records;
   const sessionId =
     value && typeof value === 'object' && 'sessionId' in value ? value.sessionId : undefined;
-  if (current.some((entry) => entry.binding.sessionId === sessionId))
-    write(current.filter((entry) => entry.binding.sessionId !== sessionId));
+  if (current.some((entry) => entry.binding.sessionId === sessionId)) remove(String(sessionId));
 }
 
 /** Small reviewed identity receipts persist independently of report bytes and chat mounts. */
@@ -118,13 +171,20 @@ export function registerBriefing(
 ): Promise<void> {
   const parsed = identity.parse(binding);
   const scope = key();
+  const generation = authGeneration;
   const operation = `${scope}:${parsed.sessionId}`;
   const running = inFlight.get(operation);
   if (running) return running;
-  const token = crypto.randomUUID();
+  const bytes = globalThis.crypto?.getRandomValues?.(new Uint8Array(16));
+  const token =
+    globalThis.crypto?.randomUUID?.() ??
+    (bytes
+      ? Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join('')
+      : `${Date.now()}:${Math.random()}`);
   const record: Record = { binding: parsed, token, status: 'pending', reasoningEffort };
   replace(record);
   const current = () =>
+    authGeneration === generation &&
     key() === scope &&
     read().records.find((entry) => entry.binding.sessionId === parsed.sessionId)?.token === token;
   const promise = Promise.resolve()
