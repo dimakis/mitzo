@@ -76,7 +76,17 @@ export function AdviserSubscriptions({
     let disposed = false,
       timer: ReturnType<typeof setTimeout>;
     const controller = new AbortController();
+    const schedule = () => {
+      if (!disposed) timer = setTimeout(() => void poll(), 2000);
+    };
     const poll = async () => {
+      // Local account changes own the UI until their response is reconciled.
+      // Polling resumes even if the mutation fails or invalidates a refresh.
+      if (mutation.current) {
+        schedule();
+        return;
+      }
+      let request = version.current;
       try {
         const response = await apiFetch(`${endpoint}/attempts/${encodeURIComponent(attempt.id)}`, {
           signal: controller.signal,
@@ -85,8 +95,14 @@ export function AdviserSubscriptions({
         const result = attemptSchema.parse(await response.json());
         if (result.id !== attempt.id) throw Error('Sign-in attempt changed');
         if (disposed) return;
+        if (mutation.current || request !== version.current) {
+          schedule();
+          return;
+        }
         if (result.state !== 'pending') {
-          const refreshed = await refresh();
+          const refreshing = refresh();
+          request = version.current;
+          const refreshed = await refreshing;
           if (!disposed && refreshed && refreshed.request === version.current) {
             changed.current();
             // The host snapshot can recover a newer attempt from another tab.
@@ -98,13 +114,14 @@ export function AdviserSubscriptions({
                 ? 'ChatGPT adviser connected. Choose its account and model.'
                 : 'Sign-in did not complete. Retry when ready.',
             );
+            return;
           }
-          return;
         }
       } catch {
-        if (!disposed) setError('Could not check sign-in. Refresh accounts or cancel sign-in.');
+        if (!disposed && !mutation.current && request === version.current)
+          setError('Could not check sign-in. Refresh accounts or cancel sign-in.');
       }
-      if (!disposed) timer = setTimeout(() => void poll(), 2000);
+      schedule();
     };
     timer = setTimeout(() => void poll(), 2000);
     return () => {
@@ -212,9 +229,10 @@ export function AdviserSubscriptions({
                           const result = z
                             .object({ revoked: z.boolean() })
                             .parse(await response.json());
-                          await refresh();
-                          if (mounted.current) {
+                          const refreshed = await refresh();
+                          if (refreshed && refreshed.request === version.current) {
                             changed.current();
+                            if (refreshed.data.pendingAttempt) return;
                             setMessage(
                               result.revoked
                                 ? 'Adviser disconnected.'
@@ -266,7 +284,11 @@ export function AdviserSubscriptions({
                       },
                     );
                     if (!response.ok) throw Error('Unavailable');
-                    if (mounted.current) {
+                    const refreshed = await refresh();
+                    if (refreshed && refreshed.request === version.current) {
+                      // Cancel applies to this button's attempt only. The host
+                      // can already have a newer pending attempt from another tab.
+                      if (refreshed.data.pendingAttempt) return;
                       setAttempt(null);
                       setMessage('Sign-in cancelled.');
                     }
@@ -284,8 +306,8 @@ export function AdviserSubscriptions({
               disabled={busy || disabled}
               onClick={() =>
                 void mutate(async () => {
-                  await refresh();
-                  if (mounted.current) changed.current();
+                  const refreshed = await refresh();
+                  if (refreshed && refreshed.request === version.current) changed.current();
                 })
               }
             >
