@@ -527,3 +527,288 @@ it('rechecks operator authorization after compilation before saving context or d
     await rm(root, { recursive: true, force: true });
   }
 });
+
+it.each([
+  { event: 'PostToolUse' },
+  { event: 'PostToolUseFailure' },
+  { event: 'PermissionDenied' },
+  { event: 'PermissionRequest', permissionWait: true },
+  { event: 'PostToolBatch' },
+  { event: 'PostToolBatch', nested: true },
+  { event: 'PostToolBatch', projectRefresh: true },
+  { event: 'PostToolBatch', keepAccepted: true },
+  { event: 'PreCompact' },
+  { event: 'SubagentStart', nested: true },
+] as const)(
+  'aborts SDK continuation when retained Knowledge is revoked at $event (nested=$nested, projectRefresh=$projectRefresh)',
+  async (boundary) => {
+    const packs = new ContextPackStore(':memory:');
+    const draft = packs.create({
+      version: 1,
+      id: 'continuation',
+      name: 'Continuation',
+      description: '',
+      tokenBudget: 1000,
+      documents: [
+        {
+          path: 'accepted.md',
+          revision: 'a'.repeat(40),
+          mode: 'required',
+          headings: [],
+          priority: 100,
+        },
+      ],
+      retrievalGuidance: '',
+    });
+    const pack = packs.publish(draft.id, draft.version);
+    const { root, chat, transport, unbind } = await setup({
+      version: 2,
+      source: 'packs',
+      tokenBudget: 1000,
+      packs: [{ id: pack.id, revision: pack.revision, hash: pack.hash }],
+    });
+    const { installContextPackRuntime } = await import('../context-pack-runtime.js');
+    let current = true;
+    const authorize = vi.fn(async (path: string, revision: string) => {
+      if (!current)
+        throw Error('Pinned accepted Knowledge revision was revoked during tool execution');
+      return { path, revision, blob: 'b'.repeat(40) };
+    });
+    const release = installContextPackRuntime(async () => ({
+      contextPacks: packs,
+      sourceIdentity: 'accepted-store',
+      source: {
+        authorize,
+        allowed: () => true,
+        read: async (path: string, revision: string) => ({
+          path,
+          revision,
+          content: '# Accepted\nPinned instructions.',
+        }),
+      },
+    }));
+    const project = vi.fn(async () => {
+      await Promise.resolve();
+      if ('projectRefresh' in boundary) current = false;
+      return {
+        hookSpecificOutput: {
+          hookEventName: 'PostToolBatch' as const,
+          additionalContext: 'Retained project hook output',
+        },
+      };
+    });
+    const unmatchedProject = vi.fn(async () => ({}));
+    const hooks = await import('../hook-bridge.js');
+    vi.mocked(hooks.loadProjectHooks).mockReturnValue({
+      PostToolBatch: [
+        { matcher: 'Read', hooks: [project] },
+        { matcher: 'Bash', hooks: [unmatchedProject] },
+      ],
+    });
+    if ('permissionWait' in boundary) {
+      const permissions = await import('../permission-handler.js');
+      vi.spyOn(permissions, 'buildPermissionHandler').mockReturnValue(async (_name, input) => {
+        await Promise.resolve();
+        current = false;
+        return { behavior: 'allow', updatedInput: input };
+      });
+    }
+    const sdkBoundary = await import('../credential-sdk-boundary.js');
+    vi.spyOn(sdkBoundary, 'credentialSdkBoundary').mockReturnValue(undefined);
+    let providerRequests = 0;
+    let aborted = false;
+    let continuationStopped = false;
+    let projectOutputPreserved = false;
+    let abortedAfterPermission = false;
+    try {
+      const { query } = await import('@anthropic-ai/claude-agent-sdk');
+      vi.mocked(query).mockImplementation(
+        (args) =>
+          ({
+            close: vi.fn(),
+            interrupt: vi.fn(),
+            async *[Symbol.asyncIterator]() {
+              const prompt = args.prompt as AsyncIterable<unknown>;
+              await prompt[Symbol.asyncIterator]().next();
+              providerRequests++;
+              yield { type: 'system', subtype: 'init', session_id: sessionId, uuid: 'init' };
+              yield {
+                type: 'stream_event',
+                session_id: sessionId,
+                uuid: 'start',
+                event: {
+                  type: 'message_start',
+                  message: {
+                    id: 'initial-provider-turn',
+                    model: 'luna',
+                    role: 'assistant',
+                    content: [],
+                    usage: { input_tokens: 1, output_tokens: 0 },
+                  },
+                },
+              };
+              const callHooks = async (
+                event: import('@anthropic-ai/claude-agent-sdk').HookEvent,
+              ) => {
+                const input = {
+                  hook_event_name: event,
+                  session_id: sessionId,
+                  cwd: root,
+                  transcript_path: '/fixture',
+                  ...('nested' in boundary ? { agent_id: 'nested-worker' } : {}),
+                  ...(event === 'PostToolBatch'
+                    ? {
+                        tool_calls: [
+                          {
+                            tool_name: 'Read',
+                            tool_input: {},
+                            tool_use_id: 'tool-1',
+                            tool_response: 'first result',
+                          },
+                          {
+                            tool_name: 'Read',
+                            tool_input: {},
+                            tool_use_id: 'tool-2',
+                            tool_response: 'second result',
+                          },
+                        ],
+                      }
+                    : event === 'PreCompact'
+                      ? { trigger: 'auto', custom_instructions: null }
+                      : event === 'SubagentStart'
+                        ? { agent_id: 'nested-worker', agent_type: 'Explore' }
+                        : {
+                            tool_name: 'Read',
+                            tool_input: { file_path: 'task.md' },
+                            tool_use_id: 'tool-2',
+                            ...(event === 'PostToolUseFailure'
+                              ? { error: 'tool failed', is_interrupt: false }
+                              : event === 'PermissionDenied'
+                                ? { reason: 'permission denied' }
+                                : { tool_response: 'result' }),
+                          }),
+                } as unknown as import('@anthropic-ai/claude-agent-sdk').HookInput;
+                const matchers = args.options!.hooks?.[event] ?? [];
+                return Promise.all(
+                  matchers
+                    .filter(
+                      (matcher) =>
+                        !matcher.matcher ||
+                        matcher.matcher === '*' ||
+                        new RegExp(matcher.matcher).test('Read'),
+                    )
+                    .flatMap((matcher) =>
+                      matcher.hooks.map(async (hook) => {
+                        // The SDK may treat a thrown hook as recoverable diagnostics.
+                        try {
+                          return await hook(input, 'tool-2', {
+                            signal: new AbortController().signal,
+                          });
+                        } catch {
+                          return {};
+                        }
+                      }),
+                    ),
+                );
+              };
+              if (boundary.event === 'PostToolBatch') await callHooks('PostToolUse');
+              if (
+                !('projectRefresh' in boundary) &&
+                !('keepAccepted' in boundary) &&
+                !('permissionWait' in boundary)
+              )
+                current = false;
+              if ('permissionWait' in boundary) {
+                try {
+                  await args.options!.canUseTool!(
+                    'Read',
+                    { file_path: 'task.md' },
+                    { signal: new AbortController().signal, toolUseID: 'permission-tool' },
+                  );
+                } catch {
+                  /* SDK may continue after permission diagnostics. */
+                }
+                abortedAfterPermission = args.options!.abortController!.signal.aborted;
+              }
+              const outputs = await callHooks(boundary.event);
+              projectOutputPreserved = outputs.some(
+                (output) =>
+                  'hookSpecificOutput' in output &&
+                  output.hookSpecificOutput &&
+                  'additionalContext' in output.hookSpecificOutput &&
+                  output.hookSpecificOutput.additionalContext === 'Retained project hook output',
+              );
+              aborted = args.options!.abortController!.signal.aborted;
+              continuationStopped = outputs.some(
+                (output) => 'continue' in output && output.continue === false,
+              );
+              if (!aborted && !continuationStopped) providerRequests++;
+            },
+          }) as never,
+      );
+      await chat.startChat(transport, 'sdk-continuation', 'Review', {
+        cwd: root,
+        isolation: false,
+        model: 'luna',
+        initialSessionId: sessionId,
+        operatorConnectionId: 'operator',
+        agentProfile: { profileId: 'bob', revision: 3 },
+      });
+      const revoked = !('keepAccepted' in boundary);
+      expect(providerRequests).toBe(revoked ? 1 : 2);
+      expect(aborted).toBe(revoked);
+      expect(continuationStopped).toBe(revoked);
+      expect(JSON.parse(chat.eventStore.getSession(sessionId)!.bootContext!).receipt.status).toBe(
+        'accepted',
+      );
+      if ('permissionWait' in boundary) expect(abortedAfterPermission).toBe(true);
+      if ('projectRefresh' in boundary) expect(project).toHaveBeenCalledOnce();
+      if ('keepAccepted' in boundary) {
+        expect(project).toHaveBeenCalledOnce();
+        expect(projectOutputPreserved).toBe(true);
+      }
+      expect(unmatchedProject).not.toHaveBeenCalled();
+    } finally {
+      release();
+      unbind();
+      chat.registry.dispose();
+      chat.eventStore.close();
+      packs.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+);
+
+it('preserves legacy SDK hook matchers and outputs when no pack context is selected', async () => {
+  const { root, chat, transport, unbind } = await setup();
+  const boundary = await import('../credential-sdk-boundary.js');
+  vi.spyOn(boundary, 'credentialSdkBoundary').mockReturnValue(undefined);
+  const project = [
+    {
+      matcher: 'Read',
+      timeout: 17,
+      hooks: [vi.fn(async () => ({ systemMessage: 'legacy hook' }))],
+    },
+  ];
+  const hooks = await import('../hook-bridge.js');
+  vi.mocked(hooks.loadProjectHooks).mockReturnValue({ PostToolBatch: project });
+  try {
+    const { query } = await import('@anthropic-ai/claude-agent-sdk');
+    vi.mocked(query).mockImplementation((args) => {
+      expect(args.options?.hooks?.PostToolBatch).toBe(project);
+      expect(args.options?.hooks?.PreCompact).toBeUndefined();
+      return { close: vi.fn(), interrupt: vi.fn(), async *[Symbol.asyncIterator]() {} } as never;
+    });
+    await chat.startChat(transport, 'legacy-sdk', 'Review', {
+      cwd: root,
+      isolation: false,
+      model: 'luna',
+    });
+    expect(query).toHaveBeenCalledOnce();
+  } finally {
+    unbind();
+    chat.registry.dispose();
+    chat.eventStore.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});

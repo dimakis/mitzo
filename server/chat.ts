@@ -78,7 +78,12 @@ import {
   getSessionMessages,
   renameSession,
 } from '@anthropic-ai/claude-agent-sdk';
-import type { Query, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
+import type {
+  HookCallback,
+  HookEvent,
+  Query,
+  SDKUserMessage,
+} from '@anthropic-ai/claude-agent-sdk';
 import type {
   SessionTransport,
   ConnectionRegistry,
@@ -2085,12 +2090,85 @@ This is an independent checkout with its own Git storage, not a linked worktree.
         session,
         registry,
       );
-      const decide: ReturnType<typeof buildPermissionHandler> = (name, input, opts) => {
-        const keychain = credentialSdkPermission(name, input, clientId, registry, session);
-        return keychain && !opts.forcePrompt
-          ? Promise.resolve(keychain)
-          : existingDecision(name, input, opts);
+      const packBoundSdk = agentContext?.source === 'packs';
+      const contextStopReason = 'Accepted agent context is no longer authorized; start a new chat.';
+      const authorizeSdkContext = async (signal: AbortSignal) => {
+        const joined = AbortSignal.any([abortController.signal, signal]);
+        try {
+          joined.throwIfAborted();
+          await prepareAgentContext?.(joined);
+          joined.throwIfAborted();
+        } catch (error) {
+          // SDK hook failures can be recoverable diagnostics. Abort the owning
+          // provider process too, so a denied continuation cannot be retried.
+          if (packBoundSdk) abortController.abort(new Error(contextStopReason));
+          throw error;
+        }
       };
+      const decide: ReturnType<typeof buildPermissionHandler> = async (name, input, opts) => {
+        if (packBoundSdk) await authorizeSdkContext(opts.signal);
+        try {
+          const keychain = credentialSdkPermission(name, input, clientId, registry, session);
+          return keychain && !opts.forcePrompt
+            ? keychain
+            : await existingDecision(name, input, opts);
+        } finally {
+          // Permissions can wait for a human while accepted Knowledge changes.
+          if (packBoundSdk) await authorizeSdkContext(opts.signal);
+        }
+      };
+      const sdkHooks = buildSessionPermissionHooks(decide, hooks);
+      if (packBoundSdk) {
+        const fence: (hook: HookCallback) => HookCallback = (hook) => async (input, id, opts) => {
+          const signal = AbortSignal.any([abortController.signal, opts.signal]);
+          const abortOwner = () => abortController.abort(new Error(contextStopReason));
+          signal.addEventListener('abort', abortOwner, { once: true });
+          try {
+            await authorizeSdkContext(signal);
+            try {
+              return await hook(input, id, { ...opts, signal });
+            } finally {
+              // Every matched callback owns its final fence. Concurrent SDK
+              // matchers cannot outrun a slower hook or its source changes.
+              await authorizeSdkContext(signal);
+            }
+          } catch (error) {
+            if (abortController.signal.aborted)
+              return { continue: false, stopReason: contextStopReason };
+            throw error;
+          } finally {
+            signal.removeEventListener('abort', abortOwner);
+          }
+        };
+        const boundaries: HookEvent[] = [
+          'SessionStart',
+          'UserPromptSubmit',
+          'UserPromptExpansion',
+          'PreToolUse',
+          'PostToolUse',
+          'PostToolUseFailure',
+          'PostToolBatch',
+          'PermissionRequest',
+          'PermissionDenied',
+          'SubagentStart',
+          'SubagentStop',
+          'PreCompact',
+          'PostCompact',
+          'Stop',
+          'StopFailure',
+        ];
+        for (const event of boundaries) {
+          sdkHooks[event] = [
+            ...(sdkHooks[event] ?? []).map((matcher) => ({
+              ...matcher,
+              hooks: matcher.hooks.map(fence),
+            })),
+            // Also fence batches/events that match no project hook, including
+            // nested workers. PostToolBatch runs before the next model request.
+            { hooks: [fence(async () => ({}))] },
+          ];
+        }
+      }
       const githubPublishing = createGithubPublishingTool(
         () => session.sessionId ?? options.resume ?? newSdkSessionId ?? '',
         registry,
@@ -2121,10 +2199,10 @@ This is an independent checkout with its own Git storage, not a linked worktree.
         abortController.signal,
         githubPublishing,
       );
-      await prepareAgentContext?.(abortController.signal);
+      await authorizeSdkContext(abortController.signal);
       const authorizedSdkInput = async function* () {
         for await (const message of inputQueue) {
-          await prepareAgentContext?.(abortController.signal);
+          await authorizeSdkContext(abortController.signal);
           yield message;
         }
       };
@@ -2172,7 +2250,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
               'mitzo-web-access': webAccess,
               'mitzo-connections': connectionServer,
             },
-            hooks: buildSessionPermissionHooks(decide, hooks),
+            hooks: sdkHooks,
             canUseTool: decide,
           },
         }),
