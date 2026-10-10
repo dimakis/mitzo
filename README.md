@@ -118,7 +118,7 @@ Apple Keychain HTTPS connections support Home Assistant and custom APIs with tok
 
 **Settings → Appearance** offers Lavender, Teal, Rose, Amber, Blue, Mint, Coral and Plum accents and System, Arial, Georgia, Verdana, Trebuchet MS, Palatino and Courier New UI fonts. Font stacks use local fallbacks when the selected family is unavailable. Changes preview immediately, apply to every route, and persist locally on the current device across reloads. Each accent has light/dark variants; code retains its monospace font. Reset appearance restores the defaults.
 
-Mobile collection pages share one full-wordmark masthead and icon navigation. Work has one outcome heading; Proposals provides search, readable rows and full-context review with explicit Archive/Discard actions. Focused conversations and item details retain their back navigation. Run `npm run test:ui` for offline WebKit/Chromium checks at narrow phone widths, live accent/font substitution, dark/light themes and collection scrolling; every request is intercepted and no backend or model is used. See [the UI design contract](docs/design/ui-design-system.md).
+Mobile collection pages share one full-wordmark masthead and icon navigation. Work has one outcome heading; Proposals provides search, readable rows and full-context review with explicit Archive/Discard actions. Focused conversations and item details retain their back navigation. Run `npm run test:ui` for offline WebKit/Chromium checks at narrow phone widths, live accent/font substitution, dark/light themes and collection scrolling; every request is intercepted and no backend or model is used. See [the UI design contract](docs/design/ui-design-system.md). Repository instructions require it for every UI change; the PR template records design evidence, and `npm run test:design` enforces palette/font ownership and shared-token overrides in CI.
 
 Desktop **Calendar** uses the full workspace for seven day columns in Week view, with an explicit Today button. Select an event to open its meeting context and prep/join actions; Close or Escape dismisses the details and restores focus to the event. Day view shows an agenda, and Releases shows dates with milestones. **Notifications** fills the desktop workspace with compact activity rows and actions on the right, while mobile retains stacked cards. Use **Archive** on finished notifications, or **Archive resolved** to move resolved requests and read updates out of the feed. Pending approvals and questions remain visible. The **Archived** tab retains these items and offers **Restore**; archiving does not grant permissions or delete history.
 
@@ -687,6 +687,7 @@ both the review acknowledgement and that exception.
 npm run dev          # backend + frontend concurrently
 npm test             # vitest — full suite
 npx playwright install webkit chromium # first-time browser test setup
+npm run test:design   # Static shared palette/font/token contract
 npm run test:ui       # Shared theme and mobile layouts with entirely offline fixtures
 npm run test:browser  # Connections scrolling in mobile WebKit and desktop Chromium (mocked APIs)
 npm run lint         # eslint

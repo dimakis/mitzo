@@ -164,6 +164,11 @@ jobs:
         id: format
         run: npm run format:check
 
+      - name: Design token contract
+        id: design
+        if: always()
+        run: npm run test:design
+
       - name: Type check (server)
         id: typecheck-server
         if: always()
@@ -237,6 +242,7 @@ jobs:
         run: |
           if [ "${{ steps.lint.outcome }}" = "failure" ] || \
              [ "${{ steps.format.outcome }}" = "failure" ] || \
+             [ "${{ steps.design.outcome }}" = "failure" ] || \
              [ "${{ steps.typecheck-server.outcome }}" = "failure" ] || \
              [ "${{ steps.typecheck-frontend.outcome }}" = "failure" ] || \
              [ "${{ steps.test.outcome }}" = "failure" ] || \
