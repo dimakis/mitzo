@@ -1,3 +1,4 @@
+import { UiIcon } from './UiIcon';
 import { useEffect, useState } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { apiFetch } from '../lib/api-fetch';
@@ -97,17 +98,7 @@ export function WorkOutputs({ itemId, profile }: { itemId: string; profile?: str
             {current.artifacts.map((output) => (
               <li key={output.id}>
                 <span className="output-file-icon" aria-hidden="true">
-                  <svg
-                    width="18"
-                    height="18"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.5"
-                  >
-                    <path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8z" />
-                    <path d="M14 3v5h5M8 13h8M8 17h5" />
-                  </svg>
+                  <UiIcon name="file" size={16} />
                 </span>
                 <div className="output-row-copy">
                   <strong>{output.title}</strong>

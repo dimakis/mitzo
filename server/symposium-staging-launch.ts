@@ -6,7 +6,10 @@ import type { SymposiumCustodianConstructorHooks } from './symposium-custodian-m
 import { openStagingRegistry } from './symposium-staging-registry.js';
 import { readOwnedSymposiumHostConfig } from './symposium-owned-config-schema.js';
 import { reviewedStagingOwnedBuild } from './symposium-staging-runtime-contract.js';
-import { SOURCE_QUALIFIED_SYMPOSIUM_ROUTING_BUILD } from './symposium-owned-runtime-contract.js';
+import {
+  SOURCE_QUALIFIED_SYMPOSIUM_ROUTING_BUILD,
+  SOURCE_QUALIFIED_SYMPOSIUM_CONNECT_PREFACE_BUILD,
+} from './symposium-owned-runtime-contract.js';
 
 export const StagingLaunchSchema = z.strictObject({
   registryDirectory: z.string().refine(isAbsolute),
@@ -83,9 +86,11 @@ export async function launchStagingCustodian(
     const build = reviewedStagingOwnedBuild(config.gateway);
     if (JSON.stringify(plan.runtime) !== JSON.stringify(build))
       throw Error('Verified staging plan runtime differs from configured tuple');
-    return build === SOURCE_QUALIFIED_SYMPOSIUM_ROUTING_BUILD
-      ? ('local-854b-routing-v1' as const)
-      : undefined;
+    return build === SOURCE_QUALIFIED_SYMPOSIUM_CONNECT_PREFACE_BUILD
+      ? ('local-854b-routing-v2' as const)
+      : build === SOURCE_QUALIFIED_SYMPOSIUM_ROUTING_BUILD
+        ? ('local-854b-routing-v1' as const)
+        : undefined;
   };
   deps.verify(plan);
   selection();

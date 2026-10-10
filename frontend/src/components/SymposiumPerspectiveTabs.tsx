@@ -57,55 +57,61 @@ export function SymposiumPerspectiveTabs({
     if (Math.abs(dx) < 64 || Math.abs(dx) < Math.abs(dy) * 1.4) return;
     chooseOffset(dx < 0 ? 1 : -1);
   }
-  if (compact) return <div className="symposium-perspectives">{children}</div>;
   return (
-    <div className="symposium-perspectives" onTouchStart={onStart} onTouchEnd={onEnd}>
-      <div
-        role="tablist"
-        aria-label="Symposium conversations"
-        className="symposium-perspective-tabs"
-      >
-        {options.map((option, index) => (
-          <button
-            key={option.id}
-            type="button"
-            role="tab"
-            id={`symposium-tab-${option.id}`}
-            aria-selected={selected === option.id}
-            aria-controls="symposium-perspective-panel"
-            tabIndex={selected === option.id ? 0 : -1}
-            onClick={() => onSelect(option.id)}
-            onKeyDown={(event) => {
-              if (event.key === 'ArrowRight') {
-                event.preventDefault();
-                onSelect(options[Math.min(options.length - 1, index + 1)].id);
-              }
-              if (event.key === 'ArrowLeft') {
-                event.preventDefault();
-                onSelect(options[Math.max(0, index - 1)].id);
-              }
-              if (event.key === 'Home') {
-                event.preventDefault();
-                onSelect(options[0].id);
-              }
-              if (event.key === 'End') {
-                event.preventDefault();
-                onSelect(options[options.length - 1].id);
-              }
-            }}
-          >
-            {option.id === 'all' ? (
-              option.name
-            ) : (
-              <SeatLabel seatId={option.id} name={option.name} />
-            )}
-          </button>
-        ))}
-      </div>
+    <div
+      className="symposium-perspectives"
+      onTouchStart={compact ? undefined : onStart}
+      onTouchEnd={compact ? undefined : onEnd}
+    >
+      {!compact && (
+        <div
+          role="tablist"
+          aria-label="Symposium conversations"
+          className="symposium-perspective-tabs"
+        >
+          {options.map((option, index) => (
+            <button
+              key={option.id}
+              type="button"
+              role="tab"
+              id={`symposium-tab-${option.id}`}
+              aria-selected={selected === option.id}
+              aria-controls="symposium-perspective-panel"
+              tabIndex={selected === option.id ? 0 : -1}
+              onClick={() => onSelect(option.id)}
+              onKeyDown={(event) => {
+                if (event.key === 'ArrowRight') {
+                  event.preventDefault();
+                  onSelect(options[Math.min(options.length - 1, index + 1)].id);
+                }
+                if (event.key === 'ArrowLeft') {
+                  event.preventDefault();
+                  onSelect(options[Math.max(0, index - 1)].id);
+                }
+                if (event.key === 'Home') {
+                  event.preventDefault();
+                  onSelect(options[0].id);
+                }
+                if (event.key === 'End') {
+                  event.preventDefault();
+                  onSelect(options[options.length - 1].id);
+                }
+              }}
+            >
+              {option.id === 'all' ? (
+                option.name
+              ) : (
+                <SeatLabel seatId={option.id} name={option.name} />
+              )}
+            </button>
+          ))}
+        </div>
+      )}
       <div
         id="symposium-perspective-panel"
-        role="tabpanel"
-        aria-labelledby={`symposium-tab-${selected}`}
+        className="symposium-perspective-panel"
+        role={compact ? undefined : 'tabpanel'}
+        aria-labelledby={compact ? undefined : `symposium-tab-${selected}`}
       >
         {children}
       </div>

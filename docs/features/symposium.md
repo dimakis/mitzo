@@ -21,9 +21,11 @@ uncertain rather than automatically repeating an operation. These source changes
 do not establish live-model, physical sandbox or actual phone acceptance.
 
 Stable identity-based color accents accompany agent names in tabs, messages and
-delivery cards. **All** is a read-only combined timeline. Named agent streams
-hold separate drafts; `@` opens an explicit recipient picker and switches streams
-by seat identity. Choosing a recipient does not queue or send content.
+delivery cards. Compose from **All** or an individual stream using an explicit
+recipient choice. The recipient selector and `@` picker change the target by seat
+identity while transcript tabs change only the view. Drafts stay with their
+recipient. Queue, approval, send and Stop are available on the named delivery in
+the combined timeline; selecting a recipient never queues or sends content.
 
 Next milestones reuse and improve the editable/versioned catalog, then select
 participants explicitly for structured review, authorized fixes and delta review.

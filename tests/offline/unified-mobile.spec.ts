@@ -1,6 +1,11 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 import { resolve, extname } from 'node:path';
+import {
+  symposiumMessages,
+  symposiumPerspective,
+  symposiumStatus,
+} from '../../frontend/src/preview/symposium-fixtures';
 
 const outcomes = Array.from({ length: 12 }, (_, index) => ({
   id: `outcome-${index}`,
@@ -147,6 +152,116 @@ const fixtures: Record<string, unknown> = {
     syncedAt: null,
   },
 };
+
+const iconTasks = (
+  ['pending', 'active', 'done', 'pending_review', 'blocked', 'skipped', 'failed'] as const
+).map((status, index) => ({
+  id: `icon-task-${status}`,
+  parentId: null,
+  title: `Icon check: ${status.replaceAll('_', ' ')}`,
+  description: null,
+  status,
+  sessionId: null,
+  sessionPolicy: 'auto',
+  priority: index,
+  depth: 0,
+  annotations: [],
+  summary: null,
+  requiresApproval: false,
+  tokenUsage: 0,
+  claimedBy: null,
+  claimedAt: null,
+  createdAt: Date.now(),
+  updatedAt: Date.now(),
+  completedAt: null,
+  stageType: null,
+  gateConfig: null,
+  artifacts: null,
+  retryCount: 0,
+  maxRetries: 0,
+  templateId: null,
+  children: [],
+}));
+
+for (const appearance of [
+  { theme: 'dark', accent: 'lavender', font: 'system' },
+  { theme: 'light', accent: 'mint', font: 'georgia' },
+]) {
+  test(`outline icons keep their meaning and geometry with ${appearance.theme}/${appearance.font}`, async ({
+    page,
+  }, testInfo) => {
+    await page.addInitScript((selection) => {
+      localStorage.setItem('mitzo-theme', selection.theme);
+      localStorage.setItem('mitzo-accent', selection.accent);
+      localStorage.setItem('mitzo-font', selection.font);
+    }, appearance);
+    if (testInfo.project.name.startsWith('mobile')) {
+      const viewport = page.viewportSize()!;
+      await page.setViewportSize({ width: 320, height: viewport.height });
+    }
+    await page.goto('/settings');
+    const backups = page.getByRole('link', { name: 'Backups', exact: true });
+    await expect(backups).toHaveText('Backups');
+    await expect(backups.locator('svg[data-icon="forward"]')).toHaveAttribute(
+      'aria-hidden',
+      'true',
+    );
+    await backups.scrollIntoViewIfNeeded();
+    await page.screenshot({
+      path: testInfo.outputPath(`icons-settings-${appearance.theme}.png`),
+      animations: 'disabled',
+    });
+
+    await page.route('**/api/tasks', (route) => route.fulfill({ json: iconTasks }));
+    await page.goto('/tasks');
+    const spawning = page.getByRole('switch', { name: /session spawning/ });
+    await expect(spawning).toHaveAttribute('aria-checked', 'false');
+    await expect(spawning.locator('svg')).toHaveAttribute('aria-hidden', 'true');
+    await page.getByRole('button', { name: 'Show tree order', exact: true }).click();
+    const actions = page.locator('.page-header-actions');
+    await expect(actions).toBeVisible();
+    const actionBounds = await actions.boundingBox();
+    expect(actionBounds!.x + actionBounds!.width).toBeLessThanOrEqual(page.viewportSize()!.width);
+    if (testInfo.project.name === 'desktop-chromium') {
+      await page.getByRole('button', { name: 'Tree and attention', exact: true }).click();
+    }
+    for (const [status, icon] of Object.entries({
+      pending: 'circle',
+      active: 'running',
+      done: 'complete',
+      pending_review: 'review',
+      blocked: 'unavailable',
+      skipped: 'minus',
+      failed: 'failed',
+    })) {
+      const control = page.getByRole('button', { name: `Status: ${status}`, exact: true });
+      await expect(control.locator(`svg[data-icon="${icon}"]`)).toHaveCount(1);
+      await expect(control).toHaveText('');
+    }
+    await page.screenshot({
+      path: testInfo.outputPath(`icons-taskboard-${appearance.theme}.png`),
+      animations: 'disabled',
+    });
+    if (testInfo.project.name.startsWith('mobile')) {
+      const size = await spawning.boundingBox();
+      expect(size?.height).toBeGreaterThanOrEqual(44);
+      expect(size?.width).toBeGreaterThanOrEqual(44);
+      const review = page.locator('.task-node--status-pending_review .task-node-body').first();
+      expect((await review.boundingBox())!.width).toBeGreaterThanOrEqual(140);
+      await expect(
+        page.locator('.task-node--status-pending_review .task-node-actions').first(),
+      ).toHaveCSS('opacity', '1');
+    }
+
+    await page.goto('/connections-access');
+    await expect(page.getByRole('heading', { name: 'Connections', exact: true })).toBeVisible();
+    await expect(page.locator('.access-row-icon')).toHaveCount(0);
+    await page.screenshot({
+      path: testInfo.outputPath(`icons-connections-${appearance.theme}.png`),
+      animations: 'disabled',
+    });
+  });
+}
 const mime: Record<string, string> = {
   '.js': 'application/javascript',
   '.css': 'text/css',
@@ -899,6 +1014,177 @@ test('notification archive actions stay usable on desktop and mobile', async ({
     path: testInfo.outputPath('notification-archive.png'),
     animations: 'disabled',
   });
+});
+
+async function fixtureSymposium(
+  page: Page,
+  options: { empty?: boolean; failed?: boolean; ready?: Promise<void> } = {},
+) {
+  const status = { ...symposiumStatus('offline-symposium'), deliveries: [] as object[] };
+  const queued: Record<string, unknown>[] = [];
+  await page.route('**/api/sessions/offline-symposium/**', async (route) => {
+    const url = new URL(route.request().url());
+    const path = url.pathname;
+    if (route.request().method() === 'POST' && path.endsWith('/symposium/deliveries')) {
+      const request = route.request().postDataJSON();
+      queued.push(request);
+      const delivery = {
+        ...request,
+        sessionId: status.sessionId,
+        deliveryId: 'offline-delivery',
+        status: 'awaiting_intervention',
+        deliveredContent: null,
+        recipients: request.recipientSeatIds.map((seatId: string) => ({
+          seatId,
+          status: 'pending',
+        })),
+      };
+      status.deliveries = [delivery];
+      return route.fulfill({ json: delivery });
+    }
+    if (route.request().method() !== 'GET')
+      return route.fulfill({ status: 405, json: { error: 'Offline UI test' } });
+    if (path.endsWith('/messages'))
+      return route.fulfill({ json: options.empty ? [] : symposiumMessages });
+    if (path.endsWith('/symposium/status')) {
+      await options.ready;
+      return options.failed
+        ? route.fulfill({ status: 503, json: { error: 'Offline status unavailable' } })
+        : route.fulfill({ json: status });
+    }
+    if (path.endsWith('/symposium/perspectives'))
+      return route.fulfill({
+        json: options.empty
+          ? { items: [], queued: [], nextSeq: null }
+          : { ...symposiumPerspective(url.searchParams.get('seatId')), queued: [] },
+      });
+    if (
+      path.endsWith('/symposium/profile-proposals') ||
+      path.endsWith('/symposium/access-requests')
+    )
+      return route.fulfill({ json: [] });
+    return route.fulfill({ json: {} });
+  });
+  return queued;
+}
+
+test('combined conversation keeps explicit recipient drafts independent of tabs and appearance', async ({
+  page,
+  isMobile,
+  browserName,
+}, testInfo) => {
+  const queued = await fixtureSymposium(page);
+  for (const width of isMobile ? [320, 390] : [1280]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto('https://mitzo-ui.test/chat/offline-symposium');
+    const all = page.getByRole('tab', { name: 'All', exact: true });
+    await expect(all).toHaveAttribute('aria-selected', 'true');
+    const selector = page.getByRole('combobox', { name: 'Message recipient' });
+    await expect(selector).toHaveValue('');
+    await expect(
+      page.getByRole('button', { name: 'Queue for approval', exact: true }),
+    ).toBeDisabled();
+    await selector.selectOption('reviewer');
+    const draft = page.getByRole('textbox', { name: 'Message for Reviewer', exact: true });
+    await draft.fill('Review this change, keeping the selected recipient explicit.');
+    await page.getByRole('tab', { name: 'Architect', exact: true }).click();
+    await expect(selector).toHaveValue('reviewer');
+    await expect(draft).toHaveValue('Review this change, keeping the selected recipient explicit.');
+    await all.click();
+    await selector.selectOption('architect');
+    await expect(
+      page.getByRole('textbox', { name: 'Message for Architect', exact: true }),
+    ).toHaveValue('');
+    await selector.selectOption('reviewer');
+    await expect(draft).toHaveValue('Review this change, keeping the selected recipient explicit.');
+    for (const theme of ['dark', 'light']) {
+      await page.evaluate((theme) => {
+        document.documentElement.dataset.theme = theme;
+        document.documentElement.dataset.accent = 'teal';
+        document.documentElement.dataset.font = 'georgia';
+      }, theme);
+      await expect(all).toHaveAttribute('aria-selected', 'true');
+      await expect(selector).toBeInViewport();
+      await expect(draft).toBeInViewport();
+      expect(await draft.evaluate((element) => getComputedStyle(element).fontFamily)).toContain(
+        'Georgia',
+      );
+      await draft.evaluate((element) => (element.style.fontSize = '20px'));
+      const queue = page.getByRole('button', { name: 'Queue for approval', exact: true });
+      await expect(queue).toBeInViewport();
+      if (isMobile) {
+        expect((await selector.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+        expect((await queue.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+      }
+      await selector.focus();
+      // WebKit's default keyboard preference reaches buttons with Option-Tab.
+      const nextControl = browserName === 'webkit' ? 'Alt+Tab' : 'Tab';
+      await page.keyboard.press(nextControl);
+      await expect(page.getByRole('button', { name: 'Choose agent recipient' })).toBeFocused();
+      await page.keyboard.press(nextControl);
+      await expect(draft).toBeFocused();
+      expect(
+        await page
+          .locator('.symposium-perspective-panel')
+          .evaluate((el) => el.scrollWidth <= el.clientWidth),
+      ).toBe(true);
+      await page.screenshot({
+        path: testInfo.outputPath(`symposium-${width}-${theme}.png`),
+        animations: 'disabled',
+      });
+    }
+    expect(queued).toHaveLength(0);
+    await page.getByRole('button', { name: 'Queue for approval', exact: true }).click();
+    await expect(draft).toHaveValue('');
+    expect(queued).toHaveLength(1);
+    expect(queued[0]).toMatchObject({
+      recipientSeatIds: ['reviewer'],
+      originalContent: 'Review this change, keeping the selected recipient explicit.',
+    });
+    await expect(
+      page.getByRole('button', { name: 'Approve delivery to Reviewer', exact: true }),
+    ).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Send to Reviewer', exact: true })).toHaveCount(
+      0,
+    );
+    await expect(
+      page.getByRole('button', { name: 'Stop delivery to Reviewer', exact: true }),
+    ).toBeVisible();
+    queued.length = 0;
+  }
+});
+
+test('combined conversation empty and failed status remain readable without implicit sending', async ({
+  page,
+}, testInfo) => {
+  let finishLoading!: () => void;
+  const ready = new Promise<void>((resolve) => (finishLoading = resolve));
+  const queued = await fixtureSymposium(page, { empty: true, ready });
+  await page.goto('https://mitzo-ui.test/chat/offline-symposium');
+  await expect(page.getByRole('textbox', { name: 'Message Mitzo', exact: true })).toBeDisabled();
+  await expect(page.locator('.chat-input[aria-busy="true"]')).toBeVisible();
+  await page.screenshot({
+    path: testInfo.outputPath('symposium-loading.png'),
+    animations: 'disabled',
+  });
+  finishLoading();
+  await expect(page.getByRole('combobox', { name: 'Message recipient' })).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: 'Queue for approval', exact: true }),
+  ).toBeDisabled();
+  await page.screenshot({
+    path: testInfo.outputPath('symposium-empty.png'),
+    animations: 'disabled',
+  });
+  await fixtureSymposium(page, { failed: true });
+  await page.reload();
+  await expect(page.getByText('Offline status unavailable', { exact: true })).toBeVisible();
+  await expect(page.getByRole('combobox', { name: 'Message recipient' })).toHaveCount(0);
+  await page.screenshot({
+    path: testInfo.outputPath('symposium-error.png'),
+    animations: 'disabled',
+  });
+  expect(queued).toHaveLength(0);
 });
 
 test('profile drafts stay behind Workspace and remain readable on mobile and desktop', async ({

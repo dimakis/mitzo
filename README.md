@@ -50,6 +50,8 @@ The dormant [Symposium artifact snapshot observer](docs/features/symposium-artif
 
 Qualified canonical staging builds expose a bounded Personal account-check diagnostic to the authenticated operator. It returns finite owned-supervisor observations without model execution or catalog publication; unavailable observations remain inconclusive. See the [staging diagnostic procedure](docs/operations/canonical-staging.md#bounded-personal-account-check-diagnostic).
 
+The source-qualified [CONNECT forwarding repair](docs/spikes/openshell-codex/connect-preface-native/README.md) preserves tunnel bytes consumed with the CONNECT header. Staging adoption and a successful Personal account read remain separate from offline qualification.
+
 Vertex readiness validates the pinned CLI’s blank failure-code column and empty-error `-` marker without accepting diagnostic text.
 
 Symposium director status resolves the verified runtime once per request and reuses it for per-seat diagnostics; each later request still performs fresh verification.
@@ -120,6 +122,8 @@ Apple Keychain HTTPS connections support Home Assistant and custom APIs with tok
 
 **Settings → Appearance** offers Lavender, Teal, Rose, Amber, Blue, Mint, Coral and Plum accents and System, Arial, Georgia, Verdana, Trebuchet MS, Palatino and Courier New UI fonts. Font stacks use local fallbacks when the selected family is unavailable. Changes preview immediately, apply to every route, and persist locally on the current device across reloads. Each accent has light/dark variants; code retains its monospace font. Reset appearance restores the defaults.
 
+Controls, navigation, resource types and work states share a restrained outline icon family that stays consistent across fonts and platforms. Internal destinations use chevrons, external links use an external-link icon, and command scopes are labelled Workspace, Personal or Built-in.
+
 Mobile collection pages share one full-wordmark masthead and icon navigation. Work has one outcome heading; Proposals provides search, readable rows and full-context review with explicit Archive/Discard actions. Focused conversations and item details retain their back navigation. Run `npm run test:ui` for offline WebKit/Chromium checks at narrow phone widths, live accent/font substitution, dark/light themes and collection scrolling; every request is intercepted and no backend or model is used. See [the UI design contract](docs/design/ui-design-system.md). Repository instructions require it for every UI change; the PR template records design evidence, and `npm run test:design` enforces palette/font ownership and shared-token overrides in CI.
 
 Desktop **Calendar** uses the full workspace for seven day columns in Week view, with an explicit Today button. Select an event to open its meeting context and prep/join actions; Close or Escape dismisses the details and restores focus to the event. Day view shows an agenda, and Releases shows dates with milestones. **Notifications** fills the desktop workspace with compact activity rows and actions on the right, while mobile retains stacked cards. Use **Archive** on finished notifications, or **Archive resolved** to move resolved requests and read updates out of the feed. Pending approvals and questions remain visible. The **Archived** tab retains these items and offers **Restore**; archiving does not grant permissions or delete history.
@@ -142,7 +146,7 @@ After a connection is verified, open its management controls and expand **Manage
 
 When new-account enrollment is enabled, **Add connection → OpenAI API** accepts a masked key for an explicitly declared project. Setup validates with one brief `gpt-6-luna` low-reasoning request billed to that key's project, discovers supported API chat models, and creates a separate account for new conversations. Existing chats keep their original account. Interrupted setup retains its status without automatically repeating charges or credential writes. See [OpenAI account enrollment](docs/features/openai-account-enrollment.md) for configuration and acceptance requirements.
 
-For an enrolled OpenAI API account, **Manage API key** accepts one masked replacement after recent Mitzo reauthorization and confirmation of the same work project. It validates access with one brief `gpt-6-luna` low-reasoning request billed to the selected account, then synchronizes the existing Keychain item and pinned OpenShell provider. Attached sandbox chats pause; incomplete synchronization blocks affected account admission until recovery. **Save API key** shows progress and keeps its result visible. **Refresh status** checks the saved operation; **Finish key update** appears only when an incomplete update can safely use the stored replacement. A failed chat request produces a failure notification and retains its account error on restore. Credential updates use Mitzo’s direct adapter for the existing OpenShell API, with `MITZO_OPENAI_KEY_GATEWAY_API_PROTOCOL=openshell-v1` and the controller’s registered HTTPS/mTLS gateway. The CLI continues inventory and sandbox draining; it requires no patch. Enrollment defaults closed through `MITZO_OPENAI_KEY_MANAGEMENT_ACCOUNT_IDS` and currently supports the reviewed `mitzo-openai-keychain-spike` provider policy. See [OpenAI key replacement](docs/features/openai-key-replacement.md) for custody, recovery and separate staging acceptance requirements.
+For an enrolled OpenAI API account, **Manage API key** accepts one masked replacement after recent Mitzo reauthorization. No same/different-project assertion is required; OpenAI bills the account associated with the supplied key. It validates access with one brief `gpt-6-luna` low-reasoning request billed to the account behind the supplied key, then synchronizes the existing Keychain item and pinned OpenShell provider. Attached sandbox chats pause; incomplete synchronization blocks affected account admission until recovery. **Save API key** shows progress and keeps its result visible. **Refresh status** checks the saved operation; **Finish key update** appears only when an incomplete update can safely use the stored replacement. A failed chat request produces a failure notification and retains its account error on restore. Credential updates use Mitzo’s direct adapter for the existing OpenShell API, with `MITZO_OPENAI_KEY_GATEWAY_API_PROTOCOL=openshell-v1` and the controller’s registered HTTPS/mTLS gateway. The CLI continues inventory and sandbox draining; it requires no patch. Enrollment defaults closed through `MITZO_OPENAI_KEY_MANAGEMENT_ACCOUNT_IDS` and currently supports the reviewed `mitzo-openai-keychain-spike` provider policy. See [OpenAI key replacement](docs/features/openai-key-replacement.md) for custody, recovery and separate staging acceptance requirements.
 
 For the existing Google Workspace provider, enable `MITZO_GOOGLE_WORKSPACE_MANAGEMENT_ENABLED=true` to show Google health and recovery controls in Connections. The controller must have `gws` installed with a working local Google sign-in. **Review Google account** shows that identity before **Reconnect Google** replaces the gateway's expired authorization. Both actions require recent Mitzo reauthorization. Credentials stay in the controller and encrypted gateway storage; the browser and chats receive only status and the reviewed account email. This recovery imports Drive and read-only Calendar consent; Gmail requires separate authorization. A revoked local Google grant must first be reauthorized through `gws`; this panel does not yet provide a new Google OAuth sign-in flow.
 
@@ -170,6 +174,8 @@ Phone (Tailscale) ──┬── HTTP: REST API
 The server translates raw SDK stream events into a v2 block lifecycle protocol (`block_start` → `block_delta` → `block_end`). Explicit turn boundaries (`message_start`/`message_end`), deferred finalization, and message snapshots for reconnect recovery. See [docs/design/message-protocol-v2.md](docs/design/message-protocol-v2.md).
 
 The [durable child session allocation design](docs/design/session-service-core.md) describes the SessionService foundation for future bounded Task Board workers and Symposium seats. It records a child conversation and its parent/grant link in one transaction before runtime setup, fences cancellation across descendants, and retains uncertain starts or missing results for recovery. This foundation does not yet change the current Task Board or Symposium runtime paths.
+
+The [session runtime selection foundation](docs/design/session-runtime-selection.md) separates account identity, agent implementation and execution location in a dormant, immutable metadata contract. Explicit creation stores that contract with a new ordinary repository session; legacy sessions are not enrolled. A pure server resolver checks configuration compatibility against an injected catalog and returns a separately selected target ID. That target is not persisted by the V1 binding, so the result cannot authorize or launch a session. Startup and resume do not consume it yet, and no runtime selector is exposed. The design maps existing routes and the incremental admission work required before enabling a choice.
 
 Symposium shutdown fences new admission and dispatch, drains retained seat and login
 cleanup, and awaits the owned gateway child before closing custody stores. A bounded
@@ -229,10 +235,12 @@ do not establish physical provider cleanup. Context
 source grants default to empty; a reference does not itself load conversation
 history. Shared workspace access remains governed by the host-issued grant.
 
-Each agent has a stable color accent alongside its name. **All** is a read-only
-combined timeline; write in a named agent's stream. Type `@` or choose **Switch
-agent** to select a recipient and switch streams. Drafts stay with their agent,
-and recipient selection never dispatches a message automatically.
+Each agent has a stable color accent alongside its name. Compose from **All** or
+an individual stream by explicitly choosing a **Message recipient**. Type `@` or
+choose **Choose recipient** to change the target without changing the viewed
+conversation. Drafts stay with their recipient; switching transcript tabs never
+retargets them. Queue, approve, send, and Stop remain explicit actions beside the
+named delivery, including in the combined timeline.
 
 Adding a reviewer can prepare a stopped ordinary conversation's isolated roster,
 but admission still requires the verified runtime. Roster changes revalidate

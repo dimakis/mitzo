@@ -18,6 +18,9 @@ it('offers backup management and retains the existing appearance preference', ()
   expect(screen.getByRole('link', { name: /Backups/ }).getAttribute('href')).toBe(
     '/settings/backups',
   );
+  const backups = screen.getByRole('link', { name: 'Backups' });
+  expect(backups.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true');
+  expect(backups.textContent).toBe('Backups');
   fireEvent.change(screen.getByRole('combobox', { name: 'Theme' }), { target: { value: 'dark' } });
   expect(setTheme).toHaveBeenCalledWith('dark');
 });

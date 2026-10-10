@@ -26,10 +26,8 @@
   margin-bottom: 8px;
   text-decoration: none;
 }
-.connections-back::before {
-  content: '‹';
-  font-size: 24px;
-  margin-right: 8px;
+.connections-back .ui-icon {
+  margin-right: var(--space-2);
 }
 .connections-focused-page .connections-catalog {
   display: block;
