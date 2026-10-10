@@ -150,6 +150,7 @@ export class TerminalService {
   private live = new Map<string, LiveTerminal>();
   private starts = new Map<string, Promise<LiveTerminal>>();
   private opening: Promise<void> = Promise.resolve();
+  private reconciliation?: Promise<void>;
   private ownerObservers = new Map<string, () => void>();
   private maintenance?: ReturnType<typeof setInterval>;
   constructor(
@@ -199,9 +200,10 @@ export class TerminalService {
     this.maintenance.unref?.();
   }
   reconcileOwners() {
-    const operation = this.opening.then(() => this.reconcileOwnersNow());
-    this.opening = operation.catch(() => {});
-    return operation;
+    this.reconciliation ??= this.reconcileOwnersNow().finally(() => {
+      this.reconciliation = undefined;
+    });
+    return this.reconciliation;
   }
   private async reconcileOwnersNow() {
     for (const owner of this.store.owners.runningOwners()) {
@@ -242,8 +244,24 @@ export class TerminalService {
   }
   open(owner: string, request: { sessionId?: string }): Promise<TerminalInfo> {
     const operation = this.opening.then(async () => {
-      await this.reconcileOwnersNow();
       this.assertOwner(owner);
+      const cleanup = this.reconcileOwners();
+      // Wait briefly only when physical shell capacity is actually exhausted.
+      // A slow unrelated gateway must not stall an otherwise available host shell.
+      if (this.store.list().filter((record) => record.state === 'running').length >= 50) {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+          await Promise.race([
+            cleanup,
+            new Promise<void>((resolve) => {
+              timer = setTimeout(resolve, 2000);
+              timer.unref?.();
+            }),
+          ]);
+        } finally {
+          if (timer) clearTimeout(timer);
+        }
+      } else void cleanup.catch(() => {});
       return this.openOne(owner, request);
     });
     this.opening = operation.then(

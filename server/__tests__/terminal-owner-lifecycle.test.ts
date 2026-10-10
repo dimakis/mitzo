@@ -138,3 +138,29 @@ it('waits for an in-flight start before ending a shell whose login was revoked',
   expect(backend.end).toHaveBeenCalledTimes(1);
   expect(store.list().every((record) => record.state === 'ended')).toBe(true);
 });
+it('does not block a fresh host shell behind an unreachable expired sandbox cleanup', async () => {
+  const oldLogin = bind('old');
+  await service.open(oldLogin.id, {});
+  bind('fresh');
+  let finishCleanup!: () => void;
+  vi.mocked(backend.end).mockImplementationOnce(
+    () =>
+      new Promise<void>((resolve) => {
+        finishCleanup = resolve;
+      }),
+  );
+  auth.revokeAuthSession(oldLogin);
+  await vi.waitFor(() => expect(backend.end).toHaveBeenCalledTimes(1));
+  const opened = vi.fn();
+  const pending = service.open('fresh', {}).then(opened);
+  try {
+    await vi.waitFor(
+      () => expect(opened).toHaveBeenCalledWith(expect.objectContaining({ state: 'running' })),
+      { timeout: 100 },
+    );
+  } finally {
+    finishCleanup();
+    await pending;
+    await service.reconcileOwners();
+  }
+});
