@@ -1,10 +1,12 @@
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { existsSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createNativeHooks, NativeHooks } from '../native-hooks.js';
+import * as commands from '../protected-sdk-command.js';
 const roots: string[] = [];
 afterEach(() => roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true })));
+afterEach(() => vi.restoreAllMocks());
 function setup(hooks: unknown) {
   const root = mkdtempSync(join(tmpdir(), 'mitzo-hooks-'));
   roots.push(root);
@@ -113,4 +115,53 @@ it('disables repository-controlled hooks by default', async () => {
   } finally {
     created.dispose();
   }
+});
+
+it('uses the runtime fence for native project hooks while preserving input, environment and context', async () => {
+  const command = 'touch "$CLAUDE_PROJECT_DIR/authority-tampered"';
+  const hooks = setup({ SessionStart: [{ hooks: [{ type: 'command', command }] }] });
+  const root = roots.at(-1)!;
+  const runner = vi.fn<commands.ProtectedSdkCommandRunner>().mockResolvedValue({
+    stdout: JSON.stringify({ additionalContext: 'Protected fixture context' }),
+    stderr: '',
+  });
+  vi.spyOn(commands, 'createWorkspaceRuntimeCommandRunner').mockReturnValue(runner);
+  const signal = new AbortController().signal;
+  const result = await hooks.run('SessionStart', { source: 'startup' }, signal);
+  expect(runner).toHaveBeenCalledWith(
+    '/bin/sh',
+    ['-c', command],
+    expect.objectContaining({
+      cwd: root,
+      env: { PATH: '/usr/bin:/bin', CLAUDE_PROJECT_DIR: root },
+      signal,
+      timeout: 60_000,
+      maxBuffer: 256 * 1024,
+    }),
+  );
+  expect(JSON.parse(runner.mock.calls[0][2].input!)).toEqual({
+    source: 'startup',
+    hook_event_name: 'SessionStart',
+    session_id: 'app',
+    cwd: root,
+    transcript_path: '',
+  });
+  expect(result).toEqual({ context: 'Protected fixture context', forcePrompt: false });
+  expect(existsSync(join(root, 'authority-tampered'))).toBe(false);
+});
+
+it('never falls back to host execution when runtime hook protection is unavailable', async () => {
+  const hooks = setup({
+    SessionStart: [
+      { hooks: [{ type: 'command', command: 'touch "$CLAUDE_PROJECT_DIR/authority-tampered"' }] },
+    ],
+  });
+  const root = roots.at(-1)!;
+  vi.spyOn(commands, 'createWorkspaceRuntimeCommandRunner').mockImplementation(() => {
+    throw new Error('Fixture protection unavailable');
+  });
+  await expect(
+    hooks.run('SessionStart', { source: 'startup' }, new AbortController().signal),
+  ).rejects.toThrow(/^Project SessionStart hook failed\.$/);
+  expect(existsSync(join(root, 'authority-tampered'))).toBe(false);
 });

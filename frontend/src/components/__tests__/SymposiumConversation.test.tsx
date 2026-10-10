@@ -255,8 +255,10 @@ describe('SymposiumConversation', () => {
         expect.any(Function),
         expect.any(Function),
       );
+      const queueEntryId = JSON.parse(localStorage.getItem('mitzo-queue-session')!)[0].queueEntryId;
+      expect(queueEntryId).toMatch(/^[a-f0-9-]{36}$/);
       const retained = JSON.stringify([
-        { text: 'queued follow-up', contextBlocks: [], requiresRetry: true },
+        { text: 'queued follow-up', contextBlocks: [], requiresRetry: true, queueEntryId },
       ]);
       expect(localStorage.getItem('mitzo-queue-session')).toBe(retained);
       const [, , , onDelivery, onSessionAssigned] = onSend.mock.calls[0];

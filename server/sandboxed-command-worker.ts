@@ -2,7 +2,9 @@ import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import type { Writable } from 'node:stream';
 import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { createRequire } from 'node:module';
+import { dirname, join } from 'node:path';
 import {
   SandboxManager,
   SandboxRuntimeConfigSchema,
@@ -17,6 +19,8 @@ export interface SandboxWorkerPayload {
   authority: SerializedAuthority;
   /** Optional target environment; bootstrap always runs with a trusted host environment. */
   env?: NodeJS.ProcessEnv;
+  /** Trusted SDK runtime-only enrollment fences files without changing network policy. */
+  filesystemOnly?: boolean;
 }
 
 interface WorkerDependencies {
@@ -25,6 +29,37 @@ interface WorkerDependencies {
     'initialize' | 'wrapWithSandbox' | 'reset' | 'checkDependencies'
   >;
   spawn: typeof spawn;
+  platform?: NodeJS.Platform;
+  wrapFilesystem?: (command: string, config: SandboxRuntimeConfig) => Promise<string>;
+}
+
+async function wrapFilesystemOnly(command: string, config: SandboxRuntimeConfig): Promise<string> {
+  const require = createRequire(import.meta.url);
+  const directory = dirname(require.resolve('@anthropic-ai/sandbox-runtime'));
+  const { wrapCommandWithSandboxMacOS } = await import(
+    pathToFileURL(join(directory, 'sandbox', 'macos-sandbox-utils.js')).href
+  );
+  return wrapCommandWithSandboxMacOS({
+    command,
+    commandId: randomUUID(),
+    binShell: '/bin/sh',
+    needsNetworkRestriction: false,
+    allowAllUnixSockets: true,
+    allowLocalBinding: true,
+    allowMachLookup: ['*'],
+    // Delegating to another application escapes this worker's file/process fence.
+    allowAppleEvents: false,
+    allowPty: true,
+    allowGitConfig: true,
+    readConfig: {
+      denyOnly: config.filesystem.denyRead,
+      allowWithinDeny: config.filesystem.allowRead,
+    },
+    writeConfig: {
+      allowOnly: config.filesystem.allowWrite,
+      denyWithinAllow: config.filesystem.denyWrite,
+    },
+  });
 }
 
 /** Each invocation runs in a fresh trusted process; SRT singleton state is never
@@ -35,13 +70,17 @@ export async function runSandboxedWorker(
   dependencies: WorkerDependencies = { manager: SandboxManager, spawn },
 ): Promise<number> {
   const { manager, spawn: spawnCommand } = dependencies;
+  if (payload.filesystemOnly !== undefined && typeof payload.filesystemOnly !== 'boolean')
+    throw new Error('Invalid filesystem-only sandbox mode');
+  if (payload.filesystemOnly && (dependencies.platform ?? process.platform) !== 'darwin')
+    throw new Error('Filesystem-only SDK isolation requires macOS');
   const authority = AuthoritySnapshot.restore(payload.authority);
   const config = SandboxRuntimeConfigSchema.parse(payload.config);
   const dependenciesCheck = manager.checkDependencies();
   if (dependenciesCheck.errors.length || dependenciesCheck.warnings.length)
     throw new Error('Complete OS sandbox dependencies are unavailable');
   try {
-    await manager.initialize(config);
+    if (!payload.filesystemOnly) await manager.initialize(config);
     authority.verify();
     // The outer shell starts before the OS sandbox. Transfer target argv/env
     // over a dedicated pipe to a tiny launcher AFTER crossing that boundary.
@@ -79,9 +118,11 @@ export async function runSandboxedWorker(
     const command = payload.env
       ? [process.execPath, '-e', launcher].map(quote).join(' ')
       : payload.command;
-    const wrapped = await manager.wrapWithSandbox(command, undefined, undefined, undefined, {
-      commandId: randomUUID(),
-    });
+    const wrapped = payload.filesystemOnly
+      ? await (dependencies.wrapFilesystem ?? wrapFilesystemOnly)(command, config)
+      : await manager.wrapWithSandbox(command, undefined, undefined, undefined, {
+          commandId: randomUUID(),
+        });
     // Wrapping initializes network/mount policy asynchronously. Recheck only
     // after it completes, with no await before the actual sandboxed command spawn.
     authority.verify();
@@ -101,7 +142,7 @@ export async function runSandboxedWorker(
       child.once('close', (code, signal) => resolve(signal ? 1 : (code ?? 1)));
     });
   } finally {
-    await manager.reset();
+    if (!payload.filesystemOnly) await manager.reset();
   }
 }
 

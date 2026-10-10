@@ -1,4 +1,6 @@
 import { createHash } from 'node:crypto';
+import { Buffer } from 'node:buffer';
+import { TextDecoder } from 'node:util';
 import { constants } from 'node:fs';
 import { lstat, open, realpath } from 'node:fs/promises';
 import { join, relative, isAbsolute, sep } from 'node:path';
@@ -15,6 +17,7 @@ export async function compileWorkspaceContext(recipe, options, compiler) {
   }
   async function document(root, reference, signal) {
     signal?.throwIfAborted();
+    options.assertDocumentPath?.(join(root, reference), reference);
     let current = root;
     for (const [index, part] of reference.split('/').entries()) {
       current = join(current, part);
@@ -40,6 +43,7 @@ export async function compileWorkspaceContext(recipe, options, compiler) {
       if (!info.isFile()) throw Error(`Context document is not a regular file: ${reference}`);
       if (info.size > 65536) throw Error(`Context document is too large: ${reference}`);
       const resolved = await realpath(current);
+      options.assertDocumentPath?.(resolved, reference);
       const within = relative(root, resolved);
       if (within === '..' || within.startsWith('..' + sep) || isAbsolute(within))
         throw Error(`Context document escapes its workspace: ${reference}`);

@@ -21,6 +21,10 @@ import {
   type RepositoryChatWorkspace,
 } from './repository-chat-startup.js';
 import { credentialSdkBoundary } from './credential-sdk-boundary.js';
+import {
+  createWorkspaceRuntimeCommandRunner,
+  type ProtectedSdkCommandRunner,
+} from './protected-sdk-command.js';
 import { createCredentialSdkServer, credentialSdkPermission } from './credential-sdk-tools.js';
 import { CONNECTION_TOOL_INSTRUCTIONS } from './session-credential-tools.js';
 import { isRegisteredConversation } from '@mitzo/protocol';
@@ -342,16 +346,31 @@ const FALLBACK_BOOT_CONTEXT: BootContextMessage = {
  * Local fallback: run build_boot_context.py --json to get deterministic boot context.
  * This is the "old way" — reads canonical source files directly, no server dependency.
  */
-async function localBootContextFallback(repoRoot: string): Promise<BootContextMessage> {
+async function localBootContextFallback(
+  repoRoot: string,
+  protectedRunner?: ProtectedSdkCommandRunner,
+): Promise<BootContextMessage> {
   const scriptPath = join(repoRoot, 'scripts', 'build_boot_context.py');
   try {
-    const { execFile } = await import('child_process');
-    const { promisify } = await import('util');
-    const execFileAsync = promisify(execFile);
-    const { stdout } = await execFileAsync('python3', [scriptPath, '--json'], {
-      cwd: repoRoot,
-      timeout: 5000,
-    });
+    // Direct callers also inherit runtime protection when they omit a runner.
+    // A protection failure is caught below and never retries on the controller.
+    const runner = protectedRunner ?? createWorkspaceRuntimeCommandRunner();
+    let stdout: string;
+    if (runner) {
+      ({ stdout } = await runner('python3', [scriptPath, '--json'], {
+        cwd: repoRoot,
+        env: { ...process.env },
+        timeout: 5000,
+      }));
+    } else {
+      const { execFile } = await import('child_process');
+      const { promisify } = await import('util');
+      const execFileAsync = promisify(execFile);
+      ({ stdout } = await execFileAsync('python3', [scriptPath, '--json'], {
+        cwd: repoRoot,
+        timeout: 5000,
+      }));
+    }
     const parsed = JSON.parse(stdout) as { additionalContext?: string };
     const content = parsed.additionalContext ?? '';
     // Rough token estimate: ~4 chars per token
@@ -391,6 +410,7 @@ export async function fetchBootContext(
   contexginUrl: string = process.env.CONTEXGIN_URL || DEFAULT_CONTEXGIN_URL,
   repoRoot: string = BASE_REPO,
   allowLocalExecutableFallback = true,
+  protectedRunner?: ProtectedSdkCommandRunner,
 ): Promise<BootContextMessage> {
   try {
     const url = `${contexginUrl}/api/agents/${encodeURIComponent(agentName)}/context`;
@@ -405,7 +425,7 @@ export async function fetchBootContext(
         body: body.slice(0, 200),
       });
       return allowLocalExecutableFallback
-        ? localBootContextFallback(repoRoot)
+        ? localBootContextFallback(repoRoot, protectedRunner)
         : { ...FALLBACK_BOOT_CONTEXT };
     }
 
@@ -417,7 +437,7 @@ export async function fetchBootContext(
         keys: Object.keys(data),
       });
       return allowLocalExecutableFallback
-        ? localBootContextFallback(repoRoot)
+        ? localBootContextFallback(repoRoot, protectedRunner)
         : { ...FALLBACK_BOOT_CONTEXT };
     }
 
@@ -458,7 +478,7 @@ export async function fetchBootContext(
     const msg = err instanceof Error ? err.message : String(err);
     log.info('ContexGin not reachable, trying local fallback', { error: msg });
     return allowLocalExecutableFallback
-      ? localBootContextFallback(repoRoot)
+      ? localBootContextFallback(repoRoot, protectedRunner)
       : { ...FALLBACK_BOOT_CONTEXT };
   }
 }
@@ -1789,8 +1809,15 @@ async function _startChatInner(
   const sdkCredentialBoundary =
     !codexProfile && !apiCredentialRef && !gemini ? credentialSdkBoundary() : undefined;
 
+  const sdkCredentialIsolation = sdkCredentialBoundary?.credentialIsolation ?? false;
+  const projectCommandRunner = sdkCredentialIsolation
+    ? undefined
+    : createWorkspaceRuntimeCommandRunner();
+
   // Load project hooks from .claude/settings.json (e.g. SessionStart boot context)
-  const hooks = sdkCredentialBoundary ? undefined : loadProjectHooks(cwd, sessionEnv);
+  const hooks = sdkCredentialIsolation
+    ? undefined
+    : loadProjectHooks(cwd, sessionEnv, projectCommandRunner);
 
   // Fetch boot context BEFORE building system prompt so it's part of the
   // system prompt append and survives SDK context compaction.
@@ -1838,7 +1865,13 @@ async function _startChatInner(
     agentContext?.context ??
     (openShellSelected
       ? { ...FALLBACK_BOOT_CONTEXT, source: 'sandbox', scope: 'sandbox' }
-      : await fetchBootContext(agentName, undefined, undefined, !sdkCredentialBoundary));
+      : await fetchBootContext(
+          agentName,
+          undefined,
+          undefined,
+          !sdkCredentialIsolation,
+          projectCommandRunner,
+        ));
   const bootContextAppend = bootContextMsg.fullMarkdown
     ? `\n\n# Boot Context\n${bootContextMsg.fullMarkdown}`
     : '';
@@ -2124,13 +2157,13 @@ This is an independent checkout with its own Git storage, not a linked worktree.
             env: sessionEnv,
             abortController,
             includePartialMessages: true,
-            settingSources: sdkCredentialBoundary ? [] : ['project'],
+            settingSources: sdkCredentialIsolation ? [] : ['project'],
             ...(sdkCredentialBoundary
               ? {
-                  strictMcpConfig: true,
                   spawnClaudeCodeProcess: sdkCredentialBoundary.spawnClaudeCodeProcess,
                 }
               : {}),
+            ...(sdkCredentialIsolation ? { strictMcpConfig: true } : {}),
             systemPrompt: {
               type: 'preset',
               preset: 'claude_code',
@@ -2142,7 +2175,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
             },
             permissionMode: MODE_TO_SDK[session.mode] as 'plan' | 'default',
             allowedTools: [
-              ...(sdkCredentialBoundary ? [] : mcpAllowed),
+              ...(sdkCredentialIsolation ? [] : mcpAllowed),
               ...extraTools,
               WEB_ACCESS_SDK_TOOL,
               GITHUB_PUBLISH_SDK_TOOL,
@@ -2155,7 +2188,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
             ...(resolvedResume ? { resume: resolvedResume } : {}),
             ...(newSdkSessionId ? { sessionId: newSdkSessionId } : {}),
             mcpServers: {
-              ...(sdkCredentialBoundary ? {} : allMcpServers),
+              ...(sdkCredentialIsolation ? {} : allMcpServers),
               'mitzo-web-access': webAccess,
               'mitzo-connections': connectionServer,
             },

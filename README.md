@@ -676,6 +676,14 @@ For iOS development, run `./scripts/build-ios.sh` to build the iOS web assets an
 
 See `.env.example` for a starter template.
 
+Calendar and latest-briefing reads can use a separately installed workspace runtime.
+Set `MITZO_WORKSPACE_RUNTIME_CONFIG` to an absolute private enrollment file that
+pins the runtime release, interpreter, configuration and existing briefing output
+directory. The adapter verifies the release and preserves the current API and file
+links. Without enrollment, existing workspace entrypoints remain in use. See
+[workspace runtime enrollment](docs/operations/workspace-runtime-plugin.md) for
+the configuration contract and cutover checks.
+
 ## `.mitzo.json`
 
 Drop this in your repo root to customize the home screen, enable multi-repo sessions, and inject domain knowledge:

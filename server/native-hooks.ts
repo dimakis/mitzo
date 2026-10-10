@@ -3,6 +3,7 @@ import { existsSync, readFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { z } from 'zod';
 import { tmpdir } from 'node:os';
+import { createWorkspaceRuntimeCommandRunner } from './protected-sdk-command.js';
 
 const Events = ['SessionStart', 'PreToolUse', 'PostToolUse', 'Stop', 'SessionEnd'] as const;
 type Event = (typeof Events)[number];
@@ -120,31 +121,39 @@ export class NativeHooks {
         signal.throwIfAborted();
         let output: z.infer<typeof Output>;
         try {
-          const stdout = await new Promise<string>((resolve, reject) => {
-            const child = execFile(
-              '/bin/sh',
-              ['-c', hook.command],
-              {
-                cwd: this.cwd,
-                env: { ...this.env, CLAUDE_PROJECT_DIR: this.cwd },
-                timeout: (group.timeout ?? 60) * 1000,
-                maxBuffer: 256 * 1024,
-                signal,
-              },
-              (error, stdout) => (error ? reject(new Error()) : resolve(stdout)),
-            );
-            child.stdin?.on('error', () => {});
-            child.stdin?.end(
-              JSON.stringify({
-                ...input,
-                ...(result.input ? { tool_input: result.input } : {}),
-                hook_event_name: event,
-                session_id: this.sessionId,
-                cwd: this.cwd,
-                transcript_path: '',
-              }),
-            );
+          const commandOptions = {
+            cwd: this.cwd,
+            env: { ...this.env, CLAUDE_PROJECT_DIR: this.cwd },
+            timeout: (group.timeout ?? 60) * 1000,
+            maxBuffer: 256 * 1024,
+            signal,
+          };
+          const commandInput = JSON.stringify({
+            ...input,
+            ...(result.input ? { tool_input: result.input } : {}),
+            hook_event_name: event,
+            session_id: this.sessionId,
+            cwd: this.cwd,
+            transcript_path: '',
           });
+          const protectedRunner = createWorkspaceRuntimeCommandRunner();
+          const stdout = protectedRunner
+            ? (
+                await protectedRunner('/bin/sh', ['-c', hook.command], {
+                  ...commandOptions,
+                  input: commandInput,
+                })
+              ).stdout
+            : await new Promise<string>((resolve, reject) => {
+                const child = execFile(
+                  '/bin/sh',
+                  ['-c', hook.command],
+                  commandOptions,
+                  (error, stdout) => (error ? reject(new Error()) : resolve(stdout)),
+                );
+                child.stdin?.on('error', () => {});
+                child.stdin?.end(commandInput);
+              });
           output = stdout.trim() ? Output.parse(JSON.parse(stdout)) : {};
         } catch {
           throw new Error(`Project ${event} hook failed.`);

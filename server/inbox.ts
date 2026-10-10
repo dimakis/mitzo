@@ -13,6 +13,7 @@ import {
 import { join, basename } from 'path';
 import { randomUUID } from 'node:crypto';
 import { createLogger } from './logger.js';
+import { isPrivateCodexPath } from './codex-private-path.js';
 
 const log = createLogger('inbox');
 
@@ -87,6 +88,7 @@ export function listInboxItems(inboxPath: string): InboxItemSummary[] {
   const items: InboxItemSummary[] = [];
   for (const filename of files) {
     try {
+      if (isPrivateCodexPath(join(inboxPath, filename))) continue;
       const raw = readFileSync(join(inboxPath, filename), 'utf-8');
       const { meta, body } = parseFrontmatter(raw);
       items.push({
@@ -113,6 +115,7 @@ export function listInboxItems(inboxPath: string): InboxItemSummary[] {
 export function readInboxItem(inboxPath: string, filename: string): string | null {
   if (!isSafeFilename(filename)) return null;
   try {
+    if (isPrivateCodexPath(join(inboxPath, filename))) return null;
     return readFileSync(join(inboxPath, filename), 'utf-8');
   } catch (err: unknown) {
     log.warn('failed to read inbox item', {
