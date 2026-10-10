@@ -6,6 +6,7 @@ import type { TerminalTarget } from './terminal-service.js';
 
 type Runtime = OpenShellRuntime & { sandboxId: string };
 interface Session {
+  sessionType?: string;
   title?: string | null;
   cwd?: string | null;
   accountBinding?: AccountBinding | null;
@@ -38,6 +39,8 @@ export function createTerminalTargetResolver(deps: {
     const id = request.sessionId;
     const meta = deps.session(id);
     if (!meta?.cwd) throw new Error('Chat workspace unavailable');
+    if (meta.sessionType === 'symposium')
+      throw Error('Choose a specific agent sandbox for this conversation');
     if (!deps.remote(id)) {
       if (!deps.allowedHost(meta.cwd)) throw new Error('Chat workspace unavailable');
       return {

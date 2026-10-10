@@ -79,3 +79,14 @@ describe('terminal destinations', () => {
     ).rejects.toThrow('Chat workspace unavailable');
   });
 });
+
+it('does not map a multi-agent conversation to the host when its sandbox is ambiguous', async () => {
+  const d = deps();
+  d.session.mockReturnValue({ ...d.session(), sessionType: 'symposium' } as never);
+  d.remote.mockReturnValue(false);
+  d.allowedHost.mockReturnValue(true);
+  await expect(
+    createTerminalTargetResolver(d)({ sessionId: 'chat-a' }, 'operator'),
+  ).rejects.toThrow('agent');
+  expect(d.inspect).not.toHaveBeenCalled();
+});

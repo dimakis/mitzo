@@ -1,3 +1,4 @@
+import { terminalAccountRoute } from './terminal-account-route.js';
 import { TerminalAdviser } from './terminal-adviser.js';
 import { createTerminalAdviserSession } from './terminal-adviser-model.js';
 import { TerminalService, TerminalStore } from './terminal-service.js';
@@ -3152,20 +3153,12 @@ export const terminalService = new TerminalService(new TerminalStore(taskStore.g
     allowedHost: isConfiguredAllowedPath,
     remote: isRemoteSessionArtifact,
     runtime: (id, binding) => getCodexConversationStore().readArtifactRuntime(id, binding),
-    currentRoute: (binding, id) => {
-      const profiles = loadAccountProfiles();
-      const model = eventStore.getSession(id)?.selectedModel ?? binding.model;
-      if (binding.provider === 'openai') {
-        const profile = profiles.apiProfile(binding);
-        if (!profile.sandboxProvider) throw Error('Sandbox provider unavailable');
-        return { kind: 'api', provider: profile.sandboxProvider, model };
-      }
-      return selectedOpenShellAccountRoute({
+    currentRoute: (binding, id) =>
+      terminalAccountRoute(
+        loadAccountProfiles(),
         binding,
-        model,
-        profile: profiles.codexProfile(binding),
-      });
-    },
+        eventStore.getSession(id)?.selectedModel ?? binding.model,
+      ),
     validateRuntime: (runtime) =>
       validateSessionArtifactRuntime(runtime, openShellRuntimeConfig(process.env)),
     inspect: (id, runtime, route) => {
@@ -3198,6 +3191,14 @@ app.use(
       const meta = id ? eventStore.getSession(id) : undefined;
       return meta?.accountBinding
         ? {
+            summary: {
+              profile: accountAliases.label(
+                meta.accountBinding.accountId,
+                meta.accountBinding.accountLabel,
+              ),
+              model: meta.selectedModel ?? meta.accountBinding.model,
+              thinking: `Thinking: ${meta.reasoningEffort ?? 'model default'}`,
+            },
             selection: {
               accountId: meta.accountBinding.accountId,
               model: meta.selectedModel ?? meta.accountBinding.model,
@@ -3209,7 +3210,13 @@ app.use(
     destinations: () =>
       eventStore
         .listSessions(200)
-        .filter((meta) => meta.cwd && isRemoteSessionArtifact(meta.sessionId))
+        .filter(
+          (meta) =>
+            meta.cwd &&
+            meta.sessionType !== 'symposium' &&
+            !meta.isHidden &&
+            isRemoteSessionArtifact(meta.sessionId),
+        )
         .map((meta) => ({
           sessionId: meta.sessionId,
           label: meta.summary || meta.initialPrompt || 'Untitled chat',
