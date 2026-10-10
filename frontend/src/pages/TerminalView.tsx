@@ -52,13 +52,23 @@ export function TerminalView() {
     [selection, setSelection] = useState<AccountSelection | null>(null),
     [summary, setSummary] = useState<WorkspaceSummary | null>(null);
   const previousSelection = useRef<AccountSelection | null>(null);
-  const [question, setQuestion] = useState(''),
-    [review, setReview] = useState<string | null>(null),
+  const [question, updateQuestion] = useState(''),
+    [review, updateReview] = useState<string | null>(null),
     [messages, setMessages] = useState<Message[]>([]),
     [reply, setReply] = useState<{ text: string; commands: string[] } | null>(null),
     [asking, setAsking] = useState(false),
     [adviceError, setAdviceError] = useState('');
   const adviceRequest = useRef<AbortController | null>(null);
+  const questionRevision = useRef(0),
+    reviewedOutputRevision = useRef(0);
+  function setQuestion(value: string) {
+    questionRevision.current++;
+    updateQuestion(value);
+  }
+  function setReview(value: string | null) {
+    reviewedOutputRevision.current++;
+    updateReview(value);
+  }
   const [history, setHistory] = useState(new CommandHistory());
   useEffect(() => {
     const controller = new AbortController();
@@ -221,6 +231,8 @@ export function TerminalView() {
   async function ask() {
     if (!selection?.accountId || !terminal || !question.trim() || asking) return;
     const controller = new AbortController();
+    const submittedQuestionRevision = questionRevision.current;
+    const submittedOutputRevision = reviewedOutputRevision.current;
     adviceRequest.current = controller;
     setAsking(true);
     setAdviceError('');
@@ -247,8 +259,8 @@ export function TerminalView() {
           : message,
       );
       setMessages([...retained, { role: 'assistant', content: result.text.slice(0, 8192) }]);
-      setQuestion('');
-      setReview(null);
+      if (questionRevision.current === submittedQuestionRevision) setQuestion('');
+      if (reviewedOutputRevision.current === submittedOutputRevision) setReview(null);
     } catch {
       if (!controller.signal.aborted)
         setAdviceError('Adviser unavailable. Check the selected account, model and thinking mode.');

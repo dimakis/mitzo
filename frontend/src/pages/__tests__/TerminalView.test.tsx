@@ -144,6 +144,47 @@ it('reviews output before sharing and stages an adviser suggestion without runni
   expect((screen.getByLabelText('Command') as HTMLInputElement).value).toBe('ls -la');
   expect(mocks.send).not.toHaveBeenCalled();
 });
+it('preserves a newer question and reviewed output while the previous adviser reply is delayed', async () => {
+  setup('/terminal');
+  await screen.findByText('Shell output');
+  fireEvent.click(screen.getByRole('button', { name: 'Show Minion' }));
+  fireEvent.click(screen.getByText('Use Work Luna Low'));
+  fireEvent.click(screen.getByRole('button', { name: 'Share output' }));
+  fireEvent.change(screen.getByLabelText('Reviewed output'), {
+    target: { value: 'Submitted output' },
+  });
+  fireEvent.change(screen.getByLabelText('Ask Minion'), { target: { value: 'First question' } });
+  let respond!: (response: Response) => void;
+  vi.mocked(apiFetch).mockImplementationOnce(
+    () =>
+      new Promise<Response>((resolve) => {
+        respond = resolve;
+      }),
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Ask adviser' }));
+  fireEvent.change(screen.getByLabelText('Ask Minion'), { target: { value: 'Next question' } });
+  fireEvent.change(screen.getByLabelText('Reviewed output'), {
+    target: { value: 'New output awaiting review' },
+  });
+  await act(async () =>
+    respond(new Response(JSON.stringify({ text: 'First answer', commands: [] }))),
+  );
+  expect((screen.getByLabelText('Ask Minion') as HTMLInputElement).value).toBe('Next question');
+  expect((screen.getByLabelText('Reviewed output') as HTMLTextAreaElement).value).toBe(
+    'New output awaiting review',
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Ask adviser' }));
+  await screen.findByText('Try checking');
+  const requests = vi
+    .mocked(apiFetch)
+    .mock.calls.filter(([url]) => String(url).endsWith('/advice'));
+  const body = JSON.parse(requests[1][1]!.body as string);
+  expect(body.messages[0].content).toBe(
+    'First question\n\nReviewed terminal output:\nSubmitted output',
+  );
+  expect(body.messages[2].content).toBe('Next question');
+  expect(body.output).toBe('New output awaiting review');
+});
 
 it('preserves the adviser selection when its panel and all controls are collapsed', async () => {
   setup();
