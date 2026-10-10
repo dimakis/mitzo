@@ -226,6 +226,7 @@ export function AgentLibrary() {
       .includes(query.toLowerCase()),
   );
   const historical =
+    !dirty &&
     !!editor?.publishedRevision &&
     (latest.get(editor.profileId)?.revision ?? 0) > editor.publishedRevision;
   const canUse = !!editor?.publishedRevision && !dirty;

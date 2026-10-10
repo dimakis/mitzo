@@ -252,3 +252,32 @@ it('protects a dirty editor from closing its tab and retains the retry key after
     .at(-1)!;
   expect(JSON.parse(after[1]!.body as string)).toEqual(JSON.parse(before[1]!.body as string));
 });
+
+it('keeps recovered edits actionable when another device publishes a newer revision', async () => {
+  const first = setup();
+  fireEvent.change(await screen.findByLabelText('Agent name'), {
+    target: { value: 'My working name' },
+  });
+  first.unmount();
+  vi.mocked(apiFetch).mockResolvedValue(
+    response({
+      drafts: [],
+      versions: [
+        { ...published, revision: 4, definition: { ...definition, name: 'Shared newer name' } },
+        published,
+      ],
+    }),
+  );
+  render(
+    <MemoryRouter>
+      <AgentLibrary />
+    </MemoryRouter>,
+  );
+  await screen.findByDisplayValue('My working name');
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: 'Discard unsaved edits' })).toBeTruthy(),
+  );
+  expect(screen.getByLabelText('Agent name')).toHaveProperty('disabled', false);
+  fireEvent.click(screen.getByRole('button', { name: 'Discard unsaved edits' }));
+  await screen.findByDisplayValue('Shared newer name');
+});
