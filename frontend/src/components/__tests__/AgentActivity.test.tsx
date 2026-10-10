@@ -374,3 +374,64 @@ it('collapses only the speaker who replied, including activity separated by a pr
   expect(toggles[1].getAttribute('aria-expanded')).toBe('false');
   expect(toggles[2].getAttribute('aria-expanded')).toBe('true');
 });
+
+it.each(['', ' \n\t '])('keeps activity in one group across non-visible text %j', (content) => {
+  const blocks = [thought, { blockId: 'empty', blockType: 'text' as const, content }, tool];
+  const { rerender } = render(
+    <MemoryRouter>
+      <ChatArea
+        {...base}
+        messages={[]}
+        current={{
+          messageId: 'working',
+          blockOrder: blocks.map((block) => block.blockId),
+          blocks: new Map(blocks.map((block) => [block.blockId, { ...block, done: false }])),
+        }}
+        running
+      />
+    </MemoryRouter>,
+  );
+  expect(screen.getAllByRole('button', { name: /Agent at work/ })).toHaveLength(1);
+  rerender(
+    <MemoryRouter>
+      <ChatArea
+        {...base}
+        current={null}
+        messages={[{ messageId: 'working', role: 'assistant', blocks }]}
+      />
+    </MemoryRouter>,
+  );
+  expect(screen.getAllByRole('button', { name: /Agent at work/ })).toHaveLength(1);
+});
+
+it('returns keyboard focus from activity details to the header when a reply collapses them', () => {
+  const waiting: FinishedMessage[] = [{ messageId: 'working', role: 'assistant', blocks: [tool] }];
+  const { rerender } = render(
+    <MemoryRouter>
+      <ChatArea {...base} messages={waiting} current={null} />
+    </MemoryRouter>,
+  );
+  const control = screen.getByRole('button', { name: /^Read/ });
+  control.focus();
+  expect(document.activeElement).toBe(control);
+  rerender(
+    <MemoryRouter>
+      <ChatArea
+        {...base}
+        messages={[
+          ...waiting,
+          {
+            messageId: 'answer',
+            role: 'assistant',
+            blocks: [{ blockId: 'answer', blockType: 'text', content: 'Here is the answer.' }],
+          },
+        ]}
+        current={null}
+      />
+    </MemoryRouter>,
+  );
+  expect(screen.getByRole('button', { name: /Agent at work/ }).getAttribute('aria-expanded')).toBe(
+    'false',
+  );
+  expect(document.activeElement).toBe(screen.getByRole('button', { name: /Agent at work/ }));
+});

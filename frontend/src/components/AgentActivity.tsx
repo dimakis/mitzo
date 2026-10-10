@@ -1,4 +1,4 @@
-import { useId, useState, type ReactNode } from 'react';
+import { useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { MotionPresence } from './MotionPresence';
 import { UiIcon } from './UiIcon';
 import { ToolSetupCards } from './ToolSetupCards';
@@ -18,6 +18,14 @@ export function AgentActivity({
   // Keep manual choices within a phase; the first reply starts a new collapsed phase.
   const expanded = choice?.replied === replied ? choice.expanded : !replied;
   const detailsId = useId();
+  const headerRef = useRef<HTMLButtonElement>(null);
+  const detailsFocused = useRef(false);
+  useLayoutEffect(() => {
+    if (!expanded && detailsFocused.current) {
+      headerRef.current?.focus({ preventScroll: true });
+      detailsFocused.current = false;
+    }
+  }, [expanded]);
   const latest = rows.at(-1)!;
   const block = latest.block!;
   const tools = rows.flatMap((row) => (row.block?.blockType === 'tool_use' ? [row.block] : []));
@@ -42,6 +50,7 @@ export function AgentActivity({
       <button
         type="button"
         className="agent-activity-header"
+        ref={headerRef}
         aria-label={`Agent at work: ${preview}${active ? ' · Running' : ''}${failed ? ` · ${failed} failed` : ''}`}
         aria-expanded={expanded}
         aria-controls={detailsId}
@@ -54,7 +63,19 @@ export function AgentActivity({
         <UiIcon name={expanded ? 'down' : 'forward'} size={16} />
       </button>
       <MotionPresence open={expanded} kind="disclosure" appear={false}>
-        <div id={detailsId} className="agent-activity-details">
+        <div
+          id={detailsId}
+          className="agent-activity-details"
+          onFocusCapture={() => {
+            detailsFocused.current = true;
+          }}
+          onBlurCapture={(event) => {
+            // Ignore the blur caused by making closing details inert; the
+            // layout effect returns that focus to the disclosure header.
+            if (expanded)
+              detailsFocused.current = event.currentTarget.contains(event.relatedTarget);
+          }}
+        >
           {rows.map((row) => (
             <div key={row.key}>{row.value}</div>
           ))}

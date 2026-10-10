@@ -2947,3 +2947,126 @@ for (const appearance of [
     });
   });
 }
+
+for (const reducedMotion of ['no-preference', 'reduce'] as const) {
+  test(`chat activity live replies preserve grouping and keyboard focus with ${reducedMotion} motion`, async ({
+    page,
+  }, testInfo) => {
+    const sessionId = 'offline-activity-focus';
+    const live: { send?: (message: Record<string, unknown>) => void } = {};
+    await page.emulateMedia({ reducedMotion });
+    await page.routeWebSocket('**/*', (socket) => {
+      live.send = (message) => socket.send(JSON.stringify({ ...message, sessionId }));
+      socket.onMessage((raw) => {
+        const message = JSON.parse(String(raw));
+        if (message.type === 'hello')
+          socket.send(
+            JSON.stringify({
+              type: 'welcome',
+              protocolVersion: 2,
+              connectionId: 'offline-activity-focus',
+            }),
+          );
+      });
+    });
+    await page.route('**/api/**', async (route) => {
+      const path = new URL(route.request().url()).pathname;
+      if (path === `/api/sessions/${sessionId}/messages`)
+        return route.fulfill({
+          json: [
+            {
+              messageId: 'thought',
+              role: 'assistant',
+              blocks: [{ blockId: 'thought', blockType: 'thinking', content: 'Checking records' }],
+            },
+            {
+              messageId: 'empty',
+              role: 'assistant',
+              blocks: [{ blockId: 'empty', blockType: 'text', content: ' \n\t ' }],
+            },
+            {
+              messageId: 'read',
+              role: 'assistant',
+              blocks: [
+                {
+                  blockId: 'read',
+                  blockType: 'tool_use',
+                  content: '',
+                  toolName: 'Read',
+                  toolInput: '/workspace/report.md',
+                  toolResult: 'Report contents',
+                },
+              ],
+            },
+          ],
+        });
+      if (path === `/api/sessions/${sessionId}/meta`)
+        return route.fulfill({ json: { sessionType: 'chat' } });
+      if (path === `/api/sessions/${sessionId}/symposium/status`)
+        return route.fulfill({ json: { sessionId, config: null, seats: [] } });
+      return route.fallback();
+    });
+    await page.goto(`/chat/${sessionId}`);
+    const toggle = page.getByRole('button', { name: /Agent at work/ }).first();
+    await expect(page.getByRole('button', { name: /Agent at work/ })).toHaveCount(1);
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    const read = page.getByRole('button', { name: /^Read/ });
+    await read.focus();
+    await expect(read).toBeFocused();
+    await expect.poll(() => Boolean(live.send)).toBe(true);
+    live.send!({ type: 'message_start', messageId: 'reply' });
+    live.send!({ type: 'block_start', messageId: 'reply', blockId: 'answer', blockType: 'text' });
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    await expect(read).toBeFocused();
+    live.send!({
+      type: 'block_delta',
+      messageId: 'reply',
+      blockId: 'answer',
+      blockType: 'text',
+      delta: 'Here is the answer.',
+    });
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    await expect(toggle).toBeFocused();
+    await expect(page.locator('.agent-activity-details')).toBeHidden();
+    await expect(page.getByText('Here is the answer.', { exact: true })).toBeVisible();
+    live.send!({ type: 'message_start', messageId: 'next-working' });
+    live.send!({
+      type: 'block_start',
+      messageId: 'next-working',
+      blockId: 'next-thought',
+      blockType: 'thinking',
+    });
+    live.send!({
+      type: 'block_delta',
+      messageId: 'next-working',
+      blockId: 'next-thought',
+      blockType: 'thinking',
+      delta: 'Checking the next records',
+    });
+    const next = page.getByRole('button', { name: /Agent at work/ }).last();
+    await expect(page.getByRole('button', { name: /Agent at work/ })).toHaveCount(2);
+    await expect(next).toHaveAttribute('aria-expanded', 'true');
+    const composer = page.getByRole('textbox', { name: 'Message Mitzo', exact: true });
+    await composer.focus();
+    live.send!({ type: 'message_start', messageId: 'next-reply' });
+    live.send!({
+      type: 'block_start',
+      messageId: 'next-reply',
+      blockId: 'next-answer',
+      blockType: 'text',
+    });
+    live.send!({
+      type: 'block_delta',
+      messageId: 'next-reply',
+      blockId: 'next-answer',
+      blockType: 'text',
+      delta: 'Here is the next answer.',
+    });
+    await expect(next).toHaveAttribute('aria-expanded', 'false');
+    await expect(composer).toBeFocused();
+    await page.screenshot({
+      path: testInfo.outputPath(`activity-focus-${reducedMotion}.png`),
+      animations: 'disabled',
+    });
+  });
+}

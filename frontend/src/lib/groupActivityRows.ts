@@ -18,6 +18,7 @@ export function groupActivityRows<T>(rows: ActivityRow<T>[]) {
     | { type: 'activity'; key: string; rows: ActivityRow<T>[]; replied: boolean }
   > = [];
   for (const row of rows) {
+    if (row.block?.blockType === 'text' && !row.block.content?.trim()) continue;
     const activity =
       !row.keepVisible &&
       ['thinking', 'redacted_thinking', 'tool_use'].includes(row.block?.blockType ?? '');
