@@ -23,7 +23,7 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../agent-context-compiler.ts':
-    '9fb06ccc138e81e5e6180b0e0ffa02a02a99b1962bb4b085ef66332e083cd89f',
+    '37adfd9225f97cccdee556cf91d8a9e7642083df15a8d5bdc24599c92cb84db0',
   '../../packages/protocol/src/agent-context-recipe.ts':
     '7e8e25fc19e1d7ff515f60e092a18d553fa443f23e73003fe1fe7bb99bffb70f',
   // Library profile identity, operator ownership and admission are reviewed runtime inputs.

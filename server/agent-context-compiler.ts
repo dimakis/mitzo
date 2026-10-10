@@ -191,8 +191,23 @@ async function presetContext(
     },
   );
   if (!response.ok) throw Error(`ContexGin preset compilation failed (${response.status})`);
-  const body = await response.text();
-  if (Buffer.byteLength(body) > 1048576) throw Error('ContexGin preset response is too large');
+  if (!response.body) throw Error('ContexGin preset response has no body');
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    while (true) {
+      const next = await reader.read();
+      if (next.done) break;
+      size += next.value.byteLength;
+      if (size > 1048576) throw Error('ContexGin preset response is too large');
+      chunks.push(next.value);
+    }
+  } finally {
+    await reader.cancel().catch(() => {});
+    reader.releaseLock();
+  }
+  const body = Buffer.concat(chunks, size).toString('utf8');
   const value = z
     .object({
       agent: z.literal(recipe.agentName),

@@ -186,3 +186,26 @@ it.each([
     ),
   ).rejects.toThrow();
 });
+
+it('stops reading and cancels oversized ContexGin output before buffering the full response', async () => {
+  let chunks = 0;
+  const cancelled = vi.fn();
+  const body = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      chunks++;
+      controller.enqueue(new Uint8Array(600000));
+      if (chunks === 5) controller.close();
+    },
+    cancel: cancelled,
+  });
+  await expect(
+    compileAgentContext(
+      { version: 1, source: 'contexgin', agentName: 'architect' },
+      {
+        fetch: async () => new Response(body),
+      },
+    ),
+  ).rejects.toThrow(/too large/);
+  expect(chunks).toBeLessThan(5);
+  expect(cancelled).toHaveBeenCalledOnce();
+});
