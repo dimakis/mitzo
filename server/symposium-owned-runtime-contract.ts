@@ -131,7 +131,8 @@ export function reviewedSymposiumOwnedRuntime(image: string) {
 /** Explicit source-qualified local build, not a claim of completed physical admission.
  * Image-only consumers retain their original catalog entry. Only trusted construction
  * can select this exact tuple before the same physical gate collects evidence. */
-export type SymposiumOwnedBuildSelection = 'local-854b-b20-v1' | 'local-854b-routing-v1';
+export type SymposiumOwnedBuildSelection =
+  'local-854b-b20-v1' | 'local-854b-routing-v1' | 'local-854b-routing-v2';
 export const SOURCE_QUALIFIED_SYMPOSIUM_LOCAL_B20_BUILD = Object.freeze({
   ...REVIEWED_SYMPOSIUM_CODEX_01591_IDENTITY_RUNTIME.build,
   version: '0.0.0',
@@ -156,13 +157,23 @@ export const SOURCE_QUALIFIED_SYMPOSIUM_ROUTING_BUILD = Object.freeze({
     ...REVIEWED_SYMPOSIUM_CODEX_01591_IDENTITY_RUNTIME.build.nativeArtifacts,
   }),
 } as const);
+
+/** Source-qualified CONNECT-preface repair, retained in
+ * docs/spikes/openshell-codex/connect-preface-native. The earlier routing tuple
+ * remains available for historical verification; physical admission is separate. */
+export const SOURCE_QUALIFIED_SYMPOSIUM_CONNECT_PREFACE_BUILD = Object.freeze({
+  ...SOURCE_QUALIFIED_SYMPOSIUM_ROUTING_BUILD,
+  version: '0.0.1-dev.4+g871837ae7',
+  cliSha256: '63527180098c2f0917a8ca1dcb1029cb5640ea8fa8a8252c72f800b7a9f60a72',
+  supervisorImage: 'sha256:9b666aa70b8407e22f3ee24c875e65e2eefc9ba559ac03fb78e4d37e6db52995',
+} as const);
 export function reviewedSymposiumOwnedBuild(
   image: string,
   selection?: SymposiumOwnedBuildSelection,
 ) {
   const original = reviewedSymposiumOwnedRuntime(image).build;
   if (selection === undefined) return original;
-  if (selection === 'local-854b-routing-v1')
+  if (selection === 'local-854b-routing-v1' || selection === 'local-854b-routing-v2')
     return reviewedSymposiumRoutingDiagnosticBuild(image, selection);
   if (
     selection !== 'local-854b-b20-v1' ||
@@ -177,12 +188,20 @@ export function reviewedSymposiumRoutingDiagnosticBuild(
   image: string,
   selection?: SymposiumOwnedBuildSelection,
 ) {
+  const build =
+    selection === 'local-854b-routing-v1'
+      ? SOURCE_QUALIFIED_SYMPOSIUM_ROUTING_BUILD
+      : selection === 'local-854b-routing-v2'
+        ? SOURCE_QUALIFIED_SYMPOSIUM_CONNECT_PREFACE_BUILD
+        : undefined;
   if (
-    selection !== 'local-854b-routing-v1' ||
-    image !== SOURCE_QUALIFIED_SYMPOSIUM_ROUTING_BUILD.image
+    !build ||
+    image !== build.image ||
+    !/^[a-f0-9]{64}$/.test(build.cliSha256) ||
+    !/^sha256:[a-f0-9]{64}$/.test(build.supervisorImage)
   )
     throw Error('Routing diagnostic native build is not qualified');
-  return SOURCE_QUALIFIED_SYMPOSIUM_ROUTING_BUILD;
+  return build;
 }
 
 /** Keep historical serialized build records verbatim. Only a separately
