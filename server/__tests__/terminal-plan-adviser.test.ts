@@ -169,6 +169,29 @@ it('keeps sign-in status operator-owned and cancels the loopback listener', asyn
   expect(f.host.status('operator', attempt.id).state).toBe('cancelled');
   await f.host.close();
 });
+it('recovers only the requesting operator pending attempt without exposing sign-in material or restarting it', async () => {
+  const f = setup();
+  const browser = vi.fn(async () => {});
+  const host = new TerminalPlanAdviserHost({
+    accounts: f.accounts,
+    openBrowser: browser,
+    closeStore: () => {},
+  });
+  try {
+    expect(host.pending('operator')).toBeNull();
+    const attempt = await host.start('operator', Date.now() + 60000, 'Personal');
+    expect(host.pending('operator')).toEqual(attempt);
+    expect(Object.keys(host.pending('operator')!)).toEqual(['id', 'state']);
+    expect(host.pending('another')).toBeNull();
+    expect(browser).toHaveBeenCalledOnce();
+    await host.cancel('operator', host.pending('operator')!.id);
+    expect(host.status('operator', attempt.id).state).toBe('cancelled');
+    expect(host.pending('operator')).toBeNull();
+    expect(browser).toHaveBeenCalledOnce();
+  } finally {
+    await host.close();
+  }
+});
 it.each(['', '&state=incorrect'])(
   'allows a new sign-in after an invalid callback state %s',
   async (state) => {

@@ -186,6 +186,13 @@ export class TerminalPlanAdviserHost {
     if (!attempt || attempt.owner !== owner) throw Error('Adviser sign-in unavailable');
     return { id, state: attempt.state };
   }
+  /** Recover the existing operator-owned attempt; expose no callback or credential material. */
+  pending(owner: string) {
+    const attempt = [...this.attempts.values()].find(
+      (value) => value.owner === owner && value.state === 'pending',
+    );
+    return attempt ? { id: attempt.id, state: 'pending' as const } : null;
+  }
   async cancel(owner: string, id: string) {
     const attempt = this.attempts.get(id);
     if (!attempt || attempt.owner !== owner) throw Error('Adviser sign-in unavailable');

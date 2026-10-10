@@ -11,10 +11,14 @@ const accountSchema = z.object({
   state: z.enum(['connected', 'disconnected', 'reauth_required']),
   revocationPending: z.boolean().default(false),
 });
-const snapshotSchema = z.object({ enabled: z.boolean(), accounts: z.array(accountSchema) });
 const attemptSchema = z.object({
   id: z.string(),
   state: z.enum(['pending', 'connected', 'failed', 'cancelled']),
+});
+const snapshotSchema = z.object({
+  enabled: z.boolean(),
+  accounts: z.array(accountSchema),
+  pendingAttempt: attemptSchema.nullable().default(null),
 });
 const labels = {
   connected: 'Connected',
@@ -45,7 +49,10 @@ export function AdviserSubscriptions({
     const response = await apiFetch(endpoint);
     if (!response.ok) throw Error('Unavailable');
     const data = snapshotSchema.parse(await response.json());
-    if (mounted.current && request === version.current) setSnapshot(data);
+    if (mounted.current && request === version.current) {
+      setSnapshot(data);
+      setAttempt(data.pendingAttempt);
+    }
   }, []);
   useEffect(() => {
     mounted.current = true;
@@ -123,6 +130,7 @@ export function AdviserSubscriptions({
       if (!response.ok) throw Error('Unavailable');
       const next = attemptSchema.parse(await response.json());
       if (mounted.current) {
+        version.current++;
         setAttempt(next);
         setMessage('Finish sign-in in the browser on your Mac.');
       }
@@ -247,6 +255,7 @@ export function AdviserSubscriptions({
                     );
                     if (!response.ok) throw Error('Unavailable');
                     if (mounted.current) {
+                      version.current++;
                       setAttempt(null);
                       setMessage('Sign-in cancelled.');
                     }

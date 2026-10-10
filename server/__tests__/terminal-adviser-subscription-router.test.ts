@@ -7,6 +7,7 @@ function setup(enabled = true) {
     list: vi.fn(() => [
       { id: 'plan-a', label: 'Personal', state: 'connected', email: 'user@example.test' },
     ]),
+    pending: vi.fn(() => ({ id: 'attempt-a', state: 'pending' })),
     start: vi.fn(async () => ({ id: 'attempt-a', state: 'pending' })),
     status: vi.fn(() => ({ id: 'attempt-a', state: 'connected' })),
     cancel: vi.fn(async () => {}),
@@ -41,6 +42,8 @@ it('exposes sign-in metadata only to the operator and keeps the disabled host cl
     .expect(200);
   expect(response.body.enabled).toBe(true);
   expect(response.body.accounts[0].label).toBe('Personal');
+  expect(response.body.pendingAttempt).toEqual({ id: 'attempt-a', state: 'pending' });
+  expect(host.pending).toHaveBeenCalledWith('operator');
   const disabled = setup(false);
   expect(
     (
@@ -48,7 +51,7 @@ it('exposes sign-in metadata only to the operator and keeps the disabled host cl
         .get('/api/terminals/subscriptions')
         .set('authorization', 'Bearer operator')
     ).body,
-  ).toEqual({ enabled: false, accounts: [] });
+  ).toEqual({ enabled: false, accounts: [], pendingAttempt: null });
   await request(disabled.app)
     .post('/api/terminals/subscriptions/start')
     .set('authorization', 'Bearer operator')

@@ -2,12 +2,14 @@ import { expect, test } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 import { resolve, extname } from 'node:path';
 const mutations: { path: string; body: Record<string, unknown> }[] = [];
-test.beforeEach(async ({ page }) => {
+test.beforeEach(async ({ page }, testInfo) => {
   mutations.length = 0;
   let preferences = { revision: 0, names: { briefing: 'Minion', terminal: 'Minion' }, pins: [] };
   let planConnected = false;
   let planDisconnected = false;
   let planRevocationPending = false;
+  let planPending = false;
+  const retainPending = testInfo.title.includes('recovers pending adviser sign-in');
   await page.addInitScript(() => {
     localStorage.setItem('mitzo-theme', 'dark');
     const original = window.fetch;
@@ -64,6 +66,7 @@ test.beforeEach(async ({ page }) => {
         return route.fulfill({
           json: {
             enabled: true,
+            pendingAttempt: planPending ? { id: 'attempt-offline', state: 'pending' } : null,
             accounts:
               planConnected || planDisconnected
                 ? [
@@ -78,8 +81,14 @@ test.beforeEach(async ({ page }) => {
                 : [],
           },
         });
-      if (url.pathname === '/api/terminals/subscriptions/start')
+      if (url.pathname === '/api/terminals/subscriptions/start') {
+        planPending = true;
         return route.fulfill({ status: 202, json: { id: 'attempt-offline', state: 'pending' } });
+      }
+      if (url.pathname === '/api/terminals/subscriptions/attempts/attempt-offline/cancel') {
+        planPending = false;
+        return route.fulfill({ json: { ok: true } });
+      }
       if (url.pathname === '/api/terminals/subscriptions/plan-offline/disconnect') {
         planConnected = false;
         planDisconnected = true;
@@ -87,6 +96,9 @@ test.beforeEach(async ({ page }) => {
         return route.fulfill({ json: { revoked: false } });
       }
       if (url.pathname === '/api/terminals/subscriptions/attempts/attempt-offline') {
+        if (retainPending)
+          return route.fulfill({ json: { id: 'attempt-offline', state: 'pending' } });
+        planPending = false;
         planConnected = true;
         return route.fulfill({ json: { id: 'attempt-offline', state: 'connected' } });
       }
@@ -181,6 +193,52 @@ test.beforeEach(async ({ page }) => {
       await route.fulfill({ status: 404, body: 'Missing offline asset' });
     }
   });
+});
+
+test('recovers pending adviser sign-in after reload without starting another sign-in or terminal command', async ({
+  page,
+  isMobile,
+}, testInfo) => {
+  if (isMobile) await page.setViewportSize({ width: 320, height: 720 });
+  await page.goto('/terminal');
+  await page.getByRole('button', { name: 'Show Minion' }).click();
+  await page.getByRole('button', { name: 'Manage adviser accounts' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Adviser accounts' });
+  await dialog.getByRole('button', { name: 'Continue with ChatGPT on your Mac' }).click();
+  await expect(dialog.getByRole('button', { name: 'Cancel sign-in' })).toBeVisible();
+  await page.reload();
+  await page.getByRole('button', { name: 'Show Minion' }).click();
+  await page.getByRole('button', { name: 'Manage adviser accounts' }).click();
+  const cancel = dialog.getByRole('button', { name: 'Cancel sign-in' });
+  await expect(cancel).toBeVisible();
+  await expect(
+    dialog.getByRole('button', { name: 'Continue with ChatGPT on your Mac' }),
+  ).toBeDisabled();
+  await cancel.focus();
+  await expect(cancel).toBeFocused();
+  expect(
+    await cancel.evaluate((element) => element.getBoundingClientRect().height),
+  ).toBeGreaterThanOrEqual(44);
+  expect(await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath('adviser-pending-recovery-dark.png') });
+  await page.evaluate(() => {
+    document.documentElement.dataset.theme = 'light';
+    document.documentElement.dataset.accent = 'teal';
+    document.documentElement.dataset.font = 'georgia';
+  });
+  await dialog.evaluate(async (element) => {
+    await Promise.all(
+      element.getAnimations({ subtree: true }).map((animation) => animation.finished),
+    );
+  });
+  await page.screenshot({ path: testInfo.outputPath('adviser-pending-recovery-light.png') });
+  await cancel.click();
+  await expect(dialog.getByRole('status')).toContainText('cancelled');
+  expect(mutations.filter((item) => item.path.endsWith('/subscriptions/start'))).toHaveLength(1);
+  expect(mutations.find((item) => item.path.endsWith('/cancel'))?.path).toBe(
+    '/api/terminals/subscriptions/attempts/attempt-offline/cancel',
+  );
+  expect(mutations.filter((item) => item.path.endsWith('/input'))).toHaveLength(0);
 });
 
 test('connects a subscription adviser through compact account management without terminal input', async ({
