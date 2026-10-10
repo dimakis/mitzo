@@ -2052,6 +2052,7 @@ it.each(['new', 'resume', 'revoked', 'compiler failure'])(
       instructions: 'Challenge assumptions.',
       expectedOutput: 'Design brief',
       acceptanceCriteria: [],
+      modelPolicyRole: 'agent',
       contextRecipe: recipe,
     };
     const agentProfile = {
@@ -2059,7 +2060,7 @@ it.each(['new', 'resume', 'revoked', 'compiler failure'])(
       revision: 3,
       definition,
       contentHash: contextDigest(definition),
-    } as import('@mitzo/protocol').AgentLibraryVersion;
+    } satisfies import('@mitzo/protocol').AgentLibraryVersion;
     const managed = {
       sandboxName: 'sandbox-one',
       sandboxId: 'physical-one',
