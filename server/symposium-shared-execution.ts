@@ -166,7 +166,15 @@ export class SymposiumSharedSeatExecutor implements SymposiumSeatExecutor {
       throw new Error('Symposium cancellation identity does not match the exact attempt');
     attempt.cancelled = true;
     attempt.cancellation ??= attempt.opening.then((ordinary) => ordinary.cancelAndDrain());
-    await attempt.cancellation;
+    const cancellation = attempt.cancellation;
+    try {
+      await cancellation;
+    } catch (error) {
+      // Keep the exact attempt fenced, but permit an explicit later Stop to
+      // re-observe its terminal receipt after an earlier timeout/transport loss.
+      if (attempt.cancellation === cancellation) attempt.cancellation = undefined;
+      throw error;
+    }
     this.attempts.delete(input.claimToken);
   }
 }

@@ -1,3 +1,4 @@
+import type { OrdinaryContributorExecution } from './ordinary-contributor-execution.js';
 import { randomUUID } from 'node:crypto';
 import type { AccountBinding, MitzoMode } from '@mitzo/protocol';
 import type { SessionTransport } from '@mitzo/harness';
@@ -23,6 +24,7 @@ export interface OrdinaryChatPort {
       contextBlocks?: string[];
       contributorGuidance?: string;
       retainWorkspace?: boolean;
+      contributorExecution?: OrdinaryContributorExecution;
       clientMsgId?: string;
       operatorConnectionId?: string;
       telosTaskId?: string;
@@ -56,6 +58,7 @@ export function createOrdinarySymposiumTurn(deps: {
   let terminalConflict = false;
   let query: { interrupt(): Promise<void> } | undefined;
   let queryClosed: Promise<void> | undefined;
+  let queryEnded = false;
   let interrupting: Promise<void> | undefined;
   let failure: Error | undefined;
   let sessionId = '';
@@ -113,65 +116,76 @@ export function createOrdinarySymposiumTurn(deps: {
           throw new Error('Ordinary Symposium command identity changed');
       };
       // Capture synchronous mock failures as a settled startup promise as well.
-      queryClosed = Promise.resolve().then(() =>
-        deps.port.startChat(transport, clientId, input.content, {
-          ...(input.providerThreadId ? { resume: sessionId } : { initialSessionId: sessionId }),
-          cwd: deps.cwd,
-          mode: deps.mode,
-          accountId: deps.binding.accountId,
-          model: deps.binding.model,
-          reasoningEffort: input.seat.reasoningEffort,
-          accountProfiles: deps.accountProfiles,
-          operatorConnectionId: deps.operatorConnectionId,
-          contributorGuidance:
-            input.seat.systemPrompt +
-            (deps.additionalGuidance
-              ? `\n\nAdditional user guidance for this contributor session:\n${deps.additionalGuidance}`
-              : ''),
-          retainWorkspace: true,
-          clientMsgId: input.idempotencyKey,
-          ordinaryTurnLifecycle: {
-            beforeDispatch(commandId) {
-              exactCommand(commandId);
-              if (cancelled) throw new Error('Ordinary Symposium turn cancelled');
-              callbacks.beforeDispatch();
-              dispatched = true;
+      queryClosed = Promise.resolve()
+        .then(() =>
+          deps.port.startChat(transport, clientId, input.content, {
+            ...(input.providerThreadId ? { resume: sessionId } : { initialSessionId: sessionId }),
+            cwd: deps.cwd,
+            mode: deps.mode,
+            accountId: deps.binding.accountId,
+            model: deps.binding.model,
+            reasoningEffort: input.seat.reasoningEffort,
+            accountProfiles: deps.accountProfiles,
+            operatorConnectionId: deps.operatorConnectionId,
+            contributorGuidance:
+              input.seat.systemPrompt +
+              (deps.additionalGuidance
+                ? `\n\nAdditional user guidance for this contributor session:\n${deps.additionalGuidance}`
+                : ''),
+            retainWorkspace: true,
+            contributorExecution: {
+              coordinatorSessionId: input.sessionId,
+              deliveryId: input.deliveryId,
+              seatId: input.seat.id,
+              claimToken: input.claimToken,
+              idempotencyKey: input.idempotencyKey,
             },
-            accepted(commandId, _rawThread, rawTurn) {
-              exactCommand(commandId);
-              if (!dispatched || !rawTurn || (acceptedTurn && acceptedTurn !== rawTurn))
-                throw new Error('Ordinary Symposium acceptance identity changed');
-              acceptedTurn = rawTurn;
-              callbacks.accepted(sessionId, rawTurn);
+            clientMsgId: input.idempotencyKey,
+            ordinaryTurnLifecycle: {
+              beforeDispatch(commandId) {
+                exactCommand(commandId);
+                if (cancelled) throw new Error('Ordinary Symposium turn cancelled');
+                callbacks.beforeDispatch();
+                dispatched = true;
+              },
+              accepted(commandId, _rawThread, rawTurn) {
+                exactCommand(commandId);
+                if (!dispatched || !rawTurn || (acceptedTurn && acceptedTurn !== rawTurn))
+                  throw new Error('Ordinary Symposium acceptance identity changed');
+                acceptedTurn = rawTurn;
+                callbacks.accepted(sessionId, rawTurn);
+                if (cancelled) requestInterrupt();
+              },
+              terminal(commandId, rawTurn, status) {
+                exactCommand(commandId);
+                if (
+                  !acceptedTurn ||
+                  acceptedTurn !== rawTurn ||
+                  (terminal && (terminal.turn !== rawTurn || terminal.status !== status))
+                )
+                  throw new Error('Ordinary Symposium terminal identity changed');
+                terminal = { turn: rawTurn, status };
+                notifyTerminal();
+              },
+              terminalConflict(commandId, rawTurn) {
+                exactCommand(commandId);
+                if (rawTurn !== acceptedTurn)
+                  throw new Error('Ordinary Symposium terminal identity changed');
+                terminalConflict = true;
+              },
+            },
+            onQueryReady(ready) {
+              query = ready;
               if (cancelled) requestInterrupt();
             },
-            terminal(commandId, rawTurn, status) {
-              exactCommand(commandId);
-              if (
-                !acceptedTurn ||
-                acceptedTurn !== rawTurn ||
-                (terminal && (terminal.turn !== rawTurn || terminal.status !== status))
-              )
-                throw new Error('Ordinary Symposium terminal identity changed');
-              terminal = { turn: rawTurn, status };
-              notifyTerminal();
+            onTurnResult() {
+              if (terminal) deps.port.stopChat(clientId);
             },
-            terminalConflict(commandId, rawTurn) {
-              exactCommand(commandId);
-              if (rawTurn !== acceptedTurn)
-                throw new Error('Ordinary Symposium terminal identity changed');
-              terminalConflict = true;
-            },
-          },
-          onQueryReady(ready) {
-            query = ready;
-            if (cancelled) requestInterrupt();
-          },
-          onTurnResult() {
-            if (terminal) deps.port.stopChat(clientId);
-          },
-        }),
-      );
+          }),
+        )
+        .finally(() => {
+          queryEnded = true;
+        });
       await queryClosed;
       if (!terminal || terminalConflict)
         throw failure ?? new Error('Ordinary Symposium provider termination is unconfirmed');
@@ -201,7 +215,13 @@ export function createOrdinarySymposiumTurn(deps: {
           throw new Error('Ordinary Symposium provider termination is unconfirmed');
         if (terminal) deps.port.stopChat(clientId);
         await queryClosed;
-        await interrupting;
+        // An interrupt ACK/error is no longer relevant once the exact terminal
+        // notification and query closure prove that this attempt has stopped.
+      } catch (error) {
+        if (dispatched || !queryEnded) throw error;
+        // The trusted pre-dispatch hook did not release a provider send. Startup
+        // rejection cannot be cleaned up by interrupting someone else's query.
+        await queryClosed?.catch(() => {});
       } finally {
         if (timer) clearTimeout(timer);
       }

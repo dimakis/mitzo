@@ -303,4 +303,26 @@ describe('ordinary account execution through existing Symposium owners', () => {
       executor.cancel({ claimToken: 'claim', idempotencyKey: 'another-recipient' }),
     ).rejects.toThrow(/identity/);
   });
+
+  it('reobserves the same exact attempt after failed cleanup instead of caching uncertainty forever', async () => {
+    const f = fixture();
+    const cancelAndDrain = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('terminal unconfirmed'))
+      .mockResolvedValueOnce(undefined);
+    const run = vi.fn(() => new Promise<never>(() => {}));
+    const executor = new SymposiumSharedSeatExecutor({
+      ...f.deps,
+      openOrdinary: async () => ({ run, cancelAndDrain }),
+    });
+    void executor.execute(f.input).catch(() => {});
+    await Promise.resolve();
+    await expect(
+      executor.cancel({ claimToken: 'claim', idempotencyKey: 'recipient-key' }),
+    ).rejects.toThrow('terminal unconfirmed');
+    await expect(
+      executor.cancel({ claimToken: 'claim', idempotencyKey: 'recipient-key' }),
+    ).resolves.toBeUndefined();
+    expect(cancelAndDrain).toHaveBeenCalledTimes(2);
+  });
 });

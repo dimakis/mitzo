@@ -1,4 +1,9 @@
 import {
+  assertOrdinaryContributorSendAllowed,
+  authorizeOrdinaryContributorStart,
+  type OrdinaryContributorExecution,
+} from './ordinary-contributor-execution.js';
+import {
   resolveOrdinaryContributorGuidance,
   saveOrdinaryContributorGuidance,
 } from './ordinary-contributor-guidance.js';
@@ -1073,6 +1078,7 @@ export async function startChat(
     contributorGuidance?: string;
     /** Trusted caller borrows a workspace owned outside this child session. */
     retainWorkspace?: boolean;
+    contributorExecution?: OrdinaryContributorExecution;
     onQueryReady?: (query: { interrupt(): Promise<void> }) => void;
     onTurnResult?: (result: { is_error?: boolean }, inputUuid?: string) => void;
     telosTaskId?: string;
@@ -1112,6 +1118,16 @@ export async function startChat(
     async () => {
       if (options.resume && !eventStore.getSession(options.resume))
         throw new Error('Conversation is not registered. Import external history before resuming.');
+      const startupSessionId = options.resume ?? options.initialSessionId;
+      if (startupSessionId) {
+        if (options.contributorExecution && registry.findBySessionId(startupSessionId))
+          throw new Error('Contributor child already has a live ordinary query');
+        authorizeOrdinaryContributorStart(
+          eventStore,
+          startupSessionId,
+          options.contributorExecution,
+        );
+      }
       releaseOrdinaryStartup = eventStore.reserveOrdinaryStartup(
         [options.resume, options.initialSessionId].filter((id): id is string => Boolean(id)),
       );
@@ -1164,6 +1180,7 @@ async function _startChatInner(
     contributorGuidance?: string;
     /** Trusted caller borrows a workspace owned outside this child session. */
     retainWorkspace?: boolean;
+    contributorExecution?: OrdinaryContributorExecution;
     onQueryReady?: (query: { interrupt(): Promise<void> }) => void;
     onTurnResult?: (result: { is_error?: boolean }, inputUuid?: string) => void;
     telosTaskId?: string;
@@ -2496,6 +2513,7 @@ export async function sendToChat(
   return withSpanAsync('chat.send', { 'chat.clientId': clientId }, async () => {
     if (signal?.aborted) return false;
     const session = registry.get(clientId);
+    if (session?.sessionId) assertOrdinaryContributorSendAllowed(eventStore, session.sessionId);
     if (session?.sessionId && eventStore.getSession(session.sessionId)?.symposiumConfig)
       throw new Error('Use Symposium directed prompts for this session');
     if (!session?.inputQueue) return false;
@@ -2756,6 +2774,7 @@ export async function interruptChat(
 ): Promise<boolean> {
   return withSpanAsync('chat.interrupt', { 'chat.clientId': clientId }, async () => {
     const session = registry.get(clientId);
+    if (session?.sessionId) assertOrdinaryContributorSendAllowed(eventStore, session.sessionId);
     if (session?.sessionId && eventStore.getSession(session.sessionId)?.symposiumConfig)
       throw new Error('Use Symposium directed prompts for this session');
     if (!session?.queryInstance || !session?.inputQueue) return false;

@@ -146,6 +146,61 @@ describe('getMessages', () => {
   });
 });
 
+it('blocks ordinary send, interrupt and cold start while the contributor owner has an unsettled claim', async () => {
+  const chat = await import('../chat.js');
+  const childId = 'owned-contributor-child';
+  chat.eventStore.upsertSession({ sessionId: childId });
+  chat.eventStore.append(childId, 'contributor_execution', {
+    childSessionId: childId,
+    coordinatorSessionId: 'coordinator',
+    deliveryId: 'delivery',
+    seatId: 'contributor',
+    claimToken: 'claim',
+    idempotencyKey: 'recipient',
+  });
+  const claims = vi
+    .spyOn(chat.eventStore, 'getUnsettledSymposiumSeatExecutions')
+    .mockReturnValue([{ attemptId: 1, claimToken: 'claim', idempotencyKey: 'recipient' }]);
+  const transport = { send: vi.fn(), isOpen: () => true };
+  const push = vi.fn();
+  chat.registry.register('owned-child-client', {
+    transport,
+    abortController: new AbortController(),
+    mode: 'agent',
+    sessionAllowList: new Set(),
+    sessionId: childId,
+  });
+  chat.registry.get('owned-child-client')!.inputQueue = { push, close: () => {} };
+  try {
+    await expect(chat.sendToChat('owned-child-client', 'new input')).rejects.toThrow(
+      /directed messages/,
+    );
+    await expect(chat.interruptChat('owned-child-client', 'interrupt input')).rejects.toThrow(
+      /directed messages/,
+    );
+    await expect(
+      chat.startChat(transport, 'cold-child-client', 'resume input', { resume: childId }),
+    ).rejects.toThrow(/directed messages/);
+    await expect(
+      chat.startChat(transport, 'private-contributor-client', 'coordinator input', {
+        resume: childId,
+        contributorExecution: {
+          coordinatorSessionId: 'coordinator',
+          deliveryId: 'delivery',
+          seatId: 'contributor',
+          claimToken: 'claim',
+          idempotencyKey: 'recipient',
+        },
+      }),
+    ).rejects.toThrow(/already has a live/);
+    expect(chat.registry.findBySessionId(childId)?.clientId).toBe('owned-child-client');
+    expect(push).not.toHaveBeenCalled();
+  } finally {
+    claims.mockRestore();
+    chat.registry.abort('owned-child-client');
+  }
+}, 15000);
+
 describe('cleanupSessionWorktrees', () => {
   let removeWorktreeMock: ReturnType<typeof vi.fn>;
   let hasUncommittedWorkMock: ReturnType<typeof vi.fn>;
