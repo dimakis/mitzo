@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { ContextPackPinSchema } from './agent-context-pack.js';
 
 const documentReference = z
   .string()
@@ -23,6 +24,19 @@ const selectors = z.array(z.array(z.string().trim().min(1).max(120)).min(1).max(
 
 /** Compilation inputs only. Workspace ownership and runtime admission stay with the host. */
 export const AgentContextRecipeSchema = z.discriminatedUnion('source', [
+  z.strictObject({
+    version: z.literal(2),
+    source: z.literal('packs'),
+    packs: z
+      .array(ContextPackPinSchema)
+      .min(1)
+      .max(20)
+      .refine(
+        (packs) => new Set(packs.map((pack) => pack.id)).size === packs.length,
+        'A pack may appear only once in a composition',
+      ),
+    tokenBudget: z.number().int().min(256).max(32000),
+  }),
   z.strictObject({
     version: z.literal(1),
     source: z.literal('workspace'),
@@ -78,7 +92,31 @@ export const AgentCompiledBootContextSchema = z
   });
 export const CompiledAgentContextSchema = z
   .strictObject({
-    source: z.enum(['workspace', 'contexgin']),
+    source: z.enum(['workspace', 'contexgin', 'packs']),
+    provenance: z
+      .strictObject({
+        packs: z.array(ContextPackPinSchema).min(1).max(20),
+        documents: z
+          .array(
+            z.strictObject({
+              storeId: z.string().min(1).max(128),
+              path: z.string().min(1).max(240),
+              revision: z.string().regex(/^[a-f0-9]{40,64}$/),
+              contentHash: digest,
+            }),
+          )
+          .max(500),
+        omissions: z
+          .array(
+            z.strictObject({
+              path: z.string().min(1).max(240),
+              heading: z.string().max(1000),
+              reason: z.enum(['excluded', 'budget']),
+            }),
+          )
+          .max(500),
+      })
+      .optional(),
     compilerRevision: z.string().min(1).max(128),
     recipeHash: digest,
     payloadHash: digest,
@@ -86,6 +124,8 @@ export const CompiledAgentContextSchema = z
     context: AgentCompiledBootContextSchema,
   })
   .superRefine((compiled, ctx) => {
+    if ((compiled.source === 'packs') !== (compiled.provenance !== undefined))
+      ctx.addIssue({ code: 'custom', message: 'Compiled pack provenance mismatch' });
     if ((compiled.source === 'workspace') !== (compiled.workspaceIdentity !== undefined))
       ctx.addIssue({ code: 'custom', message: 'Compiled context workspace identity mismatch' });
   });
