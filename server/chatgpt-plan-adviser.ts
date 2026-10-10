@@ -154,6 +154,7 @@ export class ChatGptPlanAdviserAccounts {
   private readonly fetcher: typeof fetch;
   private readonly verify: VerifyIdentity;
   private readonly now: () => number;
+  private closed = false;
   constructor(
     private options: {
       store: PlanAdviserStore;
@@ -198,6 +199,7 @@ export class ChatGptPlanAdviserAccounts {
     return id.startsWith('chatgpt_plan_');
   }
   begin(owner: string, redirect: string, label: string, accountId?: string) {
+    if (this.closed) throw Error('Adviser accounts are closed');
     const uri = new URL(redirect);
     if (
       uri.protocol !== 'http:' ||
@@ -264,7 +266,8 @@ export class ChatGptPlanAdviserAccounts {
     const generation = this.generation;
     const assertCurrent = () => {
       signal.throwIfAborted();
-      if (generation !== this.generation) throw Error('Adviser sign-in was cancelled');
+      if (this.closed || generation !== this.generation)
+        throw Error('Adviser sign-in was cancelled');
     };
     try {
       assertCurrent();
@@ -440,6 +443,7 @@ export class ChatGptPlanAdviserAccounts {
     }
   }
   async ready(id: string, model: string, effort: string | null | undefined, signal: AbortSignal) {
+    if (this.closed) throw Error('Adviser accounts are closed');
     signal.throwIfAborted();
     let account = this.state.accounts.find((row) => row.id === id);
     if (!account || account.state !== 'connected')
@@ -537,5 +541,12 @@ export class ChatGptPlanAdviserAccounts {
     account.grantedScopes = [];
     this.persist(this.state);
     return { revoked };
+  }
+  async close() {
+    this.closed = true;
+    this.pending = undefined;
+    this.generation++;
+    for (const controller of this.controllers.values()) controller.abort();
+    await Promise.allSettled(this.refreshes.values());
   }
 }
