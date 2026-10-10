@@ -13,6 +13,9 @@ export function BriefingChatBanner({
   source,
   registrationError,
   retryRegistration,
+  lookupError,
+  retryLookup,
+  lookupLoading,
   initialSelection,
 }: {
   initialSelection?: AccountSelection;
@@ -20,13 +23,16 @@ export function BriefingChatBanner({
   source: { date: string; revision: string } | null | undefined;
   registrationError?: string;
   retryRegistration?: () => void;
+  lookupError?: string;
+  retryLookup?: () => void;
+  lookupLoading?: boolean;
 }) {
   const [picker, setPicker] = useState(false);
   const navigate = useNavigate();
   const stage = useMitzoStore((store) => store.setPendingSession);
   const launch = useMitzoStore((store) => store.pendingSession);
   const messages = useMitzoStore((store) => store.messages.messages);
-  if (!source && !registrationError) return null;
+  if (!source && !registrationError && !lookupError) return null;
   async function changeSelection(selection: AccountSelection) {
     if (!source || !selection.accountId) return;
     const response = await apiFetch(
@@ -82,8 +88,18 @@ export function BriefingChatBanner({
           <Link to={`/briefings/${source.date}?revision=${encodeURIComponent(source.revision)}`}>
             Read briefing
           </Link>
-          <button onClick={() => setPicker(true)}>Change account or model</button>
+          <button disabled={lookupLoading || !!lookupError} onClick={() => setPicker(true)}>
+            Change account or model
+          </button>
         </>
+      )}
+      {lookupError && (
+        <p role="alert" className="briefing-lookup-error">
+          {lookupError}{' '}
+          <button disabled={lookupLoading} onClick={retryLookup}>
+            Retry briefing lookup
+          </button>
+        </p>
       )}
       {registrationError && (
         <p role="alert">

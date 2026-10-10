@@ -205,6 +205,41 @@ it('waits for briefing identity before allowing inline model changes on a restor
   await waitFor(() => expect(model.disabled).toBe(false));
 });
 
+it('keeps inline account and model changes locked after identity lookup failure until retry confirms an ordinary chat', async () => {
+  let attempts = 0;
+  vi.mocked(apiFetch).mockImplementation(async (url) =>
+    String(url).includes('/home/briefing-chats')
+      ? ++attempts === 1
+        ? new Response('', { status: 503 })
+        : new Response('[]')
+      : new Response(
+          JSON.stringify({
+            accountBinding: { accountId: 'work', accountLabel: 'Work OpenAI', model: 'luna' },
+            modelSelection: { model: 'luna', models: [{ id: 'luna', label: 'Luna' }] },
+          }),
+        ),
+  );
+  const store = createTestStore();
+  store.setState({ sessions: { ...store.getState().sessions, active: 'restored' } });
+  render(
+    <MitzoStoreProvider value={store}>
+      <MemoryRouter initialEntries={['/chat/restored']}>
+        <Routes>
+          <Route path="/chat/:sessionId" element={<ChatView />} />
+        </Routes>
+      </MemoryRouter>
+    </MitzoStoreProvider>,
+  );
+  const retry = await screen.findByRole('button', { name: 'Retry briefing lookup' });
+  expect((screen.getByLabelText('Model') as HTMLSelectElement).disabled).toBe(true);
+  expect(screen.getByText('Work OpenAI', { selector: '.chat-account-binding' })).toBeTruthy();
+  fireEvent.click(retry);
+  await waitFor(() =>
+    expect((screen.getByLabelText('Model') as HTMLSelectElement).disabled).toBe(false),
+  );
+  expect(screen.queryByRole('button', { name: 'Retry briefing lookup' })).toBeNull();
+});
+
 it('updates web-search consent when the connection ID changes without a status change', () => {
   const store = createTestStore();
   store.setState({

@@ -153,8 +153,7 @@ export function DesktopChatView() {
       if (selection) {
         if (
           !!launch?.briefing ||
-          briefingChat.isBriefing ||
-          briefingChat.loading ||
+          briefingChat.selectionLocked ||
           repositoryHandoff.present ||
           (activeSessionId !== null &&
             activeSessionId === repositoryHandoff.lastAssignedConversationId &&
@@ -175,8 +174,7 @@ export function DesktopChatView() {
       repositoryHandoff.present,
       repositoryHandoff.lastAssignedConversationId,
       launch?.briefing,
-      briefingChat.isBriefing,
-      briefingChat.loading,
+      briefingChat.selectionLocked,
     ],
   );
 
@@ -383,6 +381,9 @@ export function DesktopChatView() {
             source={briefingChat.source}
             registrationError={registrationError}
             retryRegistration={retryRegistration}
+            lookupError={briefingChat.error}
+            retryLookup={briefingChat.retry}
+            lookupLoading={briefingChat.loading}
           />
           <WorkspaceControls
             attention={!!launch || repositoryHandoff.present}
@@ -430,10 +431,7 @@ export function DesktopChatView() {
                   onChange={selectAccount}
                   onSummaryChange={setWorkspaceSummary}
                   disabled={
-                    messages.running ||
-                    repositoryHandoff.loading ||
-                    briefingChat.isBriefing ||
-                    briefingChat.loading
+                    messages.running || repositoryHandoff.loading || briefingChat.selectionLocked
                   }
                 />
               ) : (

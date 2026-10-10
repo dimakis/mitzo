@@ -163,8 +163,7 @@ export function ChatView() {
       if (selection) {
         if (
           !!launch?.briefing ||
-          briefingChat.isBriefing ||
-          briefingChat.loading ||
+          briefingChat.selectionLocked ||
           repositoryHandoff.present ||
           (activeSessionId !== null &&
             activeSessionId === repositoryHandoff.lastAssignedConversationId &&
@@ -185,8 +184,7 @@ export function ChatView() {
       repositoryHandoff.present,
       repositoryHandoff.lastAssignedConversationId,
       launch?.briefing,
-      briefingChat.isBriefing,
-      briefingChat.loading,
+      briefingChat.selectionLocked,
     ],
   );
 
@@ -410,6 +408,9 @@ export function ChatView() {
           source={briefingChat.source}
           registrationError={registrationError}
           retryRegistration={retryRegistration}
+          lookupError={briefingChat.error}
+          retryLookup={briefingChat.retry}
+          lookupLoading={briefingChat.loading}
         />
         <WorkspaceControls
           attention={!!launch || repositoryHandoff.present}
@@ -441,10 +442,7 @@ export function ChatView() {
                       : undefined
                 }
                 disabled={
-                  messages.running ||
-                  repositoryHandoff.loading ||
-                  briefingChat.isBriefing ||
-                  briefingChat.loading
+                  messages.running || repositoryHandoff.loading || briefingChat.selectionLocked
                 }
                 sessionId={activeSessionId}
                 preferredModel={modelState}

@@ -48,3 +48,37 @@ it('changes account in a popup while carrying the original captured context into
   expect(state.pending.mock.calls[0][0].contextBlocks).toBeUndefined();
   expect(state.pending.mock.calls[0][0].accountSelection.accountId).toBe('other');
 });
+
+it('retains a known source with retry and blocks changing account while identity cannot be confirmed', () => {
+  const retry = vi.fn();
+  const { rerender } = render(
+    <MemoryRouter>
+      <BriefingChatBanner
+        name="Jeeves"
+        source={state.source}
+        lookupError="Briefing link unavailable"
+        retryLookup={retry}
+      />
+    </MemoryRouter>,
+  );
+  expect(screen.getByRole('link', { name: 'Read briefing' })).toBeTruthy();
+  expect(
+    (screen.getByRole('button', { name: 'Change account or model' }) as HTMLButtonElement).disabled,
+  ).toBe(true);
+  fireEvent.click(screen.getByRole('button', { name: 'Retry briefing lookup' }));
+  expect(retry).toHaveBeenCalledOnce();
+  rerender(
+    <MemoryRouter>
+      <BriefingChatBanner
+        name="Jeeves"
+        source={state.source}
+        lookupError="Briefing link unavailable"
+        retryLookup={retry}
+        lookupLoading
+      />
+    </MemoryRouter>,
+  );
+  expect(
+    (screen.getByRole('button', { name: 'Retry briefing lookup' }) as HTMLButtonElement).disabled,
+  ).toBe(true);
+});
