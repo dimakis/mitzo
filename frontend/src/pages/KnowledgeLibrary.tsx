@@ -2,10 +2,46 @@ import { useRef, useState } from 'react';
 import { KnowledgeTree } from '../components/KnowledgeTree';
 import { KnowledgeReader } from '../components/KnowledgeReader';
 import { KnowledgeOrganizationDialog } from '../components/KnowledgeOrganizationDialog';
-import type { KnowledgeDocument } from '../types/knowledge';
+import type { KnowledgeDocument, KnowledgeDraft } from '../types/knowledge';
 import { DocumentEditor } from '../components/DocumentEditor';
 import { WorkspacePageHeading } from '../components/WorkspacePageHeading';
 import { useKnowledgeLibrary } from '../hooks/useKnowledgeLibrary';
+function OrganizationChanges({
+  directories = [],
+  documents,
+}: {
+  directories?: string[];
+  documents: KnowledgeDraft['documents'];
+}) {
+  const moves = documents.filter((document) => document.sourcePath);
+  return (
+    <>
+      <h5>New folders</h5>
+      {directories.length ? (
+        <ul>
+          {directories.map((path) => (
+            <li key={path}>{path}</li>
+          ))}
+        </ul>
+      ) : (
+        <p>No new folders.</p>
+      )}
+      <h5>Document moves</h5>
+      {moves.length ? (
+        <ul>
+          {moves.map((document) => (
+            <li key={document.path}>
+              {document.sourcePath} → {document.path}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p>No document moves.</p>
+      )}
+    </>
+  );
+}
+
 export function KnowledgeLibrary() {
   const library = useKnowledgeLibrary();
   const { catalog, copy, selected, dirty, busy } = library;
@@ -86,7 +122,11 @@ export function KnowledgeLibrary() {
   const closedEmpty =
     draft?.state === 'closed' && !copy?.documents.length && !copy?.directories?.length;
   const currentReview = !!draft?.review && draft.review.version === draft.version;
-  const showEditor = !!copy && reading && !reader && (!!selected || !!copy.directories?.length);
+  const showEditor =
+    !!copy &&
+    reading &&
+    !reader &&
+    (!!selected || !!copy.directories?.length || !!copy.initialSaveConflict);
   const structureChanged =
     !!copy?.directories?.length || !!copy?.documents.some((document) => document.sourcePath);
   const areaRoots = new Set(
@@ -109,12 +149,30 @@ export function KnowledgeLibrary() {
         <section className="knowledge-comparison" aria-label="Compare saved draft and working copy">
           <h3>This saved draft changed on another device</h3>
           <p>
-            Your working copy is preserved. Compare every document before choosing which version to
-            keep. Updating the saved draft replaces its contents with your working copy.
+            Your working copy is preserved. Compare every document, new folder and document move
+            before choosing which version to keep. Updating the saved draft replaces its contents
+            and organization changes with your working copy.
           </p>
           {copy!.savedComparisonUnavailable && (
             <p>The latest saved version is unavailable. Refresh the comparison to continue.</p>
           )}
+          <div className="knowledge-compare-panes">
+            <section aria-label="Saved draft organization">
+              <h4>Saved draft organization</h4>
+              {copy!.savedComparisonUnavailable ? (
+                <p>Awaiting latest saved version.</p>
+              ) : (
+                <OrganizationChanges
+                  directories={copy!.initialSaveConflict.directories}
+                  documents={copy!.initialSaveConflict.documents}
+                />
+              )}
+            </section>
+            <section aria-label="Your working copy organization">
+              <h4>Your working copy organization</h4>
+              <OrganizationChanges directories={copy!.directories} documents={copy!.documents} />
+            </section>
+          </div>
           {[
             ...new Set([
               ...copy!.initialSaveConflict.documents.map((d) => d.path),
@@ -568,7 +626,10 @@ export function KnowledgeLibrary() {
                 <button disabled={busy} onClick={library.discard}>
                   Discard working copy
                 </button>
-              ) : !copy.documents.length && !copy.directories?.length && editable ? (
+              ) : !copy.documents.length &&
+                !copy.directories?.length &&
+                !copy.initialSaveConflict &&
+                editable ? (
                 <button
                   disabled={busy}
                   onClick={() => {
@@ -583,7 +644,12 @@ export function KnowledgeLibrary() {
                 </button>
               ) : (
                 <button
-                  disabled={busy || (copy.documents.length === 0 && !copy.directories?.length)}
+                  disabled={
+                    busy ||
+                    (copy.documents.length === 0 &&
+                      !copy.directories?.length &&
+                      !copy.initialSaveConflict)
+                  }
                   onClick={() => {
                     showWorkingCopy();
                     setAdding(false);
