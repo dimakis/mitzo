@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -216,6 +216,45 @@ describe('immutable dormant session runtime persistence', () => {
     );
     expect(store.getSession(meta.sessionId)?.sessionType).toBe('chat');
     expect(store.getSessionRuntimeBinding(meta.sessionId)).toEqual(binding);
+  });
+
+  it('checks ordinary runtime binding after acquiring the Symposium write transaction', () => {
+    const competing = new EventStore(file);
+    const connection = (store as unknown as { db: Database.Database }).db;
+    const transaction = connection.transaction.bind(connection);
+    // Deterministically interleave another process's successful creation at the
+    // transaction acquisition boundary, after any unfenced preliminary reads.
+    const interception = vi.spyOn(connection, 'transaction').mockImplementationOnce(((
+      callback: () => unknown,
+    ) => {
+      competing.createSessionWithRuntimeBinding(meta, binding);
+      return transaction(callback);
+    }) as typeof connection.transaction);
+    try {
+      const config = {
+        version: 1,
+        revision: 1,
+        state: 'draft',
+        seats: ['primary', 'reviewer'].map((role) => ({
+          id: role,
+          role,
+          name: role,
+          model: 'fixture',
+          systemPrompt: '',
+          color: '#112233',
+        })),
+        turnRules: { mode: 'directed', maxTurns: 2 },
+        interceptMode: 'manual',
+      };
+      expect(() => store.setSymposiumConfig(meta.sessionId, config)).toThrow(
+        /runtime-bound ordinary/i,
+      );
+      expect(store.getSession(meta.sessionId)?.sessionType).toBe('chat');
+      expect(competing.getSessionRuntimeBinding(meta.sessionId)).toEqual(binding);
+    } finally {
+      interception.mockRestore();
+      competing.close();
+    }
   });
 
   it('rejects direct Symposium account transfer for runtime-bound ordinary sessions', () => {

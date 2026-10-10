@@ -2387,7 +2387,6 @@ export class EventStore {
     expectedRevision?: number,
     operation?: SymposiumConfigurationOperation,
   ): SymposiumConfig {
-    this.assertNoOrdinaryRuntimeBinding(sessionId);
     const config = SymposiumConfigSchema.parse(input);
     const metadata =
       operation === undefined ? undefined : SymposiumConfigurationOperationSchema.parse(operation);
@@ -2402,6 +2401,7 @@ export class EventStore {
         })
       : undefined;
     return this.db!.transaction(() => {
+      this.assertNoOrdinaryRuntimeBinding(sessionId);
       if (metadata) {
         const previousReceipt = this.getSymposiumConfigurationOperation(
           sessionId,
@@ -2526,8 +2526,8 @@ export class EventStore {
     reason: string;
     idempotencyKey: string;
   }): SymposiumConfig {
-    this.assertNoOrdinaryRuntimeBinding(input.sessionId);
     return this.db!.transaction(() => {
+      this.assertNoOrdinaryRuntimeBinding(input.sessionId);
       this.assertSymposiumArtifactWorkAllowed(input.sessionId);
       const request = JSON.stringify(input);
       const prior = this.db!.prepare(
