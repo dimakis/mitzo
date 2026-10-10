@@ -1,7 +1,15 @@
 import { describe, it, expect, vi, beforeAll, afterEach } from 'vitest';
 import type { Express } from 'express';
 import request from 'supertest';
-import { mkdirSync, writeFileSync, readFileSync, realpathSync, linkSync, unlinkSync } from 'fs';
+import {
+  mkdirSync,
+  writeFileSync,
+  readFileSync,
+  realpathSync,
+  linkSync,
+  unlinkSync,
+  symlinkSync,
+} from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 
@@ -112,6 +120,23 @@ beforeAll(async () => {
 });
 
 describe('calendar routes', () => {
+  it('returns a bounded generic error for a failing unenrolled briefing lookup', async () => {
+    const date = '2046-12-24';
+    const dangling = join(TEST_REPO, 'command_center', 'briefings', `${date}.md`);
+    symlinkSync(join(TEST_REPO, 'missing-private-report'), dangling);
+    try {
+      const result = await request(app)
+        .get('/api/briefings/latest')
+        .query({ date })
+        .set('Cookie', authCookie)
+        .timeout({ response: 750 });
+      expect(result.status).toBe(503);
+      expect(result.body).toEqual({ error: 'Saved briefing unavailable' });
+      expect(JSON.stringify(result.body)).not.toContain(TEST_REPO);
+    } finally {
+      unlinkSync(dangling);
+    }
+  });
   it('GET /api/calendar — unauthenticated returns 401', async () => {
     const res = await request(app).get('/api/calendar');
     expect(res.status).toBe(401);

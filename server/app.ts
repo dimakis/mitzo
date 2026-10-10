@@ -3819,7 +3819,11 @@ app.get('/api/briefings/latest', async (req, res) => {
     }
     return;
   }
-  res.json(getLatestMorningBriefing(BASE_REPO, date));
+  try {
+    res.json(getLatestMorningBriefing(BASE_REPO, date));
+  } catch {
+    res.status(503).json({ error: 'Saved briefing unavailable' });
+  }
 });
 
 app.use('/api/inbox', inboxRouter);
