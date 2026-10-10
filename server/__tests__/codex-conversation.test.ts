@@ -554,9 +554,12 @@ it('replays retained sources when provider recovery starts a clean replacement t
   args[4] = async () => binding;
   args[23] = history;
   const { c, callbacks, requests, getProviderThread } = await setup(...args);
-  await c.send({ id: 'initial', prompt: 'Explain the saved report.' });
+  const initialPrompt = assembleSourceSnapshots('Explain the saved report.', [source]);
+  await c.send({ id: 'initial', prompt: initialPrompt });
   const first = requests.find((request) => request.method === 'turn/start');
-  expect(first?.params.input).toEqual([{ type: 'text', text: 'Explain the saved report.' }]);
+  const firstInput = first?.params.input as Array<{ text: string }>;
+  expect(firstInput).toHaveLength(1);
+  expect(firstInput[0].text).toBe(initialPrompt);
   callbacks.onNotification('turn/completed', {
     threadId: getProviderThread(),
     turn: {
@@ -573,6 +576,51 @@ it('replays retained sources when provider recovery starts a clean replacement t
   expect(input.some((item) => item.text.includes(source.revision))).toBe(true);
   expect(input.at(-1)?.text).toBe('What about the meetings?');
 });
+
+it.each(['cold', 'hot'] as const)(
+  'restores a saved source on %s replacement before the first provider acknowledgement',
+  async (restart) => {
+    const dir = mkdtempSync(join(tmpdir(), 'mitzo-codex-unbound-source-'));
+    const history = new EventStore(join(dir, 'events.db'));
+    const store = new CodexConversationStore(join(dir, 'private.db'));
+    cleanup.push(() => {
+      history.close();
+      store.close();
+      rmSync(dir, { recursive: true, force: true });
+    });
+    const content = 'Exact retained calendar.';
+    const source = {
+      kind: 'briefing',
+      date: '2026-10-09',
+      revision: createHash('sha256').update(content).digest('hex'),
+      content,
+    };
+    history.upsertSession({ sessionId: 'app', initialPrompt: 'Explain this briefing.' });
+    history.append('app', 'user_message', {
+      messageId: 'source',
+      text: 'Explain this briefing.',
+      sourceSnapshots: [source],
+    });
+    const args: Parameters<typeof setup> = [];
+    args[0] = store;
+    args[4] = async () => binding;
+    args[17] = true;
+    args[23] = history;
+    const initial = await setup(...args);
+    expect(store.read('app', binding).threadId).toBeNull();
+    let replacement = initial;
+    if (restart === 'cold') {
+      initial.c.close();
+      replacement = await setup(...args);
+    } else initial.callbacks.onClose(new Error('before first acknowledgement'));
+    await replacement.c.send({ id: 'new-intent', prompt: 'Discuss the calendar.' });
+    const turn = replacement.requests.filter((request) => request.method === 'turn/start').at(-1);
+    const input = turn?.params.input as Array<{ text: string }>;
+    expect(input.some((item) => item.text.includes(content))).toBe(true);
+    expect(input.some((item) => item.text.includes(source.revision))).toBe(true);
+    expect(input.at(-1)?.text).toBe('Discuss the calendar.');
+  },
+);
 
 it('retains rollover context when the first replacement-thread turn fails', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mitzo-codex-rollover-failure-'));

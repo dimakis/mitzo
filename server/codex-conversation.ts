@@ -271,6 +271,7 @@ function requiresProviderThreadReplacement(error: unknown): boolean {
 export class CodexConversation {
   private client: Rpc;
   private transportGeneration = 0;
+  private replaySavedSources = false;
   private capacityTimer?: ReturnType<typeof setTimeout>;
   private capacityInFlight = false;
   private capacityAdmissionDeadlines = new Map<string, number>();
@@ -481,6 +482,10 @@ export class CodexConversation {
       !!state.threadId && this.opts.providerThreadLifecycle === 'attempt';
     const replacingProviderThread =
       replacingAttemptHome || replacingStaleToolSurface || replacingFailedThread;
+    if (!state.threadId) {
+      this.savedSourceContext();
+      this.replaySavedSources = true;
+    }
     const result = replacingAttemptHome
       ? await this.replaceAttemptHome(this.client, state, threadOptions, toolSurfaceRevision)
       : replacingStaleToolSurface
@@ -1059,6 +1064,10 @@ export class CodexConversation {
       const replacingProviderThread =
         replacingInitialThread || replacingStaleToolSurface || state.recoveryStrategy === 'fork';
       if (!replacingProviderThread) this.mapper?.beginReconnectReplay();
+      if (replacingInitialThread) {
+        this.savedSourceContext();
+        this.replaySavedSources = true;
+      }
       const result = replacingInitialThread
         ? z
             .object({
@@ -1649,9 +1658,10 @@ export class CodexConversation {
       // Codex's additionalContext fragments are middle-truncated at 1,000
       // tokens. Attempt continuity promises the complete bounded transcript,
       // so replay it through supported text input, before the current request.
-      const savedSourceContext = rolloverContext
-        ? this.savedSourceContext(preparedPrompt)
-        : undefined;
+      const savedSourceContext =
+        rolloverContext || this.replaySavedSources
+          ? this.savedSourceContext(preparedPrompt)
+          : undefined;
       const attemptContext =
         this.opts.providerThreadLifecycle === 'attempt' && rolloverContext
           ? attemptReplayContext(rolloverContext)
@@ -1708,6 +1718,7 @@ export class CodexConversation {
         if (active.turnId && active.turnId !== result.turn.id)
           throw new Error('Codex turn identity changed');
         active.turnId = result.turn.id;
+        this.replaySavedSources = false;
         if (pending) {
           this.opts.store.acceptThreadReplacement(
             this.opts.conversationId,
