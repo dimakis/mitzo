@@ -1,5 +1,6 @@
 import { getDefaultAccountModel, setDefaultAccountModel } from '../lib/account-preference';
 import { SymposiumPersonalConnections } from './SymposiumPersonalConnections';
+import { AdviserSubscriptions } from './AdviserSubscriptions';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { z } from 'zod';
 import { apiFetch } from '../lib/api-fetch';
@@ -404,6 +405,11 @@ function SessionAccountModelPicker({
         </button>
         {personalAccountsOpen && <SymposiumPersonalConnections disabled={disabled} />}
       </>
+    ) : scope === 'adviser' ? (
+      <AdviserSubscriptions
+        disabled={disabled}
+        onAccountsChanged={() => setAttempt((value) => value + 1)}
+      />
     ) : null;
   if (error)
     return (

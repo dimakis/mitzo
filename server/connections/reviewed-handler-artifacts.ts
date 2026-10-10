@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.9';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.31';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.32';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,7 +23,7 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   // Exact-output selection and ordinary contributor claims share reviewed runtime admission.
-  '../app.ts': 'e64a7665670e1ba1de78288328796c0f2c8d8e3334edf24f04a28726e80c66da',
+  '../app.ts': '55569488653ff2dd1851adbf012342fe5868935e0db4d5d5b71e961e8fb5d097',
   '../chat.ts': 'a46a2f97469698d708a5db9fdda04eb0cfd7a9471d81c90d4f7fe5debd4c83db',
   '../account-profiles.ts': '6de5c87f62d5234cb68e3f857c8431160f63562fea3b78ec62e5dd2f381e3745',
   '../ordinary-turn-lifecycle.ts':

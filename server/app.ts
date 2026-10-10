@@ -6,6 +6,7 @@ import { terminalAdviserCatalog } from './terminal-adviser-catalog.js';
 import { TmuxTerminalBackend } from './terminal-backend.js';
 import { createTerminalTargetResolver } from './terminal-targets.js';
 import { createTerminalRouter } from './terminal-router.js';
+import { getTerminalPlanAdviserHost } from './terminal-plan-adviser.js';
 import { createPersonalRoutingDiagnosticHandler } from './symposium-routing-diagnostic-route.js';
 import { createRepositoryWorkspaceRouter } from './repository-workspace-router.js';
 import {
@@ -3240,10 +3241,13 @@ app.use(
     accounts: async () => {
       const profiles = loadAccountProfiles();
       // Subscription CLI agents do not establish an inference-only capability.
-      return terminalAdviserCatalog(profiles.catalog()).map((account) => ({
-        ...account,
-        label: accountAliases.label(account.id, account.label),
-      }));
+      return [
+        ...terminalAdviserCatalog(profiles.catalog()).map((account) => ({
+          ...account,
+          label: accountAliases.label(account.id, account.label),
+        })),
+        ...(getTerminalPlanAdviserHost()?.catalog() ?? []),
+      ];
     },
     context: (id) => {
       const meta = id ? eventStore.getSession(id) : undefined;
