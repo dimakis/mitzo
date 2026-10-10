@@ -327,3 +327,93 @@ it('keeps pack guidance identity distinct from similarly named accepted document
   expect(result.context.fullMarkdown).toContain('Accepted document instructions.');
   expect(result.context.fullMarkdown).toContain(definition.retrievalGuidance);
 });
+
+it.each([false, true])(
+  'counts unique source bytes across disjoint selections (shared packs: %s)',
+  async (shared) => {
+    const content = Array.from(
+      { length: 18 },
+      (_, index) => `# Section ${index}\n${'Useful guidance. '.repeat(200)}`,
+    ).join('\n');
+    expect(Buffer.byteLength(content)).toBeLessThan(65536);
+    expect(Buffer.byteLength(content) * 18).toBeGreaterThan(1048576);
+    const selections = Array.from({ length: 18 }, (_, index) => ({
+      ...document,
+      mode: 'prioritized' as const,
+      headings: [[`Section ${index}`]],
+    }));
+    const definitions = shared
+      ? [
+          { ...definition, documents: selections.slice(0, 9), retrievalGuidance: '' },
+          {
+            ...definition,
+            id: 'second',
+            documents: selections.slice(9),
+            retrievalGuidance: '',
+          },
+        ]
+      : [{ ...definition, documents: selections, retrievalGuidance: '' }];
+    const published = definitions.map((definition) => ({
+      ...pack,
+      id: definition.id,
+      hash: contextDigest(definition),
+      definition,
+    }));
+    const packs = {
+      ...adapter(),
+      resolve: vi.fn(async (pin: { id: string }) =>
+        published.find((value) => value.id === pin.id)!,
+      ),
+    };
+    packs.readDocument.mockResolvedValue({
+      storeId: packs.sourceIdentity,
+      path: document.path,
+      revision,
+      content,
+    });
+    const result = await compileAgentContext(
+      {
+        ...recipe,
+        tokenBudget: 18000,
+        packs: published.map(({ id, revision, hash }) => ({ id, revision, hash })),
+      },
+      { packs },
+    );
+    expect(result.provenance?.documents).toHaveLength(1);
+    expect(result.context.fullMarkdown).toContain('Section 0');
+    expect(result.context.fullMarkdown).toContain('Section 17');
+    expect(packs.readDocument).toHaveBeenCalledTimes(18);
+  },
+);
+
+it('still bounds the aggregate bytes of distinct immutable sources', async () => {
+  const selectedDefinition = {
+    ...definition,
+    documents: Array.from({ length: 18 }, (_, index) => ({
+      ...document,
+      path: `context/source-${index}.md`,
+      mode: 'prioritized' as const,
+    })),
+  };
+  const selected = {
+    ...pack,
+    definition: selectedDefinition,
+    hash: contextDigest(selectedDefinition),
+  };
+  const packs = {
+    ...adapter(),
+    resolve: async () => selected,
+    readDocument: async (selection: { path: string }) => ({
+      storeId: 'accepted-mgmt',
+      path: selection.path,
+      revision,
+      content: '# Architecture\n' + 'x'.repeat(60000),
+    }),
+  };
+  await expect(
+    compileAgentContext(
+      { ...recipe, packs: [{ id: selected.id, revision: selected.revision, hash: selected.hash }] },
+      { packs },
+    ),
+  ).rejects.toThrow(/too large/i);
+});

@@ -97,23 +97,26 @@ export async function compileContextPacks(
       )
         throw Error('Context source identity mismatch');
       const bytes = Buffer.byteLength(source.content, 'utf8');
-      totalBytes += bytes;
-      if (bytes > 65536 || totalBytes > 1048576 || source.content.includes('\0'))
+      if (bytes > 65536 || source.content.includes('\0'))
         throw Error('Context source is too large or invalid');
       const identity = `${source.storeId}:${source.path}:${source.revision}`;
       if (sourceRevisions.has(source.path) && sourceRevisions.get(source.path) !== identity)
         throw Error('Context packs select conflicting source revisions');
       sourceRevisions.set(source.path, identity);
       const previous = documents.find((document) => document.path === source.path);
-      if (previous && previous.contentHash !== textDigest(source.content))
+      const contentHash = textDigest(source.content);
+      if (previous && previous.contentHash !== contentHash)
         throw Error('Immutable context source content changed during composition');
-      if (!previous)
+      if (!previous) {
+        totalBytes += bytes;
+        if (totalBytes > 1048576) throw Error('Context source is too large or invalid');
         documents.push({
           storeId: source.storeId,
           path: source.path,
           revision: source.revision,
-          contentHash: textDigest(source.content),
+          contentHash,
         });
+      }
       const sourceNodes = sections(source.path, source.content, selection.headings.length > 0);
       const selectors = selection.headings.map((heading) => [selection.path, ...heading]);
       if (
