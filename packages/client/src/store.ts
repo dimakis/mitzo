@@ -312,6 +312,9 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
 
     if (status !== 'uncertain') {
       if (status === 'failed') {
+        // Definitive rejection releases only this command's durable launch receipt.
+        // Network/auth ambiguity stays pending until an authoritative receipt arrives.
+        options.sendHandoff?.reject(id);
         unassignedDeliveries.delete(id);
         assignmentObservers.delete(id);
       }
@@ -793,7 +796,6 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
             ? messagesReducer(s.messages, { type: 'SESSION_STATE_CHANGED', state: 'idle' })
             : s.messages,
         }));
-        options.sendHandoff?.reject(clientMsgId);
         settleDelivery(clientMsgId, 'failed');
       }
     },
@@ -1248,8 +1250,6 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
           msg.sessionId,
           msg.sourceHandoff as Record<string, unknown> | undefined,
         );
-      if (msg.type === '_send_failed' && typeof msg.clientMsgId === 'string')
-        options.sendHandoff?.reject(msg.clientMsgId);
       const visible = store
         .getState()
         .messages.messages.some((m) => m.messageId === msg.clientMsgId);
