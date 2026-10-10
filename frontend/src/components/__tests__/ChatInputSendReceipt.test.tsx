@@ -29,6 +29,7 @@ vi.mock('../../lib/resizeImage', () => ({
 }));
 afterEach(() => {
   cleanup();
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
   localStorage.clear();
 });
@@ -766,3 +767,45 @@ it.each(['send', 'interrupt', 'automatic queue'] as const)(
     expect(screen.getByText('exact context')).toBeTruthy();
   },
 );
+
+it('keeps unrelated queued images and context after exact acceptance when queue storage quota is full', async () => {
+  const f = await fixture();
+  const setItem = Storage.prototype.setItem;
+  vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (this: Storage, key, value) {
+    if (key.startsWith('mitzo-queue-')) throw new DOMException('Quota', 'QuotaExceededError');
+    setItem.call(this, key, value);
+  });
+  f.running(true);
+  await f.compose('Accepted queued input');
+  fireEvent.click(screen.getByRole('button', { name: 'Queue message' }));
+  await f.compose('Unsent image input', 'unsent.png');
+  fireEvent.click(screen.getByText('Select context'));
+  fireEvent.click(screen.getByRole('button', { name: 'Queue message' }));
+  await f.compose('Newer composer input');
+  f.running(false);
+  const command = f.command();
+  f.receive({
+    type: 'user_message',
+    sessionId: 'foreign',
+    messageId: command.clientMsgId,
+    text: 'Accepted queued input',
+  });
+  expect(screen.getByText('Accepted queued input')).toBeTruthy();
+  f.receive({
+    type: 'user_message',
+    sessionId: 'child',
+    messageId: command.clientMsgId,
+    text: 'Accepted queued input',
+  });
+  expect(screen.queryByText('Accepted queued input')).toBeNull();
+  expect(screen.getByText('Unsent image input')).toBeTruthy();
+  expect(f.input()).toHaveProperty('value', 'Newer composer input');
+  expect(f.onSend).toHaveBeenCalledOnce();
+  expect(f.store.getState().messages.permission).toBe(f.permission);
+  // Explicit Edit recovers the complete surviving in-memory payload.
+  fireEvent.click(screen.getByText('Edit'));
+  expect(f.input()).toHaveProperty('value', 'Unsent image input');
+  expect(screen.getByAltText('Attachment 1')).toBeTruthy();
+  expect(screen.getByText('exact context')).toBeTruthy();
+  expect(localStorage.getItem('mitzo-queue-child')).toBeNull();
+});

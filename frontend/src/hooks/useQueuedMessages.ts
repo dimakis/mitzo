@@ -47,12 +47,17 @@ function fromStored(msgs: StoredMessage[]): QueuedMessage[] {
   }));
 }
 
+function readQueue(sessionId: string | undefined): QueuedMessage[] {
+  const raw = localStorage.getItem(queueKey(sessionId));
+  if (!raw) return [];
+  const parsed: unknown = JSON.parse(raw);
+  if (!Array.isArray(parsed)) throw Error('Queue storage is unavailable.');
+  return fromStored(parsed);
+}
+
 function loadQueue(sessionId: string | undefined): QueuedMessage[] {
   try {
-    const raw = localStorage.getItem(queueKey(sessionId));
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? fromStored(parsed) : [];
+    return readQueue(sessionId);
   } catch {
     return [];
   }
@@ -77,10 +82,18 @@ function indexedEntries(entries: QueuedMessage[]): Array<[string, QueuedMessage]
   });
 }
 
+function sameStoredQueue(a: QueuedMessage[], b: QueuedMessage[]): boolean {
+  return JSON.stringify(toStored(a)) === JSON.stringify(toStored(b));
+}
+
 function sameQueue(a: QueuedMessage[], b: QueuedMessage[]): boolean {
   return (
-    JSON.stringify(toStored(a)) === JSON.stringify(toStored(b)) &&
-    a.every((entry, index) => entry.images === b[index]?.images)
+    sameStoredQueue(a, b) &&
+    a.every(
+      (entry, index) =>
+        entry.images === b[index]?.images ||
+        (entry.images.length === 0 && b[index]?.images.length === 0),
+    )
   );
 }
 
@@ -145,38 +158,57 @@ export function useQueuedMessages(
   const suppressOwnEvent = useRef(false);
   const mounted = useRef(false);
   const persistence = useRef({ sessionId, baseline: queue, dirty: false });
-  const persist = useCallback((id: string | undefined, next: QueuedMessage[]) => {
-    // A retrying effect must reconcile again; a transient failed acknowledgement
-    // must not overwrite fresh stored edits with its still-visible fallback.
-    const ownsLiveQueue = mounted.current && persistence.current.sessionId === id;
-    const reconciled =
-      ownsLiveQueue && persistence.current.dirty
-        ? reconcileQueue(loadQueue(id), next, persistence.current.baseline)
-        : next;
-    // Only exact receipt cleanup removes an owned retained row without also
-    // deleting its ownership. Its removal wins even over a fresh stored edit,
-    // including when a later effect retries the failed persistence.
-    const removed = new Set(
-      ownsLiveQueue
-        ? [...submittedOwners.current]
-            .filter(
-              ([entryId, owner]) =>
-                owner === id && !next.some((entry) => entry.queueEntryId === entryId),
-            )
-            .map(([entryId]) => entryId)
-        : [],
-    );
-    const filtered = removed.size
-      ? reconciled.filter((entry) => !entry.queueEntryId || !removed.has(entry.queueEntryId))
-      : reconciled;
-    const candidate = sameQueue(filtered, next) ? next : filtered;
-    const written = saveQueue(id, candidate);
-    if (persistence.current.sessionId === id) {
-      if (written) persistence.current = { sessionId: id, baseline: candidate, dirty: false };
-      else persistence.current.dirty = true;
-    }
-    return { written, queue: candidate };
-  }, []);
+  const excludeAccepted = useCallback(
+    (entries: QueuedMessage[], live: QueuedMessage[], owner: string | undefined) => {
+      // Only exact receipt cleanup removes an owned retained row without also
+      // deleting its ownership. Keep that removal through fresh reads and retries.
+      const removed = new Set(
+        [...submittedOwners.current]
+          .filter(
+            ([id, source]) => source === owner && !live.some((entry) => entry.queueEntryId === id),
+          )
+          .map(([id]) => id),
+      );
+      return removed.size
+        ? entries.filter((entry) => !entry.queueEntryId || !removed.has(entry.queueEntryId))
+        : entries;
+    },
+    [],
+  );
+  const persist = useCallback(
+    (id: string | undefined, next: QueuedMessage[]) => {
+      const ownsLiveQueue = mounted.current && persistence.current.sessionId === id;
+      let observed: QueuedMessage[] | undefined;
+      let readable = true;
+      let reconciled = next;
+      if (ownsLiveQueue && persistence.current.dirty) {
+        try {
+          observed = readQueue(id);
+          reconciled = reconcileQueue(observed, next, persistence.current.baseline);
+        } catch {
+          readable = false;
+        }
+      }
+      const filtered = ownsLiveQueue ? excludeAccepted(reconciled, next, id) : reconciled;
+      const candidate = sameQueue(filtered, next) ? next : filtered;
+      const written =
+        readable &&
+        ((observed !== undefined && sameStoredQueue(observed, candidate)) ||
+          saveQueue(id, candidate));
+      if (persistence.current.sessionId === id) {
+        if (written) persistence.current = { sessionId: id, baseline: candidate, dirty: false };
+        else if (observed)
+          persistence.current = {
+            sessionId: id,
+            baseline: observed,
+            dirty: !sameStoredQueue(observed, candidate),
+          };
+        else persistence.current.dirty = true;
+      }
+      return { written, readable, queue: candidate };
+    },
+    [excludeAccepted],
+  );
 
   useEffect(() => {
     mounted.current = true;
@@ -184,10 +216,24 @@ export function useQueuedMessages(
       if (suppressOwnEvent.current) return;
       if ((event as CustomEvent<{ key: string }>).detail?.key !== queueKey(sessionRef.current))
         return;
-      const stored = loadQueue(sessionRef.current);
-      const restored = persistence.current.dirty
-        ? reconcileQueue(stored, queueRef.current, persistence.current.baseline)
-        : mergeLiveImages(stored, queueRef.current);
+      let stored: QueuedMessage[];
+      try {
+        stored = readQueue(sessionRef.current);
+      } catch {
+        return;
+      }
+      const live = queueRef.current;
+      const candidate = persistence.current.dirty
+        ? reconcileQueue(stored, live, persistence.current.baseline)
+        : mergeLiveImages(stored, live);
+      const restored = excludeAccepted(candidate, live, sessionRef.current);
+      // A verified read is storage-owned even if an incidental later save fails.
+      // Keep only the difference from this raw snapshot as unsaved local work.
+      persistence.current = {
+        sessionId: sessionRef.current,
+        baseline: stored,
+        dirty: !sameStoredQueue(stored, restored),
+      };
       queueRef.current = restored;
       setQueueRaw(restored);
     };
@@ -196,7 +242,7 @@ export function useQueuedMessages(
       mounted.current = false;
       window.removeEventListener(QUEUE_CHANGED_EVENT, changed);
     };
-  }, []);
+  }, [excludeAccepted]);
 
   // Keep ref in sync with state
   useEffect(() => {
@@ -205,9 +251,9 @@ export function useQueuedMessages(
 
   // Persist before transferring ownership, including a queue edit batched with navigation.
   useEffect(() => {
-    if (!persistence.current.dirty && sameQueue(queue, persistence.current.baseline)) return;
+    if (!persistence.current.dirty && sameStoredQueue(queue, persistence.current.baseline)) return;
     const saved = persist(sessionRef.current, queue);
-    if (saved.written && saved.queue !== queue) {
+    if (saved.readable && saved.queue !== queue) {
       queueRef.current = saved.queue;
       setQueueRaw(saved.queue);
     }
@@ -220,7 +266,7 @@ export function useQueuedMessages(
     if (prev === sessionId) return;
 
     const previousSaved = persist(prev, queueRef.current);
-    if (previousSaved.written) queueRef.current = previousSaved.queue;
+    if (previousSaved.readable) queueRef.current = previousSaved.queue;
     persistence.current = { sessionId, baseline: loadQueue(sessionId), dirty: false };
     if (assignment && assignment.fromSessionId === prev && assignment.toSessionId === sessionId) {
       // Keep submitted object identity (including images) for its eventual
@@ -234,11 +280,12 @@ export function useQueuedMessages(
         : queueRef.current;
       queueRef.current = promoted;
       setQueueRaw(promoted);
-      persist(sessionId, promoted);
-      try {
-        localStorage.removeItem(queueKey(prev));
-      } catch {
-        /* Optional storage. */
+      if (persist(sessionId, promoted).written) {
+        try {
+          localStorage.removeItem(queueKey(prev));
+        } catch {
+          /* Optional storage. */
+        }
       }
       return;
     }
@@ -298,7 +345,7 @@ export function useQueuedMessages(
       // The fence must exist before the caller dispatches its command, even if
       // the page disappears before React's persistence effect can commit.
       const saved = persist(sessionRef.current, next);
-      queueRef.current = saved.written ? saved.queue : next;
+      queueRef.current = saved.readable ? saved.queue : next;
       setQueueRaw(queueRef.current);
       return retained;
     },
@@ -315,20 +362,25 @@ export function useQueuedMessages(
       // storage, preserving locally unsaved work without reviving external deletions.
       const active = mounted.current && sessionRef.current === owner;
       const live = queueRef.current.filter((entry) => entry.queueEntryId !== id);
+      let fallback = live;
       try {
-        const parsed: unknown = JSON.parse(localStorage.getItem(key) ?? '[]');
-        if (!Array.isArray(parsed)) throw Error('Queue storage is unavailable.');
-        const stored = fromStored(
-          parsed.filter((entry: StoredMessage) => entry.queueEntryId !== id),
-        );
+        const observed = readQueue(owner);
+        const stored = observed.filter((entry) => entry.queueEntryId !== id);
         const remaining = active
           ? persistence.current.dirty
             ? reconcileQueue(stored, live, persistence.current.baseline)
             : mergeLiveImages(stored, live)
           : stored;
-        // A readable old snapshot is not a receipt that the new queue was saved.
-        // Never replace live work or notify another hook before persistence succeeds.
+        if (active)
+          persistence.current = {
+            sessionId: owner,
+            baseline: observed,
+            dirty: !sameStoredQueue(observed, remaining),
+          };
         const saved = persist(owner, remaining);
+        // Verified fresh fields/deletions can update memory despite write failure;
+        // a key-only notification still requires confirmed persistence.
+        fallback = saved.readable ? saved.queue : live;
         if (!saved.written) throw Error('Queue storage could not be updated.');
         if (active) {
           queueRef.current = saved.queue;
@@ -345,8 +397,8 @@ export function useQueuedMessages(
         // Keep ownership for a later exact cleanup retry. Storage is optional;
         // the accepted active entry must disappear without losing other live work.
         if (active) {
-          queueRef.current = live;
-          setQueueRaw(live);
+          queueRef.current = fallback;
+          setQueueRaw(fallback);
         }
       }
     },
