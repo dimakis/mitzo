@@ -42,6 +42,8 @@ async function mockDocument(page: Page, content: string) {
   await page.routeWebSocket('**/*', (socket) => socket.close());
   await page.route('**/api/**', (route) => {
     const url = new URL(route.request().url());
+    if (url.pathname === '/api/service-health')
+      return route.fulfill({ json: { services: [], checkedAt: Date.now() } });
     if (url.pathname === '/api/files/read')
       return route.fulfill({ json: { path: 'report.md', ext: '.md', content } });
     if (url.pathname === '/api/files/write') {
@@ -283,7 +285,9 @@ test('desktop Vim motions, text objects, history and :w edit and save the same d
 
 test('Vim keeps Markdown formatting controls and shared undo available', async ({ page }) => {
   const original = 'alpha beta';
+  const healthPoll = page.waitForResponse('**/api/service-health');
   await mockDocument(page, original);
+  await healthPoll;
   await page.getByRole('button', { name: 'Vim', exact: true }).click();
   const source = page.getByRole('textbox', { name: 'Document source' });
   const mode = page.getByRole('status', { name: 'Vim mode' });
