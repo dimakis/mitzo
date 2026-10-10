@@ -62,3 +62,36 @@ it('rejects unsafe references, duplicate selections and conflicting modes', () =
     }).success,
   ).toBe(false);
 });
+it.each(['name', 'description', 'retrievalGuidance', 'rationale'])(
+  'rejects private material in portable %s',
+  (field) => {
+    for (const value of [
+      '/Users/alice/private/context.md',
+      'C:\\Users\\Alice\\secret.md',
+      'Bearer abcdefghijklmnop',
+      'api_key=secret',
+      '[conversation transcript]',
+      '-----BEGIN PRIVATE KEY-----',
+    ])
+      expect(ContextPackDefinitionSchema.safeParse({ ...pack, [field]: value }).success).toBe(
+        false,
+      );
+  },
+);
+it('matches compiler selectors case insensitively when rejecting duplicate and overlapping curation', () => {
+  expect(
+    ContextPackDefinitionSchema.safeParse({
+      ...pack,
+      documents: [{ ...pack.documents[0], headings: [['Architecture'], ['architecture']] }],
+    }).success,
+  ).toBe(false);
+  expect(
+    ContextPackDefinitionSchema.safeParse({
+      ...pack,
+      documents: [
+        { ...pack.documents[0], headings: [['Architecture']], mode: 'required' },
+        { ...pack.documents[0], headings: [['architecture', 'Constraints']], mode: 'excluded' },
+      ],
+    }).success,
+  ).toBe(false);
+});

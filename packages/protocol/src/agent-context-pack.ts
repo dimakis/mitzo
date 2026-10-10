@@ -1,5 +1,14 @@
 import { z } from 'zod';
 
+const privateMaterial = [
+  /\/(?:Users|home|sandbox|tmp|private\/tmp|private\/var\/folders)\//i,
+  /[A-Za-z]:\\(?:Users|Temp)\\/i,
+  /-----BEGIN (?:RSA |OPENSSH |EC )?PRIVATE KEY-----/i,
+  /\b(?:Bearer\s+[A-Za-z0-9._-]{8,}|sk-[A-Za-z0-9_-]{12,}|gh[pousr]_[A-Za-z0-9]{12,})\b/i,
+  /\b(?:api[_ -]?key|password|client[_ -]?secret)\s*[:=]/i,
+  /\[(?:conversation|chat) transcript\]/i,
+];
+
 export const ContextPackIdSchema = z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/);
 export const ContextPackPinSchema = z.strictObject({
   id: ContextPackIdSchema,
@@ -9,7 +18,7 @@ export const ContextPackPinSchema = z.strictObject({
 export type ContextPackPin = z.infer<typeof ContextPackPinSchema>;
 const path = z
   .string()
-  .max(512)
+  .max(240)
   .refine(
     (value) =>
       value.endsWith('.md') &&
@@ -40,9 +49,24 @@ export const ContextPackDefinitionSchema = z
     rationale: z.string().max(4000).optional(),
   })
   .superRefine((pack, ctx) => {
+    const guidance = [
+      pack.name,
+      pack.description,
+      pack.retrievalGuidance,
+      pack.rationale ?? '',
+      ...pack.documents.flatMap((doc) => doc.headings.flat()),
+    ];
+    if (guidance.some((text) => privateMaterial.some((pattern) => pattern.test(text))))
+      ctx.addIssue({
+        code: 'custom',
+        message:
+          'Portable context packs cannot contain credentials, transcript dumps or machine paths',
+      });
     for (let i = 0; i < pack.documents.length; i++) {
       const doc = pack.documents[i]!;
-      const keys = doc.headings.map((heading) => JSON.stringify(heading));
+      const keys = doc.headings.map((heading) =>
+        JSON.stringify(heading.map((part) => part.toLowerCase())),
+      );
       if (new Set(keys).size !== keys.length)
         ctx.addIssue({ code: 'custom', message: 'Duplicate section selectors' });
       for (const other of pack.documents.slice(0, i)) {
@@ -54,7 +78,9 @@ export const ContextPackDefinitionSchema = z
           !doc.headings.length ||
           other.headings.some((a) =>
             doc.headings.some(
-              (b) => a.every((part, j) => b[j] === part) || b.every((part, j) => a[j] === part),
+              (b) =>
+                a.every((part, j) => b[j]?.toLowerCase() === part.toLowerCase()) ||
+                b.every((part, j) => a[j]?.toLowerCase() === part.toLowerCase()),
             ),
           );
         if (overlaps)

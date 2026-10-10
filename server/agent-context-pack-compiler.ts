@@ -11,6 +11,7 @@ import {
 export type ContextPackPin = Extract<AgentContextRecipe, { source: 'packs' }>['packs'][number];
 /** Supplied by runtime admission. A portable pack never creates this authority. */
 export interface AuthorizedContextPacks {
+  sourceIdentity: string;
   resolve(pin: ContextPackPin): Promise<PublishedContextPack>;
   authorize(document: ContextPackDocument, signal?: AbortSignal): Promise<void>;
   readDocument(
@@ -24,7 +25,8 @@ const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(va
 const textDigest = (value: string) => createHash('sha256').update(value, 'utf8').digest('hex');
 const matches = (path: string[], prefix: string[]) =>
   prefix.every((part, index) => path[index]?.toLowerCase() === part.toLowerCase());
-function sections(path: string, content: string): Node[] {
+function sections(path: string, content: string, rejectAmbiguous = false): Node[] {
+  const headings = new Set<string>();
   const result: Node[] = [];
   const add = (text: string, headingPath: string[]) => {
     if (text.trim())
@@ -50,6 +52,10 @@ function sections(path: string, content: string): Node[] {
     );
     const visit = (heading: (typeof tree)[number], parent: string[]) => {
       const headingPath = [...parent, heading.title];
+      const key = JSON.stringify(headingPath.map((part) => part.toLowerCase()));
+      if (rejectAmbiguous && headings.has(key))
+        throw Error(`Ambiguous context heading: ${headingPath.join(' > ')}`);
+      headings.add(key);
       add(heading.content, headingPath);
       heading.children.forEach((child) => visit(child, headingPath));
     };
@@ -62,7 +68,8 @@ export async function compileContextPacks(
   packs?: AuthorizedContextPacks,
   signal?: AbortSignal,
 ) {
-  if (!packs) throw Error('Runtime source authorization is required for context packs');
+  if (!packs?.sourceIdentity)
+    throw Error('Runtime source authorization is required for context packs');
   const documents: { storeId: string; path: string; revision: string; contentHash: string }[] = [];
   const omissions: { path: string; heading: string; reason: 'excluded' | 'budget' }[] = [];
   const candidates = new Map<string, { node: Node; priority: number; excluded: boolean }>();
@@ -86,7 +93,7 @@ export async function compileContextPacks(
       if (
         source.path !== selection.path ||
         source.revision !== selection.revision ||
-        !source.storeId
+        source.storeId !== packs.sourceIdentity
       )
         throw Error('Context source identity mismatch');
       const bytes = Buffer.byteLength(source.content, 'utf8');
@@ -104,7 +111,7 @@ export async function compileContextPacks(
           revision: source.revision,
           contentHash: textDigest(source.content),
         });
-      const sourceNodes = sections(source.path, source.content);
+      const sourceNodes = sections(source.path, source.content, selection.headings.length > 0);
       const selectors = selection.headings.map((heading) => [selection.path, ...heading]);
       if (
         selectors.some(
@@ -131,6 +138,7 @@ export async function compileContextPacks(
           priority: Math.max(selection.priority, existing?.priority ?? 0),
           excluded: excluded || existing?.excluded === true,
         });
+        if (candidates.size > 500) throw Error('Context packs contain too many sections');
       }
     }
     if (pack.definition.retrievalGuidance.trim()) {

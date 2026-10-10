@@ -38,6 +38,7 @@ const recipe = {
 };
 function adapter() {
   return {
+    sourceIdentity: 'accepted-mgmt',
     resolve: vi.fn(async () => pack),
     authorize: vi.fn(async () => {}),
     assertCurrent: vi.fn(),
@@ -76,12 +77,13 @@ it('reuses pinned payload on resume without fetching mutable sources and detects
   const packs = adapter();
   const result = await compileAgentContext(recipe, { packs });
   packs.readDocument.mockRejectedValue(Error('Changed source must not be fetched'));
-  expect(await verifyCompiledAgentContext(result, recipe)).toEqual(result);
+  expect(await verifyCompiledAgentContext(result, recipe, { packs })).toEqual(result);
   expect(packs.readDocument).toHaveBeenCalledOnce();
   await expect(
     verifyCompiledAgentContext(
       { ...result, provenance: { ...result.provenance, documents: [] } },
       recipe,
+      { packs },
     ),
   ).rejects.toThrow(/hash|provenance/);
 });
@@ -187,4 +189,82 @@ it('uses optional document priority during actual ContexGin budget trimming', as
   expect(result.provenance?.omissions).toContainEqual(
     expect.objectContaining({ path: 'context/low.md', reason: 'budget' }),
   );
+});
+it('fails explicitly for ambiguous repeated heading paths selected case insensitively', async () => {
+  const selectedDefinition = {
+    ...definition,
+    documents: [{ ...document, headings: [['architecture']] }],
+  };
+  const selected = {
+    ...pack,
+    definition: selectedDefinition,
+    hash: contextDigest(selectedDefinition),
+  };
+  const packs = {
+    ...adapter(),
+    resolve: async () => selected,
+    readDocument: async () => ({
+      storeId: 'accepted-mgmt',
+      path: document.path,
+      revision,
+      content: '# Architecture\nFirst definition.\n# architecture\nConflicting second definition.',
+    }),
+  };
+  await expect(
+    compileAgentContext(
+      { ...recipe, packs: [{ id: selected.id, revision: selected.revision, hash: selected.hash }] },
+      { packs },
+    ),
+  ).rejects.toThrow(/ambiguous.*heading/i);
+});
+it('bounds global nodes including excluded material before compilation', async () => {
+  const selectedDefinition = {
+    ...definition,
+    documents: [document, { ...document, path: 'context/omitted.md', mode: 'excluded' as const }],
+  };
+  const selected = {
+    ...pack,
+    definition: selectedDefinition,
+    hash: contextDigest(selectedDefinition),
+  };
+  const packs = {
+    ...adapter(),
+    resolve: async () => selected,
+    readDocument: async (selection: { path: string }) => ({
+      storeId: 'accepted-mgmt',
+      path: selection.path,
+      revision,
+      content: selection.path.includes('omitted')
+        ? Array.from({ length: 501 }, (_, index) => `# Section ${index}\nExcluded.`).join('\n')
+        : '# Architecture\nRequired.',
+    }),
+  };
+  await expect(
+    compileAgentContext(
+      { ...recipe, packs: [{ id: selected.id, revision: selected.revision, hash: selected.hash }] },
+      { packs },
+    ),
+  ).rejects.toThrow(/too many sections/i);
+});
+
+it('reauthorizes retained provenance without source reads and rejects namespace retargeting', async () => {
+  const packs = adapter();
+  const result = await compileAgentContext(recipe, { packs });
+  packs.resolve.mockClear();
+  packs.readDocument.mockClear();
+  packs.authorize.mockClear();
+  await verifyCompiledAgentContext(result, recipe, { packs });
+  expect(packs.authorize).toHaveBeenCalledOnce();
+  expect(packs.readDocument).not.toHaveBeenCalled();
+  expect(packs.resolve).not.toHaveBeenCalled();
+  await expect(
+    verifyCompiledAgentContext(result, recipe, {
+      packs: { ...packs, sourceIdentity: 'another-source' },
+    }),
+  ).rejects.toThrow(/namespace|identity/i);
+  packs.authorize.mockRejectedValue(Error('Grant revoked'));
+  await expect(verifyCompiledAgentContext(result, recipe, { packs })).rejects.toThrow(
+    'Grant revoked',
+  );
+  await expect(verifyCompiledAgentContext(result, recipe)).rejects.toThrow(/authorization/i);
 });

@@ -296,6 +296,22 @@ export async function verifyCompiledAgentContext(
     )
   )
     throw Error('Saved context payload hash mismatch');
+  if (recipe.source === 'packs') {
+    const packs = options.packs;
+    if (!packs?.sourceIdentity)
+      throw Error('Runtime source authorization is required for retained context packs');
+    packs.assertCurrent();
+    for (const document of compiled.provenance!.documents) {
+      if (document.storeId !== packs.sourceIdentity)
+        throw Error('Saved context source namespace identity mismatch');
+      await packs.authorize(
+        { ...document, mode: 'required', headings: [], priority: 100 },
+        options.signal,
+      );
+      options.signal?.throwIfAborted();
+      packs.assertCurrent();
+    }
+  }
   if (
     recipe.source === 'workspace' &&
     compiled.workspaceIdentity !== contextDigest(await rootIdentity(options))
