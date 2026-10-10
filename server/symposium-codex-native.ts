@@ -1,3 +1,4 @@
+import { symposiumAgentContextAuthorization } from './symposium-agent-context.js';
 import type { TurnInputWriteObserver } from './codex-turn-input-receipt.js';
 import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
@@ -544,6 +545,7 @@ export async function createCodexNativeSeat(
         }
       : input.profileTools?.onToolResultDurable,
     startupSignal: execution.signal,
+    prepareAgentContext: symposiumAgentContextAuthorization(execution),
     observeStartupConfig: input.observeStartupConfig
       ? async (event, startupSignal = execution.signal) => {
           const assertCurrent = () => {
@@ -715,6 +717,7 @@ export async function createCodexNativeSeat(
   let conversation!: NativeCodexConversation;
   try {
     await inspectPrelaunch();
+    await options.prepareAgentContext?.(execution.signal);
     conversation = input.createConversation?.(options) ?? new CodexConversation(options);
     await conversation.initialize();
   } catch (error) {

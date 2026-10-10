@@ -381,3 +381,28 @@ it.each(['completed', 'failed', 'lost-close', 'wrong-thread', 'conflicting-resul
     registry.close();
   },
 );
+
+it('awaits retained source authorization before Claude dispatch and spawn', async () => {
+  const { bindSymposiumAgentContextAuthorization } = await import('../symposium-agent-context.js');
+  const currentExecution = { ...execution };
+  let reject!: (error: Error) => void;
+  const pending = new Promise<void>((_resolve, rejectPromise) => {
+    reject = rejectPromise;
+  });
+  bindSymposiumAgentContextAuthorization(currentExecution, () => pending);
+  const spawnProcess = vi.fn();
+  const native = await createClaudeVertexSeat({
+    sandbox,
+    route,
+    execution: currentExecution,
+    spawnProcess,
+  });
+  const beforeDispatch = vi.fn();
+  const running = native.run(currentExecution, { beforeDispatch, accepted() {} });
+  expect(beforeDispatch).not.toHaveBeenCalled();
+  expect(spawnProcess).not.toHaveBeenCalled();
+  reject(Error('Accepted source scope revoked during setup'));
+  await expect(running).rejects.toThrow(/source scope revoked/);
+  expect(beforeDispatch).not.toHaveBeenCalled();
+  expect(spawnProcess).not.toHaveBeenCalled();
+});

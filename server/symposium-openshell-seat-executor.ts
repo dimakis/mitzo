@@ -6,7 +6,10 @@ import {
 import type { ControlledAttemptSandbox } from './symposium-attempt-transport.js';
 import type { SymposiumAttemptRegistry } from './symposium-attempt-registry.js';
 import type { AccountProfiles } from './account-profiles.js';
-import type { SymposiumAgentContextBinding } from './symposium-agent-context.js';
+import {
+  bindSymposiumAgentContextAuthorization,
+  type SymposiumAgentContextBinding,
+} from './symposium-agent-context.js';
 import type { SymposiumSeatExecution, SymposiumSeatExecutor } from './symposium-orchestrator.js';
 import {
   admitSymposiumSeatDispatch,
@@ -178,6 +181,11 @@ export class SymposiumOpenShellSeatExecutor implements SymposiumSeatExecutor {
     if (preparedContext) {
       input = { ...input, agentContext: preparedContext.snapshot };
       attempt.execution = input;
+      const contextExecution = input;
+      bindSymposiumAgentContextAuthorization(contextExecution, (signal) =>
+        this.deps.agentContext!.reauthorize(contextExecution, preparedContext, signal),
+      );
+      await this.deps.agentContext!.reauthorize(input, preparedContext);
     }
     route = admission();
     if (
@@ -193,6 +201,7 @@ export class SymposiumOpenShellSeatExecutor implements SymposiumSeatExecutor {
     route = admission();
     if (this.attempts.get(input.claimToken) !== attempt || input.signal.aborted)
       throw new Error('Symposium native attempt was cancelled before initialization');
+    if (preparedContext) await this.deps.agentContext!.reauthorize(input, preparedContext);
     attempt.opening = true;
     const native = await this.deps.openNative({
       sandbox,

@@ -14,6 +14,30 @@ export interface PreparedSymposiumAgentContext {
   snapshot: AgentContextSnapshot;
   bootContext: string;
 }
+// Retain authority in host memory, never in caller-controlled execution fields.
+const executionAuthorizations = new WeakMap<
+  SymposiumSeatExecution,
+  (signal: AbortSignal) => Promise<void>
+>();
+export function bindSymposiumAgentContextAuthorization(
+  execution: SymposiumSeatExecution,
+  authorize: (signal: AbortSignal) => Promise<void>,
+) {
+  if (executionAuthorizations.has(execution)) throw Error('Context authorization is already bound');
+  executionAuthorizations.set(execution, async (signal) => {
+    execution.signal.throwIfAborted();
+    signal.throwIfAborted();
+    await authorize(signal);
+    execution.signal.throwIfAborted();
+    signal.throwIfAborted();
+  });
+}
+export function symposiumAgentContextAuthorization(execution: SymposiumSeatExecution) {
+  const authorize = executionAuthorizations.get(execution);
+  if (!authorize && (execution.seat.contextRecipe || execution.agentContext))
+    throw Error('Trusted prepared context authorization is unavailable');
+  return authorize;
+}
 function identity(execution: SymposiumSeatExecution) {
   const generation = execution.provenance.membershipGeneration;
   if (
@@ -123,7 +147,26 @@ export function createSymposiumAgentContextBinding(deps: {
   assertCurrent(execution: SymposiumSeatExecution): void;
   compileOptions(execution: SymposiumSeatExecution): Promise<AgentContextCompileOptions>;
 }) {
-  const sourceFences = new WeakMap<PreparedSymposiumAgentContext, () => void>();
+  const sourceFences = new WeakMap<
+    PreparedSymposiumAgentContext,
+    {
+      assertCurrent(): void;
+      reauthorize(signal: AbortSignal): Promise<void>;
+    }
+  >();
+  function retainSourceFence(
+    prepared: PreparedSymposiumAgentContext,
+    recipe: unknown,
+    options: AgentContextCompileOptions,
+    compiled: unknown,
+  ) {
+    sourceFences.set(prepared, {
+      assertCurrent: () => options.packs!.assertCurrent(),
+      reauthorize: async (signal) => {
+        await verifyCompiledAgentContext(compiled, recipe, { ...options, signal });
+      },
+    });
+  }
   function selected(execution: SymposiumSeatExecution) {
     deps.assertCurrent(execution);
     if (!execution.seat.contextRecipe) return undefined;
@@ -177,7 +220,7 @@ export function createSymposiumAgentContextBinding(deps: {
           signal: execution.signal,
         });
         deps.assertCurrent(execution);
-        sourceFences.set(stored, () => options.packs!.assertCurrent());
+        retainSourceFence(stored, recipe, options, compiled);
         return stored;
       }
       const compiled = await compileAgentContext(recipe, { ...options, signal: execution.signal });
@@ -192,14 +235,14 @@ export function createSymposiumAgentContextBinding(deps: {
           profileHash: profile.contentHash,
         }),
       );
-      sourceFences.set(prepared, () => options.packs!.assertCurrent());
+      retainSourceFence(prepared, recipe, options, compiled);
       return prepared;
     },
     assertCurrent(execution: SymposiumSeatExecution, prepared: PreparedSymposiumAgentContext) {
       const profile = selected(execution);
       const sourceFence = sourceFences.get(prepared);
       if (!sourceFence) throw Error('Prepared context source adapter is unavailable');
-      sourceFence();
+      sourceFence.assertCurrent();
       const stored = deps.store.getPrepared(execution);
       if (
         !profile ||
@@ -208,6 +251,18 @@ export function createSymposiumAgentContextBinding(deps: {
         stored.snapshot.profileHash !== profile.contentHash
       )
         throw Error('Prepared context snapshot is no longer current');
+    },
+    async reauthorize(
+      execution: SymposiumSeatExecution,
+      prepared: PreparedSymposiumAgentContext,
+      signal: AbortSignal = execution.signal,
+    ) {
+      this.assertCurrent(execution, prepared);
+      execution.signal.throwIfAborted();
+      await sourceFences.get(prepared)!.reauthorize(signal);
+      execution.signal.throwIfAborted();
+      signal.throwIfAborted();
+      this.assertCurrent(execution, prepared);
     },
     accepted(
       execution: SymposiumSeatExecution,

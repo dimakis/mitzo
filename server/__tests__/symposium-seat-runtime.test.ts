@@ -4831,6 +4831,9 @@ it('prepares pinned context before native setup and records adoption only after 
         order.push('prepared');
         return prepared;
       },
+      reauthorize: async () => {
+        order.push('reauthorized');
+      },
       assertCurrent: () => {
         order.push('current');
       },
@@ -4866,7 +4869,9 @@ it('prepares pinned context before native setup and records adoption only after 
   await executor.execute(work.input);
   expect(order).toEqual([
     'prepared',
+    'reauthorized',
     'sandbox',
+    'reauthorized',
     'native',
     'current',
     'claim-accepted',
@@ -4878,4 +4883,38 @@ it('prepares pinned context before native setup and records adoption only after 
     'thread',
     'turn',
   );
+});
+
+it('retains the awaited metadata fence across Codex initialization and later native turns', async () => {
+  const work = fixture();
+  const { bindSymposiumAgentContextAuthorization } = await import('../symposium-agent-context.js');
+  const authorize = vi.fn(async () => {});
+  bindSymposiumAgentContextAuthorization(work.input, authorize);
+  let options: import('../codex-conversation.js').CodexConversationOptions | undefined;
+  const initialize = vi.fn(async () => {
+    await options!.prepareAgentContext!(options!.startupSignal!);
+  });
+  const native = await createOpenAiCodexSeat({
+    sandbox: { workdir: '/task' } as never,
+    route: admitSymposiumSeatDispatch(work.facts, profiles, work.input, hostGrants),
+    execution: work.input,
+    store: {} as never,
+    createConversation: (opts) => {
+      options = opts;
+      return {
+        initialize,
+        getThreadId: () => 'thread',
+        send: async () => {},
+        interrupt: async () => {},
+        close: () => {},
+      };
+    },
+  });
+  expect(initialize).toHaveBeenCalledOnce();
+  expect(authorize).toHaveBeenCalledTimes(2);
+  authorize.mockRejectedValue(Error('Retained source lost accepted ancestry'));
+  await expect(options!.prepareAgentContext!(new AbortController().signal)).rejects.toThrow(
+    /accepted ancestry/,
+  );
+  await native.cancel();
 });

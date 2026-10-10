@@ -223,3 +223,16 @@ it('revalidates accepted metadata on resume without rereading or replacing the p
   expect(readDocument).toHaveBeenCalledTimes(readCount);
   expect(store.getPrepared(execution)).toEqual(prepared);
 });
+
+it('rechecks retained source metadata at native boundaries without rereading the body', async () => {
+  const { binding, execution, authorize, readDocument, store } = fixture();
+  const prepared = await binding.prepare(execution);
+  const reads = readDocument.mock.calls.length;
+  await binding.reauthorize(execution, prepared!);
+  authorize.mockRejectedValue(Error('Accepted history changed during native setup'));
+  await expect(binding.reauthorize(execution, prepared!)).rejects.toThrow(
+    /Accepted history changed/,
+  );
+  expect(readDocument).toHaveBeenCalledTimes(reads);
+  expect(store.getPrepared(execution)).toEqual(prepared);
+});
