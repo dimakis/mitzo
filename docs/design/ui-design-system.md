@@ -59,6 +59,26 @@ or Save. Discard remains a visibly labelled destructive action; Done remains
 neutral. Save, loading, error and conflict states retain the existing behavior.
 Colors, fonts, spacing, focus, radii and motion come from the shared token source.
 
+## Token usage
+
+The conversation token popover groups latest context/request capacity separately
+from cumulative usage, with short explanatory notes. Native request totals and
+session input-context observations retain their distinct labels. Runtime-reported
+capacity is the effective context limit; unknown/stale capacity remains unknown.
+The native `details` disclosure explains repeated input, cache reuse, compaction
+and optimization without turning cumulative tokens into a cost estimate. It uses
+shared type/spacing/radius/color tokens, a `--control-height` summary target and
+visible keyboard focus. The existing `MotionPresence` and Escape behavior remain.
+Popover width is bounded by the page gutters and its 70dvh maximum height is
+structural viewport geometry; internal scrolling keeps expanded explanations and
+reporting details reachable on short phones and with larger text.
+
+Offline acceptance screenshots show [the separated usage figures on a narrow
+phone](assets/token-usage-mobile-dark.png) and [expanded help with larger text,
+Teal accent and Georgia font](assets/token-help-mobile-light.png). The offline
+fixture covers keyboard disclosure, Escape, touch targets, scrolling and empty
+usage on mobile WebKit and mobile/desktop Chromium.
+
 ## Motion
 
 The [shared motion contract](frontend-motion.md) applies to mobile and desktop.

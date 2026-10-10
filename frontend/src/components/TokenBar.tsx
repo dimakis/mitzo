@@ -53,6 +53,7 @@ export function TokenBar({ tokenState }: Props) {
   const agentContext = tokenState.agentContext ?? 0;
   const sessionTotal = tokenState.sessionTotal ?? 0;
   const numCompactions = tokenState.numCompactions ?? 0;
+  const nativeUsage = tokenState.sessionTotalStatus !== undefined;
   // Zero is also the initial/restored sentinel; it does not prove an empty window.
   const hasCount = Number.isFinite(agentContext) && agentContext > 0;
   const stale = !!tokenState.tokenLimits?.stale || (expiry !== undefined && expiry <= Date.now());
@@ -108,33 +109,70 @@ export function TokenBar({ tokenState }: Props) {
         </svg>
         <span id={summaryId} className="sr-only">
           {summary}
-          {sessionTotal > 0 ? `; Session ${formatTokens(sessionTotal)}` : ''}
+          {sessionTotal > 0 ? `; Cumulative usage ${formatTokens(sessionTotal)}` : ''}
         </span>
       </button>
       <MotionPresence open={expanded} kind="popover" appear={false}>
         <div className="token-bar-detail">
-          <div className="token-bar-detail-row">
-            <span>Agent context</span>
-            <span>
-              {hasContext
-                ? `${agentContext.toLocaleString()} / ${ceiling.toLocaleString()}`
-                : hasCount
-                  ? `${agentContext.toLocaleString()} / limit not reported`
-                  : 'Not reported'}
-            </span>
-          </div>
-          <div className="token-bar-detail-row">
-            <span>
-              {tokenState.sessionTotalStatus === 'observed'
-                ? 'Session tokens (reported so far)'
-                : 'Session tokens'}
-            </span>
-            <span>
-              {tokenState.sessionTotalStatus === 'unknown'
-                ? 'Not reported'
-                : sessionTotal.toLocaleString()}
-            </span>
-          </div>
+          <section className="token-bar-metric">
+            <div className="token-bar-detail-row">
+              <span>{nativeUsage ? 'Latest request' : 'Current context'}</span>
+              <span>
+                {hasContext
+                  ? `${agentContext.toLocaleString()} / ${ceiling.toLocaleString()}`
+                  : hasCount
+                    ? `${agentContext.toLocaleString()} / limit not reported`
+                    : 'Not reported'}
+              </span>
+            </div>
+            {hasContext && (
+              <p className="token-bar-note">{Math.round(ratio * 100)}% of effective limit</p>
+            )}
+            <p className="token-bar-note">
+              {nativeUsage
+                ? 'Input + output for the latest model request, including cached input.'
+                : 'Input context from the latest model request, including cached input.'}
+            </p>
+          </section>
+          <section className="token-bar-metric">
+            <div className="token-bar-detail-row">
+              <span>Cumulative usage</span>
+              <span>
+                {tokenState.sessionTotalStatus === 'unknown'
+                  ? 'Not reported'
+                  : sessionTotal.toLocaleString()}
+              </span>
+            </div>
+            <p className="token-bar-note">
+              Input + output across model requests. Earlier context can be counted again.
+            </p>
+            <p className="token-bar-note">
+              {nativeUsage
+                ? 'Reported so far for the current runtime thread, including any resumed history.'
+                : 'Reported across agent runs in this session.'}
+            </p>
+          </section>
+          <details className="token-bar-help">
+            <summary>How these numbers work</summary>
+            <p>
+              The model requests a tool, its result is added to retained history, and the next model
+              request uses that history again. Usage adds up across those requests and can exceed
+              the context limit. A user turn can contain many model requests.
+            </p>
+            <p>
+              Prompt caching reuses computed KV states for unchanged input. Cached tokens still
+              count as context and usage; caching does not increase the context limit.
+            </p>
+            <p>
+              Compaction reduces retained history as the current context grows. Cumulative usage
+              does not trigger compaction.
+            </p>
+            <p>
+              Repeated context and large tool results can reveal optimization opportunities. Compare
+              cache reuse and model pricing before judging efficiency: this total is not a cost
+              figure or a final billing record.
+            </p>
+          </details>
           {tokenState.tokenLimits && (
             <>
               <div className="token-bar-detail-row">
@@ -143,7 +181,11 @@ export function TokenBar({ tokenState }: Props) {
               </div>
               {tokenState.tokenLimits.contextWindow && (
                 <div className="token-bar-detail-row">
-                  <span>Model window</span>
+                  <span>
+                    {tokenState.tokenLimits.source === 'runtime'
+                      ? 'Effective context limit'
+                      : 'Model context limit'}
+                  </span>
                   <span>{tokenState.tokenLimits.contextWindow.toLocaleString()}</span>
                 </div>
               )}
@@ -182,8 +224,10 @@ export function TokenBar({ tokenState }: Props) {
           )}
           {tokenState.numTurns > 0 && (
             <div className="token-bar-detail-row">
-              <span>Turns</span>
-              <span>{tokenState.numTurns} turns</span>
+              <span>{nativeUsage ? 'Runtime turns' : 'Agent turns'}</span>
+              <span>
+                {tokenState.numTurns} {tokenState.numTurns === 1 ? 'turn' : 'turns'}
+              </span>
             </div>
           )}
           {numCompactions > 0 && (
@@ -192,10 +236,12 @@ export function TokenBar({ tokenState }: Props) {
               <span>{numCompactions}</span>
             </div>
           )}
-          <div className="token-bar-detail-row">
-            <span>Agent #</span>
-            <span>{tokenState.turnIndex}</span>
-          </div>
+          {!nativeUsage && (
+            <div className="token-bar-detail-row">
+              <span>Agent #</span>
+              <span>{tokenState.turnIndex}</span>
+            </div>
+          )}
         </div>
       </MotionPresence>
     </div>
