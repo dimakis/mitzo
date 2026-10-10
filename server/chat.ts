@@ -1981,9 +1981,11 @@ This is an independent checkout with its own Git storage, not a linked worktree.
           .filter(Boolean)
           .map((root) => join(root, '.git')),
         onBootContext: (context) => {
+          // Both sandbox startup and published-knowledge adoption use the pinned
+          // ContexGin compiler. A selected profile keeps its prepared snapshot.
           const message: BootContextMessage = agentContext
             ? bootContextWithReceipt(agentContext)
-            : { ...context, source: 'sandbox' };
+            : { ...context, source: 'contexgin' };
           send(transport, { ...message, sessionId: conversationId });
           session.bootContext = message as unknown as Record<string, unknown>;
           eventStore.upsertSession({

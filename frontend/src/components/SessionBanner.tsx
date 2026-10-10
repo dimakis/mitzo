@@ -90,7 +90,10 @@ export function SessionBanner({ bootContext, sessionContext }: Props) {
   if (!bootContext && !sessionContext) return null;
 
   const isContexgin = bootContext?.source === 'contexgin';
-  const dotClass = isContexgin ? 'session-banner-dot--ok' : 'session-banner-dot--warn';
+  const isSandbox = bootContext?.source === 'sandbox';
+  const sourceLabel = isContexgin ? 'ContexGin' : isSandbox ? 'Sandbox' : 'Fallback';
+  const hasCompiledContext = (isContexgin || isSandbox) && !!bootContext?.fullMarkdown;
+  const dotClass = hasCompiledContext ? 'session-banner-dot--ok' : 'session-banner-dot--warn';
 
   const tokenLabel = bootContext
     ? bootContext.tokenCount >= 1000
@@ -165,9 +168,7 @@ export function SessionBanner({ bootContext, sessionContext }: Props) {
                       }
                     }}
                   >
-                    <span className="session-banner-label">
-                      Boot Context ({isContexgin ? 'ContexGin' : 'Fallback'})
-                    </span>
+                    <span className="session-banner-label">Boot Context ({sourceLabel})</span>
                     <span className="session-banner-chevron-inline">
                       <UiIcon name={showBootDetails ? 'down' : 'forward'} size={16} />
                     </span>
