@@ -363,7 +363,10 @@ export async function createCodexNativeSeat(
     ...(input.route.kind === 'chatgpt-subscription-native'
       ? { providerThreadLifecycle: 'attempt' as const }
       : {}),
-    systemPrompt: [symposiumSeatSystemPrompt(execution.seat), input.profileTools?.instructions]
+    systemPrompt: [
+      symposiumSeatSystemPrompt(execution.seat, execution.agentContext),
+      input.profileTools?.instructions,
+    ]
       .filter(Boolean)
       .join('\n\n'),
     tools: input.profileTools?.tools ?? [],

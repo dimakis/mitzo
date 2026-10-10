@@ -6,6 +6,7 @@ import {
 import type { ControlledAttemptSandbox } from './symposium-attempt-transport.js';
 import type { SymposiumAttemptRegistry } from './symposium-attempt-registry.js';
 import type { AccountProfiles } from './account-profiles.js';
+import type { SymposiumAgentContextBinding } from './symposium-agent-context.js';
 import type { SymposiumSeatExecution, SymposiumSeatExecutor } from './symposium-orchestrator.js';
 import {
   admitSymposiumSeatDispatch,
@@ -42,6 +43,7 @@ export interface SymposiumApplicationDispatchPolicy {
 }
 
 export interface SymposiumOpenShellSeatExecutorDeps {
+  agentContext?: SymposiumAgentContextBinding;
   facts: SymposiumDispatchFacts;
   applicationPolicy?: SymposiumApplicationDispatchPolicy;
   assertArtifactAdmissionCurrent?: (
@@ -168,6 +170,16 @@ export class SymposiumOpenShellSeatExecutor implements SymposiumSeatExecutor {
       return admitted;
     };
     let route = admission();
+    if (input.seat.contextRecipe && !this.deps.agentContext)
+      throw new Error('Symposium context preparation is unavailable for the selected recipe');
+    const preparedContext = this.deps.agentContext
+      ? await this.deps.agentContext.prepare(input)
+      : undefined;
+    if (preparedContext) {
+      input = { ...input, agentContext: preparedContext.snapshot };
+      attempt.execution = input;
+    }
+    route = admission();
     if (
       route.readOnly &&
       !(route.kind === 'chatgpt-subscription-native'
@@ -204,6 +216,7 @@ export class SymposiumOpenShellSeatExecutor implements SymposiumSeatExecutor {
     try {
       result = await native.run(input, {
         beforeDispatch: (providerThreadId) => {
+          if (preparedContext) this.deps.agentContext!.assertCurrent(input, preparedContext);
           const current = admission();
           if (JSON.stringify(current) !== JSON.stringify(route))
             throw new Error('Symposium account provider changed before native turn');
@@ -259,6 +272,13 @@ export class SymposiumOpenShellSeatExecutor implements SymposiumSeatExecutor {
             acceptedAt: Date.now(),
           });
           if (!recorded) throw new Error('Symposium provider receipt claim is no longer valid');
+          if (preparedContext)
+            this.deps.agentContext!.accepted(
+              input,
+              preparedContext,
+              providerThreadId,
+              providerTurnId,
+            );
           this.deps.applicationPolicy?.accepted(input, providerThreadId, providerTurnId);
           this.deps.recordEvent?.(input, { type: 'symposium_attempt_accepted' });
         },

@@ -104,7 +104,7 @@ export function claudeVertexArgv(
     '--permission-mode',
     route.readOnly ? 'plan' : 'acceptEdits',
     '--append-system-prompt',
-    symposiumSeatSystemPrompt(input.seat),
+    symposiumSeatSystemPrompt(input.seat, input.agentContext),
     '--session-id',
     privateSessionUuid(input),
   ];

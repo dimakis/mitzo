@@ -4812,3 +4812,70 @@ describe('trusted prelaunch gate before the original controller', () => {
     }
   });
 });
+it('prepares pinned context before native setup and records adoption only after provider acceptance', async () => {
+  const work = fixture();
+  const order: string[] = [];
+  const snapshot = {
+    context: { fullMarkdown: 'Pinned boot context' },
+  } as import('@mitzo/protocol').AgentContextSnapshot;
+  const prepared = { snapshot, bootContext: 'Pinned boot context' };
+  const accepted = vi.fn(() => {
+    order.push('context-accepted');
+  });
+  const executor = new SymposiumOpenShellSeatExecutor({
+    facts: work.facts,
+    profiles,
+    hostGrants,
+    agentContext: {
+      prepare: async () => {
+        order.push('prepared');
+        return prepared;
+      },
+      assertCurrent: () => {
+        order.push('current');
+      },
+      accepted,
+    },
+    owner: {
+      ensure: async () => {
+        order.push('sandbox');
+        return { workdir: '/task' } as never;
+      },
+      readOnlyEnforced: { openaiApi: true, claudeVertex: true },
+    },
+    recordAccepted: () => {
+      order.push('claim-accepted');
+      return true;
+    },
+    openNative: async ({ execution }) => {
+      order.push('native');
+      expect(execution.agentContext).toEqual(snapshot);
+      expect(execution.content).toBe(work.input.content);
+      return {
+        cancel: async () => {},
+        run: async (input, callbacks) => {
+          expect(input.agentContext).toEqual(snapshot);
+          callbacks.beforeDispatch();
+          expect(accepted).not.toHaveBeenCalled();
+          callbacks.accepted('thread', 'turn');
+          return { providerThreadId: 'thread', content: 'Done' };
+        },
+      };
+    },
+  });
+  await executor.execute(work.input);
+  expect(order).toEqual([
+    'prepared',
+    'sandbox',
+    'native',
+    'current',
+    'claim-accepted',
+    'context-accepted',
+  ]);
+  expect(accepted).toHaveBeenCalledWith(
+    expect.objectContaining({ claimToken: work.input.claimToken }),
+    prepared,
+    'thread',
+    'turn',
+  );
+});
