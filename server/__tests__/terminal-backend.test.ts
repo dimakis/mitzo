@@ -145,3 +145,25 @@ it('pins the SSH proxy to an immutable sandbox ID and never resolves a recycled 
   ).toThrow();
   expect(() => terminalProcessSpec(sandbox, 'mitzo-test', 'attach')).toThrow('SSH');
 });
+
+it('uses fixed tmux history commands with bounded counts and an exact owned session target', () => {
+  const spec = terminalProcessSpec(record, 'mitzo-test', 'scroll', undefined, {}, -20);
+  expect(spec.args.slice(4)).toEqual([
+    'copy-mode',
+    '-e',
+    '-t',
+    `=${record.id}:`,
+    ';',
+    'send-keys',
+    '-X',
+    '-N',
+    '20',
+    '-t',
+    `=${record.id}:`,
+    'scroll-up',
+  ]);
+  expect(terminalProcessSpec(record, 'mitzo-test', 'scroll', undefined, {}, null).args).toContain(
+    '#{pane_in_mode}',
+  );
+  expect(() => terminalProcessSpec(record, 'mitzo-test', 'scroll', undefined, {}, 101)).toThrow();
+});
