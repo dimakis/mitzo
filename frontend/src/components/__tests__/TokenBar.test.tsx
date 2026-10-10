@@ -115,8 +115,8 @@ describe('TokenBar', () => {
     const bar = container.querySelector('.token-bar')!;
     fireEvent.click(bar);
     // Should render detail panel without crashing
-    expect(screen.getByText(/Agent context/)).toBeTruthy();
-    expect(screen.getByText(/Session tokens/)).toBeTruthy();
+    expect(screen.getByText('Current context')).toBeTruthy();
+    expect(screen.getByText('Cumulative usage')).toBeTruthy();
   });
 
   it('expands detail panel on tap', () => {
@@ -200,12 +200,47 @@ describe('context wheel', () => {
     // Touch browsers may leave focus elsewhere; Escape must still dismiss.
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(button.getAttribute('aria-expanded')).toBe('false');
-    expect(screen.queryByText('Agent context')).toBeNull();
+    expect(screen.queryByText('Current context')).toBeNull();
   });
 });
 
 describe('measured native usage', () => {
   afterEach(cleanup);
+  it('explains a cumulative total above capacity without treating it as context pressure', () => {
+    const { container } = render(
+      <TokenBar
+        tokenState={makeState({
+          agentContext: 80882,
+          contextCeiling: 258400,
+          sessionTotal: 634199,
+          sessionTotalStatus: 'observed',
+          turnIndex: 1,
+          numTurns: 1,
+        })}
+      />,
+    );
+    expect(container.querySelector('.token-bar--normal')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Token usage' }));
+    expect(screen.getByText('Latest request')).toBeTruthy();
+    expect(screen.getByText('80,882 / 258,400')).toBeTruthy();
+    expect(screen.getByText('31% of effective limit')).toBeTruthy();
+    expect(screen.getByText('634,199')).toBeTruthy();
+    expect(screen.getByText(/current runtime thread/)).toBeTruthy();
+    expect(screen.getByText(/Input \+ output across model requests/)).toBeTruthy();
+    expect(screen.getByText('Effective context limit')).toBeTruthy();
+    expect(screen.getByText('Runtime turns')).toBeTruthy();
+    expect(screen.getByText('1 turn')).toBeTruthy();
+    expect(screen.queryByText('Agent #')).toBeNull();
+    expect(screen.queryByText('Session tokens')).toBeNull();
+    const help = screen.getByText('How these numbers work').closest('details')!;
+    expect(help.open).toBe(false);
+    fireEvent.click(screen.getByText('How these numbers work'));
+    expect(screen.getByText(/KV states/)).toBeTruthy();
+    expect(screen.getByText(/does not increase the context limit/)).toBeTruthy();
+    expect(screen.getByText(/Compaction reduces retained history/)).toBeTruthy();
+    expect(screen.getByText(/Repeated context and large tool results/)).toBeTruthy();
+    expect(screen.getByText(/not a cost figure/)).toBeTruthy();
+  });
   it('shows measured values without depending on a synthetic renderer turn', () => {
     render(
       <TokenBar
@@ -221,7 +256,7 @@ describe('measured native usage', () => {
     expect(document.querySelector('.token-bar-label')).toBeNull();
     expect(screen.queryByText('12,300 / 128,000')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Token usage' }));
-    expect(screen.getByText('Session tokens (reported so far)')).toBeTruthy();
+    expect(screen.getByText('Cumulative usage')).toBeTruthy();
     expect(screen.getByText('24,600')).toBeTruthy();
   });
   it('retains a measured context count when the ceiling is unavailable', () => {
