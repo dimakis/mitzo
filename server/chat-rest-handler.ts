@@ -303,14 +303,12 @@ export function createChatRestRouter(
       }
     } catch (err) {
       if (err instanceof ContributorSendOwnershipError) {
-        res
-          .status(409)
-          .json({
-            ok: false,
-            code: err.code,
-            error: CONTRIBUTOR_SEND_REQUIRED_MESSAGE,
-            clientMsgId: msg.clientMsgId,
-          });
+        res.status(409).json({
+          ok: false,
+          code: err.code,
+          error: CONTRIBUTOR_SEND_REQUIRED_MESSAGE,
+          clientMsgId: msg.clientMsgId,
+        });
         return;
       }
       log.error('POST /chat/send failed', { connectionId, error: String(err) });
@@ -364,14 +362,12 @@ export function createChatRestRouter(
       res.status(202).json({ ok: true });
     } catch (err) {
       if (err instanceof ContributorSendOwnershipError) {
-        res
-          .status(409)
-          .json({
-            ok: false,
-            code: err.code,
-            error: CONTRIBUTOR_SEND_REQUIRED_MESSAGE,
-            clientMsgId: msg.clientMsgId,
-          });
+        res.status(409).json({
+          ok: false,
+          code: err.code,
+          error: CONTRIBUTOR_SEND_REQUIRED_MESSAGE,
+          clientMsgId: msg.clientMsgId,
+        });
         return;
       }
       log.error('POST /chat/interrupt failed', { connectionId, error: String(err) });
