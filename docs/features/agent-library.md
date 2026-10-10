@@ -8,6 +8,8 @@ Library uses the existing owner-scoped Symposium profile version table in `.mitz
 
 Draft saves require the expected draft version and published base revision. Draft version numbers keep increasing across publication cycles. Publishing atomically appends an immutable profile version and retires the draft. Exact retries return the original result. Concurrent edits and publication through another profile consumer return a conflict, preserving the working editor contents.
 
+Unsaved edits have a recoverable working copy in the current browser tab. Navigation and refresh restore raw, incomplete fields together with their original version fence and save retry key. Saving or explicitly discarding clears the copy; an acknowledgment from an unmounted editor cannot clear newer edits. Closing a dirty tab prompts before losing its working copy. Browser storage failures retain a memory copy for navigation within the app.
+
 Versioned imports verify the source content hash and create a new local draft identity. An unversioned advisor draft in a `{ "definition": ... }` wrapper passes the same portability validation and enters as a new draft without claiming a source revision. Credentials, machine paths, runtime grants, and transcript dumps are rejected by the existing portability contract. The exported artifact is the same versioned definition consumed by Symposium.
 
 `/api/agent-library` routes require interactive operator authentication. In custodian mode the closed IPC protocol forwards these routes to the retained owner, including exact version reads; unsupported aliases cannot fall through to a local catalog.
@@ -15,6 +17,8 @@ Versioned imports verify the source content hash and create a new local draft id
 ## Using a profile
 
 New chats select a published profile alongside account/model selection. The v2 send message carries only profile ID and revision. Before provider dispatch, the server resolves that exact revision through the authenticated transport, verifies its identity/hash and provider compatibility, stores the full portable snapshot on the conversation, and appends its behavioral guidance to the existing platform prompt. Missing or incompatible selections fail explicitly.
+
+Manual profile choices update the current chat URL, including an explicit return to Default Mitzo. Switching between desktop and mobile layouts preserves that choice and the other chat parameters.
 
 Resumes use the saved snapshot. Profile edits do not replace it, and an active chat cannot change its binding. Boot context, published knowledge adoption, account selection, permission modes, and sandbox ownership retain their existing paths. Recipes remain advisory setup guidance; they do not grant access, install tools, or replace sandbox context compilation. Prompt preview renders the profile guidance and identifies context as unresolved until execution.
 
