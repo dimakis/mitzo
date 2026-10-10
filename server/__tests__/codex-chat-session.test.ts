@@ -2489,18 +2489,17 @@ it.each(['supplied', 'retained'] as const)(
       },
     };
     const base = options(new AbortController());
+    if (location === 'retained') {
+      // Inject intentionally malformed retained metadata through the session lookup boundary.
+      const retainedSession = { agentContext } as unknown as ReturnType<
+        typeof base.eventStore.getSession
+      >;
+      vi.spyOn(base.eventStore, 'getSession').mockReturnValue(retainedSession);
+    }
     await expect(
       openCodexChat({
         ...base,
-        ...(location === 'supplied'
-          ? { agentContext }
-          : {
-              resume: true,
-              eventStore: {
-                ...base.eventStore,
-                getSession: () => ({ agentContext }),
-              } as typeof base.eventStore,
-            }),
+        ...(location === 'supplied' ? { agentContext } : { resume: true }),
       }),
     ).rejects.toThrow(/scope/);
     expect(mocks.initialize).not.toHaveBeenCalled();

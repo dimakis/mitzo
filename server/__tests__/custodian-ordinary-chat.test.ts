@@ -91,6 +91,7 @@ it('rejects ordinary Codex before host credential preflight when the child has n
         binding: apiProfiles.resolve('api', 'test-model'),
         profile: { planType: 'api', sandboxProvider: 'ordinary-api' },
         session: { cwd: root, mode: 'agent', abortController: new AbortController() },
+        eventStore: { getSession: () => undefined },
       } as never),
     ).rejects.toThrow('Injected ordinary sandbox boundary');
     expect(ensure).toHaveBeenCalledOnce();
