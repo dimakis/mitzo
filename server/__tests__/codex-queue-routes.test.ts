@@ -25,6 +25,11 @@ function setup(
   const reattach = vi.fn(async () => reattachResult);
   const app = express();
   app.use(express.json());
+  const auth = { id: 'verified-queue-login', expiresAt: Date.now() + 10000 };
+  app.use((req, res, next) => {
+    if (req.headers['x-test-verified']) res.locals.authSession = auth;
+    next();
+  });
   app.use(
     '/api/sessions',
     createCodexQueueRouter({
@@ -39,8 +44,17 @@ function setup(
       reattach,
     }),
   );
-  return { app, cancel, retry, reattach };
+  return { app, cancel, retry, reattach, auth };
 }
+it('threads middleware-verified authorization into reattachment, ignoring caller-supplied authorization', async () => {
+  const { app, reattach, auth } = setup();
+  await request(app)
+    .post('/api/sessions/known/codex-queue/reattach')
+    .set('X-Test-Verified', '1')
+    .send({ authorization: { id: 'forged' } })
+    .expect(202);
+  expect(reattach).toHaveBeenCalledWith('known', binding, auth);
+});
 it('lists only waiting summaries and cancelled tombstone IDs', async () => {
   const { app } = setup();
   const res = await request(app).get('/api/sessions/known/codex-queue').expect(200);
@@ -99,7 +113,7 @@ it.each([
 ] as const)('returns %s background reattachment outcome', async (result, status) => {
   const { app, reattach } = setup('cancelled', 'queued', result);
   await request(app).post('/api/sessions/known/codex-queue/reattach').expect(status);
-  expect(reattach).toHaveBeenCalledWith('known', binding);
+  expect(reattach).toHaveBeenCalledWith('known', binding, undefined);
 });
 it('does not retry an unknown conversation', async () => {
   const { app, retry } = setup();
@@ -129,7 +143,13 @@ it('requires exact recovery identity for authenticated capacity controls and hid
     .post('/api/sessions/known/codex-queue/capacity-retry')
     .send({ recoveryId, sourceCommandId: 'source' })
     .expect(200);
-  expect(capacityRetry).toHaveBeenCalledExactlyOnceWith('known', binding, recoveryId, 'source');
+  expect(capacityRetry).toHaveBeenCalledExactlyOnceWith(
+    'known',
+    binding,
+    recoveryId,
+    'source',
+    undefined,
+  );
   await request(app)
     .post('/api/sessions/unknown/codex-queue/capacity-stop')
     .send({ recoveryId, sourceCommandId: 'source' })

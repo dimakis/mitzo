@@ -40,6 +40,7 @@ import {
 import { databaseBackupWatermark, backupOwnedDatabase } from './database-backup.js';
 import Database from 'better-sqlite3';
 import { AgentLibraryVersionSchema } from './agent-library.js';
+import { AgentContextSnapshotSchema } from './agent-context-recipe.js';
 import { createHash, randomUUID } from 'node:crypto';
 import {
   SymposiumArtifactSealSelectionSchema,
@@ -266,6 +267,7 @@ interface SessionRow {
   execution_updated_at: number | null;
   agent_name: string | null;
   agent_profile: string | null;
+  agent_context: string | null;
   boot_context: string | null;
   account_binding: string | null;
   runtime_binding: string | null;
@@ -902,6 +904,12 @@ export class EventStore {
     const columnNames = new Set(columns.map((c) => c.name));
     if (!columnNames.has('agent_profile'))
       db.exec('ALTER TABLE sessions ADD COLUMN agent_profile TEXT');
+    if (!columnNames.has('agent_context'))
+      db.exec('ALTER TABLE sessions ADD COLUMN agent_context TEXT');
+    db.exec(`CREATE TRIGGER IF NOT EXISTS immutable_agent_context
+      BEFORE UPDATE OF agent_context ON sessions
+      WHEN OLD.agent_context IS NOT NULL AND NEW.agent_context IS NOT OLD.agent_context
+      BEGIN SELECT RAISE(ABORT, 'Agent context binding is immutable'); END`);
     if (!columnNames.has('agent_name')) {
       db.exec('ALTER TABLE sessions ADD COLUMN agent_name TEXT');
       this.log.info('migrated sessions table: added agent_name');
@@ -6167,6 +6175,31 @@ export class EventStore {
       throw new Error('Runtime binding requires atomic new-session creation');
     this.assertConversationIdentity(meta.sessionId);
     const existing = this.stmts.getSession.get(meta.sessionId) as SessionRow | undefined;
+    const contextSnapshot =
+      meta.agentContext !== undefined
+        ? AgentContextSnapshotSchema.parse(meta.agentContext)
+        : undefined;
+    if (contextSnapshot) {
+      const profile =
+        meta.agentProfile ??
+        (existing?.agent_profile
+          ? AgentLibraryVersionSchema.parse(JSON.parse(existing.agent_profile))
+          : undefined);
+      const hash = (value: unknown) =>
+        createHash('sha256').update(JSON.stringify(value)).digest('hex');
+      if (
+        !profile?.definition.contextRecipe ||
+        contextSnapshot.profileId !== profile.profileId ||
+        contextSnapshot.revision !== profile.revision ||
+        contextSnapshot.profileHash !== profile.contentHash ||
+        profile.contentHash !== hash(profile.definition) ||
+        contextSnapshot.recipeHash !== hash(profile.definition.contextRecipe) ||
+        contextSnapshot.payloadHash !== hash(contextSnapshot.context)
+      )
+        throw Error('Compiled agent context does not match its profile or payload');
+      if (existing?.agent_context && existing.agent_context !== JSON.stringify(contextSnapshot))
+        throw Error('Agent context binding is immutable');
+    }
     if (existing) {
       const runtime = runtimeBindingFromRow(existing);
       if (runtime !== null) {
@@ -6248,6 +6281,10 @@ export class EventStore {
         fields.push('agent_profile = ?');
         values.push(JSON.stringify(snapshot));
       }
+      if (contextSnapshot) {
+        fields.push('agent_context = ?');
+        values.push(JSON.stringify(contextSnapshot));
+      }
       if (meta.accountBinding !== undefined) {
         fields.push('account_binding = ?');
         values.push(meta.accountBinding ? JSON.stringify(meta.accountBinding) : null);
@@ -6291,6 +6328,7 @@ export class EventStore {
         'closed_by',
         'agent_name',
         'agent_profile',
+        'agent_context',
         'boot_context',
         'account_binding',
         'selected_model',
@@ -6315,6 +6353,7 @@ export class EventStore {
         meta.agentProfile
           ? JSON.stringify(AgentLibraryVersionSchema.parse(meta.agentProfile))
           : null,
+        contextSnapshot ? JSON.stringify(contextSnapshot) : null,
         meta.bootContext ?? null,
         meta.accountBinding ? JSON.stringify(meta.accountBinding) : null,
         meta.selectedModel ?? null,
@@ -6854,6 +6893,9 @@ function rowToSession(row: SessionRow): SessionMeta {
     agentName: row.agent_name ?? null,
     ...(row.agent_profile
       ? { agentProfile: AgentLibraryVersionSchema.parse(JSON.parse(row.agent_profile)) }
+      : {}),
+    ...(row.agent_context
+      ? { agentContext: AgentContextSnapshotSchema.parse(JSON.parse(row.agent_context)) }
       : {}),
     bootContext: row.boot_context ?? null,
     accountBinding: parseAccountBinding(row.account_binding),
