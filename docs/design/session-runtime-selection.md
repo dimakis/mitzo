@@ -1,8 +1,9 @@
 # Session runtime selection
 
-Status: incremental design and source audit. The first increment is dormant
-protocol and EventStore infrastructure. This document does not establish live,
-staged or deployed support for any route.
+Status: incremental design and source audit. Dormant infrastructure includes
+versioned EventStore bindings, configuration resolution, local Codex account
+projection and V2 configured-target persistence. This document does not establish
+live, staged or deployed support for any selectable route.
 
 ## Separate account identity from execution choice
 
@@ -179,12 +180,14 @@ conservatively rejects that value after trimming and case normalization. It
 neither treats it as a subscribed ChatGPT identity nor substitutes an `openai`
 account or billing route.
 
-A compatible result contains `SessionRuntimeBindingV1` and a **separate**
-selected `targetId`. V1 has no target identity field: persisting only its binding
-does not durably pin the selected target, and this result is not executable.
-Activation requires a reviewed persistence extension for the target reference,
-atomic new-session admission, exact retry/resume validation and command
-fingerprint checks before any runtime effects. The resolver has no loader,
+A compatible result contains `SessionRuntimeBindingV2`, including the selected
+target's ID and revision from the injected catalog. Every catalog target requires
+a bounded non-empty opaque `targetRevision`; a request selects an ID and cannot
+supply its revision. Changing a catalog revision changes the resulting binding,
+not any previously persisted session. The separate result `targetId` is removed.
+Activation still requires trusted target loading/revision provenance, atomic
+new-session admission, exact retry/resume validation and command fingerprint
+checks before any runtime effects. The resolver has no loader,
 environment/filesystem/network/process access, credential reads or runtime
 consumer. Startup, API/WS/UI, enrollment, queues and lifecycle authorities retain
 their existing behavior.
@@ -211,8 +214,40 @@ authentication, discovery or runtime lookup. Existing constructor private-root
 protection remains intact and separate from projection effects.
 
 This method has no runtime consumer, target loader or catalog wiring. It supplies
-configuration metadata only; target persistence, admission and readiness still
+configuration metadata only; trusted target loading, admission and readiness still
 require their own reviewed increments.
+
+## Fourth increment: dormant versioned target persistence
+
+`SessionRuntimeBindingV1Schema` retains its strict original shape and provider/
+harness constraints. `SessionRuntimeBindingV2Schema` adds required `targetId` and
+`targetRevision` fields under `execution`. `SessionRuntimeBindingSchema` and its
+shared type discriminate both versions. Neither version includes credentials,
+configuration paths, endpoints, models, reasoning selection or authorization
+claims. V2 target references describe logical routing configuration; physical
+resources and their ownership remain in the existing lifecycle ledgers.
+
+EventStore's explicit create/read APIs and existing runtime-bound guards accept
+both versions in the same nullable `runtime_binding` JSON column. No schema
+migration or backfill is needed. A V2 target ID/revision change, or a V1/V2
+replacement, is a conflicting retry rather than an upgrade. Exact retries remain
+read-only under the immediate creation transaction. Generic upserts cannot enroll
+or replace a binding. Cold reads preserve V1 without inferring a target, preserve
+null legacy absence and reject corrupt or inconsistent V2 values.
+
+The pure resolver now produces V2 bindings using explicit revisions in its
+injected target catalog. These revisions are test/configuration input, not a
+deployed loader's verified digest. Before activation, implement and review a
+server-owned target projection and revision derivation tied to routing-relevant
+configuration. Clients must not supply executable paths, gateway endpoints,
+credentials or revisions. A compatible catalog entry does not establish login,
+readiness, isolated resources or dispatch authority.
+
+Tests cover both versions' account/workspace and ordinary/internal/Symposium
+fences, reopened V2 identity, exact retries across two stores, target and version
+drift, failed-write rollback, corrupt V2 metadata, required catalog revisions and
+request rejection of a supplied target revision. The increment has no startup,
+resume, command, HTTP/WS, permission, lifecycle or UI consumer.
 
 ## Invariants for subsequent adoption
 

@@ -285,8 +285,16 @@ export {
   type SourceSnapshot,
 } from './source-snapshot.js';
 
-export { SessionRuntimeBindingV1Schema } from './session-runtime-binding.js';
-export type { SessionRuntimeBindingV1 } from './session-runtime-binding.js';
+export {
+  SessionRuntimeBindingV1Schema,
+  SessionRuntimeBindingV2Schema,
+  SessionRuntimeBindingSchema,
+} from './session-runtime-binding.js';
+export type {
+  SessionRuntimeBindingV1,
+  SessionRuntimeBindingV2,
+  SessionRuntimeBinding,
+} from './session-runtime-binding.js';
 export {
   SessionOutputSourceSchema,
   SessionOutputRegisterInputSchema,

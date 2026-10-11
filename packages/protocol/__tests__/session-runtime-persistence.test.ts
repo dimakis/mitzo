@@ -23,7 +23,14 @@ const meta = {
   summary: 'Initial',
 };
 
-describe('immutable dormant session runtime persistence', () => {
+describe.each([
+  binding,
+  {
+    ...binding,
+    version: 2,
+    execution: { location: 'local', targetId: 'host', targetRevision: 'r1' },
+  },
+])('immutable dormant session runtime persistence v$version', (binding) => {
   let directory: string;
   let file: string;
   let store: EventStore;
@@ -61,7 +68,7 @@ describe('immutable dormant session runtime persistence', () => {
   it.each(['local', 'openshell'])(
     'preserves %s bindings across metadata updates and reopen',
     (location) => {
-      const selected = { ...binding, execution: { location } };
+      const selected = { ...binding, execution: { ...binding.execution, location } };
       store.createSessionWithRuntimeBinding(meta, selected);
       store.upsertSession({ sessionId: meta.sessionId, summary: 'Updated', selectedModel: 'new' });
       store.close();
@@ -122,7 +129,7 @@ describe('immutable dormant session runtime persistence', () => {
     expect(store.getSessionRuntimeBinding(meta.sessionId)).toEqual(binding);
   });
 
-  it.each(['{broken-json', JSON.stringify({ ...binding, version: 2 }), '{}', 'null'])(
+  it.each(['{broken-json', JSON.stringify({ ...binding, version: 3 }), '{}', 'null'])(
     'fails closed for corrupt or unsupported durable bindings: %s',
     (raw) => {
       store.createSessionWithRuntimeBinding(meta, binding);
@@ -173,7 +180,7 @@ describe('immutable dormant session runtime persistence', () => {
       expect(() =>
         competing.createSessionWithRuntimeBinding(meta, {
           ...binding,
-          execution: { location: 'openshell' },
+          execution: { ...binding.execution, location: 'openshell' },
         }),
       ).toThrow(/cannot be replaced/);
       expect(competing.getSession(meta.sessionId)).toEqual(store.getSession(meta.sessionId));

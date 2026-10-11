@@ -74,8 +74,8 @@ import type {
 } from './types.js';
 import { AccountBindingSchema } from './account-binding.js';
 import {
-  SessionRuntimeBindingV1Schema,
-  type SessionRuntimeBindingV1,
+  SessionRuntimeBindingSchema,
+  type SessionRuntimeBinding,
 } from './session-runtime-binding.js';
 import { SymposiumConfigSchema, SymposiumProvenanceSchema } from './symposium.js';
 import type {
@@ -6426,7 +6426,7 @@ export class EventStore {
   /** Explicit absence is legacy; invalid/unsupported metadata always throws.
    * Kept separate from SessionMeta until a separately reviewed dispatcher exists.
    */
-  getSessionRuntimeBinding(sessionId: string): SessionRuntimeBindingV1 | null | undefined {
+  getSessionRuntimeBinding(sessionId: string): SessionRuntimeBinding | null | undefined {
     this.assertConversationIdentity(sessionId);
     const row = this.stmts.getSession.get(sessionId) as SessionRow | undefined;
     return row ? runtimeBindingFromRow(row) : undefined;
@@ -6443,7 +6443,7 @@ export class EventStore {
       )
     )
       throw new Error('Session runtime allocation is ordinary-only');
-    const binding = SessionRuntimeBindingV1Schema.parse(input);
+    const binding = SessionRuntimeBindingSchema.parse(input);
     assertRuntimeAccount(binding, meta.accountBinding);
     assertRuntimeWorkspace(meta.repositoryWorkspaceId, meta.cwd);
     this.db!.transaction(() => {
@@ -7312,7 +7312,7 @@ function matchesSeatProvenance(
   return true;
 }
 
-function assertRuntimeAccount(binding: SessionRuntimeBindingV1, input: unknown): void {
+function assertRuntimeAccount(binding: SessionRuntimeBinding, input: unknown): void {
   const account = AccountBindingSchema.parse(input);
   if (
     account.accountId !== binding.account.accountId ||
@@ -7332,7 +7332,7 @@ function assertRuntimeWorkspace(workspaceId: unknown, cwd: unknown): void {
     throw new Error('Session runtime requires existing workspace identity and cwd metadata');
 }
 
-function runtimeBindingFromRow(row: SessionRow): SessionRuntimeBindingV1 | null {
+function runtimeBindingFromRow(row: SessionRow): SessionRuntimeBinding | null {
   if (row.runtime_binding === null) return null;
   try {
     if (
@@ -7341,7 +7341,7 @@ function runtimeBindingFromRow(row: SessionRow): SessionRuntimeBindingV1 | null 
       row.symposium_revision !== 0
     )
       throw new Error('Runtime binding requires an ordinary session without Symposium state');
-    const binding = SessionRuntimeBindingV1Schema.parse(JSON.parse(row.runtime_binding));
+    const binding = SessionRuntimeBindingSchema.parse(JSON.parse(row.runtime_binding));
     assertRuntimeAccount(binding, JSON.parse(row.account_binding ?? 'null'));
     assertRuntimeWorkspace(row.repository_workspace_id, row.cwd);
     return binding;

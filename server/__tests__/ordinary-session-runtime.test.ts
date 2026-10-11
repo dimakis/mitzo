@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { SessionRuntimeBindingV1Schema } from '@mitzo/protocol';
+import { SessionRuntimeBindingV2Schema } from '@mitzo/protocol';
 import {
   resolveOrdinarySessionRuntime,
   type OrdinarySessionRuntimeCatalog,
@@ -45,9 +45,10 @@ function catalog(): OrdinarySessionRuntimeCatalog {
       },
     ],
     targets: [
-      { targetId: 'host', location: 'local' },
+      { targetId: 'host', targetRevision: 'host-r1', location: 'local' },
       {
         targetId: 'ordinary-sandbox',
+        targetRevision: 'sandbox-r1',
         location: 'openshell',
         ownership: 'dedicated-ordinary',
         openaiApi: 'enabled',
@@ -75,6 +76,43 @@ function reject(value: unknown, configuration: unknown, code: string) {
 }
 
 describe('dormant ordinary runtime configuration resolution', () => {
+  it('pins the selected server target revision, including configuration rotation', () => {
+    const configuration = catalog();
+    const selection = request();
+    const first = resolveOrdinarySessionRuntime(selection, configuration);
+    configuration.targets[0].targetRevision = 'host-r2';
+    const second = resolveOrdinarySessionRuntime(selection, configuration);
+    expect(first).toMatchObject({
+      binding: { execution: { targetId: 'host', targetRevision: 'host-r1' } },
+    });
+    expect(second).toMatchObject({
+      binding: { execution: { targetId: 'host', targetRevision: 'host-r2' } },
+    });
+    expect(selection).not.toHaveProperty('targetRevision');
+  });
+
+  it.each([undefined, '', ' two words ', 'x'.repeat(201)])(
+    'rejects a target catalog without a valid revision: %j',
+    (targetRevision) => {
+      const configuration = catalog();
+      for (const target of configuration.targets) {
+        reject(
+          request(),
+          { ...configuration, targets: [{ ...target, targetRevision }] },
+          'invalid_catalog',
+        );
+      }
+    },
+  );
+
+  it('refuses client-supplied target revisions without echoing them', () => {
+    const selection = { ...request(), targetRevision: 'DO-NOT-ECHO-client-revision' };
+    reject(selection, catalog(), 'invalid_request');
+    expect(JSON.stringify(resolveOrdinarySessionRuntime(selection, catalog()))).not.toContain(
+      selection.targetRevision,
+    );
+  });
+
   it.each([
     ['chatgpt-host', 'openai-codex', 'codex', 'host', 'local'],
     ['chatgpt-broker', 'openai-codex', 'codex', 'ordinary-sandbox', 'openshell'],
@@ -92,16 +130,19 @@ describe('dormant ordinary runtime configuration resolution', () => {
       expect(result).toEqual({
         status: 'compatible',
         binding: {
-          version: 1,
+          version: 2,
           account: { accountId: id, provider, profileRevision: 'r1' },
           harness: { implementation: harness },
-          execution: { location },
+          execution: {
+            location,
+            targetId,
+            targetRevision: targetId === 'host' ? 'host-r1' : 'sandbox-r1',
+          },
         },
-        targetId,
       });
       if (result.status !== 'compatible') throw new Error('Expected compatible configuration');
-      expect(SessionRuntimeBindingV1Schema.safeParse(result.binding).success).toBe(true);
-      expect(result.binding.execution).not.toHaveProperty('targetId');
+      expect(SessionRuntimeBindingV2Schema.safeParse(result.binding).success).toBe(true);
+      expect(result).not.toHaveProperty('targetId');
     },
   );
 
