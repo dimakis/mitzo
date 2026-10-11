@@ -28,7 +28,9 @@ struct ChatViewModelReceiptTests {
         try await backendStartupRoutesExactEchoAndReply(fixturePath: CommandLine.arguments[2], newerEdit: true, requireBareAssignment: true)
         try await foreignTerminalPreservesActiveSelectedStream(fixturePath: CommandLine.arguments[1])
         try await foreignTerminalPreservesActiveSelectedStream(fixturePath: CommandLine.arguments[2])
-        print("11 offline Watch view-model receipt cases passed")
+        try await selectedRuntimeErrorAfterAcceptancePreservesInputAndRouting(fixturePath: CommandLine.arguments[1])
+        try await selectedRuntimeErrorAfterAcceptancePreservesInputAndRouting(fixturePath: CommandLine.arguments[2])
+        print("13 offline Watch view-model receipt cases passed")
     }
 
     static func decode(_ json: String) throws -> ServerMessage {
@@ -319,6 +321,74 @@ struct ChatViewModelReceiptTests {
             sawSelectedTerminal = true
         }
         precondition(sawSelectedTerminal)
+    }
+
+    @MainActor static func selectedRuntimeErrorAfterAcceptancePreservesInputAndRouting(fixturePath: String) async throws {
+        let fixture = try JSONDecoder().decode(BackendFixture.self, from: Data(contentsOf: URL(fileURLWithPath: fixturePath)))
+        let app = AppState()
+        let vm = ChatViewModel(sessionId: nil, appState: app)
+        vm.sendDraft.edit(fixture.request.prompt)
+        await vm.send()
+        let id = try pendingId(vm)
+        var selectedSession: String?
+        var selectedMessage: String?
+        for packet in fixture.events {
+            let event = try decodeBackendPacket(packet, fixtureId: fixture.request.clientMsgId, commandId: id)
+            vm.handleMessage(event)
+            if case .messageStart(let params) = event {
+                selectedSession = params.sessionId
+                selectedMessage = params.messageId
+                break
+            }
+        }
+        guard let selectedSession, let selectedMessage else { throw Failure.missingFixture }
+        precondition(vm.sendDraft.pending == nil && vm.sendDraft.text.isEmpty && vm.isStreaming)
+        vm.sendDraft.edit("Newer Watch draft")
+        vm.handleMessage(try decode("{\"type\":\"permission_request\",\"permId\":\"retained-permission\",\"toolName\":\"Bash\",\"toolInput\":\"retained input\"}"))
+        let count = vm.messages.count
+        vm.handleMessage(try decode("{\"type\":\"error\",\"sessionId\":\"foreign-session\",\"error\":\"Foreign runtime failure\"}"))
+        vm.handleMessage(try decode("{\"type\":\"error\",\"sessionId\":\"old-reasoning-session\",\"error\":\"Old runtime failure\"}"))
+        vm.handleMessage(try decode("{\"type\":\"error\",\"sessionId\":\"\(selectedSession)\",\"clientMsgId\":\"\(id)\",\"error\":\"Late accepted startup error\"}"))
+        vm.handleMessage(try decode("{\"type\":\"error\",\"clientMsgId\":\"\(id)\",\"error\":\"Late unscoped startup error\"}"))
+        precondition(vm.messages.count == count && vm.sendError == nil)
+        vm.handleMessage(try decode("{\"type\":\"error\",\"sessionId\":\"\(selectedSession)\",\"error\":\"Provider overloaded\"}"))
+        precondition(vm.sendError == "Provider overloaded")
+        precondition(vm.messages.count == count + 1 && vm.messages.last?.text == "Error: Provider overloaded")
+        precondition(vm.messages.filter { $0.id == id }.count == 1)
+        precondition(vm.sendDraft.pending == nil && vm.sendDraft.rejectedText == nil && vm.sendDraft.text == "Newer Watch draft")
+        precondition(vm.isStreaming && vm.currentStream?.messageId == selectedMessage)
+        precondition(vm.permissionRequest?.permId == "retained-permission")
+        var foreignTerminals = 0
+        for packet in fixture.foreignEvents ?? [] {
+            let event = try decodeBackendPacket(packet, fixtureId: fixture.request.clientMsgId, commandId: id)
+            guard case .sessionEnd = event else { continue }
+            vm.handleMessage(event)
+            foreignTerminals += 1
+            precondition(vm.isStreaming)
+        }
+        precondition(foreignTerminals == 1)
+        var selectedTerminals = 0
+        for packet in fixture.events {
+            let event = try decodeBackendPacket(packet, fixtureId: fixture.request.clientMsgId, commandId: id)
+            guard case .sessionEnd = event else { continue }
+            vm.handleMessage(event)
+            selectedTerminals += 1
+        }
+        precondition(selectedTerminals == 1)
+        precondition(!vm.isStreaming && vm.sendDraft.text == "Newer Watch draft" && vm.sendDraft.rejectedText == nil)
+        await vm.stop()
+        guard case .stop(let stoppedSession) = app.sent.last else { throw Failure.missingPending }
+        precondition(stoppedSession == selectedSession)
+        await vm.send()
+        guard case .send(let next) = app.sent.last else { throw Failure.missingPending }
+        precondition(next.sessionId == selectedSession && next.clientMsgId != id && next.prompt == "Newer Watch draft")
+        precondition(vm.sendError == nil && vm.sendDraft.pending?.clientMsgId == next.clientMsgId)
+        precondition(vm.permissionRequest?.permId == "retained-permission")
+        vm.handleMessage(try decode("{\"type\":\"error\",\"sessionId\":\"\(selectedSession)\",\"error\":\"Runtime failed while delivery remains uncertain\"}"))
+        precondition(vm.sendError == "Runtime failed while delivery remains uncertain")
+        precondition(vm.sendDraft.pending?.clientMsgId == next.clientMsgId && vm.sendDraft.rejectedText == nil)
+        precondition(vm.sendDraft.text == "Newer Watch draft" && app.sent.count == 3)
+        precondition(vm.permissionRequest?.permId == "retained-permission")
     }
 
     enum Failure: Error { case missingPending, missingFixture }

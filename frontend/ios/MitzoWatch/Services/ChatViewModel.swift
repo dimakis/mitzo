@@ -192,8 +192,15 @@ final class ChatViewModel: ObservableObject {
             if case .rejected = receipt { sendError = params.error }
             messages.append(ChatMessage(role: .assistant, text: "Error: \(params.error)"))
 
-        case .error(let error, _, _):
-            guard case .rejected = receipt else { return }
+        case .error(let error, let sessionId, let clientMsgId):
+            if case .rejected = receipt {
+                // Exact refusal recovers only this pending command.
+            } else {
+                // Runtime failures belong to the selected session, independently
+                // of whether its submitted input has already been accepted.
+                guard clientMsgId == nil, let sessionId,
+                      sessionId == resolvedSessionId else { return }
+            }
             sendError = error
             messages.append(ChatMessage(role: .assistant, text: "Error: \(error)"))
 
