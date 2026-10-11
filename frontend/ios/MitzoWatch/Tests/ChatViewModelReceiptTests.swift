@@ -225,8 +225,7 @@ struct ChatViewModelReceiptTests {
                 vm.toolStatus = "Running command..."
             case .error(let error, let sessionId, let command):
                 precondition(selectedSession != nil)
-                if iteratorThrow { precondition(sessionId == nil && command == id) }
-                else { precondition(sessionId == selectedSession && command == nil) }
+                precondition(sessionId == selectedSession && command == nil)
                 precondition(vm.sendError == error, "Actual post-echo backend error must remain visible")
                 precondition(vm.messages.last?.text == "Error: \(error)")
                 precondition(vm.messages.filter { $0.id == id }.count == 1)
@@ -248,20 +247,17 @@ struct ChatViewModelReceiptTests {
         precondition(vm.sendDraft.pending?.clientMsgId == nextId && vm.sendDraft.rejectedText == nil)
         let count = vm.messages.count
         let feedback = vm.sendError
-        // Overload has a real foreign SID. Raw iterator errors have no SID, so
-        // their identical deliberately reused CID cannot identify a foreign stream;
-        // that exclusion is proved by the real backend registry fixture instead.
-        if !iteratorThrow {
-            var sawForeignError = false
-            for packet in fixture.foreignEvents ?? [] {
-                let event = try decodeBackendPacket(packet, fixtureId: fixture.request.clientMsgId, commandId: id)
-                guard case .error(_, let sessionId, _) = event else { continue }
-                precondition(sessionId != nil && sessionId != selectedSession)
-                vm.handleMessage(event)
-                sawForeignError = true
-            }
-            precondition(sawForeignError)
+        // Both provider results and caught iterator failures now preserve their
+        // selected session identity through the actual producer and phone relay.
+        var sawForeignError = false
+        for packet in fixture.foreignEvents ?? [] {
+            let event = try decodeBackendPacket(packet, fixtureId: fixture.request.clientMsgId, commandId: id)
+            guard case .error(_, let sessionId, let command) = event else { continue }
+            precondition(sessionId != nil && sessionId != selectedSession && command == nil)
+            vm.handleMessage(event)
+            sawForeignError = true
         }
+        precondition(sawForeignError)
         vm.handleMessage(try decode("{\"type\":\"error\",\"error\":\"Unattributed\"}"))
         vm.handleMessage(try decode("{\"type\":\"error\",\"clientMsgId\":\"foreign-command\",\"error\":\"Stale\"}"))
         precondition(vm.messages.count == count && vm.sendError == feedback)

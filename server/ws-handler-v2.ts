@@ -714,8 +714,13 @@ export function handleSendV2(
           send: (event) => {
             if (event.type === 'user_message' && event.messageId === msg.clientMsgId)
               initialPromptDelivered = true;
+            const acceptedRuntimeError =
+              event.type === 'error' &&
+              typeof event.sessionId === 'string' &&
+              ctx.eventStore.hasUserMessage(event.sessionId, msg.clientMsgId);
             transport.send(
-              event.type === 'session_id' || (event.type === 'error' && !initialPromptDelivered)
+              event.type === 'session_id' ||
+                (event.type === 'error' && !initialPromptDelivered && !acceptedRuntimeError)
                 ? { ...event, clientMsgId: msg.clientMsgId }
                 : event,
             );

@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.9';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.49';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.50';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -27,7 +27,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
 
   '../chat-rest-handler.ts': '35dbf6b8632965712b047b156491bbadb8cda42899d06ff52c8a426150e21ed7',
   // Contributor live-query capture and exact output ownership share runtime admission.
-  '../query-loop.ts': 'e9c603d4993e4df3437423b6f93eecccaa83122dbd6d6736fe5ff8f53eda9918',
+  '../query-loop.ts': '536109be7d7bbdb74f21b521265c789765d967eb871f802388a9e6ec7236ac04',
   '../account-profiles.ts': '6de5c87f62d5234cb68e3f857c8431160f63562fea3b78ec62e5dd2f381e3745',
   '../ordinary-turn-lifecycle.ts':
     '136bdac73de0f9280676a209a234972393ca14e84fca40616ac93f204c31e7de',
@@ -58,7 +58,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '5ad72e9be9d3289a13511aaa1bb107b527283493e5577e08912ea4fdc4740a81',
   '../agent-context-binding.ts': 'ce0f8dba7f97f515be8ee00a441e3cc36344aad44f31e0b2fb33a160f8803e66',
   '../app.ts': '80fa44e1447e685c892fac3ee350a0cd51205930dcf0506cb6ceed5dabb507c1',
-  '../ws-handler-v2.ts': 'a1befd2e31d2b1fbb6772b44b1183b8a40a8a492d96c35b0c64614510bb0784a',
+  '../ws-handler-v2.ts': '6dc83858d2c813bbce858301458ec0124248def3dfaf61e91a14fe09718517c9',
   '../briefings.ts': '277b26171abc42266a3b621ff7ab10306792764cb55bbc635e41c4ba20e98d49',
   '../home-router.ts': '744708f3503d3ef46114998ce9bb6a68b3068a3c7d57e0c264298cdb69aac982',
   '../notification-store.ts': 'd73b922e8e04b1e6415d1c1388bcf75edb4b65c913d3636b9a63e16583bc035b',
