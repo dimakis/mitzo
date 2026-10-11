@@ -9,15 +9,29 @@ import {
   realpathSync,
   linkSync,
   symlinkSync,
+  renameSync,
+  openSync,
+  closeSync,
+  fstatSync,
 } from 'node:fs';
 import { performance } from 'node:perf_hooks';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import process from 'node:process';
 import { spawn } from 'node:child_process';
-import { createStagingOfflineOperatorAuthorizer } from '../../scripts/lib/staging-offline-operator-auth.mjs';
+import { createStagingOfflineOperatorAuthorizer as createAuthorizer } from '../../scripts/lib/staging-offline-operator-auth.mjs';
 
 vi.mock('node:child_process', () => ({ spawn: vi.fn() }));
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal();
+  return { ...actual, openSync: vi.fn(actual.openSync), closeSync: vi.fn(actual.closeSync) };
+});
+const factories = [];
+function createStagingOfflineOperatorAuthorizer(options) {
+  const value = createAuthorizer(options);
+  factories.push(value);
+  return value;
+}
 const planSha256 = 'a'.repeat(64);
 let directory, helperPath, authorizer, child;
 beforeEach(() => {
@@ -39,6 +53,7 @@ beforeEach(() => {
   });
 });
 afterEach(() => {
+  for (const factory of factories.splice(0)) factory.close();
   vi.useRealTimers();
   vi.restoreAllMocks();
   vi.clearAllMocks();
@@ -204,8 +219,59 @@ it('rejects spawn errors, signal exit and helper identity substitution even with
   await signalFailure;
   const substituted = authorizer.authenticate(planSha256);
   const substitutionFailure = expect(substituted).rejects.toThrow(/authentication/i);
-  rmSync(helperPath);
-  writeFileSync(helperPath, 'synthetic helper never executed', { mode: 0o700 });
+  const replacement = join(directory, 'replacement');
+  writeFileSync(replacement, 'synthetic helper never executed', { mode: 0o700 });
+  renameSync(replacement, helperPath);
   success();
   await substitutionFailure;
+});
+
+it('holds the enrolled helper inode until explicit parent disposal and revokes the live lease', async () => {
+  const fd = vi.mocked(openSync).mock.results[0].value;
+  expect(vi.mocked(closeSync).mock.calls.some(([closed]) => closed === fd)).toBe(false);
+  expect(fstatSync(fd).nlink).toBe(1);
+  const pending = authorizer.authenticate(planSha256);
+  success();
+  const lease = authorizer.consume(await pending, planSha256);
+  authorizer.close();
+  expect(() => fstatSync(fd)).toThrow();
+  expect(() => lease.assertCurrent(planSha256)).toThrow();
+  expect(() => authorizer.authenticate(planSha256)).toThrow();
+  authorizer.close();
+});
+it('prevents unlink/recreate inode reuse throughout a consumed lease', async () => {
+  const fd = vi.mocked(openSync).mock.results[0].value,
+    original = fstatSync(fd);
+  const pending = authorizer.authenticate(planSha256);
+  success();
+  const lease = authorizer.consume(await pending, planSha256);
+  rmSync(helperPath);
+  writeFileSync(helperPath, 'synthetic helper never executed', { mode: 0o700 });
+  expect(fstatSync(fd).nlink).toBe(0);
+  const replacement = openSync(helperPath, 0);
+  try {
+    expect(fstatSync(replacement).ino).not.toBe(original.ino);
+  } finally {
+    closeSync(replacement);
+  }
+  expect(() => lease.assertCurrent(planSha256)).toThrow();
+});
+it('disposal cancels only the original pending helper and invalidates outstanding authority', async () => {
+  const pending = authorizer.authenticate(planSha256),
+    rejected = expect(pending).rejects.toThrow(/authentication/i);
+  authorizer.close();
+  await rejected;
+  expect(child.kill).toHaveBeenCalledExactlyOnceWith('SIGTERM');
+  expect(() => authorizer.authenticate(planSha256)).toThrow();
+  authorizer.close();
+  expect(child.kill).toHaveBeenCalledTimes(1);
+  const other = createStagingOfflineOperatorAuthorizer({
+    helperPath,
+    expectedSha256: createHash('sha256').update('synthetic helper never executed').digest('hex'),
+  });
+  const attempt = other.authenticate(planSha256);
+  success();
+  const authority = await attempt;
+  other.close();
+  expect(() => other.consume(authority, planSha256)).toThrow();
 });

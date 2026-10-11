@@ -6,6 +6,7 @@ function fixture() {
   const order = [];
   const token = {};
   const base = { assertCurrent: vi.fn(() => true), close: vi.fn() };
+  const closeAuthorizer = vi.fn();
   const receiptSha256 = 'e'.repeat(64);
   const deps = {
     enroll: async (_source, verify) => {
@@ -14,6 +15,7 @@ function fixture() {
       return { helperPath: '/compiled/helper', expectedSha256: 'a'.repeat(64) };
     },
     createAuthorizer: () => ({
+      close: closeAuthorizer,
       authenticate: async () => {
         order.push('authenticate');
         return token;
@@ -61,7 +63,15 @@ function fixture() {
   const verifySource = vi.fn(async () => ({
     sourceCommit: proposal.ordinaryPlan.facts.source.sourceCommit,
   }));
-  return { proposal, sourceRoot: '/qualified/release', verifySource, deps, order, base };
+  return {
+    proposal,
+    sourceRoot: '/qualified/release',
+    verifySource,
+    deps,
+    order,
+    base,
+    closeAuthorizer,
+  };
 }
 it('wires a single qualified helper and original containment capsule into ordinary restoration', async () => {
   const f = fixture();
@@ -74,6 +84,7 @@ it('wires a single qualified helper and original containment capsule into ordina
     'restore ordinary',
   ]);
   expect(f.base.close).toHaveBeenCalledTimes(1);
+  expect(f.closeAuthorizer).toHaveBeenCalledTimes(1);
   expect(result.ordinary.mode).toBe('ordinary');
 });
 it('never authenticates when frozen helper enrollment refuses', async () => {
@@ -96,4 +107,5 @@ it('never restores when no original transaction capsule was produced', async () 
   await expect(applyOfflineRecoveryProposal(f, f.deps)).rejects.toThrow();
   expect(f.order).not.toContain('restore ordinary');
   expect(f.base.close).toHaveBeenCalledTimes(1);
+  expect(f.closeAuthorizer).toHaveBeenCalledTimes(1);
 });

@@ -127,5 +127,5 @@ export async function applyOfflineRecoveryProposal(
         effects: ordinaryEffects,
       }).apply(authority);
     },
-  });
+  }).finally(() => authorizer.close?.());
 }

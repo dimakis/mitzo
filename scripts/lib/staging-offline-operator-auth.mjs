@@ -16,11 +16,24 @@ import { dirname, isAbsolute } from 'node:path';
 
 const fail = () => Error('Fresh staging operator authentication failed; no authority issued');
 const sha = /^[a-f0-9]{64}$/;
-function inspect(path, expectedSha256) {
+const identity = (stat, digest) =>
+  JSON.stringify({
+    dev: stat.dev,
+    ino: stat.ino,
+    size: stat.size,
+    mode: stat.mode,
+    uid: stat.uid,
+    nlink: stat.nlink,
+    mtimeMs: stat.mtimeMs,
+    ctimeMs: stat.ctimeMs,
+    digest,
+  });
+function inspect(path, expectedSha256, retain = false) {
   if (!isAbsolute(path) || realpathSync(path) !== path || !sha.test(expectedSha256)) throw fail();
   const parent = lstatSync(dirname(path));
   if (!parent.isDirectory() || parent.uid !== process.getuid() || parent.mode & 0o077) throw fail();
   const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+  let retained = false;
   try {
     const stat = fstatSync(fd);
     if (
@@ -35,16 +48,15 @@ function inspect(path, expectedSha256) {
       throw fail();
     const digest = createHash('sha256').update(readFileSync(fd)).digest('hex');
     if (digest !== expectedSha256) throw fail();
-    return JSON.stringify({
-      dev: stat.dev,
-      ino: stat.ino,
-      size: stat.size,
-      mode: stat.mode,
-      uid: stat.uid,
-      digest,
-    });
+    const fingerprint = identity(stat, digest);
+    if (identity(fstatSync(fd), digest) !== fingerprint) throw fail();
+    if (retain) {
+      retained = true;
+      return { fd, identity: fingerprint };
+    }
+    return fingerprint;
   } finally {
-    closeSync(fd);
+    if (!retained) closeSync(fd);
   }
 }
 
@@ -53,12 +65,17 @@ function inspect(path, expectedSha256) {
  * copied tokens and caller-supplied evidence cannot mint or transfer the brand.
  * No capacity, native custody, containment action or provider permission is granted. */
 export function createStagingOfflineOperatorAuthorizer({ helperPath, expectedSha256 }) {
-  const enrolledIdentity = inspect(helperPath, expectedSha256);
+  const enrolled = inspect(helperPath, expectedSha256, true);
   const authorities = new WeakSet();
   const deadlines = new WeakMap();
-  let pending = false;
+  let pending = false,
+    closed = false,
+    pendingAbort;
   const verifyHelper = () => {
-    if (inspect(helperPath, expectedSha256) !== enrolledIdentity) throw fail();
+    if (closed || identity(fstatSync(enrolled.fd), expectedSha256) !== enrolled.identity)
+      throw fail();
+    if (inspect(helperPath, expectedSha256) !== enrolled.identity) throw fail();
+    if (identity(fstatSync(enrolled.fd), expectedSha256) !== enrolled.identity) throw fail();
   };
   return Object.freeze({
     authenticate(planSha256) {
@@ -66,6 +83,7 @@ export function createStagingOfflineOperatorAuthorizer({ helperPath, expectedSha
         typeof planSha256 !== 'string' ||
         !sha.test(planSha256) ||
         pending ||
+        closed ||
         process.getuid() === 0
       )
         throw fail();
@@ -85,6 +103,7 @@ export function createStagingOfflineOperatorAuthorizer({ helperPath, expectedSha
           if (settled) return;
           settled = true;
           pending = false;
+          pendingAbort = undefined;
           globalThis.clearTimeout(timer);
           child?.stdout?.removeListener('data', onOutput);
           child?.stderr?.removeListener('data', onErrorOutput);
@@ -105,6 +124,7 @@ export function createStagingOfflineOperatorAuthorizer({ helperPath, expectedSha
           }
           finish();
         };
+        pendingAbort = abort;
         const onOutput = (chunk) => {
           const bytes = Buffer.from(chunk);
           if (output.length + bytes.length > 1024) return abort();
@@ -168,8 +188,18 @@ export function createStagingOfflineOperatorAuthorizer({ helperPath, expectedSha
         }
       });
     },
+    close() {
+      if (closed) return;
+      closed = true;
+      try {
+        pendingAbort?.();
+      } finally {
+        closeSync(enrolled.fd);
+      }
+    },
     consume(authority, planSha256) {
       if (
+        closed ||
         !authority ||
         !authorities.has(authority) ||
         authority.planSha256 !== planSha256 ||
@@ -181,11 +211,11 @@ export function createStagingOfflineOperatorAuthorizer({ helperPath, expectedSha
       const deadline = deadlines.get(authority);
       authorities.delete(authority);
       deadlines.delete(authority);
-      let closed = false;
+      let leaseClosed = false;
       return Object.freeze({
         assertCurrent(requestedPlanSha256) {
           if (
-            closed ||
+            leaseClosed ||
             requestedPlanSha256 !== planSha256 ||
             Date.now() >= authority.expiresAt ||
             performance.now() >= deadline
@@ -195,7 +225,7 @@ export function createStagingOfflineOperatorAuthorizer({ helperPath, expectedSha
           return true;
         },
         close() {
-          closed = true;
+          leaseClosed = true;
         },
       });
     },
