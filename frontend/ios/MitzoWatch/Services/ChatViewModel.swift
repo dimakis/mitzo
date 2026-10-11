@@ -197,7 +197,8 @@ final class ChatViewModel: ObservableObject {
             sendError = error
             messages.append(ChatMessage(role: .assistant, text: "Error: \(error)"))
 
-        case .sessionEnd:
+        case .sessionEnd(let params):
+            guard params.sessionId == resolvedSessionId else { return }
             isStreaming = false
             toolStatus = nil
 

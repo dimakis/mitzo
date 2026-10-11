@@ -26,7 +26,9 @@ struct ChatViewModelReceiptTests {
         try await backendStartupRoutesExactEchoAndReply(fixturePath: CommandLine.arguments[1], newerEdit: true, requireBareAssignment: false)
         try await backendStartupRoutesExactEchoAndReply(fixturePath: CommandLine.arguments[2], newerEdit: false, requireBareAssignment: true)
         try await backendStartupRoutesExactEchoAndReply(fixturePath: CommandLine.arguments[2], newerEdit: true, requireBareAssignment: true)
-        print("9 offline Watch view-model receipt cases passed")
+        try await foreignTerminalPreservesActiveSelectedStream(fixturePath: CommandLine.arguments[1])
+        try await foreignTerminalPreservesActiveSelectedStream(fixturePath: CommandLine.arguments[2])
+        print("11 offline Watch view-model receipt cases passed")
     }
 
     static func decode(_ json: String) throws -> ServerMessage {
@@ -266,6 +268,57 @@ struct ChatViewModelReceiptTests {
         }
         precondition(vm.sendDraft.pending?.clientMsgId == nextId && vm.sendDraft.pending?.sessionId == sessionId)
         precondition(vm.sendDraft.text == "Explicit next Watch input" && vm.messages.count == count)
+    }
+
+    @MainActor static func foreignTerminalPreservesActiveSelectedStream(fixturePath: String) async throws {
+        let fixture = try JSONDecoder().decode(BackendFixture.self, from: Data(contentsOf: URL(fileURLWithPath: fixturePath)))
+        let app = AppState()
+        let vm = ChatViewModel(sessionId: nil, appState: app)
+        vm.sendDraft.edit(fixture.request.prompt)
+        await vm.send()
+        let id = try pendingId(vm)
+        var selectedSession: String?
+        var selectedMessage: String?
+        for packet in fixture.events {
+            let event = try decodeBackendPacket(packet, fixtureId: fixture.request.clientMsgId, commandId: id)
+            vm.handleMessage(event)
+            if case .messageStart(let params) = event {
+                selectedSession = params.sessionId
+                selectedMessage = params.messageId
+                break
+            }
+        }
+        precondition(selectedSession != nil && selectedMessage != nil && vm.isStreaming)
+        // Preserve a current tool indicator while replaying real foreign packets.
+        vm.toolStatus = "Running command..."
+        let count = vm.messages.count
+        let draft = vm.sendDraft.text
+        var sawForeignTerminal = false
+        for packet in fixture.foreignEvents ?? [] {
+            let event = try decodeBackendPacket(packet, fixtureId: fixture.request.clientMsgId, commandId: id)
+            if case .sessionEnd(let params) = event {
+                precondition(params.sessionId != selectedSession)
+                sawForeignTerminal = true
+            }
+            vm.handleMessage(event)
+            precondition(vm.isStreaming && vm.toolStatus == "Running command...")
+            precondition(vm.currentStream?.messageId == selectedMessage)
+            precondition(vm.messages.count == count && vm.sendDraft.text == draft)
+        }
+        precondition(sawForeignTerminal)
+        // The selected conversation's actual terminal retains its prior behavior.
+        var sawSelectedTerminal = false
+        for packet in fixture.events {
+            let event = try decodeBackendPacket(packet, fixtureId: fixture.request.clientMsgId, commandId: id)
+            guard case .sessionEnd(let params) = event else { continue }
+            precondition(params.sessionId == selectedSession)
+            vm.handleMessage(event)
+            precondition(!vm.isStreaming && vm.toolStatus == nil)
+            precondition(vm.currentStream?.messageId == selectedMessage)
+            precondition(vm.messages.count == count && vm.sendDraft.text == draft)
+            sawSelectedTerminal = true
+        }
+        precondition(sawSelectedTerminal)
     }
 
     enum Failure: Error { case missingPending, missingFixture }
