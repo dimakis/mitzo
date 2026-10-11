@@ -1,3 +1,4 @@
+import type { OrdinaryTurnLifecycle } from './ordinary-turn-lifecycle.js';
 import type { RepositoryChatWorkspace } from './repository-chat-startup.js';
 import { getRepositoryWorkspaces } from './repository-workspace-runtime.js';
 import {
@@ -487,6 +488,8 @@ export function readCodexLifecycleQueue(conversationId: string, binding: Account
   return store().lifecycleQueue(conversationId, binding);
 }
 interface Options {
+  ordinaryTurnLifecycle?: OrdinaryTurnLifecycle;
+  contributorGuidance?: string;
   agentProfile?: AgentLibraryVersion;
   /** Captured from verified operator transport, never caller JSON; admission only. */
   assertAgentContextAuthorization?: () => void;
@@ -1150,7 +1153,7 @@ async function openCodexChatBound(
     GITHUB_PUBLISHING_INSTRUCTIONS +
     `\nWhen the user asks you to build a reusable Symposium agent profile in this conversation, use ${SYMPOSIUM_PROPOSE_PROFILE_TOOL} to submit portable guidance for review. The tool only drafts a proposal; tell the user to edit and save it in Mitzo. Do not include credentials, transcript text, session or machine paths, account bindings, or runtime grants.\n` +
     (connectedOpenShell
-      ? `\nOpenShell contains the provider loop and its built-in tools. Use those tools directly inside the supplied sandbox workspace. Current Mitzo mode: ${options.session.mode}. In Agent or Auto mode, a user request to edit that workspace is the required approval: execute it without asking again. ${TELOS_ARTIFACT_INSTRUCTIONS} Use ${TELOS_CREATE_OUTCOME_TOOL} for durable Telos capture; never use a sandbox-local todo script for persistent Telos work.${integrationTools.length ? ` Mitzo preflights explicit requests for grantable integrations before the turn begins. If you discover that you need a grantable service which the user did not request explicitly, call ${GRANT_INTEGRATION_TOOL} before using it. A CLI being installed does not mean its provider is attached, and a tunnel error from an unattached provider is not evidence of a gateway outage.` : ''}\n`
+      ? `\nOpenShell contains the provider loop and its built-in tools. Use those tools directly inside the supplied sandbox workspace. Current Mitzo mode: ${options.session.mode}. In Agent or Auto mode, a user request to edit that workspace is the required approval: execute it without asking again. ${options.contributorGuidance === undefined ? `${TELOS_ARTIFACT_INSTRUCTIONS} Use ${TELOS_CREATE_OUTCOME_TOOL} for durable Telos capture; never use a sandbox-local todo script for persistent Telos work.` : ''}${integrationTools.length ? ` Mitzo preflights explicit requests for grantable integrations before the turn begins. If you discover that you need a grantable service which the user did not request explicitly, call ${GRANT_INTEGRATION_TOOL} before using it. A CLI being installed does not mean its provider is attached, and a tunnel error from an unattached provider is not evidence of a gateway outage.` : ''}\n`
       : HOST_TOOL_INSTRUCTIONS) +
     (managedConnection?.templateId === 'jira-readonly'
       ? '\nThis sandbox has verified read-only Jira access to https://redhat.atlassian.net. Use the scoped API base in JIRA_URL (not the browser site URL). Use the provider-approved /usr/bin/python3 or curl with JIRA_URL, JIRA_EMAIL, and the gateway-managed JIRA_API_TOKEN placeholder for Basic authorization. Never print credential values. Writes are denied by the gateway policy.\n'
@@ -1428,7 +1431,16 @@ async function openCodexChatBound(
         }
       : {}),
     emit: (event) => events.push(event),
-    onProviderDispatch: (messageId) => beginTrackedProviderAttempt(options.session, messageId),
+    onProviderDispatch: (messageId) => {
+      options.ordinaryTurnLifecycle?.beforeDispatch(messageId);
+      beginTrackedProviderAttempt(options.session, messageId);
+    },
+    onProviderAccepted: (messageId, threadId, turnId) =>
+      options.ordinaryTurnLifecycle?.accepted(messageId, threadId, turnId),
+    onProviderTerminal: (messageId, turnId, status) =>
+      options.ordinaryTurnLifecycle?.terminal(messageId, turnId, status),
+    onProviderTerminalConflict: (messageId, _threadId, turnId) =>
+      options.ordinaryTurnLifecycle?.terminalConflict?.(messageId, turnId),
     onProviderComplete: (messageId, status) =>
       finishTrackedProviderAttempt(options.session, messageId, status),
     loadConversationHistory: () => codexRolloverHistory(options.eventStore, options.conversationId),

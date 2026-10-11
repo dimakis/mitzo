@@ -203,6 +203,9 @@ export interface QueryLoopOptions {
   onFirstEventOutcome?: (error?: Error) => void;
   /** Report the final outcome after the provider stream ends. */
   onTerminalOutcome?: (error?: Error) => void;
+  /** Trusted observer for this exact query's live normalized events, independent
+   * of UI fan-out. History restoration/backfill never calls this observer. */
+  onEvent?: (event: Readonly<Record<string, unknown>>) => void;
   /** Called after the initial prompt is registered, enabling auto-rename on prompt 1. */
   onInitialPrompt?: (sessionId: string) => void;
   /** Called when an assistant turn completes (snapshot cleared). */
@@ -440,6 +443,10 @@ async function _runQueryLoopInner(
 
   /** Wrapper that auto-injects store + sessionId + connRegistry into sendOrBuffer */
   function emit(data: Record<string, unknown>) {
+    if (options?.onEvent && ownedSession && currentOwnerSession() === ownedSession) {
+      const sessionId = resolvedSessionId ?? ownedSession?.sessionId;
+      options.onEvent({ ...data, ...(sessionId ? { sessionId } : {}) });
+    }
     if (!resolvedSessionId && data.v === 2) {
       preSessionBuffer.push(data);
     }
@@ -660,7 +667,11 @@ async function _runQueryLoopInner(
             span.setAttribute('session.id', resolvedSessionId);
             registry.setSessionId(clientId, resolvedSessionId);
             onSessionResolved?.(resolvedSessionId);
-            emit({ type: 'session_id', sessionId: msg.session_id });
+            emit({
+              type: 'session_id',
+              sessionId: msg.session_id,
+              ...(options?.initialClientMsgId ? { clientMsgId: options.initialClientMsgId } : {}),
+            });
             // Update session index with SDK session ID
             if (currentSession.wtId) {
               try {

@@ -24,6 +24,59 @@ const version = {
   },
 };
 const response = (body: unknown) => ({ ok: true, json: async () => body }) as Response;
+it('limits optional contributor guidance to roles supported by its execution route', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(
+    response({
+      drafts: [],
+      versions: [
+        { ...version, definition: { ...version.definition, role: 'reviewer' } },
+        {
+          ...version,
+          profileId: 'writer',
+          definition: { ...version.definition, name: 'Writer', role: 'coder' },
+        },
+      ],
+    }),
+  );
+  render(
+    <MemoryRouter>
+      <ChatAgentProfilePicker
+        sessionId={null}
+        search=""
+        updateSearchParams={false}
+        allowedRoles={['coder']}
+        onChange={vi.fn()}
+      />
+    </MemoryRouter>,
+  );
+  await screen.findByRole('option', { name: 'Writer · The architect · r3' });
+  expect(screen.queryByRole('option', { name: 'Bob · The architect · r3' })).toBeNull();
+});
+it('keeps contributor guidance selection local to the dialog without changing the source chat', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(response({ drafts: [], versions: [version] }));
+  const change = vi.fn();
+  function Screen() {
+    return (
+      <>
+        <output aria-label="Source chat route">{useLocation().search}</output>
+        <ChatAgentProfilePicker
+          sessionId={null}
+          search=""
+          updateSearchParams={false}
+          onChange={change}
+        />
+      </>
+    );
+  }
+  render(
+    <MemoryRouter initialEntries={['/chat/source?prompt=Keep+this']}>
+      <Screen />
+    </MemoryRouter>,
+  );
+  fireEvent.change(await screen.findByLabelText('Agent profile'), { target: { value: 'bob:3' } });
+  expect(change).toHaveBeenLastCalledWith({ profileId: 'bob', revision: 3 }, undefined);
+  expect(screen.getByLabelText('Source chat route').textContent).toBe('?prompt=Keep+this');
+});
 it.each(['bob', 'my agent'])(
   'selects the exact Library revision for catalog ID %s',
   async (profileId) => {

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act, cleanup } from '@testing-library/react';
-import { useDraft } from '../useDraft';
+import { useDraft, type DraftSessionAssignment } from '../useDraft';
 
 beforeEach(() => localStorage.clear());
 afterEach(() => {
@@ -12,6 +12,80 @@ afterEach(() => {
 });
 
 describe('useDraft', () => {
+  it('promotes the current ordinary draft only for an exact authenticated session assignment', () => {
+    vi.useFakeTimers();
+    const { result, rerender } = renderHook(
+      ({ id, assignment }: { id: string; assignment?: DraftSessionAssignment }) =>
+        useDraft(id, undefined, undefined, assignment),
+      { initialProps: { id: 'a', assignment: undefined as DraftSessionAssignment | undefined } },
+    );
+    act(() => result.current[1]('Later edit before the exact assignment'));
+    rerender({ id: 'b', assignment: { fromSessionId: 'a', toSessionId: 'b' } });
+    expect(result.current[0]).toBe('Later edit before the exact assignment');
+    expect(localStorage.getItem('mitzo-draft-b')).toBe('Later edit before the exact assignment');
+    expect(localStorage.getItem('mitzo-draft-a')).toBeNull();
+    act(() => result.current[2]());
+    act(() => vi.advanceTimersByTime(500));
+    expect(localStorage.getItem('mitzo-draft-b')).toBeNull();
+  });
+
+  it('refuses mismatched assignment and preparation ownership promotion', () => {
+    localStorage.setItem('mitzo-draft-a', 'Ordinary A');
+    const ordinary = renderHook(
+      ({ id }) =>
+        useDraft(id, undefined, undefined, { fromSessionId: 'different', toSessionId: 'b' }),
+      { initialProps: { id: 'a' } },
+    );
+    ordinary.rerender({ id: 'b' });
+    expect(ordinary.result.current[0]).toBe('');
+    expect(localStorage.getItem('mitzo-draft-a')).toBe('Ordinary A');
+    const preparation = renderHook(
+      ({ id, scope }: { id: string; scope?: string }) =>
+        useDraft(id, undefined, scope, { fromSessionId: 'a', toSessionId: 'b' }),
+      { initialProps: { id: 'a', scope: 'mitzo-repository-prompt:prep-a' as string | undefined } },
+    );
+    act(() => preparation.result.current[1]('Preparation-owned edit'));
+    preparation.rerender({ id: 'b', scope: undefined });
+    expect(preparation.result.current[0]).toBe('');
+    expect(localStorage.getItem('mitzo-repository-prompt:prep-a')).toBe('Preparation-owned edit');
+    expect(localStorage.getItem('mitzo-draft-b')).toBeNull();
+  });
+
+  it.each(['', 'Existing B draft'])(
+    'preserves ordinary A across A → B → A when B initially contains %j',
+    (draftB) => {
+      vi.useFakeTimers();
+      if (draftB) localStorage.setItem('mitzo-draft-b', draftB);
+      const { result, rerender } = renderHook(({ id }) => useDraft(id), {
+        initialProps: { id: 'a' },
+      });
+      const draftA = 'Unsent A\n  exact spacing  ';
+      act(() => result.current[1](draftA));
+      rerender({ id: 'b' });
+      expect(result.current[0]).toBe(draftB);
+      expect(localStorage.getItem('mitzo-draft-a')).toBe(draftA);
+      act(() => result.current[1]('Edited B'));
+      rerender({ id: 'a' });
+      expect(result.current[0]).toBe(draftA);
+      expect(localStorage.getItem('mitzo-draft-b')).toBe('Edited B');
+      act(() => vi.advanceTimersByTime(500));
+      expect(localStorage.getItem('mitzo-draft-a')).toBe(draftA);
+      expect(localStorage.getItem('mitzo-draft-b')).toBe('Edited B');
+    },
+  );
+
+  it('loads the unassigned draft without migrating an assigned conversation into it', () => {
+    localStorage.setItem('mitzo-draft-a', 'A draft');
+    localStorage.setItem('mitzo-draft-new', 'Separate new draft');
+    const { result, rerender } = renderHook(({ id }: { id?: string }) => useDraft(id), {
+      initialProps: { id: 'a' as string | undefined },
+    });
+    rerender({ id: undefined });
+    expect(result.current[0]).toBe('Separate new draft');
+    expect(localStorage.getItem('mitzo-draft-a')).toBe('A draft');
+    expect(localStorage.getItem('mitzo-draft-new')).toBe('Separate new draft');
+  });
+
   it.each(['switch', 'unmount'] as const)(
     'flushes the dirty ordinary owner on immediate %s before a preparation opens',
     (transition) => {
@@ -235,12 +309,14 @@ describe('useDraft', () => {
     });
 
     expect(result.current[0]).toBe('draft in progress');
+    act(() => result.current[1]('Edited just before assignment'));
 
     // Simulate the session getting assigned a real ID
     rerender({ id: 'sess-real' });
 
     // Draft should have migrated to the new key
-    expect(localStorage.getItem('mitzo-draft-sess-real')).toBe('draft in progress');
+    expect(localStorage.getItem('mitzo-draft-sess-real')).toBe('Edited just before assignment');
+    expect(result.current[0]).toBe('Edited just before assignment');
     // Old key should be removed
     expect(localStorage.getItem('mitzo-draft-new')).toBeNull();
 

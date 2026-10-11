@@ -28,6 +28,8 @@ import type {
 } from '@mitzo/protocol';
 
 export interface ManagedSession {
+  /** Trusted contributor driver owns exact terminal/drain; viewers only own attachment. */
+  contributorExecutionOwner?: true;
   /** Existing permission queue owner only; never an SDK/model execution. */
   symposiumPublicationUsers?: number;
   /** Current event connection; the registry key remains stable for the query lifetime. */
@@ -240,6 +242,11 @@ export class SessionRegistry {
     this.attached.delete(clientId);
     this.clearDetachTimer(clientId);
     this.clearCloseoutTimer(clientId);
+
+    // A validated contributor start has an independent cancellation owner.
+    // Viewer expiry must not enqueue ordinary closeout or abort its query
+    // before that owner observes the exact provider terminal and closure.
+    if (session.contributorExecutionOwner) return;
 
     if (this.closeoutHandler) {
       // Phase 1: fire closeout at TTL - CLOSEOUT_LEAD_MS

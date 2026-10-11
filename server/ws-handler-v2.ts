@@ -1,3 +1,7 @@
+import {
+  assertOrdinaryContributorControlAllowed,
+  SessionControlRejected,
+} from './ordinary-contributor-execution.js';
 import type { SourceSnapshot } from '@mitzo/protocol';
 import {
   claimChatCommand,
@@ -669,6 +673,8 @@ export function handleSendV2(
     { 'ws.connectionId': connectionId, 'ws.sessionId': msg.sessionId ?? 'new' },
     async (span) => {
       try {
+        if (msg.sessionId)
+          assertOrdinaryContributorControlAllowed(ctx.eventStore, msg.sessionId, 'send');
         if (msg.sessionId && msg.agentProfile) {
           const pinned = ctx.eventStore.getSession(msg.sessionId)?.agentProfile;
           if (
@@ -884,6 +890,8 @@ export function handleSendV2(
                 commandTransport.send({
                   type: 'native_command_result',
                   v: 2,
+                  clientMsgId: msg.clientMsgId,
+                  sessionId: paidReasoning ? commandSessionId : msg.sessionId,
                   command: result.command,
                   content: result.content,
                 });
@@ -903,7 +911,12 @@ export function handleSendV2(
         }
 
         if (resolution.type === 'error') {
-          transport.send({ type: 'error', error: resolution.message });
+          transport.send({
+            type: 'error',
+            error: resolution.message,
+            clientMsgId: msg.clientMsgId,
+            ...(msg.sessionId ? { sessionId: msg.sessionId } : {}),
+          });
           return;
         }
 
@@ -1201,6 +1214,7 @@ export function handleSendV2(
         }
         await startupAdmission;
       } catch (err: unknown) {
+        if (err instanceof SessionControlRejected) throw err;
         const message = err instanceof Error ? err.message : String(err);
         span.recordException(err instanceof Error ? err : new Error(message));
         span.setStatus({ code: SpanStatusCode.ERROR, message });
@@ -1222,6 +1236,7 @@ export function handleSendV2(
 
 export function handleStopV2(connectionId: string, msg: StopMsg, ctx: V2HandlerContext): void {
   withSpan('ws.stop', { 'ws.connectionId': connectionId, 'ws.sessionId': msg.sessionId }, () => {
+    assertOrdinaryContributorControlAllowed(ctx.eventStore, msg.sessionId, 'stop');
     if (
       cancelDeliberation(ctx.eventStore, msg.sessionId) ||
       cancelFusion(ctx.eventStore, msg.sessionId)
@@ -1246,6 +1261,7 @@ export function handleInterruptV2(
     'ws.interrupt',
     { 'ws.connectionId': connectionId, 'ws.sessionId': msg.sessionId },
     async () => {
+      assertOrdinaryContributorControlAllowed(ctx.eventStore, msg.sessionId, 'interrupt');
       if (ctx.eventStore.getSession(msg.sessionId)?.symposiumConfig) {
         const error = new Error('Use Symposium directed prompts for this session');
         transport.send({ type: 'error', sessionId: msg.sessionId, error: error.message });
@@ -1791,6 +1807,7 @@ export function handleSessionClose(
     'ws.session_close',
     { 'ws.connectionId': connectionId, 'ws.sessionId': msg.sessionId },
     () => {
+      assertOrdinaryContributorControlAllowed(ctx.eventStore, msg.sessionId, 'close');
       const found = ctx.sessionRegistry.findBySessionId(msg.sessionId);
       const conn = ctx.connRegistry.get(connectionId);
 
@@ -1822,6 +1839,7 @@ export function handleSessionClose(
         return;
       }
 
+      assertOrdinaryContributorControlAllowed(ctx.eventStore, msg.sessionId, 'close');
       closeSessionByUser(found.clientId);
       log.info('session close initiated by user', {
         connectionId,
@@ -1877,55 +1895,72 @@ export async function dispatchV2Message(
 
   const msg = result.data;
 
-  switch (msg.type) {
-    case 'hello':
-      // Already handled at routing layer, ignore duplicate
-      break;
-    case 'reconnect':
-      handleReconnect(connectionId, msg, ctx);
-      break;
-    case 'reconnect_snapshot_applied':
-      if (ctx.connRegistry.ackAppliedSnapshot(connectionId, msg.sessionId, msg.cursor, msg.offerId))
-        ctx.connRegistry.get(connectionId)?.transport.send({
-          type: 'reconnect_snapshot_confirmed',
-          sessionId: msg.sessionId,
-          cursor: msg.cursor,
-          offerId: msg.offerId,
-        });
-      break;
-    case 'session_event_applied':
-      ctx.connRegistry.ackAppliedEvent(connectionId, msg.sessionId, msg.seq);
-      break;
-    case 'watch':
-      handleWatch(connectionId, msg, ctx);
-      break;
-    case 'unwatch':
-      handleUnwatch(connectionId, msg, ctx);
-      break;
-    case 'switch_session':
-      await handleSwitchSession(connectionId, msg, ctx);
-      break;
-    case 'session_suspend':
-      handleSessionSuspend(connectionId, msg, ctx);
-      break;
-    case 'session_close':
-      handleSessionClose(connectionId, msg, ctx);
-      break;
-    case 'send':
-      await handleSendV2(connectionId, transport, msg, ctx);
-      break;
-    case 'stop':
-      handleStopV2(connectionId, msg, ctx);
-      break;
-    case 'interrupt':
-      await handleInterruptV2(connectionId, transport, msg, ctx);
-      break;
-    case 'permission_response':
-      handlePermissionResponseV2(connectionId, msg, ctx);
-      break;
-    case 'set_mode':
-      await handleSetModeV2(connectionId, msg, ctx);
-      break;
+  try {
+    switch (msg.type) {
+      case 'hello':
+        // Already handled at routing layer, ignore duplicate
+        break;
+      case 'reconnect':
+        handleReconnect(connectionId, msg, ctx);
+        break;
+      case 'reconnect_snapshot_applied':
+        if (
+          ctx.connRegistry.ackAppliedSnapshot(connectionId, msg.sessionId, msg.cursor, msg.offerId)
+        )
+          ctx.connRegistry.get(connectionId)?.transport.send({
+            type: 'reconnect_snapshot_confirmed',
+            sessionId: msg.sessionId,
+            cursor: msg.cursor,
+            offerId: msg.offerId,
+          });
+        break;
+      case 'session_event_applied':
+        ctx.connRegistry.ackAppliedEvent(connectionId, msg.sessionId, msg.seq);
+        break;
+      case 'watch':
+        handleWatch(connectionId, msg, ctx);
+        break;
+      case 'unwatch':
+        handleUnwatch(connectionId, msg, ctx);
+        break;
+      case 'switch_session':
+        await handleSwitchSession(connectionId, msg, ctx);
+        break;
+      case 'session_suspend':
+        handleSessionSuspend(connectionId, msg, ctx);
+        break;
+      case 'session_close':
+        handleSessionClose(connectionId, msg, ctx);
+        break;
+      case 'send':
+        await handleSendV2(connectionId, transport, msg, ctx);
+        break;
+      case 'stop':
+        handleStopV2(connectionId, msg, ctx);
+        break;
+      case 'interrupt':
+        await handleInterruptV2(connectionId, transport, msg, ctx);
+        break;
+      case 'permission_response':
+        handlePermissionResponseV2(connectionId, msg, ctx);
+        break;
+      case 'set_mode':
+        await handleSetModeV2(connectionId, msg, ctx);
+        break;
+    }
+  } catch (error) {
+    if (!(error instanceof SessionControlRejected)) throw error;
+    transport.send({
+      ...error.toMessage(),
+      ...('clientMsgId' in msg ? { clientMsgId: msg.clientMsgId } : {}),
+    });
+    if (msg.type === 'session_close')
+      transport.send({
+        type: 'session_close_ack',
+        sessionId: msg.sessionId,
+        accepted: false,
+        reason: error.message,
+      });
   }
 }
 

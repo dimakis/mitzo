@@ -22,6 +22,7 @@ describe('SessionRegistry', () => {
 
   afterEach(() => {
     registry.dispose();
+    vi.useRealTimers();
   });
 
   describe('register', () => {
@@ -95,6 +96,69 @@ describe('SessionRegistry', () => {
       expect(entry.path).toBe('/tmp/team_home-sessions/session-wt-abc');
       expect(entry.wtId).toBe('wt-abc');
     });
+  });
+
+  describe('contributor execution lifetime', () => {
+    it('still closes an ordinary query with a contributor-like key but no trusted execution owner', () => {
+      vi.useFakeTimers();
+      const closeout = vi.fn();
+      registry.setCloseoutHandler(closeout);
+      const abort = new AbortController();
+      registry.register('symposium-ordinary:unowned', {
+        transport: fakeTransport(),
+        abortController: abort,
+        mode: 'ask',
+        sessionId: 'ordinary',
+        sessionAllowList: new Set(),
+      });
+      registry.detach('symposium-ordinary:unowned');
+      vi.advanceTimersByTime(DETACHED_TTL_MS + CLOSEOUT_TIMEOUT_MS);
+      expect(closeout).toHaveBeenCalledOnce();
+      expect(abort.signal.aborted).toBe(true);
+      expect(registry.get('symposium-ordinary:unowned')).toBeUndefined();
+    });
+
+    it.each(['detach', 'last observer', 'suspend'] as const)(
+      'keeps an exact contributor driver alive after viewer %s expiry until its owner stops it',
+      (route) => {
+        vi.useFakeTimers();
+        const closeout = vi.fn();
+        registry.setCloseoutHandler(closeout);
+        const abort = new AbortController();
+        registry.register('contributor-driver', {
+          transport: fakeTransport(),
+          abortController: abort,
+          mode: 'ask',
+          sessionId: 'child',
+          sessionAllowList: new Set(),
+          contributorExecutionOwner: true,
+        });
+        const session = registry.get('contributor-driver');
+        const viewer = fakeTransport();
+        registry.reattach('contributor-driver', viewer);
+        if (route === 'suspend') {
+          registry.suspend('contributor-driver', 0);
+          vi.advanceTimersByTime(SUSPEND_GRACE_MS);
+        } else {
+          registry.detach('contributor-driver');
+          if (route === 'last observer') {
+            const observer = fakeTransport();
+            registry.addObserver('child', observer);
+            registry.removeObserver(observer);
+          }
+        }
+        vi.advanceTimersByTime(DETACHED_TTL_MS + CLOSEOUT_TIMEOUT_MS);
+        expect(registry.isAttached('contributor-driver')).toBe(false);
+        expect(registry.get('contributor-driver')).toBe(session);
+        expect(abort.signal.aborted).toBe(false);
+        expect(closeout).not.toHaveBeenCalled();
+        expect(registry.reattach('contributor-driver', fakeTransport())).toBe(true);
+        registry.abort('contributor-driver');
+        expect(abort.signal.aborted).toBe(true);
+        expect(registry.get('contributor-driver')).toBeUndefined();
+        vi.useRealTimers();
+      },
+    );
   });
 
   describe('detach', () => {

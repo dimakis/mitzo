@@ -1,0 +1,32 @@
+{
+  "request": {
+    "type": "send",
+    "sessionId": null,
+    "clientMsgId": "afcb2114-dc2b-4cf7-a79b-4b591130ea9b",
+    "prompt": "Offline Watch startup fixture"
+  },
+  "events": [
+    "{\"type\":\"session_id\",\"sessionId\":\"7d7d9254-e443-4984-ab54-66972791323b\"}",
+    "{\"v\":2,\"type\":\"user_message\",\"ts\":1791676070972,\"messageId\":\"afcb2114-dc2b-4cf7-a79b-4b591130ea9b\",\"text\":\"Offline Watch startup fixture\",\"sessionId\":\"7d7d9254-e443-4984-ab54-66972791323b\",\"seq\":1}",
+    "{\"v\":2,\"type\":\"message_start\",\"ts\":1791676070973,\"messageId\":\"mock-assistant\",\"sessionId\":\"7d7d9254-e443-4984-ab54-66972791323b\",\"seq\":2}",
+    "{\"v\":2,\"type\":\"block_start\",\"ts\":1791676070973,\"messageId\":\"mock-assistant\",\"blockId\":\"b0\",\"blockType\":\"text\",\"sessionId\":\"7d7d9254-e443-4984-ab54-66972791323b\",\"seq\":3}",
+    "{\"v\":2,\"type\":\"block_delta\",\"ts\":1791676070973,\"messageId\":\"mock-assistant\",\"blockId\":\"b0\",\"blockType\":\"text\",\"delta\":\"Mocked startup reply.\",\"sessionId\":\"7d7d9254-e443-4984-ab54-66972791323b\",\"seq\":4}",
+    "{\"v\":2,\"type\":\"block_end\",\"ts\":1791676070973,\"messageId\":\"mock-assistant\",\"blockId\":\"b0\",\"blockType\":\"text\",\"sessionId\":\"7d7d9254-e443-4984-ab54-66972791323b\",\"seq\":5}",
+    "{\"v\":2,\"type\":\"message_end\",\"ts\":1791676070973,\"messageId\":\"mock-assistant\",\"sessionId\":\"7d7d9254-e443-4984-ab54-66972791323b\",\"seq\":6}",
+    "{\"v\":2,\"type\":\"token_update\",\"ts\":1791676070973,\"agentContext\":0,\"contextCeiling\":0,\"sessionTotal\":0,\"numTurns\":1,\"turnIndex\":1,\"tokenLimits\":null,\"sessionId\":\"7d7d9254-e443-4984-ab54-66972791323b\",\"seq\":7}",
+    "{\"v\":2,\"type\":\"session_end\",\"ts\":1791676070973,\"sessionId\":\"7d7d9254-e443-4984-ab54-66972791323b\",\"usage\":{\"inputTokens\":0,\"outputTokens\":0,\"cacheReadTokens\":0,\"cacheCreationTokens\":0,\"totalCostUsd\":0,\"numTurns\":1,\"durationMs\":0,\"durationApiMs\":0},\"seq\":8}"
+  ],
+  "foreignEvents": [
+    "{\"type\":\"session_id\",\"sessionId\":\"795372e7-e336-49ef-8c0b-114a917d59f4\"}",
+    "{\"v\":2,\"type\":\"user_message\",\"ts\":1791676070975,\"messageId\":\"afcb2114-dc2b-4cf7-a79b-4b591130ea9b\",\"text\":\"Offline Watch startup fixture\",\"sessionId\":\"795372e7-e336-49ef-8c0b-114a917d59f4\",\"seq\":10}",
+    "{\"v\":2,\"type\":\"message_start\",\"ts\":1791676070975,\"messageId\":\"mock-assistant\",\"sessionId\":\"795372e7-e336-49ef-8c0b-114a917d59f4\",\"seq\":11}",
+    "{\"v\":2,\"type\":\"block_start\",\"ts\":1791676070975,\"messageId\":\"mock-assistant\",\"blockId\":\"b0\",\"blockType\":\"text\",\"sessionId\":\"795372e7-e336-49ef-8c0b-114a917d59f4\",\"seq\":12}",
+    "{\"v\":2,\"type\":\"block_delta\",\"ts\":1791676070975,\"messageId\":\"mock-assistant\",\"blockId\":\"b0\",\"blockType\":\"text\",\"delta\":\"Mocked startup reply.\",\"sessionId\":\"795372e7-e336-49ef-8c0b-114a917d59f4\",\"seq\":13}",
+    "{\"v\":2,\"type\":\"block_end\",\"ts\":1791676070975,\"messageId\":\"mock-assistant\",\"blockId\":\"b0\",\"blockType\":\"text\",\"sessionId\":\"795372e7-e336-49ef-8c0b-114a917d59f4\",\"seq\":14}",
+    "{\"v\":2,\"type\":\"message_end\",\"ts\":1791676070975,\"messageId\":\"mock-assistant\",\"sessionId\":\"795372e7-e336-49ef-8c0b-114a917d59f4\",\"seq\":15}",
+    "{\"v\":2,\"type\":\"token_update\",\"ts\":1791676070975,\"agentContext\":0,\"contextCeiling\":0,\"sessionTotal\":0,\"numTurns\":1,\"turnIndex\":1,\"tokenLimits\":null,\"sessionId\":\"795372e7-e336-49ef-8c0b-114a917d59f4\",\"seq\":16}",
+    "{\"v\":2,\"type\":\"session_end\",\"ts\":1791676070975,\"sessionId\":\"795372e7-e336-49ef-8c0b-114a917d59f4\",\"usage\":{\"inputTokens\":0,\"outputTokens\":0,\"cacheReadTokens\":0,\"cacheCreationTokens\":0,\"totalCostUsd\":0,\"numTurns\":1,\"durationMs\":0,\"durationApiMs\":0},\"seq\":17}"
+  ],
+  "sourceCommit": "cef242d0af094f8d0d6a627a21f2568933d13845",
+  "captureBoundary": "Real handleSendV2, runQueryLoop, EventStore and registries; provider boot and SDK events mocked offline."
+}

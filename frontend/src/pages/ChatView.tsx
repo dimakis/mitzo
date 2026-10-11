@@ -21,7 +21,8 @@ import {
 import { RepositoryChatDraftNotice } from '../components/RepositoryChatDraftNotice';
 import { SymposiumReviewEntry } from '../components/SymposiumReviewPanel';
 import { AddAgentSheet } from '../components/AddReviewerSheet';
-import { NewSymposium } from '../components/NewSymposium';
+import { OutputContributorPanel } from '../components/OutputContributorPanel';
+import { useOutputContributors } from '../hooks/useOutputContributors';
 import { PermissionModePicker } from '../components/PermissionModePicker';
 import { StatusBar } from '../components/StatusBar';
 import { WorkspaceControls } from '../components/WorkspaceControls';
@@ -133,6 +134,11 @@ export function ChatView() {
   );
   const isSymposium = workspaceSummary?.sessionType === 'symposium';
   const ordinaryControls = !activeSessionId || workspaceSummary?.sessionType === 'chat';
+  const outputContributors = useOutputContributors(
+    activeSessionId,
+    workspaceSummary?.sessionType === 'chat' && (!sessionId || sessionId === activeSessionId),
+    `${messages.messages.length}:${messages.running}`,
+  );
   const [accountSelection, setAccountSelection] = useState<AccountSelection | null>(null);
   const repositoryScope = `${repositoryHandoff.present ? repositoryHandoff.scope : ''}:${chatDraftRevision}:${accountSelection?.accountId ?? ''}:${accountSelection?.model ?? ''}`;
   const [repositoryChoice, setRepositoryChoice] = useState<{
@@ -291,6 +297,8 @@ export function ChatView() {
     images?: ImageAttachment[],
     ctxBlocks?: string[],
     launching = false,
+    onDelivery?: import('@mitzo/client').SendMessageOptions['onDelivery'],
+    onSessionAssigned?: import('@mitzo/client').SendMessageOptions['onSessionAssigned'],
   ): boolean {
     if (repositoryHandoffReason || (repositoryHandoff.present && launching)) return false;
     if (launch?.briefing && !launching) return false;
@@ -311,6 +319,7 @@ export function ChatView() {
     const options = {
       images,
       contextBlocks: ctxBlocks,
+      ...(onDelivery ? { onDelivery } : {}),
       ...(accountSelection ?? {}),
       ...(!activeSessionId && repositorySelection?.repositoryWorkspaceId
         ? {
@@ -343,6 +352,13 @@ export function ChatView() {
       ...(!activeSessionId && agentProfile ? { agentProfile } : {}),
       ...(!activeSessionId && !isolation ? { isolation: false } : {}),
     };
+    if (onSessionAssigned) {
+      const originalAssignment = options.onSessionAssigned;
+      options.onSessionAssigned = (assignedId: string) => {
+        originalAssignment?.(assignedId);
+        onSessionAssigned(assignedId);
+      };
+    }
     try {
       const queued = launching ? sendLaunch(options) : storeSendMessage(text, options);
       forceScrollToBottom();
@@ -356,20 +372,31 @@ export function ChatView() {
     }
   }
 
-  function handleInterrupt(text: string, images?: ImageAttachment[], ctxBlocks?: string[]): void {
-    if (repositoryHandoff.present) return;
+  function handleInterrupt(
+    text: string,
+    images?: ImageAttachment[],
+    ctxBlocks?: string[],
+    onDelivery?: import('@mitzo/client').SendMessageOptions['onDelivery'],
+  ): void {
+    if (repositoryHandoff.present) {
+      onDelivery?.('failed');
+      return;
+    }
     voice.stopSpeaking();
     // Preserve the same per-turn Codex selection when interrupting an active turn.
-    storeInterruptMessage(text, { images, contextBlocks: ctxBlocks, ...(accountSelection ?? {}) });
+    storeInterruptMessage(text, {
+      images,
+      contextBlocks: ctxBlocks,
+      onDelivery,
+      ...(accountSelection ?? {}),
+    });
     forceScrollToBottom();
   }
 
   const handleStop = useCallback(() => {
     storeStopGeneration();
-    // Optimistic update — server confirms via session_state_changed event,
-    // but we set idle immediately for responsive UI on the stop button.
-    storeDispatchMessages({ type: 'SESSION_STATE_CHANGED', state: 'idle' });
-  }, [storeStopGeneration, storeDispatchMessages]);
+    // Only server state confirms completion; a rejected Stop must retain the active turn.
+  }, [storeStopGeneration]);
 
   function handlePermission(
     permId: string,
@@ -575,10 +602,12 @@ export function ChatView() {
           </button>
         </div>
       )}
-      {!activeSessionId && !sessionId && <NewSymposium />}
       <SymposiumConversation
         profileToolsTarget={profileToolsTarget}
         sessionId={activeSessionId}
+        ordinaryAfterMessages={
+          outputContributors ? <OutputContributorPanel {...outputContributors} /> : null
+        }
         chat={{
           sessionId: sessionId || activeSessionId || undefined,
           messages: sessionId && sessionId !== activeSessionId ? [] : messages.messages,
@@ -638,12 +667,15 @@ export function ChatView() {
               )}
             <CodexQueueStatus sessionId={activeSessionId} />
             <ChatInput
+              composerGeneration={chatDraftRevision}
               key={
                 repositoryHandoff.present
                   ? `${repositoryHandoff.scope}:${repositoryHandoff.preparation ? 'loaded' : 'loading'}`
                   : undefined
               }
-              onSend={handleSend}
+              onSend={(text, images, context, onDelivery, onSessionAssigned) =>
+                handleSend(text, images, context, false, onDelivery, onSessionAssigned)
+              }
               onStop={handleStop}
               onInterrupt={handleInterrupt}
               running={repositoryHandoff.present ? false : messages.running}

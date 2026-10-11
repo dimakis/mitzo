@@ -10,6 +10,8 @@ final class ChatViewModel: ObservableObject {
     @Published var isStreaming = false
     @Published var permissionRequest: PermissionRequestParams?
     @Published var toolStatus: String?
+    @Published var sendDraft = WatchSendDraft()
+    @Published var sendError: String?
 
     let sessionId: String?
     private var resolvedSessionId: String?
@@ -50,22 +52,24 @@ final class ChatViewModel: ObservableObject {
 
     // MARK: - Send Message
 
-    func send(text: String) async {
+    func send() async {
         guard let appState else { return }
-
-        let userMsg = ChatMessage(role: .user, text: text)
-        messages.append(userMsg)
-
-        let params = SendParams(
-            sessionId: resolvedSessionId,
-            prompt: text
-        )
-
+        guard appState.connectionMode == .relay else {
+            sendError = "Connect your iPhone before sending."
+            return
+        }
+        guard let params = sendDraft.begin(sessionId: resolvedSessionId,
+                                           clientMsgId: UUID().uuidString) else { return }
+        sendError = nil
+        messages.append(ChatMessage(id: params.clientMsgId, role: .user, text: params.prompt))
         do {
             try await appState.sendMessage(.send(params))
-            isStreaming = true
+            // The phone forwarding bytes is not provider acceptance.
         } catch {
-            // Handle send failure
+            // A lost relay result may already have dispatched. Keep the exact command.
+            if sendDraft.pending?.clientMsgId == params.clientMsgId {
+                sendError = "Send could not be confirmed. Check the session before sending again."
+            }
         }
     }
 
@@ -97,9 +101,31 @@ final class ChatViewModel: ObservableObject {
     // MARK: - Process Server Messages
 
     func handleMessage(_ message: ServerMessage) {
+        let receipt = sendDraft.receive(message)
+        switch receipt {
+        case .assigned(let sessionId): resolvedSessionId = sessionId
+        case .rejected(let clientMsgId): messages.removeAll { $0.id == clientMsgId }
+        case .accepted:
+            if resolvedSessionId == nil, case .userMessage(let params) = message {
+                resolvedSessionId = params.sessionId
+            }
+            sendError = nil
+        case nil: break
+        }
         switch message {
-        case .sessionId(let sid, _, _):
-            resolvedSessionId = sid
+        case .sessionId:
+            // The receipt helper assigns only this composer's exact command.
+            break
+
+        case .userMessage(let params):
+            guard params.sessionId == resolvedSessionId else { return }
+            if !messages.contains(where: { $0.id == params.messageId }) {
+                messages.append(ChatMessage(id: params.messageId, role: .user, text: params.text))
+            }
+
+        case .nativeCommandResult(let params):
+            guard receipt != nil else { return }
+            messages.append(ChatMessage(role: .assistant, text: params.content))
 
         case .messageStart(let params):
             guard params.sessionId == resolvedSessionId else { return }
@@ -160,7 +186,26 @@ final class ChatViewModel: ObservableObject {
             isStreaming = false
             toolStatus = nil
 
-        case .sessionEnd:
+        case .sessionControlRejected(let params):
+            guard params.sessionId == resolvedSessionId else { return }
+            // Control refusal is feedback, not completion of the active turn.
+            if case .rejected = receipt { sendError = params.error }
+            messages.append(ChatMessage(role: .assistant, text: "Error: \(params.error)"))
+
+        case .error(let error, let sessionId, let clientMsgId):
+            if case .rejected = receipt {
+                // Exact refusal recovers only this pending command.
+            } else {
+                // Runtime failures belong to the selected session, independently
+                // of whether its submitted input has already been accepted.
+                guard clientMsgId == nil, let sessionId,
+                      sessionId == resolvedSessionId else { return }
+            }
+            sendError = error
+            messages.append(ChatMessage(role: .assistant, text: "Error: \(error)"))
+
+        case .sessionEnd(let params):
+            guard params.sessionId == resolvedSessionId else { return }
             isStreaming = false
             toolStatus = nil
 
@@ -201,13 +246,14 @@ final class ChatViewModel: ObservableObject {
 // MARK: - Chat Message Model
 
 struct ChatMessage: Identifiable {
-    let id = UUID()
+    let id: String
     let role: MessageRole
     let text: String
     let blocks: [ChatBlock]
     let timestamp: Date
 
-    init(role: MessageRole, text: String) {
+    init(id: String = UUID().uuidString, role: MessageRole, text: String) {
+        self.id = id
         self.role = role
         self.text = text
         self.blocks = [ChatBlock(type: .text, content: text)]
@@ -215,6 +261,7 @@ struct ChatMessage: Identifiable {
     }
 
     init(from finished: FinishedMessage) {
+        self.id = finished.messageId
         self.role = finished.role
         self.blocks = finished.blocks.map { ChatBlock(from: $0) }
         self.text = blocks.first(where: { $0.type == .text })?.content ?? ""
@@ -226,6 +273,7 @@ struct ChatMessage: Identifiable {
     }
 
     init(from streaming: StreamingMessage) {
+        self.id = streaming.messageId
         self.role = .assistant
         self.blocks = streaming.blockOrder.compactMap { id in
             guard let block = streaming.blocks[id] else { return nil }

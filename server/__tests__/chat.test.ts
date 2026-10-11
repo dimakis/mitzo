@@ -146,6 +146,101 @@ describe('getMessages', () => {
   });
 });
 
+it('blocks ordinary send, interrupt and cold start while the contributor owner has an unsettled claim', async () => {
+  const chat = await import('../chat.js');
+  const childId = 'owned-contributor-child';
+  chat.eventStore.upsertSession({ sessionId: childId });
+  chat.eventStore.append(childId, 'contributor_execution', {
+    childSessionId: childId,
+    coordinatorSessionId: 'coordinator',
+    deliveryId: 'delivery',
+    seatId: 'contributor',
+    claimToken: 'claim',
+    idempotencyKey: 'recipient',
+  });
+  const claims = vi
+    .spyOn(chat.eventStore, 'getUnsettledSymposiumSeatExecutions')
+    .mockReturnValue([{ attemptId: 1, claimToken: 'claim', idempotencyKey: 'recipient' }]);
+  const transport = { send: vi.fn(), isOpen: () => true };
+  const push = vi.fn();
+  chat.registry.register('owned-child-client', {
+    transport,
+    abortController: new AbortController(),
+    mode: 'agent',
+    sessionAllowList: new Set(),
+    sessionId: childId,
+  });
+  chat.registry.get('owned-child-client')!.inputQueue = { push, close: () => {} };
+  try {
+    await expect(chat.sendToChat('owned-child-client', 'new input')).rejects.toThrow(
+      /directed messages/,
+    );
+    await expect(chat.interruptChat('owned-child-client', 'interrupt input')).rejects.toThrow(
+      /directed messages/,
+    );
+    await expect(
+      chat.startChat(transport, 'cold-child-client', 'resume input', { resume: childId }),
+    ).rejects.toThrow(/directed messages/);
+    await expect(
+      chat.startChat(transport, 'private-contributor-client', 'coordinator input', {
+        resume: childId,
+        contributorExecution: {
+          coordinatorSessionId: 'coordinator',
+          deliveryId: 'delivery',
+          seatId: 'contributor',
+          claimToken: 'claim',
+          idempotencyKey: 'recipient',
+        },
+      }),
+    ).rejects.toThrow(/already has a live/);
+    expect(chat.registry.findBySessionId(childId)?.clientId).toBe('owned-child-client');
+    expect(push).not.toHaveBeenCalled();
+  } finally {
+    claims.mockRestore();
+    chat.registry.abort('owned-child-client');
+  }
+}, 15000);
+
+it('preserves trusted driver cleanup of its owned query while the durable cleanup fence remains unsettled', async () => {
+  const chat = await import('../chat.js');
+  const childId = 'trusted-contributor-cleanup-child';
+  chat.eventStore.upsertSession({ sessionId: childId });
+  chat.eventStore.append(childId, 'contributor_execution', {
+    childSessionId: childId,
+    coordinatorSessionId: 'coordinator',
+    deliveryId: 'delivery',
+    seatId: 'contributor',
+    claimToken: 'claim',
+    idempotencyKey: 'recipient',
+  });
+  const claims = vi
+    .spyOn(chat.eventStore, 'getUnsettledSymposiumSeatExecutions')
+    .mockReturnValue([{ attemptId: 1, claimToken: 'claim', idempotencyKey: 'recipient' }]);
+  const close = vi.fn();
+  const abortController = new AbortController();
+  chat.registry.register('trusted-contributor-driver', {
+    transport: { send: vi.fn(), isOpen: () => true },
+    abortController,
+    mode: 'agent',
+    sessionAllowList: new Set(),
+    sessionId: childId,
+  });
+  chat.registry.get('trusted-contributor-driver')!.queryInstance = {
+    close,
+  } as unknown as ManagedSession['queryInstance'];
+  try {
+    expect(() => chat.stopChat('trusted-contributor-driver')).not.toThrow();
+    expect(close).toHaveBeenCalledOnce();
+    expect(abortController.signal.aborted).toBe(true);
+    expect(
+      chat.eventStore.getUnsettledSymposiumSeatExecutions('coordinator', 'contributor'),
+    ).toHaveLength(1);
+  } finally {
+    claims.mockRestore();
+    chat.registry.abort('trusted-contributor-driver');
+  }
+});
+
 describe('cleanupSessionWorktrees', () => {
   let removeWorktreeMock: ReturnType<typeof vi.fn>;
   let hasUncommittedWorkMock: ReturnType<typeof vi.fn>;
@@ -166,6 +261,24 @@ describe('cleanupSessionWorktrees', () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.restoreAllMocks();
+  });
+
+  it('preserves externally retained contributor workspaces after a cold resume', async () => {
+    const { cleanupSessionWorktrees, eventStore } = await import('../chat.js');
+    const sessionId = 'retained-contributor-workspace';
+    eventStore.upsertSession({ sessionId });
+    eventStore.append(sessionId, 'workspace_retention', { policy: 'external-owner' });
+    const session = {
+      sessionId,
+      worktreePaths: new Map([
+        ['primary', { path: '/repo/.claude/worktrees/parent', wtId: 'parent' }],
+        ['other', { path: '/other/.claude/worktrees/parent', wtId: 'parent' }],
+      ]),
+    } as unknown as ManagedSession;
+    cleanupSessionWorktrees(session);
+    expect(removeWorktreeMock).not.toHaveBeenCalled();
+    expect(rescueDirtyWorktreeMock).not.toHaveBeenCalled();
+    expect(session.worktreePaths.size).toBe(2);
   });
 
   it('skips primary worktree and only removes secondaries', async () => {

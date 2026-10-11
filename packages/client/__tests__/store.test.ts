@@ -1919,6 +1919,113 @@ describe('stopGeneration', () => {
   });
 });
 
+describe('rejected session controls', () => {
+  it.each(['stop', 'send', 'interrupt', 'close'])(
+    'keeps the active stream on a scoped %s rejection',
+    async (control) => {
+      const store = createReadyStore();
+      await store.getState().switchSession('child');
+      lastWs.simulateMessage({
+        type: 'session_state_changed',
+        sessionId: 'child',
+        state: 'running',
+      });
+      lastWs.simulateMessage({
+        type: 'message_start',
+        sessionId: 'child',
+        messageId: 'active-turn',
+      });
+      lastWs.simulateMessage({
+        type: 'block_start',
+        sessionId: 'child',
+        messageId: 'active-turn',
+        blockId: 'text',
+        blockType: 'text',
+      });
+      lastWs.simulateMessage({
+        type: 'block_delta',
+        sessionId: 'child',
+        messageId: 'active-turn',
+        blockId: 'text',
+        blockType: 'text',
+        delta: 'Retained reply',
+      });
+      lastWs.simulateMessage({
+        type: 'permission_request',
+        sessionId: 'child',
+        permId: 'permission',
+        toolName: 'Bash',
+        toolInput: 'inspect',
+      });
+      const permission = store.getState().messages.permission;
+      const stream = store.getState().messages.current;
+      expect(stream?.blocks.get('text')?.content).toBe('Retained reply');
+      const activeSocket = lastWs;
+      lastWs.simulateMessage({
+        type: 'session_control_rejected',
+        sessionId: 'other',
+        control,
+        error: 'Foreign rejection',
+      });
+      expect(store.getState().messages.messages).toHaveLength(0);
+      expect(lastWs).toBe(activeSocket);
+      lastWs.simulateMessage({
+        type: 'session_control_rejected',
+        sessionId: 'child',
+        control,
+        error: 'Use contributor controls',
+      });
+      expect(store.getState().messages.running).toBe(true);
+      expect(store.getState().messages.current).toBe(stream);
+      expect(store.getState().messages.permission).toBe(permission);
+      store.getState().respondToPermission('permission', 'once');
+      expect(lastWs.parsedSent().at(-1)).toMatchObject({
+        type: 'permission_response',
+        sessionId: 'child',
+        permId: 'permission',
+        decision: 'once',
+      });
+      expect(store.getState().messages.permission).toBe(permission);
+      lastWs.simulateMessage({
+        type: 'block_delta',
+        sessionId: 'child',
+        messageId: 'active-turn',
+        blockId: 'text',
+        blockType: 'text',
+        delta: ' continues',
+      });
+      expect(store.getState().messages.current?.blocks.get('text')?.content).toBe(
+        'Retained reply continues',
+      );
+      expect(store.getState().messages.messages.at(-1)?.blocks[0].content).toContain(
+        'Use contributor controls',
+      );
+      lastWs.simulateMessage({ type: 'session_state_changed', sessionId: 'child', state: 'idle' });
+      expect(store.getState().messages.running).toBe(false);
+      lastWs.simulateMessage({
+        type: 'session_state_changed',
+        sessionId: 'child',
+        state: 'running',
+      });
+      lastWs.simulateMessage({ type: 'error', sessionId: 'child', error: 'Provider failed' });
+      expect(store.getState().messages.running).toBe(false);
+      expect(store.getState().messages.current).toBeNull();
+      expect(store.getState().messages.messages.at(-1)?.blocks[0].content).toContain(
+        'Provider failed',
+      );
+    },
+  );
+  it('reports an unqueued Stop without changing running or its stream', async () => {
+    const store = createReadyStore();
+    await store.getState().switchSession('child');
+    lastWs.simulateMessage({ type: 'session_state_changed', sessionId: 'child', state: 'running' });
+    lastWs.readyState = WS_READY_STATE.CLOSED;
+    store.getState().stopGeneration();
+    expect(store.getState().sendError).toContain('Stop was not delivered');
+    expect(store.getState().messages.running).toBe(true);
+  });
+});
+
 describe('respondToPermission', () => {
   it('keeps the card until server acknowledgement after sending its decision', async () => {
     const store = createReadyStore();
@@ -3090,6 +3197,150 @@ it('confirms a WebSocket launch from its matching persisted user message', () =>
   expect(onDelivery).toHaveBeenCalledExactlyOnceWith('accepted');
 });
 
+it.each(['foreground', 'offscreen'] as const)(
+  'binds an unassigned send only through its scoped exact initial echo while %s',
+  async (scope) => {
+    const store = createReadyStore();
+    const onDelivery = vi.fn();
+    const onSessionAssigned = vi.fn();
+    store.getState().sendMessage('Initial draft', { onDelivery, onSessionAssigned });
+    const id = store.getState().messages.messages.at(-1)!.messageId;
+    const initialSocket = lastWs;
+    lastWs.simulateMessage({ type: '_send_uncertain', clientMsgId: id });
+    lastWs.simulateMessage({ type: 'user_message', messageId: id, text: 'Initial draft' });
+    lastWs.simulateMessage({
+      type: 'user_message',
+      sessionId: 'unrelated',
+      messageId: 'different',
+      text: 'Other input',
+    });
+    expect(onDelivery).toHaveBeenCalledExactlyOnceWith('uncertain');
+    expect(onSessionAssigned).not.toHaveBeenCalled();
+    expect(store.getState().sessions.active).toBeNull();
+    if (scope === 'offscreen') await store.getState().switchSession('other-chat');
+    const echo = {
+      type: 'user_message',
+      sessionId: 'target',
+      messageId: id,
+      text: 'Initial draft',
+    };
+    lastWs.simulateMessage(echo);
+    lastWs.simulateMessage(echo);
+    lastWs.simulateMessage({ type: 'session_id', sessionId: 'target', clientMsgId: id });
+    expect(onSessionAssigned).toHaveBeenCalledExactlyOnceWith('target');
+    expect(onDelivery.mock.calls).toEqual([['uncertain'], ['accepted']]);
+    expect(store.getState().sessions.active).toBe(scope === 'foreground' ? 'target' : 'other-chat');
+    expect(store.getState().messages.messages.some((m) => m.messageId === id)).toBe(
+      scope === 'foreground',
+    );
+    const sockets = [...new Set([initialSocket, lastWs])];
+    expect(
+      sockets.flatMap((socket) => socket.parsedSent()).filter((m) => m.type === 'send'),
+    ).toEqual([expect.objectContaining({ clientMsgId: id, prompt: 'Initial draft' })]);
+  },
+);
+
+it('rejects a foreign same-ID echo for an assigned observed ordinary send', async () => {
+  const store = createReadyStore();
+  await store.getState().switchSession('target');
+  const onDelivery = vi.fn();
+  store.getState().sendMessage('Exact draft', { onDelivery });
+  const id = store.getState().messages.messages.at(-1)!.messageId;
+  lastWs.simulateMessage({ type: '_send_uncertain', clientMsgId: id, sessionId: 'target' });
+  expect(onDelivery).toHaveBeenCalledExactlyOnceWith('uncertain');
+  lastWs.simulateMessage({
+    type: 'user_message',
+    sessionId: 'foreign',
+    messageId: id,
+    text: 'Exact draft',
+  });
+  expect(onDelivery).toHaveBeenCalledExactlyOnceWith('uncertain');
+  lastWs.simulateMessage({ type: 'user_message', messageId: id, text: 'Exact draft' });
+  expect(onDelivery).toHaveBeenCalledExactlyOnceWith('uncertain');
+  const echo = { type: 'user_message', sessionId: 'target', messageId: id, text: 'Exact draft' };
+  lastWs.simulateMessage(echo);
+  lastWs.simulateMessage(echo);
+  expect(onDelivery.mock.calls).toEqual([['uncertain'], ['accepted']]);
+  expect(lastWs.parsedSent().filter((m) => m.type === 'send')).toEqual([
+    expect.objectContaining({ clientMsgId: id, prompt: 'Exact draft' }),
+  ]);
+});
+
+it('rejects foreign same-ID history and accepts the original ordinary send transcript once', async () => {
+  const transport = mockTransport();
+  const store = createReadyStore(transport);
+  await store.getState().switchSession('target');
+  const onDelivery = vi.fn();
+  store.getState().sendMessage('Exact draft', { onDelivery });
+  const id = store.getState().messages.messages.at(-1)!.messageId;
+  await store.getState().switchSession('foreign');
+  (transport.fetch as ReturnType<typeof vi.fn>).mockImplementation(async (url: string) => ({
+    ok: true,
+    json: async () =>
+      url.includes('/messages') ? [{ messageId: id, role: 'user', blocks: [], timestamp: 1 }] : [],
+  }));
+  lastWs.simulateMessage({ type: '_foreground' });
+  await vi.waitFor(() =>
+    expect(store.getState().messages.messages.some((m) => m.messageId === id)).toBe(true),
+  );
+  expect(onDelivery).not.toHaveBeenCalled();
+  await store.getState().switchSession('target');
+  lastWs.simulateMessage({ type: '_foreground' });
+  await vi.waitFor(() => expect(onDelivery).toHaveBeenCalledExactlyOnceWith('accepted'));
+  lastWs.simulateMessage({
+    type: 'user_message',
+    sessionId: 'target',
+    messageId: id,
+    text: 'Exact draft',
+  });
+  expect(onDelivery).toHaveBeenCalledExactlyOnceWith('accepted');
+  expect(lastWs.parsedSent().filter((m) => m.type === 'send')).toHaveLength(1);
+});
+
+it('scopes offscreen reconnect receipts to their requested session instead of another send ID', async () => {
+  const transport = mockTransport();
+  const store = createReadyStore(transport);
+  // Other test stores may reconnect during the transcript await and replace lastWs.
+  const receiptSocket = lastWs;
+  await store.getState().switchSession('offscreen');
+  const offscreenDelivery = vi.fn();
+  store.getState().sendMessage('Offscreen draft', { onDelivery: offscreenDelivery });
+  const offscreenId = store.getState().messages.messages.at(-1)!.messageId;
+  await store.getState().switchSession('target');
+  const onDelivery = vi.fn();
+  store.getState().sendMessage('Exact draft', { onDelivery });
+  const id = store.getState().messages.messages.at(-1)!.messageId;
+  (transport.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+    ok: true,
+    json: async () => ({
+      messages: [offscreenId, id].map((messageId) => ({
+        messageId,
+        role: 'user',
+        blocks: [],
+        timestamp: 1,
+      })),
+      cursor: 3,
+    }),
+  });
+  receiptSocket.simulateMessage({
+    type: 'session_reconnect_snapshot',
+    sessionId: 'offscreen',
+    cursor: 3,
+    state: 'idle',
+  });
+  await vi.waitFor(() => expect(offscreenDelivery).toHaveBeenCalledExactlyOnceWith('accepted'));
+  expect(onDelivery).not.toHaveBeenCalled();
+  expect(store.getState().sessions.active).toBe('target');
+  receiptSocket.simulateMessage({
+    type: 'user_message',
+    sessionId: 'target',
+    messageId: id,
+    text: 'Exact draft',
+  });
+  expect(onDelivery).toHaveBeenCalledExactlyOnceWith('accepted');
+  expect(receiptSocket.parsedSent().filter((m) => m.type === 'send')).toHaveLength(2);
+});
+
 it('releases a WebSocket launch for retry when startup fails before assignment', () => {
   const store = createReadyStore();
   const onDelivery = vi.fn();
@@ -3299,6 +3550,7 @@ it('removes the rejected optimistic launch before retrying without duplicating i
   expect(store.getState().sendPendingSession()).toBe(false);
   store.getState().sendPendingSession();
   const retryId = store.getState().messages.messages.at(-1)!.messageId;
+  lastWs.simulateMessage({ type: 'session_id', sessionId: 'target', clientMsgId: retryId });
   lastWs.simulateMessage({
     type: 'user_message',
     sessionId: 'target',
@@ -3458,4 +3710,70 @@ it('preserves the unassigned repository receipt when startup fails before assign
   lastWs.simulateMessage({ type: 'error', clientMsgId: id, error: 'Startup rejected' });
   lastWs.simulateMessage({ type: 'session_id', sessionId: 'unrelated', clientMsgId: 'different' });
   expect(assigned).not.toHaveBeenCalled();
+});
+
+it('settles only a matching session/control/command interrupt rejection without losing live state', async () => {
+  const store = createReadyStore();
+  await store.getState().switchSession('child');
+  lastWs.simulateMessage({ type: 'session_state_changed', sessionId: 'child', state: 'running' });
+  lastWs.simulateMessage({ type: 'message_start', sessionId: 'child', messageId: 'live' });
+  const current = store.getState().messages.current;
+  const failed = vi.fn();
+  store.getState().interruptMessage('Rejected exact draft', { onDelivery: failed });
+  const command = lastWs.parsedSent().find((message) => message.type === 'interrupt')!;
+  for (const override of [
+    { sessionId: 'other' },
+    { clientMsgId: 'unrelated' },
+    { control: 'send' },
+  ]) {
+    lastWs.simulateMessage({
+      type: 'session_control_rejected',
+      sessionId: 'child',
+      control: 'interrupt',
+      clientMsgId: command.clientMsgId,
+      error: 'Use contributor controls',
+      ...override,
+    });
+    expect(failed).not.toHaveBeenCalled();
+    expect(
+      store
+        .getState()
+        .messages.messages.some((message) => message.messageId === command.clientMsgId),
+    ).toBe(true);
+  }
+  lastWs.simulateMessage({
+    type: 'session_control_rejected',
+    sessionId: 'child',
+    control: 'interrupt',
+    clientMsgId: command.clientMsgId,
+    error: 'Use contributor controls',
+  });
+  expect(failed).toHaveBeenCalledExactlyOnceWith('failed');
+  expect(
+    store.getState().messages.messages.some((message) => message.messageId === command.clientMsgId),
+  ).toBe(false);
+  expect(store.getState().messages.current).toBe(current);
+  expect(store.getState().messages.running).toBe(true);
+});
+
+it('keeps scoped refusal feedback for ordinary sends that have no composer delivery observer', async () => {
+  const store = createReadyStore();
+  await store.getState().switchSession('child');
+  lastWs.simulateMessage({ type: 'session_state_changed', sessionId: 'child', state: 'running' });
+  lastWs.simulateMessage({ type: 'message_start', sessionId: 'child', messageId: 'live' });
+  const stream = store.getState().messages.current;
+  store.getState().sendMessage('ordinary submitted input');
+  const command = lastWs.parsedSent().find((message) => message.type === 'send')!;
+  lastWs.simulateMessage({
+    type: 'session_control_rejected',
+    sessionId: 'child',
+    control: 'send',
+    clientMsgId: command.clientMsgId,
+    error: 'Use contributor controls',
+  });
+  expect(store.getState().messages.messages.at(-1)?.blocks[0]?.content).toContain(
+    'Use contributor controls',
+  );
+  expect(store.getState().messages.current).toBe(stream);
+  expect(store.getState().messages.running).toBe(true);
 });
