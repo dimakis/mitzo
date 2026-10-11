@@ -9,7 +9,10 @@ import { createTerminalTargetResolver } from './terminal-targets.js';
 import { createTerminalRouter } from './terminal-router.js';
 import { getTerminalPlanAdviserHost } from './terminal-plan-adviser.js';
 import { createWorkspaceRuntimeCommandRunner } from './protected-sdk-command.js';
-import { createPersonalRoutingDiagnosticHandler } from './symposium-routing-diagnostic-route.js';
+import {
+  createSymposiumPersonalConnectionRouter,
+  type SymposiumPersonalConnectionService,
+} from './symposium-personal-connection-router.js';
 import { createRepositoryWorkspaceRouter } from './repository-workspace-router.js';
 import {
   getRepositoryWorkspaces,
@@ -106,7 +109,7 @@ import {
 } from './symposium-owned-evidence.js';
 
 import type { SandboxCreationFence } from './symposium-workspace-lifecycle.js';
-import type { ConnectionSelection, PersonalConnection } from './symposium-personal-connections.js';
+import type { ConnectionSelection } from './symposium-personal-connections.js';
 import {
   createSymposiumReviewPublicationPreflight,
   type ReviewPublicationDependencies,
@@ -1229,14 +1232,7 @@ export interface SymposiumProductionHost {
     completed: Promise<unknown>;
     cancel(): void;
   }>;
-  personalConnections?: {
-    list(): PersonalConnection[];
-    create(label: string): PersonalConnection;
-    disconnect(id: string, revision: number): Promise<PersonalConnection>;
-    recoverDiscovery?(id: string, revision: number, assertOperator: () => void): Promise<unknown>;
-    discoverModels?(id: string, revision: number, assertOperator: () => void): Promise<unknown>;
-    diagnoseRouting?: import('./symposium-routing-diagnostic-route.js').PersonalRoutingDiagnosticOperation;
-  };
+  personalConnections?: SymposiumPersonalConnectionService;
   resolveSeatPolicy?: import('./symposium-owned-seat-policy.js').SymposiumSeatPolicySelector;
   observeDurableReviewToolResult?: import('./symposium-codex-native.js').OpenAiCodexSeatInput['observeDurableReviewToolResult'];
   /** Private host-only final RPC input metadata; omitted in ordinary production. */
@@ -2508,110 +2504,9 @@ app.post(
       }),
   ),
 );
-app.get('/api/symposium/personal/connections', operatorAuthMiddleware, (_req, res) => {
-  res.setHeader('Cache-Control', 'no-store');
-  const service = symposiumProductionHost?.personalConnections;
-  if (!service) {
-    res.status(503).json({ error: 'Personal connections are unavailable.' });
-    return;
-  }
-  res.json({ connections: service.list() });
-});
-app.post('/api/symposium/personal/connections', operatorAuthMiddleware, (req, res) => {
-  res.setHeader('Cache-Control', 'no-store');
-  const service = symposiumProductionHost?.personalConnections;
-  if (!service) {
-    res.status(503).json({ error: 'Personal connections are unavailable.' });
-    return;
-  }
-  try {
-    if (typeof req.body?.label !== 'string') throw new Error();
-    res.status(201).json(service.create(req.body.label));
-  } catch {
-    res.status(400).json({
-      error: 'Use a unique slot and a label of 1–120 characters; at most 100 slots are supported.',
-    });
-  }
-});
-app.post(
-  '/api/symposium/personal/connections/:id/disconnect',
-  operatorAuthMiddleware,
-  async (req, res) => {
-    res.setHeader('Cache-Control', 'no-store');
-    const service = symposiumProductionHost?.personalConnections;
-    if (!service) {
-      res.status(503).json({ error: 'Personal connections are unavailable.' });
-      return;
-    }
-    if (!Number.isSafeInteger(req.body?.expectedRevision) || req.body.expectedRevision < 1) {
-      res.status(400).json({ error: 'A current connection revision is required.' });
-      return;
-    }
-    try {
-      res.json(await service.disconnect(String(req.params.id), req.body.expectedRevision));
-    } catch {
-      res.status(409).json({
-        error:
-          'Connection changed or credential cleanup is unconfirmed. Refresh connection status; host recovery may be required.',
-      });
-    }
-  },
-);
-app.post(
-  [
-    '/api/symposium/personal/connections/:id/models/refresh',
-    '/api/symposium/personal/connections/:id/models/recover',
-  ],
-  operatorAuthMiddleware,
-  async (req, res) => {
-    res.setHeader('Cache-Control', 'no-store');
-    const discover = req.path.endsWith('/recover')
-      ? symposiumProductionHost?.personalConnections?.recoverDiscovery
-      : symposiumProductionHost?.personalConnections?.discoverModels;
-    if (!discover) {
-      res.status(503).json({ error: 'Owned personal model discovery is unavailable.' });
-      return;
-    }
-    if (!Number.isSafeInteger(req.body?.expectedRevision) || req.body.expectedRevision < 1) {
-      res.status(400).json({ error: 'A current connection revision is required.' });
-      return;
-    }
-    const session = res.locals.authSession as AuthSession;
-    let current = true;
-    const unregister = registerAuthSession(session, () => {
-      current = false;
-    });
-    const assertOperator = () => {
-      if (!current || session.expiresAt <= Date.now()) throw new Error('Operator session expired');
-    };
-    try {
-      assertOperator();
-      const result = await discover(
-        String(req.params.id),
-        req.body.expectedRevision,
-        assertOperator,
-      );
-      assertOperator();
-      const status = (result as { status?: unknown })?.status;
-      res
-        .status(status === 'failed' ? 422 : status === 'reconciliation_required' ? 409 : 200)
-        .json(result);
-    } catch {
-      res.status(409).json({
-        error:
-          'Discovery is unavailable or requires recovery. Refresh connection status before retry.',
-      });
-    } finally {
-      unregister();
-    }
-  },
-);
-app.post(
-  '/api/symposium/personal/connections/:id/routing-diagnostic',
-  operatorAuthMiddleware,
-  createPersonalRoutingDiagnosticHandler(
-    () => symposiumProductionHost?.personalConnections?.diagnoseRouting,
-  ),
+app.use(
+  '/api/symposium/personal/connections',
+  createSymposiumPersonalConnectionRouter(() => symposiumProductionHost?.personalConnections),
 );
 app.get('/api/symposium/personal/login/status', operatorAuthMiddleware, subscriptionLogin.status);
 app.post('/api/symposium/personal/login', operatorAuthMiddleware, subscriptionLogin.start);

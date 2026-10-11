@@ -1,5 +1,7 @@
 import express from 'express';
 import request from 'supertest';
+import type { Server } from 'node:http';
+import { listenOnLoopback, closeTestServer } from './loopback-test-server.js';
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
@@ -15,6 +17,7 @@ import { revokeAuthSession } from '../auth.js';
 import type { KnowledgeGithubPublisher } from '../knowledge-github-publisher.js';
 import type { KnowledgeReviewService } from '../knowledge-review-service.js';
 
+const servers: Server[] = [];
 let root: string, store: KnowledgeDraftStore, source: AcceptedKnowledgeSource;
 let auth: { id: string; expiresAt: number };
 function git(...args: string[]) {
@@ -37,11 +40,12 @@ beforeEach(() => {
   store = new KnowledgeDraftStore(join(root, 'drafts.sqlite'));
   auth = { id: root, expiresAt: Date.now() + 60_000 };
 });
-afterEach(() => {
+afterEach(async () => {
+  for (const server of servers.splice(0)) await closeTestServer(server);
   store?.close();
   rmSync(root, { recursive: true, force: true });
 });
-function app(
+async function app(
   runtime: () => Promise<KnowledgeLibraryDependencies | undefined> = async () => ({
     source,
     store,
@@ -59,10 +63,19 @@ function app(
     next();
   });
   a.use('/api/knowledge', createKnowledgeLibraryRouter(runtime));
-  return a;
+  const server = await listenOnLoopback(a);
+  servers.push(server);
+  return server;
 }
+it('owns the API fixture on IPv4 loopback and returns its exact fixture identity', async () => {
+  const server = await app();
+  expect(server.address()).toMatchObject({ address: '127.0.0.1', family: 'IPv4' });
+  const response = await request(server).get('/api/knowledge').set('x-operator', 'yes');
+  expect(response.status).toBe(200);
+  expect(response.headers['x-knowledge-test-fixture']).toBe(encodeURIComponent(auth.id));
+});
 it('requires interactive authority, private responses and rejects cross-origin saves', async () => {
-  const a = app();
+  const a = await app();
   expect((await request(a).get('/api/knowledge').set('x-internal-token', 'agent')).status).toBe(
     401,
   );
@@ -81,7 +94,7 @@ it('requires interactive authority, private responses and rejects cross-origin s
   ).toBe(403);
 });
 it('stores bases on the server and keeps drafts durable even when review is unavailable', async () => {
-  const a = app();
+  const a = await app();
   const revision = await source.revision();
   const created = await request(a)
     .post('/api/knowledge/drafts')
@@ -113,7 +126,7 @@ it('stores bases on the server and keeps drafts durable even when review is unav
   expect(git('show', 'HEAD:architecture/one.md')).toBe('# Accepted');
 });
 it('validates scope before creating a draft and permits explicit conflict resolution against current accepted content', async () => {
-  const a = app();
+  const a = await app();
   const revision = await source.revision();
   expect(
     (
@@ -150,7 +163,7 @@ it('validates scope before creating a draft and permits explicit conflict resolu
 });
 it('fences revoked authentication after slow source initialization', async () => {
   let finish!: (value: unknown) => void;
-  const a = app(
+  const a = await app(
     () =>
       new Promise((resolve) => {
         finish = (value) => resolve(value as KnowledgeLibraryDependencies);
@@ -175,7 +188,7 @@ it('requires a confirmed ready receipt before accepting the exact saved review',
   const receipt = { url: 'https://github.com/test/knowledge/pull/1', head };
   store.receipt(draft.id, draft.version, receipt);
   const accept = vi.fn(async () => undefined);
-  const a = app(async () => ({
+  const a = await app(async () => ({
     source,
     store,
     syncedAt: null,
@@ -214,7 +227,7 @@ it('sends only the current saved review for review and preserves its source', as
     draft: false,
     canAccept: false,
   }));
-  const a = app(async () => ({
+  const a = await app(async () => ({
     source,
     store,
     syncedAt: null,
@@ -258,7 +271,7 @@ it('sends only the current saved review for review and preserves its source', as
 });
 
 it('captures move bases from accepted original paths and persists new folders', async () => {
-  const created = await request(app())
+  const created = await request(await app())
     .post('/api/knowledge/drafts')
     .set('x-operator', 'yes')
     .send({
@@ -280,7 +293,7 @@ it('captures move bases from accepted original paths and persists new folders', 
     base: '# Accepted\n',
     content: '# Accepted\n',
   });
-  const saved = await request(app())
+  const saved = await request(await app())
     .put('/api/knowledge/drafts/' + created.body.draft.id)
     .set('x-operator', 'yes')
     .send({
@@ -299,7 +312,7 @@ it('allows folder-only drafts while rejecting root and uncurated folders', async
     'architecture/../outside',
     'architecture/.secret',
   ]) {
-    const result = await request(app())
+    const result = await request(await app())
       .post('/api/knowledge/drafts')
       .set('x-operator', 'yes')
       .send({
@@ -310,7 +323,7 @@ it('allows folder-only drafts while rejecting root and uncurated folders', async
       });
     expect(result.status).not.toBe(201);
   }
-  const result = await request(app())
+  const result = await request(await app())
     .post('/api/knowledge/drafts')
     .set('x-operator', 'yes')
     .send({
@@ -324,16 +337,24 @@ it('allows folder-only drafts while rejecting root and uncurated folders', async
 
 it('distinguishes authoritative missing drafts from storage failure and expired authority', async () => {
   const path = '/api/knowledge/drafts/12345678-1234-4123-8123-123456789abc';
-  const missing = await request(app()).get(path).set('x-operator', 'yes');
+  const missing = await request(await app())
+    .get(path)
+    .set('x-operator', 'yes');
   expect(missing.status).toBe(404);
   expect(missing.body.error).toBe('Draft not found');
   const failed = vi.spyOn(store, 'get').mockImplementation(() => {
     throw new Error('Storage unavailable');
   });
-  expect((await request(app()).get(path).set('x-operator', 'yes')).status).toBe(422);
+  expect(
+    (
+      await request(await app())
+        .get(path)
+        .set('x-operator', 'yes')
+    ).status,
+  ).toBe(422);
   failed.mockRestore();
-  expect((await request(app()).get(path)).status).toBe(401);
-  const revoked = app(async () => {
+  expect((await request(await app()).get(path)).status).toBe(401);
+  const revoked = await app(async () => {
     revokeAuthSession(auth);
     return { source, store, syncedAt: null, acceptanceEnabled: false, refresh: vi.fn() };
   });
@@ -358,7 +379,7 @@ it('cancels a sole saved folder with a current version, review identity and excl
     ).toThrow('saving its review');
     return { state: 'closed', head, canAccept: false };
   });
-  const a = app(async () => ({
+  const a = await app(async () => ({
     source,
     store,
     syncedAt: null,
@@ -399,7 +420,7 @@ it('preserves folder and review copies on ambiguous or mismatching close respons
     .mockResolvedValueOnce({ state: 'accepted', head })
     .mockResolvedValueOnce({ state: 'closed', head: 'b'.repeat(40) })
     .mockResolvedValue({ state: 'closed', head, canAccept: false });
-  const a = app(async () => ({
+  const a = await app(async () => ({
     source,
     store,
     syncedAt: null,
@@ -431,7 +452,7 @@ it('cancels never-published folders locally but refuses ambiguous prepared and f
   const local = store.create('Local', await source.revision(), [], undefined, [
     'architecture/local',
   ]);
-  const a = app();
+  const a = await app();
   const cancel = (id: string, version: number) =>
     request(a)
       .post('/api/knowledge/drafts/' + id + '/cancel')
@@ -461,7 +482,7 @@ it('refuses cancellation of an older saved review or a mismatching prepared head
   const head = 'a'.repeat(40);
   store.receipt(draft.id, 1, { url: 'https://github.com/test/knowledge/pull/1', head });
   const cancel = vi.fn();
-  const a = app(async () => ({
+  const a = await app(async () => ({
     source,
     store,
     syncedAt: null,
@@ -506,7 +527,7 @@ it('blocks remote close after the cancellation lease expires during inspection',
     remoteClosed = true;
     return { state: 'closed', head, canAccept: false };
   });
-  const a = app(async () => ({
+  const a = await app(async () => ({
     source,
     store,
     syncedAt: null,
@@ -567,7 +588,7 @@ it.each([
     if (state === 'closed') fixtureStore.status(draft.id, 'closed');
     const original = fixtureStore.get(draft.id);
     const cancel = vi.fn(async () => ({ state: 'closed', head, canAccept: false }));
-    const a = app(async () => ({
+    const a = await app(async () => ({
       source: fixtureSource,
       store: fixtureStore,
       syncedAt: null,
@@ -611,7 +632,7 @@ it('keeps Save and the legacy review request local without refreshing or publish
     update: vi.fn(),
     sendForReview: vi.fn(),
   };
-  const a = app(async () => ({
+  const a = await app(async () => ({
     source,
     store,
     syncedAt: null,
@@ -664,7 +685,7 @@ it('sends a saved batch without a client-selected head and retains the legacy ex
       ready: true,
     }),
   );
-  const a = app(async () => ({
+  const a = await app(async () => ({
     source,
     store,
     syncedAt: null,
@@ -705,7 +726,7 @@ it('staging a newer version retains the old ready review and blocks accepting it
   });
   const accept = vi.fn();
   const submit = vi.fn();
-  const a = app(async () => ({
+  const a = await app(async () => ({
     source,
     store,
     syncedAt: null,
