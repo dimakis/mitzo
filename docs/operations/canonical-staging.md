@@ -367,6 +367,13 @@ same job, and waits for its native retirement receipt and matching retired row.
 Process/inventory absence alone cannot authorize replacement. Uncertainty stays
 locked without escalation, restart or rollback.
 
+The managed app schedules successful exit only after its local teardown settles.
+It does not add the standalone app's five-second exit grace: that delay races the
+original parent's five-second canonical exit deadline. The parent's deadline and
+no-force refusal remain unchanged, and native retirement still requires the
+original custodian's cleanup and receipt. This scheduling fix does not recover a
+lost original owner or qualify an already uncertain registry row.
+
 The completed retirement and full service/workspace/gateway/registry state are
 archived and checked before disposition. The raw retired launch and receipt are
 preserved in `retired_owned_launches`; the earlier qualified refusal histories
