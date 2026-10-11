@@ -4,13 +4,16 @@ import { homedir } from 'node:os';
 import { Buffer } from 'node:buffer';
 import { createHash, randomUUID } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { join, dirname, relative, basename } from 'node:path';
+import { join, dirname, relative, basename, isAbsolute, resolve } from 'node:path';
 import { setTimeout as wait } from 'node:timers/promises';
 import { createOfflineOrdinaryRestorationPlan } from './staging-offline-ordinary-restore.mjs';
 import { offlineContainmentDigest } from './staging-offline-containment-contract.mjs';
 import {
   inspectOpaquePreservationTree,
   classifyCanonicalJobAbsence,
+  scopedLsofArguments,
+  assertScopedNoOpenHandles,
+  assertNoScopedMountAliases,
 } from './staging-offline-containment-observation.mjs';
 
 const hash = (value) => createHash('sha256').update(value).digest('hex');
@@ -20,6 +23,48 @@ const encode = (value) => Buffer.from(JSON.stringify(value, null, 2) + '\n');
 const environment = Object.freeze({ PATH: '/usr/bin:/bin:/usr/sbin:/sbin', LANG: 'C' });
 function requireEffect(condition) {
   if (!condition) throw Error('Ordinary restoration evidence changed; retain original guard');
+}
+/** Scoped observations detect reported handles and mount aliases. They never
+ * establish absence of latent mappings; full body proofs remain mandatory. */
+export function observeOfflineOrdinaryPhysicalScope(
+  { path, canonicalRoot, archived },
+  { run = spawnSync } = {},
+) {
+  requireEffect(
+    typeof run === 'function' &&
+      typeof path === 'string' &&
+      typeof canonicalRoot === 'string' &&
+      isAbsolute(path) &&
+      resolve(path) === path &&
+      resolve(canonicalRoot) === canonicalRoot,
+  );
+  if (archived) requireEffect(path !== canonicalRoot && !path.startsWith(canonicalRoot + '/'));
+  const options = {
+    env: environment,
+    encoding: 'utf8',
+    timeout: 10000,
+    maxBuffer: 4 * 1024 * 1024,
+    shell: false,
+  };
+  assertScopedNoOpenHandles(run('/usr/sbin/lsof', scopedLsofArguments([path], true), options));
+  const mounts = run('/sbin/mount', [], options);
+  requireEffect(
+    mounts.status === 0 &&
+      !mounts.error &&
+      !mounts.signal &&
+      !mounts.stderr &&
+      typeof mounts.stdout === 'string',
+  );
+  assertNoScopedMountAliases(mounts.stdout, [path]);
+  return true;
+}
+function scopeObserver(deps) {
+  const observe =
+    deps.observePhysicalScope ??
+    ((scope) => observeOfflineOrdinaryPhysicalScope(scope, { run: deps.run ?? spawnSync }));
+  requireEffect(typeof observe === 'function');
+  return (path, canonicalRoot, archived = false) =>
+    requireEffect(observe({ path, canonicalRoot, archived }) === true);
 }
 function fileTools(io) {
   const exists = (path) => {
@@ -207,16 +252,20 @@ export async function collectOfflineOrdinaryRestorationFacts(
     tools,
     nodePath,
   );
-  const inspect = deps.inspectTree ?? inspectOpaquePreservationTree;
+  const inspect = deps.inspectTree ?? inspectOpaquePreservationTree,
+    observe = scopeObserver(deps);
   const preservation = ['home', 'workspace', 'state', 'settings'].map((kind) => {
-    const path = join(root, kind),
-      stat = tools.directory(path);
+    const path = join(root, kind);
+    observe(path, root);
+    const stat = tools.directory(path);
     requireEffect((stat.mode & 0o777) === 0o700);
+    const manifestSha256 = inspect(path).sha256;
+    observe(path, root);
     return {
       kind,
       path,
       archivePath: join(archiveRoot, 'ordinary-prior', kind),
-      manifestSha256: inspect(path).sha256,
+      manifestSha256,
       uid: stat.uid,
       mode: stat.mode & 0o777,
     };
@@ -304,6 +353,30 @@ export function createOfflineOrdinaryEffects(
     inspect = deps.inspectTree ?? inspectOpaquePreservationTree,
     run = deps.run ?? spawnSync,
     nodePath = deps.nodePath ?? io.realpathSync(process.execPath);
+  const observe = scopeObserver(deps);
+  const qualifiedUnit = (unit) =>
+    requireEffect(facts.preservation.some((expected) => same(expected, unit)));
+  const verifyArchivedUnit = (unit) => {
+    qualifiedUnit(unit);
+    current();
+    observe(unit.archivePath, root, true);
+    const stat = tools.directory(unit.archivePath);
+    requireEffect(
+      stat.uid === unit.uid &&
+        (stat.mode & 0o777) === unit.mode &&
+        inspect(unit.archivePath).sha256 === unit.manifestSha256,
+    );
+    observe(unit.archivePath, root, true);
+    current();
+  };
+  const verifyPreserved = () => {
+    current();
+    for (const unit of facts.preservation) {
+      verifyArchivedUnit(unit);
+      tools.directory(unit.path);
+    }
+    current();
+  };
   const intentPath = join(archive, 'ordinary-restore-intent.json'),
     completionPath = join(archive, 'ordinary-completed.json'),
     startPath = join(archive, 'ordinary-start-attempt.json'),
@@ -469,10 +542,16 @@ export function createOfflineOrdinaryEffects(
     },
     async assertOriginalUnit(unit, _, context) {
       current(context);
+      qualifiedUnit(unit);
+      observe(unit.path, root);
       const stat = tools.directory(unit.path);
       requireEffect(
-        (stat.mode & 0o777) === unit.mode && inspect(unit.path).sha256 === unit.manifestSha256,
+        (stat.mode & 0o777) === unit.mode &&
+          stat.uid === unit.uid &&
+          inspect(unit.path).sha256 === unit.manifestSha256,
       );
+      observe(unit.path, root);
+      current(context);
     },
     async writeDurableIntent(intent, _, context) {
       guardOwned(context);
@@ -512,16 +591,23 @@ export function createOfflineOrdinaryEffects(
           tools.directory(unit.path).dev === tools.directory(dirname(unit.archivePath)).dev,
       );
       current(context);
+      observe(unit.path, root);
       io.renameSync(unit.path, unit.archivePath);
       tools.sync(dirname(unit.path));
       tools.sync(dirname(unit.archivePath));
+      verifyArchivedUnit(unit);
+      current(context);
     },
     async assertPreservedUnit(unit, _, context) {
       current(context);
-      requireEffect(
-        !tools.exists(unit.path) && inspect(unit.archivePath).sha256 === unit.manifestSha256,
-      );
-      tools.directory(unit.archivePath);
+      requireEffect(!tools.exists(unit.path));
+      verifyArchivedUnit(unit);
+      current(context);
+    },
+    async verifyPreservedOrdinary(_, context) {
+      current(context);
+      verifyPreserved();
+      current(context);
     },
     async createFreshDirectory(input, _, context) {
       guardOwned(context);
@@ -601,6 +687,7 @@ export function createOfflineOrdinaryEffects(
     async assertInstalledOrdinary(_, context) {
       guardOwned(context);
       installed();
+      verifyPreserved();
     },
     async writeStartAttempt(intent, _, context) {
       guardOwned(context);
@@ -624,6 +711,7 @@ export function createOfflineOrdinaryEffects(
     async bootstrapCanonical(_, __, context) {
       guardOwned(context);
       installed();
+      verifyPreserved();
       await effects.assertOriginalOrdinaryScope(plan, context);
       current(context);
       command('/bin/launchctl', ['bootstrap', 'gui/' + process.getuid(), plan.registration.path]);
@@ -632,6 +720,7 @@ export function createOfflineOrdinaryEffects(
       guardOwned(context);
       requireEffect(input.label === 'com.mitzo.staging' && input.force === false);
       installed();
+      verifyPreserved();
       current(context);
       command('/bin/launchctl', ['kickstart', 'gui/' + process.getuid() + '/com.mitzo.staging']);
       const deadline = Date.now() + 15000;
@@ -687,6 +776,8 @@ export function createOfflineOrdinaryEffects(
           listeners.length === 0 || (listeners.length === 1 && listeners[0] === job.pid),
         );
         if (status === 200 && listeners.length === 1) {
+          verifyPreserved();
+          current(context);
           replacement = Object.freeze({ ...replacement, originalJob: Object.freeze({ ...job }) });
           return {
             ...job,
@@ -707,6 +798,7 @@ export function createOfflineOrdinaryEffects(
     },
     async writeCompletion(receipt, _, context) {
       guardOwned(context);
+      verifyPreserved();
       requireEffect(
         receipt.planSha256 === plan.sha256 &&
           receipt.containmentSha256 === receiptSha256 &&
@@ -717,6 +809,7 @@ export function createOfflineOrdinaryEffects(
     },
     async completeGuard(receipt, _, context) {
       guardOwned(context);
+      verifyPreserved();
       requireEffect(same(tools.json(completionPath), receipt));
       await capability().completeOrdinaryGuard(receipt, plan);
       current(context);
@@ -780,6 +873,14 @@ export function createOfflineOrdinaryEffects(
       return true;
     },
     assertGuardContinuation(nativePlan, ordinaryPlan, phase, payload) {
+      if (phase === 'final-preservation') {
+        effects.assertContinuationSync(nativePlan, ordinaryPlan, 'owned', guard());
+        current();
+        requireEffect(same(tools.json(completionPath), payload));
+        verifyPreserved();
+        current();
+        return true;
+      }
       if (phase !== 'complete')
         return effects.assertContinuationSync(nativePlan, ordinaryPlan, phase, payload);
       return (async () => {
@@ -787,10 +888,12 @@ export function createOfflineOrdinaryEffects(
         requireEffect(same(tools.json(completionPath), payload));
         await effects.assertAcceptedPreparedSource(plan);
         await effects.assertNativeContained(plan);
+        verifyPreserved();
         const proof = await effects.verifyCanonical(plan);
         requireEffect(
           proof.httpStatus === 200 && proof.pid === payload.pid && proof.birth === payload.birth,
         );
+        verifyPreserved();
         assertAuthorityCurrent();
         return true;
       })();

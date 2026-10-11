@@ -1,12 +1,14 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import * as fs from 'node:fs';
 import process from 'node:process';
+import { Buffer } from 'node:buffer';
 import { tmpdir, homedir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import {
   collectOfflineOrdinaryRestorationFacts,
   createOfflineOrdinaryEffects,
+  observeOfflineOrdinaryPhysicalScope,
 } from '../../scripts/lib/staging-offline-ordinary-effects.mjs';
 import {
   createOfflineOrdinaryRestoration,
@@ -115,7 +117,7 @@ function fixture() {
     sha256: 'e'.repeat(64),
     facts: { canonicalRoot, archiveRoot, controls: OFFLINE_CONTAINMENT_TARGET.controls },
   };
-  const deps = { io: nodeIo, inspectTree, nodePath };
+  const deps = { io: nodeIo, inspectTree, nodePath, observePhysicalScope: vi.fn(() => true) };
   const verifyContainment = vi.fn(async () => ({ receiptSha256: 'f'.repeat(64) }));
   const continuation = {
     assertOwnedGuard: vi.fn(),
@@ -429,6 +431,27 @@ it('holds the original guard through preservation, one start and byte-bound dura
       expect(
         JSON.parse(fs.readFileSync(f.map(join(f.archiveRoot, 'ordinary-completed.json')))),
       ).toEqual(receipt);
+      const assertFinal = (witness = receipt) =>
+        effects.assertGuardContinuation(
+          f.containmentPlan,
+          ordinaryPlan,
+          'final-preservation',
+          witness,
+        );
+      expect(assertFinal()).toBe(true); // A synchronous result, never a Promise.
+      expect(() => assertFinal({ ...receipt, pid: 999 })).toThrow();
+      const retainedPath = f.map(join(plan.facts.preservation[0].archivePath, 'retained.txt'));
+      const priorBytes = fs.readFileSync(retainedPath),
+        fd = fs.openSync(retainedPath, 'r+');
+      try {
+        fs.writeSync(fd, Buffer.from('late mutation'), 0, 13, 0);
+      } finally {
+        fs.closeSync(fd);
+      }
+      expect(() => assertFinal()).toThrow();
+      expect(fs.existsSync(f.map(guardPath))).toBe(true);
+      fs.writeFileSync(retainedPath, priorBytes);
+      expect(assertFinal()).toBe(true);
       fs.unlinkSync(f.map(guardPath));
       complete = true;
     },
@@ -540,4 +563,184 @@ it('uses the real neutral filesystem inventory for ordinary data without requiri
   expect(fs.readFileSync(f.map(join(unit.archivePath, 'retained.txt')), 'utf8')).toBe(
     'opaque prior home',
   );
+});
+
+it('refuses a positively observed real writable descriptor before preserving a legacy directory', async () => {
+  const f = fixture(),
+    facts = await collectOfflineOrdinaryRestorationFacts(
+      {
+        containmentPlan: f.containmentPlan,
+        sourceCommit: f.sourceCommit,
+        assertAcceptedPreparedSource: f.assertAcceptedPreparedSource,
+      },
+      f.deps,
+    ),
+    plan = createOfflineOrdinaryRestorationPlan(facts),
+    unit = plan.facts.preservation[0];
+  const fd = fs.openSync(f.map(join(unit.path, 'retained.txt')), 'r+');
+  const observePhysicalScope = vi.fn(() => {
+    expect(fs.fstatSync(fd).isFile()).toBe(true);
+    throw Error('Scoped writable descriptor present');
+  });
+  const effects = createOfflineOrdinaryEffects(
+    {
+      plan,
+      verifySource: f.assertAcceptedPreparedSource,
+      verifyContainment: f.verifyContainment,
+      guardCapability: f.continuation,
+      assertAuthorityCurrent: () => true,
+    },
+    { ...f.deps, observePhysicalScope },
+  );
+  try {
+    await expect(effects.preserveUnit(unit, plan)).rejects.toThrow(/descriptor/);
+    expect(fs.existsSync(f.map(unit.path))).toBe(true);
+    expect(fs.existsSync(f.map(unit.archivePath))).toBe(false);
+  } finally {
+    fs.closeSync(fd);
+  }
+});
+it('rechecks every preserved ordinary body before startup even when a previous preservation proof passed', async () => {
+  const f = fixture(),
+    facts = await collectOfflineOrdinaryRestorationFacts(
+      {
+        containmentPlan: f.containmentPlan,
+        sourceCommit: f.sourceCommit,
+        assertAcceptedPreparedSource: f.assertAcceptedPreparedSource,
+      },
+      f.deps,
+    ),
+    plan = createOfflineOrdinaryRestorationPlan(facts);
+  const effects = createOfflineOrdinaryEffects(
+    {
+      plan,
+      verifySource: f.assertAcceptedPreparedSource,
+      verifyContainment: f.verifyContainment,
+      guardCapability: f.continuation,
+      assertAuthorityCurrent: () => true,
+    },
+    { ...f.deps, run: f.run },
+  );
+  await effects.assertNativeContained(plan);
+  for (const file of plan.facts.installation.controlFiles)
+    await effects.snapshotControl(file, plan);
+  for (const unit of plan.facts.preservation) {
+    await effects.preserveUnit(unit, plan);
+    await effects.assertPreservedUnit(unit, plan);
+    await effects.createFreshDirectory({ path: unit.path, mode: 0o700, empty: true }, plan);
+  }
+  await effects.writeFreshSettings(
+    {
+      operator: { AUTH_PASSPHRASE: 'a'.repeat(64), AUTH_SECRET: 'b'.repeat(128) },
+      accountProfiles: [],
+      mode: 0o600,
+    },
+    plan,
+  );
+  await effects.installOrdinaryController(plan);
+  const archivedFile = f.map(join(plan.facts.preservation[0].archivePath, 'retained.txt')),
+    fd = fs.openSync(archivedFile, 'r+');
+  try {
+    fs.writeSync(fd, Buffer.from('changed bytes'), 0, 13, 0);
+  } finally {
+    fs.closeSync(fd);
+  }
+  await expect(effects.assertInstalledOrdinary(plan)).rejects.toThrow();
+  expect(f.run).not.toHaveBeenCalled();
+});
+
+it('bounds exact scope commands and rejects mounted source ancestors or unknown handle evidence', () => {
+  const f = fixture(),
+    path = join(f.canonicalRoot, 'home');
+  const run = vi.fn((program) =>
+    program === '/usr/sbin/lsof'
+      ? { status: 1, stdout: '', stderr: '' }
+      : { status: 0, stdout: '/dev/disk3 on / (apfs, local)\n', stderr: '' },
+  );
+  expect(
+    observeOfflineOrdinaryPhysicalScope(
+      { path, canonicalRoot: f.canonicalRoot, archived: false },
+      { run },
+    ),
+  ).toBe(true);
+  expect(run.mock.calls[0]).toEqual([
+    '/usr/sbin/lsof',
+    ['-nP', '-Fpn', '+D', path],
+    expect.objectContaining({ timeout: 10000, shell: false }),
+  ]);
+  expect(run.mock.calls[0][1]).not.toContain('-X');
+  run.mockImplementation((program) =>
+    program === '/usr/sbin/lsof'
+      ? { status: 1, stdout: '', stderr: '' }
+      : { status: 0, stdout: f.canonicalRoot + ' on /external-alias (bind, local)\n', stderr: '' },
+  );
+  expect(() =>
+    observeOfflineOrdinaryPhysicalScope(
+      { path, canonicalRoot: f.canonicalRoot, archived: false },
+      { run },
+    ),
+  ).toThrow(/alias/);
+  expect(() =>
+    observeOfflineOrdinaryPhysicalScope(
+      { path, canonicalRoot: f.canonicalRoot, archived: true },
+      { run },
+    ),
+  ).toThrow();
+  for (const evidence of [
+    { status: 0, stdout: 'p123\nf12\n', stderr: '' },
+    { status: 1, stdout: '', stderr: 'unavailable' },
+    { status: 1, stdout: '', stderr: '', signal: 'SIGTERM' },
+  ]) {
+    run.mockReturnValue(evidence);
+    expect(() =>
+      observeOfflineOrdinaryPhysicalScope(
+        { path, canonicalRoot: f.canonicalRoot, archived: false },
+        { run },
+      ),
+    ).toThrow();
+  }
+});
+it('requires current positive physical scope observations during collection and after rename', async () => {
+  const f = fixture();
+  await expect(
+    collectOfflineOrdinaryRestorationFacts(
+      {
+        containmentPlan: f.containmentPlan,
+        sourceCommit: f.sourceCommit,
+        assertAcceptedPreparedSource: f.assertAcceptedPreparedSource,
+      },
+      { ...f.deps, observePhysicalScope: () => undefined },
+    ),
+  ).rejects.toThrow();
+  const facts = await collectOfflineOrdinaryRestorationFacts(
+      {
+        containmentPlan: f.containmentPlan,
+        sourceCommit: f.sourceCommit,
+        assertAcceptedPreparedSource: f.assertAcceptedPreparedSource,
+      },
+      f.deps,
+    ),
+    plan = createOfflineOrdinaryRestorationPlan(facts),
+    unit = plan.facts.preservation[0];
+  const observer = vi.fn(({ archived }) => !archived);
+  const effects = createOfflineOrdinaryEffects(
+    {
+      plan,
+      verifySource: f.assertAcceptedPreparedSource,
+      verifyContainment: f.verifyContainment,
+      guardCapability: f.continuation,
+      assertAuthorityCurrent: () => true,
+    },
+    { ...f.deps, observePhysicalScope: observer },
+  );
+  await expect(effects.preserveUnit(unit, plan)).rejects.toThrow();
+  expect(fs.existsSync(f.map(unit.path))).toBe(false);
+  expect(fs.readFileSync(f.map(join(unit.archivePath, 'retained.txt')), 'utf8')).toBe(
+    'opaque prior home',
+  );
+  expect(observer.mock.calls.at(-1)[0]).toEqual({
+    path: unit.archivePath,
+    canonicalRoot: f.canonicalRoot,
+    archived: true,
+  });
 });

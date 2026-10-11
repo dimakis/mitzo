@@ -397,6 +397,13 @@ export function createOfflineContainmentTransaction({
           throw Error('Trusted ordinary completion refused');
         await effects.assertContained(plan, intent);
         this.assertOwnedGuard(ordinaryPlan);
+        // Finish the separate ordinary archive proof after the last native
+        // physical await. No asynchronous work may intervene before unlock.
+        if (
+          effects.assertGuardContinuation(plan, ordinaryPlan, 'final-preservation', witness) !==
+          true
+        )
+          throw Error('Final preserved ordinary verification refused');
         const retained = json(guardPath);
         try {
           io.unlinkSync(guardPath);

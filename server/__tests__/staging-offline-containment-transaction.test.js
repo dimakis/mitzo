@@ -1,6 +1,10 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import process from 'node:process';
 import { readFileSync } from 'node:fs';
+import * as fs from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { inspectOpaquePreservationTree } from '../../scripts/lib/staging-offline-containment-observation.mjs';
 import {
   collectOfflineOrdinaryRestorationFacts,
   createOfflineOrdinaryEffects,
@@ -35,6 +39,12 @@ const stable = (value) =>
 const hash = (value) => digest(stable(value));
 const dispos = 'contained_offline_native_cleanup_unconfirmed';
 const close = [];
+const temporary = [];
+const temporaryHandles = [];
+afterEach(() => temporaryHandles.splice(0).forEach((close) => close()));
+afterEach(() =>
+  temporary.splice(0).forEach((path) => fs.rmSync(path, { recursive: true, force: true })),
+);
 afterEach(() => close.splice(0).forEach((db) => db.close()));
 function fixture() {
   const uid = process.getuid(),
@@ -306,6 +316,102 @@ function fixture() {
     expire: () => {
       leaseAlive = false;
     },
+  };
+}
+// Back one ordinary unit with real temporary files so an existing writable FD
+// demonstrably survives the actual directory rename. All native state stays in
+// the mapped fixture; process/physical observers remain explicit synthetic seams.
+function realOrdinaryHome(io, f) {
+  const root = fs.realpathSync(fs.mkdtempSync(join(tmpdir(), 'ordinary-fd-')));
+  temporary.push(root);
+  fs.mkdirSync(join(root, 'home'), { mode: 0o700 });
+  fs.mkdirSync(join(root, 'prior'), { mode: 0o700 });
+  fs.writeFileSync(join(root, 'home/retained.txt'), 'opaque legacy home', { mode: 0o600 });
+  const map = (path) =>
+    typeof path === 'string' &&
+    (path === f.root + '/home' || path.startsWith(f.root + '/home/')
+      ? join(root, 'home') + path.slice((f.root + '/home').length)
+      : path === f.archive + '/ordinary-prior/home' ||
+          path.startsWith(f.archive + '/ordinary-prior/home/')
+        ? join(root, 'prior/home') + path.slice((f.archive + '/ordinary-prior/home').length)
+        : undefined);
+  const original = { ...io },
+    fds = new Map(),
+    writers = new Set();
+  let next = 100000;
+  temporaryHandles.push(() => {
+    for (const fd of [...fds.values(), ...writers]) fs.closeSync(fd);
+    fds.clear();
+    writers.clear();
+  });
+  io.lstatSync = (path) => {
+    const p = map(path);
+    if (!p) return original.lstatSync(path);
+    const st = fs.lstatSync(p);
+    return {
+      ...st,
+      dev: 1,
+      isFile: () => st.isFile(),
+      isDirectory: () => st.isDirectory(),
+      isSymbolicLink: () => st.isSymbolicLink(),
+    };
+  };
+  io.realpathSync = (path) => {
+    const p = map(path);
+    if (!p) return original.realpathSync(path);
+    if (fs.realpathSync(p) !== p) throw Error('realtestalias');
+    return path;
+  };
+  io.readdirSync = (path) => (map(path) ? fs.readdirSync(map(path)) : original.readdirSync(path));
+  io.mkdirSync = (path, options) => {
+    if (map(path)) fs.mkdirSync(map(path), options);
+    return original.mkdirSync(path, options);
+  };
+  io.renameSync = (a, b) => {
+    if (map(a) || map(b)) {
+      if (!map(a) || !map(b)) throw Error('testscope');
+      fs.renameSync(map(a), map(b));
+    }
+    return original.renameSync(a, b);
+  };
+  io.openSync = (path, flags, mode) => {
+    const p = map(path);
+    if (!p) return original.openSync(path, flags, mode);
+    const translated =
+      typeof flags === 'string'
+        ? flags
+        : (flags & 64 ? fs.constants.O_CREAT : 0) |
+          (flags & 128 ? fs.constants.O_EXCL : 0) |
+          (flags & 1 ? fs.constants.O_WRONLY : 0) |
+          (flags & 256 ? fs.constants.O_NOFOLLOW : 0);
+    const fd = fs.openSync(p, translated, mode);
+    fds.set(++next, fd);
+    return next;
+  };
+  for (const name of ['fstatSync', 'readFileSync', 'writeFileSync', 'fsyncSync', 'closeSync'])
+    io[name] = (...args) => {
+      if (fds.has(args[0])) {
+        const fd = fds.get(args[0]);
+        if (name === 'closeSync') fds.delete(args[0]);
+        return fs[name](fd, ...args.slice(1));
+      }
+      if (name === 'readFileSync' && map(args[0]))
+        return fs.readFileSync(map(args[0]), ...args.slice(1));
+      return original[name](...args);
+    };
+  return {
+    inspect: (path) => (map(path) ? inspectOpaquePreservationTree(map(path)) : undefined),
+    openWriter: () => {
+      const fd = fs.openSync(join(root, 'home/retained.txt'), 'r+');
+      writers.add(fd);
+      return fd;
+    },
+    mutate(fd) {
+      fs.writeSync(fd, Buffer.from('changed legacy home'), 0, 18, 0);
+      fs.closeSync(fd);
+      writers.delete(fd);
+    },
+    archived: () => fs.readFileSync(join(root, 'prior/home/retained.txt'), 'utf8'),
   };
 }
 it('preserves opaque bytes and raw uncertain ownership, then grants distinct contained disposition', async () => {
@@ -675,9 +781,17 @@ it('releases the continuous bound guard once after verified ordinary completion'
   expect(f.db.prepare('SELECT * FROM launches').all()).toEqual([f.row]);
 });
 
-it.each([false, true])(
-  'integrates actual native custody with mandatory full ordinary boundary proofs (mutate after install: %s)',
-  async (mutateAfterInstall) => {
+it.each([
+  'normal',
+  'native-after-install',
+  'ordinary-after-preserved',
+  'ordinary-last-native-await',
+])(
+  'integrates actual native custody with mandatory full ordinary boundary proofs (%s)',
+  async (scenario) => {
+    const mutateAfterInstall = scenario === 'native-after-install';
+    const mutateOrdinary = scenario === 'ordinary-after-preserved';
+    const mutateDuringLastAwait = scenario === 'ordinary-last-native-await';
     const f = fixture();
     let ino = 1000;
     const add = (path, bytes, mode = 0o600) =>
@@ -726,19 +840,23 @@ it.each([false, true])(
           .map((p) => p.slice(path.length + 1));
       },
     };
-    const inspectTree = (path) => ({
-      sha256: hash(
-        [...f.nodes]
-          .filter(([p]) => p === path || p.startsWith(path + '/'))
-          .map(([p, n]) => [p.slice(path.length), n.ino, n.mode, n.bytes?.toString()])
-          .sort(),
-      ),
-    });
+    const backedHome =
+      mutateOrdinary || mutateDuringLastAwait ? realOrdinaryHome(io, f) : undefined;
+    const inspectTree = (path) =>
+      backedHome?.inspect(path) ?? {
+        sha256: hash(
+          [...f.nodes]
+            .filter(([p]) => p === path || p.startsWith(path + '/'))
+            .map(([p, n]) => [p.slice(path.length), n.ino, n.mode, n.bytes?.toString()])
+            .sort(),
+        ),
+      };
     const verifySource = vi.fn(async () => true);
     const facts = await collectOfflineOrdinaryRestorationFacts(
       { containmentPlan: f.plan, sourceCommit, assertAcceptedPreparedSource: verifySource },
-      { io, inspectTree, nodePath },
+      { io, inspectTree, nodePath, observePhysicalScope: () => true },
     );
+    let writer = backedHome?.openWriter();
     const ordinaryPlan = createOfflineOrdinaryRestorationPlan(facts);
     const proposal = createOfflineRecoveryProposal({ containmentPlan: f.plan, ordinaryPlan });
     const alive = true;
@@ -780,6 +898,12 @@ it.each([false, true])(
         if (full.sha256 !== f.plan.facts.units[0].manifestSha256)
           throw Error('Actual full physical content proof failed');
         physicalProofs.push({ appInstalled: f.nodes.has(ordinaryPlan.registration.path), active });
+        if (mutateDuringLastAwait && physicalProofs.length === 12) {
+          await Promise.resolve();
+          backedHome.mutate(writer);
+          writer = undefined;
+          expect(backedHome.archived()).not.toBe('opaque legacy home');
+        }
       }),
       io,
       assertGuardContinuation(...args) {
@@ -844,7 +968,14 @@ it.each([false, true])(
         guardCapability: cap,
         assertAuthorityCurrent: () => phases.assertCurrent(),
       },
-      { io, inspectTree, nodePath, run, fetch: vi.fn(async () => ({ status: 200 })) },
+      {
+        io,
+        inspectTree,
+        nodePath,
+        run,
+        fetch: vi.fn(async () => ({ status: 200 })),
+        observePhysicalScope: () => true,
+      },
     );
     // This ownership check precedes assertNativeContained, exercising the bootstrap
     // cycle that isolated mocks of the capsule did not detect.
@@ -852,27 +983,50 @@ it.each([false, true])(
     const restore = createOfflineOrdinaryRestoration({
       plan: ordinaryPlan,
       consumeAuthority: phases.consumeOrdinary,
-      effects: mutateAfterInstall
+      effects: mutateOrdinary
         ? {
             ...ordinaryEffects,
-            async installOrdinaryController(...args) {
-              await ordinaryEffects.installOrdinaryController(...args);
-              const node = f.nodes.get(f.archive + '/symposium/state/private-native-data');
-              node.bytes = Buffer.alloc(node.bytes.length, 120);
-              node.mtimeMs = 1;
-              // Ownership can remain valid while the next full proof must reject bytes.
-              expect(cap.assertOwnedGuard(ordinaryPlan)).toBe(nativeReceipt.receiptSha256);
+            async assertPreservedUnit(unit, ...args) {
+              await ordinaryEffects.assertPreservedUnit(unit, ...args);
+              if (unit.kind === 'home' && writer !== undefined) {
+                backedHome.mutate(writer);
+                writer = undefined;
+                expect(backedHome.archived()).not.toBe('opaque legacy home');
+              }
             },
           }
-        : ordinaryEffects,
+        : mutateAfterInstall
+          ? {
+              ...ordinaryEffects,
+              async installOrdinaryController(...args) {
+                await ordinaryEffects.installOrdinaryController(...args);
+                const node = f.nodes.get(f.archive + '/symposium/state/private-native-data');
+                node.bytes = Buffer.alloc(node.bytes.length, 120);
+                node.mtimeMs = 1;
+                // Ownership can remain valid while the next full proof must reject bytes.
+                expect(cap.assertOwnedGuard(ordinaryPlan)).toBe(nativeReceipt.receiptSha256);
+              },
+            }
+          : ordinaryEffects,
     });
-    if (mutateAfterInstall) {
+    if (mutateAfterInstall || mutateOrdinary) {
       await expect(restore.apply(token)).rejects.toThrow(
-        'Actual full physical content proof failed',
+        mutateOrdinary
+          ? /Ordinary restoration evidence changed/
+          : 'Actual full physical content proof failed',
       );
       expect(run.mock.calls.some(([, args]) => ['bootstrap', 'kickstart'].includes(args[0]))).toBe(
         false,
       );
+      expect(f.nodes.has(f.root + '/service/deployment.lock')).toBe(true);
+      expect(f.db.prepare('SELECT * FROM launches').all()).toEqual([f.row]);
+      phases.close();
+      return;
+    }
+    if (mutateDuringLastAwait) {
+      await expect(restore.apply(token)).rejects.toThrow(/Ordinary restoration evidence changed/);
+      expect(run.mock.calls.filter(([, args]) => args[0] === 'bootstrap')).toHaveLength(1);
+      expect(run.mock.calls.filter(([, args]) => args[0] === 'kickstart')).toHaveLength(1);
       expect(f.nodes.has(f.root + '/service/deployment.lock')).toBe(true);
       expect(f.db.prepare('SELECT * FROM launches').all()).toEqual([f.row]);
       phases.close();
@@ -986,3 +1140,35 @@ it('does not mistake ownership for byte containment when same-size native conten
     'Archived full manifest changed',
   );
 });
+
+it.each([false, undefined, {}, Promise.resolve(true)])(
+  'requires synchronous positive final-preservation before releasing custody (%j)',
+  async (result) => {
+    const f = fixture();
+    let cap;
+    f.effects.assertGuardContinuation = (_native, _ordinary, phase) =>
+      phase === 'final-preservation' ? result : true;
+    await f
+      .transaction({
+        continueGuard: (value) => {
+          cap = value;
+        },
+      })
+      .apply(f.authorize());
+    const ordinary = { sha256: 'a'.repeat(64) };
+    cap.bindOrdinaryGuard(
+      {
+        planSha256: ordinary.sha256,
+        intentPath: f.archive + '/ordinary.intent',
+        intentSha256: 'b'.repeat(64),
+        target: 'accepted-source',
+      },
+      ordinary,
+    );
+    await expect(
+      cap.completeOrdinaryGuard({ pid: 42, birth: 'verified' }, ordinary),
+    ).rejects.toThrow('Final preserved ordinary verification refused');
+    expect(f.nodes.has(f.root + '/service/deployment.lock')).toBe(true);
+    expect(f.db.prepare('SELECT * FROM launches').all()).toEqual([f.row]);
+  },
+);

@@ -121,6 +121,13 @@ catalog are installed with private modes. The accepted ordinary launcher disable
 OpenShell, Codex and Connections and uses isolated proxy ports. Existing credentials
 are not migrated.
 
+Each old ordinary directory receives scoped open-handle and mount-alias checks
+before and after relocation. All four archived directory manifests and their
+exclusion from future inputs are rechecked before startup and completion. After
+the final asynchronous native check, a synchronous full verification of all four
+ordinary archives must return exactly true before the guard can be removed.
+These observations do not claim that latent writable mappings are absent.
+
 The controller records one start attempt, issues one bounded launch permit, and
 uses normal bootstrap and kickstart for the existing canonical label. Completion
 requires the original started PID and birth identity, exact accepted source and
