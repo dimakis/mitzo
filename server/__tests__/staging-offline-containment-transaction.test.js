@@ -786,13 +786,32 @@ it.each([
   'native-after-install',
   'ordinary-after-preserved',
   'ordinary-last-native-await',
+  'native-last-native-await',
 ])(
   'integrates actual native custody with mandatory full ordinary boundary proofs (%s)',
   async (scenario) => {
     const mutateAfterInstall = scenario === 'native-after-install';
     const mutateOrdinary = scenario === 'ordinary-after-preserved';
     const mutateDuringLastAwait = scenario === 'ordinary-last-native-await';
+    const mutateNativeDuringLastAwait = scenario === 'native-last-native-await';
     const f = fixture();
+    let nativeWriter,
+      nativeWriterOpen = false;
+    if (mutateNativeDuringLastAwait) {
+      const temporaryRoot = fs.realpathSync(fs.mkdtempSync(join(tmpdir(), 'native-late-write-')));
+      temporary.push(temporaryRoot);
+      const path = join(temporaryRoot, 'native-payload');
+      const node = f.nodes.get(f.root + '/symposium/state/private-native-data');
+      fs.writeFileSync(path, node.bytes, { mode: 0o600 });
+      // The mapped native full manifest now reads a real file, so the awaited
+      // writer changes actual body bytes rather than a mocked proof result.
+      Object.defineProperty(node, 'bytes', { get: () => fs.readFileSync(path) });
+      nativeWriter = fs.openSync(path, 'r+');
+      nativeWriterOpen = true;
+      temporaryHandles.push(() => {
+        if (nativeWriterOpen) fs.closeSync(nativeWriter);
+      });
+    }
     let ino = 1000;
     const add = (path, bytes, mode = 0o600) =>
       f.nodes.set(path, {
@@ -898,6 +917,13 @@ it.each([
         if (full.sha256 !== f.plan.facts.units[0].manifestSha256)
           throw Error('Actual full physical content proof failed');
         physicalProofs.push({ appInstalled: f.nodes.has(ordinaryPlan.registration.path), active });
+        if (mutateNativeDuringLastAwait && physicalProofs.length === 12) {
+          await Promise.resolve();
+          const size = fs.fstatSync(nativeWriter).size;
+          fs.writeSync(nativeWriter, Buffer.alloc(size, 120), 0, size, 0);
+          fs.closeSync(nativeWriter);
+          nativeWriterOpen = false;
+        }
         if (mutateDuringLastAwait && physicalProofs.length === 12) {
           await Promise.resolve();
           backedHome.mutate(writer);
@@ -1023,8 +1049,12 @@ it.each([
       phases.close();
       return;
     }
-    if (mutateDuringLastAwait) {
-      await expect(restore.apply(token)).rejects.toThrow(/Ordinary restoration evidence changed/);
+    if (mutateDuringLastAwait || mutateNativeDuringLastAwait) {
+      await expect(restore.apply(token)).rejects.toThrow(
+        mutateNativeDuringLastAwait
+          ? 'Archived full manifest changed'
+          : /Ordinary restoration evidence changed/,
+      );
       expect(run.mock.calls.filter(([, args]) => args[0] === 'bootstrap')).toHaveLength(1);
       expect(run.mock.calls.filter(([, args]) => args[0] === 'kickstart')).toHaveLength(1);
       expect(f.nodes.has(f.root + '/service/deployment.lock')).toBe(true);
@@ -1096,7 +1126,7 @@ it('checks hot custody ownership without reading native body bytes while indepen
     ordinary,
   );
   await cap.completeOrdinaryGuard({ pid: 42, birth: 'verified' }, ordinary);
-  expect(inspect).toHaveBeenCalledTimes(1); // Independent release proof, not ownership.
+  expect(inspect).toHaveBeenCalledTimes(2); // Awaited physical proof plus final synchronous native bytes.
 });
 it('does not mistake ownership for byte containment when same-size native content changes', async () => {
   const f = fixture();

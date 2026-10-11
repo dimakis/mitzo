@@ -124,8 +124,8 @@ are not migrated.
 Each old ordinary directory receives scoped open-handle and mount-alias checks
 before and after relocation. All four archived directory manifests and their
 exclusion from future inputs are rechecked before startup and completion. After
-the final asynchronous native check, a synchronous full verification of all four
-ordinary archives must return exactly true before the guard can be removed.
+the final asynchronous native check, synchronous full verification of the native
+manifest and all four ordinary archives must succeed before the guard can be removed.
 These observations do not claim that latent writable mappings are absent.
 
 The controller records one start attempt, issues one bounded launch permit, and

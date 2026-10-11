@@ -397,6 +397,9 @@ export function createOfflineContainmentTransaction({
           throw Error('Trusted ordinary completion refused');
         await effects.assertContained(plan, intent);
         this.assertOwnedGuard(ordinaryPlan);
+        // The awaited observer may finish network probes after reading native
+        // bytes. Verify the full native manifest synchronously after that await.
+        assertMoved(intent);
         // Finish the separate ordinary archive proof after the last native
         // physical await. No asynchronous work may intervene before unlock.
         if (
@@ -404,6 +407,7 @@ export function createOfflineContainmentTransaction({
           true
         )
           throw Error('Final preserved ordinary verification refused');
+        this.assertOwnedGuard(ordinaryPlan);
         const retained = json(guardPath);
         try {
           io.unlinkSync(guardPath);
