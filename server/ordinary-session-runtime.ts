@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { SessionRuntimeBindingV1Schema, type SessionRuntimeBindingV1 } from '@mitzo/protocol';
+import { SessionRuntimeBindingV1Schema, type SessionRuntimeBindingV2 } from '@mitzo/protocol';
 
 const accountReference = SessionRuntimeBindingV1Schema.shape.account;
 const reference = accountReference.shape.accountId;
@@ -46,9 +46,10 @@ const Account = z.discriminatedUnion('provider', [
 ]);
 
 const Target = z.discriminatedUnion('location', [
-  z.strictObject({ targetId: reference, location: z.literal('local') }),
+  z.strictObject({ targetId: reference, targetRevision: reference, location: z.literal('local') }),
   z.strictObject({
     targetId: reference,
+    targetRevision: reference,
     location: z.literal('openshell'),
     ownership: z.enum(['dedicated-ordinary', 'shared-or-retained']),
     openaiApi: z.enum(['enabled', 'disabled']),
@@ -99,7 +100,7 @@ export type OrdinarySessionRuntimeRejectionCode =
   | 'custodian_requires_dedicated_openshell';
 
 export type OrdinarySessionRuntimeResolution =
-  | { status: 'compatible'; binding: SessionRuntimeBindingV1; targetId: string }
+  | { status: 'compatible'; binding: SessionRuntimeBindingV2 }
   | { status: 'rejected'; code: OrdinarySessionRuntimeRejectionCode };
 
 function rejected(code: OrdinarySessionRuntimeRejectionCode): OrdinarySessionRuntimeResolution {
@@ -109,8 +110,8 @@ function rejected(code: OrdinarySessionRuntimeRejectionCode): OrdinarySessionRun
 /** Pure, dormant configuration compatibility check. Never reads credentials,
  * environment, files or provider state; never starts a runtime or changes policy.
  * Compatible is not authenticated, authorized, isolated or ready to execute.
- * V1 does not persist targetId: this result is not a durably pinned route and
- * cannot be passed into execution until target persistence/admission is extended.
+ * V2 includes the exact injected target ID/revision. Trusted target loading and
+ * revision provenance, admission and execution consumers remain separate work.
  */
 export function resolveOrdinarySessionRuntime(
   request: unknown,
@@ -198,11 +199,14 @@ export function resolveOrdinarySessionRuntime(
   return {
     status: 'compatible',
     binding: {
-      version: 1,
+      version: 2,
       account: { ...chosen.account },
       harness: { implementation: chosen.harness },
-      execution: { location: target.location },
+      execution: {
+        location: target.location,
+        targetId: target.targetId,
+        targetRevision: target.targetRevision,
+      },
     },
-    targetId: target.targetId,
   };
 }
