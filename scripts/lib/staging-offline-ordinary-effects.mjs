@@ -388,7 +388,8 @@ export function createOfflineOrdinaryEffects(
   // The callback rechecks its private receipt bytes before any admission.
   let receiptSha256 = initialContainmentReceiptSha256,
     replacement,
-    originalJob;
+    originalJob,
+    startAttempted = false;
   const current = (context) => {
     assertAuthorityCurrent();
     context?.assertCurrent();
@@ -694,20 +695,6 @@ export function createOfflineOrdinaryEffects(
       requireEffect(same(tools.json(intentPath), intent));
       tools.exclusive(startPath, encode(intent));
     },
-    async writeLaunchPermit(permit, _, context) {
-      guardOwned(context);
-      const held = guard();
-      requireEffect(
-        held.id === permit.id &&
-          held.target === permit.target &&
-          permit.target === facts.source.sourceCommit &&
-          Number.isFinite(permit.expiresAt) &&
-          permit.expiresAt > Date.now() &&
-          permit.expiresAt <= Date.now() + 15000,
-      );
-      requireEffect(tools.exists(startPath));
-      tools.exclusive(join(root, 'service/launch-permit.json'), encode(permit));
-    },
     async bootstrapCanonical(_, __, context) {
       guardOwned(context);
       installed();
@@ -717,11 +704,29 @@ export function createOfflineOrdinaryEffects(
       command('/bin/launchctl', ['bootstrap', 'gui/' + process.getuid(), plan.registration.path]);
     },
     async kickstartCanonical(input, _, context) {
+      requireEffect(!startAttempted);
+      startAttempted = true;
       guardOwned(context);
       requireEffect(input.label === 'com.mitzo.staging' && input.force === false);
       installed();
       verifyPreserved();
+      const held = guard(),
+        intent = tools.json(intentPath);
+      requireEffect(
+        held.id === basename(archive) &&
+          held.target === facts.source.sourceCommit &&
+          intent.operation === held.id &&
+          intent.target === held.target &&
+          intent.planSha256 === plan.sha256 &&
+          same(tools.json(startPath), intent),
+      );
       current(context);
+      // All expensive proofs finish before this fresh permit. There is no await
+      // or further fingerprint between its exclusive write and the sole start.
+      tools.exclusive(
+        join(root, 'service/launch-permit.json'),
+        encode({ id: held.id, target: held.target, expiresAt: Date.now() + 15000 }),
+      );
       command('/bin/launchctl', ['kickstart', 'gui/' + process.getuid() + '/com.mitzo.staging']);
       const deadline = Date.now() + 15000;
       while (Date.now() < deadline) {

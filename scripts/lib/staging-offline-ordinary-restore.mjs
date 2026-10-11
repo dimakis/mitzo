@@ -340,7 +340,6 @@ export function createOfflineOrdinaryRestoration({ plan: selected, consumeAuthor
     'installOrdinaryController',
     'assertInstalledOrdinary',
     'writeStartAttempt',
-    'writeLaunchPermit',
     'bootstrapCanonical',
     'kickstartCanonical',
     'verifyCanonical',
@@ -423,11 +422,6 @@ export function createOfflineOrdinaryRestoration({ plan: selected, consumeAuthor
         await checked('assertNativeContained', plan);
         await checked('assertGuardOwnership', plan);
         await checked('writeStartAttempt', intent, plan);
-        await checked(
-          'writeLaunchPermit',
-          { id: intent.operation, target: intent.target, expiresAt: Date.now() + 15000 },
-          plan,
-        );
         await checked('bootstrapCanonical', plan.registration, plan);
         const originalJob = await checked(
           'kickstartCanonical',

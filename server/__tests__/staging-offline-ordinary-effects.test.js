@@ -30,9 +30,10 @@ vi.mock('../../scripts/lib/staging-offline-containment-observation.mjs', async (
   };
 });
 const roots = [];
-afterEach(() =>
-  roots.splice(0).forEach((root) => fs.rmSync(root, { recursive: true, force: true })),
-);
+afterEach(() => {
+  vi.restoreAllMocks();
+  roots.splice(0).forEach((root) => fs.rmSync(root, { recursive: true, force: true }));
+});
 const hash = (bytes) => createHash('sha256').update(bytes).digest('hex');
 function fixture() {
   const temporary = fs.realpathSync(fs.mkdtempSync(join(tmpdir(), 'ordinary-effects-test-')));
@@ -350,6 +351,19 @@ it('waits for the original process source and HTTP readiness without repeating s
     plan,
   );
   await effects.installOrdinaryController(plan);
+  const operation = f.archiveRoot.split('/').at(-1);
+  const intent = { version: 1, operation, planSha256: plan.sha256, target: f.sourceCommit };
+  const write = (path, value) =>
+    fs.writeFileSync(f.map(path), JSON.stringify(value) + '\n', { mode: 0o600 });
+  write(join(f.canonicalRoot, 'service/deployment.lock'), {
+    operation,
+    mode: 'offline-native-containment',
+    planSha256: f.containmentPlan.sha256,
+    id: operation,
+    target: f.sourceCommit,
+  });
+  write(join(f.archiveRoot, 'ordinary-restore-intent.json'), intent);
+  write(join(f.archiveRoot, 'ordinary-start-attempt.json'), intent);
   await effects.kickstartCanonical({ label: 'com.mitzo.staging', force: false }, plan);
   expect(effects.getReplacementProof().originalJob).toBeUndefined();
   const proof = await effects.verifyCanonical(plan);
@@ -357,6 +371,9 @@ it('waits for the original process source and HTTP readiness without repeating s
   expect(effects.getReplacementProof().originalJob).toMatchObject({ pid: 456, cwd: f.release });
   expect(fetch).toHaveBeenCalledTimes(3);
   expect(wait).toHaveBeenCalledTimes(2);
+  await expect(
+    effects.kickstartCanonical({ label: 'com.mitzo.staging', force: false }, plan),
+  ).rejects.toThrow();
   expect(run.mock.calls.filter(([, args]) => args[0] === 'kickstart')).toHaveLength(1);
 });
 it('holds the original guard through preservation, one start and byte-bound durable completion', async () => {
@@ -393,6 +410,12 @@ it('holds the original guard through preservation, one start and byte-bound dura
   let active = false,
     effects,
     complete = false;
+  let clock = Date.now();
+  vi.spyOn(Date, 'now').mockImplementation(() => clock);
+  f.deps.observePhysicalScope.mockImplementation(() => {
+    if (!active && fs.existsSync(f.map(plan.registration.path))) clock += 2000;
+    return true;
+  });
   const cap = {
     assertOwnedGuard(ordinaryPlan) {
       expect(fs.existsSync(f.map(guardPath))).toBe(true);
@@ -457,7 +480,14 @@ it('holds the original guard through preservation, one start and byte-bound dura
     },
   };
   const run = vi.fn((program, args) => {
+    if (program === '/bin/launchctl' && args[0] === 'bootstrap')
+      expect(fs.existsSync(f.map(join(f.canonicalRoot, 'service/launch-permit.json')))).toBe(false);
     if (program === '/bin/launchctl' && args[0] === 'kickstart') {
+      const permit = JSON.parse(
+        fs.readFileSync(f.map(join(f.canonicalRoot, 'service/launch-permit.json'))),
+      );
+      expect(permit.expiresAt).toBeGreaterThan(Date.now());
+      expect(permit.expiresAt - Date.now()).toBe(15000);
       active = true;
       return { status: 0, stdout: '' };
     }

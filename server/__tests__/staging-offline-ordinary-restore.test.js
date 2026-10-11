@@ -88,7 +88,6 @@ function fixture() {
       'installOrdinaryController',
       'assertInstalledOrdinary',
       'writeStartAttempt',
-      'writeLaunchPermit',
       'bootstrapCanonical',
       'kickstartCanonical',
       'writeCompletion',
@@ -203,6 +202,8 @@ it('preserves opaque data before creating fresh empty ordinary state and starts 
   );
   expect(names.indexOf('assertInstalledOrdinary')).toBeLessThan(names.indexOf('writeStartAttempt'));
   expect(names.indexOf('writeStartAttempt')).toBeLessThan(names.indexOf('bootstrapCanonical'));
+  expect(names.indexOf('bootstrapCanonical')).toBeLessThan(names.indexOf('kickstartCanonical'));
+  expect(names).not.toContain('writeLaunchPermit');
   expect(f.effects.bootstrapCanonical).toHaveBeenCalledTimes(1);
   expect(f.effects.kickstartCanonical).toHaveBeenCalledTimes(1);
   const settings = f.effects.writeFreshSettings.mock.calls[0][0];

@@ -787,6 +787,7 @@ it.each([
   'ordinary-after-preserved',
   'ordinary-last-native-await',
   'native-last-native-await',
+  'permit-after-slow-proofs',
 ])(
   'integrates actual native custody with mandatory full ordinary boundary proofs (%s)',
   async (scenario) => {
@@ -795,6 +796,9 @@ it.each([
     const mutateDuringLastAwait = scenario === 'ordinary-last-native-await';
     const mutateNativeDuringLastAwait = scenario === 'native-last-native-await';
     const f = fixture();
+    const slowPermitScenario = scenario === 'permit-after-slow-proofs';
+    let simulatedNow,
+      slowProofMilliseconds = 0;
     let nativeWriter,
       nativeWriterOpen = false;
     if (mutateNativeDuringLastAwait) {
@@ -949,11 +953,24 @@ it.each([
     nativeClosed = true;
     expect(baseClosed).toBe(false);
     expect(f.nodes.has(f.root + '/service/deployment.lock')).toBe(true);
+    if (slowPermitScenario) {
+      simulatedNow = Date.now();
+      const clock = vi.spyOn(Date, 'now').mockImplementation(() => simulatedNow);
+      temporaryHandles.push(() => clock.mockRestore());
+    }
     const run = vi.fn((program, args) => {
       if (program === '/bin/launchctl' && args[0] === 'bootstrap') {
+        if (slowPermitScenario)
+          expect(f.nodes.has(f.root + '/service/launch-permit.json')).toBe(false);
         expect(physicalProofs.some((proof) => proof.appInstalled && !proof.active)).toBe(true);
       }
       if (program === '/bin/launchctl' && args[0] === 'kickstart') {
+        const permit = JSON.parse(f.nodes.get(f.root + '/service/launch-permit.json').bytes);
+        expect(permit.expiresAt).toBeGreaterThan(Date.now());
+        if (slowPermitScenario) {
+          expect(slowProofMilliseconds).toBeGreaterThan(15000);
+          expect(permit.expiresAt - Date.now()).toBe(15000);
+        }
         active = true;
         return { status: 0, stdout: '' };
       }
@@ -1000,7 +1017,18 @@ it.each([
         nodePath,
         run,
         fetch: vi.fn(async () => ({ status: 200 })),
-        observePhysicalScope: () => true,
+        observePhysicalScope: ({ archived }) => {
+          if (
+            slowPermitScenario &&
+            archived &&
+            !active &&
+            f.nodes.has(ordinaryPlan.registration.path)
+          ) {
+            simulatedNow += 2000;
+            slowProofMilliseconds += 2000;
+          }
+          return true;
+        },
       },
     );
     // This ownership check precedes assertNativeContained, exercising the bootstrap

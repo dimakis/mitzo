@@ -128,8 +128,10 @@ the final asynchronous native check, synchronous full verification of the native
 manifest and all four ordinary archives must succeed before the guard can be removed.
 These observations do not claim that latent writable mappings are absent.
 
-The controller records one start attempt, issues one bounded launch permit, and
-uses normal bootstrap and kickstart for the existing canonical label. Completion
+The controller records one start attempt and registers the application without
+starting it. After all prelaunch archive checks finish, it writes a fresh
+fifteen-second permit immediately before the sole normal kickstart for the existing
+canonical label. No await or full fingerprint intervenes. Completion
 requires the original started PID and birth identity, exact accepted source and
 compiled/dependency inventory, registration bytes, release working directory,
 exclusive port 3190 listener and HTTP readiness. Only verified completion releases
