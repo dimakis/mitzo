@@ -14,30 +14,10 @@ export interface PreparedSymposiumAgentContext {
   snapshot: AgentContextSnapshot;
   bootContext: string;
 }
-// Retain authority in host memory, never in caller-controlled execution fields.
-const executionAuthorizations = new WeakMap<
-  SymposiumSeatExecution,
-  (signal: AbortSignal) => Promise<void>
->();
-export function bindSymposiumAgentContextAuthorization(
-  execution: SymposiumSeatExecution,
-  authorize: (signal: AbortSignal) => Promise<void>,
-) {
-  if (executionAuthorizations.has(execution)) throw Error('Context authorization is already bound');
-  executionAuthorizations.set(execution, async (signal) => {
-    execution.signal.throwIfAborted();
-    signal.throwIfAborted();
-    await authorize(signal);
-    execution.signal.throwIfAborted();
-    signal.throwIfAborted();
-  });
-}
-export function symposiumAgentContextAuthorization(execution: SymposiumSeatExecution) {
-  const authorize = executionAuthorizations.get(execution);
-  if (!authorize && (execution.seat.contextRecipe || execution.agentContext))
-    throw Error('Trusted prepared context authorization is unavailable');
-  return authorize;
-}
+export {
+  bindSymposiumAgentContextAuthorization,
+  symposiumAgentContextAuthorization,
+} from './symposium-agent-context-authorization.js';
 function identity(execution: SymposiumSeatExecution) {
   const generation = execution.provenance.membershipGeneration;
   if (

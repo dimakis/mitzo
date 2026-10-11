@@ -4,6 +4,7 @@ import { reviewedHandlerSourceArtifacts } from '../connections/reviewed-handler-
 it('pins native pack admission and the direct approved-search route in the reviewed runtime', () => {
   for (const file of [
     'native-codex-context-admission',
+    'symposium-agent-context-authorization',
     'codex-approved-search',
     'symposium-seat-runtime',
     'symposium-subscription-native',

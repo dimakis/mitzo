@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.9';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.52';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.53';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -35,11 +35,13 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '73384ce804421b34005e145073e7c94f7a07819bd77daed5a4c32163fa942e2c',
   '../ordinary-contributor-execution.ts':
     '64c85d35d19b57b4fee7ae3dc8ff6441a666efbfa36237b0a4b9f6ca63b613a9',
+  '../symposium-dispatch-boundary.ts':
+    'fdccd76d0537d9edf665eddbbf0d2fdb32dddbbe5bf423498e21ff04606e9dc8',
   '../symposium-seat-runtime.ts':
-    'fa7fa88ae6901e8cd63adc3f3019f5ccf42d7477a522cce34670a5b4ef4be1d6',
+    'b5584fc1387894ecb9658bca82b07ec38460577770dda51f7b8dadf13d7114a4',
   '../symposium-host-grants.ts': 'c79ba3b163ef3f58030ffae396c19b7fa1bbc87788842bbddff6c569f01791ac',
   '../symposium-shared-execution.ts':
-    '5af4e80dfb5b91ca7a7a2fba06ba3ec3661e121d9cada5480d83719d8fc78b06',
+    'b884e6783d170bde0570d9ab645b13a69a3ab531a77ad12534bfb2160a609551',
   '../symposium-ordinary-turn.ts':
     '9d4c494b2650941847719a834fc8e4bdea0c13b4db395177d1f2a97a9666a2ef',
   '../output-contributors.ts': '74d6d4fee3865a460337ed1bdffed39c570e91824b5c201cf87c30c87f692695',
@@ -269,17 +271,19 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../responses-chat-session.ts':
     '537f7cc6e442b2adc21913f326b81f101aa1ad6ddf8c0555f80c9163aaf071bb',
   '../symposium-agent-context.ts':
-    'f644a5c5b731fbadefb98d965fcd2e061b19b2b48517668c62385f770124c36a',
+    '5aac047168428af37b9167a9dd4f9eccf91354a76c6bfc3a0907659782e5af2d',
   '../symposium-claude-native.ts':
     '901a5ad5c65e70e56973cb79509df4f637182f1428dd8f103df0400c5b2e4880',
   '../symposium-codex-native.ts':
     '1bb7c2637d825683b178b64f333eebe5a7216dc6f82c6e210b87b4ffe5f8c7fe',
   '../symposium-openshell-seat-executor.ts':
-    '95c7f179a0e9e7675aef2110d433542db5217ddf308e52fb19e381cfcf628843',
+    '034bfc097070f070d02c57ae14fcaf34825ff32bc3aaaa7ccb8592b8a0bb176e',
   '../symposium-orchestrator.ts':
     '3a695f4f38a4828c935342930f01cd1237f88233fc2a641e6917991f1bc85d6f',
   '../symposium-seat-prompt.ts': '1f29774555808c5db22e0458f9767c2b498e99430dbd13da6ab94e607291bf4f',
   '../symposium-session-runtime.ts':
-    '8ba172ac854b12b6ddebb8a7685950b3412ba455151fedaee4b8004e028dba56',
+    'c60fc54ab05cd6fbcdbf1f549ac59664df9684df31d8a426e1441afce7fec788',
   '../telos-artifact-tools.ts': '560e27e41df29aa0b5e8a859731bc956b165e6309f9a0974c16da9ee2c2525e5',
+  '../symposium-agent-context-authorization.ts':
+    '497a2c4bbb4ca61892e392b11fe554bb88d5302921eef7305f88e74d03c206cc',
 });

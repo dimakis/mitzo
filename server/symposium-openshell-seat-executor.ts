@@ -1,3 +1,7 @@
+import type {
+  SymposiumDispatchFacts,
+  SymposiumHostGrantVerifier,
+} from './symposium-dispatch-boundary.js';
 import {
   assertSymposiumAttestedProvider,
   assertSymposiumAttestedClaudeProvider,
@@ -11,12 +15,7 @@ import {
   type SymposiumAgentContextBinding,
 } from './symposium-agent-context.js';
 import type { SymposiumSeatExecution, SymposiumSeatExecutor } from './symposium-orchestrator.js';
-import {
-  admitSymposiumSeatDispatch,
-  type SymposiumDispatchFacts,
-  type SymposiumHostGrantVerifier,
-  type SymposiumSeatRoute,
-} from './symposium-seat-runtime.js';
+import { admitSymposiumSeatDispatch, type SymposiumSeatRoute } from './symposium-seat-runtime.js';
 
 export interface SymposiumNativeSeat {
   /** Trusted adapter checks durable same-seat lineage and retained continuity. */
