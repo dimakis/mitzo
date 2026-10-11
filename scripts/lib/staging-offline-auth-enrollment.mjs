@@ -41,7 +41,7 @@ export async function enrollPreparedOfflineOperatorHelper(sourceRoot, qualify) {
       receipt.compiledArtifacts[buildName] === hash(readFileSync(buildPath)) &&
       build.sourceSha256 === hash(readFileSync(join(sourceRoot, sourceName))) &&
       typeof build.swiftVersion === 'string' &&
-      /^(Apple )?Swift version [0-9]/.test(build.swiftVersion),
+      /^(?:swift-driver version: [0-9.]+ )?(?:Apple )?Swift version [0-9]/.test(build.swiftVersion),
   );
   const parent = lstatSync(join(sourceRoot, 'dist/staging-offline-operator-auth'));
   const stat = lstatSync(helperPath);

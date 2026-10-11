@@ -97,3 +97,11 @@ it('refuses failed compilation, post-build source drift and overwrite of an enro
     });
   expect(() => buildStagingOfflineAuthHelper(drift, { run: drift.run })).toThrow();
 });
+it('records the installed Apple compiler driver banner before freezing the helper', () => {
+  const f = fixture();
+  const version =
+    'swift-driver version: 1.168.6 Apple Swift version 6.4 (swiftlang-6.4.0.34.1 clang-2100.3.34.1)\nTarget: arm64-apple-macosx26.0';
+  const run = (exe, args, options) =>
+    args.includes('--version') ? { status: 0, stdout: version } : f.run(exe, args, options);
+  expect(buildStagingOfflineAuthHelper(f, { run }).swiftVersion).toBe(version);
+});

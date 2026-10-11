@@ -99,7 +99,7 @@ export function buildStagingOfflineAuthHelper(
   const version = command('/usr/bin/swiftc', ['--version']).trim();
   requireBuild(
     version.length <= 1024 &&
-      /^(Apple )?Swift version [0-9]/.test(version) &&
+      /^(?:swift-driver version: [0-9.]+ )?(?:Apple )?Swift version [0-9]/.test(version) &&
       /^[A-Za-z0-9 .()+_:\n-]+$/.test(version),
   );
   const dist = join(controllerRoot, 'dist');

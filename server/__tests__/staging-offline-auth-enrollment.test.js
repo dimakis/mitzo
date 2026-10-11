@@ -86,3 +86,14 @@ describe('prepared helper enrollment', () => {
     ).rejects.toThrow('main changed');
   });
 });
+it('enrolls a frozen helper built by the installed Apple compiler driver', async () => {
+  const f = fixture();
+  f.build.swiftVersion =
+    'swift-driver version: 1.168.6 Apple Swift version 6.4 (swiftlang-6.4.0.34.1 clang-2100.3.34.1)\nTarget: arm64-apple-macosx26.0';
+  const bytes = JSON.stringify(f.build);
+  writeFileSync(join(f.root, 'dist/staging-offline-operator-auth/build.json'), bytes);
+  f.receipt.compiledArtifacts['dist/staging-offline-operator-auth/build.json'] = hash(bytes);
+  expect(await enrollPreparedOfflineOperatorHelper(f.root, f.qualify)).toMatchObject({
+    expectedSha256: f.build.compiledSha256,
+  });
+});
