@@ -788,6 +788,7 @@ it.each([
   'ordinary-last-native-await',
   'native-last-native-await',
   'permit-after-slow-proofs',
+  'control-last-native-await',
 ])(
   'integrates actual native custody with mandatory full ordinary boundary proofs (%s)',
   async (scenario) => {
@@ -795,6 +796,7 @@ it.each([
     const mutateOrdinary = scenario === 'ordinary-after-preserved';
     const mutateDuringLastAwait = scenario === 'ordinary-last-native-await';
     const mutateNativeDuringLastAwait = scenario === 'native-last-native-await';
+    const mutateControlDuringLastAwait = scenario === 'control-last-native-await';
     const f = fixture();
     const slowPermitScenario = scenario === 'permit-after-slow-proofs';
     let simulatedNow,
@@ -921,6 +923,11 @@ it.each([
         if (full.sha256 !== f.plan.facts.units[0].manifestSha256)
           throw Error('Actual full physical content proof failed');
         physicalProofs.push({ appInstalled: f.nodes.has(ordinaryPlan.registration.path), active });
+        if (mutateControlDuringLastAwait && physicalProofs.length === 12) {
+          await Promise.resolve();
+          f.nodes.get(f.archive + '/ordinary-prior-controls/service/start.mjs').bytes =
+            Buffer.from('corrupted prior control');
+        }
         if (mutateNativeDuringLastAwait && physicalProofs.length === 12) {
           await Promise.resolve();
           const size = fs.fstatSync(nativeWriter).size;
@@ -1077,7 +1084,7 @@ it.each([
       phases.close();
       return;
     }
-    if (mutateDuringLastAwait || mutateNativeDuringLastAwait) {
+    if (mutateDuringLastAwait || mutateNativeDuringLastAwait || mutateControlDuringLastAwait) {
       await expect(restore.apply(token)).rejects.toThrow(
         mutateNativeDuringLastAwait
           ? 'Archived full manifest changed'

@@ -449,6 +449,18 @@ export function createOfflineOrdinaryEffects(
     );
     return value;
   };
+  const verifyControlSnapshot = (file) => {
+    requireEffect(facts.installation.controlFiles.some((expected) => same(expected, file)));
+    const metadata = tools.read(file.archivePath + '.metadata.json');
+    requireEffect(
+      (metadata.stat.mode & 0o777) === 0o600 &&
+        same(JSON.parse(metadata.bytes.toString('utf8')), file.prior),
+    );
+    if (file.prior.state === 'present') {
+      const saved = tools.read(file.archivePath);
+      requireEffect((saved.stat.mode & 0o777) === 0o600 && hash(saved.bytes) === file.prior.sha256);
+    } else requireEffect(!tools.exists(file.archivePath));
+  };
   const guardOwned = (context) => {
     current(context);
     capability().assertOwnedGuard(plan);
@@ -578,10 +590,8 @@ export function createOfflineOrdinaryEffects(
     },
     async assertControlSnapshot(file, _, context) {
       current(context);
-      requireEffect(same(tools.json(file.archivePath + '.metadata.json'), file.prior));
-      if (file.prior.state === 'present')
-        requireEffect(hash(tools.read(file.archivePath).bytes) === file.prior.sha256);
-      else requireEffect(!tools.exists(file.archivePath));
+      verifyControlSnapshot(file);
+      current(context);
     },
     async preserveUnit(unit, _, context) {
       guardOwned(context);
@@ -883,6 +893,7 @@ export function createOfflineOrdinaryEffects(
         current();
         requireEffect(same(tools.json(completionPath), payload));
         verifyPreserved();
+        for (const file of facts.installation.controlFiles) verifyControlSnapshot(file);
         current();
         return true;
       }

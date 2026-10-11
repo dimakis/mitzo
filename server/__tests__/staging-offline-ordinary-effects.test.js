@@ -475,6 +475,38 @@ it('holds the original guard through preservation, one start and byte-bound dura
       expect(fs.existsSync(f.map(guardPath))).toBe(true);
       fs.writeFileSync(retainedPath, priorBytes);
       expect(assertFinal()).toBe(true);
+      const present = plan.facts.installation.controlFiles.find(
+        (file) => file.prior.state === 'present',
+      );
+      const savedPath = f.map(present.archivePath),
+        metadataPath = savedPath + '.metadata.json';
+      const savedBody = fs.readFileSync(savedPath),
+        savedMetadata = fs.readFileSync(metadataPath);
+      for (const change of ['body', 'body-delete', 'metadata', 'metadata-delete']) {
+        if (change === 'body') fs.writeFileSync(savedPath, 'late old-control corruption');
+        if (change === 'body-delete') fs.unlinkSync(savedPath);
+        if (change === 'metadata')
+          fs.writeFileSync(
+            metadataPath,
+            JSON.stringify({ ...present.prior, sha256: '0'.repeat(64) }),
+          );
+        if (change === 'metadata-delete') fs.unlinkSync(metadataPath);
+        expect(() => assertFinal()).toThrow();
+        expect(fs.existsSync(f.map(guardPath))).toBe(true);
+        fs.writeFileSync(savedPath, savedBody, { mode: 0o600 });
+        fs.writeFileSync(metadataPath, savedMetadata, { mode: 0o600 });
+        expect(assertFinal()).toBe(true);
+      }
+      const absent = plan.facts.installation.controlFiles.find(
+        (file) => file.prior.state === 'absent',
+      );
+      fs.writeFileSync(f.map(absent.archivePath), 'unbound invented prior control', {
+        mode: 0o600,
+      });
+      expect(() => assertFinal()).toThrow();
+      expect(fs.existsSync(f.map(guardPath))).toBe(true);
+      fs.unlinkSync(f.map(absent.archivePath));
+      expect(assertFinal()).toBe(true);
       fs.unlinkSync(f.map(guardPath));
       complete = true;
     },

@@ -125,13 +125,18 @@ Each old ordinary directory receives scoped open-handle and mount-alias checks
 before and after relocation. All four archived directory manifests and their
 exclusion from future inputs are rechecked before startup and completion. After
 the final asynchronous native check, synchronous full verification of the native
-manifest and all four ordinary archives must succeed before the guard can be removed.
+manifest, all four ordinary archives and every saved control body and metadata
+record must succeed before the guard can be removed. Originally absent controls
+must still have no saved body.
 These observations do not claim that latent writable mappings are absent.
 
 The controller records one start attempt and registers the application without
 starting it. After all prelaunch archive checks finish, it writes a fresh
 fifteen-second permit immediately before the sole normal kickstart for the existing
-canonical label. No await or full fingerprint intervenes. Completion
+canonical label. No await or full fingerprint intervenes. The launcher consumes
+the single-use permit at entry, then completes every integrity check before exec
+and revalidates the exact receipt and custody. Failed qualification burns the
+permit and retains the guard; read-only checks never consume it. Completion
 requires the original started PID and birth identity, exact accepted source and
 compiled/dependency inventory, registration bytes, release working directory,
 exclusive port 3190 listener and HTTP readiness. Only verified completion releases
