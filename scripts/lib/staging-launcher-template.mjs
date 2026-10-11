@@ -17,24 +17,36 @@ if (root !== join(homedir(), '.local/share/mitzo-staging') || realpathSync(root)
   throw Error('Staging root refused');
 if (process.argv.length > 3 || (process.argv[2] && process.argv[2] !== '--check'))
   throw Error('Staging arguments refused');
-function privateJson(path) {
+function privateRecord(path) {
   const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
   try {
-    const s = fstatSync(fd);
+    const s = fstatSync(fd, { bigint: true });
     if (
       !s.isFile() ||
-      s.uid !== process.getuid() ||
-      (s.mode & 0o777) !== 0o600 ||
-      s.nlink !== 1 ||
-      s.size > 262144
+      s.uid !== BigInt(process.getuid()) ||
+      (s.mode & 0o777n) !== 0o600n ||
+      s.nlink !== 1n ||
+      s.size > 262144n ||
+      realpathSync(path) !== path
     )
       throw Error('Private staging input refused');
-    return JSON.parse(readFileSync(fd, 'utf8'));
+    const identity = (stat) =>
+      ['dev', 'ino', 'uid', 'mode', 'nlink', 'size', 'mtimeNs', 'ctimeNs'].map((key) =>
+        String(stat[key]),
+      );
+    const bytes = readFileSync(fd, 'utf8');
+    const after = identity(fstatSync(fd, { bigint: true }));
+    if (JSON.stringify(identity(s)) !== JSON.stringify(after))
+      throw Error('Private staging input changed');
+    return { value: JSON.parse(bytes), bytes, identity: after };
   } finally {
     closeSync(fd);
   }
 }
-const receipt = privateJson(join(root, 'service/release-receipt.json'));
+const privateJson = (path) => privateRecord(path).value;
+const receiptPath = join(root, 'service/release-receipt.json');
+const receiptRecord = privateRecord(receiptPath);
+const receipt = receiptRecord.value;
 const release = receipt.release;
 if (
   !/^[a-f0-9]{40}$/.test(receipt.sourceCommit) ||
@@ -44,6 +56,42 @@ if (
   receipt.workspace !== join(root, 'workspace')
 )
   throw Error('Staging boundaries changed');
+const checkOnly = process.argv[2] === '--check';
+const guardPath = join(root, 'service/deployment.lock');
+let admittedGuard;
+if (!checkOnly && existsSync(guardPath)) {
+  admittedGuard = privateRecord(guardPath);
+  const permitPath = join(root, 'service/launch-permit.json');
+  const permit = privateJson(permitPath);
+  const entryNow = Date.now();
+  if (
+    typeof permit.id !== 'string' ||
+    !permit.id.length ||
+    admittedGuard.value.id !== permit.id ||
+    admittedGuard.value.target !== receipt.sourceCommit ||
+    permit.target !== receipt.sourceCommit ||
+    !Number.isFinite(permit.expiresAt) ||
+    entryNow > permit.expiresAt ||
+    permit.expiresAt > entryNow + 15000
+  )
+    throw Error('Uncertain or expired staging deployment; refuse restart');
+  // Entry admission is single-use. An integrity failure keeps custody and never
+  // restores the grant. Expensive qualification cannot extend or re-admit it.
+  unlinkSync(permitPath);
+}
+function assertAdmissionCurrent() {
+  const sameRecord = (path, expected) => {
+    const current = privateRecord(path);
+    if (
+      current.bytes !== expected.bytes ||
+      JSON.stringify(current.identity) !== JSON.stringify(expected.identity)
+    )
+      throw Error('Admitted staging custody or receipt changed');
+  };
+  sameRecord(receiptPath, receiptRecord);
+  if (admittedGuard) sameRecord(guardPath, admittedGuard);
+  else if (existsSync(guardPath)) throw Error('Staging custody appeared after entry');
+}
 function git(args, allowFailure = false) {
   const result = spawnSync(
     'git',
@@ -168,19 +216,7 @@ if (process.argv[2] === '--check') {
     }),
   );
 } else {
-  if (existsSync(join(root, 'service/deployment.lock'))) {
-    const lock = privateJson(join(root, 'service/deployment.lock'));
-    const permit = privateJson(join(root, 'service/launch-permit.json'));
-    if (
-      lock.id !== permit.id ||
-      lock.target !== receipt.sourceCommit ||
-      permit.target !== receipt.sourceCommit ||
-      !Number.isFinite(permit.expiresAt) ||
-      Date.now() > permit.expiresAt
-    )
-      throw Error('Uncertain or expired staging deployment; refuse restart');
-    unlinkSync(join(root, 'service/launch-permit.json'));
-  }
   process.chdir(release);
+  assertAdmissionCurrent();
   process.execve(process.execPath, [process.execPath, join(release, 'dist/index.js')], env);
 }

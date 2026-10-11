@@ -6,15 +6,13 @@ import { createPrivateKey, createPublicKey } from 'node:crypto';
 import { bytes, hash, directory, inventory } from './staging-cold-audit.mjs';
 /** Exact original frozen launcher schema. No parser may ignore unknown sections,
  * alternate signing paths, extension transports or native persistent state. */
-export function verifyFrozenKeyGateway(c, root) {
-  directory(root);
+export function verifyFrozenGatewayToml(c, root, text) {
   if (c.upstreamProxy !== undefined || c.supervisorNetwork !== undefined)
     throw Error('Only the initial non-proxy gateway contract is qualified');
   const q = JSON.stringify,
     tls = Object.fromEntries(Object.keys(c.tls).map((n) => [n, join(root, n + '.pem')])),
     jwt = Object.fromEntries(Object.keys(c.jwt).map((n) => [n, join(root, n + '.jwt')]));
-  const text = bytes(join(root, 'gateway.toml')).toString(),
-    issuer = text.match(/^issuer = "(https:\/\/127\.0\.0\.1:[1-9][0-9]{3,4})"$/m)?.[1];
+  const issuer = text.match(/^issuer = "(https:\/\/127\.0\.0\.1:[1-9][0-9]{3,4})"$/m)?.[1];
   if (!issuer || Number(issuer.split(':').at(-1)) > 65535)
     throw Error('Exact original issuer required');
   const expected = `
@@ -59,6 +57,17 @@ supervisor_image = ${q(c.supervisorImage)}
 enabled = true
 `;
   if (text !== expected) throw Error('Frozen complete native configuration changed');
+  return { expected, issuer, tls, jwt };
+}
+
+/** Cold refusal retains its original complete empty-state, key and inventory checks. */
+export function verifyFrozenKeyGateway(c, root) {
+  directory(root);
+  const { expected, issuer, jwt } = verifyFrozenGatewayToml(
+    c,
+    root,
+    bytes(join(root, 'gateway.toml')).toString(),
+  );
   const expectedFiles = {
     'openshell-gateway': { sha256: c.executableSha256, mode: 0o500 },
     openshell: { sha256: c.cliSha256, mode: 0o500 },

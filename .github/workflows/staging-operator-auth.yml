@@ -1,0 +1,23 @@
+name: Staging operator authentication helper
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  compile:
+    name: Compile staging operator authentication helper
+    runs-on: macos-26
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - name: Compile only; never invoke authentication
+        run: |
+          swiftc -module-cache-path "$RUNNER_TEMP/staging-auth-module-cache" \
+            -o "$RUNNER_TEMP/staging-operator-auth" \
+            scripts/native/staging-operator-auth.swift

@@ -81,7 +81,7 @@ inventory. Never use broad kill, container prune, or deletion of retained worksp
 Reopening the registry lists retained records; it does not restore the recording
 closure or native custody. Custodian death, machine restart, missing original
 gateway authority and interrupted launch without the original owner remain
-unsupported for ownership recovery. The separately reviewed [pre-native refusal disposition](canonical-staging.md#qualified-refusal-before-native-startup) recognizes only a whitelisted historical mandatory gate that could not pass on a sealed macOS boot; it does not retire or recover a native owner. All other environments stay quarantined. Do not
+unsupported for ownership recovery. The separately reviewed [pre-native refusal disposition](canonical-staging.md#qualified-refusal-before-native-startup) recognizes only a whitelisted historical mandatory gate that could not pass on a sealed macOS boot; it does not retire or recover a native owner. The separately reviewed [offline containment disposition](staging-offline-containment.md) recognizes one exact stopped post-reboot incident, preserves the whole native unit and original uncertain row outside future inputs, and permits ordinary app restoration only after fresh operator authentication and physical control invalidation. It grants no native retirement, ownership recovery or cleanup authority. Other environments stay quarantined. Do not
 delete `launch.intent` or impersonate the old instance. A copied retirement receipt
 or database is not an owner-controlled cleanup operation.
 
