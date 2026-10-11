@@ -653,7 +653,7 @@ it('matches the supplied sanitized installed metadata schema without reading the
   machine.HostUser.UID = process.getuid();
   machine.Mounts[0].Source = root;
   machine.Mounts[0].Target = root;
-  machine.AppleHypervisor.Vfkit.VirtualMachine.bootloader.kind = 'efi';
+  expect(machine.AppleHypervisor.Vfkit.VirtualMachine.bootloader.kind).toBe('efiBootloader');
   const refs = validateAppleHvContainmentMachine(machine, root);
   expect(refs.disk).toBe(machine.ImagePath.Path);
   expect(supplied.machineSha256).toBe(OFFLINE_CONTAINMENT_NATIVE_TARGET.machineSha256);
@@ -748,7 +748,7 @@ function machineDefinition(root) {
           vcpus: 2,
           memoryBytes: 4294967296,
           bootloader: {
-            kind: 'efi',
+            kind: 'efiBootloader',
             efiVariableStorePath:
               root +
               '/symposium/home/.local/share/containers/podman/machine/applehv/efi-bl-mitzo-symposium-staging',
@@ -770,6 +770,15 @@ it('closes only the reviewed AppleHV direct raw device and contained private ref
   expect(refs.efi).toContain('/symposium/home/');
   expect(refs.ssh).toContain('/symposium/home/');
 });
+it.each(['efi', 'linuxBootloader', 'macOSBootloader', 'unknown', null])(
+  'refuses bootloader kind %s instead of the exact measured vfkit discriminator',
+  (kind) => {
+    const root = '/private/test/mitzo-staging',
+      machine = machineDefinition(root);
+    machine.AppleHypervisor.Vfkit.VirtualMachine.bootloader.kind = kind;
+    expect(() => validateAppleHvContainmentMachine(machine, root)).toThrow();
+  },
+);
 it.each([
   [
     'extra device',

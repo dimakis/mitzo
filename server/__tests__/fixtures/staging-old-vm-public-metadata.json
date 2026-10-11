@@ -52,7 +52,7 @@
           "vcpus": 2,
           "memoryBytes": 4294967296,
           "bootloader": {
-            "kind": "<redacted-unclassified-string>",
+            "kind": "efiBootloader",
             "efiVariableStorePath": "/Users/dsaridak/.local/share/mitzo-staging/symposium/home/.local/share/containers/podman/machine/applehv/efi-bl-mitzo-symposium-staging",
             "createVariableStore": true
           }

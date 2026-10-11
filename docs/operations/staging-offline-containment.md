@@ -72,6 +72,9 @@ The native closure is limited to the reviewed stock Podman 5.6.2 AppleHV route.
 The controller verifies the complete machine definition and installed helper bytes,
 raw disk attachment, EFI and SSH identity references, whole canonical-root mount,
 complete gateway TOML template, and absence of alternate configured runtime paths.
+The frozen vfkit JSON uses `efiBootloader` as its bootloader kind; `efi` is the
+command-line option and is not accepted as the stored JSON discriminator. The
+exact machine hash, EFI storage path and device constraints remain required.
 It requires stopped private compute, absent application registration/listeners,
 an inactive non-autostarting VM supervisor, original process births before the
 selected boot, no scoped open handles, and no mounted, hard-linked or symbolic
