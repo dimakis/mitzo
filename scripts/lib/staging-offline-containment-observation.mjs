@@ -199,8 +199,7 @@ export function assertNoScopedMountAliases(table, paths) {
     const source = match[1].replaceAll('\\040', ' '),
       target = match[2].replaceAll('\\040', ' '),
       sourcePath = source.startsWith('/') ? resolve(source) : undefined;
-    if (source.includes('\\') || target.includes('\\'))
-      throw Error('Unknown mount path escape');
+    if (source.includes('\\') || target.includes('\\')) throw Error('Unknown mount path escape');
     if (
       paths.some(
         (path) =>

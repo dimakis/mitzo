@@ -64,7 +64,11 @@ it('refuses mounted source ancestors exposing original or future quarantine stat
         protectedPath,
       ]),
     ).not.toThrow();
-    expect(() => assertNoScopedMountAliases('/Users/operator/.local\\011share on /alias (bind)\n', [protectedPath])).toThrow(/escape/);
+    expect(() =>
+      assertNoScopedMountAliases('/Users/operator/.local\\011share on /alias (bind)\n', [
+        protectedPath,
+      ]),
+    ).toThrow(/escape/);
   }
 });
 it('preserves only the exact closed native ignition socket without treating its birth as preboot', () => {
