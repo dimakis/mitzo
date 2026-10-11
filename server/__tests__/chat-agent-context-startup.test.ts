@@ -98,6 +98,244 @@ async function setup(contextRecipe?: AgentContextRecipe, withFixtureMcp = false)
 }
 const sessionId = 'aaaaaaaa-bbbb-4ccc-8ddd-565656565656';
 
+it.each(['Responses', 'Responses with native API disabled', 'Gemini'])(
+  'preserves pack compilation on the supported %s route',
+  async (route) => {
+    const { root, chat, transport, compiler, unbind } = await setup({
+      version: 2,
+      source: 'packs',
+      tokenBudget: 1000,
+      packs: [{ id: 'review', revision: 1, hash: 'a'.repeat(64) }],
+    });
+    const contextPacks = new ContextPackStore(':memory:');
+    const { installContextPackRuntime } = await import('../context-pack-runtime.js');
+    const release = installContextPackRuntime(async () => ({
+      contextPacks,
+      sourceIdentity: 'fixture-accepted',
+      source: { allowed: () => true, authorize: vi.fn(), read: vi.fn() },
+    }));
+    try {
+      vi.stubEnv(
+        'MITZO_OPENSHELL_ENABLED',
+        route === 'Responses with native API disabled' ? '1' : '0',
+      );
+      vi.stubEnv('MITZO_OPENSHELL_SANDBOX_NAME', '');
+      vi.stubEnv('MITZO_OPENSHELL_OPENAI_API_ENABLED', '0');
+      const profiles = new AccountProfiles([
+        route === 'Gemini'
+          ? {
+              id: 'fixture',
+              label: 'Offline Gemini',
+              provider: 'google-vertex',
+              projectId: 'fixture-project',
+              region: 'europe-west1',
+              credentialRef: '/test/adc.json',
+              models: [{ id: 'luna', label: 'Fixture' }],
+            }
+          : {
+              id: 'fixture',
+              label: 'Offline Responses',
+              provider: 'openai',
+              credentialRef: { provider: 'keychain', service: 'fixture', account: 'fixture' },
+              models: [{ id: 'luna', label: 'Fixture' }],
+            },
+      ]);
+      const { credentials } = await import('../credentials.js');
+      vi.spyOn(credentials, 'resolve').mockResolvedValue('offline-key');
+      const { GoogleAuth } = await import('google-auth-library');
+      vi.spyOn(GoogleAuth.prototype, 'getAccessToken').mockResolvedValue('offline-token');
+      const compile = vi
+        .spyOn(compiler, 'compileAgentContext')
+        .mockRejectedValue(Error('Supported pack compilation reached'));
+      const { query } = await import('@anthropic-ai/claude-agent-sdk');
+      const codex = await import('../codex-chat-session.js');
+      const open = vi
+        .spyOn(codex, 'openCodexChat')
+        .mockRejectedValue(Error('Unexpected native dispatch'));
+      await chat.startChat(transport, 'supported-pack-route', 'Review', {
+        cwd: root,
+        isolation: false,
+        accountId: 'fixture',
+        model: 'luna',
+        accountProfiles: profiles,
+        initialSessionId: sessionId,
+        agentProfile: { profileId: 'bob', revision: 3 },
+        operatorConnectionId: 'operator',
+      });
+      expect(compile).toHaveBeenCalledOnce();
+      expect(transport.send.mock.calls).toContainEqual([
+        expect.objectContaining({ type: 'error', error: 'Supported pack compilation reached' }),
+      ]);
+      expect(query).not.toHaveBeenCalled();
+      expect(open).not.toHaveBeenCalled();
+    } finally {
+      release();
+      unbind();
+      chat.registry.dispose();
+      chat.eventStore.close();
+      contextPacks.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+);
+
+it.each([
+  ['host Codex', false, false, false, false],
+  ['sandbox Codex', true, false, false, false],
+  ['sandbox API', true, true, false, false],
+  ['retained host Codex', false, false, true, false],
+  ['retained sandbox Codex', true, false, true, false],
+  ['retained sandbox API', true, true, true, false],
+  ['retained after profile await', false, false, true, true],
+  ['retained initial identity', false, false, true, false],
+] as const)(
+  'refuses packs before common startup side effects (%s)',
+  async (_name, sandbox, api, retained, afterAwait) => {
+    const packRecipe = {
+      version: 2 as const,
+      source: 'packs' as const,
+      tokenBudget: 1000,
+      packs: [{ id: 'review', revision: 1, hash: 'a'.repeat(64) }],
+    };
+    const { root, chat, profile, transport, compiler, unbind } = await setup(
+      afterAwait ? undefined : packRecipe,
+    );
+    try {
+      vi.stubEnv('MITZO_OPENSHELL_ENABLED', sandbox ? '1' : '0');
+      vi.stubEnv('MITZO_OPENSHELL_SANDBOX_NAME', '');
+      const profiles = new AccountProfiles(
+        [
+          api
+            ? {
+                id: 'fixture',
+                label: 'Offline API',
+                provider: 'openai',
+                credentialRef: { provider: 'keychain', service: 'fixture', account: 'fixture' },
+                sandboxProvider: 'fixture-openai',
+                models: [{ id: 'luna', label: 'Luna fixture' }],
+              }
+            : {
+                id: 'fixture',
+                label: 'Offline Codex',
+                provider: 'openai-codex',
+                email: 'fixture@example.com',
+                planType: 'pro',
+                ...(sandbox
+                  ? {
+                      sandboxProvider: 'fixture-openai',
+                      sandboxProviderType: 'openai-codex-oauth',
+                      sandboxProviderId: 'provider-id',
+                      sandboxGrantId: 'grant-id',
+                    }
+                  : { credentialRef: '/test/codex' }),
+                models: [{ id: 'luna', label: 'Luna fixture' }],
+              },
+        ],
+        { codexEnabled: true },
+      );
+      let retainedVisible = !afterAwait;
+      if (afterAwait) {
+        const libraryBinding = await import('../agent-library-binding.js');
+        const original = libraryBinding.resolveChatAgentProfile;
+        vi.spyOn(libraryBinding, 'resolveChatAgentProfile').mockImplementation(async (input) => {
+          const selected = await original(input);
+          retainedVisible = true;
+          return selected;
+        });
+      }
+      if (retained) {
+        chat.eventStore.upsertSession({
+          sessionId,
+          accountBinding: profiles.resolve('fixture', 'luna'),
+          ...(afterAwait ? { agentProfile: profile } : {}),
+        });
+        const get = chat.eventStore.getSession.bind(chat.eventStore);
+        vi.spyOn(chat.eventStore, 'getSession').mockImplementation((id) => {
+          const meta = get(id);
+          return retainedVisible && id === sessionId && meta
+            ? { ...meta, agentContext: { source: 'packs' } as never }
+            : meta;
+        });
+      }
+      const { CodexAppServerClient } = await import('../codex-app-server-client.js');
+      const launch = vi
+        .spyOn(CodexAppServerClient, 'launch')
+        .mockReturnValue({ initialize: async () => {}, close: vi.fn() } as never);
+      const account = await import('../codex-account.js');
+      const verify = vi
+        .spyOn(account, 'verifyCodexAccount')
+        .mockResolvedValue(profiles.resolve('fixture', 'luna') as never);
+      const { credentials } = await import('../credentials.js');
+      const credential = vi
+        .spyOn(credentials, 'resolve')
+        .mockRejectedValue(Error('Unexpected credentials'));
+      const worktrees = await import('../worktree.js');
+      const worktree = vi.spyOn(worktrees, 'createWorktree').mockImplementation(() => {
+        throw Error('Unexpected workspace');
+      });
+      const worktreeAsync = vi
+        .spyOn(worktrees, 'createWorktreeAsync')
+        .mockRejectedValue(Error('Unexpected workspace'));
+      const repository = await import('../repository-chat-startup.js');
+      const repositoryRuntime = await import('../repository-workspace-runtime.js');
+      vi.spyOn(repositoryRuntime, 'getRepositoryWorkspaces').mockReturnValue({} as never);
+      const workspace = vi
+        .spyOn(repository, 'selectRepositoryChatWorkspace')
+        .mockRejectedValue(Error('Unexpected repository workspace'));
+      const compile = vi
+        .spyOn(compiler, 'compileAgentContext')
+        .mockRejectedValue(Error('Unexpected compilation'));
+      const persist = vi.spyOn(chat.eventStore, 'upsertSession');
+      const register = vi.spyOn(chat.registry, 'register');
+      const codex = await import('../codex-chat-session.js');
+      const open = vi
+        .spyOn(codex, 'openCodexChat')
+        .mockRejectedValue(Error('Unexpected native dispatch'));
+      const { query } = await import('@anthropic-ai/claude-agent-sdk');
+      await chat.startChat(transport, 'early-pack-refusal', 'Review', {
+        cwd: root,
+        accountId: 'fixture',
+        model: 'luna',
+        accountProfiles: profiles,
+        ...(retained
+          ? _name === 'retained initial identity'
+            ? { initialSessionId: sessionId }
+            : { resume: sessionId }
+          : {
+              agentProfile: { profileId: 'bob', revision: 3 },
+              repositoryWorkspaceId: 'fixture-repository',
+            }),
+        operatorConnectionId: 'operator',
+      });
+      expect(transport.send.mock.calls).toContainEqual([
+        expect.objectContaining({
+          type: 'error',
+          error: expect.stringContaining('trusted native continuation barrier'),
+        }),
+      ]);
+      for (const sideEffect of [
+        launch,
+        verify,
+        credential,
+        worktree,
+        worktreeAsync,
+        workspace,
+        compile,
+        persist,
+        register,
+        open,
+        query,
+      ])
+        expect(sideEffect).not.toHaveBeenCalled();
+    } finally {
+      unbind();
+      chat.registry.dispose();
+      chat.eventStore.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+);
+
 it.each([
   [true, true],
   [false, true],

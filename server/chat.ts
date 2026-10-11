@@ -1,3 +1,4 @@
+import { assertNativeCodexContextAdmission } from './native-codex-context-admission.js';
 import {
   assertOrdinaryContributorControlAllowed,
   authorizeOrdinaryContributorStart,
@@ -1270,6 +1271,22 @@ async function _startChatInner(
         provider: accountBinding?.provider,
         lookup: (selection) => readAgentLibraryProfile(selection, options.operatorConnectionId),
       });
+    // Reject unsupported context before credential preflight, workspace creation,
+    // or snapshot persistence. Host Responses and SDK routes retain pack support.
+    if (
+      accountBinding?.provider === 'openai-codex' ||
+      (accountBinding?.provider === 'openai' &&
+        openShellAvailable &&
+        process.env.MITZO_OPENSHELL_OPENAI_API_ENABLED !== '0')
+    )
+      assertNativeCodexContextAdmission(
+        agentProfile?.definition.contextRecipe,
+        storedMeta?.agentContext,
+        // Profile resolution may await a remote lookup; re-read retained context.
+        options.resume || options.initialSessionId
+          ? eventStore.getSession((options.resume ?? options.initialSessionId)!)?.agentContext
+          : undefined,
+      );
     if (!accountBinding && openShellAvailable)
       throw new Error('OpenShell execution requires an explicit account selection');
     if (accountBinding) {

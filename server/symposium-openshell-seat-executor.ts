@@ -12,6 +12,7 @@ import type { SymposiumAttemptRegistry } from './symposium-attempt-registry.js';
 import type { AccountProfiles } from './account-profiles.js';
 import {
   bindSymposiumAgentContextAuthorization,
+  symposiumAgentContextAuthorization,
   type SymposiumAgentContextBinding,
 } from './symposium-agent-context.js';
 import type { SymposiumSeatExecution, SymposiumSeatExecutor } from './symposium-orchestrator.js';
@@ -137,6 +138,22 @@ export class SymposiumOpenShellSeatExecutor implements SymposiumSeatExecutor {
     return run;
   }
   private async executeCurrent(input: SymposiumSeatExecution) {
+    const capturedExecution = input;
+    const assertNativeContextSupported = () => {
+      for (const current of [capturedExecution, input]) {
+        if (
+          current.seat.accountBinding?.provider === 'anthropic-vertex' &&
+          (current.seat.contextRecipe ||
+            current.agentContext ||
+            symposiumAgentContextAuthorization(current))
+        )
+          throw Error(
+            'Native Claude recipe context requires a reviewed continuation fence; select a supported runtime',
+          );
+      }
+    };
+    input.signal.throwIfAborted();
+    assertNativeContextSupported();
     this.prepare({
       sessionId: input.sessionId,
       claimToken: input.claimToken,
@@ -152,6 +169,7 @@ export class SymposiumOpenShellSeatExecutor implements SymposiumSeatExecutor {
     this.attempts.set(input.claimToken, attempt);
     const admission = () => {
       if (this.draining) throw new Error('Symposium runtime is shutting down');
+      assertNativeContextSupported();
       if ('version' in input.provenance && input.provenance.version === 3) {
         if (!this.deps.assertArtifactAdmissionCurrent)
           throw new Error('Trusted artifact admission owner unavailable');

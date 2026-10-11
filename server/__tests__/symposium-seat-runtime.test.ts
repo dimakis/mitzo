@@ -4987,3 +4987,103 @@ it.each(['copy', 'captured mutation'] as const)(
     expect(close).toHaveBeenCalled();
   },
 );
+
+describe('native Claude context admission before provisioning', () => {
+  afterEach(() => vi.restoreAllMocks());
+  async function claudeExecutorFixture() {
+    const work = fixture();
+    const claudeSeat = {
+      ...seat,
+      model: 'claude-test',
+      accountBinding: AccountBindingSchema.parse(profiles.resolve('work-vertex', 'claude-test')),
+    };
+    work.setConfig({ ...config, seats: [claudeSeat, config.seats[1]] });
+    work.setAdmission({
+      ...admission,
+      provider: 'anthropic-vertex',
+      accountId: 'work-vertex',
+      model: 'claude-test',
+      accountProfileRevision: claudeSeat.accountBinding.profileRevision,
+    });
+    work.input = {
+      ...work.input,
+      seat: claudeSeat,
+      provenance: {
+        ...work.input.provenance,
+        accountBinding: claudeSeat.accountBinding,
+        accountProfileRevision: claudeSeat.accountBinding.profileRevision,
+      },
+    };
+    vi.spyOn(
+      await import('../symposium-production-gate.js'),
+      'assertSymposiumAttestedClaudeProvider',
+    ).mockImplementation(() => {});
+    const prepare = vi.fn(
+      async () =>
+        undefined as
+          import('../symposium-agent-context.js').PreparedSymposiumAgentContext | undefined,
+    );
+    const ensure = vi.fn(async () => ({ workdir: '/task' }) as never);
+    const openNative = vi.fn(async () => {
+      throw Error('Native Claude recipe context requires a reviewed continuation fence');
+    });
+    const executor = new SymposiumOpenShellSeatExecutor({
+      facts: work.facts,
+      profiles,
+      hostGrants,
+      owner: { ensure, readOnlyEnforced: { openaiApi: true, claudeVertex: true } },
+      agentContext: { prepare, reauthorize: vi.fn(), assertCurrent: vi.fn(), accepted: vi.fn() },
+      openNative,
+      recordAccepted: vi.fn(),
+    });
+    return { work, prepare, ensure, openNative, executor };
+  }
+  it.each(['packs', 'workspace', 'contexgin', 'snapshot', 'trusted binding'] as const)(
+    'refuses unsupported Claude context before preparation or sandbox creation (%s)',
+    async (kind) => {
+      const f = await claudeExecutorFixture();
+      if (kind === 'snapshot') f.work.input.agentContext = { source: 'packs' } as never;
+      else if (kind === 'trusted binding') {
+        const { bindSymposiumAgentContextAuthorization } =
+          await import('../symposium-agent-context.js');
+        bindSymposiumAgentContextAuthorization(f.work.input, async () => {});
+      } else f.work.input.seat.contextRecipe = { source: kind } as never;
+      await expect(f.executor.execute(f.work.input)).rejects.toThrow(
+        /Native Claude recipe context requires a reviewed continuation fence/,
+      );
+      expect(f.prepare).not.toHaveBeenCalled();
+      expect(f.ensure).not.toHaveBeenCalled();
+      expect(f.openNative).not.toHaveBeenCalled();
+    },
+  );
+  it.each(['snapshot', 'captured recipe', 'stripped binding'] as const)(
+    'rechecks Claude context introduced during async preparation before provisioning (%s)',
+    async (kind) => {
+      const f = await claudeExecutorFixture();
+      f.prepare.mockImplementation(async () => {
+        await Promise.resolve();
+        if (kind === 'snapshot')
+          return {
+            snapshot: { source: 'packs', context: { fullMarkdown: 'Pinned guidance' } } as never,
+            bootContext: 'Pinned guidance',
+          };
+        if (kind === 'captured recipe')
+          f.work.input.seat.contextRecipe = { source: 'workspace' } as never;
+        else {
+          const { bindSymposiumAgentContextAuthorization } =
+            await import('../symposium-agent-context.js');
+          bindSymposiumAgentContextAuthorization(f.work.input, async () => {});
+          delete f.work.input.agentContext;
+          delete f.work.input.seat.contextRecipe;
+        }
+        return undefined;
+      });
+      await expect(f.executor.execute(f.work.input)).rejects.toThrow(
+        /Native Claude recipe context requires a reviewed continuation fence/,
+      );
+      expect(f.prepare).toHaveBeenCalledOnce();
+      expect(f.ensure).not.toHaveBeenCalled();
+      expect(f.openNative).not.toHaveBeenCalled();
+    },
+  );
+});
