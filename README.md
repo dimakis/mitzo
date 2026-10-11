@@ -320,6 +320,13 @@ state migration, parent recovery and database rollback remain unsupported by thi
 
 ### Symposium native execution contracts
 
+Personal connection HTTP routes live in
+`server/symposium-personal-connection-router.ts`. Each matched operation applies
+the existing interactive operator middleware, preserving fallback and OPTIONS
+behavior for unmatched requests. The router resolves the current host's narrow
+connection service per request; application composition retains host installation,
+and the existing services retain credentials, discovery and cleanup ownership.
+
 Shared and native execution validate durable dispatch authority through
 `server/symposium-dispatch-boundary.ts`. That transport-neutral fence checks the
 current artifact, configuration, membership, trusted grants, admission and exact
