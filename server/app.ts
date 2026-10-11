@@ -2506,7 +2506,6 @@ app.post(
 );
 app.use(
   '/api/symposium/personal/connections',
-  operatorAuthMiddleware,
   createSymposiumPersonalConnectionRouter(() => symposiumProductionHost?.personalConnections),
 );
 app.get('/api/symposium/personal/login/status', operatorAuthMiddleware, subscriptionLogin.status);

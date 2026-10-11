@@ -60,8 +60,8 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '5ad72e9be9d3289a13511aaa1bb107b527283493e5577e08912ea4fdc4740a81',
   '../agent-context-binding.ts': '4917ff83899105b7ac2c537c8db18111eeb97386d1ca0a2d2b576d872e1db360',
   '../symposium-personal-connection-router.ts':
-    '10dbfbf2d464607d381ed2014816e21eddc46e4fd710bc0496be44c957b9cf4d',
-  '../app.ts': 'fa0cc21b28835b52d24013796982c1c579141f19ee2c36511874292e896695de',
+    'f254cadb334bc75dbb19104fdb7ed2b3e46bf2856b81d29300fd4f45db02674e',
+  '../app.ts': 'b4d8c9fc2fde67c0818becf924ebc00d902c6376e173db9e3dc0d964c20e1e51',
   '../ws-handler-v2.ts': '6dc83858d2c813bbce858301458ec0124248def3dfaf61e91a14fe09718517c9',
   '../briefings.ts': '277b26171abc42266a3b621ff7ab10306792764cb55bbc635e41c4ba20e98d49',
   '../home-router.ts': '744708f3503d3ef46114998ce9bb6a68b3068a3c7d57e0c264298cdb69aac982',

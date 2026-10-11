@@ -321,8 +321,9 @@ state migration, parent recovery and database rollback remain unsupported by thi
 ### Symposium native execution contracts
 
 Personal connection HTTP routes live in
-`server/symposium-personal-connection-router.ts`, behind the application's
-interactive operator middleware. The router resolves the current host's narrow
+`server/symposium-personal-connection-router.ts`. Each matched operation applies
+the existing interactive operator middleware, preserving fallback and OPTIONS
+behavior for unmatched requests. The router resolves the current host's narrow
 connection service per request; application composition retains host installation,
 and the existing services retain credentials, discovery and cleanup ownership.
 

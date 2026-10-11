@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { registerAuthSession, type AuthSession } from './auth.js';
+import { operatorAuthMiddleware, registerAuthSession, type AuthSession } from './auth.js';
 import type { PersonalConnection } from './symposium-personal-connections.js';
 import {
   createPersonalRoutingDiagnosticHandler,
@@ -16,13 +16,13 @@ export interface SymposiumPersonalConnectionService {
   diagnoseRouting?: PersonalRoutingDiagnosticOperation;
 }
 
-/** Mount behind interactive operator authentication. Resolve the installed host
- * per request so host installation remains with application composition. */
+/** Authenticate matched operations only, preserving application fallback/OPTIONS
+ * behavior. Resolve the installed host per request; composition owns installation. */
 export function createSymposiumPersonalConnectionRouter(
   resolveService: () => SymposiumPersonalConnectionService | undefined,
 ): Router {
   const router = Router();
-  router.get('/', (_req, res) => {
+  router.get('/', operatorAuthMiddleware, (_req, res) => {
     res.setHeader('Cache-Control', 'no-store');
     const service = resolveService();
     if (!service) {
@@ -31,7 +31,7 @@ export function createSymposiumPersonalConnectionRouter(
     }
     res.json({ connections: service.list() });
   });
-  router.post('/', (req, res) => {
+  router.post('/', operatorAuthMiddleware, (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
     const service = resolveService();
     if (!service) {
@@ -48,7 +48,7 @@ export function createSymposiumPersonalConnectionRouter(
       });
     }
   });
-  router.post('/:id/disconnect', async (req, res) => {
+  router.post('/:id/disconnect', operatorAuthMiddleware, async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
     const service = resolveService();
     if (!service) {
@@ -68,50 +68,56 @@ export function createSymposiumPersonalConnectionRouter(
       });
     }
   });
-  router.post(['/:id/models/refresh', '/:id/models/recover'], async (req, res) => {
-    res.setHeader('Cache-Control', 'no-store');
-    const discover = req.path.endsWith('/recover')
-      ? resolveService()?.recoverDiscovery
-      : resolveService()?.discoverModels;
-    if (!discover) {
-      res.status(503).json({ error: 'Owned personal model discovery is unavailable.' });
-      return;
-    }
-    if (!Number.isSafeInteger(req.body?.expectedRevision) || req.body.expectedRevision < 1) {
-      res.status(400).json({ error: 'A current connection revision is required.' });
-      return;
-    }
-    const session = res.locals.authSession as AuthSession;
-    let current = true;
-    const unregister = registerAuthSession(session, () => {
-      current = false;
-    });
-    const assertOperator = () => {
-      if (!current || session.expiresAt <= Date.now()) throw new Error('Operator session expired');
-    };
-    try {
-      assertOperator();
-      const result = await discover(
-        String(req.params.id),
-        req.body.expectedRevision,
-        assertOperator,
-      );
-      assertOperator();
-      const status = (result as { status?: unknown })?.status;
-      res
-        .status(status === 'failed' ? 422 : status === 'reconciliation_required' ? 409 : 200)
-        .json(result);
-    } catch {
-      res.status(409).json({
-        error:
-          'Discovery is unavailable or requires recovery. Refresh connection status before retry.',
+  router.post(
+    ['/:id/models/refresh', '/:id/models/recover'],
+    operatorAuthMiddleware,
+    async (req, res) => {
+      res.setHeader('Cache-Control', 'no-store');
+      const discover = req.path.endsWith('/recover')
+        ? resolveService()?.recoverDiscovery
+        : resolveService()?.discoverModels;
+      if (!discover) {
+        res.status(503).json({ error: 'Owned personal model discovery is unavailable.' });
+        return;
+      }
+      if (!Number.isSafeInteger(req.body?.expectedRevision) || req.body.expectedRevision < 1) {
+        res.status(400).json({ error: 'A current connection revision is required.' });
+        return;
+      }
+      const session = res.locals.authSession as AuthSession;
+      let current = true;
+      const unregister = registerAuthSession(session, () => {
+        current = false;
       });
-    } finally {
-      unregister();
-    }
-  });
+      const assertOperator = () => {
+        if (!current || session.expiresAt <= Date.now())
+          throw new Error('Operator session expired');
+      };
+      try {
+        assertOperator();
+        const result = await discover(
+          String(req.params.id),
+          req.body.expectedRevision,
+          assertOperator,
+        );
+        assertOperator();
+        const status = (result as { status?: unknown })?.status;
+        res
+          .status(status === 'failed' ? 422 : status === 'reconciliation_required' ? 409 : 200)
+          .json(result);
+      } catch {
+        res.status(409).json({
+          error:
+            'Discovery is unavailable or requires recovery. Refresh connection status before retry.',
+        });
+      } finally {
+        unregister();
+      }
+    },
+  );
   router.post(
     '/:id/routing-diagnostic',
+    operatorAuthMiddleware,
     createPersonalRoutingDiagnosticHandler(() => resolveService()?.diagnoseRouting),
   );
   return router;

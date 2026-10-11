@@ -23,13 +23,7 @@ vi.mock('../chat.js', () => {
 vi.mock('../symposium-owned-host.js', () => {
   throw Error('Personal connection routes must not allocate a host');
 });
-import {
-  authMiddleware,
-  operatorAuthMiddleware,
-  login,
-  authenticateToken,
-  revokeAuthSession,
-} from '../auth.js';
+import { authMiddleware, login, authenticateToken, revokeAuthSession } from '../auth.js';
 import {
   createSymposiumPersonalConnectionRouter,
   type SymposiumPersonalConnectionService,
@@ -80,7 +74,7 @@ async function fixture() {
   const resolve = vi.fn(() => selected);
   const app = express();
   app.use(express.json(), cookieParser(), authMiddleware);
-  app.use(base, operatorAuthMiddleware, createSymposiumPersonalConnectionRouter(resolve));
+  app.use(base, createSymposiumPersonalConnectionRouter(resolve));
   const token = (await login(process.env.AUTH_PASSPHRASE!))!;
   const cookie = `cc_auth=${token}`;
   const server = await listenOnLoopback(app);
@@ -284,10 +278,10 @@ it('retains routing diagnostic validation and delegates to its existing owner', 
   expect(f.service.diagnoseRouting).toHaveBeenCalledWith('personal_test', 3, expect.any(Function));
 });
 
-it('mounts the focused router in app composition behind the existing operator middleware', () => {
+it('mounts the focused router in app composition with authentication owned by each matched route', () => {
   const source = readFileSync(new URL('../app.ts', import.meta.url), 'utf8');
   expect(source).toMatch(
-    /app\.use\(\s*'\/api\/symposium\/personal\/connections',\s*operatorAuthMiddleware,\s*createSymposiumPersonalConnectionRouter/,
+    /app\.use\(\s*'\/api\/symposium\/personal\/connections',\s*createSymposiumPersonalConnectionRouter/,
   );
   expect(source).not.toContain("app.post('/api/symposium/personal/connections'");
   expect(source).not.toContain("app.get('/api/symposium/personal/connections'");
