@@ -20,14 +20,14 @@ import {
   SymposiumConfigurationOperationReceiptSchema,
 } from '@mitzo/protocol';
 import type {
-  SeatConfig,
   SymposiumConfig,
   SymposiumDeliveryRecord,
   SymposiumMembershipRecord,
-  SymposiumAdmissionRecord,
   ValidAccountBinding,
 } from '@mitzo/protocol';
 import { apiFetch } from '../lib/api-fetch';
+import type { DirectorSeat, DirectorStatus } from '../types/symposium-director';
+import { useSymposiumDirectorReadState } from '../hooks/useSymposiumDirectorReadState';
 import { AccountModelPicker, type AccountSelection } from './AccountModelPicker';
 import { SymposiumProfilePicker, type SymposiumProfileSelection } from './SymposiumProfilePicker';
 
@@ -137,43 +137,6 @@ function AdvancedControls({
       {open && <div className="symposium-advanced-content">{children}</div>}
     </div>
   );
-}
-
-interface DirectorSeat {
-  seatId: string;
-  seat: SeatConfig;
-  membership: SymposiumMembershipRecord | null;
-  admitted: boolean;
-  admissionRecorded?: boolean;
-  savedRuntimeState?: string | null;
-  creationDiagnostic?: {
-    phase: string;
-    code: string;
-    canCleanup: boolean;
-    recoveryIdempotencyKey?: string;
-    recoveryAuthorization?: {
-      operationId: string;
-      revision: number;
-      state: 'reauthorization_required' | 'cleanup_fenced' | 'authorized';
-    };
-  } | null;
-  admission?: Pick<
-    SymposiumAdmissionRecord,
-    'configRevision' | 'membershipGeneration' | 'decision'
-  > | null;
-}
-interface DirectorStatus {
-  sessionId: string;
-  config: SymposiumConfig | null;
-  seats: DirectorSeat[];
-  runtimeAvailable: boolean;
-  statusMode?: string;
-  runtimeVerification?: string;
-  profileBindingEnforced?: boolean;
-  initialProfileSelections?: Record<string, SymposiumProfileSelection>;
-  reservedSeats: number;
-  capacityRemaining: number;
-  deliveries: SymposiumDeliveryRecord[];
 }
 
 function resolveInitialAdmission(base: string, status: DirectorStatus) {
@@ -512,14 +475,8 @@ function SessionDirectorPanel({
   open: boolean;
   setOpen: (value: (current: boolean) => boolean) => void;
 }) {
-  const [status, setStatus] = useState<DirectorStatus | null>(null);
   const [artifactMessage, setArtifactMessage] = useState('');
-  const [detailChecks, setDetailChecks] = useState<
-    Record<string, { pending: boolean; error?: string }>
-  >({});
-  const [loading, setLoading] = useState(false);
   const [localBusy, setBusy] = useState(false);
-  const [error, setError] = useState('');
   const [selected, setSelected] = useState<string[]>([]);
   const [message, setMessage] = useState('');
   const [reviewHandoff, setReviewHandoff] = useState(0);
@@ -538,7 +495,6 @@ function SessionDirectorPanel({
   const [boundaryAcknowledged, setBoundaryAcknowledged] = useState(false);
   const [typedConfirmation, setTypedConfirmation] = useState('');
   const pendingKeys = useRef(new Map<string, string>());
-  const refreshGeneration = useRef(0);
   const base = `/api/sessions/${encodeURIComponent(sessionId)}/symposium`;
   const actionSnapshot = useSyncExternalStore(
     enableActionStore.subscribe,
@@ -559,108 +515,45 @@ function SessionDirectorPanel({
     };
   }, [open]);
 
-  const refresh = useCallback(
-    async (preservedError?: string) => {
-      const generation = ++refreshGeneration.current;
-      setLoading(true);
-      setDetailChecks({});
-      setCleanupConfirmation({});
-      try {
-        const next = await readJson<DirectorStatus>(`${base}/status`);
-        if (generation !== refreshGeneration.current) return;
-        resolveInitialAdmission(base, next);
-        setStatus(next);
-        setDetailChecks({});
-        // Typed cleanup consent belongs to the status the operator inspected.
-        setCleanupConfirmation({});
-        setProfileSelections((current) => ({ ...next.initialProfileSelections, ...current }));
-        setSelected((current) =>
-          current.filter((id) =>
-            next.seats.some((seat) => seat.seatId === id && canRequestAgent(seat)),
-          ),
-        );
-        setError(preservedError ?? '');
-      } catch (cause) {
-        if (generation === refreshGeneration.current) {
-          const refreshError =
-            cause instanceof Error ? cause.message : 'Director status unavailable';
-          setError(
-            preservedError
-              ? `${preservedError}. Status refresh failed: ${refreshError}`
-              : refreshError,
-          );
-        }
-      } finally {
-        if (generation === refreshGeneration.current) setLoading(false);
-      }
+  const onStatusRead = useCallback(
+    (next: DirectorStatus) => {
+      resolveInitialAdmission(base, next);
     },
     [base],
   );
-
-  useEffect(() => {
-    setStatus(null);
+  const onStatus = useCallback((next: DirectorStatus) => {
+    // Typed cleanup consent belongs to the status the operator inspected.
+    setCleanupConfirmation({});
+    setProfileSelections((current) => ({ ...next.initialProfileSelections, ...current }));
+    setSelected((current) =>
+      current.filter((id) =>
+        next.seats.some((seat) => seat.seatId === id && canRequestAgent(seat)),
+      ),
+    );
+  }, []);
+  const onRefreshStart = useCallback(() => setCleanupConfirmation({}), []);
+  const onDetailStart = useCallback((seatId: string) => {
+    setCleanupConfirmation((old) => ({ ...old, [seatId]: '' }));
+  }, []);
+  const onReadReset = useCallback(() => {
     setSelected([]);
     setPrimarySelection('');
     setPrimaryConfirmation('');
     setCleanupConfirmation({});
     setProfileSelections({});
     pendingKeys.current.clear();
-    if (open) void refresh();
-    return () => {
-      refreshGeneration.current += 1;
-    };
-  }, [sessionId, open, refresh]);
-
-  async function checkDetails(seat: DirectorSeat) {
-    if (
-      status?.statusMode !== 'durable' ||
-      !seat.creationDiagnostic ||
-      detailChecks[seat.seatId]?.pending
-    )
-      return;
-    const epoch = refreshGeneration.current;
-    const revision = status.config?.revision;
-    const generation = seat.membership?.generation;
-    setDetailChecks((old) => ({ ...old, [seat.seatId]: { pending: true } }));
-    setCleanupConfirmation((old) => ({ ...old, [seat.seatId]: '' }));
-    try {
-      const checked = await readJson<DirectorStatus>(base);
-      if (epoch !== refreshGeneration.current) return;
-      const exact = checked.seats.find((item) => item.seatId === seat.seatId);
-      if (
-        checked.sessionId !== sessionId ||
-        checked.statusMode === 'durable' ||
-        checked.runtimeVerification === 'not_checked' ||
-        !exact ||
-        checked.config?.revision !== revision ||
-        exact?.membership?.generation !== generation
-      )
-        throw new Error('Agent details changed. Refresh the agent list before continuing.');
-      if (!checked.runtimeAvailable || !exact.creationDiagnostic)
-        throw new Error('Current creation proof is unavailable. The saved failure is retained.');
-      setStatus(
-        (current) =>
-          current && {
-            ...current,
-            seats: current.seats.map((item) =>
-              item.seatId === seat.seatId
-                ? { ...item, creationDiagnostic: exact.creationDiagnostic }
-                : item,
-            ),
-          },
-      );
-      setDetailChecks((old) => ({ ...old, [seat.seatId]: { pending: false } }));
-    } catch (cause) {
-      if (epoch !== refreshGeneration.current) return;
-      setDetailChecks((old) => ({
-        ...old,
-        [seat.seatId]: {
-          pending: false,
-          error: cause instanceof Error ? cause.message : 'Could not check connection details',
-        },
-      }));
-    }
-  }
+  }, []);
+  const { status, setStatus, detailChecks, loading, error, setError, refresh, checkDetails } =
+    useSymposiumDirectorReadState({
+      sessionId,
+      open,
+      readStatus: readJson,
+      onStatusRead,
+      onStatus,
+      onRefreshStart,
+      onDetailStart,
+      onReset: onReadReset,
+    });
 
   useEffect(() => {
     const openTeam = (event: Event) => {
