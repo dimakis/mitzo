@@ -114,7 +114,7 @@ function configuration(profiles: AccountProfiles): OrdinarySessionRuntimeCatalog
     deployment: 'ordinary',
     enabledHarnesses: ['codex'],
     accounts: profiles.ordinaryLocalCodexAccounts(),
-    targets: [{ targetId: 'local', location: 'local' }],
+    targets: [{ targetId: 'local', targetRevision: 'local-r1', location: 'local' }],
   };
 }
 
@@ -323,12 +323,11 @@ describe('projected accounts in the dormant resolver', () => {
       ),
     ).toEqual({
       status: 'compatible',
-      targetId: 'local',
       binding: {
-        version: 1,
+        version: 2,
         account,
         harness: { implementation: 'codex' },
-        execution: { location: 'local' },
+        execution: { location: 'local', targetId: 'local', targetRevision: 'local-r1' },
       },
     });
   });
