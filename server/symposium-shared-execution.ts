@@ -1,3 +1,4 @@
+import { assertSymposiumNativeCodexContextAdmission } from './symposium-agent-context-authorization.js';
 import type { AccountBinding } from '@mitzo/protocol';
 import type { AccountProfiles } from './account-profiles.js';
 import type {
@@ -60,6 +61,9 @@ export function admitSymposiumSharedDispatch(
   deps: SharedAdmissionDependencies,
   input: SymposiumSeatExecution,
 ): AccountBinding {
+  input.signal.throwIfAborted();
+  if (['openai', 'openai-codex'].includes(input.seat.accountBinding?.provider ?? ''))
+    assertSymposiumNativeCodexContextAdmission(input);
   const seat = assertSymposiumSeatDispatchCurrent(deps.facts, input, deps.hostGrants);
   if (
     !['coder', 'implementer'].includes(seat.role) ||

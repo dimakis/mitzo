@@ -252,3 +252,52 @@ describe('ordinary account execution through existing Symposium owners', () => {
     expect(cancelAndDrain).toHaveBeenCalledTimes(2);
   });
 });
+
+it.each(['recipe', 'snapshot', 'stripped trusted binding'] as const)(
+  'rejects shared Codex packs rather than dropping selected context (%s)',
+  async (kind) => {
+    const f = fixture();
+    if (kind === 'recipe') f.input.seat.contextRecipe = { source: 'packs' } as never;
+    else f.input.agentContext = { source: 'packs' } as never;
+    if (kind === 'stripped trusted binding') {
+      const { bindSymposiumAgentContextAuthorization } =
+        await import('../symposium-agent-context.js');
+      bindSymposiumAgentContextAuthorization(f.input, async () => {});
+      delete f.input.agentContext;
+      delete f.input.seat.contextRecipe;
+    }
+    const openOrdinary = vi.fn();
+    const executor = new SymposiumSharedSeatExecutor({
+      ...f.deps,
+      openOrdinary,
+      recordAccepted: vi.fn(),
+      recoverCancelled: vi.fn(),
+    });
+    await expect(executor.execute(f.input)).rejects.toThrow(/trusted native continuation barrier/);
+    expect(openOrdinary).not.toHaveBeenCalled();
+  },
+);
+
+it('rechecks trusted source admission before a shared continuation dispatch', async () => {
+  const f = fixture();
+  const { bindSymposiumAgentContextAuthorization } = await import('../symposium-agent-context.js');
+  const dispatch = vi.fn();
+  const recordAccepted = vi.fn();
+  const executor = new SymposiumSharedSeatExecutor({
+    ...f.deps,
+    recordAccepted,
+    recoverCancelled: vi.fn(),
+    openOrdinary: async () => ({
+      run: async (current, callbacks) => {
+        bindSymposiumAgentContextAuthorization(current, async () => {});
+        callbacks.beforeDispatch();
+        dispatch();
+        return { providerThreadId: 'child', content: 'Unfenced result' };
+      },
+      cancelAndDrain: async () => {},
+    }),
+  });
+  await expect(executor.execute(f.input)).rejects.toThrow(/trusted native continuation barrier/);
+  expect(dispatch).not.toHaveBeenCalled();
+  expect(recordAccepted).not.toHaveBeenCalled();
+});

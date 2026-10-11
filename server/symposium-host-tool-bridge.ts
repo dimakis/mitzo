@@ -42,6 +42,8 @@ export async function createSymposiumHostToolBridge(input: {
   signal: AbortSignal;
   tools: SymposiumNativeProfileTools;
   verifyCurrent(): void;
+  /** Trusted host metadata fence; never a tool- or sandbox-supplied callback. */
+  prepareAgentContext?: (signal: AbortSignal) => Promise<void>;
 }) {
   input.signal.throwIfAborted();
   input.verifyCurrent();
@@ -99,11 +101,19 @@ export async function createSymposiumHostToolBridge(input: {
           const task = (async () => {
             if (!input.tools.tools.some((tool) => tool.name === call.name))
               throw new Error('Seat host tool unavailable');
+            await input.prepareAgentContext?.(signal);
+            signal.throwIfAborted();
             const response = await input.tools.executeTool(call.name, call.arguments, signal, {
               turnId: input.claimToken,
               callId: call.id,
             });
             if (closed || signal.aborted) return;
+            input.verifyCurrent();
+            // A tool or user approval can outlive its accepted source authority.
+            // Do not turn revocation into a recoverable model-visible tool error.
+            await input.prepareAgentContext?.(signal);
+            signal.throwIfAborted();
+            if (closed) return;
             input.verifyCurrent();
             await run('put', { id: call.id, response });
           })().catch(fail);

@@ -1,3 +1,4 @@
+import { assertSymposiumNativeCodexContextAdmission } from './symposium-agent-context-authorization.js';
 import { createHash } from 'node:crypto';
 import type { CodexAccountProfile } from './codex-account.js';
 import { resolveSymposiumSubscriptionRoute } from './symposium-subscription-native.js';
@@ -9,6 +10,8 @@ import {
   type SymposiumDispatchFacts,
   type SymposiumHostGrantVerifier,
 } from './symposium-dispatch-boundary.js';
+
+export { assertSymposiumNativeCodexContextAdmission } from './symposium-agent-context-authorization.js';
 
 /** Capability roles describe enforcement, not the custom agent's guidance or label. */
 export function supportsSymposiumSeatCapability(
@@ -86,6 +89,9 @@ export function admitSymposiumSeatDispatch(
   input: SymposiumSeatExecution,
   hostGrants: SymposiumHostGrantVerifier,
 ): SymposiumSeatRoute {
+  input.signal.throwIfAborted();
+  if (['openai', 'openai-codex'].includes(input.seat.accountBinding?.provider ?? ''))
+    assertSymposiumNativeCodexContextAdmission(input);
   const seat = assertSymposiumSeatDispatchCurrent(facts, input, hostGrants);
   // The shared fence guarantees these bindings; native routing remains independently verified.
   if (!seat.accountBinding || !seat.authorityGrant) throw new Error('Seat binding unavailable');

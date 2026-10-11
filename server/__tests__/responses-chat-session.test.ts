@@ -1,4 +1,5 @@
 import { expect, it, vi } from 'vitest';
+import { createHash } from 'node:crypto';
 import { SessionRegistry } from '@mitzo/harness';
 import { AsyncQueue } from '../async-queue.js';
 import { EventStore } from '../event-store.js';
@@ -25,6 +26,32 @@ vi.mock('../native-responses-runner.js', () => ({
         await new Promise<void>((resolve) => {
           calls.releaseInterruptedRun = resolve;
         });
+      }
+      if (prompt.startsWith('vertex-'))
+        yield {
+          type: 'stream_event',
+          event: {
+            type: 'message_start',
+            message: { id: 'local-generated-id' },
+            ...(prompt === 'vertex-remote-id'
+              ? {
+                  providerReceipt: {
+                    provider: 'google-vertex',
+                    responseId: 'remote-vertex-response',
+                  },
+                }
+              : {}),
+          },
+        };
+      if (prompt === 'provider-ack') {
+        yield {
+          type: 'stream_event',
+          event: { type: 'message_start', message: { id: 'resp_exact' } },
+        };
+        yield {
+          type: 'stream_event',
+          event: { type: 'message_start', message: { id: 'resp_tool_followup' } },
+        };
       }
       if (prompt === 'fail')
         throw Object.assign(new Error('OpenAI API request failed (429)'), {
@@ -1235,5 +1262,182 @@ it('keeps close no-throw when queued cancellation persistence fails', async () =
   } finally {
     registry.dispose();
     eventStore.close();
+  }
+});
+
+it.each(['provider-ack', 'fail', 'stream-then-close'])(
+  'records profile context delivery only after real provider message start (%s)',
+  async (prompt) => {
+    const registry = new SessionRegistry();
+    const abortController = new AbortController();
+    registry.register('receipt-client', {
+      transport: { send: () => {}, isOpen: () => true },
+      abortController,
+      mode: 'agent',
+      sessionId: 'receipt-app',
+      cwd: '/tmp',
+      sessionAllowList: new Set(),
+    });
+    const input = new AsyncQueue<{ message: { content: string }; mitzoMessageId: string }>();
+    input.push({ message: { content: prompt }, mitzoMessageId: 'exact-command' });
+    input.close();
+    const accepted = vi.fn();
+    const chat = await openResponsesChat({
+      conversationId: 'receipt-app',
+      binding: {
+        accountId: 'fixture',
+        accountLabel: 'Fixture',
+        provider: 'openai',
+        model: 'offline',
+        profileRevision: 'fixture',
+      },
+      apiKey: 'mock-only',
+      session: registry.get('receipt-client')!,
+      registry,
+      input,
+      systemPrompt: 'Pinned profile boot context',
+      env: { PATH: '/usr/bin:/bin' },
+      mcpServers: {},
+      store: {} as never,
+      onAgentContextAccepted: accepted,
+    });
+    try {
+      const iterator = chat[Symbol.asyncIterator]();
+      expect((await iterator.next()).value).toMatchObject({ type: 'system', subtype: 'init' });
+      expect(accepted).not.toHaveBeenCalled();
+      while (!(await iterator.next()).done) {
+        /* Drain the mocked provider stream. */
+      }
+      if (prompt === 'provider-ack') {
+        expect(accepted).toHaveBeenCalledOnce();
+        expect(accepted).toHaveBeenCalledWith(
+          'exact-command',
+          'receipt-app',
+          'resp_exact',
+          createHash('sha256')
+            .update(calls.options.at(-1)!.systemPrompt as string)
+            .digest('hex'),
+        );
+      } else expect(accepted).not.toHaveBeenCalled();
+    } finally {
+      chat.close();
+      registry.dispose();
+    }
+  },
+);
+
+it.each(['vertex-remote-id', 'vertex-local-id'])(
+  'requires actual Vertex provider receipt metadata (%s)',
+  async (prompt) => {
+    const registry = new SessionRegistry();
+    const abortController = new AbortController();
+    registry.register('vertex-client', {
+      transport: { send: () => {}, isOpen: () => true },
+      abortController,
+      mode: 'agent',
+      sessionId: 'vertex-app',
+      cwd: '/tmp',
+      sessionAllowList: new Set(),
+    });
+    const input = new AsyncQueue<{ message: { content: string }; mitzoMessageId: string }>();
+    input.push({ message: { content: prompt }, mitzoMessageId: 'vertex-command' });
+    input.close();
+    const accepted = vi.fn();
+    const chat = await openResponsesChat({
+      conversationId: 'vertex-app',
+      binding: {
+        accountId: 'fixture',
+        accountLabel: 'Fixture',
+        provider: 'google-vertex',
+        model: 'gemini-3.8-flash',
+        profileRevision: 'fixture',
+      },
+      gemini: {
+        accountId: 'fixture',
+        projectId: 'fixture',
+        region: 'global',
+        getAccessToken: async () => {
+          throw Error('No live credentials');
+        },
+      },
+      session: registry.get('vertex-client')!,
+      registry,
+      input,
+      systemPrompt: 'Pinned vertex context',
+      env: { PATH: '/usr/bin:/bin' },
+      mcpServers: {},
+      store: {} as never,
+      onAgentContextAccepted: accepted,
+    });
+    try {
+      for await (const event of chat) {
+        expect(event).toHaveProperty('type');
+      }
+      if (prompt === 'vertex-remote-id')
+        expect(accepted).toHaveBeenCalledWith(
+          'vertex-command',
+          'vertex-app',
+          'remote-vertex-response',
+          createHash('sha256')
+            .update(calls.options.at(-1)!.systemPrompt as string)
+            .digest('hex'),
+        );
+      else expect(accepted).not.toHaveBeenCalled();
+    } finally {
+      chat.close();
+      registry.dispose();
+    }
+  },
+);
+
+it('revalidates source authority on later queued API commands before starting the runner', async () => {
+  const registry = new SessionRegistry();
+  const abortController = new AbortController();
+  registry.register('scope-client', {
+    transport: { send: () => {}, isOpen: () => true },
+    abortController,
+    mode: 'agent',
+    sessionId: 'scope-app',
+    cwd: '/tmp',
+    sessionAllowList: new Set(),
+  });
+  const input = new AsyncQueue<{ message: { content: string }; mitzoMessageId: string }>();
+  input.push({ message: { content: 'provider-ack' }, mitzoMessageId: 'accepted-command' });
+  input.push({ message: { content: 'second-denied' }, mitzoMessageId: 'denied-command' });
+  input.close();
+  let checks = 0;
+  const authorize = vi.fn(async () => {
+    if (++checks > 1) throw Error('Source grant revoked');
+  });
+  const accepted = vi.fn();
+  const prior = calls.prompts.length;
+  const chat = await openResponsesChat({
+    conversationId: 'scope-app',
+    binding: {
+      accountId: 'fixture',
+      accountLabel: 'Fixture',
+      provider: 'openai',
+      model: 'offline',
+      profileRevision: 'fixture',
+    },
+    apiKey: 'offline-only',
+    session: registry.get('scope-client')!,
+    registry,
+    input,
+    systemPrompt: 'Pinned scope context',
+    env: { PATH: '/usr/bin:/bin' },
+    mcpServers: {},
+    store: {} as never,
+    prepareAgentContext: authorize,
+    onAgentContextAccepted: accepted,
+  });
+  try {
+    for await (const event of chat) expect(event).toHaveProperty('type');
+    expect(calls.prompts.slice(prior)).toEqual(['provider-ack']);
+    expect(authorize).toHaveBeenCalledTimes(2);
+    expect(accepted).toHaveBeenCalledOnce();
+  } finally {
+    chat.close();
+    registry.dispose();
   }
 });

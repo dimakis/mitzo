@@ -94,3 +94,58 @@ it('rejects incomplete or blocked output without checkpointing or emitting tool 
   await expect(collect(session, [{ role: 'user', content: 'Hi' }])).rejects.toThrow(/complete/);
   expect(session.checkpoint().history).toEqual([]);
 });
+it.each([true, false])(
+  'preserves only actual Vertex response IDs as trusted receipt metadata (id=%s)',
+  async (hasId) => {
+    const fetcher = vi.fn(async (_url: string, _init: RequestInit) =>
+      Response.json({
+        ...(hasId ? { responseId: 'vertex-exact-response' } : {}),
+        candidates: [
+          { finishReason: 'STOP', content: { role: 'model', parts: [{ text: 'Done' }] } },
+        ],
+      }),
+    );
+    vi.stubGlobal('fetch', fetcher);
+    const events = await collect(new GeminiSession(config, options), [
+      { role: 'user', content: 'Hi' },
+    ]);
+    const start = events.find((event) => event.type === 'message_start');
+    expect(start).toMatchObject({ type: 'message_start' });
+    if (hasId)
+      expect(start).toMatchObject({
+        providerReceipt: { provider: 'google-vertex', responseId: 'vertex-exact-response' },
+      });
+    else expect(start).not.toHaveProperty('providerReceipt');
+    expect(JSON.parse(String(fetcher.mock.calls[0][1]?.body)).systemInstruction).toEqual({
+      parts: [{ text: config.systemPrompt }],
+    });
+  },
+);
+
+it.each(['http-failure', 'oversized-id'])(
+  'emits no provider receipt for invalid returned acknowledgement (%s)',
+  async (mode) => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        mode === 'http-failure'
+          ? Response.json({ responseId: 'not-accepted' }, { status: 403 })
+          : Response.json({
+              responseId: 'x'.repeat(513),
+              candidates: [
+                { finishReason: 'STOP', content: { role: 'model', parts: [{ text: 'Done' }] } },
+              ],
+            }),
+      ),
+    );
+    const events: unknown[] = [];
+    const consume = async () => {
+      for await (const event of new GeminiSession(config, options).turn([
+        { role: 'user', content: 'Hi' },
+      ]))
+        events.push(event);
+    };
+    await expect(consume()).rejects.toThrow(/failed|complete/);
+    expect(events).toEqual([]);
+  },
+);

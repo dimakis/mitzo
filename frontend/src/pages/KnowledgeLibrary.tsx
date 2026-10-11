@@ -1,3 +1,4 @@
+import { ContextPackManager } from '../components/ContextPackManager';
 import { UiIcon } from '../components/UiIcon';
 import { useRef, useState } from 'react';
 import { KnowledgeTree } from '../components/KnowledgeTree';
@@ -46,7 +47,9 @@ function OrganizationChanges({
 export function KnowledgeLibrary() {
   const library = useKnowledgeLibrary();
   const { catalog, copy, selected, dirty, busy } = library;
-  const [tab, setTab] = useState<'library' | 'drafts'>('library');
+  const [tab, setTab] = useState<'library' | 'drafts' | 'context'>(() =>
+    new URLSearchParams(window.location.search).get('view') === 'context' ? 'context' : 'library',
+  );
   const [search, setSearch] = useState('');
   const [area, setArea] = useState('All knowledge');
   const [reading, setReading] = useState(false);
@@ -631,6 +634,16 @@ export function KnowledgeLibrary() {
                 Library
               </button>
               <button
+                aria-pressed={tab === 'context'}
+                onClick={() => {
+                  ++readRequest.current;
+                  setTab('context');
+                  setAdding(false);
+                }}
+              >
+                Context
+              </button>
+              <button
                 aria-pressed={tab === 'drafts'}
                 onClick={() => {
                   ++readRequest.current;
@@ -732,7 +745,9 @@ export function KnowledgeLibrary() {
               </p>
             </section>
           )}
-          {tab === 'library' ? (
+          {tab === 'context' ? (
+            <ContextPackManager knowledge={catalog} />
+          ) : tab === 'library' ? (
             <div className="knowledge-browser">
               <aside className="knowledge-areas" aria-label="Knowledge areas">
                 <p className="knowledge-eyebrow">YOUR LIBRARY</p>

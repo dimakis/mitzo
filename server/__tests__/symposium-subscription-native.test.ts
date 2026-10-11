@@ -580,3 +580,36 @@ it.each([undefined, false, true])(
     await seat.cancel();
   },
 );
+
+it.each(['recipe', 'snapshot', 'trusted binding'] as const)(
+  'refuses subscription packs before private auth or native setup (%s)',
+  async (kind) => {
+    const f = await fixture();
+    if (kind === 'recipe') f.execution.seat.contextRecipe = { source: 'packs' } as never;
+    if (kind === 'snapshot') f.execution.agentContext = { source: 'packs' } as never;
+    if (kind === 'trusted binding') {
+      const { bindSymposiumAgentContextAuthorization } =
+        await import('../symposium-agent-context.js');
+      bindSymposiumAgentContextAuthorization(f.execution, async () => {});
+    }
+    const createConversation = vi.fn();
+    await expect(createChatGptSubscriptionSeat({ ...f, createConversation })).rejects.toThrow(
+      /trusted native continuation barrier/,
+    );
+    expect(f.verifyPrivateAuth).not.toHaveBeenCalled();
+    expect(createConversation).not.toHaveBeenCalled();
+  },
+);
+
+it('refuses context introduced during subscription custody verification before native setup', async () => {
+  const f = await fixture();
+  f.verifyPrivateAuth.mockImplementation(async () => {
+    f.execution.agentContext = { source: 'packs' } as never;
+  });
+  const createConversation = vi.fn();
+  await expect(createChatGptSubscriptionSeat({ ...f, createConversation })).rejects.toThrow(
+    /trusted native continuation barrier/,
+  );
+  expect(f.verifyPrivateAuth).toHaveBeenCalledOnce();
+  expect(createConversation).not.toHaveBeenCalled();
+});

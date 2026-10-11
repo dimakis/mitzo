@@ -277,3 +277,56 @@ it('fences every noncanonical or unsupported protected request before a child sa
   expect(local).not.toHaveBeenCalled();
   expect(invoke).not.toHaveBeenCalled();
 });
+
+it('fences context pack case and encoded aliases before any controller-local handler', async () => {
+  const local = vi.fn((_req: express.Request, res: express.Response) => res.json({ local: true }));
+  const invoke = vi.fn(async () => ({ status: 200, body: { remote: true } }));
+  const app = express();
+  app.use(express.json());
+  app.use(createCustodianProxy({ request: invoke, invalidate() {} }));
+  app.use(local);
+  const token = (await login(process.env.AUTH_PASSPHRASE!))!;
+  for (const path of [
+    '/api/Context-Packs/drafts',
+    '/API/context-packs/drafts',
+    '/api/%63ontext-packs/drafts',
+    '/api/context%2dpacks/drafts',
+    '/api/context-packs/drafts/%64raft/publish',
+    '/api/context-packs/pack/revisions/%31',
+    '/api/context-packs/unknown',
+  ]) {
+    expect(
+      (await request(app).post(path).set('Authorization', `Bearer ${token}`).send({})).status,
+    ).toBe(400);
+  }
+  expect(
+    (await request(app).head('/api/context-packs').set('Authorization', `Bearer ${token}`)).status,
+  ).toBe(400);
+  expect(local).not.toHaveBeenCalled();
+  expect(invoke).not.toHaveBeenCalled();
+});
+
+it('forwards canonical context pack mutations only to the retained owner', async () => {
+  const local = vi.fn((_req: express.Request, res: express.Response) => res.json({ local: true }));
+  const invoke = vi.fn(async (_input: unknown) => ({ status: 200, body: { remote: true } }));
+  const app = express();
+  app.use(express.json());
+  app.use(createCustodianProxy({ request: invoke, invalidate() {} }));
+  app.use(local);
+  const token = (await login(process.env.AUTH_PASSPHRASE!))!;
+  for (const [method, path, operation] of [
+    ['post', '/api/context-packs/drafts', 'context.create'],
+    ['put', '/api/context-packs/drafts/draft', 'context.save'],
+    ['post', '/api/context-packs/drafts/draft/publish', 'context.publish'],
+  ] as const) {
+    const result = await request(app)
+      [method](path)
+      .set('Authorization', `Bearer ${token}`)
+      .send({});
+    expect(result.status).toBe(200);
+    expect(result.body).toEqual({ remote: true });
+    expect(invoke.mock.lastCall?.[0]).toMatchObject({ operation });
+  }
+  expect(local).not.toHaveBeenCalled();
+  expect(invoke).toHaveBeenCalledTimes(3);
+});

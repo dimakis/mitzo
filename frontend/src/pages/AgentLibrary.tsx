@@ -63,7 +63,12 @@ const normalize = (definition: SymposiumProfileDefinition): SymposiumProfileDefi
                   .filter((selector) => selector.some((part) => part.trim()))
                   .map((selector) => selector.map((part) => part.trim())),
               }
-            : { ...definition.contextRecipe, agentName: definition.contextRecipe.agentName.trim() },
+            : definition.contextRecipe.source === 'packs'
+              ? definition.contextRecipe
+              : {
+                  ...definition.contextRecipe,
+                  agentName: definition.contextRecipe.agentName.trim(),
+                },
       }
     : {}),
   ...(definition.recipe

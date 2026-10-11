@@ -1506,6 +1506,7 @@ export interface SymposiumSessionRuntimeDeps extends Omit<
   SymposiumSharedSandboxOwnerDeps,
   'facts'
 > {
+  agentContext?: SymposiumOpenShellSeatExecutorDeps['agentContext'];
   store: EventStore;
   applicationPolicy?: SymposiumOpenShellSeatExecutorDeps['applicationPolicy'];
   assertArtifactAdmissionCurrent?: SymposiumOpenShellSeatExecutorDeps['assertArtifactAdmissionCurrent'];
@@ -1729,6 +1730,7 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
       let executor = cache.get(seatId);
       if (!executor) {
         executor = new SymposiumOpenShellSeatExecutor({
+          agentContext: deps.agentContext,
           facts: deps.store,
           applicationPolicy: deps.applicationPolicy,
           assertArtifactAdmissionCurrent: deps.assertArtifactAdmissionCurrent,

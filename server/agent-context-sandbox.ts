@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import {
   AgentContextRecipeSchema,
+  WorkspaceAgentContextRecipeSchema,
   AgentContextSnapshotSchema,
   type AgentContextRecipe,
   type AgentContextSnapshot,
@@ -61,7 +62,7 @@ export const sandboxAgentCompilerHash = () =>
     workspace: reviewedHandlerSourceArtifacts['../../scripts/agent-workspace-context.mjs'],
   });
 export const SandboxAgentPresetsSchema = z
-  .record(z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/), AgentContextRecipeSchema.options[0])
+  .record(z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/), WorkspaceAgentContextRecipeSchema)
   .refine((value) => Object.keys(value).length <= 100, 'Too many sandbox context presets');
 export type SandboxAgentPresets = z.infer<typeof SandboxAgentPresetsSchema>;
 
@@ -69,9 +70,11 @@ export type SandboxAgentPresets = z.infer<typeof SandboxAgentPresetsSchema>;
 export function sandboxWorkspaceRecipe(recipe: AgentContextRecipe, presets?: SandboxAgentPresets) {
   const parsed = AgentContextRecipeSchema.parse(recipe);
   if (parsed.source === 'workspace') return parsed;
+  if (parsed.source === 'packs')
+    throw Error('Context packs cannot enter the sandbox workspace compiler');
   const preset = presets?.[parsed.agentName];
   if (!preset) throw Error('Sandbox context preset is not configured');
-  return AgentContextRecipeSchema.options[0].parse(preset);
+  return WorkspaceAgentContextRecipeSchema.parse(preset);
 }
 export async function resolveSandboxAgentContext(input: {
   profile?: AgentLibraryVersion;
