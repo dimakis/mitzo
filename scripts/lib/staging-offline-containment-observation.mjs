@@ -184,7 +184,7 @@ export function validateAppleHvContainmentMachine(m, root) {
     vf.VirtualMachine.vcpus !== 2 ||
     vf.VirtualMachine.memoryBytes !== 4294967296 ||
     vf.Endpoint !== 'http://localhost:62752' ||
-    boot.kind !== 'efi' ||
+    boot.kind !== 'efiBootloader' ||
     boot.efiVariableStorePath !== efi ||
     boot.createVariableStore !== true ||
     mount.Source !== root ||
