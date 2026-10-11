@@ -206,13 +206,18 @@ final class ChatViewModel: ObservableObject {
             // Legacy iterator failures carry only the already accepted command ID.
             if case .rejected = receipt {
                 // Exact startup rejection may precede session assignment.
-            } else if let sessionId {
-                guard !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                      sessionId == resolvedSessionId else { return }
             } else {
-                guard let accepted = lastAcceptedCommand,
-                      clientMsgId == accepted.clientMsgId,
-                      accepted.sessionId == resolvedSessionId else { return }
+                if let sessionId {
+                    guard !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                          sessionId == resolvedSessionId else { return }
+                } else {
+                    guard clientMsgId != nil else { return }
+                }
+                if let clientMsgId {
+                    guard let accepted = lastAcceptedCommand,
+                          clientMsgId == accepted.clientMsgId,
+                          accepted.sessionId == resolvedSessionId else { return }
+                }
             }
             sendError = error
             messages.append(ChatMessage(role: .assistant, text: "Error: \(error)"))
