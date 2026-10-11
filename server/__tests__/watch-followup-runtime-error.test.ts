@@ -70,9 +70,64 @@ afterAll(() => {
   vi.unstubAllGlobals();
 });
 
-it.each([true, false])(
-  'attributes a same-query iterator failure after accepted A and B with watchers=%s',
-  async (watchers) => {
+const restorationCaptures: unknown[] = [];
+async function assertRestoredFailure(
+  sessionId: string,
+  error: string,
+  path: 'history' | 'reconnect',
+  userIds: string[],
+  partial?: string,
+) {
+  const events = chat.eventStore.getSessionEvents(sessionId);
+  const failed = events.find((event) => event.type === 'error')!;
+  const messages =
+    path === 'history'
+      ? await chat.getMessages(sessionId)
+      : chat.getReconnectTranscript(sessionId, events.at(-1)!.seq).messages;
+  const prefix =
+    path === 'history'
+      ? await chat.getMessages(sessionId, failed.seq)
+      : chat.getReconnectTranscript(sessionId, failed.seq).messages;
+  restorationCaptures.push({ path, events, messages, prefix });
+  const output = process.env.MITZO_WATCH_HISTORY_FIXTURE_OUTPUT;
+  if (output) writeFileSync(output, JSON.stringify(restorationCaptures, null, 2) + '\n');
+  for (const restored of [messages, prefix]) {
+    const feedback = restored.filter((message) =>
+      message.blocks.some((block) => block.content === `**Error:** ${error}`),
+    );
+    expect(feedback).toHaveLength(1);
+    expect(feedback[0]).toMatchObject({
+      messageId: `runtime-error-${failed.seq}`,
+      role: 'assistant',
+      startedSeq: failed.seq,
+      timestamp: failed.createdAt,
+    });
+    expect(
+      restored.filter((message) => message.role === 'user').map((message) => message.messageId),
+    ).toEqual(userIds);
+    if (partial) {
+      const replies = restored.filter((message) =>
+        message.blocks.some((block) => block.content === partial),
+      );
+      expect(replies).toHaveLength(1);
+      expect(replies[0].blocks.map((block) => block.content)).toEqual([
+        'Completed reply block',
+        partial,
+      ]);
+      expect(restored.indexOf(replies[0])).toBeLessThan(restored.indexOf(feedback[0]));
+    }
+  }
+  expect(chat.getReconnectTranscript(sessionId, failed.seq).current).toBeNull();
+}
+
+it.each([
+  [true, 'history'],
+  [true, 'reconnect'],
+  [false, 'history'],
+  [false, 'reconnect'],
+] as const)(
+  'restores a same-query iterator failure after accepted A and B with watchers=%s through %s',
+  async (watchers, restoration) => {
     vi.mocked(query).mockClear();
     const sessionId = randomUUID();
     const first = V2SendMessage.parse({
@@ -114,6 +169,35 @@ it.each([true, false])(
         consumed.push((await prompts.next()).value);
         yield { type: 'assistant', session_id: sessionId, message: { content: [] } };
         consumed.push((await prompts.next()).value);
+        yield {
+          type: 'stream_event',
+          event: { type: 'message_start', message: { id: 'partial-after-B' } },
+        };
+        yield {
+          type: 'stream_event',
+          event: { type: 'content_block_start', index: 0, content_block: { type: 'text' } },
+        };
+        yield {
+          type: 'stream_event',
+          event: {
+            type: 'content_block_delta',
+            index: 0,
+            delta: { type: 'text_delta', text: 'Completed reply block' },
+          },
+        };
+        yield { type: 'stream_event', event: { type: 'content_block_stop', index: 0 } };
+        yield {
+          type: 'stream_event',
+          event: { type: 'content_block_start', index: 1, content_block: { type: 'text' } },
+        };
+        yield {
+          type: 'stream_event',
+          event: {
+            type: 'content_block_delta',
+            index: 1,
+            delta: { type: 'text_delta', text: 'Partial reply before iterator failure' },
+          },
+        };
         await gate;
         throw Error('Offline same-query iterator failed after B');
       })() as unknown as ReturnType<typeof query>;
@@ -150,6 +234,14 @@ it.each([true, false])(
           ),
         ).toHaveLength(1);
       }
+      await vi.waitFor(() =>
+        expect(events).toContainEqual(
+          expect.objectContaining({
+            type: 'block_delta',
+            delta: 'Partial reply before iterator failure',
+          }),
+        ),
+      );
       if (!watchers) {
         connections.unwatch('watch-main', sessionId);
         expect(connections.hasOpenWatchers(sessionId)).toBe(false);
@@ -174,6 +266,13 @@ it.each([true, false])(
       expect(
         chat.eventStore.getSessionEvents(sessionId).filter((event) => event.type === 'error'),
       ).toHaveLength(1);
+      await assertRestoredFailure(
+        sessionId,
+        'Offline same-query iterator failed after B',
+        restoration,
+        [first.clientMsgId, second.clientMsgId],
+        'Partial reply before iterator failure',
+      );
     } finally {
       releaseFailure();
       connections.remove('watch-main');
@@ -238,75 +337,84 @@ it('retains exact startup correlation for a known-session provider refusal befor
   }
 });
 
-it('persists a resumed accepted input runtime failure even before its first SDK event', async () => {
-  vi.mocked(query).mockClear();
-  const sessionId = randomUUID();
-  const first = V2SendMessage.parse({
-    type: 'send',
-    sessionId: null,
-    clientMsgId: randomUUID(),
-    prompt: 'Completed initial input',
-    cwd: root,
-    isolation: false,
-  });
-  const second = V2SendMessage.parse({
-    type: 'send',
-    sessionId,
-    clientMsgId: randomUUID(),
-    prompt: 'Explicit resume',
-  });
-  const events: Record<string, unknown>[] = [];
-  const transport = {
-    isOpen: () => true,
-    send: (event: Record<string, unknown>) => events.push(event),
-  };
-  const connections = new ConnectionRegistry();
-  connections.register('watch-resume', transport);
-  chat.setConnectionRegistry(connections);
-  const context = {
-    connRegistry: connections,
-    sessionRegistry: chat.registry,
-    eventStore: chat.eventStore,
-    nativeCommands: { execute: vi.fn() },
-  } as unknown as import('../ws-handler-v2.js').V2HandlerContext;
-  vi.mocked(query).mockImplementationOnce(
-    () =>
-      (async function* () {
-        yield { type: 'assistant', session_id: sessionId, message: { content: [] } };
-        yield { type: 'result', session_id: sessionId, is_error: false, usage: {} };
-      })() as unknown as ReturnType<typeof query>,
-  );
-  vi.mocked(query).mockImplementationOnce((args) => {
-    expect(args.options?.resume).toBe(sessionId);
-    return (async function* () {
-      yield* [];
-      throw Error('Offline accepted resume failed before first event');
-    })() as unknown as ReturnType<typeof query>;
-  });
-  try {
-    await ws.handleSendV2('watch-resume', transport, first, context, {
-      initialSessionId: sessionId,
+it.each(['history', 'reconnect'] as const)(
+  'restores a resumed accepted input failure before its first SDK event through %s',
+  async (restoration) => {
+    vi.mocked(query).mockClear();
+    const sessionId = randomUUID();
+    const first = V2SendMessage.parse({
+      type: 'send',
+      sessionId: null,
+      clientMsgId: randomUUID(),
+      prompt: 'Completed initial input',
+      cwd: root,
+      isolation: false,
     });
-    await vi.waitFor(() => expect(chat.registry.findBySessionId(sessionId)).toBeNull());
-    expect(chat.eventStore.hasUserMessage(sessionId, first.clientMsgId)).toBe(true);
-    expect(chat.eventStore.getSessionState(sessionId)).toBe('ENDED');
-    await ws.handleSendV2('watch-resume', transport, second, context);
-    await vi.waitFor(() =>
-      expect(events.filter((event) => event.type === 'session_end')).toHaveLength(2),
-    );
-    expect(query).toHaveBeenCalledTimes(2);
-    expect(chat.eventStore.hasUserMessage(sessionId, second.clientMsgId)).toBe(true);
-    const errors = events.filter((event) => event.type === 'error');
-    expect(errors).toHaveLength(1);
-    expect(errors[0]).toMatchObject({
+    const second = V2SendMessage.parse({
+      type: 'send',
       sessionId,
-      error: 'Offline accepted resume failed before first event',
+      clientMsgId: randomUUID(),
+      prompt: 'Explicit resume',
     });
-    expect(errors[0]).not.toHaveProperty('clientMsgId');
-    expect(
-      chat.eventStore.getSessionEvents(sessionId).filter((event) => event.type === 'error'),
-    ).toHaveLength(1);
-  } finally {
-    connections.remove('watch-resume');
-  }
-});
+    const events: Record<string, unknown>[] = [];
+    const transport = {
+      isOpen: () => true,
+      send: (event: Record<string, unknown>) => events.push(event),
+    };
+    const connections = new ConnectionRegistry();
+    connections.register('watch-resume', transport);
+    chat.setConnectionRegistry(connections);
+    const context = {
+      connRegistry: connections,
+      sessionRegistry: chat.registry,
+      eventStore: chat.eventStore,
+      nativeCommands: { execute: vi.fn() },
+    } as unknown as import('../ws-handler-v2.js').V2HandlerContext;
+    vi.mocked(query).mockImplementationOnce(
+      () =>
+        (async function* () {
+          yield { type: 'assistant', session_id: sessionId, message: { content: [] } };
+          yield { type: 'result', session_id: sessionId, is_error: false, usage: {} };
+        })() as unknown as ReturnType<typeof query>,
+    );
+    vi.mocked(query).mockImplementationOnce((args) => {
+      expect(args.options?.resume).toBe(sessionId);
+      return (async function* () {
+        yield* [];
+        throw Error('Offline accepted resume failed before first event');
+      })() as unknown as ReturnType<typeof query>;
+    });
+    try {
+      await ws.handleSendV2('watch-resume', transport, first, context, {
+        initialSessionId: sessionId,
+      });
+      await vi.waitFor(() => expect(chat.registry.findBySessionId(sessionId)).toBeNull());
+      expect(chat.eventStore.hasUserMessage(sessionId, first.clientMsgId)).toBe(true);
+      expect(chat.eventStore.getSessionState(sessionId)).toBe('ENDED');
+      await ws.handleSendV2('watch-resume', transport, second, context);
+      await vi.waitFor(() =>
+        expect(events.filter((event) => event.type === 'session_end')).toHaveLength(2),
+      );
+      expect(query).toHaveBeenCalledTimes(2);
+      expect(chat.eventStore.hasUserMessage(sessionId, second.clientMsgId)).toBe(true);
+      const errors = events.filter((event) => event.type === 'error');
+      expect(errors).toHaveLength(1);
+      expect(errors[0]).toMatchObject({
+        sessionId,
+        error: 'Offline accepted resume failed before first event',
+      });
+      expect(errors[0]).not.toHaveProperty('clientMsgId');
+      expect(
+        chat.eventStore.getSessionEvents(sessionId).filter((event) => event.type === 'error'),
+      ).toHaveLength(1);
+      await assertRestoredFailure(
+        sessionId,
+        'Offline accepted resume failed before first event',
+        restoration,
+        [first.clientMsgId, second.clientMsgId],
+      );
+    } finally {
+      connections.remove('watch-resume');
+    }
+  },
+);
