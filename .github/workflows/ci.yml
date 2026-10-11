@@ -107,6 +107,9 @@ jobs:
       - name: Test shared native package
         run: swift test --package-path frontend/ios/MitzoShared
 
+      - name: Test Watch receipt routing offline
+        run: python3 scripts/test-watch-chat-receipts.py
+
       - name: Build iPhone app with Watch companion
         if: always()
         run: >-

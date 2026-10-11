@@ -41,16 +41,17 @@ or artifact migration; preserve existing storage restrictions.
 
 ## Bounded candidate and next validation
 
-[PR #837](https://github.com/dimakis/mitzo/pull/837), reference `62d40d16`, is the
-written candidate for exact finalized transcript references and one additional
+[PR #837](https://github.com/dimakis/mitzo/pull/837) records the bounded implementation
+for exact finalized transcript references and one additional
 ordinary Codex-backed contributor per selected output. Child-thread continuity,
 attributed replies, optional durable guidance and Stop/recovery have offline test
 coverage. Independent content retention, output revision editing and API/Vertex
 contributor adapters remain outside this bounded slice.
 
-Current-head CI and final Centaur LGTM remain pending. The next work is source
-acceptance and validation against the actual runtime, followed by separately
-authorized live qualification; do not reimplement the already-written adapter.
+Source acceptance and exact-head CI/review evidence are recorded on that PR.
+Verify freshly accepted main before selecting a runtime candidate. The next work
+is validation against the actual runtime, followed by separately authorized live
+qualification; do not reimplement the already-written adapter.
 Canonical staging enrollment and live qualification remain unproven. Source
 acceptance, runtime adoption and live acceptance are separate; no deployment
 is established by this guide.

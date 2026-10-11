@@ -102,6 +102,8 @@ function mockTransport(): SessionTransport & { sent: Record<string, unknown>[] }
 
 function mockEventStore() {
   const store = {
+    getSessionEvents: vi.fn().mockReturnValue([]),
+    getUnsettledSymposiumSeatExecutions: vi.fn().mockReturnValue([]),
     getEventsAfter: vi.fn().mockReturnValue([]),
     getLatestEvent: vi.fn().mockReturnValue(null),
     getSessionPredecessorSeq: vi.fn().mockReturnValue(0),

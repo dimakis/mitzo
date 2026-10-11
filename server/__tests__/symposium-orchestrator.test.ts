@@ -1572,6 +1572,11 @@ describe('SymposiumOrchestrator', () => {
         }),
       ).toBe(true);
       // Duplicate native receipt preserves the first host observation timestamp.
+      const nativeLedger = new Database(dbPath, { readonly: true });
+      expect(
+        nativeLedger.prepare('SELECT COUNT(*) AS count FROM symposium_seat_threads').get(),
+      ).toEqual({ count: 0 });
+      nativeLedger.close();
       expect(
         store.markSymposiumRecipientAccepted({
           deliveryId: input.deliveryId,

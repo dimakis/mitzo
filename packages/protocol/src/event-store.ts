@@ -1,4 +1,11 @@
 import { isRegisteredConversation } from './conversation-identity.js';
+import { SessionOutputReferenceStore } from './session-output-reference-store.js';
+import {
+  OutputContributorBindingSchema,
+  type OutputContributorBinding,
+  type SessionOutputReference,
+  type SessionOutputCandidate,
+} from './session-output-reference.js';
 import {
   SymposiumConfigurationOperationSchema,
   SymposiumConfigurationOperationReceiptSchema,
@@ -511,6 +518,7 @@ function clientStateForExecution(phase: ExecutionPhase): ClientSessionState {
 
 export class EventStore {
   private db: Database.Database | null;
+  private readonly sessionOutputs: SessionOutputReferenceStore;
   private log: EventStoreLogger;
   private stmts: {
     append: Database.Statement;
@@ -684,6 +692,9 @@ export class EventStore {
     this.migrateSymposium(db);
     this.migrateConversationSource(db);
     this.migrateUserMessageIndex(db);
+    this.sessionOutputs = new SessionOutputReferenceStore(db);
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_output_contributor_association ON events(session_id,json_extract(payload,'$.outputId')) WHERE type='output_contributor_created';
+      CREATE INDEX IF NOT EXISTS idx_output_contributor_coordinator ON events(json_extract(payload,'$.coordinatorSessionId')) WHERE type='output_contributor_created';`);
 
     this.log.info('EventStore initialized', { dbPath });
 
@@ -1419,6 +1430,78 @@ export class EventStore {
     this.assertConversationIdentity(sessionId);
     const result = this.stmts.append.run(sessionId, type, JSON.stringify(payload), null, null);
     return Number(result.lastInsertRowid);
+  }
+
+  /** The caller must authorize this conversation using the normal session boundary. */
+  registerSessionOutput(sessionId: string, input: unknown): SessionOutputReference {
+    this.assertConversationIdentity(sessionId);
+    if (!this.getSession(sessionId)) throw new Error('Output requires a registered conversation');
+    return this.sessionOutputs.register(sessionId, input);
+  }
+  listSessionOutputs(sessionId: string, limit = 50): SessionOutputReference[] {
+    this.assertConversationIdentity(sessionId);
+    return this.getSession(sessionId) ? this.sessionOutputs.list(sessionId, limit) : [];
+  }
+  getSessionOutput(sessionId: string, outputId: string): SessionOutputReference | null {
+    this.assertConversationIdentity(sessionId);
+    return this.getSession(sessionId) ? this.sessionOutputs.get(sessionId, outputId) : null;
+  }
+  readSessionOutput(
+    sessionId: string,
+    outputId: string,
+  ): { output: SessionOutputReference; content: string } {
+    this.assertConversationIdentity(sessionId);
+    if (!this.getSession(sessionId)) throw new Error('Session output not found');
+    return this.sessionOutputs.read(sessionId, outputId);
+  }
+  listSessionOutputCandidates(sessionId: string, limit = 10): SessionOutputCandidate[] {
+    this.assertConversationIdentity(sessionId);
+    return this.getSession(sessionId) ? this.sessionOutputs.candidates(sessionId, limit) : [];
+  }
+
+  getOutputContributorBindings(
+    parentSessionId: string,
+  ): Array<OutputContributorBinding & { coordinatorSessionId: string }> {
+    this.assertConversationIdentity(parentSessionId);
+    if (!this.getSession(parentSessionId)) return [];
+    const rows = this.db!.prepare(
+      "SELECT payload FROM events WHERE session_id=? AND type='output_contributor_created' ORDER BY seq DESC LIMIT 100",
+    ).all(parentSessionId) as { payload: string }[];
+    return rows.map((row) => {
+      const { coordinatorSessionId, ...binding } = JSON.parse(row.payload);
+      if (typeof coordinatorSessionId !== 'string')
+        throw new Error('Invalid output contributor identity');
+      return { ...OutputContributorBindingSchema.parse(binding), coordinatorSessionId };
+    });
+  }
+
+  /** Host-only exact association lookup, never caller-provided ownership. */
+  getOutputContributorBinding(
+    coordinatorSessionId: string,
+  ): (OutputContributorBinding & { coordinatorSessionId: string }) | null {
+    const row = this.db!.prepare(
+      "SELECT payload FROM events WHERE type='output_contributor_created' AND json_extract(payload,'$.coordinatorSessionId')=? LIMIT 1",
+    ).get(coordinatorSessionId) as { payload: string } | undefined;
+    if (!row) return null;
+    const { coordinatorSessionId: retainedId, ...binding } = JSON.parse(row.payload);
+    if (retainedId !== coordinatorSessionId) throw new Error('Output contributor identity changed');
+    return { ...OutputContributorBindingSchema.parse(binding), coordinatorSessionId };
+  }
+
+  getOutputContributorForOutput(
+    parentSessionId: string,
+    outputId: string,
+  ): (OutputContributorBinding & { coordinatorSessionId: string }) | null {
+    this.assertConversationIdentity(parentSessionId);
+    if (!this.getSession(parentSessionId)) return null;
+    const row = this.db!.prepare(
+      "SELECT payload FROM events WHERE session_id=? AND type='output_contributor_created' AND json_extract(payload,'$.outputId')=? LIMIT 1",
+    ).get(parentSessionId, outputId) as { payload: string } | undefined;
+    if (!row) return null;
+    const { coordinatorSessionId, ...binding } = JSON.parse(row.payload);
+    if (typeof coordinatorSessionId !== 'string')
+      throw new Error('Output contributor identity changed');
+    return { ...OutputContributorBindingSchema.parse(binding), coordinatorSessionId };
   }
 
   /**
@@ -2380,6 +2463,7 @@ export class EventStore {
     binding: AccountBinding;
     config: unknown;
     profileSelections: Record<string, { profileId: string; revision: number }>;
+    outputBinding?: OutputContributorBinding;
   }): { sessionId: string; created: boolean } {
     const config = SymposiumConfigSchema.parse(input.config);
     if (config.version !== 2 || config.state !== 'draft' || config.revision !== 1)
@@ -2387,6 +2471,32 @@ export class EventStore {
     return this.db!.transaction(() => {
       const retry = this.getSymposiumSessionAllocation(input.idempotencyKey, input.fingerprint);
       if (retry) return { sessionId: retry, created: false };
+      const outputBinding = input.outputBinding
+        ? OutputContributorBindingSchema.parse(input.outputBinding)
+        : undefined;
+      if (outputBinding) {
+        const { output } = this.readSessionOutput(
+          outputBinding.parentSessionId,
+          outputBinding.outputId,
+        );
+        const digest = createHash('sha256')
+          .update(
+            JSON.stringify([
+              output.sessionId,
+              output.outputId,
+              output.revision,
+              output.source.sha256,
+            ]),
+          )
+          .digest('hex');
+        if (
+          outputBinding.outputRevision !== output.revision ||
+          outputBinding.contextPackageDigest !== digest
+        )
+          throw new Error('Output contributor context revision conflict');
+        if (this.getOutputContributorForOutput(outputBinding.parentSessionId, output.outputId))
+          throw new Error('This output already has a contributor');
+      }
       if (this.getSession(input.sessionId)) throw new Error('Symposium session identity conflict');
       const binding = AccountBindingSchema.parse(input.binding);
       const anchor = config.seats.find((seat) => seat.id === config.anchorSeatId);
@@ -2407,6 +2517,11 @@ export class EventStore {
         input.sessionId,
         JSON.stringify(input.profileSelections),
       );
+      if (outputBinding)
+        this.append(outputBinding.parentSessionId, 'output_contributor_created', {
+          ...outputBinding,
+          coordinatorSessionId: input.sessionId,
+        });
       return { sessionId: input.sessionId, created: true };
     }).immediate();
   }
@@ -5546,7 +5661,11 @@ export class EventStore {
         return undefined;
       }
 
-      const thread = this.getSymposiumSeatThread(input.sessionId, input.seatId, input.bindingKey);
+      const thread = this.restoreAcceptedOutputContributorThread(
+        input.sessionId,
+        input.seatId,
+        input.bindingKey,
+      );
       const claimed = this.db!.prepare(
         `UPDATE symposium_delivery_recipients
          SET status = 'executing', provider_thread_id = ?, updated_at = ?
@@ -5957,6 +6076,8 @@ export class EventStore {
     providerThreadId: string;
     providerTurnId: string;
     acceptedAt: number;
+    /** Trusted ordinary executor only. Native provider thread lifecycle remains unchanged. */
+    retainSeatThread?: boolean;
   }): boolean {
     if (
       !input.providerThreadId.trim() ||
@@ -5986,8 +6107,14 @@ export class EventStore {
           row.provider_turn_id !== input.providerTurnId
         )
           throw new Error('Provider acceptance receipt conflict');
+        if (
+          input.retainSeatThread &&
+          !this.retainHistoricOrdinarySeatThread({ ...input, acceptedAt: row.accepted_at })
+        )
+          return false;
         return true;
       }
+      if (input.retainSeatThread && !this.retainAcceptedOrdinarySeatThread(input)) return false;
       const updated = this.db!.prepare(
         `UPDATE symposium_recipient_attempts
         SET provider_thread_id = ?, provider_turn_id = ?, accepted_at = ?, updated_at = ?
@@ -6003,6 +6130,222 @@ export class EventStore {
       );
       return updated.changes === 1;
     }).immediate();
+  }
+
+  /** Retaining an accepted child identity never releases an uncertain execution fence. */
+  private retainAcceptedOrdinarySeatThread(input: {
+    deliveryId: string;
+    seatId: string;
+    claimToken: string;
+    providerThreadId: string;
+    acceptedAt: number;
+  }): boolean {
+    const claim = this.db!.prepare(
+      `SELECT d.session_id, c.binding_key, a.idempotency_key AS recipient_idempotency_key,
+        d.config_revision
+      FROM symposium_recipient_attempts a JOIN symposium_deliveries d ON d.delivery_id=a.delivery_id
+      JOIN symposium_delivery_recipients r ON r.delivery_id=a.delivery_id AND r.seat_id=a.seat_id
+      LEFT JOIN symposium_seat_execution_claims c ON c.claim_token=a.claim_token
+      WHERE a.claim_token=? AND a.delivery_id=? AND a.seat_id=? AND a.cleanup_confirmed=0
+        AND r.idempotency_key=a.idempotency_key
+        AND ((d.status='delivering' AND r.status='executing' AND a.status='executing'
+          AND c.session_id=d.session_id AND c.delivery_id=a.delivery_id AND c.seat_id=a.seat_id
+          AND c.recipient_idempotency_key=a.idempotency_key)
+        OR (d.status='cancelled' AND r.status='cancelled' AND a.status='cancelled'
+          AND c.claim_token IS NULL))`,
+    ).get(input.claimToken, input.deliveryId, input.seatId) as
+      | {
+          session_id: string;
+          binding_key: string | null;
+          recipient_idempotency_key: string;
+          config_revision: number;
+        }
+      | undefined;
+    // Cancelled attempts have no live dispatch binding. Their ACK is historical
+    // even if membership changed during drain; retain only its immutable owner proof.
+    if (!claim || claim.binding_key === null) return this.retainHistoricOrdinarySeatThread(input);
+    const attempt = this.getSymposiumRecipientAttemptByClaimToken(input.claimToken);
+    const config = this.getActiveSymposiumConfig(claim.session_id);
+    const seat = config.seats.find((value) => value.id === input.seatId);
+    const membership = this.getLatestSymposiumMembership(claim.session_id, input.seatId);
+    const admission = this.getLatestSymposiumAdmission(
+      claim.session_id,
+      input.seatId,
+      config.revision,
+    );
+    const child = this.getSession(input.providerThreadId);
+    const outputBinding = this.getOutputContributorBinding(claim.session_id);
+    const ownership = this.getLatestEvent(input.providerThreadId, 'contributor_execution')?.payload;
+    if (
+      !outputBinding ||
+      config.version !== 2 ||
+      config.revision !== claim.config_revision ||
+      !seat?.accountBinding ||
+      !attempt?.provenance ||
+      !('version' in attempt.provenance) ||
+      attempt.provenance.version !== 2 ||
+      !matchesSeatProvenance(config, seat, attempt.provenance) ||
+      membership?.state !== 'active' ||
+      membership.reconciliation !== 'confirmed' ||
+      membership.generation !== attempt.provenance.membershipGeneration ||
+      admission?.decision !== 'admitted' ||
+      admission.membershipGeneration !== membership.generation ||
+      admission.accountId !== seat.accountBinding.accountId ||
+      admission.provider !== seat.accountBinding.provider ||
+      admission.model !== seat.accountBinding.model ||
+      admission.accountProfileRevision !== seat.accountBinding.profileRevision ||
+      child?.sessionType !== 'chat' ||
+      !child.accountBinding ||
+      !sameBinding(child.accountBinding, seat.accountBinding) ||
+      input.providerThreadId === claim.session_id ||
+      input.providerThreadId === outputBinding.parentSessionId ||
+      ownership?.childSessionId !== input.providerThreadId ||
+      ownership.coordinatorSessionId !== claim.session_id ||
+      ownership.deliveryId !== input.deliveryId ||
+      ownership.seatId !== input.seatId ||
+      ownership.claimToken !== input.claimToken ||
+      ownership.idempotencyKey !== claim.recipient_idempotency_key
+    )
+      throw new Error('Exact accepted ordinary contributor ownership is required');
+    // Stop deletes the live dispatch claim before it drains the provider. A late
+    // ACK still identifies this retained attempt, but grants no new dispatch or
+    // cleanup authority. Reconstruct its key only from the proven current seat.
+    const bindingKey = JSON.stringify([
+      seat.accountBinding.provider,
+      seat.accountBinding.accountId,
+      seat.accountBinding.model,
+      seat.accountBinding.profileRevision,
+      seat.reasoningEffort ?? null,
+      seat.profileBinding!.profileId,
+      seat.profileBinding!.profileRevision,
+      seat.contextGrant!.grantId,
+      seat.contextGrant!.revision,
+      seat.authorityGrant!.grantId,
+      seat.authorityGrant!.revision,
+      seat.isolationRequest!.trustDomainId,
+      seat.isolationRequest!.revision,
+      membership.generation,
+    ]);
+    if (claim.binding_key !== null && claim.binding_key !== bindingKey)
+      throw new Error('Accepted ordinary contributor seat binding changed');
+    this.bindSymposiumSeatThread({
+      sessionId: claim.session_id,
+      seatId: input.seatId,
+      bindingKey,
+      providerThreadId: input.providerThreadId,
+      configRevision: claim.config_revision,
+      createdAt: input.acceptedAt,
+      updatedAt: input.acceptedAt,
+    });
+    return true;
+  }
+
+  /** Cancellation removes live claims, but never the exact dispatched identity. */
+  private retainHistoricOrdinarySeatThread(input: {
+    deliveryId: string;
+    seatId: string;
+    claimToken: string;
+    providerThreadId: string;
+    acceptedAt: number;
+  }): boolean {
+    const attempt = this.getSymposiumRecipientAttemptByClaimToken(input.claimToken);
+    const delivery = this.getSymposiumDelivery(input.deliveryId);
+    if (
+      !attempt ||
+      !delivery ||
+      attempt.deliveryId !== input.deliveryId ||
+      attempt.seatId !== input.seatId ||
+      (attempt.acceptedAt === null && !['cancelled', 'recovery_required'].includes(attempt.status))
+    )
+      return false;
+    const provenance = attempt.provenance;
+    const bindingKey = retainedOrdinaryThreadBinding(provenance);
+    const output = this.getOutputContributorBinding(delivery.sessionId);
+    const child = this.getSession(input.providerThreadId);
+    const ownerRow = this.db!.prepare(
+      `SELECT payload FROM events WHERE session_id=? AND type='contributor_execution'
+        AND json_extract(payload,'$.claimToken')=? ORDER BY seq DESC LIMIT 1`,
+    ).get(input.providerThreadId, input.claimToken) as { payload: string } | undefined;
+    const owner = ownerRow ? JSON.parse(ownerRow.payload) : undefined;
+    if (
+      !bindingKey ||
+      !provenance ||
+      !('version' in provenance) ||
+      provenance.version !== 2 ||
+      !output ||
+      provenance.seatId !== input.seatId ||
+      provenance.configRevision !== delivery.configRevision ||
+      attempt.dispatchedContent === null ||
+      attempt.dispatchSeq === null ||
+      (attempt.acceptedAt !== null && !attempt.providerTurnId) ||
+      (attempt.providerThreadId !== null && attempt.providerThreadId !== input.providerThreadId) ||
+      child?.sessionType !== 'chat' ||
+      !child.accountBinding ||
+      !sameBinding(child.accountBinding, provenance.accountBinding) ||
+      input.providerThreadId === delivery.sessionId ||
+      input.providerThreadId === output.parentSessionId ||
+      owner?.childSessionId !== input.providerThreadId ||
+      owner.coordinatorSessionId !== delivery.sessionId ||
+      owner.deliveryId !== input.deliveryId ||
+      owner.seatId !== input.seatId ||
+      owner.claimToken !== input.claimToken ||
+      owner.idempotencyKey !== attempt.idempotencyKey
+    )
+      throw new Error('Exact accepted ordinary contributor ownership requires recovery');
+    this.bindSymposiumSeatThread({
+      sessionId: delivery.sessionId,
+      seatId: input.seatId,
+      bindingKey,
+      providerThreadId: input.providerThreadId,
+      configRevision: provenance.configRevision,
+      createdAt: attempt.acceptedAt ?? input.acceptedAt,
+      updatedAt: attempt.acceptedAt ?? input.acceptedAt,
+    });
+    return true;
+  }
+
+  /** Restore pre-fix ordinary acceptances before a new claim can allocate a child. */
+  private restoreAcceptedOutputContributorThread(
+    sessionId: string,
+    seatId: string,
+    bindingKey: string,
+  ) {
+    if (this.getOutputContributorBinding(sessionId)) {
+      const rows = this.db!.prepare(
+        `SELECT a.* FROM symposium_recipient_attempts a JOIN symposium_deliveries d USING(delivery_id)
+        WHERE d.session_id=? AND a.seat_id=? AND a.accepted_at IS NOT NULL
+          AND a.provider_thread_id IS NOT NULL ORDER BY a.attempt_id`,
+      ).all(sessionId, seatId) as Array<Record<string, unknown>>;
+      let ambiguous = false;
+      for (const row of rows) {
+        const attempt = rowToSymposiumRecipientAttempt(row);
+        const retained = retainedOrdinaryThreadBinding(attempt.provenance);
+        if (retained === bindingKey) {
+          if (
+            !attempt.claimToken ||
+            !attempt.providerThreadId ||
+            attempt.acceptedAt === null ||
+            !this.retainHistoricOrdinarySeatThread({
+              deliveryId: attempt.deliveryId,
+              seatId,
+              claimToken: attempt.claimToken,
+              providerThreadId: attempt.providerThreadId,
+              acceptedAt: attempt.acceptedAt,
+            })
+          )
+            throw new Error('Accepted ordinary contributor identity requires recovery');
+        } else if (
+          !retained &&
+          !this.db!.prepare(
+            'SELECT 1 FROM symposium_seat_threads WHERE session_id=? AND seat_id=? AND provider_thread_id=?',
+          ).get(sessionId, seatId, attempt.providerThreadId)
+        )
+          ambiguous = true;
+      }
+      if (ambiguous && !this.getSymposiumSeatThread(sessionId, seatId, bindingKey))
+        throw new Error('Accepted ordinary contributor identity requires recovery');
+    }
+    return this.getSymposiumSeatThread(sessionId, seatId, bindingKey);
   }
 
   getSymposiumSeatThread(
@@ -6817,6 +7160,36 @@ function rowToEvent(row: EventRow): StoredEvent {
     payload: JSON.parse(row.payload),
     createdAt: row.created_at,
   };
+}
+
+function retainedOrdinaryThreadBinding(provenance: SymposiumProvenance | null): string | undefined {
+  if (
+    !provenance ||
+    !('version' in provenance) ||
+    provenance.version !== 2 ||
+    provenance.accountBinding.provider !== 'openai-codex' ||
+    provenance.accountProfileRevision !== provenance.accountBinding.profileRevision ||
+    provenance.seatProfileRevision !== provenance.profileBinding.profileRevision ||
+    provenance.contextGrantRevision !== provenance.contextGrant.revision ||
+    provenance.authorityGrantRevision !== provenance.authorityGrant.revision
+  )
+    return undefined;
+  return JSON.stringify([
+    provenance.accountBinding.provider,
+    provenance.accountBinding.accountId,
+    provenance.accountBinding.model,
+    provenance.accountBinding.profileRevision,
+    provenance.reasoningEffort,
+    provenance.profileBinding.profileId,
+    provenance.profileBinding.profileRevision,
+    provenance.contextGrant.grantId,
+    provenance.contextGrant.revision,
+    provenance.authorityGrant.grantId,
+    provenance.authorityGrant.revision,
+    provenance.isolationDomainId,
+    provenance.isolationDomainRevision,
+    provenance.membershipGeneration,
+  ]);
 }
 
 function parseSymposiumProvenance(raw: string | null): SymposiumProvenance | undefined {

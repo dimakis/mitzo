@@ -3,6 +3,46 @@ import { it, expect, vi, afterEach } from 'vitest';
 import { act, render, screen, fireEvent, cleanup, waitFor, within } from '@testing-library/react';
 import { AccountModelPicker } from '../AccountModelPicker';
 
+it('restricts contributor selection to eligible ordinary accounts without changing the default', async () => {
+  const onChange = vi.fn();
+  localStorage.setItem(
+    'mitzo-default-account-model',
+    JSON.stringify({ accountId: 'other', model: 'other-model' }),
+  );
+  vi.mocked(apiFetch).mockResolvedValue(
+    new Response(
+      JSON.stringify([
+        {
+          id: 'other',
+          label: 'Other route',
+          models: [{ id: 'other-model', label: 'Other model' }],
+        },
+        {
+          id: 'personal',
+          label: 'Personal ChatGPT',
+          models: [{ id: 'luna-fixture', label: 'Luna fixture' }],
+        },
+      ]),
+    ),
+  );
+  render(
+    <AccountModelPicker
+      sessionId={null}
+      preferredModel=""
+      draftOnly
+      requireExplicitSelection
+      allowedAccountIds={['personal']}
+      onChange={onChange}
+    />,
+  );
+  await screen.findByRole('button', { name: 'Use Personal ChatGPT · Luna fixture' });
+  expect(screen.queryByRole('option', { name: 'Other route' })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Use Personal ChatGPT · Luna fixture' }));
+  expect(onChange).toHaveBeenLastCalledWith({ accountId: 'personal', model: 'luna-fixture' });
+  expect(localStorage.getItem('mitzo-default-account-model')).toContain('other-model');
+  expect(apiFetch).toHaveBeenCalledWith('/api/accounts', expect.anything());
+});
+
 it('validates a required repository binding without changing browser defaults or offering a fallback', async () => {
   const onChange = vi.fn();
   vi.mocked(apiFetch).mockResolvedValue(

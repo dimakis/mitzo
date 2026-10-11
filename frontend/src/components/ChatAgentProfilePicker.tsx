@@ -15,10 +15,15 @@ export function ChatAgentProfilePicker({
   search,
   onChange,
   disabled = false,
+  updateSearchParams = true,
+  allowedRoles,
 }: {
   sessionId: string | null;
   search: string;
   disabled?: boolean;
+  /** Contributor dialogs select guidance without replacing the source chat's profile. */
+  updateSearchParams?: boolean;
+  allowedRoles?: string[];
   onChange(selection: AgentProfileSelection | null, blockedReason?: string): void;
 }) {
   const [, setSearchParams] = useSearchParams();
@@ -76,7 +81,10 @@ export function ChatAgentProfilePicker({
         if (
           requested &&
           !catalog.versions.some(
-            (v) => v.profileId === requested.profileId && v.revision === requested.revision,
+            (v) =>
+              v.profileId === requested.profileId &&
+              v.revision === requested.revision &&
+              (!allowedRoles || allowedRoles.includes(v.definition.role)),
           )
         )
           throw Error('The selected agent revision is unavailable. Choose another profile.');
@@ -94,7 +102,7 @@ export function ChatAgentProfilePicker({
     return () => {
       live = false;
     };
-  }, [sessionId, requiredId, requiredRevision]);
+  }, [sessionId, requiredId, requiredRevision, allowedRoles]);
   if (sessionId)
     return pinned ? (
       <div className="chat-agent-profile">
@@ -111,11 +119,18 @@ export function ChatAgentProfilePicker({
       latest.get(version.profileId)!.revision < version.revision
     )
       latest.set(version.profileId, version);
-  const eligible = [...latest.values()];
+  const eligible = [...latest.values()].filter(
+    (version) => !allowedRoles || allowedRoles.includes(version.definition.role),
+  );
   const historical = versions.find(
     (v) => v.profileId === selected?.profileId && v.revision === selected?.revision,
   );
-  if (historical && !eligible.includes(historical)) eligible.push(historical);
+  if (
+    historical &&
+    (!allowedRoles || allowedRoles.includes(historical.definition.role)) &&
+    !eligible.includes(historical)
+  )
+    eligible.push(historical);
   return (
     <div className="chat-agent-profile">
       <label>
@@ -131,20 +146,21 @@ export function ChatAgentProfilePicker({
             setSelected(selection);
             setError('');
             changed.current(selection, undefined);
-            setSearchParams(
-              (params) => {
-                const next = new URLSearchParams(params);
-                if (selection) {
-                  next.set('agentProfile', selection.profileId);
-                  next.set('profileRevision', String(selection.revision));
-                } else {
-                  next.delete('agentProfile');
-                  next.delete('profileRevision');
-                }
-                return next;
-              },
-              { replace: true },
-            );
+            if (updateSearchParams)
+              setSearchParams(
+                (params) => {
+                  const next = new URLSearchParams(params);
+                  if (selection) {
+                    next.set('agentProfile', selection.profileId);
+                    next.set('profileRevision', String(selection.revision));
+                  } else {
+                    next.delete('agentProfile');
+                    next.delete('profileRevision');
+                  }
+                  return next;
+                },
+                { replace: true },
+              );
           }}
         >
           <option value="">Default Mitzo</option>

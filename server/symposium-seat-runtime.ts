@@ -137,13 +137,12 @@ export function symposiumSeatRuntimeId(input: SymposiumSeatExecution): string {
   return `symposium:${createHash('sha256').update(key).digest('hex')}`;
 }
 
-/** Synchronous final fence: call immediately before the native provider operation. */
-export function admitSymposiumSeatDispatch(
+/** Shared durable authority fence. This does not attest a native sandbox or provider route. */
+export function assertSymposiumSeatDispatchCurrent(
   facts: SymposiumDispatchFacts,
-  profiles: AccountProfiles,
   input: SymposiumSeatExecution,
   hostGrants: SymposiumHostGrantVerifier,
-): SymposiumSeatRoute {
+): SeatConfig {
   input.signal.throwIfAborted();
   if ('version' in input.provenance && input.provenance.version === 3) {
     const retained = facts.getSymposiumArtifactReference?.(
@@ -228,6 +227,19 @@ export function admitSymposiumSeatDispatch(
     recipient.membershipGeneration !== generation
   )
     throw new Error('Symposium recipient delivery changed before native dispatch');
+  return seat;
+}
+
+/** Synchronous final fence: call immediately before the native provider operation. */
+export function admitSymposiumSeatDispatch(
+  facts: SymposiumDispatchFacts,
+  profiles: AccountProfiles,
+  input: SymposiumSeatExecution,
+  hostGrants: SymposiumHostGrantVerifier,
+): SymposiumSeatRoute {
+  const seat = assertSymposiumSeatDispatchCurrent(facts, input, hostGrants);
+  // The shared fence guarantees these bindings; native routing remains independently verified.
+  if (!seat.accountBinding || !seat.authorityGrant) throw new Error('Seat binding unavailable');
   profiles.resume(seat.accountBinding);
   profiles.validateModelSelection(
     seat.accountBinding,

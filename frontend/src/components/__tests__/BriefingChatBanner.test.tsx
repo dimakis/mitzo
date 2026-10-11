@@ -203,20 +203,37 @@ it.each(['hidden', 'unavailable', 'missing', 'malformed'] as const)(
       revision: state.source.revision,
       ...state.selection,
     });
-    vi.mocked(apiFetch).mockImplementation(async (url) => {
-      if (String(url).includes('/meta')) {
-        if (visibility === 'unavailable' || visibility === 'missing')
-          return new Response('', { status: visibility === 'missing' ? 404 : 503 });
-        return new Response(JSON.stringify(visibility === 'malformed' ? {} : { isHidden: true }));
-      }
-      return new Response('[]');
+    let resolveVisibility!: (response: Response) => void;
+    const visibilityResponse = new Promise<Response>((resolve) => {
+      resolveVisibility = resolve;
     });
+    let locationAtStage: string | null = null;
+    if (visibility === 'hidden')
+      state.pending.mockImplementationOnce(() => {
+        locationAtStage = screen.getByTestId('location').textContent;
+      });
+    vi.mocked(apiFetch).mockImplementation(async (url) =>
+      String(url).includes('/meta') ? visibilityResponse : new Response('[]'),
+    );
     show();
     await choose();
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledWith('/api/sessions/retained/meta'));
+    expect(state.pending).not.toHaveBeenCalled();
+    expect(screen.getByTestId('location').textContent).toBe('/chat/current');
+    expect(Object.entries(localStorage).some(([key]) => key.endsWith(':retained'))).toBe(true);
+    resolveVisibility(
+      visibility === 'unavailable' || visibility === 'missing'
+        ? new Response('', { status: visibility === 'missing' ? 404 : 503 })
+        : new Response(JSON.stringify(visibility === 'malformed' ? {} : { isHidden: true })),
+    );
     if (visibility === 'hidden') {
-      await waitFor(() => expect(state.pending).toHaveBeenCalledOnce());
+      await waitFor(() => {
+        expect(state.pending).toHaveBeenCalledOnce();
+        expect(screen.getByTestId('location').textContent).toBe('/chat');
+      });
+      // Staging runs before React commits navigation; it is not a route-completion fence.
+      expect(locationAtStage).toBe('/chat/current');
       expect(Object.entries(localStorage).some(([key]) => key.endsWith(':retained'))).toBe(false);
-      expect(screen.getByTestId('location').textContent).toBe('/chat');
     } else {
       await waitFor(() =>
         expect(screen.getByRole('alert').textContent).toContain(
@@ -224,6 +241,7 @@ it.each(['hidden', 'unavailable', 'missing', 'malformed'] as const)(
         ),
       );
       expect(state.pending).not.toHaveBeenCalled();
+      expect(screen.getByTestId('location').textContent).toBe('/chat/current');
       expect(Object.entries(localStorage).some(([key]) => key.endsWith(':retained'))).toBe(true);
     }
   },

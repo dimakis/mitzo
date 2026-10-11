@@ -1,3 +1,13 @@
+import {
+  assertOrdinaryContributorControlAllowed,
+  authorizeOrdinaryContributorStart,
+  type OrdinaryContributorExecution,
+} from './ordinary-contributor-execution.js';
+import {
+  resolveOrdinaryContributorGuidance,
+  saveOrdinaryContributorGuidance,
+} from './ordinary-contributor-guidance.js';
+import type { OrdinaryTurnLifecycle } from './ordinary-turn-lifecycle.js';
 import { assembleSourceSnapshots } from './source-snapshot-context.js';
 import { SourceSnapshotsSchema, type SourceSnapshot } from '@mitzo/protocol';
 import { publicProviderFailureMessage } from './provider-failure.js';
@@ -1088,6 +1098,17 @@ export async function startChat(
     onStartupAdmission?: (error?: unknown) => void;
     onFirstEventOutcome?: (error?: Error) => void;
     onTerminalOutcome?: (error?: Error) => void;
+    /** Trusted observers for independently owned ordinary contributor turns. */
+    ordinaryTurnLifecycle?: OrdinaryTurnLifecycle;
+    /** Explicit contributor guidance supplied by the trusted collaboration owner. */
+    contributorGuidance?: string;
+    /** Trusted caller borrows a workspace owned outside this child session. */
+    retainWorkspace?: boolean;
+    contributorExecution?: OrdinaryContributorExecution;
+    onQueryReady?: (query: { interrupt(): Promise<void> }) => void;
+    onTurnResult?: (result: { is_error?: boolean }, inputUuid?: string) => void;
+    /** Trusted live-query observer, never a viewer transport or replay subscription. */
+    onQueryEvent?: (event: Readonly<Record<string, unknown>>) => void;
     telosTaskId?: string;
     agentName?: string;
     agentProfile?: AgentProfileSelection;
@@ -1125,6 +1146,16 @@ export async function startChat(
     async () => {
       if (options.resume && !eventStore.getSession(options.resume))
         throw new Error('Conversation is not registered. Import external history before resuming.');
+      const startupSessionId = options.resume ?? options.initialSessionId;
+      if (startupSessionId) {
+        if (options.contributorExecution && registry.findBySessionId(startupSessionId))
+          throw new Error('Contributor child already has a live ordinary query');
+        authorizeOrdinaryContributorStart(
+          eventStore,
+          startupSessionId,
+          options.contributorExecution,
+        );
+      }
       releaseOrdinaryStartup = eventStore.reserveOrdinaryStartup(
         [options.resume, options.initialSessionId].filter((id): id is string => Boolean(id)),
       );
@@ -1171,6 +1202,17 @@ async function _startChatInner(
     onStartupAdmission?: (error?: unknown) => void;
     onFirstEventOutcome?: (error?: Error) => void;
     onTerminalOutcome?: (error?: Error) => void;
+    /** Trusted observers for independently owned ordinary contributor turns. */
+    ordinaryTurnLifecycle?: OrdinaryTurnLifecycle;
+    /** Explicit contributor guidance supplied by the trusted collaboration owner. */
+    contributorGuidance?: string;
+    /** Trusted caller borrows a workspace owned outside this child session. */
+    retainWorkspace?: boolean;
+    contributorExecution?: OrdinaryContributorExecution;
+    onQueryReady?: (query: { interrupt(): Promise<void> }) => void;
+    onTurnResult?: (result: { is_error?: boolean }, inputUuid?: string) => void;
+    /** Trusted live-query observer, never a viewer transport or replay subscription. */
+    onQueryEvent?: (event: Readonly<Record<string, unknown>>) => void;
     telosTaskId?: string;
     agentName?: string;
     agentProfile?: AgentProfileSelection;
@@ -1199,6 +1241,15 @@ async function _startChatInner(
       options.accountProfiles ??
       (options.accountId || storedBinding ? loadAccountProfiles() : undefined);
     accountBinding = resolveAccountSelection(options, storedBinding, !!options.resume, profiles);
+    options = {
+      ...options,
+      contributorGuidance: resolveOrdinaryContributorGuidance(
+        eventStore,
+        options.resume ?? options.initialSessionId,
+        accountBinding ?? undefined,
+        options.contributorGuidance,
+      ),
+    };
     if (options.agentProfile || storedMeta?.agentProfile)
       agentProfile = await resolveChatAgentProfile({
         requested: options.agentProfile,
@@ -1654,6 +1705,8 @@ async function _startChatInner(
   registry.register(clientId, {
     transport,
     abortController,
+    // startChat already checked this exact execution against the existing claim.
+    ...(options.contributorExecution ? { contributorExecutionOwner: true as const } : {}),
     mode,
     cwd,
     wtId,
@@ -1669,6 +1722,23 @@ async function _startChatInner(
   });
 
   const session = registry.get(clientId)!;
+  if (options.contributorGuidance !== undefined && session.sessionId)
+    saveOrdinaryContributorGuidance(
+      eventStore,
+      session.sessionId,
+      accountBinding ?? undefined,
+      options.contributorGuidance,
+    );
+  if (options.retainWorkspace && session.sessionId) {
+    const retained = eventStore
+      .getSessionEvents(session.sessionId)
+      .some(
+        (event) =>
+          event.type === 'workspace_retention' && event.payload.policy === 'external-owner',
+      );
+    if (!retained)
+      eventStore.append(session.sessionId, 'workspace_retention', { policy: 'external-owner' });
+  }
   if (options.skillAllowedTools) setSkillPolicy(registry, clientId, options.skillAllowedTools);
   session.model = options.model ?? session.model;
   session.inputQueue = inputQueue as { push: (msg: unknown) => void; close: () => void };
@@ -1836,7 +1906,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
     repositoryChatContext(repositoryWorkspace) +
     'This is Mitzo, a mobile chat interface. The user is on their phone.\n' +
     SESSION_PERMISSION_INSTRUCTIONS +
-    TELOS_ARTIFACT_INSTRUCTIONS +
+    (options.contributorGuidance === undefined ? TELOS_ARTIFACT_INSTRUCTIONS : '') +
     '- Read operations are fine without asking.\n' +
     '- Keep responses concise — small screen.\n' +
     '- Read CLAUDE.md and .cursor/rules/ for project context before doing substantive work.' +
@@ -1844,6 +1914,9 @@ This is an independent checkout with its own Git storage, not a linked worktree.
     workspacePrompt +
     (supportsHostTaskTools(openShellSelected) ? buildTaskPromptForSession(clientId) : '') +
     (agentProfile ? `\n\n${buildAgentProfilePrompt(agentProfile.definition)}` : '') +
+    (options.contributorGuidance
+      ? `\n\n## Contributor guidance\n${options.contributorGuidance}`
+      : '') +
     bootContextAppend;
 
   // Recipe-bound chats already have their exact Library definition and context.
@@ -1962,6 +2035,8 @@ This is an independent checkout with its own Git storage, not a linked worktree.
           });
         },
         reattachOnly: options.reattachOnly,
+        ordinaryTurnLifecycle: options.ordinaryTurnLifecycle,
+        contributorGuidance: options.contributorGuidance,
       });
     } else if (apiKey || gemini) {
       const conversationId = options.resume ?? newSdkSessionId!;
@@ -2125,6 +2200,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
     }
 
     session.queryInstance = q;
+    options.onQueryReady?.(q);
     if (repositoryWorkspace && accountBinding && session.sessionId) {
       // Provider startup has settled and the task workspace is independently retained.
       // Failure to reclaim a controller seed must never terminate a live task.
@@ -2180,6 +2256,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
         connRegistry: _connRegistry ?? undefined,
         onFirstEventOutcome: options.onFirstEventOutcome,
         onTerminalOutcome: options.onTerminalOutcome,
+        onEvent: options.onQueryEvent,
         initialClientMsgId: options.clientMsgId,
         initialImages: imagePreviews(options.images),
         initialContextBlocks: options.contextBlocks,
@@ -2217,6 +2294,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
               result.is_error === true ? 'failed' : 'completed',
               inputUuid,
             );
+          options.onTurnResult?.(result, inputUuid);
         },
         onSuccessfulAccountUse: (binding) => getAccountUseStore().record(binding),
       },
@@ -2529,6 +2607,8 @@ export async function sendToChat(
   return withSpanAsync('chat.send', { 'chat.clientId': clientId }, async () => {
     if (signal?.aborted) return false;
     const session = registry.get(clientId);
+    if (session?.sessionId)
+      assertOrdinaryContributorControlAllowed(eventStore, session.sessionId, 'send');
     if (session?.sessionId && eventStore.getSession(session.sessionId)?.symposiumConfig)
       throw new Error('Use Symposium directed prompts for this session');
     if (!session?.inputQueue) return false;
@@ -2789,6 +2869,8 @@ export async function interruptChat(
 ): Promise<boolean> {
   return withSpanAsync('chat.interrupt', { 'chat.clientId': clientId }, async () => {
     const session = registry.get(clientId);
+    if (session?.sessionId)
+      assertOrdinaryContributorControlAllowed(eventStore, session.sessionId, 'interrupt');
     if (session?.sessionId && eventStore.getSession(session.sessionId)?.symposiumConfig)
       throw new Error('Use Symposium directed prompts for this session');
     if (!session?.queryInstance || !session?.inputQueue) return false;
@@ -2943,6 +3025,18 @@ export async function interruptChat(
 export function cleanupSessionWorktrees(
   session: import('./session-registry.js').ManagedSession,
 ): void {
+  // Contributor workspaces belong to their selected task/source. Keep the durable
+  // marker effective for later ordinary cold resumes, not just this private query.
+  if (
+    session.sessionId &&
+    eventStore
+      .getSessionEvents(session.sessionId)
+      .some(
+        (event) =>
+          event.type === 'workspace_retention' && event.payload.policy === 'external-owner',
+      )
+  )
+    return;
   const config = getRepoConfig();
   const primaryPath = session.worktreePaths.get('primary')?.path;
   for (const [repoName, { wtId, path }] of session.worktreePaths) {
@@ -3187,6 +3281,9 @@ export function closeSessionByUser(clientId: string): void {
     const session = registry.get(clientId);
     if (!session) return;
 
+    if (session.sessionId)
+      assertOrdinaryContributorControlAllowed(eventStore, session.sessionId, 'close');
+
     // Mark as user-initiated close in the registry
     const episode = registry.markUserClose(clientId);
 
@@ -3260,6 +3357,13 @@ export function closeSessionByUser(clientId: string): void {
   });
 }
 
+/** Public ordinary control; contributor drivers retain stopChat after exact terminal proof. */
+export function stopOrdinaryChat(clientId: string): void {
+  const session = registry.get(clientId);
+  if (session?.sessionId)
+    assertOrdinaryContributorControlAllowed(eventStore, session.sessionId, 'stop');
+  stopChat(clientId);
+}
 export function stopChat(clientId: string) {
   withSpan('session.stop', { 'session.clientId': clientId }, () => {
     const session = registry.get(clientId);

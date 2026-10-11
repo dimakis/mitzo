@@ -7,6 +7,7 @@ import { AccountProfiles } from '../account-profiles.js';
 import { openResponsesChat } from '../responses-chat-session.js';
 import { credentials } from '../credentials.js';
 import { openCodexChat } from '../codex-chat-session.js';
+import { ConnectionRegistry } from '@mitzo/harness';
 import { capturePromptComparison } from '../prompt-compare.js';
 import { registerSession } from '../session-index.js';
 import { createWorktree } from '../worktree.js';
@@ -114,6 +115,7 @@ it('routes a bound Codex account to its controller with context and canonical du
     expect(openCodexChat).toHaveBeenCalledOnce();
     expect(persisted).toEqual(profiles.resolve('personal', 'luna'));
     expect(opened?.systemPrompt).toContain('boot evidence');
+    expect(opened?.systemPrompt).toContain('Telos is the de facto persistent home');
     expect(opened?.prompt).toContain('attached context');
     expect(query).not.toHaveBeenCalled();
     expect(id).toBe('5f68a371-73d1-4994-a512-b71d4bc44c65');
@@ -130,11 +132,149 @@ it('routes a bound Codex account to its controller with context and canonical du
       accountProfiles: profiles,
       resume: id,
       clientMsgId: 'durable-next-prompt',
+      contributorGuidance: 'Contribute to this selected document. Outcome capture is optional.',
     });
     expect(id).toBe('5f68a371-73d1-4994-a512-b71d4bc44c65');
     expect(opened?.messageId).toBe('durable-next-prompt');
+    expect(opened?.systemPrompt).toContain('Outcome capture is optional.');
+    expect(opened?.systemPrompt).not.toContain('Telos is the de facto persistent home');
+    await chat.startChat({ send: () => {}, isOpen: () => true }, 'cold-child-ui', 'continue', {
+      cwd: root,
+      accountId: 'personal',
+      model: 'luna',
+      accountProfiles: profiles,
+      resume: id,
+      clientMsgId: 'cold-child-prompt',
+    });
+    expect(opened?.systemPrompt).toContain('Outcome capture is optional.');
+    expect(opened?.systemPrompt?.match(/Outcome capture is optional\./g)).toHaveLength(1);
+    expect(opened?.systemPrompt).not.toContain('Telos is the de facto persistent home');
     expect(query).not.toHaveBeenCalled();
   } finally {
+    chat.eventStore.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+it('connects trusted contributor observers to the real ordinary query loop and exact child identity', async () => {
+  vi.resetModules();
+  const root = await mkdtemp(join(tmpdir(), 'mitzo-contributor-query-'));
+  vi.stubEnv('REPO_PATH', root);
+  vi.stubEnv('WORKTREE_ENABLED', 'false');
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => new Response(JSON.stringify({ boot: { tokens: 1, content: 'boot' } }))),
+  );
+  const chat = await import('../chat.js');
+  const profiles = new AccountProfiles(
+    [
+      {
+        id: 'personal',
+        label: 'Personal',
+        provider: 'openai-codex',
+        credentialRef: '/login',
+        email: 'test@example.com',
+        planType: 'test',
+        models: [{ id: 'offline-luna', label: 'Offline fixture' }],
+      },
+    ],
+    { codexEnabled: true },
+  );
+  const lifecycle = { beforeDispatch: vi.fn(), accepted: vi.fn(), terminal: vi.fn() };
+  const ready = vi.fn();
+  const result = vi.fn();
+  const queryEvents = vi.fn();
+  const childId = '5f68a371-73d1-4994-a512-b71d4bc44c66';
+  const viewer = { send: vi.fn(), isOpen: () => true };
+  const viewers = new ConnectionRegistry();
+  viewers.register('child-viewer', viewer);
+  viewers.watch('child-viewer', childId);
+  chat.setConnectionRegistry(viewers);
+  vi.mocked(openCodexChat).mockImplementation(async (options) => {
+    expect(options.ordinaryTurnLifecycle).toBe(lifecycle);
+    expect(options.contributorGuidance).toBe('Selected contributor guidance.');
+    expect(options.conversationId).toBe(childId);
+    return {
+      interrupt: async () => {},
+      setPermissionMode: async () => {},
+      close: () => {},
+      stopTask: async () => {
+        throw new Error('Offline fixture has no subagents');
+      },
+      async *[Symbol.asyncIterator]() {
+        options.ordinaryTurnLifecycle!.beforeDispatch('exact-recipient');
+        options.ordinaryTurnLifecycle!.accepted('exact-recipient', 'raw-thread', 'raw-turn');
+        yield { type: 'system', subtype: 'init', session_id: childId };
+        yield {
+          type: 'stream_event',
+          event: { type: 'message_start', message: { id: 'reply-message' } },
+        };
+        yield {
+          type: 'stream_event',
+          event: { type: 'content_block_start', index: 0, content_block: { type: 'text' } },
+        };
+        yield {
+          type: 'stream_event',
+          event: {
+            type: 'content_block_delta',
+            index: 0,
+            delta: { type: 'text_delta', text: 'Complete ' },
+          },
+        };
+        // Viewing the child replaces its UI driver but must not replace the query observer.
+        chat.registry.get('private-contributor-client')!.transport = viewer;
+        yield {
+          type: 'stream_event',
+          event: {
+            type: 'content_block_delta',
+            index: 0,
+            delta: { type: 'text_delta', text: 'reply.' },
+          },
+        };
+        yield { type: 'stream_event', event: { type: 'content_block_stop', index: 0 } };
+        options.ordinaryTurnLifecycle!.terminal('exact-recipient', 'raw-turn', 'completed');
+        yield { type: 'result', session_id: childId, is_error: false };
+      },
+    };
+  });
+  try {
+    await chat.startChat(
+      { send: () => {}, isOpen: () => true },
+      'private-contributor-client',
+      'Exact selected excerpt.',
+      {
+        cwd: root,
+        accountId: 'personal',
+        model: 'offline-luna',
+        accountProfiles: profiles,
+        initialSessionId: childId,
+        clientMsgId: 'exact-recipient',
+        contributorGuidance: 'Selected contributor guidance.',
+        retainWorkspace: true,
+        ordinaryTurnLifecycle: lifecycle,
+        onQueryReady: ready,
+        onTurnResult: result,
+        onQueryEvent: queryEvents,
+      },
+    );
+    expect(ready).toHaveBeenCalledOnce();
+    expect(result).toHaveBeenCalledOnce();
+    expect(
+      queryEvents.mock.calls
+        .map(([event]) => event)
+        .filter((event) => event.type === 'block_delta'),
+    ).toEqual([
+      expect.objectContaining({ sessionId: childId, delta: 'Complete ' }),
+      expect.objectContaining({ sessionId: childId, delta: 'reply.' }),
+    ]);
+    expect(lifecycle.terminal).toHaveBeenCalledWith('exact-recipient', 'raw-turn', 'completed');
+    expect(chat.eventStore.getSessionEvents(childId)).toEqual(
+      expect.arrayContaining([expect.objectContaining({ type: 'workspace_retention' })]),
+    );
+    expect(chat.registry.findBySessionId(childId)).toBeNull();
+    expect(query).not.toHaveBeenCalled();
+  } finally {
+    viewers.remove('child-viewer');
     chat.eventStore.close();
     await rm(root, { recursive: true, force: true });
   }
@@ -467,6 +607,7 @@ it('routes an explicitly broker-bound ChatGPT subscription without reading a hos
 it('keeps Vertex on its native route when OpenShell is enabled', async () => {
   vi.resetModules();
   vi.clearAllMocks();
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{}')));
   const root = await mkdtemp(join(tmpdir(), 'mitzo-openshell-unsupported-'));
   await writeFile(
     join(root, '.mitzo.json'),

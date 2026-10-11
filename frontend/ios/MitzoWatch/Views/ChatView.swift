@@ -8,7 +8,6 @@ struct ChatView: View {
     @StateObject private var viewModel: ChatViewModel
     @State private var scrollProxy: ScrollViewProxy?
     @State private var showTextInput = false
-    @State private var draftText = ""
 
     init(sessionId: String?) {
         _viewModel = StateObject(wrappedValue: ChatViewModel(sessionId: sessionId))
@@ -119,9 +118,17 @@ struct ChatView: View {
             }
         }
         .sheet(isPresented: $showTextInput) {
-            ComposeSheet(draftText: $draftText) { text in
-                Task { await viewModel.send(text: text) }
-                showTextInput = false
+            ComposeSheet(
+                draftText: Binding(get: { viewModel.sendDraft.text },
+                                   set: { viewModel.sendDraft.edit($0) }),
+                canSend: viewModel.sendDraft.canSubmit,
+                pending: viewModel.sendDraft.pending != nil,
+                rejectedText: viewModel.sendDraft.rejectedText,
+                error: viewModel.sendError,
+                onRestore: { viewModel.sendDraft.restoreRejected() },
+                onDiscard: { viewModel.sendDraft.discardRejected() }
+            ) {
+                Task { await viewModel.send() }
             }
         }
         .task {

@@ -168,11 +168,43 @@ import Foundation
     """.data(using: .utf8)!
 
     let msg = try JSONDecoder().decode(ServerMessage.self, from: json)
-    guard case .error(let err) = msg else {
+    guard case .error(let err, _, _) = msg else {
         Issue.record("Expected error")
         return
     }
     #expect(err == "something went wrong")
+}
+
+@Test(arguments: ["stop", "send", "interrupt", "close"])
+func testSessionControlRejectionRoundTrip(control: String) throws {
+    let json = """
+    {"type":"session_control_rejected","sessionId":"child","control":"\(control)","error":"Use contributor controls"}
+    """.data(using: .utf8)!
+    let message = try JSONDecoder().decode(ServerMessage.self, from: json)
+    // The iPhone relay re-encodes the decoded message before the Watch sees it.
+    let relayed = try JSONEncoder().encode(message)
+    let body = try JSONSerialization.jsonObject(with: relayed) as! [String: Any]
+    #expect(body["type"] as? String == "session_control_rejected")
+    #expect(body["sessionId"] as? String == "child")
+    #expect(body["control"] as? String == control)
+    #expect(body["error"] as? String == "Use contributor controls")
+    let received = try JSONDecoder().decode(ServerMessage.self, from: relayed)
+    let forwarded = try JSONSerialization.jsonObject(with: JSONEncoder().encode(received)) as! [String: Any]
+    #expect(NSDictionary(dictionary: forwarded) == NSDictionary(dictionary: body))
+}
+
+@Test(arguments: ["stop", "close"])
+func testSessionControlRejectionCodeRoundTrip(control: String) throws {
+    let json = """
+    {"type":"session_control_rejected","sessionId":"child","control":"\(control)","error":"Use contributor controls","code":"CONTRIBUTOR_STOP_REQUIRED"}
+    """.data(using: .utf8)!
+    let message = try JSONDecoder().decode(ServerMessage.self, from: json)
+    let relayed = try JSONEncoder().encode(message)
+    let body = try JSONSerialization.jsonObject(with: relayed) as! [String: Any]
+    #expect(body["code"] as? String == "CONTRIBUTOR_STOP_REQUIRED")
+    #expect(body["sessionId"] as? String == "child")
+    #expect(body["control"] as? String == control)
+    #expect(body["error"] as? String == "Use contributor controls")
 }
 
 @Test func testUnknownTypeDecoding() throws {
@@ -371,13 +403,14 @@ import Foundation
     let encoded = try JSONEncoder().encode(original)
     let decoded = try JSONDecoder().decode(ServerMessage.self, from: encoded)
 
-    guard case .sessionId(let sid, let seq, let ts) = decoded else {
+    guard case .sessionId(let sid, let seq, let ts, let clientMsgId) = decoded else {
         Issue.record("Expected session_id after round-trip")
         return
     }
     #expect(sid == "s-new")
     #expect(seq == 0)
     #expect(ts == 1714070400)
+    #expect(clientMsgId == nil)
 }
 
 @Test func testPermissionRequestRoundTrip() throws {
@@ -588,9 +621,39 @@ import Foundation
         return
     }
     #expect(params.sessionId == "s1")
-    #expect(params.usage.inputTokens == 1000)
-    #expect(params.usage.totalCostUsd == 0.05)
-    #expect(params.usage.durationMs == 60000)
+    let usage = try #require(params.usage)
+    #expect(usage.inputTokens == 1000)
+    #expect(usage.outputTokens == 500)
+    #expect(usage.cacheReadTokens == 200)
+    #expect(usage.cacheCreationTokens == 100)
+    #expect(usage.totalCostUsd == 0.05)
+    #expect(usage.numTurns == 3)
+    #expect(usage.durationMs == 60000)
+    #expect(usage.durationApiMs == 45000)
+}
+
+@Test(arguments: ["", ",\"usage\":null"])
+func testSessionEndWithoutUsageRoundTrip(usageField: String) throws {
+    let json = "{\"v\":2,\"type\":\"session_end\",\"sessionId\":\"s1\",\"seq\":2,\"ts\":1\(usageField)}"
+    let original = try JSONDecoder().decode(ServerMessage.self, from: Data(json.utf8))
+    let encoded = try JSONEncoder().encode(original)
+    let decoded = try JSONDecoder().decode(ServerMessage.self, from: encoded)
+    guard case .sessionEnd(let params) = decoded else {
+        Issue.record("Expected bare session_end after relay round-trip")
+        return
+    }
+    #expect(params.sessionId == "s1")
+    #expect(params.usage == nil)
+    let wire = try JSONSerialization.jsonObject(with: encoded) as! [String: Any]
+    #expect(wire["usage"] == nil) // Unknown usage must never become fabricated zeros.
+}
+
+@Test(arguments: ["", ",\"sessionId\":null", ",\"sessionId\":123"])
+func testSessionEndStillRequiresStringSessionId(sessionField: String) throws {
+    let json = "{\"type\":\"session_end\"\(sessionField)}"
+    #expect(throws: DecodingError.self) {
+        try JSONDecoder().decode(ServerMessage.self, from: Data(json.utf8))
+    }
 }
 
 @Test func testErrorRoundTrip() throws {
@@ -602,7 +665,7 @@ import Foundation
     let encoded = try JSONEncoder().encode(original)
     let decoded = try JSONDecoder().decode(ServerMessage.self, from: encoded)
 
-    guard case .error(let err) = decoded else {
+    guard case .error(let err, _, _) = decoded else {
         Issue.record("Expected error after round-trip")
         return
     }
@@ -623,4 +686,38 @@ import Foundation
         return
     }
     #expect(type == "future_type")
+}
+
+@Test(arguments: ["send", "interrupt"])
+func testSessionControlRejectedCommandReceiptRoundTrip(control: String) throws {
+    for correlated in [false, true] {
+        let receipt = correlated ? ",\"clientMsgId\":\"submitted-47\"" : ""
+        let literal = "{\"type\":\"session_control_rejected\",\"sessionId\":\"child\",\"control\":\"\(control)\",\"error\":\"Use contributor controls\"\(receipt)}"
+        let message = try JSONDecoder().decode(ServerMessage.self, from: Data(literal.utf8))
+        let encoded = try JSONEncoder().encode(message)
+        let object = try JSONSerialization.jsonObject(with: encoded) as! [String: Any]
+        #expect(object["sessionId"] as? String == "child")
+        #expect(object["control"] as? String == control)
+        #expect(object["error"] as? String == "Use contributor controls")
+        #expect(object["clientMsgId"] as? String == (correlated ? "submitted-47" : nil))
+        let relayed = try JSONDecoder().decode(ServerMessage.self, from: encoded)
+        guard case .sessionControlRejected = relayed else {
+            Issue.record("Expected nonterminal typed rejection after relay")
+            continue
+        }
+    }
+}
+
+@Test(arguments: [
+    "{\"type\":\"user_message\",\"sessionId\":\"child\",\"messageId\":\"send-47\",\"text\":\"retained input\"}",
+    "{\"type\":\"session_id\",\"sessionId\":\"assigned\",\"clientMsgId\":\"send-47\"}",
+    "{\"type\":\"native_command_result\",\"sessionId\":null,\"clientMsgId\":\"send-47\",\"command\":\"skills\",\"content\":\"Available skills\"}"
+]) func testWatchSendReceiptRelayPreservesCorrelation(json: String) throws {
+    let literal = Data(json.utf8)
+    let message = try JSONDecoder().decode(ServerMessage.self, from: literal)
+    let relayed = try JSONSerialization.jsonObject(with: JSONEncoder().encode(message)) as! [String: Any]
+    let original = try JSONSerialization.jsonObject(with: literal) as! [String: Any]
+    for key in ["sessionId", "clientMsgId", "messageId", "text", "command", "content"] {
+        #expect((relayed[key] as? NSObject) == (original[key] as? NSObject))
+    }
 }

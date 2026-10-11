@@ -195,13 +195,7 @@ async function setup(
   displayToolName?: (name: string) => string,
   beforeComplete?: (signal: AbortSignal) => Promise<void>,
   completionHookTimeoutMs?: number,
-  verifyBinding?: () => Promise<{
-    accountId: string;
-    accountLabel: string;
-    provider: 'openai';
-    model: string;
-    profileRevision: string;
-  }>,
+  verifyBinding?: () => Promise<AccountBinding>,
   beforeReconnect?: () => Promise<void>,
   onActivity?: () => boolean,
   prepareTurn?: (
@@ -745,6 +739,97 @@ it('reports exact native terminal proof only for a matching turn completion', as
     turn: { id: 'turn-1', status: 'interrupted' },
   });
   expect(terminal).toHaveBeenCalledExactlyOnceWith('exact-command', 'turn-1', 'interrupted');
+});
+
+it('interrupts the exact late-acknowledged turn after Stop and preserves its thread on reload', async () => {
+  const accepted = vi.fn();
+  const terminal = vi.fn();
+  const args: Parameters<typeof setup> = [];
+  args[10] = accepted;
+  args[11] = terminal;
+  const first = await setup(...args);
+  const { c, callbacks, rpc, requests, events, onClosed, store } = first;
+  accepted.mockImplementation(() => {
+    expect((c as unknown as { active?: { turnId?: string } }).active?.turnId).toBe('delayed-turn');
+  });
+  const request = rpc.request.getMockImplementation()!;
+  let releaseAcceptance!: (value: { turn: { id: string } }) => void;
+  const acceptance = new Promise<{ turn: { id: string } }>((resolve) => {
+    releaseAcceptance = resolve;
+  });
+  rpc.request.mockImplementation(async (method, params) => {
+    if (method === 'turn/start') {
+      requests.push({ method, params });
+      // No turn/started notification: the response is the first raw turn identity.
+      return acceptance;
+    }
+    if (method === 'turn/interrupt') {
+      requests.push({ method, params });
+      return {};
+    }
+    return request(method, params);
+  });
+
+  const sending = c.send({
+    id: 'late-ack-command',
+    prompt: 'Contribute to the selected artifact.',
+  });
+  await vi.waitFor(() => expect(requests.filter((r) => r.method === 'turn/start')).toHaveLength(1));
+  await c.interrupt();
+  expect(accepted).not.toHaveBeenCalled();
+  expect(terminal).not.toHaveBeenCalled();
+  expect(requests.filter((r) => r.method === 'turn/interrupt')).toHaveLength(0);
+
+  releaseAcceptance({ turn: { id: 'delayed-turn' } });
+  await sending;
+  expect(accepted).toHaveBeenCalledExactlyOnceWith(
+    'late-ack-command',
+    'provider-thread',
+    'delayed-turn',
+  );
+  expect(requests.filter((r) => r.method === 'turn/interrupt')).toEqual([
+    { method: 'turn/interrupt', params: { threadId: 'provider-thread', turnId: 'delayed-turn' } },
+  ]);
+  expect(terminal).not.toHaveBeenCalled();
+  expect(events.filter((event) => event.type === 'result')).toHaveLength(0);
+
+  callbacks.onNotification('turn/completed', {
+    threadId: 'provider-thread',
+    turn: { id: 'unrelated-turn', status: 'interrupted' },
+  });
+  expect(terminal).not.toHaveBeenCalled();
+  const completion = {
+    threadId: 'provider-thread',
+    turn: { id: 'delayed-turn', status: 'interrupted' },
+  };
+  callbacks.onNotification('turn/completed', completion);
+  callbacks.onNotification('turn/completed', completion);
+  expect(terminal).toHaveBeenCalledExactlyOnceWith(
+    'late-ack-command',
+    'delayed-turn',
+    'interrupted',
+  );
+  expect(events.filter((event) => event.type === 'result')).toHaveLength(1);
+  expect(c.queue()).toMatchObject([{ id: 'late-ack-command', status: 'interrupted' }]);
+  expect(onClosed).not.toHaveBeenCalled();
+
+  const savedBinding = first.getBinding();
+  c.close();
+  expect(onClosed).toHaveBeenCalledOnce();
+  expect(terminal).toHaveBeenCalledOnce();
+  expect(first.onError).not.toHaveBeenCalled();
+  const resumed = await setup(store, undefined, undefined, undefined, async () => savedBinding);
+  await resumed.c.send({ id: 'next-command', prompt: 'Continue the contribution.' });
+  expect(resumed.requests.filter((r) => r.method === 'thread/resume')).toHaveLength(1);
+  expect(resumed.requests.find((r) => r.method === 'turn/start')?.params.threadId).toBe(
+    'provider-thread',
+  );
+  expect(
+    resumed.requests.filter((r) => ['thread/start', 'thread/fork'].includes(r.method)),
+  ).toEqual([]);
+  expect(resumed.c.queue().filter((command) => command.id === 'late-ack-command')).toMatchObject([
+    { status: 'interrupted' },
+  ]);
 });
 
 it('marks a dispatched command ambiguous when its transport is lost', async () => {

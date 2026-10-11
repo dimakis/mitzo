@@ -1302,3 +1302,21 @@ it('hydrates validated model limit evidence and supports explicitly clearing it'
   expect(parse(null)?.tokenLimits).toBeNull();
   expect(parse({ ...limits, contextWindow: -1 })?.tokenLimits).toBeNull();
 });
+
+it('retains a validated control rejection command identity for exact delivery settlement', () => {
+  const parsed = parseServerMessage(
+    {
+      type: 'session_control_rejected',
+      sessionId: 'child',
+      control: 'interrupt',
+      error: 'Use contributor controls',
+      clientMsgId: 'submitted',
+    },
+    makeState({ currentSessionId: 'child' }),
+    makeCallbacks(),
+    POOL_KEY,
+  );
+  expect(parsed.messagesActions).toEqual([
+    { type: 'CONTROL_REJECTED', error: 'Use contributor controls', clientMsgId: 'submitted' },
+  ]);
+});

@@ -6594,8 +6594,10 @@ textarea:focus {
   color: var(--text-dim);
   font-size: var(--text-xs);
   cursor: pointer;
-  padding: 0.2rem 0.4rem;
-  border-radius: 4px;
+  min-height: var(--control-height);
+  min-width: var(--control-height);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-control);
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
   flex-shrink: 0;
