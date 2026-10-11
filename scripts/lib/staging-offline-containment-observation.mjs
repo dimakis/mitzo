@@ -179,6 +179,16 @@ export function assertScopedNoOpenHandles(result) {
   if (result?.status !== 1 || result.stdout || result.stderr || result.error || result.signal)
     throw Error('Scoped open handles unavailable or present');
 }
+export function scopedLsofArguments(paths, recursive = false) {
+  if (
+    !Array.isArray(paths) ||
+    !paths.length ||
+    paths.some((path) => !path.startsWith('/')) ||
+    (recursive && paths.length !== 1)
+  )
+    throw Error('Exact scoped lsof paths required');
+  return ['-nP', '-Fpn', ...(recursive ? ['+D', paths[0]] : paths)];
+}
 export function assertNoScopedMountAliases(table, paths) {
   const lines = table.trim().split('\n');
   if (!table.trim() || paths.some((path) => resolve(path) !== path))
@@ -231,7 +241,10 @@ export function assessOfflineContainment(facts) {
 }
 
 /** Hash the complete opaque unit without dereferencing aliases or interpreting its contents. */
-export function inspectOpaquePreservationTree(
+export function inspectOpaquePreservationTree(root, options) {
+  return inspectPrivateTree(root, options);
+}
+function inspectPrivateTree(
   root,
   {
     uid = process.getuid(),
@@ -239,6 +252,7 @@ export function inspectOpaquePreservationTree(
     maxBytes = 64 * 1024 ** 3,
     maxDurationMs = 30000,
   } = {},
+  socketCommand,
 ) {
   const initial = lstatSync(root),
     identities = new Set(),
@@ -326,6 +340,37 @@ export function inspectOpaquePreservationTree(
       } finally {
         closeSync(fd);
       }
+    } else if (
+      socketCommand &&
+      stat.isSocket() &&
+      rel === 'home/.podman/mitzo-symposium-staging-ignition.sock'
+    ) {
+      if (stat.nlink !== 1 || stat.size !== 0 || (stat.mode & 0o777) !== 0o755)
+        throw Error('Exact ignition socket metadata required');
+      // Podman v5.6.2 StartGenericAppleVM creates this named first-boot socket.
+      // Its present birth is measured, never interpreted as preboot or cleanup.
+      assertScopedNoOpenHandles(
+        socketCommand('/usr/sbin/lsof', scopedLsofArguments([path]), undefined, true),
+      );
+      const after = lstatSync(path);
+      if (
+        !after.isSocket() ||
+        ['dev', 'ino', 'uid', 'mode', 'nlink', 'size', 'birthtimeMs', 'mtimeMs', 'ctimeMs'].some(
+          (key) => after[key] !== stat[key],
+        )
+      )
+        throw Error('Ignition socket changed during observation');
+      const socketRecord =
+        JSON.stringify([
+          'unix_socket_closed_now',
+          stat.nlink,
+          stat.size,
+          stat.birthtimeMs,
+          stat.mtimeMs,
+          stat.ctimeMs,
+        ]) + '\n';
+      hash.update(socketRecord);
+      components[component]?.update(socketRecord);
     } else throw Error('Opaque unsupported filesystem entry');
   };
   walk(root);
@@ -341,9 +386,16 @@ export function inspectOpaquePreservationTree(
   };
 }
 
-/** Native preservation additionally binds every configured machine attachment. */
-export function inspectOpaqueContainmentTree(root, options) {
-  const tree = inspectOpaquePreservationTree(root, options);
+/** Native preservation additionally binds every configured machine attachment.
+ * The optional command dependency is a constructor/test capability, never read
+ * from proposal facts or CLI flags; production always uses the bounded runner. */
+export function inspectOpaqueContainmentTree(
+  root,
+  options,
+  { command: socketCommand = command } = {},
+) {
+  if (typeof socketCommand !== 'function') throw Error('Read-only socket observer required');
+  const tree = inspectPrivateTree(root, options, socketCommand);
   const { fileDigests } = tree;
   const machine = fileDigests.get(
     join(root, 'home/.config/containers/podman/machine/applehv/mitzo-symposium-staging.json'),
@@ -730,10 +782,10 @@ async function collectOriginal(options) {
     throw Error('Original application binding changed');
   const tree = inspectOpaqueContainmentTree(opaque);
   assertScopedNoOpenHandles(
-    command('/usr/sbin/lsof', ['-nP', '+D', opaque, '-Fpn'], undefined, true),
+    command('/usr/sbin/lsof', scopedLsofArguments([opaque], true), undefined, true),
   );
   assertScopedNoOpenHandles(
-    command('/usr/sbin/lsof', ['-nP', appPlistPath, plistPath, '-Fpn'], undefined, true),
+    command('/usr/sbin/lsof', scopedLsofArguments([appPlistPath, plistPath]), undefined, true),
   );
   const mountTable = successful('/sbin/mount', []);
   assertNoScopedMountAliases(mountTable, [opaque]);
@@ -958,18 +1010,16 @@ async function inspectPhysicalBoundary(plan, invalidatedControls, contained, rep
   const tree = inspectOpaqueContainmentTree(opaque);
   assertOpaqueContainmentManifest(tree, unit);
   assertScopedNoOpenHandles(
-    command('/usr/sbin/lsof', ['-nP', '+D', opaque, '-Fpn'], undefined, true),
+    command('/usr/sbin/lsof', scopedLsofArguments([opaque], true), undefined, true),
   );
   assertScopedNoOpenHandles(
     command(
       '/usr/sbin/lsof',
-      [
-        '-nP',
-        ...facts.controls.map((control) =>
+      scopedLsofArguments(
+        facts.controls.map((control) =>
           invalidated.has(control.kind) ? control.archivePath : control.path,
         ),
-        '-Fpn',
-      ],
+      ),
       undefined,
       true,
     ),

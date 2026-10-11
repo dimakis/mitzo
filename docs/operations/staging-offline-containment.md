@@ -77,6 +77,11 @@ an inactive non-autostarting VM supervisor, original process births before the
 selected boot, no scoped open handles, and no mounted, hard-linked or symbolic
 aliases. A stopped machine or empty database alone does not establish closure.
 
+The exact retained Podman ignition socket is preserved only when scoped handle
+inspection confirms it is closed and its measured filesystem identity stays
+unchanged. Its origin remains unknown; this exception establishes neither preboot
+age nor native cleanup. Other sockets and unsupported filesystem types are refused.
+
 The opaque archive is outside the canonical root and every future mounted/input
 root: `~/.local/share/mitzo-staging-quarantine/OPERATION_UUID`. This preserves the
 entire original home, VM disk, configuration, credentials, workspaces, gateway state,

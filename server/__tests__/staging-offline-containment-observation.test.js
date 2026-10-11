@@ -1,6 +1,7 @@
 import { expect, it, vi } from 'vitest';
 import process from 'node:process';
 import { Buffer } from 'node:buffer';
+import { spawnSync } from 'node:child_process';
 import { URL } from 'node:url';
 import { OFFLINE_CONTAINMENT_TARGET } from '../../scripts/lib/staging-offline-containment-contract.mjs';
 import {
@@ -16,7 +17,7 @@ import {
   renameSync,
 } from 'node:fs';
 import { tmpdir, homedir } from 'node:os';
-import { join } from 'node:path';
+import { join, dirname, basename } from 'node:path';
 import {
   assessOfflineContainment,
   observeOfflineContainment,
@@ -36,10 +37,74 @@ import {
   offlineContainmentNativeHelper,
   assertOpaqueContainmentManifest,
   assertCleanPreparedControllerStatus,
+  scopedLsofArguments,
 } from '../../scripts/lib/staging-offline-containment-observation.mjs';
 import { runOfflineRecovery } from '../../scripts/recover-staging-offline.mjs';
 
 const sha = 'a'.repeat(64);
+it('places every scoped lsof option before file operands', () => {
+  expect(scopedLsofArguments(['/one', '/two'])).toEqual(['-nP', '-Fpn', '/one', '/two']);
+  expect(scopedLsofArguments(['/unit'], true)).toEqual(['-nP', '-Fpn', '+D', '/unit']);
+});
+it('preserves only the exact closed native ignition socket without treating its birth as preboot', () => {
+  const parent = realpathSync(mkdtempSync(join(tmpdir(), 'ig-')));
+  try {
+    const opaque = join(parent, 's');
+    for (const part of [
+      'home/.podman',
+      'home/.config/containers/podman/machine/applehv',
+      'home/.local/share/containers/podman/machine/applehv',
+    ])
+      mkdirSync(join(opaque, part), { recursive: true, mode: 0o700 });
+    for (const file of [
+      'home/.config/containers/podman/machine/applehv/mitzo-symposium-staging.json',
+      'home/.local/share/containers/podman/machine/applehv/mitzo-symposium-staging-arm64.raw',
+      'home/.local/share/containers/podman/machine/applehv/efi-bl-mitzo-symposium-staging',
+      'home/.local/share/containers/podman/machine/machine',
+    ])
+      writeFileSync(join(opaque, file), 'synthetic');
+    const socket = join(opaque, 'home/.podman/mitzo-symposium-staging-ignition.sock');
+    const result = spawnSync(
+      'python3',
+      [
+        '-c',
+        'import socket,sys,os; s=socket.socket(socket.AF_UNIX); s.bind(sys.argv[1]); os.chmod(sys.argv[1],0o755); s.close()',
+        basename(socket),
+      ],
+      { timeout: 3000, cwd: dirname(socket) },
+    );
+    expect(result.status).toBe(0);
+    expect(() => inspectOpaquePreservationTree(opaque)).toThrow(/unsupported/);
+    const socketCommand = vi.fn(() => ({ status: 1, stdout: '', stderr: '' }));
+    const inspect = (path) =>
+      inspectOpaqueContainmentTree(path, undefined, { command: socketCommand });
+    const before = inspect(opaque);
+    expect(socketCommand).toHaveBeenCalledWith(
+      '/usr/sbin/lsof',
+      ['-nP', '-Fpn', socket],
+      undefined,
+      true,
+    );
+    for (const result of [
+      { status: 0, stdout: 'p123\n', stderr: '' },
+      { status: 1, stdout: '', stderr: 'unknown observation' },
+      { status: null, stdout: '', stderr: '', error: Error('unavailable') },
+    ]) {
+      socketCommand.mockReturnValueOnce(result);
+      expect(() => inspect(opaque)).toThrow(/handles/);
+    }
+    const archived = join(parent, 'archived');
+    renameSync(opaque, archived);
+    expect(inspect(archived).sha256).toBe(before.sha256);
+    renameSync(
+      join(archived, 'home/.podman/mitzo-symposium-staging-ignition.sock'),
+      join(archived, 'home/.podman/other.sock'),
+    );
+    expect(() => inspect(archived)).toThrow(/unsupported/);
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
 it('preserves a generic private state tree without native components while retaining identity and alias checks', () => {
   const parent = realpathSync(mkdtempSync(join(tmpdir(), 'mitzo-generic-preservation-')));
   try {
