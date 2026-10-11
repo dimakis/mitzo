@@ -196,7 +196,7 @@ export function createOfflineContainmentTransaction({
     if (!same(original, expected) || !same(json(intentPath), intent))
       throw Error('Exact retained guard and immutable intent required');
   }
-  function assertMoved(intent) {
+  function assertPreservedOwnership(intent) {
     privateDirectory(facts.archiveRoot);
     if (
       exists(unit.path) ||
@@ -213,9 +213,7 @@ export function createOfflineContainmentTransaction({
       )
     )
       throw Error('Original supported paths remain available');
-    const manifest = tree(unit.archivePath);
-    if (manifest.sha256 !== unit.manifestSha256 || !same(manifest.components, unit.components))
-      throw Error('Archived full manifest changed');
+    privateDirectory(unit.archivePath);
     for (const control of facts.controls) {
       if (
         !same(controlIdentity(control, control.archivePath), intent.controlIdentities[control.kind])
@@ -237,6 +235,13 @@ export function createOfflineContainmentTransaction({
       })
     )
       throw Error('Original SQLite backup proof changed');
+    return backup;
+  }
+  function assertMoved(intent) {
+    const backup = assertPreservedOwnership(intent);
+    const manifest = tree(unit.archivePath);
+    if (manifest.sha256 !== unit.manifestSha256 || !same(manifest.components, unit.components))
+      throw Error('Archived full manifest changed');
     return backup;
   }
   async function finish(auth, intent) {
@@ -340,7 +345,9 @@ export function createOfflineContainmentTransaction({
         if (effects.assertGuardContinuation(plan, ordinaryPlan, 'owned', json(guardPath)) !== true)
           throw Error('Trusted continuation verification refused');
         verifyGuard(intent);
-        assertMoved(intent);
+        // This hot check proves current custody only. It never substitutes for
+        // independent full byte/physical proofs at move, start and release gates.
+        assertPreservedOwnership(intent);
         if (fileHash(receiptPath) !== receiptSha256 || !same(json(completedPath), completed))
           throw Error('Contained completion evidence changed');
         return receiptSha256;

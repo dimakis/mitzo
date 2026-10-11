@@ -128,6 +128,15 @@ compiled/dependency inventory, registration bytes, release working directory,
 exclusive port 3190 listener and HTTP readiness. Only verified completion releases
 this operation's guard. Source freshness and runtime integrity remain separate.
 
+Repeated capsule checks establish ownership of the original deployment guard and
+continuity of its intent, receipts, backup and control evidence. They make no
+claim about current native bytes. Independent full byte verification remains
+mandatory before ordinary admission, each old-directory move, startup, completion
+and final guard release. Controller installation cannot start the application
+until that full physical check succeeds. This separates ownership from physical
+containment without a metadata cache, timestamp-equivalence assumption or change
+to the ten-minute authorization lease.
+
 There is no restart, rollback, VM resume, stale-lock deletion or uncertain-start
 replay. Failures preserve the guard, archive, original evidence and partial new state
 for diagnosis. The transaction has a verification-only capability for completed preservation;

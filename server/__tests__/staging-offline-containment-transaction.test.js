@@ -675,192 +675,314 @@ it('releases the continuous bound guard once after verified ordinary completion'
   expect(f.db.prepare('SELECT * FROM launches').all()).toEqual([f.row]);
 });
 
-it('integrates the original native capsule with ordinary preservation, plist-last installation and one combined live lease', async () => {
-  const f = fixture();
-  let ino = 1000;
-  const add = (path, bytes, mode = 0o600) =>
-    f.nodes.set(path, {
-      ino: ino++,
-      mode,
-      bytes: bytes === undefined ? undefined : Buffer.from(bytes),
-    });
-  const mkdir = (path) => {
-    if (f.nodes.has(path)) return;
-    mkdir(path.slice(0, path.lastIndexOf('/')));
-    add(path, undefined, 0o700);
-  };
-  const sourceCommit = 'a'.repeat(40),
-    release = f.root + '/releases/' + sourceCommit.slice(0, 12),
-    nodePath = '/virtual/node';
-  mkdir(release + '/scripts/lib');
-  for (const name of [
-    'staging-launcher-template.mjs',
-    'staging-files.mjs',
-    'staging-operations.mjs',
-  ])
-    add(release + '/scripts/lib/' + name, readFileSync(process.cwd() + '/scripts/lib/' + name));
-  add(
-    release + '/staging-release.json',
-    JSON.stringify({
-      sourceCommit,
-      sourceTree: 'b'.repeat(40),
-      compiledArtifacts: { 'dist/index.js': 'c'.repeat(64) },
-      dependencyFingerprint: 'd'.repeat(64),
-    }) + '\n',
-  );
-  mkdir(f.root + '/service/control-lib');
-  mkdir(f.root + '/bin');
-  add(f.root + '/service/start.mjs', 'prior launcher');
-  for (const kind of ['home', 'workspace', 'state', 'settings']) {
-    mkdir(f.root + '/' + kind);
-    add(f.root + '/' + kind + '/retained.txt', 'opaque legacy ' + kind);
-  }
-  const io = {
-    ...f.io,
-    readdirSync(path) {
-      if (!f.nodes.has(path)) throw Error('missingdirectory');
-      return [...f.nodes.keys()]
-        .filter((p) => p.startsWith(path + '/') && !p.slice(path.length + 1).includes('/'))
-        .map((p) => p.slice(path.length + 1));
-    },
-  };
-  const inspectTree = (path) => ({
-    sha256: hash(
-      [...f.nodes]
-        .filter(([p]) => p === path || p.startsWith(path + '/'))
-        .map(([p, n]) => [p.slice(path.length), n.ino, n.mode, n.bytes?.toString()])
-        .sort(),
-    ),
-  });
-  const verifySource = vi.fn(async () => true);
-  const facts = await collectOfflineOrdinaryRestorationFacts(
-    { containmentPlan: f.plan, sourceCommit, assertAcceptedPreparedSource: verifySource },
-    { io, inspectTree, nodePath },
-  );
-  const ordinaryPlan = createOfflineOrdinaryRestorationPlan(facts);
-  const proposal = createOfflineRecoveryProposal({ containmentPlan: f.plan, ordinaryPlan });
-  const alive = true;
-  let baseClosed = false,
-    nativeClosed = false,
-    cap,
-    nativeReceipt,
-    ordinaryEffects;
-  const token = {};
-  const phases = createOfflineRecoveryAuthority({
-    proposal,
-    consumeAuthority: (auth, sha) => {
-      expect(auth).toBe(token);
-      expect(sha).toBe(proposal.sha256);
-      return {
-        assertCurrent(expected) {
-          if (!alive || baseClosed || expected !== proposal.sha256) throw Error('expiredcombined');
-          return true;
-        },
-        close() {
-          baseClosed = true;
-        },
-      };
-    },
-    assertContainmentReady: async () => {
-      expect(nativeClosed).toBe(true);
-      expect(baseClosed).toBe(false);
-      expect(cap.assertOwnedGuard(ordinaryPlan)).toBe(nativeReceipt.receiptSha256);
-    },
-  });
-  const nativeEffects = {
-    ...f.effects,
-    io,
-    assertGuardContinuation(...args) {
-      return ordinaryEffects.assertGuardContinuation(...args);
-    },
-  };
-  const native = createOfflineContainmentTransaction({
-    plan: f.plan,
-    consumeAuthority: phases.consumeContainment,
-    effects: nativeEffects,
-    continueGuard(value, receipt) {
-      cap = value;
-      nativeReceipt = receipt;
-    },
-  });
-  await native.apply(token);
-  nativeClosed = true;
-  expect(baseClosed).toBe(false);
-  expect(f.nodes.has(f.root + '/service/deployment.lock')).toBe(true);
-  let active = false;
-  const run = vi.fn((program, args) => {
-    if (program === '/bin/launchctl' && args[0] === 'kickstart') {
-      active = true;
-      return { status: 0, stdout: '' };
+it.each([false, true])(
+  'integrates actual native custody with mandatory full ordinary boundary proofs (mutate after install: %s)',
+  async (mutateAfterInstall) => {
+    const f = fixture();
+    let ino = 1000;
+    const add = (path, bytes, mode = 0o600) =>
+      f.nodes.set(path, {
+        ino: ino++,
+        mode,
+        bytes: bytes === undefined ? undefined : Buffer.from(bytes),
+      });
+    const mkdir = (path) => {
+      if (f.nodes.has(path)) return;
+      mkdir(path.slice(0, path.lastIndexOf('/')));
+      add(path, undefined, 0o700);
+    };
+    const sourceCommit = 'a'.repeat(40),
+      release = f.root + '/releases/' + sourceCommit.slice(0, 12),
+      nodePath = '/virtual/node';
+    mkdir(release + '/scripts/lib');
+    for (const name of [
+      'staging-launcher-template.mjs',
+      'staging-files.mjs',
+      'staging-operations.mjs',
+    ])
+      add(release + '/scripts/lib/' + name, readFileSync(process.cwd() + '/scripts/lib/' + name));
+    add(
+      release + '/staging-release.json',
+      JSON.stringify({
+        sourceCommit,
+        sourceTree: 'b'.repeat(40),
+        compiledArtifacts: { 'dist/index.js': 'c'.repeat(64) },
+        dependencyFingerprint: 'd'.repeat(64),
+      }) + '\n',
+    );
+    mkdir(f.root + '/service/control-lib');
+    mkdir(f.root + '/bin');
+    add(f.root + '/service/start.mjs', 'prior launcher');
+    for (const kind of ['home', 'workspace', 'state', 'settings']) {
+      mkdir(f.root + '/' + kind);
+      add(f.root + '/' + kind + '/retained.txt', 'opaque legacy ' + kind);
     }
-    if (program === '/bin/launchctl' && args[0] === 'print')
-      return active
-        ? { status: 0, stdout: 'path = ' + ordinaryPlan.registration.path + '\npid = 456\n' }
-        : {
-            status: 113,
-            stdout: '',
-            stderr: `Could not find service "com.mitzo.staging" in domain for user gui: ${process.getuid()}`,
-          };
-    if (program === '/bin/ps')
-      return {
-        status: 0,
-        stdout:
-          args.at(-1) === 'lstart='
-            ? 'Sun Oct 11 12:00:00 2026\n'
-            : nodePath + ' ' + release + '/dist/index.js\n',
-      };
-    if (program === '/usr/sbin/lsof' && args.includes('cwd'))
-      return { status: 0, stdout: 'p456\nn' + release + '\n' };
-    if (program === '/usr/sbin/lsof')
-      return active && args.includes('-iTCP:3190')
-        ? { status: 0, stdout: '456\n' }
-        : { status: 1, stdout: '' };
-    return { status: 0, stdout: '' };
-  });
-  ordinaryEffects = createOfflineOrdinaryEffects(
-    {
+    const io = {
+      ...f.io,
+      readdirSync(path) {
+        if (!f.nodes.has(path)) throw Error('missingdirectory');
+        return [...f.nodes.keys()]
+          .filter((p) => p.startsWith(path + '/') && !p.slice(path.length + 1).includes('/'))
+          .map((p) => p.slice(path.length + 1));
+      },
+    };
+    const inspectTree = (path) => ({
+      sha256: hash(
+        [...f.nodes]
+          .filter(([p]) => p === path || p.startsWith(path + '/'))
+          .map(([p, n]) => [p.slice(path.length), n.ino, n.mode, n.bytes?.toString()])
+          .sort(),
+      ),
+    });
+    const verifySource = vi.fn(async () => true);
+    const facts = await collectOfflineOrdinaryRestorationFacts(
+      { containmentPlan: f.plan, sourceCommit, assertAcceptedPreparedSource: verifySource },
+      { io, inspectTree, nodePath },
+    );
+    const ordinaryPlan = createOfflineOrdinaryRestorationPlan(facts);
+    const proposal = createOfflineRecoveryProposal({ containmentPlan: f.plan, ordinaryPlan });
+    const alive = true;
+    let baseClosed = false,
+      nativeClosed = false,
+      cap,
+      nativeReceipt,
+      ordinaryEffects;
+    const token = {};
+    const phases = createOfflineRecoveryAuthority({
+      proposal,
+      consumeAuthority: (auth, sha) => {
+        expect(auth).toBe(token);
+        expect(sha).toBe(proposal.sha256);
+        return {
+          assertCurrent(expected) {
+            if (!alive || baseClosed || expected !== proposal.sha256)
+              throw Error('expiredcombined');
+            return true;
+          },
+          close() {
+            baseClosed = true;
+          },
+        };
+      },
+      assertContainmentReady: async () => {
+        expect(nativeClosed).toBe(true);
+        expect(baseClosed).toBe(false);
+        expect(cap.assertOwnedGuard(ordinaryPlan)).toBe(nativeReceipt.receiptSha256);
+        await nativeEffects.assertContained(f.plan, { planSha256: f.plan.sha256 });
+      },
+    });
+    let active = false;
+    const physicalProofs = [];
+    const nativeEffects = {
+      ...f.effects,
+      assertContained: vi.fn(async () => {
+        const full = f.effects.inspectTree(f.archive + '/symposium');
+        if (full.sha256 !== f.plan.facts.units[0].manifestSha256)
+          throw Error('Actual full physical content proof failed');
+        physicalProofs.push({ appInstalled: f.nodes.has(ordinaryPlan.registration.path), active });
+      }),
+      io,
+      assertGuardContinuation(...args) {
+        return ordinaryEffects.assertGuardContinuation(...args);
+      },
+    };
+    const native = createOfflineContainmentTransaction({
+      plan: f.plan,
+      consumeAuthority: phases.consumeContainment,
+      effects: nativeEffects,
+      continueGuard(value, receipt) {
+        cap = value;
+        nativeReceipt = receipt;
+      },
+    });
+    await native.apply(token);
+    nativeClosed = true;
+    expect(baseClosed).toBe(false);
+    expect(f.nodes.has(f.root + '/service/deployment.lock')).toBe(true);
+    const run = vi.fn((program, args) => {
+      if (program === '/bin/launchctl' && args[0] === 'bootstrap') {
+        expect(physicalProofs.some((proof) => proof.appInstalled && !proof.active)).toBe(true);
+      }
+      if (program === '/bin/launchctl' && args[0] === 'kickstart') {
+        active = true;
+        return { status: 0, stdout: '' };
+      }
+      if (program === '/bin/launchctl' && args[0] === 'print')
+        return active
+          ? { status: 0, stdout: 'path = ' + ordinaryPlan.registration.path + '\npid = 456\n' }
+          : {
+              status: 113,
+              stdout: '',
+              stderr: `Could not find service "com.mitzo.staging" in domain for user gui: ${process.getuid()}`,
+            };
+      if (program === '/bin/ps')
+        return {
+          status: 0,
+          stdout:
+            args.at(-1) === 'lstart='
+              ? 'Sun Oct 11 12:00:00 2026\n'
+              : nodePath + ' ' + release + '/dist/index.js\n',
+        };
+      if (program === '/usr/sbin/lsof' && args.includes('cwd'))
+        return { status: 0, stdout: 'p456\nn' + release + '\n' };
+      if (program === '/usr/sbin/lsof')
+        return active && args.includes('-iTCP:3190')
+          ? { status: 0, stdout: '456\n' }
+          : { status: 1, stdout: '' };
+      return { status: 0, stdout: '' };
+    });
+    ordinaryEffects = createOfflineOrdinaryEffects(
+      {
+        plan: ordinaryPlan,
+        initialContainmentReceiptSha256: nativeReceipt.receiptSha256,
+        verifySource,
+        verifyContainment: async () => {
+          const receiptSha256 = cap.assertOwnedGuard(ordinaryPlan);
+          await nativeEffects.assertContained(f.plan, { planSha256: f.plan.sha256 });
+          return { receiptSha256 };
+        },
+        guardCapability: cap,
+        assertAuthorityCurrent: () => phases.assertCurrent(),
+      },
+      { io, inspectTree, nodePath, run, fetch: vi.fn(async () => ({ status: 200 })) },
+    );
+    // This ownership check precedes assertNativeContained, exercising the bootstrap
+    // cycle that isolated mocks of the capsule did not detect.
+    expect(cap.assertOwnedGuard(ordinaryPlan)).toBe(nativeReceipt.receiptSha256);
+    const restore = createOfflineOrdinaryRestoration({
       plan: ordinaryPlan,
-      initialContainmentReceiptSha256: nativeReceipt.receiptSha256,
-      verifySource,
-      verifyContainment: async () => ({ receiptSha256: cap.assertOwnedGuard(ordinaryPlan) }),
-      guardCapability: cap,
-      assertAuthorityCurrent: () => phases.assertCurrent(),
+      consumeAuthority: phases.consumeOrdinary,
+      effects: mutateAfterInstall
+        ? {
+            ...ordinaryEffects,
+            async installOrdinaryController(...args) {
+              await ordinaryEffects.installOrdinaryController(...args);
+              const node = f.nodes.get(f.archive + '/symposium/state/private-native-data');
+              node.bytes = Buffer.alloc(node.bytes.length, 120);
+              node.mtimeMs = 1;
+              // Ownership can remain valid while the next full proof must reject bytes.
+              expect(cap.assertOwnedGuard(ordinaryPlan)).toBe(nativeReceipt.receiptSha256);
+            },
+          }
+        : ordinaryEffects,
+    });
+    if (mutateAfterInstall) {
+      await expect(restore.apply(token)).rejects.toThrow(
+        'Actual full physical content proof failed',
+      );
+      expect(run.mock.calls.some(([, args]) => ['bootstrap', 'kickstart'].includes(args[0]))).toBe(
+        false,
+      );
+      expect(f.nodes.has(f.root + '/service/deployment.lock')).toBe(true);
+      expect(f.db.prepare('SELECT * FROM launches').all()).toEqual([f.row]);
+      phases.close();
+      return;
+    }
+    const result = await restore.apply(token);
+    expect(result).toMatchObject({
+      containmentSha256: nativeReceipt.receiptSha256,
+      pid: 456,
+      nativeCleanupConfirmed: false,
+    });
+    expect(f.nodes.has(f.root + '/service/deployment.lock')).toBe(false);
+    expect(f.db.prepare('SELECT * FROM launches').all()).toEqual([f.row]);
+    const history = f.db.prepare('SELECT * FROM contained_owned_launches').get();
+    expect(history.receiptSha256).toBe(nativeReceipt.receiptSha256);
+    expect(JSON.parse(history.recordJson)).toEqual(f.row);
+    const installations = f.order.filter(
+      (value) => value.startsWith('move:') && value.includes('.ordinary-'),
+    );
+    expect(installations.at(-1)).toContain('/com.mitzo.staging.plist.ordinary-');
+    expect(ordinaryEffects.getReplacementProof().originalJob.pid).toBe(456);
+    expect(run.mock.calls.filter(([, args]) => args[0] === 'bootstrap')).toHaveLength(1);
+    expect(run.mock.calls.filter(([, args]) => args[0] === 'kickstart')).toHaveLength(1);
+    expect(f.nodes.get(f.archive + '/ordinary-prior/home/retained.txt').bytes.toString()).toBe(
+      'opaque legacy home',
+    );
+    expect(physicalProofs).toHaveLength(12); // Two native completion plus ten ordinary/release proofs.
+    expect(physicalProofs.some((proof) => proof.appInstalled && proof.active)).toBe(true);
+    expect(baseClosed).toBe(false);
+    phases.close();
+    expect(baseClosed).toBe(true);
+    await expect(ordinaryEffects.assertGuardOwnership(ordinaryPlan)).rejects.toThrow(
+      'retain staging guard',
+    );
+  },
+);
+it('checks hot custody ownership without reading native body bytes while independent boundaries retain full proofs', async () => {
+  const f = fixture();
+  let cap;
+  const inspect = vi.fn(f.effects.inspectTree);
+  f.effects.inspectTree = inspect;
+  f.effects.assertGuardContinuation = () => true;
+  f.effects.assertContained = vi.fn(async () => {
+    const full = inspect(f.archive + '/symposium');
+    if (full.sha256 !== f.plan.facts.units[0].manifestSha256)
+      throw Error('Actual full physical content proof failed');
+  });
+  await f
+    .transaction({
+      continueGuard: (value) => {
+        cap = value;
+      },
+    })
+    .apply(f.authorize());
+  expect(inspect.mock.calls.filter(([path]) => path === f.archive + '/symposium')).toHaveLength(7);
+  inspect.mockClear();
+  const ordinary = { sha256: 'a'.repeat(64) };
+  for (let i = 0; i < 12; i++) cap.assertOwnedGuard(ordinary);
+  expect(inspect).not.toHaveBeenCalled();
+  cap.bindOrdinaryGuard(
+    {
+      planSha256: ordinary.sha256,
+      intentPath: f.archive + '/ordinary.intent',
+      intentSha256: 'b'.repeat(64),
+      target: 'accepted-source',
     },
-    { io, inspectTree, nodePath, run, fetch: vi.fn(async () => ({ status: 200 })) },
+    ordinary,
   );
-  // This ownership check precedes assertNativeContained, exercising the bootstrap
-  // cycle that isolated mocks of the capsule did not detect.
-  expect(cap.assertOwnedGuard(ordinaryPlan)).toBe(nativeReceipt.receiptSha256);
-  const restore = createOfflineOrdinaryRestoration({
-    plan: ordinaryPlan,
-    consumeAuthority: phases.consumeOrdinary,
-    effects: ordinaryEffects,
+  await cap.completeOrdinaryGuard({ pid: 42, birth: 'verified' }, ordinary);
+  expect(inspect).toHaveBeenCalledTimes(1); // Independent release proof, not ownership.
+});
+it('does not mistake ownership for byte containment when same-size native content changes', async () => {
+  const f = fixture();
+  let cap;
+  const inspect = vi.fn(f.effects.inspectTree);
+  f.effects.inspectTree = inspect;
+  f.effects.assertGuardContinuation = () => true;
+  f.effects.assertContained = vi.fn(async () => {
+    if (inspect(f.archive + '/symposium').sha256 !== f.plan.facts.units[0].manifestSha256)
+      throw Error('Actual full physical content proof failed');
   });
-  const result = await restore.apply(token);
-  expect(result).toMatchObject({
-    containmentSha256: nativeReceipt.receiptSha256,
-    pid: 456,
-    nativeCleanupConfirmed: false,
-  });
-  expect(f.nodes.has(f.root + '/service/deployment.lock')).toBe(false);
+  await f
+    .transaction({
+      continueGuard: (value) => {
+        cap = value;
+      },
+    })
+    .apply(f.authorize());
+  const ordinary = { sha256: 'a'.repeat(64) };
+  cap.bindOrdinaryGuard(
+    {
+      planSha256: ordinary.sha256,
+      intentPath: f.archive + '/ordinary.intent',
+      intentSha256: 'b'.repeat(64),
+      target: 'accepted-source',
+    },
+    ordinary,
+  );
+  inspect.mockClear();
+  const node = f.nodes.get(f.archive + '/symposium/state/private-native-data');
+  node.bytes = Buffer.alloc(node.bytes.length, 120);
+  node.mtimeMs = 1;
+  expect(cap.assertOwnedGuard(ordinary)).toMatch(/^[a-f0-9]{64}$/);
+  expect(inspect).not.toHaveBeenCalled();
+  await expect(cap.completeOrdinaryGuard({ pid: 42, birth: 'verified' }, ordinary)).rejects.toThrow(
+    'Actual full physical content proof failed',
+  );
+  expect(f.nodes.has(f.root + '/service/deployment.lock')).toBe(true);
   expect(f.db.prepare('SELECT * FROM launches').all()).toEqual([f.row]);
-  const history = f.db.prepare('SELECT * FROM contained_owned_launches').get();
-  expect(history.receiptSha256).toBe(nativeReceipt.receiptSha256);
-  expect(JSON.parse(history.recordJson)).toEqual(f.row);
-  const installations = f.order.filter(
-    (value) => value.startsWith('move:') && value.includes('.ordinary-'),
-  );
-  expect(installations.at(-1)).toContain('/com.mitzo.staging.plist.ordinary-');
-  expect(ordinaryEffects.getReplacementProof().originalJob.pid).toBe(456);
-  expect(run.mock.calls.filter(([, args]) => args[0] === 'bootstrap')).toHaveLength(1);
-  expect(run.mock.calls.filter(([, args]) => args[0] === 'kickstart')).toHaveLength(1);
-  expect(f.nodes.get(f.archive + '/ordinary-prior/home/retained.txt').bytes.toString()).toBe(
-    'opaque legacy home',
-  );
-  expect(baseClosed).toBe(false);
-  phases.close();
-  expect(baseClosed).toBe(true);
-  await expect(ordinaryEffects.assertGuardOwnership(ordinaryPlan)).rejects.toThrow(
-    'retain staging guard',
+  await expect(f.transaction().verify(f.authorize())).rejects.toThrow(
+    'Archived full manifest changed',
   );
 });
