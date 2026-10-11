@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { protectCodexProfileRoots } from './codex-private-path.js';
 import { AcceptedKnowledgeSource, safeKnowledgePath } from './knowledge-library-source.js';
 import { KnowledgeDraftStore } from './knowledge-draft-store.js';
+import { ContextPackStore } from './context-pack-store.js';
 import { KnowledgeReviewService } from './knowledge-review-service.js';
 import { KnowledgeGithubPublisher } from './knowledge-github-publisher.js';
 import { type GithubHostCommandRunner } from './connections/capabilities/github-publish-pr-transport.js';
@@ -93,6 +94,9 @@ function privatePath(path: string, kind: 'file' | 'directory') {
 export interface KnowledgeLibraryRuntime {
   source: AcceptedKnowledgeSource;
   store: KnowledgeDraftStore;
+  contextPacks: ContextPackStore;
+  /** Portable namespace for receipts; never a private mirror path. */
+  sourceIdentity: string;
   publisher?: KnowledgeGithubPublisher;
   reviewService?: KnowledgeReviewService;
   reviewEnabled: boolean;
@@ -270,6 +274,7 @@ export async function knowledgeLibraryFromEnvironment(
   // SQLite opens an existing private file; its WAL is protected by the private parent.
   if (!existsSync(databasePath)) await writeFile(databasePath, '', { mode: 0o600, flag: 'wx' });
   const store = new KnowledgeDraftStore(databasePath);
+  const contextPacks = new ContextPackStore(databasePath);
   const publisher = config.publisherLogin
     ? new KnowledgeGithubPublisher(
         {
@@ -285,6 +290,8 @@ export async function knowledgeLibraryFromEnvironment(
   return {
     source,
     store,
+    contextPacks,
+    sourceIdentity: `github:${config.repository}@${config.acceptedBranch}`,
     publisher,
     reviewService: publisher
       ? new KnowledgeReviewService(source, store, publisher, {
@@ -300,6 +307,7 @@ export async function knowledgeLibraryFromEnvironment(
     },
     refresh,
     close() {
+      contextPacks.close();
       store.close();
     },
   };

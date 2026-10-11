@@ -1303,6 +1303,39 @@ it('hydrates validated model limit evidence and supports explicitly clearing it'
   expect(parse({ ...limits, contextWindow: -1 })?.tokenLimits).toBeNull();
 });
 
+it('preserves validated prepared and accepted agent context receipts on boot context replay', () => {
+  for (const status of ['prepared', 'accepted']) {
+    const receipt = {
+      recipeHash: 'a'.repeat(64),
+      compilerRevision: 'packs-v1',
+      payloadHash: 'b'.repeat(64),
+      profileId: 'architect',
+      profileRevision: 3,
+      status,
+    };
+    const parsed = parseServerMessage(
+      { type: 'boot_context', source: 'contexgin', fullMarkdown: 'Pinned guidance', receipt },
+      makeState(),
+      makeCallbacks(),
+      POOL_KEY,
+    );
+    expect(parsed.messagesActions[0]).toMatchObject({
+      type: 'SET_BOOT_CONTEXT',
+      bootContext: { receipt },
+    });
+  }
+});
+it('refuses malformed context receipt identity without advertising accepted status', () => {
+  const parsed = parseServerMessage(
+    { type: 'boot_context', receipt: { status: 'accepted', payloadHash: 'invalid' } },
+    makeState(),
+    makeCallbacks(),
+    POOL_KEY,
+  );
+  expect(parsed.resyncRequired).toBe(true);
+  expect(parsed.messagesActions).toEqual([]);
+});
+
 it('retains a validated control rejection command identity for exact delivery settlement', () => {
   const parsed = parseServerMessage(
     {

@@ -1,3 +1,7 @@
+import type {
+  SymposiumDispatchFacts,
+  SymposiumHostGrantVerifier,
+} from './symposium-dispatch-boundary.js';
 import { canonicalReviewJson } from './symposium-review-records.js';
 import {
   atSymposiumReconciliationStage,
@@ -68,8 +72,6 @@ import {
 import {
   admitSymposiumSeatDispatch,
   supportsSymposiumSeatCapability,
-  type SymposiumDispatchFacts,
-  type SymposiumHostGrantVerifier,
 } from './symposium-seat-runtime.js';
 
 export interface SymposiumPhysicalProviderIdentity {
@@ -1504,6 +1506,7 @@ export interface SymposiumSessionRuntimeDeps extends Omit<
   SymposiumSharedSandboxOwnerDeps,
   'facts'
 > {
+  agentContext?: SymposiumOpenShellSeatExecutorDeps['agentContext'];
   store: EventStore;
   applicationPolicy?: SymposiumOpenShellSeatExecutorDeps['applicationPolicy'];
   assertArtifactAdmissionCurrent?: SymposiumOpenShellSeatExecutorDeps['assertArtifactAdmissionCurrent'];
@@ -1727,6 +1730,7 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
       let executor = cache.get(seatId);
       if (!executor) {
         executor = new SymposiumOpenShellSeatExecutor({
+          agentContext: deps.agentContext,
           facts: deps.store,
           applicationPolicy: deps.applicationPolicy,
           assertArtifactAdmissionCurrent: deps.assertArtifactAdmissionCurrent,

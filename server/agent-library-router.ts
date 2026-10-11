@@ -3,7 +3,7 @@ import { z, ZodError } from 'zod';
 import type { AgentLibraryStore } from './agent-library-store.js';
 import { PortableProfileDefinitionSchema } from './symposium-profile-portability.js';
 import { buildAgentProfilePrompt } from './agent-library-prompt.js';
-import { compileAgentContext } from './agent-context-compiler.js';
+import { compileAgentContext, type AuthorizedContextPacks } from './agent-context-compiler.js';
 import { registerAuthSession, type AuthSession } from './auth.js';
 
 const OWNER = 'user'; // Stable authenticated subject, never the rotating login JTI.
@@ -21,7 +21,11 @@ function failure(res: Response, error: unknown) {
 }
 export function createAgentLibraryRouter(
   store: AgentLibraryStore,
-  options: { workspaceRoot?: string; contexginUrl?: string } = {},
+  options: {
+    workspaceRoot?: string;
+    contexginUrl?: string;
+    contextPacks?: (signal: AbortSignal) => Promise<AuthorizedContextPacks>;
+  } = {},
 ): Router {
   const router = Router();
   router.use((_req, res, next) => {
@@ -81,6 +85,9 @@ export function createAgentLibraryRouter(
         ? await compileAgentContext(definition.contextRecipe, {
             ...options,
             signal: controller.signal,
+            ...(definition.contextRecipe.source === 'packs'
+              ? { packs: await options.contextPacks?.(controller.signal) }
+              : {}),
           })
         : undefined;
       if (authorizationFailed || auth.expiresAt <= Date.now())
@@ -94,9 +101,11 @@ export function createAgentLibraryRouter(
               compiledContext: compiled,
               assembledPrompt: `${profilePrompt}\n\n# Boot Context\n${compiled.context.fullMarkdown}`,
               previewScope:
-                definition.contextRecipe?.source === 'workspace'
-                  ? 'configured-workspace'
-                  : 'contexgin-preset',
+                definition.contextRecipe?.source === 'packs'
+                  ? 'accepted-knowledge-packs'
+                  : definition.contextRecipe?.source === 'workspace'
+                    ? 'configured-workspace'
+                    : 'contexgin-preset',
             }
           : {}),
       });

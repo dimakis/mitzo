@@ -299,13 +299,21 @@ export type {
   SessionOutputCandidate,
   OutputContributorBinding,
 } from './session-output-reference.js';
-export { AgentContextRecipeSchema, type AgentContextRecipe } from './agent-context-recipe.js';
+export {
+  AgentContextRecipeSchema,
+  WorkspaceAgentContextRecipeSchema,
+  type AgentContextRecipe,
+  type WorkspaceAgentContextRecipe,
+} from './agent-context-recipe.js';
 export {
   AgentCompiledBootContextSchema,
   CompiledAgentContextSchema,
   type CompiledAgentContext,
 } from './agent-context-recipe.js';
 export { AgentContextSnapshotSchema, type AgentContextSnapshot } from './agent-context-recipe.js';
+export * from './agent-context-pack.js';
+
+export { AgentContextReceiptSchema, type AgentContextReceipt } from './agent-context-recipe.js';
 export {
   AgentSandboxContextScopeSchema,
   type AgentSandboxContextScope,

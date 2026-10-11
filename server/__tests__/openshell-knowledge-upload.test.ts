@@ -288,6 +288,91 @@ it('adopts a verified knowledge view in a retained sandbox without replacing tas
   expect(run.mock.calls.filter(([args]) => args.includes('upload'))).toHaveLength(2);
 });
 
+it('keeps publication verification separate from a pinned profile context without compiling default context', async () => {
+  const config = publication();
+  const conversation = 'retained-chat';
+  const owner = digest(conversation).slice(0, 63);
+  const name = `mitzo-${digest(conversation).slice(0, 13)}`;
+  const run = vi.fn(async (_args: readonly string[]) =>
+    JSON.stringify({
+      name,
+      id: 'physical-id',
+      workspace: 'mitzo',
+      phase: 'Ready',
+      labels: { 'mitzo.conversation': owner, 'mitzo.account_provider': 'openai-work' },
+    }),
+  );
+  const present = false;
+  const damaged = false;
+  const ssh = vi.fn(async (args: readonly string[]) =>
+    args.join(' ').includes('attest-knowledge-runtime.py')
+      ? JSON.stringify(config.seedStackManifest.runtime)
+      : args.join(' ').includes('knowledge-cache-status')
+        ? String(present && !damaged)
+        : args.join(' ').includes('os.path.lexists')
+          ? String(present)
+          : JSON.stringify({
+              sourceCommit: 'a'.repeat(40),
+              payloadSha256: JSON.parse(
+                readFileSync(join(config.seed, '..', 'baseline.json'), 'utf8'),
+              ).payloadSha256,
+            }),
+  );
+  const manager = new OpenShellRuntimeManager(config, run, undefined, ssh);
+  const compile = vi.spyOn(manager, 'compileContext').mockResolvedValue({
+    type: 'boot_context',
+    scope: 'sandbox',
+    sourceCount: 1,
+    tokenCount: 2,
+    tokenBudget: 12000,
+    sources: [],
+    included: [],
+    trimmed: [],
+    fullMarkdown: 'Accepted context',
+  });
+  const runtime = {
+    sandboxName: name,
+    sandboxId: 'physical-id',
+    workdir: '/sandbox/workspaces/mgmt',
+    appServerCommand: '/sandbox/run-mitzo-app-server' as const,
+    cli: 'openshell',
+    gateway: 'local',
+    workspace: 'mitzo',
+    gatewayInsecure: false,
+  };
+  const profileContext = {
+    type: 'boot_context' as const,
+    scope: 'sandbox' as const,
+    sourceCount: 1,
+    tokenCount: 8,
+    tokenBudget: 1000,
+    sources: [{ path: 'context/architect.md', kind: 'reference' }],
+    included: [],
+    trimmed: [],
+    fullMarkdown: 'Pinned accepted architecture context',
+  };
+  const first = await manager.adoptKnowledge(
+    conversation,
+    runtime,
+    AbortSignal.timeout(5000),
+    profileContext,
+  );
+  expect(first?.sourceCommit).toBe('a'.repeat(40));
+  expect(first?.adoption).toHaveProperty(
+    'runtimeContractImageDigest',
+    config.seedStackManifest.runtime.digest,
+  );
+  expect(first?.adoption).not.toHaveProperty('runtimeImageDigest');
+  expect(first?.knowledgeRoot).toMatch(
+    /^\/sandbox\/workspaces\/knowledge\/knowledge-[a-f0-9]{64}\/mgmt$/,
+  );
+  expect(first?.context).toEqual(profileContext);
+  expect(compile).not.toHaveBeenCalled();
+  expect(
+    ssh.mock.calls.some(([args]) => args.join(' ').includes('attest-knowledge-runtime.py')),
+  ).toBe(true);
+});
+
 it('refuses knowledge adoption by an incompatible retained runtime before uploading', async () => {
   const config = publication();
   const conversation = 'retained-chat';

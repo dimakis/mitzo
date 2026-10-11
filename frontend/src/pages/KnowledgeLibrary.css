@@ -35,7 +35,8 @@
   gap: 16px;
 }
 .knowledge-top {
-  margin: 30px 0 24px;
+  flex-wrap: wrap;
+  margin: var(--space-6) 0 var(--space-5);
 }
 .knowledge-library
   button:not(.btn-primary):not(.workspace-text-link):not(.document-editor-control) {
@@ -47,7 +48,8 @@
 }
 .knowledge-switch {
   display: flex;
-  gap: 6px;
+  flex-wrap: wrap;
+  gap: var(--space-1h);
 }
 .knowledge-switch button[aria-pressed='true'],
 .knowledge-document-tabs button[aria-pressed='true'] {

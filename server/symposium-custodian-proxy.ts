@@ -47,7 +47,7 @@ export function createCustodianProxy(
         /* Original namespace remains fenced. */
       }
       const protectedNamespace =
-        /^\/api\/(?:agent-library(?:\/|$)|symposium(?:\/|$)|sessions\/[^/]+\/symposium(?:\/|$))/i;
+        /^\/api\/(?:context-packs(?:\/|$)|agent-library(?:\/|$)|symposium(?:\/|$)|sessions\/[^/]+\/symposium(?:\/|$))/i;
       if (protectedNamespace.test(req.path) || protectedNamespace.test(decoded)) {
         res.status(400).json({ error: 'Unsupported custodian request' });
         return;

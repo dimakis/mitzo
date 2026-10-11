@@ -1,3 +1,4 @@
+import { assertSymposiumNativeCodexContextAdmission } from './symposium-seat-runtime.js';
 import {
   subscriptionIdentityRequired,
   assertSubscriptionRoutingIdentity,
@@ -65,6 +66,7 @@ export async function createChatGptSubscriptionSeat(
     assertSubscriptionDispatch?: (input: Parameters<VerifySymposiumSubscriptionAuth>[0]) => void;
   },
 ) {
+  assertSymposiumNativeCodexContextAdmission(input.execution);
   if (input.route.kind !== 'chatgpt-subscription-native')
     throw new Error('ChatGPT native seat requires a subscription route');
   const { profile } = input.route;
@@ -96,6 +98,7 @@ export async function createChatGptSubscriptionSeat(
   if (!input.createConversation && typeof input.assertSubscriptionDispatch !== 'function')
     throw new Error('Private ChatGPT dispatch authorization is unavailable');
   await input.verifyPrivateAuth(input);
+  assertSymposiumNativeCodexContextAdmission(input.execution);
   input.execution.signal.throwIfAborted();
   const identityRequired =
     input.workloadImage !== undefined && subscriptionIdentityRequired(input.workloadImage);

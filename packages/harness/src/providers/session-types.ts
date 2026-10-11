@@ -39,6 +39,8 @@ export interface ConversationMessage {
 /** Fired when the model starts a new message. */
 export interface MessageStartEvent {
   type: 'message_start';
+  /** Remote response identity supplied by a trusted provider adapter, never a display UUID. */
+  providerReceipt?: { provider: 'google-vertex'; responseId: string };
   message: {
     id: string;
     model: string;
@@ -95,6 +97,8 @@ export type StreamEvent =
 
 /** Configuration for a model session. */
 export interface ModelSessionConfig {
+  /** Revalidate trusted context after credential/tool awaits, immediately before transmission. */
+  beforeDispatch?: () => Promise<void>;
   /** Model identifier (e.g. 'claude-opus-4-6', 'gpt-5.5'). */
   model: string;
   /** System prompt text. */

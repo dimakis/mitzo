@@ -2,7 +2,9 @@ import type Database from 'better-sqlite3';
 import { createHash, randomUUID } from 'node:crypto';
 import { SymposiumProvenanceSchema } from './symposium.js';
 import {
+  OutputContributorBindingSchema,
   SessionOutputRegisterInputSchema,
+  type OutputContributorBinding,
   type SessionOutputCandidate,
   type SessionOutputReference,
   type SessionOutputSource,
@@ -29,6 +31,7 @@ type OutputRow = {
   created_at: number;
 };
 const hash = (text: string) => createHash('sha256').update(text).digest('hex');
+type ContributorBinding = OutputContributorBinding & { coordinatorSessionId: string };
 
 /** Uses the existing EventStore owner's connection and backup lifecycle. No standalone database. */
 export class SessionOutputReferenceStore {
@@ -46,6 +49,80 @@ export class SessionOutputReferenceStore {
       CREATE INDEX IF NOT EXISTS idx_session_outputs ON session_output_references(session_id, created_at);
       CREATE INDEX IF NOT EXISTS idx_session_output_message_events
         ON events(session_id, json_extract(payload,'$.messageId'), seq);`);
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_output_contributor_association ON events(session_id,json_extract(payload,'$.outputId')) WHERE type='output_contributor_created';
+      CREATE INDEX IF NOT EXISTS idx_output_contributor_coordinator ON events(json_extract(payload,'$.coordinatorSessionId')) WHERE type='output_contributor_created';`);
+  }
+
+  getContributorBindings(parentSessionId: string): ContributorBinding[] {
+    const rows = this.db
+      .prepare(
+        "SELECT payload FROM events WHERE session_id=? AND type='output_contributor_created' ORDER BY seq DESC LIMIT 100",
+      )
+      .all(parentSessionId) as { payload: string }[];
+    return rows.map((row) =>
+      this.contributorBinding(row.payload, 'Invalid output contributor identity'),
+    );
+  }
+
+  /** Host-only association lookup; caller authorization remains with EventStore. */
+  getContributorBinding(coordinatorSessionId: string): ContributorBinding | null {
+    const row = this.db
+      .prepare(
+        "SELECT payload FROM events WHERE type='output_contributor_created' AND json_extract(payload,'$.coordinatorSessionId')=? LIMIT 1",
+      )
+      .get(coordinatorSessionId) as { payload: string } | undefined;
+    if (!row) return null;
+    const { coordinatorSessionId: retainedId, ...binding } = JSON.parse(row.payload);
+    if (retainedId !== coordinatorSessionId) throw new Error('Output contributor identity changed');
+    return { ...OutputContributorBindingSchema.parse(binding), coordinatorSessionId };
+  }
+
+  getContributorForOutput(parentSessionId: string, outputId: string): ContributorBinding | null {
+    const row = this.db
+      .prepare(
+        "SELECT payload FROM events WHERE session_id=? AND type='output_contributor_created' AND json_extract(payload,'$.outputId')=? LIMIT 1",
+      )
+      .get(parentSessionId, outputId) as { payload: string } | undefined;
+    return row ? this.contributorBinding(row.payload, 'Output contributor identity changed') : null;
+  }
+
+  private contributorBinding(payload: string, error: string): ContributorBinding {
+    const { coordinatorSessionId, ...binding } = JSON.parse(payload);
+    if (typeof coordinatorSessionId !== 'string') throw new Error(error);
+    return { ...OutputContributorBindingSchema.parse(binding), coordinatorSessionId };
+  }
+
+  /** The synchronous guarded lookup repeats parent authority checks after context validation. */
+  assertContributorAvailable(
+    binding: OutputContributorBinding,
+    guardedLookup: (parentSessionId: string, outputId: string) => ContributorBinding | null,
+  ): void {
+    const { output } = this.read(binding.parentSessionId, binding.outputId);
+    const digest = hash(
+      JSON.stringify([output.sessionId, output.outputId, output.revision, output.source.sha256]),
+    );
+    if (binding.outputRevision !== output.revision || binding.contextPackageDigest !== digest)
+      throw new Error('Output contributor context revision conflict');
+    if (guardedLookup(binding.parentSessionId, output.outputId))
+      throw new Error('This output already has a contributor');
+  }
+
+  /** The owner's transaction also contains the coordinator config and allocation receipt. */
+  recordContributor(binding: OutputContributorBinding, coordinatorSessionId: string): void {
+    this.db
+      .prepare(
+        'INSERT INTO events (session_id,type,payload,seat_id,symposium_provenance) VALUES (?,?,?,?,?)',
+      )
+      .run(
+        binding.parentSessionId,
+        'output_contributor_created',
+        JSON.stringify({
+          ...binding,
+          coordinatorSessionId,
+        }),
+        null,
+        null,
+      );
   }
 
   private source(sessionId: string, selection: Omit<SessionOutputSource, 'sha256'>) {

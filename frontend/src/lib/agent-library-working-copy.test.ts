@@ -64,3 +64,14 @@ it('does not restore older stored edits after a failed write or discard', () => 
   saveAgentLibraryWorkingCopy(null);
   expect(loadAgentLibraryWorkingCopy()).toBeNull();
 });
+it('recovers unfinished pack composition without replacing its pinned revisions', () => {
+  const value = copy();
+  value.editor.definition.contextRecipe = {
+    version: 2,
+    source: 'packs',
+    packs: [{ id: 'review', revision: 3, hash: 'a'.repeat(64) }],
+    tokenBudget: 0,
+  };
+  saveAgentLibraryWorkingCopy(value);
+  expect(loadAgentLibraryWorkingCopy()).toEqual(value);
+});

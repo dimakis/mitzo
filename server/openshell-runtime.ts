@@ -932,7 +932,10 @@ function legacySandboxNameForConversation(conversationHash: string) {
 export class OpenShellRuntimeManager {
   private run: Run;
   private runSsh: Run;
-  private knowledgeViews = new Map<string, OpenShellKnowledgeSelection>();
+  private knowledgeViews = new Map<
+    string,
+    Omit<OpenShellKnowledgeSelection, 'context'> & { context?: OpenShellBootContext }
+  >();
 
   constructor(
     private config: BoundOpenShellRuntimeConfig,
@@ -2502,6 +2505,7 @@ export class OpenShellRuntimeManager {
     conversationId: string,
     runtime: OpenShellRuntime,
     signal: AbortSignal,
+    profileContext?: OpenShellBootContext,
   ): Promise<OpenShellKnowledgeSelection | undefined> {
     if (!this.config.knowledgeStore) {
       const baselinePath = join(this.config.seed, '..', 'baseline.json');
@@ -2593,18 +2597,19 @@ export class OpenShellRuntimeManager {
         receipt.payloadSha256 !== selection.payloadSha256
       )
         throw new Error('Knowledge verification returned another publication');
-      if (!selection.context)
-        selection.context = await this.compileContext(
-          { ...runtime, workdir: selection.knowledgeRoot },
-          signal,
-        );
+      // Publication verification remains mandatory. Profile context has independently
+      // pinned accepted sources and must not be replaced by another default recipe.
+      const context =
+        profileContext ??
+        selection.context ??
+        (await this.compileContext({ ...runtime, workdir: selection.knowledgeRoot }, signal));
       const verified = await this.ownedSandbox(conversationId, runtime.sandboxId, signal);
       if (verified.phase !== 'Ready' || verified.name !== runtime.sandboxName)
         throw new Error('Knowledge sandbox changed during verification');
       signal.throwIfAborted();
       const adopted: OpenShellKnowledgeSelection = {
         ...selection,
-        context: selection.context,
+        context: BootContext.parse(context),
         adoption: {
           storeId: this.config.knowledgeStore?.id ?? 'mgmt',
           sourceCommit: selection.sourceCommit,
@@ -2620,7 +2625,10 @@ export class OpenShellRuntimeManager {
           recipeSha256: String(contract.knowledgeRecipeSha256),
         },
       };
-      this.knowledgeViews.set(runtime.sandboxId, adopted);
+      this.knowledgeViews.set(
+        runtime.sandboxId,
+        profileContext ? { ...adopted, context: selection.context } : adopted,
+      );
       const cleanup = openShellSshArgvProcessSpec(runtime, [
         '/bin/sh',
         '-c',

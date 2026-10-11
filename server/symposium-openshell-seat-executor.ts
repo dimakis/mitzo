@@ -1,3 +1,7 @@
+import type {
+  SymposiumDispatchFacts,
+  SymposiumHostGrantVerifier,
+} from './symposium-dispatch-boundary.js';
 import {
   assertSymposiumAttestedProvider,
   assertSymposiumAttestedClaudeProvider,
@@ -6,13 +10,13 @@ import {
 import type { ControlledAttemptSandbox } from './symposium-attempt-transport.js';
 import type { SymposiumAttemptRegistry } from './symposium-attempt-registry.js';
 import type { AccountProfiles } from './account-profiles.js';
-import type { SymposiumSeatExecution, SymposiumSeatExecutor } from './symposium-orchestrator.js';
 import {
-  admitSymposiumSeatDispatch,
-  type SymposiumDispatchFacts,
-  type SymposiumHostGrantVerifier,
-  type SymposiumSeatRoute,
-} from './symposium-seat-runtime.js';
+  bindSymposiumAgentContextAuthorization,
+  symposiumAgentContextAuthorization,
+  type SymposiumAgentContextBinding,
+} from './symposium-agent-context.js';
+import type { SymposiumSeatExecution, SymposiumSeatExecutor } from './symposium-orchestrator.js';
+import { admitSymposiumSeatDispatch, type SymposiumSeatRoute } from './symposium-seat-runtime.js';
 
 export interface SymposiumNativeSeat {
   /** Trusted adapter checks durable same-seat lineage and retained continuity. */
@@ -42,6 +46,7 @@ export interface SymposiumApplicationDispatchPolicy {
 }
 
 export interface SymposiumOpenShellSeatExecutorDeps {
+  agentContext?: SymposiumAgentContextBinding;
   facts: SymposiumDispatchFacts;
   applicationPolicy?: SymposiumApplicationDispatchPolicy;
   assertArtifactAdmissionCurrent?: (
@@ -133,6 +138,22 @@ export class SymposiumOpenShellSeatExecutor implements SymposiumSeatExecutor {
     return run;
   }
   private async executeCurrent(input: SymposiumSeatExecution) {
+    const capturedExecution = input;
+    const assertNativeContextSupported = () => {
+      for (const current of [capturedExecution, input]) {
+        if (
+          current.seat.accountBinding?.provider === 'anthropic-vertex' &&
+          (current.seat.contextRecipe ||
+            current.agentContext ||
+            symposiumAgentContextAuthorization(current))
+        )
+          throw Error(
+            'Native Claude recipe context requires a reviewed continuation fence; select a supported runtime',
+          );
+      }
+    };
+    input.signal.throwIfAborted();
+    assertNativeContextSupported();
     this.prepare({
       sessionId: input.sessionId,
       claimToken: input.claimToken,
@@ -148,6 +169,7 @@ export class SymposiumOpenShellSeatExecutor implements SymposiumSeatExecutor {
     this.attempts.set(input.claimToken, attempt);
     const admission = () => {
       if (this.draining) throw new Error('Symposium runtime is shutting down');
+      assertNativeContextSupported();
       if ('version' in input.provenance && input.provenance.version === 3) {
         if (!this.deps.assertArtifactAdmissionCurrent)
           throw new Error('Trusted artifact admission owner unavailable');
@@ -168,6 +190,21 @@ export class SymposiumOpenShellSeatExecutor implements SymposiumSeatExecutor {
       return admitted;
     };
     let route = admission();
+    if (input.seat.contextRecipe && !this.deps.agentContext)
+      throw new Error('Symposium context preparation is unavailable for the selected recipe');
+    const preparedContext = this.deps.agentContext
+      ? await this.deps.agentContext.prepare(input)
+      : undefined;
+    if (preparedContext) {
+      input = { ...input, agentContext: preparedContext.snapshot };
+      attempt.execution = input;
+      const contextExecution = input;
+      bindSymposiumAgentContextAuthorization(contextExecution, (signal) =>
+        this.deps.agentContext!.reauthorize(contextExecution, preparedContext, signal),
+      );
+      await this.deps.agentContext!.reauthorize(input, preparedContext);
+    }
+    route = admission();
     if (
       route.readOnly &&
       !(route.kind === 'chatgpt-subscription-native'
@@ -181,6 +218,7 @@ export class SymposiumOpenShellSeatExecutor implements SymposiumSeatExecutor {
     route = admission();
     if (this.attempts.get(input.claimToken) !== attempt || input.signal.aborted)
       throw new Error('Symposium native attempt was cancelled before initialization');
+    if (preparedContext) await this.deps.agentContext!.reauthorize(input, preparedContext);
     attempt.opening = true;
     const native = await this.deps.openNative({
       sandbox,
@@ -204,6 +242,7 @@ export class SymposiumOpenShellSeatExecutor implements SymposiumSeatExecutor {
     try {
       result = await native.run(input, {
         beforeDispatch: (providerThreadId) => {
+          if (preparedContext) this.deps.agentContext!.assertCurrent(input, preparedContext);
           const current = admission();
           if (JSON.stringify(current) !== JSON.stringify(route))
             throw new Error('Symposium account provider changed before native turn');
@@ -259,6 +298,13 @@ export class SymposiumOpenShellSeatExecutor implements SymposiumSeatExecutor {
             acceptedAt: Date.now(),
           });
           if (!recorded) throw new Error('Symposium provider receipt claim is no longer valid');
+          if (preparedContext)
+            this.deps.agentContext!.accepted(
+              input,
+              preparedContext,
+              providerThreadId,
+              providerTurnId,
+            );
           this.deps.applicationPolicy?.accepted(input, providerThreadId, providerTurnId);
           this.deps.recordEvent?.(input, { type: 'symposium_attempt_accepted' });
         },

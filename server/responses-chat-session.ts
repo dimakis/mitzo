@@ -21,9 +21,9 @@ import { HOST_TOOL_INSTRUCTIONS } from './session-permission-policy.js';
 import { createNativeHooks } from './native-hooks.js';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { buildPermissionHandler, type ManagedSession, type SessionRegistry } from '@mitzo/harness';
-import type { AccountBinding } from '@mitzo/protocol';
+import type { AccountBinding, AgentContextSnapshot } from '@mitzo/protocol';
 import type {
   ExecutionTerminalReason,
   ProviderAttemptTerminalReason,
@@ -128,6 +128,14 @@ interface Options {
   mcpServers: Record<string, McpServerConfig>;
   onDemandCreate?: NativeToolOptions['onDemandCreate'];
   store?: NativeResponsesStore;
+  agentContext?: AgentContextSnapshot;
+  prepareAgentContext?: (signal: AbortSignal) => Promise<void>;
+  onAgentContextAccepted?: (
+    commandId: string,
+    threadId: string,
+    turnId: string,
+    contextSha256: string,
+  ) => void;
 }
 /** API execution uses the shared interaction policy and a private continuation store. */
 export async function openResponsesChat(options: Options) {
@@ -147,11 +155,9 @@ export async function openResponsesChat(options: Options) {
   );
   let startup;
   try {
-    startup = await hooks.run(
-      'SessionStart',
-      { source: options.resume ? 'resume' : 'startup' },
-      signal,
-    );
+    startup = options.agentContext
+      ? {}
+      : await hooks.run('SessionStart', { source: options.resume ? 'resume' : 'startup' }, signal);
   } catch (error) {
     dispose();
     throw error;
@@ -173,6 +179,13 @@ export async function openResponsesChat(options: Options) {
   let interrupted = false;
   let activeTurnFinalized: Promise<void> | undefined;
   let completeActiveTurn: (() => void) | undefined;
+  const systemPrompt =
+    options.systemPrompt +
+    CONNECTION_TOOL_INSTRUCTIONS +
+    HOST_TOOL_INSTRUCTIONS +
+    WEB_ACCESS_INSTRUCTIONS +
+    GITHUB_PUBLISHING_INSTRUCTIONS +
+    (startup.context ? `\n\n${startup.context}` : '');
   const runner = new NativeResponsesRunner({
     conversationId: options.conversationId,
     binding: options.binding,
@@ -180,13 +193,8 @@ export async function openResponsesChat(options: Options) {
     getApiKey: options.getApiKey,
     gemini: options.gemini,
     store: privateStorage,
-    systemPrompt:
-      options.systemPrompt +
-      CONNECTION_TOOL_INSTRUCTIONS +
-      HOST_TOOL_INSTRUCTIONS +
-      WEB_ACCESS_INSTRUCTIONS +
-      GITHUB_PUBLISHING_INSTRUCTIONS +
-      (startup.context ? `\n\n${startup.context}` : ''),
+    systemPrompt,
+    prepareAgentContext: options.prepareAgentContext,
     maxTokens: 8192,
     selectedModel: options.selectedModel,
     reasoningEffort: options.reasoningEffort ?? undefined,
@@ -338,6 +346,7 @@ export async function openResponsesChat(options: Options) {
           }
           publishingTurnId = message.mitzoMessageId ?? randomUUID();
           interrupted = false;
+          let contextAccepted = false;
           let providerTerminalized = false;
           let executionTerminalized = false;
           const terminalizeProvider = (reason: ProviderAttemptTerminalReason) => {
@@ -358,11 +367,39 @@ export async function openResponsesChat(options: Options) {
             terminalizeExecution(executionReason);
           };
           try {
+            await options.prepareAgentContext?.(signal);
+            signal.throwIfAborted();
             for await (const event of runner.run(
               message.message.content,
               signal,
               message.mitzoMessageId,
             )) {
+              // The Responses adapter emits message_start only after response.created.
+              // Local initialization and a failed request are not delivery evidence.
+              if (
+                !contextAccepted &&
+                !interrupted &&
+                !signal.aborted &&
+                event.type === 'stream_event' &&
+                event.event.type === 'message_start'
+              ) {
+                const providerId =
+                  options.binding.provider === 'openai'
+                    ? event.event.message.id
+                    : options.binding.provider === 'google-vertex' &&
+                        event.event.providerReceipt?.provider === 'google-vertex'
+                      ? event.event.providerReceipt.responseId
+                      : undefined;
+                if (providerId) {
+                  contextAccepted = true;
+                  options.onAgentContextAccepted?.(
+                    publishingTurnId,
+                    options.conversationId,
+                    providerId,
+                    createHash('sha256').update(systemPrompt).digest('hex'),
+                  );
+                }
+              }
               if (event.type === 'result') {
                 if (interrupted || signal.aborted) {
                   terminalize('cancelled', 'interrupted');

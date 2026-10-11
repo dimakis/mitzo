@@ -424,6 +424,8 @@ export class ResponsesSession implements ModelSession {
             ? await this.options.getApiKey(this.config.signal)
             : this.options.apiKey;
       if (!apiKey.trim()) throw new Error('OpenAI API credential unavailable');
+      await this.config.beforeDispatch?.();
+      this.config.signal?.throwIfAborted();
       const response = await fetch('https://api.openai.com/v1/responses', {
         method: 'POST',
         redirect: 'error',
