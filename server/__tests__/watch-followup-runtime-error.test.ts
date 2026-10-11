@@ -279,6 +279,7 @@ it('persists a resumed accepted input runtime failure even before its first SDK 
   vi.mocked(query).mockImplementationOnce((args) => {
     expect(args.options?.resume).toBe(sessionId);
     return (async function* () {
+      yield* [];
       throw Error('Offline accepted resume failed before first event');
     })() as unknown as ReturnType<typeof query>;
   });
