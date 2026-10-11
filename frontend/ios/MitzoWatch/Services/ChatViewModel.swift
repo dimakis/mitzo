@@ -15,6 +15,7 @@ final class ChatViewModel: ObservableObject {
 
     let sessionId: String?
     private var resolvedSessionId: String?
+    private var lastAcceptedCommand: (clientMsgId: String, sessionId: String)?
     private(set) weak var appState: AppState?
 
     init(sessionId: String?, appState: AppState? = nil) {
@@ -103,11 +104,19 @@ final class ChatViewModel: ObservableObject {
     func handleMessage(_ message: ServerMessage) {
         let receipt = sendDraft.receive(message)
         switch receipt {
-        case .assigned(let sessionId): resolvedSessionId = sessionId
+        case .assigned(let sessionId):
+            if resolvedSessionId != sessionId { lastAcceptedCommand = nil }
+            resolvedSessionId = sessionId
         case .rejected(let clientMsgId): messages.removeAll { $0.id == clientMsgId }
-        case .accepted:
+        case .accepted(let clientMsgId):
             if resolvedSessionId == nil, case .userMessage(let params) = message {
                 resolvedSessionId = params.sessionId
+            }
+            if let sessionId = resolvedSessionId,
+               !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                lastAcceptedCommand = (clientMsgId, sessionId)
+            } else {
+                lastAcceptedCommand = nil
             }
             sendError = nil
         case nil: break
@@ -192,8 +201,19 @@ final class ChatViewModel: ObservableObject {
             if case .rejected = receipt { sendError = params.error }
             messages.append(ChatMessage(role: .assistant, text: "Error: \(params.error)"))
 
-        case .error(let error, _, _):
-            guard case .rejected = receipt else { return }
+        case .error(let error, let sessionId, let clientMsgId):
+            // Runtime feedback is distinct from settling a composer submission.
+            // Legacy iterator failures carry only the already accepted command ID.
+            if case .rejected = receipt {
+                // Exact startup rejection may precede session assignment.
+            } else if let sessionId {
+                guard !sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                      sessionId == resolvedSessionId else { return }
+            } else {
+                guard let accepted = lastAcceptedCommand,
+                      clientMsgId == accepted.clientMsgId,
+                      accepted.sessionId == resolvedSessionId else { return }
+            }
             sendError = error
             messages.append(ChatMessage(role: .assistant, text: "Error: \(error)"))
 

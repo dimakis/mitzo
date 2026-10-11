@@ -529,7 +529,7 @@ public struct SessionSwitchedParams: Codable, Sendable {
 
 public struct SessionEndParams: Codable, Sendable {
     public let sessionId: String
-    public let usage: UsageStats
+    public let usage: UsageStats?
 }
 
 public struct UsageStats: Codable, Sendable {

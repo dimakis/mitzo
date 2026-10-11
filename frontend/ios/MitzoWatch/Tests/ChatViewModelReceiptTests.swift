@@ -16,19 +16,24 @@ final class AppState {
 @main
 struct ChatViewModelReceiptTests {
     @MainActor static func main() async throws {
+        guard CommandLine.arguments.count == 3 else { throw Failure.missingFixture }
+        try await backendRuntimeFailureIsVisible(fixturePath: CommandLine.arguments[1], iteratorThrow: false, newerPending: false)
+        try await backendRuntimeFailureIsVisible(fixturePath: CommandLine.arguments[1], iteratorThrow: false, newerPending: true)
+        try await backendRuntimeFailureIsVisible(fixturePath: CommandLine.arguments[1], iteratorThrow: true, newerPending: false)
+        try await backendRuntimeFailureIsVisible(fixturePath: CommandLine.arguments[1], iteratorThrow: true, newerPending: true)
+        try await acceptedCommandErrorAttributionExpiresOnAcceptanceAndFork()
         try await assignedStartupFailureRetriesOnlyExplicitlyInNewSession()
         try await newChatCorrelatedAssignmentRejectsForeignReceipts()
         try await forkRoutesEchoAndReply()
         try await startupRefusalPreservesNewerDraftAndActiveStream()
         try await acceptedInputIsNotRestoredByLaterErrors()
-        guard CommandLine.arguments.count == 3 else { throw Failure.missingFixture }
         try await backendStartupRoutesExactEchoAndReply(fixturePath: CommandLine.arguments[1], newerEdit: false, requireBareAssignment: false)
         try await backendStartupRoutesExactEchoAndReply(fixturePath: CommandLine.arguments[1], newerEdit: true, requireBareAssignment: false)
         try await backendStartupRoutesExactEchoAndReply(fixturePath: CommandLine.arguments[2], newerEdit: false, requireBareAssignment: true)
         try await backendStartupRoutesExactEchoAndReply(fixturePath: CommandLine.arguments[2], newerEdit: true, requireBareAssignment: true)
         try await foreignTerminalPreservesActiveSelectedStream(fixturePath: CommandLine.arguments[1])
         try await foreignTerminalPreservesActiveSelectedStream(fixturePath: CommandLine.arguments[2])
-        print("11 offline Watch view-model receipt cases passed")
+        print("16 offline Watch view-model receipt cases passed")
     }
 
     static func decode(_ json: String) throws -> ServerMessage {
@@ -129,8 +134,14 @@ struct ChatViewModelReceiptTests {
         let id = try pendingId(vm)
         vm.handleMessage(try decode("{\"type\":\"user_message\",\"sessionId\":\"child\",\"messageId\":\"\(id)\",\"text\":\"Accepted\"}"))
         vm.handleMessage(try decode("{\"type\":\"error\",\"sessionId\":\"child\",\"clientMsgId\":\"\(id)\",\"error\":\"Late\"}"))
-        precondition(vm.sendDraft.text.isEmpty && vm.sendDraft.rejectedText == nil && vm.sendError == nil)
+        precondition(vm.sendDraft.text.isEmpty && vm.sendDraft.rejectedText == nil && vm.sendError == "Late")
         precondition(vm.messages.contains { $0.id == id })
+        precondition(vm.messages.last?.text == "Error: Late")
+        let count = vm.messages.count
+        vm.handleMessage(try decode("{\"type\":\"error\",\"sessionId\":\"foreign\",\"clientMsgId\":\"\(id)\",\"error\":\"Foreign\"}"))
+        vm.handleMessage(try decode("{\"type\":\"error\",\"error\":\"Unattributed\"}"))
+        precondition(vm.sendError == "Late" && vm.messages.count == count)
+        precondition(vm.sendDraft.text.isEmpty && vm.sendDraft.rejectedText == nil)
     }
 
     @MainActor static func assignedStartupFailureRetriesOnlyExplicitlyInNewSession() async throws {
@@ -173,6 +184,144 @@ struct ChatViewModelReceiptTests {
         let events: [String]
         let foreignEvents: [String]?
         let sourceCommit: String?
+    }
+
+    struct FailureFixtureEnvelope: Decodable {
+        let runtimeFailure: BackendFixture
+        let iteratorThrow: BackendFixture
+    }
+
+    @MainActor static func backendRuntimeFailureIsVisible(fixturePath: String, iteratorThrow: Bool, newerPending: Bool) async throws {
+        let envelope = try JSONDecoder().decode(FailureFixtureEnvelope.self, from: Data(contentsOf: URL(fileURLWithPath: fixturePath)))
+        let fixture = iteratorThrow ? envelope.iteratorThrow : envelope.runtimeFailure
+        let app = AppState()
+        let vm = ChatViewModel(sessionId: nil, appState: app)
+        vm.sendDraft.edit(fixture.request.prompt)
+        await vm.send()
+        let id = try pendingId(vm)
+        var selectedSession: String?
+        var nextId: String?
+        var sawError = false
+        var terminal: ServerMessage?
+        for packet in fixture.events {
+            let event = try decodeBackendPacket(packet, fixtureId: fixture.request.clientMsgId, commandId: id)
+            vm.handleMessage(event)
+            switch event {
+            case .userMessage(let params):
+                precondition(params.messageId == id && !params.sessionId.isEmpty)
+                selectedSession = params.sessionId
+                precondition(vm.sendDraft.pending == nil && vm.sendDraft.text.isEmpty)
+                if newerPending {
+                    vm.sendDraft.edit("Newer pending input")
+                    await vm.send()
+                    nextId = try pendingId(vm)
+                    precondition(nextId != id && vm.sendDraft.pending?.sessionId == selectedSession)
+                }
+                // Error feedback must not reset existing stream or permission state.
+                vm.handleMessage(try decode("{\"type\":\"message_start\",\"sessionId\":\"\(params.sessionId)\",\"messageId\":\"retained-stream\"}"))
+                vm.handleMessage(try decode("{\"type\":\"permission_request\",\"permId\":\"retained-permission\",\"toolName\":\"Bash\",\"toolInput\":\"retained input\"}"))
+                vm.toolStatus = "Running command..."
+            case .error(let error, let sessionId, let command):
+                precondition(selectedSession != nil)
+                if iteratorThrow { precondition(sessionId == nil && command == id) }
+                else { precondition(sessionId == selectedSession && command == nil) }
+                precondition(vm.sendError == error, "Actual post-echo backend error must remain visible")
+                precondition(vm.messages.last?.text == "Error: \(error)")
+                precondition(vm.messages.filter { $0.id == id }.count == 1)
+                precondition(vm.sendDraft.rejectedText == nil)
+                precondition(vm.sendDraft.text == (newerPending ? "Newer pending input" : ""))
+                precondition(vm.sendDraft.pending?.clientMsgId == nextId)
+                precondition(vm.isStreaming && vm.currentStream?.messageId == "retained-stream")
+                precondition(vm.toolStatus == "Running command..." && vm.permissionRequest?.permId == "retained-permission")
+                sawError = true
+            case .sessionEnd(let params):
+                precondition(sawError && params.sessionId == selectedSession)
+                precondition((params.usage == nil) == iteratorThrow)
+                precondition(!vm.isStreaming && vm.toolStatus == nil)
+                terminal = event
+            default: break
+            }
+        }
+        precondition(sawError && terminal != nil)
+        precondition(vm.sendDraft.pending?.clientMsgId == nextId && vm.sendDraft.rejectedText == nil)
+        let count = vm.messages.count
+        let feedback = vm.sendError
+        // Overload has a real foreign SID. Raw iterator errors have no SID, so
+        // their identical deliberately reused CID cannot identify a foreign stream;
+        // that exclusion is proved by the real backend registry fixture instead.
+        if !iteratorThrow {
+            var sawForeignError = false
+            for packet in fixture.foreignEvents ?? [] {
+                let event = try decodeBackendPacket(packet, fixtureId: fixture.request.clientMsgId, commandId: id)
+                guard case .error(_, let sessionId, _) = event else { continue }
+                precondition(sessionId != nil && sessionId != selectedSession)
+                vm.handleMessage(event)
+                sawForeignError = true
+            }
+            precondition(sawForeignError)
+        }
+        vm.handleMessage(try decode("{\"type\":\"error\",\"error\":\"Unattributed\"}"))
+        vm.handleMessage(try decode("{\"type\":\"error\",\"clientMsgId\":\"foreign-command\",\"error\":\"Stale\"}"))
+        precondition(vm.messages.count == count && vm.sendError == feedback)
+        precondition(vm.sendDraft.pending?.clientMsgId == nextId)
+        precondition(vm.sendDraft.text == (newerPending ? "Newer pending input" : ""))
+        // Replay actual foreign terminals during an active selected stream. Even
+        // the iterator's bare terminal must decode and remain session-scoped.
+        vm.handleMessage(try decode("{\"type\":\"message_start\",\"sessionId\":\"\(selectedSession!)\",\"messageId\":\"next-stream\"}"))
+        vm.toolStatus = "Running command..."
+        var sawForeignTerminal = false
+        for packet in fixture.foreignEvents ?? [] {
+            let event = try decodeBackendPacket(packet, fixtureId: fixture.request.clientMsgId, commandId: id)
+            guard case .sessionEnd(let params) = event else { continue }
+            precondition(params.sessionId != selectedSession)
+            precondition((params.usage == nil) == iteratorThrow)
+            vm.handleMessage(event)
+            precondition(vm.isStreaming && vm.toolStatus == "Running command...")
+            precondition(vm.currentStream?.messageId == "next-stream")
+            precondition(vm.messages.count == count && vm.sendError == feedback)
+            precondition(vm.sendDraft.pending?.clientMsgId == nextId)
+            precondition(vm.sendDraft.text == (newerPending ? "Newer pending input" : ""))
+            sawForeignTerminal = true
+        }
+        precondition(sawForeignTerminal)
+        vm.handleMessage(terminal!)
+        precondition(!vm.isStreaming && vm.toolStatus == nil)
+        precondition(vm.sendDraft.pending?.clientMsgId == nextId && vm.sendDraft.rejectedText == nil)
+        precondition(vm.messages.count == count && vm.sendError == feedback)
+    }
+
+    @MainActor static func acceptedCommandErrorAttributionExpiresOnAcceptanceAndFork() async throws {
+        let app = AppState()
+        let vm = ChatViewModel(sessionId: "parent", appState: app)
+        vm.sendDraft.edit("First accepted")
+        await vm.send()
+        let first = try pendingId(vm)
+        vm.handleMessage(try decode("{\"type\":\"user_message\",\"sessionId\":\"parent\",\"messageId\":\"\(first)\",\"text\":\"First accepted\"}"))
+        vm.sendDraft.edit("Second accepted")
+        await vm.send()
+        let second = try pendingId(vm)
+        vm.handleMessage(try decode("{\"type\":\"user_message\",\"sessionId\":\"parent\",\"messageId\":\"\(second)\",\"text\":\"Second accepted\"}"))
+        let count = vm.messages.count
+        vm.handleMessage(try decode("{\"type\":\"error\",\"clientMsgId\":\"\(first)\",\"error\":\"Expired accepted command\"}"))
+        vm.handleMessage(try decode("{\"type\":\"error\",\"sessionId\":\"foreign\",\"clientMsgId\":\"\(second)\",\"error\":\"Foreign accepted command\"}"))
+        precondition(vm.messages.count == count && vm.sendError == nil && vm.sendDraft.text.isEmpty)
+        vm.sendDraft.edit("Fork pending")
+        await vm.send()
+        let fork = try pendingId(vm)
+        vm.handleMessage(try decode("{\"type\":\"session_id\",\"sessionId\":\"child\",\"clientMsgId\":\"\(fork)\"}"))
+        let forkCount = vm.messages.count
+        vm.handleMessage(try decode("{\"type\":\"error\",\"clientMsgId\":\"\(second)\",\"error\":\"Previous route command\"}"))
+        vm.handleMessage(try decode("{\"type\":\"error\",\"sessionId\":\"parent\",\"error\":\"Previous route error\"}"))
+        precondition(vm.messages.count == forkCount && vm.sendError == nil)
+        precondition(vm.sendDraft.pending?.clientMsgId == fork && vm.sendDraft.text == "Fork pending")
+        vm.handleMessage(try decode("{\"type\":\"user_message\",\"sessionId\":\"child\",\"messageId\":\"\(fork)\",\"text\":\"Fork pending\"}"))
+        vm.handleMessage(try decode("{\"type\":\"error\",\"clientMsgId\":\"\(fork)\",\"error\":\"Current route error\"}"))
+        precondition(vm.sendError == "Current route error" && vm.messages.last?.text == "Error: Current route error")
+        precondition(vm.sendDraft.pending == nil && vm.sendDraft.text.isEmpty && vm.sendDraft.rejectedText == nil)
+        // An unaffiliated view must never interpret nil == nil as session ownership.
+        let unaffiliated = ChatViewModel(sessionId: nil, appState: app)
+        unaffiliated.handleMessage(try decode("{\"type\":\"error\",\"error\":\"Global error\"}"))
+        precondition(unaffiliated.messages.isEmpty && unaffiliated.sendError == nil)
     }
 
     static func decodeBackendPacket(_ packet: String, fixtureId: String, commandId: String) throws -> ServerMessage {

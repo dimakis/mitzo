@@ -621,9 +621,39 @@ func testSessionControlRejectionCodeRoundTrip(control: String) throws {
         return
     }
     #expect(params.sessionId == "s1")
-    #expect(params.usage.inputTokens == 1000)
-    #expect(params.usage.totalCostUsd == 0.05)
-    #expect(params.usage.durationMs == 60000)
+    let usage = try #require(params.usage)
+    #expect(usage.inputTokens == 1000)
+    #expect(usage.outputTokens == 500)
+    #expect(usage.cacheReadTokens == 200)
+    #expect(usage.cacheCreationTokens == 100)
+    #expect(usage.totalCostUsd == 0.05)
+    #expect(usage.numTurns == 3)
+    #expect(usage.durationMs == 60000)
+    #expect(usage.durationApiMs == 45000)
+}
+
+@Test(arguments: ["", ",\"usage\":null"])
+func testSessionEndWithoutUsageRoundTrip(usageField: String) throws {
+    let json = "{\"v\":2,\"type\":\"session_end\",\"sessionId\":\"s1\",\"seq\":2,\"ts\":1\(usageField)}"
+    let original = try JSONDecoder().decode(ServerMessage.self, from: Data(json.utf8))
+    let encoded = try JSONEncoder().encode(original)
+    let decoded = try JSONDecoder().decode(ServerMessage.self, from: encoded)
+    guard case .sessionEnd(let params) = decoded else {
+        Issue.record("Expected bare session_end after relay round-trip")
+        return
+    }
+    #expect(params.sessionId == "s1")
+    #expect(params.usage == nil)
+    let wire = try JSONSerialization.jsonObject(with: encoded) as! [String: Any]
+    #expect(wire["usage"] == nil) // Unknown usage must never become fabricated zeros.
+}
+
+@Test(arguments: ["", ",\"sessionId\":null", ",\"sessionId\":123"])
+func testSessionEndStillRequiresStringSessionId(sessionField: String) throws {
+    let json = "{\"type\":\"session_end\"\(sessionField)}"
+    #expect(throws: DecodingError.self) {
+        try JSONDecoder().decode(ServerMessage.self, from: Data(json.utf8))
+    }
 }
 
 @Test func testErrorRoundTrip() throws {
