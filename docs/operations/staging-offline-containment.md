@@ -77,6 +77,13 @@ an inactive non-autostarting VM supervisor, original process births before the
 selected boot, no scoped open handles, and no mounted, hard-linked or symbolic
 aliases. A stopped machine or empty database alone does not establish closure.
 
+Audit never runs `podman machine inspect`: stock initialization can create runtime
+directories and change their modes. Instead, both literal loopback families must
+refuse bounded connections to the exact frozen vfkit control endpoint. This is
+the [reviewed stock route's connection-refused stopped condition](https://github.com/containers/podman/blob/v5.6.2/pkg/machine/apple/vfkit/helper.go), combined with
+the other physical checks above; it is not a native cleanup claim. A reachable
+endpoint, timeout or unknown result refuses recovery.
+
 The exact retained Podman ignition socket is preserved only when scoped handle
 inspection confirms it is closed and its measured filesystem identity stays
 unchanged. Its origin remains unknown; this exception establishes neither preboot

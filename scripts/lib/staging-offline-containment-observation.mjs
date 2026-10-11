@@ -16,6 +16,8 @@ import { join, relative, resolve, dirname } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath, URL } from 'node:url';
 import { spawnSync } from 'node:child_process';
+import { createConnection } from 'node:net';
+import { setTimeout, clearTimeout } from 'node:timers';
 import {
   OFFLINE_CONTAINMENT_TARGET,
   createOfflineContainmentPlan,
@@ -35,6 +37,78 @@ export const OFFLINE_CONTAINMENT_NATIVE_TARGET = Object.freeze({
 const digest = (value) => createHash('sha256').update(value).digest('hex');
 const inside = (root, path) =>
   path === root || (path.startsWith(root + '/') && resolve(path) === path);
+
+export function deriveAppleHvApiSocket(name) {
+  if (name !== 'mitzo-symposium-staging') throw Error('Exact private machine name required');
+  // Stock Darwin ConnectionInfo uses the default /tmp/podman runtime directory;
+  // its physical canonical path is short enough to avoid HOME symlink creation.
+  return '/private/tmp/podman/' + name + '-api.sock';
+}
+
+/** Constructor-supplied connection function is a synthetic-test capability,
+ * never parsed from facts/CLI. No HTTP, DNS, native executable or filesystem I/O.
+ * Refusal of this endpoint is only one input to the full physical boundary. */
+export async function observeStoppedAppleHvEndpoint(
+  endpoint,
+  { connect = createConnection, timeoutMs = 2000 } = {},
+) {
+  if (endpoint !== 'http://localhost:62752') throw Error('Exact frozen vfkit endpoint required');
+  if (
+    typeof connect !== 'function' ||
+    !Number.isSafeInteger(timeoutMs) ||
+    timeoutMs < 1 ||
+    timeoutMs > 2000
+  )
+    throw Error('Bounded vfkit refusal observation required');
+  const observations = await Promise.all(
+    [
+      { host: '127.0.0.1', port: 62752, family: 4 },
+      { host: '::1', port: 62752, family: 6 },
+    ].map(
+      (options) =>
+        new Promise((resolveProbe) => {
+          let socket,
+            done = false;
+          const finish = (outcome) => {
+            if (done) return;
+            done = true;
+            clearTimeout(timer);
+            if (socket) {
+              socket.removeListener('connect', onConnect);
+              socket.removeListener('error', onError);
+              socket.removeListener('close', onClose);
+              // Destroying an in-flight connection may queue an error before
+              // close. Consume those late errors until the handle has closed.
+              if (outcome !== 'closed_without_refusal') {
+                socket.on('error', lateError);
+                socket.once('close', cleanup);
+              }
+              socket.destroy();
+            }
+            resolveProbe({ ...options, outcome });
+          };
+          const onConnect = () => finish('connected');
+          const onError = (error) =>
+            finish(error?.code === 'ECONNREFUSED' ? 'ECONNREFUSED' : 'unknown_error');
+          const onClose = () => finish('closed_without_refusal');
+          const lateError = () => {};
+          const cleanup = () => socket.removeListener('error', lateError);
+          const timer = setTimeout(() => finish('timeout'), timeoutMs);
+          try {
+            socket = connect(options);
+            socket.once('connect', onConnect);
+            socket.once('error', onError);
+            socket.once('close', onClose);
+          } catch {
+            finish('unavailable');
+          }
+        }),
+    ),
+  );
+  if (observations.some(({ outcome }) => outcome !== 'ECONNREFUSED'))
+    throw Error('Exact dual-loopback vfkit refusal unavailable');
+  return { method: 'literal_dual_loopback_tcp_refusal', endpoint, observations };
+}
 function exactKeys(value, names) {
   if (
     !value ||
@@ -674,27 +748,9 @@ async function collectOriginal(options) {
     for (const name of ['containers.conf', 'containers.conf.d', 'storage.conf'])
       if (lstatSync(join(base, name), { throwIfNoEntry: false }))
         throw Error('Container runtime override scope unavailable');
-  const machines = JSON.parse(
-    successful(
-      offlineContainmentNativeHelper({ nativeHelpers }, 'podman').path,
-      ['machine', 'inspect', 'mitzo-symposium-staging'],
-      {
-        HOME: config.podman.environment.HOME,
-        XDG_CONFIG_HOME: config.podman.environment.XDG_CONFIG_HOME,
-        CONTAINER_CONNECTION: 'mitzo-symposium-staging',
-        PATH: '/opt/homebrew/Cellar/podman/5.6.2/libexec/podman:/usr/bin:/bin:/usr/sbin:/sbin',
-        LC_ALL: 'C',
-      },
-    ),
+  const stoppedObservation = await observeStoppedAppleHvEndpoint(
+    machineConfig.AppleHypervisor.Vfkit.Endpoint,
   );
-  if (
-    !Array.isArray(machines) ||
-    machines.length !== 1 ||
-    machines[0].Name !== machineConfig.Name ||
-    machines[0].State !== 'stopped' ||
-    machines[0].Rootful !== false
-  )
-    throw Error('Exact private stopped machine unavailable');
   if (
     appJob.status !== 'absent' ||
     listeners.length ||
@@ -730,7 +786,7 @@ async function collectOriginal(options) {
     config.personal.deviceLoginExecutable
   )
     throw Error('Configured external runtime or writable scope unavailable');
-  const socket = machines[0].ConnectionInfo?.PodmanSocket?.Path;
+  const socket = deriveAppleHvApiSocket(machineConfig.Name);
   if (socket !== config.gateway.podmanSocket) throw Error('Private compute socket scope changed');
   const gatewayEntries = readdirSync(config.gateway.stateParent).filter((name) =>
     /^gateway-[A-Za-z0-9]+$/.test(name),
@@ -872,7 +928,7 @@ async function collectOriginal(options) {
       dispatchClosure: unknown('Original supported control paths require authenticated relocation'),
       vmStopped: confirmed({
         machineSha256: hash(machineBytes),
-        state: 'stopped',
+        observation: stoppedObservation,
         supervisor: vmSupervisor,
       }),
       noOpenHandles: confirmed({
@@ -1028,7 +1084,7 @@ async function inspectPhysicalBoundary(plan, invalidatedControls, contained, rep
     ),
   );
   assertNoScopedMountAliases(successful('/sbin/mount', []), [opaque, dirname(facts.archiveRoot)]);
-  if (!contained) {
+  {
     const home = join(opaque, 'home'),
       xdg = join(home, '.config');
     const machineFile = join(xdg, 'containers/podman/machine/applehv/mitzo-symposium-staging.json');
@@ -1037,27 +1093,7 @@ async function inspectPhysicalBoundary(plan, invalidatedControls, contained, rep
     if (hash(bytes(machineFile)) !== OFFLINE_CONTAINMENT_NATIVE_TARGET.machineSha256)
       throw Error('Private machine definition changed');
     validateAppleHvContainmentMachine(definition, facts.canonicalRoot);
-    const machines = JSON.parse(
-      successful(
-        offlineContainmentNativeHelper(facts, 'podman').path,
-        ['machine', 'inspect', 'mitzo-symposium-staging'],
-        {
-          HOME: home,
-          XDG_CONFIG_HOME: xdg,
-          CONTAINER_CONNECTION: 'mitzo-symposium-staging',
-          PATH: '/opt/homebrew/Cellar/podman/5.6.2/libexec/podman:/usr/bin:/bin:/usr/sbin:/sbin',
-          LC_ALL: 'C',
-        },
-      ),
-    );
-    if (
-      !Array.isArray(machines) ||
-      machines.length !== 1 ||
-      machines[0].Name !== 'mitzo-symposium-staging' ||
-      machines[0].State !== 'stopped' ||
-      machines[0].Rootful !== false
-    )
-      throw Error('Private VM resumed or observation unavailable');
+    await observeStoppedAppleHvEndpoint(definition.AppleHypervisor.Vfkit.Endpoint);
   }
 }
 

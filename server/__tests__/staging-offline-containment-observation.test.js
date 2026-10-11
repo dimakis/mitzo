@@ -2,6 +2,7 @@ import { expect, it, vi } from 'vitest';
 import process from 'node:process';
 import { Buffer } from 'node:buffer';
 import { spawnSync } from 'node:child_process';
+import { EventEmitter } from 'node:events';
 import { URL } from 'node:url';
 import { OFFLINE_CONTAINMENT_TARGET } from '../../scripts/lib/staging-offline-containment-contract.mjs';
 import {
@@ -38,10 +39,73 @@ import {
   assertOpaqueContainmentManifest,
   assertCleanPreparedControllerStatus,
   scopedLsofArguments,
+  observeStoppedAppleHvEndpoint,
+  deriveAppleHvApiSocket,
 } from '../../scripts/lib/staging-offline-containment-observation.mjs';
 import { runOfflineRecovery } from '../../scripts/recover-staging-offline.mjs';
 
 const sha = 'a'.repeat(64);
+it('requires exact frozen AppleHV endpoint and literal dual-loopback refusal without DNS or native commands', async () => {
+  const endpoint = 'http://localhost:62752';
+  async function probe(outcomes) {
+    const sockets = [];
+    const connect = vi.fn(({ host }) => {
+      const socket = new EventEmitter();
+      socket.destroy = vi.fn();
+      sockets.push(socket);
+      globalThis.queueMicrotask(() => {
+        const outcome = outcomes[host];
+        if (outcome === 'connect') socket.emit('connect');
+        else if (outcome !== 'timeout')
+          socket.emit('error', Object.assign(Error('synthetic'), { code: outcome }));
+      });
+      return socket;
+    });
+    return {
+      promise: observeStoppedAppleHvEndpoint(endpoint, { connect, timeoutMs: 10 }),
+      sockets,
+      connect,
+    };
+  }
+  const accepted = await probe({ '127.0.0.1': 'ECONNREFUSED', '::1': 'ECONNREFUSED' });
+  expect(await accepted.promise).toMatchObject({
+    method: 'literal_dual_loopback_tcp_refusal',
+    endpoint,
+  });
+  expect(accepted.connect.mock.calls.map(([options]) => options)).toEqual([
+    { host: '127.0.0.1', port: 62752, family: 4 },
+    { host: '::1', port: 62752, family: 6 },
+  ]);
+  for (const socket of accepted.sockets) socket.emit('close');
+  for (const outcome of ['connect', 'timeout', 'EHOSTUNREACH', undefined]) {
+    const rejected = await probe({ '127.0.0.1': 'ECONNREFUSED', '::1': outcome });
+    await expect(rejected.promise).rejects.toThrow(/refusal/);
+    for (const socket of rejected.sockets) {
+      expect(socket.destroy).toHaveBeenCalledTimes(1);
+      expect(() => socket.emit('error', Error('delayed pending-connect error'))).not.toThrow();
+      socket.emit('close');
+      expect(socket.eventNames()).toEqual([]);
+    }
+  }
+  const connect = vi.fn();
+  for (const value of [
+    'http://127.0.0.1:62752',
+    'http://localhost:62753',
+    'https://localhost:62752',
+    'http://localhost:62752/path',
+  ])
+    await expect(observeStoppedAppleHvEndpoint(value, { connect })).rejects.toThrow(/endpoint/);
+  expect(connect).not.toHaveBeenCalled();
+  expect(deriveAppleHvApiSocket('mitzo-symposium-staging')).toBe(
+    '/private/tmp/podman/mitzo-symposium-staging-api.sock',
+  );
+  expect(() => deriveAppleHvApiSocket('other')).toThrow();
+  const source = readFileSync(
+    new URL('../../scripts/lib/staging-offline-containment-observation.mjs', import.meta.url),
+    'utf8',
+  );
+  expect(source).not.toMatch(/['"]machine['"],\s*['"]inspect['"]/);
+});
 it('places every scoped lsof option before file operands', () => {
   expect(scopedLsofArguments(['/one', '/two'])).toEqual(['-nP', '-Fpn', '/one', '/two']);
   expect(scopedLsofArguments(['/unit'], true)).toEqual(['-nP', '-Fpn', '+D', '/unit']);
