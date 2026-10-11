@@ -3908,6 +3908,42 @@ function replaySubagents(events: import('./event-store.js').StoredEvent[]) {
   };
 }
 
+/** Only an earlier durable user echo can authorize unclassified runtime feedback. */
+function recordAcceptedReplaySession(
+  event: import('./event-store.js').StoredEvent,
+  accepted: Set<string>,
+) {
+  const p = event.payload;
+  if (
+    event.type === 'user_message' &&
+    typeof p.messageId === 'string' &&
+    p.messageId.trim() &&
+    typeof p.text === 'string' &&
+    typeof event.sessionId === 'string' &&
+    event.sessionId.trim() &&
+    (p.sessionId === undefined || p.sessionId === event.sessionId)
+  )
+    accepted.add(event.sessionId);
+}
+
+function replayError(event: import('./event-store.js').StoredEvent, accepted: Set<string>) {
+  const p = event.payload;
+  if (p.providerFailure) {
+    return { prefix: 'provider-error', message: publicProviderFailureMessage(p.providerFailure) };
+  }
+  if (
+    p.v !== 2 ||
+    p.type !== 'error' ||
+    p.sessionId !== event.sessionId ||
+    !accepted.has(event.sessionId) ||
+    p.clientMsgId !== undefined ||
+    typeof p.error !== 'string' ||
+    !p.error.trim()
+  )
+    return null;
+  return { prefix: 'runtime-error', message: p.error };
+}
+
 /** Reconstruct the typed live turn from the same immutable event prefix as history. */
 function replaySingleEventsToTranscript(
   events: import('./event-store.js').StoredEvent[],
@@ -4084,7 +4120,9 @@ function replaySingleEventsToTranscript(
     turn = null;
   };
 
+  const acceptedSessions = new Set<string>();
   for (const event of events) {
+    recordAcceptedReplaySession(event, acceptedSessions);
     const payload = event.payload;
     switch (event.type) {
       case 'user_message':
@@ -4146,24 +4184,26 @@ function replaySingleEventsToTranscript(
       case 'message_end':
         if (turn && payload.messageId === turn.messageId) finishTurn();
         break;
-      case 'error':
-        if (payload.providerFailure) {
+      case 'error': {
+        const failure = replayError(event, acceptedSessions);
+        if (failure) {
           finishTurn();
           messages.push({
-            messageId: `provider-error-${event.seq}`,
+            messageId: `${failure.prefix}-${event.seq}`,
             role: 'assistant',
             timestamp: event.createdAt,
             startedSeq: event.seq,
             blocks: [
               {
-                blockId: `provider-error-text-${event.seq}`,
+                blockId: `${failure.prefix}-text-${event.seq}`,
                 blockType: 'text',
-                content: `**Error:** ${publicProviderFailureMessage(payload.providerFailure)}`,
+                content: `**Error:** ${failure.message}`,
               },
             ],
           });
         }
         break;
+      }
       case 'session_end':
         finishTurn();
         break;
@@ -4351,6 +4391,32 @@ export function replayEventsToMessages(
   let currentMsg: RestoredMessage | null = null;
   const blockContent = new Map<string, string>();
   const toolResults = new Map<string, { result: string; isError: boolean }>();
+  const acceptedSessions = new Set<string>();
+  const scopedBlocks = new Map<
+    string,
+    {
+      payload: Record<string, unknown>;
+      content: string;
+      closed?: RestoredMessage['blocks'][number];
+    }
+  >();
+  const restoreBlock = (
+    p: Record<string, unknown>,
+    content: string,
+  ): RestoredMessage['blocks'][number] => {
+    const toolId = p.toolId as string | undefined;
+    const tr = toolId ? toolResults.get(toolId) : undefined;
+    return {
+      blockId: p.blockId as string,
+      blockType: p.blockType as string,
+      content,
+      ...(p.toolName ? { toolName: p.toolName as string } : {}),
+      ...(toolId ? { toolId } : {}),
+      ...(p.input ? { toolInput: p.input as string } : {}),
+      ...(p.rawInput ? { rawInput: p.rawInput } : {}),
+      ...(tr ? { toolResult: tr.result, toolError: tr.isError } : {}),
+    };
+  };
 
   // First pass: collect tool results and detect legacy out-of-order initial prompts.
   // Legacy sessions stored the initial user_message after the first assistant turn
@@ -4419,6 +4485,7 @@ export function replayEventsToMessages(
   }
 
   for (const evt of events) {
+    recordAcceptedReplaySession(evt, acceptedSessions);
     // Skip legacy out-of-order initial prompt — already injected above
     if (evt === legacyInitialPromptEvent) continue;
     // Skip any user_message event whose text matches the injected initialPrompt
@@ -4453,6 +4520,7 @@ export function replayEventsToMessages(
         if (currentMsg && currentMsg.blocks.length > 0) {
           messages.push(currentMsg);
         }
+        scopedBlocks.clear();
         currentMsg = {
           messageId: p.messageId as string,
           role: 'assistant',
@@ -4464,6 +4532,12 @@ export function replayEventsToMessages(
       case 'block_start':
         if (currentMsg) {
           blockContent.set(p.blockId as string, '');
+          if (
+            p.messageId === currentMsg.messageId &&
+            typeof p.blockId === 'string' &&
+            typeof p.blockType === 'string'
+          )
+            scopedBlocks.set(p.blockId, { payload: p, content: '' });
         }
         break;
 
@@ -4471,47 +4545,53 @@ export function replayEventsToMessages(
         if (currentMsg) {
           const existing = blockContent.get(p.blockId as string) ?? '';
           blockContent.set(p.blockId as string, existing + (p.delta as string));
+          const scoped = scopedBlocks.get(p.blockId as string);
+          if (scoped && p.messageId === currentMsg.messageId && typeof p.delta === 'string')
+            scoped.content += p.delta;
         }
         break;
 
       case 'block_end':
         if (currentMsg) {
           const content = blockContent.get(p.blockId as string) ?? '';
-          const toolId = p.toolId as string | undefined;
-          const tr = toolId ? toolResults.get(toolId) : undefined;
-          currentMsg.blocks.push({
-            blockId: p.blockId as string,
-            blockType: p.blockType as string,
-            content,
-            ...(p.toolName ? { toolName: p.toolName as string } : {}),
-            ...(toolId ? { toolId } : {}),
-            ...(p.input ? { toolInput: p.input as string } : {}),
-            ...(p.rawInput ? { rawInput: p.rawInput } : {}),
-            ...(tr ? { toolResult: tr.result, toolError: tr.isError } : {}),
-          });
+          const block = restoreBlock(p, content);
+          currentMsg.blocks.push(block);
+          const scoped = scopedBlocks.get(p.blockId as string);
+          if (scoped && p.messageId === currentMsg.messageId) scoped.closed = block;
           blockContent.delete(p.blockId as string);
         }
         break;
 
-      case 'error':
-        if (p.providerFailure) {
+      case 'error': {
+        const failure = replayError(evt, acceptedSessions);
+        if (failure) {
+          if (failure.prefix === 'runtime-error' && currentMsg) {
+            // Preserve incomplete blocks without changing legacy completed-block metadata.
+            currentMsg.blocks = [
+              ...[...scopedBlocks.values()].map(
+                (block) => block.closed ?? restoreBlock(block.payload, block.content),
+              ),
+              ...currentMsg.blocks.filter((block) => !scopedBlocks.has(block.blockId)),
+            ];
+          }
           if (currentMsg && currentMsg.blocks.length > 0) messages.push(currentMsg);
           currentMsg = null;
           messages.push({
-            messageId: `provider-error-${evt.seq}`,
+            messageId: `${failure.prefix}-${evt.seq}`,
             role: 'assistant',
             timestamp: evt.createdAt,
             startedSeq: evt.seq,
             blocks: [
               {
-                blockId: `provider-error-text-${evt.seq}`,
+                blockId: `${failure.prefix}-text-${evt.seq}`,
                 blockType: 'text',
-                content: `**Error:** ${publicProviderFailureMessage(p.providerFailure)}`,
+                content: `**Error:** ${failure.message}`,
               },
             ],
           });
         }
         break;
+      }
 
       case 'message_end':
         if (currentMsg && currentMsg.blocks.length > 0) {

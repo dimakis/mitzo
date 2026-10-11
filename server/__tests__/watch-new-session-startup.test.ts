@@ -207,12 +207,13 @@ it.each<Outcome>(['reply', 'provider-failure', 'iterator-throw'])(
             store.getSessionEvents(mainSession).filter((event) => event.type === 'error'),
           ).toHaveLength(1);
         } else {
-          expect(errors[0]).toEqual({
+          expect(errors[0]).toMatchObject({
+            v: 2,
             type: 'error',
+            sessionId: mainSession,
             error: 'Offline SDK iterator failed',
-            clientMsgId: request.clientMsgId,
           });
-          expect(errors[0]).not.toHaveProperty('sessionId');
+          expect(errors[0]).not.toHaveProperty('clientMsgId');
         }
       }
       expect(
@@ -226,9 +227,7 @@ it.each<Outcome>(['reply', 'provider-failure', 'iterator-throw'])(
       // Real watcher registration precedes assignment; the enriched startup
       // transport is never called. The producer must preserve the exact command ID
       // before watcher fan-out, independently of that transport wrapper.
-      expect(driverCalls).toEqual(
-        outcome === 'iterator-throw' ? [{ connection: 'watch-main', type: 'error' }] : [],
-      );
+      expect(driverCalls).toEqual([]);
 
       const mainPackets = [...main.packets];
       // A second fake SDK conversation exercises the same message-ID/different-SID

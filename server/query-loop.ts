@@ -442,15 +442,15 @@ async function _runQueryLoopInner(
   const preSessionBuffer: Record<string, unknown>[] = [];
 
   /** Wrapper that auto-injects store + sessionId + connRegistry into sendOrBuffer */
-  function emit(data: Record<string, unknown>) {
+  function emit(data: Record<string, unknown>, eventSessionId = resolvedSessionId) {
     if (options?.onEvent && ownedSession && currentOwnerSession() === ownedSession) {
-      const sessionId = resolvedSessionId ?? ownedSession?.sessionId;
+      const sessionId = eventSessionId ?? ownedSession?.sessionId;
       options.onEvent({ ...data, ...(sessionId ? { sessionId } : {}) });
     }
-    if (!resolvedSessionId && data.v === 2) {
+    if (!eventSessionId && data.v === 2) {
       preSessionBuffer.push(data);
     }
-    return sendOrBuffer(data, clientId, registry, store, resolvedSessionId, connRegistry);
+    return sendOrBuffer(data, clientId, registry, store, eventSessionId, connRegistry);
   }
 
   /** Flush buffered pre-sessionId events to the durable store. */
@@ -1736,15 +1736,30 @@ async function _runQueryLoopInner(
       });
       const currentSession = currentOwnerSession();
       if (currentSession) {
+        const failureSessionId = resolvedSessionId ?? currentSession.sessionId;
+        const initialPromptAccepted =
+          failureSessionId &&
+          options?.initialClientMsgId &&
+          store?.hasUserMessage(failureSessionId, options.initialClientMsgId);
+        const sendFailure = (message: string) => {
+          if (initialPromptAccepted) {
+            // Accepted input makes this query failure runtime feedback, even
+            // after later inputs have been accepted by the same SDK iterator.
+            emit(v2('error', { sessionId: failureSessionId, error: message }), failureSessionId);
+          } else {
+            // Pre-echo failure remains correlated by the startup transport.
+            send(currentSession.transport, { type: 'error', error: message });
+          }
+        };
         if (timedOut) {
           const seconds = Math.round(QUERY_FIRST_EVENT_TIMEOUT_MS / 1000);
           const message = `Agent did not respond within ${seconds}s — the selected model may be unavailable on this provider.`;
           log.warn('query loop timed out waiting for first event', { clientId, seconds });
-          send(currentSession.transport, { type: 'error', error: message });
+          sendFailure(message);
         } else if (!abortController.signal.aborted) {
           const message = err instanceof Error ? err.message : 'Unknown error';
           log.warn('query loop error', { clientId, error: message });
-          send(currentSession.transport, { type: 'error', error: message });
+          sendFailure(message);
         }
       }
     } finally {
