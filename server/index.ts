@@ -14,6 +14,7 @@ import {
 } from './credential-connections-runtime.js';
 import { setCredentialConnectionsRuntime as setAppCredentialConnectionsRuntime } from './app.js';
 import { custodianControllerMode, custodianOwnerMode } from './symposium-custodian-mode.js';
+import { finishAppShutdown } from './symposium-app-exit.js';
 import { closeCapabilityOperationStores } from './capability-operation-owner.js';
 import { createSymposiumShutdown, settleSymposiumCleanup } from './symposium-shutdown.js';
 import { bootstrapConfiguredSymposiumHost } from './symposium-owned-config.js';
@@ -66,7 +67,6 @@ import { storedEventToClientMessage } from '@mitzo/protocol';
 import {
   HEARTBEAT_INTERVAL_MS,
   PORT_DEFAULT,
-  SHUTDOWN_GRACE_MS,
   GUARD_STATS_INTERVAL_MS,
   WORKTREE_CLEANUP_INTERVAL_MS,
 } from './constants.js';
@@ -1429,23 +1429,28 @@ async function shutdown(signal: string) {
   try {
     await drainOwnedSymposium();
     await closeCapabilityOperationStores(AbortSignal.timeout(120_000));
+    symposiumNativeHost?.registry.close();
+    await finishAppShutdown(
+      custodianControllerMode,
+      async () => {
+        skillWatcher.destroy();
+        await signalProc.unwatchAll();
+        wfTemplateStore.close();
+        healthMonitor.destroy();
+        overviewEmitter.destroy();
+        sseRegistry.destroy();
+        chatSseRegistry.destroy();
+        connRegistry.dispose(); // Stop periodic sync + clear state
+        registry.dispose();
+        for (const client of wss.clients) {
+          client.close(1001, 'Server shutting down');
+        }
+      },
+      () => process.exit(0),
+    );
   } catch {
     log.error('Symposium shutdown incomplete; retained resources require recovery');
     process.exit(1);
-  }
-  symposiumNativeHost?.registry.close();
-  setTimeout(() => process.exit(0), SHUTDOWN_GRACE_MS);
-  skillWatcher.destroy();
-  await signalProc.unwatchAll();
-  wfTemplateStore.close();
-  healthMonitor.destroy();
-  overviewEmitter.destroy();
-  sseRegistry.destroy();
-  chatSseRegistry.destroy();
-  connRegistry.dispose(); // Stop periodic sync + clear state
-  registry.dispose();
-  for (const client of wss.clients) {
-    client.close(1001, 'Server shutting down');
   }
 }
 
