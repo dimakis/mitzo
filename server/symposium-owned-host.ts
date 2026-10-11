@@ -114,7 +114,7 @@ import { createSymposiumSubscriptionSeatProof } from './symposium-subscription-s
 import type {
   SymposiumDispatchFacts,
   SymposiumHostGrantVerifier,
-} from './symposium-seat-runtime.js';
+} from './symposium-dispatch-boundary.js';
 import type { ArtifactLeaseRequest } from './symposium-artifact-lease.js';
 import type { OpenShellRuntimeConfig } from './openshell-runtime.js';
 
