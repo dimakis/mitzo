@@ -46,6 +46,27 @@ it('places every scoped lsof option before file operands', () => {
   expect(scopedLsofArguments(['/one', '/two'])).toEqual(['-nP', '-Fpn', '/one', '/two']);
   expect(scopedLsofArguments(['/unit'], true)).toEqual(['-nP', '-Fpn', '+D', '/unit']);
 });
+it('refuses mounted source ancestors exposing original or future quarantine state', () => {
+  const root = '/Users/operator/.local/share/mitzo-staging';
+  for (const protectedPath of [root + '/symposium', root + '-quarantine']) {
+    for (const source of [
+      '/',
+      '/Users/operator/.local/share',
+      '/Users/operator/.local/share/',
+      protectedPath,
+      protectedPath + '/home',
+    ])
+      expect(() =>
+        assertNoScopedMountAliases(`${source} on /external-alias (bind)\n`, [protectedPath]),
+      ).toThrow(/alias/);
+    expect(() =>
+      assertNoScopedMountAliases('/dev/disk3s5 on /System/Volumes/Data (apfs, local)\n', [
+        protectedPath,
+      ]),
+    ).not.toThrow();
+    expect(() => assertNoScopedMountAliases('/Users/operator/.local\\011share on /alias (bind)\n', [protectedPath])).toThrow(/escape/);
+  }
+});
 it('preserves only the exact closed native ignition socket without treating its birth as preboot', () => {
   const parent = realpathSync(mkdtempSync(join(tmpdir(), 'ig-')));
   try {

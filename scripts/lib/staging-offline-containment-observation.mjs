@@ -197,12 +197,16 @@ export function assertNoScopedMountAliases(table, paths) {
     const match = /^(.+) on (\/.*?) \([^\n]+\)$/.exec(line);
     if (!match) throw Error('Unknown mount table format');
     const source = match[1].replaceAll('\\040', ' '),
-      target = match[2].replaceAll('\\040', ' ');
+      target = match[2].replaceAll('\\040', ' '),
+      sourcePath = source.startsWith('/') ? resolve(source) : undefined;
+    if (source.includes('\\') || target.includes('\\'))
+      throw Error('Unknown mount path escape');
     if (
       paths.some(
         (path) =>
           inside(path, target) ||
-          (source.startsWith('/') && (inside(path, source) || source === path)),
+          (sourcePath &&
+            (sourcePath === '/' || inside(path, sourcePath) || inside(sourcePath, path))),
       )
     )
       throw Error('Known mounted state alias');
