@@ -480,6 +480,46 @@ describe('runQueryLoop', () => {
     expect(onTerminalOutcome).toHaveBeenCalledOnce();
   });
 
+  it('observes live normalized text once while pre-session buffering is backfilled for viewers', async () => {
+    const store = new EventStore(':memory:');
+    const observed: Readonly<Record<string, unknown>>[] = [];
+    const events = [
+      { type: 'stream_event', event: { type: 'message_start', message: { id: 'reply' } } },
+      {
+        type: 'stream_event',
+        event: { type: 'content_block_start', index: 0, content_block: { type: 'text' } },
+      },
+      {
+        type: 'stream_event',
+        event: {
+          type: 'content_block_delta',
+          index: 0,
+          delta: { type: 'text_delta', text: 'Once only.' },
+        },
+      },
+      { type: 'stream_event', event: { type: 'content_block_stop', index: 0 } },
+      { type: 'assistant', message: { content: [] }, session_id: 'resolved-child' },
+      { type: 'result', session_id: 'resolved-child' },
+    ];
+    try {
+      await runQueryLoop(
+        eventStream(events),
+        clientId,
+        registry,
+        abortController,
+        store,
+        undefined,
+        { onEvent: (event) => observed.push(event) },
+      );
+      expect(observed.filter((event) => event.type === 'block_delta')).toHaveLength(1);
+      expect(
+        store.getSessionEvents('resolved-child').filter((event) => event.type === 'block_delta'),
+      ).toHaveLength(1);
+    } finally {
+      store.close();
+    }
+  });
+
   it('emits message_start, block_start, block_delta, block_end, message_end, session_end for a text turn', async () => {
     const events: Record<string, unknown>[] = [
       { type: 'stream_event', event: { type: 'message_start', message: { id: 'msg-abc' } } },
@@ -748,6 +788,102 @@ describe('runQueryLoop', () => {
     );
     expect(toolResult).toMatchObject({ toolId: 'tool-err', isError: true });
   });
+
+  it.each([true, false])(
+    'preserves initial command correlation through actual auto-watch startup fanout (%s)',
+    async (correlated) => {
+      const store = new EventStore(':memory:');
+      const connections = new ConnectionRegistry();
+      const phone = fakeTransport();
+      const sendToPhone = phone.send;
+      phone.send = vi.fn((event) => {
+        if (event.type === 'session_id' || event.type === 'user_message')
+          expect(connections.get('watch-phone')?.activeSession).toBe('watch-child');
+        sendToPhone(event);
+      });
+      connections.register('watch-phone', phone);
+      const initialClientMsgId = correlated ? 'watch-initial-command' : undefined;
+      // This wrapper represents handleSendV2's startupTransport. The real
+      // auto-watch callback makes sendOrBuffer bypass it in favor of fanout.
+      const wrappedDriver: SessionTransport = {
+        isOpen: () => true,
+        send: vi.fn((event) =>
+          transport.send({
+            ...event,
+            ...(event.type === 'session_id' && initialClientMsgId
+              ? { clientMsgId: initialClientMsgId }
+              : {}),
+          }),
+        ),
+      };
+      registry = fakeRegistry(wrappedDriver);
+      const onSessionResolved = vi.fn((sid: string) => {
+        connections.watch('watch-phone', sid);
+        connections.setActive('watch-phone', sid);
+      });
+      try {
+        await runQueryLoop(
+          eventStream([
+            { type: 'assistant', message: { content: [] }, session_id: 'watch-child' },
+            { type: 'stream_event', event: { type: 'message_start', message: { id: 'reply' } } },
+            {
+              type: 'stream_event',
+              event: { type: 'content_block_start', index: 0, content_block: { type: 'text' } },
+            },
+            {
+              type: 'stream_event',
+              event: {
+                type: 'content_block_delta',
+                index: 0,
+                delta: { type: 'text_delta', text: 'Reply' },
+              },
+            },
+            { type: 'stream_event', event: { type: 'content_block_stop', index: 0 } },
+            { type: 'assistant', message: { content: [] }, session_id: 'watch-child' },
+            { type: 'result', session_id: 'watch-child' },
+          ]),
+          clientId,
+          registry,
+          abortController,
+          store,
+          'Initial Watch input',
+          {
+            connRegistry: connections,
+            onSessionResolved,
+            initialClientMsgId,
+            initialImages: ['retained-preview'],
+            initialContextBlocks: ['retained-context'],
+          },
+        );
+        expect(onSessionResolved).toHaveBeenCalledExactlyOnceWith('watch-child');
+        expect(wrappedDriver.send).not.toHaveBeenCalled();
+        const assignments = phone.sent.filter((event) => event.type === 'session_id');
+        expect(assignments).toHaveLength(1);
+        expect(assignments[0]).toMatchObject({ sessionId: 'watch-child' });
+        if (correlated) expect(assignments[0].clientMsgId).toBe(initialClientMsgId);
+        else expect(assignments[0]).not.toHaveProperty('clientMsgId');
+        const echoes = phone.sent.filter((event) => event.type === 'user_message');
+        expect(echoes).toHaveLength(1);
+        expect(echoes[0]).toMatchObject({
+          sessionId: 'watch-child',
+          text: 'Initial Watch input',
+          images: ['retained-preview'],
+          contextBlocks: ['retained-context'],
+        });
+        if (correlated) expect(echoes[0].messageId).toBe(initialClientMsgId);
+        expect(phone.sent.indexOf(assignments[0])).toBeLessThan(phone.sent.indexOf(echoes[0]));
+        expect(
+          store.getSessionEvents('watch-child').filter((event) => event.type === 'user_message'),
+        ).toHaveLength(1);
+        expect(
+          phone.sent.some((event) => event.type === 'block_delta' && event.delta === 'Reply'),
+        ).toBe(true);
+        expect(connections.get('watch-phone')?.activeSession).toBeNull();
+      } finally {
+        store.close();
+      }
+    },
+  );
 
   it('calls setSessionId and sends session_id on first assistant event', async () => {
     const events: Record<string, unknown>[] = [

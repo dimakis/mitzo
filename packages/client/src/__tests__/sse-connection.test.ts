@@ -966,7 +966,6 @@ describe('SseConnection', () => {
   it.each([
     ['switch_session', 'selected'],
     ['switch_session', null],
-    ['stop', 'selected'],
     ['reconnect', undefined],
   ] as const)('scopes %s POST errors to its requested session (%s)', async (type, sessionId) => {
     for (const networkFailure of [false, true]) {
@@ -989,6 +988,63 @@ describe('SseConnection', () => {
       conn.disconnect();
     }
   });
+
+  it.each(['stop', 'interrupt', 'close'])(
+    'keeps failed %s nonterminal even when queued before SSE readiness',
+    async (control) => {
+      for (const networkFailure of [false, true]) {
+        const fetch = networkFailure
+          ? vi.fn().mockRejectedValue(new Error('offline'))
+          : vi.fn().mockResolvedValue({
+              ok: false,
+              status: 409,
+              json: async () => ({
+                type: 'session_control_rejected',
+                sessionId: 'child',
+                control,
+                error: 'Use contributor controls',
+                ...(control !== 'interrupt' ? { code: 'CONTRIBUTOR_STOP_REQUIRED' } : {}),
+              }),
+            });
+        const conn = new SseConnection(createConfig({ fetch }));
+        const listener = vi.fn();
+        conn.onMessage(listener);
+        conn.connect();
+        expect(
+          conn.send({ type: control === 'close' ? 'session_close' : control, sessionId: 'child' }),
+        ).toBe(true);
+        expect(fetch).not.toHaveBeenCalled();
+        lastES()._emit('welcome', {
+          type: 'welcome',
+          protocolVersion: 2,
+          connectionId: 'conn-abc',
+        });
+        await vi.waitFor(() =>
+          expect(listener).toHaveBeenCalledWith(
+            expect.objectContaining({
+              type: 'session_control_rejected',
+              sessionId: 'child',
+              control,
+              ...(!networkFailure && control !== 'interrupt'
+                ? { code: 'CONTRIBUTOR_STOP_REQUIRED' }
+                : {}),
+              error: networkFailure
+                ? expect.stringContaining('Please retry')
+                : 'Use contributor controls',
+            }),
+          ),
+        );
+        expect(listener).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'error' }));
+        if (networkFailure || control === 'interrupt')
+          expect(
+            listener.mock.calls.find(
+              ([message]) => message.type === 'session_control_rejected',
+            )?.[0],
+          ).not.toHaveProperty('code');
+        conn.disconnect();
+      }
+    },
+  );
 
   it('returns false for unknown message types', () => {
     const conn = new SseConnection(createConfig());
@@ -1669,4 +1725,45 @@ describe('SseConnection', () => {
 
     expect(mockFetch).not.toHaveBeenCalled();
   });
+});
+
+it('forwards only exact authoritative interrupt rejection identity, never fabricating a receipt on lost response', async () => {
+  for (const outcome of ['exact', 'wrong', 'lost']) {
+    const fetch =
+      outcome === 'lost'
+        ? vi.fn().mockRejectedValue(Error('Response lost'))
+        : vi.fn().mockResolvedValue({
+            ok: false,
+            status: 409,
+            json: async () => ({
+              type: 'session_control_rejected',
+              sessionId: 'child',
+              control: 'interrupt',
+              error: 'Use contributor controls',
+              clientMsgId: outcome === 'exact' ? 'submitted' : 'other',
+            }),
+          });
+    const conn = new SseConnection(createConfig({ fetch }));
+    const listener = vi.fn();
+    conn.onMessage(listener);
+    conn.connect();
+    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-abc' });
+    conn.send({
+      type: 'interrupt',
+      sessionId: 'child',
+      prompt: 'Exact draft',
+      clientMsgId: 'submitted',
+    });
+    await vi.waitFor(() =>
+      expect(
+        listener.mock.calls.some(([message]) => message.type === 'session_control_rejected'),
+      ).toBe(true),
+    );
+    const rejection = listener.mock.calls.find(
+      ([message]) => message.type === 'session_control_rejected',
+    )![0];
+    if (outcome === 'exact') expect(rejection.clientMsgId).toBe('submitted');
+    else expect(rejection).not.toHaveProperty('clientMsgId');
+    conn.disconnect();
+  }
 });

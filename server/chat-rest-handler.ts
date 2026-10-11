@@ -1,4 +1,8 @@
 import {
+  assertOrdinaryContributorControlAllowed,
+  SessionControlRejected,
+} from './ordinary-contributor-execution.js';
+import {
   claimChatCommand,
   reasoningSessionId,
   isReasoningSessionId,
@@ -190,6 +194,8 @@ export function createChatRestRouter(
     const connectionId =
       (req.headers['x-connection-id'] as string | undefined) ?? `send-${msg.clientMsgId}`;
     try {
+      if (msg.sessionId)
+        assertOrdinaryContributorControlAllowed(ctx.eventStore, msg.sessionId, 'send');
       claimChatCommand(ctx.eventStore, msg);
       const dispatch = async (
         command: typeof msg,
@@ -295,6 +301,11 @@ export function createChatRestRouter(
       }
     } catch (err) {
       log.error('POST /chat/send failed', { connectionId, error: String(err) });
+      if (err instanceof SessionControlRejected) {
+        new SseTransport(connectionId, sseRegistry).send(err.toMessage());
+        res.status(409).json({ ok: false, ...err.toMessage(), clientMsgId: msg.clientMsgId });
+        return;
+      }
       if (err instanceof ExecutionAdmissionError) {
         res.status(409).json({
           ok: false,
@@ -345,6 +356,11 @@ export function createChatRestRouter(
       res.status(202).json({ ok: true });
     } catch (err) {
       log.error('POST /chat/interrupt failed', { connectionId, error: String(err) });
+      if (err instanceof SessionControlRejected) {
+        new SseTransport(connectionId, sseRegistry).send(err.toMessage());
+        res.status(409).json({ ok: false, ...err.toMessage(), clientMsgId: msg.clientMsgId });
+        return;
+      }
       if (err instanceof ExecutionAdmissionError) {
         res.status(409).json({ ok: false, code: err.code, error: err.message });
         return;
@@ -364,6 +380,11 @@ export function createChatRestRouter(
       res.json({ ok: true });
     } catch (err) {
       log.error('POST /chat/stop failed', { connectionId, error: String(err) });
+      if (err instanceof SessionControlRejected) {
+        new SseTransport(connectionId, sseRegistry).send(err.toMessage());
+        res.status(409).json({ ok: false, ...err.toMessage() });
+        return;
+      }
       res.status(500).json({ ok: false, error: 'Internal server error' });
     }
   });
@@ -551,6 +572,11 @@ export function createChatRestRouter(
       res.json({ ok: true });
     } catch (err) {
       log.error('POST /chat/close failed', { connectionId, error: String(err) });
+      if (err instanceof SessionControlRejected) {
+        new SseTransport(connectionId, sseRegistry).send(err.toMessage());
+        res.status(409).json({ ok: false, ...err.toMessage() });
+        return;
+      }
       res.status(500).json({ ok: false, error: 'Internal server error' });
     }
   });

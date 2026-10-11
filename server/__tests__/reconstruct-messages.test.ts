@@ -1478,3 +1478,144 @@ it('keeps a partial reply before its safe failure in default history without dup
   });
   expect(JSON.stringify(messages)).not.toContain('PRIVATE_UPSTREAM_TEXT');
 });
+
+it.each(['history', 'reconnect'] as const)(
+  'keeps unsupported runtime error payloads out of %s without closing the active turn',
+  (path) => {
+    const sessionId = 'runtime-history';
+    const supported = { v: 2, type: 'error', sessionId, error: 'Runtime failed' };
+    const unsupported = [
+      { ...supported, v: undefined },
+      { ...supported, type: 'other' },
+      { ...supported, sessionId: undefined },
+      { ...supported, sessionId: 'foreign' },
+      { ...supported, sessionId: '' },
+      { ...supported, clientMsgId: 'unaccepted-startup' },
+      { ...supported, error: ' \n ' },
+      { ...supported, error: { message: 'Malformed' } },
+    ];
+    for (const payload of unsupported) {
+      const events = [
+        { type: 'user_message', payload: { messageId: 'accepted', text: 'Input' } },
+        { type: 'message_start', payload: { messageId: 'reply' } },
+        {
+          type: 'block_start',
+          payload: { messageId: 'reply', blockId: 'text', blockType: 'text' },
+        },
+        {
+          type: 'block_delta',
+          payload: { messageId: 'reply', blockId: 'text', delta: 'Retained reply' },
+        },
+        { type: 'block_end', payload: { messageId: 'reply', blockId: 'text', blockType: 'text' } },
+        { type: 'error', payload },
+      ].map((event, index) => ({
+        ...event,
+        sessionId,
+        seq: index + 1,
+        createdAt: 1000,
+      })) as StoredEvent[];
+      const transcript = replayEventsToTranscript(events);
+      const messages = path === 'history' ? replayEventsToMessages(events) : transcript.messages;
+      expect(messages.some((message) => message.messageId.startsWith('runtime-error-'))).toBe(
+        false,
+      );
+      expect(transcript.current?.messageId).toBe('reply');
+    }
+    const early = [
+      { type: 'error', payload: supported },
+      { type: 'user_message', payload: { messageId: 'later', text: 'Later input' } },
+    ].map((event, index) => ({
+      ...event,
+      sessionId,
+      seq: index + 1,
+      createdAt: 1000,
+    })) as StoredEvent[];
+    const messages =
+      path === 'history' ? replayEventsToMessages(early) : replayEventsToTranscript(early).messages;
+    expect(messages.map((message) => message.messageId)).toEqual(['later']);
+  },
+);
+
+it.each(['history', 'reconnect'] as const)(
+  'finalizes only the selected open block before runtime feedback in %s',
+  (path) => {
+    const sessionId = 'runtime-history';
+    const events = [
+      { type: 'user_message', payload: { messageId: 'accepted', text: 'Input' } },
+      { type: 'message_start', payload: { messageId: 'reply' } },
+      {
+        type: 'block_start',
+        payload: { messageId: 'reply', blockId: 'shared', blockType: 'text' },
+      },
+      {
+        type: 'block_delta',
+        payload: { messageId: 'reply', blockId: 'shared', delta: 'Selected partial' },
+      },
+      {
+        type: 'block_start',
+        payload: { messageId: 'reply', blockId: 'closed', blockType: 'tool_use', toolName: 'Read' },
+      },
+      {
+        type: 'block_delta',
+        payload: { messageId: 'reply', blockId: 'closed', delta: 'Closed payload' },
+      },
+      {
+        type: 'block_end',
+        payload: {
+          messageId: 'reply',
+          blockId: 'closed',
+          blockType: 'tool_use',
+          toolName: 'Read',
+          toolId: 'exact-tool',
+          input: 'Selected input',
+          rawInput: { path: 'fixture' },
+        },
+      },
+      {
+        type: 'tool_result',
+        payload: {
+          messageId: 'reply',
+          toolId: 'exact-tool',
+          result: 'Retained result',
+          isError: false,
+        },
+      },
+      {
+        type: 'block_start',
+        payload: { messageId: 'old-reply', blockId: 'shared', blockType: 'text' },
+      },
+      {
+        type: 'block_delta',
+        payload: { messageId: 'old-reply', blockId: 'shared', delta: 'Foreign partial' },
+      },
+      { type: 'error', payload: { v: 2, type: 'error', sessionId, error: 'Runtime failed' } },
+    ].map((event, index) => ({
+      ...event,
+      sessionId,
+      seq: index + 1,
+      createdAt: 1000,
+    })) as StoredEvent[];
+    const messages =
+      path === 'history'
+        ? replayEventsToMessages(events)
+        : replayEventsToTranscript(events).messages;
+    expect(messages.map((message) => message.messageId)).toEqual([
+      'accepted',
+      'reply',
+      'runtime-error-11',
+    ]);
+    expect(messages[1].blocks).toMatchObject([
+      { blockId: 'shared', content: 'Selected partial' },
+      {
+        blockId: 'closed',
+        content: 'Closed payload',
+        toolName: 'Read',
+        toolId: 'exact-tool',
+        toolResult: 'Retained result',
+        rawInput: { path: 'fixture' },
+      },
+    ]);
+    expect(messages[1].blocks.map((block) => block.blockId)).toEqual(['shared', 'closed']);
+    expect(JSON.stringify(messages)).not.toContain('Foreign partial');
+  },
+);

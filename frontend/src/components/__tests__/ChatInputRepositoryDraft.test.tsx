@@ -16,7 +16,17 @@ it.each(['debounced', 'immediate'] as const)(
   (timing) => {
     vi.useFakeTimers();
     localStorage.setItem('mitzo-draft-new', 'ordinary draft');
-    const onSend = vi.fn(() => true);
+    const onSend = vi.fn(
+      (
+        _text: string,
+        _images?: unknown[],
+        _context?: string[],
+        receipt?: (status: 'accepted') => void,
+      ) => {
+        receipt?.('accepted');
+        return true;
+      },
+    );
     const props = {
       onSend,
       onStop: vi.fn(),
@@ -42,7 +52,17 @@ it.each(['debounced', 'immediate'] as const)(
 it('uses a preparation-owned storage key without changing runtime session identity', () => {
   vi.useFakeTimers();
   localStorage.setItem('mitzo-draft-new', 'ordinary draft\n keep these bytes');
-  const onSend = vi.fn(() => true);
+  const onSend = vi.fn(
+    (
+      _text: string,
+      _images?: unknown[],
+      _context?: string[],
+      receipt?: (status: 'accepted') => void,
+    ) => {
+      receipt?.('accepted');
+      return true;
+    },
+  );
   const { unmount, rerender } = render(
     <ChatInput
       onSend={onSend}
@@ -57,7 +77,13 @@ it('uses a preparation-owned storage key without changing runtime session identi
   expect(localStorage.getItem('mitzo-repository-prompt:prep-a')).toBe('Reviewed task');
   expect(localStorage.getItem('mitzo-draft-new')).toBe('ordinary draft\n keep these bytes');
   fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
-  expect(onSend).toHaveBeenCalledWith('Reviewed task', undefined, undefined);
+  expect(onSend).toHaveBeenCalledWith(
+    'Reviewed task',
+    undefined,
+    undefined,
+    expect.any(Function),
+    expect.any(Function),
+  );
   rerender(<ChatInput onSend={onSend} onStop={vi.fn()} running sessionId="assigned" />);
   expect((screen.getByLabelText('Message Mitzo') as HTMLTextAreaElement).value).toBe('');
   rerender(<ChatInput onSend={onSend} onStop={vi.fn()} running={false} sessionId="assigned" />);

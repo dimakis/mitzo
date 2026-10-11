@@ -1335,3 +1335,21 @@ it('refuses malformed context receipt identity without advertising accepted stat
   expect(parsed.resyncRequired).toBe(true);
   expect(parsed.messagesActions).toEqual([]);
 });
+
+it('retains a validated control rejection command identity for exact delivery settlement', () => {
+  const parsed = parseServerMessage(
+    {
+      type: 'session_control_rejected',
+      sessionId: 'child',
+      control: 'interrupt',
+      error: 'Use contributor controls',
+      clientMsgId: 'submitted',
+    },
+    makeState({ currentSessionId: 'child' }),
+    makeCallbacks(),
+    POOL_KEY,
+  );
+  expect(parsed.messagesActions).toEqual([
+    { type: 'CONTROL_REJECTED', error: 'Use contributor controls', clientMsgId: 'submitted' },
+  ]);
+});

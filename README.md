@@ -21,6 +21,14 @@ Ordinary OpenShell Codex chats reserve their account-bound native ledger before 
 
 Accounts with multiple managed connections can provision new sandboxes without exceeding the gateway's 63-character label-value limit. Oversized provider-policy fingerprints use a stable bounded hash; valid historical labels and connection assignments are preserved. New runtimes prefer an assigned managed GitHub connection over the legacy GitHub fallback, avoiding duplicate `GITHUB_TOKEN` credentials. Retained runtimes keep their existing automatic grants; conflicting GitHub attachments require recovery before startup.
 
+## Outputs and ordinary contributors
+
+Start in ordinary chat. After a useful reply finishes, **Keep as output** registers its exact text block with a stable output ID, revision and content hash. **In conversation** means the reference metadata is recorded; the text still depends on the original transcript's retention. Registration does not create a Telos item or independently save a copy of the draft.
+
+Select an output and **Add contributor** to choose an existing ordinary account/model, optional saved guidance and a session mode. This first slice supports one additional contributor per output using existing ChatGPT connections through the normal Codex chat engine with verified acceptance and terminal hooks. Unsupported and native-only account routes remain unavailable. Saved profiles with compiled context recipes are unavailable in this slice; use Default Mitzo or a profile without a recipe. The contributor receives the selected exact draft, keeps its own conversation history, and uses the ordinary workspace and permission controls. Attributed replies appear under the selected output; **Open conversation** exposes the child's permission prompts. Follow-ups resume that child, while **Stop** retains uncertain work until its exact turn is confirmed stopped. No separate Symposium sign-in or required profile is introduced by this flow.
+
+This is an implementation slice with offline fixture coverage. Canonical staging enrollment, live continuity/Stop acceptance and production activation remain separate.
+
 ## Repository-backed chats (opt-in)
 
 With reviewed deployment configuration setting `MITZO_REPOSITORY_WORKSPACES_ENABLED=1`, a new ordinary OpenAI chat can select a repository from its assigned managed GitHub connection, preview the default branch’s exact commit, and prepare an independent feature-branch checkout before the first prompt. Mobile and desktop share the picker. Agents can also discover authorized repositories and prepare a new repository-chat draft through `ListRepositories` and `PrepareRepositoryChat`; the user reviews and starts it from a chat card. Credentials stay on the controller, and the selected repository remains bound to the conversation across restart and resume.
@@ -182,6 +190,8 @@ Phone (Tailscale) ──┬── HTTP: REST API
 
 The server translates raw SDK stream events into a v2 block lifecycle protocol (`block_start` → `block_delta` → `block_end`). Explicit turn boundaries (`message_start`/`message_end`), deferred finalization, and message snapshots for reconnect recovery. See [docs/design/message-protocol-v2.md](docs/design/message-protocol-v2.md).
 
+SDK query failures after input acceptance are recorded under the current conversation, including failures after follow-up sends or before the first event of a resumed query. Watch displays that runtime feedback without treating it as a rejection of an earlier command. Failures before input acceptance retain the original send correlation.
+
 The [durable child session allocation design](docs/design/session-service-core.md) describes the SessionService foundation for future bounded Task Board workers and Symposium seats. It records a child conversation and its parent/grant link in one transaction before runtime setup, fences cancellation across descendants, and retains uncertain starts or missing results for recovery. This foundation does not yet change the current Task Board or Symposium runtime paths.
 
 The [session runtime selection foundation](docs/design/session-runtime-selection.md) separates account identity, agent implementation and execution location in a dormant, immutable metadata contract. Explicit creation stores that contract with a new ordinary repository session; legacy sessions are not enrolled. A pure server resolver checks configuration compatibility against an injected catalog and returns a separately selected target ID. AccountProfiles can project credential-free local Codex host-login metadata with the exact existing routing revision when Codex is enabled; this performs no authentication or discovery. That target is not persisted by the V1 binding, so the result cannot authorize or launch a session. Startup and resume do not consume it yet, and no runtime selector is exposed. The design maps existing routes and the incremental admission work required before enabling a choice.
@@ -210,8 +220,7 @@ an all-seat audience, per-seat asides, and explicit excerpt sharing; queued
 messages require approval before dispatch. Uncertain retries retain the original
 request key for each audience and excerpt.
 
-Start a fresh session with **New Symposium** from either ChatView, without first
-sending an ordinary chat prompt. Select the dedicated Symposium account/model,
+Legacy native Symposium drafts use their dedicated account/model,
 a supported coder or reviewer role, and an exact saved profile revision; the
 profile picker also supports creating or importing a profile. **Create Symposium
 draft** allocates only durable session and roster metadata. Review the draft and

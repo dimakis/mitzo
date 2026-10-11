@@ -160,6 +160,7 @@ type MessagesCoreAction =
   | { type: 'MESSAGE_SNAPSHOT'; messageId: string; startedSeq?: number; blocks: FinishedBlock[] }
   // Session / UI lifecycle
   | { type: 'ERROR'; error: string }
+  | { type: 'CONTROL_REJECTED'; error: string; clientMsgId?: string }
   | { type: 'SESSION_INFO'; branch: string; isWorktree: boolean; wtId?: string }
   | {
       type: 'USER_SEND';
@@ -791,6 +792,7 @@ function reduceLegacyMessages(state: MessagesState, action: MessagesAction): Mes
     case 'CLEAR_PERMISSIONS':
       return { ...state, permission: null, permissionQueue: [] };
 
+    case 'CONTROL_REJECTED':
     case 'ERROR':
       return {
         ...state,
@@ -809,8 +811,7 @@ function reduceLegacyMessages(state: MessagesState, action: MessagesAction): Mes
             ],
           },
         ],
-        running: false,
-        current: null,
+        ...(action.type === 'ERROR' ? { running: false, current: null } : {}),
       };
 
     case 'SESSION_INFO':

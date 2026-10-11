@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.9';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.47';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.52';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,26 +22,64 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
-  '../symposium-subscription-native.ts':
-    '64eadac8483f30497939d4c19db4adeb3e6ac189b7e97e8fac855df11ca80975',
+  '../index.ts': '3250dd4f48376381f8cb4b79d079ae4eb5c302b03bcab202c7cc9e969fd8c445',
+  '../legacy-chat-delivery.ts': '30e041a7b8d1279cefae9198639444fa8e3dd4f76386598ec50ce66741f09f5c',
+
+  '../chat-rest-handler.ts': '35dbf6b8632965712b047b156491bbadb8cda42899d06ff52c8a426150e21ed7',
+  // Contributor live-query capture and exact output ownership share runtime admission.
+  '../query-loop.ts': '536109be7d7bbdb74f21b521265c789765d967eb871f802388a9e6ec7236ac04',
+  '../account-profiles.ts': '6de5c87f62d5234cb68e3f857c8431160f63562fea3b78ec62e5dd2f381e3745',
+  '../ordinary-turn-lifecycle.ts':
+    '136bdac73de0f9280676a209a234972393ca14e84fca40616ac93f204c31e7de',
+  '../ordinary-contributor-guidance.ts':
+    '73384ce804421b34005e145073e7c94f7a07819bd77daed5a4c32163fa942e2c',
+  '../ordinary-contributor-execution.ts':
+    '64c85d35d19b57b4fee7ae3dc8ff6441a666efbfa36237b0a4b9f6ca63b613a9',
   '../symposium-seat-runtime.ts':
-    '3f1a6c9fc981db7769f752a1b46fc25d1b3abfc858346f4775cc4b71cfe314d5',
-  '../codex-approved-search.ts': '49be84f5fbea7fbc2453585393e9e0d2eb0af75ed6a776f1dd5329c9c91240c7',
-  '../native-codex-context-admission.ts':
-    '91a021e0dba7a2e1d38cfe2a744da603370f562f5d78c25255237d4065eda558',
-  '../symposium-host-tool-bridge.ts':
-    '93559b7b6a5aeb1e66e633d2038cedd774d1a9efe1e8bbfc20d83c7e13326ba0',
-  '../symposium-seat-authorization.ts':
-    '26006d392e10e68c695e00039935332c28fb7146feaa057e482afa38c4f1fa21',
-  '../chat.ts': '77d1b3e286920dc07366f08a027a722dfdbaae80922c311b1145dd5d9d55d06a',
+    'fa7fa88ae6901e8cd63adc3f3019f5ccf42d7477a522cce34670a5b4ef4be1d6',
+  '../symposium-host-grants.ts': 'c79ba3b163ef3f58030ffae396c19b7fa1bbc87788842bbddff6c569f01791ac',
+  '../symposium-shared-execution.ts':
+    '5af4e80dfb5b91ca7a7a2fba06ba3ec3661e121d9cada5480d83719d8fc78b06',
+  '../symposium-ordinary-turn.ts':
+    '9d4c494b2650941847719a834fc8e4bdea0c13b4db395177d1f2a97a9666a2ef',
+  '../output-contributors.ts': '74d6d4fee3865a460337ed1bdffed39c570e91824b5c201cf87c30c87f692695',
+  '../output-contributor-routes.ts':
+    '73b7904feca4cded6349e1efde0bffc603df47bd16b3435d02f14ce21b3f21fe',
+  '../session-output-references.ts':
+    'f3cc6ec16ec1c2dc907566658c3f12b1776ee35f1bde662a77e97b9a08946841',
+  '../session-output-routes.ts': '2e08e938b4914797006231d1044b2c6c28693aa7fe1813a37d6ba1c9697649b2',
+  '../../packages/protocol/src/session-output-reference.ts':
+    'c103af10de4adc81cdc474b3e69ef2b3de5e447d4dcf15da4fc1894c422b913b',
+  '../../packages/protocol/src/session-output-reference-store.ts':
+    '9ecd7ae7149f629807cffd0142e38c4a498aa10d3f1c8709cd67927e24ecf5e0',
+  '../chat.ts': '094c75a39ea526e31c0ecd5b469e1f838522d759f4866bb9cb78f096d780a3b6',
+  // Contributor execution lifetime is independent of viewer detach/expiry.
+  '../../packages/harness/src/session-registry.ts':
+    '5ad72e9be9d3289a13511aaa1bb107b527283493e5577e08912ea4fdc4740a81',
   '../agent-context-binding.ts': '4917ff83899105b7ac2c537c8db18111eeb97386d1ca0a2d2b576d872e1db360',
-  '../app.ts': 'cf27b3bd7c2795dc6b4418575a6f5060fab9917f3d8cd2d3fa07a7626d2db7f8',
-  '../ws-handler-v2.ts': '2952b6ea0ad4307739603901b01725514896452ea70c9f2464d8c04c6f4d9052',
+  '../app.ts': '80fe872ae2a7df47c3e1d815134cf841a537e04b8f46de71a91b8d35be6a327a',
+  '../ws-handler-v2.ts': '6dc83858d2c813bbce858301458ec0124248def3dfaf61e91a14fe09718517c9',
+  '../briefings.ts': '277b26171abc42266a3b621ff7ab10306792764cb55bbc635e41c4ba20e98d49',
+  '../home-router.ts': '744708f3503d3ef46114998ce9bb6a68b3068a3c7d57e0c264298cdb69aac982',
+  '../notification-store.ts': 'd73b922e8e04b1e6415d1c1388bcf75edb4b65c913d3636b9a63e16583bc035b',
+  '../unified-inbox.ts': '4ff43026cf624b1e260c522f5fd293533559d3419629ccb847a425e6d19102f7',
+  '../inbox.ts': '9af9b9103a285be2a344fa8b6530ed944226146574fc47ce03db3071a5f6a82e',
   '../codex-queue-routes.ts': '6873ee90c32da94dcfebd432535d4170942e53c980456927f9dd57e9917d9a53',
   '../agent-context-compiler.ts':
     '3125d60c7035cb62d3e6d9291f126c9906e5b0b8398524dc750e97c6d7eaa7b2',
   '../../packages/protocol/src/agent-context-recipe.ts':
     '05ca755108920256b95d1bf051b9937bfdd3fb0e745c64d3ff033a82d89c6289',
+  '../../scripts/agent-workspace-context.mjs':
+    'b49dbf16dacccce450192f19d12d3ec48c4fd4d2212602bb70632196d84d362f',
+  '../../docs/spikes/openshell-codex/compile-agent-context.mjs':
+    '75cc1a653dbb7d4c20ffbeab8fafcf20b19110ff64110a548d30c65305da20be',
+  '../../scripts/attest-knowledge-runtime.py':
+    '5737ec8e7fc19a17b6ef5a35c1898e834d2a5d2d2a9f7593b607eaaf1971cfeb',
+  '../agent-context-sandbox.ts': '8b61edc17ccc94bc95eae3796e68a0beb9540534e3bfbb348a04154c41995416',
+  '../codex-conversation.ts': 'a67c31431c2bca11c611eeb32a040858d927755309c9df317c2686df285a56d2',
+  '../codex-conversation-store.ts':
+    'c36089ad3386e3a716c9c059428fa0ec14d66385d686682badc243087670d5ed',
+  // Library profile identity, operator ownership and admission are reviewed runtime inputs.
   '../symposium-director-routes.ts':
     'e6cabfe7555434bbf426209e5a0de750195559e106b0bbb09c4885a34159ff36',
   '../agent-library-binding.ts': '21fccbe6ee53ec292f93be9de3f678b3e1d4e8a8d6e83798678e9da44fadf7fb',
@@ -72,9 +110,11 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '6cb81428bb08fa2cf6b79e762573e34dc87f281cfc5d0be70b5316ce66fdd493',
   '../credential-setup-application.ts':
     '387ae34d23260d5e27a9585860210b157aa0ad23543eb13e70fc46496c5dbfb7',
+
   '../github-repository-connections.ts':
     '3917a36a0cc8b3bb73f1f4fa66e93e17be3b0ace58eff2bb3e0470bd67b7c11e',
   '../credential-websocket.ts': '87a41d7c329dccb6616726feed14a5fb25c8aefe94556c767f42618b8d995810',
+  // Keychain HTTP/WebSocket credential custody and exact-session approval handlers.
   '../home-assistant-dashboard.ts':
     '1053d482935af066472aedd48365af2b71cb7cf55e30ee88cc9fcf89b96e1d62',
   '../credential-connections.ts':
@@ -95,6 +135,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   'iana-address-policy.ts': '899b0b5ad66f5cbe72224b34c29ff7a88e32c2a6f5b2987e4d18cfc64f862b4e',
   'iana-address-data.generated.ts':
     '58f91383fa17ab9612d24bc113d011ece63bfc06b4635ba99f108bb05aa34038',
+  // The capability binding is not trusted merely because its manifest is
+  // reviewed: both the production executor and its OpenShell/Git transport
+  // must match this revision before the registry can advertise the action.
   'capabilities/github-publish-pr.ts':
     '559e98cf8f45313e37bf34b4f54c4345bdc9b4bf22538078dc563483750bbde1',
   'capabilities/github-publish-pr-transport.ts':
@@ -104,6 +147,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'a3df58f0c68bdf72433f5a88d425d35764092c6f6e1fbd62691ef865b9622326',
   '../capability-conversation-binding.ts':
     '147a328d161f167aeeb31bf0017d5fea25cc3f22933392249a228d7bd61e89aa',
+  // Secret custody and its browser/admission boundaries share the runtime review contract.
   '../openai-key-management.ts': '3f9217677809a041042a598434aaec619a636f3e0b6fb15aa46953480c11b667',
   '../openai-key-operation-store.ts':
     '53aa481b64f0b7cbb6055d3d0bd569bb4dc4cd55cf6807748e99a63cc66f20ed',
@@ -130,16 +174,30 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../openai-key-controller.ts': '721a1c6a513fc5380e4a2222927cda025bf8cbd7e8d49d8c5d526470e2cff217',
   '../connections-router.ts': '6620ec153b72f42b18370bc375ab88331205ac9eb8c4ccd9a1bfe7655646599b',
   '../connections-service.ts': '1aae9d2c0da483ae798ba03d5804bfb0e81316f3f69666c6595befec3179c314',
+  // Repository acquisition and source claims share the ordinary runtime admission review.
   '../git-branch.ts': '6dd4fef0069e65d78fc94d047777442e4ef073596555581da536e1e39a5d3877',
   '../github-repository-source.ts':
     'b9a6ef89472b001cb8cd8f8bc04c3b31d514980d9a5154cd6ad48c5b30d42c09',
   '../worktree.ts': 'e3fd6d93d33cb5403786c5a7da16dd229d8ba03ad06e8c3abaf6309c64adb34a',
   '../repository-task-checkout.ts':
     '32fd232781b0ba9573fa0e6a511a78ede54a8c33a80dee30f52d06283b4beab5',
+  // Operator runtime enrollment, private metadata and write-authority admission.
+  '../workspace-runtime-private-paths.ts':
+    '97b20d22a5dbdb7b03adba3d85557267b78b088493fa5d622dd0dc63413ab0bb',
+  '../codex-private-path.ts': '65e1f4c0922b0e91eda19d86af4d835ff477bad4c337cabc7413d7ed656fb053',
+  '../workspace-runtime-client.ts':
+    'eb377ad70361797cb34de00c1974952b76cd81041da7668631b138cf5d44473f',
+  '../credential-sdk-boundary.ts':
+    'd577cd3f4addce8a09ec6e49272196143f28d6e88abf7a4405336542acbf2bfb',
+  '../sandboxed-command-worker.ts':
+    'f2cffea266ca292c2ba690725820e2c23d4a90fc3ed61619540a960bbfe72f23',
+  '../protected-sdk-command.ts': 'e7c59a2ebfd3fde4b0c7c8cdf7f69f9d231e2e5f1819a61e0514cd707bc6c32f',
+  '../native-hooks.ts': '5708a6e09129765ab760a6c078fb2571dc73dc1125c9be31b43f1865fe5e461b',
+  '../hook-bridge.ts': '8885c2b27079799d33958a17942bb7d8953d01540bf7cd4b3ade537ee39c2d12',
   '../native-tool-executor.ts': '9c2f349a51febe5b8818358f558a67a4e324eda2f525d85a5578e84463f5dc01',
   '../repository-workspaces.ts': 'b7e8cd755cdf6483d706f41d5deca216736b40dbd7863a3be20edfd32abb811c',
   '../../packages/protocol/src/event-store.ts':
-    '432705361699b5a44405c531ac171e4e87f521371f0312497b6ba7a9a3838dee',
+    'bc382a5bd92e5734f3507debc05136e52d339dee999bc824f7f1ba53bacb1b2d',
   '../../packages/protocol/src/session-runtime-binding.ts':
     '8cef7a7a2dcab070d320cf20fd3f98c03dfe71a1570dbd16d8fedd7f9a9d7872',
   '../../packages/protocol/src/types.ts':
@@ -152,12 +210,13 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '0e8afb3b0968881d542850c68b5bc3cb362becffb47e354eccf8375e52ff0038',
   '../repository-chat-startup.ts':
     'da5476aa7e43badb1809a8f52d958d5338ec921c6ab96531978f750fecf4428f',
+  // Admission shares compiled connection authority with gateway provisioning.
   'runtime-profiles.ts': '3632545ca52fbfad7442de08c03d5f9808b50b5bfdef92f9cd72b8fa8ab5140b',
   '../connections-gateway.ts': '1a664e65926536d102d2fb0d5f4b7cfd7e2631d6d8bf51f2965025cdb87dc64b',
   '../openshell-runtime-policy.ts':
     'efecd458bf61fecd8198ecd330e0227e2c600ab21d6d2890cd2bac254e22b75f',
   '../openshell-runtime.ts': 'fe3659a89af1b8341fb7beefcc6dd9bb253ccb95011a651f5fa92c3baa5f1b8f',
-  '../codex-chat-session.ts': '66c1df4d614ecfcf8ce32d1768c1112b6ac752fe60a03f990713c8b9489d2ebb',
+  '../codex-chat-session.ts': '620a5a8e53b8ccaf249af83481a04c6ba58d647b789ae3a0227693d38d2034d3',
   '../connections-runtime.ts': 'dbe641704a1d761d73740260fb28057054fdb34a64513fa77292d2fdb1954a84',
   'capabilities/operation-store.ts':
     '1a235f11d5578880e6dfa7ecf5779e2a011e24430774fc17429d7d22359b93f2',
@@ -168,10 +227,19 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '2988fc88db971503bb8f857d0c86cf6134b6ab185cc72529b742c0e1544dd883',
   '../github-publication-operator-router.ts':
     '43a7f7edf9a9bb894be6843c6c3204a308227daeb495aef0f56ff707dace0a7b',
+  '../symposium-subscription-native.ts':
+    '64eadac8483f30497939d4c19db4adeb3e6ac189b7e97e8fac855df11ca80975',
+  '../codex-approved-search.ts': '49be84f5fbea7fbc2453585393e9e0d2eb0af75ed6a776f1dd5329c9c91240c7',
+  '../native-codex-context-admission.ts':
+    '91a021e0dba7a2e1d38cfe2a744da603370f562f5d78c25255237d4065eda558',
+  '../symposium-host-tool-bridge.ts':
+    '93559b7b6a5aeb1e66e633d2038cedd774d1a9efe1e8bbfc20d83c7e13326ba0',
+  '../symposium-seat-authorization.ts':
+    '26006d392e10e68c695e00039935332c28fb7146feaa057e482afa38c4f1fa21',
   '../../packages/client/src/protocol-parser.ts':
-    '7c667e5be23d1be6274e51ae1f65c3cdaf3bce17849ce468594b2334c674bd98',
+    '4f4c399b887632f22c3cbe83c3b60902e8f20bd2c83ec16259e5c303942b548b',
   '../../packages/client/src/slices/messages.ts':
-    '3bb4b1c704e9426e2a335168ed4be62a4131e76a1b44dc1b4473e2d6ac6477b4',
+    '6bd780538a2d0ba4e34779589f0e41e4cf1411406ccdb4e31d918cbc95a6029a',
   '../../packages/harness/src/providers/responses-session.ts':
     'a869b18f9f41527146a213755faa809176d6146f7178c09ecbd0af45e7a7be0f',
   '../../packages/harness/src/providers/session-types.ts':
@@ -179,14 +247,13 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/agent-context-pack.ts':
     '6964f27523d93a64c153f2d3a56650298a2063521abdafffa0c19c3dba839de5',
   '../../packages/protocol/src/index.ts':
-    '9b3cd9485f3b284c28ddba8516906db018668a30d6a4703de79a4a0f81387a17',
+    'befa07ed9f41283877ad5748d8f84ae889fe3cd6c837115501afd726061eaf5e',
   '../agent-context-authority.ts':
     '68b721db46cf6ba99de042cdf32be345bfc78c7ae27c2e31ee2b0b52a20ac266',
   '../agent-context-delivery.ts':
     'ccb083988e7c0563d9080a8553d9903abc1cf5b1d669b4583c215508faaee46a',
   '../agent-context-pack-compiler.ts':
     'df2afaef1586ea8f56d8cf71fe94fecafd2bc421a1258c898ac5202061b4cca8',
-  '../codex-conversation.ts': 'a67c31431c2bca11c611eeb32a040858d927755309c9df317c2686df285a56d2',
   '../context-pack-composition.ts':
     'cae630948dd56814bda2601f3df7469712074899a53b3ff9017b08dce32638c0',
   '../context-pack-router.ts': 'ae314ca49f783d26ed8c419f69683960bc35443923009332fe4a1f9efa2e12d6',
@@ -207,7 +274,6 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '901a5ad5c65e70e56973cb79509df4f637182f1428dd8f103df0400c5b2e4880',
   '../symposium-codex-native.ts':
     '1bb7c2637d825683b178b64f333eebe5a7216dc6f82c6e210b87b4ffe5f8c7fe',
-  '../symposium-host-grants.ts': 'c79ba3b163ef3f58030ffae396c19b7fa1bbc87788842bbddff6c569f01791ac',
   '../symposium-openshell-seat-executor.ts':
     '95c7f179a0e9e7675aef2110d433542db5217ddf308e52fb19e381cfcf628843',
   '../symposium-orchestrator.ts':
@@ -216,30 +282,4 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../symposium-session-runtime.ts':
     '8ba172ac854b12b6ddebb8a7685950b3412ba455151fedaee4b8004e028dba56',
   '../telos-artifact-tools.ts': '560e27e41df29aa0b5e8a859731bc956b165e6309f9a0974c16da9ee2c2525e5',
-  '../../scripts/agent-workspace-context.mjs':
-    'b49dbf16dacccce450192f19d12d3ec48c4fd4d2212602bb70632196d84d362f',
-  '../../docs/spikes/openshell-codex/compile-agent-context.mjs':
-    '75cc1a653dbb7d4c20ffbeab8fafcf20b19110ff64110a548d30c65305da20be',
-  '../../scripts/attest-knowledge-runtime.py':
-    '5737ec8e7fc19a17b6ef5a35c1898e834d2a5d2d2a9f7593b607eaaf1971cfeb',
-  '../agent-context-sandbox.ts': '8b61edc17ccc94bc95eae3796e68a0beb9540534e3bfbb348a04154c41995416',
-  '../codex-conversation-store.ts':
-    'c36089ad3386e3a716c9c059428fa0ec14d66385d686682badc243087670d5ed',
-  '../briefings.ts': '277b26171abc42266a3b621ff7ab10306792764cb55bbc635e41c4ba20e98d49',
-  '../home-router.ts': '744708f3503d3ef46114998ce9bb6a68b3068a3c7d57e0c264298cdb69aac982',
-  '../notification-store.ts': 'd73b922e8e04b1e6415d1c1388bcf75edb4b65c913d3636b9a63e16583bc035b',
-  '../unified-inbox.ts': '4ff43026cf624b1e260c522f5fd293533559d3419629ccb847a425e6d19102f7',
-  '../inbox.ts': '9af9b9103a285be2a344fa8b6530ed944226146574fc47ce03db3071a5f6a82e',
-  '../workspace-runtime-private-paths.ts':
-    '97b20d22a5dbdb7b03adba3d85557267b78b088493fa5d622dd0dc63413ab0bb',
-  '../codex-private-path.ts': '65e1f4c0922b0e91eda19d86af4d835ff477bad4c337cabc7413d7ed656fb053',
-  '../workspace-runtime-client.ts':
-    'eb377ad70361797cb34de00c1974952b76cd81041da7668631b138cf5d44473f',
-  '../credential-sdk-boundary.ts':
-    'd577cd3f4addce8a09ec6e49272196143f28d6e88abf7a4405336542acbf2bfb',
-  '../sandboxed-command-worker.ts':
-    'f2cffea266ca292c2ba690725820e2c23d4a90fc3ed61619540a960bbfe72f23',
-  '../protected-sdk-command.ts': 'e7c59a2ebfd3fde4b0c7c8cdf7f69f9d231e2e5f1819a61e0514cd707bc6c32f',
-  '../native-hooks.ts': '5708a6e09129765ab760a6c078fb2571dc73dc1125c9be31b43f1865fe5e461b',
-  '../hook-bridge.ts': '8885c2b27079799d33958a17942bb7d8953d01540bf7cd4b3ade537ee39c2d12',
 });

@@ -337,6 +337,74 @@ it('reattaches the provider runtime without admitting or replaying user intent',
   chat.close();
 });
 
+it.each([false, true])(
+  'forwards ordinary provider receipts alongside retained context (%s) without treating close as termination',
+  async (withContext) => {
+    vi.clearAllMocks();
+    mocks.connect.mockResolvedValue({ definitions: [], close: mocks.mcpClose });
+    const lifecycle = {
+      beforeDispatch: vi.fn(),
+      accepted: vi.fn(),
+      terminal: vi.fn(),
+      terminalConflict: vi.fn(),
+    };
+    const acceptedContext = vi.fn();
+    const chat = await openCodexChat({
+      ...options(new AbortController()),
+      ordinaryTurnLifecycle: lifecycle,
+      onAgentContextAccepted: acceptedContext,
+      ...(withContext
+        ? {
+            agentContext: {
+              source: 'workspace' as const,
+              compilerRevision: 'fixture',
+              recipeHash: 'a'.repeat(64),
+              payloadHash: 'b'.repeat(64),
+              profileId: 'architect',
+              revision: 1,
+              profileHash: 'c'.repeat(64),
+              context: {
+                type: 'boot_context' as const,
+                source: 'contexgin' as const,
+                sourceCount: 1,
+                tokenCount: 5,
+                tokenBudget: 1000,
+                sources: [{ path: 'architecture.md', kind: 'reference' }],
+                included: [],
+                trimmed: [],
+                fullMarkdown: 'PINNED WORKSPACE CONTEXT',
+              },
+            },
+          }
+        : {}),
+    });
+    const controls = mocks.conversationOptions as unknown as {
+      onProviderDispatch(id: string): void;
+      onProviderAccepted(id: string, thread: string, turn: string): void;
+      onProviderTerminal(id: string, turn: string, status: 'completed'): void;
+      onProviderTerminalConflict(id: string, thread: string, turn: string): void;
+    };
+    controls.onProviderDispatch('command');
+    controls.onProviderAccepted('command', 'provider-thread', 'provider-turn');
+    expect(lifecycle.beforeDispatch).toHaveBeenCalledWith('command');
+    expect(lifecycle.accepted).toHaveBeenCalledWith('command', 'provider-thread', 'provider-turn');
+    if (withContext)
+      expect(acceptedContext).toHaveBeenCalledWith(
+        'command',
+        'provider-thread',
+        'provider-turn',
+        expect.stringMatching(/^[a-f0-9]{64}$/),
+      );
+    else expect(acceptedContext).not.toHaveBeenCalled();
+    chat.close();
+    expect(lifecycle.terminal).not.toHaveBeenCalled();
+    controls.onProviderTerminal('command', 'provider-turn', 'completed');
+    expect(lifecycle.terminal).toHaveBeenCalledWith('command', 'provider-turn', 'completed');
+    controls.onProviderTerminalConflict('command', 'provider-thread', 'provider-turn');
+    expect(lifecycle.terminalConflict).toHaveBeenCalledWith('command', 'provider-turn');
+  },
+);
+
 it('waits for cold-reconnect runtime registration', async () => {
   vi.clearAllMocks();
   mocks.connect.mockResolvedValue({ definitions: [], close: mocks.mcpClose });
@@ -2026,6 +2094,24 @@ it('offers Keychain connection tools inside OpenShell alongside existing host ca
   } finally {
     vi.unstubAllEnvs();
   }
+});
+
+it('does not require Telos outcome capture for ordinary artifact contributors in OpenShell', async () => {
+  vi.clearAllMocks();
+  vi.stubEnv('MITZO_OPENSHELL_SANDBOX_NAME', 'sandbox');
+  const chat = await openCodexChat({
+    ...options(new AbortController()),
+    systemPrompt: 'Selected artifact contributor instructions.',
+    contributorGuidance: 'Contribute to the selected document.',
+  });
+  expect(mocks.conversationOptions?.systemPrompt).not.toContain(
+    'Telos is the de facto persistent home',
+  );
+  expect(mocks.conversationOptions?.systemPrompt).not.toContain(
+    'Use TelosCreateOutcome for durable Telos capture',
+  );
+  expect(mocks.conversationOptions?.systemPrompt).toContain('Current Mitzo mode');
+  chat.close();
 });
 
 it('refuses cold repository resume without its artifact identity before ensuring a sandbox', async () => {

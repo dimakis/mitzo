@@ -1,3 +1,13 @@
+import {
+  assertOrdinaryContributorControlAllowed,
+  authorizeOrdinaryContributorStart,
+  type OrdinaryContributorExecution,
+} from './ordinary-contributor-execution.js';
+import {
+  resolveOrdinaryContributorGuidance,
+  saveOrdinaryContributorGuidance,
+} from './ordinary-contributor-guidance.js';
+import type { OrdinaryTurnLifecycle } from './ordinary-turn-lifecycle.js';
 import { assembleSourceSnapshots } from './source-snapshot-context.js';
 import { SourceSnapshotsSchema, type SourceSnapshot } from '@mitzo/protocol';
 import { publicProviderFailureMessage } from './provider-failure.js';
@@ -1099,6 +1109,17 @@ export async function startChat(
     onStartupAdmission?: (error?: unknown) => void;
     onFirstEventOutcome?: (error?: Error) => void;
     onTerminalOutcome?: (error?: Error) => void;
+    /** Trusted observers for independently owned ordinary contributor turns. */
+    ordinaryTurnLifecycle?: OrdinaryTurnLifecycle;
+    /** Explicit contributor guidance supplied by the trusted collaboration owner. */
+    contributorGuidance?: string;
+    /** Trusted caller borrows a workspace owned outside this child session. */
+    retainWorkspace?: boolean;
+    contributorExecution?: OrdinaryContributorExecution;
+    onQueryReady?: (query: { interrupt(): Promise<void> }) => void;
+    onTurnResult?: (result: { is_error?: boolean }, inputUuid?: string) => void;
+    /** Trusted live-query observer, never a viewer transport or replay subscription. */
+    onQueryEvent?: (event: Readonly<Record<string, unknown>>) => void;
     telosTaskId?: string;
     agentName?: string;
     agentProfile?: AgentProfileSelection;
@@ -1136,6 +1157,16 @@ export async function startChat(
     async () => {
       if (options.resume && !eventStore.getSession(options.resume))
         throw new Error('Conversation is not registered. Import external history before resuming.');
+      const startupSessionId = options.resume ?? options.initialSessionId;
+      if (startupSessionId) {
+        if (options.contributorExecution && registry.findBySessionId(startupSessionId))
+          throw new Error('Contributor child already has a live ordinary query');
+        authorizeOrdinaryContributorStart(
+          eventStore,
+          startupSessionId,
+          options.contributorExecution,
+        );
+      }
       releaseOrdinaryStartup = eventStore.reserveOrdinaryStartup(
         [options.resume, options.initialSessionId].filter((id): id is string => Boolean(id)),
       );
@@ -1183,6 +1214,17 @@ async function _startChatInner(
     onStartupAdmission?: (error?: unknown) => void;
     onFirstEventOutcome?: (error?: Error) => void;
     onTerminalOutcome?: (error?: Error) => void;
+    /** Trusted observers for independently owned ordinary contributor turns. */
+    ordinaryTurnLifecycle?: OrdinaryTurnLifecycle;
+    /** Explicit contributor guidance supplied by the trusted collaboration owner. */
+    contributorGuidance?: string;
+    /** Trusted caller borrows a workspace owned outside this child session. */
+    retainWorkspace?: boolean;
+    contributorExecution?: OrdinaryContributorExecution;
+    onQueryReady?: (query: { interrupt(): Promise<void> }) => void;
+    onTurnResult?: (result: { is_error?: boolean }, inputUuid?: string) => void;
+    /** Trusted live-query observer, never a viewer transport or replay subscription. */
+    onQueryEvent?: (event: Readonly<Record<string, unknown>>) => void;
     telosTaskId?: string;
     agentName?: string;
     agentProfile?: AgentProfileSelection;
@@ -1211,6 +1253,15 @@ async function _startChatInner(
       options.accountProfiles ??
       (options.accountId || storedBinding ? loadAccountProfiles() : undefined);
     accountBinding = resolveAccountSelection(options, storedBinding, !!options.resume, profiles);
+    options = {
+      ...options,
+      contributorGuidance: resolveOrdinaryContributorGuidance(
+        eventStore,
+        options.resume ?? options.initialSessionId,
+        accountBinding ?? undefined,
+        options.contributorGuidance,
+      ),
+    };
     if (options.agentProfile || storedMeta?.agentProfile)
       agentProfile = await resolveChatAgentProfile({
         requested: options.agentProfile,
@@ -1666,6 +1717,8 @@ async function _startChatInner(
   registry.register(clientId, {
     transport,
     abortController,
+    // startChat already checked this exact execution against the existing claim.
+    ...(options.contributorExecution ? { contributorExecutionOwner: true as const } : {}),
     mode,
     cwd,
     wtId,
@@ -1681,6 +1734,23 @@ async function _startChatInner(
   });
 
   const session = registry.get(clientId)!;
+  if (options.contributorGuidance !== undefined && session.sessionId)
+    saveOrdinaryContributorGuidance(
+      eventStore,
+      session.sessionId,
+      accountBinding ?? undefined,
+      options.contributorGuidance,
+    );
+  if (options.retainWorkspace && session.sessionId) {
+    const retained = eventStore
+      .getSessionEvents(session.sessionId)
+      .some(
+        (event) =>
+          event.type === 'workspace_retention' && event.payload.policy === 'external-owner',
+      );
+    if (!retained)
+      eventStore.append(session.sessionId, 'workspace_retention', { policy: 'external-owner' });
+  }
   if (options.skillAllowedTools) setSkillPolicy(registry, clientId, options.skillAllowedTools);
   session.model = options.model ?? session.model;
   session.inputQueue = inputQueue as { push: (msg: unknown) => void; close: () => void };
@@ -1915,7 +1985,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
     repositoryChatContext(repositoryWorkspace) +
     'This is Mitzo, a mobile chat interface. The user is on their phone.\n' +
     SESSION_PERMISSION_INSTRUCTIONS +
-    telosArtifactInstructions(!!agentContext) +
+    (options.contributorGuidance === undefined ? telosArtifactInstructions(!!agentContext) : '') +
     '- Read operations are fine without asking.\n' +
     '- Keep responses concise — small screen.\n' +
     (agentContext
@@ -1925,6 +1995,9 @@ This is an independent checkout with its own Git storage, not a linked worktree.
     workspacePrompt +
     (supportsHostTaskTools(openShellSelected) ? buildTaskPromptForSession(clientId) : '') +
     (agentProfile ? `\n\n${buildAgentProfilePrompt(agentProfile.definition)}` : '') +
+    (options.contributorGuidance
+      ? `\n\n## Contributor guidance\n${options.contributorGuidance}`
+      : '') +
     bootContextAppend;
 
   // Recipe-bound chats already have their exact Library definition and context.
@@ -2055,6 +2128,8 @@ This is an independent checkout with its own Git storage, not a linked worktree.
           });
         },
         reattachOnly: options.reattachOnly,
+        ordinaryTurnLifecycle: options.ordinaryTurnLifecycle,
+        contributorGuidance: options.contributorGuidance,
       });
     } else if (apiKey || gemini) {
       const conversationId = options.resume ?? newSdkSessionId!;
@@ -2302,6 +2377,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
     }
 
     session.queryInstance = q;
+    options.onQueryReady?.(q);
     if (repositoryWorkspace && accountBinding && session.sessionId) {
       // Provider startup has settled and the task workspace is independently retained.
       // Failure to reclaim a controller seed must never terminate a live task.
@@ -2389,6 +2465,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
         connRegistry: _connRegistry ?? undefined,
         onFirstEventOutcome: options.onFirstEventOutcome,
         onTerminalOutcome: options.onTerminalOutcome,
+        onEvent: options.onQueryEvent,
         initialClientMsgId: initialMessageId,
         initialImages: imagePreviews(options.images),
         initialContextBlocks: options.contextBlocks,
@@ -2426,6 +2503,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
               result.is_error === true ? 'failed' : 'completed',
               inputUuid,
             );
+          options.onTurnResult?.(result, inputUuid);
         },
         onSuccessfulAccountUse: (binding) => getAccountUseStore().record(binding),
       },
@@ -2738,6 +2816,8 @@ export async function sendToChat(
   return withSpanAsync('chat.send', { 'chat.clientId': clientId }, async () => {
     if (signal?.aborted) return false;
     const session = registry.get(clientId);
+    if (session?.sessionId)
+      assertOrdinaryContributorControlAllowed(eventStore, session.sessionId, 'send');
     if (session?.sessionId && eventStore.getSession(session.sessionId)?.symposiumConfig)
       throw new Error('Use Symposium directed prompts for this session');
     if (!session?.inputQueue) return false;
@@ -2998,6 +3078,8 @@ export async function interruptChat(
 ): Promise<boolean> {
   return withSpanAsync('chat.interrupt', { 'chat.clientId': clientId }, async () => {
     const session = registry.get(clientId);
+    if (session?.sessionId)
+      assertOrdinaryContributorControlAllowed(eventStore, session.sessionId, 'interrupt');
     if (session?.sessionId && eventStore.getSession(session.sessionId)?.symposiumConfig)
       throw new Error('Use Symposium directed prompts for this session');
     if (!session?.queryInstance || !session?.inputQueue) return false;
@@ -3152,6 +3234,18 @@ export async function interruptChat(
 export function cleanupSessionWorktrees(
   session: import('./session-registry.js').ManagedSession,
 ): void {
+  // Contributor workspaces belong to their selected task/source. Keep the durable
+  // marker effective for later ordinary cold resumes, not just this private query.
+  if (
+    session.sessionId &&
+    eventStore
+      .getSessionEvents(session.sessionId)
+      .some(
+        (event) =>
+          event.type === 'workspace_retention' && event.payload.policy === 'external-owner',
+      )
+  )
+    return;
   const config = getRepoConfig();
   const primaryPath = session.worktreePaths.get('primary')?.path;
   for (const [repoName, { wtId, path }] of session.worktreePaths) {
@@ -3396,6 +3490,9 @@ export function closeSessionByUser(clientId: string): void {
     const session = registry.get(clientId);
     if (!session) return;
 
+    if (session.sessionId)
+      assertOrdinaryContributorControlAllowed(eventStore, session.sessionId, 'close');
+
     // Mark as user-initiated close in the registry
     const episode = registry.markUserClose(clientId);
 
@@ -3469,6 +3566,13 @@ export function closeSessionByUser(clientId: string): void {
   });
 }
 
+/** Public ordinary control; contributor drivers retain stopChat after exact terminal proof. */
+export function stopOrdinaryChat(clientId: string): void {
+  const session = registry.get(clientId);
+  if (session?.sessionId)
+    assertOrdinaryContributorControlAllowed(eventStore, session.sessionId, 'stop');
+  stopChat(clientId);
+}
 export function stopChat(clientId: string) {
   withSpan('session.stop', { 'session.clientId': clientId }, () => {
     const session = registry.get(clientId);
@@ -4013,6 +4117,42 @@ function replaySubagents(events: import('./event-store.js').StoredEvent[]) {
   };
 }
 
+/** Only an earlier durable user echo can authorize unclassified runtime feedback. */
+function recordAcceptedReplaySession(
+  event: import('./event-store.js').StoredEvent,
+  accepted: Set<string>,
+) {
+  const p = event.payload;
+  if (
+    event.type === 'user_message' &&
+    typeof p.messageId === 'string' &&
+    p.messageId.trim() &&
+    typeof p.text === 'string' &&
+    typeof event.sessionId === 'string' &&
+    event.sessionId.trim() &&
+    (p.sessionId === undefined || p.sessionId === event.sessionId)
+  )
+    accepted.add(event.sessionId);
+}
+
+function replayError(event: import('./event-store.js').StoredEvent, accepted: Set<string>) {
+  const p = event.payload;
+  if (p.providerFailure) {
+    return { prefix: 'provider-error', message: publicProviderFailureMessage(p.providerFailure) };
+  }
+  if (
+    p.v !== 2 ||
+    p.type !== 'error' ||
+    p.sessionId !== event.sessionId ||
+    !accepted.has(event.sessionId) ||
+    p.clientMsgId !== undefined ||
+    typeof p.error !== 'string' ||
+    !p.error.trim()
+  )
+    return null;
+  return { prefix: 'runtime-error', message: p.error };
+}
+
 /** Reconstruct the typed live turn from the same immutable event prefix as history. */
 function replaySingleEventsToTranscript(
   events: import('./event-store.js').StoredEvent[],
@@ -4189,7 +4329,9 @@ function replaySingleEventsToTranscript(
     turn = null;
   };
 
+  const acceptedSessions = new Set<string>();
   for (const event of events) {
+    recordAcceptedReplaySession(event, acceptedSessions);
     const payload = event.payload;
     switch (event.type) {
       case 'user_message':
@@ -4251,24 +4393,26 @@ function replaySingleEventsToTranscript(
       case 'message_end':
         if (turn && payload.messageId === turn.messageId) finishTurn();
         break;
-      case 'error':
-        if (payload.providerFailure) {
+      case 'error': {
+        const failure = replayError(event, acceptedSessions);
+        if (failure) {
           finishTurn();
           messages.push({
-            messageId: `provider-error-${event.seq}`,
+            messageId: `${failure.prefix}-${event.seq}`,
             role: 'assistant',
             timestamp: event.createdAt,
             startedSeq: event.seq,
             blocks: [
               {
-                blockId: `provider-error-text-${event.seq}`,
+                blockId: `${failure.prefix}-text-${event.seq}`,
                 blockType: 'text',
-                content: `**Error:** ${publicProviderFailureMessage(payload.providerFailure)}`,
+                content: `**Error:** ${failure.message}`,
               },
             ],
           });
         }
         break;
+      }
       case 'session_end':
         finishTurn();
         break;
@@ -4456,6 +4600,32 @@ export function replayEventsToMessages(
   let currentMsg: RestoredMessage | null = null;
   const blockContent = new Map<string, string>();
   const toolResults = new Map<string, { result: string; isError: boolean }>();
+  const acceptedSessions = new Set<string>();
+  const scopedBlocks = new Map<
+    string,
+    {
+      payload: Record<string, unknown>;
+      content: string;
+      closed?: RestoredMessage['blocks'][number];
+    }
+  >();
+  const restoreBlock = (
+    p: Record<string, unknown>,
+    content: string,
+  ): RestoredMessage['blocks'][number] => {
+    const toolId = p.toolId as string | undefined;
+    const tr = toolId ? toolResults.get(toolId) : undefined;
+    return {
+      blockId: p.blockId as string,
+      blockType: p.blockType as string,
+      content,
+      ...(p.toolName ? { toolName: p.toolName as string } : {}),
+      ...(toolId ? { toolId } : {}),
+      ...(p.input ? { toolInput: p.input as string } : {}),
+      ...(p.rawInput ? { rawInput: p.rawInput } : {}),
+      ...(tr ? { toolResult: tr.result, toolError: tr.isError } : {}),
+    };
+  };
 
   // First pass: collect tool results and detect legacy out-of-order initial prompts.
   // Legacy sessions stored the initial user_message after the first assistant turn
@@ -4524,6 +4694,7 @@ export function replayEventsToMessages(
   }
 
   for (const evt of events) {
+    recordAcceptedReplaySession(evt, acceptedSessions);
     // Skip legacy out-of-order initial prompt — already injected above
     if (evt === legacyInitialPromptEvent) continue;
     // Skip any user_message event whose text matches the injected initialPrompt
@@ -4558,6 +4729,7 @@ export function replayEventsToMessages(
         if (currentMsg && currentMsg.blocks.length > 0) {
           messages.push(currentMsg);
         }
+        scopedBlocks.clear();
         currentMsg = {
           messageId: p.messageId as string,
           role: 'assistant',
@@ -4569,6 +4741,12 @@ export function replayEventsToMessages(
       case 'block_start':
         if (currentMsg) {
           blockContent.set(p.blockId as string, '');
+          if (
+            p.messageId === currentMsg.messageId &&
+            typeof p.blockId === 'string' &&
+            typeof p.blockType === 'string'
+          )
+            scopedBlocks.set(p.blockId, { payload: p, content: '' });
         }
         break;
 
@@ -4576,47 +4754,53 @@ export function replayEventsToMessages(
         if (currentMsg) {
           const existing = blockContent.get(p.blockId as string) ?? '';
           blockContent.set(p.blockId as string, existing + (p.delta as string));
+          const scoped = scopedBlocks.get(p.blockId as string);
+          if (scoped && p.messageId === currentMsg.messageId && typeof p.delta === 'string')
+            scoped.content += p.delta;
         }
         break;
 
       case 'block_end':
         if (currentMsg) {
           const content = blockContent.get(p.blockId as string) ?? '';
-          const toolId = p.toolId as string | undefined;
-          const tr = toolId ? toolResults.get(toolId) : undefined;
-          currentMsg.blocks.push({
-            blockId: p.blockId as string,
-            blockType: p.blockType as string,
-            content,
-            ...(p.toolName ? { toolName: p.toolName as string } : {}),
-            ...(toolId ? { toolId } : {}),
-            ...(p.input ? { toolInput: p.input as string } : {}),
-            ...(p.rawInput ? { rawInput: p.rawInput } : {}),
-            ...(tr ? { toolResult: tr.result, toolError: tr.isError } : {}),
-          });
+          const block = restoreBlock(p, content);
+          currentMsg.blocks.push(block);
+          const scoped = scopedBlocks.get(p.blockId as string);
+          if (scoped && p.messageId === currentMsg.messageId) scoped.closed = block;
           blockContent.delete(p.blockId as string);
         }
         break;
 
-      case 'error':
-        if (p.providerFailure) {
+      case 'error': {
+        const failure = replayError(evt, acceptedSessions);
+        if (failure) {
+          if (failure.prefix === 'runtime-error' && currentMsg) {
+            // Preserve incomplete blocks without changing legacy completed-block metadata.
+            currentMsg.blocks = [
+              ...[...scopedBlocks.values()].map(
+                (block) => block.closed ?? restoreBlock(block.payload, block.content),
+              ),
+              ...currentMsg.blocks.filter((block) => !scopedBlocks.has(block.blockId)),
+            ];
+          }
           if (currentMsg && currentMsg.blocks.length > 0) messages.push(currentMsg);
           currentMsg = null;
           messages.push({
-            messageId: `provider-error-${evt.seq}`,
+            messageId: `${failure.prefix}-${evt.seq}`,
             role: 'assistant',
             timestamp: evt.createdAt,
             startedSeq: evt.seq,
             blocks: [
               {
-                blockId: `provider-error-text-${evt.seq}`,
+                blockId: `${failure.prefix}-text-${evt.seq}`,
                 blockType: 'text',
-                content: `**Error:** ${publicProviderFailureMessage(p.providerFailure)}`,
+                content: `**Error:** ${failure.message}`,
               },
             ],
           });
         }
         break;
+      }
 
       case 'message_end':
         if (currentMsg && currentMsg.blocks.length > 0) {

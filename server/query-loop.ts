@@ -203,6 +203,9 @@ export interface QueryLoopOptions {
   onFirstEventOutcome?: (error?: Error) => void;
   /** Report the final outcome after the provider stream ends. */
   onTerminalOutcome?: (error?: Error) => void;
+  /** Trusted observer for this exact query's live normalized events, independent
+   * of UI fan-out. History restoration/backfill never calls this observer. */
+  onEvent?: (event: Readonly<Record<string, unknown>>) => void;
   /** Called after the initial prompt is registered, enabling auto-rename on prompt 1. */
   onInitialPrompt?: (sessionId: string) => void;
   /** Called when an assistant turn completes (snapshot cleared). */
@@ -439,11 +442,15 @@ async function _runQueryLoopInner(
   const preSessionBuffer: Record<string, unknown>[] = [];
 
   /** Wrapper that auto-injects store + sessionId + connRegistry into sendOrBuffer */
-  function emit(data: Record<string, unknown>) {
-    if (!resolvedSessionId && data.v === 2) {
+  function emit(data: Record<string, unknown>, eventSessionId = resolvedSessionId) {
+    if (options?.onEvent && ownedSession && currentOwnerSession() === ownedSession) {
+      const sessionId = eventSessionId ?? ownedSession?.sessionId;
+      options.onEvent({ ...data, ...(sessionId ? { sessionId } : {}) });
+    }
+    if (!eventSessionId && data.v === 2) {
       preSessionBuffer.push(data);
     }
-    return sendOrBuffer(data, clientId, registry, store, resolvedSessionId, connRegistry);
+    return sendOrBuffer(data, clientId, registry, store, eventSessionId, connRegistry);
   }
 
   /** Flush buffered pre-sessionId events to the durable store. */
@@ -660,7 +667,11 @@ async function _runQueryLoopInner(
             span.setAttribute('session.id', resolvedSessionId);
             registry.setSessionId(clientId, resolvedSessionId);
             onSessionResolved?.(resolvedSessionId);
-            emit({ type: 'session_id', sessionId: msg.session_id });
+            emit({
+              type: 'session_id',
+              sessionId: msg.session_id,
+              ...(options?.initialClientMsgId ? { clientMsgId: options.initialClientMsgId } : {}),
+            });
             // Update session index with SDK session ID
             if (currentSession.wtId) {
               try {
@@ -1725,15 +1736,30 @@ async function _runQueryLoopInner(
       });
       const currentSession = currentOwnerSession();
       if (currentSession) {
+        const failureSessionId = resolvedSessionId ?? currentSession.sessionId;
+        const initialPromptAccepted =
+          failureSessionId &&
+          options?.initialClientMsgId &&
+          store?.hasUserMessage(failureSessionId, options.initialClientMsgId);
+        const sendFailure = (message: string) => {
+          if (initialPromptAccepted) {
+            // Accepted input makes this query failure runtime feedback, even
+            // after later inputs have been accepted by the same SDK iterator.
+            emit(v2('error', { sessionId: failureSessionId, error: message }), failureSessionId);
+          } else {
+            // Pre-echo failure remains correlated by the startup transport.
+            send(currentSession.transport, { type: 'error', error: message });
+          }
+        };
         if (timedOut) {
           const seconds = Math.round(QUERY_FIRST_EVENT_TIMEOUT_MS / 1000);
           const message = `Agent did not respond within ${seconds}s — the selected model may be unavailable on this provider.`;
           log.warn('query loop timed out waiting for first event', { clientId, seconds });
-          send(currentSession.transport, { type: 'error', error: message });
+          sendFailure(message);
         } else if (!abortController.signal.aborted) {
           const message = err instanceof Error ? err.message : 'Unknown error';
           log.warn('query loop error', { clientId, error: message });
-          send(currentSession.transport, { type: 'error', error: message });
+          sendFailure(message);
         }
       }
     } finally {

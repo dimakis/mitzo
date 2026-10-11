@@ -139,11 +139,13 @@ export function SymposiumConversation({
   sessionId,
   chat,
   ordinaryComposer,
+  ordinaryAfterMessages,
   profileToolsTarget,
 }: {
   sessionId: string | null;
   chat: ChatAreaProps;
   ordinaryComposer: ReactNode;
+  ordinaryAfterMessages?: ReactNode;
   profileToolsTarget: HTMLElement | null;
 }) {
   const [status, setStatus] = useState<Status | null>(null);
@@ -619,7 +621,17 @@ export function SymposiumConversation({
   if (!status?.config)
     return (
       <>
-        {chat && <ChatArea {...chat} />}
+        {chat && (
+          <ChatArea
+            {...chat}
+            afterMessages={
+              <>
+                {chat.afterMessages}
+                {ordinaryAfterMessages}
+              </>
+            }
+          />
+        )}
         {profileTools}
         {ordinaryComposer}
       </>
