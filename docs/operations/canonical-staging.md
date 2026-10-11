@@ -19,6 +19,16 @@ explicitly selected test baseline. Startup checks its pinned commit, tree, clean
 A retained deployment lock marks the check unsafe even if the app is running.
 There is no unattended upgrade or scheduled drift monitor.
 
+## Lost-owner staging containment
+
+A reboot after uncertain native shutdown leaves the original environment fenced.
+The separately reviewed [offline preservation procedure](staging-offline-containment.md)
+recognizes one exact incident and retains its complete native state and uncertain
+history outside future inputs before restoring ordinary staging. It uses fresh
+operator authentication and a distinct containment receipt, never native retirement
+or recovered custody. The ordinary deploy command and old router cannot authorize
+this transition. Every other lost-owner incident remains unsupported and fenced.
+
 ## Prepare and plan an update
 
 This first controller supports accepted main releases for the regular app.

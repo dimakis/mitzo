@@ -1,5 +1,8 @@
 import { it, expect } from 'vitest';
-import { verifyFrozenKeyGateway } from '../../scripts/lib/staging-key-material.mjs';
+import {
+  verifyFrozenKeyGateway,
+  verifyFrozenGatewayToml,
+} from '../../scripts/lib/staging-key-material.mjs';
 import { mkdtempSync, chmodSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -28,4 +31,77 @@ it('rejects a configured launch without the mandatory gateway_jwt table', () => 
   } finally {
     rmSync(f.parent, { recursive: true });
   }
+});
+
+it('validates the complete literal TOML without requiring unused gateway state or reading keys', () => {
+  const root = '/private/synthetic/gateway';
+  const config = {
+    gateway: 'fixture',
+    port: 4111,
+    podmanSocket: '/private/socket',
+    network: 'fixture-net',
+    workloadImage: 'fixture-image',
+    sandboxRuntimeImage: 'fixture-runtime',
+    supervisorImage: 'fixture-supervisor',
+    tls: {
+      clientCa: 'unused',
+      managementCert: 'unused',
+      managementKey: 'unused',
+      serverCert: 'unused',
+      serverKey: 'unused',
+    },
+    jwt: { signingKey: 'unused', publicKey: 'unused', kid: 'unused' },
+  };
+  const text = `
+[openshell]
+version = 2
+[openshell.gateway]
+name = "fixture"
+bind_address = "127.0.0.1:4111"
+compute_driver = "podman"
+disable_tls = false
+guest_tls_ca = "/private/synthetic/gateway/clientCa.pem"
+guest_tls_cert = "/private/synthetic/gateway/managementCert.pem"
+guest_tls_key = "/private/synthetic/gateway/managementKey.pem"
+[openshell.gateway.mtls_auth]
+enabled = false
+[openshell.gateway.oidc]
+issuer = "https://127.0.0.1:4222"
+audience = "symposium-host"
+admin_role = "openshell-admin"
+[openshell.gateway.auth]
+allow_unauthenticated_users = false
+[openshell.gateway.gateway_jwt]
+signing_key_path = "/private/synthetic/gateway/signingKey.jwt"
+public_key_path = "/private/synthetic/gateway/publicKey.jwt"
+kid_path = "/private/synthetic/gateway/kid.jwt"
+gateway_id = "fixture"
+[openshell.gateway.tls]
+cert_path = "/private/synthetic/gateway/serverCert.pem"
+key_path = "/private/synthetic/gateway/serverKey.pem"
+client_ca_path = "/private/synthetic/gateway/clientCa.pem"
+[openshell.drivers.podman]
+allow_driver_config = true
+enable_bind_mounts = false
+socket_path = "/private/socket"
+network_name = "fixture-net"
+grpc_endpoint = "https://host.containers.internal:4111"
+default_image = "fixture-image"
+image_pull_policy = "never"
+sandbox_runtime_image = "fixture-runtime"
+supervisor_image = "fixture-supervisor"
+[openshell.drivers.podman.resource_admission]
+enabled = true
+`;
+  expect(() => verifyFrozenGatewayToml(config, root, text)).not.toThrow();
+  expect(() =>
+    verifyFrozenGatewayToml(config, root, text + '[extra.runtime]\ncommand = "elsewhere"\n'),
+  ).toThrow();
+  expect(() =>
+    verifyFrozenGatewayToml(
+      config,
+      root,
+      text.replace('enable_bind_mounts = false', 'enable_bind_mounts = true'),
+    ),
+  ).toThrow();
 });

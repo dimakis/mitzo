@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { createOfflineRecoveryPreparation } from '../../scripts/lib/staging-offline-prepare.mjs';
+import {
+  createOfflineRecoveryPreparation,
+  assertOfflinePreparationStatus,
+} from '../../scripts/lib/staging-offline-prepare.mjs';
 
 describe('offline recovery source preparation', () => {
   function fixture() {
@@ -65,4 +68,16 @@ describe('offline recovery source preparation', () => {
     await controller.prepare(f.inputs);
     await expect(controller.prepare(f.inputs)).rejects.toThrow();
   });
+});
+
+it('allows the generated prepared receipt only during canonical final verification', () => {
+  expect(() => assertOfflinePreparationStatus('?? staging-release.json', true)).not.toThrow();
+  expect(() => assertOfflinePreparationStatus('?? staging-release.json')).toThrow();
+  for (const status of [
+    '?? staging-release.json\n?? scripts/override.mjs',
+    ' M staging-release.json',
+    '?? sub/staging-release.json',
+    '?? stage.json',
+  ])
+    expect(() => assertOfflinePreparationStatus(status, true)).toThrow();
 });

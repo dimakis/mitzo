@@ -1109,6 +1109,8 @@ Installs require Node 24 and npm 11.18.0 or newer so workspace security override
 
 ### Canonical staging on the configured macOS host
 
+The narrowly scoped [lost-owner offline preservation procedure](docs/operations/staging-offline-containment.md) retains the original native environment and uncertain history before ordinary staging restoration. Source acceptance, authenticated physical recovery and provider enrollment remain separate.
+
 Reuse the singleton `com.mitzo.staging` service at `http://mitzo-staging.localhost:3190`.
 The [operating procedure](docs/operations/canonical-staging.md) describes integrity/freshness
 checks, exact-commit preparation, plan/apply updates, private audit/snapshots and uncertain

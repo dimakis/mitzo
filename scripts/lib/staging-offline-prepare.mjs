@@ -36,6 +36,12 @@ const required = [
   'freezePreparedController',
   'verifyPreparedController',
 ];
+/** Generated metadata is permitted only after the immutable candidate is frozen.
+ * Every other untracked or changed source file remains a refusal. */
+export function assertOfflinePreparationStatus(status, allowReceipt = false) {
+  if (status !== '' && !(allowReceipt && status === '?? staging-release.json'))
+    throw Error('Clean accepted preparation source required');
+}
 /** Preparation has no service control, authentication, registry or old-state effects.
  * Failed candidates remain available for investigation; they are never adopted. */
 export function createOfflineRecoveryPreparation(effects) {
@@ -101,13 +107,16 @@ export function createOfflineRecoveryPreparationEffects({ sourceRoot }) {
       throw Error('Source preparation command failed; preserve candidate: ' + program);
     return result.stdout.trim();
   };
-  const qualify = (path, target) => {
+  const qualify = (path, target, allowReceipt = false) => {
+    assertOfflinePreparationStatus(
+      run('/usr/bin/git', ['status', '--porcelain'], path),
+      allowReceipt,
+    );
     assertVisibleTrackedIndex(run('/usr/bin/git', ['ls-files', '-v'], path));
     if (
       realpathSync(path) !== path ||
       run('/usr/bin/git', ['rev-parse', '--show-toplevel'], path) !== path ||
       run('/usr/bin/git', ['rev-parse', 'HEAD'], path) !== target ||
-      run('/usr/bin/git', ['status', '--porcelain'], path) ||
       run('/usr/bin/git', ['remote', 'get-url', 'origin'], path) !== repository ||
       run('/usr/bin/git', ['ls-remote', repository, 'refs/heads/main'], path).split(/\s+/)[0] !==
         target
@@ -194,7 +203,7 @@ export function createOfflineRecoveryPreparationEffects({ sourceRoot }) {
       );
     },
     verifyPreparedController({ target }) {
-      qualify(destination, target);
+      qualify(destination, target, true);
       return verifyPreparedController(root, destination, target);
     },
   };
