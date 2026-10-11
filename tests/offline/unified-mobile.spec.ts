@@ -1622,6 +1622,9 @@ async function exerciseBriefingReloadRecovery(
   nativeMode?: 'unready' | 'lost-ack',
 ) {
   test.setTimeout(60_000);
+  // Today must reopen this historical fixture's date, including after reload.
+  // Fix Date at browser-local midday while HTTP/reload timers continue running.
+  await page.clock.setFixedTime(await page.evaluate(() => new Date(2026, 9, 10, 12).getTime()));
   await page.setViewportSize({ width: page.viewportSize()!.width, height: 900 });
   await page.addInitScript(() => {
     localStorage.removeItem('mitzo:transport');
