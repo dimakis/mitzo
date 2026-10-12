@@ -348,3 +348,9 @@ it('an unqualified retained candidate cannot skip growth admission or dispatch',
   expect(f.store.markDispatched).not.toHaveBeenCalled();
   expect(f.store.quarantine).not.toHaveBeenCalled();
 });
+
+it('passes the exact requested identity into the same original singleton claim', async () => {
+  const f = fixture();
+  await runStagingPipelineRequest(f.store, f.effects, 'worker', { requestId: 'r' });
+  expect(f.store.claim).toHaveBeenCalledWith('worker', { requestId: 'r' });
+});

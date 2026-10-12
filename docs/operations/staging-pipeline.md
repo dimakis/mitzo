@@ -157,7 +157,7 @@ From the clean exact accepted controller, the foreground sequence is:
 node scripts/staging-pipeline.mjs enqueue-feature --pr NUMBER --task SESSION_ID --profile STAGE_PROFILE_ID
 node scripts/staging-pipeline.mjs feature-plan --id REQUEST_ID
 # Announce the exact charged account and selected test model from this plan.
-node scripts/staging-pipeline.mjs run-next --feature-plan EXACT_PLAN_SHA256
+node scripts/staging-pipeline.mjs run-next --id REQUEST_ID --feature-plan EXACT_PLAN_SHA256
 node scripts/staging-pipeline.mjs receipt --id REQUEST_ID
 ```
 
@@ -235,3 +235,15 @@ be presented as such enforcement. Accept the queue protocol, then the paired
 MGMT change and enroll its clean accepted controller before using the new gate.
 Missing/older/unqualified enrollment blocks a Mitzo merge rather than bypassing
 the shared admission. Offline tests grant no host enrollment or live dispatch.
+
+Safely deferred, undispatched requests retain their original immutable identity
+and move behind work that has had fewer claim attempts. This lets the other ten
+sessions progress while one profile awaits enrollment or announcement. The
+attempt order is persisted in the same SQLite transaction; older queues migrate
+without discarding requests. Active, expired or quarantined reservations and
+held source merges still prevent every successor claim.
+
+The foreground controller may select existing queued work with
+`run-next --id REQUEST_ID`. For a previously announced feature plan, include both
+that ID and `--feature-plan EXACT_PLAN_SHA256`. Selection cannot create a request,
+change its source/profile/account/model, or bypass any original-owner admission.

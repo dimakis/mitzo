@@ -228,3 +228,25 @@ it('replica CLI reads bounded public snapshots and flags all missing profiles', 
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+it('selects only an existing bounded request with an optional exact feature plan', () => {
+  expect(parseStagingPipelineArguments(['run-next', '--id', 'selected'])).toEqual({
+    command: 'run-next',
+    requestId: 'selected',
+  });
+  expect(
+    parseStagingPipelineArguments([
+      'run-next',
+      '--id',
+      'selected',
+      '--feature-plan',
+      'f'.repeat(64),
+    ]),
+  ).toEqual({ command: 'run-next', requestId: 'selected', featurePlanSha256: 'f'.repeat(64) });
+  for (const args of [
+    ['run-next', '--id', '../outside'],
+    ['run-next', '--id', 'selected', '--id', 'other'],
+    ['run-next', '--id', 'selected', '--feature-plan', 'invalid'],
+  ])
+    expect(() => parseStagingPipelineArguments(args)).toThrow();
+});

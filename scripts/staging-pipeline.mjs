@@ -81,6 +81,18 @@ export function parseStagingPipelineArguments(args) {
     /^[a-f0-9]{64}$/.test(rest[1])
   )
     return { command, featurePlanSha256: rest[1] };
+  if (
+    command === 'run-next' &&
+    rest[0] === '--id' &&
+    identifier.test(rest[1]) &&
+    (rest.length === 2 ||
+      (rest.length === 4 && rest[2] === '--feature-plan' && /^[a-f0-9]{64}$/.test(rest[3])))
+  )
+    return {
+      command,
+      requestId: rest[1],
+      ...(rest.length === 4 ? { featurePlanSha256: rest[3] } : {}),
+    };
   const feature = command === 'enqueue-feature';
   if ((command === 'enqueue' && rest.length === 4) || (feature && rest.length === 6)) {
     const flags = {};
@@ -321,7 +333,7 @@ async function main() {
         store,
         createStagingPipelineEffects(),
         'controller-' + process.pid + '-' + randomUUID(),
-        { featurePlanSha256: args.featurePlanSha256 },
+        { featurePlanSha256: args.featurePlanSha256, requestId: args.requestId },
       );
     console.log(JSON.stringify(result));
   } finally {

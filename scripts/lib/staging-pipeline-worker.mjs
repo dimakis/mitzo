@@ -1,7 +1,12 @@
 /** A foreground controller handles one request. Constructor effects are trusted
  * adapters or test fixtures, never commands or grants supplied by a request. */
-export async function runStagingPipelineRequest(store, effects, owner, { featurePlanSha256 } = {}) {
-  const claim = store.claim(owner);
+export async function runStagingPipelineRequest(
+  store,
+  effects,
+  owner,
+  { featurePlanSha256, requestId } = {},
+) {
+  const claim = store.claim(owner, { requestId });
   if (!claim.granted) return claim;
   const { token, request } = claim;
   effects.authorize?.(token);

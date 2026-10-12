@@ -102,6 +102,15 @@ export class StagingPipelineStore {
       INSERT OR IGNORE INTO reservation(singleton,epoch,state) VALUES(1,0,'idle');
       CREATE TABLE IF NOT EXISTS source_merge(singleton INTEGER PRIMARY KEY CHECK(singleton=1),epoch INTEGER NOT NULL,state TEXT NOT NULL,pr INTEGER,head TEXT,nonce TEXT);
       INSERT OR IGNORE INTO source_merge(singleton,epoch,state) VALUES(1,0,'idle');`);
+    this.transaction(() => {
+      if (
+        !this.db
+          .prepare('PRAGMA table_info(requests)')
+          .all()
+          .some((c) => c.name === 'last_attempt')
+      )
+        this.db.exec('ALTER TABLE requests ADD COLUMN last_attempt INTEGER NOT NULL DEFAULT 0');
+    });
   }
   close() {
     this.db.close();
@@ -193,7 +202,9 @@ export class StagingPipelineStore {
       result: row.result ? JSON.parse(row.result) : null,
     };
   }
-  claim(owner) {
+  claim(owner, { requestId } = {}) {
+    if (requestId !== undefined && (typeof requestId !== 'string' || !identifier.test(requestId)))
+      throw Error('Exact queued request required');
     if (!identifier.test(owner)) throw Error('Controller identity required');
     return this.transaction(() => {
       if (this.sourceMergeStatus().state !== 'idle')
@@ -209,10 +220,21 @@ export class StagingPipelineStore {
                 ? 'reconciliation-required'
                 : 'staging-busy',
         };
-      const next = this.db
-        .prepare("SELECT id,payload FROM requests WHERE state='queued' ORDER BY sequence LIMIT 1")
-        .get();
-      if (!next) return { granted: false, reason: 'queue-empty' };
+      const next =
+        requestId === undefined
+          ? this.db
+              .prepare(
+                "SELECT id,payload FROM requests WHERE state='queued' ORDER BY last_attempt,sequence LIMIT 1",
+              )
+              .get()
+          : this.db
+              .prepare("SELECT id,payload FROM requests WHERE state='queued' AND id=?")
+              .get(requestId);
+      if (!next)
+        return {
+          granted: false,
+          reason: requestId === undefined ? 'queue-empty' : 'request-not-queued',
+        };
       const token = { epoch: r.epoch + 1, requestId: next.id, owner, nonce: randomUUID() };
       this.db.prepare('DELETE FROM feature_binding').run();
       this.db
@@ -220,7 +242,9 @@ export class StagingPipelineStore {
           "UPDATE reservation SET state='active',epoch=?,request_id=?,owner=?,nonce=?,deadline=?,dispatched=0,source_commit=NULL WHERE singleton=1",
         )
         .run(token.epoch, token.requestId, owner, token.nonce, this.clock() + 600000);
-      this.db.prepare("UPDATE requests SET state='active',reason=NULL WHERE id=?").run(next.id);
+      this.db
+        .prepare("UPDATE requests SET state='active',reason=NULL,last_attempt=? WHERE id=?")
+        .run(token.epoch, next.id);
       return { granted: true, token, request: JSON.parse(next.payload) };
     });
   }
