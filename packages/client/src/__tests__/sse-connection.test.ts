@@ -549,6 +549,69 @@ describe('SseConnection', () => {
     }
   });
 
+  it('recovers a stalled visible stream without a visibility change', async () => {
+    const doc = new EventTarget();
+    Object.assign(doc, { visibilityState: 'visible' });
+    vi.stubGlobal('document', doc);
+    vi.stubGlobal('addEventListener', vi.fn());
+    vi.stubGlobal('removeEventListener', vi.fn());
+    const conn = new SseConnection(createConfig());
+    try {
+      conn.connect();
+      const old = lastES();
+      old._emit('welcome', { connectionId: 'stalled' });
+      await vi.advanceTimersByTimeAsync(11_000);
+      expect(old.readyState).toBe(2);
+      expect(MockEventSource.instances).toHaveLength(2);
+    } finally {
+      conn.disconnect();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('probes visible streams without replay and stops probing on auth loss or disconnect', async () => {
+    const doc = new EventTarget();
+    Object.assign(doc, { visibilityState: 'visible' });
+    vi.stubGlobal('document', doc);
+    vi.stubGlobal('addEventListener', vi.fn());
+    vi.stubGlobal('removeEventListener', vi.fn());
+    const fetch = vi.fn().mockResolvedValue({ ok: true });
+    const conn = new SseConnection(createConfig({ fetch }));
+    try {
+      conn.connect();
+      const es = lastES();
+      es._emit('welcome', { connectionId: 'healthy' });
+      conn.trackSeq('s1', 12);
+      conn.connect();
+      expect(vi.getTimerCount()).toBe(1);
+      await vi.advanceTimersByTimeAsync(5000);
+      es._emit('message', { type: 'block_delta', delta: 'still streaming' });
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(fetch.mock.calls.some(([url]) => url.endsWith('/probe'))).toBe(false);
+      await vi.advanceTimersByTimeAsync(10_000);
+      const call = fetch.mock.calls.find(([url]) => url.endsWith('/probe'));
+      expect(call).toBeDefined();
+      es._emit('message', { type: '_probe', nonce: JSON.parse(String(call![1].body)).nonce });
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(fetch.mock.calls.some(([url]) => url.endsWith('/reconnect'))).toBe(false);
+      expect(MockEventSource.instances).toHaveLength(1);
+      Object.assign(doc, { visibilityState: 'hidden' });
+      fetch.mockClear();
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(fetch).not.toHaveBeenCalled();
+      conn.invalidateAuthentication();
+      expect(vi.getTimerCount()).toBe(0);
+      conn.restoreAuthentication();
+      conn.restoreAuthentication();
+      expect(vi.getTimerCount()).toBe(1);
+      conn.disconnect();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      conn.disconnect();
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('submits the first prompt while SSE and reconnect are unavailable', async () => {
     const fetch = vi.fn().mockResolvedValue({
       ok: true,
