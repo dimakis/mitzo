@@ -83,6 +83,8 @@ export function createWebAccessTool(
     const binding = structuredClone(session.accountBinding);
     const model = session.model;
     const readScope = publicScope(session);
+    const readScopeRevision = readScope.revision;
+    const originRevisions = new Map<string, number>();
     // Retire stale bindings before capturing the pending approval generation.
     const searchAllowed = hasWebSearchGrant(session);
     const searchRevision = webSearchGrantRevision(session);
@@ -93,6 +95,10 @@ export function createWebAccessTool(
       isDeepStrictEqual(session.accountBinding, binding) &&
       session.model === model &&
       webSearchGrantRevision(session) === searchRevision &&
+      publicScope(session).revision === readScopeRevision &&
+      [...originRevisions].every(
+        ([origin, revision]) => (publicScope(session).origins.get(origin) ?? 0) === revision,
+      ) &&
       effectivePermissionMode(session) !== 'ask' &&
       checkSkillPolicy(registry, clientId, REQUEST_WEB_ACCESS) !== 'deny';
     return executeWebAccess(input, signal, {
@@ -100,6 +106,11 @@ export function createWebAccessTool(
       approve: async (request, signal, redirectedFrom) => {
         if (request.operation === 'search' && searchAllowed)
           return { behavior: 'allow', updatedInput: request };
+        if (request.operation === 'fetch') {
+          const origin = new URL(request.url).origin;
+          if (!originRevisions.has(origin))
+            originRevisions.set(origin, readScope.origins.get(origin) ?? 0);
+        }
         const decision = await buildPermissionHandler(clientId, registry)(
           REQUEST_WEB_ACCESS,
           request,

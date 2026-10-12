@@ -459,3 +459,27 @@ it('rechecks current eligibility for all callers after shared consent', async ()
   for (const result of await Promise.all(pending)) expect(result).toMatchObject({ isError: true });
   expect(await f.tool.fetch(input.url, new AbortController().signal)).toBeUndefined();
 });
+
+it('does not recreate a first pending origin after session access is cleared and account switches back', async () => {
+  const f = fixture();
+  let finish!: (value: unknown) => void;
+  approve.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const input = { operation: 'request_access', url: 'https://example.com/a', reason: 'why' };
+  const result = f.tool.request(input, new AbortController().signal);
+  await vi.waitFor(() => expect(approve).toHaveBeenCalledOnce());
+  clearUrlAccessGrants(f.session);
+  f.session.accountBinding!.accountId = 'other';
+  f.session.accountBinding!.accountId = 'a';
+  finish({
+    behavior: 'allow',
+    updatedInput: approve.mock.calls[0][1],
+    decisionClassification: 'user_permanent',
+  });
+  expect(await result).toMatchObject({ isError: true });
+  expect(await f.tool.fetch(input.url, new AbortController().signal)).toBeUndefined();
+});

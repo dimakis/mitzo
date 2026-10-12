@@ -106,12 +106,18 @@ export function createUrlAccessTool(
           grants.get(current.session)?.delete(url.origin);
           return { content: `URL read access revoked for ${url.origin}`, isError: false };
         }
+        // Register pending origins before DNS/approval so session-wide clearing
+        // advances every in-flight request, including the first on this origin.
+        if (!versions.has(url.origin)) versions.set(url.origin, 0);
+        const revision = versions.get(url.origin)!;
         const account = urlReadAccountIdentity(current.session);
         const target = await withWebAbort(
           deps.resolve(url.href),
           AbortSignal.any([signal, AbortSignal.timeout(20_000)]),
         );
         signal.throwIfAborted();
+        if (versions.get(url.origin) !== revision)
+          return { content: 'URL access changed during resolution; retry', isError: true };
         if (target.origin !== url.origin || !target.addresses.length)
           return { content: 'URL destination could not be resolved safely', isError: true };
         const payload = {
@@ -126,12 +132,11 @@ export function createUrlAccessTool(
           account,
           origin: target.origin,
           addresses: target.addresses.map((a) => [a.address, a.family]).sort(),
-          revision: versions.get(url.origin) ?? 0,
+          revision,
         });
         let flight = pending.get(key);
         if (!flight) {
           const controller = new AbortController();
-          const revision = versions.get(url.origin) ?? 0;
           flight = {
             controller,
             revision,

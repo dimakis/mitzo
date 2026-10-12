@@ -251,3 +251,37 @@ it('routes exact URL access requests through the shared session approval tool', 
     ),
   ).toMatchObject({ isError: false });
 });
+
+it('does not execute a public read approved after its origin was revoked', async () => {
+  approve.mockReset();
+  vi.mocked(fetchPublicPage).mockClear();
+  const session = {
+    sessionId: 'pending-public',
+    mode: 'agent',
+    activeSkillPolicy: null,
+    accountBinding: { accountId: 'a', provider: 'openai', model: 'm', profileRevision: '1' },
+  } as unknown as ManagedSession;
+  const registry = {
+    get: () => session,
+    findBySessionId: () => ({ clientId: 'owner', session }),
+  } as unknown as SessionRegistry;
+  const execute = createWebAccessTool('pending-public', registry, vi.fn());
+  let finish!: (value: unknown) => void;
+  approve.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const input = { operation: 'fetch', url: 'https://example.com/a', reason: 'why' };
+  const result = execute(input, new AbortController().signal);
+  await vi.waitFor(() => expect(approve).toHaveBeenCalledOnce());
+  await execute({ ...input, operation: 'revoke_access' }, new AbortController().signal);
+  finish({
+    behavior: 'allow',
+    updatedInput: approve.mock.calls[0][1],
+    decisionClassification: 'user_permanent',
+  });
+  expect(await result).toMatchObject({ isError: true });
+  expect(fetchPublicPage).not.toHaveBeenCalled();
+});
