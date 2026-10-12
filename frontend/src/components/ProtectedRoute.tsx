@@ -81,8 +81,10 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
     return () => clearTimeout(timer);
   }, [auth, retry]);
   useEffect(() => {
-    const recover = () => {
-      if (auth !== 'unavailable' || document.visibilityState !== 'visible') return;
+    const recover = (event: Event) => {
+      if (auth !== 'unavailable') return;
+      // The native signal already proves foreground; browser visibility can lag.
+      if (event.type !== APP_FOREGROUND_EVENT && document.visibilityState !== 'visible') return;
       automaticRetries.current = 0;
       retry();
     };

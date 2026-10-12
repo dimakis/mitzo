@@ -145,6 +145,18 @@ describe('ProtectedRoute authentication recovery', () => {
     expect(screen.getByText('Chats ready')).toBeTruthy();
   });
 
+  it('trusts the native foreground signal while browser visibility is still catching up', async () => {
+    fetchMock.mockRejectedValueOnce(new TypeError('Load failed'));
+    mountRoute();
+    await act(async () => {});
+    vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+    await act(async () => {
+      window.dispatchEvent(new Event('mitzo:app-foreground'));
+    });
+    expect(screen.getByText('Chats ready')).toBeTruthy();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it('does not retry denied authorization or disturb an already verified route on foreground', async () => {
     fetchMock.mockResolvedValueOnce(new Response('{}', { status: 401 }));
     const denied = mountRoute();
