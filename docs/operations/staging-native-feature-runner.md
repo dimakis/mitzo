@@ -81,6 +81,11 @@ attempts, retries, compaction and helper inference routes must be covered.
 
 Cleanup awaits the original controlled target's positive controller stop
 acknowledgement; durable recovery/confirmed rows cannot mint this receipt.
+The original manager's ensure/inspect/stop/delete methods check the same private
+queue reservation before and after each awaited staging effect. The wrapper
+delegates to that retained manager and preserves missing methods; it supplies no
+runtime replacement or successful observations. Queue loss after an effect
+prevents a positive cleanup result and retains uncertainty for reconciliation.
 The actual original sandbox owner requires its retained terminal creation,
 positive physical stop and deletion, and artifact lease release. Reconstructed
 owners, disappeared resources, SDK abort, idle, suspension and transcript end

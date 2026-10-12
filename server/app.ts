@@ -1494,6 +1494,14 @@ let symposiumRuntimeForSession: (sessionId: string) => SymposiumOrchestrator | n
         chatgptSubscription: verified.readOnlyEnforced,
         claudeVertex: verified.claudeProviders.size > 0,
       },
+      stagingEffectCurrent: stagingNativeSessions.has(sessionId)
+        ? () => {
+            const original = stagingNativeSessions.get(sessionId);
+            if (!original || original.host !== host)
+              throw Error('Original staging native effect owner unavailable');
+            original.assertCurrent();
+          }
+        : undefined,
       stagingPrepareSandbox: stagingNativeSessions.has(sessionId)
         ? async (selected) => {
             const original = stagingNativeSessions.get(sessionId)!;

@@ -3,6 +3,7 @@ import type {
   SymposiumHostGrantVerifier,
 } from './symposium-dispatch-boundary.js';
 import { canonicalReviewJson } from './symposium-review-records.js';
+import { guardStagingNativeRuntimeEffects } from './staging-native-runtime-effect.js';
 import {
   atSymposiumReconciliationStage,
   atSymposiumReconciliationStageAsync,
@@ -360,6 +361,8 @@ export interface SymposiumSharedSandboxOwnerDeps {
     runtimeId: string;
     sandboxName: string;
   }) => Promise<{ assertCurrent(): void }>;
+  /** Source-only actual private queue assertion before/after native lifecycle effects. */
+  stagingEffectCurrent?: () => void;
   verifiedSubscriptionControllerCommand?: readonly string[];
   verifySubscriptionPrivateAuth?: VerifySymposiumSubscriptionAuth;
   captureSubscriptionLaunchIdentity?: (
@@ -384,6 +387,18 @@ export interface SymposiumSharedSandboxOwnerDeps {
     stop?(runtimeId: string, physicalId: string, signal: AbortSignal): Promise<void>;
     delete?(runtimeId: string, physicalId: string, signal: AbortSignal): Promise<void>;
   };
+}
+
+function createOriginalSandboxManager(
+  deps: Pick<SymposiumSharedSandboxOwnerDeps, 'managerFactory' | 'stagingEffectCurrent'>,
+  config: BoundOpenShellRuntimeConfig,
+) {
+  const original = (deps.managerFactory ?? ((selected) => new OpenShellRuntimeManager(selected)))(
+    config,
+  );
+  return deps.stagingEffectCurrent
+    ? guardStagingNativeRuntimeEffects(original, deps.stagingEffectCurrent)
+    : original;
 }
 
 function verifyClaudeSeatCapability(
@@ -496,9 +511,7 @@ export class SymposiumSharedSandboxOwner {
         throw new Error(
           'Private native seat state isolation is not verified in the shared sandbox',
         );
-      const manager = (
-        this.deps.managerFactory ?? ((config) => new OpenShellRuntimeManager(config))
-      )({
+      const manager = createOriginalSandboxManager(this.deps, {
         ...this.deps.runtimeConfig,
         account: snapshot.owner,
         accountProviderBindings: snapshot.bindings,
@@ -629,7 +642,7 @@ async function withSymposiumSeatLifecycleFence<T>(
 
 type CompletedSandboxCleanupDeps = Pick<
   SymposiumSharedSandboxOwnerDeps,
-  'runtimeConfig' | 'managerFactory'
+  'runtimeConfig' | 'managerFactory' | 'stagingEffectCurrent'
 > & {
   seatSandboxRegistry: SeatSandboxRegistry;
   /** Only the trusted retained seal recovery path supplies its original deny fence. */
@@ -738,7 +751,7 @@ export async function stopRetainedSealSandbox(
       )
         throw new Error('Retained seal sandbox identity requires reconciliation');
       if (current.state === 'stopped') return;
-      const manager = (deps.managerFactory ?? ((config) => new OpenShellRuntimeManager(config)))({
+      const manager = createOriginalSandboxManager(deps, {
         ...deps.runtimeConfig,
         account: { kind: 'api', provider: record.providerName, model: record.model },
         accountProviderBindings: [
@@ -1035,7 +1048,7 @@ export class SymposiumPerSeatSandboxOwner {
         });
         provisional?.assertCurrent();
         const manager = atSymposiumReconciliationStage('SEAT_MANAGER_SETUP_FAILED', () =>
-          (this.deps.managerFactory ?? ((config) => new OpenShellRuntimeManager(config)))({
+          createOriginalSandboxManager(this.deps, {
             ...this.deps.runtimeConfig,
             ...(seatPolicy ? { policy: seatPolicy.path } : {}),
             ...(this.deps.runSandboxCreation || provisional
@@ -1440,9 +1453,7 @@ export class SymposiumPerSeatSandboxOwner {
             );
           }
 
-          const manager = (
-            this.deps.managerFactory ?? ((config) => new OpenShellRuntimeManager(config))
-          )({
+          const manager = createOriginalSandboxManager(this.deps, {
             ...this.deps.runtimeConfig,
             account: { kind: 'api', provider: record.providerName, model: record.model },
             accountProviderBindings: [
