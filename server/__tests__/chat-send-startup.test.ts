@@ -111,10 +111,10 @@ it('counts native messages once for naming and ignores retried message IDs', asy
     mode: 'auto',
     cwd: root,
     sessionId,
-    inputQueue: new AsyncQueue(),
     sessionAllowList: new Set(),
     agentName: 'fixture',
   });
+  chat.registry.get('native-naming-client')!.inputQueue = new AsyncQueue();
   try {
     await chat.sendToChat('native-naming-client', 'Fix calendar sync', undefined, undefined, 'one');
     expect(chat.eventStore.getSession(sessionId)?.promptCount).toBe(1);
