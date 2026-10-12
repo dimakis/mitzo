@@ -30,6 +30,12 @@ const legacyHash = '055a0dbc99bf57c3e9af26bd08f5d1aa94694860da2e5cee6dfd0bcbfaab
 const sourceImage = 'sha256:b89016abe4c17850ee31e2c4613697f6a4871356953952b0edcdb4fdfb8db624';
 const targetImage = 'sha256:eefa0731c0e41d08cfde069e4975f180017db68f91cbb563fbcbba99ccd063ab';
 const roots: string[] = [];
+// /usr/bin/python3 is the pinned Linux command. In offline macOS fixtures,
+// execute its argv with the host interpreter instead of Xcode's slow shim.
+// Real image probes still execute the immutable image's original binary.
+const offlinePython = process.platform === 'darwin' ? 'python3' : '/usr/bin/python3';
+const offlineCommand = (command: string) =>
+  command === '/usr/bin/python3' ? offlinePython : command;
 afterEach(() => roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true })));
 const binding: AccountBinding = {
   accountLabel: 'Offline fixture',
@@ -126,14 +132,14 @@ function fixture(actualImages = false) {
       const physical = sandboxes.get(name)!;
       const remote = JSON.parse(
         execFileSync(
-          '/usr/bin/python3',
+          offlinePython,
           ['-I', '-c', 'import shlex,json,sys; print(json.dumps(shlex.split(sys.stdin.read())))'],
           { input: args.at(-1), encoding: 'utf8' },
         ),
       ) as string[];
+      if (remote[0] !== 'rm') expect(remote[0]).toBe('/usr/bin/python3');
+      if (remote[0] !== 'rm') expect(remote.slice(1, 3)).toEqual(['-I', '-c']);
       if (actualImages) {
-        if (remote[0] !== 'rm') expect(remote[0]).toBe('/usr/bin/python3');
-        if (remote[0] !== 'rm') expect(remote.slice(1, 3)).toEqual(['-I', '-c']);
         const mapped = remote.map((value) =>
           value.startsWith('/sandbox/')
             ? '/fixture/' + name + '/' + value.slice('/sandbox/'.length)
@@ -147,10 +153,10 @@ function fixture(actualImages = false) {
       );
       if (remote[0] === '/sandbox/mitzo-checkpoint.py') {
         imageHelperExecutions++;
-        mapped.unshift('/usr/bin/python3');
+        mapped.unshift(offlinePython);
       }
       if (mapped.includes('capture')) mapped.push('--proc-root', join(physical, 'proc'));
-      return execFileSync(mapped[0], mapped.slice(1), { encoding: 'utf8' });
+      return execFileSync(offlineCommand(mapped[0]), mapped.slice(1), { encoding: 'utf8' });
     }
     if (command === 'openshell') {
       const operation = args.includes('download') ? 'download' : 'upload';
@@ -169,7 +175,7 @@ function fixture(actualImages = false) {
           value.startsWith(root + '/') ? '/fixture/' + value.slice(root.length + 1) : value,
         ),
       ]);
-    return execFileSync(command, [...args], { encoding: 'utf8' });
+    return execFileSync(offlineCommand(command), [...args], { encoding: 'utf8' });
   };
   const transport = (artifact: ArtifactRuntime) =>
     new OpenShellCheckpointTransport(artifact.runtime, run);
@@ -227,7 +233,7 @@ it('preserves actual immutable image helper bytes and rejects its Git-config-los
   try {
     expect(createHash('sha256').update(readFileSync(legacyHelper)).digest('hex')).toBe(legacyHash);
     const archive = join(f.root, 'legacy.tar');
-    execFileSync('/usr/bin/python3', [
+    execFileSync(offlinePython, [
       legacyHelper,
       'capture',
       '--provider-root',
