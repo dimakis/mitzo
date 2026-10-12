@@ -53,20 +53,21 @@ The source checks the IPC awaited-fence implementation version. Only a trusted
 canonical constructor with this hook selects the child startup wait of 120 seconds;
 an ambient environment flag grants no wait policy or provider authority.
 
-`StagingNativeFeatureBootstrap` describes fresh launcher source/fixture roots and
-original-owner/fresh-enrollment assertion capabilities. Passing it currently
-refuses before host construction because the native feature factory is not yet
-implemented. It cannot be silently ignored or confused with device authorization
-for allocating a native owner. Do not pass it to advertise feature readiness.
+`StagingNativeFeatureBootstrap` carries source/fixture roots, an original-owner
+assertion and the actual retained VM resource observation capability. Provider
+capabilities come from the original host itself. The conditional
+[native text/Read factory](staging-native-feature-runner.md) now uses this actual
+constructor path, but native planning/dispatch remains refused until independently
+qualified gateway HTTP model/account/auxiliary/request enforcement exists.
+Factory protocol alone must not authorize a new allocation.
 
 ## Remaining native feature work
 
-A working native feature owner must be constructed in the original custodian with
-its actual host, grants, attempt registry, runtime getter and controlled targets.
-It needs a host-issued bounded fixture source/session/grant, exact native
-claim/delivery/provenance events, original `confirmStopped()` acknowledgments and
-owned sandbox retirement receipts. Retained session artifact volumes must be
-accounted for explicitly. No controller end, idle state, abort, suspend, process
+The conditional native factory implements the original host/grant/runtime/claim
+path and actual event plus controlled-target/sandbox/fixture retirement collectors.
+Its separate model enforcement dependency and fresh enrollment remain pending;
+no live run has proved these paths. Retained artifacts and uncertain cleanup must
+remain explicitly accounted for. No controller end, idle state, abort, suspend, process
 lookup or persisted receipt recreates physical cleanup authority.
 
 Codex automatic compaction remains unqualified for this suite. The inspected
