@@ -317,7 +317,8 @@ export class StagingNativeFeatureOwner {
       charged.chargedAccount !== plan.chargedAccount ||
       charged.selectedModel !== plan.selectedModel ||
       ![1, 2].includes(charged.requestCount) ||
-      charged.policyRevision !== plan.runtimeRevision ||
+      charged.modelPlanRevision !== plan.runtimeRevision ||
+      !/^[a-f0-9]{64}$/.test(charged.policyRevision) ||
       !/^[a-f0-9]{64}$/.test(charged.requestsSha256) ||
       !Number.isFinite(charged.revokedAt)
     )

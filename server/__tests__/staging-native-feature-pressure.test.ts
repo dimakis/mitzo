@@ -117,7 +117,8 @@ it('preserves known original cleanup at pressure while refusing new admission an
           sandboxId: 'original',
           requestCount: 1,
           requestsSha256: 'd'.repeat(64),
-          policyRevision: '9'.repeat(64),
+          modelPlanRevision: '9'.repeat(64),
+          policyRevision: 'e'.repeat(64),
           revokedAt: Date.now(),
         },
       };

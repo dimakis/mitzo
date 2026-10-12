@@ -254,3 +254,29 @@ cancellation, queue, MCP, hooks, images, compaction, subagents, integrations,
 phone and other feature families still need their actual bounded suites and
 original cleanup receipts before full replica acceptance. No live call, new
 native resource, enrollment or production action was performed for this change.
+
+## Original bootstrap and delegation source
+
+The initial native launcher creates the same-process bootstrap only after its
+original VM running proof. Source preflight requires
+`ORIGINAL_STAGING_NATIVE_BOOTSTRAP_PROTOCOL_VERSION=1` before ordinary shutdown;
+the actual constructor additionally rejects unbranded JSON or callback records.
+It captures the exact allocation's private stage operator file and registered
+source guard. Gateway custody uses this independent guard rather than recursively
+entering the host through its full VM/feature-owner assertion.
+
+`captureOriginalStagingStageDelegation` uses the existing stage login mechanism,
+then independently verifies the issued token against that immutable stage key,
+session identity and expiry after awaited reads. Its normal Bearer is available
+only to the original gateway constructor; no provider credential or production
+configuration is selected. The gateway's private delegation file contains only
+`authorization`, while expiry stays in the retained source capability. Renewal
+must preserve the original gateway, private parent, purpose key and current
+source checks. This source API does not qualify a missing native transport or
+authorize activation.
+
+Model retirement receipts carry both `modelPlanRevision` (the original readonly
+account/model plan) and `policyRevision` (the actual signed per-run Prepare
+policy). They are different identities. The feature owner matches the plan
+revision and validates the policy digest; the original issuer must verify that
+digest against its retained authenticated Prepare before returning a receipt.

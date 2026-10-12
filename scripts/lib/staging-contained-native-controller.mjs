@@ -26,6 +26,8 @@ import { enrollPreparedOfflineOperatorHelper } from './staging-offline-auth-enro
 import { createStagingOfflineOperatorAuthorizer } from './staging-offline-operator-auth.mjs';
 import { createUnmutatedNativeAllocationInspector } from './staging-native-unmutated.mjs';
 import { createNativeOriginalOwnerHandoff } from './staging-native-owner-handoff.mjs';
+import { createNativeAppCompatibilityInspector } from './staging-native-app-compatibility.mjs';
+import { createOriginalNativeAppSourceBridge } from './staging-native-app-source.mjs';
 const bootstrapInspections = new WeakMap();
 const hash = (bytes) => createHash('sha256').update(bytes).digest('hex');
 const refuse = (diagnostic) =>
@@ -74,6 +76,7 @@ export function assertNativeReplicaSourceProtocol(main) {
     main?.STAGING_NATIVE_FEATURE_BOOTSTRAP_PROTOCOL_VERSION !== 1 ||
     main?.STAGING_NATIVE_MODEL_ENFORCEMENT_PROTOCOL_VERSION !== 1 ||
     main?.CUSTODIAN_NATIVE_OWNER_LIFETIME_PROTOCOL_VERSION !== 1 ||
+    main?.ORIGINAL_STAGING_NATIVE_BOOTSTRAP_PROTOCOL_VERSION !== 1 ||
     main?.SYMPOSIUM_CUSTODIAN_SERVICE_PROTOCOL_VERSION !== 1 ||
     typeof main.runSymposiumCustodian !== 'function'
   )
@@ -554,7 +557,35 @@ export async function runContainedNativeCanonicalLauncher({
       },
       appendDisposition: async (p) => ledger.append(p),
     });
-    const recordOwner = ownerRecords.createCanonicalOwnerRecorder(plan);
+    const nativeBootstrap = await load('staging-native-feature-bootstrap'),
+      appWitness = await load('staging-native-app-witness');
+    const sourceInspector = createNativeAppCompatibilityInspector({
+      canonicalRoot: root,
+      nativeSourceRoot: sourceRoot,
+      nativeCommit: bundle.sourceCommit,
+    });
+    const appSourceBridge = createOriginalNativeAppSourceBridge({
+      nativeSource: sourceInspector.original,
+      assertOriginalCustodianCurrent() {
+        original();
+        custodianCurrent?.();
+        if (vmStarted) vmOwner.assertOriginalRunningCurrent();
+      },
+      inspectSource: (selected) => sourceInspector.inspect(selected),
+      async assertAcceptedCandidate(selected) {
+        if (selected !== bundle.sourceCommit)
+          throw refuse('Fresh queue-owned app candidate qualification required.');
+        await sourceCurrent();
+      },
+    });
+    const acceptedAppSource = appWitness.createOriginalStagingAppSourceWitness(() =>
+      appSourceBridge.capture(),
+    );
+    const recordOwner = ownerRecords.createCanonicalOwnerRecorder(
+      plan,
+      undefined,
+      acceptedAppSource,
+    );
     const observeOriginalController = (identity, current) => {
       current();
       observer.observe();
@@ -584,7 +615,11 @@ export async function runContainedNativeCanonicalLauncher({
         await vmOwner.verifyRunning();
       },
       observeContainedNativeController(identity, current) {
-        observeOriginalController(identity, current);
+        // Registry observation precedes the awaited fence. The owner record
+        // cannot claim a new app source until its original bridge proves it.
+        current();
+        observer.observe();
+        current();
       },
       observeContainedNativeCustodianLifetime(identity, current) {
         current();
@@ -595,22 +630,37 @@ export async function runContainedNativeCanonicalLauncher({
         custodianIdentity = identity;
         current();
       },
-      stagingFeatureBootstrap: {
-        sourceCommit: bundle.sourceCommit,
-        sourceRoot,
-        fixtureRoot: plan.repositoryPath,
-        assertOriginalOwnerCurrent() {
-          original();
-          if (ready) ownerCurrent();
-          vmOwner.assertOriginalRunningCurrent();
-        },
-        observeResources: () => {
-          original();
-          return vmOwner.assertRunningCurrent();
-        },
-      },
+      createStagingFeatureBootstrap: () =>
+        nativeBootstrap.createOriginalStagingNativeBootstrap(
+          {
+            sourceCommit: bundle.sourceCommit,
+            sourceRoot,
+            fixtureRoot: plan.repositoryPath,
+            acceptedAppSource,
+            assertOriginalOwnerCurrent() {
+              original();
+              if (ready) ownerCurrent();
+              vmOwner.assertOriginalRunningCurrent();
+            },
+            observeResources: () => {
+              original();
+              return vmOwner.assertRunningCurrent();
+            },
+          },
+          join(plan.planDirectory, 'staging-operator.json'),
+          () => {
+            assertBootstrap();
+            observer.observe();
+            release.verifyRetainedOwnedRelease(plan);
+            assertBootstrap();
+          },
+        ),
       async beforeContainedNativeReady(identity, current) {
         current();
+        const appCandidate = await appSourceBridge.qualify(bundle.sourceCommit);
+        await appSourceBridge.assertCandidateCurrent(appCandidate);
+        current();
+        appSourceBridge.observeChild(appCandidate, identity, current);
         observeOriginalController(identity, current);
         original();
         if (ready) {

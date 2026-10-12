@@ -37,6 +37,7 @@ it('requires the real native feature/enrollment/per-call source implementation b
     assertNativeReplicaSourceProtocol({
       STAGING_NATIVE_FEATURE_BOOTSTRAP_PROTOCOL_VERSION: 1,
       STAGING_NATIVE_MODEL_ENFORCEMENT_PROTOCOL_VERSION: 1,
+      ORIGINAL_STAGING_NATIVE_BOOTSTRAP_PROTOCOL_VERSION: 1,
       CUSTODIAN_NATIVE_OWNER_LIFETIME_PROTOCOL_VERSION: 1,
       SYMPOSIUM_CUSTODIAN_SERVICE_PROTOCOL_VERSION: 1,
       runSymposiumCustodian() {},

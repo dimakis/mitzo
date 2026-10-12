@@ -1,4 +1,6 @@
 import type { StagingNativeFeatureBootstrap } from './staging-native-feature-bootstrap.js';
+import { captureOriginalStagingNativeBootstrap } from './staging-native-feature-bootstrap.js';
+export { ORIGINAL_STAGING_NATIVE_BOOTSTRAP_PROTOCOL_VERSION } from './staging-native-feature-bootstrap.js';
 import { createOriginalCustodianLifetime } from './symposium-original-custodian-lifetime.js';
 import { createOriginalAppChildUpdateControl } from './symposium-original-app-child-update.js';
 import { waitOriginalControllerExit } from './symposium-custodian-exit.js';
@@ -120,7 +122,7 @@ export async function runSymposiumCustodian(hooks: SymposiumCustodianConstructor
     )
       throw Error('Original staging feature constructor capabilities required');
     // Admission stays closed until the awaited original launcher fence succeeds.
-    stagingFeatureBootstrap.assertOriginalOwnerCurrent();
+    captureOriginalStagingNativeBootstrap(stagingFeatureBootstrap).assertCurrent();
   }
   if (observeNativeTurnInput !== undefined && typeof observeNativeTurnInput !== 'boolean')
     throw Error('Native input diagnostic must be a trusted constructor boolean');
@@ -164,7 +166,8 @@ export async function runSymposiumCustodian(hooks: SymposiumCustodianConstructor
   if (!workspaceRoot) throw Error('Explicit original custodian workspace required');
   const engine = service.createSymposiumCustodianService({ workspaceRoot });
   const { bootstrapConfiguredSymposiumHost } = await import('./symposium-owned-config.js');
-  const { revokeAuthSession, registerAuthSession } = await import('./auth.js');
+  const { revokeAuthSession, registerAuthSession } = await import('./operator-session.js');
+  const identity = randomUUID();
   const host = await bootstrapConfiguredSymposiumHost(
     filename,
     {
@@ -175,12 +178,14 @@ export async function runSymposiumCustodian(hooks: SymposiumCustodianConstructor
       ...(observeRuntime === undefined ? {} : { observeRuntime }),
       ...(observeNativeTurnInput === undefined ? {} : { observeNativeTurnInput }),
       ...(admissionBuildSelection === undefined ? {} : { admissionBuildSelection }),
+      ...(stagingFeatureBootstrap
+        ? { stagingInference: { bootstrap: stagingFeatureBootstrap, ownerInstance: identity } }
+        : {}),
     },
     bootstrapTools,
     ...(observeOriginalProcess === undefined ? [] : ([observeOriginalProcess] as const)),
   );
   engine.installSymposiumProductionHost(host);
-  const identity = randomUUID();
   let controllerGeneration = 0;
   let child: ChildProcess | undefined;
   let stopping = false;

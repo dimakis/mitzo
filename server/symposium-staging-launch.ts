@@ -99,6 +99,10 @@ export async function launchStagingCustodian(
     stagingFeatureBootstrap?: NonNullable<
       SymposiumCustodianConstructorHooks['stagingFeatureBootstrap']
     >;
+    /** Actual actor creates this only after its original VM running proof. */
+    createStagingFeatureBootstrap?(): NonNullable<
+      SymposiumCustodianConstructorHooks['stagingFeatureBootstrap']
+    >;
   },
 ) {
   const input = StagingLaunchSchema.parse(registration);
@@ -123,13 +127,15 @@ export async function launchStagingCustodian(
         !deps.observeContainedNativeController ||
         !deps.beforeContainedNativeReady ||
         !deps.beforeContainedNativeRetirement ||
-        !deps.observeContainedNativeCustodianLifetime)) ||
+        !deps.observeContainedNativeCustodianLifetime ||
+        typeof deps.createStagingFeatureBootstrap !== 'function')) ||
     (!allocation &&
       (deps.beforeContainedNativeRun ||
         deps.observeContainedNativeController ||
         deps.beforeContainedNativeReady ||
         deps.beforeContainedNativeRetirement ||
         deps.observeContainedNativeCustodianLifetime ||
+        deps.createStagingFeatureBootstrap ||
         deps.stagingFeatureBootstrap))
   )
     throw Error('Canonical native allocation requires its original guarded operator launcher');
@@ -158,15 +164,14 @@ export async function launchStagingCustodian(
     deps.verify(plan);
     const admissionBuildSelection = selection();
     if (allocation) await deps.beforeContainedNativeRun!();
+    const featureBootstrap = deps.createStagingFeatureBootstrap?.() ?? deps.stagingFeatureBootstrap;
     await deps.run({
       ...(allocation ? { beforeControllerReady: deps.beforeContainedNativeReady } : {}),
       ...(allocation ? { beforeRetirementReceipt: deps.beforeContainedNativeRetirement } : {}),
       ...(allocation
         ? { observeOriginalCustodianLifetime: deps.observeContainedNativeCustodianLifetime }
         : {}),
-      ...(deps.stagingFeatureBootstrap
-        ? { stagingFeatureBootstrap: deps.stagingFeatureBootstrap }
-        : {}),
+      ...(featureBootstrap ? { stagingFeatureBootstrap: featureBootstrap } : {}),
       ...(admissionBuildSelection ? { admissionBuildSelection } : {}),
       observeController(identity, current) {
         current();
