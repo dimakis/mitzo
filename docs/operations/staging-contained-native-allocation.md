@@ -94,3 +94,26 @@ sole unchanged original row must also remain independently current. The actor
 fsyncs a separate refusal receipt before releasing only its matching new guard;
 the receipt explicitly grants no capacity release, cleanup or replay. Any
 preparation attempt or unknown observation preserves that guard and evidence.
+
+Before an ordinary owner is drained, run the separate read-only source/config
+preflight from its exact prepared accepted release:
+
+```sh
+node scripts/preflight-contained-native-staging.mjs check --bootstrap PRIVATE_BOOTSTRAP_PATH --expected-bootstrap EXACT_BOOTSTRAP_SHA256
+```
+
+The command derives its prepared source from its own executable path. Its actual
+private inspection stays in a process-local branded token; reopened JSON cannot
+supply source loaders or authority. It checks the separate native model,
+conditional feature and independent custodian lifetime source protocols without
+registering a job, authenticating, opening a guard, creating a host or mutating a
+VM. A missing implementation therefore refuses before ordinary shutdown. A
+successful observation still grants no installation or native authority.
+
+The source-owned custodian now exposes a separate actual host/PID lifetime to
+its original launcher. It survives an app-channel gap and permanently closes on
+native retirement or loss of host custody. Features additionally require the
+latest original app-channel fence, so the retained VM resource observer does not
+admit feature work while an app is quiesced. The actor wires pre-mutation
+cancellation to the physical inspector and retains its guard after any native
+preparation attempt, claim or uncertain verification.

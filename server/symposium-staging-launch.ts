@@ -84,6 +84,9 @@ export async function launchStagingCustodian(
       registration: z.infer<typeof StagingLaunchSchema>,
     ): Promise<{ lease: unknown; close(): void }>;
     beforeContainedNativeRun?(): Promise<void>;
+    observeContainedNativeCustodianLifetime?: NonNullable<
+      SymposiumCustodianConstructorHooks['observeOriginalCustodianLifetime']
+    >;
     observeContainedNativeController?: NonNullable<
       SymposiumCustodianConstructorHooks['observeController']
     >;
@@ -119,12 +122,14 @@ export async function launchStagingCustodian(
       (!deps.beforeContainedNativeRun ||
         !deps.observeContainedNativeController ||
         !deps.beforeContainedNativeReady ||
-        !deps.beforeContainedNativeRetirement)) ||
+        !deps.beforeContainedNativeRetirement ||
+        !deps.observeContainedNativeCustodianLifetime)) ||
     (!allocation &&
       (deps.beforeContainedNativeRun ||
         deps.observeContainedNativeController ||
         deps.beforeContainedNativeReady ||
         deps.beforeContainedNativeRetirement ||
+        deps.observeContainedNativeCustodianLifetime ||
         deps.stagingFeatureBootstrap))
   )
     throw Error('Canonical native allocation requires its original guarded operator launcher');
@@ -156,6 +161,9 @@ export async function launchStagingCustodian(
     await deps.run({
       ...(allocation ? { beforeControllerReady: deps.beforeContainedNativeReady } : {}),
       ...(allocation ? { beforeRetirementReceipt: deps.beforeContainedNativeRetirement } : {}),
+      ...(allocation
+        ? { observeOriginalCustodianLifetime: deps.observeContainedNativeCustodianLifetime }
+        : {}),
       ...(deps.stagingFeatureBootstrap
         ? { stagingFeatureBootstrap: deps.stagingFeatureBootstrap }
         : {}),

@@ -348,6 +348,11 @@ try {
         }),
       );
     }
+    const selectedRows = db
+      .prepare('SELECT state FROM launches WHERE planDirectory=? LIMIT 2')
+      .all(service);
+    if (selectedRows.length !== 1 || selectedRows[0].state !== 'active')
+      throw Error('Only the actual active original inputs can be selected as live owner');
   }
 } catch (error) {
   if (error?.archivedInput === true)

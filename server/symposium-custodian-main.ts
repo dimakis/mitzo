@@ -1,4 +1,5 @@
 import type { StagingNativeFeatureBootstrap } from './staging-native-feature-bootstrap.js';
+import { createOriginalCustodianLifetime } from './symposium-original-custodian-lifetime.js';
 import { waitOriginalControllerExit } from './symposium-custodian-exit.js';
 import type { OriginalProcessObserver } from './symposium-original-process-retention.js';
 import { fork, type ChildProcess } from 'node:child_process';
@@ -25,10 +26,16 @@ import type { OriginalSymposiumControllerIdentity } from './symposium-canonical-
 /** Actual source-owned factory/executor/cleanup exists. Native model HTTP
  * qualification remains independently required before any feature plan/run. */
 export const STAGING_NATIVE_FEATURE_BOOTSTRAP_PROTOCOL_VERSION = 1;
+/** Independent original host lifetime; a child channel cannot recreate it. */
+export const CUSTODIAN_NATIVE_OWNER_LIFETIME_PROTOCOL_VERSION = 1;
 /** Explicit fresh-owner entry point. No attach/reconstruct command exists. */
 export interface SymposiumCustodianConstructorHooks {
   /** Passed by the same fresh canonical launcher; never environment or JSON authority. */
   stagingFeatureBootstrap?: StagingNativeFeatureBootstrap;
+  observeOriginalCustodianLifetime?: (
+    identity: Readonly<{ instanceId: string; custodianPid: number }>,
+    assertCurrent: () => void,
+  ) => void;
   /** Awaited original source/archive/VM fence before IPC ready or any request. */
   beforeControllerReady?: (
     identity: Readonly<OriginalSymposiumControllerIdentity>,
@@ -64,6 +71,7 @@ export async function runSymposiumCustodian(hooks: SymposiumCustodianConstructor
     observeRetirement,
     beforeRetirementReceipt,
     stagingFeatureBootstrap,
+    observeOriginalCustodianLifetime,
     beforeControllerReady,
     bootstrapTools,
     observeOriginalProcess,
@@ -75,6 +83,11 @@ export async function runSymposiumCustodian(hooks: SymposiumCustodianConstructor
     observeController,
     admissionBuildSelection,
   } = hooks;
+  if (
+    observeOriginalCustodianLifetime !== undefined &&
+    typeof observeOriginalCustodianLifetime !== 'function'
+  )
+    throw Error('Original custodian lifetime observer must be a trusted constructor callback');
   if (
     beforeControllerReady !== undefined &&
     (typeof beforeControllerReady !== 'function' || CUSTODIAN_BEFORE_READY_PROTOCOL_VERSION !== 1)
@@ -150,6 +163,21 @@ export async function runSymposiumCustodian(hooks: SymposiumCustodianConstructor
   let controllerGeneration = 0;
   let child: ChildProcess | undefined;
   let stopping = false;
+  const originalCustodianLifetime = createOriginalCustodianLifetime({
+    instanceId: identity,
+    assertHostCurrent: () => {
+      host.currentProfiles();
+    },
+  });
+  const observedLifetime: unknown = observeOriginalCustodianLifetime?.(
+    originalCustodianLifetime.identity,
+    originalCustodianLifetime.assertCurrent,
+  );
+  if (observedLifetime !== undefined) {
+    void Promise.resolve(observedLifetime).catch(() => {});
+    throw Error('Original custodian lifetime observer must be synchronous');
+  }
+  originalCustodianLifetime.assertCurrent();
   let originalFeatureControllerCurrent: (() => void) | undefined;
   if (stagingFeatureBootstrap) {
     engine.configureStagingNativeFeatureOwner(host, stagingFeatureBootstrap, identity, () => {
@@ -235,6 +263,7 @@ export async function runSymposiumCustodian(hooks: SymposiumCustodianConstructor
   });
   const stop = () => {
     stopping = true;
+    originalCustodianLifetime.close();
     originalFeatureControllerCurrent = undefined;
     if (child?.connected) child.disconnect();
     child?.kill('SIGTERM');
@@ -346,6 +375,7 @@ export async function runSymposiumCustodian(hooks: SymposiumCustodianConstructor
           ),
         drainHost: (signal) => host.drain(signal),
         closeHost: async (signal) => {
+          originalCustodianLifetime.close();
           await host.closeAfterDrain(signal);
           signal.throwIfAborted();
           const originalPid = process.pid;
@@ -384,6 +414,7 @@ export async function runSymposiumCustodian(hooks: SymposiumCustodianConstructor
           )),
     );
   } catch {
+    originalCustodianLifetime.close();
     try {
       observeRetirement?.(
         'uncertain',

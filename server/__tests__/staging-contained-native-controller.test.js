@@ -5,6 +5,8 @@ import {
   assertCanonicalNativeInvocation,
   assertNativeReplicaSourceProtocol,
   runContainedNativeCanonicalLauncher,
+  preflightContainedNativeReplica,
+  containedNativePreflightSummary,
 } from '../../scripts/lib/staging-contained-native-controller.mjs';
 it('requires the real native feature/enrollment/per-call source implementation before authorizing allocation', () => {
   for (const main of [
@@ -37,6 +39,15 @@ it('requires the real native feature/enrollment/per-call source implementation b
       runSymposiumCustodian() {},
     }),
   ).not.toThrow();
+});
+it('refuses reopened JSON preflight tokens before changing environment or loading a host', async () => {
+  const cwd = process.cwd(),
+    marker = process.env.NODE_ENV;
+  const token = JSON.parse('{}');
+  await expect(preflightContainedNativeReplica(token)).rejects.toThrow('bootstrap unavailable');
+  expect(() => containedNativePreflightSummary(token)).toThrow('bootstrap unavailable');
+  expect(process.cwd()).toBe(cwd);
+  expect(process.env.NODE_ENV).toBe(marker);
 });
 it('refuses arbitrary bootstrap/private production paths and a nonprepared checkout before private reads', async () => {
   const root = join(userInfo().homedir, '.local/share/mitzo-staging'),
