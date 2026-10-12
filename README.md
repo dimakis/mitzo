@@ -1174,6 +1174,10 @@ existing queue reservation. It defaults unavailable pending qualified source,
 original-owner and fresh provider enrollment. Codex auxiliary-compaction
 qualification and native/Vertex feature wiring remain pending; this source does
 not claim live or complete profile acceptance.
+The [native admission preparation](docs/operations/staging-native-feature-admission.md)
+connects Vertex drafts and candidates to the actual original gateway receipt and
+reviewed runtime gate. Fresh staging enrollment, explicit non-Luna test approval
+and a native feature runner remain required.
 
 The narrowly scoped [lost-owner offline preservation procedure](docs/operations/staging-offline-containment.md) retains the original native environment and uncertain history before ordinary staging restoration. Source acceptance, authenticated physical recovery and provider enrollment remain separate.
 

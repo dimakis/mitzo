@@ -74,7 +74,7 @@ export async function collectSessionOwnedAdmissionEvidence(
       mapping: { volumeName: string; volumeGeneration: string },
     ): Promise<void>;
     collect(selection: unknown): Promise<SymposiumProductionAttestation>;
-    verifyCandidate(candidate: SymposiumProductionAttestation): void;
+    verifyCandidate(candidate: SymposiumProductionAttestation): void | Promise<void>;
   },
 ): Promise<SessionOwnedEvidenceCapability> {
   const input = SessionOwnedEvidenceSelection.parse(raw);
@@ -94,7 +94,15 @@ export async function collectSessionOwnedAdmissionEvidence(
       after.volumeGeneration !== original.volumeGeneration
     )
       throw new Error('Original ready artifact mapping changed');
-    if (retained.candidate) dependencies.verifyCandidate(retained.candidate);
+    if (retained.candidate) {
+      await dependencies.verifyCandidate(retained.candidate);
+      const verified = dependencies.readCurrent(input);
+      if (
+        verified.volumeName !== original.volumeName ||
+        verified.volumeGeneration !== original.volumeGeneration
+      )
+        throw new Error('Original ready artifact mapping changed');
+    }
   };
   await assertCurrent();
   const selection = {

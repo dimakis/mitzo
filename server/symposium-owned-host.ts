@@ -1,8 +1,14 @@
+import {
+  selectSessionOwnedProviderEvidence,
+  assertSessionOwnedProviderEvidence,
+  assertSessionOwnedVertexReceipt,
+} from './symposium-session-evidence-selection.js';
 import { observeMountJson, type OpenShellMountJsonOperation } from './openshell-runtime.js';
 import { digestSymposiumSeedTree } from './symposium-production-gate.js';
 import {
   collectSessionOwnedAdmissionEvidence,
   SessionEvidenceBinding,
+  SessionOwnedEvidenceSelection,
 } from './symposium-owned-evidence.js';
 import type { SymposiumOwnedBuildSelection } from './symposium-owned-runtime-contract.js';
 import { isDeepStrictEqual } from 'node:util';
@@ -1406,23 +1412,16 @@ export async function createOwnedSymposiumHost(
               config.data.revision !== input.configRevision
             )
               throw new Error('Current original Symposium draft revision required');
-            const profiles = currentProfiles();
-            const primary = config.data.seats.find((seat) => seat.id === 'primary');
-            if (
-              !primary ||
-              primary.accountBinding?.provider !== 'openai' ||
-              input.providerInstances.length !== 1
-            )
-              throw new Error('Original current Work API provider required');
-            const profile = profiles.apiProfile(primary.accountBinding);
-            const instance = input.providerInstances[0];
-            if (
-              profile.sandboxProvider !== instance.name ||
-              profile.sandboxProviderId !== instance.id ||
-              instance.type !== 'openai' ||
-              instance.profileName !== 'openai'
-            )
-              throw new Error('Original current Work API provider required');
+            assertSessionOwnedProviderEvidence(
+              config.data,
+              currentProfiles(),
+              {
+                providerInstances: input.providerInstances,
+                allowedRoles: input.allowedRoles,
+                allowedAccountProviders: input.allowedAccountProviders,
+              },
+              'owned-draft',
+            );
             const mapping = sessionArtifacts!.getReady(input.sessionId);
             if (!mapping) throw new Error('Original ready artifact mapping unavailable');
             return { volumeName: mapping.volumeName, volumeGeneration: mapping.volumeGeneration };
@@ -1439,7 +1438,7 @@ export async function createOwnedSymposiumHost(
             assertRequestCurrent?.();
           },
           collect: (input) => collectExplicitEvidence(input, assertRequestCurrent),
-          verifyCandidate: (candidate) => {
+          verifyCandidate: async (candidate) => {
             custody();
             if (
               candidate.seedTreeSha256 !== digestSymposiumSeedTree(runtimeConfig.seed) ||
@@ -1447,6 +1446,48 @@ export async function createOwnedSymposiumHost(
                 createHash('sha256').update(readFileSync(runtimeConfig.policy)).digest('hex')
             )
               throw new Error('Original admission local input changed');
+            const selected = SessionOwnedEvidenceSelection.parse(selection);
+            if (selected.allowedAccountProviders.includes('anthropic-vertex')) {
+              const readDraft = () => {
+                assertRequestCurrent?.();
+                custody();
+                const session = options.facts.getSession?.(selected.sessionId);
+                const config = session?.symposiumConfig
+                  ? SymposiumConfigSchema.parse(JSON.parse(session.symposiumConfig))
+                  : null;
+                if (
+                  session?.sessionType !== 'symposium' ||
+                  !config ||
+                  config.state !== 'draft' ||
+                  config.revision !== selected.configRevision
+                )
+                  throw new Error('Original Vertex draft revision changed');
+                assertSessionOwnedProviderEvidence(
+                  config,
+                  currentProfiles(),
+                  {
+                    providerInstances: selected.providerInstances,
+                    allowedRoles: selected.allowedRoles,
+                    allowedAccountProviders: selected.allowedAccountProviders,
+                  },
+                  'owned-draft',
+                );
+                return config;
+              };
+              readDraft();
+              const receipt = await captureSymposiumWorkVertexProviderAsync(
+                gateway,
+                selected.providerInstances[0].id,
+              );
+              assertSessionOwnedVertexReceipt(
+                readDraft(),
+                currentProfiles(),
+                receipt,
+                gateway.workspace,
+              );
+              assertRequestCurrent?.();
+              custody();
+            }
           },
         }),
       );
@@ -1477,37 +1518,8 @@ export async function createOwnedSymposiumHost(
             config.revision !== binding.configRevision
           )
             throw Error('Current original Symposium draft revision required');
-          const roles = [...new Set(config.seats.map((seat) => seat.role))];
-          if (!roles.length || roles.some((role) => role !== 'coder' && role !== 'reviewer'))
-            throw Error('Only Work API coder/reviewer draft roles supported');
-          const primary = config.seats.find((seat) => seat.id === 'primary');
-          if (primary?.accountBinding?.provider !== 'openai')
-            throw Error('Original Work API primary required');
-          const profiles = currentProfiles();
-          const profile = profiles.apiProfile(primary.accountBinding);
-          for (const seat of config.seats) {
-            if (seat.accountBinding?.provider !== 'openai')
-              throw Error('Only Work API draft accounts supported');
-            const selected = profiles.apiProfile(seat.accountBinding);
-            if (
-              selected.sandboxProvider !== profile.sandboxProvider ||
-              selected.sandboxProviderId !== profile.sandboxProviderId
-            )
-              throw Error('Only the original primary Work API provider is supported');
-          }
-          return {
-            ...binding,
-            providerInstances: [
-              {
-                name: profile.sandboxProvider,
-                id: profile.sandboxProviderId,
-                type: 'openai' as const,
-                profileName: 'openai' as const,
-              },
-            ],
-            allowedRoles: roles as ('coder' | 'reviewer')[],
-            allowedAccountProviders: ['openai' as const],
-          };
+          const selected = selectSessionOwnedProviderEvidence(config, currentProfiles());
+          return { ...binding, ...selected };
         };
         const original = select();
         const assertCurrent = () => {
