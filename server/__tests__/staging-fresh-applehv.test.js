@@ -7,6 +7,7 @@ import {
   createFreshAppleHvPlan,
   createFreshAppleHvOwner,
   freshAppleHvConfiguration,
+  validateFreshAppleHvMutableMachine,
 } from '../../scripts/lib/staging-fresh-applehv.mjs';
 import { createHash } from 'node:crypto';
 
@@ -220,6 +221,25 @@ it('stock first boot may create only the exact expected-absent EFI store under i
   input.files.efi.parent.path = '/old/quarantine';
   expect(() => createFreshAppleHvPlan(input)).toThrow();
 });
+it('mutable LastUp is accepted only within the actual original start interval and all other VM fields stay pinned', () => {
+  const plan = createFreshAppleHvPlan(freshVmInput()).plan;
+  const current = globalThis.structuredClone(plan.machine.definition);
+  const startedAt = Date.parse('2026-10-12T12:00:00Z'),
+    observedAt = startedAt + 1000;
+  current.LastUp = new Date(startedAt + 500).toISOString();
+  expect(() =>
+    validateFreshAppleHvMutableMachine(plan, current, { startedAt, observedAt }),
+  ).not.toThrow();
+  current.LastUp = '2020-01-01T00:00:00Z';
+  expect(() =>
+    validateFreshAppleHvMutableMachine(plan, current, { startedAt, observedAt }),
+  ).toThrow();
+  current.LastUp = new Date(startedAt + 500).toISOString();
+  current.ImagePath.Path = '/old/retained.raw';
+  expect(() =>
+    validateFreshAppleHvMutableMachine(plan, current, { startedAt, observedAt }),
+  ).toThrow();
+});
 function ownerFixture() {
   const approvedVmPlan = createFreshAppleHvPlan(freshVmInput()),
     events = [];
@@ -286,6 +306,13 @@ it('uncertain start is retained and cannot be automatically replayed or stopped'
   await expect(f.owner.verifyRunning()).rejects.toThrow(/original/);
   expect(f.effects.startSupervisor).toHaveBeenCalledTimes(1);
   expect(f.effects.retain).toHaveBeenCalledTimes(1);
+});
+it('concurrent calls cannot pass the one-start latch while awaiting source verification', async () => {
+  const f = ownerFixture();
+  await f.owner.verifyStopped();
+  const calls = await Promise.allSettled([f.owner.startOnce(), f.owner.startOnce()]);
+  expect(calls.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+  expect(f.effects.startSupervisor).toHaveBeenCalledTimes(1);
 });
 it('stale guard or accepted source cannot cross a native start boundary', async () => {
   const f = ownerFixture();

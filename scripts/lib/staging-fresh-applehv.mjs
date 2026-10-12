@@ -2,6 +2,21 @@ import process from 'node:process';
 import { createHash } from 'node:crypto';
 import { Buffer } from 'node:buffer';
 import { join, resolve, dirname } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import {
+  constants,
+  openSync,
+  closeSync,
+  fstatSync,
+  lstatSync,
+  realpathSync,
+  readSync,
+  chmodSync,
+  writeFileSync,
+} from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { createServer } from 'node:net';
+import { setTimeout, clearTimeout } from 'node:timers';
 import { OFFLINE_CONTAINMENT_TARGET } from './staging-offline-containment-contract.mjs';
 
 const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
@@ -394,11 +409,12 @@ export function createFreshAppleHvOwner(
     },
     startOnce: async () => {
       if (attempted || retained || !stopped) fail('start once boundary');
+      attempted = true; // Consume before any await; concurrent callers cannot start twice.
       await fence();
       await effects.verifyStopped();
-      attempted = true;
       let authorizedSupervisor;
       const result = await effects.startSupervisor({
+        assertCurrent: fence,
         authorize: async (supervisor) => {
           await fence();
           if (authorizedSupervisor) fail('start once authorization');
@@ -431,6 +447,550 @@ export function createFreshAppleHvOwner(
     },
   });
 }
-function freshAppleHvPhysicalEffects() {
-  fail('physical adapter not yet qualified');
+/** Pure invariant check only; it grants no running capability. The live owner
+ * supplies an observed original-start interval, never a reopened JSON receipt. */
+export function validateFreshAppleHvMutableMachine(plan, current, { startedAt, observedAt }) {
+  const lastUp = Date.parse(current?.LastUp);
+  if (
+    !Number.isFinite(startedAt) ||
+    !Number.isFinite(observedAt) ||
+    observedAt < startedAt ||
+    !Number.isFinite(lastUp) ||
+    lastUp < startedAt ||
+    lastUp > observedAt ||
+    current.Starting !== false
+  )
+    fail('original VM start interval');
+  const immutable = { ...current, LastUp: plan.machine.definition.LastUp };
+  if (digest(immutable) !== digest(plan.machine.definition)) fail('mutable machine invariant');
+}
+
+function command(program, args, env) {
+  const result = spawnSync(program, args, {
+    env,
+    encoding: 'utf8',
+    timeout: 15000,
+    maxBuffer: 1048576,
+  });
+  if (result.error || result.signal || result.status !== 0) fail('physical host observation');
+  return result.stdout.trim();
+}
+function checkedFile(path, { mode, uid = process.getuid(), maxSize = 67108864 } = {}) {
+  if (!absolute(path) || realpathSync(path) !== path) fail('unaliased input path');
+  const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+  try {
+    const stat = fstatSync(fd);
+    if (
+      !stat.isFile() ||
+      stat.nlink !== 1 ||
+      stat.mode & 0o022 ||
+      (mode !== undefined && (stat.mode & 0o777) !== mode) ||
+      (uid !== null && stat.uid !== uid) ||
+      stat.size > maxSize
+    )
+      fail('input file mode or size');
+    const sha = createHash('sha256'),
+      buffer = Buffer.alloc(1048576);
+    let offset = 0,
+      count;
+    while (
+      (count = readSync(fd, buffer, 0, Math.min(buffer.length, stat.size - offset), offset)) > 0
+    ) {
+      sha.update(buffer.subarray(0, count));
+      offset += count;
+    }
+    const after = fstatSync(fd);
+    if (
+      offset !== stat.size ||
+      after.dev !== stat.dev ||
+      after.ino !== stat.ino ||
+      after.size !== stat.size ||
+      after.mtimeMs !== stat.mtimeMs ||
+      after.ctimeMs !== stat.ctimeMs
+    )
+      fail('concurrent input mutation');
+    return { stat, sha256: sha.digest('hex') };
+  } finally {
+    closeSync(fd);
+  }
+}
+function identity(path) {
+  if (realpathSync(path) !== path) fail('unaliased runtime file');
+  const s = lstatSync(path);
+  if (!s.isFile() || s.nlink !== 1 || s.uid !== process.getuid() || s.mode & 0o022)
+    fail('runtime file identity');
+  return {
+    path,
+    dev: s.dev,
+    ino: s.ino,
+    uid: s.uid,
+    mode: s.mode & 0o777,
+    nlink: s.nlink,
+    size: s.size,
+  };
+}
+const sameIdentity = (a, b) =>
+  ['path', 'dev', 'ino', 'uid', 'mode', 'nlink', 'size'].every((key) => a[key] === b[key]);
+function privateParents(plan, path) {
+  let current = dirname(path);
+  while (current.startsWith(plan.nativeRoot + '/') || current === plan.nativeRoot) {
+    const s = lstatSync(current);
+    if (
+      !s.isDirectory() ||
+      s.isSymbolicLink() ||
+      s.uid !== process.getuid() ||
+      s.mode & 0o022 ||
+      realpathSync(current) !== current ||
+      ([plan.nativeRoot, plan.qualification.environment.HOME].includes(current) &&
+        (s.mode & 0o777) !== 0o700)
+    )
+      fail('private allocation parent');
+    if (current === plan.nativeRoot) break;
+    current = dirname(current);
+  }
+}
+function machineDefinition(plan) {
+  privateParents(plan, plan.machine.path);
+  const measured = checkedFile(plan.machine.path, { mode: 0o644, maxSize: 65536 });
+  const fd = openSync(plan.machine.path, constants.O_RDONLY | constants.O_NOFOLLOW);
+  try {
+    const bytes = Buffer.alloc(measured.stat.size);
+    if (readSync(fd, bytes, 0, bytes.length, 0) !== bytes.length || hash(bytes) !== measured.sha256)
+      fail('machine changed while read');
+    return { machine: JSON.parse(bytes), sha256: measured.sha256 };
+  } finally {
+    closeSync(fd);
+  }
+}
+export function observeFreshAppleHvProcess(pid) {
+  if (!integer(pid) || pid < 2) fail('original process identity');
+  const birth = command('/bin/ps', ['-p', String(pid), '-o', 'lstart=']);
+  const cmd = command('/bin/ps', ['-ww', '-p', String(pid), '-o', 'command=']);
+  const parentPid = Number(command('/bin/ps', ['-p', String(pid), '-o', 'ppid=']));
+  if (!birth || !cmd || !integer(parentPid)) fail('original process observation');
+  return { pid, birth, command: cmd, parentPid };
+}
+export function observeFreshAppleHvJob(plan) {
+  const text = command('/bin/launchctl', ['print', `gui/${process.getuid()}/com.mitzo.staging.vm`]);
+  const field = (name) => text.match(new RegExp(`^\\s*${name} = (.+)$`, 'm'))?.[1]?.trim();
+  if (field('path') !== plan.supervisor.plistPath || !/^\d+$/.test(field('runs') ?? ''))
+    fail('canonical VM registration');
+  return {
+    path: field('path'),
+    runs: Number(field('runs')),
+    pid: field('pid') ? Number(field('pid')) : null,
+    state: field('state'),
+  };
+}
+function assertSupervisor(plan, expected, runs) {
+  const job = observeFreshAppleHvJob(plan);
+  if (job.runs !== runs || (expected ? job.pid !== expected.pid : job.pid !== null))
+    fail('original canonical supervisor runs');
+  if (expected) {
+    const actual = observeFreshAppleHvProcess(expected.pid);
+    if (
+      actual.birth !== expected.birth ||
+      actual.command !== plan.supervisor.programArguments.join(' ')
+    )
+      fail('original supervisor process');
+  }
+  return job;
+}
+function scopedNoOpenHandles(paths) {
+  const result = spawnSync('/usr/sbin/lsof', ['-nP', '-FpfDn', ...paths], {
+    encoding: 'utf8',
+    timeout: 15000,
+    maxBuffer: 1048576,
+  });
+  if (result.status !== 1 || result.stdout || result.stderr || result.error || result.signal)
+    fail('stopped fresh file handles');
+}
+function bootUUID() {
+  return command('/usr/sbin/sysctl', ['-n', 'kern.bootsessionuuid']);
+}
+export async function inspectFreshAppleHvInputs(approved, { running = false } = {}) {
+  const p = approved.plan;
+  if (
+    process.platform !== 'darwin' ||
+    bootUUID() !== p.bootUUID ||
+    realpathSync(p.canonicalRoot) !== p.canonicalRoot
+  )
+    fail('current macOS boot/root');
+  for (const item of [...p.helpers, p.node])
+    if (
+      checkedFile(item.path, { uid: null }).sha256 !== item.sha256 ||
+      !(lstatSync(item.path).mode & 0o111)
+    )
+      fail('stock executable bytes');
+  for (const item of p.sourceInventory)
+    if (checkedFile(join(p.sourceRoot, item.path), { uid: null }).sha256 !== item.sha256)
+      fail('accepted source inventory');
+  const { STAGING_RESOURCE_BUDGET: policy } = await import(
+    pathToFileURL(join(p.sourceRoot, p.resourcePolicy.path)).href
+  );
+  if (
+    policy.stagingGiB !== p.resourcePolicy.aggregateGiBLimit ||
+    policy.diskFreeGiB !== p.resourcePolicy.minFreeGiB ||
+    policy.vmMemoryMiB !== 4096 ||
+    policy.vmCpus !== 2 ||
+    policy.workers !== 1
+  )
+    fail('actual accepted resource policy');
+  privateParents(p, p.supervisor.plistPath);
+  if (checkedFile(p.supervisor.plistPath, { mode: 0o600 }).sha256 !== p.supervisor.plistSha256)
+    fail('supervisor plist bytes');
+  const plist = JSON.parse(
+    command('/usr/bin/plutil', ['-convert', 'json', '-o', '-', p.supervisor.plistPath]),
+  );
+  if (
+    plist.Label !== p.supervisor.label ||
+    plist.KeepAlive !== false ||
+    plist.RunAtLoad !== false ||
+    plist.WorkingDirectory !== p.nativeRoot ||
+    JSON.stringify(plist.ProgramArguments) !== JSON.stringify(p.supervisor.programArguments) ||
+    digest(plist.EnvironmentVariables) !== digest(p.qualification.environment)
+  )
+    fail('exact fresh supervisor plist');
+  for (const file of [p.files.ssh, p.files.configuration]) {
+    privateParents(p, file.path);
+    if (
+      !sameIdentity(identity(file.path), file) ||
+      checkedFile(file.path, { mode: file.mode }).sha256 !== file.sha256
+    )
+      fail('fresh immutable file');
+  }
+  const current = machineDefinition(p);
+  if (
+    !running &&
+    (current.sha256 !== p.machine.sha256 ||
+      digest(current.machine) !== digest(p.machine.definition))
+  )
+    fail('prestart machine definition');
+  privateParents(p, p.files.disk.path);
+  const disk = identity(p.files.disk.path);
+  if (!sameIdentity(disk, p.files.disk)) fail('original raw disk identity');
+  if (!running) {
+    scopedNoOpenHandles([
+      p.files.disk.path,
+      ...(p.files.efi.state === 'expected-absent' ? [] : [p.files.efi.path]),
+    ]);
+    if (
+      checkedFile(p.files.disk.path, { mode: 0o644, maxSize: 16 * 1073741824 }).sha256 !==
+      p.files.disk.sha256
+    )
+      fail('prestart raw disk bytes');
+    const fd = openSync(p.files.disk.path, constants.O_RDONLY | constants.O_NOFOLLOW),
+      first = Buffer.alloc(64),
+      last = Buffer.alloc(512);
+    try {
+      readSync(fd, first, 0, first.length, 0);
+      readSync(fd, last, 0, last.length, disk.size - last.length);
+    } finally {
+      closeSync(fd);
+    }
+    if (
+      ['514649fb', '4b444d56'].includes(first.subarray(0, 4).toString('hex')) ||
+      first.subarray(0, 8).toString() === 'vhdxfile' ||
+      last.subarray(0, 8).toString() === 'conectix' ||
+      first.toString().includes('Oracle VM VirtualBox Disk Image')
+    )
+      fail('direct raw disk header');
+  }
+  let efi;
+  if (p.files.efi.state === 'expected-absent' && !running) {
+    const parent = lstatSync(p.files.efi.parent.path);
+    if (
+      parent.dev !== p.files.efi.parent.dev ||
+      parent.ino !== p.files.efi.parent.ino ||
+      parent.uid !== p.files.efi.parent.uid ||
+      (parent.mode & 0o777) !== p.files.efi.parent.mode ||
+      lstatSync(p.files.efi.path, { throwIfNoEntry: false })
+    )
+      fail('expected-absent EFI creation boundary');
+    privateParents(p, p.files.efi.path);
+  } else {
+    privateParents(p, p.files.efi.path);
+    efi = identity(p.files.efi.path);
+    if (p.files.efi.state !== 'expected-absent' && !sameIdentity(efi, p.files.efi))
+      fail('original EFI identity');
+    if (!running && checkedFile(p.files.efi.path, { mode: 0o644 }).sha256 !== p.files.efi.sha256)
+      fail('prestart EFI bytes');
+  }
+  const usagePaths = [p.canonicalRoot, p.canonicalRoot + '-quarantine'];
+  const usage = command('/usr/bin/du', ['-sk', ...usagePaths]).split('\n');
+  if (
+    usage.length !== 2 ||
+    usage.some((line, i) => !/^\d+\s+/.test(line) || line.replace(/^\d+\s+/, '') !== usagePaths[i])
+  )
+    fail('aggregate disk observation');
+  const aggregate = usage.reduce((n, line) => n + Number(line.match(/^\d+/)[0]) / 1048576, 0);
+  const diskFree = command('/bin/df', ['-kP', p.canonicalRoot])
+    .split('\n')
+    .at(-1)
+    ?.trim()
+    .split(/\s+/)[3];
+  const pressure = command('/usr/sbin/sysctl', ['-n', 'kern.memorystatus_vm_pressure_level']);
+  const free = command('/usr/bin/memory_pressure', ['-Q']).match(
+    /System-wide memory free percentage: (\d+)%/,
+  );
+  const swap = command('/usr/sbin/sysctl', ['vm.swapusage']).match(/\bused = ([\d.]+)([MG])/);
+  const allocated = (lstatSync(p.files.disk.path).blocks * 512) / 1073741824;
+  const growth =
+    Math.max(0, 16 - allocated) +
+    p.budget.releaseGrowthGiB +
+    p.budget.scratchGrowthGiB +
+    p.budget.additionalGrowthGiB;
+  if (
+    !/^\d+$/.test(diskFree ?? '') ||
+    pressure !== '1' ||
+    !free ||
+    Number(free[1]) < 25 ||
+    !swap ||
+    Number(swap[1]) * (swap[2] === 'G' ? 1024 : 1) > 2048 ||
+    !Number.isFinite(allocated) ||
+    allocated > 16 ||
+    aggregate + p.budget.inflightGiB + growth > policy.stagingGiB ||
+    Number(diskFree) / 1048576 - growth < policy.diskFreeGiB
+  )
+    fail('current conservative host resources');
+  return { current, disk, efi, aggregateGiB: aggregate, growthGiB: growth };
+}
+function openFileBindings(pid) {
+  const rows = command('/usr/sbin/lsof', ['-nP', '-a', '-p', String(pid), '-FpfDin']).split('\n');
+  const files = [];
+  let entry;
+  for (const row of rows) {
+    if (row.startsWith('f')) {
+      entry = {};
+      files.push(entry);
+    } else if (entry && ['D', 'i', 'n'].includes(row[0])) entry[row[0]] = row.slice(1);
+  }
+  return files;
+}
+function assertOpenIdentity(pid, file) {
+  if (
+    !openFileBindings(pid).some(
+      (record) =>
+        record.n === file.path &&
+        Number(record.i) === file.ino &&
+        Number.parseInt(record.D, 16) === file.dev,
+    )
+  )
+    fail('original vfkit open backing identity');
+}
+function assertNativeProcess(p, record, kind) {
+  const current = observeFreshAppleHvProcess(record.pid),
+    helper = p.helpers.find((h) => h.kind === kind);
+  if (
+    current.birth !== record.birth ||
+    current.command !== record.command ||
+    !current.command.startsWith(helper.path + ' ')
+  )
+    fail('original native process lineage');
+  if (
+    kind === 'vfkit' &&
+    (!current.command.includes('virtio-blk,path=' + p.files.disk.path) ||
+      !current.command.includes('variable-store=' + p.files.efi.path) ||
+      !current.command.includes('sharedDir=' + p.canonicalRoot) ||
+      !current.command.includes(
+        'tcp://localhost:' + p.machine.definition.AppleHypervisor.Vfkit.Endpoint.split(':').at(-1),
+      ))
+  )
+    fail('actual stock vfkit devices');
+  if (kind === 'gvproxy' && !current.command.includes(p.qualification.machineName))
+    fail('actual fresh networking socket');
+}
+function freshAppleHvPhysicalEffects(approved) {
+  const p = approved.plan;
+  let server,
+    channelLost = false;
+  const verifyStopped = async () => {
+    assertSupervisor(p, null, 0);
+    const inputs = await inspectFreshAppleHvInputs(approved);
+    const processes = command('/bin/ps', ['-axo', 'command=']);
+    if (
+      processes
+        .split('\n')
+        .some(
+          (line) =>
+            line.includes(p.qualification.machineName) &&
+            p.helpers.some((h) => line.startsWith(h.path + ' ')),
+        )
+    )
+      fail('fresh VM already active');
+    const port = p.machine.definition.AppleHypervisor.Vfkit.Endpoint.split(':').at(-1);
+    const listeners = spawnSync('/usr/sbin/lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN'], {
+      encoding: 'utf8',
+      timeout: 15000,
+    });
+    if (
+      listeners.status !== 1 ||
+      listeners.stdout ||
+      listeners.stderr ||
+      listeners.error ||
+      listeners.signal ||
+      lstatSync(p.qualification.apiSocket, { throwIfNoEntry: false })
+    )
+      fail('fresh endpoint already active');
+    return {
+      state: 'verified_stopped',
+      planSha256: approved.sha256,
+      observationSha256: digest(inputs),
+      nativeRetirementClaim: false,
+    };
+  };
+  const verifyRunning = async (lineage) => {
+    if (channelLost) fail('original supervisor channel lost');
+    assertSupervisor(p, lineage.supervisor, 1);
+    const inputs = await inspectFreshAppleHvInputs(approved, { running: true });
+    validateFreshAppleHvMutableMachine(p, inputs.current.machine, {
+      startedAt: lineage.startedAt,
+      observedAt: Date.now(),
+    });
+    assertNativeProcess(p, lineage.vfkit, 'vfkit');
+    assertNativeProcess(p, lineage.gvproxy, 'gvproxy');
+    assertOpenIdentity(lineage.vfkit.pid, inputs.disk);
+    assertOpenIdentity(lineage.vfkit.pid, inputs.efi);
+    if (!sameIdentity(inputs.efi, lineage.efi)) fail('original newly created EFI identity');
+    const port = p.machine.definition.AppleHypervisor.Vfkit.Endpoint.split(':').at(-1);
+    const listeners = command('/usr/sbin/lsof', [
+      '-nP',
+      `-iTCP:${port}`,
+      '-sTCP:LISTEN',
+      '-Fp',
+    ]).split('\n');
+    if (listeners.some((row) => row !== 'p' + lineage.vfkit.pid))
+      fail('original vfkit endpoint owner');
+    const response = await globalThis.fetch('http://127.0.0.1:' + port + '/vm/state', {
+      redirect: 'error',
+      signal: globalThis.AbortSignal.timeout(2000),
+    });
+    const bytes = await response.text();
+    if (
+      !response.ok ||
+      Buffer.byteLength(bytes) > 1024 ||
+      JSON.parse(bytes).state !== 'VirtualMachineStateRunning'
+    )
+      fail('original vfkit running state');
+    const socket = lstatSync(p.qualification.apiSocket);
+    if (!socket.isSocket() || socket.uid !== process.getuid() || socket.mode & 0o077)
+      fail('fresh rootless API socket');
+    return {
+      state: 'verified_running',
+      planSha256: approved.sha256,
+      supervisorPid: lineage.supervisor.pid,
+      vfkitPid: lineage.vfkit.pid,
+      observationSha256: digest({ inputs, lineage }),
+      nativeRetirementClaim: false,
+    };
+  };
+  return {
+    verifyStopped,
+    verifyRunning,
+    startSupervisor: async ({ authorize, assertCurrent }) => {
+      if (lstatSync(p.qualification.guardSocket, { throwIfNoEntry: false }))
+        fail('existing start guard endpoint');
+      let authorized = false,
+        settled = false,
+        timer;
+      const result = new Promise((resolveStart, rejectStart) => {
+        const failStart = () => {
+          if (!settled) {
+            settled = true;
+            rejectStart(Error('Fresh VM start uncertain; retain original state'));
+          }
+        };
+        server = createServer((socket) => {
+          let buffer = '';
+          socket.setEncoding('utf8');
+          socket.on('error', () => {
+            channelLost = true;
+            failStart();
+          });
+          socket.on('close', () => {
+            channelLost = true;
+            failStart();
+          });
+          socket.on('data', async (chunk) => {
+            buffer += chunk;
+            if (Buffer.byteLength(buffer) > 65536) return failStart();
+            let newline;
+            while ((newline = buffer.indexOf('\n')) !== -1) {
+              const row = buffer.slice(0, newline);
+              buffer = buffer.slice(newline + 1);
+              try {
+                const message = JSON.parse(row);
+                if (message.kind === 'authorize' && !authorized) {
+                  if (message.planSha256 !== approved.sha256) fail();
+                  const supervisor = observeFreshAppleHvProcess(message.pid);
+                  assertSupervisor(p, supervisor, 1);
+                  await inspectFreshAppleHvInputs(approved);
+                  authorized = true;
+                  await authorize(supervisor);
+                  socket.write(
+                    JSON.stringify({ kind: 'authorized', planSha256: approved.sha256 }) + '\n',
+                  );
+                } else if (message.kind === 'running' && authorized && !settled) {
+                  const lineage = message.lineage;
+                  assertSupervisor(p, lineage.supervisor, 1);
+                  assertNativeProcess(p, lineage.vfkit, 'vfkit');
+                  assertNativeProcess(p, lineage.gvproxy, 'gvproxy');
+                  lineage.efi = identity(p.files.efi.path);
+                  await verifyRunning(lineage);
+                  settled = true;
+                  clearTimeout(timer);
+                  resolveStart(lineage);
+                  socket.write('{"kind":"recorded"}\n');
+                } else if (message.kind === 'current' && authorized) {
+                  await assertCurrent();
+                  assertSupervisor(p, { pid: message.pid, birth: message.birth }, 1);
+                  socket.write('{"kind":"current"}\n');
+                } else fail();
+              } catch {
+                failStart();
+                socket.destroy();
+              }
+            }
+          });
+        });
+        server.on('error', failStart);
+        server.listen(p.qualification.guardSocket, () => {
+          chmodSync(p.qualification.guardSocket, 0o600);
+          try {
+            command('/bin/launchctl', [
+              'kickstart',
+              `gui/${process.getuid()}/com.mitzo.staging.vm`,
+            ]);
+          } catch {
+            failStart();
+          }
+        });
+        timer = setTimeout(failStart, 180000);
+      });
+      return result.finally(() => clearTimeout(timer));
+    },
+    retain: async (state) => {
+      if (server) server.close();
+      const path = join(p.nativeRoot, 'service/fresh-vm-retained-' + process.pid + '.json');
+      const fd = openSync(
+        path,
+        constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW,
+        0o600,
+      );
+      try {
+        writeFileSync(
+          fd,
+          JSON.stringify({
+            version: 1,
+            planSha256: approved.sha256,
+            attempted: state.attempted,
+            originalLineage: state.lineage ?? null,
+            nativeRetirementClaim: false,
+          }) + '\n',
+        );
+      } finally {
+        closeSync(fd);
+      }
+    },
+  };
 }
