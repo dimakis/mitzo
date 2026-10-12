@@ -1,11 +1,11 @@
-import { registerAuthSession, type AuthSession } from './auth.js';
+import { registerAuthSession, type AuthSession } from './operator-session.js';
 import { agentProfileLabel } from '@mitzo/protocol';
 import { buildAgentProfilePrompt } from './agent-library-prompt.js';
 import {
   recentAppReauthorizationHandlers,
   requireSameOriginJson,
   requireRecentConnectionAuthorization,
-} from './connections-router.js';
+} from './operator-request-authorization.js';
 import {
   buildSymposiumContextPackage,
   SymposiumContextPackageSchema,

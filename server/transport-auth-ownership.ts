@@ -38,3 +38,22 @@ export function isTransportConnectionOwnedBy(connectionId: string, authSessionId
   pruneExpired();
   return connectionOwners.get(connectionId)?.authSessionId === authSessionId;
 }
+
+/** A subscription can manage consent only when it shares the current owner's login. */
+export function transportConnectionsShareOwner(
+  connectionId: string,
+  ownerConnectionId: string,
+): boolean {
+  pruneExpired();
+  const owner = connectionOwners.get(ownerConnectionId);
+  return (
+    owner !== undefined && connectionOwners.get(connectionId)?.authSessionId === owner.authSessionId
+  );
+}
+
+/** Only a live, authenticated transport carries interactive operator authority. */
+export function liveTransportAuthSessionId(connectionId: string): string | undefined {
+  pruneExpired();
+  const owner = connectionOwners.get(connectionId);
+  return owner?.expiresAt === null ? owner.authSessionId : undefined;
+}

@@ -721,3 +721,13 @@ func testSessionControlRejectedCommandReceiptRoundTrip(control: String) throws {
         #expect((relayed[key] as? NSObject) == (original[key] as? NSObject))
     }
 }
+
+@Test func watchPermissionRequestsPreserveSessionScopeAndQuestionsForFullReview() throws {
+    let json = """
+    {"type":"permission_request","permId":"p1","toolName":"AskUserQuestion","toolInput":"","sessionGrantDescription":"Keep this workspace until the session ends.","questions":[{"id":"q","question":"Choose?","options":[{"label":"Yes"}]}]}
+    """.data(using: .utf8)!
+    let message = try JSONDecoder().decode(ServerMessage.self, from: json)
+    guard case .permissionRequest(let request) = message else { Issue.record("Missing permission"); return }
+    #expect(request.sessionGrantDescription == "Keep this workspace until the session ends.")
+    #expect(request.questions?.first?.id == "q")
+}

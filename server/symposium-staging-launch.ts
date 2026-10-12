@@ -4,6 +4,7 @@ import { z } from 'zod';
 import type { OwnedReleasePlan } from './symposium-owned-release.js';
 import type { SymposiumCustodianConstructorHooks } from './symposium-custodian-main.js';
 import { openStagingRegistry } from './symposium-staging-registry.js';
+import { requiresContainedNativeAllocation } from './symposium-staging-identity.js';
 import { readOwnedSymposiumHostConfig } from './symposium-owned-config-schema.js';
 import { reviewedStagingOwnedBuild } from './symposium-staging-runtime-contract.js';
 import {
@@ -78,6 +79,26 @@ export async function launchStagingCustodian(
     verify(plan: OwnedReleasePlan): void;
     claim(plan: OwnedReleasePlan): void;
     run(hooks: SymposiumCustodianConstructorHooks): Promise<void>;
+    authorizeContainedNativeAllocation?(
+      plan: OwnedReleasePlan,
+      registration: z.infer<typeof StagingLaunchSchema>,
+    ): Promise<{ lease: unknown; close(): void }>;
+    beforeContainedNativeRun?(): Promise<void>;
+    observeContainedNativeCustodianLifetime?: NonNullable<
+      SymposiumCustodianConstructorHooks['observeOriginalCustodianLifetime']
+    >;
+    observeContainedNativeController?: NonNullable<
+      SymposiumCustodianConstructorHooks['observeController']
+    >;
+    beforeContainedNativeReady?: NonNullable<
+      SymposiumCustodianConstructorHooks['beforeControllerReady']
+    >;
+    beforeContainedNativeRetirement?: NonNullable<
+      SymposiumCustodianConstructorHooks['beforeRetirementReceipt']
+    >;
+    stagingFeatureBootstrap?: NonNullable<
+      SymposiumCustodianConstructorHooks['stagingFeatureBootstrap']
+    >;
   },
 ) {
   const input = StagingLaunchSchema.parse(registration);
@@ -94,12 +115,31 @@ export async function launchStagingCustodian(
   };
   deps.verify(plan);
   selection();
+  const allocation = requiresContainedNativeAllocation(plan);
+  if (
+    Boolean(allocation) !== Boolean(deps.authorizeContainedNativeAllocation) ||
+    (allocation &&
+      (!deps.beforeContainedNativeRun ||
+        !deps.observeContainedNativeController ||
+        !deps.beforeContainedNativeReady ||
+        !deps.beforeContainedNativeRetirement ||
+        !deps.observeContainedNativeCustodianLifetime)) ||
+    (!allocation &&
+      (deps.beforeContainedNativeRun ||
+        deps.observeContainedNativeController ||
+        deps.beforeContainedNativeReady ||
+        deps.beforeContainedNativeRetirement ||
+        deps.observeContainedNativeCustodianLifetime ||
+        deps.stagingFeatureBootstrap))
+  )
+    throw Error('Canonical native allocation requires its original guarded operator launcher');
   rejectRegistryOverlap(plan, input.registryDirectory);
   const registry = openStagingRegistry(input.registryDirectory, input.capacity);
   let owner: ReturnType<typeof registry.reserve> | undefined;
   let terminal = false;
+  let grant: { lease: unknown; close(): void } | undefined;
   try {
-    owner = registry.reserve({
+    const value = {
       ownerChat: input.ownerChat,
       purpose: input.purpose,
       retentionReason: input.retentionReason,
@@ -108,17 +148,31 @@ export async function launchStagingCustodian(
       sourceCommit: plan.sourceCommit,
       buildSha256: plan.buildSha256,
       configSha256: plan.configSha256,
-    });
+    };
+    if (allocation) {
+      grant = await deps.authorizeContainedNativeAllocation!(plan, input);
+      owner = registry.reserveWithContainedDisposition(value, grant.lease);
+    } else owner = registry.reserve(value);
     const original = owner;
     deps.claim(plan);
     deps.verify(plan);
     const admissionBuildSelection = selection();
+    if (allocation) await deps.beforeContainedNativeRun!();
     await deps.run({
+      ...(allocation ? { beforeControllerReady: deps.beforeContainedNativeReady } : {}),
+      ...(allocation ? { beforeRetirementReceipt: deps.beforeContainedNativeRetirement } : {}),
+      ...(allocation
+        ? { observeOriginalCustodianLifetime: deps.observeContainedNativeCustodianLifetime }
+        : {}),
+      ...(deps.stagingFeatureBootstrap
+        ? { stagingFeatureBootstrap: deps.stagingFeatureBootstrap }
+        : {}),
       ...(admissionBuildSelection ? { admissionBuildSelection } : {}),
       observeController(identity, current) {
         current();
         original.controller(identity);
         current();
+        deps.observeContainedNativeController?.(identity, current);
       },
       observeRetirement(state, stateParent, identity) {
         if (state === 'retiring') original.retiring(identity);
@@ -140,6 +194,7 @@ export async function launchStagingCustodian(
     }
     throw error;
   } finally {
+    grant?.close();
     registry.close();
   }
 }

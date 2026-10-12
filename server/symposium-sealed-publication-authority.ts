@@ -185,6 +185,7 @@ export class SealedPublicationAuthority {
     if (grant.scope.operatorId !== operatorId || grant.scope.sessionId !== sessionId)
       throw new Error('Publication grant owner mismatch');
     this.db.prepare("UPDATE sealed_publication_grants SET state='revoked' WHERE id=?").run(grantId);
+    return { connectionId: grant.scope.connectionId };
   }
   private read(grantId: string): SealedPublicationGrant {
     const row = this.db

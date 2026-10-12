@@ -23,13 +23,20 @@ Ordinary OpenShell Codex chats reserve their account-bound native ledger before 
 
 Accounts with multiple managed connections can provision new sandboxes without exceeding the gateway's 63-character label-value limit. Oversized provider-policy fingerprints use a stable bounded hash; valid historical labels and connection assignments are preserved. New runtimes prefer an assigned managed GitHub connection over the legacy GitHub fallback, avoiding duplicate `GITHUB_TOKEN` credentials. Retained runtimes keep their existing automatic grants; conflicting GitHub attachments require recovery before startup.
 
-## Outputs and ordinary contributors
+## Conversation activity
 
-Start in ordinary chat. After a useful reply finishes, **Keep as output** registers its exact text block with a stable output ID, revision and content hash. **In conversation** means the reference metadata is recorded; the text still depends on the original transcript's retention. Registration does not create a Telos item or independently save a copy of the draft.
+Mobile and desktop share **Agents at work**, a collapsible section for thoughts,
+tool calls and delegated subagents. It stays open while awaiting a reply and
+collapses after the assistant responds; reopen it to inspect the full details.
+The collapsed preview retains delegated-agent counts, running state and failures,
+including failures inside nested agents. Permission requests stay outside the
+section so they remain actionable.
 
-Select an output and **Add contributor** to choose an existing ordinary account/model, optional saved guidance and a session mode. This first slice supports one additional contributor per output using existing ChatGPT connections through the normal Codex chat engine with verified acceptance and terminal hooks. Unsupported and native-only account routes remain unavailable. Saved profiles with compiled context recipes are unavailable in this slice; use Default Mitzo or a profile without a recipe. The contributor receives the selected exact draft, keeps its own conversation history, and uses the ordinary workspace and permission controls. Attributed replies appear under the selected output; **Open conversation** exposes the child's permission prompts. Follow-ups resume that child, while **Stop** retains uncertain work until its exact turn is confirmed stopped. No separate Symposium sign-in or required profile is introduced by this flow.
-
-This is an implementation slice with offline fixture coverage. Canonical staging enrollment, live continuity/Stop acceptance and production activation remain separate.
+Ordinary conversations do not show an **Outputs** panel or **Keep as output**
+controls. Stored output references, contributor histories and their APIs remain
+available; removing the chat panel does not delete existing work. Independent
+outputs and ordinary contributors remain an implementation slice requiring
+separate canonical staging and live acceptance before activation.
 
 ## Repository-backed chats (opt-in)
 
@@ -128,6 +135,8 @@ Open **Knowledge** for curated documents from the host-enrolled accepted Git sou
 Opening Knowledge starts at the Library tree, including when a working copy was recovered. Choose **Resume editing** to continue that copy; recovery preserves its text, folders and saved review state.
 
 **Knowledge → Context** curates reusable context packs from accepted document revisions. Save recoverable drafts, inspect history and affected profiles, compile a preview, and explicitly publish a pack revision. Agent Library profiles compose exact pack revisions under one context budget. The advisor can propose a portable draft for review and import. See [context packs](docs/features/context-packs.md).
+
+Per-message context blocks selected in **Sources** appear beside your sent message immediately. Their injected reference text is collapsed by default and can be inspected or copied separately; editing, copying or reading aloud the message uses your prompt. Live echoes and restored history show the same disclosure. Selecting context does not switch the agent profile. Older prompts with ambiguous reference-delimiter examples stay intact so their source text cannot be mistaken for your question.
 
 The Library requires independently reviewed private host enrollment through `MITZO_KNOWLEDGE_LIBRARY_CONFIG`, including explicit document scopes and optional publishing identity. Acceptance is disabled by default. See [Knowledge Library enrollment](docs/operations/knowledge-library.md). Drafts join core SQLite backups with bounded Git recovery bundles, preserving exact prepared review heads after restore into a fresh source mirror. **More → Workspace tools** retains the raw Files browser and existing artifact links; its worktree list loads only on request, with cached, bounded discovery.
 
@@ -663,7 +672,7 @@ through the event-store module.
 
 React 19 + Vite. Ten pages (`Login`, `SessionList`, `ChatView`, `DesktopChatView`, `FileViewer`, `InboxView`, `CalendarView`, `TodoView`, `TodoDetailView`, `TaskBoard`), a `useReducer`-based message state machine (`useChatMessages`), module-level WebSocket pool with 500-message buffer, and components for thinking blocks, tool pills, tool groups, permission banners, and a slash-command picker. Capacitor wraps the frontend for iOS deployment via TestFlight.
 
-The chat composer gives draft text the full width, with unboxed utility icons in a toolbar below it and a circular send action at the far right. The context wheel sits beside the recording and send controls, uses the app accent during normal usage, and turns amber/red as context fills. Tap it for context and session token details. Session resources open from the toolbar; commands, attachments, and workspace options collapse into More in narrow composers while recording, interrupt, and send controls remain directly available.
+The chat composer gives draft text the full width, with unboxed utility icons in a toolbar below it and a circular send action at the far right. Commands uses a quiet list icon with its name on hover and keyboard focus; its label stays visible inside the narrow-screen More menu. The context wheel sits beside the recording and send controls, uses the app accent during normal usage, and turns amber/red as context fills. Tap it for context and session token details. Session resources open from the toolbar; commands, attachments, and workspace options collapse into More in narrow composers while recording, interrupt, and send controls remain directly available.
 
 For iOS development, run `./scripts/build-ios.sh` to build the iOS web assets and open Xcode. After the build, `./scripts/build-ios.sh --sync` copies the existing `frontend/dist-ios` assets into the iOS project without rebuilding them.
 
@@ -811,6 +820,14 @@ as `playwright-browser-failure-<run>-<attempt>` or
 from the Actions run; use `npx playwright show-trace <trace.zip>` or
 `npx playwright show-report <report-directory>` to inspect it. Successful suites
 do not upload artifacts, and retries keep the original attempt's evidence.
+
+A failed offline native notification smoke retains a screenshot, the fixture app's
+bounded simulator log, and failure stage/expected versus observed origin before
+its owned simulator is deleted. CI uploads `native-notification-failure-<run>-<attempt>`
+for seven days. Capture errors do not hide the original test failure; each
+attempt has a separate directory under `test-results/native-notification/`.
+The fixture uses a fresh simulator and exports only the notification origin
+preference, never the full preference store or a connected account.
 
 Production artifacts are staged with
 `./scripts/stage-openshell-release.sh <mgmt-repo> <new-seed-output>`. It requires
@@ -1127,6 +1144,42 @@ Live store fences, independent recovery keys, upload verification, scheduling an
 replacement-machine acceptance must be configured before claiming protection. See
 [the implementation and rollout contract](docs/operations/icloud-ecosystem-backup.md).
 
+### Resource-aware staging pipeline
+
+After an accepted Mitzo PR merge, enqueue staging readiness instead of deploying
+from each agent session:
+
+```sh
+node scripts/staging-pipeline.mjs enqueue --pr NUMBER --task SESSION_ID
+node scripts/staging-pipeline.mjs status
+node scripts/staging-pipeline.mjs host-resources
+node scripts/staging-pipeline.mjs run-next
+```
+
+`run-next` runs once in the foreground from clean exact accepted main. One durable
+reservation spans preparation, deployment and testing; eleven callers still get
+one runner. It uses the canonical stage and accepted exact-commit plan/apply.
+An advanced main tip may validate an earlier accepted merge only after ancestry
+is checked; the receipt names both the requested and actually tested commits.
+The initial suite checks HTTP readiness only, with no provider or model calls.
+The paired MGMT merge-gate handoff can enqueue automatically after host
+enrollment. Feature-specific live suites and PR-shepherd result consumption
+remain separate integration work; readiness does not prove a feature or native runtime.
+
+Admission requires normal macOS memory pressure, at least 25% reported memory
+headroom, no more than 2 GiB swap use, at least 20 GiB free disk after proposed
+growth, and at most 48 GiB across staging and its quarantine archive. Deployment
+reserves the complete workspace/state snapshot, including full sparse-file copy
+size and control metadata, even when reusing a release. The staging
+VM ceiling is 4 GiB and two CPUs. Node build heaps are capped at 2 GiB and the
+ordinary app heap at 1 GiB; heap limits do not cap all native/process RSS. One
+queue controller admits work at a time. The private queue has at most 100 pending
+requests and a 16 MiB SQLite ceiling. Resource shortages remain queued. Expired
+owners cannot dispatch, finish or defer; they retain their reservation for
+reconciliation. Uncertain effects also retain capacity; no
+forced restart, automatic rollback or historical evidence deletion is provided.
+See [pipeline operations](docs/operations/staging-pipeline.md).
+
 ### Canonical Symposium staging on macOS
 
 Symposium development targets the one persistent staging app at
@@ -1182,7 +1235,10 @@ connects Vertex drafts and candidates to the actual original gateway receipt and
 reviewed runtime gate. Fresh staging enrollment, explicit non-Luna test approval,
 accepted model enforcement and authentic live evidence remain required.
 
-The narrowly scoped [lost-owner offline preservation procedure](docs/operations/staging-offline-containment.md) retains the original native environment and uncertain history before ordinary staging restoration. Source acceptance, authenticated physical recovery and provider enrollment remain separate.
+The narrowly scoped [lost-owner offline preservation procedure](docs/operations/staging-offline-containment.md) retains the original native environment and uncertain history before ordinary staging restoration. Recovery first admits exact accepted main, then holds a bounded original-process source witness so a later accepted descendant cannot strand an authenticated preservation step. Source or history drift still refuses. Source acceptance, authenticated physical recovery and provider enrollment remain separate.
+The separate [contained-native allocation source protocol](docs/operations/staging-contained-native-allocation.md) preserves that unchanged uncertain row and requires fresh purpose authentication, a new original launcher guard and complete independent archived-closure evidence. Its launcher refuses when the reviewed native model or owner-lifetime implementation is missing; source availability does not claim a live allocation or provider enrollment.
+
+The [fresh canonical AppleHV allocation procedure](docs/operations/staging-fresh-applehv.md) describes guarded stock-image initialization, full growth admission and one original-controller VM start after qualified preservation. Its plans pin stock mount tags and generated first-boot Ignition, persist the initialization attempt before native dispatch, and permanently revoke failed start channels. The [kernel peer checks](docs/operations/staging-vm-kernel-peer.md) bind the actual supervisor and guest API connections to original helper births, with the accepted C helper sealed during preparation. Original cleanup retains those identity checks when new-work resource admission refuses. Plans grant no host authority; uncertain native state is retained without replay.
 
 Reuse the singleton `com.mitzo.staging` service at `http://mitzo-staging.localhost:3190`.
 The [operating procedure](docs/operations/canonical-staging.md) describes integrity/freshness

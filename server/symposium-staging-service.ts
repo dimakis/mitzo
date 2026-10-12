@@ -14,6 +14,10 @@ import { isAbsolute, join, resolve } from 'node:path';
 import { z } from 'zod';
 import { ownedCustodianEnvironment } from './symposium-staging-environment.js';
 import { canonicalStagingRoot, requiresCanonicalStaging } from './symposium-staging-identity.js';
+import {
+  canonicalNativeAllocationPaths,
+  requiresContainedNativeAllocation,
+} from './symposium-staging-identity.js';
 export { canonicalStagingRoot, requiresCanonicalStaging } from './symposium-staging-identity.js';
 import { StagingLaunchSchema } from './symposium-staging-launch-schema.js';
 import type { OwnedReleasePlan } from './symposium-owned-release.js';
@@ -185,6 +189,16 @@ export function assertCanonicalStagingService(
   root: string,
 ) {
   const stat = lstatSync(root);
+  const allocation = requiresContainedNativeAllocation(plan);
+  const paths = allocation
+    ? canonicalNativeAllocationPaths(root, allocation)
+    : {
+        planDirectory: join(root, 'symposium/service'),
+        repositoryPath: join(root, 'symposium/workspace'),
+        appHome: join(root, 'symposium/home'),
+        configPath: join(root, 'symposium/settings/owned-host.json'),
+        registrationPath: join(root, 'symposium/settings/staging-registration.json'),
+      };
   if (
     root !== canonicalStagingRoot() ||
     !isAbsolute(root) ||
@@ -193,12 +207,12 @@ export function assertCanonicalStagingService(
     stat.uid !== process.getuid?.() ||
     (stat.mode & 0o777) !== 0o700 ||
     !/^[a-f0-9]{40}$/.test(plan.sourceCommit) ||
-    plan.planDirectory !== join(root, 'symposium/service') ||
-    plan.repositoryPath !== join(root, 'symposium/workspace') ||
-    plan.appHome !== join(root, 'symposium/home') ||
-    plan.configPath !== join(root, 'symposium/settings/owned-host.json') ||
+    plan.planDirectory !== paths.planDirectory ||
+    plan.repositoryPath !== paths.repositoryPath ||
+    plan.appHome !== paths.appHome ||
+    plan.configPath !== paths.configPath ||
     plan.releaseRoot !== join(root, 'releases', plan.sourceCommit.slice(0, 12)) ||
-    registrationPath !== join(root, 'symposium/settings/staging-registration.json')
+    registrationPath !== paths.registrationPath
   )
     throw Error('Canonical Symposium staging paths refused');
   privatePlan(plan);

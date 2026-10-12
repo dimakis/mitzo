@@ -12,7 +12,7 @@
     "dev:server": "tsx watch server/index.ts",
     "build": "cd frontend && npm run build",
     "compile:server": "tsc -b packages/protocol packages/harness packages/client && tsc -p tsconfig.build.json",
-    "build:server": "npm run compile:server --silent && node scripts/check-reviewed-handler-artifacts.mjs && node scripts/check-iana-address-data.mjs && npm run check:security-backport --silent",
+    "build:server": "npm run compile:server --silent && node scripts/check-reviewed-handler-artifacts.mjs && node scripts/check-native-context-artifacts.mjs && node scripts/check-iana-address-data.mjs && npm run check:security-backport --silent",
     "check:reviewed-handler-artifacts": "npm run build:server --silent && node scripts/check-reviewed-handler-artifacts.mjs",
     "print:reviewed-handler-artifacts": "npm run compile:server --silent && node scripts/check-reviewed-handler-artifacts.mjs --print",
     "generate:iana-address-data": "node scripts/generate-iana-address-data.mjs",

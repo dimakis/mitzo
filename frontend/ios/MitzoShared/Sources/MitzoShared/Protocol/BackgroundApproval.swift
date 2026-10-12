@@ -4,6 +4,7 @@ import Foundation
 public func backgroundApprovalResponse(
     actionID: String, item: MitzoNotification, expectedSessionID: String,
     reviewedToolName: String? = nil, reviewedInput: String? = nil,
+    reviewedSessionGrantDescription: String? = nil,
     at milliseconds: Double = Date().timeIntervalSince1970 * 1000
 ) -> NotificationResponse? {
     guard item.sessionId == expectedSessionID, item.isActionable(at: milliseconds),
@@ -24,6 +25,9 @@ public func backgroundApprovalResponse(
     case "ALLOW_ONCE_ACTION":
         guard request.questions == nil, request.approvalScope != .conversation else { return nil }
         decision = .once
+    case "ALLOW_SESSION_ACTION":
+        guard reviewedSessionGrantDescription == request.sessionGrantDescription else { return nil }
+        decision = .session
     case "ALLOW_SEARCH_SESSION_ACTION":
         guard request.toolName == "RequestWebAccess", request.approvalScope == .session,
               request.questions == nil, let data = request.toolInput.data(using: .utf8),

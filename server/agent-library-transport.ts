@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { AgentLibraryVersionSchema, type AgentProfileSelection } from '@mitzo/protocol';
-import { registerAuthSession, type AuthSession } from './auth.js';
+import { registerAuthSession, type AuthSession } from './operator-session.js';
 import { custodianControllerClient } from './symposium-custodian-mode.js';
 import { getAgentLibrary } from './agent-library-runtime.js';
 

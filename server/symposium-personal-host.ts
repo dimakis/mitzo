@@ -192,6 +192,13 @@ export function createPersonalSubscriptionHost(
       return {
         provider: { ...proof.provider, type: 'codex' as const, profileName: 'codex' as const },
         assertCurrent,
+        assertOriginalCleanupCurrent: () => {
+          options.gateway.verifyCustody();
+          const current = select(selection);
+          if (current.state !== 'connected' || connections.adapter(current.id) !== captured)
+            throw Error('Original personal cleanup slot changed');
+          proof.assertCurrent();
+        },
       };
     },
     get currentProfiles() {

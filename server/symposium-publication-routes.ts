@@ -5,13 +5,13 @@ import {
 } from './symposium-custodian-authority.js';
 import express from 'express';
 import { z } from 'zod';
-import type { AuthSession } from './auth.js';
+import type { AuthSession } from './operator-session.js';
 import {
   requireSameOriginJson,
   requireRecentConnectionAuthorization,
   recentAppReauthorizationHandlers,
   recentAuthorizationExpiry,
-} from './connections-router.js';
+} from './operator-request-authorization.js';
 import type { PublicationRegistration } from './symposium-publication-registration.js';
 import type { CapabilityApproval } from './connections/capabilities/types.js';
 const log = createLogger('symposium-publication-routes');
@@ -35,6 +35,7 @@ const principal = z.strictObject({
 export function createPublicationRouter(deps: {
   registration(): PublicationRegistration | undefined;
   hasSession(id: string): boolean;
+  onConsentInvalidated?(sessionId: string, connectionId: string): void;
   onPublicationCompleted?(
     sessionId: string,
     publication: { repositoryPath: string; baseBranch: string },
@@ -200,7 +201,8 @@ export function createPublicationRouter(deps: {
       .strictObject({ connectionId: id, revision: z.number().int().positive() })
       .parse(req.body);
     runtime.custodian.disconnect(input.connectionId, input.revision);
-    return { disconnected: true };
+    deps.onConsentInvalidated?.(String(req.params.id), input.connectionId);
+    return { disconnected: true, connectionId: input.connectionId };
   });
   route('/preview', async (runtime, req, session, signal) => {
     const scope = {
@@ -225,8 +227,9 @@ export function createPublicationRouter(deps: {
   });
   route('/revoke', async (runtime, req, session) => {
     const input = z.strictObject({ grantId: id }).parse(req.body);
-    runtime.authority.revoke(input.grantId, session.id, String(req.params.id));
-    return { revoked: true };
+    const revoked = runtime.authority.revoke(input.grantId, session.id, String(req.params.id));
+    deps.onConsentInvalidated?.(String(req.params.id), revoked.connectionId);
+    return { revoked: true, connectionId: revoked.connectionId };
   });
   route('/publish', async (runtime, req, session, signal) => {
     const input = z

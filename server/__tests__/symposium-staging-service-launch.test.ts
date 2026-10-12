@@ -60,6 +60,7 @@ function fixture(canonical = false) {
     'symposium-staging-runtime-contract',
     'symposium-owned-runtime-contract',
     'symposium-staging-registry',
+    'staging-contained-native-disposition',
     'symposium-custodian-retirement',
     'symposium-owned-config-schema',
     'symposium-owned-network-config',

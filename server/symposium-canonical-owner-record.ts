@@ -16,6 +16,10 @@ import { execFileSync } from 'node:child_process';
 import type { OwnedReleasePlan } from './symposium-owned-release.js';
 import type { OriginalSymposiumControllerIdentity } from './symposium-canonical-owner-identity.js';
 import { CanonicalOwnerSchema, type CanonicalOwner } from './symposium-canonical-control.js';
+import {
+  captureOriginalStagingAppSource,
+  type OriginalStagingAppSourceWitness,
+} from './staging-native-app-witness.js';
 export function readCanonicalPrivateJson(path: string): unknown {
   const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
   try {
@@ -57,6 +61,7 @@ export function observeCanonicalProcess(pid: number): CanonicalOwner['app'] {
 export function createCanonicalOwnerRecorder(
   plan: OwnedReleasePlan,
   observe = observeCanonicalProcess,
+  acceptedAppSource?: OriginalStagingAppSourceWitness,
 ) {
   const directory = plan.planDirectory;
   const s = lstatSync(directory);
@@ -79,12 +84,22 @@ export function createCanonicalOwnerRecorder(
       identity.scope !== 'fresh-retained-sessions'
     )
       throw Error('Original launcher identity required');
+    const source = acceptedAppSource
+      ? captureOriginalStagingAppSource(acceptedAppSource, plan.sourceCommit!, identity.instanceId)
+      : undefined;
+    if (
+      source &&
+      (source.epoch !== identity.epoch ||
+        source.controllerPid !== identity.controllerPid ||
+        source.custodianPid !== identity.custodianPid)
+    )
+      throw Error('Original accepted app witness differs from actual controller');
     const parent = observe(identity.custodianPid),
       app = observe(identity.controllerPid);
     if (
       app.parentPid !== parent.pid ||
       parent.cwd !== plan.releaseRoot ||
-      app.cwd !== plan.releaseRoot
+      app.cwd !== (source?.appRoot ?? plan.releaseRoot)
     )
       throw Error('Original process topology changed');
     const owner = CanonicalOwnerSchema.parse({
@@ -97,6 +112,7 @@ export function createCanonicalOwnerRecorder(
       capturedAt: Date.now(),
       parent: { pid: parent.pid, birth: parent.birth, cwd: parent.cwd },
       app,
+      ...(source ? { acceptedAppSource: source } : {}),
     });
     if (
       previous &&

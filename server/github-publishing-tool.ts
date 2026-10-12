@@ -21,7 +21,17 @@ import {
 } from './capability-conversation-binding.js';
 import { capabilityApprovalForConversation } from './connections/capabilities/approval.js';
 import { canonicalJson } from './connections/capabilities/input-validation.js';
-export const REQUEST_GITHUB_PUBLISH = 'RequestGithubPublish';
+import {
+  GithubPublishingFields,
+  GithubPublishingInput as Input,
+  githubPublishingDefinition,
+  REQUEST_GITHUB_PUBLISH,
+} from './github-publishing-definition.js';
+export {
+  GithubPublishingFields,
+  githubPublishingDefinition,
+  REQUEST_GITHUB_PUBLISH,
+} from './github-publishing-definition.js';
 // Shared across runtime replacements; closing one runtime cannot release its active operation.
 const publishingAdmissions = new Set<string>();
 interface OperatorPublishingRegistration {
@@ -61,20 +71,6 @@ export async function requestOperatorGithubPublication(
     callId: randomUUID(),
   });
 }
-export const GithubPublishingFields = {
-  repositoryPath: z.string().min(1).max(256),
-  baseBranch: z.string().min(1).max(128),
-  title: z.string().min(1).max(128),
-  body: z.string().max(512),
-  draft: z.boolean(),
-};
-const Input = z.object(GithubPublishingFields).strict();
-export const githubPublishingDefinition: ToolDefinition = {
-  name: REQUEST_GITHUB_PUBLISH,
-  description:
-    'Request approval to publish committed workspace changes to a GitHub feature branch and create or update its pull request. Mitzo resolves the GitHub repository from the current workspace and selects its configured connection for this session account. It asks the user for repository-specific access when needed. Credentials remain on the controller. Supply the absolute local repository path inside the current workspace, base branch, title, body and draft choice; do not use direct GitHub writes.',
-  input_schema: z.toJSONSchema(Input),
-};
 export const GITHUB_PUBLISHING_INSTRUCTIONS =
   '\nUse RequestGithubPublish to publish committed local changes to a GitHub feature branch and pull request. This tool is available across account runtimes and routes the request to the user for approval. It resolves access for the current AI account; a provider being read-only does not mean this approval-backed tool is unavailable. If a managed GitHub connection is missing, explain the returned setup requirement and preserve the local commit. Do not substitute direct git push or gh API writes after denial.\n';
 export type GithubPublishingSource =
@@ -213,16 +209,18 @@ export function createGithubPublishingTool(
             toolUseID: randomUUID(),
             forcePrompt: true,
             allowSessionGrant: false,
-            approvalScope: 'request',
+            rememberSessionGrant: false,
+            approvalScope: 'session',
+            sessionGrantDescription: `Publishing requests for ${repository} through this exact managed GitHub connection and its configured branch scope. Each publication rechecks workspace, repository, branch, account, and connection policy.`,
             title: `Allow publishing requests for ${repository}?`,
             description:
-              'Enables the selected AI account to request publication for this repository within the configured branch scope. Each publication still requires its own approval.',
+              'Enables the selected AI account to request publication for this repository within the configured branch scope. You may also allow the reviewed publication operation scope for this session when approving a publication.',
           },
         );
         signal.throwIfAborted();
         if (decision.behavior !== 'allow')
           return {
-            content: 'GitHub publishing access declined. Local changes are preserved.',
+            content: `${decision.message}. Local changes are preserved.`,
             isError: true,
           };
         const approvedRepository = await runtime.resolveGithubPublishingRepository(

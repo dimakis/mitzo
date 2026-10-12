@@ -178,6 +178,7 @@ const env = {
   TMPDIR: '/private/tmp',
   LANG: 'en_US.UTF-8',
   NODE_ENV: 'development',
+  NODE_OPTIONS: '--max-old-space-size=1024',
   DOTENV_CONFIG_PATH: '/dev/null',
   PORT: '3190',
   MITZO_BIND_HOST: '127.0.0.1',

@@ -998,14 +998,25 @@ export function assertOpaqueContainmentManifest(manifest, unit) {
   )
     throw Error('Whole opaque unit manifest changed');
 }
-async function inspectPhysicalBoundary(plan, invalidatedControls, contained, replacementApp) {
+async function inspectPhysicalBoundary(
+  plan,
+  invalidatedControls,
+  contained,
+  replacementApp,
+  verifyExecutingSource,
+) {
   const facts = plan.facts,
     unit = facts.units[0],
     invalidated = invalidatedSet(invalidatedControls);
-  await qualifyOfflineContainmentController({
-    canonicalRoot: facts.canonicalRoot,
-    sourceRoot: resolve(fileURLToPath(new URL('../..', import.meta.url))),
-  });
+  if (verifyExecutingSource) {
+    if (typeof verifyExecutingSource !== 'function')
+      throw Error('Original source witness required');
+    await verifyExecutingSource();
+  } else
+    await qualifyOfflineContainmentController({
+      canonicalRoot: facts.canonicalRoot,
+      sourceRoot: resolve(fileURLToPath(new URL('../..', import.meta.url))),
+    });
   const { bytes, hash } = await import('./staging-cold-audit.mjs');
   const absent = (path) => !lstatSync(path, { throwIfNoEntry: false });
   const boot = successful('/usr/sbin/sysctl', ['-n', 'kern.bootsessionuuid']);
@@ -1107,12 +1118,77 @@ export async function assertOfflineContainmentBeforeMove(
 ) {
   assertBoundProposal(plan);
   invalidatedSet(invalidatedControls);
-  await (deps.inspect ?? inspectPhysicalBoundary)(plan, invalidatedControls, false);
+  if (deps.verifyExecutingSource)
+    await (deps.inspect ?? inspectPhysicalBoundary)(
+      plan,
+      invalidatedControls,
+      false,
+      undefined,
+      deps.verifyExecutingSource,
+    );
+  else await (deps.inspect ?? inspectPhysicalBoundary)(plan, invalidatedControls, false);
 }
 export async function assertOfflineContainmentContained(plan, intent, deps = {}) {
   assertBoundProposal(plan);
   if (intent?.planSha256 !== plan.sha256) throw Error('Exact durable containment intent required');
   await (deps.inspect ?? inspectPhysicalBoundary)(plan, ['app', 'vm_supervisor'], true);
+}
+
+/** Independent old-archive inspection for a NEW reviewed operator protocol.
+ * Current canonical registration/native ownership must be checked independently
+ * by that protocol. This reads the complete old closure; it grants no admission,
+ * retirement, capacity, guard ownership or permission to revive archived state. */
+export async function assertArchivedOfflineContainmentPhysicalClosure(plan) {
+  assertBoundProposal(plan);
+  const facts = plan.facts,
+    unit = facts.units[0];
+  const { bytes, hash } = await import('./staging-cold-audit.mjs');
+  if (successful('/usr/sbin/sysctl', ['-n', 'kern.bootsessionuuid']) !== facts.currentBoot.id)
+    throw Error('Archived containment boot changed; separately reviewed reconciliation required');
+  for (const control of facts.controls) {
+    const stat = lstatSync(control.archivePath);
+    if (
+      !stat.isFile() ||
+      stat.isSymbolicLink() ||
+      stat.nlink !== 1 ||
+      stat.uid !== control.uid ||
+      (stat.mode & 0o777) !== control.mode ||
+      realpathSync(control.archivePath) !== control.archivePath ||
+      hash(bytes(control.archivePath)) !== control.sha256
+    )
+      throw Error('Archived original control changed');
+  }
+  for (const pin of facts.nativeHelpers)
+    if (realpathSync(pin.path) !== pin.path || hash(bytes(pin.path)) !== pin.sha256)
+      throw Error('Archived route native helper changed');
+  const opaque = unit.archivePath;
+  if (lstatSync(join(opaque, 'state/gateway/custodian-retirement.json'), { throwIfNoEntry: false }))
+    throw Error('Original native retirement evidence requires separate reconciliation');
+  assertOpaqueContainmentManifest(inspectOpaqueContainmentTree(opaque), unit);
+  assertScopedNoOpenHandles(
+    command('/usr/sbin/lsof', scopedLsofArguments([opaque], true), undefined, true),
+  );
+  assertScopedNoOpenHandles(
+    command(
+      '/usr/sbin/lsof',
+      scopedLsofArguments(facts.controls.map((c) => c.archivePath)),
+      undefined,
+      true,
+    ),
+  );
+  assertNoScopedMountAliases(successful('/sbin/mount', []), [opaque, dirname(facts.archiveRoot)]);
+  const machineFile = join(
+    opaque,
+    'home/.config/containers/podman/machine/applehv/mitzo-symposium-staging.json',
+  );
+  assertPublicVmMetadataPath(machineFile, opaque);
+  if (hash(bytes(machineFile)) !== OFFLINE_CONTAINMENT_NATIVE_TARGET.machineSha256)
+    throw Error('Archived original machine definition changed');
+  const definition = JSON.parse(bytes(machineFile));
+  validateAppleHvContainmentMachine(definition, facts.canonicalRoot);
+  await observeStoppedAppleHvEndpoint(definition.AppleHypervisor.Vfkit.Endpoint);
+  // Full bytes again after asynchronous endpoint inspection, never timestamps.
+  assertOpaqueContainmentManifest(inspectOpaqueContainmentTree(opaque), unit);
 }
 
 function assertOrdinaryReplacementProof(proof) {
@@ -1215,7 +1291,7 @@ async function inspectReplacementBinding(proof) {
 /** Capture the independently reviewed replacement at construction. Changing a
  * caller record later cannot broaden the old-resource containment inspection. */
 export function createOfflineContainmentInspectionOwner(
-  { replacementApp, verifyCurrentSource } = {},
+  { replacementApp, verifyCurrentSource, verifyExecutingSource } = {},
   deps = {},
 ) {
   if (replacementApp && typeof verifyCurrentSource !== 'function')
@@ -1227,7 +1303,8 @@ export function createOfflineContainmentInspectionOwner(
     Object.freeze(captured);
   }
   return Object.freeze({
-    assertBeforeMove: (plan, phase) => assertOfflineContainmentBeforeMove(plan, phase, deps),
+    assertBeforeMove: (plan, phase) =>
+      assertOfflineContainmentBeforeMove(plan, phase, { ...deps, verifyExecutingSource }),
     async assertContained(plan, intent) {
       assertBoundProposal(plan);
       if (intent?.planSha256 !== plan.sha256)
@@ -1238,6 +1315,7 @@ export function createOfflineContainmentInspectionOwner(
         ['app', 'vm_supervisor'],
         true,
         captured,
+        verifyExecutingSource,
       );
     },
   });

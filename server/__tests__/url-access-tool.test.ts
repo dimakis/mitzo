@@ -170,7 +170,7 @@ it('cancels a URL request while name resolution is pending', async () => {
   expect(approve).not.toHaveBeenCalled();
 });
 
-it.each(['account', 'model'])(
+it.each(['account'])(
   'never revives URL approval after an observed %s switch back',
   async (selection) => {
     const f = fixture();
@@ -193,7 +193,7 @@ it.each(['account', 'model'])(
   },
 );
 
-it('invalidates all URL approvals at a model-selection transition without a fetch', async () => {
+it('invalidates all URL approvals after explicit revocation without a fetch', async () => {
   const f = fixture();
   approve.mockImplementation(async (_name, input) => ({ behavior: 'allow', updatedInput: input }));
   const input = { operation: 'request_access', url: 'https://example.com/', reason: 'why' };
@@ -307,4 +307,179 @@ it('returns only fixed granted read errors to the UI and agent', async () => {
   f.fetch.mockRejectedValueOnce(new Error('secret credential'));
   const result = await f.tool.fetch(input.url, new AbortController().signal);
   expect(result?.content).not.toContain('secret');
+});
+
+it('keeps a selected session origin grant past fifteen minutes and revokes it explicitly', async () => {
+  const f = fixture();
+  approve.mockImplementation(async (_name, input) => ({
+    behavior: 'allow',
+    updatedInput: input,
+    decisionClassification: 'user_permanent',
+  }));
+  const input = {
+    operation: 'request_access',
+    url: 'https://example.com/page',
+    reason: 'Read evidence',
+  };
+  const signal = new AbortController().signal;
+  expect(await f.tool.request(input, signal)).toMatchObject({ isError: false });
+  f.expire();
+  expect(await f.tool.fetch('https://example.com/other', signal)).toMatchObject({ isError: false });
+  expect(
+    await f.tool.request({ ...input, url: 'https://example.com/third' }, signal),
+  ).toMatchObject({ isError: false });
+  expect(approve).toHaveBeenCalledOnce();
+  expect(approve.mock.calls[0][2]).toMatchObject({
+    approvalScope: 'session',
+    rememberSessionGrant: false,
+    sessionGrantDescription: expect.stringContaining('https://example.com'),
+  });
+  await f.tool.request({ ...input, operation: 'revoke_access' }, signal);
+  expect(await f.tool.fetch(input.url, signal)).toBeUndefined();
+  await f.tool.request(input, signal);
+  expect(approve).toHaveBeenCalledTimes(2);
+});
+
+it('keeps nonbillable origin consent across model selection and transport recreation', async () => {
+  const f = fixture();
+  approve.mockImplementation(async (_name, input) => ({
+    behavior: 'allow',
+    updatedInput: input,
+    decisionClassification: 'user_permanent',
+  }));
+  const signal = new AbortController().signal;
+  const input = { operation: 'request_access', url: 'https://example.com/page', reason: 'Read' };
+  await f.tool.request(input, signal);
+  f.session.model = 'another-model';
+  f.session.accountBinding!.model = 'another-model';
+  expect(await f.tool.fetch(input.url, signal)).toMatchObject({ isError: false });
+  await f.tool.request(input, signal);
+  expect(approve).toHaveBeenCalledOnce();
+});
+
+it('shares matching simultaneous destination approvals while keeping waiter cancellation independent', async () => {
+  const f = fixture();
+  let finish!: (value: unknown) => void;
+  approve.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const input = { operation: 'request_access', url: 'https://example.com/a', reason: 'why' };
+  const firstSignal = new AbortController();
+  const first = f.tool.request(input, firstSignal.signal);
+  const second = f.tool.request(
+    { ...input, url: 'https://example.com/b' },
+    new AbortController().signal,
+  );
+  await vi.waitFor(() => expect(approve).toHaveBeenCalledOnce());
+  firstSignal.abort();
+  expect(await first).toMatchObject({ isError: true });
+  expect(approve.mock.calls[0][2].signal.aborted).toBe(false);
+  finish({
+    behavior: 'allow',
+    updatedInput: approve.mock.calls[0][1],
+    decisionClassification: 'user_permanent',
+  });
+  expect(await second).toMatchObject({ isError: false });
+  expect(approve).toHaveBeenCalledOnce();
+});
+
+it('does not share changed resolved address scopes', async () => {
+  const f = fixture();
+  f.resolve.mockResolvedValueOnce({
+    url: 'https://example.com/a',
+    origin: 'https://example.com',
+    addresses: [{ address: '127.0.0.1', family: 4 }],
+  });
+  f.resolve.mockResolvedValueOnce({
+    url: 'https://example.com/b',
+    origin: 'https://example.com',
+    addresses: [{ address: '127.0.0.2', family: 4 }],
+  });
+  approve.mockImplementation(async (_name, input) => ({ behavior: 'allow', updatedInput: input }));
+  await Promise.all(
+    ['/a', '/b'].map((path) =>
+      f.tool.request(
+        { operation: 'request_access', url: 'https://example.com' + path, reason: 'why' },
+        new AbortController().signal,
+      ),
+    ),
+  );
+  expect(approve).toHaveBeenCalledTimes(2);
+});
+
+it('cannot resurrect a revoked shared approval and checks each waiter policy', async () => {
+  const f = fixture();
+  let finish!: (value: unknown) => void;
+  approve.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const input = { operation: 'request_access', url: 'https://example.com/a', reason: 'why' };
+  const pending = [
+    f.tool.request(input, new AbortController().signal),
+    f.tool.request({ ...input, url: 'https://example.com/b' }, new AbortController().signal),
+  ];
+  await vi.waitFor(() => expect(approve).toHaveBeenCalledOnce());
+  await f.tool.request({ ...input, operation: 'revoke_access' }, new AbortController().signal);
+  finish({
+    behavior: 'allow',
+    updatedInput: approve.mock.calls[0][1],
+    decisionClassification: 'user_permanent',
+  });
+  for (const result of await Promise.all(pending)) expect(result).toMatchObject({ isError: true });
+  expect(await f.tool.fetch(input.url, new AbortController().signal)).toBeUndefined();
+});
+
+it('rechecks current eligibility for all callers after shared consent', async () => {
+  const f = fixture();
+  let finish!: (value: unknown) => void;
+  approve.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const input = { operation: 'request_access', url: 'https://example.com/a', reason: 'why' };
+  const pending = [
+    f.tool.request(input, new AbortController().signal),
+    f.tool.request(input, new AbortController().signal),
+  ];
+  await vi.waitFor(() => expect(approve).toHaveBeenCalledOnce());
+  f.session.mode = 'ask';
+  finish({
+    behavior: 'allow',
+    updatedInput: approve.mock.calls[0][1],
+    decisionClassification: 'user_permanent',
+  });
+  for (const result of await Promise.all(pending)) expect(result).toMatchObject({ isError: true });
+  expect(await f.tool.fetch(input.url, new AbortController().signal)).toBeUndefined();
+});
+
+it('does not recreate a first pending origin after session access is cleared and account switches back', async () => {
+  const f = fixture();
+  let finish!: (value: unknown) => void;
+  approve.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const input = { operation: 'request_access', url: 'https://example.com/a', reason: 'why' };
+  const result = f.tool.request(input, new AbortController().signal);
+  await vi.waitFor(() => expect(approve).toHaveBeenCalledOnce());
+  clearUrlAccessGrants(f.session);
+  f.session.accountBinding!.accountId = 'other';
+  f.session.accountBinding!.accountId = 'a';
+  finish({
+    behavior: 'allow',
+    updatedInput: approve.mock.calls[0][1],
+    decisionClassification: 'user_permanent',
+  });
+  expect(await result).toMatchObject({ isError: true });
+  expect(await f.tool.fetch(input.url, new AbortController().signal)).toBeUndefined();
 });

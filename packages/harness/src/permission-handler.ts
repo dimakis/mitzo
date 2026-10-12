@@ -2,14 +2,14 @@ import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import type { PermissionRequest, UserQuestion } from '@mitzo/protocol';
 import type { PermissionResult } from '@anthropic-ai/claude-agent-sdk';
-import { registerPending, resolvePending, hasPending } from './permissions.js';
+import { registerPending, resolvePending, removePending, hasPending } from './permissions.js';
 import { sendPermissionNotification, isConfigured as ntfyConfigured } from './notify.js';
 import {
   sendPermissionNotification as pushoverSendPermission,
   isConfigured as pushoverConfigured,
 } from './pushover.js';
 import { getToolTier, isReadOnlyTool, shouldAutoAllow } from './tool-tiers.js';
-import { summarizeToolInput } from '@mitzo/protocol';
+import { sessionApprovalServer, summarizeToolInput } from '@mitzo/protocol';
 import { checkSkillPolicy } from './skill-policy.js';
 import { checkWorktreePolicy, type OnDemandCreateFn } from './worktree-guard.js';
 import { PERMISSION_TIMEOUT_MS, NTFY_NOTIFICATION_DELAY_MS } from './constants.js';
@@ -91,10 +91,8 @@ function transportSend(transport: SessionTransport, data: Record<string, unknown
 }
 
 function getMcpPrefix(toolName: string): string | null {
-  if (!toolName.startsWith('mcp__')) return null;
-  const parts = toolName.split('__');
-  if (parts.length >= 3) return `${parts[0]}__${parts[1]}__`;
-  return null;
+  const server = sessionApprovalServer(toolName);
+  return server ? `mcp__${server}__` : null;
 }
 
 function addToAllowList(allowList: Set<string>, toolName: string): void {
@@ -110,6 +108,26 @@ function isAllowListed(allowList: Set<string>, toolName: string): boolean {
   if (allowList.has(toolName)) return true;
   const mcpPrefix = getMcpPrefix(toolName);
   return mcpPrefix !== null && allowList.has(mcpPrefix);
+}
+
+interface PendingScopeApproval {
+  acceptRetainedGrant(): Promise<void>;
+}
+const pendingScopeApprovals = new WeakMap<object, Map<string, Set<PendingScopeApproval>>>();
+function trackScopeApproval(
+  session: object,
+  key: string,
+  approval: PendingScopeApproval,
+): () => void {
+  let scopes = pendingScopeApprovals.get(session);
+  if (!scopes) pendingScopeApprovals.set(session, (scopes = new Map()));
+  let approvals = scopes.get(key);
+  if (!approvals) scopes.set(key, (approvals = new Set()));
+  approvals.add(approval);
+  return () => {
+    approvals.delete(approval);
+    if (!approvals.size) scopes.delete(key);
+  };
 }
 
 export interface PermissionHandlerOptions {
@@ -135,6 +153,10 @@ export function buildPermissionHandler(
       forcePrompt?: boolean;
       /** Allow a forced prompt to honor an explicit session-wide grant. */
       allowSessionGrant?: boolean;
+      /** Server-owned operation/service identity; never taken from a permission response. */
+      sessionGrantKey?: string;
+      /** Plain description of the retained scope shown with the session choice. */
+      sessionGrantDescription?: string;
       /** The caller may store a narrower account-bound consent instead of a tool-wide grant. */
       rememberSessionGrant?: boolean;
       approvalScope?: 'session' | 'conversation' | 'request';
@@ -150,6 +172,12 @@ export function buildPermissionHandler(
   ): Promise<PermissionResult> => {
     const session = registry.get(clientId);
     if (!session) return { behavior: 'deny', message: 'Session not found' };
+    const currentClientId = (): string | undefined => {
+      if (!session.sessionId) return registry.get(clientId) === session ? clientId : undefined;
+      const owner = registry.findBySessionId(session.sessionId, true);
+      return owner?.session === session ? owner.clientId : undefined;
+    };
+    const grantKey = opts.sessionGrantKey ?? getMcpPrefix(toolName) ?? toolName;
 
     // Skill restrictions are checked FIRST — a safe-tier tool not in the
     // skill's allowed-tools list must be denied even if shouldAutoAllow
@@ -201,12 +229,14 @@ export function buildPermissionHandler(
       return { behavior: 'allow', updatedInput: _toolInput };
     }
 
-    // Exact-action and policy gates remain non-cacheable unless the caller
-    // explicitly declares that this forced prompt supports session-wide grants.
+    // A user session grant satisfies a forced ask prompt, while mode, skill and
+    // workspace checks still run first. Scoped adapters must supply their own key.
     if (
       !questions &&
-      (!opts.forcePrompt || opts.allowSessionGrant) &&
-      isAllowListed(session.sessionAllowList, toolName)
+      opts.allowSessionGrant !== false &&
+      (opts.sessionGrantKey
+        ? session.sessionAllowList.has(opts.sessionGrantKey)
+        : isAllowListed(session.sessionAllowList, toolName))
     ) {
       return {
         behavior: 'allow',
@@ -233,32 +263,41 @@ export function buildPermissionHandler(
       const permId = `perm-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
       let resolutionEvent = 'permission_resolved';
+      let untrackScope = () => {};
       let notificationTimer: ReturnType<typeof setTimeout> | undefined;
       const wrappedResolve = (result: PermissionResult) => {
         clearTimeout(timeout);
         clearTimeout(notificationTimer);
         opts.signal.removeEventListener('abort', onAbort);
+        untrackScope();
         // An approval cannot override a later mode downgrade or skill ceiling.
         if (result.behavior === 'allow') {
+          const activeClient = currentClientId();
           const modeDenial = askDenial();
-          if (modeDenial) result = modeDenial;
+          if (!activeClient)
+            result = { behavior: 'deny', message: 'Session permissions changed; retry the tool' };
+          else if (modeDenial) result = modeDenial;
           else if (
             !opts.controlPlane &&
-            checkSkillPolicy(registry, clientId, toolName) === 'deny'
+            checkSkillPolicy(registry, activeClient, toolName) === 'deny'
           ) {
             result = { behavior: 'deny', message: 'Tool not allowed by active skill policy' };
           }
         }
         if (
+          opts.allowSessionGrant !== false &&
           opts.rememberSessionGrant !== false &&
           result.behavior === 'allow' &&
           result.decisionClassification === 'user_permanent'
         ) {
-          addToAllowList(session.sessionAllowList, toolName);
+          if (opts.sessionGrantKey) session.sessionAllowList.add(opts.sessionGrantKey);
+          else addToAllowList(session.sessionAllowList, toolName);
+          for (const pending of pendingScopeApprovals.get(session)?.get(grantKey) ?? [])
+            void pending.acceptRetainedGrant();
         }
         const resolved = { type: resolutionEvent, permId, sessionId: session.sessionId };
-        transportSend(session.transport, resolved);
-        for (const observer of session.observers) transportSend(observer, resolved);
+        for (const transport of new Set([session.transport, ...session.observers]))
+          transportSend(transport, resolved);
         resolve(result);
         return result;
       };
@@ -266,7 +305,11 @@ export function buildPermissionHandler(
       const onAbort = () => {
         if (hasPending(permId)) {
           resolutionEvent = 'permission_timeout';
-          resolvePending(permId, 'deny');
+          removePending(permId);
+          wrappedResolve({
+            behavior: 'deny',
+            message: 'Tool approval cancelled because the operation was aborted',
+          });
         }
       };
       opts.signal.addEventListener('abort', onAbort, { once: true });
@@ -279,7 +322,11 @@ export function buildPermissionHandler(
         description: opts.description,
         displayName: opts.displayName,
         tier,
-        approvalScope: opts.approvalScope,
+        approvalScope:
+          opts.approvalScope ?? (opts.allowSessionGrant === false ? 'request' : 'session'),
+        ...(opts.sessionGrantDescription
+          ? { sessionGrantDescription: opts.sessionGrantDescription }
+          : {}),
         sessionId: session.sessionId,
         expiresAt: Date.now() + PERMISSION_TIMEOUT_MS,
         ...(questions ? { questions } : {}),
@@ -308,10 +355,63 @@ export function buildPermissionHandler(
       const timeout = setTimeout(() => {
         if (hasPending(permId)) {
           resolutionEvent = 'permission_timeout';
-          resolvePending(permId, 'deny');
+          removePending(permId);
+          wrappedResolve({
+            behavior: 'deny',
+            message: 'Tool approval expired without a response; request approval again',
+          });
         }
       }, PERMISSION_TIMEOUT_MS);
-      transportSend(session.transport, { type: 'permission_request', ...request });
+      if (!questions && opts.allowSessionGrant !== false && opts.rememberSessionGrant !== false) {
+        let accepting = false;
+        untrackScope = trackScopeApproval(session, grantKey, {
+          async acceptRetainedGrant() {
+            if (accepting) return;
+            accepting = true;
+            try {
+              if (!hasPending(permId) || !session.sessionAllowList.has(grantKey)) return;
+              if (request.expiresAt! <= Date.now()) {
+                resolvePending(permId, 'always', undefined, session.sessionId);
+                return;
+              }
+              const workspaceSnapshot = () =>
+                JSON.stringify(
+                  [...session.worktreePaths.entries()]
+                    .map(([name, worktree]) => [name, worktree.path, worktree.wtId])
+                    .sort(([left], [right]) => left!.localeCompare(right!)),
+                );
+              const checkedWorkspace = workspaceSnapshot();
+              const violation = await checkWorktreePolicy(session, toolName, _toolInput);
+              const workspaceChanged = checkedWorkspace !== workspaceSnapshot();
+              if (!hasPending(permId)) return;
+              if (violation || workspaceChanged || !currentClientId()) {
+                resolvePending(
+                  permId,
+                  'deny',
+                  undefined,
+                  session.sessionId,
+                  violation ?? 'Session permissions changed; retry the tool',
+                );
+              } else if (session.sessionAllowList.has(grantKey)) {
+                resolvePending(permId, 'always', undefined, session.sessionId);
+              }
+            } catch {
+              if (hasPending(permId)) {
+                resolvePending(
+                  permId,
+                  'deny',
+                  undefined,
+                  session.sessionId,
+                  'Permission revalidation failed; retry the tool',
+                );
+              }
+            }
+          },
+        });
+      }
+      const event = { type: 'permission_request', ...request };
+      for (const transport of new Set([session.transport, ...session.observers]))
+        transportSend(transport, event);
     });
   };
 }

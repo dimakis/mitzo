@@ -44,6 +44,47 @@ it('recognizes the original parent and its exact app child without equating laun
   const f = fixture();
   expect(() => assertCanonicalOwnerRuntime(plan, f.owner, f.registry, f.runtime)).not.toThrow();
 });
+it('requires independent physical compatibility for paired app source while preserving original native registry identity', () => {
+  const f = fixture(),
+    appCommit = 'd'.repeat(40),
+    appRoot = '/private/stage/releases/' + appCommit.slice(0, 12);
+  const acceptedAppSource = {
+    nativeSourceCommit: plan.sourceCommit!,
+    acceptedAppCommit: appCommit,
+    appRoot,
+    instanceId: f.owner.instanceId,
+    custodianPid: f.owner.parent.pid,
+    controllerPid: f.owner.app.pid,
+    epoch: f.owner.epoch,
+    compatibilitySha256: 'e'.repeat(64),
+  };
+  const owner = { ...f.owner, app: { ...f.owner.app, cwd: appRoot }, acceptedAppSource };
+  const runtime = { ...f.runtime, app: { ...f.runtime.app, cwd: appRoot } };
+  expect(() => assertCanonicalOwnerRuntime(plan, owner, f.registry, runtime)).toThrow(
+    'Independently verified',
+  );
+  expect(() =>
+    assertCanonicalOwnerRuntime(plan, owner, f.registry, runtime, () => {}),
+  ).not.toThrow();
+  expect(() =>
+    assertCanonicalOwnerRuntime(plan, owner, f.registry, runtime, () => {
+      throw Error('physical closure changed');
+    }),
+  ).toThrow('closure changed');
+  expect(() => assertCanonicalOwnerRuntime(plan, owner, f.registry, runtime, () => true)).toThrow(
+    'synchronous',
+  );
+  expect(() =>
+    assertCanonicalOwnerRuntime(
+      plan,
+      { ...owner, acceptedAppSource: { ...acceptedAppSource, epoch: 3 } },
+      f.registry,
+      runtime,
+      () => {},
+    ),
+  ).toThrow();
+  expect(f.registry.sourceCommit).toBe(plan.sourceCommit);
+});
 it.each([
   'parent-reused',
   'child-reused',

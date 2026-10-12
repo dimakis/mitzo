@@ -15,6 +15,9 @@ it('selects a bounded original readiness wait only from a trusted canonical cons
     custodianAppEnvironment(source, { awaitOriginalReadiness: true })
       .MITZO_SYMPOSIUM_AWAIT_ORIGINAL_READINESS,
   ).toBe('1');
+  expect(
+    custodianAppEnvironment({ ...source, NODE_OPTIONS: '--require=/ambient/code.js' }).NODE_OPTIONS,
+  ).toBe('--max-old-space-size=1024');
   expect(() =>
     custodianAppEnvironment({ ...source, PORT: '3100' }, { awaitOriginalReadiness: true }),
   ).toThrow();

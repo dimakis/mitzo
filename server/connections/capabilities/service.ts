@@ -441,6 +441,7 @@ export class CapabilityService {
           capabilityId: template.id,
           capabilityVersion: template.version,
           connectionId: connection.id,
+          connectionRevision: connection.revision,
           operationId: operation.id,
           input: approvalInput,
           forcePrompt: true,

@@ -278,7 +278,7 @@ export class NotificationCenter {
                   ? 'Mitzo has a question'
                   : 'Mitzo update',
           body: quickApproval
-            ? `${item.body}\n${item.request!.toolName}\n${item.request!.toolInput}`
+            ? `${item.body}\n${item.request!.toolName}\n${item.request!.toolInput}\n${item.request!.sessionGrantDescription ?? 'Allow for session keeps this approval until the session ends.'}`
             : prefs.sensitivePreviews || item.kind === 'test'
               ? item.body
               : 'Open Mitzo to review this notification.',
@@ -288,7 +288,13 @@ export class NotificationCenter {
             type: item.kind,
             sessionId: item.sessionId,
             ...(quickApproval
-              ? { approvalInput: item.request!.toolInput, approvalToolName: item.request!.toolName }
+              ? {
+                  approvalInput: item.request!.toolInput,
+                  approvalToolName: item.request!.toolName,
+                  ...(item.request!.sessionGrantDescription
+                    ? { approvalSessionGrantDescription: item.request!.sessionGrantDescription }
+                    : {}),
+                }
               : {}),
           },
           category: item.permId
@@ -304,6 +310,7 @@ export class NotificationCenter {
         if (quickApproval && Buffer.byteLength(JSON.stringify(message), 'utf8') > 3000) {
           message.category = 'SESSION_PERMISSION';
           message.body = item.body;
+          delete message.data.approvalSessionGrantDescription;
           delete message.data.approvalInput;
           delete message.data.approvalToolName;
         }

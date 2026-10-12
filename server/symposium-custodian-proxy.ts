@@ -1,12 +1,16 @@
 import type { CapabilityApproval } from './connections/capabilities/types.js';
 import { randomUUID } from 'node:crypto';
 import type { Request, RequestHandler } from 'express';
-import { operatorAuthMiddleware, registerAuthSession, type AuthSession } from './auth.js';
+import {
+  operatorAuthMiddleware,
+  registerAuthSession,
+  type AuthSession,
+} from './operator-session.js';
 import {
   requireSameOriginJson,
   requireRecentConnectionAuthorization,
   recentAuthorizationExpiry,
-} from './connections-router.js';
+} from './operator-request-authorization.js';
 import {
   decodeCustodianRequest,
   selectCustodianOperation,
@@ -28,6 +32,7 @@ export function createCustodianProxy(
     auth: AuthSession,
     sessionId: string,
   ) => CapabilityApproval | undefined,
+  publicationConsentInvalidated?: (sessionId: string, connectionId: string) => void,
 ): RequestHandler {
   return (req, res, next) => {
     const selected = selectCustodianOperation(req.method, req.path);
@@ -139,6 +144,18 @@ export function createCustodianProxy(
           if (invalidated || auth.expiresAt <= Date.now()) {
             res.status(403).json({ error: 'Operator authorization expired or revoked' });
             return;
+          }
+          const effect = result.body as Record<string, unknown> | null;
+          if (
+            result.status >= 200 &&
+            result.status < 300 &&
+            input.sessionId &&
+            effect &&
+            typeof effect.connectionId === 'string' &&
+            ((input.operation === 'publication.revoke' && effect.revoked === true) ||
+              (input.operation === 'publication.disconnect' && effect.disconnected === true))
+          ) {
+            publicationConsentInvalidated?.(input.sessionId, effect.connectionId);
           }
           res.status(result.status).json(result.body);
         } catch {

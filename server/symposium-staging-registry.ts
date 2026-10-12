@@ -4,6 +4,12 @@ import { isAbsolute, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { readCustodianRetirementReceipt } from './symposium-custodian-retirement.js';
+import {
+  consumeContainedNativeCapacityLease,
+  revokeContainedNativeCapacityLease,
+  CONTAINED_NATIVE_INCIDENT,
+} from './staging-contained-native-disposition.js';
+import { canonicalStagingRoot } from './symposium-staging-identity.js';
 
 const identifier = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_. -]{0,199}$/);
 const Registration = z.strictObject({
@@ -25,6 +31,46 @@ export interface StagingRecord extends StagingRegistration {
   controllerGeneration: number;
   retirementStateParent: string | null;
   completedAt: number | null;
+}
+/** Evidence routing only. Never reinterpret a preserved original logical path as
+ * new native inputs or reconstruct a live owner from retained metadata. */
+export function resolveStagingRecordInputs(
+  record: Pick<StagingRecord, 'launchId' | 'planDirectory' | 'sourceCommit' | 'state'>,
+  history?: {
+    recordJson: string;
+    classification: string;
+    archive: string;
+    operationId: string;
+    receiptSha256: string;
+  },
+) {
+  const root = canonicalStagingRoot();
+  if (record.launchId === CONTAINED_NATIVE_INCIDENT.launchId) {
+    if (
+      !history ||
+      history.recordJson !== JSON.stringify(record) ||
+      history.classification !== 'contained_offline_native_cleanup_unconfirmed' ||
+      !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(history.operationId) ||
+      history.archive !== root + '-quarantine/' + history.operationId ||
+      !/^[a-f0-9]{64}$/.test(history.receiptSha256) ||
+      record.planDirectory !== join(root, 'symposium/service') ||
+      record.sourceCommit !== CONTAINED_NATIVE_INCIDENT.sourceCommit ||
+      record.state !== 'retirement_uncertain'
+    )
+      throw Error(
+        'Retained original inputs require exact archived evidence; never resolve as live owner',
+      );
+    return {
+      kind: 'archived_evidence' as const,
+      planDirectory: join(history.archive, 'symposium/service'),
+      nativeAuthority: false as const,
+    };
+  }
+  return {
+    kind: 'retained_inputs' as const,
+    planDirectory: record.planDirectory,
+    nativeAuthority: false as const,
+  };
 }
 /** Operator ledger only. No record confers native custody, cleanup, or adoption.
  * Mutators are fresh process-local launcher closures; reopening exposes no adopt API. */
@@ -73,6 +119,110 @@ export function openStagingRegistry(directory: string, capacity: number) {
   }
   const list = () =>
     db.prepare('SELECT * FROM launches ORDER BY createdAt, launchId').all() as StagingRecord[];
+  const reserve = (value: StagingRegistration, now = Date.now(), dispositionLease?: unknown) => {
+    const input = Registration.parse(value);
+    if (input.reviewAfter <= now || input.reviewAfter > now + 7 * 86400_000)
+      throw Error('Retention review deadline must be within seven days');
+    const launchId = randomUUID();
+    db.transaction(() => {
+      const rows = list();
+      const excluded =
+        dispositionLease === undefined
+          ? undefined
+          : consumeContainedNativeCapacityLease(dispositionLease, directory, capacity, input, rows);
+      const retained = rows.filter((r) => r.state !== 'retired' && r.launchId !== excluded);
+      if (retained.some((r) => r.reviewAfter <= now))
+        throw Error('Review stale staging retention before launching');
+      if (retained.length >= capacity) throw Error('Staging capacity exhausted');
+      db.prepare(
+        `INSERT INTO launches
+          (launchId,planDirectory,ownerChat,purpose,retentionReason,reviewAfter,sourceCommit,buildSha256,configSha256,createdAt,state)
+          VALUES (@launchId,@planDirectory,@ownerChat,@purpose,@retentionReason,@reviewAfter,@sourceCommit,@buildSha256,@configSha256,@now,'launch_uncertain')`,
+      ).run({ ...input, launchId, now });
+    }).immediate();
+    let failed = false;
+    const update = (work: (r: StagingRecord) => void) => {
+      if (failed) throw Error('Staging recorder unavailable');
+      try {
+        db.transaction(() => {
+          const r = db
+            .prepare('SELECT * FROM launches WHERE launchId=?')
+            .get(launchId) as StagingRecord;
+          if (!r || r.state === 'retired') throw Error('Staging recorder is terminal');
+          work(r);
+        }).immediate();
+      } catch (error) {
+        // A validation refusal does not poison later uncertainty recording;
+        // SQLite failures fence further writes rather than silently retrying.
+        if (error instanceof Database.SqliteError) failed = true;
+        throw error;
+      }
+    };
+    return {
+      launchId,
+      controller(identity: { instanceId: string; epoch: number }) {
+        update((r) => {
+          if (
+            !['launch_uncertain', 'active'].includes(r.state) ||
+            !/^[A-Za-z0-9][A-Za-z0-9-]{0,127}$/.test(identity.instanceId) ||
+            !Number.isSafeInteger(identity.epoch) ||
+            identity.epoch <= r.controllerGeneration ||
+            (r.instanceId !== null && r.instanceId !== identity.instanceId)
+          )
+            throw Error('Staging original identity changed');
+          db.prepare(
+            "UPDATE launches SET state='active',instanceId=?,controllerGeneration=? WHERE launchId=?",
+          ).run(identity.instanceId, identity.epoch, launchId);
+        });
+      },
+      retiring(identity?: Readonly<{ instanceId: string; controllerGeneration: number }>) {
+        update((r) => {
+          if (identity) {
+            // Only the fresh original launcher closure receives this snapshot from
+            // its live custodian. Reconcile attach-before-hello; never adopt from a receipt.
+            if (
+              !['launch_uncertain', 'active'].includes(r.state) ||
+              !/^[A-Za-z0-9][A-Za-z0-9-]{0,127}$/.test(identity.instanceId) ||
+              !Number.isSafeInteger(identity.controllerGeneration) ||
+              identity.controllerGeneration < 1 ||
+              identity.controllerGeneration < r.controllerGeneration ||
+              (r.instanceId !== null && r.instanceId !== identity.instanceId)
+            )
+              throw Error('Staging retirement identity changed');
+            db.prepare(
+              "UPDATE launches SET state='retiring',instanceId=?,controllerGeneration=? WHERE launchId=?",
+            ).run(identity.instanceId, identity.controllerGeneration, launchId);
+          } else {
+            if (r.state !== 'active') throw Error('Staging retirement unavailable');
+            db.prepare("UPDATE launches SET state='retiring' WHERE launchId=?").run(launchId);
+          }
+        });
+      },
+      uncertain() {
+        update(() =>
+          db
+            .prepare("UPDATE launches SET state='retirement_uncertain' WHERE launchId=?")
+            .run(launchId),
+        );
+      },
+      retired(stateParent: string) {
+        update((r) => {
+          const receipt = readCustodianRetirementReceipt(stateParent);
+          if (!receipt) throw Error('Original retirement receipt required');
+          if (
+            r.state !== 'retiring' ||
+            receipt.instanceId !== r.instanceId ||
+            receipt.controllerGeneration !== r.controllerGeneration ||
+            receipt.completedAt < r.createdAt
+          )
+            throw Error('Retirement receipt identity mismatch');
+          db.prepare(
+            "UPDATE launches SET state='retired',retirementStateParent=?,completedAt=? WHERE launchId=?",
+          ).run(stateParent, receipt.completedAt, launchId);
+        });
+      },
+    };
+  };
   return {
     list,
     /** Closed local refusal evidence only; never a native retirement/adoption grant. */
@@ -82,104 +232,14 @@ export function openStagingRegistry(directory: string, capacity: number) {
       return db.prepare('SELECT * FROM qualified_cold_refusals ORDER BY launchId').all();
     },
     close: () => db.close(),
-    reserve(value: StagingRegistration, now = Date.now()) {
-      const input = Registration.parse(value);
-      if (input.reviewAfter <= now || input.reviewAfter > now + 7 * 86400_000)
-        throw Error('Retention review deadline must be within seven days');
-      const launchId = randomUUID();
-      db.transaction(() => {
-        const retained = list().filter((r) => r.state !== 'retired');
-        if (retained.some((r) => r.reviewAfter <= now))
-          throw Error('Review stale staging retention before launching');
-        if (retained.length >= capacity) throw Error('Staging capacity exhausted');
-        db.prepare(
-          `INSERT INTO launches
-          (launchId,planDirectory,ownerChat,purpose,retentionReason,reviewAfter,sourceCommit,buildSha256,configSha256,createdAt,state)
-          VALUES (@launchId,@planDirectory,@ownerChat,@purpose,@retentionReason,@reviewAfter,@sourceCommit,@buildSha256,@configSha256,@now,'launch_uncertain')`,
-        ).run({ ...input, launchId, now });
-      }).immediate();
-      let failed = false;
-      const update = (work: (r: StagingRecord) => void) => {
-        if (failed) throw Error('Staging recorder unavailable');
-        try {
-          db.transaction(() => {
-            const r = db
-              .prepare('SELECT * FROM launches WHERE launchId=?')
-              .get(launchId) as StagingRecord;
-            if (!r || r.state === 'retired') throw Error('Staging recorder is terminal');
-            work(r);
-          }).immediate();
-        } catch (error) {
-          // A validation refusal does not poison later uncertainty recording;
-          // SQLite failures fence further writes rather than silently retrying.
-          if (error instanceof Database.SqliteError) failed = true;
-          throw error;
-        }
-      };
-      return {
-        launchId,
-        controller(identity: { instanceId: string; epoch: number }) {
-          update((r) => {
-            if (
-              !['launch_uncertain', 'active'].includes(r.state) ||
-              !/^[A-Za-z0-9][A-Za-z0-9-]{0,127}$/.test(identity.instanceId) ||
-              !Number.isSafeInteger(identity.epoch) ||
-              identity.epoch <= r.controllerGeneration ||
-              (r.instanceId !== null && r.instanceId !== identity.instanceId)
-            )
-              throw Error('Staging original identity changed');
-            db.prepare(
-              "UPDATE launches SET state='active',instanceId=?,controllerGeneration=? WHERE launchId=?",
-            ).run(identity.instanceId, identity.epoch, launchId);
-          });
-        },
-        retiring(identity?: Readonly<{ instanceId: string; controllerGeneration: number }>) {
-          update((r) => {
-            if (identity) {
-              // Only the fresh original launcher closure receives this snapshot from
-              // its live custodian. Reconcile attach-before-hello; never adopt from a receipt.
-              if (
-                !['launch_uncertain', 'active'].includes(r.state) ||
-                !/^[A-Za-z0-9][A-Za-z0-9-]{0,127}$/.test(identity.instanceId) ||
-                !Number.isSafeInteger(identity.controllerGeneration) ||
-                identity.controllerGeneration < 1 ||
-                identity.controllerGeneration < r.controllerGeneration ||
-                (r.instanceId !== null && r.instanceId !== identity.instanceId)
-              )
-                throw Error('Staging retirement identity changed');
-              db.prepare(
-                "UPDATE launches SET state='retiring',instanceId=?,controllerGeneration=? WHERE launchId=?",
-              ).run(identity.instanceId, identity.controllerGeneration, launchId);
-            } else {
-              if (r.state !== 'active') throw Error('Staging retirement unavailable');
-              db.prepare("UPDATE launches SET state='retiring' WHERE launchId=?").run(launchId);
-            }
-          });
-        },
-        uncertain() {
-          update(() =>
-            db
-              .prepare("UPDATE launches SET state='retirement_uncertain' WHERE launchId=?")
-              .run(launchId),
-          );
-        },
-        retired(stateParent: string) {
-          update((r) => {
-            const receipt = readCustodianRetirementReceipt(stateParent);
-            if (!receipt) throw Error('Original retirement receipt required');
-            if (
-              r.state !== 'retiring' ||
-              receipt.instanceId !== r.instanceId ||
-              receipt.controllerGeneration !== r.controllerGeneration ||
-              receipt.completedAt < r.createdAt
-            )
-              throw Error('Retirement receipt identity mismatch');
-            db.prepare(
-              "UPDATE launches SET state='retired',retirementStateParent=?,completedAt=? WHERE launchId=?",
-            ).run(stateParent, receipt.completedAt, launchId);
-          });
-        },
-      };
+    reserve: (value: StagingRegistration, now = Date.now()) => reserve(value, now),
+    reserveWithContainedDisposition(value: StagingRegistration, lease: unknown, now = Date.now()) {
+      try {
+        return reserve(value, now, lease);
+      } catch (error) {
+        revokeContainedNativeCapacityLease(lease);
+        throw error;
+      }
     },
   };
 }

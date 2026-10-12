@@ -24,7 +24,10 @@ import {
   appendAudit,
   assertVisibleTrackedIndex,
 } from './lib/staging-files.mjs';
-import { verifyRetainedQualification } from './lib/staging-qualification-recovery.mjs';
+import {
+  verifyRetainedQualification,
+  originalQualificationControllerFiles,
+} from './lib/staging-qualification-recovery.mjs';
 import { auditLegacyClosure } from './lib/staging-legacy.mjs';
 import { registrationDigest } from './lib/staging-registration.mjs';
 import { assertStageJob } from './lib/staging-job.mjs';
@@ -37,15 +40,6 @@ const lockPath = join(root, 'service/deployment.lock'),
 const flags = {},
   args = process.argv.slice(2);
 const hash = (b) => createHash('sha256').update(b).digest('hex');
-const names = [
-  'staging.mjs',
-  'lib/staging-files.mjs',
-  'lib/staging-operations.mjs',
-  'lib/staging-job.mjs',
-  'lib/staging-launcher-template.mjs',
-  'lib/staging-registration.mjs',
-  'lib/staging-dependency-source.mjs',
-];
 const env = {
   PATH: '/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin',
   HOME: homedir(),
@@ -195,6 +189,9 @@ try {
     '--error-unmatch',
     'scripts/verify-staging-qualification.mjs',
     'scripts/lib/staging-qualification-recovery.mjs',
+  );
+  const names = originalQualificationControllerFiles(
+    sourceBlob(lock.controller, 'scripts/requalify-staging.mjs'),
   );
   const expectedFiles = [
     ...names.slice(0, 5).map((n) => 'bin/' + n),
