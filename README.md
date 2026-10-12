@@ -1102,8 +1102,9 @@ one runner. It uses the canonical stage and accepted exact-commit plan/apply.
 An advanced main tip may validate an earlier accepted merge only after ancestry
 is checked; the receipt names both the requested and actually tested commits.
 The initial suite checks HTTP readiness only, with no provider or model calls.
-Feature-specific live suites and automatic PR-shepherd event wiring remain
-separate integration work; readiness does not prove a feature or native runtime.
+The paired MGMT merge-gate handoff can enqueue automatically after host
+enrollment. Feature-specific live suites and PR-shepherd result consumption
+remain separate integration work; readiness does not prove a feature or native runtime.
 
 Admission requires normal macOS memory pressure, at least 25% reported memory
 headroom, no more than 2 GiB swap use, at least 20 GiB free disk after proposed

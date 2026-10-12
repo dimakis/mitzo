@@ -19,10 +19,19 @@ node scripts/staging-pipeline.mjs status
 Enqueue reads the actual merged PR commit through GitHub CLI; it accepts no
 candidate SHA, shell command, model or account override. Repeated identical
 requests are idempotent. This initial cut exposes the post-merge pipeline step;
-it does not yet add an unattended hook to MGMT's PR shepherd. Until that wiring
-is accepted, the session that merges submits this command explicitly. Future
+MGMT's paired merge-gate handoff can submit it automatically after a successful
+head-fenced merge when the host enrolls a clean accepted controller checkout,
+its exact source commit and an explicit Node executable. An absent/refused
+handoff leaves staging pending; retry performs enqueue only, never another merge
+or deployment. Until that paired wiring is accepted and enrolled, the session
+that merges submits this command explicitly. Future
 feature test suites require their own reviewed contract and fresh staging
 account enrollment. The current receipt is **HTTP readiness**, not feature proof.
+
+Once the queue database is enrolled, canonical prepare/deploy commands require
+the active reservation, bound target and admitted dispatch before apply. Direct
+session commands cannot replace that baseline without the matching queue grant.
+Read-only checks remain available without a grant.
 
 One designated foreground controller, from clean exact current accepted source,
 processes one request per invocation:
@@ -81,8 +90,9 @@ qualification with that pipeline task's artifacts.
 1. Accept the source and restore canonical staging through its qualified reset.
 2. Qualify readiness under the real host budget and confirm one runner for concurrent
    submitters. The offline tests use eleven separate SQLite connections.
-3. Add the post-merge enqueue/status signal to MGMT's existing PR shepherd and
-   production-admission workflow; production deployment remains explicitly requested.
+3. Accept and enroll the paired MGMT post-merge handoff, then add readiness-result
+   consumption to its PR shepherd and production-admission workflow. Production
+   deployment remains explicitly requested.
 4. Enroll only required staging capabilities and implement bounded feature suites.
    Announce the supported exact Luna model and charged account before real tests.
 5. Plan release retention separately: aim for active plus two reusable baselines,
