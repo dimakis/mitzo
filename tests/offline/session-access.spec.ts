@@ -323,17 +323,21 @@ test('Access: pending request, unknown capability and stale refresh', async ({
   expect(errors).toEqual([]);
 });
 
-test('References: historical links remain in the conversation without invented outputs', async ({
+test('References: historical links and observed tools are not outputs', async ({
   page,
   isMobile,
 }, testInfo) => {
   await page.setViewportSize({ width: isMobile ? 320 : 1280, height: 800 });
   const errors = await fixture(page, true, false);
   await page.goto(`/chat/${sessionId}`);
-  await expect(page.locator('a[href="https://example.com/research"]')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Open session tray' })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: /^Sources/ })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Outputs', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('region', { name: 'Outputs', exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Open session tray' }).click();
+  await page.getByRole('button', { name: 'References 2' }).click();
+  await expect(page.getByRole('link', { name: 'example.com/research', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Sources 0' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Outputs', exact: true })).toBeVisible();
+  await page.getByText('Observed capabilities', { exact: true }).click();
+  await expect(page.locator('.session-tray').getByText('Read', { exact: true })).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath('references.png'), animations: 'disabled' });
   expect(errors).toEqual([]);
 });

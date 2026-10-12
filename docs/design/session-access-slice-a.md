@@ -214,7 +214,7 @@ Accepted main `ae8da69ec314f4759c13ed5ba3784b1a159119d0` includes PR879's
 web updates, effective session approvals and retained provider-environment
 continuation. The Codex observation route retains that implementation. Shared
 remembered approvals still describe the Mitzo host scope, with native policy and
-complete available-tool inventory unknown. Parity's Outputs tray removal remains
+complete available-tool inventory unknown. Parity's ordinary output-workflow panel removal remains
 accepted; historical References remain in the conversation. Only generated
 source fingerprints conflicted during integration; the combined runtime uses
 v1.0.70 instead of either branch's earlier revision. Fresh combined CI, rendered
