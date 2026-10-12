@@ -958,6 +958,50 @@ it('runs queued turns sequentially, rechecks account and never uses SDK/provider
   await c.send({ id: 'b', prompt: 'next' });
   expect(requests.filter((r) => r.method === 'turn/start')).toHaveLength(2);
 });
+it('renews the process after approved provider attachment before dispatching the original turn', async () => {
+  const state = await setup();
+  let needsRefresh = false;
+  state.conversationOptions.prepareTurn = async () => {
+    needsRefresh = true;
+  };
+  (
+    state.conversationOptions as CodexConversationOptions & {
+      refreshTransportBeforeTurn?: () => boolean;
+    }
+  ).refreshTransportBeforeTurn = () => needsRefresh;
+  await state.c.send({
+    id: 'gmail-access',
+    prompt: 'Read the Gmail evidence',
+    intent: 'Read Gmail',
+  });
+  const methods = state.requests.map(({ method }) => method);
+  expect(state.rpc.close).toHaveBeenCalledOnce();
+  expect(methods.indexOf('thread/resume')).toBeGreaterThan(0);
+  expect(methods.indexOf('thread/resume')).toBeLessThan(methods.indexOf('turn/start'));
+  expect(state.requests.find(({ method }) => method === 'thread/resume')!.params.threadId).toBe(
+    'provider-thread',
+  );
+  expect(state.requests.find(({ method }) => method === 'turn/start')!.params.input).toEqual([
+    { type: 'text', text: 'Read the Gmail evidence' },
+  ]);
+  state.callbacks.onClose(new Error('old SSH closed'));
+  expect(state.onTransportClosed).not.toHaveBeenCalled();
+  expect(state.onError).not.toHaveBeenCalled();
+});
+
+it('does not renew the process when provider attachment failed', async () => {
+  const state = await setup();
+  state.conversationOptions.prepareTurn = async () => 'Google access could not be approved';
+  (
+    state.conversationOptions as CodexConversationOptions & {
+      refreshTransportBeforeTurn?: () => boolean;
+    }
+  ).refreshTransportBeforeTurn = () => false;
+  await state.c.send({ id: 'gmail-denied', prompt: 'Read Gmail' });
+  expect(state.rpc.close).not.toHaveBeenCalled();
+  expect(state.requests.filter(({ method }) => method === 'thread/resume')).toHaveLength(0);
+});
+
 it('prepares a turn from its raw user intent before sending its provider prompt', async () => {
   const prepareTurn = vi.fn(
     async (turn: { providerPrompt: string }) => `prepared: ${turn.providerPrompt}`,

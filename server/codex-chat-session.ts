@@ -862,6 +862,7 @@ async function openCodexChatBound(
         pending: Map<string, Promise<{ content: string; isError: boolean }>>;
       }
     | undefined;
+  let integrationTransportNeedsRefresh = false;
   const requestIntegrationAccess = async (
     provider: string,
     signal: AbortSignal,
@@ -943,6 +944,7 @@ async function openCodexChatBound(
                 signal,
               ),
           );
+          integrationTransportNeedsRefresh = true;
           return true;
         }
         await runtimeManager!.grantServiceProvider(
@@ -955,6 +957,7 @@ async function openCodexChatBound(
         signal.throwIfAborted();
         return false;
       }
+      integrationTransportNeedsRefresh = true;
       return true;
     };
     if (access.state === 'approved-detached') {
@@ -1487,9 +1490,11 @@ async function openCodexChatBound(
     displayToolName: mcp.displayName,
     createClient: (callbacks) => {
       try {
-        return connectedOpenShell
+        const client = connectedOpenShell
           ? CodexAppServerClient.launchOpenShell(openShellClient!, process.env, callbacks)
           : CodexAppServerClient.launch(options.profile.credentialRef!, process.env, callbacks);
+        integrationTransportNeedsRefresh = false;
+        return client;
       } catch (cause) {
         throw new CodexStartupError('runtime_connection', cause);
       }
@@ -1541,6 +1546,7 @@ async function openCodexChatBound(
     },
     ...(openShell && runtimeManager && managedOpenShell && grantableProviders.length
       ? {
+          refreshTransportBeforeTurn: () => integrationTransportNeedsRefresh,
           prepareTurn: async ({ providerPrompt, userIntent, turnId }, signal: AbortSignal) => {
             integrationTurn = { id: turnId, denied: new Set(), pending: new Map() };
             // Older persisted commands did not retain separate raw intent. Do

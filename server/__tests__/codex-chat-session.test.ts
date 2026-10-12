@@ -89,7 +89,7 @@ import {
   waitForCodexRuntimeBySessionId,
 } from '../codex-chat-session.js';
 import { KnowledgePublicationUnavailableError } from '../knowledge-publication-bridge.js';
-import { CodexRequestError } from '../codex-app-server-client.js';
+import { CodexAppServerClient, CodexRequestError } from '../codex-app-server-client.js';
 import { CodexStartupError } from '../codex-startup-error.js';
 import { RuntimePolicyAttestationError } from '../openshell-runtime-policy.js';
 import { OpenShellRuntimeManager } from '../openshell-runtime.js';
@@ -813,6 +813,17 @@ it('advertises reviewed per-chat provider grants to a managed OpenShell runtime'
         signal,
       ),
     ).resolves.toBe(undefined);
+    const refreshTransport = mocks.conversationOptions?.refreshTransportBeforeTurn as () => boolean;
+    expect(refreshTransport()).toBe(true);
+    const launch = vi
+      .spyOn(CodexAppServerClient, 'launchOpenShell')
+      .mockReturnValue({} as CodexAppServerClient);
+    const createClient = mocks.conversationOptions?.createClient as (
+      callbacks: Record<string, unknown>,
+    ) => unknown;
+    createClient({});
+    expect(refreshTransport()).toBe(false);
+    launch.mockRestore();
     expect(hasAccess).toHaveBeenCalledWith(
       'conversation',
       expect.objectContaining({ sandboxName: 'mitzo-runtime' }),
@@ -853,6 +864,7 @@ it('advertises reviewed per-chat provider grants to a managed OpenShell runtime'
         signal,
       ),
     ).resolves.toContain('did not enable Google Workspace');
+    expect(refreshTransport()).toBe(false);
     expect(mocks.permissionHandler).toHaveBeenCalledOnce();
     vi.clearAllMocks();
 

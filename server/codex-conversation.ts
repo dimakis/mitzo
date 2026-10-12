@@ -125,6 +125,8 @@ export interface CodexConversationOptions {
     turn: { providerPrompt: string; userIntent?: string; turnId: string },
     signal: AbortSignal,
   ) => Promise<string | void>;
+  /** Provider attachment changes require a new workload process before dispatch. */
+  refreshTransportBeforeTurn?: () => boolean;
   /** Select verified project context at a safe boundary; never append it as user text. */
   prepareSystemPrompt?: (signal: AbortSignal) => Promise<string | undefined>;
   prepareAgentContext?: (signal: AbortSignal) => Promise<void>;
@@ -1688,7 +1690,7 @@ export class CodexConversation {
       span: undefined as Span | undefined,
     };
     this.active = active;
-    const transportGeneration = this.transportGeneration;
+    let transportGeneration = this.transportGeneration;
     this.opts.onQueueChange?.();
     try {
       const model = command.model ?? this.binding!.model;
@@ -1713,6 +1715,21 @@ export class CodexConversation {
           active.abort.signal,
         )) ?? command.prompt;
       active.abort.signal.throwIfAborted();
+      if (this.opts.refreshTransportBeforeTurn?.()) {
+        // New provider placeholders affect new workload processes, never the
+        // existing app-server environment. No native turn has been dispatched.
+        const renew = async () => {
+          this.retireTransportForRecovery();
+          try {
+            await this.reconnectBound();
+          } finally {
+            transportGeneration = this.transportGeneration;
+          }
+        };
+        if (this.opts.reconnectGuard) await this.opts.reconnectGuard(renew);
+        else await renew();
+        active.abort.signal.throwIfAborted();
+      }
       const state = this.opts.store.read(this.opts.conversationId, this.binding!);
       const rolloverContext =
         this.pendingToolSurface?.context ??
