@@ -1015,7 +1015,8 @@ if (custodianControllerClient)
           req.header('x-connection-id'),
           getConnectionRegistry() ?? undefined,
         ),
-      (conversationId) => clearPublicationControllerSessionGrants(registry, conversationId),
+      (conversationId, connectionId) =>
+        clearPublicationControllerSessionGrants(registry, conversationId, connectionId),
     ),
   );
 receiveCustodianEvents(broadcastDurableSymposiumEvent);
@@ -1527,8 +1528,8 @@ app.use(
   '/api/sessions/:id/symposium/publication',
   operatorAuthMiddleware,
   createPublicationRouter({
-    onConsentInvalidated: (conversationId) =>
-      clearPublicationControllerSessionGrants(registry, conversationId),
+    onConsentInvalidated: (conversationId, connectionId) =>
+      clearPublicationControllerSessionGrants(registry, conversationId, connectionId),
     onPublicationCompleted: (sessionId, publication, operation) =>
       symposiumAccessRequests.publicationCompleted(sessionId, publication, operation),
     registration: () => symposiumPublication,

@@ -35,7 +35,7 @@ const principal = z.strictObject({
 export function createPublicationRouter(deps: {
   registration(): PublicationRegistration | undefined;
   hasSession(id: string): boolean;
-  onConsentInvalidated?(sessionId: string): void;
+  onConsentInvalidated?(sessionId: string, connectionId: string): void;
   onPublicationCompleted?(
     sessionId: string,
     publication: { repositoryPath: string; baseBranch: string },
@@ -201,8 +201,8 @@ export function createPublicationRouter(deps: {
       .strictObject({ connectionId: id, revision: z.number().int().positive() })
       .parse(req.body);
     runtime.custodian.disconnect(input.connectionId, input.revision);
-    deps.onConsentInvalidated?.(String(req.params.id));
-    return { disconnected: true };
+    deps.onConsentInvalidated?.(String(req.params.id), input.connectionId);
+    return { disconnected: true, connectionId: input.connectionId };
   });
   route('/preview', async (runtime, req, session, signal) => {
     const scope = {
@@ -227,9 +227,9 @@ export function createPublicationRouter(deps: {
   });
   route('/revoke', async (runtime, req, session) => {
     const input = z.strictObject({ grantId: id }).parse(req.body);
-    runtime.authority.revoke(input.grantId, session.id, String(req.params.id));
-    deps.onConsentInvalidated?.(String(req.params.id));
-    return { revoked: true };
+    const revoked = runtime.authority.revoke(input.grantId, session.id, String(req.params.id));
+    deps.onConsentInvalidated?.(String(req.params.id), revoked.connectionId);
+    return { revoked: true, connectionId: revoked.connectionId };
   });
   route('/publish', async (runtime, req, session, signal) => {
     const input = z

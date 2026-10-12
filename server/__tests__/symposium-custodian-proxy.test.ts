@@ -334,7 +334,8 @@ it('forwards canonical context pack mutations only to the retained owner', async
 it('invalidates logical-session controller consent only after a successful authenticated publication revoke', async () => {
   const token = (await login(process.env.AUTH_PASSPHRASE!))!;
   let status = 409;
-  const invoke = vi.fn(async () => ({ status, body: { ok: status === 200 } }));
+  let body: Record<string, unknown> = { revoked: false };
+  const invoke = vi.fn(async () => ({ status, body }));
   const clear = vi.fn();
   const app = express();
   app.use(express.json(), authMiddleware);
@@ -360,5 +361,15 @@ it('invalidates logical-session controller consent only after a successful authe
         .send({ grantId: 'grant' })
     ).status,
   ).toBe(200);
-  expect(clear).toHaveBeenCalledExactlyOnceWith('controller-session');
+  expect(clear).not.toHaveBeenCalled();
+  body = { revoked: true, connectionId: 'reviewed-connection' };
+  expect(
+    (
+      await request(app)
+        .post(path)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ grantId: 'grant' })
+    ).status,
+  ).toBe(200);
+  expect(clear).toHaveBeenCalledExactlyOnceWith('controller-session', 'reviewed-connection');
 });

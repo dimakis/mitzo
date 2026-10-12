@@ -70,6 +70,8 @@ export function resolvePending(
   decision: 'once' | 'always' | 'deny',
   answers?: QuestionAnswers,
   sessionId?: string,
+  /** Internal policy denial; never supplied by a transport response. */
+  denialReason?: string,
 ): boolean {
   const entry = pending.get(permId);
   if (!entry || (sessionId && entry.sessionId && entry.sessionId !== sessionId)) return false;
@@ -136,8 +138,8 @@ export function resolvePending(
   } else {
     requestedResult = {
       behavior: 'deny',
-      message: 'User denied',
-      decisionClassification: 'user_reject',
+      message: denialReason ?? 'User denied',
+      ...(denialReason ? {} : { decisionClassification: 'user_reject' as const }),
     };
   }
   const appliedResult = resolver(requestedResult);

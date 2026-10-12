@@ -7,28 +7,47 @@ import {
 import type { CapabilityApproval } from './connections/capabilities/types.js';
 // Logical conversations outlive the borrowed permission-registry runtime. This
 // stores only scoped consent, never an owner or authentication decision.
-const controllerGrants = new WeakMap<SessionRegistry, Map<string, Set<string>>>();
-function conversationGrants(registry: SessionRegistry, conversationId: string): Set<string> {
+interface ControllerConsent {
+  grants: Set<string>;
+  connections: Map<string, string>;
+  generations: Map<string, number>;
+}
+const controllerGrants = new WeakMap<SessionRegistry, Map<string, ControllerConsent>>();
+function conversationGrants(registry: SessionRegistry, conversationId: string): ControllerConsent {
   let conversations = controllerGrants.get(registry);
   if (!conversations) controllerGrants.set(registry, (conversations = new Map()));
-  let grants = conversations.get(conversationId);
-  if (!grants) conversations.set(conversationId, (grants = new Set()));
-  return grants;
+  let consent = conversations.get(conversationId);
+  if (!consent)
+    conversations.set(
+      conversationId,
+      (consent = { grants: new Set(), connections: new Map(), generations: new Map() }),
+    );
+  return consent;
 }
 
-/** Clear only controller consent when its logical conversation or publication access closes. */
+/** Clear affected controller consent after trusted revocation, or all on logical close. */
 export function clearPublicationControllerSessionGrants(
   registry: SessionRegistry,
   conversationId?: string,
+  connectionId?: string,
 ): void {
   const conversations = controllerGrants.get(registry);
   if (!conversations) return;
-  for (const [id, grants] of conversations) {
+  for (const [id, consent] of conversations) {
     if (conversationId && id !== conversationId) continue;
     const session = registry.findBySessionId(id, true)?.session;
-    for (const grant of grants) session?.sessionAllowList.delete(grant);
-    grants.clear();
-    conversations.delete(id);
+    for (const [key, connection] of consent.connections) {
+      if (connectionId && connection !== connectionId) continue;
+      session?.sessionAllowList.delete(key);
+      consent.grants.delete(key);
+      consent.connections.delete(key);
+    }
+    if (connectionId)
+      consent.generations.set(connectionId, (consent.generations.get(connectionId) ?? 0) + 1);
+    else {
+      consent.grants.clear();
+      conversations.delete(id);
+    }
   }
 }
 
@@ -90,7 +109,7 @@ export function publicationControllerApproval(
         sessionId: conversationId,
         transport: watcher.transport,
         abortController: new AbortController(),
-        sessionAllowList: conversationGrants(registry, conversationId),
+        sessionAllowList: conversationGrants(registry, conversationId).grants,
         mode: 'agent',
         symposiumPublicationUsers: 0,
       });
@@ -128,16 +147,25 @@ export function publicationControllerApproval(
     try {
       current();
       combined.throwIfAborted();
-      const grants = conversationGrants(registry, conversationId);
+      const consent = conversationGrants(registry, conversationId);
       const key = capabilitySessionGrantKey(request);
-      if (grants.has(key)) session.sessionAllowList.add(key);
+      const generation = consent.generations.get(request.connectionId) ?? 0;
+      consent.connections.set(key, request.connectionId);
+      if (consent.grants.has(key)) session.sessionAllowList.add(key);
       const decision = await capabilityApprovalForConversation(registry, conversationId)(
         request,
         combined,
       );
       current();
       combined.throwIfAborted();
-      if (decision && session.sessionAllowList.has(key)) grants.add(key);
+      if (
+        controllerGrants.get(registry)?.get(conversationId) !== consent ||
+        (consent.generations.get(request.connectionId) ?? 0) !== generation
+      ) {
+        session.sessionAllowList.delete(key);
+        throw new Error('Publication session consent changed during approval');
+      }
+      if (decision && session.sessionAllowList.has(key)) consent.grants.add(key);
       return decision;
     } finally {
       unsubscribe?.();

@@ -284,6 +284,113 @@ describe('buildPermissionHandler', () => {
     expect(transport.sent.filter((event) => event.type === 'permission_request')).toHaveLength(1);
   });
 
+  it('settles already-pending requests only in the approved session service scope', async () => {
+    const transport = fakeTransport();
+    const abort = new AbortController();
+    registry.register('parallel', {
+      sessionId: 'parallel-session',
+      transport,
+      abortController: abort,
+      mode: 'agent',
+      sessionAllowList: new Set(),
+    });
+    const handler = buildPermissionHandler('parallel', registry);
+    const opts = { signal: abort.signal, toolUseID: 'parallel', forcePrompt: true };
+    const first = handler('mcp__gws__gmail_write', { value: 'first' }, opts);
+    const second = handler('mcp__gws__drive_write', { value: 'second' }, opts);
+    const unrelated = handler('mcp__other__write', { value: 'other' }, opts);
+    const question = handler(
+      'AskUserQuestion',
+      { questions: [{ question: 'Select one?', header: 'Question', options: [{ label: 'One' }] }] },
+      opts,
+    );
+    let secondResult: unknown;
+    void second.then((result) => {
+      secondResult = result;
+    });
+    try {
+      await Promise.resolve();
+      expect(transport.sent.filter((event) => event.type === 'permission_request')).toHaveLength(4);
+      resolvePending(transport.sent[0].permId as string, 'always', undefined, 'parallel-session');
+      expect(await first).toMatchObject({ behavior: 'allow', updatedInput: { value: 'first' } });
+      await vi.waitFor(() =>
+        expect(secondResult).toMatchObject({
+          behavior: 'allow',
+          updatedInput: { value: 'second' },
+        }),
+      );
+      expect(
+        getPendingRequestsBySession('parallel-session').map((entry) => entry.toolName),
+      ).toEqual(['mcp__other__write', 'AskUserQuestion']);
+    } finally {
+      abort.abort();
+      await Promise.allSettled([first, second, unrelated, question]);
+    }
+  });
+
+  it.each(['mode', 'skill', 'workspace', 'workspace-race'])(
+    'rechecks current %s policy before settling a queued peer from a session grant',
+    async (policy) => {
+      const transport = fakeTransport();
+      const lifecycle = vi.fn();
+      const unsubscribe = onPermissionLifecycle(lifecycle);
+      const abort = new AbortController();
+      registry.register('parallel-policy', {
+        sessionId: 'parallel-policy-session',
+        transport,
+        abortController: abort,
+        mode: 'agent',
+        sessionAllowList: new Set(),
+      });
+      const session = registry.get('parallel-policy')!;
+      if (policy.startsWith('workspace'))
+        session.worktreePaths.set('repo', { path: '/isolated', wtId: 'wt' });
+      const handler = buildPermissionHandler('parallel-policy', registry);
+      const opts = { signal: abort.signal, toolUseID: 'policy', forcePrompt: true };
+      const firstTool = policy.startsWith('workspace') ? 'Write' : 'mcp__gws__first';
+      const secondTool = policy.startsWith('workspace') ? 'Write' : 'mcp__gws__second';
+      const first = handler(firstTool, { file_path: '/isolated/keep/first' }, opts);
+      const second = handler(secondTool, { file_path: '/isolated/blocked/second' }, opts);
+      let secondResult: unknown;
+      void second.then((result) => {
+        secondResult = result;
+      });
+      try {
+        await Promise.resolve();
+        if (policy === 'skill') setSkillPolicy(registry, 'parallel-policy', [firstTool]);
+        if (policy === 'workspace')
+          session.worktreePaths.set('repo', { path: '/isolated/keep', wtId: 'wt' });
+        if (policy === 'workspace-race') {
+          const originalEntries = session.worktreePaths.entries.bind(session.worktreePaths);
+          vi.spyOn(session.worktreePaths, 'entries').mockImplementationOnce(() => {
+            queueMicrotask(() =>
+              session.worktreePaths.set('repo', { path: '/different', wtId: 'replacement' }),
+            );
+            return originalEntries();
+          });
+        }
+        resolvePending(
+          transport.sent[0].permId as string,
+          'always',
+          undefined,
+          'parallel-policy-session',
+        );
+        if (policy === 'mode') registry.setMode('parallel-policy', 'ask');
+        expect(await first).toMatchObject({ behavior: 'allow' });
+        await vi.waitFor(() => expect(secondResult).toMatchObject({ behavior: 'deny' }));
+        expect(lifecycle).toHaveBeenCalledWith({
+          type: 'resolved',
+          permId: transport.sent[1].permId,
+          resolution: 'denied',
+        });
+      } finally {
+        abort.abort();
+        unsubscribe();
+        await Promise.allSettled([first, second]);
+      }
+    },
+  );
+
   it('rejects approval after its absolute deadline even before the timeout callback runs', async () => {
     vi.useFakeTimers();
     const abort = new AbortController();
