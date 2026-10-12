@@ -4,7 +4,7 @@ import { isIP } from 'node:net';
 import { isDeepStrictEqual } from 'node:util';
 import { dump, load } from 'js-yaml';
 import { z } from 'zod';
-import { connectionTemplateRegistry } from './registry.js';
+import { connectionTemplateRegistry } from './reviewed-policy-registry.js';
 import type { ProviderPolicy } from './types.js';
 
 const JiraProfile = z

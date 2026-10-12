@@ -1,12 +1,12 @@
 import { sourceImportPublicError } from './symposium-source-errors.js';
 import { Router } from 'express';
 import { z } from 'zod';
-import { registerAuthSession, type AuthSession } from './auth.js';
+import { registerAuthSession, type AuthSession } from './operator-session.js';
 import {
   recentAppReauthorizationHandlers,
   requireSameOriginJson,
   requireRecentConnectionAuthorization,
-} from './connections-router.js';
+} from './operator-request-authorization.js';
 import { inspectLocalSource, exportLocalSource } from './symposium-source-git.js';
 import type { SymposiumSourceHost } from './symposium-source-service.js';
 import type { EventStore } from './event-store.js';

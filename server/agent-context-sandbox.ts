@@ -8,7 +8,7 @@ import {
   type AgentLibraryVersion,
 } from '@mitzo/protocol';
 import { contextDigest } from './agent-context-compiler.js';
-import { reviewedHandlerSourceArtifacts } from './connections/reviewed-handler-artifacts.js';
+import { reviewedNativeContextSourceArtifacts } from './native-context-artifacts.js';
 import type { OpenShellRuntime, OpenShellRuntimeManager } from './openshell-runtime.js';
 
 export const SANDBOX_AGENT_COMPILER_REVISION =
@@ -58,8 +58,10 @@ export function sandboxAgentContextAdmissionFailure(error: unknown, aborted: boo
 export const sandboxAgentCompilerHash = () =>
   contextDigest({
     entrypoint:
-      reviewedHandlerSourceArtifacts['../../docs/spikes/openshell-codex/compile-agent-context.mjs'],
-    workspace: reviewedHandlerSourceArtifacts['../../scripts/agent-workspace-context.mjs'],
+      reviewedNativeContextSourceArtifacts[
+        '../../docs/spikes/openshell-codex/compile-agent-context.mjs'
+      ],
+    workspace: reviewedNativeContextSourceArtifacts['../../scripts/agent-workspace-context.mjs'],
   });
 export const SandboxAgentPresetsSchema = z
   .record(z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/), WorkspaceAgentContextRecipeSchema)

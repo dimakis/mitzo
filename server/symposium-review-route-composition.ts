@@ -1,5 +1,9 @@
 import { Router, type Request, type Response } from 'express';
-import { operatorAuthMiddleware, registerAuthSession, type AuthSession } from './auth.js';
+import {
+  operatorAuthMiddleware,
+  registerAuthSession,
+  type AuthSession,
+} from './operator-session.js';
 import { custodianRequestAuthority } from './symposium-custodian-authority.js';
 import type { SymposiumReviewActionAuthority } from './symposium-review-action-authority.js';
 import type { ReviewContext } from './symposium-review-coordinator.js';

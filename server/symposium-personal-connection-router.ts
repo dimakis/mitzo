@@ -1,5 +1,9 @@
 import { Router } from 'express';
-import { operatorAuthMiddleware, registerAuthSession, type AuthSession } from './auth.js';
+import {
+  operatorAuthMiddleware,
+  registerAuthSession,
+  type AuthSession,
+} from './operator-session.js';
 import type { PersonalConnection } from './symposium-personal-connections.js';
 import {
   createPersonalRoutingDiagnosticHandler,

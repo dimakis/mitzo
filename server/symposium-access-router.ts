@@ -1,7 +1,7 @@
 import { Router, type Request } from 'express';
 import { z } from 'zod';
 import type { SymposiumAccessRequests } from './symposium-access-tools.js';
-import { requireSameOriginJson } from './connections-router.js';
+import { requireSameOriginJson } from './operator-request-authorization.js';
 const Hash = z.string().regex(/^[a-f0-9]{64}$/);
 export function createSymposiumAccessRouter(
   service: Pick<SymposiumAccessRequests, 'list' | 'decide' | 'dismiss' | 'handoff'>,

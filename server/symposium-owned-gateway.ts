@@ -32,6 +32,9 @@ import { platform } from 'node:os';
 import type { SymposiumOwnedNativeHostBinding } from './symposium-production-gate.js';
 import { SymposiumHostIssuer } from './symposium-host-issuer.js';
 import type { ArtifactDriverConfig, ArtifactLeaseRequest } from './symposium-artifact-lease.js';
+import type { NativeInferenceCurrentAuthentication } from './staging-native-inference-current-auth.js';
+
+const originalGatewayConstructors = new WeakSet<OwnedSymposiumGateway>();
 
 const id = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/;
 const hash = (value: Buffer) => createHash('sha256').update(value).digest('hex');
@@ -261,6 +264,7 @@ export class OwnedSymposiumGateway {
       >
     >,
   ) {
+    originalGatewayConstructors.add(this);
     child.once('error', () => {
       this.failure = true;
     });
@@ -272,6 +276,15 @@ export class OwnedSymposiumGateway {
       this.failure = true;
       child.kill('SIGTERM');
     });
+  }
+
+  /** Unsupported until the actual rebuilt native constructor supplies its
+   * original private-key transport. No caller policy flag can enable it. */
+  captureNativeInferenceCurrentAuthentication(): NativeInferenceCurrentAuthentication {
+    if (!originalGatewayConstructors.has(this))
+      throw Error('Original native gateway constructor unavailable');
+    this.verifyCustody();
+    throw Error('Source-qualified native inference current producer unavailable');
   }
 
   /** Local host operations are injectable for unit tests; never sourced from requests. */

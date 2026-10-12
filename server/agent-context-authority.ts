@@ -1,4 +1,4 @@
-import { registerAuthSession, type AuthSession } from './auth.js';
+import { registerAuthSession, type AuthSession } from './operator-session.js';
 
 /** A run retains its admitted subject, not the lifetime of one browser connection. */
 export function retainAgentContextAuthority(auth: AuthSession, controller: AbortController) {

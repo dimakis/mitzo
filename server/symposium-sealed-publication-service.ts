@@ -7,7 +7,7 @@ import type {
   CapabilityExecutor,
   CapabilityOperation,
 } from './connections/capabilities/types.js';
-import { connectionTemplateRegistry } from './connections/registry.js';
+import { githubPublicationTemplate } from './connections/github-publication-template.js';
 import { canonicalJson } from './connections/capabilities/input-validation.js';
 import {
   createGithubArtifactPublishPrExecutor,
@@ -546,7 +546,7 @@ export class SealedPublicationService {
         },
       };
       const executor = guardSealedPublicationExecutor(this.deps.authority, () => selection, base);
-      const original = connectionTemplateRegistry.getCapabilityTemplate('github.publish-pr', 1)!;
+      const original = githubPublicationTemplate;
       const template = {
         ...original,
         connectionTemplates: [{ id: 'sealed-publication', version: 1 }],

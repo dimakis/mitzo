@@ -11,7 +11,7 @@ import {
   StagingFeaturePlan,
   StagingFeatureRequest,
   StagingFeatureToken,
-} from './staging-feature-owner.js';
+} from './staging-feature-contract.js';
 import type { z } from 'zod';
 import {
   captureQualifiedStagingNativeModelAuthority,

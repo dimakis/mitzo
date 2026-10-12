@@ -5,8 +5,8 @@ import {
   StagingFeaturePlan,
   StagingFeatureRequest,
   StagingFeatureToken,
-  type StagingFeatureOwner,
-} from './staging-feature-owner.js';
+} from './staging-feature-contract.js';
+import type { StagingFeatureOwner } from './staging-feature-owner.js';
 const planBody = z.strictObject({
   request: StagingFeatureRequest,
   sourceCommit: z.string().regex(/^[a-f0-9]{40}$/),
@@ -14,10 +14,11 @@ const planBody = z.strictObject({
 const runBody = z.strictObject({ plan: StagingFeaturePlan, token: StagingFeatureToken });
 /** Authentication is supplied by the existing app mount. There is no public
  * install/enrollment/configuration endpoint and no provider/model overrides. */
-export type StagingFeatureOwnerProtocol = Pick<
-  StagingFeatureOwner,
-  'enrollment' | 'plan' | 'receipt'
-> & {
+export type StagingFeatureOwnerProtocol = Pick<StagingFeatureOwner, 'enrollment' | 'receipt'> & {
+  plan(
+    request: unknown,
+    sourceCommit: string,
+  ): ReturnType<StagingFeatureOwner['plan']> | Promise<ReturnType<StagingFeatureOwner['plan']>>;
   run(
     plan: unknown,
     token: unknown,
@@ -28,6 +29,12 @@ export type StagingFeatureOwnerProtocol = Pick<
 };
 export function createStagingFeatureRouter(
   currentOwner: () => StagingFeatureOwnerProtocol | undefined,
+  currentNativeInference: () =>
+    | Pick<
+        import('./staging-native-inference-current-owner.js').StagingNativeInferenceCurrentOwner,
+        'current'
+      >
+    | undefined = () => undefined,
 ) {
   const router = Router();
   router.use((_req, res, next) => {
@@ -36,6 +43,16 @@ export function createStagingFeatureRouter(
       return;
     }
     next();
+  });
+  router.post('/native-inference/current', (req, res) => {
+    res.setHeader('cache-control', 'no-store');
+    try {
+      const original = currentNativeInference();
+      if (!original) throw Error('Original native inference owner unavailable');
+      res.json(original.current({ method: req.method, url: req.originalUrl }, req.body));
+    } catch {
+      res.status(503).json({ error: 'Original native inference current authority unavailable' });
+    }
   });
   router.get('/resources', (_req, res) => {
     try {
@@ -53,14 +70,14 @@ export function createStagingFeatureRouter(
       res.status(409).json({ error: 'Staging feature enrollment unavailable' });
     }
   });
-  router.post('/plan', (req, res) => {
+  router.post('/plan', async (req, res) => {
     const input = planBody.safeParse(req.body);
     if (!input.success) {
       res.status(400).json({ error: 'Bounded staging feature plan required' });
       return;
     }
     try {
-      res.json(currentOwner()!.plan(input.data.request, input.data.sourceCommit));
+      res.json(await currentOwner()!.plan(input.data.request, input.data.sourceCommit));
     } catch {
       res.status(409).json({ error: 'Staging feature plan unavailable' });
     }

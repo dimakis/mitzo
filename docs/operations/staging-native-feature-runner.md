@@ -144,6 +144,18 @@ and policy generations, all inference route coverage, bounded request bodies,
 model/account matching, request counter/expiry and positive revocation must be
 qualified. No new backend, sidecar, proxy, VM or alternate model is implied.
 
+The existing authenticated staging route includes
+`POST /api/staging/features/native-inference/current`. It requires the original
+gateway's separate purpose-bound MAC capability, matches the retained run,
+opaque pending guard, both source commits, claim and actual sandbox, and executes
+the same live private queue/lifecycle fence before a one-use signed response.
+The actual factory registers the pending deny guard before native Prepare RPC;
+Create/GetConfig cannot bypass this check. Known complete/revoke operations omit
+only resource admission, retaining queue, source, identity and deadline checks.
+The current gateway capture still refuses because the genuine native producer
+is not qualified. Neither this route nor the finite MAC codec proves model,
+charged-account, supervisor-session, final-wire or cleanup authority.
+
 A separate official fresh ChatGPT-plan Responses recipe exists: register an
 application and obtain fresh PKCE OAuth consent with Responses permissions,
 match stable `initialize.clientInfo` to the registered agent, use the scoped
