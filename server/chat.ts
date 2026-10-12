@@ -239,7 +239,11 @@ import {
 } from './agent-context-delivery.js';
 import { retainAgentContextAuthority } from './agent-context-authority.js';
 import { captureAgentLibraryAuthorization } from './agent-library-transport.js';
-import { shouldAutoRename, extractRecentPrompts } from './auto-rename.js';
+import {
+  shouldAutoRename,
+  extractRecentPrompts,
+  generateSessionNameFallback,
+} from './auto-rename.js';
 import {
   registerSession,
   updateSessionTitle,
@@ -2707,6 +2711,11 @@ function storeAndEchoIfNew(
   };
   send(transport, echo);
   broadcastToObservers(observers, echo);
+  // Native providers bypass the SDK query-loop callbacks that name Claude chats.
+  const provider = eventStore.getSession(sessionId)?.accountBinding?.provider;
+  if (provider === 'openai-codex' || provider === 'openai' || provider === 'google-vertex') {
+    void tryAutoRename(sessionId, clientId);
+  }
   return false;
 }
 
@@ -3977,7 +3986,14 @@ export function getSessionsCached(offset = 0, limit = SESSION_PAGE_SIZE) {
   return {
     sessions: page.map((m) => ({
       id: m.sessionId,
-      summary: m.summary ?? '',
+      summary:
+        m.summary ||
+        (m.manuallyRenamed
+          ? ''
+          : generateSessionNameFallback([
+              m.initialPrompt ||
+                String(eventStore.getLatestEvent(m.sessionId, 'user_message')?.payload.text ?? ''),
+            ])),
       lastModified: m.updatedAt,
       branch: m.branch ?? undefined,
       cwd: m.cwd ?? undefined,
