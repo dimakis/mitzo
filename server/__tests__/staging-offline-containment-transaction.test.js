@@ -653,7 +653,7 @@ async function effectsFixture() {
       return {
         status: 0,
         stderr: '',
-        stdout: `path = ${vm.path}\nstate = not running\nruns = 0\n`,
+        stdout: `path = ${vm.path}\nstate = not running\nruns = 1\n`,
       };
     const label = args[1].split('/').at(-1);
     return {
@@ -730,7 +730,7 @@ it('refuses success when normal bootout has uncertain acknowledgement', async ()
   f.command.mockImplementation((_program, args) =>
     args[0] === 'bootout'
       ? { status: 0, signal: 'SIGTERM' }
-      : { status: 0, stderr: '', stdout: `path = ${f.vm.path}\nstate = not running\nruns = 0\n` },
+      : { status: 0, stderr: '', stdout: `path = ${f.vm.path}\nstate = not running\nruns = 1\n` },
   );
   await expect(f.effects.invalidateControl(f.vm)).rejects.toThrow('unload unconfirmed');
 });
@@ -1237,3 +1237,14 @@ it.each([false, undefined, {}, Promise.resolve(true)])(
     expect(f.db.prepare('SELECT * FROM launches').all()).toEqual([f.row]);
   },
 );
+
+it.each([0, 2])('refuses a stopped supervisor with unreviewed run count %s', async (runs) => {
+  const f = await effectsFixture();
+  f.command.mockReturnValueOnce({
+    status: 0,
+    stderr: '',
+    stdout: `path = ${f.vm.path}\nstate = not running\nruns = ${runs}\n`,
+  });
+  await expect(f.effects.invalidateControl(f.vm)).rejects.toThrow('Exact stopped original VM');
+  expect(f.command.mock.calls.some(([, args]) => args[0] === 'bootout')).toBe(false);
+});

@@ -634,7 +634,7 @@ it('permits only contained public VM metadata mode0644 under private opaque/home
 it('matches the supplied sanitized installed metadata schema without reading the actual VM', () => {
   const supplied = JSON.parse(
     readFileSync(
-      new URL('./fixtures/staging-old-vm-public-metadata.json', import.meta.url),
+      new URL('./fixtures/staging-stopped-after-inspection-metadata.json', import.meta.url),
       'utf8',
     ),
   );
