@@ -1127,6 +1127,42 @@ Live store fences, independent recovery keys, upload verification, scheduling an
 replacement-machine acceptance must be configured before claiming protection. See
 [the implementation and rollout contract](docs/operations/icloud-ecosystem-backup.md).
 
+### Resource-aware staging pipeline
+
+After an accepted Mitzo PR merge, enqueue staging readiness instead of deploying
+from each agent session:
+
+```sh
+node scripts/staging-pipeline.mjs enqueue --pr NUMBER --task SESSION_ID
+node scripts/staging-pipeline.mjs status
+node scripts/staging-pipeline.mjs host-resources
+node scripts/staging-pipeline.mjs run-next
+```
+
+`run-next` runs once in the foreground from clean exact accepted main. One durable
+reservation spans preparation, deployment and testing; eleven callers still get
+one runner. It uses the canonical stage and accepted exact-commit plan/apply.
+An advanced main tip may validate an earlier accepted merge only after ancestry
+is checked; the receipt names both the requested and actually tested commits.
+The initial suite checks HTTP readiness only, with no provider or model calls.
+The paired MGMT merge-gate handoff can enqueue automatically after host
+enrollment. Feature-specific live suites and PR-shepherd result consumption
+remain separate integration work; readiness does not prove a feature or native runtime.
+
+Admission requires normal macOS memory pressure, at least 25% reported memory
+headroom, no more than 2 GiB swap use, at least 20 GiB free disk after proposed
+growth, and at most 48 GiB across staging and its quarantine archive. Deployment
+reserves the complete workspace/state snapshot, including full sparse-file copy
+size and control metadata, even when reusing a release. The staging
+VM ceiling is 4 GiB and two CPUs. Node build heaps are capped at 2 GiB and the
+ordinary app heap at 1 GiB; heap limits do not cap all native/process RSS. One
+queue controller admits work at a time. The private queue has at most 100 pending
+requests and a 16 MiB SQLite ceiling. Resource shortages remain queued. Expired
+owners cannot dispatch, finish or defer; they retain their reservation for
+reconciliation. Uncertain effects also retain capacity; no
+forced restart, automatic rollback or historical evidence deletion is provided.
+See [pipeline operations](docs/operations/staging-pipeline.md).
+
 ### Canonical Symposium staging on macOS
 
 Symposium development targets the one persistent staging app at
