@@ -87,6 +87,12 @@ export async function launchStagingCustodian(
     observeContainedNativeController?: NonNullable<
       SymposiumCustodianConstructorHooks['observeController']
     >;
+    beforeContainedNativeReady?: NonNullable<
+      SymposiumCustodianConstructorHooks['beforeControllerReady']
+    >;
+    stagingFeatureBootstrap?: NonNullable<
+      SymposiumCustodianConstructorHooks['stagingFeatureBootstrap']
+    >;
   },
 ) {
   const input = StagingLaunchSchema.parse(registration);
@@ -106,7 +112,15 @@ export async function launchStagingCustodian(
   const allocation = requiresContainedNativeAllocation(plan);
   if (
     Boolean(allocation) !== Boolean(deps.authorizeContainedNativeAllocation) ||
-    (allocation && (!deps.beforeContainedNativeRun || !deps.observeContainedNativeController))
+    (allocation &&
+      (!deps.beforeContainedNativeRun ||
+        !deps.observeContainedNativeController ||
+        !deps.beforeContainedNativeReady)) ||
+    (!allocation &&
+      (deps.beforeContainedNativeRun ||
+        deps.observeContainedNativeController ||
+        deps.beforeContainedNativeReady ||
+        deps.stagingFeatureBootstrap))
   )
     throw Error('Canonical native allocation requires its original guarded operator launcher');
   rejectRegistryOverlap(plan, input.registryDirectory);
@@ -135,6 +149,10 @@ export async function launchStagingCustodian(
     const admissionBuildSelection = selection();
     if (allocation) await deps.beforeContainedNativeRun!();
     await deps.run({
+      ...(allocation ? { beforeControllerReady: deps.beforeContainedNativeReady } : {}),
+      ...(deps.stagingFeatureBootstrap
+        ? { stagingFeatureBootstrap: deps.stagingFeatureBootstrap }
+        : {}),
       ...(admissionBuildSelection ? { admissionBuildSelection } : {}),
       observeController(identity, current) {
         current();

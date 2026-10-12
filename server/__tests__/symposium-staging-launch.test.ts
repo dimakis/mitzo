@@ -169,6 +169,23 @@ it('refuses a contained-native authorization hook on an unqualified noncanonical
   expect(run).not.toHaveBeenCalled();
   expect(authorizeContainedNativeAllocation).not.toHaveBeenCalled();
 });
+it('refuses native readiness and feature capabilities on an unqualified trial before registry reservation', async () => {
+  const f = fixture(),
+    claim = vi.fn(),
+    run = vi.fn();
+  const beforeContainedNativeReady = vi.fn(async () => {});
+  await expect(
+    launchStagingCustodian(f.plan, f.registration, {
+      verify() {},
+      claim,
+      run,
+      beforeContainedNativeReady,
+    }),
+  ).rejects.toThrow(/canonical/i);
+  expect(claim).not.toHaveBeenCalled();
+  expect(run).not.toHaveBeenCalled();
+  expect(beforeContainedNativeReady).not.toHaveBeenCalled();
+});
 it.each([
   ['local-854b-routing-v1', SOURCE_QUALIFIED_SYMPOSIUM_ROUTING_BUILD],
   ['local-854b-routing-v2', SOURCE_QUALIFIED_SYMPOSIUM_CONNECT_PREFACE_BUILD],
