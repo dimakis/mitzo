@@ -1,3 +1,4 @@
+import { createChatDraft, saveChatDraft } from '../../lib/chat-drafts';
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, within, waitFor } from '@testing-library/react';
@@ -727,11 +728,14 @@ it('blocks a saved repository before the picker reports any selection', async ()
     'mitzo-repository-draft:work:sonnet',
     '8ca30b0d-3e65-4eeb-8244-f6277350818f',
   );
+  const draft = { ...createChatDraft(), id: 'saved-repository', text: 'Repository draft' };
+  draft.settings.repositoryWorkspaceId = '8ca30b0d-3e65-4eeb-8244-f6277350818f';
+  saveChatDraft(draft);
   const store = createTestStore();
   const sendMessage = vi.fn();
   store.setState({ sendMessage });
   render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={['/chat?draft=saved-repository']}>
       <MitzoStoreProvider value={store}>
         <ChatView />
       </MitzoStoreProvider>
