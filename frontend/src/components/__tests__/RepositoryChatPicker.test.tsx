@@ -454,3 +454,66 @@ it('clears a restored claimed draft locally and retains the original conversatio
   );
   expect(screen.getByRole('button', { name: 'Add repository' })).toBeTruthy();
 });
+it('keeps a scoped draft independent of another per-account preparation', async () => {
+  sessionStorage.setItem('mitzo-repository-draft:account:model', preview.id);
+  api.fetch.mockResolvedValue(new Response(JSON.stringify({ available: true, repositories: [] })));
+  const onChange = vi.fn();
+  render(
+    <RepositoryChatPicker accountId="account" model="model" draftScoped onChange={onChange} />,
+  );
+  await screen.findByText(/Assign a GitHub connection/);
+  expect(onChange).toHaveBeenLastCalledWith(null);
+  expect(api.fetch.mock.calls.some(([url]) => url.includes(preview.id))).toBe(false);
+});
+it.each(['preparing', 'failed', 'claimed'])(
+  'retains the exact scoped preparation ID when restoration is blocked: %s',
+  async (state) => {
+    api.fetch.mockImplementation(
+      async (url: string) =>
+        new Response(
+          JSON.stringify(
+            url.includes('/catalog')
+              ? { available: true, repositories: [] }
+              : { ...preview, state },
+          ),
+        ),
+    );
+    const onChange = vi.fn();
+    render(
+      <RepositoryChatPicker
+        accountId="account"
+        model="model"
+        draftScoped
+        initialPreparationId={preview.id}
+        onChange={onChange}
+      />,
+    );
+    await vi.waitFor(() => expect(api.fetch.mock.calls).toHaveLength(2));
+    expect(onChange).toHaveBeenLastCalledWith({ blocked: true, repositoryWorkspaceId: preview.id });
+  },
+);
+it('retains a scoped prepare receipt when its response is lost without contaminating account storage', async () => {
+  api.fetch.mockImplementation(async (url: string) => {
+    if (url.includes('/catalog'))
+      return new Response(
+        JSON.stringify({
+          available: true,
+          repositories: [{ connectionId: 'github', label: 'GitHub', repository: 'example/repo' }],
+        }),
+      );
+    if (url.endsWith('/preview')) return new Response(JSON.stringify(preview));
+    throw new Error('prepare response lost');
+  });
+  const onChange = vi.fn();
+  render(
+    <RepositoryChatPicker accountId="account" model="model" draftScoped onChange={onChange} />,
+  );
+  const user = userEvent.setup();
+  await user.click(await screen.findByRole('button', { name: 'Add repository' }));
+  await user.selectOptions(screen.getByLabelText('GitHub repository'), 'github:example/repo');
+  await user.click(screen.getByRole('button', { name: 'Preview repository' }));
+  await user.click(await screen.findByRole('button', { name: 'Prepare repository' }));
+  await screen.findByRole('alert');
+  expect(onChange).toHaveBeenLastCalledWith({ blocked: true, repositoryWorkspaceId: preview.id });
+  expect(sessionStorage.getItem('mitzo-repository-draft:account:model')).toBeNull();
+});

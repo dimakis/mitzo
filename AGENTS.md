@@ -27,6 +27,16 @@ Production activation requires reviewed, accepted sources. A publication is dist
 
 Tests that make real model calls must explicitly use a supported Luna model. State the exact model and charged account before live tests; obtain approval if Luna is unavailable or another model is required.
 
+## Playwright on macOS
+
+Run browser tests and ad hoc Playwright scripts outside the Codex Seatbelt sandbox
+using the approved execution tool or a normal terminal. Sandboxed browser launches
+abort during macOS process registration and trigger crash popups. Do not retry
+failed launches, switch browser binaries, or unset `CODEX_SANDBOX` to bypass the
+host check. `--list` is safe inside the sandbox. The offline `npm run test:ui`
+suite intercepts all app traffic and needs no backend or model calls; live tests
+still follow the canonical staging and Luna requirements above.
+
 The `Centaur merge gate` workflow requires a dedicated GitHub App credential isolated in the default-branch-only `centaur-status-writer` environment. Branch protection must bind `Centaur final LGTM` to this App's numeric ID alongside CI. See `docs/operations/mgmt-knowledge-publication.md` for mandatory provisioning. Pushes and review comments wake the writer; five-minute reconciliation covers review changes. Missing or stale reports stay pending, blocking or dismissed reports fail. Verify App identity, environment restrictions, a real status and branch protection before claiming enforcement.
 
 For a separate Centaur publishing account, configure the GitHub repository variable `CENTAUR_REVIEWER_LOGIN`; keep it consistent with Mitzo’s `trusted_reviewer`/host `CENTAUR_REVIEWER_LOGIN`. The MGMT CLI and shepherd also honor that host variable (the CLI permits an explicit `--centaur-author`). Otherwise the repository owner is the trusted publishing account.
