@@ -1020,7 +1020,7 @@ it('renews the process after approved provider attachment before dispatching the
   expect(state.onError).not.toHaveBeenCalled();
 });
 
-it.each(['before-turn', 'queued-continuation'] as const)(
+it.each(['before-turn', 'queued-continuation', 'runtime-admission'] as const)(
   'clears automatic environment refresh progress before the acknowledged %s turn',
   async (route) => {
     const state = await setup();
@@ -1032,6 +1032,12 @@ it.each(['before-turn', 'queued-continuation'] as const)(
       return originalClient(callbacks);
     };
     state.conversationOptions.refreshTransportBeforeTurn = () => needsRefresh;
+    if (route === 'runtime-admission')
+      state.conversationOptions.beforeRuntimeAdmission = async (close) => {
+        await close();
+        needsRefresh = true;
+        return true;
+      };
     state.conversationOptions.prepareTurn = async () => {
       if (route === 'before-turn') needsRefresh = true;
     };

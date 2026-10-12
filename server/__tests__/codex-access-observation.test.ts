@@ -89,10 +89,16 @@ function fixture(
   });
   return {
     conversation,
+    root,
     store,
     rpc,
     closeTransport: () => callbacks.onClose(new Error('fixture disconnect')),
     acknowledge: () => acknowledge!(),
+    failTurn: () =>
+      callbacks.onNotification('turn/completed', {
+        threadId: 'thread',
+        turn: { id: 'turn', status: 'failed', error: { message: 'context length exceeded' } },
+      }),
     observeOwnership,
     finishOwnership: () => finishOwnership!(),
   };
@@ -201,4 +207,43 @@ it('invalidates the observation on lost transport or close and excludes Symposiu
   const symposium = fixture('local', 'symposium');
   await symposium.conversation.initialize();
   expect(symposium.conversation.readAccessObservation()).toBeUndefined();
+});
+
+it('withholds observation after a non-transport provider failure leaves paused recovery', async () => {
+  const owned = fixture();
+  await owned.conversation.initialize();
+  const sending = owned.conversation.send({ id: 'context-failure', prompt: 'fixture' });
+  await vi.waitFor(() => expect(owned.rpc).toHaveBeenCalledWith('turn/start', expect.anything()));
+  owned.acknowledge();
+  await sending;
+  owned.failTurn();
+  expect(owned.conversation.isPaused()).toBe(true);
+  expect(owned.conversation.isRecovering()).toBe(false);
+  expect(owned.store.read('one', binding).recovery).toBeTruthy();
+  owned.rpc.mockClear();
+  expect(owned.conversation.readAccessObservation()).toBeUndefined();
+  expect(owned.rpc).not.toHaveBeenCalled();
+});
+it('withholds observation when initialized from persisted recovery', async () => {
+  const owned = fixture();
+  owned.store.create('one', binding, owned.root);
+  owned.store.enqueue('one', binding, { id: 'persisted-work', prompt: 'fixture' });
+  owned.store.pauseForRecovery('one', binding);
+  await owned.conversation.initialize();
+  expect(owned.conversation.isPaused()).toBe(true);
+  expect(owned.conversation.isRecovering()).toBe(false);
+  owned.rpc.mockClear();
+  expect(owned.conversation.readAccessObservation()).toBeUndefined();
+  expect(owned.rpc).not.toHaveBeenCalled();
+});
+it('withholds observation when durable recovery is newer than the memory flag', async () => {
+  const owned = fixture();
+  await owned.conversation.initialize();
+  owned.store.enqueue('one', binding, { id: 'durable-work', prompt: 'fixture' });
+  owned.store.pauseForRecovery('one', binding);
+  expect(owned.store.read('one', binding).recovery).toBeTruthy();
+  expect(owned.conversation.isPaused()).toBe(false);
+  owned.rpc.mockClear();
+  expect(owned.conversation.readAccessObservation()).toBeUndefined();
+  expect(owned.rpc).not.toHaveBeenCalled();
 });

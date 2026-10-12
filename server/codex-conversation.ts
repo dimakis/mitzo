@@ -669,6 +669,7 @@ export class CodexConversation {
     if (
       !this.ready ||
       this.closed ||
+      this.paused ||
       !this.binding ||
       !this.threadId ||
       !this.accessModel ||
@@ -680,6 +681,7 @@ export class CodexConversation {
     )
       return undefined;
     try {
+      if (this.opts.store.read(this.opts.conversationId, this.binding).recovery) return undefined;
       this.opts.store.assertNoPendingThreadOwnership(this.opts.conversationId, this.binding);
     } catch {
       return undefined;
@@ -1233,6 +1235,11 @@ export class CodexConversation {
     } catch (error) {
       client.close();
       throw error;
+    } finally {
+      // Every reattachment path owns progress here, including runtime admission.
+      // Paused/durable recovery and provider ownership remain separate fences.
+      this.recoveryPhase = undefined;
+      this.opts.onQueueChange?.();
     }
   }
 
@@ -1780,11 +1787,6 @@ export class CodexConversation {
             await this.reconnectBound();
           } finally {
             transportGeneration = this.transportGeneration;
-            // Reattachment progress ends on success or refusal. Failed refresh
-            // retains paused/unknown state and requires existing recovery; this
-            // does not acknowledge user recovery or provider-turn ownership.
-            this.recoveryPhase = undefined;
-            this.opts.onQueueChange?.();
           }
         };
         if (this.opts.reconnectGuard) await this.opts.reconnectGuard(renew);

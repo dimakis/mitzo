@@ -237,3 +237,12 @@ Accepted replay/reconnect refactor PR889 at
 conflicted; the combined source uses v1.0.73 and includes the new replay-store
 fingerprint. The Access projection and tested refresh correction are retained;
 new exact-head CI/review is required after this accepted-main advance.
+
+Final recovery boundaries also cover admission-driven reconnects whose client
+launcher clears the later refresh flag (CEN-D3F87C1146BA), plus non-transport
+failures, persisted startup recovery and durable recovery newer than memory
+(CEN-3AEE31E28B68). Four red tests reproduced these actual paths. Reattachment
+progress now ends inside its owning reconnect method for every caller. Read-only
+Access checks both paused memory and durable recovery before projecting evidence.
+Neither change clears recovery acknowledgements or provider ownership fences.
+The combined runtime advances to v1.0.74 with the same 193 source inputs.

@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.9';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.73';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.74';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -131,7 +131,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/attest-knowledge-runtime.py':
     '5737ec8e7fc19a17b6ef5a35c1898e834d2a5d2d2a9f7593b607eaaf1971cfeb',
   '../agent-context-sandbox.ts': '8b61edc17ccc94bc95eae3796e68a0beb9540534e3bfbb348a04154c41995416',
-  '../codex-conversation.ts': 'aec07aa6a3ee9c48416c1911f8c18564b531d7fa5a320b537b1e089731639c4d',
+  '../codex-conversation.ts': '63da884bab42310e5dea41c018526c31c6406e7d2a00756ed6d8beb0fdd43c95',
   '../codex-conversation-store.ts':
     '76ef29aa2d6861db49ef3afa8c41464c9f6f4da1fd556fa949e2286fede0a216',
   // Library profile identity, operator ownership and admission are reviewed runtime inputs.
