@@ -1141,12 +1141,10 @@ it('uses the latest verified web-consent resume model after a different acknowle
     model: 'other-model',
     modelSource: 'accepted-turn',
   });
-  state
-    .getCallbacks()
-    .onNotification('turn/completed', {
-      threadId: 'provider-thread',
-      turn: { id: 'turn-1', status: 'completed' },
-    });
+  state.getCallbacks().onNotification('turn/completed', {
+    threadId: 'provider-thread',
+    turn: { id: 'turn-1', status: 'completed' },
+  });
   await new Promise<void>((resolve) => setImmediate(resolve));
   await state.c.setWebSearchGrant(0, 'allowed');
   expect(state.c.readAccessObservation()).toMatchObject({
