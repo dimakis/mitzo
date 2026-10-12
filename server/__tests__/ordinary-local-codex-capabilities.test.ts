@@ -54,7 +54,11 @@ function profiles(config: unknown = [host], enabled = true) {
   return new AccountProfiles(config, { codexEnabled: enabled });
 }
 function snapshot(config: unknown = targetConfig, accounts: AccountProfiles = profiles()) {
-  return new OrdinaryLocalCodexCapabilityCatalog(accounts, new OrdinaryLocalCodexTarget(config));
+  return new OrdinaryLocalCodexCapabilityCatalog(
+    accounts,
+    new OrdinaryLocalCodexTarget(config),
+    'ordinary',
+  );
 }
 function request(p: AccountProfiles = profiles(), targetId = 'local-mac') {
   const { accountId, provider, profileRevision } = p.ordinaryLocalCodexAccounts()[0];
@@ -166,6 +170,16 @@ describe('operator-selected bounded target loader', () => {
 });
 
 describe('bounded configuration-only capability snapshot', () => {
+  it('requires explicit server deployment classification instead of defaulting to ordinary', () => {
+    expect(
+      () =>
+        new OrdinaryLocalCodexCapabilityCatalog(
+          profiles(),
+          new OrdinaryLocalCodexTarget(targetConfig),
+          undefined as unknown as 'ordinary',
+        ),
+    ).toThrow('Invalid ordinary local Codex capability inventory');
+  });
   it('joins exact account/target pins and existing thinking metadata without assuming readiness', () => {
     const p = profiles();
     const c = snapshot(targetConfig, p);
@@ -233,7 +247,11 @@ describe('bounded configuration-only capability snapshot', () => {
   it.each([false, true])(
     'keeps the OpenShell default without fallback when local target/account is absent (gate %s)',
     (enabled) => {
-      const c = new OrdinaryLocalCodexCapabilityCatalog(profiles([host], enabled));
+      const c = new OrdinaryLocalCodexCapabilityCatalog(
+        profiles([host], enabled),
+        undefined,
+        'ordinary',
+      );
       expect(c.inventory()).toMatchObject({
         defaultLocation: 'openshell',
         targets: [],

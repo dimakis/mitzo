@@ -148,9 +148,10 @@ export class OrdinaryLocalCodexCapabilityCatalog {
 
   constructor(
     profiles: AccountProfiles,
-    target?: OrdinaryLocalCodexTarget,
-    deployment: OrdinarySessionRuntimeCatalog['deployment'] = 'ordinary',
+    target: OrdinaryLocalCodexTarget | undefined,
+    deployment: OrdinarySessionRuntimeCatalog['deployment'],
   ) {
+    if (!['ordinary', 'custodian'].includes(deployment)) throw new Error(inventoryError);
     let metadata;
     try {
       metadata = profiles.ordinaryLocalCodexInventory();
@@ -158,8 +159,7 @@ export class OrdinaryLocalCodexCapabilityCatalog {
       throw new Error(inventoryError);
     }
     const parsed = InventoryAccounts.safeParse(metadata);
-    if (!parsed.success || !['ordinary', 'custodian'].includes(deployment))
-      throw new Error(inventoryError);
+    if (!parsed.success) throw new Error(inventoryError);
     const source = parsed.data;
     const targets = target ? [target.descriptor()] : [];
     this.#catalog = {

@@ -293,7 +293,7 @@ not authorize dispatch or claim fresh provider availability.
 as one independent snapshot. Its existing pure resolver checks the exact account/
 harness/target reference. It advertises configured modes from that resolver and
 Codex's unsupported restricted skill ceiling, not permission or tool parity.
-Custodian deployments keep local routes unavailable. The response retains
+Callers must explicitly classify the server deployment; missing or invalid classification fails rather than defaulting to ordinary execution. Custodian deployments keep local routes unavailable. The response retains
 `defaultLocation: "openshell"` and reports `openshell_projection_pending`; it does
 not select a local replacement. Missing targets and absent eligible accounts have
 finite local unavailable reasons. Native/brokered/API/Vertex profiles are not
