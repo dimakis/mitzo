@@ -6,6 +6,7 @@ import { dirname, resolve } from 'node:path';
 
 const commit = /^[a-f0-9]{40}$/;
 const identifier = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/;
+const digest = /^[a-f0-9]{64}$/;
 const reasons = new Set([
   'host-resources',
   'stage-unavailable',
@@ -14,20 +15,51 @@ const reasons = new Set([
   'deployment-uncertain',
   'test-cleanup-uncertain',
   'controller-lost',
+  'feature-plan-required',
 ]);
 function validateRequest(r) {
+  const feature = r?.version === 2 && r.suite === 'profile-tools-v1';
   if (
     !r ||
-    Object.keys(r).sort().join() !== 'acceptedCommit,id,pr,suite,taskId' ||
+    Object.keys(r).sort().join() !==
+      (feature
+        ? 'acceptedCommit,enrollmentRevision,id,pr,profileId,suite,taskId,version'
+        : 'acceptedCommit,id,pr,suite,taskId') ||
     !identifier.test(r.id) ||
     !identifier.test(r.taskId) ||
     !Number.isSafeInteger(r.pr) ||
     r.pr < 1 ||
     !commit.test(r.acceptedCommit) ||
-    r.suite !== 'http-readiness'
+    (!feature && r.suite !== 'http-readiness') ||
+    (feature && (!identifier.test(r.profileId) || !digest.test(r.enrollmentRevision)))
   )
     throw Error('Exact accepted source and supported staging suite required');
-  return { id: r.id, taskId: r.taskId, pr: r.pr, acceptedCommit: r.acceptedCommit, suite: r.suite };
+  return {
+    id: r.id,
+    taskId: r.taskId,
+    pr: r.pr,
+    acceptedCommit: r.acceptedCommit,
+    suite: r.suite,
+    ...(feature
+      ? { version: 2, profileId: r.profileId, enrollmentRevision: r.enrollmentRevision }
+      : {}),
+  };
+}
+function validateFeatureReceipt(receipt, request) {
+  if (
+    !receipt ||
+    Object.keys(receipt).sort().join() !==
+      'enrollmentRevision,ownerInstance,ownerReceiptSha256,planSha256,profileId,runId,version' ||
+    receipt.version !== 1 ||
+    receipt.profileId !== request.profileId ||
+    receipt.enrollmentRevision !== request.enrollmentRevision ||
+    !identifier.test(receipt.ownerInstance) ||
+    !identifier.test(receipt.runId) ||
+    !digest.test(receipt.planSha256) ||
+    !digest.test(receipt.ownerReceiptSha256)
+  )
+    throw Error('Bounded original-owner feature receipt required');
+  return { ...receipt };
 }
 /** Separate from deployment.lock: this reservation persists through testing and
  * across controller loss. Expiry is never permission to replace native custody. */
@@ -138,7 +170,8 @@ export class StagingPipelineStore {
       .prepare('SELECT payload,state,reason,result FROM requests WHERE id=?')
       .get(id);
     if (!row) return { version: 1, requestId: id, state: 'missing' };
-    const { pr, taskId, acceptedCommit, suite } = JSON.parse(row.payload);
+    const request = JSON.parse(row.payload);
+    const { pr, taskId, acceptedCommit, suite } = request;
     return {
       version: 1,
       requestId: id,
@@ -146,6 +179,9 @@ export class StagingPipelineStore {
       taskId,
       acceptedCommit,
       suite,
+      ...(request.version === 2
+        ? { profileId: request.profileId, enrollmentRevision: request.enrollmentRevision }
+        : {}),
       state: row.state,
       reason: row.reason,
       result: row.result ? JSON.parse(row.result) : null,
@@ -244,6 +280,8 @@ export class StagingPipelineStore {
       )
         throw Error('Test source does not match request');
       if (result.cleanupConfirmed !== true) throw Error('Confirmed test cleanup required');
+      const featureReceipt =
+        r.version === 2 ? validateFeatureReceipt(result.featureReceipt, r) : undefined;
       const receipt = {
         acceptedCommit: r.acceptedCommit,
         outcome: result.outcome,
@@ -252,6 +290,9 @@ export class StagingPipelineStore {
         suite: r.suite,
         cleanupConfirmed: true,
         completedAt: this.clock(),
+        ...(featureReceipt
+          ? { featureReceipt, liveFeatureValidation: 'requires-owner-verification' }
+          : {}),
       };
       this.db
         .prepare('UPDATE requests SET state=?,result=? WHERE id=?')

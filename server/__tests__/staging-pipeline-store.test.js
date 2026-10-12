@@ -35,6 +35,60 @@ const request = (id = 'one') => ({
   acceptedCommit: 'a'.repeat(40),
   suite: 'http-readiness',
 });
+const featureRequest = (id = 'feature') => ({
+  ...request(id),
+  version: 2,
+  suite: 'profile-tools-v1',
+  profileId: 'personal-stage',
+  enrollmentRevision: 'e'.repeat(64),
+});
+it('queues versioned profile features in the same singleton without account or model overrides', () => {
+  const {
+    stores: [s, t],
+  } = fixture();
+  s.enqueue(featureRequest());
+  t.enqueue(request());
+  const claim = s.claim('worker');
+  expect(claim.request).toEqual(featureRequest());
+  expect(t.claim('another')).toMatchObject({ granted: false, reason: 'staging-busy' });
+  for (const change of [
+    { model: 'gpt-6.1-sol' },
+    { account: 'production' },
+    { command: 'anything' },
+    { version: 1 },
+    { enrollmentRevision: 'unknown' },
+    { profileId: '../other' },
+  ])
+    expect(() => s.enqueue({ ...featureRequest('bad'), ...change })).toThrow();
+});
+it('feature summaries preserve owner evidence references and refuse bare passing declarations', () => {
+  const {
+    stores: [s],
+  } = fixture();
+  s.enqueue(featureRequest());
+  const claim = s.claim('worker');
+  s.bindBaseline(claim.token, 'a'.repeat(40));
+  s.markDispatched(claim.token);
+  const result = { outcome: 'passed', sourceCommit: 'a'.repeat(40), cleanupConfirmed: true };
+  expect(() => s.finish(claim.token, result)).toThrow(/owner/);
+  const featureReceipt = {
+    version: 1,
+    profileId: 'personal-stage',
+    enrollmentRevision: 'e'.repeat(64),
+    planSha256: 'f'.repeat(64),
+    ownerInstance: 'owner',
+    runId: 'run',
+    ownerReceiptSha256: 'd'.repeat(64),
+  };
+  s.finish(claim.token, { ...result, featureReceipt });
+  expect(s.receipt('feature')).toMatchObject({
+    version: 1,
+    suite: 'profile-tools-v1',
+    profileId: 'personal-stage',
+    enrollmentRevision: 'e'.repeat(64),
+    result: { featureReceipt, liveFeatureValidation: 'requires-owner-verification' },
+  });
+});
 it('deduplicates identical requests but refuses a changed request identity', () => {
   const {
     stores: [s],
