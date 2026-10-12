@@ -5,6 +5,7 @@ import { fileURLToPath, URL } from 'node:url';
 import { existsSync, readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { assessStagingResources, STAGING_RESOURCE_BUDGET } from './staging-resource-budget.mjs';
+import { privateJson } from './staging-files.mjs';
 
 const sha = /^[a-f0-9]{40}$/;
 /** Never pass inherited provider configuration into a controller/build. GitHub
@@ -88,6 +89,7 @@ export function createStagingPipelineEffects({
   root = join(homedir(), '.local/share/mitzo-staging'),
   run = runStagingHostCommand,
   fetch = globalThis.fetch,
+  profiles,
 } = {}) {
   const controller = join(root, 'bin/mitzo-staging');
   // run-next has already verified this checkout is clean exact accepted main.
@@ -95,6 +97,18 @@ export function createStagingPipelineEffects({
   const acceptedController = fileURLToPath(new URL('../staging.mjs', import.meta.url));
   const mutate = (args) => run(process.execPath, [acceptedController, ...args], opts);
   const opts = { heapMiB: STAGING_RESOURCE_BUDGET.buildHeapMiB, timeout: 180000 };
+  let featureEffects;
+  const features = async () => {
+    if (profiles) return profiles; // Trusted constructor dependency for offline tests.
+    if (!featureEffects) {
+      const { authorization } = privateJson(join(root, 'service/feature-client.json'));
+      if (typeof authorization !== 'string' || !authorization || authorization.length > 4096)
+        throw Error('Qualified stage feature client authorization required');
+      const { createStagingProfileEffects } = await import('./staging-profile-live-runner.mjs');
+      featureEffects = createStagingProfileEffects({ authorization });
+    }
+    return featureEffects;
+  };
   const exact = (target, current) => {
     if (!sha.test(target) || (current && !sha.test(current)))
       throw Error('Exact staging source required');
@@ -124,6 +138,20 @@ export function createStagingPipelineEffects({
       return tip;
     },
     check,
+    lookupEnrollment: async (profileId) => (await features()).lookupEnrollment(profileId),
+    featurePlan: async (request, target) => {
+      exact(target);
+      const { plan, planSha256 } = await (await features()).plan(request, target);
+      if (
+        !/^[a-f0-9]{64}$/.test(planSha256) ||
+        plan?.requestId !== request.id ||
+        plan.sourceCommit !== target ||
+        plan.profileId !== request.profileId ||
+        plan.enrollmentRevision !== request.enrollmentRevision
+      )
+        throw Error('Authenticated feature plan binding changed');
+      return { publicPlan: plan, planSha256 };
+    },
     prepared: async (target) => {
       exact(target);
       const result = JSON.parse(mutate(['prepare', '--commit', target, '--check-only']));
@@ -156,8 +184,25 @@ export function createStagingPipelineEffects({
       exact(target, current);
       mutate(['deploy', '--commit', target, '--expected-current', current, '--apply']);
     },
-    test: async (suite, target) => {
+    test: async (suite, target, context) => {
       exact(target);
+      if (suite === 'profile-tools-v1') {
+        if (!context || context.request?.version !== 2 || context.plan?.sourceCommit !== target)
+          throw Error('Original feature reservation and source required');
+        const result = await (await features()).run(context.plan, context.token);
+        const receipt = result.featureResult;
+        if (
+          !['passed', 'failed'].includes(result.outcome) ||
+          result.sourceCommit !== target ||
+          result.cleanupConfirmed !== true ||
+          receipt?.planSha256 !== context.planSha256 ||
+          receipt.profileId !== context.request.profileId ||
+          receipt.enrollmentRevision !== context.request.enrollmentRevision ||
+          receipt.ownerInstance !== context.plan.ownerInstance
+        )
+          throw Error('Original-owner feature execution or cleanup uncertain');
+        return { outcome: result.outcome, cleanupConfirmed: true, featureReceipt: receipt };
+      }
       if (suite !== 'http-readiness')
         throw Error('Suite needs separately reviewed staging enrollment');
       // GET only: no provider, session, fixture creation, inference or cleanup effects.
