@@ -257,6 +257,7 @@ it('retains verified principal and exact provider intent only under the original
   const receipt = captureSymposiumWorkVertexProvider(f.gateway as never, result.sandboxProviderId);
   expect(receipt).toEqual({
     principal: f.profile.expectedPrincipal,
+    adcSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
     accountId: f.profile.id,
     provider: result.sandboxProvider,
     providerId: 'new-id',

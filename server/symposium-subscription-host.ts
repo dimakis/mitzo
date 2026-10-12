@@ -177,6 +177,10 @@ export function createSymposiumSubscriptionHost(
       });
 
   return {
+    refreshAuthenticatedCatalog: (selectedModel: string, assertCurrent: () => void) =>
+      service.refreshAuthenticatedCatalog(selectedModel, assertCurrent),
+    captureAuthenticatedCatalog: (selectedModel: string) =>
+      service.captureAuthenticatedCatalog(selectedModel),
     captureDiscovery() {
       const proof = service.captureDiscovery();
       if (!definition) throw new Error('Connected account required');
