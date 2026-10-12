@@ -52,7 +52,7 @@ export function assertStagingPipelineMutation(
       row.owner !== token.owner ||
       row.nonce !== token.nonce ||
       row.source_commit !== target ||
-      Date.now() > row.deadline
+      Date.now() >= row.deadline
     )
       throw Error('Exact active staging pipeline reservation required');
     if (apply && row.dispatched !== 1) throw Error('Deployment dispatch was not admitted');

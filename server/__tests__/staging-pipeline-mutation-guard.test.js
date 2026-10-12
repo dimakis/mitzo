@@ -1,4 +1,4 @@
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -6,6 +6,7 @@ import { StagingPipelineStore } from '../../scripts/lib/staging-pipeline-store.m
 import { assertStagingPipelineMutation } from '../../scripts/lib/staging-pipeline-mutation-guard.mjs';
 const fixtures = [];
 afterEach(() => {
+  vi.restoreAllMocks();
   for (const f of fixtures.splice(0)) {
     f.store?.close();
     rmSync(f.root, { recursive: true, force: true });
@@ -75,4 +76,20 @@ it('stale and quarantined capabilities cannot be used to deploy', () => {
       { root },
     ),
   ).toThrow();
+});
+
+it('physical mutation refuses the exact deadline, matching the original queue expiry', () => {
+  const { root, store } = fixture();
+  store.enqueue(r);
+  const c = store.claim('worker');
+  store.bindBaseline(c.token, sha);
+  store.markDispatched(c.token);
+  const { deadline } = store.db.prepare('SELECT deadline FROM reservation WHERE singleton=1').get();
+  vi.spyOn(Date, 'now').mockReturnValue(deadline);
+  expect(() =>
+    assertStagingPipelineMutation(
+      { target: sha, apply: true, proof: JSON.stringify(c.token) },
+      { root },
+    ),
+  ).toThrow(/reservation/);
 });
