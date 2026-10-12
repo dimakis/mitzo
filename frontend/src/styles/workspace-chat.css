@@ -964,7 +964,7 @@
     padding: 8px 12px;
     flex-wrap: wrap;
   }
-  .workspace-chat .workspace-controls > div:not([hidden]) {
+  .workspace-chat .workspace-controls > .motion-disclosure:not([hidden]) {
     position: absolute;
     top: 100%;
     right: 0;
