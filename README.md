@@ -812,6 +812,14 @@ from the Actions run; use `npx playwright show-trace <trace.zip>` or
 `npx playwright show-report <report-directory>` to inspect it. Successful suites
 do not upload artifacts, and retries keep the original attempt's evidence.
 
+A failed offline native notification smoke retains a screenshot, the fixture app's
+bounded simulator log, and failure stage/expected versus observed origin before
+its owned simulator is deleted. CI uploads `native-notification-failure-<run>-<attempt>`
+for seven days. Capture errors do not hide the original test failure; each
+attempt has a separate directory under `test-results/native-notification/`.
+The fixture uses a fresh simulator and exports only the notification origin
+preference, never the full preference store or a connected account.
+
 Production artifacts are staged with
 `./scripts/stage-openshell-release.sh <mgmt-repo> <new-seed-output>`. It requires
 clean Mitzo and MGMT checkouts at current `origin/main`, then builds and verifies
