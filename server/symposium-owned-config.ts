@@ -1,3 +1,11 @@
+import {
+  captureOriginalStagingNativeBootstrap,
+  type StagingNativeFeatureBootstrap,
+} from './staging-native-feature-bootstrap.js';
+import {
+  captureStagingVertexRefreshProfile,
+  STAGING_VERTEX_PROFILE_SHA256,
+} from './staging-vertex-refresh-profile.js';
 import type { OriginalProcessObserver } from './symposium-original-process-retention.js';
 import { join } from 'node:path';
 import { load } from 'js-yaml';
@@ -29,7 +37,12 @@ type Dependencies = Pick<
   | 'observeRuntime'
   | 'observeNativeTurnInput'
   | 'admissionBuildSelection'
->;
+> & {
+  readonly stagingInference?: Readonly<{
+    bootstrap: StagingNativeFeatureBootstrap;
+    ownerInstance: string;
+  }>;
+};
 export interface BootstrapTools {
   launch: typeof OwnedSymposiumGateway.launch;
   run: typeof spawnSync;
@@ -53,6 +66,11 @@ export async function bootstrapConfiguredSymposiumHost(
     typeof dependencies.observeNativeTurnInput !== 'boolean'
   )
     throw Error('Native input diagnostic must be a trusted constructor boolean');
+  const staging = dependencies.stagingInference;
+  const originalStage = staging
+    ? captureOriginalStagingNativeBootstrap(staging.bootstrap)
+    : undefined;
+  originalStage?.assertCurrent();
   const config = readOwnedSymposiumHostConfig(filename);
   // Read and pin before launch. Import private immutable copies, avoiding a
   // hash-check / CLI-read race on the operator source files.
@@ -74,7 +92,9 @@ export async function bootstrapConfiguredSymposiumHost(
       if (
         vertex.length !== 1 ||
         createHash('sha256').update(vertex[0]).digest('hex') !==
-          'a1aac4f9e3710bba3aaa32c1787d588de6ec3c422198267077db11f1f1e2039d'
+          (staging
+            ? STAGING_VERTEX_PROFILE_SHA256
+            : 'a1aac4f9e3710bba3aaa32c1787d588de6ec3c422198267077db11f1f1e2039d')
       )
         throw Error();
     } catch {
@@ -87,8 +107,12 @@ export async function bootstrapConfiguredSymposiumHost(
       ? tools.launch
       : (options, operations) => tools.launch(options, operations, observeOriginalProcess),
     async (gateway) => {
+      originalStage?.assertCurrent();
+      if (staging && gateway.workspace === 'default')
+        throw Error('Staging provider profiles require the original private workspace');
       const environment = validateOpenShellCliEnvironment(gateway.managementEnvironment);
       const invoke = (args: string[]) => {
+        originalStage?.assertCurrent();
         gateway.verifyCustody();
         const result = tools.run(gateway.cli, args, {
           env: environment,
@@ -97,6 +121,7 @@ export async function bootstrapConfiguredSymposiumHost(
           maxBuffer: 1_000_000,
         });
         gateway.verifyCustody();
+        originalStage?.assertCurrent();
         if (result.error || result.status !== 0)
           throw new Error('Owned Symposium workspace/profile setup failed');
       };
@@ -116,12 +141,26 @@ export async function bootstrapConfiguredSymposiumHost(
           copy,
         ]);
       }
+      const vertexBytes = profiles.find(
+        (bytes) =>
+          createHash('sha256').update(bytes).digest('hex') === STAGING_VERTEX_PROFILE_SHA256,
+      );
+      const stagingProfile =
+        staging && vertexBytes
+          ? captureStagingVertexRefreshProfile(staging, gateway, vertexBytes)
+          : undefined;
       const work = [];
       for (const source of config.personal.workProfiles) {
         const scope = config.personal.workApiBillingScopes?.[source.id];
         work.push(
           source.provider === 'anthropic-vertex'
-            ? await (tools.provisionVertex ?? createSymposiumWorkVertexProvider)(gateway, source)
+            ? stagingProfile
+              ? await (tools.provisionVertex ?? createSymposiumWorkVertexProvider)(
+                  gateway,
+                  source,
+                  { stagingProfile },
+                )
+              : await (tools.provisionVertex ?? createSymposiumWorkVertexProvider)(gateway, source)
             : scope
               ? await tools.provisionWork(gateway, source, { stagingCatalogScope: scope })
               : await tools.provisionWork(gateway, source),

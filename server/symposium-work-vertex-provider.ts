@@ -1,3 +1,8 @@
+import {
+  assertStagingVertexRefreshProfile,
+  STAGING_VERTEX_AUTH_SCOPES,
+  type StagingVertexRefreshProfile,
+} from './staging-vertex-refresh-profile.js';
 import { SymposiumWorkVertexProfile } from './symposium-work-vertex-profile.js';
 export { SymposiumWorkVertexProfile } from './symposium-work-vertex-profile.js';
 import {
@@ -163,14 +168,20 @@ const runAsync: AsyncRun = (file, args, options) =>
     );
   });
 interface Dependencies {
+  /** Source-private original configured-host profile capability; never JSON. */
+  stagingProfile?: StagingVertexRefreshProfile;
   authenticate?(material: Material): Promise<{ email: string; accessToken: string }>;
   run?: typeof spawnSync;
   runAsync?: AsyncRun;
 }
-async function authenticate(material: Material) {
+async function authenticate(material: Material, stagingProfile?: StagingVertexRefreshProfile) {
   // A single bounded snapshot supplies both identity proof and gateway material.
   // fromJSON does not discover an ambient account or reread the ADC path.
-  const auth = new GoogleAuth({ scopes: ['https://www.googleapis.com/auth/cloud-platform'] });
+  const auth = new GoogleAuth({
+    scopes: stagingProfile
+      ? [...STAGING_VERTEX_AUTH_SCOPES]
+      : ['https://www.googleapis.com/auth/cloud-platform'],
+  });
   const client = auth.fromJSON(material);
   client.transporter.defaults = {
     ...client.transporter.defaults,
@@ -185,6 +196,8 @@ async function authenticate(material: Material) {
   // despite the auth library declaring a boolean. Never use truthiness.
   const emailVerified: unknown = info.email_verified;
   if (!info.email || (emailVerified !== true && emailVerified !== 'true')) throw Error();
+  if (stagingProfile && !STAGING_VERTEX_AUTH_SCOPES.every((scope) => info.scopes.includes(scope)))
+    throw Error();
   return { email: info.email, accessToken };
 }
 function snapshot(path: string): Material {
@@ -219,9 +232,19 @@ export async function createSymposiumWorkVertexProvider(
     const { expectedPrincipal, ...profile } = selected;
     new AccountProfiles([profile]);
     verifyCustody(gateway);
+    const stageProfile = dependencies.stagingProfile;
+    const assertProfileCurrent = () => {
+      if (stageProfile) assertStagingVertexRefreshProfile(stageProfile, gateway);
+    };
+    assertProfileCurrent();
+    if (stageProfile && (profile.projectId !== 'itpc-ca-638a2a9c7c' || profile.region !== 'global'))
+      throw Error();
     const material = snapshot(profile.credentialRef);
     if (material.quota_project_id && material.quota_project_id !== profile.projectId) throw Error();
-    const verified = await (dependencies.authenticate ?? authenticate)(material);
+    const verified = await (dependencies.authenticate
+      ? dependencies.authenticate(material)
+      : authenticate(material, stageProfile));
+    assertProfileCurrent();
     verifyCustody(gateway);
     if (verified.email !== expectedPrincipal || !verified.accessToken) throw Error();
     const environment = validateOpenShellCliEnvironment(gateway.managementEnvironment);
@@ -231,6 +254,7 @@ export async function createSymposiumWorkVertexProvider(
       secretEnvironment: Record<string, string> = {},
       timeoutMs = 30_000,
     ) => {
+      assertProfileCurrent();
       verifyCustody(gateway);
       const result = run(
         gateway.cli,
@@ -243,6 +267,7 @@ export async function createSymposiumWorkVertexProvider(
         },
       );
       verifyCustody(gateway);
+      assertProfileCurrent();
       if (result.error || result.status !== 0) throw Error();
       return String(result.stdout);
     };
@@ -254,6 +279,7 @@ export async function createSymposiumWorkVertexProvider(
         provider,
         '--type',
         'google-vertex-ai',
+        ...(stageProfile ? ['--profile-workspace', stageProfile.profileWorkspace] : []),
         '--credential',
         'GOOGLE_VERTEX_AI_TOKEN',
         '--config',

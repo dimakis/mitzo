@@ -578,3 +578,55 @@ it('rejects a nonboolean bootstrap diagnostic before reading configuration or la
   ).rejects.toThrow('Native input diagnostic must be a trusted constructor boolean');
   expect(f.tools.launch).not.toHaveBeenCalled();
 });
+
+it('rejects copied staging bootstrap before reading enrollment configuration or launching a gateway', async () => {
+  const f = fixture();
+  await expect(
+    bootstrapConfiguredSymposiumHost(
+      '/not-a-staging-configuration',
+      {
+        facts: {} as never,
+        hostGrants: { verifySeat: vi.fn() },
+        stagingInference: { bootstrap: {} as never, ownerInstance: 'stage-owner' },
+      },
+      f.tools as never,
+    ),
+  ).rejects.toThrow('Actual original native bootstrap');
+  expect(f.tools.launch).not.toHaveBeenCalled();
+  expect(f.tools.run).not.toHaveBeenCalled();
+});
+
+it('refuses staging-only Vertex profile bytes on the ordinary enrollment path before gateway launch', async () => {
+  const f = fixture();
+  (f.config.personal.workProfiles as unknown[]).push({
+    id: 'stage-vertex',
+    label: 'Stage',
+    provider: 'anthropic-vertex',
+    credentialRef: join(f.root, 'fresh-stage-adc.json'),
+    expectedPrincipal: 'stage@example.test',
+    projectId: 'itpc-ca-638a2a9c7c',
+    region: 'global',
+    models: [{ id: 'claude-haiku-4-5@20251001', label: 'Haiku' }],
+  });
+  const bytes = readFileSync(
+    new URL(
+      '../../infra/openshell/providers/staging-vertex-seat-endpointless.yaml',
+      import.meta.url,
+    ),
+  );
+  const path = join(f.root, 'staging-only.yaml');
+  writeFileSync(path, bytes);
+  f.config.providerProfiles.push({
+    path,
+    sha256: createHash('sha256').update(bytes).digest('hex'),
+  });
+  f.save();
+  await expect(
+    bootstrapConfiguredSymposiumHost(
+      f.filename,
+      { facts: {} as never, hostGrants: { verifySeat: vi.fn() } },
+      f.tools as never,
+    ),
+  ).rejects.toThrow('exactly one reviewed endpointless');
+  expect(f.tools.launch).not.toHaveBeenCalled();
+});

@@ -11,7 +11,7 @@ export {
 } from './reviewed-policy-revisions.js';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.78';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.80';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,6 +23,12 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../symposium-owned-config.ts':
+    '3b6cdbbedbba2fc152bf7c7ba9af14d152f3a892e54b46f1436c21d85c349d6d',
+  '../../infra/openshell/providers/staging-vertex-seat-endpointless.yaml':
+    '0bb081c7a0f651d7a15cca6008d588c747ef3a40306a48a083334eab537698b2',
+  '../staging-vertex-refresh-profile.ts':
+    '96fd835b3aecbd6dcef16872c4da92f4566676d0f647794b7072c293f5cfe3c0',
   // Original registered-stage bootstrap and immutable private delegation source.
   '../staging-native-feature-bootstrap.ts':
     '1007ce52dc853ac362a1ebaec63ccf6006a50eae63c98ee0647ff38598d94594',
@@ -52,7 +58,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../symposium-personal-host.ts':
     'a19c53e43cdeba9e1c74d7440e16560703380dc60016733079668fb5901acfe1',
   '../symposium-work-vertex-provider.ts':
-    'de65388bad75a063c0602a2c4ceb3d7dae78c558ae5146caef8aa78bac79d873',
+    '6a7c9034ac51433e6532fcdf8be7d9f206655d9c28f23b810c6cdc1ab8dde045',
   '../staging-native-feature-owner.ts':
     '2fb8dec9d8d9af0be74333f751139b4937e94834fb0c659ece3fbf28ea40db2b',
   '../staging-native-model-authority.ts':

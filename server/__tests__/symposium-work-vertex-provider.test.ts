@@ -446,3 +446,20 @@ it('revokes async receipt custody permanently after loss without leaking diagnos
     captureSymposiumWorkVertexProviderAsync(f.gateway as never, 'new-id'),
   ).rejects.toThrow('Vertex provider custody unavailable');
 });
+
+it('refuses a serialized staging profile before fresh ADC authentication or native provider work', async () => {
+  const f = fixture();
+  await expect(
+    createSymposiumWorkVertexProvider(f.gateway as never, f.profile, {
+      authenticate: f.authenticate,
+      run: f.run as never,
+      stagingProfile: {
+        profileId: 'google-vertex-ai',
+        profileWorkspace: f.gateway.workspace,
+        profileSha256: 'a'.repeat(64),
+      },
+    }),
+  ).rejects.toThrow('Vertex provisioning unavailable');
+  expect(f.authenticate).not.toHaveBeenCalled();
+  expect(f.run).not.toHaveBeenCalled();
+});
