@@ -231,3 +231,9 @@ now ends its progress after completed or refused reattachment and notifies the q
 observer, without acknowledging user recovery or changing provider-turn ownership.
 Existing interruption, failed refresh, admission, continuation and private-ledger
 fences remain in force. A third red test verifies refusal retains paused/Unknown state, starts no provider turn and stops progress so existing recovery controls remain usable. The combined reviewed runtime advances to v1.0.72.
+
+Accepted replay/reconnect refactor PR889 at
+`8cf8e8e03b24dc129884923c94399908eddc9e82` is preserved. Only the runtime revision
+conflicted; the combined source uses v1.0.73 and includes the new replay-store
+fingerprint. The Access projection and tested refresh correction are retained;
+new exact-head CI/review is required after this accepted-main advance.

@@ -670,6 +670,13 @@ restart recovery keeps completed per-attempt progress if a later write fails.
 Existing public execution methods and admission error types remain available
 through the event-store module.
 
+Transcript projections and reconnect snapshots live in
+`packages/protocol/src/conversation-replay-store.ts`, borrowing the same
+`EventStore` connection, prepared reads and event decoder. Reconnect captures
+session state, the event cursor and active-generation provider attempts in one
+SQLite read transaction. Existing public replay methods and types remain
+available through the event-store module.
+
 ### Frontend (`frontend/`) — React 19 + Vite
 
 React 19 + Vite. Ten pages (`Login`, `SessionList`, `ChatView`, `DesktopChatView`, `FileViewer`, `InboxView`, `CalendarView`, `TodoView`, `TodoDetailView`, `TaskBoard`), a `useReducer`-based message state machine (`useChatMessages`), module-level WebSocket pool with 500-message buffer, and components for thinking blocks, tool pills, tool groups, permission banners, and a slash-command picker. Capacitor wraps the frontend for iOS deployment via TestFlight.
