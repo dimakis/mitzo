@@ -22,6 +22,9 @@ export interface StagingNativeModelRequestReceipt {
   readonly sandboxId: string;
   readonly requestCount: 0 | 1 | 2;
   readonly requestsSha256: string;
+  /** Original readonly provider/model plan, distinct from the per-run signed policy. */
+  readonly modelPlanRevision: string;
+  /** Actual immutable signed Prepare policy, verified by its original issuer. */
   readonly policyRevision: string;
   readonly revokedAt: number;
 }

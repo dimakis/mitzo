@@ -12,6 +12,7 @@ import {
 } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
+import { loadOriginalHeldFileCapture } from './staging-native-source-continuity.mjs';
 import { offlineContainmentDigest as digest } from './staging-offline-containment-contract.mjs';
 const fail = () =>
   Error('Exact fresh canonical registered native launcher unavailable; retain original evidence');
@@ -161,8 +162,61 @@ export function createContainedNativeRegisteredLauncherObserver(spec) {
   const expected = createContainedNativeLauncherPlist(spec);
   if (process.platform !== 'darwin' || spec.node !== process.execPath) throw fail();
   let original;
-  return Object.freeze({
+  let captured = false;
+  const observer = Object.freeze({
     expected,
+    async captureLoadedCurrent(nodeSha256, heldFileModuleSha256) {
+      if (captured || !/^[a-f0-9]{64}$/.test(nodeSha256)) throw fail();
+      captured = true;
+      observer.observe();
+      const self = () => {
+        if (
+          process.pid !== original.pid ||
+          process.ppid !== 1 ||
+          process.cwd() !== spec.sourceRoot ||
+          process.execPath !== spec.node
+        )
+          throw fail();
+      };
+      const loaded = await loadOriginalHeldFileCapture(spec.sourceRoot, heldFileModuleSha256, self);
+      const files = loaded.module;
+      observer.observe();
+      const held = [];
+      try {
+        for (const [path, sha256, maximumBytes] of [
+          [join(spec.root, 'service/com.mitzo.staging.plist'), expected.sha256, 32768],
+          [expected.bootstrapPath, spec.bootstrapSha256, 512 * 1024],
+          [spec.node, nodeSha256, 256 * 1024 ** 2],
+        ])
+          held.push(
+            files.captureOriginalImmutableFile({
+              path,
+              sha256,
+              maximumBytes,
+              uid: lstatSync(path).uid,
+              assertCurrent: self,
+            }),
+          );
+        observer.observe();
+      } catch (error) {
+        for (const file of held) file.close();
+        throw error;
+      }
+      const current = () => {
+        self();
+        loaded.assertCurrent();
+        for (const file of held) file.assertCurrent();
+        self();
+      };
+      return Object.freeze({
+        assertCurrent: current,
+        assertRegistrationCurrent() {
+          current();
+          observer.observe();
+          current();
+        },
+      });
+    },
     observe() {
       const plistPath = join(spec.root, 'service/com.mitzo.staging.plist');
       const bootstrap = privateBytes(expected.bootstrapPath),
@@ -205,4 +259,5 @@ export function createContainedNativeRegisteredLauncherObserver(spec) {
       return observation;
     },
   });
+  return observer;
 }

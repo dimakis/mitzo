@@ -11,7 +11,7 @@ export {
 } from './reviewed-policy-revisions.js';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.79';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.81';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,6 +23,9 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  // Original registered-stage bootstrap and immutable private delegation source.
+  '../staging-native-feature-bootstrap.ts':
+    '6740a9017e3354aa4b2a9894b20ada8728fdcb9dfcee783f97f9c487b08972a1',
   // Original authenticated account/catalog capabilities and charged-scope matching.
   '../symposium-subscription-provisioner.ts':
     '2f0a72ef69ba04daefebe1c98b0dd8dc3b6662ff56fb9874f5ab50b3b3f95da9',
@@ -51,9 +54,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../symposium-work-vertex-provider.ts':
     'de65388bad75a063c0602a2c4ceb3d7dae78c558ae5146caef8aa78bac79d873',
   '../staging-native-feature-owner.ts':
-    '70973711fe9f317a082f9cf40898dae7b149799ceda12b9258c5278cccda1b87',
+    '2fb8dec9d8d9af0be74333f751139b4937e94834fb0c659ece3fbf28ea40db2b',
   '../staging-native-model-authority.ts':
-    '128a803b95baab65a081557a0706b42466e1b685ab354be148541606fdc844d9',
+    '0521460b49b2f73f8b04ee4fc0df12fbeaa2b30effb7f68964a53ae30a07bffd',
   '../staging-feature-router.ts':
     '48f83018eb4580277e2532e5008e8b903166e56c910ebdd352d3ddc34f508366',
   'github-publication-template.ts':

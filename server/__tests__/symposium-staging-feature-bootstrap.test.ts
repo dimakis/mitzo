@@ -17,7 +17,7 @@ it('requires the actual awaited readiness fence before using any native feature 
   expect(assertOriginalOwnerCurrent).not.toHaveBeenCalled();
   expect(observeResources).not.toHaveBeenCalled();
 });
-it('checks actual original source ownership before importing app stores or provisioning a host', async () => {
+it('rejects an unbranded source callback before importing native stores or provisioning a host', async () => {
   const observeResources = vi.fn();
   await expect(
     runSymposiumCustodian({
@@ -32,7 +32,7 @@ it('checks actual original source ownership before importing app stores or provi
         observeResources,
       },
     }),
-  ).rejects.toThrow('actual source guard refused');
+  ).rejects.toThrow('Actual original native bootstrap');
   expect(observeResources).not.toHaveBeenCalled();
 });
 it('rejects serialized retirement acknowledgement before any host effect', async () => {

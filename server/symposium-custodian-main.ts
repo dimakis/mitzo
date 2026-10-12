@@ -1,4 +1,6 @@
 import type { StagingNativeFeatureBootstrap } from './staging-native-feature-bootstrap.js';
+import { captureOriginalStagingNativeBootstrap } from './staging-native-feature-bootstrap.js';
+export { ORIGINAL_STAGING_NATIVE_BOOTSTRAP_PROTOCOL_VERSION } from './staging-native-feature-bootstrap.js';
 import { createOriginalCustodianLifetime } from './symposium-original-custodian-lifetime.js';
 import { createOriginalAppChildUpdateControl } from './symposium-original-app-child-update.js';
 import { waitOriginalControllerExit } from './symposium-custodian-exit.js';
@@ -28,7 +30,7 @@ import type { OriginalSymposiumControllerIdentity } from './symposium-canonical-
 export const STAGING_NATIVE_FEATURE_BOOTSTRAP_PROTOCOL_VERSION = 1;
 /** Independent original host lifetime; a child channel cannot recreate it. */
 export const CUSTODIAN_NATIVE_OWNER_LIFETIME_PROTOCOL_VERSION = 1;
-export const CUSTODIAN_ORIGINAL_APP_CHILD_UPDATE_PROTOCOL_VERSION = 1;
+export const CUSTODIAN_ORIGINAL_APP_CHILD_UPDATE_PROTOCOL_VERSION = 2;
 export { SYMPOSIUM_CUSTODIAN_SERVICE_PROTOCOL_VERSION } from './symposium-custodian-service.js';
 /** Explicit fresh-owner entry point. No attach/reconstruct command exists. */
 export interface SymposiumCustodianConstructorHooks {
@@ -43,10 +45,16 @@ export interface SymposiumCustodianConstructorHooks {
   observeOriginalAppChildControl?: (
     control: Pick<ReturnType<typeof createOriginalAppChildUpdateControl>, 'replace'>,
   ) => void;
+  /** Original source/resource fence immediately before every actual fork. */
+  beforeOriginalAppChildFork?: (
+    sourceRoot: string,
+    assertOriginalCustodianCurrent: () => void,
+  ) => Promise<void>;
   /** Awaited original source/archive/VM fence before IPC ready or any request. */
   beforeControllerReady?: (
     identity: Readonly<OriginalSymposiumControllerIdentity>,
     assertCurrent: () => void,
+    assertLoadedChildCurrent: () => void,
   ) => Promise<void>;
   /** After original host/native closure, before any retirement receipt. */
   beforeRetirementReceipt?: (
@@ -80,6 +88,7 @@ export async function runSymposiumCustodian(hooks: SymposiumCustodianConstructor
     stagingFeatureBootstrap,
     observeOriginalCustodianLifetime,
     observeOriginalAppChildControl,
+    beforeOriginalAppChildFork,
     beforeControllerReady,
     bootstrapTools,
     observeOriginalProcess,
@@ -95,9 +104,15 @@ export async function runSymposiumCustodian(hooks: SymposiumCustodianConstructor
     observeOriginalAppChildControl !== undefined &&
     (typeof observeOriginalAppChildControl !== 'function' ||
       !beforeControllerReady ||
-      !observeOriginalCustodianLifetime)
+      !observeOriginalCustodianLifetime ||
+      typeof beforeOriginalAppChildFork !== 'function')
   )
     throw Error('Original accepted app-child constructor fences required');
+  if (
+    beforeOriginalAppChildFork !== undefined &&
+    (typeof beforeOriginalAppChildFork !== 'function' || !observeOriginalAppChildControl)
+  )
+    throw Error('Original app child pre-fork fence requires its actual retained control');
   if (
     observeOriginalCustodianLifetime !== undefined &&
     typeof observeOriginalCustodianLifetime !== 'function'
@@ -120,7 +135,7 @@ export async function runSymposiumCustodian(hooks: SymposiumCustodianConstructor
     )
       throw Error('Original staging feature constructor capabilities required');
     // Admission stays closed until the awaited original launcher fence succeeds.
-    stagingFeatureBootstrap.assertOriginalOwnerCurrent();
+    captureOriginalStagingNativeBootstrap(stagingFeatureBootstrap).assertCurrent();
   }
   if (observeNativeTurnInput !== undefined && typeof observeNativeTurnInput !== 'boolean')
     throw Error('Native input diagnostic must be a trusted constructor boolean');
@@ -164,7 +179,8 @@ export async function runSymposiumCustodian(hooks: SymposiumCustodianConstructor
   if (!workspaceRoot) throw Error('Explicit original custodian workspace required');
   const engine = service.createSymposiumCustodianService({ workspaceRoot });
   const { bootstrapConfiguredSymposiumHost } = await import('./symposium-owned-config.js');
-  const { revokeAuthSession, registerAuthSession } = await import('./auth.js');
+  const { revokeAuthSession, registerAuthSession } = await import('./operator-session.js');
+  const identity = randomUUID();
   const host = await bootstrapConfiguredSymposiumHost(
     filename,
     {
@@ -175,12 +191,14 @@ export async function runSymposiumCustodian(hooks: SymposiumCustodianConstructor
       ...(observeRuntime === undefined ? {} : { observeRuntime }),
       ...(observeNativeTurnInput === undefined ? {} : { observeNativeTurnInput }),
       ...(admissionBuildSelection === undefined ? {} : { admissionBuildSelection }),
+      ...(stagingFeatureBootstrap
+        ? { stagingInference: { bootstrap: stagingFeatureBootstrap, ownerInstance: identity } }
+        : {}),
     },
     bootstrapTools,
     ...(observeOriginalProcess === undefined ? [] : ([observeOriginalProcess] as const)),
   );
   engine.installSymposiumProductionHost(host);
-  const identity = randomUUID();
   let controllerGeneration = 0;
   let child: ChildProcess | undefined;
   let stopping = false;
@@ -307,6 +325,13 @@ export async function runSymposiumCustodian(hooks: SymposiumCustodianConstructor
   try {
     while (!stopping) {
       const selectedRoot = appChildControl ? await appChildControl.nextSource() : nativeSourceRoot;
+      if (appChildControl) {
+        if (!beforeOriginalAppChildFork)
+          throw Error('Original app child pre-fork fence unavailable');
+        originalCustodianLifetime.assertCurrent();
+        await beforeOriginalAppChildFork(selectedRoot, originalCustodianLifetime.assertCurrent);
+        originalCustodianLifetime.assertCurrent();
+      }
       const childOptions: ForkOptions = {
         env: custodianAppEnvironment(
           process.env,
@@ -337,7 +362,7 @@ export async function runSymposiumCustodian(hooks: SymposiumCustodianConstructor
           void Promise.resolve(observed).catch(() => {});
           throw Error('Process observer must be synchronous');
         }
-        const originalCurrent = (connectionCurrent: () => void) => () => {
+        const loadedChildCurrent = (connectionCurrent: () => void) => () => {
           connectionCurrent();
           if (
             stopping ||
@@ -349,8 +374,12 @@ export async function runSymposiumCustodian(hooks: SymposiumCustodianConstructor
             exactChild.pid! <= 0
           )
             throw Error('Original controller child unavailable');
-          host.currentProfiles();
           connectionCurrent();
+        };
+        const originalCurrent = (connectionCurrent: () => void) => () => {
+          loadedChildCurrent(connectionCurrent)();
+          host.currentProfiles();
+          loadedChildCurrent(connectionCurrent)();
         };
         const originalIdentity = (epoch: number) =>
           Object.freeze({
@@ -367,7 +396,11 @@ export async function runSymposiumCustodian(hooks: SymposiumCustodianConstructor
             (async (epoch, connectionCurrent) => {
               const current = originalCurrent(connectionCurrent);
               current();
-              await beforeControllerReady(originalIdentity(epoch), current);
+              await beforeControllerReady(
+                originalIdentity(epoch),
+                current,
+                loadedChildCurrent(connectionCurrent),
+              );
               current();
               originalFeatureControllerCurrent = current;
               appChildControl?.ready(originalIdentity(epoch), current);

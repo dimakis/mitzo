@@ -254,3 +254,78 @@ cancellation, queue, MCP, hooks, images, compaction, subagents, integrations,
 phone and other feature families still need their actual bounded suites and
 original cleanup receipts before full replica acceptance. No live call, new
 native resource, enrollment or production action was performed for this change.
+
+## Original bootstrap and delegation source
+
+The initial native launcher creates the same-process bootstrap only after its
+original VM running proof. Source preflight requires
+`ORIGINAL_STAGING_NATIVE_BOOTSTRAP_PROTOCOL_VERSION=1` before ordinary shutdown;
+the actual constructor additionally rejects unbranded JSON or callback records.
+It captures the exact allocation's private stage operator file and registered
+source guard. Gateway custody uses this independent guard rather than recursively
+entering the host through its full VM/feature-owner assertion.
+
+`captureOriginalStagingStageDelegation` uses the existing stage login mechanism,
+then independently verifies the issued token against that immutable stage key,
+session identity and expiry after awaited reads. Its normal Bearer is available
+only to the original gateway constructor; no provider credential or production
+configuration is selected. The gateway's private delegation file contains only
+`authorization`, while expiry stays in the retained source capability. Renewal
+must preserve the original gateway, private parent, purpose key and current
+source checks. This source API does not qualify a missing native transport or
+authorize activation.
+
+Model retirement receipts carry both `modelPlanRevision` (the original readonly
+account/model plan) and `policyRevision` (the actual signed per-run Prepare
+policy). They are different identities. The feature owner matches the plan
+revision and validates the policy digest; the original issuer must verify that
+digest against its retained authenticated Prepare before returning a receipt.
+
+## Retained native owner and accepted app replacement
+
+The actual main retains its narrow native service, original gateway and VM while
+its original child-control port positively drains and replaces only the app
+child. Protocol 2 adds an awaited source/resource fence before every actual fork.
+The original native source is recorded separately from the accepted app source;
+a compatibility witness cannot rename the retained runtime or qualify changed
+native modules, dependencies or helper bytes. A runtime change still needs its
+own reviewed physical transition.
+
+The original actor opens a private Unix control socket only after its original
+running/readiness proof. The retained-source CLI has exactly `resources`, `plan`
+and `apply` operations, exact target/current commits and an apply plan digest.
+The queue proof stays off argv. Both sides require the sealed kernel-peer helper,
+actual original process/source registration and a fresh per-connection MAC.
+The server repeats the actual private queue and owner guards before effects.
+It never grants capacity, rewrites the historical uncertain launch, restarts the
+VM or accepts a request-provided owner capability.
+
+Planning admits the exact prepared accepted source and its complete dependency
+and native import compatibility under a process-local source witness. Applying
+consumes one attempt, takes its own deployment guard, waits for positive original
+child exit and actual higher-PID/epoch readiness, then durably records the exact
+accepted-child witness before releasing only its own guard. A failed or uncertain
+attempt stays consumed and retains its guard/evidence. The client evaluates a
+replacement receipt only after its response MAC is verified and independently
+matches that receipt to the actual new child with the same original native
+parent. The unchanged old registry row and archive history remain explicit.
+
+Full release/dependency/launchd inspection occurs at source admission and a new
+control, through `assertNewControlSourceCurrent`. Ongoing native wire bindings
+use the original process and awaited child-channel lifetime plus held file
+identities for the admitted native compiled/literal closure, scripts, package
+inputs and release receipt. Capture permits at most 512 held source descriptors
+and requires the inherited descriptor limit to leave 256 descriptors available
+for the runtime. It raises no limit. Child anchors are released only after the
+actual replacement handoff; native material remains held by the original
+process. Stream polling performs no Git query, release/dependency body scan or
+launchd command. The separate full owner/VM/new-work resource guards remain in
+force. These observations do not authorize lazy loading of new native authority;
+new wire/source admission retains the complete physical proof.
+
+The source fixture checks cover actual bridge/executor ordering, one-attempt
+refusal, same native identity, positive higher child identity and 100 repeated
+bindings without full source reads or process commands. Positive Mac kernel-peer
+socket/registry integration and live app replacement have not been run. Actual
+queue prepare/routing, reviewed source/artifact qualification, fresh enrollment
+and host resource admission remain required before this control can be used.
