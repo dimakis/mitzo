@@ -1172,12 +1172,15 @@ A conditional [bounded staging feature runner](docs/operations/staging-feature-r
 prepares authenticated text/Read evidence and original-adapter cleanup under the
 existing queue reservation. It defaults unavailable pending qualified source,
 original-owner and fresh provider enrollment. Codex auxiliary-compaction
-qualification and native/Vertex feature wiring remain pending; this source does
-not claim live or complete profile acceptance.
+qualification remains pending; this source does not claim live or complete
+profile acceptance. The conditional [native text/Read runner](docs/operations/staging-native-feature-runner.md)
+uses the original host's fixture, grants, native claim/events and physical
+retirement receipts. Its actual gateway model/account/auxiliary/two-request
+policy remains unqualified and refuses dispatch before fixtures or model calls.
 The [native admission preparation](docs/operations/staging-native-feature-admission.md)
 connects Vertex drafts and candidates to the actual original gateway receipt and
-reviewed runtime gate. Fresh staging enrollment, explicit non-Luna test approval
-and a native feature runner remain required.
+reviewed runtime gate. Fresh staging enrollment, explicit non-Luna test approval,
+accepted model enforcement and authentic live evidence remain required.
 
 The narrowly scoped [lost-owner offline preservation procedure](docs/operations/staging-offline-containment.md) retains the original native environment and uncertain history before ordinary staging restoration. Source acceptance, authenticated physical recovery and provider enrollment remain separate.
 

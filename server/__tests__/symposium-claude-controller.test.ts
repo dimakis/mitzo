@@ -82,7 +82,7 @@ function harness(confirm: SymposiumAttemptTransport['confirm']) {
   });
   const launch = vi.fn(() => ({
     child,
-    confirmStopped: async () => undefined,
+    confirmStopped: () => confirm(sandbox, execution.claimToken),
   })) as unknown as SymposiumAttemptTransport['launch'];
   const registry = new SymposiumAttemptRegistry(path, { launch, confirm });
   return { registry, path, child, launch };

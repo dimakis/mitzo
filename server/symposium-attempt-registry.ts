@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { artifactAdmissionDigest } from './event-store.js';
 import {
   ArtifactAdmissionReferenceV1Schema,
@@ -37,9 +38,23 @@ export interface SymposiumAttemptTransport {
   confirm: typeof confirmControlledAttemptStopped;
 }
 
+/** Observation from this registry's original controlled launch and positive
+ * controller acknowledgement. Durable rows, recovery, and restart cannot mint it. */
+export interface SymposiumOriginalStopReceipt {
+  readonly version: 1;
+  readonly claimToken: string;
+  readonly sessionId: string;
+  readonly sandboxName: string;
+  readonly workdir: string;
+  readonly transportRouteSha256: string;
+  readonly artifactBindingSha256: string;
+  readonly confirmedAt: number;
+}
+
 /** Host-owned durable mapping; never populate it from client-supplied sandbox names. */
 export class SymposiumAttemptRegistry {
   private readonly db: Database.Database;
+  private readonly originalStopReceipts = new Map<string, SymposiumOriginalStopReceipt>();
   readonly observations: SymposiumNativeObservations;
   readonly checkpoints: SymposiumCompletionCheckpoints;
 
@@ -210,7 +225,12 @@ export class SymposiumAttemptRegistry {
     artifact?: ArtifactAdmissionReferenceV1 | ArtifactReaderReferenceV1;
     access: 'read' | 'write';
     command: readonly string[];
+    /** Actual source-only staging queue/lifetime fence; never serialized. */
+    assertOriginalEffectCurrent?: () => void;
+    /** Same original queue/source/owner fence, omitting only new resource admission. */
+    assertOriginalCleanupCurrent?: () => void;
   }): ControlledAttemptProcess {
+    input.assertOriginalEffectCurrent?.();
     controlledAttemptRoute(input.sandbox);
     this.reserve(input);
     try {
@@ -220,11 +240,82 @@ export class SymposiumAttemptRegistry {
         input.access,
         input.command,
       );
-      return { child: process.child, confirmStopped: () => this.recover(input.claimToken) };
+      const row = this.get(input.claimToken)!;
+      const transportRouteSha256 = createHash('sha256')
+        .update(JSON.stringify(controlledAttemptRoute(row)))
+        .digest('hex');
+      const artifactBindingSha256 = artifactAdmissionDigest(row.artifact ?? null);
+      let confirmation: Promise<void> | undefined;
+      return {
+        child: process.child,
+        confirmStopped: () => {
+          confirmation ??= (async () => {
+            try {
+              // Retain this exact controlled target. A reconstructed durable route
+              // may support ordinary recovery but cannot issue this live receipt.
+              (input.assertOriginalCleanupCurrent ?? input.assertOriginalEffectCurrent)?.();
+              await process.confirmStopped();
+              (input.assertOriginalCleanupCurrent ?? input.assertOriginalEffectCurrent)?.();
+              const current = this.get(input.claimToken);
+              if (
+                !current ||
+                current.sessionId !== row.sessionId ||
+                current.sandboxName !== row.sandboxName ||
+                current.workdir !== row.workdir ||
+                createHash('sha256')
+                  .update(JSON.stringify(controlledAttemptRoute(current)))
+                  .digest('hex') !== transportRouteSha256 ||
+                artifactAdmissionDigest(current.artifact ?? null) !== artifactBindingSha256
+              )
+                throw Error('Original native attempt identity changed');
+              this.markConfirmed(input.claimToken);
+              this.originalStopReceipts.set(
+                input.claimToken,
+                Object.freeze({
+                  version: 1,
+                  claimToken: input.claimToken,
+                  sessionId: row.sessionId,
+                  sandboxName: row.sandboxName,
+                  workdir: row.workdir,
+                  transportRouteSha256,
+                  artifactBindingSha256,
+                  confirmedAt: Date.now(),
+                }),
+              );
+            } catch {
+              if (this.get(input.claimToken)?.state !== 'confirmed')
+                this.markUncertain(input.claimToken);
+              throw Error(
+                'Original native attempt cleanup is unconfirmed; sandbox remains quarantined',
+              );
+            }
+          })();
+          return confirmation;
+        },
+      };
     } catch {
       this.markUncertain(input.claimToken);
       throw new Error('Native attempt launch is unconfirmed; sandbox remains quarantined');
     }
+  }
+
+  readOriginalStopReceipt(claimToken: string): SymposiumOriginalStopReceipt {
+    const receipt = this.originalStopReceipts.get(claimToken);
+    const row = this.get(claimToken);
+    if (
+      !receipt ||
+      !row ||
+      row.state !== 'confirmed' ||
+      row.sessionId !== receipt.sessionId ||
+      row.sandboxName !== receipt.sandboxName ||
+      row.workdir !== receipt.workdir ||
+      createHash('sha256')
+        .update(JSON.stringify(controlledAttemptRoute(row)))
+        .digest('hex') !== receipt.transportRouteSha256 ||
+      artifactAdmissionDigest(row.artifact ?? null) !== receipt.artifactBindingSha256
+    )
+      throw Error('Positive original controlled process stop receipt unavailable');
+    return receipt;
   }
 
   assertSandboxAvailable(sandboxName: string) {
@@ -352,6 +443,7 @@ export class SymposiumAttemptRegistry {
   }
 
   close() {
+    this.originalStopReceipts.clear();
     this.db.close();
   }
 }

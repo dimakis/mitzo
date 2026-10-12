@@ -1,3 +1,5 @@
+import { captureSymposiumWorkApiProvider } from './symposium-work-api-provider.js';
+import { SymposiumStagingNativeFixtures } from './symposium-staging-native-fixture.js';
 import {
   selectSessionOwnedProviderEvidence,
   assertSessionOwnedProviderEvidence,
@@ -269,6 +271,7 @@ export async function createOwnedSymposiumHost(
   let artifactSealer: PhysicalArtifactSealer | undefined;
   let subscription: ReturnType<typeof createPersonalSubscriptionHost> | undefined;
   let sessionArtifacts: SymposiumSessionArtifacts | undefined;
+  let nativeFeatureFixtures: SymposiumStagingNativeFixtures | undefined;
   let stopped = false;
   const prelaunchInspections = new Set<AbortController>();
   const abortPrelaunchInspections = () => {
@@ -1574,6 +1577,101 @@ export async function createOwnedSymposiumHost(
             collect: collectExplicitEvidence,
           });
         }),
+      /** Source-only fresh feature capabilities. The actual original host fixes
+       * every gateway/store/lease/command object; HTTP cannot substitute them. */
+      captureStagingFeatureEnrollment(profileId: string, selectedModel: string) {
+        if (stopped || draining || controllerPaused)
+          throw Error('Original feature enrollment owner unavailable');
+        const profiles = currentProfiles();
+        const binding = profiles.resolve(profileId, selectedModel);
+        profiles.validateModelSelection(binding, selectedModel);
+        const catalog = profiles.catalog().find((entry) => entry.id === profileId);
+        if (!catalog || catalog.modelDiscovery.stale)
+          throw Error('Fresh native model catalog required');
+        let assertProviderCurrent: () => void;
+        let personalConnection: { connectionId: string; expectedRevision: number } | undefined;
+        if (binding.provider === 'openai') {
+          const route = profiles.apiProfile(binding);
+          const original = captureSymposiumWorkApiProvider(gateway, route.sandboxProviderId ?? '');
+          if (
+            original.identity.accountId !== binding.accountId ||
+            original.identity.providerName !== route.sandboxProvider
+          )
+            throw Error('Original fresh API enrollment differs');
+          assertProviderCurrent = original.assertCurrent;
+        } else if (binding.provider === 'openai-codex') {
+          if (
+            !catalog.personalConnection ||
+            profiles.codexProfile(binding).nativeAuth !== 'sandbox-chatgpt'
+          )
+            throw Error('Original isolated native personal connection required');
+          personalConnection = {
+            connectionId: catalog.personalConnection.id,
+            expectedRevision: catalog.personalConnection.revision,
+          };
+          const original = subscription!.captureAdmissionProvider(personalConnection);
+          assertProviderCurrent = original.assertCurrent;
+        } else if (binding.provider === 'anthropic-vertex') {
+          const route = profiles.vertexSandboxRoute(binding);
+          const original = captureSymposiumWorkVertexProvider(gateway, route.providerId);
+          if (
+            original.accountId !== binding.accountId ||
+            original.projectId !== route.projectId ||
+            original.region !== route.region ||
+            original.model !== selectedModel ||
+            !original.principal
+          )
+            throw Error('Original fresh Vertex enrollment differs');
+          assertProviderCurrent = () => {
+            captureSymposiumWorkVertexProvider(gateway, route.providerId);
+          };
+        } else throw Error('Provider lacks an original native feature adapter');
+        const assertCurrent = () => {
+          if (stopped || draining || controllerPaused)
+            throw Error('Original feature enrollment owner unavailable');
+          assertProviderCurrent();
+          const current = currentProfiles();
+          current.resume(binding);
+          current.validateModelSelection(binding, selectedModel);
+          if (current.catalog().find((entry) => entry.id === profileId)?.modelDiscovery.stale)
+            throw Error('Original native model catalog became stale');
+        };
+        assertCurrent();
+        return Object.freeze({
+          binding,
+          selectedModel,
+          chargedAccount: binding.accountId,
+          ...(personalConnection ? { personalConnection } : {}),
+          assertCurrent,
+        });
+      },
+      createStagingFeatureFixtures(assertOriginalOwnerCurrent: () => void) {
+        custody();
+        if (!(options.facts instanceof EventStore))
+          throw Error('Original fixture EventStore required');
+        if (nativeFeatureFixtures)
+          throw Error('Original native fixture owner is already constructed');
+        nativeFeatureFixtures = new SymposiumStagingNativeFixtures({
+          path: join(options.gateway.stateParent, 'staging-native-fixtures.db'),
+          gateway,
+          owner: artifactOwner,
+          artifacts: sessionArtifacts!,
+          leases: leaseHost!,
+          attempts: native!.registry,
+          events: options.facts,
+          assertOriginalOwnerCurrent: () => {
+            assertOriginalOwnerCurrent();
+            custody();
+          },
+        });
+        return nativeFeatureFixtures;
+      },
+      runStagingFeatureOperation<T>(operation: () => Promise<T>): Promise<T> {
+        if (draining || stopped || controllerPaused)
+          throw Error('Original native feature operation owner unavailable');
+        custody();
+        return track(operation);
+      },
       currentProfiles,
       ...(observeNativeTurnInput === undefined ? {} : { observeNativeTurnInput }),
       observeStartupConfig,
@@ -2045,6 +2143,7 @@ export async function createOwnedSymposiumHost(
         await artifactSealer?.releaseAbandonedReadyReviewStreams();
         signal.throwIfAborted();
         if (failed) throw new Error('Host operation did not settle cleanly');
+        nativeFeatureFixtures?.assertOriginalDrained();
       },
       markShutdownUncertain() {
         for (const claim of native!.registry.pending())
@@ -2054,8 +2153,10 @@ export async function createOwnedSymposiumHost(
         signal.throwIfAborted();
         await artifactSealer?.releaseAbandonedReadyReviewStreams();
         signal.throwIfAborted();
+        nativeFeatureFixtures?.assertOriginalDrained();
         await gateway.stopAndWait(signal);
         signal.throwIfAborted();
+        nativeFeatureFixtures?.assertOriginalDrained();
         stopped = true;
         abortPrelaunchInspections();
         subscription!.invalidate();
@@ -2063,6 +2164,7 @@ export async function createOwnedSymposiumHost(
         artifactSealer?.close();
         leaseHost!.close();
         sessionArtifacts!.close();
+        nativeFeatureFixtures?.close();
       },
       stop() {
         if (stopped) return;
@@ -2083,6 +2185,7 @@ export async function createOwnedSymposiumHost(
               artifactSealer?.close();
               leaseHost!.close();
               sessionArtifacts!.close();
+              nativeFeatureFixtures?.close();
             } finally {
               gateway.stop();
             }
@@ -2096,6 +2199,7 @@ export async function createOwnedSymposiumHost(
     artifactSealer?.close();
     leaseHost?.close();
     sessionArtifacts?.close();
+    nativeFeatureFixtures?.close();
     gateway.stop();
     throw error;
   }

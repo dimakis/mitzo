@@ -21,6 +21,32 @@ const WorkProfile = z
   .strict();
 export type SymposiumWorkApiProfile = z.infer<typeof WorkProfile>;
 
+export interface SymposiumWorkApiCreationCapability {
+  readonly identity: Readonly<{
+    accountId: string;
+    provider: 'openai';
+    providerName: string;
+    providerId: string;
+    workspace: string;
+  }>;
+  assertCurrent(): void;
+}
+const originalCreations = new WeakMap<
+  OwnedSymposiumGateway,
+  Map<string, SymposiumWorkApiCreationCapability>
+>();
+/** Fresh creation in this exact gateway owner. Inventory JSON and reopened
+ * configurations cannot recreate the original enrollment capability. */
+export function captureSymposiumWorkApiProvider(
+  gateway: OwnedSymposiumGateway,
+  providerId: string,
+): SymposiumWorkApiCreationCapability {
+  const receipt = originalCreations.get(gateway)?.get(providerId);
+  if (!receipt) throw Error('Original fresh work API creation capability unavailable');
+  receipt.assertCurrent();
+  return receipt;
+}
+
 /** Explicit host operation. Only this call resolves the named secret reference;
  * importing this module never touches the keychain, gateway or active profile file.
  * The returned profile binds a freshly created provider on the owned gateway. */
@@ -93,6 +119,32 @@ export async function createSymposiumWorkApiProvider(
     )
       throw new Error('Created work API provider identity is unavailable');
     gateway.verifyCustody();
+    const retained = originalCreations.get(gateway) ?? new Map();
+    const identity = Object.freeze({
+      accountId: profile.id,
+      provider: 'openai' as const,
+      providerName: provider,
+      providerId: found.id,
+      workspace: gateway.workspace,
+    });
+    const receipt: SymposiumWorkApiCreationCapability = Object.freeze({
+      identity,
+      assertCurrent() {
+        try {
+          gateway.verifyCustody();
+          if (
+            originalCreations.get(gateway)?.get(identity.providerId) !== receipt ||
+            gateway.workspace !== identity.workspace
+          )
+            throw Error();
+        } catch {
+          originalCreations.delete(gateway);
+          throw Error('Original fresh work API creation capability unavailable');
+        }
+      },
+    });
+    retained.set(found.id, receipt);
+    originalCreations.set(gateway, retained);
     return { ...profile, sandboxProvider: provider, sandboxProviderId: found.id };
   } catch {
     // Secret-store and process errors may contain credentials; do not retain causes.

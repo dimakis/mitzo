@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import {
   StagingFeatureOwner,
+  StagingFeaturePlan,
   type StagingFeatureOwnerAuthority,
 } from '../staging-feature-owner.js';
 
@@ -33,7 +34,9 @@ async function setup() {
     selectedModel: 'gpt-6-luna',
     modelApprovalId: null,
   };
-  const start = vi.fn(async () => {});
+  const start = vi
+    .fn<StagingFeatureOwnerAuthority['port']['startChat']>()
+    .mockResolvedValue(undefined);
   const reservation = vi.fn();
   const authority = {
     sourceCommit: 'a'.repeat(40),
@@ -98,6 +101,7 @@ it('retains and closes a partial-start original capability before onQueryReady a
   const f = await setup();
   const close = vi.fn(async () => {});
   f.start.mockImplementation(async (_transport, _id, _prompt, options) => {
+    if (!options.stagingFeature) throw new Error('Original staging feature startup scope missing');
     options.stagingFeature.retainCleanup(close);
     throw new Error('Original initialization failed before query ready');
   });
@@ -118,4 +122,35 @@ it('refuses Codex auxiliary inference without supported explicit compaction qual
   expect(() => f.owner.plan(f.request, f.authority.sourceCommit)).toThrow('auxiliary');
   expect(f.start).not.toHaveBeenCalled();
   expect(await readdir(f.root)).toEqual([]);
+});
+
+it('admits only exact selected-model all-inference scope within the same native two-request budget', async () => {
+  const f = await setup();
+  const original = f.owner.plan(f.request, f.authority.sourceCommit).plan;
+  const native = {
+    ...original,
+    runtime: 'openshell-native',
+    auxiliaryDispatches: 'same-selected-model-shared-budget',
+    modelDispatches: [{ ...original.modelDispatches[0], purpose: 'all-inference' }],
+  };
+  expect(StagingFeaturePlan.safeParse(native).success).toBe(true);
+  expect(StagingFeaturePlan.safeParse({ ...native, auxiliaryDispatches: 'disabled' }).success).toBe(
+    false,
+  );
+  expect(StagingFeaturePlan.safeParse({ ...native, runtime: 'local-responses' }).success).toBe(
+    false,
+  );
+  expect(
+    StagingFeaturePlan.safeParse({
+      ...native,
+      modelDispatches: [{ ...native.modelDispatches[0], maxModelRounds: 3 }],
+    }).success,
+  ).toBe(false);
+  expect(
+    StagingFeaturePlan.safeParse({
+      ...native,
+      modelDispatches: [{ ...native.modelDispatches[0], chargedAccount: 'foreign' }],
+    }).success,
+  ).toBe(false);
+  expect(f.start).not.toHaveBeenCalled();
 });

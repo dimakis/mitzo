@@ -3,6 +3,28 @@ import {
   custodianAppEnvironment,
   canonicalCustodianEnvironment,
 } from '../symposium-custodian-launch.js';
+it('selects a bounded original readiness wait only from a trusted canonical constructor option', () => {
+  const source = {
+    PORT: '3190',
+    MITZO_BIND_HOST: '127.0.0.1',
+    MITZO_SYMPOSIUM_CANONICAL_STAGE: '1',
+    MITZO_SYMPOSIUM_AWAIT_ORIGINAL_READINESS: '1',
+  };
+  expect(custodianAppEnvironment(source).MITZO_SYMPOSIUM_AWAIT_ORIGINAL_READINESS).toBeUndefined();
+  expect(
+    custodianAppEnvironment(source, { awaitOriginalReadiness: true })
+      .MITZO_SYMPOSIUM_AWAIT_ORIGINAL_READINESS,
+  ).toBe('1');
+  expect(() =>
+    custodianAppEnvironment({ ...source, PORT: '3100' }, { awaitOriginalReadiness: true }),
+  ).toThrow();
+  expect(() =>
+    custodianAppEnvironment(
+      { ...source, MITZO_SYMPOSIUM_CANONICAL_STAGE: undefined },
+      { awaitOriginalReadiness: true },
+    ),
+  ).toThrow();
+});
 it('passes explicit app configuration without provider secrets or a second owned-host bootstrap', () => {
   const env = custodianAppEnvironment({
     PATH: '/usr/bin',

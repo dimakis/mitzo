@@ -1,6 +1,9 @@
 import { expect, it, vi } from 'vitest';
 import { createHash } from 'node:crypto';
-import { createStagingProfileEffects } from '../lib/staging-profile-live-runner.mjs';
+import {
+  createStagingProfileEffects,
+  assertStagingFeaturePlan,
+} from '../lib/staging-profile-live-runner.mjs';
 const digest = (value) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const request = {
   version: 2,
@@ -40,6 +43,81 @@ const plan = {
   auxiliaryDispatches: 'disabled',
   limits: { maxProviderDispatches: 1, timeoutMs: 180000, maxOutputBytes: 65536 },
 };
+it('validates the same selected model/account and one shared native budget for all inference', () => {
+  const all = {
+    ...plan,
+    runtime: 'openshell-native',
+    auxiliaryDispatches: 'same-selected-model-shared-budget',
+    modelDispatches: [{ ...plan.modelDispatches[0], purpose: 'all-inference' }],
+  };
+  expect(() => assertStagingFeaturePlan(all)).not.toThrow();
+  for (const changed of [
+    { ...all, auxiliaryDispatches: 'disabled' },
+    { ...all, runtime: 'local-responses' },
+    { ...all, modelDispatches: [{ ...all.modelDispatches[0], maxModelRounds: 3 }] },
+    { ...all, modelDispatches: [{ ...all.modelDispatches[0], selectedModel: 'gpt-6-sol' }] },
+    { ...all, modelDispatches: [{ ...all.modelDispatches[0], chargedAccount: 'foreign' }] },
+  ])
+    expect(() => assertStagingFeaturePlan(changed)).toThrow();
+});
+it('permits a declared exact Vertex Haiku exception without permitting other models/providers', () => {
+  const vertex = {
+    ...plan,
+    runtime: 'openshell-native',
+    provider: 'anthropic-vertex',
+    selectedModel: 'claude-haiku-4-5@20251001',
+    modelApprovalId: 'original-vertex-approval',
+    auxiliaryDispatches: 'same-selected-model-shared-budget',
+    modelDispatches: [
+      {
+        ...plan.modelDispatches[0],
+        purpose: 'all-inference',
+        selectedModel: 'claude-haiku-4-5@20251001',
+      },
+    ],
+  };
+  expect(() => assertStagingFeaturePlan(vertex)).not.toThrow();
+  expect(() => assertStagingFeaturePlan({ ...vertex, provider: 'openai' })).toThrow();
+  expect(() => assertStagingFeaturePlan({ ...vertex, modelApprovalId: null })).toThrow();
+  expect(() =>
+    assertStagingFeaturePlan({
+      ...vertex,
+      selectedModel: 'claude-sonnet',
+      modelDispatches: [{ ...vertex.modelDispatches[0], selectedModel: 'claude-sonnet' }],
+    }),
+  ).toThrow();
+});
+it('accepts only paired exact native/accepted source observation metadata', () => {
+  const nativeSourceCommit = '1'.repeat(40);
+  const acceptedAppSource = {
+    nativeSourceCommit,
+    acceptedAppCommit: plan.sourceCommit,
+    appRoot: '/isolated/prepared',
+    instanceId: plan.ownerInstance,
+    custodianPid: 100,
+    epoch: 1,
+    controllerPid: 101,
+    compatibilitySha256: '2'.repeat(64),
+  };
+  const paired = {
+    ...plan,
+    runtime: 'openshell-native',
+    nativeSourceCommit,
+    acceptedAppSource,
+    auxiliaryDispatches: 'same-selected-model-shared-budget',
+    modelDispatches: [{ ...plan.modelDispatches[0], purpose: 'all-inference' }],
+  };
+  expect(() => assertStagingFeaturePlan(paired)).not.toThrow();
+  for (const changed of [
+    { ...paired, acceptedAppSource: undefined },
+    { ...paired, acceptedAppSource: { ...acceptedAppSource, acceptedAppCommit: '3'.repeat(40) } },
+    { ...paired, acceptedAppSource: { ...acceptedAppSource, nativeSourceCommit: '3'.repeat(40) } },
+    { ...paired, acceptedAppSource: { ...acceptedAppSource, instanceId: 'foreign' } },
+    { ...paired, acceptedAppSource: { ...acceptedAppSource, controllerPid: 0 } },
+    { ...paired, acceptedAppSource: { ...acceptedAppSource, capacityGranted: true } },
+  ])
+    expect(() => assertStagingFeaturePlan(changed)).toThrow();
+});
 it('uses only the authenticated canonical bridge and checks the returned exact plan', async () => {
   const fetch = vi.fn(
     async () => new Response(JSON.stringify({ plan, planSha256: digest(plan) }), { status: 200 }),
@@ -118,4 +196,41 @@ it('does not turn a lost response or unconfirmed owned cleanup into a result', a
   await expect(
     effects.run(plan, { epoch: 1, requestId: plan.requestId, owner: 'controller', nonce: 'nonce' }),
   ).rejects.toThrow(/unavailable/);
+});
+
+it('binds original native resource observations to expected source/owner and refuses extra capacity flags', async () => {
+  const response = {
+    version: 1,
+    sourceCommit: request.acceptedCommit,
+    ownerInstance: 'actual-owner',
+    resources: {
+      aggregateGiB: 3,
+      growthGiB: 0.1,
+      diskFreeGiB: 100,
+      vmMemoryMiB: 4096,
+      vmCpus: 2,
+      allocationUUID: '11111111-1111-4111-8111-111111111111',
+      bootUUID: '22222222-2222-4222-8222-222222222222',
+      planSha256: 'b'.repeat(64),
+      supervisorPid: 100,
+      vfkitPid: 101,
+      observationSha256: 'c'.repeat(64),
+      nativeRetirementClaim: false,
+    },
+  };
+  let actual = response;
+  const effects = createStagingProfileEffects({
+    authorization: 'Bearer isolated-stage',
+    request: async () => new Response(JSON.stringify(actual)),
+  });
+  await expect(effects.observeResources(request.acceptedCommit, 'actual-owner')).resolves.toEqual(
+    response,
+  );
+  await expect(effects.observeResources(request.acceptedCommit, 'other-owner')).rejects.toThrow(
+    /differ/,
+  );
+  actual = { ...response, resources: { ...response.resources, capacityGranted: true } };
+  await expect(effects.observeResources(request.acceptedCommit, 'actual-owner')).rejects.toThrow(
+    /Bounded/,
+  );
 });

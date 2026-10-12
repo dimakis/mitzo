@@ -15,7 +15,18 @@ export function canonicalCustodianEnvironment(source: NodeJS.ProcessEnv): NodeJS
 }
 /** App authentication/configuration is distinct from the retained provider host.
  * Do not spread process.env: dotenv is disabled in the supervised child too. */
-export function custodianAppEnvironment(source: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+export function custodianAppEnvironment(
+  source: NodeJS.ProcessEnv,
+  options: { awaitOriginalReadiness?: true } = {},
+): NodeJS.ProcessEnv {
+  if (
+    options.awaitOriginalReadiness !== undefined &&
+    (options.awaitOriginalReadiness !== true ||
+      source.MITZO_SYMPOSIUM_CANONICAL_STAGE !== '1' ||
+      source.PORT !== '3190' ||
+      source.MITZO_BIND_HOST !== '127.0.0.1')
+  )
+    throw Error('Canonical original readiness constructor required');
   const result: NodeJS.ProcessEnv = {
     MITZO_SYMPOSIUM_CUSTODIAN_CONTROLLER: '1',
     DOTENV_CONFIG_PATH: '/dev/null',
@@ -77,5 +88,8 @@ export function custodianAppEnvironment(source: NodeJS.ProcessEnv): NodeJS.Proce
   if (source.MITZO_SYMPOSIUM_CANONICAL_STAGE === '1') {
     Object.assign(result, canonicalSidecars);
   }
+  // Waiting is not authority; only the paired original constructor selects this
+  // bounded native startup policy. Ambient flags are never forwarded.
+  if (options.awaitOriginalReadiness) result.MITZO_SYMPOSIUM_AWAIT_ORIGINAL_READINESS = '1';
   return result;
 }

@@ -1,3 +1,4 @@
+import { captureCustodianRequestCurrent } from './symposium-custodian-authority.js';
 import { Router } from 'express';
 import { z } from 'zod';
 import {
@@ -13,7 +14,21 @@ const planBody = z.strictObject({
 const runBody = z.strictObject({ plan: StagingFeaturePlan, token: StagingFeatureToken });
 /** Authentication is supplied by the existing app mount. There is no public
  * install/enrollment/configuration endpoint and no provider/model overrides. */
-export function createStagingFeatureRouter(currentOwner: () => StagingFeatureOwner | undefined) {
+export type StagingFeatureOwnerProtocol = Pick<
+  StagingFeatureOwner,
+  'enrollment' | 'plan' | 'receipt'
+> & {
+  run(
+    plan: unknown,
+    token: unknown,
+    assertRequestCurrent?: () => void,
+  ): ReturnType<StagingFeatureOwner['run']>;
+} & {
+  resources?: () => object;
+};
+export function createStagingFeatureRouter(
+  currentOwner: () => StagingFeatureOwnerProtocol | undefined,
+) {
   const router = Router();
   router.use((_req, res, next) => {
     if (!currentOwner()) {
@@ -21,6 +36,15 @@ export function createStagingFeatureRouter(currentOwner: () => StagingFeatureOwn
       return;
     }
     next();
+  });
+  router.get('/resources', (_req, res) => {
+    try {
+      const owner = currentOwner();
+      if (!owner?.resources) throw Error('Original native resource capability unavailable');
+      res.json(owner.resources());
+    } catch {
+      res.status(503).json({ error: 'Original native resource observation unavailable' });
+    }
   });
   router.get('/enrollments/:profileId', (req, res) => {
     try {
@@ -48,7 +72,13 @@ export function createStagingFeatureRouter(currentOwner: () => StagingFeatureOwn
       return;
     }
     try {
-      res.json(await currentOwner()!.run(input.data.plan, input.data.token));
+      res.json(
+        await currentOwner()!.run(
+          input.data.plan,
+          input.data.token,
+          captureCustodianRequestCurrent(req),
+        ),
+      );
     } catch {
       res.status(409).json({ error: 'Staging feature run requires original-owner reconciliation' });
     }

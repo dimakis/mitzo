@@ -1,3 +1,4 @@
+import type { StagingNativeFeatureBootstrap } from './staging-native-feature-bootstrap.js';
 import { waitOriginalControllerExit } from './symposium-custodian-exit.js';
 import type { OriginalProcessObserver } from './symposium-original-process-retention.js';
 import { fork, type ChildProcess } from 'node:child_process';
@@ -8,7 +9,11 @@ import type { BootstrapTools } from './symposium-owned-config.js';
 import type { OwnedSymposiumHostOptions } from './symposium-owned-host.js';
 import { custodianAppEnvironment } from './symposium-custodian-launch.js';
 import { SymposiumCustodianController } from './symposium-custodian-controller.js';
-import { serveCustodianController, type CustodianChannel } from './symposium-custodian-ipc.js';
+import {
+  serveCustodianController,
+  CUSTODIAN_BEFORE_READY_PROTOCOL_VERSION,
+  type CustodianChannel,
+} from './symposium-custodian-ipc.js';
 import { dispatchCustodianHttp } from './symposium-custodian-http.js';
 import {
   finishCustodianRetirement,
@@ -17,8 +22,24 @@ import {
 
 export type { OriginalSymposiumControllerIdentity } from './symposium-canonical-owner-identity.js';
 import type { OriginalSymposiumControllerIdentity } from './symposium-canonical-owner-identity.js';
+/** Actual source-owned factory/executor/cleanup exists. Native model HTTP
+ * qualification remains independently required before any feature plan/run. */
+export const STAGING_NATIVE_FEATURE_BOOTSTRAP_PROTOCOL_VERSION = 1;
 /** Explicit fresh-owner entry point. No attach/reconstruct command exists. */
 export interface SymposiumCustodianConstructorHooks {
+  /** Passed by the same fresh canonical launcher; never environment or JSON authority. */
+  stagingFeatureBootstrap?: StagingNativeFeatureBootstrap;
+  /** Awaited original source/archive/VM fence before IPC ready or any request. */
+  beforeControllerReady?: (
+    identity: Readonly<OriginalSymposiumControllerIdentity>,
+    assertCurrent: () => void,
+  ) => Promise<void>;
+  /** After original host/native closure, before any retirement receipt. */
+  beforeRetirementReceipt?: (
+    identity: Readonly<{ instanceId: string; controllerGeneration: number }>,
+    assertOriginalRetirementCurrent: () => void,
+    signal: AbortSignal,
+  ) => Promise<void>;
   observeRetirement?: (
     state: 'retiring' | 'retired' | 'uncertain',
     stateParent: string,
@@ -41,6 +62,9 @@ export interface SymposiumCustodianConstructorHooks {
 export async function runSymposiumCustodian(hooks: SymposiumCustodianConstructorHooks = {}) {
   const {
     observeRetirement,
+    beforeRetirementReceipt,
+    stagingFeatureBootstrap,
+    beforeControllerReady,
     bootstrapTools,
     observeOriginalProcess,
     observeDurableReviewToolResult,
@@ -51,8 +75,29 @@ export async function runSymposiumCustodian(hooks: SymposiumCustodianConstructor
     observeController,
     admissionBuildSelection,
   } = hooks;
+  if (
+    beforeControllerReady !== undefined &&
+    (typeof beforeControllerReady !== 'function' || CUSTODIAN_BEFORE_READY_PROTOCOL_VERSION !== 1)
+  )
+    throw Error('Awaited original controller fence implementation unavailable');
+  if (stagingFeatureBootstrap !== undefined) {
+    // Recognize the fresh launcher capability rather than silently ignoring it.
+    // A native allocation alone cannot grant provider enrollment, auxiliary model
+    // qualification or original per-run physical cleanup. Do not build an owner
+    // from public context or substitute the local feature factory here.
+    if (
+      typeof stagingFeatureBootstrap.assertOriginalOwnerCurrent !== 'function' ||
+      typeof stagingFeatureBootstrap.observeResources !== 'function' ||
+      !beforeControllerReady
+    )
+      throw Error('Original staging feature constructor capabilities required');
+    // Admission stays closed until the awaited original launcher fence succeeds.
+    stagingFeatureBootstrap.assertOriginalOwnerCurrent();
+  }
   if (observeNativeTurnInput !== undefined && typeof observeNativeTurnInput !== 'boolean')
     throw Error('Native input diagnostic must be a trusted constructor boolean');
+  if (beforeRetirementReceipt !== undefined && typeof beforeRetirementReceipt !== 'function')
+    throw Error('Original retirement hook must be a trusted constructor capability');
   if (observeRetirement !== undefined && typeof observeRetirement !== 'function')
     throw Error('Retirement observer must be a trusted constructor callback');
   if (observeOriginalProcess !== undefined && typeof observeOriginalProcess !== 'function')
@@ -105,6 +150,14 @@ export async function runSymposiumCustodian(hooks: SymposiumCustodianConstructor
   let controllerGeneration = 0;
   let child: ChildProcess | undefined;
   let stopping = false;
+  let originalFeatureControllerCurrent: (() => void) | undefined;
+  if (stagingFeatureBootstrap) {
+    engine.configureStagingNativeFeatureOwner(host, stagingFeatureBootstrap, identity, () => {
+      if (!originalFeatureControllerCurrent || stopping)
+        throw Error('Awaited original native feature readiness unavailable');
+      originalFeatureControllerCurrent();
+    });
+  }
   const controller = new SymposiumCustodianController({
     pause() {
       engine.pauseSymposiumController();
@@ -182,6 +235,7 @@ export async function runSymposiumCustodian(hooks: SymposiumCustodianConstructor
   });
   const stop = () => {
     stopping = true;
+    originalFeatureControllerCurrent = undefined;
     if (child?.connected) child.disconnect();
     child?.kill('SIGTERM');
   };
@@ -190,7 +244,10 @@ export async function runSymposiumCustodian(hooks: SymposiumCustodianConstructor
   try {
     while (!stopping) {
       child = fork(new URL('./index.js', import.meta.url), [], {
-        env: custodianAppEnvironment(process.env),
+        env: custodianAppEnvironment(
+          process.env,
+          beforeControllerReady ? { awaitOriginalReadiness: true } : undefined,
+        ),
         execArgv: [],
         stdio: ['ignore', 'inherit', 'inherit', 'ipc'],
       });
@@ -211,37 +268,46 @@ export async function runSymposiumCustodian(hooks: SymposiumCustodianConstructor
           void Promise.resolve(observed).catch(() => {});
           throw Error('Process observer must be synchronous');
         }
+        const originalCurrent = (connectionCurrent: () => void) => () => {
+          connectionCurrent();
+          if (
+            stopping ||
+            child !== exactChild ||
+            !exactChild.connected ||
+            exactChild.exitCode !== null ||
+            exactChild.signalCode !== null ||
+            !Number.isSafeInteger(exactChild.pid) ||
+            exactChild.pid! <= 0
+          )
+            throw Error('Original controller child unavailable');
+          host.currentProfiles();
+          connectionCurrent();
+        };
+        const originalIdentity = (epoch: number) =>
+          Object.freeze({
+            instanceId: identity,
+            epoch,
+            custodianPid: process.pid,
+            controllerPid: exactChild.pid!,
+            state: 'active' as const,
+            scope: 'fresh-retained-sessions' as const,
+          });
         await serveCustodianController(exactChild as unknown as CustodianChannel, controller, {
+          beforeReady:
+            beforeControllerReady &&
+            (async (epoch, connectionCurrent) => {
+              const current = originalCurrent(connectionCurrent);
+              current();
+              await beforeControllerReady(originalIdentity(epoch), current);
+              current();
+              originalFeatureControllerCurrent = current;
+            }),
           observeReady:
             observeController &&
             ((epoch, connectionCurrent) => {
-              const current = () => {
-                connectionCurrent();
-                if (
-                  stopping ||
-                  child !== exactChild ||
-                  !exactChild.connected ||
-                  exactChild.exitCode !== null ||
-                  exactChild.signalCode !== null ||
-                  !Number.isSafeInteger(exactChild.pid) ||
-                  exactChild.pid! <= 0
-                )
-                  throw Error('Original controller child unavailable');
-                host.currentProfiles();
-                connectionCurrent();
-              };
+              const current = originalCurrent(connectionCurrent);
               current();
-              const result: unknown = observeController(
-                Object.freeze({
-                  instanceId: identity,
-                  epoch,
-                  custodianPid: process.pid,
-                  controllerPid: exactChild.pid!,
-                  state: 'active',
-                  scope: 'fresh-retained-sessions',
-                }),
-                current,
-              );
+              const result: unknown = observeController(originalIdentity(epoch), current);
               if (result !== undefined) {
                 // Refuse asynchronous observation without leaving its rejection unhandled.
                 void Promise.resolve(result).catch(() => {});
@@ -279,7 +345,27 @@ export async function runSymposiumCustodian(hooks: SymposiumCustodianConstructor
             signal,
           ),
         drainHost: (signal) => host.drain(signal),
-        closeHost: (signal) => host.closeAfterDrain(signal),
+        closeHost: async (signal) => {
+          await host.closeAfterDrain(signal);
+          signal.throwIfAborted();
+          const originalPid = process.pid;
+          let current = true;
+          const assertOriginalRetirementCurrent = () => {
+            signal.throwIfAborted();
+            if (!current || process.pid !== originalPid)
+              throw Error('Original post-host retirement lifetime expired');
+          };
+          try {
+            await beforeRetirementReceipt?.(
+              Object.freeze({ instanceId: identity, controllerGeneration }),
+              assertOriginalRetirementCurrent,
+              signal,
+            );
+            assertOriginalRetirementCurrent();
+          } finally {
+            current = false;
+          }
+        },
         record: () =>
           writeCustodianRetirementReceipt({
             stateParent: dirname(host.gateway.stateDirectory),

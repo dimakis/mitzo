@@ -1,6 +1,7 @@
 # Native staging profile admission preparation
 
-This source phase prepares actual native Vertex draft/candidate admission. It does not implement a native
+This source phase prepares actual native Vertex draft/candidate admission and
+awaited original-controller startup qualification. It does not implement a native
 feature runner, enroll providers, allocate a new environment, release uncertain
 capacity or prove a live run. Canonical staging remains separately fenced until
 accepted recovery, original archive, fresh purpose authorization and independently
@@ -42,14 +43,31 @@ Receipt loss or changed source/profile/draft/mapping refuses admission. The
 existing local B20/native variants that only permit OpenAI are not broadened;
 Vertex still requires the reviewed Claude runtime capability.
 
+## Original controller startup
+
+`beforeControllerReady(identity,current)` is an awaited trusted constructor hook.
+It uses the same exact original child, IPC connection and actual host-lifetime
+fence as the synchronous observer. IPC publishes no ready response and accepts
+no request until that hook completes, and rechecks the original lifetime afterward.
+The source checks the IPC awaited-fence implementation version. Only a trusted
+canonical constructor with this hook selects the child startup wait of 120 seconds;
+an ambient environment flag grants no wait policy or provider authority.
+
+`StagingNativeFeatureBootstrap` carries source/fixture roots, an original-owner
+assertion and the actual retained VM resource observation capability. Provider
+capabilities come from the original host itself. The conditional
+[native text/Read factory](staging-native-feature-runner.md) now uses this actual
+constructor path, but native planning/dispatch remains refused until independently
+qualified gateway HTTP model/account/auxiliary/request enforcement exists.
+Factory protocol alone must not authorize a new allocation.
+
 ## Remaining native feature work
 
-A working native feature owner must be constructed in the original custodian with
-its actual host, grants, attempt registry, runtime getter and controlled targets.
-It needs a host-issued bounded fixture source/session/grant, exact native
-claim/delivery/provenance events, original `confirmStopped()` acknowledgments and
-owned sandbox retirement receipts. Retained session artifact volumes must be
-accounted for explicitly. No controller end, idle state, abort, suspend, process
+The conditional native factory implements the original host/grant/runtime/claim
+path and actual event plus controlled-target/sandbox/fixture retirement collectors.
+Its separate model enforcement dependency and fresh enrollment remain pending;
+no live run has proved these paths. Retained artifacts and uncertain cleanup must
+remain explicitly accounted for. No controller end, idle state, abort, suspend, process
 lookup or persisted receipt recreates physical cleanup authority.
 
 Codex automatic compaction remains unqualified for this suite. The inspected

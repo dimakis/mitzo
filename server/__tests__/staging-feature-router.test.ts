@@ -53,3 +53,12 @@ function dispatch(
     );
   });
 }
+
+it('exposes original resource observations only through the retained source capability', async () => {
+  expect((await dispatch(() => ({}) as never, 'GET', '/resources')).status).toBe(503);
+  const resources = vi.fn(() => ({ sourceCommit: 'a'.repeat(40), ownerInstance: 'original' }));
+  expect((await dispatch(() => ({ resources }) as never, 'GET', '/resources')).body).toEqual({
+    sourceCommit: 'a'.repeat(40),
+    ownerInstance: 'original',
+  });
+});

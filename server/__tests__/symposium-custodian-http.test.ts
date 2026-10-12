@@ -92,3 +92,26 @@ it('dispatches source seal recovery to the retained semantic handler with recent
     },
   });
 });
+
+it('retains the real feature request lifetime and expires it when the dispatcher releases it', async () => {
+  const { captureCustodianRequestCurrent } = await import('../symposium-custodian-authority.js');
+  const app = express();
+  app.use(express.json(), authMiddleware, operatorAuthMiddleware);
+  let retained: (() => void) | undefined;
+  app.get('/api/staging/features/resources', (req, res) => {
+    retained = captureCustodianRequestCurrent(req);
+    expect(retained).toBeTypeOf('function');
+    retained!();
+    res.json({ original: true });
+  });
+  const result = await dispatchCustodianHttp(
+    app,
+    { ...command(), operation: 'feature.resources', sessionId: undefined, body: {} },
+    () => {},
+  );
+  expect(result.status).toBe(200);
+  expect(() => retained!()).toThrow(/lifetime ended/);
+  expect(
+    captureCustodianRequestCurrent({ headers: { authorization: 'Bearer copied' } } as never),
+  ).toBeUndefined();
+});

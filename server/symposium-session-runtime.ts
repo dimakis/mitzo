@@ -3,6 +3,7 @@ import type {
   SymposiumHostGrantVerifier,
 } from './symposium-dispatch-boundary.js';
 import { canonicalReviewJson } from './symposium-review-records.js';
+import { guardStagingNativeRuntimeEffects } from './staging-native-runtime-effect.js';
 import {
   atSymposiumReconciliationStage,
   atSymposiumReconciliationStageAsync,
@@ -61,7 +62,11 @@ import {
   SymposiumOpenShellSeatExecutor,
   type SymposiumOpenShellSeatExecutorDeps,
 } from './symposium-openshell-seat-executor.js';
-import { SymposiumOrchestrator, type SymposiumSeatExecutor } from './symposium-orchestrator.js';
+import {
+  SymposiumOrchestrator,
+  type SymposiumSeatExecutor,
+  type SymposiumSeatExecution,
+} from './symposium-orchestrator.js';
 import {
   OpenShellRuntimeManager,
   sandboxNameForConversation,
@@ -346,6 +351,19 @@ export interface SymposiumSharedSandboxOwnerDeps {
   runtimeConfig: OpenShellRuntimeConfig;
   readOnlyEnforced: { openaiApi: boolean; claudeVertex: boolean; chatgptSubscription?: boolean };
   verifyHostCapability?: () => SymposiumProviderCapability;
+  /** Original host fence for cleanup observations after this runtime closes admission. */
+  verifyCleanupCapability?: () => SymposiumProviderCapability;
+  /** Actual original gateway provisional deny guard before native startup. */
+  stagingPrepareSandbox?: (input: {
+    sessionId: string;
+    seatId: string;
+    generation: number;
+    runtimeId: string;
+    sandboxName: string;
+  }) => Promise<{ assertCurrent(): void }>;
+  /** Source-only actual private queue assertion before/after native lifecycle effects. */
+  stagingEffectCurrent?: () => void;
+  stagingCleanupCurrent?: () => void;
   verifiedSubscriptionControllerCommand?: readonly string[];
   verifySubscriptionPrivateAuth?: VerifySymposiumSubscriptionAuth;
   captureSubscriptionLaunchIdentity?: (
@@ -370,6 +388,25 @@ export interface SymposiumSharedSandboxOwnerDeps {
     stop?(runtimeId: string, physicalId: string, signal: AbortSignal): Promise<void>;
     delete?(runtimeId: string, physicalId: string, signal: AbortSignal): Promise<void>;
   };
+}
+
+function createOriginalSandboxManager(
+  deps: Pick<
+    SymposiumSharedSandboxOwnerDeps,
+    'managerFactory' | 'stagingEffectCurrent' | 'stagingCleanupCurrent'
+  >,
+  config: BoundOpenShellRuntimeConfig,
+) {
+  const original = (deps.managerFactory ?? ((selected) => new OpenShellRuntimeManager(selected)))(
+    config,
+  );
+  return deps.stagingEffectCurrent
+    ? guardStagingNativeRuntimeEffects(
+        original,
+        deps.stagingEffectCurrent,
+        deps.stagingCleanupCurrent,
+      )
+    : original;
 }
 
 function verifyClaudeSeatCapability(
@@ -482,9 +519,7 @@ export class SymposiumSharedSandboxOwner {
         throw new Error(
           'Private native seat state isolation is not verified in the shared sandbox',
         );
-      const manager = (
-        this.deps.managerFactory ?? ((config) => new OpenShellRuntimeManager(config))
-      )({
+      const manager = createOriginalSandboxManager(this.deps, {
         ...this.deps.runtimeConfig,
         account: snapshot.owner,
         accountProviderBindings: snapshot.bindings,
@@ -615,7 +650,7 @@ async function withSymposiumSeatLifecycleFence<T>(
 
 type CompletedSandboxCleanupDeps = Pick<
   SymposiumSharedSandboxOwnerDeps,
-  'runtimeConfig' | 'managerFactory'
+  'runtimeConfig' | 'managerFactory' | 'stagingEffectCurrent' | 'stagingCleanupCurrent'
 > & {
   seatSandboxRegistry: SeatSandboxRegistry;
   /** Only the trusted retained seal recovery path supplies its original deny fence. */
@@ -639,6 +674,8 @@ async function stopCompletedSandbox(
   if (!manager.inspect || !manager.inspectReserved || !manager.stop)
     throw new Error('OpenShell seat sandbox lifecycle interface is unavailable');
   const observed = await manager.inspect(record.runtimeId, physicalId, signal);
+  if (observed && observed.id !== physicalId)
+    throw new Error('Seat sandbox physical identity changed before stop');
   if (!observed && !deps.artifactLeaseHost)
     throw new Error('Recorded seat sandbox disappeared before confirmed stop');
   if (observed?.phase === 'Ready') await manager.stop(record.runtimeId, physicalId, signal);
@@ -646,7 +683,7 @@ async function stopCompletedSandbox(
     throw new Error(`Seat sandbox is ${observed.phase}, not Ready or Stopped`);
   if (observed) {
     const stopped = await manager.inspect(record.runtimeId, physicalId, signal);
-    if (!stopped || stopped.phase !== 'Stopped')
+    if (!stopped || stopped.id !== physicalId || stopped.phase !== 'Stopped')
       throw new Error('Seat sandbox physical stop is not confirmed');
   }
   if (deps.artifactLeaseHost) {
@@ -686,6 +723,11 @@ async function stopCompletedSandbox(
     runtimeId: record.runtimeId,
     physicalId,
   });
+  return observed
+    ? Object.freeze({
+        artifactLeaseReleased: Boolean(deps.artifactLeaseHost),
+      })
+    : undefined;
 }
 
 /** Cleanup-only recovery for exact completed rows from a retained seal job.
@@ -717,7 +759,7 @@ export async function stopRetainedSealSandbox(
       )
         throw new Error('Retained seal sandbox identity requires reconciliation');
       if (current.state === 'stopped') return;
-      const manager = (deps.managerFactory ?? ((config) => new OpenShellRuntimeManager(config)))({
+      const manager = createOriginalSandboxManager(deps, {
         ...deps.runtimeConfig,
         account: { kind: 'api', provider: record.providerName, model: record.model },
         accountProviderBindings: [
@@ -750,7 +792,48 @@ export async function stopRetainedSealSandbox(
   );
 }
 
+/** This original owner observed its own created target, confirmed stop, and
+ * acknowledged deletion plus artifact lease release. Restart cannot recreate it. */
+export interface SymposiumOriginalRetirementReceipt {
+  readonly version: 1;
+  readonly sessionId: string;
+  readonly seatId: string;
+  readonly generation: number;
+  readonly runtimeId: string;
+  readonly sandboxName: string;
+  readonly physicalId: string;
+  readonly workspace: string;
+  readonly artifactLeaseReleased: boolean;
+  readonly confirmedAt: number;
+}
+
 export class SymposiumPerSeatSandboxOwner {
+  private readonly originalRetirements = new Map<string, SymposiumOriginalRetirementReceipt>();
+  readOriginalRetirement(seatId: string, generation: number): SymposiumOriginalRetirementReceipt {
+    (this.deps.verifyCleanupCapability ?? this.deps.verifyHostCapability)?.();
+    const receipt = this.originalRetirements.get(`${seatId}:${generation}`);
+    const record = this.deps.seatSandboxRegistry!.getSymposiumSeatSandbox(
+      this.deps.sessionId,
+      seatId,
+      generation,
+    );
+    const target = record && this.terminalCreates.get(record.runtimeId);
+    if (
+      !receipt ||
+      !record ||
+      !target ||
+      record.state !== 'stopped' ||
+      record.runtimeId !== receipt.runtimeId ||
+      record.sandboxName !== receipt.sandboxName ||
+      record.physicalId !== receipt.physicalId ||
+      record.workspace !== receipt.workspace ||
+      target.sandboxId !== receipt.physicalId ||
+      target.sandboxName !== receipt.sandboxName
+    )
+      throw Error('Positive original sandbox retirement receipt unavailable');
+    return receipt;
+  }
+
   private seatPolicies = new Map<
     string,
     { policy: SymposiumSeatPolicy; sandboxName: string; sandboxId: string }
@@ -961,15 +1044,29 @@ export class SymposiumPerSeatSandboxOwner {
             phase: creationPhase,
             failed,
           });
+        const provisional = await this.deps.stagingPrepareSandbox?.({
+          sessionId,
+          seatId,
+          generation: snapshot.generation,
+          runtimeId: snapshot.runtimeId,
+          sandboxName: sandboxNameForConversation(
+            snapshot.runtimeId,
+            this.deps.runtimeConfig.sandboxIdLength,
+          ),
+        });
+        provisional?.assertCurrent();
         const manager = atSymposiumReconciliationStage('SEAT_MANAGER_SETUP_FAILED', () =>
-          (this.deps.managerFactory ?? ((config) => new OpenShellRuntimeManager(config)))({
+          createOriginalSandboxManager(this.deps, {
             ...this.deps.runtimeConfig,
             ...(seatPolicy ? { policy: seatPolicy.path } : {}),
-            ...(this.deps.runSandboxCreation
+            ...(this.deps.runSandboxCreation || provisional
               ? {
                   beforeSandboxCreate: () => {
-                    if (!physicalDispatch) throw new Error('Missing sandbox dispatch fence');
-                    physicalDispatch();
+                    provisional?.assertCurrent();
+                    if (this.deps.runSandboxCreation) {
+                      if (!physicalDispatch) throw new Error('Missing sandbox dispatch fence');
+                      physicalDispatch();
+                    }
                   },
                 }
               : {}),
@@ -1364,9 +1461,7 @@ export class SymposiumPerSeatSandboxOwner {
             );
           }
 
-          const manager = (
-            this.deps.managerFactory ?? ((config) => new OpenShellRuntimeManager(config))
-          )({
+          const manager = createOriginalSandboxManager(this.deps, {
             ...this.deps.runtimeConfig,
             account: { kind: 'api', provider: record.providerName, model: record.model },
             accountProviderBindings: [
@@ -1441,13 +1536,36 @@ export class SymposiumPerSeatSandboxOwner {
           }
           if (record.creationStarted && !record.creationCompleted)
             throw new Error('Seat sandbox creation outcome is uncertain; reconciliation required');
-          await stopCompletedSandbox(
+          const retirement = await stopCompletedSandbox(
             { ...this.deps, seatSandboxRegistry: this.deps.seatSandboxRegistry! },
             record,
             manager,
             physicalId,
             signal,
           );
+          const originalTarget = this.terminalCreates.get(record.runtimeId);
+          if (
+            retirement &&
+            originalTarget?.sandboxId === physicalId &&
+            originalTarget.sandboxName === record.sandboxName &&
+            record.creationCompleted
+          ) {
+            this.originalRetirements.set(
+              `${seatId}:${record.generation}`,
+              Object.freeze({
+                version: 1,
+                sessionId,
+                seatId,
+                generation: record.generation,
+                runtimeId: record.runtimeId,
+                sandboxName: originalTarget.sandboxName,
+                physicalId,
+                workspace: record.workspace,
+                ...retirement,
+                confirmedAt: Date.now(),
+              }),
+            );
+          }
         }
       }),
     );
@@ -1537,6 +1655,11 @@ export interface SymposiumSessionRuntimeDeps extends Omit<
   observeStartupConfig?: import('./symposium-codex-native.js').OpenAiCodexSeatInput['observeStartupConfig'];
   observePrelaunch?: import('./symposium-codex-native.js').OpenAiCodexSeatInput['observePrelaunch'];
   openNative?: SymposiumOpenShellSeatExecutorDeps['openNative'];
+  /** Source-owned stage fixture tool on this original native runtime only. */
+  stagingFixtureTools?: (
+    execution: SymposiumSeatExecution,
+    verifyCurrent: () => void,
+  ) => SymposiumNativeProfileTools;
   /** Explicit host attestation of exact OpenShell 0.1 seat isolation and attachment semantics. */
   perSeatSandboxVerified?: boolean;
   /** Roles certified by the host capability gate. A production gate supplies this explicitly. */
@@ -1585,6 +1708,25 @@ export function assertSymposiumRuntimeForArtifactSeal(
     binding.sessionId !== sessionId
   )
     throw new Error('Artifact seal runtime custody is unavailable');
+}
+
+/** Exact original factory binding. Serialized runtime and cleanup objects do not qualify. */
+export function assertSymposiumRuntimeForStagingFeature(
+  runtime: object,
+  store: EventStore,
+  leaseHost: unknown,
+  registry: SymposiumAttemptRegistry,
+  sessionId: string,
+  claimToken?: string,
+): void {
+  assertSymposiumRuntimeForArtifactSeal(runtime, store, leaseHost, sessionId);
+  const binding = sealRuntimeBindings.get(runtime)!;
+  if (
+    binding.registry !== registry ||
+    !binding.acceptedClaims ||
+    (claimToken !== undefined && !binding.acceptedClaims.has(claimToken))
+  )
+    throw Error('Original staging runtime claim authority unavailable');
 }
 
 export async function drainSymposiumRuntimeForArtifactSeal(
@@ -1722,6 +1864,7 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
     facts: deps.store,
     artifactReferenceStore: deps.store,
     seatSandboxRegistry: deps.store,
+    verifyCleanupCapability: deps.verifyCleanupCapability ?? originalVerify,
   });
   const cache = new Map<string, SymposiumOpenShellSeatExecutor>();
   const executors = new Proxy({} as Record<string, SymposiumSeatExecutor>, {
@@ -1799,7 +1942,7 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
                 workdir: input.sandbox.workdir,
                 verifyCurrent: verifyNativeToolCurrent,
               });
-              const hostTools = accessTools
+              const ordinaryHostTools = accessTools
                 ? {
                     tools: [...(profileTools?.tools ?? []), ...accessTools.tools],
                     instructions: [profileTools?.instructions, accessTools.instructions]
@@ -1820,6 +1963,9 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
                           })),
                   }
                 : profileTools;
+              const hostTools = deps.stagingFixtureTools
+                ? deps.stagingFixtureTools(input.execution, verifyNativeToolCurrent)
+                : ordinaryHostTools;
               const loadConversationHistory = () =>
                 symposiumSeatRolloverHistory(
                   deps.store,
@@ -1837,6 +1983,8 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
               };
               return input.route.kind === 'openai-api'
                 ? createOpenAiCodexSeat({
+                    stagingEffectCurrent: deps.stagingEffectCurrent,
+                    stagingCleanupCurrent: deps.stagingCleanupCurrent,
                     ...input,
                     store: deps.codexStore,
                     loadConversationHistory,
@@ -1868,6 +2016,8 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
                   })
                 : input.route.kind === 'chatgpt-subscription-native'
                   ? createChatGptSubscriptionSeat({
+                      stagingEffectCurrent: deps.stagingEffectCurrent,
+                      stagingCleanupCurrent: deps.stagingCleanupCurrent,
                       ...input,
                       store: deps.codexStore,
                       loadConversationHistory,
@@ -1882,6 +2032,8 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
                       assertSubscriptionDispatch: deps.assertSubscriptionDispatch,
                     })
                   : createClaudeVertexSeat({
+                      stagingEffectCurrent: deps.stagingEffectCurrent,
+                      stagingCleanupCurrent: deps.stagingCleanupCurrent,
                       ...input,
                       route: input.route,
                       loadConversationHistory,

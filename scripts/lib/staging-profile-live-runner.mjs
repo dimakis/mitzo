@@ -1,6 +1,8 @@
 import { createHash } from 'node:crypto';
 const canonicalUrl = 'http://mitzo-staging.localhost:3190';
 const identifier = (v) => typeof v === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/.test(v);
+const modelOrAccount = (v) =>
+  typeof v === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,199}$/.test(v);
 const digest = (v) => typeof v === 'string' && /^[a-f0-9]{64}$/.test(v);
 const commit = (v) => typeof v === 'string' && /^[a-f0-9]{40}$/.test(v);
 const hash = (value) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -13,24 +15,49 @@ function exact(value, keys) {
   )
     throw Error('Bounded staging feature plan required');
 }
+function assertAcceptedAppSource(observation, sourceCommit, nativeSourceCommit, ownerInstance) {
+  exact(
+    observation,
+    'nativeSourceCommit,acceptedAppCommit,appRoot,instanceId,custodianPid,epoch,controllerPid,compatibilitySha256',
+  );
+  if (
+    !commit(sourceCommit) ||
+    !commit(nativeSourceCommit) ||
+    observation.nativeSourceCommit !== nativeSourceCommit ||
+    observation.acceptedAppCommit !== sourceCommit ||
+    observation.instanceId !== ownerInstance ||
+    !identifier(ownerInstance) ||
+    typeof observation.appRoot !== 'string' ||
+    !observation.appRoot.startsWith('/') ||
+    observation.appRoot.length > 4096 ||
+    ['custodianPid', 'controllerPid', 'epoch'].some(
+      (key) => !Number.isSafeInteger(observation[key]) || observation[key] < 1,
+    ) ||
+    !digest(observation.compatibilitySha256)
+  )
+    throw Error('Paired original native/accepted source observations required');
+}
+function pairedSource(value) {
+  return (
+    Object.hasOwn(value ?? {}, 'nativeSourceCommit') ||
+    Object.hasOwn(value ?? {}, 'acceptedAppSource')
+  );
+}
 export function assertStagingFeaturePlan(plan) {
   exact(
     plan,
-    'version,requestId,sourceCommit,profileId,enrollmentRevision,profileRevision,provider,runtime,runtimeRevision,ownerInstance,chargedAccount,selectedModel,modelApprovalId,suite,suiteRevision,runnerRevision,modelDispatches,auxiliaryDispatches,limits',
+    'version,requestId,sourceCommit,profileId,enrollmentRevision,profileRevision,provider,runtime,runtimeRevision,ownerInstance,chargedAccount,selectedModel,modelApprovalId,suite,suiteRevision,runnerRevision,modelDispatches,auxiliaryDispatches,limits' +
+      (pairedSource(plan) ? ',nativeSourceCommit,acceptedAppSource' : ''),
   );
   if (
     plan.version !== 1 ||
     plan.suite !== 'profile-tools-v1' ||
     !commit(plan.sourceCommit) ||
-    [
-      'requestId',
-      'profileId',
-      'provider',
-      'runtime',
-      'ownerInstance',
-      'chargedAccount',
-      'selectedModel',
-    ].some((key) => !identifier(plan[key])) ||
+    ['requestId', 'profileId', 'provider', 'runtime', 'ownerInstance'].some(
+      (key) => !identifier(plan[key]),
+    ) ||
+    !modelOrAccount(plan.chargedAccount) ||
+    !modelOrAccount(plan.selectedModel) ||
     [
       'enrollmentRevision',
       'profileRevision',
@@ -40,24 +67,44 @@ export function assertStagingFeaturePlan(plan) {
     ].some((key) => !digest(plan[key]))
   )
     throw Error('Bounded staging feature plan required');
-  if (!/^gpt-\d+(?:\.\d+)?-luna$/.test(plan.selectedModel) && !identifier(plan.modelApprovalId))
+  if (
+    !/^gpt-\d+(?:\.\d+)?-luna$/.test(plan.selectedModel) &&
+    !(
+      plan.provider === 'anthropic-vertex' &&
+      plan.selectedModel === 'claude-haiku-4-5@20251001' &&
+      identifier(plan.modelApprovalId)
+    )
+  )
     throw Error('Explicit Luna or owner-verified alternative model plan required');
   if (plan.modelApprovalId !== null && !identifier(plan.modelApprovalId))
     throw Error('Bounded staging feature plan required');
   if (
-    plan.auxiliaryDispatches !== 'disabled' ||
+    !['disabled', 'same-selected-model-shared-budget'].includes(plan.auxiliaryDispatches) ||
     !Array.isArray(plan.modelDispatches) ||
     plan.modelDispatches.length !== 1
   )
     throw Error('Bounded staging model scope required');
   exact(plan.modelDispatches[0], 'purpose,chargedAccount,selectedModel,maxModelRounds');
   if (
-    plan.modelDispatches[0].purpose !== 'main' ||
+    (plan.auxiliaryDispatches === 'disabled'
+      ? plan.modelDispatches[0].purpose !== 'main'
+      : plan.modelDispatches[0].purpose !== 'all-inference' ||
+        plan.runtime !== 'openshell-native') ||
     plan.modelDispatches[0].chargedAccount !== plan.chargedAccount ||
     plan.modelDispatches[0].selectedModel !== plan.selectedModel ||
     plan.modelDispatches[0].maxModelRounds !== 2
   )
     throw Error('Exact staging model scope required');
+  if (pairedSource(plan)) {
+    if (plan.runtime !== 'openshell-native')
+      throw Error('Original native source observations required');
+    assertAcceptedAppSource(
+      plan.acceptedAppSource,
+      plan.sourceCommit,
+      plan.nativeSourceCommit,
+      plan.ownerInstance,
+    );
+  }
   exact(plan.limits, 'maxProviderDispatches,timeoutMs,maxOutputBytes');
   if (
     plan.limits.maxProviderDispatches !== 1 ||
@@ -126,12 +173,71 @@ export function createStagingProfileEffects({
     }
   }
   return {
+    /** Observations from the existing authenticated original native owner.
+     * Parsing JSON grants no capacity; caller still qualifies canonical origin,
+     * accepted source and the actual retained owner before admitting work. */
+    async observeResources(sourceCommit, ownerInstance) {
+      if (!commit(sourceCommit) || !identifier(ownerInstance))
+        throw Error('Exact original native source/owner required');
+      const response = await call('/api/staging/features/resources');
+      exact(
+        response,
+        'version,sourceCommit,ownerInstance,resources' +
+          (pairedSource(response) ? ',nativeSourceCommit,acceptedAppSource' : ''),
+      );
+      if (pairedSource(response))
+        assertAcceptedAppSource(
+          response.acceptedAppSource,
+          response.sourceCommit,
+          response.nativeSourceCommit,
+          response.ownerInstance,
+        );
+      exact(
+        response.resources,
+        'aggregateGiB,growthGiB,diskFreeGiB,vmMemoryMiB,vmCpus,allocationUUID,planSha256,bootUUID,supervisorPid,vfkitPid,observationSha256,nativeRetirementClaim',
+      );
+      const observed = response.resources;
+      if (
+        response.version !== 1 ||
+        response.sourceCommit !== sourceCommit ||
+        response.ownerInstance !== ownerInstance ||
+        observed.vmMemoryMiB !== 4096 ||
+        observed.vmCpus !== 2 ||
+        observed.nativeRetirementClaim !== false ||
+        ['aggregateGiB', 'growthGiB', 'diskFreeGiB'].some(
+          (key) => !Number.isFinite(observed[key]) || observed[key] < 0,
+        ) ||
+        ['supervisorPid', 'vfkitPid'].some(
+          (key) => !Number.isSafeInteger(observed[key]) || observed[key] <= 0,
+        ) ||
+        ['allocationUUID', 'bootUUID'].some(
+          (key) =>
+            typeof observed[key] !== 'string' ||
+            !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(observed[key]),
+        ) ||
+        !digest(observed.planSha256) ||
+        !digest(observed.observationSha256)
+      )
+        throw Error('Original native resource observations differ');
+      return response;
+    },
     async lookupEnrollment(profileId) {
       if (!identifier(profileId)) throw Error('Bounded staging profile required');
       const enrollment = await call(
         '/api/staging/features/enrollments/' + encodeURIComponent(profileId),
       );
-      exact(enrollment, 'profileId,enrollmentRevision');
+      exact(
+        enrollment,
+        'profileId,enrollmentRevision' +
+          (pairedSource(enrollment) ? ',sourceCommit,nativeSourceCommit,acceptedAppSource' : ''),
+      );
+      if (pairedSource(enrollment))
+        assertAcceptedAppSource(
+          enrollment.acceptedAppSource,
+          enrollment.sourceCommit,
+          enrollment.nativeSourceCommit,
+          enrollment.acceptedAppSource?.instanceId,
+        );
       if (enrollment.profileId !== profileId || !digest(enrollment.enrollmentRevision))
         throw Error('Staging feature enrollment unavailable');
       return enrollment;
@@ -172,7 +278,9 @@ export function createStagingProfileEffects({
       )
         throw Error('Exact staging feature reservation required');
       announce(
-        `[staging-feature] LIVE CHARGE account=${plan.chargedAccount} model=${plan.selectedModel} max-model-rounds=2 auxiliary=disabled`,
+        plan.auxiliaryDispatches === 'disabled'
+          ? `[staging-feature] LIVE CHARGE account=${plan.chargedAccount} model=${plan.selectedModel} max-model-rounds=2 auxiliary=disabled`
+          : `[staging-feature] LIVE CHARGE account=${plan.chargedAccount} model=${plan.selectedModel} all-inference=main+any-auxiliary shared-max-requests=2`,
       );
       const result = await call(
         '/api/staging/features/run',
