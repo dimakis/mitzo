@@ -85,3 +85,72 @@ it('retains an edit made while an older message is awaiting confirmation', () =>
   view.unmount();
   expect(getChatDraft(draft.id)?.text).toBe('Newer thought');
 });
+it('switches saved owners without copying prior text, images or context to the new draft', () => {
+  const first = {
+    ...createChatDraft(),
+    text: 'First',
+    contextBlocks: ['First context'],
+    images: [{ data: 'one', preview: 'data:image/png;base64,one', mediaType: 'image/png' }],
+  };
+  const second = { ...createChatDraft(), text: 'Second', contextBlocks: ['Second context'] };
+  saveChatDraft(first);
+  saveChatDraft(second);
+  const view = render(
+    <ChatInput onSend={() => false} onStop={() => {}} running={false} savedChatDraft={first} />,
+  );
+  view.rerender(
+    <ChatInput onSend={() => false} onStop={() => {}} running={false} savedChatDraft={second} />,
+  );
+  expect((screen.getByLabelText('Message Mitzo') as HTMLTextAreaElement).value).toBe('Second');
+  expect(getChatDraft(second.id)).toMatchObject({
+    text: 'Second',
+    contextBlocks: ['Second context'],
+    images: [],
+  });
+  expect(getChatDraft(first.id)?.text).toBe('First');
+});
+it('keeps the composer and stored content when settings changed while an older send was pending', () => {
+  const draft = { ...createChatDraft(), text: 'Original' };
+  saveChatDraft(draft);
+  let receipt: ((status: 'accepted') => void) | undefined;
+  const view = render(
+    <ChatInput
+      onSend={(_text, _images, _context, callback) => {
+        receipt = callback;
+        return true;
+      }}
+      onStop={() => {}}
+      running={false}
+      savedChatDraft={draft}
+    />,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+  const changed = { ...draft, settings: { ...draft.settings, mode: 'ask' as const } };
+  saveChatDraft(changed);
+  view.rerender(
+    <ChatInput onSend={() => false} onStop={() => {}} running={false} savedChatDraft={changed} />,
+  );
+  act(() => receipt?.('accepted'));
+  expect((screen.getByLabelText('Message Mitzo') as HTMLTextAreaElement).value).toBe('Original');
+  expect(getChatDraft(draft.id)?.settings.mode).toBe('ask');
+});
+it('consumes the accepted revision after navigation unmounts the composer', () => {
+  const draft = { ...createChatDraft(), text: 'Original' };
+  saveChatDraft(draft);
+  let receipt: ((status: 'accepted') => void) | undefined;
+  const view = render(
+    <ChatInput
+      onSend={(_text, _images, _context, callback) => {
+        receipt = callback;
+        return true;
+      }}
+      onStop={() => {}}
+      running={false}
+      savedChatDraft={draft}
+    />,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+  view.unmount();
+  act(() => receipt?.('accepted'));
+  expect(getChatDraft(draft.id)).toBeNull();
+});

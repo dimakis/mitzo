@@ -128,7 +128,7 @@ export function ChatInput({
     draftStorageKey === undefined ? (assignedDraft.current?.assignment ?? null) : null;
   const [text, setText, clearDraft, flushDraft] = useDraft(
     sessionId,
-    savedChatDraft?.text ?? initialText,
+    initialText ?? savedChatDraft?.text,
     draftStorageKey,
     assignment,
   );
@@ -159,18 +159,27 @@ export function ChatInput({
   const useExternal = externalContextBlocks !== undefined;
   const activeContextBlocks = useExternal ? externalContextBlocks : contextBlocks;
   const previousSavedId = useRef(savedChatDraft?.id);
+  const savedOwnerChanging = previousSavedId.current !== savedChatDraft?.id;
   useEffect(() => {
-    if (previousSavedId.current === savedChatDraft?.id) return;
+    if (!savedOwnerChanging) return;
     previousSavedId.current = savedChatDraft?.id;
     setImages(savedChatDraft?.images ?? []);
     if (!useExternal) setContextBlocks(savedChatDraft?.contextBlocks ?? []);
-  }, [savedChatDraft, useExternal]);
+  }, [savedChatDraft, savedOwnerChanging, useExternal]);
   const [saveFailed, setSaveFailed] = useState(false);
   useEffect(() => {
-    if (!savedChatDraft || previousSavedId.current !== savedChatDraft.id) return;
+    if (!savedChatDraft || savedOwnerChanging) return;
     const current = getChatDraft(savedChatDraft.id) ?? savedChatDraft;
-    setSaveFailed(!saveChatDraft({ ...current, text, images, contextBlocks: activeContextBlocks }));
-  }, [savedChatDraft, text, images, activeContextBlocks]);
+    setSaveFailed(
+      !saveChatDraft({
+        ...current,
+        settings: savedChatDraft.settings,
+        text,
+        images,
+        contextBlocks: activeContextBlocks,
+      }),
+    );
+  }, [savedChatDraft, savedOwnerChanging, text, images, activeContextBlocks]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const initialApplied = useRef(false);
@@ -184,12 +193,16 @@ export function ChatInput({
     contextBlocks: activeContextBlocks,
     sessionId,
     composerGeneration,
+    draftStorageKey,
     scope: 0,
     revision: 0,
   });
   const previous = latestDraft.current;
   const generationChanged = previous.composerGeneration !== composerGeneration;
-  const scopeChanged = previous.sessionId !== sessionId || generationChanged;
+  const scopeChanged =
+    previous.sessionId !== sessionId ||
+    previous.draftStorageKey !== draftStorageKey ||
+    generationChanged;
   if (scopeChanged) {
     interruptPending.current = null;
     if (generationChanged || sendPending.current?.assignedSessionId !== sessionId)
@@ -202,6 +215,7 @@ export function ChatInput({
     contextBlocks: activeContextBlocks,
     sessionId,
     composerGeneration,
+    draftStorageKey,
     scope: previous.scope + (scopeChanged ? 1 : 0),
     revision:
       previous.revision +
@@ -265,7 +279,11 @@ export function ChatInput({
           if (status === 'accepted' && retained) removeSubmitted(retained);
           return;
         }
-        if (status === 'accepted' && submittedSavedDraft) consumeChatDraft(submittedSavedDraft);
+        const savedRevisionConsumed =
+          status === 'accepted' && submittedSavedDraft
+            ? consumeChatDraft(submittedSavedDraft)
+            : true;
+        if (status === 'accepted' && !savedRevisionConsumed) return;
         const latest = latestDraft.current;
         const assigned =
           latest.composerGeneration === submitted.composerGeneration &&
