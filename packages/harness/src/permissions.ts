@@ -74,6 +74,18 @@ export function resolvePending(
   const entry = pending.get(permId);
   if (!entry || (sessionId && entry.sessionId && entry.sessionId !== sessionId)) return false;
 
+  // Timer callbacks can be delayed while transports reconnect or the event loop
+  // is busy. The advertised absolute deadline remains authoritative.
+  if (entry.request?.expiresAt !== undefined && entry.request.expiresAt <= Date.now()) {
+    pending.delete(permId);
+    entry.resolver({
+      behavior: 'deny',
+      message: 'Tool approval expired without a response; request approval again',
+    });
+    notifyLifecycle({ type: 'resolved', permId, resolution: 'expired' });
+    return false;
+  }
+
   let toolInput = entry.toolInput;
   // Questions never grant session-wide tool permission. Treat a legacy/malformed
   // "always" response as a one-shot answer instead of leaving it pending forever.

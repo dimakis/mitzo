@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import type { QuestionAnswers, UserQuestion } from '@mitzo/protocol';
+import { sessionApprovalServer, type QuestionAnswers, type UserQuestion } from '@mitzo/protocol';
 
 export type ToolTier = 'safe' | 'standard' | 'elevated' | 'unknown';
 interface Props {
@@ -98,7 +98,7 @@ export function PermissionBanner({
       // Unknown input retains the ordinary approval description.
     }
   }
-  const server = toolName.startsWith('mcp__') ? toolName.split('__')[1] : undefined;
+  const server = sessionApprovalServer(toolName);
   const tierClass =
     tier === 'elevated'
       ? ' perm-banner--elevated'

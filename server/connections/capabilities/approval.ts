@@ -49,7 +49,7 @@ export function capabilityApprovalForConversation(
         signal,
         toolUseID: randomUUID(),
         forcePrompt: request.forcePrompt,
-        approvalScope: 'conversation',
+        approvalScope: 'request',
         title: 'Approve provider capability?',
         description:
           'This performs the reviewed provider operation shown below. Mitzo will record the result and verify it before reporting success.',

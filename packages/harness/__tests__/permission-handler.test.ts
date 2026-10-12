@@ -1,7 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { SessionRegistry } from '../src/session-registry.js';
 import { buildPermissionHandler, permissionDisplayInput } from '../src/permission-handler.js';
-import { resolvePending, onPermissionLifecycle } from '../src/permissions.js';
+import {
+  resolvePending,
+  onPermissionLifecycle,
+  getPendingRequestsBySession,
+} from '../src/permissions.js';
 import { setSkillPolicy } from '../src/skill-policy.js';
 import { applyTierOverrides } from '../src/tool-tiers.js';
 import type { SessionTransport } from '../src/session-transport.js';
@@ -280,6 +284,128 @@ describe('buildPermissionHandler', () => {
     });
     expect(transport.sent.filter((event) => event.type === 'permission_request')).toHaveLength(1);
   });
+
+  it('rejects approval after its absolute deadline even before the timeout callback runs', async () => {
+    vi.useFakeTimers();
+    const abort = new AbortController();
+    const transport = fakeTransport();
+    const allowList = new Set<string>();
+    registry.register('client-1', {
+      sessionId: 'deadline-session',
+      transport,
+      abortController: abort,
+      mode: 'agent',
+      sessionAllowList: allowList,
+    });
+    try {
+      const execution = buildPermissionHandler('client-1', registry)(
+        'mcp__gws__gmail_write',
+        {},
+        { signal: abort.signal, toolUseID: 'deadline' },
+      );
+      await Promise.resolve();
+      const request = transport.sent[0];
+      // Move wall time without advancing timers: the timeout callback has not run.
+      vi.setSystemTime(request.expiresAt as number);
+      expect(
+        resolvePending(request.permId as string, 'always', undefined, 'deadline-session'),
+      ).toBe(false);
+      expect(await execution).toMatchObject({
+        behavior: 'deny',
+        message: 'Tool approval expired without a response; request approval again',
+      });
+      expect(allowList.size).toBe(0);
+      expect(getPendingRequestsBySession('deadline-session')).toEqual([]);
+    } finally {
+      abort.abort();
+      vi.useRealTimers();
+    }
+  });
+
+  it.each([
+    ['TelosCreateOutcome', 'TelosSaveArtifact'],
+    ['TelosSaveArtifact', 'mcp__telos__TelosCreateOutcome'],
+    ['mcp__telos__TelosSaveArtifact', 'TelosCreateOutcome'],
+  ])('shares the advertised Telos session scope between %s and %s', async (initial, next) => {
+    const transport = fakeTransport();
+    const allowList = new Set<string>();
+    const abort = new AbortController();
+    registry.register('client-1', {
+      transport,
+      abortController: abort,
+      mode: 'agent',
+      sessionAllowList: allowList,
+    });
+    const handler = buildPermissionHandler('client-1', registry);
+    const options = {
+      signal: abort.signal,
+      toolUseID: 'telos',
+      forcePrompt: true,
+      allowSessionGrant: true,
+    };
+    try {
+      const first = handler(initial, { itemId: 'item' }, options);
+      await Promise.resolve();
+      resolvePending(transport.sent[0].permId as string, 'always');
+      expect(await first).toMatchObject({
+        behavior: 'allow',
+        decisionClassification: 'user_permanent',
+      });
+      expect(allowList).toContain('mcp__telos__');
+      const second = handler(next, { itemId: 'item' }, options);
+      await Promise.resolve();
+      expect(transport.sent.filter((event) => event.type === 'permission_request')).toHaveLength(1);
+      expect(await second).toMatchObject({
+        behavior: 'allow',
+        decisionClassification: 'user_permanent',
+      });
+      const unknown = handler('TelosUnregisteredWrite', {}, options);
+      await Promise.resolve();
+      expect(transport.sent.filter((event) => event.type === 'permission_request')).toHaveLength(2);
+      abort.abort();
+      expect(await unknown).toMatchObject({ behavior: 'deny' });
+    } finally {
+      abort.abort();
+    }
+  });
+
+  it.each(['GitCommit', 'Bash', 'mcp__gws__gmail_write'])(
+    'advertises a request-only grant for a forced non-cacheable %s approval',
+    async (toolName) => {
+      const transport = fakeTransport();
+      const allowList = new Set<string>();
+      registry.register('client-1', {
+        transport,
+        abortController: new AbortController(),
+        mode: 'agent',
+        sessionAllowList: allowList,
+      });
+      const handler = buildPermissionHandler('client-1', registry);
+      for (let invocation = 0; invocation < 2; invocation++) {
+        const execution = handler(
+          toolName,
+          { command: 'echo reviewed' },
+          {
+            signal: new AbortController().signal,
+            toolUseID: String(invocation),
+            forcePrompt: true,
+          },
+        );
+        await Promise.resolve();
+        const request = transport.sent
+          .filter((event) => event.type === 'permission_request')
+          .at(-1)!;
+        expect(request.approvalScope).toBe('request');
+        expect(resolvePending(request.permId as string, 'always')).toBe(true);
+        expect(await execution).toMatchObject({
+          behavior: 'allow',
+          decisionClassification: 'user_temporary',
+        });
+        expect(allowList.size).toBe(0);
+      }
+      expect(transport.sent.filter((event) => event.type === 'permission_request')).toHaveLength(2);
+    },
+  );
 
   it('does not reuse a session grant for an exact-action forced prompt', async () => {
     const transport = fakeTransport();

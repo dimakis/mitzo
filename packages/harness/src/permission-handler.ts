@@ -9,7 +9,7 @@ import {
   isConfigured as pushoverConfigured,
 } from './pushover.js';
 import { getToolTier, isReadOnlyTool, shouldAutoAllow } from './tool-tiers.js';
-import { summarizeToolInput } from '@mitzo/protocol';
+import { sessionApprovalServer, summarizeToolInput } from '@mitzo/protocol';
 import { checkSkillPolicy } from './skill-policy.js';
 import { checkWorktreePolicy, type OnDemandCreateFn } from './worktree-guard.js';
 import { PERMISSION_TIMEOUT_MS, NTFY_NOTIFICATION_DELAY_MS } from './constants.js';
@@ -91,10 +91,8 @@ function transportSend(transport: SessionTransport, data: Record<string, unknown
 }
 
 function getMcpPrefix(toolName: string): string | null {
-  if (!toolName.startsWith('mcp__')) return null;
-  const parts = toolName.split('__');
-  if (parts.length >= 3) return `${parts[0]}__${parts[1]}__`;
-  return null;
+  const server = sessionApprovalServer(toolName);
+  return server ? `mcp__${server}__` : null;
 }
 
 function addToAllowList(allowList: Set<string>, toolName: string): void {
@@ -283,7 +281,11 @@ export function buildPermissionHandler(
         description: opts.description,
         displayName: opts.displayName,
         tier,
-        approvalScope: opts.approvalScope,
+        // Exact-action/policy prompts cannot advertise a cached grant they ignore.
+        // Explicit scopes remain owned by adapters that store narrower consent.
+        approvalScope:
+          opts.approvalScope ??
+          (opts.forcePrompt && !opts.allowSessionGrant ? 'request' : undefined),
         sessionId: session.sessionId,
         expiresAt: Date.now() + PERMISSION_TIMEOUT_MS,
         ...(questions ? { questions } : {}),

@@ -36,3 +36,23 @@ The Codex mapping is based on the installed generated protocol schema and the [o
 Run `npx vite --config vite.preview.config.ts` from `frontend`, then open `/dev/approvals.html` on port 3102. The fixture uses the real component with synthetic requests and a light/dark theme toggle. It has no API or WebSocket proxy and performs no model calls. It is not a production build entry point.
 
 Browser checks covered option selection, free-text submission and scrolling at 390 × 844 and 320 × 568. Physical-phone execution and restart acceptance remain outstanding; no production deployment is part of this change.
+
+## Shared approval scope and runtime coverage
+
+The permission card advertises the scope that the executing adapter can retain. Ordinary tool approvals support session grants; MCP tools share the advertised server scope. The four trusted native Telos tools (`TelosCreateOutcome`, `TelosSaveArtifact`, `TelosFindArtifacts`, `TelosReadArtifact`) use that same Telos server scope. Names merely starting with `Telos` do not inherit it. Ask mode, skill ceilings and workspace checks remain authoritative after a grant.
+
+Forced exact-action and project-policy prompts default to request scope and offer only one-time approval. Git commits, explicit command/file approval requirements and reviewed provider capability operations cannot silently become reusable integration grants. Explicit conversation integration approval stores its narrower connection/provider consent separately and does not add an unrelated generic tool allow-list entry. Web search retains its account/model-bound session consent; URL access and publication remain request-only.
+
+The absolute card deadline is enforced before its resolver applies a decision, even if the timeout callback has not run. Expired answers deny execution, add no grant and clear the pending card. A different session ID or unauthorized connection is rejected before it can alter another conversation's approval.
+
+| Route or runtime                              | Shared authority and scope                                                                                                        | Offline verification                                                                 |
+| --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| Claude SDK and Vertex SDK                     | Harness policy and SDK hook ceiling; ordinary session grants; project forced gates remain request-only                            | Session permission policy, harness permissions and native hook tests                 |
+| Native Codex host                             | Harness approval before MCP/native execution; exact-action gates remain request-only                                              | Codex session/MCP, native executor and capability approval tests                     |
+| OpenAI Responses and Gemini native API routes | Shared native executor and MCP approval adapter; account consent stays separate from tool approval                                | Native executor, Responses/session adapters and synthetic Google/Telos MCP execution |
+| OpenShell API and subscription routes         | Conversation provider attachment remains separate from exact tool approval; trusted native Telos and MCP grants share scope       | Codex session/conversation, provider environment and session-grant tests             |
+| Delegated contributors                        | Contributor binding and current mode/skill ceiling remain authoritative; parent access does not manufacture a broader child grant | Contributor lifecycle/profile and environment continuation tests                     |
+| Web SSE and native WS                         | Interactive operator authority bound to a live open watched transport and exact pending session; ownership remains unchanged      | HTTP permission, WS dispatcher, auth binding and SSE reconciliation tests            |
+| Cards and notifications                       | Request/session/conversation labels match retained scope; accurate cancellation/expiry; unresolved cards replay across reconnect  | Permission banner, permission lifecycle, notification and client tests               |
+
+This matrix describes audited source paths and offline tests. It does not claim live account/provider or physical-phone acceptance. Tests use synthetic service peers and local temporary workspaces without credentials or model inference.

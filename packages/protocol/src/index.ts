@@ -326,3 +326,5 @@ export {
   AgentSandboxContextScopeSchema,
   type AgentSandboxContextScope,
 } from './agent-context-recipe.js';
+
+export { sessionApprovalServer } from './session-approval-scope.js';
