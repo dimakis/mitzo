@@ -8,6 +8,7 @@
 import { createStore } from 'zustand/vanilla';
 import type { StoreApi } from 'zustand/vanilla';
 import type { FinishedMessage, MitzoMode, ImageAttachment, SourceSnapshot } from '@mitzo/protocol';
+import { splitContextPrompt } from '@mitzo/protocol';
 
 import type { TransportAdapter } from './types.js';
 import { messagesReducer, INITIAL_MESSAGES_STATE } from './slices/messages.js';
@@ -226,12 +227,19 @@ function mergeLiveWithDurable(
   if (!live) return durable;
   const liveContent = { ...live };
   delete liveContent.symposiumProvenance;
+  const durableText =
+    durable.role === 'user' && durable.blocks.find((block) => block.blockType === 'text');
+  const durableContext = durableText && splitContextPrompt(durableText.content);
   return {
     ...liveContent,
     ...(durable.startedSeq !== undefined ? { startedSeq: durable.startedSeq } : {}),
     ...(durable.symposiumProvenance ? { symposiumProvenance: durable.symposiumProvenance } : {}),
     images: live.images ?? durable.images,
     contextBlocks: live.contextBlocks ?? durable.contextBlocks,
+    contextInjections:
+      live.contextInjections ??
+      durable.contextInjections ??
+      (durableContext ? durableContext.injections : undefined),
     sourceSnapshots: live.sourceSnapshots ?? durable.sourceSnapshots,
   };
 }
