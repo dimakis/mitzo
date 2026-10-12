@@ -142,7 +142,7 @@ The Today workspace shares `HomeDialog` for native modal focus, scroll locking a
 
 Every PR changing rendered UI records the shared components/tokens reused, intentional exceptions and validation results in the PR template's UI design section. Inspect changed screens on narrow mobile (including 320px) and desktop, light and dark themes, and representative alternate accents/fonts. Check loading, empty, error and populated states; long content and larger text; keyboard focus and accessible names; 44px touch targets; final-item scrolling and keyboard/safe-area behaviour when relevant. Provide screenshots or a specific visual inspection record. Update the offline browser fixtures to cover new routes and interactions rather than relying on the existing route list to test a new page automatically.
 
-Output contribution uses the existing chat reading surface, rich text renderer and `HomeDialog`, with ordinary account/model controls and optional Library guidance. Dialog actions share `--control-height`; openers focus themselves before showing the dialog so WebKit can restore keyboard focus after dismissal. The selected draft and its revision remain visible during account selection, and each reply retains its contributor/account/model attribution. Registration describes transcript dependence as **In conversation**.
+Ordinary mobile and desktop conversations share `ChatArea` and its `AgentActivity` disclosure. They do not render an Outputs panel or fetch output/contributor state. The underlying output reference and contributor APIs remain available for stored work; ordinary chat does not automatically present that workflow. Offline checks cover both conversation layouts, collapsed and expanded activity, ongoing thoughts/tools, keyboard focus and alternate appearance preferences.
 
 Run `npm run test:design` for the static contract. CI runs it in a named step as well as the full suite. Run `npm run test:ui` for rendered changes, with additional component/behaviour checks appropriate to the feature. Document inapplicable checks rather than silently omitting them. Reviewers evaluate design consistency alongside correctness.
 
@@ -182,7 +182,7 @@ The offline context-injection fixture exercises selection, the live echo, replay
 large content, narrow mobile and desktop, theme/accent/font substitution, keyboard
 disclosure and reduced motion with no backend or provider.
 
-`AgentActivity` groups consecutive normalized thought/tool blocks between responses, including across provider message boundaries. Its one-line latest-activity preview uses the shared type/spacing/radius scales, semantic muted/error colors, `UiIcon`, a `--control-height` button with visible focus and `aria-expanded`, and `MotionPresence` for details. Failure counts remain visible when collapsed. Existing tool/thought controls retain full detail, while approvals, progress, web-access results and deduplicated setup cards stay outside the disclosure. Group identity follows the session and captured seat/account generation. Activity and thought content start open and remain readable while awaiting a reply, including between provider messages and after tool completion. Visible text from the same speaker collapses preceding activity; another speaker's reply and a new user turn cannot complete it. Manual reopening after a reply persists through further updates. No timer collapses thought content within this group. Empty or whitespace-only text does not split activity. Automatic collapse returns keyboard focus from closing details to the header while preserving focus elsewhere, including the composer, with both normal and reduced motion. No provider or account selects a separate visual treatment.
+`AgentActivity` groups consecutive normalized thought/tool blocks between responses, including across provider message boundaries. Its one-line latest-activity preview uses the shared type/spacing/radius scales, semantic muted/error colors, `UiIcon`, a `--control-height` button with visible focus and `aria-expanded`, and `MotionPresence` for details. Failure counts, including failures inside delegated agents, remain visible when collapsed. Delegated agents stay inside the same shared disclosure, with their total and running count in its preview; nested cards use shared disclosure motion. Existing tool/thought controls retain full detail, while approvals, progress, web-access results and deduplicated setup cards stay outside the disclosure. Group identity follows the session and captured seat/account generation. Activity and thought content start open and remain readable while awaiting a reply, including between provider messages and after tool completion. Visible text from the same speaker collapses preceding activity; another speaker's reply and a new user turn cannot complete it. Manual reopening after a reply persists through further updates. No timer collapses thought content within this group. Empty or whitespace-only text does not split activity. Automatic collapse returns keyboard focus from closing details to the header while preserving focus elsewhere, including the composer, with both normal and reduced motion. No provider or account selects a separate visual treatment.
 
 ## Terminal output layout
 
@@ -241,3 +241,33 @@ and [the full-screen desktop preview](assets/image-preview-desktop-dark.png).
 The intercepted browser fixture checks saved PNG pixels and the exact attachment
 bytes submitted across four runtime bindings on mobile WebKit, mobile Chromium
 and desktop Chromium, without backend or provider calls.
+
+## Approval cards
+
+`PermissionBanner` uses a quiet token-styled surface and compact outlined
+44px actions in one row. Allow once, Allow for session and Deny remain explicit; durable
+integration grants keep their existing conversation label alongside session
+retention. The server supplies the human scope explanation when available.
+Request details start open in a native labelled disclosure with `UiIcon`,
+keeping full long input accessible and collapsible. Visible Once, Session and Deny
+labels retain full accessible action names. Shared CSS
+entrance motion remains in effect. The card body scrolls independently while
+its decision row stays reachable on narrow phones and with larger text.
+
+Structured questions retain their choices and written answer fields, Send answer
+and Cancel. They do not offer session authorization. Response progress disables
+duplicate decisions; errors retain the card and allow retry. Local expiry removes
+the card without submitting a user denial; the server owns timeout resolution.
+Inbox request details use the same quiet action labels and server-owned scope
+caption, with Allow for session available for each authorization and no retention
+for questions. Native notification actions revalidate displayed input and scope;
+the Watch rechecks the complete reviewed request through its authenticated phone
+relay before submitting a session decision. Ordinary Watch chat uses a quiet
+44px Review request entry into that same complete review surface; it never
+approves from a truncated preview. A successful or expired review clears only
+the matching pending card, preserving a newer request. Watch questions expose
+Cancel and direct answers to the full iPhone form.
+
+Offline approval fixtures cover 320px mobile WebKit/Chromium and desktop Chromium,
+light/dark themes, Mint/Georgia appearance, larger text, long request details,
+keyboard focus and 44px controls without a backend or model call.

@@ -24,15 +24,24 @@ const Input = z
     reason: z.string().trim().min(1).max(1000),
   })
   .strict();
+export function urlReadAccountIdentity(session: ManagedSession) {
+  const account = session.accountBinding;
+  return (
+    account && {
+      accountId: account.accountId,
+      provider: account.provider,
+      profileRevision: account.profileRevision,
+    }
+  );
+}
 interface Grant {
   target: ApprovedUrlTarget;
-  account: ManagedSession['accountBinding'];
-  model: ManagedSession['model'];
+  account: ReturnType<typeof urlReadAccountIdentity>;
   expires: number;
 }
 const revisions = new WeakMap<ManagedSession, Map<string, number>>();
 const grants = new WeakMap<ManagedSession, Map<string, Grant>>();
-/** Model selection changes permanently retire existing approvals, including pending cards. */
+/** Explicit revocation retires URL approvals and pending approval generations. */
 export function clearUrlAccessGrants(session: ManagedSession) {
   clearWebSearchGrant(session);
   grants.delete(session);
@@ -57,6 +66,16 @@ export function createUrlAccessTool(
     owner()?.clientId === clientId &&
     effectivePermissionMode(session) !== 'ask' &&
     checkSkillPolicy(registry, clientId, REQUEST_WEB_ACCESS) !== 'deny';
+  const pending = new Map<
+    string,
+    {
+      promise: ReturnType<ReturnType<typeof buildPermissionHandler>>;
+      payload: Record<string, unknown>;
+      controller: AbortController;
+      revision: number;
+      waiters: number;
+    }
+  >();
   const tool = {
     async request(input: unknown, signal: AbortSignal, redirectedFrom?: string) {
       try {
@@ -72,19 +91,33 @@ export function createUrlAccessTool(
           versions = new Map();
           revisions.set(current.session, versions);
         }
-        const revision = (versions.get(url.origin) ?? 0) + 1;
-        versions.set(url.origin, revision);
+        const previous = grants.get(current.session)?.get(url.origin);
+        if (
+          parsed.data.operation === 'request_access' &&
+          previous?.expires === Infinity &&
+          isDeepStrictEqual(previous.account, urlReadAccountIdentity(current.session))
+        )
+          return {
+            content: `URL read access is approved for ${url.origin} until this session ends.`,
+            isError: false,
+          };
         if (parsed.data.operation === 'revoke_access') {
+          versions.set(url.origin, (versions.get(url.origin) ?? 0) + 1);
           grants.get(current.session)?.delete(url.origin);
           return { content: `URL read access revoked for ${url.origin}`, isError: false };
         }
-        const account = structuredClone(current.session.accountBinding);
-        const model = current.session.model;
+        // Register pending origins before DNS/approval so session-wide clearing
+        // advances every in-flight request, including the first on this origin.
+        if (!versions.has(url.origin)) versions.set(url.origin, 0);
+        const revision = versions.get(url.origin)!;
+        const account = urlReadAccountIdentity(current.session);
         const target = await withWebAbort(
           deps.resolve(url.href),
           AbortSignal.any([signal, AbortSignal.timeout(20_000)]),
         );
         signal.throwIfAborted();
+        if (versions.get(url.origin) !== revision)
+          return { content: 'URL access changed during resolution; retry', isError: true };
         if (target.origin !== url.origin || !target.addresses.length)
           return { content: 'URL destination could not be resolved safely', isError: true };
         const payload = {
@@ -93,35 +126,70 @@ export function createUrlAccessTool(
           origin: target.origin,
           resolvedAddresses: target.addresses.map((a) => a.address),
           access:
-            'Credential-free HTTP GET reads on this origin for 15 minutes or until this session closes',
+            'Credential-free HTTP GET reads on this origin: once for 15 minutes, or until this session ends when session access is selected',
         };
-        const decision = await buildPermissionHandler(current.clientId, registry)(
-          REQUEST_WEB_ACCESS,
-          payload,
-          {
-            signal,
-            toolUseID: randomUUID(),
-            forcePrompt: true,
-            allowSessionGrant: false,
-            approvalScope: 'request',
-            title: redirectedFrom
-              ? 'Approve redirected destination?'
-              : 'Allow this session to read this website?',
-            description:
-              (redirectedFrom
-                ? `The approved page at ${new URL(redirectedFrom).origin} moved to ${url.origin}. Approve the destination to continue this read. `
-                : '') +
-              'Allows credential-free reads through Mitzo’s web tool on the exact origin and resolved addresses shown below. Includes private or local destinations when explicitly shown. Other origins and credentials require separate access.',
-          },
-        );
+        const key = JSON.stringify({
+          account,
+          origin: target.origin,
+          addresses: target.addresses.map((a) => [a.address, a.family]).sort(),
+          revision,
+        });
+        let flight = pending.get(key);
+        if (!flight) {
+          const controller = new AbortController();
+          flight = {
+            controller,
+            revision,
+            payload,
+            waiters: 0,
+            promise: buildPermissionHandler(current.clientId, registry)(
+              REQUEST_WEB_ACCESS,
+              payload,
+              {
+                signal: controller.signal,
+                toolUseID: randomUUID(),
+                forcePrompt: true,
+                allowSessionGrant: false,
+                rememberSessionGrant: false,
+                approvalScope: 'session',
+                sessionGrantDescription: `Credential-free HTTP GET reads on ${target.origin} using only the reviewed resolved addresses, until this session ends or access is revoked. Other origins, credentials, and changed account policy require separate consent.`,
+                title: redirectedFrom
+                  ? 'Approve redirected destination?'
+                  : 'Allow this session to read this website?',
+                description:
+                  (redirectedFrom
+                    ? `The approved page at ${new URL(redirectedFrom).origin} moved to ${url.origin}. Approve the destination to continue this read. `
+                    : '') +
+                  'Allows credential-free reads through Mitzo’s web tool on the exact origin and resolved addresses shown below. Includes private or local destinations when explicitly shown. Other origins and credentials require separate access.',
+              },
+            ),
+          };
+          pending.set(key, flight);
+          const created = flight;
+          void flight.promise
+            .finally(() => {
+              if (pending.get(key) === created) pending.delete(key);
+            })
+            .catch(() => {});
+        }
+        flight.waiters++;
+        let decision: Awaited<typeof flight.promise>;
+        try {
+          decision = await withWebAbort(flight.promise, signal);
+        } finally {
+          flight.waiters--;
+          if (!flight.waiters) {
+            flight.controller.abort();
+            if (pending.get(key) === flight) pending.delete(key);
+          }
+        }
         signal.throwIfAborted();
-        if (decision.behavior !== 'allow') return { content: 'URL access declined', isError: true };
+        if (decision.behavior !== 'allow') return { content: decision.message, isError: true };
         if (
           !allowed(current.clientId, current.session) ||
-          !isDeepStrictEqual(current.session.accountBinding, account) ||
-          current.session.model !== model ||
-          versions.get(url.origin) !== revision ||
-          !isDeepStrictEqual(decision.updatedInput, payload)
+          !isDeepStrictEqual(urlReadAccountIdentity(current.session), account) ||
+          (versions.get(url.origin) ?? 0) !== flight.revision ||
+          !isDeepStrictEqual(decision.updatedInput, flight.payload)
         )
           return { content: 'URL access changed during approval; retry', isError: true };
         let sessionGrants = grants.get(current.session);
@@ -132,11 +200,13 @@ export function createUrlAccessTool(
         sessionGrants.set(target.origin, {
           target: structuredClone(target),
           account,
-          model,
-          expires: deps.now() + 15 * 60 * 1000,
+          expires:
+            decision.decisionClassification === 'user_permanent'
+              ? Infinity
+              : deps.now() + 15 * 60 * 1000,
         });
         return {
-          content: `URL read access approved for ${target.origin} for 15 minutes in this session. Use RequestWebAccess with operation fetch to read pages on this origin, or revoke_access to remove access.`,
+          content: `URL read access approved for ${target.origin} ${decision.decisionClassification === 'user_permanent' ? 'until this session ends' : 'for 15 minutes in this session'}. Use RequestWebAccess with operation fetch to read pages on this origin, or revoke_access to remove access.`,
           isError: false,
         };
       } catch {
@@ -161,19 +231,15 @@ export function createUrlAccessTool(
       }
       const grant = grants.get(current.session)?.get(url.origin);
       if (!grant) return undefined;
-      if (
-        !isDeepStrictEqual(grant.account, current.session.accountBinding) ||
-        grant.model !== current.session.model
-      )
+      if (!isDeepStrictEqual(grant.account, urlReadAccountIdentity(current.session)))
         clearUrlAccessGrants(current.session);
       if (
         grant.expires <= deps.now() ||
-        !isDeepStrictEqual(grant.account, current.session.accountBinding) ||
-        grant.model !== current.session.model
+        !isDeepStrictEqual(grant.account, urlReadAccountIdentity(current.session))
       ) {
         return {
           content:
-            'URL read access expired or the account/model changed. Use request_access to approve this origin again.',
+            'URL read access expired or the account changed. Use request_access to approve this origin again.',
           isError: true,
         };
       }
@@ -184,8 +250,7 @@ export function createUrlAccessTool(
         if (
           chain.some(
             ({ grant }) =>
-              !isDeepStrictEqual(grant.account, current.session.accountBinding) ||
-              grant.model !== current.session.model,
+              !isDeepStrictEqual(grant.account, urlReadAccountIdentity(current.session)),
           )
         ) {
           clearUrlAccessGrants(current.session);

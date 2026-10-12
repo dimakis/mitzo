@@ -36,6 +36,7 @@ export interface SseConnectionConfig {
 
 const MAX_PENDING_SENDS = 100;
 const APPLIED_ACK_TIMEOUT_MS = 10_000;
+const LIVENESS_PROBE_INTERVAL_MS = 10_000;
 
 export class SseConnection implements ChatConnection {
   private es: EventSource | null = null;
@@ -48,8 +49,11 @@ export class SseConnection implements ChatConnection {
     dirty: boolean;
   } | null = null;
   private outbox: SendOutbox;
-  private foregroundProbe: { nonce: string; cancel: () => void } | null = null;
+  private foregroundProbe: { nonce: string; resumeSessions: boolean; cancel: () => void } | null =
+    null;
+  private livenessTimer: ReturnType<typeof setInterval> | null = null;
   private probeCounter = 0;
+  private lastStreamActivity = 0;
   private listener: ConnectionListener | null = null;
   private seqBySession = new Map<string, number>();
   private replayingSessions = new Set<string>();
@@ -158,6 +162,7 @@ export class SseConnection implements ChatConnection {
 
   restoreAuthentication(): void {
     this.authBlocked = false;
+    this.startLivenessChecks();
     this.checkAndReconnect(true);
   }
 
@@ -405,6 +410,7 @@ export class SseConnection implements ChatConnection {
         return;
       }
 
+      this.lastStreamActivity = Date.now();
       this._connectionId = msg.connectionId as string;
       // An unresponsive ACK from the previous transport must not fence this one.
       this.appliedAckChain = Promise.resolve();
@@ -435,6 +441,7 @@ export class SseConnection implements ChatConnection {
         return;
       }
 
+      this.lastStreamActivity = Date.now();
       if (msg.type === 'auth_expired') {
         this.handleAuthLoss();
         return;
@@ -442,9 +449,10 @@ export class SseConnection implements ChatConnection {
 
       if (msg.type === '_probe') {
         if (this.foregroundProbe && msg.nonce === this.foregroundProbe.nonce) {
+          const resumeSessions = this.foregroundProbe.resumeSessions;
           this.foregroundProbe.cancel();
           // Backgrounding suspended the sessions even if the stream survived.
-          if (this._connectionId && this.seqBySession.size)
+          if (resumeSessions && this._connectionId && this.seqBySession.size)
             void this.doReconnectPost(this._connectionId, es);
         }
         return;
@@ -590,6 +598,7 @@ export class SseConnection implements ChatConnection {
 
   private handleAuthLoss(notify = true): void {
     this.authBlocked = true;
+    this.stopLivenessChecks();
     this.appliedDelivery.clearPending();
     this.foregroundProbe?.cancel();
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
@@ -755,6 +764,28 @@ export class SseConnection implements ChatConnection {
           return;
         }
         if (endpoint === 'permission' && typeof body.permId === 'string') {
+          try {
+            const rejected = await res.json();
+            if (
+              rejected?.type === 'permission_response_rejected' &&
+              rejected.permId === body.permId &&
+              rejected.sessionId === scope.sessionId &&
+              typeof rejected.error === 'string'
+            ) {
+              this.listener?.({
+                type: 'permission_response_rejected',
+                ...scope,
+                permId: body.permId,
+                error: rejected.error,
+                ...(Array.isArray(rejected.pendingPermissions)
+                  ? { pendingPermissions: rejected.pendingPermissions }
+                  : {}),
+              });
+              return;
+            }
+          } catch {
+            // An unreadable response cannot authoritatively clear a pending card.
+          }
           this.listener?.({
             type: 'permission_response_rejected',
             ...scope,
@@ -827,12 +858,34 @@ export class SseConnection implements ChatConnection {
 
   // ─── Browser lifecycle ─────────────────────────────────────────────────────
 
-  private probeForeground(): void {
+  private startLivenessChecks(): void {
+    if (this.livenessTimer || this.authBlocked || typeof globalThis.document === 'undefined')
+      return;
+    // Comment heartbeats are invisible to EventSource. Verify the complete
+    // POST → server → SSE path even when the visible tab never changes focus.
+    this.livenessTimer = setInterval(() => {
+      if (
+        document.visibilityState === 'visible' &&
+        Date.now() - this.lastStreamActivity >= LIVENESS_PROBE_INTERVAL_MS
+      )
+        this.probeForeground(false);
+    }, LIVENESS_PROBE_INTERVAL_MS);
+  }
+
+  private stopLivenessChecks(): void {
+    if (this.livenessTimer) clearInterval(this.livenessTimer);
+    this.livenessTimer = null;
+  }
+
+  private probeForeground(resumeSessions = true): void {
     if (!this._connected || !this.es || !this._connectionId) {
       this.checkAndReconnect();
       return;
     }
-    if (this.foregroundProbe) return;
+    if (this.foregroundProbe) {
+      this.foregroundProbe.resumeSessions ||= resumeSessions;
+      return;
+    }
     const es = this.es;
     const connectionId = this._connectionId;
     const nonce = String(++this.probeCounter);
@@ -848,7 +901,7 @@ export class SseConnection implements ChatConnection {
       if (this.es === es && this._connectionId === connectionId) this.checkAndReconnect(true);
     };
     const timer = setTimeout(fail, 1000);
-    this.foregroundProbe = { nonce, cancel };
+    this.foregroundProbe = { nonce, resumeSessions, cancel };
     void this.config
       .fetch(`${this.config.baseUrl}/api/chat/probe`, {
         method: 'POST',
@@ -862,7 +915,8 @@ export class SseConnection implements ChatConnection {
   }
 
   private addBrowserListeners(): void {
-    if (typeof globalThis.document === 'undefined') return;
+    if (typeof globalThis.document === 'undefined' || this.boundOnVisibility) return;
+    this.startLivenessChecks();
 
     this.boundOnVisibility = () => {
       if (document.visibilityState === 'visible') {
@@ -887,6 +941,7 @@ export class SseConnection implements ChatConnection {
   }
 
   private removeBrowserListeners(): void {
+    this.stopLivenessChecks();
     if (this.boundOnVisibility) {
       document.removeEventListener('visibilitychange', this.boundOnVisibility);
       this.boundOnVisibility = null;

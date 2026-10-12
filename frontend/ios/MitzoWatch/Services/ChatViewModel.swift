@@ -76,17 +76,9 @@ final class ChatViewModel: ObservableObject {
 
     // MARK: - Permission
 
-    func respondToPermission(decision: PermissionDecision) async {
-        guard let perm = permissionRequest,
-              let appState else { return }
-
-        let params = PermissionResponseParams(
-            sessionId: resolvedSessionId,
-            permId: perm.permId,
-            decision: decision
-        )
-
-        try? await appState.sendMessage(.permissionResponse(params))
+    // Only an authoritative full-review result clears the exact pending card.
+    func dismissReviewedPermission(permId: String) {
+        guard permissionRequest?.permId == permId else { return }
         permissionRequest = nil
     }
 

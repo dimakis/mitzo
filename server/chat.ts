@@ -29,7 +29,7 @@ import {
 import { createCredentialSdkServer, credentialSdkPermission } from './credential-sdk-tools.js';
 import { CONNECTION_TOOL_INSTRUCTIONS } from './session-credential-tools.js';
 import { isRegisteredConversation } from '@mitzo/protocol';
-import { clearUrlAccessGrants } from './url-access-tool.js';
+import { clearWebSearchGrant } from './web-search-grants.js';
 import { codexRuntimeDiagnostic, codexRuntimeErrorTelemetry } from './codex-runtime-diagnostics.js';
 import {
   createGithubPublishingTool,
@@ -2993,7 +2993,7 @@ export async function sendToChat(
         });
       }
       if (model) {
-        if (model !== session.model) clearUrlAccessGrants(session);
+        if (model !== session.model) clearWebSearchGrant(session);
         session.model = model;
       }
     };
@@ -3280,7 +3280,7 @@ export async function interruptChat(
       );
     }
     if (model) {
-      if (model !== session.model) clearUrlAccessGrants(session);
+      if (model !== session.model) clearWebSearchGrant(session);
       session.model = model;
     }
     if (session.sessionId && (model || reasoningEffort !== undefined)) {

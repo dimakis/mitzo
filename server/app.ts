@@ -83,7 +83,10 @@ import { drainRetainedSymposiumControllers } from './symposium-controller-drain.
 import { createSessionMessagesHandler } from './session-messages-route.js';
 import { createSymposiumSourceRouter } from './symposium-source-routes.js';
 import { getConnectionRegistry } from './chat.js';
-import { publicationControllerApproval } from './symposium-publication-approval.js';
+import {
+  publicationControllerApproval,
+  clearPublicationControllerSessionGrants,
+} from './symposium-publication-approval.js';
 import {
   PublicationRegistration,
   publicationAuthorityPath,
@@ -1001,15 +1004,19 @@ app.post('/api/auth/logout', async (req, res) => {
 app.use('/api', authMiddleware);
 if (custodianControllerClient)
   app.use(
-    createCustodianProxy(custodianControllerClient, (req, session, conversationId) =>
-      publicationControllerApproval(
-        registry,
-        isTransportConnectionOwnedBy,
-        conversationId,
-        session.id,
-        req.header('x-connection-id'),
-        getConnectionRegistry() ?? undefined,
-      ),
+    createCustodianProxy(
+      custodianControllerClient,
+      (req, session, conversationId) =>
+        publicationControllerApproval(
+          registry,
+          isTransportConnectionOwnedBy,
+          conversationId,
+          session.id,
+          req.header('x-connection-id'),
+          getConnectionRegistry() ?? undefined,
+        ),
+      (conversationId, connectionId) =>
+        clearPublicationControllerSessionGrants(registry, conversationId, connectionId),
     ),
   );
 receiveCustodianEvents(broadcastDurableSymposiumEvent);
@@ -1521,6 +1528,8 @@ app.use(
   '/api/sessions/:id/symposium/publication',
   operatorAuthMiddleware,
   createPublicationRouter({
+    onConsentInvalidated: (conversationId, connectionId) =>
+      clearPublicationControllerSessionGrants(registry, conversationId, connectionId),
     onPublicationCompleted: (sessionId, publication, operation) =>
       symposiumAccessRequests.publicationCompleted(sessionId, publication, operation),
     registration: () => symposiumPublication,
@@ -2685,6 +2694,7 @@ app.use(
 
 app.delete('/api/sessions/:id', (req, res) => {
   hideSession(req.params.id as string);
+  clearPublicationControllerSessionGrants(registry, req.params.id as string);
   overviewEmitter?.scheduleBroadcast();
   sseRegistry.broadcast('sessions_changed', {});
   res.json({ ok: true });
@@ -2941,6 +2951,7 @@ app.get('/api/sessions/:id/events', (req, res) => {
 
 app.delete('/api/sessions', (_req, res) => {
   hideAllSessions();
+  clearPublicationControllerSessionGrants(registry);
   overviewEmitter?.scheduleBroadcast();
   sseRegistry.broadcast('sessions_changed', {});
   res.json({ ok: true });

@@ -62,7 +62,7 @@ it.each(['', ' \n '])(
       </MemoryRouter>,
     );
     expect(
-      screen.getByRole('button', { name: /Agent at work/ }).getAttribute('aria-expanded'),
+      screen.getByRole('button', { name: /Agents at work/ }).getAttribute('aria-expanded'),
     ).toBe('false');
     fireEvent.click(screen.getByRole('button', { name: 'Share excerpt' }));
     expect(onShareMessage).toHaveBeenCalledWith('shareable-reply', undefined);
@@ -89,7 +89,7 @@ it('retains excerpt sharing for a finished message containing only blank text', 
   );
   fireEvent.click(screen.getByRole('button', { name: 'Share excerpt' }));
   expect(onShareMessage).toHaveBeenCalledWith('blank-reply', undefined);
-  expect(screen.queryByRole('button', { name: /Agent at work/ })).toBeNull();
+  expect(screen.queryByRole('button', { name: /Agents at work/ })).toBeNull();
 });
 
 it.each(['', ' \n '])('keeps blank-message sharing within continuous activity (%j)', (content) => {
@@ -114,11 +114,11 @@ it.each(['', ' \n '])('keeps blank-message sharing within continuous activity (%
     </MemoryRouter>
   );
   const { rerender } = render(chat(finished.slice(0, 2)));
-  const toggle = screen.getByRole('button', { name: /Agent at work/ });
+  const toggle = screen.getByRole('button', { name: /Agents at work/ });
   expect(toggle.textContent).toContain('Checking the records');
   expect(toggle.getAttribute('aria-expanded')).toBe('true');
   rerender(chat(finished));
-  expect(screen.getAllByRole('button', { name: /Agent at work/ })).toHaveLength(1);
+  expect(screen.getAllByRole('button', { name: /Agents at work/ })).toHaveLength(1);
   expect(toggle.textContent).toContain('Read');
   expect(toggle.textContent).toContain('/workspace/report.md');
   expect(toggle.getAttribute('aria-expanded')).toBe('true');
@@ -226,7 +226,7 @@ it('collapses mixed activity across provider messages between visible responses 
       <ChatArea {...base} messages={messages} current={null} />
     </MemoryRouter>,
   );
-  const toggle = screen.getByRole('button', { name: /Agent at work/ });
+  const toggle = screen.getByRole('button', { name: /Agents at work/ });
   expect(toggle.getAttribute('aria-expanded')).toBe('false');
   expect(toggle.textContent).toContain('Read');
   expect(toggle.textContent).toContain('/workspace/report.md');
@@ -254,7 +254,7 @@ it('opens working activity, keeps it open between provider messages, then collap
       <ChatArea {...base} messages={[]} current={current} running />
     </MemoryRouter>,
   );
-  expect(screen.getByRole('button', { name: /Agent at work/ }).getAttribute('aria-expanded')).toBe(
+  expect(screen.getByRole('button', { name: /Agents at work/ }).getAttribute('aria-expanded')).toBe(
     'true',
   );
   expect(screen.getByRole('button', { name: /^Read/ })).toBeTruthy();
@@ -271,7 +271,7 @@ it('opens working activity, keeps it open between provider messages, then collap
       <ChatArea {...base} messages={[]} current={next} running />
     </MemoryRouter>,
   );
-  expect(screen.getByRole('button', { name: /Agent at work/ }).textContent).toContain(
+  expect(screen.getByRole('button', { name: /Agents at work/ }).textContent).toContain(
     'Checking the records',
   );
   rerender(
@@ -283,7 +283,7 @@ it('opens working activity, keeps it open between provider messages, then collap
       />
     </MemoryRouter>,
   );
-  expect(screen.getByRole('button', { name: /Agent at work/ }).getAttribute('aria-expanded')).toBe(
+  expect(screen.getByRole('button', { name: /Agents at work/ }).getAttribute('aria-expanded')).toBe(
     'true',
   );
   const reply = {
@@ -301,7 +301,7 @@ it('opens working activity, keeps it open between provider messages, then collap
       <ChatArea {...base} messages={finished} current={reply} running />
     </MemoryRouter>,
   );
-  expect(screen.getByRole('button', { name: /Agent at work/ }).getAttribute('aria-expanded')).toBe(
+  expect(screen.getByRole('button', { name: /Agents at work/ }).getAttribute('aria-expanded')).toBe(
     'true',
   );
   rerender(
@@ -322,7 +322,7 @@ it('opens working activity, keeps it open between provider messages, then collap
       />
     </MemoryRouter>,
   );
-  const toggle = screen.getByRole('button', { name: /Agent at work/ });
+  const toggle = screen.getByRole('button', { name: /Agents at work/ });
   expect(toggle.getAttribute('aria-expanded')).toBe('false');
   expect(screen.queryByText('Thought')).toBeNull();
   fireEvent.click(toggle);
@@ -375,7 +375,7 @@ it('keeps failed calls visible in the collapsed summary and does not merge acros
       />
     </MemoryRouter>,
   );
-  const toggles = screen.getAllByRole('button', { name: /Agent at work/ });
+  const toggles = screen.getAllByRole('button', { name: /Agents at work/ });
   expect(toggles).toHaveLength(2);
   expect(toggles[0].textContent).toContain('1 failed');
   expect(toggles[0].getAttribute('aria-expanded')).toBe('true');
@@ -412,7 +412,7 @@ it.each([
         />
       </MemoryRouter>,
     );
-    const toggle = screen.getByRole('button', { name: /Agent at work/ });
+    const toggle = screen.getByRole('button', { name: /Agents at work/ });
     expect(toggle.textContent).toContain('Reasoning redacted');
     expect(toggle.getAttribute('aria-expanded')).toBe('true');
     expect(screen.getByRole('button', { name: new RegExp(`^${toolName}`) })).toBeTruthy();
@@ -456,7 +456,7 @@ it('isolates concurrent seats with colliding provider block IDs and keeps identi
       />
     </MemoryRouter>,
   );
-  const toggles = screen.getAllByRole('button', { name: /Agent at work/ });
+  const toggles = screen.getAllByRole('button', { name: /Agents at work/ });
   expect(toggles).toHaveLength(2);
   expect(screen.getByText(/Builder seat/)).toBeTruthy();
   expect(screen.getByText(/Reviewer seat/)).toBeTruthy();
@@ -497,7 +497,7 @@ it('keeps prepared connection setup visible and deduplicated outside collapsed a
     </MemoryRouter>,
   );
   expect(screen.getAllByRole('link', { name: 'Add Home Assistant key' })).toHaveLength(1);
-  fireEvent.click(screen.getByRole('button', { name: /Agent at work/ }));
+  fireEvent.click(screen.getByRole('button', { name: /Agents at work/ }));
   expect(screen.getAllByRole('link', { name: 'Add Home Assistant key' })).toHaveLength(1);
 });
 
@@ -551,7 +551,7 @@ it('collapses only the speaker who replied, including activity separated by a pr
       />
     </MemoryRouter>,
   );
-  const toggles = screen.getAllByRole('button', { name: /Agent at work/ });
+  const toggles = screen.getAllByRole('button', { name: /Agents at work/ });
   expect(toggles).toHaveLength(3);
   expect(toggles[0].getAttribute('aria-expanded')).toBe('false');
   expect(toggles[1].getAttribute('aria-expanded')).toBe('false');
@@ -574,7 +574,7 @@ it.each(['', ' \n\t '])('keeps activity in one group across non-visible text %j'
       />
     </MemoryRouter>,
   );
-  expect(screen.getAllByRole('button', { name: /Agent at work/ })).toHaveLength(1);
+  expect(screen.getAllByRole('button', { name: /Agents at work/ })).toHaveLength(1);
   rerender(
     <MemoryRouter>
       <ChatArea
@@ -584,7 +584,7 @@ it.each(['', ' \n\t '])('keeps activity in one group across non-visible text %j'
       />
     </MemoryRouter>,
   );
-  expect(screen.getAllByRole('button', { name: /Agent at work/ })).toHaveLength(1);
+  expect(screen.getAllByRole('button', { name: /Agents at work/ })).toHaveLength(1);
 });
 
 it('returns keyboard focus from activity details to the header when a reply collapses them', () => {
@@ -613,8 +613,77 @@ it('returns keyboard focus from activity details to the header when a reply coll
       />
     </MemoryRouter>,
   );
-  expect(screen.getByRole('button', { name: /Agent at work/ }).getAttribute('aria-expanded')).toBe(
+  expect(screen.getByRole('button', { name: /Agents at work/ }).getAttribute('aria-expanded')).toBe(
     'false',
   );
-  expect(document.activeElement).toBe(screen.getByRole('button', { name: /Agent at work/ }));
+  expect(document.activeElement).toBe(screen.getByRole('button', { name: /Agents at work/ }));
+});
+
+it('summarizes every nested delegate and its failures in the collapsed activity header', () => {
+  render(
+    <MemoryRouter>
+      <ChatArea
+        {...base}
+        current={null}
+        messages={[
+          {
+            messageId: 'delegation',
+            role: 'assistant',
+            blocks: [
+              {
+                ...tool,
+                toolName: 'Agent',
+                subagent: {
+                  messageId: 'delegate',
+                  summary: 'Reviewed records',
+                  blocks: [
+                    {
+                      ...tool,
+                      toolError: true,
+                      subagent: { messageId: 'nested', summary: 'Nested review', blocks: [] },
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+          messages[3],
+        ]}
+      />
+    </MemoryRouter>,
+  );
+  const toggle = screen.getByRole('button', { name: /Agents at work/ });
+  expect(toggle.getAttribute('aria-expanded')).toBe('false');
+  expect(toggle.textContent).toContain('2 delegated');
+  expect(toggle.textContent).toContain('1 failed');
+});
+
+it('keeps the running state of a delegated agent visible after its parent tool completes', () => {
+  const delegatedTool: StreamingBlock = {
+    ...tool,
+    done: true,
+    subagent: {
+      messageId: 'delegate-live',
+      running: true,
+      blockOrder: ['nested-tool'],
+      blocks: new Map([['nested-tool', { ...tool, blockId: 'nested-tool', done: false }]]),
+    },
+  };
+  render(
+    <MemoryRouter>
+      <ChatArea
+        {...base}
+        messages={[]}
+        current={{
+          messageId: 'live',
+          blocks: new Map([['tool', delegatedTool]]),
+          blockOrder: ['tool'],
+        }}
+      />
+    </MemoryRouter>,
+  );
+  const toggle = screen.getByRole('button', { name: /Agents at work/ });
+  expect(toggle.textContent).toContain('1 delegated · 1 running');
+  expect(toggle.getAttribute('aria-label')).toContain('Running');
+  expect(toggle.getAttribute('aria-expanded')).toBe('true');
 });

@@ -109,6 +109,9 @@ it('requests a missing account grant before invoking the publisher and stops on 
   expect(mocks.approve.mock.calls[0][2]).toMatchObject({
     forcePrompt: true,
     allowSessionGrant: false,
+    rememberSessionGrant: false,
+    approvalScope: 'session',
+    sessionGrantDescription: expect.stringContaining('example/repo'),
   });
   expect(f.invoke).not.toHaveBeenCalled();
 });

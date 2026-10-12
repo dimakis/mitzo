@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   claimTransportConnection,
   isTransportConnectionOwnedBy,
+  liveTransportAuthSessionId,
   releaseTransportConnection,
   TRANSPORT_OWNERSHIP_GRACE_MS,
 } from '../transport-auth-ownership.js';
@@ -33,7 +34,9 @@ describe('transport auth ownership', () => {
     vi.setSystemTime(new Date('2026-09-08T00:00:00Z'));
     claimTransportConnection('conn-closing', 'auth-owner');
 
+    expect(liveTransportAuthSessionId('conn-closing')).toBe('auth-owner');
     releaseTransportConnection('conn-closing', 'auth-owner');
+    expect(liveTransportAuthSessionId('conn-closing')).toBeUndefined();
     expect(isTransportConnectionOwnedBy('conn-closing', 'auth-owner')).toBe(true);
     expect(isTransportConnectionOwnedBy('conn-closing', 'auth-other')).toBe(false);
 

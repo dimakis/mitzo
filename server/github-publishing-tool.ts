@@ -213,16 +213,18 @@ export function createGithubPublishingTool(
             toolUseID: randomUUID(),
             forcePrompt: true,
             allowSessionGrant: false,
-            approvalScope: 'request',
+            rememberSessionGrant: false,
+            approvalScope: 'session',
+            sessionGrantDescription: `Publishing requests for ${repository} through this exact managed GitHub connection and its configured branch scope. Each publication rechecks workspace, repository, branch, account, and connection policy.`,
             title: `Allow publishing requests for ${repository}?`,
             description:
-              'Enables the selected AI account to request publication for this repository within the configured branch scope. Each publication still requires its own approval.',
+              'Enables the selected AI account to request publication for this repository within the configured branch scope. You may also allow the reviewed publication operation scope for this session when approving a publication.',
           },
         );
         signal.throwIfAborted();
         if (decision.behavior !== 'allow')
           return {
-            content: 'GitHub publishing access declined. Local changes are preserved.',
+            content: `${decision.message}. Local changes are preserved.`,
             isError: true,
           };
         const approvedRepository = await runtime.resolveGithubPublishingRepository(

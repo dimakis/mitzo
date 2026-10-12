@@ -48,7 +48,8 @@ public func watchNotificationResponse(
     case .once:
         guard current.kind == "approval", request.questions == nil,
               request.approvalScope != .conversation else { return nil }
-    case .session: return nil // Broad grants require the explicit iPhone flow.
+    case .session:
+        guard current.kind == "approval", request.questions == nil else { return nil }
     case .deny: break
     }
     return NotificationResponse(sessionId: sessionID, decision: decision)

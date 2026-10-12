@@ -1,74 +1,36 @@
-// Permission approval banner
+// Ordinary Watch approvals open the complete authenticated review surface.
 
 import SwiftUI
 import MitzoShared
 
 struct PermissionBanner: View {
+    @EnvironmentObject var appState: AppState
     let request: PermissionRequestParams
-    let onAllow: () -> Void
-    let onDeny: () -> Void
+    let onResolved: (String) -> Void
 
     var body: some View {
-        VStack(spacing: 6) {
-            HStack(spacing: 4) {
-                Image(systemName: tierIcon)
-                    .foregroundStyle(tierColor)
-                    .font(.caption2)
-                Text(request.title ?? request.displayName ?? request.toolName)
-                    .font(.caption2)
-                    .bold()
-                    .lineLimit(1)
+        VStack(alignment: .leading, spacing: 6) {
+            Text(request.questions == nil ? "Approval required" : "Your input is needed")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            Text(request.title ?? request.displayName ?? request.toolName)
+                .font(.caption)
+                .lineLimit(2)
+            NavigationLink {
+                WatchNotificationDestinationView(
+                    destination: .notification("permission:\(request.permId)"),
+                    onResolved: onResolved
+                ).environmentObject(appState)
+            } label: {
+                Text(request.questions == nil ? "Review request" : "Review questions")
+                    .font(.caption)
+                    .frame(maxWidth: .infinity, minHeight: 44)
             }
-
-            if let desc = request.description {
-                Text(desc)
-                    .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-            }
-
-            if request.approvalScope == .conversation {
-                Text("Persists across reconnects and restarts")
-                    .font(.system(size: 9))
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-            }
-
-            HStack(spacing: 12) {
-                Button(role: .destructive, action: onDeny) {
-                    Text("Deny")
-                        .font(.caption2)
-                }
-
-                Button(action: onAllow) {
-                    Text(request.approvalScope == .conversation ? "Grant" : "Allow")
-                        .font(.caption2)
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(.blue)
-            }
+            .buttonStyle(.bordered)
         }
         .padding(8)
         .background(.ultraThinMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .padding(.horizontal, 4)
-    }
-
-    private var tierIcon: String {
-        switch request.tier {
-        case .safe: return "checkmark.shield"
-        case .standard: return "shield"
-        case .elevated: return "exclamationmark.shield"
-        case .unknown, .none: return "questionmark.shield"
-        }
-    }
-
-    private var tierColor: Color {
-        switch request.tier {
-        case .safe: return .green
-        case .standard: return .blue
-        case .elevated: return .orange
-        case .unknown, .none: return .gray
-        }
     }
 }

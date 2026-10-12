@@ -30,6 +30,8 @@ export function codexRuntimeDiagnostic(error: Error): string | undefined {
     return 'This chat has no matching native conversation binding. Its saved messages are preserved. Inspect startup recovery before continuing.';
   if (error instanceof CodexTransportError) {
     return {
+      environment_pending:
+        'Approved integration access is retained, but its workload environment is still pending. No new model turn was started. Retry when the provider environment has synchronized.',
       timeout: 'The Codex connection timed out. Inspect saved work before retrying.',
       connection: 'The Codex connection closed. Inspect conversation recovery before retrying.',
       protocol:

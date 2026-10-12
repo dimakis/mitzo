@@ -147,6 +147,15 @@ const CommandInput = z
       .max(10)
       .optional(),
     allowedTools: z.array(z.string()).optional(),
+    environmentContinuation: z
+      .object({
+        sourceCommandId: z.string().min(1),
+        sourceTurnId: z.string().min(1),
+        sourceThreadId: z.string().min(1),
+        sourceGeneration: z.number().int().nonnegative(),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 const WebSearchGrantSchema = z.enum(['unresolved', 'denied', 'allowed']);
@@ -172,6 +181,9 @@ function idempotencyInput(input: CodexCommandInput, includeIntent: boolean): str
     ...(input.reasoningEffort !== undefined ? { reasoningEffort: input.reasoningEffort } : {}),
     ...(input.images !== undefined ? { images: input.images } : {}),
     ...(input.allowedTools !== undefined ? { allowedTools: input.allowedTools } : {}),
+    ...(input.environmentContinuation
+      ? { environmentContinuation: input.environmentContinuation }
+      : {}),
   });
 }
 
@@ -1183,6 +1195,13 @@ export class CodexConversationStore {
         )
         .run(id, data.id, json);
       if (supersedeCapacity) {
+        this.db
+          .prepare(
+            `UPDATE codex_commands SET status='cancelled'
+          WHERE conversation_id=? AND status='queued'
+          AND json_extract(input, '$.environmentContinuation') IS NOT NULL`,
+          )
+          .run(id);
         const recovery = this.capacityRecovery(id, b);
         if (
           recovery &&
@@ -1203,6 +1222,53 @@ export class CodexConversationStore {
         }
       }
       return true;
+    })();
+  }
+  /** Trusted host-only continuation; no model text or credential payload selects authority. */
+  queueEnvironmentContinuation(
+    id: string,
+    b: AccountBinding,
+    sourceCommandId: string,
+    sourceTurnId: string,
+    callId: string,
+  ): boolean {
+    return this.db.transaction(() => {
+      const state = this.read(id, b);
+      const commands = this.commands(id, b);
+      const source = commands.find((command) => command.id === sourceCommandId);
+      if (
+        !source ||
+        source.status !== 'running' ||
+        source.environmentContinuation ||
+        !source.intent?.trim() ||
+        source.allowedTools ||
+        state.recovery ||
+        !state.threadId ||
+        commands.some((command) => command.status === 'queued')
+      )
+        return false;
+      const receipt = this.db
+        .prepare(
+          `SELECT 1 FROM codex_tools
+        WHERE conversation_id=? AND command_id=? AND call_id=? AND turn_id=?
+        AND result_content IS NOT NULL AND result_is_error=0`,
+        )
+        .get(id, sourceCommandId, callId, sourceTurnId);
+      if (!receipt) return false;
+      return this.enqueue(id, b, {
+        id: `environment-${createHash('sha256').update(sourceCommandId).digest('hex')}`,
+        prompt:
+          'Mitzo has applied the integration access approved during the preceding turn. Continue only the unfinished part of the original user-authorized request in this conversation. First inspect retained results and current state; do not repeat completed actions or retry an uncertain mutation. Keep the original scope and all current permission, skill and mode limits. If the request is already complete, report that without performing new work.',
+        intent: source.intent,
+        model: source.model ?? b.model,
+        reasoningEffort: source.reasoningEffort,
+        environmentContinuation: {
+          sourceCommandId,
+          sourceTurnId,
+          sourceThreadId: state.threadId,
+          sourceGeneration: state.threadGeneration,
+        },
+      });
     })();
   }
   commands(id: string, b: AccountBinding): CodexCommand[] {
@@ -1860,6 +1926,25 @@ export class CodexConversationStore {
           ? commands.find((c) => c.id === recovery.childCommandId && c.status === 'queued')
           : commands.find((c) => c.status === 'queued');
       if (!next) return;
+      if (next.environmentContinuation) {
+        const source = commands.find(
+          (command) => command.id === next.environmentContinuation!.sourceCommandId,
+        );
+        const state = this.read(id, b);
+        if (
+          source?.status !== 'completed' ||
+          state.threadId !== next.environmentContinuation.sourceThreadId ||
+          state.threadGeneration !== next.environmentContinuation.sourceGeneration ||
+          state.lastCompletedTurnId !== next.environmentContinuation.sourceTurnId
+        ) {
+          this.db
+            .prepare(
+              "UPDATE codex_commands SET status='cancelled' WHERE conversation_id=? AND id=? AND status='queued'",
+            )
+            .run(id, next.id);
+          return;
+        }
+      }
       this.db
         .prepare("UPDATE codex_commands SET status='running' WHERE conversation_id=? AND id=?")
         .run(id, next.id);
