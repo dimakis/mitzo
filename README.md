@@ -127,6 +127,8 @@ Opening Knowledge starts at the Library tree, including when a working copy was 
 
 **Knowledge → Context** curates reusable context packs from accepted document revisions. Save recoverable drafts, inspect history and affected profiles, compile a preview, and explicitly publish a pack revision. Agent Library profiles compose exact pack revisions under one context budget. The advisor can propose a portable draft for review and import. See [context packs](docs/features/context-packs.md).
 
+Per-message context blocks selected in **Sources** appear beside your sent message immediately. Their injected reference text is collapsed by default and can be inspected or copied separately; editing, copying or reading aloud the message uses your prompt. Live echoes and restored history show the same disclosure. Selecting context does not switch the agent profile.
+
 The Library requires independently reviewed private host enrollment through `MITZO_KNOWLEDGE_LIBRARY_CONFIG`, including explicit document scopes and optional publishing identity. Acceptance is disabled by default. See [Knowledge Library enrollment](docs/operations/knowledge-library.md). Drafts join core SQLite backups with bounded Git recovery bundles, preserving exact prepared review heads after restore into a fresh source mirror. **More → Workspace tools** retains the raw Files browser and existing artifact links; its worktree list loads only on request, with cached, bounded discovery.
 
 ### Managed Connections
