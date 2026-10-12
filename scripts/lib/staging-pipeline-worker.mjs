@@ -21,6 +21,7 @@ export async function runStagingPipelineRequest(store, effects, owner) {
       if (!(await effects.resources(2)).admitted) return wait('host-resources');
       phase = 'preparing';
       await effects.prepare(sourceCommit);
+      phase = 'planning';
       await effects.plan(sourceCommit, current.expected);
       phase = 'preflight';
       if (!(await effects.resources(0)).admitted) return wait('host-resources');
@@ -47,7 +48,10 @@ export async function runStagingPipelineRequest(store, effects, owner) {
     store.finish(token, { outcome: result.outcome, sourceCommit, cleanupConfirmed: true });
     return { requestId: request.id, state: result.outcome, sourceCommit };
   } catch (error) {
-    if (phase === 'preparing' && error.safePreparationRefusal === true)
+    if (
+      (phase === 'preparing' && error.safePreparationRefusal === true) ||
+      (phase === 'planning' && error.terminalRefusal === true)
+    )
       return wait('stage-unavailable');
     if (phase === 'preflight') return wait('stage-unavailable');
     const reason = phase === 'testing' ? 'test-cleanup-uncertain' : 'deployment-uncertain';

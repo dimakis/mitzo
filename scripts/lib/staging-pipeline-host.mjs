@@ -1,6 +1,7 @@
 import process from 'node:process';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { existsSync, readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { assessStagingResources, STAGING_RESOURCE_BUDGET } from './staging-resource-budget.mjs';
@@ -89,6 +90,10 @@ export function createStagingPipelineEffects({
   fetch = globalThis.fetch,
 } = {}) {
   const controller = join(root, 'bin/mitzo-staging');
+  // run-next has already verified this checkout is clean exact accepted main.
+  // Apply independently compares its controller bytes with the candidate.
+  const acceptedController = fileURLToPath(new URL('../staging.mjs', import.meta.url));
+  const mutate = (args) => run(process.execPath, [acceptedController, ...args], opts);
   const opts = { heapMiB: STAGING_RESOURCE_BUDGET.buildHeapMiB, timeout: 180000 };
   const exact = (target, current) => {
     if (!sha.test(target) || (current && !sha.test(current)))
@@ -122,7 +127,7 @@ export function createStagingPipelineEffects({
     prepare: async (target) => {
       exact(target);
       try {
-        run(controller, ['prepare', '--commit', target], opts);
+        mutate(['prepare', '--commit', target]);
       } catch (error) {
         if (error.terminalRefusal === true) error.safePreparationRefusal = true;
         throw error;
@@ -130,15 +135,11 @@ export function createStagingPipelineEffects({
     },
     plan: async (target, current) => {
       exact(target, current);
-      run(controller, ['deploy', '--commit', target, '--expected-current', current], opts);
+      mutate(['deploy', '--commit', target, '--expected-current', current]);
     },
     deploy: async (target, current) => {
       exact(target, current);
-      run(
-        controller,
-        ['deploy', '--commit', target, '--expected-current', current, '--apply'],
-        opts,
-      );
+      mutate(['deploy', '--commit', target, '--expected-current', current, '--apply']);
     },
     test: async (suite, target) => {
       exact(target);

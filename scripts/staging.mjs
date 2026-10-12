@@ -277,7 +277,21 @@ async function prepare() {
     active = current(),
     freshMain = main();
   if (target !== freshMain) throw Error('Preparation requires exact current accepted main');
-  if (existsSync(final)) throw Error('Release already exists; inspect it instead of overwriting');
+  if (existsSync(final)) {
+    const retained = privateJson(join(final, 'staging-release.json'));
+    assertStageCandidate(retained, target, final);
+    validateRelease(retained, freshMain);
+    console.log(
+      JSON.stringify({
+        prepared: final,
+        source: target,
+        reused: true,
+        started: false,
+        productionActions: [],
+      }),
+    );
+    return;
+  }
   validateRelease(active);
   const attempt = join(root, 'releases', '.prepare-' + randomUUID());
   audit({ phase: 'build_intent', target, attempt });

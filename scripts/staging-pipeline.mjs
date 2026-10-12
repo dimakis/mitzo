@@ -4,7 +4,16 @@ import console from 'node:console';
 import { homedir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { existsSync, mkdirSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  openSync,
+  closeSync,
+  fstatSync,
+  readFileSync,
+  constants,
+} from 'node:fs';
+import { assessStagingReplicaProfiles } from './lib/staging-replica-profiles.mjs';
 import { randomUUID, createHash } from 'node:crypto';
 import { StagingPipelineStore } from './lib/staging-pipeline-store.mjs';
 import { runStagingPipelineRequest } from './lib/staging-pipeline-worker.mjs';
@@ -21,6 +30,13 @@ export function parseStagingPipelineArguments(args) {
   const [command, ...rest] = args;
   if (['--help', 'status', 'host-resources', 'run-next'].includes(command) && !rest.length)
     return { command };
+  if (
+    command === 'replica-check' &&
+    rest.length === 4 &&
+    rest[0] === '--reference' &&
+    rest[2] === '--stage'
+  )
+    return { command, reference: rest[1], stage: rest[3] };
   if (command === 'cancel' && rest.length === 2 && rest[0] === '--id' && identifier.test(rest[1]))
     return { command, id: rest[1] };
   if (command === 'enqueue' && rest.length === 4) {
@@ -72,12 +88,33 @@ function assertAcceptedController(sourceRoot) {
     throw Error('Clean exact accepted pipeline controller required');
   assertVisibleTrackedIndex(git(['ls-files', '-v']));
 }
+export function checkStagingReplicaSnapshots(referencePath, stagePath) {
+  const read = (path) => {
+    const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+    try {
+      const stat = fstatSync(fd);
+      if (!stat.isFile() || stat.size > 65536) throw Error('Bounded public snapshot required');
+      const bytes = readFileSync(fd);
+      if (bytes.length > 65536) throw Error('Bounded public snapshot required');
+      return JSON.parse(bytes.toString('utf8'));
+    } finally {
+      closeSync(fd);
+    }
+  };
+  return assessStagingReplicaProfiles(read(referencePath), read(stagePath));
+}
 async function main() {
   const args = parseStagingPipelineArguments(process.argv.slice(2));
   if (args.command === '--help') {
     console.log(
-      'staging-pipeline enqueue --pr NUMBER --task SESSION_ID\nstaging-pipeline status\nstaging-pipeline host-resources\nstaging-pipeline run-next\nstaging-pipeline cancel --id REQUEST_ID',
+      'staging-pipeline enqueue --pr NUMBER --task SESSION_ID\nstaging-pipeline status\nstaging-pipeline host-resources\nstaging-pipeline run-next\nstaging-pipeline cancel --id REQUEST_ID\nstaging-pipeline replica-check --reference PUBLIC_REFERENCE_JSON --stage PUBLIC_STAGE_JSON',
     );
+    return;
+  }
+  if (args.command === 'replica-check') {
+    const result = checkStagingReplicaSnapshots(args.reference, args.stage);
+    console.log(JSON.stringify(result));
+    if (!result.configurationMatches) process.exitCode = 2;
     return;
   }
   if (args.command === 'host-resources') {

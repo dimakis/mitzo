@@ -3,18 +3,22 @@ function validate(records, stage) {
   const keys = stage
     ? 'authorization,capabilities,profileId,provider,referenceId,runtime'
     : 'capabilities,id,provider,runtime';
-  if (!Array.isArray(records) || !records.length || records.length > 100)
+  if (!Array.isArray(records) || (!stage && !records.length) || records.length > 100)
     throw Error('Bounded public profile snapshot required');
-  const seen = new Set();
+  const seen = new Set(),
+    profiles = new Set();
   for (const r of records) {
-    const id = stage ? r.referenceId : r.id;
+    const id = stage ? r?.referenceId : r?.id;
     if (
       !r ||
       Object.keys(r).sort().join() !== keys ||
       !text(id) ||
       !text(r.provider) ||
       !text(r.runtime) ||
-      (stage && (!text(r.profileId) || !['ready', 'pending'].includes(r.authorization))) ||
+      (stage &&
+        (!text(r.profileId) ||
+          profiles.has(r.profileId) ||
+          !['ready', 'pending'].includes(r.authorization))) ||
       !Array.isArray(r.capabilities) ||
       r.capabilities.length > 100 ||
       r.capabilities.some((c) => !text(c)) ||
@@ -23,6 +27,7 @@ function validate(records, stage) {
     )
       throw Error('Credential-free unique public profile records required');
     seen.add(id);
+    if (stage) profiles.add(r.profileId);
   }
 }
 /** Public configuration parity only. Input snapshots cannot grant runtime,

@@ -1,7 +1,11 @@
 import { expect, it, vi } from 'vitest';
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
   parseStagingPipelineArguments,
   enqueueMergedStagingRequest,
+  checkStagingReplicaSnapshots,
 } from '../../scripts/staging-pipeline.mjs';
 it('accepts only bounded pipeline operations and rejects source, model and command overrides', () => {
   expect(parseStagingPipelineArguments(['enqueue', '--pr', '123', '--task', 'session-1'])).toEqual({
@@ -37,4 +41,30 @@ it('enqueues the actual accepted merge commit, never a moving PR head', () => {
     /accepted/,
   );
   expect(store.enqueue).toHaveBeenCalledTimes(1);
+});
+
+it('replica CLI reads bounded public snapshots and flags all missing profiles', () => {
+  const root = mkdtempSync(join(tmpdir(), 'replica-'));
+  const reference = join(root, 'reference.json'),
+    stage = join(root, 'stage.json');
+  try {
+    writeFileSync(
+      reference,
+      JSON.stringify([
+        { id: 'vertex', provider: 'vertex', runtime: 'claude', capabilities: ['tools'] },
+      ]),
+    );
+    writeFileSync(stage, '[]');
+    expect(
+      parseStagingPipelineArguments(['replica-check', '--reference', reference, '--stage', stage]),
+    ).toEqual({ command: 'replica-check', reference, stage });
+    expect(checkStagingReplicaSnapshots(reference, stage)).toMatchObject({
+      configurationMatches: false,
+      issues: [{ profileId: 'vertex', reason: 'missing-profile' }],
+    });
+    writeFileSync(stage, ' '.repeat(65537));
+    expect(() => checkStagingReplicaSnapshots(reference, stage)).toThrow(/Bounded/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

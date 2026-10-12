@@ -1,4 +1,6 @@
 import { expect, it, vi } from 'vitest';
+import process from 'node:process';
+import { fileURLToPath } from 'node:url';
 import {
   parseMacStagingResources,
   createStagingPipelineEffects,
@@ -34,10 +36,14 @@ it('uses only canonical exact-commit prepare/plan/apply with bounded build heap'
   await e.prepare(sha);
   await e.plan(sha, old);
   await e.deploy(sha, old);
+  const controller = fileURLToPath(new URL('../../scripts/staging.mjs', import.meta.url));
   expect(run.mock.calls.map(([program, args]) => [program, args])).toEqual([
-    ['/stage/bin/mitzo-staging', ['prepare', '--commit', sha]],
-    ['/stage/bin/mitzo-staging', ['deploy', '--commit', sha, '--expected-current', old]],
-    ['/stage/bin/mitzo-staging', ['deploy', '--commit', sha, '--expected-current', old, '--apply']],
+    [process.execPath, [controller, 'prepare', '--commit', sha]],
+    [process.execPath, [controller, 'deploy', '--commit', sha, '--expected-current', old]],
+    [
+      process.execPath,
+      [controller, 'deploy', '--commit', sha, '--expected-current', old, '--apply'],
+    ],
   ]);
   expect(run.mock.calls.every((c) => c[2].heapMiB === 2048)).toBe(true);
 });

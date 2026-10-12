@@ -102,3 +102,13 @@ qualification with that pipeline task's artifacts.
 
 Existing sessions must reread accepted instructions before this policy can be
 claimed as adopted. No cross-session messages or production operations occur here.
+
+## Complete profile replica
+
+The required replica includes personal ChatGPT, work OpenAI API, Vertex, and every profile added later. Resource limits bound simultaneous work; they do not omit a provider. Each reference profile must have a separate staging profile with the same provider, runtime, and feature capabilities, independently reviewed staging configuration, fresh staging authorization, and isolated fixtures. Production credentials and configuration are never copied.
+
+`node scripts/staging-pipeline.mjs replica-check --reference PUBLIC_REFERENCE_JSON --stage PUBLIC_STAGE_JSON` compares bounded credential-free snapshots without changing staging or making model calls. Reference records contain exactly `id`, `provider`, `runtime`, and `capabilities`; staging records contain exactly `referenceId`, `profileId`, `provider`, `runtime`, `capabilities`, and `authorization` (`ready` or `pending`). New reference profiles automatically require corresponding staging records. Mismatch exits 2. A configuration match still reports `liveFeatureValidation: required`: HTTP readiness and declared capabilities do not prove live feature behavior.
+
+Live model tests require an explicitly supported Luna model and announcement of the charged account. A provider/runtime without Luna requires explicit approval for its alternative model before testing. Provider enrollment and native capacity disposition remain separate reviewed prerequisites.
+
+Prepared candidates are reused only after the canonical controller verifies the exact receipt, accepted source, artifacts, and dependencies. A terminal read-only plan refusal leaves undispatched work waiting; uncertain execution preserves the reservation. Mutations run through the verified current accepted checkout, with apply retaining its candidate byte-identity check.

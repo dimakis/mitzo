@@ -158,3 +158,28 @@ it('a terminal pure-preparation refusal leaves work queued without quarantining 
   expect(f.store.quarantine).not.toHaveBeenCalled();
   expect(f.effects.deploy).not.toHaveBeenCalled();
 });
+
+it('terminal read-only plan refusal waits before any deployment dispatch', async () => {
+  const f = fixture();
+  f.effects.check.mockResolvedValueOnce({ safe: true, expected: 'b'.repeat(40) });
+  f.effects.plan.mockRejectedValue(
+    Object.assign(Error('main advanced'), { terminalRefusal: true }),
+  );
+  await runStagingPipelineRequest(f.store, f.effects, 'worker');
+  expect(f.store.defer).toHaveBeenCalledWith(token, 'stage-unavailable');
+  expect(f.store.markDispatched).not.toHaveBeenCalled();
+  expect(f.store.quarantine).not.toHaveBeenCalled();
+});
+it('resource waiting after successful preparation can retry and settle the same request', async () => {
+  const f = fixture();
+  f.effects.check.mockResolvedValueOnce({ safe: true, expected: 'b'.repeat(40) });
+  f.effects.resources
+    .mockResolvedValueOnce({ admitted: true })
+    .mockResolvedValueOnce({ admitted: true })
+    .mockResolvedValueOnce({ admitted: false });
+  expect((await runStagingPipelineRequest(f.store, f.effects, 'worker')).state).toBe('queued');
+  f.effects.check.mockResolvedValueOnce({ safe: true, expected: 'b'.repeat(40) });
+  expect((await runStagingPipelineRequest(f.store, f.effects, 'worker')).state).toBe('passed');
+  expect(f.effects.prepare).toHaveBeenCalledTimes(2);
+  expect(f.effects.deploy).toHaveBeenCalledTimes(1);
+});

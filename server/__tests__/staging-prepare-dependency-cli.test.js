@@ -136,3 +136,19 @@ it('dependency drift during the build preserves the live receipt and refuses pro
   expect(readFileSync(f.receiptPath)).toEqual(prior);
   expect(existsSync(join(f.root, 'releases', f.target.slice(0, 12)))).toBe(false);
 });
+it('reuses an intact prepared candidate after waiting and refuses changed retained artifacts', () => {
+  const f = fixture();
+  const first = f.run();
+  expect(first.status, first.stderr).toBe(0);
+  const candidate = JSON.parse(first.stdout).prepared;
+  const receipt = readFileSync(f.receiptPath);
+  const retained = readFileSync(join(candidate, 'staging-release.json'));
+  const again = f.run();
+  expect(again.status, again.stderr).toBe(0);
+  expect(JSON.parse(again.stdout).reused).toBe(true);
+  expect(readFileSync(join(candidate, 'staging-release.json'))).toEqual(retained);
+  expect(readFileSync(f.receiptPath)).toEqual(receipt);
+  writeFileSync(join(candidate, 'dist/compiled.js'), 'tampered after preparation');
+  expect(f.run().status).not.toBe(0);
+  expect(readFileSync(f.receiptPath)).toEqual(receipt);
+});
