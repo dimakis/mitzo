@@ -137,7 +137,7 @@ describe('ChatInput command strip', () => {
   });
   it('keeps image attachment directly available while retaining the session tray source action', () => {
     render(<ChatInput onSend={noop} onStop={noopVoid} running={false} />);
-    expect(screen.getByTitle('Skills')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Commands' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Attach image' })).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Open session tray' }));
     expect(screen.getByRole('button', { name: 'Add source' })).toBeTruthy();
@@ -158,6 +158,19 @@ describe('ChatInput command strip', () => {
     expect(container.querySelector('.chat-input-branch')).toBeNull();
     expect(container.querySelector('.chat-input-session-hash')).toBeNull();
     expect(screen.getByRole('button', { name: 'Commands' })).toBeTruthy();
+  });
+
+  it('uses the shared command-list icon and keeps its name discoverable', () => {
+    render(<ChatInput onSend={noop} onStop={noopVoid} running={false} />);
+    const commands = screen.getByRole('button', { name: 'Commands' });
+    expect(commands.querySelector('.ui-icon[data-icon="list"]')).toBeTruthy();
+    expect(commands.getAttribute('title')).toBe('Commands');
+    expect(commands.querySelector('[aria-hidden="true"]')?.textContent).not.toBe('/');
+    const input = screen.getByRole('textbox') as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: 'Keep the current question' } });
+    fireEvent.click(commands);
+    expect(input.value).toBe('Keep the current question');
+    expect(commands.getAttribute('aria-expanded')).toBe('true');
   });
 
   it('renders mic button in input row, not command strip', () => {
@@ -192,9 +205,9 @@ describe('ChatInput command strip', () => {
     expect(container.querySelector('.chat-input-session-hash')).toBeNull();
   });
 
-  it('opens slash picker when / button is clicked', () => {
+  it('opens slash picker when the command icon is clicked', () => {
     const { container } = render(<ChatInput onSend={noop} onStop={noopVoid} running={false} />);
-    fireEvent.click(screen.getByTitle('Skills'));
+    fireEvent.click(screen.getByRole('button', { name: 'Commands' }));
     const textarea = container.querySelector('textarea');
     expect(textarea?.value).toBe('/');
   });

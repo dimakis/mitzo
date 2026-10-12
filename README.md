@@ -129,6 +129,8 @@ Opening Knowledge starts at the Library tree, including when a working copy was 
 
 **Knowledge → Context** curates reusable context packs from accepted document revisions. Save recoverable drafts, inspect history and affected profiles, compile a preview, and explicitly publish a pack revision. Agent Library profiles compose exact pack revisions under one context budget. The advisor can propose a portable draft for review and import. See [context packs](docs/features/context-packs.md).
 
+Per-message context blocks selected in **Sources** appear beside your sent message immediately. Their injected reference text is collapsed by default and can be inspected or copied separately; editing, copying or reading aloud the message uses your prompt. Live echoes and restored history show the same disclosure. Selecting context does not switch the agent profile. Older prompts with ambiguous reference-delimiter examples stay intact so their source text cannot be mistaken for your question.
+
 The Library requires independently reviewed private host enrollment through `MITZO_KNOWLEDGE_LIBRARY_CONFIG`, including explicit document scopes and optional publishing identity. Acceptance is disabled by default. See [Knowledge Library enrollment](docs/operations/knowledge-library.md). Drafts join core SQLite backups with bounded Git recovery bundles, preserving exact prepared review heads after restore into a fresh source mirror. **More → Workspace tools** retains the raw Files browser and existing artifact links; its worktree list loads only on request, with cached, bounded discovery.
 
 ### Draft image preview and drawing
@@ -663,7 +665,7 @@ through the event-store module.
 
 React 19 + Vite. Ten pages (`Login`, `SessionList`, `ChatView`, `DesktopChatView`, `FileViewer`, `InboxView`, `CalendarView`, `TodoView`, `TodoDetailView`, `TaskBoard`), a `useReducer`-based message state machine (`useChatMessages`), module-level WebSocket pool with 500-message buffer, and components for thinking blocks, tool pills, tool groups, permission banners, and a slash-command picker. Capacitor wraps the frontend for iOS deployment via TestFlight.
 
-The chat composer gives draft text the full width, with unboxed utility icons in a toolbar below it and a circular send action at the far right. The context wheel sits beside the recording and send controls, uses the app accent during normal usage, and turns amber/red as context fills. Tap it for context and session token details. Session resources open from the toolbar; commands, attachments, and workspace options collapse into More in narrow composers while recording, interrupt, and send controls remain directly available.
+The chat composer gives draft text the full width, with unboxed utility icons in a toolbar below it and a circular send action at the far right. Commands uses a quiet list icon with its name on hover and keyboard focus; its label stays visible inside the narrow-screen More menu. The context wheel sits beside the recording and send controls, uses the app accent during normal usage, and turns amber/red as context fills. Tap it for context and session token details. Session resources open from the toolbar; commands, attachments, and workspace options collapse into More in narrow composers while recording, interrupt, and send controls remain directly available.
 
 For iOS development, run `./scripts/build-ios.sh` to build the iOS web assets and open Xcode. After the build, `./scripts/build-ios.sh --sync` copies the existing `frontend/dist-ios` assets into the iOS project without rebuilding them.
 
@@ -811,6 +813,14 @@ as `playwright-browser-failure-<run>-<attempt>` or
 from the Actions run; use `npx playwright show-trace <trace.zip>` or
 `npx playwright show-report <report-directory>` to inspect it. Successful suites
 do not upload artifacts, and retries keep the original attempt's evidence.
+
+A failed offline native notification smoke retains a screenshot, the fixture app's
+bounded simulator log, and failure stage/expected versus observed origin before
+its owned simulator is deleted. CI uploads `native-notification-failure-<run>-<attempt>`
+for seven days. Capture errors do not hide the original test failure; each
+attempt has a separate directory under `test-results/native-notification/`.
+The fixture uses a fresh simulator and exports only the notification origin
+preference, never the full preference store or a connected account.
 
 Production artifacts are staged with
 `./scripts/stage-openshell-release.sh <mgmt-repo> <new-seed-output>`. It requires
