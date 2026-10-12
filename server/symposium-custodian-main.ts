@@ -1,3 +1,4 @@
+import type { StagingNativeFeatureBootstrap } from './staging-native-feature-bootstrap.js';
 import { waitOriginalControllerExit } from './symposium-custodian-exit.js';
 import type { OriginalProcessObserver } from './symposium-original-process-retention.js';
 import { fork, type ChildProcess } from 'node:child_process';
@@ -8,7 +9,11 @@ import type { BootstrapTools } from './symposium-owned-config.js';
 import type { OwnedSymposiumHostOptions } from './symposium-owned-host.js';
 import { custodianAppEnvironment } from './symposium-custodian-launch.js';
 import { SymposiumCustodianController } from './symposium-custodian-controller.js';
-import { serveCustodianController, type CustodianChannel } from './symposium-custodian-ipc.js';
+import {
+  serveCustodianController,
+  CUSTODIAN_BEFORE_READY_PROTOCOL_VERSION,
+  type CustodianChannel,
+} from './symposium-custodian-ipc.js';
 import { dispatchCustodianHttp } from './symposium-custodian-http.js';
 import {
   finishCustodianRetirement,
@@ -19,6 +24,13 @@ export type { OriginalSymposiumControllerIdentity } from './symposium-canonical-
 import type { OriginalSymposiumControllerIdentity } from './symposium-canonical-owner-identity.js';
 /** Explicit fresh-owner entry point. No attach/reconstruct command exists. */
 export interface SymposiumCustodianConstructorHooks {
+  /** Passed by the same fresh canonical launcher; never environment or JSON authority. */
+  stagingFeatureBootstrap?: StagingNativeFeatureBootstrap;
+  /** Awaited original source/archive/VM fence before IPC ready or any request. */
+  beforeControllerReady?: (
+    identity: Readonly<OriginalSymposiumControllerIdentity>,
+    assertCurrent: () => void,
+  ) => Promise<void>;
   observeRetirement?: (
     state: 'retiring' | 'retired' | 'uncertain',
     stateParent: string,
@@ -41,6 +53,8 @@ export interface SymposiumCustodianConstructorHooks {
 export async function runSymposiumCustodian(hooks: SymposiumCustodianConstructorHooks = {}) {
   const {
     observeRetirement,
+    stagingFeatureBootstrap,
+    beforeControllerReady,
     bootstrapTools,
     observeOriginalProcess,
     observeDurableReviewToolResult,
@@ -51,6 +65,23 @@ export async function runSymposiumCustodian(hooks: SymposiumCustodianConstructor
     observeController,
     admissionBuildSelection,
   } = hooks;
+  if (
+    beforeControllerReady !== undefined &&
+    (typeof beforeControllerReady !== 'function' || CUSTODIAN_BEFORE_READY_PROTOCOL_VERSION !== 1)
+  )
+    throw Error('Awaited original controller fence implementation unavailable');
+  if (stagingFeatureBootstrap !== undefined) {
+    // Recognize the fresh launcher capability rather than silently ignoring it.
+    // A native allocation alone cannot grant provider enrollment, auxiliary model
+    // qualification or original per-run physical cleanup. Do not build an owner
+    // from public context or substitute the local feature factory here.
+    if (
+      typeof stagingFeatureBootstrap.assertOriginalOwnerCurrent !== 'function' ||
+      typeof stagingFeatureBootstrap.assertFreshEnrollmentCurrent !== 'function'
+    )
+      throw Error('Original staging feature constructor capabilities required');
+    throw Error('Native staging feature owner qualification is not implemented');
+  }
   if (observeNativeTurnInput !== undefined && typeof observeNativeTurnInput !== 'boolean')
     throw Error('Native input diagnostic must be a trusted constructor boolean');
   if (observeRetirement !== undefined && typeof observeRetirement !== 'function')
@@ -190,7 +221,10 @@ export async function runSymposiumCustodian(hooks: SymposiumCustodianConstructor
   try {
     while (!stopping) {
       child = fork(new URL('./index.js', import.meta.url), [], {
-        env: custodianAppEnvironment(process.env),
+        env: custodianAppEnvironment(
+          process.env,
+          beforeControllerReady ? { awaitOriginalReadiness: true } : undefined,
+        ),
         execArgv: [],
         stdio: ['ignore', 'inherit', 'inherit', 'ipc'],
       });
@@ -211,37 +245,45 @@ export async function runSymposiumCustodian(hooks: SymposiumCustodianConstructor
           void Promise.resolve(observed).catch(() => {});
           throw Error('Process observer must be synchronous');
         }
+        const originalCurrent = (connectionCurrent: () => void) => () => {
+          connectionCurrent();
+          if (
+            stopping ||
+            child !== exactChild ||
+            !exactChild.connected ||
+            exactChild.exitCode !== null ||
+            exactChild.signalCode !== null ||
+            !Number.isSafeInteger(exactChild.pid) ||
+            exactChild.pid! <= 0
+          )
+            throw Error('Original controller child unavailable');
+          host.currentProfiles();
+          connectionCurrent();
+        };
+        const originalIdentity = (epoch: number) =>
+          Object.freeze({
+            instanceId: identity,
+            epoch,
+            custodianPid: process.pid,
+            controllerPid: exactChild.pid!,
+            state: 'active' as const,
+            scope: 'fresh-retained-sessions' as const,
+          });
         await serveCustodianController(exactChild as unknown as CustodianChannel, controller, {
+          beforeReady:
+            beforeControllerReady &&
+            (async (epoch, connectionCurrent) => {
+              const current = originalCurrent(connectionCurrent);
+              current();
+              await beforeControllerReady(originalIdentity(epoch), current);
+              current();
+            }),
           observeReady:
             observeController &&
             ((epoch, connectionCurrent) => {
-              const current = () => {
-                connectionCurrent();
-                if (
-                  stopping ||
-                  child !== exactChild ||
-                  !exactChild.connected ||
-                  exactChild.exitCode !== null ||
-                  exactChild.signalCode !== null ||
-                  !Number.isSafeInteger(exactChild.pid) ||
-                  exactChild.pid! <= 0
-                )
-                  throw Error('Original controller child unavailable');
-                host.currentProfiles();
-                connectionCurrent();
-              };
+              const current = originalCurrent(connectionCurrent);
               current();
-              const result: unknown = observeController(
-                Object.freeze({
-                  instanceId: identity,
-                  epoch,
-                  custodianPid: process.pid,
-                  controllerPid: exactChild.pid!,
-                  state: 'active',
-                  scope: 'fresh-retained-sessions',
-                }),
-                current,
-              );
+              const result: unknown = observeController(originalIdentity(epoch), current);
               if (result !== undefined) {
                 // Refuse asynchronous observation without leaving its rejection unhandled.
                 void Promise.resolve(result).catch(() => {});
