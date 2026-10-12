@@ -137,3 +137,58 @@ candidate before granting zero-growth reuse. An absent candidate reports the
 observed copy/build growth estimate without creating a release or audit record.
 Unknown observations or invalid retained candidates refuse the attempt. Reuse
 still requires current host admission and exact canonical deployment planning.
+
+## Conditional profile feature bridge
+
+The version-2 `profile-tools-v1` request uses the same singleton queue and
+reservation as HTTP readiness. It pins only PR/task/accepted source, a selected
+stage profile ID, and the fresh reviewed enrollment revision returned by the
+authenticated canonical stage. Callers cannot supply an account, model, command,
+credential reference, runtime, prompt, or alternative-model approval. The paired
+stage feature bridge must be accepted and its actual original owner independently
+qualified before enrollment or feature work is available. Missing owner authority,
+private client authorization, or the paired module refuses feature operations.
+
+From the clean exact accepted controller, the foreground sequence is:
+
+```sh
+node scripts/staging-pipeline.mjs enqueue-feature --pr NUMBER --task SESSION_ID --profile STAGE_PROFILE_ID
+node scripts/staging-pipeline.mjs feature-plan --id REQUEST_ID
+# Announce the exact charged account and selected test model from this plan.
+node scripts/staging-pipeline.mjs run-next --feature-plan EXACT_PLAN_SHA256
+node scripts/staging-pipeline.mjs receipt --id REQUEST_ID
+```
+
+First use an ordinary HTTP-readiness request to deploy the intended exact current
+accepted source. Feature planning refuses a different active staging source. It
+is read-only: no queue claim, fixture, provider turn, model discovery process,
+native runtime, or account enrollment starts. The plan reports actual owner,
+source, profile/runtime revisions, charged account, explicit model and suite/runner
+budgets from trusted staging authority. Luna must be explicitly supported by that
+fresh staging account. A route requiring another model needs authentic, exact
+user authorization checked by the owner; a JSON declaration does not grant it.
+
+Before dispatch the controller re-resolves this plan under its reservation.
+Missing or changed hashes leave the request queued with `feature-plan-required`;
+the digest fences tuple drift and does not grant authentication or model policy.
+The exact plan digest and stage owner instance are bound durably before dispatch.
+The authenticated stage owner calls `assertStagingPipelineFeatureDispatch` before
+every fixture, turn and finalization. This read-only assertion checks the private
+queue's immutable version-2 profile/enrollment, original token epoch/request/owner/
+nonce, exact source, unexpired deadline, admitted dispatch and bound plan/owner.
+Absent legacy queue enrollment never grants feature authority.
+
+The paired suite runs only its code-owned bounded fixture operations and returns
+an actual original-owner execution/cleanup receipt. Source, profile, enrollment,
+plan or owner drift cannot settle the request. Cleanup requires the actual owned
+runtime acknowledgment; session-ended, a generic stop response or caller Boolean
+is insufficient. Uncertain dispatch or cleanup quarantines the same reservation
+without retry, owner replacement, native retirement or automatic rollback.
+
+The existing version-1 HTTP receipt is unchanged. A settled feature envelope also
+includes its profile and enrollment revision; its result carries a bounded owner
+receipt reference and `liveFeatureValidation: "requires-owner-verification"`.
+Consumers must authenticate that retained original-owner evidence before claiming
+live feature acceptance. Queue JSON alone cannot grant it. Testing one profile
+does not qualify the complete reference set, future profiles or other feature
+suites. Production activation remains a separate explicitly requested action.

@@ -98,6 +98,7 @@ export class StagingPipelineStore {
       .exec(`PRAGMA busy_timeout=5000; PRAGMA journal_mode=DELETE; PRAGMA synchronous=FULL; PRAGMA max_page_count=4096;
       CREATE TABLE IF NOT EXISTS requests(sequence INTEGER PRIMARY KEY AUTOINCREMENT,id TEXT UNIQUE NOT NULL,payload TEXT NOT NULL,fingerprint TEXT NOT NULL,state TEXT NOT NULL,reason TEXT,result TEXT);
       CREATE TABLE IF NOT EXISTS reservation(singleton INTEGER PRIMARY KEY CHECK(singleton=1),epoch INTEGER NOT NULL,state TEXT NOT NULL,request_id TEXT,owner TEXT,nonce TEXT,deadline INTEGER,dispatched INTEGER NOT NULL DEFAULT 0,source_commit TEXT);
+      CREATE TABLE IF NOT EXISTS feature_binding(singleton INTEGER PRIMARY KEY CHECK(singleton=1),epoch INTEGER NOT NULL,request_id TEXT NOT NULL,plan_sha256 TEXT NOT NULL,owner_instance TEXT NOT NULL);
       INSERT OR IGNORE INTO reservation(singleton,epoch,state) VALUES(1,0,'idle');`);
   }
   close() {
@@ -206,6 +207,7 @@ export class StagingPipelineStore {
         .get();
       if (!next) return { granted: false, reason: 'queue-empty' };
       const token = { epoch: r.epoch + 1, requestId: next.id, owner, nonce: randomUUID() };
+      this.db.prepare('DELETE FROM feature_binding').run();
       this.db
         .prepare(
           "UPDATE reservation SET state='active',epoch=?,request_id=?,owner=?,nonce=?,deadline=?,dispatched=0,source_commit=NULL WHERE singleton=1",
@@ -231,6 +233,16 @@ export class StagingPipelineStore {
   markDispatched(t) {
     this.transaction(() => {
       this.assertToken(t);
+      const request = JSON.parse(
+        this.db.prepare('SELECT payload FROM requests WHERE id=?').get(t.requestId).payload,
+      );
+      if (
+        request.version === 2 &&
+        !this.db
+          .prepare('SELECT singleton FROM feature_binding WHERE epoch=? AND request_id=?')
+          .get(t.epoch, t.requestId)
+      )
+        throw Error('Bound original-owner feature plan required');
       this.db.prepare('UPDATE reservation SET dispatched=1 WHERE singleton=1').run();
     });
   }
@@ -246,6 +258,7 @@ export class StagingPipelineStore {
     });
   }
   release() {
+    this.db.prepare('DELETE FROM feature_binding').run();
     this.db
       .prepare(
         "UPDATE reservation SET state='idle',request_id=NULL,owner=NULL,nonce=NULL,deadline=NULL,dispatched=0,source_commit=NULL WHERE singleton=1",
@@ -267,6 +280,28 @@ export class StagingPipelineStore {
       this.db.prepare('UPDATE reservation SET source_commit=? WHERE singleton=1').run(sourceCommit);
     });
   }
+  bindFeaturePlan(t, planSha256, ownerInstance) {
+    if (!digest.test(planSha256) || !identifier.test(ownerInstance))
+      throw Error('Exact original-owner feature plan required');
+    this.transaction(() => {
+      const reservation = this.assertToken(t);
+      const request = JSON.parse(
+        this.db.prepare('SELECT payload FROM requests WHERE id=?').get(t.requestId).payload,
+      );
+      if (
+        request.version !== 2 ||
+        !reservation.source_commit ||
+        reservation.dispatched ||
+        this.db.prepare('SELECT singleton FROM feature_binding').get()
+      )
+        throw Error('Cannot replace a bound or dispatched feature plan');
+      this.db
+        .prepare(
+          'INSERT INTO feature_binding(singleton,epoch,request_id,plan_sha256,owner_instance) VALUES(1,?,?,?,?)',
+        )
+        .run(t.epoch, t.requestId, planSha256, ownerInstance);
+    });
+  }
   finish(t, result) {
     this.transaction(() => {
       const reservation = this.assertToken(t);
@@ -282,6 +317,18 @@ export class StagingPipelineStore {
       if (result.cleanupConfirmed !== true) throw Error('Confirmed test cleanup required');
       const featureReceipt =
         r.version === 2 ? validateFeatureReceipt(result.featureReceipt, r) : undefined;
+      if (featureReceipt) {
+        const binding = this.db.prepare('SELECT * FROM feature_binding WHERE singleton=1').get();
+        if (
+          !reservation.dispatched ||
+          !binding ||
+          binding.epoch !== t.epoch ||
+          binding.request_id !== t.requestId ||
+          binding.plan_sha256 !== featureReceipt.planSha256 ||
+          binding.owner_instance !== featureReceipt.ownerInstance
+        )
+          throw Error('Original-owner feature receipt does not match reservation');
+      }
       const receipt = {
         acceptedCommit: r.acceptedCommit,
         outcome: result.outcome,

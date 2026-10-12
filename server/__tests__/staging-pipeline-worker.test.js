@@ -53,8 +53,13 @@ function featureFixture() {
   f.store.claim.mockReturnValue({ granted: true, request: featureRequest, token });
   f.effects.featurePlan = vi.fn(async () => ({
     planSha256: 'f'.repeat(64),
-    publicPlan: { chargedAccount: 'stage-account', selectedModel: 'gpt-6.1-luna' },
+    publicPlan: {
+      ownerInstance: 'owner',
+      chargedAccount: 'stage-account',
+      selectedModel: 'gpt-6.1-luna',
+    },
   }));
+  f.store.bindFeaturePlan = vi.fn();
   f.effects.test.mockResolvedValue({
     outcome: 'passed',
     cleanupConfirmed: true,
@@ -72,7 +77,6 @@ function featureFixture() {
 }
 it('feature work waits with an exact charged account/model plan before any dispatch', async () => {
   const f = featureFixture();
-  f.effects.check.mockResolvedValueOnce({ safe: true, expected: 'b'.repeat(40) });
   expect(await runStagingPipelineRequest(f.store, f.effects, 'worker')).toMatchObject({
     state: 'queued',
     reason: 'feature-plan-required',
@@ -108,6 +112,21 @@ it('matching feature plan hash allows only the trusted runner under the original
       featureReceipt: expect.objectContaining({ ownerReceiptSha256: 'd'.repeat(64) }),
     }),
   );
+  expect(f.store.bindFeaturePlan).toHaveBeenCalledWith(token, 'f'.repeat(64), 'owner');
+});
+it('feature planning waits for exact deployed source and never replaces its original owner', async () => {
+  const f = featureFixture();
+  f.effects.check.mockResolvedValueOnce({ safe: true, expected: 'b'.repeat(40) });
+  expect(
+    (
+      await runStagingPipelineRequest(f.store, f.effects, 'worker', {
+        featurePlanSha256: 'f'.repeat(64),
+      })
+    ).state,
+  ).toBe('queued');
+  expect(f.effects.featurePlan).not.toHaveBeenCalled();
+  expect(f.effects.prepare).not.toHaveBeenCalled();
+  expect(f.effects.test).not.toHaveBeenCalled();
 });
 it('changed feature plan or owner cleanup cannot publish an accepted feature summary', async () => {
   const drift = featureFixture();

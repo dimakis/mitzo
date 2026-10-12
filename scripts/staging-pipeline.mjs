@@ -130,6 +130,9 @@ export async function readStagingFeaturePlan(database, id, effects) {
     enrollmentRevision: receipt.enrollmentRevision,
   };
   const source = await effects.baseline(request.acceptedCommit);
+  const current = await effects.check();
+  if (!current.safe || current.expected !== source)
+    throw Error('Exact accepted feature stage source required');
   const plan = await effects.featurePlan(request, source);
   return {
     version: 1,

@@ -19,6 +19,7 @@ export async function runStagingPipelineRequest(store, effects, owner, { feature
     if (!current.safe) return wait('stage-unavailable');
     let featureContext;
     if (request.version === 2) {
+      if (current.expected !== sourceCommit) return wait('stage-unavailable');
       const plan = await effects.featurePlan(request, sourceCommit, token);
       if (!/^[a-f0-9]{64}$/.test(plan?.planSha256) || !plan.publicPlan)
         throw Error('Authenticated bounded feature plan required');
@@ -29,6 +30,7 @@ export async function runStagingPipelineRequest(store, effects, owner, { feature
           featurePlan: plan.publicPlan,
         };
       featureContext = { request, token, planSha256: plan.planSha256, plan: plan.publicPlan };
+      store.bindFeaturePlan(token, plan.planSha256, plan.publicPlan.ownerInstance);
     } else if (featurePlanSha256 !== undefined)
       throw Error('Feature plan cannot override readiness');
     if (current.expected !== sourceCommit) {

@@ -68,6 +68,7 @@ it('feature summaries preserve owner evidence references and refuse bare passing
   s.enqueue(featureRequest());
   const claim = s.claim('worker');
   s.bindBaseline(claim.token, 'a'.repeat(40));
+  s.bindFeaturePlan(claim.token, 'f'.repeat(64), 'owner');
   s.markDispatched(claim.token);
   const result = { outcome: 'passed', sourceCommit: 'a'.repeat(40), cleanupConfirmed: true };
   expect(() => s.finish(claim.token, result)).toThrow(/owner/);

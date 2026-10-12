@@ -109,6 +109,7 @@ it('read-only feature planning retains the queued reservation and reports the ac
     const bytes = readFileSync(database),
       source = 'b'.repeat(40),
       effects = {
+        check: vi.fn(async () => ({ safe: true, expected: source })),
         baseline: vi.fn(async () => source),
         featurePlan: vi.fn(async () => ({
           publicPlan: {
