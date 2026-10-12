@@ -130,6 +130,7 @@ async function offline(page: Page) {
         ],
         '/api/skills': [],
         '/api/agent-library': { drafts: [], versions: [] },
+        '/api/repository-workspaces/catalog': { available: true, repositories: [] },
         '/api/sessions': { sessions: [], hasMore: false },
         '/api/notifications': { items: [], needsYou: 0, unread: 0, total: 0, hasMore: false },
         '/api/service-health': { services: [], checkedAt: Date.now() },
@@ -373,6 +374,11 @@ test('updates: Settings owns available/current/loading/error/missing-action stat
   await expect(page.getByRole('textbox', { name: 'Message Mitzo' })).toHaveValue(
     'Review the accepted update before applying it',
   );
+  // Let the new chat's account-bound catalog finish before leaving. Safari
+  // reports an intercepted request aborted during navigation as a page error.
+  await expect(
+    page.getByText('Assign a GitHub connection with repository access to this AI account in'),
+  ).toBeVisible();
   expect(fixture.mutations).toEqual([]);
   await page.goto('/settings/updates');
   await expect(page.getByRole('heading', { name: 'A new Mitzo is ready' })).toBeVisible();
