@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import {
   assertCanonicalNativeInvocation,
   assertNativeReplicaSourceProtocol,
+  assertNativeVmSourceProtocol,
   runContainedNativeCanonicalLauncher,
   preflightContainedNativeReplica,
   containedNativePreflightSummary,
@@ -82,4 +83,19 @@ it('refuses arbitrary bootstrap/private production paths and a nonprepared check
       expectedBootstrap: 'b'.repeat(64),
     }),
   ).rejects.toThrow('bootstrap unavailable');
+});
+
+it('requires reviewed independent VM identity and repeated live archive topology fence before native admission', () => {
+  for (const vm of [
+    {},
+    { FRESH_APPLEHV_ORIGINAL_RUNNING_PROTOCOL_VERSION: 0 },
+    { FRESH_APPLEHV_ORIGINAL_RUNNING_PROTOCOL_VERSION: 1 },
+  ])
+    expect(() => assertNativeVmSourceProtocol(vm)).toThrow('bootstrap unavailable');
+  expect(() =>
+    assertNativeVmSourceProtocol({
+      FRESH_APPLEHV_ORIGINAL_RUNNING_PROTOCOL_VERSION: 1,
+      FRESH_APPLEHV_ARCHIVED_TOPOLOGY_PROTOCOL_VERSION: 1,
+    }),
+  ).not.toThrow();
 });

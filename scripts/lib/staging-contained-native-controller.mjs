@@ -80,6 +80,16 @@ export function assertNativeReplicaSourceProtocol(main) {
       'Missing reviewed original native feature/enrollment/model-call implementation (protocol1). No allocation authorized.',
     );
 }
+/** Paired source implementation, checked before MAC/ordinary control. */
+export function assertNativeVmSourceProtocol(vm) {
+  if (
+    vm?.FRESH_APPLEHV_ORIGINAL_RUNNING_PROTOCOL_VERSION !== 1 ||
+    vm?.FRESH_APPLEHV_ARCHIVED_TOPOLOGY_PROTOCOL_VERSION !== 1
+  )
+    throw refuse(
+      'Missing reviewed original VM identity or repeated archived topology implementation. No allocation authorized.',
+    );
+}
 /** Namespace/source admission before reading any private bootstrap bytes. */
 export function assertCanonicalNativeInvocation(
   { sourceRoot, bootstrapPath, expectedBootstrap },
@@ -269,6 +279,7 @@ export async function preflightContainedNativeReplica(token) {
   process.chdir(sourceRoot);
   const main = await load('symposium-custodian-main');
   assertNativeReplicaSourceProtocol(main);
+  assertNativeVmSourceProtocol(inspected.vm);
   return main;
 }
 /** Sanitized review data only. This observation cannot transfer the original
@@ -473,6 +484,12 @@ export async function runContainedNativeCanonicalLauncher({
         };
       },
       async prepareFreshAllocation(_p, { assertCurrent }) {
+        await sourceCurrent();
+        await verifyArchive();
+        ledger.assertAbsent(disposition);
+        guard.assertCurrent();
+        unmutatedInspector.assertUnchanged();
+        assertCurrent();
         // Consumed before the first await or native preparation dispatch. Even an
         // early unknown preparation failure retains the original guard.
         nativePreparationAttempted = true;
@@ -492,6 +509,13 @@ export async function runContainedNativeCanonicalLauncher({
           assertAcceptedSource: sourceCurrent,
           assertNativeAuthenticationCurrent: assertCurrent,
           assertApprovedImage: imageInspector.assertApprovedImage,
+          async assertArchivedNativeTopologyCurrent() {
+            await sourceCurrent();
+            await verifyArchive();
+            ledger.assertAbsent(disposition);
+            guard.assertCurrent();
+            assertCurrent();
+          },
         });
         vmOwner = vm.createFreshAppleHvOwner({
           allocation,
@@ -559,6 +583,7 @@ export async function runContainedNativeCanonicalLauncher({
         assertOriginalOwnerCurrent() {
           original();
           if (ready) ownerCurrent();
+          vmOwner.assertOriginalRunningCurrent();
         },
         observeResources: () => {
           original();
