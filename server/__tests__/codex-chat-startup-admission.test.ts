@@ -48,7 +48,7 @@ vi.mock('../openshell-runtime.js', async (importOriginal) => {
           throw new Error('Offline runtime observation identity changed');
         // Construct a real attestation from immutable reviewed public profile bytes,
         // never credentials. This receipt remains bound to this fixture's sandbox.
-        const profile = {
+        const profile: Record<string, unknown> = {
           ...(reviewedRuntimeProfile('mitzo-openai-keychain-spike') as Record<string, unknown>),
           source: 'user',
           scope: 'workspace',
