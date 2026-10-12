@@ -26,6 +26,13 @@ import type { UseVoiceReturn } from '../hooks/useVoice';
 import type { TokensState as TokenState } from '@mitzo/client';
 import { useDraft, type DraftSessionAssignment } from '../hooks/useDraft';
 import { useQueuedMessages } from '../hooks/useQueuedMessages';
+import {
+  type ChatDraft,
+  chatDraftStorageKey,
+  getChatDraft,
+  saveChatDraft,
+  consumeChatDraft,
+} from '../lib/chat-drafts';
 
 export interface ChatInputDraftControl {
   storageKey: string | undefined;
@@ -51,6 +58,7 @@ interface Props {
   initialText?: string;
   /** Prompt storage ownership independent of the provider session identity. */
   draftStorageKey?: string;
+  savedChatDraft?: ChatDraft;
   draftControl?: RefObject<ChatInputDraftControl | null>;
   sendDisabledReason?: string;
   cwd?: string;
@@ -80,7 +88,8 @@ export function ChatInput({
   onInterrupt,
   running,
   initialText,
-  draftStorageKey,
+  draftStorageKey: suppliedDraftStorageKey,
+  savedChatDraft,
   draftControl,
   sendDisabledReason,
   cwd,
@@ -99,6 +108,9 @@ export function ChatInput({
   bootContext,
   sessionContext,
 }: Props) {
+  const draftStorageKey = savedChatDraft
+    ? chatDraftStorageKey(savedChatDraft.id)
+    : suppliedDraftStorageKey;
   const sendPending = useRef<{ assignedSessionId?: string } | null>(null);
   // Acceptance can precede the routed render. Keep its exact assignment until
   // that ownership transfer is applied, independently of the pending receipt.
@@ -117,7 +129,7 @@ export function ChatInput({
     draftStorageKey === undefined ? (assignedDraft.current?.assignment ?? null) : null;
   const [text, setText, clearDraft, flushDraft] = useDraft(
     sessionId,
-    initialText,
+    initialText ?? savedChatDraft?.text,
     draftStorageKey,
     assignment,
   );
@@ -125,7 +137,7 @@ export function ChatInput({
     draftStorageKey,
     clearDraft,
   ]);
-  const [images, setImages] = useState<ImageAttachment[]>([]);
+  const [images, setImages] = useState<ImageAttachment[]>(savedChatDraft?.images ?? []);
   const [preview, setPreview] = useState<{
     image: ImageAttachment;
     sessionId: string | undefined;
@@ -146,7 +158,7 @@ export function ChatInput({
     images.includes(preview.image);
   if (preview && !previewOpen) setPreview(null);
   const [showSlashPicker, setShowSlashPicker] = useState(false);
-  const [contextBlocks, setContextBlocks] = useState<string[]>([]);
+  const [contextBlocks, setContextBlocks] = useState<string[]>(savedChatDraft?.contextBlocks ?? []);
   const {
     queue: queuedMessages,
     enqueue,
@@ -166,6 +178,28 @@ export function ChatInput({
   }, [assignment, sessionId]);
   const useExternal = externalContextBlocks !== undefined;
   const activeContextBlocks = useExternal ? externalContextBlocks : contextBlocks;
+  const previousSavedId = useRef(savedChatDraft?.id);
+  const savedOwnerChanging = previousSavedId.current !== savedChatDraft?.id;
+  useEffect(() => {
+    if (!savedOwnerChanging) return;
+    previousSavedId.current = savedChatDraft?.id;
+    setImages(savedChatDraft?.images ?? []);
+    if (!useExternal) setContextBlocks(savedChatDraft?.contextBlocks ?? []);
+  }, [savedChatDraft, savedOwnerChanging, useExternal]);
+  const [saveFailed, setSaveFailed] = useState(false);
+  useEffect(() => {
+    if (!savedChatDraft || savedOwnerChanging) return;
+    const current = getChatDraft(savedChatDraft.id) ?? savedChatDraft;
+    setSaveFailed(
+      !saveChatDraft({
+        ...current,
+        settings: savedChatDraft.settings,
+        text,
+        images,
+        contextBlocks: activeContextBlocks,
+      }),
+    );
+  }, [savedChatDraft, savedOwnerChanging, text, images, activeContextBlocks]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const initialApplied = useRef(false);
@@ -181,18 +215,23 @@ export function ChatInput({
   const sendGuard = useRef(false);
   const interruptPending = useRef<object | null>(null);
   const mounted = useRef(true);
+  const voiceOperation = useRef<{ scope: number } | null>(null);
   const latestDraft = useRef({
     text,
     images,
     contextBlocks: activeContextBlocks,
     sessionId,
     composerGeneration,
+    draftStorageKey,
     scope: 0,
     revision: 0,
   });
   const previous = latestDraft.current;
   const generationChanged = previous.composerGeneration !== composerGeneration;
-  const scopeChanged = previous.sessionId !== sessionId || generationChanged;
+  const scopeChanged =
+    previous.sessionId !== sessionId ||
+    previous.draftStorageKey !== draftStorageKey ||
+    generationChanged;
   if (scopeChanged) {
     interruptPending.current = null;
     if (generationChanged || sendPending.current?.assignedSessionId !== sessionId)
@@ -205,6 +244,7 @@ export function ChatInput({
     contextBlocks: activeContextBlocks,
     sessionId,
     composerGeneration,
+    draftStorageKey,
     scope: previous.scope + (scopeChanged ? 1 : 0),
     revision:
       previous.revision +
@@ -221,6 +261,17 @@ export function ChatInput({
       mounted.current = false;
     };
   }, []);
+
+  const composerScope = latestDraft.current.scope;
+  const cancelRecording = voice?.cancelRecording;
+  useEffect(
+    () => () => {
+      if (voiceOperation.current?.scope === composerScope) voiceOperation.current = null;
+      // This also invalidates pending microphone permission and aborts STT.
+      cancelRecording?.();
+    },
+    [composerScope, cancelRecording],
+  );
 
   const autoResize = useCallback(() => {
     const el = textareaRef.current;
@@ -253,6 +304,7 @@ export function ChatInput({
       queued = false,
     ): boolean => {
       const submitted = latestDraft.current;
+      const submittedSavedDraft = savedChatDraft ? getChatDraft(savedChatDraft.id) : null;
       const pending: { assignedSessionId?: string } = {};
       sendPending.current = pending;
       // Keep dequeued input under the existing explicit-retry fence until a
@@ -267,6 +319,11 @@ export function ChatInput({
           if (status === 'accepted' && retained) removeSubmitted(retained);
           return;
         }
+        const savedRevisionConsumed =
+          status === 'accepted' && submittedSavedDraft
+            ? consumeChatDraft(submittedSavedDraft)
+            : true;
+        if (status === 'accepted' && !savedRevisionConsumed) return;
         const latest = latestDraft.current;
         const assigned =
           latest.composerGeneration === submitted.composerGeneration &&
@@ -308,7 +365,15 @@ export function ChatInput({
       if (!sent) onDelivery('failed');
       return sent;
     },
-    [onSend, restoreRejected, removeSubmitted, clearDraft, useExternal, draftStorageKey],
+    [
+      onSend,
+      restoreRejected,
+      removeSubmitted,
+      clearDraft,
+      useExternal,
+      draftStorageKey,
+      savedChatDraft,
+    ],
   );
 
   // Auto-send next queued message when agent finishes its turn
@@ -397,17 +462,27 @@ export function ChatInput({
 
     const remaining = MAX_IMAGE_ATTACHMENTS - images.length;
     const toProcess = Array.from(files).slice(0, remaining);
+    const ownerScope = latestDraft.current.scope;
 
     for (const file of toProcess) {
       try {
+        if (!mounted.current || latestDraft.current.scope !== ownerScope) return;
         const attachment = await resizeImage(file);
-        setImages((prev) => [...prev, attachment]);
+        if (!mounted.current || latestDraft.current.scope !== ownerScope) return;
+        setImages((prev) =>
+          mounted.current &&
+          latestDraft.current.scope === ownerScope &&
+          prev.length < MAX_IMAGE_ATTACHMENTS
+            ? [...prev, attachment]
+            : prev,
+        );
       } catch {
         // Image resize failed — skip this attachment silently
       }
     }
 
-    if (fileInputRef.current) fileInputRef.current.value = '';
+    if (mounted.current && latestDraft.current.scope === ownerScope && fileInputRef.current)
+      fileInputRef.current.value = '';
   }
 
   async function handlePaste(e: React.ClipboardEvent) {
@@ -418,10 +493,19 @@ export function ChatInput({
     if (files.length === 0) return;
 
     e.preventDefault();
+    const ownerScope = latestDraft.current.scope;
     for (const file of files) {
       try {
+        if (!mounted.current || latestDraft.current.scope !== ownerScope) return;
         const attachment = await resizeImage(file);
-        setImages((prev) => [...prev, attachment]);
+        if (!mounted.current || latestDraft.current.scope !== ownerScope) return;
+        setImages((prev) =>
+          mounted.current &&
+          latestDraft.current.scope === ownerScope &&
+          prev.length < MAX_IMAGE_ATTACHMENTS
+            ? [...prev, attachment]
+            : prev,
+        );
       } catch {
         // Image resize failed — skip silently
       }
@@ -471,17 +555,32 @@ export function ChatInput({
         transcribing: voice.transcribing,
         micBlocked: voice.micBlocked,
         onRecordStart: () => {
+          if (!mounted.current || latestDraft.current.scope !== composerScope) return;
+          voiceOperation.current = { scope: composerScope };
           voice.stopSpeaking();
           return voice.startRecording();
         },
         onRecordStop: async () => {
+          if (!mounted.current || latestDraft.current.scope !== composerScope) return;
+          const operation = { scope: composerScope };
+          voiceOperation.current = operation;
           const transcript = await voice.stopRecording();
-          if (transcript) {
-            setText((prev) => (prev ? `${prev} ${transcript}` : transcript));
+          const ownsTranscript = () =>
+            mounted.current &&
+            latestDraft.current.scope === composerScope &&
+            voiceOperation.current === operation;
+          if (transcript && ownsTranscript()) {
+            setText((prev) =>
+              ownsTranscript() ? (prev ? `${prev} ${transcript}` : transcript) : prev,
+            );
             textareaRef.current?.focus();
           }
         },
-        onRecordCancel: voice.cancelRecording,
+        onRecordCancel: () => {
+          if (!mounted.current || latestDraft.current.scope !== composerScope) return;
+          voiceOperation.current = null;
+          voice.cancelRecording();
+        },
       }
     : null;
 
@@ -592,6 +691,13 @@ export function ChatInput({
 
   return (
     <div className="chat-input chat-input--compact">
+      {savedChatDraft && (
+        <p className="chat-draft-save-status" role={saveFailed ? 'alert' : 'status'}>
+          {saveFailed
+            ? 'Couldn’t save this draft on this device. Keep it open and free some storage before leaving.'
+            : 'Saved to Drafts · message and settings stay editable'}
+        </p>
+      )}
       {images.length > 0 && (
         <div className="chat-input-previews">
           {images.map((image, index) => (

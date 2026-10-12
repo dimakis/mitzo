@@ -1,5 +1,7 @@
 import { TerminalView } from './pages/TerminalView';
 import { SettingsView } from './pages/SettingsView';
+import { DraftsView } from './pages/DraftsView';
+import { UpdatesView } from './pages/UpdatesView';
 import { BackupsView } from './pages/BackupsView';
 import { NotificationProvider } from './components/NotificationProvider';
 import { NotificationsView } from './pages/NotificationsView';
@@ -167,6 +169,26 @@ export function App() {
           <NotificationProvider>
             <MobileShell>
               <Routes>
+                <Route
+                  path="/sessions/drafts"
+                  element={
+                    <ProtectedRoute>
+                      <PageRoute>
+                        <DraftsView />
+                      </PageRoute>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/settings/updates"
+                  element={
+                    <ProtectedRoute>
+                      <PageRoute>
+                        <UpdatesView />
+                      </PageRoute>
+                    </ProtectedRoute>
+                  }
+                />
                 <Route
                   path="/settings/backups"
                   element={

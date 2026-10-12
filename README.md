@@ -145,6 +145,12 @@ Apple Keychain HTTPS connections support Home Assistant and custom APIs with tok
 
 **Settings → Appearance** offers Lavender, Teal, Rose, Amber, Blue, Mint, Coral and Plum accents and System, Arial, Georgia, Verdana, Trebuchet MS, Palatino and Courier New UI fonts. Font stacks use local fallbacks when the selected family is unavailable. Changes preview immediately, apply to every route, and persist locally on the current device across reloads. Each accent has light/dark variants; code retains its monospace font. Reset appearance restores the defaults.
 
+**Chats → Drafts** keeps unsent new conversations separate from chat history. New chat opens a fresh composer; leaving it saves the message, attachments, context, account, model, thinking level and launch settings on this device. Open a draft to edit it before sending, or explicitly discard it. Failed or uncertain sends retain the draft until acceptance is confirmed. Existing unsent new-chat text is preserved during migration using the device's saved account/model preference; older versions did not record the rest of its settings.
+
+Repository preparations stay with their draft even before typing or after clearing its message. Discard releases an unused preparation before removing the saved draft; if its state or cleanup cannot be confirmed, the draft remains available to reopen and retry.
+
+**More → Settings → Updates** shows the installed commit, interface build and update status, with explicit version checks and interface reload. Review update opens the installation's configured Deploy Mitzo prompt in a fresh chat for review before sending; opening the page never deploys an update. The chat list no longer carries update or deployment controls.
+
 Controls, navigation, resource types and work states share a restrained outline icon family that stays consistent across fonts and platforms. Internal destinations use chevrons, external links use an external-link icon, and command scopes are labelled Workspace, Personal or Built-in.
 
 Mobile collection pages share one full-wordmark masthead and icon navigation. Work has one outcome heading; Inbox combines session requests, briefings and proposals with global search, readable rows, full-context review and recoverable Archive actions. Focused conversations and item details retain their back navigation. Run `npm run test:ui` for offline WebKit/Chromium checks at narrow phone widths, live accent/font substitution, dark/light themes and collection scrolling; every request is intercepted and no backend or model is used. See [the UI design contract](docs/design/ui-design-system.md). Repository instructions require it for every UI change; the PR template records design evidence, and `npm run test:design` enforces palette/font ownership and shared-token overrides in CI.
@@ -200,7 +206,7 @@ SDK query failures after input acceptance are recorded under the current convers
 
 The [durable child session allocation design](docs/design/session-service-core.md) describes the SessionService foundation for future bounded Task Board workers and Symposium seats. It records a child conversation and its parent/grant link in one transaction before runtime setup, fences cancellation across descendants, and retains uncertain starts or missing results for recovery. This foundation does not yet change the current Task Board or Symposium runtime paths.
 
-The [session runtime selection foundation](docs/design/session-runtime-selection.md) separates account identity, agent implementation and execution location in a dormant, immutable metadata contract. Explicit creation stores that contract with a new ordinary repository session; legacy sessions are not enrolled. V2 also persists the exact configured target ID and routing revision; V1 remains readable without target inference or automatic upgrade. A pure server resolver checks compatibility against an injected catalog and returns a V2 binding containing its selected target/revision. AccountProfiles can project credential-free local Codex host-login metadata with the exact existing account routing revision when Codex is enabled; this performs no authentication or discovery. A dormant local Codex target loader now validates an explicit operator-owned file and computes its routing revision. Its bounded configuration-only capability snapshot joins that target with the existing local account projection and cached model/thinking metadata; OpenShell remains the default preference with an explicit unavailable reason until its projection is enrolled. Host/runtime verification, other provider projections, an authenticated picker endpoint, authorization and dispatch admission remain separate work. Startup and resume do not consume these bindings yet, and no runtime selector is exposed.
+The [session runtime selection foundation](docs/design/session-runtime-selection.md) separates account identity, agent implementation and execution location in a dormant, immutable metadata contract. Explicit creation stores that contract with a new ordinary repository session; legacy sessions are not enrolled. V2 also persists the exact configured target ID and routing revision; V1 remains readable without target inference or automatic upgrade. A pure server resolver checks compatibility against an injected catalog and returns a V2 binding containing its selected target/revision. AccountProfiles can project credential-free local Codex host-login metadata with the exact existing account routing revision when Codex is enabled; this performs no authentication or discovery. A dormant local Codex target loader now validates an explicit operator-owned file and computes its routing revision. Its bounded configuration-only capability snapshot joins that target with the existing local account projection and cached model/thinking metadata; OpenShell remains the default preference with an explicit unavailable reason until its projection is enrolled. A dormant first-command coordinator requires an explicit server gate and independently qualified owning authority, then atomically saves the exact runtime/workspace binding and frozen published profile, context, permission, model and thinking selection in the existing command receipts. Exact retries retain their choices; uncertainty is saved before workspace or provider effects and cannot replay automatically. Existing-session adoption and later commands are refused by this slice. Legacy send, startup and cold-start preflight fail closed for runtime-bound rows. Actual host/runtime verification, workspace reservation before materialization, provider continuity, other provider projections and an authenticated picker endpoint remain separate work; no live caller or runtime selector is enrolled.
 
 Symposium shutdown fences new admission and dispatch, drains retained seat and login
 cleanup, and awaits the owned gateway child before closing custody stores. A bounded
@@ -645,6 +651,14 @@ bridge; a web deployment alone cannot update installed native code.
 | `session-overview.ts`   | Session overview API                              |
 | `signal-processor.ts`   | Signal processing utilities                       |
 
+Execution admission, provider-attempt transitions and restart recovery live in
+`packages/protocol/src/execution-ledger.ts`. `EventStore` supplies its existing
+SQLite connection and prepared statements and retains schema, backup, close and
+conversation-identity ownership. State changes and their events commit together;
+restart recovery keeps completed per-attempt progress if a later write fails.
+Existing public execution methods and admission error types remain available
+through the event-store module.
+
 ### Frontend (`frontend/`) — React 19 + Vite
 
 React 19 + Vite. Ten pages (`Login`, `SessionList`, `ChatView`, `DesktopChatView`, `FileViewer`, `InboxView`, `CalendarView`, `TodoView`, `TodoDetailView`, `TaskBoard`), a `useReducer`-based message state machine (`useChatMessages`), module-level WebSocket pool with 500-message buffer, and components for thinking blocks, tool pills, tool groups, permission banners, and a slash-command picker. Capacitor wraps the frontend for iOS deployment via TestFlight.
@@ -768,6 +782,21 @@ npm run test:browser  # Connections scrolling in mobile WebKit and desktop Chrom
 npm run lint         # ESLint: server, frontend and shared packages (including tests, excluding dist)
 npm run format:check # prettier
 ```
+
+On macOS, run Playwright commands in a normal terminal or through an approved
+execution outside the Codex Seatbelt sandbox. Sandboxed launches can abort during
+macOS process registration and produce repeated crash popups. Both test configs
+refuse that environment before starting a browser or preview server; `--list`
+still works for discovery. Browser setup projects open a blank page once per selected
+engine/launch configuration. Playwright selects each setup as a dependency of its
+tests, so a Chromium-only run does not require WebKit. A failed startup blocks the
+dependent tests instead of relaunching a broken browser for each test. The offline suite starts no
+backend and makes no model calls. Ad hoc browser scripts need the same execution
+environment; they do not inherit the config guard.
+
+The browser CI job has a 45-minute budget for cold browser/dependency installation
+and both required suites. Installation can exceed 20 minutes; that time must not
+cancel an otherwise passing browser and offline run.
 
 CI runs the full source test suite without compiled test copies. New PR commits
 cancel superseded code-validation runs; description edits rerun only the

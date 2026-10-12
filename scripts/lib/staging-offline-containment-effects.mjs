@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { createOfflineContainmentPlan } from './staging-offline-containment-contract.mjs';
 import {
+  OFFLINE_CONTAINMENT_NATIVE_TARGET,
   qualifyOfflineContainmentController,
   assertOfflineContainmentBeforeMove,
   assertOfflineContainmentContained,
@@ -131,7 +132,7 @@ export async function createOfflineContainmentEffects(
         result.stderr ||
         field('path') !== control.path ||
         field('state') !== 'not running' ||
-        field('runs') !== '0' ||
+        field('runs') !== String(OFFLINE_CONTAINMENT_NATIVE_TARGET.vmSupervisorRuns) ||
         field('pid')
       )
         throw Error('Exact stopped original VM supervisor required');
