@@ -59,7 +59,8 @@ export class StagingPipelineStore {
     }
     this.clock = clock;
     this.db = new DatabaseSync(path);
-    this.db.exec(`PRAGMA busy_timeout=5000; PRAGMA journal_mode=DELETE; PRAGMA synchronous=FULL;
+    this.db
+      .exec(`PRAGMA busy_timeout=5000; PRAGMA journal_mode=DELETE; PRAGMA synchronous=FULL; PRAGMA max_page_count=4096;
       CREATE TABLE IF NOT EXISTS requests(sequence INTEGER PRIMARY KEY AUTOINCREMENT,id TEXT UNIQUE NOT NULL,payload TEXT NOT NULL,fingerprint TEXT NOT NULL,state TEXT NOT NULL,reason TEXT,result TEXT);
       CREATE TABLE IF NOT EXISTS reservation(singleton INTEGER PRIMARY KEY CHECK(singleton=1),epoch INTEGER NOT NULL,state TEXT NOT NULL,request_id TEXT,owner TEXT,nonce TEXT,deadline INTEGER,dispatched INTEGER NOT NULL DEFAULT 0,source_commit TEXT);
       INSERT OR IGNORE INTO reservation(singleton,epoch,state) VALUES(1,0,'idle');`);
@@ -113,7 +114,11 @@ export class StagingPipelineStore {
         dispatched: Boolean(row.dispatched),
       },
       requests: this.db
-        .prepare('SELECT payload,state,reason,result FROM requests ORDER BY sequence LIMIT 200')
+        .prepare(
+          `SELECT payload,state,reason,result FROM requests
+          ORDER BY CASE WHEN state IN ('active','quarantined') THEN 0 WHEN state='queued' THEN 1 ELSE 2 END,
+            CASE WHEN state IN ('queued','active','quarantined') THEN sequence ELSE -sequence END LIMIT 200`,
+        )
         .all()
         .map((r) => ({
           ...JSON.parse(r.payload),
@@ -187,6 +192,14 @@ export class StagingPipelineStore {
         "UPDATE reservation SET state='idle',request_id=NULL,owner=NULL,nonce=NULL,deadline=NULL,dispatched=0,source_commit=NULL WHERE singleton=1",
       )
       .run();
+  }
+  settleDeployment(t, sourceCommit) {
+    this.transaction(() => {
+      const r = this.assertToken(t);
+      if (r.source_commit !== sourceCommit || !r.dispatched)
+        throw Error('Verified deployed source and original reservation required');
+      this.db.prepare('UPDATE reservation SET dispatched=0 WHERE singleton=1').run();
+    });
   }
   bindBaseline(t, sourceCommit) {
     if (!commit.test(sourceCommit)) throw Error('Exact test source required');

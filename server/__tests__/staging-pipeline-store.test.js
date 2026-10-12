@@ -165,3 +165,27 @@ it('holds admission under host pressure, disk shortage, oversized stage or unbou
   ])
     expect(assessStagingResources({ ...resources, ...changed }).admitted).toBe(false);
 });
+it('a verified completed deployment can wait for resources without retaining dispatched work', () => {
+  const {
+    stores: [s],
+  } = fixture();
+  s.enqueue(request());
+  const c = s.claim('worker');
+  s.bindBaseline(c.token, 'a'.repeat(40));
+  s.markDispatched(c.token);
+  expect(() => s.settleDeployment(c.token, 'b'.repeat(40))).toThrow(/source/);
+  s.settleDeployment(c.token, 'a'.repeat(40));
+  s.defer(c.token, 'host-resources');
+  expect(s.status().reservation.state).toBe('idle');
+});
+it('keeps queued work visible after more than 200 historical receipts', () => {
+  const {
+    stores: [s],
+  } = fixture();
+  for (let i = 0; i < 201; i++) {
+    s.enqueue(request('old' + i));
+    s.cancel('old' + i);
+  }
+  s.enqueue(request('current'));
+  expect(s.status().requests.some((r) => r.id === 'current')).toBe(true);
+});

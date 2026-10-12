@@ -132,3 +132,18 @@ it('a later accepted baseline binds results to the actual tested source', async 
     cleanupConfirmed: true,
   });
 });
+it('confirmed deployment plus host pressure waits without creating a custody incident', async () => {
+  const f = fixture();
+  f.store.settleDeployment = vi.fn();
+  f.effects.check.mockResolvedValueOnce({ safe: true, expected: 'b'.repeat(40) });
+  f.effects.resources
+    .mockResolvedValueOnce({ admitted: true })
+    .mockResolvedValueOnce({ admitted: true })
+    .mockResolvedValueOnce({ admitted: true })
+    .mockResolvedValueOnce({ admitted: false });
+  await runStagingPipelineRequest(f.store, f.effects, 'worker');
+  expect(f.store.settleDeployment).toHaveBeenCalledWith(token, request.acceptedCommit);
+  expect(f.store.defer).toHaveBeenCalledWith(token, 'host-resources');
+  expect(f.store.quarantine).not.toHaveBeenCalled();
+  expect(f.effects.test).not.toHaveBeenCalled();
+});

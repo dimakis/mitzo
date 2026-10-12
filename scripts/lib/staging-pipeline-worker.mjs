@@ -31,9 +31,10 @@ export async function runStagingPipelineRequest(store, effects, owner) {
     if (!selected.safe || selected.expected !== sourceCommit)
       throw Error('Staging baseline changed');
     if (!(await effects.resources(0)).admitted) {
-      // A completed deployment is still an owned effect: retain its reservation
-      // until actual runner/service reconciliation, rather than infer cleanup.
-      if (phase === 'deploying') throw Error('Resources changed after deployment');
+      // Apply completed and the canonical check just confirmed the exact source
+      // and absence of uncertainty. No test has started, so capacity waiting can
+      // release this completed operation without fabricating native retirement.
+      if (phase === 'deploying') store.settleDeployment(token, sourceCommit);
       return wait('host-resources');
     }
     if (phase !== 'deploying') store.markDispatched(token);
