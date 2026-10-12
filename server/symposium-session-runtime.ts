@@ -61,7 +61,11 @@ import {
   SymposiumOpenShellSeatExecutor,
   type SymposiumOpenShellSeatExecutorDeps,
 } from './symposium-openshell-seat-executor.js';
-import { SymposiumOrchestrator, type SymposiumSeatExecutor } from './symposium-orchestrator.js';
+import {
+  SymposiumOrchestrator,
+  type SymposiumSeatExecutor,
+  type SymposiumSeatExecution,
+} from './symposium-orchestrator.js';
 import {
   OpenShellRuntimeManager,
   sandboxNameForConversation,

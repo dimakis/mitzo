@@ -33,7 +33,9 @@ async function setup() {
     selectedModel: 'gpt-6-luna',
     modelApprovalId: null,
   };
-  const start = vi.fn(async () => {});
+  const start = vi
+    .fn<StagingFeatureOwnerAuthority['port']['startChat']>()
+    .mockResolvedValue(undefined);
   const reservation = vi.fn();
   const authority = {
     sourceCommit: 'a'.repeat(40),
@@ -98,6 +100,7 @@ it('retains and closes a partial-start original capability before onQueryReady a
   const f = await setup();
   const close = vi.fn(async () => {});
   f.start.mockImplementation(async (_transport, _id, _prompt, options) => {
+    if (!options.stagingFeature) throw new Error('Original staging feature startup scope missing');
     options.stagingFeature.retainCleanup(close);
     throw new Error('Original initialization failed before query ready');
   });

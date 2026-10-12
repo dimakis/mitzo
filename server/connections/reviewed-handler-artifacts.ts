@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.9';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.66';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.67';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -62,17 +62,17 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'c103af10de4adc81cdc474b3e69ef2b3de5e447d4dcf15da4fc1894c422b913b',
   '../../packages/protocol/src/session-output-reference-store.ts':
     '1b54dd00d94e99974b536a68cfc0b5cdc841e2f6453ba7bc58b5c4b98830c7ff',
-  '../chat.ts': '053364b8a897ab507849b2d8b8f652a91bd7462367da06e1303d6071ad0b7184',
+  '../chat.ts': '3632e0f965d022d681a82d2d4357f72fe783277f14f8a64b1f891bbbe03edefb',
   // Contributor execution lifetime is independent of viewer detach/expiry.
   '../../packages/harness/src/session-registry.ts':
-    '5ad72e9be9d3289a13511aaa1bb107b527283493e5577e08912ea4fdc4740a81',
+    '5620e68cbd9b9498cfcf872ed61b4a7f34dd3ff81b45cd4b2acb01d3d2d10f85',
   '../agent-context-binding.ts': '4917ff83899105b7ac2c537c8db18111eeb97386d1ca0a2d2b576d872e1db360',
   '../symposium-personal-connection-router.ts':
     'f254cadb334bc75dbb19104fdb7ed2b3e46bf2856b81d29300fd4f45db02674e',
   // Read-only session observation is part of the operator route composition.
   '../session-access.ts': 'e70130c57879d3b22fab78473d90c8d2e787b7a499194c166e7e912fc5cf2767',
   // Request authority and physical review composition share runtime admission.
-  '../app.ts': '48a9f3db5c4586bd061f8ac0f37135ae1d18bf9a0870aa1aa4de419be9d3d447',
+  '../app.ts': '325d4ab581f8094cfa85d8471599e1bda663f5d6d13018a03b96cc598dc7cf12',
   '../symposium-review-route-composition.ts':
     'bc2cb2a85517a1f16279fd87757a97b9bb46a16d9efc5f15b52bf41a6f14cae3',
   '../symposium-review-host-contract.ts':
@@ -114,9 +114,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'aadefe0eab442dc27ce68b86654291299dc6664a185b903af44756f79ff26680',
   '../symposium-profiles.ts': '4138fce2cc44220fa90b3ef65b207b89c06a5f02cd24750a748f79d84d297c95',
   '../symposium-custodian-protocol.ts':
-    'c9ce7f03cb6ba33befd7218ceba1e2bf8212b88e0195faa8a058697d352008ad',
+    '14143aaa949c5a47b9aec8e4b2a8f5dce9670c9a6d47d1af68839d95d84f55d5',
   '../symposium-custodian-proxy.ts':
-    'b89fd74b04bdc4375fb7996c06c1c8cc354e6cd75419c916a193db9881022ecb',
+    '4e37191b7019eb16732f53c0ccd1be2f05ca77db92001510933ae2fe97ed971b',
   '../../packages/protocol/src/agent-library.ts':
     'e5c0e87a605c4f7664d5b9c69411bafc8059301a8c37a8057d3bdf14f604900e',
   '../../packages/protocol/src/symposium.ts':
@@ -239,7 +239,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../openshell-runtime-policy.ts':
     'efecd458bf61fecd8198ecd330e0227e2c600ab21d6d2890cd2bac254e22b75f',
   '../openshell-runtime.ts': 'fe3659a89af1b8341fb7beefcc6dd9bb253ccb95011a651f5fa92c3baa5f1b8f',
-  '../codex-chat-session.ts': '620a5a8e53b8ccaf249af83481a04c6ba58d647b789ae3a0227693d38d2034d3',
+  '../codex-chat-session.ts': '8501486f6f908edfbd481967c07aed672db454e314c9abcc036b52eb1208b56b',
   '../connections-runtime.ts': 'dbe641704a1d761d73740260fb28057054fdb34a64513fa77292d2fdb1954a84',
   'capabilities/operation-store.ts':
     '1a235f11d5578880e6dfa7ecf5779e2a011e24430774fc17429d7d22359b93f2',
@@ -288,9 +288,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../knowledge-library-source.ts':
     'b0192e3ff56deafaff5b506eb55c6c2325c712e825814de6d355b0fe1bbc3087',
   '../native-responses-runner.ts':
-    'fbe437d5efde44bc4186e36dc864b82d50b70780863e0fd45c88216d33174b35',
+    'cc912f0c14ef4a00c9b93b449a9113a9851eecb9eb899bfba222fb1b324065d8',
   '../responses-chat-session.ts':
-    'f6d598fcaa493d4d26981a278b768f3472df6cf718bbfca878568f2c6ee67313',
+    '34a88799051f2c085aaba4b7ef50bee471ec6f4dbae12ce6a158a3dca38f6563',
   // Image payload validation shares native queue admission and dispatch authority.
   '../responses-input.ts': 'b4be57d3535660a31597f07b075070a90b49b2e62239916937e9316e78cc4b05',
   '../symposium-agent-context.ts':
@@ -305,7 +305,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '3a695f4f38a4828c935342930f01cd1237f88233fc2a641e6917991f1bc85d6f',
   '../symposium-seat-prompt.ts': '1f29774555808c5db22e0458f9767c2b498e99430dbd13da6ab94e607291bf4f',
   '../symposium-session-runtime.ts':
-    'c60fc54ab05cd6fbcdbf1f549ac59664df9684df31d8a426e1441afce7fec788',
+    'c89e423508da5bd236032b21d06a89288cbd20a5efa16693f9b7faac846feed3',
   '../telos-artifact-tools.ts': '560e27e41df29aa0b5e8a859731bc956b165e6309f9a0974c16da9ee2c2525e5',
   '../symposium-agent-context-authorization.ts':
     '497a2c4bbb4ca61892e392b11fe554bb88d5302921eef7305f88e74d03c206cc',
