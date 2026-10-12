@@ -64,7 +64,14 @@ function inspect(path, expectedSha256, retain = false) {
  * This closure, the actual spawned child and a WeakSet own authority. JSON receipts,
  * copied tokens and caller-supplied evidence cannot mint or transfer the brand.
  * No capacity, native custody, containment action or provider permission is granted. */
-export function createStagingOfflineOperatorAuthorizer({ helperPath, expectedSha256 }) {
+export function createStagingOfflineOperatorAuthorizer({
+  helperPath,
+  expectedSha256,
+  purpose = 'ordinary_recovery',
+}) {
+  if (!['ordinary_recovery', 'contained_native_allocation'].includes(purpose)) throw fail();
+  const authenticationCommand =
+    purpose === 'contained_native_allocation' ? 'authenticate-native-allocation' : 'authenticate';
   const enrolled = inspect(helperPath, expectedSha256, true);
   const authorities = new WeakSet();
   const deadlines = new WeakMap();
@@ -168,7 +175,15 @@ export function createStagingOfflineOperatorAuthorizer({ helperPath, expectedSha
         try {
           child = spawn(
             helperPath,
-            ['authenticate', '--plan-sha256', planSha256, '--nonce', nonce, '--uid', String(uid)],
+            [
+              authenticationCommand,
+              '--plan-sha256',
+              planSha256,
+              '--nonce',
+              nonce,
+              '--uid',
+              String(uid),
+            ],
             {
               shell: false,
               stdio: ['ignore', 'pipe', 'pipe'],
