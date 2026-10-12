@@ -554,6 +554,30 @@ Tasks with `sessionPolicy: spawn` run only in dedicated sessions. When session s
 
 **Observability**
 
+Browser and iOS tracing are opt-in. Set `VITE_OTEL_ENDPOINT=api` to export
+through `/api/telemetry/v1/traces` on the app's configured API origin. The
+relay requires normal Mitzo authentication and forwards only trace payloads
+to the server's configured `OTEL_EXPORTER_OTLP_ENDPOINT`; login headers and
+cookies are never forwarded. Requests and collector responses are capped
+at 1 MiB, with a two-second collector deadline. The iOS build must use this
+relay: `localhost:4318` would address the phone itself. Direct collector URLs
+remain supported for local browser development and receive no Mitzo token.
+Browser spans export in bounded batches to reduce per-span network work.
+Cold authentication checks wait for the browser tracer within the existing
+five-second authentication deadline, so delayed tracing initialization cannot
+leave startup pending. A late initialization records its failed duration without
+sending an obsolete check or changing authentication state.
+Authentication checks use a shared W3C trace context between the phone and
+server, with separate `http.auth.check` spans for network wait and server
+verification. These spans record the static route, HTTP method and response
+status; they exclude cookies, tokens, query strings and request contents.
+
+Unavailable authentication makes up to three automatic retries with backoff.
+The existing Retry action remains available; native foreground, browser
+visibility and restored network connectivity also resume recovery automatically.
+Hidden apps wait for foreground, verified routes stay visible, and genuine
+authorization denial continues to redirect to Login.
+
 | File                | Purpose                                                                                          |
 | ------------------- | ------------------------------------------------------------------------------------------------ |
 | `logger.ts`         | Pino structured logging: JSON output, daily rotation, OTel trace context mixin, Loki integration |

@@ -3344,6 +3344,8 @@ it('rejects a foreign same-ID echo for an assigned observed ordinary send', asyn
 it('rejects foreign same-ID history and accepts the original ordinary send transcript once', async () => {
   const transport = mockTransport();
   const store = createReadyStore(transport);
+  // Other stores can reconnect during awaits and replace the shared fixture pointer.
+  const socket = lastWs;
   await store.getState().switchSession('target');
   const onDelivery = vi.fn();
   store.getState().sendMessage('Exact draft', { onDelivery });
@@ -3354,22 +3356,22 @@ it('rejects foreign same-ID history and accepts the original ordinary send trans
     json: async () =>
       url.includes('/messages') ? [{ messageId: id, role: 'user', blocks: [], timestamp: 1 }] : [],
   }));
-  lastWs.simulateMessage({ type: '_foreground' });
+  socket.simulateMessage({ type: '_foreground' });
   await vi.waitFor(() =>
     expect(store.getState().messages.messages.some((m) => m.messageId === id)).toBe(true),
   );
   expect(onDelivery).not.toHaveBeenCalled();
   await store.getState().switchSession('target');
-  lastWs.simulateMessage({ type: '_foreground' });
+  socket.simulateMessage({ type: '_foreground' });
   await vi.waitFor(() => expect(onDelivery).toHaveBeenCalledExactlyOnceWith('accepted'));
-  lastWs.simulateMessage({
+  socket.simulateMessage({
     type: 'user_message',
     sessionId: 'target',
     messageId: id,
     text: 'Exact draft',
   });
   expect(onDelivery).toHaveBeenCalledExactlyOnceWith('accepted');
-  expect(lastWs.parsedSent().filter((m) => m.type === 'send')).toHaveLength(1);
+  expect(socket.parsedSent().filter((m) => m.type === 'send')).toHaveLength(1);
 });
 
 it('scopes offscreen reconnect receipts to their requested session instead of another send ID', async () => {
