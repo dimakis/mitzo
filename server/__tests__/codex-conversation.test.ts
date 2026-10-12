@@ -1096,7 +1096,7 @@ it('finishes failed automatic refresh progress without inventing Access or dispa
   expect(state.c.isRecovering()).toBe(false);
   expect(state.c.getRecoveryPhase()).toBeUndefined();
   expect(state.c.queue()).toMatchObject([{ id: 'refused-refresh', status: 'failed' }]);
-  expect(state.store.read('app', getBinding()).recovery).toBeTruthy();
+  expect(state.store.read('app', state.getBinding()).recovery).toBeTruthy();
 });
 
 it('does not renew the process when provider attachment failed', async () => {
