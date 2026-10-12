@@ -22,7 +22,8 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
-  '../../packages/protocol/src/context-injection.ts': 'f374381a452c3a5354d9b4e84b21ad3d6d40d10879e43124dec30f40118f60bb',
+  '../../packages/protocol/src/context-injection.ts':
+    'f374381a452c3a5354d9b4e84b21ad3d6d40d10879e43124dec30f40118f60bb',
   '../../packages/protocol/src/ordinary-local-admission.ts':
     '85f66be424edfcbcb5b072b79a7113b491b1f486b7d6a0ba03ad9cbf2d3bdf2e',
   '../send-command.ts': '18bc97eb0e66226fd777c77d58597293872c3e6378b071a91c6514511ffe9750',
@@ -34,7 +35,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/client/src/sse-connection.ts':
     'df641e4ef93a4018d6ceb968b84b76df51921760c2907b8ec45592f3414baa31',
   '../../packages/client/src/store.ts':
-    '38b97e66121522fcdd012812f2d382ec1ce9762196e62a2eb52bbdebeaa84f10',
+    'b1847d1777b7411be8d7446ff5a2c6cdc7c0735e4768470ed5b85f7722539060',
   '../../packages/harness/src/permission-handler.ts':
     '20d09ccadeb668c91008713b45aaffd5762d34c0a6dc1651b3e234732743a7fa',
   '../../packages/harness/src/permissions.ts':
@@ -257,7 +258,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/session-runtime-binding.ts':
     '074c03124322359a02795c7865a718205f80f8aa9fc6b4e0b5a8f43746d6ca4d',
   '../../packages/protocol/src/types.ts':
-    'd2cb618c43e256762789210a875a9b4332504037d828df82a1a8c433ae9022be',
+    'a2a93b0fca7ba3af11c5f4fc89d4626f10428310b65a168347d4b519b839fdba',
   '../repository-workspace-runtime.ts':
     '13db6d8d468d3e5ff4a9c8feaa06e5abbbb040196e8cf5b94b145297a5393a99',
   '../repository-workspace-router.ts':
@@ -295,7 +296,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/client/src/protocol-parser.ts':
     '1aaac1b2839aaea054157b42bf39effea57f77bf28630367057e30c0f4a43aed',
   '../../packages/client/src/slices/messages.ts':
-    '662c0ec8ce336b6130d02631c5d7536e262ba3293a03af9b3fa8b15407c55a19',
+    '4bed61fceaa9a34613c2c923bbc6e2c74d6dc66ff04d8b897a513d41af66a9e2',
   '../../packages/harness/src/providers/responses-session.ts':
     'd30cb48b17c201017eef8e51497c51aaa9a683cd79dc8ee140c09e643d7a7b19',
   '../../packages/harness/src/providers/session-types.ts':
@@ -303,7 +304,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/agent-context-pack.ts':
     '6964f27523d93a64c153f2d3a56650298a2063521abdafffa0c19c3dba839de5',
   '../../packages/protocol/src/index.ts':
-    '365f22b6c1cba4feb32047db89b9a15ea3f5f659946d4fb6432fbddd8a246c49',
+    '2d1fc0fcf541f80901e7110bfc4dcbd129b4b5ed92f934ffc1ed440e639b5420',
   '../agent-context-authority.ts':
     '68b721db46cf6ba99de042cdf32be345bfc78c7ae27c2e31ee2b0b52a20ac266',
   '../agent-context-delivery.ts':
