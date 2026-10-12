@@ -1293,3 +1293,16 @@
     flex-wrap: wrap;
   }
 }
+
+/* Shared always-reachable actions beside the collapsed workspace summary. */
+.workspace-controls-heading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding-right: var(--page-gutter);
+}
+.workspace-controls-heading .workspace-controls-toggle {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+}

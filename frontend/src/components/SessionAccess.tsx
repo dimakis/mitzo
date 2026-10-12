@@ -135,7 +135,9 @@ function AccessContent({ sessionId, selection, connected = true, onShowApproval 
         Read-only evidence for this conversation. Account configuration does not establish session
         availability.
       </p>
-      {!sessionId && <p>No session has started. Selection is not admitted access.</p>}
+      {!sessionId && (
+        <p>No session has started. The selected account has not been used in this conversation.</p>
+      )}
       {loading && <p role="status">Checking Access…</p>}
       {sessionId && !loading && (
         <p role="status">
@@ -252,7 +254,7 @@ export function SessionAccess(props: Props) {
     <>
       <button
         type="button"
-        className="chat-input-btn composer-session-trigger"
+        className="home-secondary session-access-trigger"
         aria-label="Access"
         title="Session and account access"
         onClick={(event) => {
@@ -261,7 +263,7 @@ export function SessionAccess(props: Props) {
         }}
       >
         <UiIcon name="connections" />
-        <span className="composer-toolbar-label">Access</span>
+        <span className="session-access-label">Access</span>
       </button>
       {open && (
         <HomeDialog title="Access" onClose={() => setOpen(false)}>
@@ -270,7 +272,13 @@ export function SessionAccess(props: Props) {
             {...props}
             onShowApproval={() => {
               setOpen(false);
-              props.onShowApproval?.();
+              if (props.onShowApproval) props.onShowApproval();
+              else
+                requestAnimationFrame(() => {
+                  const banner = document.querySelector<HTMLElement>('.perm-banner');
+                  banner?.scrollIntoView({ block: 'center' });
+                  banner?.querySelector<HTMLElement>('button, input')?.focus();
+                });
             }}
           />
         </HomeDialog>

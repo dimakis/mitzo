@@ -26,20 +26,21 @@ Initial supported live route: an ordinary Claude SDK session with a live registr
 exact matching durable session ID, behind the existing operator authentication boundary.
 Empty ordinary chat remains supported before a session, output or Telos item exists.
 
-| Fact                                    | Authority                                               | Projection and limitation                                                                                                     |
-| --------------------------------------- | ------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| Selected account/model before send      | ChatView/DesktopChatView account selection              | Selected, not admitted; no session has started                                                                                |
-| Live account/model                      | ManagedSession.accountBinding and model                 | Live binding; model preference/catalog is not runtime evidence                                                                |
-| Configured accounts/services            | Existing `/api/connections-access`, owner-scoped facets | Configuration and historical verification only; read-only in-dialog Connections preserves composer                            |
-| Session service attachments             | No existing bounded read model for this route           | Unknown; never inferred from desired assignments or account selection                                                         |
-| Active tool approvals                   | ManagedSession.sessionAllowList                         | Session tool allow-list only; skill/workspace/exact-action checks still apply                                                 |
-| Pending approvals                       | getPendingRequestsBySession(exact ID)                   | Tool, request ID and existing approval scope only; no raw tool input or secrets; view through existing chat approval controls |
-| Effective mode                          | effectivePermissionMode(live owner)                     | Restrictive pending transitions applied immediately; no authority expansion                                                   |
-| Skill ceiling                           | ManagedSession.activeSkillPolicy                        | Restriction only, not proof of callable tools                                                                                 |
-| Callable tools                          | No complete adapter inventory authority                 | Unknown; transcript names are observed capabilities, not Sources or available-tool proof                                      |
-| Execution limits                        | No complete session read model                          | Unknown; existing TokenBar retains its separate runtime token evidence                                                        |
-| Missing owner/unsupported route         | No authoritative live observation                       | Unknown, not an empty grant/approval assertion                                                                                |
-| Disconnected/failed or aged observation | Fetch failure or 30 seconds since observation           | Stale with time, refresh and no current approval action; late cross-session results discarded                                 |
+| Fact                                    | Authority                                                                                   | Projection and limitation                                                                                                     |
+| --------------------------------------- | ------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| Selected account/model before send      | ChatView/DesktopChatView account selection                                                  | Selected, not admitted; no session has started                                                                                |
+| Live account/model                      | ManagedSession.accountBinding and model                                                     | Live binding; model preference/catalog is not runtime evidence                                                                |
+| Configured accounts/services            | Existing `/api/connections-access`, owner-scoped facets                                     | Configuration and historical verification only; read-only in-dialog Connections preserves composer                            |
+| Draft/sent context and images           | ChatInput local state, finished user message contextBlocks/images and boot_context metadata | Sources distinguish current draft attachments and historical sent material; these do not prove future provider retention      |
+| Session service attachments             | No existing bounded read model for this route                                               | Unknown; never inferred from desired assignments or account selection                                                         |
+| Active tool approvals                   | ManagedSession.sessionAllowList                                                             | Session tool allow-list only; skill/workspace/exact-action checks still apply                                                 |
+| Pending approvals                       | getPendingRequestsBySession(exact ID)                                                       | Tool, request ID and existing approval scope only; no raw tool input or secrets; view through existing chat approval controls |
+| Effective mode                          | effectivePermissionMode(live owner)                                                         | Restrictive pending transitions applied immediately; no authority expansion                                                   |
+| Skill ceiling                           | ManagedSession.activeSkillPolicy                                                            | Restriction only, not proof of callable tools                                                                                 |
+| Callable tools                          | No complete adapter inventory authority                                                     | Unknown; transcript names are observed capabilities, not Sources or available-tool proof                                      |
+| Execution limits                        | No complete session read model                                                              | Unknown; existing TokenBar retains its separate runtime token evidence                                                        |
+| Missing owner/unsupported route         | No authoritative live observation                                                           | Unknown, not an empty grant/approval assertion                                                                                |
+| Disconnected/failed or aged observation | Fetch failure or 30 seconds since observation                                               | Stale with time, refresh and no current approval action; late cross-session results discarded                                 |
 
 Managed connections have desired account assignments and revision-bound capability grants;
 OpenShell has owned runtime/provider attachment verification, but exposing that as an ordinary
@@ -57,7 +58,7 @@ of these or derive ownership from an account/profile label.
 ## Empty-chat walkthrough and classification contract
 
 1. Open regular chat; choose the usual account/model. No mandatory goal, profile or work form.
-2. Type a draft, select context and attach an image. Open Access from the composer before send.
+2. Type a draft, select context and attach an image. Open Access beside Workspace controls before send.
 3. See selection explicitly labelled as selection, with session availability unknown.
 4. Open Connections inside the same read-only dialog; inspect configured accounts/services,
    unavailable source notices and the explicit attachment uncertainty. Back to Access and close.
@@ -84,3 +85,21 @@ Its retained ownership is preserved; safe status is unproved and freshness is no
 Staging recovery belongs to its separate owner. No live provider/model call, deployment or live
 acceptance is claimed. Provider enrollment and explicitly selected supported Luna acceptance remain
 separate future gates. Production requires a separate explicit user action.
+
+The tray does not report a zero count for registered outputs: it has no output registry observation. Its Outputs disclosure explains the existing conversation location; inferred links/images never contribute an output count.
+
+## Implementation evidence
+
+The red phase failed on missing Access modules and the prior Sources/Outputs classification.
+Core projection/component/classification tests then passed (26 checks); the header action and
+unsupported zero-output count corrections each had failing tests before implementation.
+Rendered checks caught the approval banner covering a composer Access action; Access now uses
+the shared always-visible Workspace action slot. Nine focused browser checks pass across mobile
+WebKit/Chromium and desktop Chromium. They select an account/model before starting any session,
+preserve a text draft plus image through Connections/return, exercise keyboard disclosure and
+Escape/focus restoration, navigate a request-scoped approval, show unavailable/stale states,
+and preserve historical References without inferred outputs.
+
+Shared tokens, HomeDialog, WorkspaceControls, UiIcon and Connections grouped facts/rows are reused.
+Screenshots cover 320px phones and 1280px desktop, light/dark, Teal/Georgia and Lavender/System.
+The new heading slot uses token spacing; no palette, typography or motion constants were added.

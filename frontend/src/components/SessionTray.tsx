@@ -245,13 +245,13 @@ export function SessionTray({
                   <button
                     type="button"
                     className="session-tray-section-toggle"
-                    aria-label={`Outputs ${outputsCount}`}
+                    aria-label="Outputs"
                     aria-expanded={outputsExpanded}
                     aria-controls={outputsContentId}
                     onClick={() => setOutputsExpanded((expanded) => !expanded)}
                   >
                     <span>Outputs</span>
-                    <span className="session-tray-section-count">{outputsCount}</span>
+
                     <span className="session-tray-section-chevron" aria-hidden="true">
                       <UiIcon name={outputsExpanded ? 'down' : 'forward'} size={16} />
                     </span>

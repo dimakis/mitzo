@@ -242,7 +242,7 @@ describe('SessionTray', () => {
     expect(screen.getByText('project-spec')).toBeTruthy();
     fireEvent.click(screen.getByText('Observed capabilities'));
     expect(screen.getByText('Write')).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Outputs 0' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Outputs' })).toBeTruthy();
     expect(screen.getByRole('link', { name: /localhost:3196/ }).getAttribute('href')).toBe(
       'http://localhost:3196',
     );
@@ -262,7 +262,7 @@ describe('SessionTray', () => {
     );
     fireEvent.click(screen.getByRole('button', { name: 'Open session tray' }));
 
-    const outputs = screen.getByRole('button', { name: /Outputs 0/ });
+    const outputs = screen.getByRole('button', { name: 'Outputs' });
     const sources = screen.getByRole('button', { name: /Sources 1/ });
     expect(outputs.getAttribute('aria-expanded')).toBe('false');
     expect(sources.getAttribute('aria-expanded')).toBe('false');
