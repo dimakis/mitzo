@@ -147,8 +147,9 @@ export interface OpenShellCodexOptions {
   gatewayEndpoint?: string;
   gatewayInsecure?: boolean;
   cliEnvironment?: OpenShellCliEnvironment;
-  /** Required service environment names derived only from verified public profiles. */
-  requiredProviderEnvironment?: readonly string[];
+  /** Required service credentials derived only from verified public profiles.
+   * A string requires that name; an alias group requires any one name in it. */
+  requiredProviderEnvironment?: readonly (string | readonly string[])[];
   /** Non-secret, reviewed external-service context for managed sandbox tools. */
   connectionEnv?: { JIRA_URL: typeof JIRA_API_ENDPOINT; JIRA_EMAIL: string };
 }
@@ -309,12 +310,28 @@ export function openShellCodexProcessSpec(
   if (options.appServerCommand === '/usr/local/bin/symposium-subscription-app-server')
     throw new Error('Native ChatGPT launch requires the isolated Symposium controller');
   const required = options.requiredProviderEnvironment ?? [];
-  if (required.length > 64 || required.some((key) => !/^[A-Z][A-Z0-9_]{0,127}$/.test(key)))
+  const groups = required.map((value) => (typeof value === 'string' ? [value] : value));
+  if (
+    groups.length > 64 ||
+    groups.some(
+      (group) =>
+        !Array.isArray(group) ||
+        !group.length ||
+        group.length > 64 ||
+        group.some((key) => typeof key !== 'string' || !/^[A-Z][A-Z0-9_]{0,127}$/.test(key)),
+    ) ||
+    new Set(groups.flat()).size > 64
+  )
     throw new Error('Invalid required provider environment name');
   const command = options.appServerCommand || '/sandbox/run-mitzo-app-server';
   if (!required.length) return openShellSshProcessSpec(options, command, base);
   // This shell becomes the app-server. Its check never prints or copies values.
-  const gate = [...new Set(required)].map((key) => `test -n "\${${key}:-}" || exit 78`).join('; ');
+  const gate = groups
+    .map(
+      (group) =>
+        [...new Set(group)].map((key) => `test -n "\${${key}:-}"`).join(' || ') + ' || exit 78',
+    )
+    .join('; ');
   return openShellSshArgvProcessSpec(
     options,
     ['/bin/sh', '-c', `${gate}; exec '${command}'`],
