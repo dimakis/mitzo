@@ -59,7 +59,17 @@ try {
     timeout: 5000,
     input: '{"pid":1}',
   });
-  assert.notEqual(fakePeer.status, 0);
+  // Node's child pipe is a real AF_UNIX socket pair. The helper correctly
+  // measures its kernel peer and ignores the untrusted JSON bytes entirely.
+  assert.equal(fakePeer.status, 0);
+  assert.equal(JSON.parse(fakePeer.stdout).pid, process.pid);
+  assert.notEqual(JSON.parse(fakePeer.stdout).pid, 1);
+  const nonSocket = spawnSync(executable, ['peer'], {
+    encoding: 'utf8',
+    timeout: 5000,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  assert.notEqual(nonSocket.status, 0);
 } finally {
   clearTimeout(deadline);
   socket?.destroy();
