@@ -1136,12 +1136,15 @@ remain separate integration work; readiness does not prove a feature or native r
 
 Admission requires normal macOS memory pressure, at least 25% reported memory
 headroom, no more than 2 GiB swap use, at least 20 GiB free disk after proposed
-growth, and at most 32 GiB across staging and its quarantine archive. The staging
+growth, and at most 48 GiB across staging and its quarantine archive. Deployment
+reserves the complete workspace/state snapshot, including full sparse-file copy
+size and control metadata, even when reusing a release. The staging
 VM ceiling is 4 GiB and two CPUs. Node build heaps are capped at 2 GiB and the
 ordinary app heap at 1 GiB; heap limits do not cap all native/process RSS. One
 queue controller admits work at a time. The private queue has at most 100 pending
 requests and a 16 MiB SQLite ceiling. Resource shortages remain queued. Expired
-owners or uncertain effects retain their reservation for reconciliation; no
+owners cannot dispatch, finish or defer; they retain their reservation for
+reconciliation. Uncertain effects also retain capacity; no
 forced restart, automatic rollback or historical evidence deletion is provided.
 See [pipeline operations](docs/operations/staging-pipeline.md).
 

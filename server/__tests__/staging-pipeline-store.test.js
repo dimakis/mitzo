@@ -68,6 +68,37 @@ it('expiry leaves the original reservation fenced instead of starting a replacem
     ),
   ).toThrow(/reservation/);
 });
+it('rejects every normal transition with the original valid token after expiry', () => {
+  for (const transition of [
+    (s, t) => s.markDispatched(t),
+    (s, t) => s.bindBaseline(t, 'a'.repeat(40)),
+    (s, t) => s.defer(t, 'host-resources'),
+    (s, t) => s.settleDeployment(t, 'a'.repeat(40)),
+    (s, t) =>
+      s.finish(t, { outcome: 'passed', sourceCommit: 'a'.repeat(40), cleanupConfirmed: true }),
+  ]) {
+    const {
+      stores: [s, other],
+      advance,
+    } = fixture();
+    s.enqueue(request());
+    const c = s.claim('worker');
+    s.bindBaseline(c.token, 'a'.repeat(40));
+    advance();
+    expect(() => transition(s, c.token)).toThrow(/expired/);
+    expect(s.status().reservation.state).toBe('active');
+    expect(s.receipt('one').result).toBeNull();
+    expect(other.claim('replacement')).toMatchObject({
+      granted: false,
+      reason: 'reconciliation-required',
+    });
+    s.quarantine(c.token, 'controller-lost');
+    expect(other.claim('replacement')).toMatchObject({
+      granted: false,
+      reason: 'environment-quarantined',
+    });
+  }
+});
 it('only matching commit and confirmed cleanup can publish a passing result', () => {
   const {
     stores: [s],

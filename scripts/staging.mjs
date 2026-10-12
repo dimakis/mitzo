@@ -38,6 +38,8 @@ import {
   appendAudit,
 } from './lib/staging-files.mjs';
 import { assertStagingPipelineMutation } from './lib/staging-pipeline-mutation-guard.mjs';
+import { assertStagingSnapshotAdmission } from './lib/staging-deployment-growth.mjs';
+import { observeMacStagingResources } from './lib/staging-pipeline-host.mjs';
 import { assertStageJob } from './lib/staging-job.mjs';
 import { assertStageRegistration } from './lib/staging-registration.mjs';
 import { verifyDependencySource } from './lib/staging-dependency-source.mjs';
@@ -414,6 +416,9 @@ async function deploy() {
     'scripts/lib/staging-registration.mjs',
     'scripts/lib/staging-dependency-source.mjs',
     'scripts/lib/staging-pipeline-mutation-guard.mjs',
+    'scripts/lib/staging-pipeline-host.mjs',
+    'scripts/lib/staging-resource-budget.mjs',
+    'scripts/lib/staging-deployment-growth.mjs',
   ]) {
     const installed = new URL(name.replace('scripts/', ''), import.meta.url);
     const p = fileURLToPath(installed);
@@ -424,6 +429,10 @@ async function deploy() {
       throw Error('Controller is not identical to accepted candidate source');
   }
   const lock = join(root, 'service/deployment.lock');
+  const admitSnapshot = () =>
+    assertStagingSnapshotAdmission(root, () => observeMacStagingResources(root));
+  // Refuse before shutdown, then remeasure after the original app has drained.
+  admitSnapshot();
   let lockFd;
   await promoteStage(
     { expectedCurrent: expected, target },
@@ -439,6 +448,7 @@ async function deploy() {
       },
       audit: async (event) => audit({ id, ...event }),
       validate: async () => {
+        admitSnapshot();
         assertPipeline();
         assertStageCandidate(next, target, path);
         validateRelease(next, main());
@@ -464,6 +474,8 @@ async function deploy() {
         throw Error('Original stage shutdown uncertain');
       },
       snapshot: async () => {
+        assertPipeline();
+        admitSnapshot();
         stageDirectory(root, 'service/deployments/' + id, true);
         for (const directory of ['workspace', 'state'])
           cpSync(join(root, directory), join(backup, directory), {

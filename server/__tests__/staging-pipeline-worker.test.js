@@ -28,6 +28,7 @@ function fixture() {
       events.push('prepare');
     }),
     prepared: vi.fn(async () => ({ reused: false, growthGiB: 2 })),
+    deploymentGrowth: vi.fn(async () => 0),
     plan: vi.fn(async () => {
       events.push('plan');
     }),
@@ -39,6 +40,7 @@ function fixture() {
       return { outcome: 'passed', cleanupConfirmed: true };
     }),
   };
+  store.assertToken = vi.fn();
   return { store, effects, events };
 }
 it('holds one reservation across prepare, plan, apply, test and final source verification', async () => {
@@ -61,6 +63,28 @@ it('holds one reservation across prepare, plan, apply, test and final source ver
     cleanupConfirmed: true,
   });
   expect(f.effects.check).toHaveBeenCalledTimes(3);
+});
+it('reserves snapshot growth even when a qualified candidate needs no preparation', async () => {
+  const f = fixture();
+  f.effects.check.mockResolvedValueOnce({ safe: true, expected: 'b'.repeat(40) });
+  f.effects.prepared.mockResolvedValue({ reused: true, growthGiB: 0 });
+  f.effects.deploymentGrowth.mockResolvedValue(2);
+  f.effects.resources.mockImplementation(async (growth) => ({ admitted: growth === 0 }));
+  expect((await runStagingPipelineRequest(f.store, f.effects, 'worker')).state).toBe('queued');
+  expect(f.effects.resources).toHaveBeenLastCalledWith(2);
+  expect(f.effects.deploy).not.toHaveBeenCalled();
+  expect(f.store.markDispatched).not.toHaveBeenCalled();
+});
+it('retains an expired controller without starting readiness on an already-current baseline', async () => {
+  const f = fixture();
+  f.store.markDispatched.mockImplementation(() => {
+    throw Object.assign(Error('expired'), { reservationExpired: true });
+  });
+  const result = await runStagingPipelineRequest(f.store, f.effects, 'worker');
+  expect(result).toMatchObject({ state: 'quarantined', reason: 'controller-lost' });
+  expect(f.store.quarantine).toHaveBeenCalledWith(token, 'controller-lost');
+  expect(f.store.defer).not.toHaveBeenCalled();
+  expect(f.effects.test).not.toHaveBeenCalled();
 });
 it('resource pressure leaves work queued without deploying or starting a test', async () => {
   const f = fixture();

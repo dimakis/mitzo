@@ -60,6 +60,7 @@ OS-enforced filesystem quota. If the build exceeds its projection, additional
 work stops pending investigation/retention planning. Historical archives are not
 deleted to make admission pass. The VM maximum is 4096 MiB/two CPUs. Source
 builders propagate a 2048 MiB V8 heap bound; the ordinary app gets 1024 MiB.
+Deployment also reserves the complete logical workspace/state backup size, filesystem metadata and a 64 MiB controller/receipt allowance. Sparse files, hard links and COW copies receive no savings credit. The canonical apply command remeasures admission before shutdown and after the confirmed drain, before copying; a reused release still needs this backup allowance.
 These limits preserve headroom but do not guarantee a whole-host memory cap or
 control unrelated applications, provider processes or other agent sessions.
 The initial test is one bounded GET and creates no provider/task/native resources.
@@ -67,6 +68,7 @@ The initial test is one bounded GET and creates no provider/task/native resource
 ## Waiting, cancellation and uncertain outcomes
 
 Capacity shortage before dispatch returns the request to queued `host-resources`.
+An expired original token cannot dispatch, test, finish, defer or release capacity. Expiry permits only retaining its exact original reservation for explicit reconciliation; no replacement is inferred.
 If a deployment completed and the subsequent canonical check confirms its exact
 source and integrity, the controller can wait before testing without fabricating
 native retirement. A normal failed GET has no cleanup obligation and records a

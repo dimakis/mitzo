@@ -161,7 +161,7 @@ export class StagingPipelineStore {
           reason:
             r.state === 'quarantined'
               ? 'environment-quarantined'
-              : this.clock() > r.deadline
+              : this.clock() >= r.deadline
                 ? 'reconciliation-required'
                 : 'staging-busy',
         };
@@ -179,7 +179,7 @@ export class StagingPipelineStore {
       return { granted: true, token, request: JSON.parse(next.payload) };
     });
   }
-  assertToken(t) {
+  assertToken(t, { allowExpired = false } = {}) {
     const r = this.db.prepare('SELECT * FROM reservation WHERE singleton=1').get();
     if (
       !t ||
@@ -190,6 +190,10 @@ export class StagingPipelineStore {
       r.nonce !== t.nonce
     )
       throw Error('Staging reservation changed');
+    if (!Number.isSafeInteger(r.deadline) || (!allowExpired && this.clock() >= r.deadline))
+      throw Object.assign(Error('Staging reservation expired; reconciliation required'), {
+        reservationExpired: true,
+      });
     return r;
   }
   markDispatched(t) {
@@ -262,7 +266,9 @@ export class StagingPipelineStore {
   quarantine(t, reason) {
     if (!reasons.has(reason)) throw Error('Bounded reason required');
     this.transaction(() => {
-      this.assertToken(t);
+      // Expiry can retain the original fence; it cannot authorize normal work
+      // or release capacity. Identity/epoch/nonce must still match exactly.
+      this.assertToken(t, { allowExpired: true });
       this.db.prepare("UPDATE reservation SET state='quarantined' WHERE singleton=1").run();
       this.db
         .prepare("UPDATE requests SET state='quarantined',reason=? WHERE id=?")

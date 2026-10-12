@@ -5,6 +5,7 @@ import { fileURLToPath, URL } from 'node:url';
 import { existsSync, readFileSync, lstatSync, readdirSync, realpathSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { assessStagingResources, STAGING_RESOURCE_BUDGET } from './staging-resource-budget.mjs';
+import { measureStagingDeploymentGrowth } from './staging-deployment-growth.mjs';
 
 const sha = /^[a-f0-9]{40}$/;
 /** Never pass inherited provider configuration into a controller/build. GitHub
@@ -136,6 +137,7 @@ export function createStagingPipelineEffects({
       return tip;
     },
     check,
+    deploymentGrowth: async () => measureStagingDeploymentGrowth(root),
     prepared: async (target) => {
       exact(target);
       const result = JSON.parse(mutate(['prepare', '--commit', target, '--check-only']));
