@@ -661,6 +661,11 @@ export class CodexConversation {
       this.opts.ownerKind === 'symposium'
     )
       return undefined;
+    try {
+      this.opts.store.assertNoPendingThreadOwnership(this.opts.conversationId, this.binding);
+    } catch {
+      return undefined;
+    }
     const { accountId, accountLabel, provider, profileRevision } = this.binding;
     return {
       sessionId: this.opts.conversationId,

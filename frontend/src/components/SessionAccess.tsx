@@ -212,6 +212,7 @@ function AccessContent({ sessionId, selection, connected = true, onShowApproval 
                   (codex ? 'No Mitzo host tool grants' : 'No session tool grants')
                 : 'Unknown'}
               <p className="workspace-muted">
+                {codex && 'Remembered approvals only; mode and tool tiers may allow other calls. '}
                 Skill, workspace and exact-action restrictions still apply.
               </p>
             </dd>

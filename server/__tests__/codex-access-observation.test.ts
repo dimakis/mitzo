@@ -89,6 +89,7 @@ function fixture(
   });
   return {
     conversation,
+    store,
     rpc,
     closeTransport: () => callbacks.onClose(new Error('fixture disconnect')),
     acknowledge: () => acknowledge!(),
@@ -152,6 +153,33 @@ it('reports acknowledged model selection, never a preparing or queued future mod
   });
   await conversation.send({ id: 'next', prompt: 'queued', model: 'future-selection' });
   expect(conversation.readAccessObservation()!.model).toBe('fixture-luna-two');
+});
+it('keeps failed ownership receipts Unknown after the in-memory transition has ended', async () => {
+  const held = fixture('local', 'ordinary', undefined, true, true);
+  held.observeOwnership.mockRejectedValueOnce(new Error('fixture ownership receipt failed'));
+  await held.conversation.initialize();
+  const sending = held.conversation.send({ id: 'first', prompt: 'fixture' });
+  const result = sending.catch(() => undefined);
+  await vi.waitFor(() => expect(held.rpc).toHaveBeenCalledWith('turn/start', expect.anything()));
+  held.acknowledge();
+  await result;
+  expect(held.store.pendingThreadOwnership('one', binding)).toBeDefined();
+  expect(held.conversation.readAccessObservation()).toBeUndefined();
+});
+it('returns Unknown when the initialized runtime ownership ledger cannot be read', async () => {
+  const owned = fixture();
+  await owned.conversation.initialize();
+  owned.rpc.mockClear();
+  const read = vi.spyOn(owned.store, 'assertNoPendingThreadOwnership');
+  read.mockImplementationOnce(() => {
+    throw new Error('fixture ledger unavailable');
+  });
+  try {
+    expect(owned.conversation.readAccessObservation()).toBeUndefined();
+  } finally {
+    read.mockRestore();
+  }
+  expect(owned.rpc).not.toHaveBeenCalled();
 });
 it('uses the launcher-owned execution location, never search policy or a missing declaration', async () => {
   const configured = fixture('openshell', 'ordinary', 'openshell', false);
