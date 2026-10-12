@@ -304,6 +304,9 @@ export async function runContainedNativeCanonicalLauncher({
     expectedBootstrap,
   });
   const inspected = bootstrapInspections.get(inspection);
+  // Stock Go/native init writes inherit this original actor's private mask.
+  // Every measured generated mode is still independently pinned by the VM plan.
+  process.umask(0o077);
   const {
     root,
     saved,

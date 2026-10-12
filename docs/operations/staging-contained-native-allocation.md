@@ -33,6 +33,10 @@ allocation despite unconfirmed original cleanup. The process-local lease binds
 that exact allocation, source, configuration and provisioning plan. Authentication
 for ordinary restoration does not cover this purpose.
 
+The original allocation actor sets umask 077 before helper/guard/provisioning
+writes. Generated native file modes remain measured and pinned by the reviewed
+stock VM owner; the mask never substitutes for physical file verification.
+
 Provisioning requires a private, independently acquired staging-only arm64 raw
 image compressed with zstd. The pinned actual decoder streams and hashes the
 compressed bytes, independently counts expansion with a 16 GiB ceiling and
