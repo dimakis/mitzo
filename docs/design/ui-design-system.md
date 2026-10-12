@@ -233,6 +233,12 @@ Structured questions retain their choices and written answer fields, Send answer
 and Cancel. They do not offer session authorization. Response progress disables
 duplicate decisions; errors retain the card and allow retry. Local expiry removes
 the card without submitting a user denial; the server owns timeout resolution.
+Inbox request details use the same quiet action labels and server-owned scope
+caption, with Allow for session available for each authorization and no retention
+for questions. Native notification actions revalidate displayed input and scope;
+the Watch rechecks the complete reviewed request through its authenticated phone
+relay before submitting a session decision.
+
 Offline approval fixtures cover 320px mobile WebKit/Chromium and desktop Chromium,
 light/dark themes, Mint/Georgia appearance, larger text, long request details,
 keyboard focus and 44px controls without a backend or model call.

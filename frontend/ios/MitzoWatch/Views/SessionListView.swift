@@ -258,9 +258,14 @@ struct WatchNotificationDetail: View {
                 if let error { Text(error).font(.caption).foregroundStyle(.orange) }
                 TimelineView(.periodic(from: .now, by: 1)) { context in
                     if item.isActionable(at: context.date.timeIntervalSince1970 * 1000) {
-                        if item.kind == "approval" && item.request?.approvalScope != .conversation {
-                            Text("Applies to this request only.").font(.caption2)
-                            Button("Allow once") { respond(.once) }.disabled(busy)
+                        if item.kind == "approval", let request = item.request, request.questions == nil {
+                            Text(request.sessionGrantDescription ?? "Allow for session keeps this approval until the session ends.").font(.caption2)
+                            if request.approvalScope != .conversation {
+                                Button("Allow once") { respond(.once) }.disabled(busy)
+                            } else {
+                                Text("Review durable conversation access on your iPhone.").font(.caption)
+                            }
+                            Button("Allow for session") { respond(.session) }.disabled(busy)
                         } else {
                             Text("Review this request on your iPhone.").font(.caption)
                         }

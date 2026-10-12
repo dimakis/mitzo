@@ -54,7 +54,12 @@ beforeEach(() => {
 });
 
 describe('initPushNotifications', () => {
-  it.each(['ALLOW_ONCE_ACTION', 'ALLOW_SEARCH_SESSION_ACTION', 'DENY_PERMISSION_ACTION'])(
+  it.each([
+    'ALLOW_ONCE_ACTION',
+    'ALLOW_SESSION_ACTION',
+    'ALLOW_SEARCH_SESSION_ACTION',
+    'DENY_PERMISSION_ACTION',
+  ])(
     'leaves %s to the native background handler without navigating or submitting twice',
     async (actionId) => {
       vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
