@@ -26,6 +26,7 @@ const schema = z.object({
       .nullable(),
     mode: z.enum(['ask', 'agent', 'auto']),
     isolation: z.boolean(),
+    repositoryWorkspaceId: z.uuid().nullable().optional(),
     search: z.string(),
     summary: z
       .object({

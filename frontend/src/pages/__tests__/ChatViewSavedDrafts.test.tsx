@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { MitzoStoreProvider } from '@mitzo/client/hooks';
 import { createTestStore } from '../../test-utils/createTestStore';
@@ -23,9 +23,10 @@ vi.mock('../../components/AccountModelPicker', () => ({
     initialSelection?: AccountSelection;
     onChange(value: AccountSelection | null): void;
   }) => {
+    const initialChange = useRef(onChange);
     useEffect(() => {
-      onChange(null);
-    }, [onChange]);
+      initialChange.current(null);
+    }, []);
     return (
       <>
         <span data-testid="restored-selection">{JSON.stringify(initialSelection)}</span>
@@ -48,7 +49,43 @@ vi.mock('../../components/AccountModelPicker', () => ({
   },
 }));
 vi.mock('../../components/ChatAgentProfilePicker', () => ({ ChatAgentProfilePicker: () => null }));
-vi.mock('../../components/RepositoryChatPicker', () => ({ RepositoryChatPicker: () => null }));
+vi.mock('../../components/RepositoryChatPicker', () => ({
+  RepositoryChatPicker: ({
+    initialPreparationId,
+    draftScoped,
+    onChange,
+  }: {
+    initialPreparationId?: string;
+    draftScoped?: boolean;
+    onChange(value: { blocked: boolean; repositoryWorkspaceId?: string } | null): void;
+  }) => (
+    <>
+      <span data-testid="repository-id">{initialPreparationId ?? ''}</span>
+      <span data-testid="repository-scoped">{String(draftScoped)}</span>
+      <button
+        onClick={() =>
+          onChange({
+            blocked: false,
+            repositoryWorkspaceId: initialPreparationId ?? '8ca30b0d-3e65-4eeb-8244-f6277350818f',
+          })
+        }
+      >
+        Ready scoped repository
+      </button>
+      <button
+        onClick={() =>
+          onChange({
+            blocked: true,
+            repositoryWorkspaceId: initialPreparationId ?? '8ca30b0d-3e65-4eeb-8244-f6277350818f',
+          })
+        }
+      >
+        Preparing scoped repository
+      </button>
+      <button onClick={() => onChange(null)}>Remove scoped repository</button>
+    </>
+  ),
+}));
 vi.mock('../../components/SymposiumConversation', () => ({
   SymposiumConversation: ({ ordinaryComposer }: { ordinaryComposer: React.ReactNode }) => (
     <>{ordinaryComposer}</>
@@ -225,6 +262,75 @@ for (const Page of [ChatView, DesktopChatView]) {
       contextBlocks: ['Second context'],
       settings: { selection: { accountId: 'second-account' } },
     });
+  });
+  it(`${Page.name} restores its exact preparation and keeps blocked IDs until explicit removal`, () => {
+    const draft = { ...createChatDraft(), text: 'Repository task' };
+    draft.settings.selection = { accountId: 'work', model: 'luna', reasoningEffort: 'high' };
+    draft.settings.repositoryWorkspaceId = '8ca30b0d-3e65-4eeb-8244-f6277350818f';
+    saveChatDraft(draft);
+    mount(Page, `/chat?draft=${draft.id}`);
+    fireEvent.click(screen.getByRole('button', { name: 'Hydrate account' }));
+    expect(screen.getByTestId('repository-id').textContent).toBe(
+      draft.settings.repositoryWorkspaceId,
+    );
+    expect(screen.getByTestId('repository-scoped').textContent).toBe('true');
+    fireEvent.click(screen.getByRole('button', { name: 'Preparing scoped repository' }));
+    expect(getChatDraft(draft.id)?.settings.repositoryWorkspaceId).toBe(
+      draft.settings.repositoryWorkspaceId,
+    );
+    expect(
+      (screen.getByRole('button', { name: 'Send message' }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Remove scoped repository' }));
+    expect(getChatDraft(draft.id)?.settings.repositoryWorkspaceId).toBeNull();
+  });
+  it(`${Page.name} requires removing a prepared repository before changing its account or model`, () => {
+    const draft = { ...createChatDraft(), text: 'Repository task' };
+    draft.settings.selection = { accountId: 'work', model: 'luna', reasoningEffort: 'high' };
+    draft.settings.repositoryWorkspaceId = '8ca30b0d-3e65-4eeb-8244-f6277350818f';
+    saveChatDraft(draft);
+    const { send } = mount(Page, `/chat?draft=${draft.id}`);
+    fireEvent.click(screen.getByRole('button', { name: 'Hydrate account' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Ready scoped repository' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Change saved account' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+    expect(send).not.toHaveBeenCalled();
+    expect(screen.getByRole('alert').textContent).toMatch(/remove.*repository.*account/i);
+    expect(getChatDraft(draft.id)?.settings).toMatchObject({
+      selection: { accountId: 'work' },
+      repositoryWorkspaceId: draft.settings.repositoryWorkspaceId,
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Remove scoped repository' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Change saved account' }));
+    expect(getChatDraft(draft.id)?.settings).toMatchObject({
+      selection: { accountId: 'personal' },
+      repositoryWorkspaceId: null,
+    });
+  });
+  it(`${Page.name} restores each draft’s own preparation when navigating between drafts`, () => {
+    const first = { ...createChatDraft(), text: 'First repository task' };
+    const second = { ...createChatDraft(), id: 'second', text: 'Second repository task' };
+    first.settings.selection = second.settings.selection = { accountId: 'work', model: 'luna' };
+    first.settings.repositoryWorkspaceId = '8ca30b0d-3e65-4eeb-8244-f6277350818f';
+    second.settings.repositoryWorkspaceId = 'aaaaaaaa-bbbb-4ccc-8ddd-121212121212';
+    saveChatDraft(first);
+    saveChatDraft(second);
+    mount(Page, `/chat?draft=${first.id}`);
+    fireEvent.click(screen.getByRole('button', { name: 'Hydrate account' }));
+    expect(screen.getByTestId('repository-id').textContent).toBe(
+      first.settings.repositoryWorkspaceId,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Open second draft' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Hydrate account' }));
+    expect(screen.getByTestId('repository-id').textContent).toBe(
+      second.settings.repositoryWorkspaceId,
+    );
+    expect(getChatDraft(first.id)?.settings.repositoryWorkspaceId).toBe(
+      first.settings.repositoryWorkspaceId,
+    );
+    expect(getChatDraft(second.id)?.settings.repositoryWorkspaceId).toBe(
+      second.settings.repositoryWorkspaceId,
+    );
   });
   it(`${Page.name} blocks a missing reference without replacing it with an empty saved draft`, () => {
     const { send } = mount(Page, '/chat?draft=missing');

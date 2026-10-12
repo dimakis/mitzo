@@ -159,20 +159,61 @@ export function ChatView() {
     selection: AccountSelection | null;
   } | null>(null);
   const accountSelection = accountChoice?.scope === accountScope ? accountChoice.selection : null;
-  const repositoryScope = `${repositoryHandoff.present ? repositoryHandoff.scope : ''}:${chatDraftRevision}:${accountSelection?.accountId ?? ''}:${accountSelection?.model ?? ''}`;
+  const [stagedAccountChoice, setStagedAccountChoice] = useState<{
+    scope: string | null;
+    selection: AccountSelection;
+  } | null>(null);
+  const stagedAccountSelection =
+    stagedAccountChoice?.scope === accountScope ? stagedAccountChoice.selection : null;
+  const saveStagedAccount = useCallback(
+    (selection: AccountSelection) => {
+      setStagedAccountChoice({ scope: accountScope, selection });
+    },
+    [accountScope],
+  );
+  const retainedDraftAccount = useRef<{ scope: string | null; selection: AccountSelection | null }>(
+    { scope: accountScope, selection: newChatDraft.draft.settings.selection },
+  );
+  if (retainedDraftAccount.current.scope !== accountScope)
+    retainedDraftAccount.current = {
+      scope: accountScope,
+      selection: newChatDraft.draft.settings.selection,
+    };
+  if (accountSelection) retainedDraftAccount.current.selection = accountSelection;
+  const repositoryAccountSelection = draftEnabled
+    ? (accountSelection ?? stagedAccountSelection ?? retainedDraftAccount.current.selection)
+    : accountSelection;
+  const repositoryScope = `${repositoryHandoff.present ? repositoryHandoff.scope : newChatDraft.draft.id}:${chatDraftRevision}:${repositoryAccountSelection?.accountId ?? ''}:${repositoryAccountSelection?.model ?? ''}`;
   const [repositoryChoice, setRepositoryChoice] = useState<{
     scope: string;
     selection: RepositoryChatSelection | null;
   } | null>(null);
+  const [repositoryAccountError, setRepositoryAccountError] = useState<{
+    scope: string;
+    message: string;
+  } | null>(null);
+  const repositoryAccountReason =
+    repositoryAccountError?.scope === newChatDraft.draft.id
+      ? repositoryAccountError.message
+      : undefined;
+  const [removedRepositoryScope, setRemovedRepositoryScope] = useState<string | null>(null);
+  const initialRepositoryId =
+    draftEnabled && removedRepositoryScope !== newChatDraft.draft.id
+      ? newChatDraft.draft.settings.repositoryWorkspaceId
+      : undefined;
   const repositorySelection =
     repositoryChoice?.scope === repositoryScope
       ? repositoryChoice.selection
       : repositoryHandoff.present
         ? { blocked: true }
-        : accountSelection?.accountId &&
-            savedRepositoryDraft(accountSelection.accountId, accountSelection.model)
-          ? { blocked: true }
-          : null;
+        : draftEnabled
+          ? initialRepositoryId
+            ? { blocked: true, repositoryWorkspaceId: initialRepositoryId }
+            : null
+          : accountSelection?.accountId &&
+              savedRepositoryDraft(accountSelection.accountId, accountSelection.model)
+            ? { blocked: true }
+            : null;
   const repositoryHandoffReason =
     (repositoryHandoff.present && (messages.running || sendStatus)
       ? 'Waiting for repository conversation confirmation…'
@@ -197,6 +238,21 @@ export function ChatView() {
   const selectAccount = useCallback(
     (selection: AccountSelection | null) => {
       if (repositoryHandoff.present && activeSessionId) return;
+      const binding = repositoryAccountSelection ?? newChatDraft.draft.settings.selection;
+      if (
+        draftEnabled &&
+        repositorySelection?.repositoryWorkspaceId &&
+        selection &&
+        binding &&
+        (binding.accountId !== selection.accountId || binding.model !== selection.model)
+      ) {
+        setRepositoryAccountError({
+          scope: newChatDraft.draft.id,
+          message: 'Remove the repository preparation before changing account or model.',
+        });
+        return;
+      }
+      if (selection) setRepositoryAccountError(null);
       setAccountChoice({ scope: accountScope, selection });
       if (selection) {
         if (
@@ -217,6 +273,10 @@ export function ChatView() {
     },
     [
       accountScope,
+      repositoryAccountSelection,
+      draftEnabled,
+      newChatDraft.draft,
+      repositorySelection?.repositoryWorkspaceId,
       setModel,
       storeSetModel,
       activeSessionId,
@@ -280,10 +340,11 @@ export function ChatView() {
         ? {
             ...newChatDraft.draft,
             settings: {
-              selection: accountSelection ?? newChatDraft.draft.settings.selection,
+              selection: repositoryAccountSelection ?? newChatDraft.draft.settings.selection,
               summary: workspaceSummary ?? newChatDraft.draft.settings.summary,
               mode,
               isolation,
+              repositoryWorkspaceId: repositorySelection?.repositoryWorkspaceId ?? null,
               search: settingsSearch,
             },
           }
@@ -292,10 +353,11 @@ export function ChatView() {
       draftEnabled,
       newChatDraft.draft,
       newChatDraft.missing,
-      accountSelection,
+      repositoryAccountSelection,
       workspaceSummary,
       mode,
       isolation,
+      repositorySelection?.repositoryWorkspaceId,
       settingsSearch,
     ],
   );
@@ -407,7 +469,12 @@ export function ChatView() {
     onDelivery?: import('@mitzo/client').SendMessageOptions['onDelivery'],
     onSessionAssigned?: import('@mitzo/client').SendMessageOptions['onSessionAssigned'],
   ): boolean {
-    if (missingDraftReason || repositoryHandoffReason || (repositoryHandoff.present && launching))
+    if (
+      missingDraftReason ||
+      repositoryAccountReason ||
+      repositoryHandoffReason ||
+      (repositoryHandoff.present && launching)
+    )
       return false;
     if (launch?.briefing && !launching) return false;
     if (!activeSessionId && agentProfileBlocked) return false;
@@ -586,6 +653,7 @@ export function ChatView() {
                 initialSelection={
                   draftEnabled ? (newChatDraft.draft.settings.selection ?? undefined) : undefined
                 }
+                lockAccountModel={draftEnabled && !!repositorySelection?.repositoryWorkspaceId}
                 requiredSelection={
                   !activeSessionId && repositoryHandoff.preparation
                     ? {
@@ -601,6 +669,7 @@ export function ChatView() {
                 }
                 sessionId={activeSessionId}
                 preferredModel={modelState}
+                onDraftSelectionChange={draftEnabled ? saveStagedAccount : undefined}
                 onChange={selectAccount}
                 onSummaryChange={setWorkspaceSummary}
               />
@@ -738,6 +807,10 @@ export function ChatView() {
           <>
             <RepositoryChatDraftNotice handoff={repositoryHandoff} />
             {missingDraftReason && <div role="alert">{missingDraftReason}</div>}
+            {repositoryAccountReason && <div role="alert">{repositoryAccountReason}</div>}
+            {draftEnabled && repositorySelection?.repositoryWorkspaceId && (
+              <p role="status">Remove the repository preparation to change account or model.</p>
+            )}
             {newChatDraft.settingsError && (
               <div role="alert">Draft settings could not be saved on this device.</div>
             )}
@@ -764,18 +837,26 @@ export function ChatView() {
               </div>
             )}
             {!activeSessionId &&
-              accountSelection?.accountId &&
+              repositoryAccountSelection?.accountId &&
               (!repositoryHandoff.present ||
                 (repositoryHandoff.preparation &&
-                  accountSelection.accountId === repositoryHandoff.preparation.accountId &&
-                  accountSelection.model === repositoryHandoff.preparation.model)) && (
+                  repositoryAccountSelection.accountId ===
+                    repositoryHandoff.preparation.accountId &&
+                  repositoryAccountSelection.model === repositoryHandoff.preparation.model)) && (
                 <RepositoryChatPicker
                   key={repositoryScope}
-                  accountId={accountSelection.accountId}
-                  model={accountSelection.model}
-                  initialPreparationId={repositoryHandoff.preparation?.id}
+                  accountId={repositoryAccountSelection.accountId}
+                  model={repositoryAccountSelection.model}
+                  draftScoped={draftEnabled}
+                  initialPreparationId={
+                    repositoryHandoff.preparation?.id ?? initialRepositoryId ?? undefined
+                  }
                   onChange={(selection) => {
                     setRepositoryChoice({ scope: repositoryScope, selection });
+                    if (!selection) {
+                      setRepositoryAccountError(null);
+                      setRemovedRepositoryScope(newChatDraft.draft.id);
+                    }
                     if (repositoryHandoff.present && !selection)
                       navigate('/chat', { replace: true });
                   }}
@@ -807,6 +888,7 @@ export function ChatView() {
               }
               sendDisabledReason={
                 missingDraftReason ??
+                repositoryAccountReason ??
                 (launch?.briefing
                   ? 'Send the reviewed briefing prompt first, then ask a follow-up.'
                   : undefined) ??
