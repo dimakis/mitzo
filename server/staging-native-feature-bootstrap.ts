@@ -1,3 +1,4 @@
+import type { OriginalStagingAppSourceWitness } from './staging-native-app-witness.js';
 /** Fresh canonical launcher capabilities, passed in the same process. This is
  * not an enrollment record, IPC payload or native feature implementation.
  * Provider/configuration enrollment and original per-run native cleanup remain
@@ -6,6 +7,8 @@ export interface StagingNativeFeatureBootstrap {
   readonly sourceCommit: string;
   readonly sourceRoot: string;
   readonly fixtureRoot: string;
+  /** Actual original launcher may supply a live accepted-child compatibility witness. */
+  readonly acceptedAppSource?: OriginalStagingAppSourceWitness;
   assertOriginalOwnerCurrent(): void;
   /** Original retained VM owner observation. JSON cannot recreate this capability. */
   observeResources(): Readonly<{

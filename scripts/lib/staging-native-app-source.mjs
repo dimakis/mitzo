@@ -156,6 +156,7 @@ export function createOriginalNativeAppSourceBridge({
         instanceId: latest.identity.instanceId,
         epoch: latest.identity.epoch,
         controllerPid: latest.identity.controllerPid,
+        custodianPid: latest.identity.custodianPid,
         compatibilitySha256: digest({ native: original, app: latest.snapshot }),
       });
     },

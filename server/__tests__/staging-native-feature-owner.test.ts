@@ -2,8 +2,12 @@ import { describe, expect, it, vi } from 'vitest';
 import { AccountProfiles } from '../account-profiles.js';
 import { StagingNativeFeatureOwner } from '../staging-native-feature-owner.js';
 import type { OwnedSymposiumGateway } from '../symposium-owned-gateway.js';
+import {
+  createOriginalStagingAppSourceWitness,
+  type OriginalStagingAppSourceWitness,
+} from '../staging-native-app-witness.js';
 const sourceCommit = 'a'.repeat(40);
-function fixture() {
+function fixture(acceptedAppSource?: OriginalStagingAppSourceWitness) {
   const profiles = new AccountProfiles([
     {
       id: 'stage-api',
@@ -34,7 +38,8 @@ function fixture() {
   const owner = new StagingNativeFeatureOwner({
     bootstrap: {
       sourceCommit,
-      sourceRoot: '/isolated/source',
+      sourceRoot: '/isolated/releases/' + sourceCommit.slice(0, 12),
+      ...(acceptedAppSource ? { acceptedAppSource } : {}),
       fixtureRoot: '/isolated/fixture',
       assertOriginalOwnerCurrent: current,
       observeResources,
@@ -95,4 +100,31 @@ describe('concrete conditional native feature owner', () => {
     ).rejects.toThrow(/authenticated custodian/);
     expect(f.execute).not.toHaveBeenCalled();
   });
+});
+
+it('keeps actual native identity separate from authenticated compatible child source and rejects JSON carrier replay', () => {
+  const appCommit = 'd'.repeat(40);
+  const witness = createOriginalStagingAppSourceWitness(() => ({
+    nativeSourceCommit: sourceCommit,
+    acceptedAppCommit: appCommit,
+    appRoot: '/isolated/releases/' + appCommit.slice(0, 12),
+    instanceId: 'original-owner',
+    custodianPid: process.pid,
+    epoch: 2,
+    controllerPid: process.pid + 1,
+    compatibilitySha256: 'e'.repeat(64),
+  }));
+  const f = fixture(witness);
+  expect(f.owner.resources()).toMatchObject({
+    sourceCommit: appCommit,
+    nativeSourceCommit: sourceCommit,
+    acceptedAppSource: { acceptedAppCommit: appCommit, nativeSourceCommit: sourceCommit, epoch: 2 },
+  });
+  expect(f.owner.enrollment('stage-api')).toMatchObject({
+    sourceCommit: appCommit,
+    nativeSourceCommit: sourceCommit,
+  });
+  const replay = fixture(JSON.parse(JSON.stringify(witness)));
+  expect(() => replay.owner.resources()).toThrow('witness');
+  expect(replay.execute).not.toHaveBeenCalled();
 });
