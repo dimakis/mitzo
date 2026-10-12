@@ -11,7 +11,7 @@ export {
 } from './reviewed-policy-revisions.js';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.73';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.74';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -42,9 +42,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../symposium-work-vertex-provider.ts':
     'c361a1edea9b8f56d047690375702a17d8070250d1453f7fe6d1d630fa2a2c60',
   '../staging-native-feature-owner.ts':
-    'e33165187cc4bda789c0974255b9c98851d6fcdfc64fe0a463d899ac04bf76b4',
+    'a01d2597b50c10c47d77c72a1e918c1992ddd09f6a70d4457a84574fb0824cb3',
   '../staging-native-model-authority.ts':
-    'd5b83e5d7e655af2d9eda52ed81ebf7316f5ad0ba1cd4e7d1b05b56f7cb1f4a4',
+    '128a803b95baab65a081557a0706b42466e1b685ab354be148541606fdc844d9',
   '../staging-feature-router.ts':
     '48f83018eb4580277e2532e5008e8b903166e56c910ebdd352d3ddc34f508366',
   'github-publication-template.ts':

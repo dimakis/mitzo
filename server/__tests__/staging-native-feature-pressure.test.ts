@@ -1,21 +1,27 @@
 import { afterEach, expect, it, vi } from 'vitest';
-const model = vi.hoisted(() => ({ current: vi.fn(), cleanup: vi.fn() }));
+const model = vi.hoisted(() => ({ current: vi.fn(), cleanup: vi.fn(), describe: vi.fn() }));
 vi.mock('../staging-native-model-authority.js', () => ({
   captureQualifiedStagingNativeModelAuthority: () => ({
-    plan: () => ({
-      revision: '9'.repeat(64),
-      chargedAccount: 'authenticated-stage-account',
-      selectedModel: 'gpt-6-luna',
-      modelApprovalId: null,
-      assertCurrent: model.current,
-      assertOriginalCleanupCurrent: model.cleanup,
-    }),
+    plan: async () => {
+      await model.describe();
+      return {
+        revision: '9'.repeat(64),
+        chargedAccount: 'authenticated-stage-account',
+        selectedModel: 'gpt-6-luna',
+        modelApprovalId: null,
+        assertCurrent: model.current,
+        assertOriginalCleanupCurrent: model.cleanup,
+      };
+    },
   }),
 }));
 import { AccountProfiles } from '../account-profiles.js';
 import { StagingNativeFeatureOwner } from '../staging-native-feature-owner.js';
 import type { OwnedSymposiumGateway } from '../symposium-owned-gateway.js';
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+  model.describe.mockReset();
+});
 it('preserves known original cleanup at pressure while refusing new admission and lost original ownership', async () => {
   const sourceCommit = 'a'.repeat(40);
   let pressure = false,
@@ -118,7 +124,7 @@ it('preserves known original cleanup at pressure while refusing new admission an
     },
   });
   const enrollment = feature.enrollment('stage-api');
-  const proposal = feature.plan(
+  const proposal = await feature.plan(
     {
       version: 2,
       id: 'request',
@@ -141,4 +147,78 @@ it('preserves known original cleanup at pressure while refusing new admission an
   clock.mockRestore();
   model.current.mockReset();
   model.cleanup.mockReset();
+});
+it('rechecks original custody after the awaited authenticated provider description before recording a plan', async () => {
+  const sourceCommit = 'a'.repeat(40);
+  let owner = true;
+  const current = () => {
+    if (!owner) throw Error('original owner lost after describe');
+  };
+  const profiles = new AccountProfiles([
+    {
+      id: 'stage-api',
+      label: 'Stage API',
+      provider: 'openai',
+      credentialRef: { provider: 'keychain', service: 'synthetic-only', account: 'stage' },
+      sandboxProvider: 'fresh',
+      sandboxProviderId: 'fresh',
+      models: [{ id: 'gpt-6-luna', label: 'Luna' }],
+    },
+  ]);
+  const execute = vi.fn();
+  const feature = new StagingNativeFeatureOwner({
+    bootstrap: {
+      sourceCommit,
+      sourceRoot: '/isolated/source',
+      fixtureRoot: '/isolated/fixture',
+      assertOriginalOwnerCurrent: current,
+      observeResources: () => ({
+        aggregateGiB: 1,
+        growthGiB: 0,
+        diskFreeGiB: 100,
+        vmMemoryMiB: 4096,
+        vmCpus: 2,
+        allocationUUID: 'isolated',
+        planSha256: 'b'.repeat(64),
+        bootUUID: 'boot',
+        supervisorPid: 100,
+        vfkitPid: 101,
+        observationSha256: 'c'.repeat(64),
+        nativeRetirementClaim: false,
+      }),
+    },
+    gateway: { verifyCustody: current } as unknown as OwnedSymposiumGateway,
+    ownerInstance: 'original',
+    currentProfiles: () => profiles,
+    captureEnrollment: (profile, selected) => ({
+      binding: profiles.resolve(profile, selected),
+      selectedModel: selected,
+      chargedAccount: 'stage-api',
+      assertCurrent: current,
+      assertOriginalCleanupCurrent: current,
+    }),
+    assertOriginalOwnerCurrent: current,
+    assertReservation: current,
+    execute,
+  });
+  const enrollment = feature.enrollment('stage-api');
+  model.describe.mockImplementationOnce(async () => {
+    await Promise.resolve();
+    owner = false;
+  });
+  await expect(
+    feature.plan(
+      {
+        version: 2,
+        id: 'request',
+        pr: 1,
+        taskId: 'task',
+        acceptedCommit: sourceCommit,
+        suite: 'profile-tools-v1',
+        ...enrollment,
+      },
+      sourceCommit,
+    ),
+  ).rejects.toThrow('owner lost after describe');
+  expect(execute).not.toHaveBeenCalled();
 });
