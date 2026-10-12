@@ -38,21 +38,24 @@ export function RepositoryChatPicker({
   model,
   onChange,
   initialPreparationId,
+  draftScoped = false,
 }: {
   accountId: string;
   model: string;
   onChange(value: RepositoryChatSelection | null): void;
   initialPreparationId?: string;
+  /** Ordinary saved drafts never borrow another draft’s per-account preparation. */
+  draftScoped?: boolean;
 }) {
   const [catalog, setCatalog] = useState<Catalog | null>(null);
   const [opened, setOpened] = useState(
-    () => !!(initialPreparationId ?? savedRepositoryDraft(accountId, model)),
+    () => !!(initialPreparationId ?? (draftScoped ? null : savedRepositoryDraft(accountId, model))),
   );
   const [selected, setSelected] = useState('');
   const [url, setUrl] = useState('');
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [pendingPreparationId, setPendingPreparationId] = useState(
-    () => initialPreparationId ?? savedRepositoryDraft(accountId, model),
+    () => initialPreparationId ?? (draftScoped ? null : savedRepositoryDraft(accountId, model)),
   );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -66,13 +69,16 @@ export function RepositoryChatPicker({
   useEffect(() => {
     const controller = new AbortController();
     restoration.current = controller;
-    const saved = initialPreparationId ?? savedRepositoryDraft(accountId, model);
+    const saved =
+      initialPreparationId ?? (draftScoped ? null : savedRepositoryDraft(accountId, model));
     setWorkspace(null);
     setCatalog(null);
     setError('');
     setBusy(false);
     setPendingPreparationId(saved);
-    callback.current(saved ? { blocked: true } : null);
+    callback.current(
+      saved ? { blocked: true, ...(draftScoped ? { repositoryWorkspaceId: saved } : {}) } : null,
+    );
     if (saved) setOpened(true);
     const query = new URLSearchParams({ accountId, model });
     void Promise.resolve(
@@ -107,7 +113,7 @@ export function RepositoryChatPicker({
         callback.current(
           ready.state === 'ready' && data.available
             ? { repositoryWorkspaceId: ready.id, blocked: false }
-            : { blocked: true },
+            : { blocked: true, ...(draftScoped ? { repositoryWorkspaceId: ready.id } : {}) },
         );
       })
       .catch(() => {
@@ -120,9 +126,10 @@ export function RepositoryChatPicker({
       controller.abort();
       operation.current?.abort();
     };
-  }, [accountId, model, storageKey, initialPreparationId, restorationAttempt]);
+  }, [accountId, model, storageKey, initialPreparationId, draftScoped, restorationAttempt]);
   const repositories = catalog?.available ? catalog.repositories : [];
-  const savedId = initialPreparationId ? null : savedRepositoryDraft(accountId, model);
+  const savedId =
+    initialPreparationId || draftScoped ? null : savedRepositoryDraft(accountId, model);
   const pendingId = pendingPreparationId ?? savedId;
   const unresolvedSaved = !!pendingId && workspace?.id !== pendingId;
   const selection =
@@ -141,12 +148,17 @@ export function RepositoryChatPicker({
     operation.current = controller;
     setBusy(true);
     setError('');
-    callback.current({ blocked: true });
+    callback.current({
+      blocked: true,
+      ...(draftScoped && action === 'prepare' && workspace
+        ? { repositoryWorkspaceId: workspace.id }
+        : {}),
+    });
     try {
       if (action === 'prepare' && workspace) {
         setPendingPreparationId(workspace.id);
         try {
-          sessionStorage.setItem(storageKey, workspace.id);
+          if (!draftScoped) sessionStorage.setItem(storageKey, workspace.id);
         } catch {
           /* The current draft still retains its original operation ID. */
         }
@@ -180,7 +192,7 @@ export function RepositoryChatPicker({
       setWorkspace(result);
       if (result.state === 'ready') {
         try {
-          sessionStorage.setItem(storageKey, result.id);
+          if (!draftScoped) sessionStorage.setItem(storageKey, result.id);
         } catch {
           /* The current draft still holds the receipt. */
         }
@@ -213,7 +225,10 @@ export function RepositoryChatPicker({
     operation.current = controller;
     const id = pendingId ?? workspace?.id;
     setBusy(true);
-    callback.current({ blocked: true });
+    callback.current({
+      blocked: true,
+      ...(draftScoped && id ? { repositoryWorkspaceId: id } : {}),
+    });
     try {
       if (id && workspace?.state === 'claimed' && workspace.id === id) {
         setRetainedConversationId(workspace.conversationId ?? null);
@@ -231,7 +246,7 @@ export function RepositoryChatPicker({
         if (!response.ok) throw new Error('Discard unavailable');
       }
       if (controller.signal.aborted) return;
-      if (id) consumeRepositoryDraft(storageKey, id);
+      if (id && !draftScoped) consumeRepositoryDraft(storageKey, id);
       setPendingPreparationId(null);
       setOpened(false);
       setWorkspace(null);

@@ -91,11 +91,15 @@ function SessionAccountModelPicker({
   draftOnly = false,
   preferWorkOpenAI = false,
   initialSelection,
+  lockAccountModel = false,
+  onDraftSelectionChange,
   allowedAccountIds,
 }: {
   draftOnly?: boolean;
   preferWorkOpenAI?: boolean;
   initialSelection?: AccountSelection;
+  /** Prepared repository sources retain their exact binding until explicitly removed. */
+  lockAccountModel?: boolean;
   /** Host-verified routes for this action; undefined preserves ordinary chat's full catalog. */
   allowedAccountIds?: string[];
   scope?: 'chat' | 'symposium' | 'adviser';
@@ -106,6 +110,8 @@ function SessionAccountModelPicker({
   preferredModel: string;
   onChange: (selection: AccountSelection | null) => void;
   onUnavailable?: () => void;
+  /** Editable controls may have a choice before explicit send confirmation. */
+  onDraftSelectionChange?: (selection: AccountSelection) => void;
   onSummaryChange?: (summary: WorkspaceSummary | null) => void;
 }) {
   const sessionId = scope === 'chat' ? requestedSessionId : null;
@@ -134,8 +140,11 @@ function SessionAccountModelPicker({
   const [fixedSession, setFixedSession] = useState(false);
   const [empty, setEmpty] = useState(false);
   const [draftUnavailable, setDraftUnavailable] = useState(false);
-  const callbacks = useRef({ onChange, onUnavailable, onSummaryChange });
-  callbacks.current = { onChange, onUnavailable, onSummaryChange };
+  const callbacks = useRef({ onChange, onUnavailable, onSummaryChange, onDraftSelectionChange });
+  callbacks.current = { onChange, onUnavailable, onSummaryChange, onDraftSelectionChange };
+  useEffect(() => {
+    if (selection) callbacks.current.onDraftSelectionChange?.(selection);
+  }, [selection]);
   const summaryAccount = accounts.find((a) => a.id === (selection?.accountId ?? ''));
   const selectedModel = summaryAccount?.models.find((m) => m.id === selection?.model);
   const defaultThinking = scope === 'adviser' ? 'adviser default' : 'model default';
@@ -416,11 +425,16 @@ function SessionAccountModelPicker({
         <button disabled={disabled} onClick={() => setAttempt((value) => value + 1)}>
           Retry accounts
         </button>
-        {scope === 'chat' && !sessionId && !legacy && !requiredSelection && !draftOnly && (
-          <button disabled={disabled} onClick={() => setLegacy(true)}>
-            Use legacy server account
-          </button>
-        )}
+        {scope === 'chat' &&
+          !sessionId &&
+          !legacy &&
+          !requiredSelection &&
+          !lockAccountModel &&
+          !draftOnly && (
+            <button disabled={disabled} onClick={() => setLegacy(true)}>
+              Use legacy server account
+            </button>
+          )}
       </>
     );
   if (sessionId && fixedSession)
@@ -473,7 +487,7 @@ function SessionAccountModelPicker({
       ) : (
         <PickerField label="Account" visible={draftOnly}>
           <select
-            disabled={disabled || !!requiredSelection}
+            disabled={disabled || !!requiredSelection || lockAccountModel}
             aria-label="Account"
             className="chat-model-select"
             value={account.id}
@@ -563,7 +577,7 @@ function SessionAccountModelPicker({
       )}
       <PickerField label="Model" visible={draftOnly}>
         <select
-          disabled={disabled || !!requiredSelection}
+          disabled={disabled || !!requiredSelection || lockAccountModel}
           aria-label="Model"
           className="chat-model-select"
           value={selection.model}
@@ -636,37 +650,42 @@ function SessionAccountModelPicker({
           {account.models.find((model) => model.id === selection.model)?.label ?? selection.model}
         </button>
       )}
-      {scope === 'chat' && !sessionId && !legacy && !requiredSelection && !draftOnly && (
-        <>
-          <button
-            disabled={disabled || draftUnavailable}
-            onClick={() => {
-              setDefaultAccountModel(selection);
-              setSavedDefault(selection);
-            }}
-          >
-            Make default for new chats
-          </button>
-          {savedDefault && (
+      {scope === 'chat' &&
+        !sessionId &&
+        !legacy &&
+        !requiredSelection &&
+        !lockAccountModel &&
+        !draftOnly && (
+          <>
             <button
-              disabled={disabled}
+              disabled={disabled || draftUnavailable}
               onClick={() => {
-                setDefaultAccountModel(null);
-                setSavedDefault(null);
-                setNeedsConfirmation(true);
-                onChange(null);
+                setDefaultAccountModel(selection);
+                setSavedDefault(selection);
               }}
             >
-              Clear new-chat default
+              Make default for new chats
             </button>
-          )}
-          <span>
-            {savedDefault
-              ? 'Saved default for new chats on this browser.'
-              : 'No saved account default. Review the account before sending.'}
-          </span>
-        </>
-      )}
+            {savedDefault && (
+              <button
+                disabled={disabled}
+                onClick={() => {
+                  setDefaultAccountModel(null);
+                  setSavedDefault(null);
+                  setNeedsConfirmation(true);
+                  onChange(null);
+                }}
+              >
+                Clear new-chat default
+              </button>
+            )}
+            <span>
+              {savedDefault
+                ? 'Saved default for new chats on this browser.'
+                : 'No saved account default. Review the account before sending.'}
+            </span>
+          </>
+        )}
       {scope === 'chat' && !legacy && (
         <button disabled={disabled} onClick={() => setAttempt((n) => n + 1)}>
           Refresh models
