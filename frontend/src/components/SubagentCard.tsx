@@ -1,3 +1,4 @@
+import { MotionPresence } from './MotionPresence';
 import { UiIcon } from './UiIcon';
 import { useState } from 'react';
 import type { FinishedSubagentState, StreamingSubagentState } from '@mitzo/protocol';
@@ -57,7 +58,7 @@ export function SubagentCard({ subagent, description, sessionId }: SubagentCardP
         </span>
       </button>
 
-      {expanded && (
+      <MotionPresence open={expanded} kind="disclosure" appear={false}>
         <div className="tool-pill-detail">
           {blocks.map((block) => {
             if (block.blockType === 'thinking' || block.blockType === 'redacted_thinking') {
@@ -78,7 +79,7 @@ export function SubagentCard({ subagent, description, sessionId }: SubagentCardP
             return null;
           })}
         </div>
-      )}
+      </MotionPresence>
     </div>
   );
 }

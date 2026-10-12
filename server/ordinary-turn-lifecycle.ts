@@ -8,5 +8,7 @@ export interface OrdinaryTurnLifecycle {
     providerTurnId: string,
     status: 'completed' | 'interrupted' | 'failed',
   ): void;
+  /** A trusted unfinished-work receipt, separate from actual provider terminal status. */
+  environmentPending?(commandId: string, providerTurnId: string): void;
   terminalConflict?(commandId: string, providerTurnId: string): void;
 }

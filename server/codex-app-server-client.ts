@@ -120,12 +120,14 @@ export class CodexRequestError extends Error {
 
 /** Local transport failures carry only a fixed reason, never a provider frame. */
 export class CodexTransportError extends Error {
-  constructor(readonly category: 'timeout' | 'connection' | 'protocol') {
+  constructor(readonly category: 'timeout' | 'connection' | 'protocol' | 'environment_pending') {
     super(
       {
         timeout: 'Codex request timed out; retry explicitly',
         connection: 'Codex connection closed',
         protocol: 'Invalid Codex protocol',
+        environment_pending:
+          'Approved integration environment is pending. No model turn was started.',
       }[category],
     );
     this.name = 'CodexTransportError';
@@ -145,6 +147,8 @@ export interface OpenShellCodexOptions {
   gatewayEndpoint?: string;
   gatewayInsecure?: boolean;
   cliEnvironment?: OpenShellCliEnvironment;
+  /** Required service environment names derived only from verified public profiles. */
+  requiredProviderEnvironment?: readonly string[];
   /** Non-secret, reviewed external-service context for managed sandbox tools. */
   connectionEnv?: { JIRA_URL: typeof JIRA_API_ENDPOINT; JIRA_EMAIL: string };
 }
@@ -304,9 +308,16 @@ export function openShellCodexProcessSpec(
 ) {
   if (options.appServerCommand === '/usr/local/bin/symposium-subscription-app-server')
     throw new Error('Native ChatGPT launch requires the isolated Symposium controller');
-  return openShellSshProcessSpec(
+  const required = options.requiredProviderEnvironment ?? [];
+  if (required.length > 64 || required.some((key) => !/^[A-Z][A-Z0-9_]{0,127}$/.test(key)))
+    throw new Error('Invalid required provider environment name');
+  const command = options.appServerCommand || '/sandbox/run-mitzo-app-server';
+  if (!required.length) return openShellSshProcessSpec(options, command, base);
+  // This shell becomes the app-server. Its check never prints or copies values.
+  const gate = [...new Set(required)].map((key) => `test -n "\${${key}:-}" || exit 78`).join('; ');
+  return openShellSshArgvProcessSpec(
     options,
-    options.appServerCommand || '/sandbox/run-mitzo-app-server',
+    ['/bin/sh', '-c', `${gate}; exec '${command}'`],
     base,
   );
 }
@@ -349,6 +360,12 @@ export class CodexAppServerClient {
   private closed = false;
   private ready = false;
   private initializing?: Promise<void>;
+  private initializationFrame?: JsonObject;
+  private environmentLaunch?: { create: () => RpcProcess };
+  private environmentAttempts = 0;
+  private environmentRetryTimer?: ReturnType<typeof setTimeout>;
+  private waitingForEnvironment = false;
+  private retiredChildren = new WeakSet<RpcProcess>();
   private readonly maxFrameBytes: number;
   private readonly timeoutMs: number;
   private readonly loginOnly: boolean;
@@ -361,6 +378,8 @@ export class CodexAppServerClient {
       maxFrameBytes?: number;
       lifecycle?: CodexLifecycleTransport;
       loginOnly?: boolean;
+      /** Trusted same-command fresh process launch, before any model turn. */
+      environmentLaunch?: { create: () => RpcProcess };
       /** Trusted opt-in metadata observer; prepared persistence must succeed before write. */
       observeTurnStartWrite?: TurnInputWriteObserver;
     } = {},
@@ -370,14 +389,57 @@ export class CodexAppServerClient {
     this.loginOnly = options.loginOnly ?? false;
     this.timeoutMs = options.timeoutMs ?? 30_000;
     this.maxFrameBytes = options.maxFrameBytes ?? 4 * 1024 * 1024;
-    child.stdout.on('data', (chunk: Buffer) => this.receive(chunk));
+    this.environmentLaunch = options.environmentLaunch;
+    this.bindChild(child);
+  }
+
+  private bindChild(child: RpcProcess) {
+    const current = () => child === this.child && !this.retiredChildren.has(child);
+    child.stdout.on('data', (chunk: Buffer) => {
+      if (current()) this.receive(chunk);
+    });
     // Provider diagnostics may contain private paths or credential material.
     child.stderr.resume();
-    child.on('error', () => this.close());
-    child.on('exit', () => this.close());
-    child.stdin.on('error', () => this.close());
-    child.stdout.on('error', () => this.close());
-    child.stderr.on('error', () => this.close());
+    child.on('error', () => {
+      if (current()) this.close();
+    });
+    child.on('exit', (code: number | null) => {
+      if (!current() || this.closed) return;
+      if (!this.ready && code === 78 && this.environmentLaunch) {
+        this.waitingForEnvironment = true;
+        if (this.environmentAttempts >= 2) {
+          this.close(new CodexTransportError('environment_pending'));
+          return;
+        }
+        this.environmentAttempts++;
+        this.retiredChildren.add(child);
+        child.kill();
+        this.buffer = Buffer.alloc(0);
+        // The pinned supervisor polls provider configuration every ten seconds.
+        this.environmentRetryTimer = setTimeout(() => {
+          this.environmentRetryTimer = undefined;
+          if (this.closed) return;
+          try {
+            this.child = this.environmentLaunch!.create();
+            this.bindChild(this.child);
+            if (this.initializationFrame) this.write(this.initializationFrame);
+          } catch {
+            this.close(new CodexTransportError('environment_pending'));
+          }
+        }, 10_000);
+        return;
+      }
+      this.close();
+    });
+    child.stdin.on('error', () => {
+      if (current()) this.close();
+    });
+    child.stdout.on('error', () => {
+      if (current()) this.close();
+    });
+    child.stderr.on('error', () => {
+      if (current()) this.close();
+    });
   }
 
   static launch(
@@ -415,19 +477,22 @@ export class CodexAppServerClient {
     lifecycle?: CodexLifecycleTransport,
   ) {
     const spec = openShellCodexProcessSpec(options, base);
-    const child = spawn(spec.command, spec.args, {
-      detached: true,
-      env: spec.env,
-      shell: false,
-      stdio: ['pipe', 'pipe', 'pipe'],
+    const create = () => {
+      const child = spawn(spec.command, spec.args, {
+        detached: true,
+        env: spec.env,
+        shell: false,
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      const killChild = child.kill.bind(child);
+      child.kill = (() =>
+        terminateOpenShellProcess({ pid: child.pid, kill: killChild })) as typeof child.kill;
+      return child;
+    };
+    return new CodexAppServerClient(create(), {
+      lifecycle,
+      ...(options.requiredProviderEnvironment?.length ? { environmentLaunch: { create } } : {}),
     });
-    const killChild = child.kill.bind(child);
-    // ssh starts the OpenShell ProxyCommand as a child. Kill the process group so
-    // closing or interrupting a Mitzo task cannot leave the proxy holding stdio.
-    child.kill = (() => {
-      return terminateOpenShellProcess({ pid: child.pid, kill: killChild });
-    }) as typeof child.kill;
-    return new CodexAppServerClient(child, { lifecycle });
   }
 
   initialize(): Promise<void> {
@@ -437,6 +502,8 @@ export class CodexAppServerClient {
     }).then(() => {
       this.write({ method: 'initialized', params: {} });
       this.ready = true;
+      this.waitingForEnvironment = false;
+      this.initializationFrame = undefined;
     });
     return this.initializing;
   }
@@ -472,6 +539,8 @@ export class CodexAppServerClient {
   close(error: Error = new CodexTransportError('connection')) {
     if (this.closed) return;
     this.closed = true;
+    clearTimeout(this.environmentRetryTimer);
+    this.environmentRetryTimer = undefined;
     this.ready = false;
     this.buffer = Buffer.alloc(0);
     for (const request of this.pending.values()) {
@@ -490,12 +559,17 @@ export class CodexAppServerClient {
     const id = ++this.sequence;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(
-        () => this.close(new CodexTransportError('timeout')),
+        () =>
+          this.close(
+            new CodexTransportError(this.waitingForEnvironment ? 'environment_pending' : 'timeout'),
+          ),
         this.timeoutMs,
       );
       this.pending.set(id, { method, resolve, reject, timer });
       try {
-        this.write({ id, method, params });
+        const frame = { id, method, params };
+        if (method === 'initialize') this.initializationFrame = frame;
+        this.write(frame);
       } catch {
         this.close();
       }

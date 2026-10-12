@@ -1,5 +1,6 @@
 import { expect, it, vi } from 'vitest';
 import { connectCodexMcpTools } from '../codex-mcp-tools.js';
+import { SessionRegistry, buildPermissionHandler, resolvePending } from '@mitzo/harness';
 
 it('never launches sandbox-only MCP definitions on the host', async () => {
   const connect = vi.fn();
@@ -139,4 +140,118 @@ it('denies unknown or disallowed calls and closes connected peers on discovery f
     ),
   ).rejects.toThrow('MCP initialization failed');
   expect(failedClose).toHaveBeenCalledOnce();
+});
+
+it('preserves the actual approval failure reason instead of claiming the user declined', async () => {
+  const call = vi.fn();
+  const tools = await connectCodexMcpTools(
+    { work: { command: 'mcp' } },
+    {
+      cwd: '/workspace',
+      env: {},
+      signal: new AbortController().signal,
+      connect: async () => ({
+        listTools: async () => ({ tools: [{ name: 'search', inputSchema: { type: 'object' } }] }),
+        callTool: call,
+        close: async () => {},
+      }),
+    },
+  );
+  try {
+    for (const message of [
+      'Tool approval expired without a response; request approval again',
+      'Session taken over by another device',
+      'User denied',
+    ]) {
+      expect(
+        await tools.execute(
+          tools.definitions[0].name,
+          {},
+          async () => ({ behavior: 'deny', message }),
+          new AbortController().signal,
+        ),
+      ).toEqual({ content: message, isError: true });
+    }
+    expect(call).not.toHaveBeenCalled();
+  } finally {
+    await tools.close();
+  }
+});
+
+it('runs Work API Google and Telos tools after real once/session approvals and retains mode ceilings', async () => {
+  const registry = new SessionRegistry();
+  const requests: Record<string, unknown>[] = [];
+  registry.register('work-api', {
+    sessionId: 'work-conversation',
+    transport: {
+      send: (event) => {
+        if (event.type === 'permission_request') requests.push(event);
+      },
+      isOpen: () => true,
+    },
+    abortController: new AbortController(),
+    mode: 'agent',
+    sessionAllowList: new Set(),
+  });
+  const call = vi.fn(async () => ({ content: [{ type: 'text', text: 'completed' }] }));
+  const tools = await connectCodexMcpTools(
+    { gws: { command: 'synthetic-google' }, telos: { command: 'synthetic-telos' } },
+    {
+      cwd: '/workspace',
+      env: {},
+      signal: new AbortController().signal,
+      connect: async (config) => ({
+        listTools: async () => ({
+          tools: [config.command === 'synthetic-google' ? 'google_search' : 'telos_save'].map(
+            (name) => ({
+              name,
+              inputSchema: { type: 'object' },
+            }),
+          ),
+        }),
+        callTool: call,
+        close: async () => {},
+      }),
+    },
+  );
+  const permission = (name: string, input: Record<string, unknown>, signal: AbortSignal) =>
+    buildPermissionHandler('work-api', registry)(name, input, { signal, toolUseID: name });
+  const abort = new AbortController();
+  try {
+    const google = tools.definitions.find((tool) =>
+      tools.displayName(tool.name).endsWith('__google_search'),
+    )!.name;
+    const telos = tools.definitions.find((tool) =>
+      tools.displayName(tool.name).endsWith('__telos_save'),
+    )!.name;
+    for (const [wire, decision] of [
+      [google, 'once'],
+      [google, 'always'],
+      [telos, 'always'],
+    ] as const) {
+      const before = requests.length;
+      const execution = tools.execute(wire, { query: 'approved input' }, permission, abort.signal);
+      await vi.waitFor(() => expect(requests).toHaveLength(before + 1));
+      expect(
+        resolvePending(requests.at(-1)!.permId as string, decision, undefined, 'work-conversation'),
+      ).toBe(true);
+      expect(await execution).toEqual({ content: 'completed', isError: false });
+    }
+    expect(requests).toHaveLength(3);
+    for (const wire of [google, telos])
+      expect(await tools.execute(wire, { query: 'next input' }, permission, abort.signal)).toEqual({
+        content: 'completed',
+        isError: false,
+      });
+    expect(requests).toHaveLength(3);
+    expect(call).toHaveBeenCalledTimes(5);
+    registry.setMode('work-api', 'ask');
+    const blocked = await tools.execute(telos, { query: 'blocked' }, permission, abort.signal);
+    expect(blocked.isError).toBe(true);
+    expect(call).toHaveBeenCalledTimes(5);
+  } finally {
+    abort.abort();
+    await tools.close();
+    registry.dispose();
+  }
 });

@@ -378,7 +378,7 @@ describe('ChatArea', () => {
     ];
     render(<ChatArea {...defaultProps} messages={messages} />);
     expect(
-      screen.getByRole('button', { name: /Agent at work/ }).getAttribute('aria-expanded'),
+      screen.getByRole('button', { name: /Agents at work/ }).getAttribute('aria-expanded'),
     ).toBe('true');
     expect(screen.getByTestId('thinking-block')).toBeTruthy();
   });
@@ -415,7 +415,7 @@ describe('ChatArea', () => {
       />,
     );
     expect(
-      screen.getByRole('button', { name: /Agent at work/ }).getAttribute('aria-expanded'),
+      screen.getByRole('button', { name: /Agents at work/ }).getAttribute('aria-expanded'),
     ).toBe('true');
     expect(screen.getByTestId('tool-pill').textContent).toContain('ordinary');
     expect(screen.getByTestId('tool-pill').getAttribute('data-session-id')).toBe('origin');
@@ -460,7 +460,7 @@ describe('ChatArea', () => {
       />,
     );
     expect(
-      screen.getByRole('button', { name: /Agent at work/ }).getAttribute('aria-expanded'),
+      screen.getByRole('button', { name: /Agents at work/ }).getAttribute('aria-expanded'),
     ).toBe('true');
     expect(screen.getByTestId('tool-pill').textContent).toContain('ordinary');
     expect(screen.getByTestId('tool-pill').getAttribute('data-session-id')).toBe('origin');
