@@ -21,6 +21,96 @@ function pair() {
   b.peer = a;
   return [a, b] as const;
 }
+function readinessFixture() {
+  const [parent, child] = pair();
+  const dispatch = vi.fn(async () => ({ status: 200, body: {} }));
+  const drain = vi.fn(async () => {});
+  const controller = new SymposiumCustodianController({
+    pause: vi.fn(),
+    resume: vi.fn(),
+    drain,
+    invalidate: vi.fn(),
+    dispatch,
+  });
+  return { parent, child, controller, dispatch, drain };
+}
+it('awaits the original native readiness capability exactly once before publishing readiness or requests', async () => {
+  const f = readinessFixture();
+  let release!: () => void;
+  const completed = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const beforeReady = vi.fn(async (_epoch: number, current: () => void) => {
+    current();
+    await completed;
+    current();
+  });
+  const sent = vi.spyOn(f.parent, 'send');
+  const stopped = serveCustodianController(f.parent, f.controller, { beforeReady });
+  try {
+    f.parent.emit('message', { kind: 'hello' });
+    f.parent.emit('message', { kind: 'hello' });
+    expect(beforeReady).toHaveBeenCalledOnce();
+    expect(sent).not.toHaveBeenCalled();
+    expect(f.dispatch).not.toHaveBeenCalled();
+    release();
+    await vi.waitFor(() =>
+      expect(sent).toHaveBeenCalledWith({ kind: 'ready', epoch: 1 }, expect.any(Function)),
+    );
+  } finally {
+    f.parent.emit('disconnect');
+    await stopped;
+  }
+});
+it('never publishes readiness after the original pending owner is lost or its verification rejects', async () => {
+  for (const rejection of [false, true]) {
+    const f = readinessFixture();
+    let finish!: () => void;
+    const pending = new Promise<void>((resolve, reject) => {
+      finish = rejection ? () => reject(Error('proof refused')) : resolve;
+    });
+    const sent = vi.spyOn(f.parent, 'send');
+    const stopped = serveCustodianController(f.parent, f.controller, {
+      beforeReady: async () => pending,
+    });
+    const outcome = stopped.catch((error) => error);
+    f.parent.emit('message', { kind: 'hello' });
+    if (!rejection) f.parent.emit('disconnect');
+    finish();
+    await outcome;
+    expect(sent).not.toHaveBeenCalled();
+    expect(f.drain).toHaveBeenCalledOnce();
+  }
+});
+it('expires pending readiness and refuses requests before proof completion', async () => {
+  for (const earlyRequest of [false, true]) {
+    const f = readinessFixture();
+    const sent = vi.spyOn(f.parent, 'send');
+    const stopped = serveCustodianController(f.parent, f.controller, {
+      beforeReady: async () => new Promise<void>(() => {}),
+      readinessTimeoutMs: 5,
+    });
+    const rejected = expect(stopped).rejects.toThrow(
+      earlyRequest ? 'preceded verified readiness' : 'expired',
+    );
+    f.parent.emit('message', { kind: 'hello' });
+    if (earlyRequest) f.parent.emit('message', { kind: 'request', command: {} });
+    await rejected;
+    expect(sent).not.toHaveBeenCalled();
+    expect(f.dispatch).not.toHaveBeenCalled();
+    expect(f.drain).toHaveBeenCalledOnce();
+  }
+});
+it('rejects unbounded IPC startup and original-readiness timeout options', () => {
+  const f = readinessFixture();
+  expect(() => createCustodianIpcClient(f.child, { startupTimeoutMs: 120001 })).toThrow('Bounded');
+  expect(() =>
+    serveCustodianController(f.parent, f.controller, {
+      beforeReady: async () => {},
+      readinessTimeoutMs: 0,
+    }),
+  ).toThrow('Bounded');
+});
 it('refuses controller mode without the inherited parent channel', () => {
   expect(() => validateCustodianMode('1', false, undefined)).toThrow('inherited');
   expect(() => validateCustodianMode('yes', true, () => {})).toThrow('mode');
