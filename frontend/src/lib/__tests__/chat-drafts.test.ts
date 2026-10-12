@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   createChatDraft,
   saveChatDraft,
@@ -11,6 +11,7 @@ import {
 } from '../chat-drafts';
 
 beforeEach(() => localStorage.clear());
+afterEach(() => vi.restoreAllMocks());
 describe('saved new-chat drafts', () => {
   it('retains a newer legacy message written by an older open tab after migration', () => {
     localStorage.setItem('mitzo-draft-new', 'First legacy message');
@@ -33,6 +34,7 @@ describe('saved new-chat drafts', () => {
     expect(listChatDrafts().map((d) => d.id)).toEqual([first.id]);
   });
   it('restores editable content, attachments, context and all launch settings', () => {
+    const now = vi.spyOn(Date, 'now').mockReturnValue(1000);
     const draft = {
       ...createChatDraft(),
       text: 'Help with this screenshot',
@@ -46,10 +48,12 @@ describe('saved new-chat drafts', () => {
         summary: { profile: 'Work API', model: 'Model A', thinking: 'Thinking: high' },
       },
     };
+    now.mockReturnValue(1001);
     expect(saveChatDraft(draft)).toBe(true);
-    expect(getChatDraft(draft.id)).toMatchObject(draft);
+    expect(getChatDraft(draft.id)).toMatchObject({ ...draft, updatedAt: 1001 });
+    now.mockReturnValue(2000);
     saveChatDraft({ ...draft, text: 'Edited message' });
-    expect(getChatDraft(draft.id)?.text).toBe('Edited message');
+    expect(getChatDraft(draft.id)).toMatchObject({ text: 'Edited message', updatedAt: 2000 });
   });
   it('consumes only the accepted revision and keeps newer edits', () => {
     const draft = { ...createChatDraft(), text: 'Original' };
