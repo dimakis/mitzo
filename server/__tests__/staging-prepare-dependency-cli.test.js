@@ -82,7 +82,7 @@ function fixture(mode = 'valid') {
     preload,
     `import cp from 'node:child_process';import os from 'node:os';import {syncBuiltinESMExports} from 'node:module';import fs from 'node:fs';import path from 'node:path';const original=cp.spawnSync;os.homedir=()=>${JSON.stringify(home)};cp.spawnSync=(program,args,options)=>{if(program==='git'&&args.includes('ls-remote'))return {status:0,stdout:${JSON.stringify(target)}+' refs/heads/main'};if(program==='git'&&args.includes('clone')){const p=args.at(-1);const clone=original('git',['clone','--no-checkout',${JSON.stringify(source)},p],options);if(clone.status===0)original('git',['remote','set-url','origin','https://github.com/dimakis/mitzo.git'],{...options,cwd:p});return clone;}if(program==='npm'){for(const name of ['dist','frontend/dist','packages/protocol/dist','packages/harness/dist','packages/client/dist']){fs.mkdirSync(path.join(options.cwd,name),{recursive:true});fs.writeFileSync(path.join(options.cwd,name,'compiled.js'),'independently rebuilt fixture');}if(${JSON.stringify(mode)}==='drift')fs.writeFileSync(${JSON.stringify(join(source, 'node_modules/dependency.js'))},'changed during build');return {status:0,stdout:'synthetic build'};}if(program==='launchctl'||program==='/bin/launchctl')throw Error('Service control attempted');return original(program,args,options);};syncBuiltinESMExports();`,
   );
-  const run = (supplied = true) =>
+  const run = (supplied = true, checkOnly = false) =>
     spawnSync(
       process.execPath,
       [
@@ -92,6 +92,7 @@ function fixture(mode = 'valid') {
         'prepare',
         '--commit',
         target,
+        ...(checkOnly ? ['--check-only'] : []),
         ...(supplied
           ? ['--dependency-source', source, '--expected-dependency-fingerprint', fingerprint]
           : []),
@@ -135,4 +136,42 @@ it('dependency drift during the build preserves the live receipt and refuses pro
   expect(result.stderr).toContain('Dependency source changed');
   expect(readFileSync(f.receiptPath)).toEqual(prior);
   expect(existsSync(join(f.root, 'releases', f.target.slice(0, 12)))).toBe(false);
+});
+it('reuses an intact prepared candidate after waiting and refuses changed retained artifacts', () => {
+  const f = fixture();
+  const first = f.run();
+  expect(first.status, first.stderr).toBe(0);
+  const candidate = JSON.parse(first.stdout).prepared;
+  const receipt = readFileSync(f.receiptPath);
+  const retained = readFileSync(join(candidate, 'staging-release.json'));
+  const again = f.run();
+  expect(again.status, again.stderr).toBe(0);
+  expect(JSON.parse(again.stdout).reused).toBe(true);
+  expect(readFileSync(join(candidate, 'staging-release.json'))).toEqual(retained);
+  expect(readFileSync(f.receiptPath)).toEqual(receipt);
+  writeFileSync(join(candidate, 'dist/compiled.js'), 'tampered after preparation');
+  expect(f.run().status).not.toBe(0);
+  expect(readFileSync(f.receiptPath)).toEqual(receipt);
+});
+it('read-only candidate validation neither builds absent candidates nor rewrites retained evidence', () => {
+  const f = fixture();
+  const absent = f.run(false, true);
+  expect(absent.status, absent.stderr).toBe(0);
+  expect(JSON.parse(absent.stdout)).toMatchObject({ prepared: false, source: f.target });
+  expect(JSON.parse(absent.stdout).growthGiB).toBeGreaterThanOrEqual(2);
+  expect(existsSync(join(f.root, 'service/deployment-audit.jsonl'))).toBe(false);
+  const built = f.run();
+  expect(built.status, built.stderr).toBe(0);
+  const candidate = JSON.parse(built.stdout).prepared;
+  const auditPath = join(f.root, 'service/deployment-audit.jsonl');
+  const audit = readFileSync(auditPath),
+    receipt = readFileSync(join(candidate, 'staging-release.json'));
+  const probe = f.run(false, true);
+  expect(probe.status, probe.stderr).toBe(0);
+  expect(JSON.parse(probe.stdout)).toMatchObject({ reused: true, source: f.target });
+  expect(readFileSync(auditPath)).toEqual(audit);
+  expect(readFileSync(join(candidate, 'staging-release.json'))).toEqual(receipt);
+  writeFileSync(join(candidate, 'node_modules/dependency.js'), 'drift');
+  expect(f.run(false, true).status).not.toBe(0);
+  expect(readFileSync(auditPath)).toEqual(audit);
 });

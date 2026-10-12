@@ -37,6 +37,9 @@ import {
   stageDirectory,
   appendAudit,
 } from './lib/staging-files.mjs';
+import { assertStagingPipelineMutation } from './lib/staging-pipeline-mutation-guard.mjs';
+import { assertStagingSnapshotAdmission } from './lib/staging-deployment-growth.mjs';
+import { observeMacStagingResources } from './lib/staging-pipeline-host.mjs';
 import { assertStageJob } from './lib/staging-job.mjs';
 import { assertStageRegistration } from './lib/staging-registration.mjs';
 import { verifyDependencySource } from './lib/staging-dependency-source.mjs';
@@ -48,14 +51,14 @@ const args = process.argv.slice(2),
   command = args.shift();
 if (command === '--help' || !command) {
   console.log(
-    'staging check [--offline]\nstaging prepare --commit SHA [--dependency-source PATH --expected-dependency-fingerprint SHA256]\nstaging deploy --commit SHA --expected-current SHA [--apply]',
+    'staging check [--offline]\nstaging prepare --commit SHA [--check-only | --dependency-source PATH --expected-dependency-fingerprint SHA256]\nstaging deploy --commit SHA --expected-current SHA [--apply]',
   );
   process.exit(0);
 }
 if (!['check', 'prepare', 'deploy'].includes(command)) throw Error('Unsupported staging command');
 const flags = {};
 for (let i = 0; i < args.length; i++) {
-  if (['--offline', '--apply'].includes(args[i])) flags[args[i]] = true;
+  if (['--offline', '--apply', '--check-only'].includes(args[i])) flags[args[i]] = true;
   else if (
     [
       '--commit',
@@ -69,12 +72,24 @@ for (let i = 0; i < args.length; i++) {
   else throw Error('Unknown staging argument');
 }
 if (
+  flags['--check-only'] &&
+  (command !== 'prepare' || flags['--apply'] || flags['--dependency-source'])
+)
+  throw Error('Read-only candidate validation is preparation-only');
+if (
   (flags['--dependency-source'] || flags['--expected-dependency-fingerprint']) &&
   (command !== 'prepare' ||
     !flags['--dependency-source'] ||
     !flags['--expected-dependency-fingerprint'])
 )
   throw Error('Dependency source and fingerprint are paired preparation-only arguments');
+const assertPipeline = () =>
+  assertStagingPipelineMutation({
+    target: flags['--commit'],
+    apply: flags['--apply'] === true,
+    proof: process.env.MITZO_STAGING_PIPELINE_TOKEN,
+  });
+if (command !== 'check' && !flags['--check-only']) assertPipeline();
 if (process.platform !== 'darwin') throw Error('This host controller supports macOS launchd only');
 if (realpathSync(root) !== root) throw Error('Canonical staging root required');
 for (const name of ['service', 'settings', 'workspace', 'state', 'home', 'releases'])
@@ -84,6 +99,8 @@ const env = {
   HOME: join(root, 'home'),
   TMPDIR: '/private/tmp',
   LANG: 'en_US.UTF-8',
+  NODE_OPTIONS: '--max-old-space-size=2048',
+  npm_config_jobs: '2',
   GIT_TERMINAL_PROMPT: '0',
   GIT_CONFIG_NOSYSTEM: '1',
   GIT_CONFIG_GLOBAL: '/dev/null',
@@ -267,7 +284,40 @@ async function prepare() {
     active = current(),
     freshMain = main();
   if (target !== freshMain) throw Error('Preparation requires exact current accepted main');
-  if (existsSync(final)) throw Error('Release already exists; inspect it instead of overwriting');
+  if (lstatSync(final, { throwIfNoEntry: false })) {
+    const retained = privateJson(join(final, 'staging-release.json'));
+    assertStageCandidate(retained, target, final);
+    validateRelease(retained, freshMain);
+    console.log(
+      JSON.stringify({
+        prepared: final,
+        source: target,
+        reused: true,
+        started: false,
+        productionActions: [],
+      }),
+    );
+    return;
+  }
+  if (flags['--check-only']) {
+    validateRelease(active);
+    const usage = run('/usr/bin/du', ['-sk', active.release]).match(/^(\d+)\s+([^\n]+)$/);
+    if (!usage || usage[2] !== active.release || !Number.isSafeInteger(Number(usage[1])))
+      throw Error('Candidate growth observation unavailable');
+    // Budget a complete source/dependency/artifact baseline copy plus a 2 GiB
+    // build margin. This is conservative admission accounting, not a quota.
+    const growthGiB = Math.ceil(Number(usage[1]) / 1048576) + 2;
+    console.log(
+      JSON.stringify({
+        prepared: false,
+        source: target,
+        growthGiB,
+        started: false,
+        productionActions: [],
+      }),
+    );
+    return;
+  }
   validateRelease(active);
   const attempt = join(root, 'releases', '.prepare-' + randomUUID());
   audit({ phase: 'build_intent', target, attempt });
@@ -365,6 +415,10 @@ async function deploy() {
     'scripts/lib/staging-launcher-template.mjs',
     'scripts/lib/staging-registration.mjs',
     'scripts/lib/staging-dependency-source.mjs',
+    'scripts/lib/staging-pipeline-mutation-guard.mjs',
+    'scripts/lib/staging-pipeline-host.mjs',
+    'scripts/lib/staging-resource-budget.mjs',
+    'scripts/lib/staging-deployment-growth.mjs',
   ]) {
     const installed = new URL(name.replace('scripts/', ''), import.meta.url);
     const p = fileURLToPath(installed);
@@ -375,21 +429,34 @@ async function deploy() {
       throw Error('Controller is not identical to accepted candidate source');
   }
   const lock = join(root, 'service/deployment.lock');
-  let lockFd;
+  const admitSnapshot = () =>
+    assertStagingSnapshotAdmission(root, () => observeMacStagingResources(root));
+  // Refuse before shutdown, then remeasure after the original app has drained.
+  admitSnapshot();
+  let lockFd,
+    physicallyVerified = false;
   await promoteStage(
     { expectedCurrent: expected, target },
     {
       lock: async () => {
+        assertPipeline();
         lockFd = openSync(lock, 'wx', 0o600);
         writeFileSync(lockFd, JSON.stringify({ id, expected, target }) + '\n');
         fsyncSync(lockFd);
       },
       unlock: async () => {
+        if (physicallyVerified) assertPipeline();
         closeSync(lockFd);
+        if (physicallyVerified) assertPipeline();
         unlinkSync(lock);
       },
-      audit: async (event) => audit({ id, ...event }),
+      audit: async (event) => {
+        if (event.phase === 'verified') assertPipeline();
+        audit({ id, ...event });
+      },
       validate: async () => {
+        admitSnapshot();
+        assertPipeline();
         assertStageCandidate(next, target, path);
         validateRelease(next, main());
         validateRelease(active);
@@ -398,6 +465,7 @@ async function deploy() {
       current: async () => current().sourceCommit,
       stop: async () => {
         assertStageJob(job(), active, originalJob);
+        assertPipeline();
         run('launchctl', ['kill', 'SIGTERM', 'gui/' + process.getuid() + '/' + label]);
         const deadline = Date.now() + 180000;
         while (Date.now() < deadline) {
@@ -414,23 +482,33 @@ async function deploy() {
         throw Error('Original stage shutdown uncertain');
       },
       snapshot: async () => {
+        assertPipeline();
+        admitSnapshot();
+        assertPipeline();
         stageDirectory(root, 'service/deployments/' + id, true);
-        for (const directory of ['workspace', 'state'])
+        for (const directory of ['workspace', 'state']) {
+          assertPipeline();
           cpSync(join(root, directory), join(backup, directory), {
             recursive: true,
             verbatimSymlinks: true,
           });
+        }
+        assertPipeline();
         writeFileSync(join(backup, 'previous-release.json'), JSON.stringify(active) + '\n', {
           mode: 0o600,
         });
       },
       activate: async () => {
+        assertPipeline();
         replacePrivateJson(receiptPath, next);
+        assertPipeline();
         stageDirectory(root, 'service/control-lib', true);
+        assertPipeline();
         cpSync(
           new URL('./lib/staging-files.mjs', import.meta.url),
           join(root, 'service/control-lib/staging-files.mjs'),
         );
+        assertPipeline();
         cpSync(
           new URL('./lib/staging-operations.mjs', import.meta.url),
           join(root, 'service/control-lib/staging-operations.mjs'),
@@ -439,15 +517,19 @@ async function deploy() {
           new URL('./lib/staging-launcher-template.mjs', import.meta.url),
         );
         const temporary = join(root, 'service/start.mjs.' + id);
+        assertPipeline();
         writeFileSync(temporary, launcher, { flag: 'wx', mode: 0o600 });
+        assertPipeline();
         renameSync(temporary, join(root, 'service/start.mjs'));
       },
       start: async () => {
+        assertPipeline();
         writeFileSync(
           join(root, 'service/launch-permit.json'),
           JSON.stringify({ id, target, expiresAt: Date.now() + 15000 }) + '\n',
           { flag: 'wx', mode: 0o600 },
         );
+        assertPipeline();
         run('launchctl', ['kickstart', 'gui/' + process.getuid() + '/' + label]);
       },
       verify: async () => {
@@ -458,7 +540,11 @@ async function deploy() {
             const response = await globalThis.fetch('http://127.0.0.1:3190', {
               signal: globalThis.AbortSignal.timeout(2000),
             });
-            if (response.ok) return;
+            if (response.ok) {
+              assertPipeline();
+              physicallyVerified = true;
+              return;
+            }
           } catch {
             /* Keep the same bounded verification deadline; no second start. */
           }

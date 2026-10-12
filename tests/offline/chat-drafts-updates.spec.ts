@@ -63,6 +63,15 @@ async function offline(page: Page) {
   let checkFailed = false;
   page.on('pageerror', (error) => errors.push(error.message));
   await page.addInitScript(() => {
+    // These draft/update checks do not consume broadcast events. A fulfilled
+    // finite SSE response still opens WebKit's native stream and can race a
+    // reload with an access-control page error. Keep that transport inert;
+    // application page errors remain observable and fail the checks below.
+    class OfflineEventSource extends EventTarget {
+      readyState = 2;
+      close() {}
+    }
+    window.EventSource = OfflineEventSource as unknown as typeof EventSource;
     localStorage.setItem('mitzo:transport', 'ws');
     const sources = new Set<EventSource>();
     const NativeEventSource = window.EventSource;
@@ -238,6 +247,24 @@ async function workspace(page: Page) {
 async function layout(page: Page) {
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 }
+
+test('drafts and updates: offline navigation never opens a native event stream', async ({
+  page,
+}) => {
+  const fixture = await offline(page);
+  const streams: string[] = [];
+  page.on('request', (request) => {
+    if (request.headers().accept === 'text/event-stream') streams.push(request.url());
+  });
+  for (const path of ['/sessions/drafts', '/settings/updates', '/sessions/drafts']) {
+    await page.goto(path);
+    await expect(
+      page.getByRole('heading', { name: /^(Drafts|A new Mitzo is ready)/ }),
+    ).toBeVisible();
+  }
+  expect(streams).toEqual([]);
+  expect(fixture.errors).toEqual([]);
+});
 
 test('drafts: Chats has a dedicated Drafts destination and New chat opens blank', async ({
   page,

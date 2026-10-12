@@ -194,6 +194,8 @@ export interface FinishedMessage {
   blocks: FinishedBlock[];
   images?: string[];
   contextBlocks?: string[];
+  /** Display projection of context already included in this message's prompt. */
+  contextInjections?: import('./context-injection.js').ContextInjection[];
   sourceSnapshots?: SourceSnapshot[];
   timestamp?: number;
 }

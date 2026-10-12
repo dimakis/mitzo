@@ -21,6 +21,34 @@ import type {
   SymposiumProvenance,
 } from '@mitzo/protocol';
 import { messageIdentity } from '../message-identity.js';
+import { splitContextPrompt, type ContextInjection } from '@mitzo/protocol';
+
+function sameInjections(left: ContextInjection[] | undefined, right: ContextInjection[]) {
+  return (
+    left?.length === right.length &&
+    left.every(
+      (item, index) =>
+        item.name === right[index].name &&
+        item.source === right[index].source &&
+        item.content === right[index].content,
+    )
+  );
+}
+
+function projectUserContext(message: FinishedMessage): FinishedMessage {
+  if (message.role !== 'user') return message;
+  const textBlock = message.blocks.find((block) => block.blockType === 'text');
+  const context = textBlock && splitContextPrompt(textBlock.content);
+  if (!context) return message;
+  return {
+    ...message,
+    contextInjections: context.injections,
+    contextBlocks: context.injections.map((item) => item.name),
+    blocks: message.blocks.map((block) =>
+      block === textBlock ? { ...block, content: context.text } : block,
+    ),
+  };
+}
 
 // ─── State ───────────────────────────────────────────────────────────────────
 
@@ -876,9 +904,9 @@ function reduceLegacyMessages(state: MessagesState, action: MessagesAction): Mes
       return { ...INITIAL_MESSAGES_STATE };
 
     case 'RESTORE': {
-      const valid = action.messages.filter(
-        (m) => m && typeof m.messageId === 'string' && Array.isArray(m.blocks),
-      );
+      const valid = action.messages
+        .filter((m) => m && typeof m.messageId === 'string' && Array.isArray(m.blocks))
+        .map(projectUserContext);
       if (!action.interrupted) {
         const existingById = new Map(
           state.messages.map((m) => [messageIdentity(m.messageId, m.symposiumProvenance), m]),
@@ -893,7 +921,30 @@ function reduceLegacyMessages(state: MessagesState, action: MessagesAction): Mes
               m.startedSeq,
         );
         if (!hasNewMessages && !hasNewSequence && state.messages.length > 0) {
-          return state;
+          const contexts = new Map(
+            valid.map((message) => [
+              messageIdentity(message.messageId, message.symposiumProvenance),
+              message,
+            ]),
+          );
+          const messages = state.messages.map((message) => {
+            const durable = contexts.get(
+              messageIdentity(message.messageId, message.symposiumProvenance),
+            );
+            if (
+              !durable?.contextInjections ||
+              sameInjections(message.contextInjections, durable.contextInjections)
+            )
+              return message;
+            return {
+              ...message,
+              contextInjections: durable.contextInjections,
+              contextBlocks: durable.contextBlocks ?? message.contextBlocks,
+            };
+          });
+          return messages.some((message, index) => message !== state.messages[index])
+            ? { ...state, messages }
+            : state;
         }
       }
       if (action.interrupted) {
@@ -956,6 +1007,7 @@ function reduceLegacyMessages(state: MessagesState, action: MessagesAction): Mes
     }
 
     case 'USER_MESSAGE_RECEIVED': {
+      const context = splitContextPrompt(action.text);
       const existingIndex = state.messages.findIndex((m) => m.messageId === action.messageId);
       if (existingIndex !== -1) {
         const existing = state.messages[existingIndex];
@@ -964,11 +1016,16 @@ function reduceLegacyMessages(state: MessagesState, action: MessagesAction): Mes
         const images = action.images ?? existing.images;
         const contextBlocks = action.contextBlocks ?? existing.contextBlocks;
         const sourceSnapshots = action.sourceSnapshots ?? existing.sourceSnapshots;
+        const contextInjections =
+          context && !sameInjections(existing.contextInjections, context.injections)
+            ? context.injections
+            : existing.contextInjections;
         if (
           startedSeq === existing.startedSeq &&
           images === existing.images &&
           contextBlocks === existing.contextBlocks &&
-          sourceSnapshots === existing.sourceSnapshots
+          sourceSnapshots === existing.sourceSnapshots &&
+          contextInjections === existing.contextInjections
         )
           return state;
         const messages = [...state.messages];
@@ -978,6 +1035,7 @@ function reduceLegacyMessages(state: MessagesState, action: MessagesAction): Mes
           images,
           contextBlocks,
           sourceSnapshots,
+          contextInjections,
         };
         return { ...state, messages };
       }
@@ -991,13 +1049,14 @@ function reduceLegacyMessages(state: MessagesState, action: MessagesAction): Mes
             role: 'user',
             timestamp: Date.now(),
             images: action.images,
-            contextBlocks: action.contextBlocks,
+            contextBlocks: context?.injections.map((item) => item.name) ?? action.contextBlocks,
+            ...(context ? { contextInjections: context.injections } : {}),
             sourceSnapshots: action.sourceSnapshots,
             blocks: [
               {
                 blockId: `user-text-${action.messageId}`,
                 blockType: 'text' as BlockType,
-                content: action.text,
+                content: context?.text ?? action.text,
               },
             ],
           },

@@ -273,6 +273,7 @@ export function ChatArea({
                   text={textBlock?.content}
                   images={msg.images}
                   contextBlocks={msg.contextBlocks}
+                  contextInjections={msg.contextInjections}
                   timestamp={msg.timestamp}
                   readAloud={
                     voice?.ttsAvailable

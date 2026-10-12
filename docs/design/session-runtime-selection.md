@@ -3,7 +3,57 @@
 Status: incremental design and source audit. Dormant infrastructure includes
 versioned EventStore bindings, configuration resolution, local Codex account
 projection and V2 configured-target persistence. This document does not establish
-live, staged or deployed support for any selectable route.
+live, staged or deployed support for any selectable route. The first-command
+guard below is an injected, dormant coordinator; no live caller is enrolled.
+
+## Guarded local Codex first-command contract
+
+[`OrdinaryLocalCodexAdmissionCoordinator`](../../server/ordinary-local-codex-admission.ts)
+accepts only a new ordinary session's first command or an exact persisted retry.
+It refuses adoption of legacy or pre-existing dormant V2 sessions and refuses
+additional commands on an existing bound session. Future-turn admission and
+settings edits require a separate integration.
+This bounded slice requires an explicit published agent profile using the
+existing `AgentProfileSelection` ID and positive numeric revision; bundled-agent
+name selection is not enrolled by this contract.
+
+An explicit server gate and an independently qualified owning authority are
+both required. The authority must observe the exact host, runtime contract,
+host-login account, agent and context revisions, permission revision, model,
+thinking level and workspace reservation. It must hold its lifecycle and
+revocation fence through persistence, workspace preparation and provider dispatch,
+and recheck it at each effect boundary. The configured target's private
+`admissionDeclaration()` contains expectations only; neither it nor the public
+capability inventory proves the actual host or account is authorized.
+
+The existing EventStore global command claim, runtime-bound session row and
+`send_commands` receipt are saved in one immediate SQLite transaction. The
+additive nullable `ordinary_admission` field freezes the selected command,
+workspace and V2 runtime identity. It is not a second execution or workspace
+ledger. Changed identity, prompt payload or settings cannot replace a receipt.
+
+| Receipt state | Meaning                                                              | Retry behavior                                                            |
+| ------------- | -------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| `reserved`    | Intent saved; no external effects have begun                         | Exact retry must requalify current authority before claiming effects      |
+| `uncertain`   | Atomic claim saved before workspace preparation or provider dispatch | Preserve evidence; never replay effects automatically                     |
+| `consumed`    | The injected dispatch operation returned successfully                | Exact retry returns without effects; this does not prove model completion |
+
+Two independent stores cannot both claim effects. A crash or failure after the
+claim retains uncertainty, including workspace preparation failures. Generic
+restart recovery preserves guarded receipts. Legacy send acceptance, direct
+startup and cold-start preflight refuse runtime-bound rows before runtime
+effects; native-command completion cannot erase a guarded receipt's session ID.
+Canonical workspace/ContexGin recipe pins are passed to their owning authority;
+native Codex packs retain their existing continuation-barrier refusal.
+
+Activation still requires an actual host/runtime/account authority, a workspace
+metadata reservation before filesystem materialization, and reviewed integration
+with Codex's existing thread, queue, cancellation and recovery ownership. The
+current CLI-version/account observations and post-launch runtime policy checks
+do not satisfy that pre-effect authority. No endpoint, default verifier, host
+probe, runtime launch or picker behavior is added by this coordinator. OpenShell
+remains the approved default for the eventual picker; local selection must be
+explicit once qualified.
 
 ## Separate account identity from execution choice
 

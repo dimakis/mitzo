@@ -71,6 +71,24 @@ Apply regenerates both component proposals and refuses drift before presenting
 the native authentication prompt. The saved proposal never contains authentication
 or filesystem capabilities. These commands have no force or rollback option.
 
+Immediately before authentication, the original controller admits only the exact
+fresh accepted main and freezes its verified source, visible index, prepared artifact
+and dependency receipt, helper bytes and helper filesystem identity. During that
+same bounded operation, each physical phase rechecks those frozen inputs. A later
+main advance is allowed only after proving that it still contains the admitted
+commit. Removed ancestry, drift, unknown history or expiration refuses continuation
+and preserves the guard and evidence. A serialized proposal cannot recreate this
+12-minute process-local witness or extend the separate authentication lease.
+
+Ancestry checks use a private public-Git scratch store, never the release's refs or
+objects. They fetch commits only, with depth 256, at most three immutable fetches,
+30 seconds per fetch, no automatic maintenance and a kernel limit of at most 4 MiB
+per file. Packed storage, full byte/file accounting and in-flight checks enforce a
+conservative 64 MiB scratch allowance; at least 20 GiB plus that allowance must be
+free before creation. Oversized or unsupported history refuses. External read-only
+alternates are not copied or traversed as scratch. Only the original private scratch
+directory can be removed when this operation closes; native evidence is preserved.
+
 Inspect the generated proposal before applying it. It must describe the complete
 old Symposium directory, original service and VM registrations, four old ordinary
 data directories, each overwritten control file, and the exact accepted replacement.
@@ -188,3 +206,12 @@ Production ports, services, state, credentials and deployment remain excluded.
 The physical route is grounded in the [Podman 5.6.2 AppleHV implementation](https://github.com/containers/podman/tree/v5.6.2/pkg/machine/apple),
 [vfkit device contract](https://github.com/crc-org/vfkit/blob/main/doc/usage.md), and
 [Apple LocalAuthentication API](https://developer.apple.com/documentation/localauthentication).
+
+The original source witness qualifies the real containment effects at construction
+and before and after native actions, as well as inspection and ordinary restore.
+Its twelve-minute deadline and closed state are rechecked after the final source
+and ancestry reads. The public-history Git fetch runs in its own captured process
+group: timeout, output or scratch refusal terminates transport/pack children too,
+then allows250ms for pipe closure and original-child reaping. An unconfirmed drain
+refuses acceptance and retains its bounded private scratch instead of claiming
+cleanup. This process-group termination never targets staging or a VM.

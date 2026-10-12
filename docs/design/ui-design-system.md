@@ -158,6 +158,30 @@ Inbox keeps a reading surface of at least three shared control heights on phones
 
 ## Chat activity disclosure
 
+Composer utilities use quiet shared icons, with their names available to assistive
+technology. Commands uses the shared list icon instead of a text slash; its
+hover/focus label uses semantic surface, type, spacing and radius tokens. Narrow
+composers retain visible labels in the More menu. Visible glyphs stay small while
+their unboxed targets retain `--control-height`; changing the control does not
+replace the draft or change command selection.
+
+User-message context uses `ContextInjectionDisclosure` beside the readable prompt.
+Selected names appear with the optimistic send; the recorded echo supplies the
+injected reference bodies without replacing the user's draft text. Complete legacy
+context envelopes are projected into the same disclosure during history recovery;
+recognizable nested delimiter examples preserve the full original prompt.
+The content starts collapsed and stays collapsed as metadata arrives. Its toggle
+uses `UiIcon`, semantic colors, shared type/spacing/radius tokens, a
+`--control-height` target, `aria-expanded`, and `MotionPresence`. Source paths wrap;
+long reference headings wrap without displacing the touch-sized copy action;
+each reference has a separate copy action and a keyboard-scrollable plain-text
+body. The body cap of `min(40dvh, 24rem)` is structural viewport geometry that keeps
+large injections from expanding the whole chat. Editing, copying and read-aloud
+operate on the user prompt; opening context does not start prompt editing.
+The offline context-injection fixture exercises selection, the live echo, replay,
+large content, narrow mobile and desktop, theme/accent/font substitution, keyboard
+disclosure and reduced motion with no backend or provider.
+
 `AgentActivity` groups consecutive normalized thought/tool blocks between responses, including across provider message boundaries. Its one-line latest-activity preview uses the shared type/spacing/radius scales, semantic muted/error colors, `UiIcon`, a `--control-height` button with visible focus and `aria-expanded`, and `MotionPresence` for details. Failure counts, including failures inside delegated agents, remain visible when collapsed. Delegated agents stay inside the same shared disclosure, with their total and running count in its preview; nested cards use shared disclosure motion. Existing tool/thought controls retain full detail, while approvals, progress, web-access results and deduplicated setup cards stay outside the disclosure. Group identity follows the session and captured seat/account generation. Activity and thought content start open and remain readable while awaiting a reply, including between provider messages and after tool completion. Visible text from the same speaker collapses preceding activity; another speaker's reply and a new user turn cannot complete it. Manual reopening after a reply persists through further updates. No timer collapses thought content within this group. Empty or whitespace-only text does not split activity. Automatic collapse returns keyboard focus from closing details to the header while preserving focus elsewhere, including the composer, with both normal and reduced motion. No provider or account selects a separate visual treatment.
 
 ## Terminal output layout
