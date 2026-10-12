@@ -551,7 +551,7 @@ it('does not advertise unavailable host tools to an OpenShell runtime', async ()
   expect(mocks.permissionHandler).toHaveBeenCalledWith(
     'TelosCreateOutcome',
     input,
-    expect.objectContaining({ forcePrompt: true }),
+    expect.objectContaining({ forcePrompt: true, allowSessionGrant: true }),
   );
   expect(fetch).toHaveBeenCalledWith(
     'http://localhost:3100/api/internal/telos/outcomes',
@@ -581,6 +581,11 @@ it('does not advertise unavailable host tools to an OpenShell runtime', async ()
   expect(
     await executeTool('TelosSaveArtifact', artifactInput, new AbortController().signal),
   ).toEqual({ content: JSON.stringify(receipt), isError: false });
+  expect(mocks.permissionHandler).toHaveBeenLastCalledWith(
+    'TelosSaveArtifact',
+    artifactInput,
+    expect.objectContaining({ forcePrompt: true, allowSessionGrant: true }),
+  );
   expect(fetch).toHaveBeenLastCalledWith(
     'http://localhost:3101/api/internal/telos/artifacts/save',
     expect.anything(),

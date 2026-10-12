@@ -1643,6 +1643,7 @@ async function openCodexChatBound(
           signal,
           toolUseID: randomUUID(),
           forcePrompt: name === 'TelosSaveArtifact',
+          allowSessionGrant: true,
           title:
             name === 'TelosSaveArtifact'
               ? 'Save this document in live Telos?'
@@ -1676,6 +1677,7 @@ async function openCodexChatBound(
           signal,
           toolUseID: randomUUID(),
           forcePrompt: true,
+          allowSessionGrant: true,
           title: 'Create this outcome in live Telos?',
           description:
             'This writes the approved outcome and milestones to the host Telos store linked to this Mitzo session.',

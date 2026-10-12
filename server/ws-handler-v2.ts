@@ -1,4 +1,9 @@
 import {
+  isTransportConnectionOwnedBy,
+  liveTransportAuthSessionId,
+  transportConnectionsShareOwner,
+} from './transport-auth-ownership.js';
+import {
   assertOrdinaryContributorControlAllowed,
   SessionControlRejected,
 } from './ordinary-contributor-execution.js';
@@ -1484,6 +1489,7 @@ export function handlePermissionResponseV2(
   connectionId: string,
   msg: PermissionMsg,
   ctx: V2HandlerContext,
+  operatorAuthSessionId?: string,
 ): boolean {
   return withSpan(
     'ws.permission_response',
@@ -1499,8 +1505,24 @@ export function handlePermissionResponseV2(
         const ownerConnection =
           found?.session?.ownerConnectionId ??
           (found ? getOwnerConnection(found.clientId) : undefined);
+        // Watching alone is not authority. Another tab of the owner's login
+        // may answer the same card without taking over the provider session.
+        const sameOwnerWatcher =
+          ownerConnection !== undefined &&
+          liveTransportAuthSessionId(connectionId) !== undefined &&
+          ctx.connRegistry.get(connectionId)?.transport.isOpen() === true &&
+          ctx.connRegistry.get(connectionId)?.watchedSessions.has(pendingSessionId) === true &&
+          transportConnectionsShareOwner(connectionId, ownerConnection);
+        // HTTP supplies this only after interactive operator authentication.
+        // Bind that authority to the actual transport and exact reviewed session.
+        const operatorWatcher =
+          !!operatorAuthSessionId &&
+          msg.sessionId === pendingSessionId &&
+          isTransportConnectionOwnedBy(connectionId, operatorAuthSessionId) &&
+          ctx.connRegistry.get(connectionId)?.transport.isOpen() === true &&
+          ctx.connRegistry.get(connectionId)?.watchedSessions.has(pendingSessionId) === true;
         if (
-          ownerConnection !== connectionId ||
+          (ownerConnection !== connectionId && !sameOwnerWatcher && !operatorWatcher) ||
           (msg.sessionId && msg.sessionId !== pendingSessionId)
         ) {
           sendPermissionResponseRejected(
@@ -1947,7 +1969,12 @@ export async function dispatchV2Message(
         await handleInterruptV2(connectionId, transport, msg, ctx);
         break;
       case 'permission_response':
-        handlePermissionResponseV2(connectionId, msg, ctx);
+        handlePermissionResponseV2(
+          connectionId,
+          msg,
+          ctx,
+          liveTransportAuthSessionId(connectionId),
+        );
         break;
       case 'set_mode':
         await handleSetModeV2(connectionId, msg, ctx);

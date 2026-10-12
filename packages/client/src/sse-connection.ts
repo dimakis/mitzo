@@ -764,6 +764,28 @@ export class SseConnection implements ChatConnection {
           return;
         }
         if (endpoint === 'permission' && typeof body.permId === 'string') {
+          try {
+            const rejected = await res.json();
+            if (
+              rejected?.type === 'permission_response_rejected' &&
+              rejected.permId === body.permId &&
+              rejected.sessionId === scope.sessionId &&
+              typeof rejected.error === 'string'
+            ) {
+              this.listener?.({
+                type: 'permission_response_rejected',
+                ...scope,
+                permId: body.permId,
+                error: rejected.error,
+                ...(Array.isArray(rejected.pendingPermissions)
+                  ? { pendingPermissions: rejected.pendingPermissions }
+                  : {}),
+              });
+              return;
+            }
+          } catch {
+            // An unreadable response cannot authoritatively clear a pending card.
+          }
           this.listener?.({
             type: 'permission_response_rejected',
             ...scope,

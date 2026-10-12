@@ -1,3 +1,16 @@
+vi.mock('../auth.js', async (importOriginal) => ({
+  ...((await importOriginal()) as Record<string, unknown>),
+  operatorAuthMiddleware: (
+    req: import('express').Request,
+    res: import('express').Response,
+    next: import('express').NextFunction,
+  ) => {
+    if (req.headers['x-test-service'])
+      return res.status(403).json({ error: 'Interactive operator authentication is required' });
+    res.locals.authSession = { id: req.headers['x-test-auth'] ?? 'consent-login' };
+    next();
+  },
+}));
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createHash } from 'node:crypto';
 import express from 'express';
@@ -681,7 +694,22 @@ describe('chat-rest-handler', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.ok).toBe(true);
-    expect(handlePermissionResponseV2).toHaveBeenCalledOnce();
+    expect(handlePermissionResponseV2).toHaveBeenCalledWith(
+      CONNECTION_ID,
+      expect.objectContaining({ permId: 'perm-1' }),
+      expect.anything(),
+      'consent-login',
+    );
+  });
+
+  it('rejects noninteractive permission calls before dispatch', async () => {
+    const res = await request(testServer)
+      .post('/api/chat/permission')
+      .set('X-Connection-ID', CONNECTION_ID)
+      .set('X-Test-Service', 'yes')
+      .send({ type: 'permission_response', permId: 'perm-1', decision: 'always' });
+    expect(res.status).toBe(403);
+    expect(handlePermissionResponseV2).not.toHaveBeenCalled();
   });
 
   it('POST /permission returns a retryable rejection for schema-invalid answers', async () => {
@@ -723,6 +751,8 @@ describe('chat-rest-handler', () => {
       ok: false,
       type: 'permission_response_rejected',
       permId: 'expired-perm',
+      sessionId: 'sess-1',
+      pendingPermissions: [],
       error: 'Permission response was invalid or expired. Review the prompt and try again.',
     });
   });

@@ -1,3 +1,4 @@
+import { claimTransportConnection } from '../transport-auth-ownership.js';
 import { permissionRevision } from '../session-permission-revision.js';
 import { describe, it, expect, vi } from 'vitest';
 import type { SessionTransport } from '@mitzo/harness';
@@ -2043,6 +2044,71 @@ describe('handleStopV2', () => {
 // ─── handlePermissionResponseV2 ──────────────────────────────────────────────
 
 describe('handlePermissionResponseV2', () => {
+  it('lets authenticated operator devices respond without transferring ownership', async () => {
+    vi.mocked(getPendingSessionId).mockReturnValue('shared-approval-session');
+    vi.mocked(resolvePending).mockReturnValue(true);
+    const session = { ownerConnectionId: 'approval-owner' };
+    const sessionReg = mockSessionRegistry();
+    sessionReg.findBySessionId.mockReturnValue({
+      clientId: 'approval-owner:shared-approval-session',
+      session,
+    });
+    const ctx = createContext({
+      sessionRegistry: sessionReg as unknown as V2HandlerContext['sessionRegistry'],
+    });
+    for (const id of ['approval-owner', 'approval-tab', 'approval-stranger', 'approval-unwatched'])
+      ctx.connRegistry.register(id, mockTransport());
+    claimTransportConnection('approval-owner', 'approval-login');
+    claimTransportConnection('approval-tab', 'approval-login');
+    claimTransportConnection('approval-unwatched', 'approval-login');
+    claimTransportConnection('approval-stranger', 'other-login');
+    ctx.connRegistry.watch('approval-tab', 'shared-approval-session');
+    ctx.connRegistry.watch('approval-stranger', 'shared-approval-session');
+    const response = {
+      type: 'permission_response' as const,
+      permId: 'shared-permission',
+      sessionId: 'shared-approval-session',
+      decision: 'once' as const,
+    };
+    expect(handlePermissionResponseV2('approval-stranger', response, ctx)).toBe(false);
+    expect(handlePermissionResponseV2('approval-unwatched', response, ctx)).toBe(false);
+    expect(
+      handlePermissionResponseV2('approval-tab', { ...response, sessionId: 'wrong-session' }, ctx),
+    ).toBe(false);
+    expect(resolvePending).not.toHaveBeenCalled();
+    expect(handlePermissionResponseV2('approval-stranger', response, ctx, 'approval-login')).toBe(
+      false,
+    );
+    expect(
+      handlePermissionResponseV2(
+        'approval-stranger',
+        { ...response, sessionId: 'wrong-session' },
+        ctx,
+        'other-login',
+      ),
+    ).toBe(false);
+    expect(handlePermissionResponseV2('approval-stranger', response, ctx, 'other-login')).toBe(
+      true,
+    );
+    expect(handlePermissionResponseV2('approval-tab', response, ctx)).toBe(true);
+    vi.mocked(resolvePending).mockClear();
+    await dispatchV2Message(
+      'approval-stranger',
+      ctx.connRegistry.get('approval-stranger')!.transport,
+      JSON.stringify(response),
+      ctx,
+    );
+    expect(session.ownerConnectionId).toBe('approval-owner');
+    expect(resolvePending).toHaveBeenCalledWith(
+      'shared-permission',
+      'once',
+      undefined,
+      'shared-approval-session',
+    );
+    vi.mocked(getPendingSessionId).mockReset();
+    vi.mocked(resolvePending).mockReset();
+  });
+
   it('rejects the former owner after reconnect and lets the new owner approve', () => {
     vi.mocked(getPendingSessionId).mockReturnValue('sess-1');
     vi.mocked(resolvePending).mockReturnValue(true);

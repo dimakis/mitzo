@@ -998,6 +998,30 @@ describe('SseConnection', () => {
     }
   });
 
+  it('preserves the exact scoped server rejection snapshot after an expired approval', async () => {
+    const rejected = {
+      type: 'permission_response_rejected',
+      sessionId: 'sess-1',
+      permId: 'perm-1',
+      error: 'Already resolved on another device.',
+      pendingPermissions: [],
+    };
+    const fetch = vi.fn().mockResolvedValue({ ok: false, status: 409, json: async () => rejected });
+    const conn = new SseConnection(createConfig({ fetch }));
+    const listener = vi.fn();
+    conn.onMessage(listener);
+    conn.connect();
+    lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-abc' });
+    listener.mockClear();
+    conn.send({
+      type: 'permission_response',
+      sessionId: 'sess-1',
+      permId: 'perm-1',
+      decision: 'once',
+    });
+    await vi.waitFor(() => expect(listener).toHaveBeenCalledWith(rejected));
+  });
+
   it('reports permission POST failures as nonterminal permission rejections', async () => {
     const fetch = vi.fn().mockResolvedValue({ ok: false, status: 400 });
     const conn = new SseConnection(createConfig({ fetch }));
