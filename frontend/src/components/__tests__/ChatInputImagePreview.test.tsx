@@ -5,6 +5,8 @@ import type { ImageAttachment } from '../../types/chat';
 import type { ComponentProps } from 'react';
 import type { SendMessageOptions } from '@mitzo/client';
 import { ChatInput } from '../ChatInput';
+import { resizeImage } from '../../lib/resizeImage';
+import { createChatDraft, saveChatDraft, getChatDraft } from '../../lib/chat-drafts';
 
 const editor = vi.hoisted(() => ({
   current: null as null | {
@@ -261,3 +263,142 @@ it.each(['session', 'generation', 'storage'] as const)(
     );
   },
 );
+it('restores saved images and persists an edited image with the same draft settings', () => {
+  const draft = {
+    ...createChatDraft(),
+    text: 'Saved image request',
+    contextBlocks: ['Saved context'],
+    images: [
+      { data: 'original', mediaType: 'image/png', preview: 'data:image/png;base64,original' },
+    ],
+  };
+  draft.settings.selection = { accountId: 'work', model: 'luna', reasoningEffort: 'high' };
+  saveChatDraft(draft);
+  const view = render(<ChatInput {...props} sessionId={undefined} savedChatDraft={draft} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Preview attachment 1' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Save preview' }));
+  view.unmount();
+  expect(getChatDraft(draft.id)).toMatchObject({
+    text: draft.text,
+    contextBlocks: draft.contextBlocks,
+    settings: draft.settings,
+    images: [{ data: 'edited', mediaType: 'image/png' }],
+  });
+  render(<ChatInput {...props} sessionId={undefined} savedChatDraft={getChatDraft(draft.id)!} />);
+  expect(screen.getByAltText('Attachment 1').getAttribute('src')).toContain('edited');
+});
+it('closes a saved draft image preview on A-to-B navigation and ignores the stale editor callback', () => {
+  const first = {
+    ...createChatDraft(),
+    text: 'First',
+    images: [{ data: 'first', mediaType: 'image/png', preview: 'data:image/png;base64,first' }],
+  };
+  const second = {
+    ...createChatDraft(),
+    text: 'Second',
+    images: [{ data: 'second', mediaType: 'image/png', preview: 'data:image/png;base64,second' }],
+  };
+  saveChatDraft(first);
+  saveChatDraft(second);
+  const view = render(<ChatInput {...props} sessionId={undefined} savedChatDraft={first} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Preview attachment 1' }));
+  const staleSave = editor.current!.onSave;
+  view.rerender(<ChatInput {...props} sessionId={undefined} savedChatDraft={second} />);
+  expect(screen.queryByRole('dialog')).toBeNull();
+  act(() =>
+    staleSave({ data: 'stale', mediaType: 'image/png', preview: 'data:image/png;base64,stale' }),
+  );
+  expect(screen.getByAltText('Attachment 1').getAttribute('src')).toContain('second');
+  expect(getChatDraft(first.id)?.images[0].data).toBe('first');
+  expect(getChatDraft(second.id)?.images[0].data).toBe('second');
+});
+it('keeps a saved draft image edit after acceptance of the older submitted image revision', () => {
+  const draft = {
+    ...createChatDraft(),
+    text: 'Image request',
+    images: [
+      { data: 'original', mediaType: 'image/png', preview: 'data:image/png;base64,original' },
+    ],
+  };
+  saveChatDraft(draft);
+  let receipt: SendMessageOptions['onDelivery'];
+  const onSend = vi.fn<ComponentProps<typeof ChatInput>['onSend']>(
+    (_text, _images, _context, onDelivery) => {
+      receipt = onDelivery;
+      return true;
+    },
+  );
+  render(<ChatInput {...props} sessionId={undefined} onSend={onSend} savedChatDraft={draft} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Preview attachment 1' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Save preview' }));
+  act(() => receipt?.('accepted'));
+  expect(onSend.mock.calls[0][1]?.[0].data).toBe('original');
+  expect(getChatDraft(draft.id)?.images[0].data).toBe('edited');
+  expect(screen.getByAltText('Attachment 1').getAttribute('src')).toContain('edited');
+  expect(screen.getByLabelText('Message Mitzo')).toHaveProperty('value', draft.text);
+});
+
+for (const input of ['file', 'paste'] as const) {
+  it.each(['new', 'draft', 'unmount'] as const)(
+    `ignores pending ${input} image results after %s ownership ends`,
+    async (change) => {
+      const first = { ...createChatDraft(), text: 'First draft' };
+      const second = { ...createChatDraft(), text: 'Second draft' };
+      saveChatDraft(first);
+      saveChatDraft(second);
+      let finishResize!: (image: ImageAttachment) => void;
+      const resize = vi.mocked(resizeImage);
+      const callsBefore = resize.mock.calls.length;
+      resize.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishResize = resolve;
+          }),
+      );
+      const view = render(
+        <ChatInput
+          {...props}
+          sessionId={undefined}
+          savedChatDraft={first}
+          composerGeneration={0}
+        />,
+      );
+      const files = ['old.png', 'not-started.png'].map(
+        (name) => new File(['pixels'], name, { type: 'image/png' }),
+      );
+      if (input === 'file')
+        fireEvent.change(view.container.querySelector('input[type="file"]')!, {
+          target: { files },
+        });
+      else
+        fireEvent.paste(screen.getByLabelText('Message Mitzo'), {
+          clipboardData: {
+            items: files.map((file) => ({ kind: 'file', type: file.type, getAsFile: () => file })),
+          },
+        });
+      expect(resize.mock.calls.length - callsBefore).toBe(1);
+      if (change === 'unmount') view.unmount();
+      else
+        view.rerender(
+          <ChatInput
+            {...props}
+            sessionId={undefined}
+            savedChatDraft={change === 'draft' ? second : createChatDraft()}
+            composerGeneration={change === 'new' ? 1 : 0}
+          />,
+        );
+      await act(async () =>
+        finishResize({
+          data: 'old-image',
+          mediaType: 'image/png',
+          preview: 'data:image/png;base64,old-image',
+        }),
+      );
+      expect(resize.mock.calls.length - callsBefore).toBe(1);
+      expect(getChatDraft(first.id)?.images).toEqual([]);
+      expect(getChatDraft(second.id)?.images).toEqual([]);
+      if (change !== 'unmount') expect(screen.queryByAltText('Attachment 1')).toBeNull();
+    },
+  );
+}
