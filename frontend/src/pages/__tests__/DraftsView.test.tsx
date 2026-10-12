@@ -44,6 +44,22 @@ afterEach(() => {
   cleanup();
   localStorage.clear();
   vi.mocked(apiFetch).mockReset();
+  vi.restoreAllMocks();
+});
+it('restores confirmed discard focus after commit without waiting for an animation frame', async () => {
+  vi.spyOn(window, 'requestAnimationFrame').mockReturnValue(1);
+  const draft = { ...createChatDraft(), text: 'Discard this thought' };
+  saveChatDraft(draft);
+  render(
+    <MemoryRouter>
+      <DraftsView />
+    </MemoryRouter>,
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Discard draft' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm discard' }));
+  await waitFor(() =>
+    expect(document.activeElement).toBe(screen.getByRole('link', { name: /New chat/ })),
+  );
 });
 it('retains a repository-only draft during cleanup and prevents duplicate confirmations', async () => {
   const draft = createChatDraft();

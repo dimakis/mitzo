@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { WorkspacePageHeading } from '../components/WorkspacePageHeading';
 import { UiIcon } from '../components/UiIcon';
@@ -17,17 +17,27 @@ export function DraftsView() {
   const [discarding, setDiscarding] = useState(false);
   const discardPending = useRef(false);
   const discardOpener = useRef<HTMLElement | null>(null);
+  const restoreAfterClose = useRef<{ opener: HTMLElement | null; discarded: boolean } | null>(null);
   const [error, setError] = useState('');
-  const closeDiscard = () => {
+  const closeDiscard = (discarded = false) => {
+    restoreAfterClose.current = { opener: discardOpener.current, discarded };
     setDiscard(null);
-    requestAnimationFrame(() => {
-      if (discardOpener.current?.isConnected) return;
-      const target =
-        mainRef.current?.querySelector<HTMLElement>('.saved-draft-open') ??
-        mainRef.current?.querySelector<HTMLElement>('.workspace-primary');
-      target?.focus();
-    });
   };
+  useEffect(() => {
+    const request = restoreAfterClose.current;
+    if (discard || !request) return;
+    restoreAfterClose.current = null;
+    if (!request.discarded && request.opener?.isConnected) {
+      request.opener.focus();
+      return;
+    }
+    const removedRow = request.discarded ? request.opener?.closest('.saved-draft-record') : null;
+    const target =
+      Array.from(mainRef.current?.querySelectorAll<HTMLElement>('.saved-draft-open') ?? []).find(
+        (link) => !removedRow?.contains(link),
+      ) ?? mainRef.current?.querySelector<HTMLElement>('.workspace-primary');
+    target?.focus();
+  }, [discard]);
   return (
     <main className="workspace-page drafts-page" ref={mainRef}>
       <Link to="/sessions" className="drafts-back">
@@ -126,7 +136,7 @@ export function DraftsView() {
           )}
           {error && <p role="alert">{error}</p>}
           <div className="saved-draft-dialog-actions" aria-busy={discarding}>
-            <button className="home-secondary" disabled={discarding} onClick={closeDiscard}>
+            <button className="home-secondary" disabled={discarding} onClick={() => closeDiscard()}>
               Keep draft
             </button>
             <button
@@ -139,7 +149,7 @@ export function DraftsView() {
                 setError('');
                 try {
                   await discardChatDraft(discard);
-                  closeDiscard();
+                  closeDiscard(true);
                 } catch (failure) {
                   setError(
                     failure instanceof Error
