@@ -23,6 +23,7 @@ import { SymposiumReviewEntry } from '../components/SymposiumReviewPanel';
 import { AddAgentSheet } from '../components/AddReviewerSheet';
 import { PermissionModePicker } from '../components/PermissionModePicker';
 import { StatusBar } from '../components/StatusBar';
+import { SessionAccess } from '../components/SessionAccess';
 import { WorkspaceControls } from '../components/WorkspaceControls';
 import type { WorkspaceSummary } from '../types/workspace';
 import { CodexQueueStatus } from '../components/CodexQueueStatus';
@@ -449,6 +450,13 @@ export function ChatView() {
           lookupLoading={briefingChat.loading}
         />
         <WorkspaceControls
+          actions={
+            <SessionAccess
+              sessionId={repositoryHandoff.present ? undefined : (activeSessionId ?? undefined)}
+              selection={accountSelection}
+              connected={connected}
+            />
+          }
           attention={!!launch || repositoryHandoff.present}
           summary={workspaceSummary}
           status={

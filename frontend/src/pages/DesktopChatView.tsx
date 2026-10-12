@@ -22,6 +22,7 @@ import { RepositoryChatDraftNotice } from '../components/RepositoryChatDraftNoti
 import { SymposiumReviewEntry } from '../components/SymposiumReviewPanel';
 import { AddAgentSheet } from '../components/AddReviewerSheet';
 import { PermissionModePicker } from '../components/PermissionModePicker';
+import { SessionAccess } from '../components/SessionAccess';
 import { WorkspaceControls } from '../components/WorkspaceControls';
 import type { WorkspaceSummary } from '../types/workspace';
 import { AccountModelPicker, type AccountSelection } from '../components/AccountModelPicker';
@@ -419,6 +420,13 @@ export function DesktopChatView() {
             lookupLoading={briefingChat.loading}
           />
           <WorkspaceControls
+            actions={
+              <SessionAccess
+                sessionId={repositoryHandoff.present ? undefined : (activeSessionId ?? undefined)}
+                selection={accountSelection}
+                connected={connected}
+              />
+            }
             attention={!!launch || repositoryHandoff.present}
             summary={workspaceSummary}
             status={
