@@ -16,6 +16,8 @@ import { extractImageFiles } from '../lib/paste-images';
 import { MAX_IMAGE_ATTACHMENTS } from '../lib/constants';
 import { SlashPicker } from './SlashPicker';
 import { SessionTray } from './SessionTray';
+import { SessionAccess } from './SessionAccess';
+import type { AccountSelection } from '../types/account-selection';
 import { ComposerTools } from './ComposerTools';
 import { UiIcon } from './UiIcon';
 import { MicButton } from './MicButton';
@@ -60,6 +62,8 @@ interface Props {
   onIsolationChange?: (enabled: boolean) => void;
   wtId?: string;
   sessionId?: string;
+  accessSelection?: AccountSelection | null;
+  accessConnected?: boolean;
   /** Advances for a genuine New/reset, independently of authenticated assignment. */
   composerGeneration?: number;
   /** When provided, uses these context blocks instead of internal state. Hides @ picker. */
@@ -90,6 +94,8 @@ export function ChatInput({
   isolation,
   onIsolationChange,
   sessionId,
+  accessSelection,
+  accessConnected,
   composerGeneration = 0,
   externalContextBlocks,
   tokenState,
@@ -622,6 +628,18 @@ export function ChatInput({
               capture="environment"
               onChange={handleFileChange}
               className="sr-only"
+            />
+            <SessionAccess
+              sessionId={sessionId}
+              selection={accessSelection}
+              connected={accessConnected}
+              onShowApproval={() =>
+                requestAnimationFrame(() => {
+                  const banner = document.querySelector<HTMLElement>('.perm-banner');
+                  banner?.scrollIntoView({ block: 'center' });
+                  banner?.querySelector<HTMLElement>('button, input')?.focus();
+                })
+              }
             />
             {!useExternal && (
               <SessionTray

@@ -200,7 +200,7 @@ describe('SessionTray', () => {
     expect(screen.getByTestId('session-tray').dataset.snap).toBe('peek');
   });
 
-  it('renders collected session sources and outputs', () => {
+  it('renders sources, References and observed capabilities separately', () => {
     render(
       <SessionTray
         {...props}
@@ -230,13 +230,19 @@ describe('SessionTray', () => {
     );
     fireEvent.click(screen.getByRole('button', { name: 'Open session tray' }));
     expect(screen.queryByText('project-spec')).toBeNull();
-    expect(screen.queryByText('Generated files and previews will appear here')).toBeNull();
+    expect(
+      screen.queryByText(
+        'Explicitly kept outputs remain in the conversation. Mentioned links are References.',
+      ),
+    ).toBeNull();
 
-    fireEvent.click(screen.getByRole('button', { name: /Sources 2/ }));
-    fireEvent.click(screen.getByRole('button', { name: /Outputs 2/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Sources 1/ }));
+    fireEvent.click(screen.getByRole('button', { name: /References 2/ }));
 
     expect(screen.getByText('project-spec')).toBeTruthy();
+    fireEvent.click(screen.getByText('Observed capabilities'));
     expect(screen.getByText('Write')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Outputs 0' })).toBeTruthy();
     expect(screen.getByRole('link', { name: /localhost:3196/ }).getAttribute('href')).toBe(
       'http://localhost:3196',
     );
@@ -268,7 +274,11 @@ describe('SessionTray', () => {
     expect(screen.getByText('Pasted image 1')).toBeTruthy();
     expect(outputs.getAttribute('aria-expanded')).toBe('false');
     fireEvent.click(outputs);
-    expect(screen.getByText('Generated files and previews will appear here')).toBeTruthy();
+    expect(
+      screen.getByText(
+        'Explicitly kept outputs remain in the conversation. Mentioned links are References.',
+      ),
+    ).toBeTruthy();
   });
 
   it('closes on Escape', () => {

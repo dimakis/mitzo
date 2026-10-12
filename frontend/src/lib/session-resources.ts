@@ -18,6 +18,8 @@ export interface SessionResource {
 export interface SessionResources {
   sources: SessionResource[];
   outputs: SessionResource[];
+  references: SessionResource[];
+  capabilities: SessionResource[];
 }
 
 export function mergeSessionResources(...groups: SessionResources[]): SessionResources {
@@ -32,7 +34,12 @@ export function mergeSessionResources(...groups: SessionResources[]): SessionRes
     );
   };
 
-  return { sources: merge('sources'), outputs: merge('outputs') };
+  return {
+    sources: merge('sources'),
+    outputs: merge('outputs'),
+    references: merge('references'),
+    capabilities: merge('capabilities'),
+  };
 }
 
 const URL_PATTERN = /https?:\/\/[^\s<>"'`\]]+/g;
@@ -56,63 +63,43 @@ export function collectSessionResources(
   messages: FinishedMessage[],
   current?: StreamingMessage | null,
 ): SessionResources {
-  const sources: SessionResource[] = [];
-  const outputs: SessionResource[] = [];
-  const sourceIds = new Set<string>();
-  const outputIds = new Set<string>();
-
-  const addSource = (resource: SessionResource) => {
-    if (sourceIds.has(resource.id)) return;
-    sourceIds.add(resource.id);
-    sources.push(resource);
+  const resources: SessionResources = {
+    sources: [],
+    outputs: [],
+    references: [],
+    capabilities: [],
   };
-  const addOutput = (resource: SessionResource) => {
-    if (outputIds.has(resource.id)) return;
-    outputIds.add(resource.id);
-    outputs.push(resource);
+  const add = (group: keyof SessionResources, resource: SessionResource) => {
+    if (!resources[group].some((existing) => existing.id === resource.id))
+      resources[group].push(resource);
   };
-
-  const visitBlock = (block: FinishedBlock | StreamingBlock, role: 'user' | 'assistant') => {
-    if (block.toolName) {
-      addSource({ id: `tool:${block.toolName}`, kind: 'tool', label: block.toolName });
+  const addSource = (resource: SessionResource) => add('sources', resource);
+  const visitBlock = (block: FinishedBlock | StreamingBlock, _role: 'user' | 'assistant') => {
+    if (block.toolName)
+      add('capabilities', { id: `tool:${block.toolName}`, kind: 'tool', label: block.toolName });
+    // Mentions survive as references regardless of role or tool success. They prove no creation.
+    for (const match of `${block.content ?? ''}\n${block.toolResult ?? ''}`.matchAll(URL_PATTERN)) {
+      const href = cleanUrl(match[0]);
+      let label = href;
+      try {
+        const url = new URL(href);
+        label = `${url.host}${url.pathname === '/' ? '' : url.pathname}`;
+      } catch {
+        /* Preserve historical text. */
+      }
+      add('references', { id: `url:${href}`, kind: 'link', label, href });
     }
-
-    const hasSuccessfulOutput =
-      !block.toolName ||
-      (block.toolError !== true &&
-        (block.toolResult !== undefined || (block.toolResultImages?.length ?? 0) > 0));
-
-    if (hasSuccessfulOutput) {
-      const text = `${block.content ?? ''}\n${block.toolResult ?? ''}`;
-      for (const match of text.matchAll(URL_PATTERN)) {
-        const href = cleanUrl(match[0]);
-        let label = href;
-        try {
-          const url = new URL(href);
-          label = `${url.host}${url.pathname === '/' ? '' : url.pathname}`;
-        } catch {
-          // Keep the original text when URL parsing fails.
-        }
-        const resource = { id: `url:${href}`, kind: 'link' as const, label, href };
-        if (role === 'user') addSource(resource);
-        else addOutput(resource);
-      }
-
-      const path = block.rawInput?.path;
-      if (path && (block.rawInput?.type === 'write' || block.rawInput?.type === 'diff')) {
-        addOutput({ id: `file:${path}`, kind: 'file', label: basename(path), path });
-      }
-
-      for (const image of block.toolResultImages ?? []) {
-        addOutput({
-          id: `result-image:${image.id}`,
-          kind: 'image',
-          label: 'Generated image',
-          imageId: image.id,
-        });
-      }
+    const path = block.rawInput?.path;
+    if (
+      block.toolName &&
+      block.toolError !== true &&
+      block.toolResult !== undefined &&
+      path &&
+      (block.rawInput?.type === 'write' || block.rawInput?.type === 'diff')
+    ) {
+      add('references', { id: `file:${path}`, kind: 'file', label: basename(path), path });
     }
-
+    // Result images can be reads/screenshots. Only explicit registration creates an output.
     if (block.subagent) {
       const nestedBlocks = Array.isArray(block.subagent.blocks)
         ? block.subagent.blocks
@@ -145,5 +132,5 @@ export function collectSessionResources(
     }
   }
 
-  return { sources, outputs };
+  return resources;
 }

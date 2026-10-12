@@ -671,6 +671,8 @@ export function DesktopChatView() {
                   isWorktree={messages.isWorktree}
                   wtId={messages.wtId || undefined}
                   sessionId={repositoryHandoff.present ? undefined : (activeSessionId ?? undefined)}
+                  accessSelection={accountSelection}
+                  accessConnected={connected}
                   tokenState={tokens}
                   messages={sessionId && sessionId !== activeSessionId ? [] : messages.messages}
                   current={sessionId && sessionId !== activeSessionId ? null : messages.current}
