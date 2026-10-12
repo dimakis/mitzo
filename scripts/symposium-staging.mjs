@@ -38,9 +38,9 @@ import {
 } from '../dist/symposium-canonical-owner-record.js';
 import { readOwnedSymposiumHostConfig } from '../dist/symposium-owned-config-schema.js';
 import { readCustodianRetirementReceipt } from '../dist/symposium-custodian-retirement.js';
+import { canonicalOwnedControlPaths } from '../dist/symposium-staging-identity.js';
 // Operator metadata is never reconstructed into a native owner capability.
-const root = canonicalStagingRoot(),
-  service = join(root, 'symposium/service');
+const root = canonicalStagingRoot();
 const job = 'gui/' + process.getuid() + '/com.mitzo.staging';
 const lockPath = join(root, 'service/deployment.lock');
 function syncParent(path) {
@@ -73,14 +73,51 @@ try {
     (command === 'drain' && flags['--offline'])
   )
     throw Error();
+  const topologyPath = join(root, 'service/topology.json');
+  const topology = readCanonicalPrivateJson(topologyPath);
+  const selected = canonicalOwnedControlPaths(root, topology),
+    service = selected.planDirectory;
+  function assertNotArchived() {
+    const path = join(root, 'registry/staging.db');
+    const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+    try {
+      const s = fstatSync(fd);
+      if (!s.isFile() || s.uid !== process.getuid() || (s.mode & 0o777) !== 0o600 || s.nlink !== 1)
+        throw Error('Private original registry required');
+    } finally {
+      closeSync(fd);
+    }
+    const db = new Database(path, { readonly: true, fileMustExist: true });
+    try {
+      if (
+        db
+          .prepare(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='contained_owned_launches'",
+          )
+          .get()
+      ) {
+        const histories = db
+          .prepare('SELECT recordJson FROM contained_owned_launches LIMIT 33')
+          .all();
+        if (histories.length > 32) throw Error('Bounded historical input resolution required');
+        if (histories.some((history) => JSON.parse(history.recordJson).planDirectory === service))
+          throw Object.assign(Error('Archived historical plan cannot be selected as live owner'), {
+            archivedInput: true,
+          });
+      }
+    } finally {
+      db.close();
+    }
+  }
+  // Resolve historical evidence before opening any old logical live plan path.
+  assertNotArchived();
   const plan = readOwnedReleasePlan(join(service, 'owned-release.json'));
-  if (plan.releaseRoot !== dirname(dirname(fileURLToPath(import.meta.url))))
+  if (
+    plan.releaseRoot !== dirname(dirname(fileURLToPath(import.meta.url))) ||
+    plan.sourceCommit !== selected.sourceCommit
+  )
     throw Error('Selected original release controller required');
-  const registration = assertCanonicalStagingService(
-    plan,
-    join(root, 'symposium/settings/staging-registration.json'),
-    root,
-  );
+  const registration = assertCanonicalStagingService(plan, selected.registrationPath, root);
   const config = readOwnedSymposiumHostConfig(plan.configPath);
   const ownerPath = join(service, 'original-owner.json');
   const owner = CanonicalOwnerSchema.parse(readCanonicalPrivateJson(ownerPath));
@@ -134,12 +171,11 @@ try {
     }
   }
   function validate() {
+    assertNotArchived();
+    if (JSON.stringify(readCanonicalPrivateJson(topologyPath)) !== JSON.stringify(topology))
+      throw Error('Original topology changed; re-plan');
     verifyRetainedOwnedRelease(plan);
-    assertCanonicalStagingService(
-      plan,
-      join(root, 'symposium/settings/staging-registration.json'),
-      root,
-    );
+    assertCanonicalStagingService(plan, selected.registrationPath, root);
     if (JSON.stringify(readCanonicalPrivateJson(ownerPath)) !== JSON.stringify(owner))
       throw Error('Original controller changed; re-plan');
     assertCanonicalOwnerRuntime(plan, owner, registry(), {
@@ -313,7 +349,9 @@ try {
       );
     }
   }
-} catch {
+} catch (error) {
+  if (error?.archivedInput === true)
+    console.error('Archived historical plan cannot be selected as live owner');
   console.error(
     'Canonical custodian check/drain refused or uncertain. Preserve original registry, owner evidence, intent and any deployment lock; no replacement is started.',
   );

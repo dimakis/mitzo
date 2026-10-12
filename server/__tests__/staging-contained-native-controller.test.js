@@ -11,6 +11,17 @@ it('requires the real native feature/enrollment/per-call source implementation b
     {},
     { STAGING_NATIVE_FEATURE_BOOTSTRAP_PROTOCOL_VERSION: 1 },
     { STAGING_NATIVE_FEATURE_BOOTSTRAP_PROTOCOL_VERSION: 0, runSymposiumCustodian() {} },
+    {
+      STAGING_NATIVE_FEATURE_BOOTSTRAP_PROTOCOL_VERSION: 1,
+      CUSTODIAN_NATIVE_OWNER_LIFETIME_PROTOCOL_VERSION: 1,
+      runSymposiumCustodian() {},
+    },
+    {
+      STAGING_NATIVE_FEATURE_BOOTSTRAP_PROTOCOL_VERSION: 1,
+      STAGING_NATIVE_MODEL_ENFORCEMENT_PROTOCOL_VERSION: 0,
+      CUSTODIAN_NATIVE_OWNER_LIFETIME_PROTOCOL_VERSION: 1,
+      runSymposiumCustodian() {},
+    },
   ])
     expect(() => assertNativeReplicaSourceProtocol(main)).toThrow('bootstrap unavailable');
   try {
@@ -21,6 +32,8 @@ it('requires the real native feature/enrollment/per-call source implementation b
   expect(() =>
     assertNativeReplicaSourceProtocol({
       STAGING_NATIVE_FEATURE_BOOTSTRAP_PROTOCOL_VERSION: 1,
+      STAGING_NATIVE_MODEL_ENFORCEMENT_PROTOCOL_VERSION: 1,
+      CUSTODIAN_NATIVE_OWNER_LIFETIME_PROTOCOL_VERSION: 1,
       runSymposiumCustodian() {},
     }),
   ).not.toThrow();

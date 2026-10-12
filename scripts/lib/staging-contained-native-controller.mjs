@@ -70,6 +70,8 @@ function privateBytes(path, max = 512 * 1024) {
 export function assertNativeReplicaSourceProtocol(main) {
   if (
     main?.STAGING_NATIVE_FEATURE_BOOTSTRAP_PROTOCOL_VERSION !== 1 ||
+    main?.STAGING_NATIVE_MODEL_ENFORCEMENT_PROTOCOL_VERSION !== 1 ||
+    main?.CUSTODIAN_NATIVE_OWNER_LIFETIME_PROTOCOL_VERSION !== 1 ||
     typeof main.runSymposiumCustodian !== 'function'
   )
     throw refuse(
