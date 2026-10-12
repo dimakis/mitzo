@@ -346,6 +346,8 @@ export interface SymposiumSharedSandboxOwnerDeps {
   runtimeConfig: OpenShellRuntimeConfig;
   readOnlyEnforced: { openaiApi: boolean; claudeVertex: boolean; chatgptSubscription?: boolean };
   verifyHostCapability?: () => SymposiumProviderCapability;
+  /** Original host fence for cleanup observations after this runtime closes admission. */
+  verifyCleanupCapability?: () => SymposiumProviderCapability;
   verifiedSubscriptionControllerCommand?: readonly string[];
   verifySubscriptionPrivateAuth?: VerifySymposiumSubscriptionAuth;
   captureSubscriptionLaunchIdentity?: (
@@ -639,6 +641,8 @@ async function stopCompletedSandbox(
   if (!manager.inspect || !manager.inspectReserved || !manager.stop)
     throw new Error('OpenShell seat sandbox lifecycle interface is unavailable');
   const observed = await manager.inspect(record.runtimeId, physicalId, signal);
+  if (observed && observed.id !== physicalId)
+    throw new Error('Seat sandbox physical identity changed before stop');
   if (!observed && !deps.artifactLeaseHost)
     throw new Error('Recorded seat sandbox disappeared before confirmed stop');
   if (observed?.phase === 'Ready') await manager.stop(record.runtimeId, physicalId, signal);
@@ -646,7 +650,7 @@ async function stopCompletedSandbox(
     throw new Error(`Seat sandbox is ${observed.phase}, not Ready or Stopped`);
   if (observed) {
     const stopped = await manager.inspect(record.runtimeId, physicalId, signal);
-    if (!stopped || stopped.phase !== 'Stopped')
+    if (!stopped || stopped.id !== physicalId || stopped.phase !== 'Stopped')
       throw new Error('Seat sandbox physical stop is not confirmed');
   }
   if (deps.artifactLeaseHost) {
@@ -686,6 +690,11 @@ async function stopCompletedSandbox(
     runtimeId: record.runtimeId,
     physicalId,
   });
+  return observed
+    ? Object.freeze({
+        artifactLeaseReleased: Boolean(deps.artifactLeaseHost),
+      })
+    : undefined;
 }
 
 /** Cleanup-only recovery for exact completed rows from a retained seal job.
@@ -750,7 +759,48 @@ export async function stopRetainedSealSandbox(
   );
 }
 
+/** This original owner observed its own created target, confirmed stop, and
+ * acknowledged deletion plus artifact lease release. Restart cannot recreate it. */
+export interface SymposiumOriginalRetirementReceipt {
+  readonly version: 1;
+  readonly sessionId: string;
+  readonly seatId: string;
+  readonly generation: number;
+  readonly runtimeId: string;
+  readonly sandboxName: string;
+  readonly physicalId: string;
+  readonly workspace: string;
+  readonly artifactLeaseReleased: boolean;
+  readonly confirmedAt: number;
+}
+
 export class SymposiumPerSeatSandboxOwner {
+  private readonly originalRetirements = new Map<string, SymposiumOriginalRetirementReceipt>();
+  readOriginalRetirement(seatId: string, generation: number): SymposiumOriginalRetirementReceipt {
+    (this.deps.verifyCleanupCapability ?? this.deps.verifyHostCapability)?.();
+    const receipt = this.originalRetirements.get(`${seatId}:${generation}`);
+    const record = this.deps.seatSandboxRegistry!.getSymposiumSeatSandbox(
+      this.deps.sessionId,
+      seatId,
+      generation,
+    );
+    const target = record && this.terminalCreates.get(record.runtimeId);
+    if (
+      !receipt ||
+      !record ||
+      !target ||
+      record.state !== 'stopped' ||
+      record.runtimeId !== receipt.runtimeId ||
+      record.sandboxName !== receipt.sandboxName ||
+      record.physicalId !== receipt.physicalId ||
+      record.workspace !== receipt.workspace ||
+      target.sandboxId !== receipt.physicalId ||
+      target.sandboxName !== receipt.sandboxName
+    )
+      throw Error('Positive original sandbox retirement receipt unavailable');
+    return receipt;
+  }
+
   private seatPolicies = new Map<
     string,
     { policy: SymposiumSeatPolicy; sandboxName: string; sandboxId: string }
@@ -1441,13 +1491,36 @@ export class SymposiumPerSeatSandboxOwner {
           }
           if (record.creationStarted && !record.creationCompleted)
             throw new Error('Seat sandbox creation outcome is uncertain; reconciliation required');
-          await stopCompletedSandbox(
+          const retirement = await stopCompletedSandbox(
             { ...this.deps, seatSandboxRegistry: this.deps.seatSandboxRegistry! },
             record,
             manager,
             physicalId,
             signal,
           );
+          const originalTarget = this.terminalCreates.get(record.runtimeId);
+          if (
+            retirement &&
+            originalTarget?.sandboxId === physicalId &&
+            originalTarget.sandboxName === record.sandboxName &&
+            record.creationCompleted
+          ) {
+            this.originalRetirements.set(
+              `${seatId}:${record.generation}`,
+              Object.freeze({
+                version: 1,
+                sessionId,
+                seatId,
+                generation: record.generation,
+                runtimeId: record.runtimeId,
+                sandboxName: originalTarget.sandboxName,
+                physicalId,
+                workspace: record.workspace,
+                ...retirement,
+                confirmedAt: Date.now(),
+              }),
+            );
+          }
         }
       }),
     );
@@ -1587,6 +1660,25 @@ export function assertSymposiumRuntimeForArtifactSeal(
     throw new Error('Artifact seal runtime custody is unavailable');
 }
 
+/** Exact original factory binding. Serialized runtime and cleanup objects do not qualify. */
+export function assertSymposiumRuntimeForStagingFeature(
+  runtime: object,
+  store: EventStore,
+  leaseHost: unknown,
+  registry: SymposiumAttemptRegistry,
+  sessionId: string,
+  claimToken?: string,
+): void {
+  assertSymposiumRuntimeForArtifactSeal(runtime, store, leaseHost, sessionId);
+  const binding = sealRuntimeBindings.get(runtime)!;
+  if (
+    binding.registry !== registry ||
+    !binding.acceptedClaims ||
+    (claimToken !== undefined && !binding.acceptedClaims.has(claimToken))
+  )
+    throw Error('Original staging runtime claim authority unavailable');
+}
+
 export async function drainSymposiumRuntimeForArtifactSeal(
   runtime: object,
   store: EventStore,
@@ -1722,6 +1814,7 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
     facts: deps.store,
     artifactReferenceStore: deps.store,
     seatSandboxRegistry: deps.store,
+    verifyCleanupCapability: originalVerify,
   });
   const cache = new Map<string, SymposiumOpenShellSeatExecutor>();
   const executors = new Proxy({} as Record<string, SymposiumSeatExecutor>, {

@@ -126,6 +126,43 @@ export function createStagingProfileEffects({
     }
   }
   return {
+    /** Observations from the existing authenticated original native owner.
+     * Parsing JSON grants no capacity; caller still qualifies canonical origin,
+     * accepted source and the actual retained owner before admitting work. */
+    async observeResources(sourceCommit, ownerInstance) {
+      if (!commit(sourceCommit) || !identifier(ownerInstance))
+        throw Error('Exact original native source/owner required');
+      const response = await call('/api/staging/features/resources');
+      exact(response, 'version,sourceCommit,ownerInstance,resources');
+      exact(
+        response.resources,
+        'aggregateGiB,growthGiB,diskFreeGiB,vmMemoryMiB,vmCpus,allocationUUID,planSha256,bootUUID,supervisorPid,vfkitPid,observationSha256,nativeRetirementClaim',
+      );
+      const observed = response.resources;
+      if (
+        response.version !== 1 ||
+        response.sourceCommit !== sourceCommit ||
+        response.ownerInstance !== ownerInstance ||
+        observed.vmMemoryMiB !== 4096 ||
+        observed.vmCpus !== 2 ||
+        observed.nativeRetirementClaim !== false ||
+        ['aggregateGiB', 'growthGiB', 'diskFreeGiB'].some(
+          (key) => !Number.isFinite(observed[key]) || observed[key] < 0,
+        ) ||
+        ['supervisorPid', 'vfkitPid'].some(
+          (key) => !Number.isSafeInteger(observed[key]) || observed[key] <= 0,
+        ) ||
+        ['allocationUUID', 'bootUUID'].some(
+          (key) =>
+            typeof observed[key] !== 'string' ||
+            !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(observed[key]),
+        ) ||
+        !digest(observed.planSha256) ||
+        !digest(observed.observationSha256)
+      )
+        throw Error('Original native resource observations differ');
+      return response;
+    },
     async lookupEnrollment(profileId) {
       if (!identifier(profileId)) throw Error('Bounded staging profile required');
       const enrollment = await call(

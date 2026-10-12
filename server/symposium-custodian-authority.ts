@@ -34,3 +34,16 @@ export function custodianPublicationApproval(request: IncomingMessage) {
 export function custodianPublicationSignal(request: IncomingMessage) {
   return requests.get(request)?.publicationSignal;
 }
+
+/** Retain the actual in-process request lifetime, including revocation/expiry.
+ * A copied AuthSession, header, or JSON payload cannot create this closure. */
+export function captureCustodianRequestCurrent(request: IncomingMessage): (() => void) | undefined {
+  const original = requests.get(request);
+  if (!original) return undefined;
+  custodianRequestAuthority(request);
+  return () => {
+    if (requests.get(request) !== original)
+      throw Error('Original custodian request lifetime ended');
+    custodianRequestAuthority(request);
+  };
+}

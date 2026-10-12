@@ -3,6 +3,7 @@ import type { spawnSync } from 'node:child_process';
 import type { OwnedSymposiumGateway } from '../symposium-owned-gateway.js';
 import {
   createSymposiumWorkApiProvider,
+  captureSymposiumWorkApiProvider,
   type SymposiumWorkApiProfile,
 } from '../symposium-work-api-provider.js';
 function fixture() {
@@ -67,6 +68,30 @@ describe('owned work API provisioning', () => {
       sandboxProviderId: 'new-id',
     });
     expect(f.profile).toEqual(original);
+    const receipt = captureSymposiumWorkApiProvider(
+      f.gateway as unknown as OwnedSymposiumGateway,
+      result.sandboxProviderId,
+    );
+    expect(receipt.identity).toEqual({
+      accountId: 'work',
+      provider: 'openai',
+      providerName: result.sandboxProvider,
+      providerId: 'new-id',
+      workspace: 'new-workspace',
+    });
+    receipt.assertCurrent();
+    expect(() =>
+      captureSymposiumWorkApiProvider(
+        { ...f.gateway } as unknown as OwnedSymposiumGateway,
+        'new-id',
+      ),
+    ).toThrow(/Original/);
+    f.gateway.verifyCustody.mockImplementation(() => {
+      throw Error('lost');
+    });
+    expect(() => receipt.assertCurrent()).toThrow();
+    f.gateway.verifyCustody.mockReset();
+    expect(() => receipt.assertCurrent()).toThrow(/Original/);
     const calls = f.run.mock.calls;
     expect(calls[0][0]).toBe('/private/pinned-cli');
     expect(calls[0][2]?.env?.OPENAI_API_KEY).toBe('fake-work-secret');

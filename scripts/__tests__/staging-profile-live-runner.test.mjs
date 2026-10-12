@@ -119,3 +119,40 @@ it('does not turn a lost response or unconfirmed owned cleanup into a result', a
     effects.run(plan, { epoch: 1, requestId: plan.requestId, owner: 'controller', nonce: 'nonce' }),
   ).rejects.toThrow(/unavailable/);
 });
+
+it('binds original native resource observations to expected source/owner and refuses extra capacity flags', async () => {
+  const response = {
+    version: 1,
+    sourceCommit: request.acceptedCommit,
+    ownerInstance: 'actual-owner',
+    resources: {
+      aggregateGiB: 3,
+      growthGiB: 0.1,
+      diskFreeGiB: 100,
+      vmMemoryMiB: 4096,
+      vmCpus: 2,
+      allocationUUID: '11111111-1111-4111-8111-111111111111',
+      bootUUID: '22222222-2222-4222-8222-222222222222',
+      planSha256: 'b'.repeat(64),
+      supervisorPid: 100,
+      vfkitPid: 101,
+      observationSha256: 'c'.repeat(64),
+      nativeRetirementClaim: false,
+    },
+  };
+  let actual = response;
+  const effects = createStagingProfileEffects({
+    authorization: 'Bearer isolated-stage',
+    request: async () => new Response(JSON.stringify(actual)),
+  });
+  await expect(effects.observeResources(request.acceptedCommit, 'actual-owner')).resolves.toEqual(
+    response,
+  );
+  await expect(effects.observeResources(request.acceptedCommit, 'other-owner')).rejects.toThrow(
+    /differ/,
+  );
+  actual = { ...response, resources: { ...response.resources, capacityGranted: true } };
+  await expect(effects.observeResources(request.acceptedCommit, 'actual-owner')).rejects.toThrow(
+    /Bounded/,
+  );
+});

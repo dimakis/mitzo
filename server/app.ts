@@ -1,6 +1,17 @@
+import {
+  StagingNativeFeatureOwner,
+  type StagingNativeEnrollment,
+} from './staging-native-feature-owner.js';
+import type { StagingNativeFeatureBootstrap } from './staging-native-feature-bootstrap.js';
+import type { SymposiumStagingNativeFixtures } from './symposium-staging-native-fixture.js';
+import { collectStagingNativeTextReadEvidence } from './staging-native-feature-evidence.js';
+import type { StagingNativeModelRequestReceipt } from './staging-native-model-authority.js';
 import { createRequire } from 'node:module';
 import { StagingFeatureOwner, type StagingFeatureOwnerAuthority } from './staging-feature-owner.js';
-import { createStagingFeatureRouter } from './staging-feature-router.js';
+import {
+  createStagingFeatureRouter,
+  type StagingFeatureOwnerProtocol,
+} from './staging-feature-router.js';
 import type {
   SymposiumReviewPhysicalHost,
   SymposiumReviewRouteHost,
@@ -1003,7 +1014,7 @@ app.post('/api/auth/logout', async (req, res) => {
 });
 
 app.use('/api', authMiddleware);
-let stagingFeatureOwner: StagingFeatureOwner | undefined;
+let stagingFeatureOwner: StagingFeatureOwnerProtocol | undefined;
 /** Trusted qualified stage bootstrap only. There is no public install endpoint.
  * Current bootstrap installs none while native custody/enrollment is pending. */
 export function configureStagingFeatureOwner(
@@ -1039,11 +1050,6 @@ export function configureStagingFeatureOwner(
     port: { startChat, stopChat, registry, eventStore, isAllowedPath },
   });
 }
-app.use(
-  '/api/staging/features',
-  operatorAuthMiddleware,
-  createStagingFeatureRouter(() => stagingFeatureOwner),
-);
 if (custodianControllerClient)
   app.use(
     createCustodianProxy(custodianControllerClient, (req, session, conversationId) =>
@@ -1058,6 +1064,12 @@ if (custodianControllerClient)
     ),
   );
 receiveCustodianEvents(broadcastDurableSymposiumEvent);
+app.use(
+  '/api/staging/features',
+  operatorAuthMiddleware,
+  createStagingFeatureRouter(() => stagingFeatureOwner),
+);
+
 app.use(
   '/api/context-packs',
   operatorAuthMiddleware,
@@ -1174,6 +1186,12 @@ export interface SymposiumProductionHost
   ensureSessionArtifacts?: (
     sessionId: string,
   ) => Promise<import('./symposium-session-artifacts.js').SessionArtifactPreparation>;
+  /** Source-only capabilities minted inside the original owned host. */
+  captureStagingFeatureEnrollment?: (profileId: string, model: string) => StagingNativeEnrollment;
+  createStagingFeatureFixtures?: (
+    assertOriginalOwnerCurrent: () => void,
+  ) => SymposiumStagingNativeFixtures;
+  runStagingFeatureOperation?: <T>(operation: () => Promise<T>) => Promise<T>;
   /** Dedicated upstream routing; never inherit the legacy chat gateway. */
   runtimeConfig: OpenShellRuntimeConfig;
   attestationPath: string;
@@ -1299,6 +1317,15 @@ export function installSymposiumProductionHost(host: SymposiumProductionHost): v
   }
   symposiumProductionHost = host;
 }
+const stagingNativeSessions = new Map<
+  string,
+  {
+    host: SymposiumProductionHost;
+    candidate: import('./symposium-production-gate.js').SymposiumProductionAttestation;
+    claimToken: string;
+    assertCurrent(): void;
+  }
+>();
 let symposiumRuntimeForSession: (sessionId: string) => SymposiumOrchestrator | null = (
   sessionId,
 ) => {
@@ -1316,7 +1343,12 @@ let symposiumRuntimeForSession: (sessionId: string) => SymposiumOrchestrator | n
     if (symposiumShuttingDown) throw new Error('Symposium is shutting down');
     if (!attestationPath || !symposiumProductionHost)
       throw new Error('Symposium production host or attestation is unavailable');
-    const attestation = readSymposiumProductionAttestation(attestationPath);
+    const feature = stagingNativeSessions.get(sessionId);
+    if (feature) {
+      if (feature.host !== symposiumProductionHost) throw Error('Original feature host changed');
+      feature.assertCurrent();
+    }
+    const attestation = feature?.candidate ?? readSymposiumProductionAttestation(attestationPath);
     const identity = JSON.stringify(attestation);
     if (attestationIdentity && identity !== attestationIdentity)
       throw new Error('Symposium production attestation changed during session');
@@ -1415,7 +1447,9 @@ let symposiumRuntimeForSession: (sessionId: string) => SymposiumOrchestrator | n
       verifyHostCapability,
       attemptRegistry: host.attemptRegistry,
       claimIdFactory: (input) =>
-        selectSymposiumApplicationClaim(symposiumReviewStore, input) ?? randomUUID(),
+        stagingNativeSessions.get(input.sessionId)?.claimToken ??
+        selectSymposiumApplicationClaim(symposiumReviewStore, input) ??
+        randomUUID(),
       assertArtifactAdmissionCurrent: host.assertArtifactAdmissionCurrent,
       applicationPolicy: createSymposiumApplicationDispatchPolicy({
         store: symposiumReviewStore,
@@ -1492,6 +1526,228 @@ export function installSymposiumReaderAuthority(
   assertAdmissionCurrent: Parameters<typeof symposiumReaderAuthorityBridge.install>[0],
 ): void {
   symposiumReaderAuthorityBridge.install(assertAdmissionCurrent);
+}
+
+/** Called automatically inside the original runSymposiumCustodian bootstrap.
+ * The app fixes its actual store, grants, runtime and retained host objects. */
+export function configureStagingNativeFeatureOwner(
+  host: SymposiumProductionHost & {
+    gateway: import('./symposium-owned-gateway.js').OwnedSymposiumGateway;
+  },
+  bootstrap: StagingNativeFeatureBootstrap,
+  ownerInstance: string,
+  assertOriginalOwnerCurrent: () => void,
+): void {
+  if (
+    !custodianOwnerMode ||
+    symposiumProductionHost !== host ||
+    stagingFeatureOwner ||
+    process.env.PORT !== '3190' ||
+    process.env.MITZO_BIND_HOST !== '127.0.0.1' ||
+    !host.captureStagingFeatureEnrollment ||
+    !host.createStagingFeatureFixtures ||
+    !host.runStagingFeatureOperation
+  )
+    throw Error('Actual original canonical native feature composition required');
+  const mutation = createRequire(import.meta.url)(
+    '../scripts/lib/staging-pipeline-mutation-guard.mjs',
+  ) as { assertStagingPipelineFeatureDispatch(input: unknown, options: { root: string }): void };
+  if (typeof mutation.assertStagingPipelineFeatureDispatch !== 'function')
+    throw Error('Accepted original feature singleton guard unavailable');
+  let fixtures: SymposiumStagingNativeFixtures | undefined;
+  stagingFeatureOwner = new StagingNativeFeatureOwner({
+    bootstrap,
+    gateway: host.gateway,
+    ownerInstance,
+    currentProfiles: host.currentProfiles,
+    captureEnrollment: host.captureStagingFeatureEnrollment,
+    assertOriginalOwnerCurrent: () => {
+      assertOriginalOwnerCurrent();
+      if (symposiumProductionHost !== host) throw Error('Original native feature host changed');
+      host.currentProfiles();
+    },
+    assertReservation: (plan, token, planSha256) =>
+      mutation.assertStagingPipelineFeatureDispatch(
+        { sourceCommit: bootstrap.sourceCommit, token, planSha256, plan },
+        { root: join(homedir(), '.local/share/mitzo-staging') },
+      ),
+    execute: (input) =>
+      host.runStagingFeatureOperation!(async () => {
+        input.assertCurrent();
+        const sessionId = randomUUID(),
+          claimToken = randomUUID();
+        const nonce = randomUUID().replaceAll('-', '') + randomUUID().replaceAll('-', '');
+        const config = SymposiumConfigSchema.parse({
+          version: 2,
+          revision: 1,
+          state: 'draft',
+          anchorSeatId: 'primary',
+          activeSeatCap: 1,
+          interceptMode: 'manual',
+          turnRules: { mode: 'directed', maxTurns: 2 },
+          seats: [
+            {
+              id: 'primary',
+              name: 'Staging fixture reader',
+              role: 'reviewer',
+              model: input.enrollment.selectedModel,
+              accountBinding: input.enrollment.binding,
+              color: '#335577',
+              systemPrompt:
+                'Read only the exact nonce fixture requested in this turn and return its contents. Do not use other tools or delegate.',
+              authorityRequest: { filesystem: 'read', tools: 'read', network: 'restricted' },
+            },
+          ],
+        });
+        eventStore.createSymposiumSession({
+          idempotencyKey: `stage-feature:${input.runId}`,
+          fingerprint: input.runId,
+          sessionId,
+          summary: 'Staging text/Read fixture',
+          binding: input.enrollment.binding,
+          config,
+          profileSelections: {},
+        });
+        retainedCustodianSessions.add(sessionId);
+        input.assertCurrent();
+        if ((await host.ensureSessionArtifacts!(sessionId)).state !== 'ready')
+          throw Error('Original staging native artifact creation is unconfirmed');
+        fixtures ??= host.createStagingFeatureFixtures!(() => {
+          bootstrap.assertOriginalOwnerCurrent();
+          assertOriginalOwnerCurrent();
+        });
+        const fixture = await fixtures.prepare(sessionId, nonce, input.assertCurrent);
+        input.assertCurrent();
+        let candidate: import('./symposium-production-gate.js').SymposiumProductionAttestation;
+        if (input.enrollment.personalConnection) {
+          if (!host.collectAdmissionEvidence)
+            throw Error('Original personal evidence adapter unavailable');
+          candidate = await host.collectAdmissionEvidence({
+            personalConnection: input.enrollment.personalConnection,
+            sessionId,
+            allowedRoles: ['reviewer'],
+          });
+        } else {
+          if (!host.collectSessionAdmissionCandidate)
+            throw Error('Original native draft evidence adapter unavailable');
+          const original = await host.collectSessionAdmissionCandidate(
+            { sessionId, configRevision: 1 },
+            input.assertCurrent,
+          );
+          await original.assertCurrent();
+          candidate = original.candidate;
+        }
+        input.assertCurrent();
+        stagingNativeSessions.set(sessionId, {
+          host,
+          candidate,
+          claimToken,
+          assertCurrent: input.assertCurrent,
+        });
+        const active = symposiumHostGrants.activate({
+          sessionId,
+          expectedRevision: 1,
+          actor: 'staging-feature-owner',
+          contextSourceRefs: [],
+        });
+        input.assertCurrent();
+        const orchestrator = symposiumRuntimeForSession(sessionId);
+        const runtime = symposiumSessionRuntimes.get(sessionId)?.runtime;
+        if (!orchestrator || !runtime) throw Error('Actual original native runtime unavailable');
+        fixtures.bindRuntime(fixture, runtime);
+        const membership = await orchestrator.transitionMembership({
+          sessionId,
+          seatId: 'primary',
+          action: 'admit',
+          expectedGeneration: 0,
+          configRevision: active.revision,
+          actor: 'staging-feature-owner',
+          reason: 'Exact announced staging fixture',
+          idempotencyKey: `stage-feature:${input.runId}:admit`,
+        });
+        if (membership.state !== 'active' || membership.reconciliation !== 'confirmed')
+          throw Error('Actual original native membership admission is unconfirmed');
+        input.assertCurrent();
+        const sandbox = await runtime.owner.ensure(
+          sessionId,
+          'primary',
+          AbortSignal.timeout(60000),
+        );
+        if (!sandbox.sandboxId) throw Error('Original staging native sandbox identity unavailable');
+        const budget = await input.modelAuthority.issue(input.modelPlan, {
+          sessionId,
+          seatId: 'primary',
+          claimToken,
+          sandboxName: sandbox.sandboxName,
+          sandboxId: sandbox.sandboxId,
+          deadlineAt: input.deadlineAt,
+        });
+        budget.assertCurrent();
+        input.assertCurrent();
+        const delivery = orchestrator.stageDelivery({
+          sessionId,
+          sourceSeatId: null,
+          recipientSeatIds: ['primary'],
+          originalContent: `Use Read exactly once on ${fixture.fixturePath}. Return the exact file contents.`,
+          idempotencyKey: `stage-feature:${input.runId}:delivery`,
+        });
+        orchestrator.intervene({
+          deliveryId: delivery.deliveryId,
+          action: 'approve',
+          idempotencyKey: `stage-feature:${input.runId}:approve`,
+        });
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        let modelRequests: StagingNativeModelRequestReceipt | undefined;
+        try {
+          budget.assertCurrent();
+          input.assertCurrent();
+          await Promise.race([
+            orchestrator.deliver(delivery.deliveryId),
+            new Promise<never>((_resolve, reject) => {
+              timer = setTimeout(
+                () => reject(Error('Original native feature deadline expired')),
+                Math.max(1, input.deadlineAt - Date.now()),
+              );
+            }),
+          ]);
+          input.assertCurrent();
+          budget.assertCurrent();
+          const evidence = collectStagingNativeTextReadEvidence(eventStore, host.attemptRegistry, {
+            sessionId,
+            deliveryId: delivery.deliveryId,
+            binding: input.enrollment.binding,
+            fixturePath: fixture.fixturePath,
+            nonce,
+            afterSeq: 0,
+          });
+          await runtime.drain(AbortSignal.timeout(60000));
+          modelRequests = await budget.revokeAndConfirm();
+          if (
+            modelRequests.claimToken !== claimToken ||
+            modelRequests.sandboxId !== sandbox.sandboxId
+          )
+            throw Error('Actual native HTTP request budget receipt changed');
+          input.assertCurrent();
+          const retirement = await fixtures.retire(fixture, claimToken, input.assertCurrent);
+          return { evidence, retirement, modelRequests };
+        } catch (error) {
+          // These are actual original cleanup operations. Their rejection/timeout
+          // retains the same owner and never manufactures a terminal result.
+          await Promise.allSettled([
+            orchestrator.cancel({
+              deliveryId: delivery.deliveryId,
+              reason: 'Staging fixture failed',
+              idempotencyKey: `stage-feature:${input.runId}:cancel`,
+            }),
+            runtime.drain(AbortSignal.timeout(60000)),
+            ...(modelRequests ? [] : [budget.revokeAndConfirm()]),
+          ]);
+          throw error;
+        } finally {
+          if (timer) clearTimeout(timer);
+        }
+      }),
+  });
 }
 
 export function getSymposiumBootstrapDependencies() {

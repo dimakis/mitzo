@@ -1,4 +1,5 @@
 import Database from 'better-sqlite3';
+import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { chmodSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -202,4 +203,59 @@ it('retains exact sealed reviewer binding across preparation and restart', () =>
   const reopened = new SymposiumAttemptRegistry(path);
   expect(reopened.pending()[0]?.artifact).toEqual(artifact);
   reopened.close();
+});
+
+describe('original controlled process stop receipts', () => {
+  it('mints proof only after the original process controller acknowledges stop', async () => {
+    const path = registryPath();
+    let resolve!: () => void;
+    const stopped = new Promise<void>((done) => {
+      resolve = done;
+    });
+    const originalStop = vi.fn(() => stopped);
+    const recoveredStop = vi.fn().mockResolvedValue(undefined);
+    const registry = new SymposiumAttemptRegistry(path, {
+      launch: () => ({ child: {} as ChildProcessWithoutNullStreams, confirmStopped: originalStop }),
+      confirm: recoveredStop,
+    });
+    const process = registry.launch({ ...claim, access: 'read', command: ['/usr/bin/true'] });
+    expect(() => registry.readOriginalStopReceipt(claim.claimToken)).toThrow(/original/);
+    const pending = process.confirmStopped();
+    expect(() => registry.readOriginalStopReceipt(claim.claimToken)).toThrow(/original/);
+    resolve();
+    await pending;
+    const receipt = registry.readOriginalStopReceipt(claim.claimToken);
+    expect(receipt).toMatchObject({
+      version: 1,
+      claimToken: claim.claimToken,
+      sessionId: claim.sessionId,
+      sandboxName: sandbox.sandboxName,
+      workdir: sandbox.workdir,
+      transportRouteSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+    });
+    expect(Object.isFrozen(receipt)).toBe(true);
+    await process.confirmStopped();
+    expect(originalStop).toHaveBeenCalledTimes(1);
+    expect(recoveredStop).not.toHaveBeenCalled();
+    registry.close();
+    const reopened = new SymposiumAttemptRegistry(path);
+    expect(() => reopened.readOriginalStopReceipt(claim.claimToken)).toThrow(/original/);
+    reopened.close();
+  });
+  it('never promotes durable recovery or a failed original stop into original proof', async () => {
+    const registry = new SymposiumAttemptRegistry(registryPath(), {
+      launch: () => ({
+        child: {} as ChildProcessWithoutNullStreams,
+        confirmStopped: vi.fn().mockRejectedValue(new Error('controller lost')),
+      }),
+      confirm: vi.fn().mockResolvedValue(undefined),
+    });
+    const process = registry.launch({ ...claim, access: 'read', command: ['/usr/bin/true'] });
+    await expect(process.confirmStopped()).rejects.toThrow(/unconfirmed/);
+    expect(registry.get(claim.claimToken)?.state).toBe('uncertain');
+    await registry.recover(claim.claimToken);
+    expect(registry.get(claim.claimToken)?.state).toBe('confirmed');
+    expect(() => registry.readOriginalStopReceipt(claim.claimToken)).toThrow(/original/);
+    registry.close();
+  });
 });

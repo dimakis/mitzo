@@ -22,6 +22,9 @@ import {
 
 export type { OriginalSymposiumControllerIdentity } from './symposium-canonical-owner-identity.js';
 import type { OriginalSymposiumControllerIdentity } from './symposium-canonical-owner-identity.js';
+/** Actual source-owned factory/executor/cleanup exists. Native model HTTP
+ * qualification remains independently required before any feature plan/run. */
+export const STAGING_NATIVE_FEATURE_BOOTSTRAP_PROTOCOL_VERSION = 1;
 /** Explicit fresh-owner entry point. No attach/reconstruct command exists. */
 export interface SymposiumCustodianConstructorHooks {
   /** Passed by the same fresh canonical launcher; never environment or JSON authority. */
@@ -84,10 +87,12 @@ export async function runSymposiumCustodian(hooks: SymposiumCustodianConstructor
     // from public context or substitute the local feature factory here.
     if (
       typeof stagingFeatureBootstrap.assertOriginalOwnerCurrent !== 'function' ||
-      typeof stagingFeatureBootstrap.observeResources !== 'function'
+      typeof stagingFeatureBootstrap.observeResources !== 'function' ||
+      !beforeControllerReady
     )
       throw Error('Original staging feature constructor capabilities required');
-    throw Error('Native staging feature owner qualification is not implemented');
+    // Admission stays closed until the awaited original launcher fence succeeds.
+    stagingFeatureBootstrap.assertOriginalOwnerCurrent();
   }
   if (observeNativeTurnInput !== undefined && typeof observeNativeTurnInput !== 'boolean')
     throw Error('Native input diagnostic must be a trusted constructor boolean');
@@ -145,6 +150,14 @@ export async function runSymposiumCustodian(hooks: SymposiumCustodianConstructor
   let controllerGeneration = 0;
   let child: ChildProcess | undefined;
   let stopping = false;
+  let originalFeatureControllerCurrent: (() => void) | undefined;
+  if (stagingFeatureBootstrap) {
+    engine.configureStagingNativeFeatureOwner(host, stagingFeatureBootstrap, identity, () => {
+      if (!originalFeatureControllerCurrent || stopping)
+        throw Error('Awaited original native feature readiness unavailable');
+      originalFeatureControllerCurrent();
+    });
+  }
   const controller = new SymposiumCustodianController({
     pause() {
       engine.pauseSymposiumController();
@@ -222,6 +235,7 @@ export async function runSymposiumCustodian(hooks: SymposiumCustodianConstructor
   });
   const stop = () => {
     stopping = true;
+    originalFeatureControllerCurrent = undefined;
     if (child?.connected) child.disconnect();
     child?.kill('SIGTERM');
   };
@@ -286,6 +300,7 @@ export async function runSymposiumCustodian(hooks: SymposiumCustodianConstructor
               current();
               await beforeControllerReady(originalIdentity(epoch), current);
               current();
+              originalFeatureControllerCurrent = current;
             }),
           observeReady:
             observeController &&
