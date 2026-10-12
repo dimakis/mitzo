@@ -148,12 +148,10 @@ it('preserves known original cleanup at pressure while refusing new admission an
   model.current.mockReset();
   model.cleanup.mockReset();
 });
-it('rechecks original custody after the awaited authenticated provider description before recording a plan', async () => {
+it('rechecks original enrollment identity after the awaited authenticated provider description before recording a plan', async () => {
   const sourceCommit = 'a'.repeat(40);
-  let owner = true;
-  const current = () => {
-    if (!owner) throw Error('original owner lost after describe');
-  };
+  let chargedAccount = 'stage-api';
+  const current = vi.fn();
   const profiles = new AccountProfiles([
     {
       id: 'stage-api',
@@ -193,7 +191,7 @@ it('rechecks original custody after the awaited authenticated provider descripti
     captureEnrollment: (profile, selected) => ({
       binding: profiles.resolve(profile, selected),
       selectedModel: selected,
-      chargedAccount: 'stage-api',
+      chargedAccount,
       assertCurrent: current,
       assertOriginalCleanupCurrent: current,
     }),
@@ -204,7 +202,7 @@ it('rechecks original custody after the awaited authenticated provider descripti
   const enrollment = feature.enrollment('stage-api');
   model.describe.mockImplementationOnce(async () => {
     await Promise.resolve();
-    owner = false;
+    chargedAccount = 'different-authenticated-account';
   });
   await expect(
     feature.plan(
@@ -219,6 +217,6 @@ it('rechecks original custody after the awaited authenticated provider descripti
       },
       sourceCommit,
     ),
-  ).rejects.toThrow('owner lost after describe');
+  ).rejects.toThrow('source/enrollment changed');
   expect(execute).not.toHaveBeenCalled();
 });
