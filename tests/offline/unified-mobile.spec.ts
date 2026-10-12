@@ -351,6 +351,84 @@ test('motion: Reduce Motion disables navigation and control animations', async (
   expect(animations).toBe(0);
 });
 
+test('motion: closing menus hold their final frame without flashing or moving chat controls', async ({
+  page,
+}, testInfo) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.addInitScript(() => {
+    const finishes: { opacity: string; height: number }[] = [];
+    Object.assign(window, { exitFrames: finishes });
+    const original = HTMLElement.prototype.animate;
+    HTMLElement.prototype.animate = function (frames, options) {
+      const animation = original.call(this, frames, options);
+      const final = animation.effect?.getKeyframes().at(-1);
+      if (final?.opacity === '0') {
+        // Observe the native endpoint before React's finished handler can hide it.
+        void animation.finished
+          .then(() =>
+            finishes.push({
+              opacity: getComputedStyle(this).opacity,
+              height: this.getBoundingClientRect().height,
+            }),
+          )
+          .catch(() => {});
+      }
+      return animation;
+    };
+  });
+  await page.goto('/chat');
+  const draft = page.getByRole('textbox', { name: 'Message Mitzo', exact: true });
+  await draft.fill('Preserve this draft');
+  const composer = page.locator('.chat-input--compact');
+  const header = page.locator('.workspace-controls-heading');
+  const toggle = page.getByRole('button', { name: 'More composer actions', exact: true });
+  const workspace = page.getByRole('button', { name: /^Workspace controls/ });
+  for (const theme of ['dark', 'light']) {
+    await page.evaluate((theme) => {
+      document.documentElement.dataset.theme = theme;
+      document.documentElement.dataset.accent = theme === 'dark' ? 'mint' : 'teal';
+      document.documentElement.dataset.font = theme === 'dark' ? 'system' : 'georgia';
+    }, theme);
+    // Font substitution can change intrinsic height between appearances. Measure
+    // each appearance before toggling so this checks motion, not font metrics.
+    const baseline = { composer: await composer.boundingBox(), header: await header.boundingBox() };
+    await toggle.click();
+    await expect(page.getByRole('button', { name: 'Commands', exact: true })).toBeVisible();
+    await composer.screenshot({
+      path: testInfo.outputPath(`menu-${theme}.png`),
+      animations: 'disabled',
+    });
+    await toggle.click();
+    await expect(composer.locator('.composer-tools')).toBeHidden();
+    await workspace.click();
+    const panel = page.locator('.workspace-controls > .motion-disclosure');
+    await expect(panel).toBeVisible();
+    await panel.screenshot({
+      path: testInfo.outputPath(`workspace-${theme}.png`),
+      animations: 'disabled',
+    });
+    await workspace.click();
+    await expect(panel).toBeHidden();
+    await expect(draft).toHaveValue('Preserve this draft');
+    expect(await composer.boundingBox()).toEqual(baseline.composer);
+    expect(await header.boundingBox()).toEqual(baseline.header);
+  }
+  const frames = await page.evaluate(
+    () =>
+      (
+        window as Window & {
+          exitFrames: { opacity: string; height: number }[];
+        }
+      ).exitFrames,
+  );
+  expect(frames).toHaveLength(4);
+  expect(frames.every((frame) => Number(frame.opacity) === 0)).toBe(true);
+  // Disclosure endpoints must stay collapsed until the hidden attribute commits.
+  expect(frames.filter((_, index) => index % 2 === 1).every((frame) => frame.height < 3)).toBe(
+    true,
+  );
+});
+
 test('composer: commands use a quiet icon with discoverable labels', async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto('/chat');
@@ -389,6 +467,63 @@ test('composer: commands use a quiet icon with discoverable labels', async ({ pa
   await commands.click();
   await expect(draft).toHaveValue('Keep this draft while browsing commands');
   await page.keyboard.press('Escape');
+});
+
+test('motion: rapid toggles continue from the visible menu and disclosure frame', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/chat');
+  await expect(page.getByRole('textbox', { name: 'Message Mitzo', exact: true })).toBeVisible();
+  const samples = await page.evaluate(async () => {
+    const nextFrame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    const results: { before: number; after: number; heightBefore: number; heightAfter: number }[] =
+      [];
+    for (const [toggleSelector, surfaceSelector] of [
+      ['.composer-tools-toggle', '.composer-tools'],
+      ['.workspace-controls-toggle', '.workspace-controls > .motion-disclosure'],
+    ]) {
+      const toggle = document.querySelector<HTMLElement>(toggleSelector)!;
+      const surface = document.querySelector<HTMLElement>(surfaceSelector)!;
+      toggle.click();
+      await nextFrame();
+      for (let interruption = 0; interruption < 2; interruption++) {
+        const current = surface
+          .getAnimations()
+          .find((animation) => animation.id.startsWith('mitzo:'))!;
+        current.pause();
+        current.currentTime = Number(current.effect!.getTiming().duration) / 2;
+        const before = Number(getComputedStyle(surface).opacity);
+        const heightBefore = surface.getBoundingClientRect().height;
+        toggle.click();
+        await nextFrame();
+        const replacement = surface
+          .getAnimations()
+          .find((animation) => animation.id.startsWith('mitzo:'))!;
+        replacement.pause();
+        replacement.currentTime = 0;
+        results.push({
+          before,
+          after: Number(getComputedStyle(surface).opacity),
+          heightBefore,
+          heightAfter: surface.getBoundingClientRect().height,
+        });
+      }
+      // Let the final entrance settle, then close this surface normally.
+      surface.getAnimations().forEach((animation) => animation.finish());
+      await nextFrame();
+      toggle.click();
+      await nextFrame();
+    }
+    return results;
+  });
+  expect(samples).toHaveLength(4);
+  for (const sample of samples) {
+    expect(sample.before).toBeGreaterThan(0);
+    expect(sample.before).toBeLessThan(1);
+    expect(sample.after).toBeCloseTo(sample.before, 3);
+    expect(Math.abs(sample.heightAfter - sample.heightBefore)).toBeLessThan(3);
+  }
 });
 
 test('motion: a wide mobile composer keeps inline actions accessible', async ({
