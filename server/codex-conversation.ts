@@ -99,6 +99,8 @@ export interface CodexAccessObservation {
 }
 
 export interface CodexConversationOptions {
+  /** Read-only provenance supplied by the owning ordinary client launcher. */
+  accessLocation?: CodexAccessObservation['location'];
   ownerKind?: 'ordinary' | 'symposium';
   /** Ordinary capacity recovery creates new linked native turns, never prompt replay. */
   enableCapacityRecovery?: boolean;
@@ -654,6 +656,7 @@ export class CodexConversation {
       !this.accessModel ||
       this.recoveryPhase ||
       this.pendingToolSurface ||
+      !this.opts.accessLocation ||
       this.opts.ownerKind === 'symposium'
     )
       return undefined;
@@ -662,7 +665,7 @@ export class CodexConversation {
       sessionId: this.opts.conversationId,
       account: { accountId, accountLabel, provider, profileRevision },
       ...this.accessModel,
-      location: this.opts.webSearchBackend === 'openshell' ? 'openshell' : 'local',
+      location: this.opts.accessLocation,
     };
   }
   isRecovering() {

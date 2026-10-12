@@ -19,6 +19,8 @@ const binding: AccountBinding = {
 function fixture(
   location: 'local' | 'openshell' = 'local',
   ownerKind: 'ordinary' | 'symposium' = 'ordinary',
+  searchBackend?: 'host' | 'openshell',
+  declareLocation = true,
 ) {
   const root = mkdtempSync(join(tmpdir(), 'codex-access-'));
   const store = new CodexConversationStore(join(root, 'private.db'));
@@ -53,6 +55,7 @@ function fixture(
       credentialRef: '/PRIVATE_CREDENTIAL',
     },
     systemPrompt: 'PRIVATE_PROMPT',
+    ...(declareLocation ? { accessLocation: location } : {}),
     tools: [],
     emit: vi.fn(),
     executeTool: vi.fn(),
@@ -61,7 +64,7 @@ function fixture(
       if (!['fixture-luna', 'fixture-luna-two', 'future-selection'].includes(model))
         throw new Error('Unsupported fixture model');
     },
-    webSearchBackend: location === 'local' ? 'host' : 'openshell',
+    webSearchBackend: searchBackend ?? (location === 'local' ? 'host' : 'openshell'),
     modelProvider: location === 'local' ? 'openai' : 'openshell',
     ...(location === 'openshell' ? { runtimeConfig: { web_search: 'disabled' } } : {}),
     createClient: (value) => {
@@ -121,6 +124,14 @@ it('reports acknowledged model selection, never a preparing or queued future mod
   });
   await conversation.send({ id: 'next', prompt: 'queued', model: 'future-selection' });
   expect(conversation.readAccessObservation()!.model).toBe('fixture-luna-two');
+});
+it('uses the launcher-owned execution location, never search policy or a missing declaration', async () => {
+  const configured = fixture('openshell', 'ordinary', 'openshell', false);
+  await configured.conversation.initialize();
+  expect(configured.conversation.readAccessObservation()).toBeUndefined();
+  const launched = fixture('openshell', 'ordinary', 'host');
+  await launched.conversation.initialize();
+  expect(launched.conversation.readAccessObservation()!.location).toBe('openshell');
 });
 it('invalidates the observation on lost transport or close and excludes Symposium ownership', async () => {
   const { conversation, closeTransport } = fixture();

@@ -97,7 +97,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/attest-knowledge-runtime.py':
     '5737ec8e7fc19a17b6ef5a35c1898e834d2a5d2d2a9f7593b607eaaf1971cfeb',
   '../agent-context-sandbox.ts': '8b61edc17ccc94bc95eae3796e68a0beb9540534e3bfbb348a04154c41995416',
-  '../codex-conversation.ts': '0aa9a9a15393bd00ec74d2eff65be80c332b37d9d885ec119a453cc1f3f89ffb',
+  '../codex-conversation.ts': 'e6b200ed4aaa6b60b1837a0a1d59bd459287a2ef8cda9106df98030dfacd7753',
   '../codex-conversation-store.ts':
     'c36089ad3386e3a716c9c059428fa0ec14d66385d686682badc243087670d5ed',
   // Library profile identity, operator ownership and admission are reviewed runtime inputs.
@@ -239,7 +239,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../openshell-runtime-policy.ts':
     'efecd458bf61fecd8198ecd330e0227e2c600ab21d6d2890cd2bac254e22b75f',
   '../openshell-runtime.ts': 'fe3659a89af1b8341fb7beefcc6dd9bb253ccb95011a651f5fa92c3baa5f1b8f',
-  '../codex-chat-session.ts': '620a5a8e53b8ccaf249af83481a04c6ba58d647b789ae3a0227693d38d2034d3',
+  '../codex-chat-session.ts': 'cb9b42f7158344cee600bfedf87d95492676d311505b0dddffb1b750121ac209',
   '../connections-runtime.ts': 'dbe641704a1d761d73740260fb28057054fdb34a64513fa77292d2fdb1954a84',
   'capabilities/operation-store.ts':
     '1a235f11d5578880e6dfa7ecf5779e2a011e24430774fc17429d7d22359b93f2',
