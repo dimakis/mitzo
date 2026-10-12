@@ -204,15 +204,6 @@ export function PermissionBanner({
         ) : (
           <>
             {description && <p className="perm-banner-desc">{description}</p>}
-            {toolInput && (
-              <details key={permId} className="perm-banner-details" open>
-                <summary>
-                  <UiIcon name="forward" size={16} />
-                  Request details
-                </summary>
-                <pre className="perm-banner-input">{toolInput}</pre>
-              </details>
-            )}
             <p className="perm-banner-scope">
               {sessionGrantDescription ||
                 (approvalScope === 'conversation'
@@ -225,6 +216,15 @@ export function PermissionBanner({
                         ? `Session allowance covers all ${server} tools.`
                         : 'Session allowance covers this tool until the task ends.')}
             </p>
+            {toolInput && (
+              <details key={permId} className="perm-banner-details" open>
+                <summary>
+                  <UiIcon name="forward" size={16} />
+                  Request details
+                </summary>
+                <pre className="perm-banner-input">{toolInput}</pre>
+              </details>
+            )}
           </>
         )}
       </div>
