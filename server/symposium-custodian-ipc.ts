@@ -10,6 +10,8 @@ import type {
   SymposiumCustodianController,
   CustodianResponse,
 } from './symposium-custodian-controller.js';
+/** Constructor source compatibility, not an authorization token. */
+export const CUSTODIAN_BEFORE_READY_PROTOCOL_VERSION = 1;
 export interface CustodianChannel extends Pick<EventEmitter, 'on' | 'off' | 'once'> {
   connected?: boolean;
   send(message: unknown, callback?: (error: Error | null) => void): boolean;
@@ -39,9 +41,13 @@ export function createCustodianIpcClient(
   options: {
     heartbeatMs?: number;
     requestTimeoutMs?: number;
+    startupTimeoutMs?: number;
     onEvent?: (sessionId: string, event: Record<string, unknown>) => void;
   } = {},
 ): CustodianClient {
+  const startupTimeoutMs = options.startupTimeoutMs ?? 5000;
+  if (!Number.isSafeInteger(startupTimeoutMs) || startupTimeoutMs < 1 || startupTimeoutMs > 120000)
+    throw Error('Bounded original custodian startup timeout required');
   let epoch: number | undefined;
   let closed = false;
   const pending = new Map<
@@ -128,7 +134,7 @@ export function createCustodianIpcClient(
     if (epoch && !closed) send({ kind: 'heartbeat', epoch });
   }, options.heartbeatMs ?? 2000);
   heartbeat.unref?.();
-  const startTimer = setTimeout(close, 5000);
+  const startTimer = setTimeout(close, startupTimeoutMs);
   startTimer.unref?.();
   send({ kind: 'hello' });
   return {
@@ -198,25 +204,43 @@ export function serveCustodianController(
   options: {
     heartbeatMs?: number;
     observeReady?: (epoch: number, assertCurrent: () => void) => void;
+    /** Awaited original constructor capability; unlike synchronous observation,
+     * this explicitly prevents IPC readiness and request dispatch until verified. */
+    beforeReady?: (epoch: number, assertCurrent: () => void) => Promise<void>;
+    readinessTimeoutMs?: number;
   } = {},
 ): Promise<void> {
   const observeReady = options.observeReady;
   if (observeReady !== undefined && typeof observeReady !== 'function')
     throw Error('Controller ready observer must be a trusted constructor callback');
+  const beforeReady = options.beforeReady;
+  const readinessTimeoutMs = options.readinessTimeoutMs ?? 120000;
+  if (
+    beforeReady !== undefined &&
+    (typeof beforeReady !== 'function' ||
+      !Number.isSafeInteger(readinessTimeoutMs) ||
+      readinessTimeoutMs < 1 ||
+      readinessTimeoutMs > 120000)
+  )
+    throw Error('Bounded original readiness capability required');
   const connection = controller.attach();
   let lost = false,
     observedReady = false,
+    readinessPending = false,
+    readinessPublished = false,
     lastHeartbeat = Date.now();
   const heartbeatMs = options.heartbeatMs ?? 120_000;
   const publications = new Map<string, AbortController>();
   const reads = new Map<string, AbortController>();
   return new Promise<void>((resolve, reject) => {
+    let readinessTimer: ReturnType<typeof setTimeout> | undefined;
     const stop = (failure?: Error) => {
       if (lost) return;
       lost = true;
       for (const abort of publications.values()) abort.abort();
       for (const abort of reads.values()) abort.abort();
       clearInterval(timer);
+      clearTimeout(readinessTimer);
       channel.off('message', message);
       void connection.lost().then(() => (failure ? reject(failure) : resolve()), reject);
     };
@@ -235,6 +259,7 @@ export function serveCustodianController(
       const frame = value as Record<string, unknown>;
       if (frame.kind === 'hello' && Object.keys(frame).length === 1) {
         lastHeartbeat = Date.now();
+        if (readinessPending) return;
         if (!observedReady && observeReady) {
           observedReady = true;
           try {
@@ -252,7 +277,36 @@ export function serveCustodianController(
             return;
           }
         }
-        send({ kind: 'ready', epoch: connection.epoch });
+        const publish = () => {
+          if (lost || channel.connected === false) return;
+          try {
+            connection.assertCurrent();
+            readinessPending = false;
+            readinessPublished = true;
+            clearTimeout(readinessTimer);
+            send({ kind: 'ready', epoch: connection.epoch });
+          } catch {
+            stop(Error('Original controller readiness failed'));
+          }
+        };
+        if (beforeReady && !readinessPublished) {
+          readinessPending = true;
+          readinessTimer = setTimeout(
+            () => stop(Error('Original controller readiness expired')),
+            readinessTimeoutMs,
+          );
+          try {
+            connection.assertCurrent();
+            // This handled promise belongs to the connection lifetime. It cannot
+            // publish after loss, extend its timeout, or replay the capability.
+            Promise.resolve(beforeReady(connection.epoch, connection.assertCurrent)).then(
+              publish,
+              () => stop(Error('Original controller readiness failed')),
+            );
+          } catch {
+            stop(Error('Original controller readiness failed'));
+          }
+        } else publish();
         return;
       }
       if (
@@ -293,6 +347,10 @@ export function serveCustodianController(
         return;
       }
       if (frame.kind !== 'request' || Object.keys(frame).length !== 2) return;
+      if (!readinessPublished) {
+        stop(Error('Original controller request preceded verified readiness'));
+        return;
+      }
       const command = frame.command as Record<string, unknown> | undefined;
       if (!command || typeof command.requestId !== 'string' || command.requestId.length > 200)
         return;
