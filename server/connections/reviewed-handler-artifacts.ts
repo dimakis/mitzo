@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.9';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.66';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.67';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -218,7 +218,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../native-tool-executor.ts': '9c2f349a51febe5b8818358f558a67a4e324eda2f525d85a5578e84463f5dc01',
   '../repository-workspaces.ts': 'b7e8cd755cdf6483d706f41d5deca216736b40dbd7863a3be20edfd32abb811c',
   '../../packages/protocol/src/event-store.ts':
-    '02119494d980b85188c9d49ec640f7d2510eb573f4c90e7162e8705ba26f37d7',
+    '03e067a8b9dac76e514287679e987f11a0cccc39cbaa2e193734f8a22a549c0d',
+  '../../packages/protocol/src/conversation-replay-store.ts':
+    '60ca279c37909d56d842535093f8d8186057a668a1b03a8e53c41f92061da32a',
   '../../packages/protocol/src/execution-ledger.ts':
     'f30d210be1d37f4c61ff47edb1fb3c8dea1dc6fd8d3ea02b6e01310e8d44ffc4',
   '../../packages/protocol/src/session-runtime-binding.ts':
