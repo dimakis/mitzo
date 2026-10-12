@@ -249,6 +249,73 @@ drift, failed-write rollback, corrupt V2 metadata, required catalog revisions an
 request rejection of a supplied target revision. The increment has no startup,
 resume, command, HTTP/WS, permission, lifecycle or UI consumer.
 
+## Fifth increment: dormant trusted local capability snapshot
+
+`loadOrdinaryLocalCodexTarget` reads only an explicitly selected
+`MITZO_ORDINARY_LOCAL_CODEX_TARGET_FILE` in the operator-owned server environment.
+It is dormant: startup, HTTP/WS, discovery and dispatch do not call the loader.
+Missing configuration is disabled. Relative paths, symlinks, non-regular files,
+invalid UTF-8/JSON, content over 64 KiB and unknown fields fail with a fixed error
+that does not disclose the path or content. Neither account files nor Symposium
+or OpenShell settings supply a fallback.
+
+The strict version-1 file declares one local Codex target:
+
+```json
+{
+  "version": 1,
+  "targetId": "local-mac",
+  "label": "Local Mac",
+  "hostId": "operator-declared-host-id",
+  "runtimeContractRevision": "reviewed-local-runtime-contract-r1"
+}
+```
+
+These are operator declarations, not observed host/runtime evidence. The operator
+must name the owning host and reviewed local runtime contract; future admission
+must independently verify that the selected runtime matches both declarations.
+The file cannot supply a target revision, executable, credential, gateway or
+another execution location. A canonical SHA-256 routing revision includes the
+schema/route version, target ID, host ID and runtime contract revision; file
+formatting and the presentation label do not change it. `descriptor()` exposes
+only ID, label, revision, local location and Codex harness. Private snapshot fields
+and returned copies prevent mutation from changing the retained target.
+
+`AccountProfiles.ordinaryLocalCodexInventory` reuses the accepted exclusive
+host-login projection and existing configured/cached Codex model metadata. It
+performs no sign-in check, general account catalog lookup, discovery refresh or
+provider launch. Credential references, email, workspace, provider/grant data and
+raw profiles never enter the projected inventory. Cached discovery source,
+recorded update time and its existing stale/error flag remain explicit; they do
+not authorize dispatch or claim fresh provider availability.
+
+`OrdinaryLocalCodexCapabilityCatalog` retains that metadata and target together
+as one independent snapshot. Its existing pure resolver checks the exact account/
+harness/target reference. It advertises configured modes from that resolver and
+Codex's unsupported restricted skill ceiling, not permission or tool parity.
+Callers must explicitly classify the server deployment; missing or invalid classification fails rather than defaulting to ordinary execution. Custodian deployments keep local routes unavailable. The response retains
+`defaultLocation: "openshell"` and reports `openshell_projection_pending`; it does
+not select a local replacement. Missing targets and absent eligible accounts have
+finite local unavailable reasons. Native/brokered/API/Vertex profiles are not
+projected by this increment.
+
+Inventory validation bounds 64 accounts, 256 models per account, 16 thinking
+values per model, reference/label lengths and a total encoded payload of 1 MiB.
+Duplicate account/model IDs or thinking values, unsupported default thinking and
+invalid metadata fail with one non-sensitive error rather than returning a
+partial selectable catalog. No model IDs or thinking values are invented.
+`capabilityRevision` binds routing identity, model/thinking choices and discovery
+source/stale state separately from target and account routing revisions. Labels
+and discovery timestamps do not change capability identity. Responses are deep
+copies; subsequent cache updates cannot rewrite an existing snapshot.
+
+This completes the first local configuration projection within plan Step 2, not
+the full picker API or route qualification. Other provider/OpenShell projections,
+published-agent composition, authenticated inventory delivery, host/runtime
+verification, live authorization and create/turn admission require subsequent
+reviewed increments. No session model setting, runtime selection, provider
+continuation or existing API/UI behavior changes here.
+
 ## Invariants for subsequent adoption
 
 1. A new conversation chooses an authorized account, validated model and
