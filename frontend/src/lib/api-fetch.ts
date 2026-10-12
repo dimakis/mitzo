@@ -8,6 +8,8 @@
  * - Always includes credentials for cookie-based browser auth.
  */
 
+import { traceAuthenticationCheck } from './auth-check-tracing';
+
 const AUTH_TOKEN_KEY = 'mitzo_auth_token';
 const LOGOUT_PENDING_KEY = 'mitzo_logout_pending';
 const AUTH_RESTORED_SIGNAL_KEY = 'mitzo_auth_restored_signal';
@@ -138,12 +140,13 @@ export function restoreCookieAuthentication(): Promise<boolean> {
   if (cookieRestoreInFlight?.generation === restoreGeneration) {
     return cookieRestoreInFlight.promise;
   }
-  const attempt = (async () => {
-    const response = await apiFetch('/api/auth/check');
+  const attempt = traceAuthenticationCheck(async (span, headers) => {
+    const response = await apiFetch('/api/auth/check', { headers });
+    span.setAttribute('http.response.status_code', response.status);
     if (!response.ok || authGeneration !== restoreGeneration || isLogoutPending()) return false;
     loginSucceeded();
     return true;
-  })();
+  });
   cookieRestoreInFlight = { generation: restoreGeneration, promise: attempt };
   const clear = () => {
     if (cookieRestoreInFlight?.promise === attempt) cookieRestoreInFlight = null;

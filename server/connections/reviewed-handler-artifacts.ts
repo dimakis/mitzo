@@ -106,7 +106,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   // Read-only session observation is part of the operator route composition.
   '../session-access.ts': 'e70130c57879d3b22fab78473d90c8d2e787b7a499194c166e7e912fc5cf2767',
   // Request authority and physical review composition share runtime admission.
-  '../app.ts': '36b02e0fa49160abbfafcb08345ca10bff78c33188b738b192531e892c6487f0',
+  '../app.ts': '2f7b64308de611de20c847341bde83b8e63116d32d48f9858f17a160979d2e39',
   '../auth-check-tracing.ts': '22a3e6c0830cd014e011ed396f323442b37f4b984098d4e51409089d8fa6ffb9',
   '../telemetry-relay.ts': '302bf6cec2b988ae71a123a5dd04d0f2266a82c3ee51873ec64d8be452c25427',
   '../symposium-review-route-composition.ts':
