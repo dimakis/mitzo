@@ -64,6 +64,21 @@ async function offline(page: Page) {
   page.on('pageerror', (error) => errors.push(error.message));
   await page.addInitScript(() => {
     localStorage.setItem('mitzo:transport', 'ws');
+    const sources = new Set<EventSource>();
+    const NativeEventSource = window.EventSource;
+    window.EventSource = class extends NativeEventSource {
+      constructor(url: string | URL, options?: EventSourceInit) {
+        super(url, options);
+        sources.add(this);
+      }
+      close() {
+        sources.delete(this);
+        super.close();
+      }
+    };
+    window.addEventListener('pagehide', () => {
+      for (const source of sources) source.close();
+    });
     document.addEventListener('DOMContentLoaded', () => {
       document.documentElement.style.overflow = 'hidden';
       document.body.style.cssText = 'height:100dvh;overflow:hidden';
@@ -204,18 +219,6 @@ async function offline(page: Page) {
   return {
     errors,
     mutations,
-    // This fixture serves finite SSE responses. Complete intercepted requests
-    // before replacing the document so WebKit cannot report a late response
-    // against the new document's access-control context. Keep actual browser
-    // EventSource/fetch behavior and all pageerror assertions intact.
-    goto: async (url: string) => {
-      await page.waitForLoadState('networkidle');
-      return page.goto(url);
-    },
-    reload: async (options?: Parameters<Page['reload']>[0]) => {
-      await page.waitForLoadState('networkidle');
-      return page.reload(options);
-    },
     state: (next: typeof state) => {
       state = next;
     },
@@ -246,7 +249,7 @@ test('drafts: Chats has a dedicated Drafts destination and New chat opens blank'
     'mitzo-accent': 'mint',
     'mitzo-font': 'georgia',
   });
-  await fixture.goto('/sessions');
+  await page.goto('/sessions');
   await expect(page.getByRole('link', { name: /Drafts/ })).toBeVisible();
   await expect(page.getByText(/Update available.*Deploy Mitzo/)).toBeHidden();
   await page.screenshot({
@@ -271,7 +274,7 @@ test('drafts: restore all settings, attachments and context, edit, leave, and re
   const fixture = await offline(page);
   await page.setViewportSize({ width: isMobile ? 320 : 1280, height: 900 });
   await seed(page, { 'mitzo-chat-draft:briefing-draft': JSON.stringify(savedDraft()) });
-  await fixture.goto('/sessions/drafts');
+  await page.goto('/sessions/drafts');
   await page.getByRole('link', { name: /What is the story with my morning briefing/ }).click();
   const input = page.getByRole('textbox', { name: 'Message Mitzo' });
   await expect(input).toHaveValue(message);
@@ -308,7 +311,7 @@ test('drafts: restore all settings, attachments and context, edit, leave, and re
     path: testInfo.outputPath('draft-restored-editable.png'),
     animations: 'disabled',
   });
-  await fixture.goto('/sessions/drafts');
+  await page.goto('/sessions/drafts');
   await page
     .getByRole('link', { name: /Fix the morning briefing with this saved context/ })
     .click();
@@ -333,11 +336,11 @@ test('drafts: unsent new input saves separately and legacy input migrates withou
       reasoningEffort: 'medium',
     }),
   });
-  await fixture.goto('/chat');
+  await page.goto('/chat');
   const input = page.getByRole('textbox', { name: 'Message Mitzo' });
   await expect(input).toHaveValue('');
   await input.fill('A separate new message');
-  await fixture.goto('/sessions/drafts');
+  await page.goto('/sessions/drafts');
   await expect(page.getByRole('link', { name: /Existing legacy briefing draft/ })).toBeVisible();
   await expect(page.getByRole('link', { name: /A separate new message/ })).toBeVisible();
   expect(await page.evaluate(() => localStorage.getItem('mitzo-draft-new'))).toBeNull();
@@ -351,7 +354,7 @@ test('drafts: discard is labelled, cancellable with focus restored, and missing 
 }) => {
   const fixture = await offline(page);
   await seed(page, { 'mitzo-chat-draft:briefing-draft': JSON.stringify(savedDraft()) });
-  await fixture.goto('/sessions/drafts');
+  await page.goto('/sessions/drafts');
   const discard = page.getByRole('button', { name: 'Discard draft', exact: true });
   await discard.click();
   await expect(page.getByRole('dialog', { name: 'Discard this draft?' })).toBeVisible();
@@ -364,7 +367,7 @@ test('drafts: discard is labelled, cancellable with focus restored, and missing 
   await page.getByRole('button', { name: 'Confirm discard' }).click();
   await expect(page.getByText('No drafts yet', { exact: true })).toBeVisible();
   await expect(page.getByRole('link', { name: 'New chat', exact: true })).toBeFocused();
-  await fixture.goto('/chat?draft=briefing-draft');
+  await page.goto('/chat?draft=briefing-draft');
   await expect(page.getByRole('alert')).toContainText(
     /draft.*(unavailable|found|available|missing)/i,
   );
@@ -381,7 +384,7 @@ test('drafts: discard is labelled, cancellable with focus restored, and missing 
         localStorage.setItem('mitzo-chat-draft:unavailable-reference', JSON.stringify(draft)),
       draft,
     );
-    await fixture.goto('/chat?draft=unavailable-reference');
+    await page.goto('/chat?draft=unavailable-reference');
     await workspace(page);
     await expect(page.getByRole('alert')).toContainText('Selected account or model is unavailable');
     await expect(page.getByRole('button', { name: 'Send message', exact: true })).toBeDisabled();
@@ -400,7 +403,7 @@ test('updates: Settings owns available/current/loading/error/missing-action stat
   page,
 }, testInfo) => {
   const fixture = await offline(page);
-  await fixture.goto('/settings');
+  await page.goto('/settings');
   await page.getByRole('link', { name: /Updates/ }).click();
   await expect(page.getByRole('heading', { name: 'A new Mitzo is ready' })).toBeVisible();
   const review = page.getByRole('link', { name: 'Review update' });
@@ -424,7 +427,7 @@ test('updates: Settings owns available/current/loading/error/missing-action stat
     page.getByText('Assign a GitHub connection with repository access to this AI account in'),
   ).toBeVisible();
   expect(fixture.mutations).toEqual([]);
-  await fixture.goto('/settings/updates');
+  await page.goto('/settings/updates');
   await expect(page.getByRole('heading', { name: 'A new Mitzo is ready' })).toBeVisible();
   await page.getByRole('button', { name: 'Check for updates' }).click();
   await expect(page.getByRole('heading', { name: 'You’re up to date' })).toBeVisible();
@@ -432,16 +435,16 @@ test('updates: Settings owns available/current/loading/error/missing-action stat
   await page.getByRole('button', { name: 'Check for updates' }).click();
   await expect(page.getByRole('alert')).toContainText('Couldn’t check for updates');
   fixture.configured(false);
-  await fixture.reload();
+  await page.reload();
   await expect(
     page.getByText('An update action hasn’t been configured for this installation.'),
   ).toBeVisible();
   await expect(review).toBeHidden();
   fixture.state('error');
-  await fixture.reload();
+  await page.reload();
   await expect(page.getByRole('alert')).toContainText('Couldn’t load update information');
   fixture.state('loading');
-  await fixture.reload({ waitUntil: 'domcontentloaded' });
+  await page.reload({ waitUntil: 'domcontentloaded' });
   await expect(page.getByRole('heading', { name: 'Loading update information…' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Check for updates' })).toBeDisabled();
   await page.screenshot({
@@ -481,7 +484,7 @@ test('drafts and updates: narrow/mobile and desktop appearance, scrolling and ke
     ['dark', 'mint', 'georgia'],
     ['light', 'teal', 'system'],
   ]) {
-    await fixture.goto('/sessions/drafts');
+    await page.goto('/sessions/drafts');
     await page.evaluate(
       ({ theme, accent, font }) => {
         localStorage.setItem('mitzo-theme', theme);
@@ -490,7 +493,7 @@ test('drafts and updates: narrow/mobile and desktop appearance, scrolling and ke
       },
       { theme, accent, font },
     );
-    await fixture.reload();
+    await page.reload();
     await expect(page.getByRole('heading', { name: /^Drafts(?: \d+)?$/ })).toBeVisible();
     await layout(page);
     const first = page.locator('.saved-draft-open').first();
@@ -515,7 +518,7 @@ test('drafts and updates: narrow/mobile and desktop appearance, scrolling and ke
       path: testInfo.outputPath(`drafts-final-item-${theme}.png`),
       animations: 'disabled',
     });
-    await fixture.goto('/settings/updates');
+    await page.goto('/settings/updates');
     await expect(page.getByRole('heading', { name: 'A new Mitzo is ready' })).toBeVisible();
     const check = page.getByRole('button', { name: 'Check for updates' });
     await check.scrollIntoViewIfNeeded();
@@ -559,7 +562,7 @@ test('drafts: clearing text removes stale draft and prompt URLs while leaving th
     contextBlocks: [],
   };
   await seed(page, { 'mitzo-chat-draft:cleared-draft': JSON.stringify(draft) });
-  await fixture.goto('/chat?draft=cleared-draft&prompt=Original%20launch%20prompt');
+  await page.goto('/chat?draft=cleared-draft&prompt=Original%20launch%20prompt');
   const input = page.getByRole('textbox', { name: 'Message Mitzo' });
   await expect(input).toHaveValue('A text-only draft');
   await expect(
@@ -586,7 +589,7 @@ test('drafts: clearing text removes stale draft and prompt URLs while leaving th
   await expect
     .poll(() => page.evaluate(() => localStorage.getItem('mitzo-chat-draft:cleared-draft')))
     .toBeNull();
-  await fixture.reload();
+  await page.reload();
   await expect(input).toHaveValue('');
   await expect(page.getByRole('alert')).toHaveCount(0);
   await input.fill('A new editable message after reload');
@@ -654,7 +657,7 @@ test('drafts: preparation-only receipts survive reopen and failed cleanup, then 
     });
   });
   await seed(page, { 'mitzo-chat-draft:preparation-only': JSON.stringify(draft) });
-  await fixture.goto('/sessions/drafts');
+  await page.goto('/sessions/drafts');
   await page.getByRole('link', { name: /Untitled draft/ }).click();
   await expect(page.getByRole('textbox', { name: 'Message Mitzo' })).toHaveValue('');
   await expect(page.getByText('draft/briefing', { exact: true })).toBeVisible();
@@ -667,7 +670,7 @@ test('drafts: preparation-only receipts survive reopen and failed cleanup, then 
       ),
     )
     .toBe(preparationId);
-  await fixture.reload();
+  await page.reload();
   await expect(page.getByText('draft/briefing', { exact: true })).toBeVisible();
   await expect
     .poll(() =>
@@ -679,7 +682,7 @@ test('drafts: preparation-only receipts survive reopen and failed cleanup, then 
       text: '',
       settings: { repositoryWorkspaceId: preparationId, selection: draft.settings.selection },
     });
-  await fixture.goto('/sessions/drafts');
+  await page.goto('/sessions/drafts');
   await expect(page.getByText('Repository preparation saved.', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Discard draft', exact: true }).click();
   await page.getByRole('button', { name: 'Confirm discard', exact: true }).click();
@@ -867,7 +870,7 @@ test('drafts: deferred voice replies stay with their owner while same-draft dict
     'mitzo-chat-draft:voice-first': JSON.stringify(first),
     'mitzo:service-health': JSON.stringify(health),
   });
-  await fixture.goto('/chat?draft=voice-first');
+  await page.goto('/chat?draft=voice-first');
   const input = page.getByRole('textbox', { name: 'Message Mitzo' });
   await expect(input).toHaveValue(first.text);
   await page.getByRole('button', { name: 'Record voice message', exact: true }).click();
