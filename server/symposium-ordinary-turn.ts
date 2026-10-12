@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import type { AccountBinding, MitzoMode } from '@mitzo/protocol';
 import type { SessionTransport } from '@mitzo/harness';
 import type { AccountProfiles } from './account-profiles.js';
+import { assertOrdinaryCodexContributorAccount } from './ordinary-codex-contributor-admission.js';
 import type { OrdinaryTurnLifecycle } from './ordinary-turn-lifecycle.js';
 import type { SymposiumSeatExecutionResult } from './symposium-orchestrator.js';
 import type { OrdinarySymposiumTurn } from './symposium-shared-execution.js';
@@ -63,8 +64,10 @@ export function createOrdinarySymposiumTurn(deps: {
   newSessionId?: () => string;
   cancellationTimeoutMs?: number;
 }): OrdinarySymposiumTurn {
-  if (deps.binding.provider !== 'openai-codex')
-    throw new Error('Exact ordinary turn lifecycle is available only for Codex accounts');
+  if (deps.accountProfiles)
+    assertOrdinaryCodexContributorAccount(deps.accountProfiles, deps.binding, deps.mode);
+  else if (deps.binding.provider !== 'openai-codex')
+    throw new Error('Exact ordinary turn lifecycle requires a validated Codex account');
   let started = false;
   let cancelled = false;
   let dispatched = false;

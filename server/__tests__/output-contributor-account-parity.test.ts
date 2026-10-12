@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -10,12 +10,18 @@ import { createOrdinarySymposiumTurn, type OrdinaryChatPort } from '../symposium
 import { resolveOrdinarySessionRuntime } from '../ordinary-session-runtime.js';
 
 const cleanup: (() => void)[] = [];
+beforeEach(() => {
+  for (const key of Object.keys(process.env))
+    if (key.startsWith('MITZO_OPENSHELL_') || key.startsWith('MITZO_KNOWLEDGE_'))
+      vi.stubEnv(key, undefined);
+});
 afterEach(() => {
   cleanup
     .splice(0)
     .reverse()
     .forEach((close) => close());
   vi.restoreAllMocks();
+  vi.unstubAllEnvs();
 });
 
 /** All accounts and provider acknowledgements are offline fixtures. */
@@ -160,13 +166,19 @@ describe('ordinary output contributor account and harness parity', () => {
   it.each([
     ['host-codex', 'codex', 'local', true],
     ['brokered-codex', 'codex', 'openshell', true],
-    ['api', 'codex', 'openshell', false],
+    ['api', 'codex', 'openshell', true],
     ['api', 'responses', 'local', false],
     ['anthropic-vertex', 'claude-sdk', 'local', false],
     ['google-vertex', 'gemini', 'local', false],
   ] as const)(
     'records ordinary compatibility and bounded contributor eligibility for %s / %s / %s',
     async (accountId, harness, targetId, eligible) => {
+      if (accountId === 'api' && harness === 'codex') {
+        vi.stubEnv('MITZO_OPENSHELL_ENABLED', '1');
+        vi.stubEnv('MITZO_OPENSHELL_IMAGE', 'offline-image');
+        vi.stubEnv('MITZO_OPENSHELL_POLICY', '/offline/policy.yaml');
+        vi.stubEnv('MITZO_OPENSHELL_SEED', '/offline/seed');
+      }
       const { service, profiles, port } = setup();
       const binding = profiles.resolve(accountId, 'offline-model');
       const account = {
@@ -217,9 +229,15 @@ describe('ordinary output contributor account and harness parity', () => {
         eligible,
       );
       const createTurn = () =>
-        createOrdinarySymposiumTurn({ port, binding, cwd: '/offline', mode: 'agent' });
+        createOrdinarySymposiumTurn({
+          port,
+          binding,
+          cwd: '/offline',
+          mode: 'agent',
+          accountProfiles: profiles,
+        });
       if (eligible) expect(createTurn).not.toThrow();
-      else expect(createTurn).toThrow('only for Codex accounts');
+      else expect(createTurn).toThrow();
       expect(port.startChat).not.toHaveBeenCalled();
     },
   );
@@ -229,9 +247,7 @@ describe('ordinary output contributor account and harness parity', () => {
     async (accountId) => {
       const { service, input, store, port } = setup();
       expect((await service.list('source')).eligibility.accountIds).not.toContain(accountId);
-      await expect(service.add('source', { ...input, accountId })).rejects.toThrow(
-        'ordinary contributor turns',
-      );
+      await expect(service.add('source', { ...input, accountId })).rejects.toThrow();
       expect(store.getOutputContributorBindings('source')).toEqual([]);
       expect(port.startChat).not.toHaveBeenCalled();
     },

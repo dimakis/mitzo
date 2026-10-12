@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.9';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.70';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.71';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -85,10 +85,12 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../symposium-shared-execution.ts':
     'b884e6783d170bde0570d9ab645b13a69a3ab531a77ad12534bfb2160a609551',
   '../symposium-ordinary-turn.ts':
-    'b50f0e3c04dacbde20133e42f2699bb50fd9661bc96395fe6fe5c4162bcf991b',
-  '../output-contributors.ts': '74d6d4fee3865a460337ed1bdffed39c570e91824b5c201cf87c30c87f692695',
+    '80220a38e332849d1ef1c37064e0342b52fe1c901f4d0792a5ec73b9e304ee06',
+  '../ordinary-codex-contributor-admission.ts':
+    '20b50e35d894f942181af17b0e1bfe8a1fba059d3562338e586ee68de16841ce',
+  '../output-contributors.ts': '4dd6bcda22230f093584f236caf919c547000a906fb104b10840a3e8b335d206',
   '../output-contributor-routes.ts':
-    '73b7904feca4cded6349e1efde0bffc603df47bd16b3435d02f14ce21b3f21fe',
+    'e8b9ffc353713edbe91f9be431422996b142e91716147ca915e6f7702e94c1e8',
   '../session-output-references.ts':
     'f3cc6ec16ec1c2dc907566658c3f12b1776ee35f1bde662a77e97b9a08946841',
   '../session-output-routes.ts': '2e08e938b4914797006231d1044b2c6c28693aa7fe1813a37d6ba1c9697649b2',
@@ -96,7 +98,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'c103af10de4adc81cdc474b3e69ef2b3de5e447d4dcf15da4fc1894c422b913b',
   '../../packages/protocol/src/session-output-reference-store.ts':
     '1b54dd00d94e99974b536a68cfc0b5cdc841e2f6453ba7bc58b5c4b98830c7ff',
-  '../chat.ts': 'c568d62547758f6149cb9266d3c0dc6c90b026bc57868598e5e5e341b362340c',
+  '../chat.ts': '19e356028df265d8f21a6ace560bd9e32f000e8f55cf7d4259a8662fa00d0c40',
   // Contributor execution lifetime is independent of viewer detach/expiry.
   '../../packages/harness/src/session-registry.ts':
     '5ad72e9be9d3289a13511aaa1bb107b527283493e5577e08912ea4fdc4740a81',

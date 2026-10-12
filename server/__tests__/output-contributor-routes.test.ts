@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import { createOutputContributorRouter } from '../output-contributor-routes.js';
+import { OrdinaryContributorModeError } from '../ordinary-codex-contributor-admission.js';
 import {
   type OutputContributors,
   UnsupportedOutputContributorContextError,
@@ -67,6 +68,13 @@ function fixture() {
   return { app, service, contributor, input, post };
 }
 describe('operator-scoped output contributor routes', () => {
+  it('explains the existing OpenShell mode requirement without private route diagnostics', async () => {
+    const { service, post, input } = fixture();
+    service.add.mockRejectedValueOnce(new OrdinaryContributorModeError());
+    const response = await post('/api/sessions/source/contributors', input);
+    expect(response.status).toBe(409);
+    expect(response.body).toEqual({ error: 'OpenShell contributors require Agent or Auto mode.' });
+  });
   it('mounts under the operator/session boundary before consulting authority or dispatch', async () => {
     const { app, service, post, input } = fixture();
     expect((await request(app).get('/api/sessions/source/contributors')).status).toBe(403);

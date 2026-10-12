@@ -2,6 +2,7 @@ import { Router, type Request, type Response } from 'express';
 import { ZodError } from 'zod';
 import type { AuthSession } from './auth.js';
 import { withAgentLibraryRecoveryAuthorization } from './agent-library-transport.js';
+import { OrdinaryContributorModeError } from './ordinary-codex-contributor-admission.js';
 import {
   type OutputContributors,
   OutputContributorAddInputSchema,
@@ -12,6 +13,10 @@ import {
 } from './output-contributors.js';
 
 function failure(res: Response, error: unknown) {
+  if (error instanceof OrdinaryContributorModeError) {
+    res.status(409).json({ error: error.message });
+    return;
+  }
   if (error instanceof UnsupportedOutputContributorContextError) {
     res.status(409).json({ error: UNSUPPORTED_OUTPUT_CONTRIBUTOR_CONTEXT_MESSAGE });
     return;
