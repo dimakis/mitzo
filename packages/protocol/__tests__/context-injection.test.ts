@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { splitContextPrompt } from '../src/context-injection.js';
 
 const preamble =
@@ -39,8 +40,50 @@ describe('context injection display projection', () => {
         '\n\n---CONTEXT_END---',
         '\n\n<context name="Org" source="org.md">\nTeam map\n</context>\n\n---CONTEXT_END---',
       );
-    expect(splitContextPrompt(text)!.injections).toHaveLength(2);
-    expect(splitContextPrompt(text)!.injections[0].name).toBe('Jira & "fields"');
+    expect(splitContextPrompt(text)).toEqual({
+      text: 'What state are my Strats in?',
+      injections: [
+        {
+          name: 'Jira & "fields"',
+          source: 'jira_process/context/agent-routing.md',
+          content: 'Strats means RHAISTRAT.',
+        },
+        { name: 'Org', source: 'org.md', content: 'Team map' },
+      ],
+    });
+  });
+
+  it('keeps the complete legacy prompt when an attached repository document contains envelope examples', () => {
+    const document = readFileSync(
+      new URL('../../../docs/design/context-blocks.md', import.meta.url),
+      'utf8',
+    );
+    const text = `${preamble}\n\n<context name="Context design" source="docs/design/context-blocks.md">\n${document}\n</context>\n\n<context name="Org" source="org.md">\nTeam map\n</context>\n\n---CONTEXT_END---\nExplain this design.`;
+    expect(splitContextPrompt(text)).toBeNull();
+  });
+
+  it('does not truncate a reference at a literal closing-tag and separator example', () => {
+    const text = prompt.replace(
+      'Strats means RHAISTRAT.',
+      'Example:\n</context>\n\n---CONTEXT_END---\nExample question\nMore reference content.',
+    );
+    expect(splitContextPrompt(text)).toBeNull();
+  });
+
+  it('does not create extra references from a literal closing-tag and reference-header example', () => {
+    const text = prompt.replace(
+      'Strats means RHAISTRAT.',
+      'Example:\n</context>\n\n<context name="Sample" source="example.md">\nExample body\n</context>\n\n---CONTEXT_END---\nExample question\nMore reference content.',
+    );
+    expect(splitContextPrompt(text)).toBeNull();
+  });
+
+  it('does not fabricate references from an example without its own context-end separator', () => {
+    const text = prompt.replace(
+      'Strats means RHAISTRAT.',
+      'Intro\n</context>\n\n<context name="Example" source="example.md">\nExample body\n</context>\n\nDocument text after example',
+    );
+    expect(splitContextPrompt(text)).toBeNull();
   });
 
   it.each([

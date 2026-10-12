@@ -20,7 +20,9 @@ const decodeAttribute = (value: string) =>
 
 /**
  * Recognize only the complete application envelope, never an arbitrary marker
- * in user text. This is a display projection, not source authorization.
+ * in user text. Legacy sources are unescaped: recognizable nested envelopes
+ * make the projection ambiguous, so preserve the full prompt instead. This is
+ * a display projection, not source authorization.
  */
 export function splitContextPrompt(
   prompt: string,
@@ -38,14 +40,28 @@ export function splitContextPrompt(
     end.lastIndex = start;
     const closing = end.exec(prompt);
     if (!closing) return null;
+    const content = prompt.slice(start, closing.index);
+    // A document can describe this exact serialization. Embedded headers or
+    // standalone closing tags can belong to examples, even without a nested
+    // separator. Inline closing-tag-like prose remains ordinary source text.
+    if (
+      /(?:^|\n)<context name="[^"]*" source="[^"]*">\n/.test(content) ||
+      /(?:^|\n)<\/context>(?=\n|$)/.test(content)
+    )
+      return null;
     injections.push({
       name: decodeAttribute(header[1]),
       source: decodeAttribute(header[2]),
-      content: prompt.slice(start, closing.index),
+      content,
     });
     offset = closing.index + closing[0].length;
-    if (prompt.startsWith(separator, offset))
+    if (prompt.startsWith(separator, offset)) {
+      // More envelope closing boundaries after this separator mean it may
+      // belong to an example inside a source, rather than the outer envelope.
+      end.lastIndex = offset + separator.length;
+      if (end.exec(prompt)) return null;
       return { text: prompt.slice(offset + separator.length), injections };
+    }
     offset += 2; // Serialized references are separated by two newlines.
   }
   return null;

@@ -7,9 +7,8 @@ const question = 'What state are my Strats in?';
 const reference =
   'Strats means RHAISTRAT. Use the maintained Jira command.\n' +
   'Reference evidence.\n'.repeat(600);
-const expanded = `The user has attached the following reference files for this message.\nUse them to inform your response.\n\n<context name="Jira Essentials" source="jira_process/context/agent-routing.md">\n${reference}\n</context>\n\n---CONTEXT_END---\n${question}`;
-
-async function fixture(page: Page) {
+async function fixture(page: Page, name = 'Jira Essentials') {
+  const expanded = `The user has attached the following reference files for this message.\nUse them to inform your response.\n\n<context name="${name}" source="jira_process/context/agent-routing.md">\n${reference}\n</context>\n\n---CONTEXT_END---\n${question}`;
   const sent: Record<string, unknown>[] = [];
   let echo: (() => void) | undefined;
   const history: unknown[] = [];
@@ -38,7 +37,7 @@ async function fixture(page: Page) {
           const user = {
             messageId: message.clientMsgId,
             role: 'user',
-            contextBlocks: ['Jira Essentials'],
+            contextBlocks: [name],
             blocks: [{ blockId: 'text', blockType: 'text', content: expanded }],
           };
           history.push(user);
@@ -49,7 +48,7 @@ async function fixture(page: Page) {
               sessionId: 'context-fixture',
               messageId: message.clientMsgId,
               text: expanded,
-              contextBlocks: ['Jira Essentials'],
+              contextBlocks: [name],
             }),
           );
           socket.send(
@@ -73,7 +72,7 @@ async function fixture(page: Page) {
     '/api/config': {
       quickActions: [],
       contextBlocks: {
-        'Jira Essentials': {
+        [name]: {
           path: 'jira_process/context/agent-routing.md',
           sizeBytes: reference.length,
         },
@@ -221,4 +220,56 @@ test('context selection is visible on send, echoed content collapses, and replay
       .locator('.msg-context-injection')
       .evaluate((element) => element.scrollWidth <= element.clientWidth + 1),
   ).toBe(true);
+});
+
+test('long unbroken context names wrap without displacing the copy action', async ({
+  page,
+  isMobile,
+}, testInfo) => {
+  const name = 'JiraEssentials'.repeat(12);
+  await page.setViewportSize({ width: isMobile ? 320 : 1280, height: isMobile ? 740 : 900 });
+  const transport = await fixture(page, name);
+  await page.goto('/chat/context-fixture');
+  await page.getByRole('button', { name: 'Open session tray', exact: true }).click();
+  await page.getByRole('button', { name: 'Sources 0', exact: true }).click();
+  await page.getByRole('button', { name: new RegExp(`^${name}`) }).click();
+  await page.getByRole('button', { name: 'Close session tray', exact: true }).click();
+  await page.getByLabel('Message Mitzo', { exact: true }).fill(question);
+  await page.getByRole('button', { name: 'Send message', exact: true }).click();
+  await expect.poll(() => transport.sent.length).toBe(1);
+  transport.acknowledge();
+  const injected = page.getByRole('button', { name: /Context injected/ });
+  const panel = page.locator('.msg-context-injection');
+  await expect(injected).toHaveAttribute('aria-expanded', 'false');
+  expect(await panel.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(
+    true,
+  );
+  await injected.click();
+  const copy = page.getByRole('button', { name: `Copy injected ${name} context`, exact: true });
+  for (const theme of ['dark', 'light'] as const) {
+    await page.evaluate((theme) => {
+      document.documentElement.dataset.theme = theme;
+      document.documentElement.dataset.accent = theme === 'light' ? 'teal' : 'lavender';
+      document.documentElement.dataset.font = theme === 'light' ? 'georgia' : 'system';
+      document.documentElement.style.fontSize = theme === 'light' ? '20px' : '';
+    }, theme);
+    await expect(copy).toBeVisible();
+    expect(await panel.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(
+      true,
+    );
+    const panelBounds = (await panel.boundingBox())!;
+    const copyBounds = (await copy.boundingBox())!;
+    expect(copyBounds.x).toBeGreaterThanOrEqual(panelBounds.x);
+    expect(copyBounds.x + copyBounds.width).toBeLessThanOrEqual(panelBounds.x + panelBounds.width);
+    expect(copyBounds.width).toBeGreaterThanOrEqual(44);
+    expect(copyBounds.height).toBeGreaterThanOrEqual(44);
+    const heading = page.locator('.msg-context-injection-heading strong');
+    expect(
+      await heading.evaluate((element) => element.scrollWidth <= element.clientWidth + 1),
+    ).toBe(true);
+    await page.screenshot({
+      path: testInfo.outputPath(`context-long-name-${theme}.png`),
+      animations: 'disabled',
+    });
+  }
 });

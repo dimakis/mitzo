@@ -359,15 +359,35 @@
   line-height: 1;
 }
 .chat-input--compact .chat-input-btn--skills {
-  width: auto;
-  padding: 0 10px;
-  color: var(--text-dim);
+  position: relative;
+  width: var(--control-height);
+  min-width: var(--control-height);
+  height: var(--control-height);
+  padding: 0;
+  color: var(--color-muted);
   background: transparent;
   border: 0;
 }
-.chat-input--compact .chat-input-btn--skills > span {
-  font-size: 18px;
-  color: var(--accent);
+.chat-input--compact .chat-input-command-label {
+  display: none;
+  position: absolute;
+  bottom: calc(100% + var(--space-2));
+  left: 0;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  font-size: var(--text-sm);
+  font-weight: 400;
+  line-height: 1.5;
+  white-space: nowrap;
+  color: var(--color-text);
+  background: var(--color-surface);
+}
+.chat-input--compact .chat-input-btn--skills:is(:hover, :focus-visible) .chat-input-command-label {
+  display: block;
+}
+.chat-input--compact .chat-input-btn--skills[aria-expanded='true'] {
+  color: var(--color-accent);
 }
 .chat-input--compact .mic-btn {
   background: transparent;
@@ -1133,11 +1153,17 @@
     gap: 10px;
     border: 0;
   }
-  .composer-tools-label,
-  .workspace-chat .composer-tools .chat-input-command-label {
+  .composer-tools-label {
     display: inline;
-    font-size: 13px;
-    color: var(--text);
+    font-size: var(--text-sm);
+    color: var(--color-text);
+  }
+  .chat-input--compact .composer-tools[data-expanded='true'] .chat-input-command-label {
+    display: inline;
+    position: static;
+    padding: 0;
+    border: 0;
+    background: transparent;
   }
   .composer-workspace-details {
     position: static;

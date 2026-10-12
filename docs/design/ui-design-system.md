@@ -148,13 +148,22 @@ Inbox keeps a reading surface of at least three shared control heights on phones
 
 ## Chat activity disclosure
 
+Composer utilities use quiet shared icons, with their names available to assistive
+technology. Commands uses the shared list icon instead of a text slash; its
+hover/focus label uses semantic surface, type, spacing and radius tokens. Narrow
+composers retain visible labels in the More menu. Visible glyphs stay small while
+their unboxed targets retain `--control-height`; changing the control does not
+replace the draft or change command selection.
+
 User-message context uses `ContextInjectionDisclosure` beside the readable prompt.
 Selected names appear with the optimistic send; the recorded echo supplies the
 injected reference bodies without replacing the user's draft text. Complete legacy
-context envelopes are projected into the same disclosure during history recovery.
+context envelopes are projected into the same disclosure during history recovery;
+recognizable nested delimiter examples preserve the full original prompt.
 The content starts collapsed and stays collapsed as metadata arrives. Its toggle
 uses `UiIcon`, semantic colors, shared type/spacing/radius tokens, a
 `--control-height` target, `aria-expanded`, and `MotionPresence`. Source paths wrap;
+long reference headings wrap without displacing the touch-sized copy action;
 each reference has a separate copy action and a keyboard-scrollable plain-text
 body. The body cap of `min(40dvh, 24rem)` is structural viewport geometry that keeps
 large injections from expanding the whole chat. Editing, copying and read-aloud

@@ -4443,6 +4443,17 @@ textarea:focus {
   gap: var(--space-2);
 }
 
+.msg-context-injection-heading strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.msg-context-injection-heading .copy-btn {
+  flex-shrink: 0;
+  min-width: var(--control-height);
+  min-height: var(--control-height);
+}
+
 .msg-context-injection-path {
   color: var(--color-muted);
   font-size: var(--text-xs);

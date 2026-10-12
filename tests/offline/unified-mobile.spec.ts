@@ -351,6 +351,46 @@ test('motion: Reduce Motion disables navigation and control animations', async (
   expect(animations).toBe(0);
 });
 
+test('composer: commands use a quiet icon with discoverable labels', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto('/chat');
+  const commands = page.getByRole('button', { name: 'Commands', exact: true });
+  const draft = page.getByRole('textbox', { name: 'Message Mitzo', exact: true });
+  await draft.fill('Keep this draft while browsing commands');
+  await expect(commands).toBeVisible();
+  const bounds = (await commands.boundingBox())!;
+  expect(bounds.width).toBeLessThanOrEqual(bounds.height + 1);
+  await expect(commands.locator('[data-icon="list"]')).toBeVisible();
+  await expect(commands.locator('.chat-input-command-label')).toBeHidden();
+  await commands.focus();
+  await expect(commands.locator('.chat-input-command-label')).toBeVisible();
+  await commands.press('Enter');
+  await expect(draft).toHaveValue('Keep this draft while browsing commands');
+  await expect(draft).toBeFocused();
+  await draft.click();
+  await page.mouse.move(0, 0);
+  for (const theme of ['dark', 'light'] as const) {
+    await page.evaluate((theme) => {
+      document.documentElement.dataset.theme = theme;
+      document.documentElement.dataset.accent = theme === 'dark' ? 'coral' : 'teal';
+      document.documentElement.dataset.font = theme === 'dark' ? 'system' : 'georgia';
+    }, theme);
+    await page.locator('.chat-input--compact .chat-input-row').screenshot({
+      path: testInfo.outputPath(`composer-icons-${theme}.png`),
+      animations: 'disabled',
+    });
+  }
+  await page.setViewportSize({ width: 320, height: 740 });
+  await page.getByRole('button', { name: 'More composer actions', exact: true }).click();
+  await draft.fill('Keep this draft while browsing commands');
+  await expect(commands.locator('.chat-input-command-label')).toBeVisible();
+  // WebKit can report 43.99997px for a 44px control during menu motion.
+  expect(Math.round((await commands.boundingBox())!.height)).toBeGreaterThanOrEqual(44);
+  await commands.click();
+  await expect(draft).toHaveValue('Keep this draft while browsing commands');
+  await page.keyboard.press('Escape');
+});
+
 test('motion: a wide mobile composer keeps inline actions accessible', async ({
   page,
 }, testInfo) => {
