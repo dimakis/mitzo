@@ -771,9 +771,10 @@ On macOS, run Playwright commands in a normal terminal or through an approved
 execution outside the Codex Seatbelt sandbox. Sandboxed launches can abort during
 macOS process registration and produce repeated crash popups. Both test configs
 refuse that environment before starting a browser or preview server; `--list`
-still works for discovery. A startup preflight opens a blank page once per configured
-browser engine/launch configuration and stops the suite if startup fails, so a
-broken browser is not relaunched for every test. The offline suite starts no
+still works for discovery. Browser setup projects open a blank page once per selected
+engine/launch configuration. Playwright selects each setup as a dependency of its
+tests, so a Chromium-only run does not require WebKit. A failed startup blocks the
+dependent tests instead of relaunching a broken browser for each test. The offline suite starts no
 backend and makes no model calls. Ad hoc browser scripts need the same execution
 environment; they do not inherit the config guard.
 

@@ -12,7 +12,7 @@ vi.mock('@playwright/test', () => ({
 }));
 
 import { assertPlaywrightHost } from '../../tests/support/playwright-host';
-import { checkBrowserStartup } from '../../tests/support/playwright-global-setup';
+import { checkBrowserStartup } from '../../tests/support/playwright-browser-startup';
 
 describe('Playwright host admission', () => {
   it('refuses macOS Seatbelt before a browser can be launched', () => {
