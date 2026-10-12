@@ -53,7 +53,7 @@ The resource observations include macOS pressure level, memory-pressure reported
 free percentage, swap, free disk and aggregate staging/quarantine disk use.
 Missing/unknown observations refuse admission. Conservative defaults are normal
 pressure, 25% reported headroom, swap <=2 GiB, free disk >=20 GiB after proposed
-growth and aggregate stage/archive <=32 GiB. New preparation reserves the full
+growth and aggregate stage/archive <=48 GiB. New preparation reserves the full
 observed active release size rounded up to GiB plus a 2 GiB build margin, then
 rechecks actual use afterwards; this is admission accounting, not an
 OS-enforced filesystem quota. If the build exceeds its projection, additional
@@ -137,3 +137,5 @@ candidate before granting zero-growth reuse. An absent candidate reports the
 observed copy/build growth estimate without creating a release or audit record.
 Unknown observations or invalid retained candidates refuse the attempt. Reuse
 still requires current host admission and exact canonical deployment planning.
+
+The aggregate disk ceiling is 48 GiB so retained incident evidence is counted alongside the single replacement VM, rather than deleted or hidden. The measured 28.151802 GiB retained tree plus a conservative 16 GiB VM upper bound, two 1 GiB controllers and 1 GiB dependency/scratch allowance totals 47.151802 GiB. With 53.24353 GiB free before those allocations, projected free space remains above 34 GiB. These are admission projections; unknown additional scratch/provider artifacts must be measured and may refuse admission. The 20 GiB free-space floor and all memory/CPU/concurrency limits remain enforced.

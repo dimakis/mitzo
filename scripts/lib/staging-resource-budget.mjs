@@ -3,7 +3,7 @@ export const STAGING_RESOURCE_BUDGET = Object.freeze({
   memoryFreePercent: 25,
   swapUsedMiB: 2048,
   diskFreeGiB: 20,
-  stagingGiB: 32,
+  stagingGiB: 48,
   vmMemoryMiB: 4096,
   vmCpus: 2,
   buildHeapMiB: 2048,

@@ -158,7 +158,7 @@ it('holds admission under host pressure, disk shortage, oversized stage or unbou
     { pressureLevel: 2 },
     { swapUsedMiB: 3000 },
     { diskFreeGiB: 10 },
-    { stagingGiB: 40 },
+    { stagingGiB: 49 },
     { vmMemoryMiB: 8192 },
     { vmCpus: 8 },
     { pressureLevel: null },
@@ -241,4 +241,12 @@ it('reads pending and quarantined requests without inventing a result or changin
     result: null,
   });
   expect(s.status()).toEqual(before);
+});
+it('admits retained incident evidence plus a bounded replacement VM while preserving disk headroom', () => {
+  const retained = { ...resources, stagingGiB: 28.151802, diskFreeGiB: 53.24353 };
+  expect(assessStagingResources(retained, 19)).toEqual({ admitted: true, reasons: [] });
+  expect(assessStagingResources({ ...retained, diskFreeGiB: 38 }, 19).reasons).toContain(
+    'host-disk-headroom',
+  );
+  expect(assessStagingResources(retained, 21).reasons).toContain('staging-disk-budget');
 });
