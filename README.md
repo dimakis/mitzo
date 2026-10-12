@@ -25,13 +25,20 @@ Ordinary OpenShell Codex chats reserve their account-bound native ledger before 
 
 Accounts with multiple managed connections can provision new sandboxes without exceeding the gateway's 63-character label-value limit. Oversized provider-policy fingerprints use a stable bounded hash; valid historical labels and connection assignments are preserved. New runtimes prefer an assigned managed GitHub connection over the legacy GitHub fallback, avoiding duplicate `GITHUB_TOKEN` credentials. Retained runtimes keep their existing automatic grants; conflicting GitHub attachments require recovery before startup.
 
-## Outputs and ordinary contributors
+## Conversation activity
 
-Start in ordinary chat. After a useful reply finishes, **Keep as output** registers its exact text block with a stable output ID, revision and content hash. **In conversation** means the reference metadata is recorded; the text still depends on the original transcript's retention. Registration does not create a Telos item or independently save a copy of the draft.
+Mobile and desktop share **Agents at work**, a collapsible section for thoughts,
+tool calls and delegated subagents. It stays open while awaiting a reply and
+collapses after the assistant responds; reopen it to inspect the full details.
+The collapsed preview retains delegated-agent counts, running state and failures,
+including failures inside nested agents. Permission requests stay outside the
+section so they remain actionable.
 
-Select an output and **Add contributor** to choose an existing ordinary account/model, optional saved guidance and a session mode. This first slice supports one additional contributor per output using existing ChatGPT connections through the normal Codex chat engine with verified acceptance and terminal hooks. Unsupported and native-only account routes remain unavailable. Saved profiles with compiled context recipes are unavailable in this slice; use Default Mitzo or a profile without a recipe. The contributor receives the selected exact draft, keeps its own conversation history, and uses the ordinary workspace and permission controls. Attributed replies appear under the selected output; **Open conversation** exposes the child's permission prompts. Follow-ups resume that child, while **Stop** retains uncertain work until its exact turn is confirmed stopped. No separate Symposium sign-in or required profile is introduced by this flow.
-
-This is an implementation slice with offline fixture coverage. Canonical staging enrollment, live continuity/Stop acceptance and production activation remain separate.
+Ordinary conversations do not show an **Outputs** panel or **Keep as output**
+controls. Stored output references, contributor histories and their APIs remain
+available; removing the chat panel does not delete existing work. Independent
+outputs and ordinary contributors remain an implementation slice requiring
+separate canonical staging and live acceptance before activation.
 
 ## Repository-backed chats (opt-in)
 

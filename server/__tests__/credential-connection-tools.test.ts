@@ -101,7 +101,11 @@ it('forces exact conversation approval before granting, even in auto mode', asyn
   expect(approve).toHaveBeenCalledWith(
     'RequestConnectionAccess',
     { connectionId: 'ha', revision: 1 },
-    expect.objectContaining({ forcePrompt: true, approvalScope: 'conversation' }),
+    expect.objectContaining({
+      forcePrompt: true,
+      rememberSessionGrant: false,
+      approvalScope: 'conversation',
+    }),
   );
   expect(service.grant).toHaveBeenCalledWith('session-a', 'ha', 1);
 });

@@ -3,6 +3,7 @@ import { MotionPresence } from './MotionPresence';
 import { UiIcon } from './UiIcon';
 import { ToolSetupCards } from './ToolSetupCards';
 import { getToolStatus } from '../lib/tool-status';
+import type { ChatBlock } from '../lib/groupMessages';
 import type { ActivityRow } from '../lib/groupActivityRows';
 
 export function AgentActivity({
@@ -29,14 +30,37 @@ export function AgentActivity({
   const latest = [...rows].reverse().find((row) => row.block)!;
   const block = latest.block!;
   const tools = rows.flatMap((row) => (row.block?.blockType === 'tool_use' ? [row.block] : []));
-  const failed = tools.filter((tool) => tool.toolError).length;
-  const active = rows.some(
-    (row) =>
-      row.streaming &&
-      row.block &&
-      (('done' in row.block && !row.block.done) ||
-        (row.block.blockType === 'tool_use' && !getToolStatus(row.block).done)),
-  );
+  const delegated: NonNullable<ChatBlock['subagent']>[] = [];
+  const allTools: ChatBlock[] = [...tools];
+  const collectDelegates = (tool: ChatBlock) => {
+    if (!tool.subagent) return;
+    delegated.push(tool.subagent);
+    const blocks = Array.isArray(tool.subagent.blocks)
+      ? tool.subagent.blocks
+      : Array.from(tool.subagent.blocks.values());
+    for (const child of blocks) {
+      if (child.blockType === 'tool_use') {
+        allTools.push(child);
+        collectDelegates(child);
+      }
+    }
+  };
+  tools.forEach(collectDelegates);
+  const delegatedRunning = delegated.filter((agent) => 'running' in agent && agent.running).length;
+  const failed = allTools.filter((tool) => tool.toolError).length;
+  const active =
+    delegatedRunning > 0 ||
+    rows.some(
+      (row) =>
+        row.streaming &&
+        row.block &&
+        (('done' in row.block && !row.block.done) ||
+          (row.block.blockType === 'tool_use' && !getToolStatus(row.block).done)),
+    );
+  const label = 'Agents at work';
+  const delegateSummary = delegated.length
+    ? `${delegated.length} delegated${delegatedRunning ? ` · ${delegatedRunning} running` : ''}`
+    : '';
   const preview =
     block.blockType === 'tool_use'
       ? [block.toolName ?? 'Tool call', block.toolInput].filter(Boolean).join(' · ')
@@ -51,14 +75,17 @@ export function AgentActivity({
         type="button"
         className="agent-activity-header"
         ref={headerRef}
-        aria-label={`Agent at work: ${preview}${active ? ' · Running' : ''}${failed ? ` · ${failed} failed` : ''}`}
+        aria-label={`${label}: ${delegateSummary ? `${delegateSummary} · ` : ''}${preview}${active ? ' · Running' : ''}${failed ? ` · ${failed} failed` : ''}`}
         aria-expanded={expanded}
         aria-controls={detailsId}
         onClick={() => setChoice({ replied, expanded: !expanded })}
       >
         <UiIcon name={active ? 'running' : 'layers'} size={16} />
-        <span className="agent-activity-label">Agent at work</span>
-        <span className="agent-activity-preview">{preview}</span>
+        <span className="agent-activity-label">{label}</span>
+        <span className="agent-activity-preview">
+          {delegateSummary && `${delegateSummary} · `}
+          {preview}
+        </span>
         {failed > 0 && <span className="agent-activity-error">{failed} failed</span>}
         <UiIcon name={expanded ? 'down' : 'forward'} size={16} />
       </button>

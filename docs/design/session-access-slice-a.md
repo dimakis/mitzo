@@ -207,3 +207,16 @@ Luna selection, and naming the exact model and charged account before the call. 
 resource-aware source gate remains required; deployment/live acceptance is
 separate from implementation and reviewed source acceptance. Later retention/release slices
 remain gated.
+
+### Accepted parity integration
+
+Accepted main `ae8da69ec314f4759c13ed5ba3784b1a159119d0` includes PR879's
+web updates, effective session approvals and retained provider-environment
+continuation. The Codex observation route retains that implementation. Shared
+remembered approvals still describe the Mitzo host scope, with native policy and
+complete available-tool inventory unknown. Parity's Outputs tray removal remains
+accepted; historical References remain in the conversation. Only generated
+source fingerprints conflicted during integration; the combined runtime uses
+v1.0.70 instead of either branch's earlier revision. Fresh combined CI, rendered
+Access/Connections evidence and exact-head Centaur review are required before
+source acceptance. Deployment and live Luna acceptance remain separate.

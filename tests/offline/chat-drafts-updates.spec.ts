@@ -73,26 +73,65 @@ async function offline(page: Page) {
     }
     window.EventSource = OfflineEventSource as unknown as typeof EventSource;
     localStorage.setItem('mitzo:transport', 'ws');
+    const sources = new Set<EventSource>();
+    const NativeEventSource = window.EventSource;
+    window.EventSource = class extends NativeEventSource {
+      constructor(url: string | URL, options?: EventSourceInit) {
+        super(url, options);
+        sources.add(this);
+      }
+      close() {
+        sources.delete(this);
+        super.close();
+      }
+    };
+    window.addEventListener('pagehide', () => {
+      for (const source of sources) source.close();
+    });
     document.addEventListener('DOMContentLoaded', () => {
       document.documentElement.style.overflow = 'hidden';
       document.body.style.cssText = 'height:100dvh;overflow:hidden';
     });
   });
-  await page.routeWebSocket('**/*', (socket) => socket.close());
+  // Keep the synthetic transport healthy: immediately closing every socket
+  // drives authentication/reconnect requests while a document is being replaced.
+  await page.routeWebSocket('**/*', (socket) => {
+    socket.onMessage((raw) => {
+      const message = JSON.parse(String(raw));
+      if (message.type === 'hello')
+        socket.send(
+          JSON.stringify({
+            type: 'welcome',
+            protocolVersion: 2,
+            connectionId: 'offline-drafts',
+          }),
+        );
+    });
+  });
   await page.route('**/*', async (route) => {
     const url = new URL(route.request().url());
+    const fulfill = (options: Parameters<typeof route.fulfill>[0]) =>
+      route.fulfill({
+        ...options,
+        headers: {
+          ...options.headers,
+          'Cache-Control': 'no-store',
+          'Access-Control-Allow-Origin': url.origin,
+          'Access-Control-Allow-Credentials': 'true',
+        },
+      });
     if (url.hostname !== 'mitzo-ui.test') return route.abort();
     if (url.pathname.startsWith('/api/')) {
       if (url.pathname === '/api/version/check' && route.request().method() === 'POST') {
         mutations.push(url.pathname);
-        return route.fulfill({
+        return fulfill({
           status: checkFailed ? 503 : 200,
           json: checkFailed ? { error: 'Offline check failed' } : { updateAvailable: false },
         });
       }
       if (route.request().method() !== 'GET') {
         mutations.push(url.pathname);
-        return route.fulfill({
+        return fulfill({
           status: 405,
           json: { error: 'Offline fixture prohibits provider execution' },
         });
@@ -102,7 +141,7 @@ async function offline(page: Page) {
           await new Promise<void>((resolve) => {
             release = resolve;
           });
-        return route.fulfill({
+        return fulfill({
           status: state === 'error' ? 503 : 200,
           json:
             state === 'error'
@@ -115,7 +154,15 @@ async function offline(page: Page) {
         });
       }
       if (url.pathname.endsWith('/events'))
-        return route.fulfill({ contentType: 'text/event-stream', body: 'retry: 60000\n\n' });
+        return fulfill({
+          contentType: 'text/event-stream',
+          headers: {
+            'Cache-Control': 'no-store',
+            'Access-Control-Allow-Origin': url.origin,
+            'Access-Control-Allow-Credentials': 'true',
+          },
+          body: 'retry: 60000\n\n',
+        });
       const fixtures: Record<string, unknown> = {
         '/api/auth/check': { authenticated: true },
         '/api/config': {
@@ -151,7 +198,7 @@ async function offline(page: Page) {
         },
         '/api/git/info': { branch: 'main', repoPath: '/workspace', worktrees: [] },
       };
-      return route.fulfill({ json: fixtures[url.pathname] ?? {} });
+      return fulfill({ json: fixtures[url.pathname] ?? {} });
     }
     const root = resolve('frontend/dist');
     const path = resolve(
@@ -170,12 +217,12 @@ async function offline(page: Page) {
       '.woff2': 'font/woff2',
     };
     try {
-      return route.fulfill({
+      return fulfill({
         body: await readFile(path),
         contentType: mime[extname(path)] ?? 'application/octet-stream',
       });
     } catch {
-      return route.fulfill({ status: 404, body: 'Missing offline asset' });
+      return fulfill({ status: 404, body: 'Missing offline asset' });
     }
   });
   return {

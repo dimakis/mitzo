@@ -128,7 +128,9 @@ describe('sealed publication authority', () => {
       'selection changed',
     );
     expect(() => f.authority.revoke(g.id, 'other', 'session')).toThrow();
-    f.authority.revoke(g.id, 'operator', 'session');
+    expect(f.authority.revoke(g.id, 'operator', 'session')).toEqual({
+      connectionId: g.scope.connectionId,
+    });
     await expect(f.authority.require(g.id, g.bindingHash, f.signal)).rejects.toThrow(
       'grant unavailable',
     );

@@ -34,6 +34,54 @@ async function setup() {
   };
 }
 describe('notification API', () => {
+  it('keeps structured questions answer-only and denies untrusted session grants', async () => {
+    const s = await setup();
+    const resolver = vi.fn();
+    const permId = 'question-retain';
+    try {
+      registerPending(permId, 'AskUserQuestion', resolver, {}, 'unknown', 's1', {
+        permId,
+        toolName: 'AskUserQuestion',
+        toolInput: '{}',
+        sessionId: 's1',
+        questions: [
+          {
+            id: 'q',
+            question: 'Choose?',
+            header: 'Choice',
+            multiSelect: false,
+            options: [{ label: 'Yes', description: '' }],
+          },
+        ],
+      });
+      const path = `/api/notifications/permission:${permId}/respond`;
+      const body = { sessionId: 's1', decision: 'always', answers: { q: ['Yes'] } };
+      expect((await request(s.app).post(path).send(body)).status).toBe(401);
+      expect(
+        (await request(s.app).post(path).set('X-Internal-Token', INTERNAL_TOKEN).send(body)).status,
+      ).toBe(403);
+      expect(
+        (await request(s.app).post(path).set('Authorization', `Bearer ${s.token}`).send(body))
+          .status,
+      ).toBe(400);
+      expect(resolver).not.toHaveBeenCalled();
+      expect(
+        (
+          await request(s.app)
+            .post(path)
+            .set('Authorization', `Bearer ${s.token}`)
+            .send({ ...body, decision: 'once' })
+        ).status,
+      ).toBe(200);
+      expect(resolver).toHaveBeenCalledWith(
+        expect.objectContaining({ decisionClassification: 'user_temporary' }),
+      );
+    } finally {
+      removePending(permId);
+      s.close();
+    }
+  });
+
   it('requires login and rejects invalid preferences', async () => {
     const s = await setup();
     expect((await request(s.app).get('/api/notifications')).status).toBe(401);
@@ -69,16 +117,23 @@ describe('notification API', () => {
     expect(response.body.title).toBe('Older result');
     s.close();
   });
-  it.each(['search', 'fetch', 'shell'])(
-    'restricts session notification grants to search, not %s',
-    async (operation) => {
+  it.each([
+    { toolName: 'RequestWebAccess', operation: 'search' },
+    { toolName: 'RequestWebAccess', operation: 'fetch' },
+    { toolName: 'Bash', operation: 'shell' },
+    { toolName: 'Write', operation: 'write' },
+    { toolName: 'ExecuteProviderCapability', operation: 'capability' },
+    { toolName: 'mcp__telos__TelosSaveArtifact', operation: 'artifact' },
+  ])(
+    'accepts authenticated session retention for $toolName $operation approvals',
+    async ({ toolName, operation }) => {
       const s = await setup();
       const resolver = vi.fn();
       const permId = `session-${operation}`;
       const input = { operation, query: 'Pricing', reason: 'Research' };
-      registerPending(permId, 'RequestWebAccess', resolver, input, 'unknown', 's1', {
+      registerPending(permId, toolName, resolver, input, 'unknown', 's1', {
         permId,
-        toolName: 'RequestWebAccess',
+        toolName,
         toolInput: JSON.stringify(input),
         sessionId: 's1',
         approvalScope: operation === 'search' ? 'session' : 'request',
@@ -87,17 +142,15 @@ describe('notification API', () => {
         .post(`/api/notifications/permission:${permId}/respond`)
         .set('Authorization', `Bearer ${s.token}`)
         .send({ sessionId: 's1', decision: 'always' });
-      expect(response.status).toBe(operation === 'search' ? 200 : 400);
-      if (operation === 'search')
-        expect(resolver).toHaveBeenCalledWith(
-          expect.objectContaining({ decisionClassification: 'user_permanent' }),
-        );
-      else expect(resolver).not.toHaveBeenCalled();
+      expect(response.status).toBe(200);
+      expect(resolver).toHaveBeenCalledWith(
+        expect.objectContaining({ decisionClassification: 'user_permanent' }),
+      );
       removePending(permId);
       s.close();
     },
   );
-  it('requires session review for conversation-scoped grants', async () => {
+  it('permits session retention while durable conversation grants require session review', async () => {
     const s = await setup();
     const resolver = vi.fn();
     const permId = 'durable-grant';
@@ -114,6 +167,14 @@ describe('notification API', () => {
       .send({ sessionId: 's1', decision: 'once' });
     expect(response.status).toBe(400);
     expect(resolver).not.toHaveBeenCalled();
+    const sessionResponse = await request(s.app)
+      .post(`/api/notifications/permission:${permId}/respond`)
+      .set('Authorization', `Bearer ${s.token}`)
+      .send({ sessionId: 's1', decision: 'always' });
+    expect(sessionResponse.status).toBe(200);
+    expect(resolver).toHaveBeenCalledWith(
+      expect.objectContaining({ decisionClassification: 'user_permanent' }),
+    );
     removePending(permId);
     s.close();
   });
