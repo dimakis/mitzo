@@ -148,7 +148,7 @@ export function createFreshAppleHvPlan(input) {
   }
   fields(
     copy,
-    'version,allocationUUID,canonicalRoot,nativeRoot,sourceRoot,sourceCommit,sourceTree,sourceInventory,bootUUID,node,helpers,machine,files,oldIdentities,supervisor,budget',
+    'version,allocationUUID,canonicalRoot,nativeRoot,sourceRoot,sourceCommit,sourceTree,sourceInventory,bootUUID,node,helpers,machine,files,oldIdentities,supervisor,budget,resourcePolicy',
   );
   if (
     Buffer.byteLength(JSON.stringify(copy)) > 262144 ||
@@ -234,6 +234,18 @@ export function createFreshAppleHvPlan(input) {
     ].some((p) => !names.includes(p))
   )
     fail('supervisor source inventory');
+  fields(copy.resourcePolicy, 'path,sha256,aggregateGiBLimit,minFreeGiB');
+  if (
+    copy.resourcePolicy.path !== 'scripts/lib/staging-resource-budget.mjs' ||
+    !sha.test(copy.resourcePolicy.sha256) ||
+    !Number.isFinite(copy.resourcePolicy.aggregateGiBLimit) ||
+    copy.resourcePolicy.aggregateGiBLimit < 16 ||
+    copy.resourcePolicy.minFreeGiB !== 20 ||
+    !copy.sourceInventory.some(
+      (f) => f.path === copy.resourcePolicy.path && f.sha256 === copy.resourcePolicy.sha256,
+    )
+  )
+    fail('accepted source resource policy');
   fields(
     copy.supervisor,
     'plistPath,plistSha256,programArguments,workingDirectory,label,keepAlive,runAtLoad,initialRuns',
@@ -260,16 +272,21 @@ export function createFreshAppleHvPlan(input) {
     fail('canonical supervisor binding');
   fields(
     copy.budget,
-    'aggregateGiBLimit,minFreeGiB,stageGiB,quarantineGiB,inflightGiB,candidateAllocatedGiB,releaseGrowthGiB,diskFreeGiB',
+    'aggregateGiBLimit,minFreeGiB,stageGiB,quarantineGiB,inflightGiB,candidateAllocatedGiB,releaseGrowthGiB,scratchGrowthGiB,additionalGrowthGiB,diskFreeGiB',
   );
   if (
     Object.values(copy.budget).some((n) => !Number.isFinite(n) || n < 0) ||
-    copy.budget.aggregateGiBLimit !== 32 ||
-    copy.budget.minFreeGiB !== 20 ||
+    copy.budget.aggregateGiBLimit !== copy.resourcePolicy.aggregateGiBLimit ||
+    copy.budget.minFreeGiB !== copy.resourcePolicy.minFreeGiB ||
     copy.budget.candidateAllocatedGiB > 16
   )
     fail('reviewed resource policy');
-  const projectedGrowthGiB = 16 - copy.budget.candidateAllocatedGiB + copy.budget.releaseGrowthGiB;
+  const projectedGrowthGiB =
+    16 -
+    copy.budget.candidateAllocatedGiB +
+    copy.budget.releaseGrowthGiB +
+    copy.budget.scratchGrowthGiB +
+    copy.budget.additionalGrowthGiB;
   const projectedAggregateGiB =
     copy.budget.stageGiB + copy.budget.quarantineGiB + copy.budget.inflightGiB + projectedGrowthGiB;
   const remainingFreeGiB = copy.budget.diskFreeGiB - projectedGrowthGiB;
@@ -294,10 +311,7 @@ export function createFreshAppleHvPlan(input) {
     environment,
     guardSocket,
     apiSocket: '/private/tmp/podman/' + copy.machineName + '-api.sock',
-    policySha256: digest({
-      aggregateGiBLimit: copy.budget.aggregateGiBLimit,
-      minFreeGiB: copy.budget.minFreeGiB,
-    }),
+    policySha256: digest(copy.resourcePolicy),
     projectedGrowthGiB,
     projectedAggregateGiB,
     remainingFreeGiB,

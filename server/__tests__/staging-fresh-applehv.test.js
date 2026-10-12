@@ -95,6 +95,7 @@ export function freshVmInput() {
       'scripts/start-staging-allocation-vm.mjs',
       'scripts/lib/staging-fresh-applehv.mjs',
       'scripts/lib/staging-offline-containment-contract.mjs',
+      'scripts/lib/staging-resource-budget.mjs',
     ].map((path) => ({ path, sha256: 'f'.repeat(64) })),
     bootUUID: '77C8989D-6420-42B0-BDC5-ACA8A065D98F',
     node,
@@ -110,6 +111,12 @@ export function freshVmInput() {
       { dev: 1, ino: 21 },
       { dev: 1, ino: 22 },
     ],
+    resourcePolicy: {
+      path: 'scripts/lib/staging-resource-budget.mjs',
+      sha256: 'f'.repeat(64),
+      aggregateGiBLimit: 32,
+      minFreeGiB: 20,
+    },
     supervisor: {
       plistPath: join(nativeRoot, 'service/com.mitzo.staging.vm.plist'),
       plistSha256: '1'.repeat(64),
@@ -135,6 +142,8 @@ export function freshVmInput() {
       inflightGiB: 1,
       candidateAllocatedGiB: 0,
       releaseGrowthGiB: 2,
+      scratchGrowthGiB: 0,
+      additionalGrowthGiB: 0,
       diskFreeGiB: 50,
     },
   };
@@ -146,6 +155,20 @@ it('pins a bounded stock fresh allocation and freezes its complete reviewable di
   expect(approved.plan.projectedAggregateGiB).toBe(29);
   expect(Object.isFrozen(approved.plan.machine.definition)).toBe(true);
   expect(createFreshAppleHvPlan(freshVmInput()).sha256).toBe(approved.sha256);
+});
+it('binds a larger reviewed policy to accepted source bytes and all measured commitments', () => {
+  const input = freshVmInput();
+  input.resourcePolicy.aggregateGiBLimit = input.budget.aggregateGiBLimit = 48;
+  input.budget.stageGiB = 28.151802;
+  input.budget.quarantineGiB = input.budget.inflightGiB = 0;
+  input.budget.scratchGrowthGiB = 1;
+  input.budget.diskFreeGiB = 53.24353;
+  expect(createFreshAppleHvPlan(input).plan.projectedAggregateGiB).toBeCloseTo(47.151802);
+  input.budget.additionalGrowthGiB = 2;
+  expect(() => createFreshAppleHvPlan(input)).toThrow(/retention/);
+  input.budget.additionalGrowthGiB = 0;
+  input.resourcePolicy.sha256 = '0'.repeat(64);
+  expect(() => createFreshAppleHvPlan(input)).toThrow(/policy/);
 });
 it('full virtual disk capacity participates in admission; unknown pressure and disk retention never become cheap sparse growth', () => {
   const input = freshVmInput();
