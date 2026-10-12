@@ -106,6 +106,7 @@ export async function applyOfflineRecoveryProposal(
         plan,
         sourceRoot,
         assertAuthorityCurrent: current,
+        verifyExecutingSource: checkSource,
         inspectionOwner: physical,
         assertGuardContinuation(...args) {
           if (!ordinaryEffects) throw Error('Original ordinary continuation verifier unavailable');

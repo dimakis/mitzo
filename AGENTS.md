@@ -19,6 +19,18 @@ For any user-facing UI change, read [the UI design contract](docs/design/ui-desi
 
 For live Mitzo testing on the configured macOS host, reuse `http://mitzo-staging.localhost:3190` and `com.mitzo.staging`. Read [the operating procedure](docs/operations/canonical-staging.md) and run `~/.local/share/mitzo-staging/bin/mitzo-staging check` first. Do not create additional staging backends, custodians or background previews, borrow production configuration, or use production as a test fallback. Staging changes use the audited exact-commit plan/apply command; a lock or uncertain drain requires investigation, never forced restart or automatic rollback. Provider setup and retained diagnostic resources remain separate. Production deployment is a separate explicit user action.
 
+## Staging pipeline admission
+
+For accepted Mitzo changes, use [the staging pipeline](docs/operations/staging-pipeline.md):
+`node scripts/staging-pipeline.mjs enqueue --pr NUMBER --task SESSION_ID` after merge,
+then inspect its status. One designated controller runs `run-next` from clean exact
+accepted main; feature sessions do not independently replace the test baseline.
+The initial suite proves only HTTP readiness; feature/native/provider acceptance
+remains separate until those suites are enrolled. Check `host-resources` before
+local staging builds. Use one local test worker and a 1 GiB Node heap for focused
+regressions; leave broad builds/tests in CI while macOS reports memory pressure.
+Do not delete historical releases or uncertainty records to satisfy disk admission.
+
 ## Required merge gate
 
 Green CI is insufficient to merge. Require Centaur's final LGTM and `merge` recommendation for the exact current PR head, with zero new or unresolved blocking findings. Missing, stale, dismissed, `fix`, and `human_decision` reviews block merge. Pushing a fix does not verify it. If the automatic review limit is reached, request an explicit final Centaur review. Recheck after every push, and use `--match-head-commit` when merging. Never bypass the gate with an admin merge. MGMT provides `python -m mgmt_lib.pr_merge_gate OWNER/REPO NUMBER [--merge]` for this check.
