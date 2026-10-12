@@ -46,14 +46,55 @@ effects; native-command completion cannot erase a guarded receipt's session ID.
 Canonical workspace/ContexGin recipe pins are passed to their owning authority;
 native Codex packs retain their existing continuation-barrier refusal.
 
-Activation still requires an actual host/runtime/account authority, a workspace
-metadata reservation before filesystem materialization, and reviewed integration
+Activation still requires an actual host/runtime/account authority, adoption of
+the workspace reservation contract below, and reviewed integration
 with Codex's existing thread, queue, cancellation and recovery ownership. The
 current CLI-version/account observations and post-launch runtime policy checks
 do not satisfy that pre-effect authority. No endpoint, default verifier, host
 probe, runtime launch or picker behavior is added by this coordinator. OpenShell
 remains the approved default for the eventual picker; local selection must be
 explicit once qualified.
+
+## Host workspace reservation before checkout creation
+
+`RepositoryWorkspaces.reserveHostTask()` starts from an existing pinned, ready
+source preparation. It records the exact account binding, connection revision,
+source digest, base commit, feature branch, conversation and destination in the
+existing `repository_workspaces` row before creating task directories or copying
+files. A versioned host reservation marker pins the canonical task root and its
+device/inode identity. Its returned descriptor and `getHostReservation()` expose
+bounded server-owned metadata; they do not establish physical checkout readiness.
+
+The internal states distinguish resource intent from effects:
+
+| State      | Meaning                                                              | Retry behavior                                                                                       |
+| ---------- | -------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `reserved` | Exact task ownership saved; task copying has not begun               | Same-tuple retries recheck authorization, source and root; identical competing reservations converge |
+| `claiming` | Atomic effect claim saved before task directory creation or copy     | Preserve uncertainty and ownership; never replay materialization automatically                       |
+| `claimed`  | Copy, digest, task identity and final authorization checks completed | Validate the retained task; expected task edits are allowed and released source seeds are omitted    |
+
+`claimReservedHostTask()` rechecks the source, account/connection and pinned root,
+then changes `reserved` to `claiming` in an immediate SQLite transaction before
+filesystem effects. Exact-row comparisons prevent two stores from copying the
+same task. Failure, cancellation or revoked authorization after this transition
+retains `claiming`; a later caller cannot silently restart it. Completion also
+requires the exact owned row. Legacy acquisition, claim and discard transitions
+must preserve committed reservations rather than overwrite or remove their source.
+
+Existing startup lookup remains claimed-only, and legacy `claim()` cannot consume
+a new reservation. Public status conservatively projects internal `reserved` as
+the existing unsettled `claiming` state, without a conversation link or local
+paths. The existing picker therefore keeps sending and discard blocked; this
+increment adds no picker controls, endpoint or startup/admission caller.
+
+These checks use the existing GitHub authorization service. They do not confer
+provider authority or hold a native runtime/account revocation lease across
+filesystem operations. Route activation still requires the owning authority to
+coordinate this workspace ledger with the EventStore command receipt and its
+uncertainty boundary, qualify host/account ownership and integrate existing Codex
+queue, cancellation and recovery ownership. The two stores remain distinct;
+this contract does not claim a transaction across their databases. Orphaned or
+uncertain reservations require explicit owner recovery, not automatic cleanup.
 
 ## Separate account identity from execution choice
 
