@@ -76,6 +76,25 @@ afterEach(() => {
 });
 
 describe('trusted dormant local target snapshot', () => {
+  it('retains private immutable declarations for owning admission verification', () => {
+    const input = structuredClone(targetConfig);
+    const target = new OrdinaryLocalCodexTarget(input);
+    const declaration = target.admissionDeclaration();
+    expect(declaration).toEqual({
+      targetId: targetConfig.targetId,
+      targetRevision: target.descriptor().targetRevision,
+      location: 'local',
+      harness: 'codex',
+      hostId: targetConfig.hostId,
+      runtimeContractRevision: targetConfig.runtimeContractRevision,
+    });
+    input.hostId = 'mutated-input';
+    declaration.hostId = 'mutated-copy';
+    expect(target.admissionDeclaration().hostId).toBe(targetConfig.hostId);
+    expect(JSON.stringify(target.descriptor())).not.toContain(targetConfig.hostId);
+    expect(JSON.stringify(target)).not.toContain(targetConfig.runtimeContractRevision);
+  });
+
   it('generates a routing digest without exposing host/runtime configuration', () => {
     const t = new OrdinaryLocalCodexTarget(targetConfig);
     expect(t.descriptor()).toEqual({
