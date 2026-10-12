@@ -757,8 +757,10 @@ export async function inspectFreshAppleHvInputs(approved, { running = false } = 
     fail('current conservative host resources');
   return { current, disk, efi, aggregateGiB: aggregate, growthGiB: growth };
 }
-function openFileBindings(pid) {
-  const rows = command('/usr/sbin/lsof', ['-nP', '-a', '-p', String(pid), '-FpfDin']).split('\n');
+export function parseFreshAppleHvOpenFiles(text, pid) {
+  const rows = text.trim().split('\n');
+  if (rows.shift() !== 'p' + pid || rows.some((row) => row.startsWith('p')))
+    fail('exact lsof original process');
   const files = [];
   let entry;
   for (const row of rows) {
@@ -768,6 +770,46 @@ function openFileBindings(pid) {
     } else if (entry && ['D', 'i', 'n'].includes(row[0])) entry[row[0]] = row.slice(1);
   }
   return files;
+}
+function openFileBindings(pid) {
+  return parseFreshAppleHvOpenFiles(
+    command('/usr/sbin/lsof', ['-nP', '-a', '-p', String(pid), '-FpfDin']),
+    pid,
+  );
+}
+export function validateFreshAppleHvNativeArguments(p, cmd, kind) {
+  const args = cmd.split(' '),
+    helper = p.helpers.find((h) => h.kind === kind);
+  if (!helper || args.shift() !== helper.path) fail('stock native executable arguments');
+  if (kind === 'gvproxy') {
+    if (!cmd.includes(p.qualification.machineName)) fail('fresh networking socket');
+    return;
+  }
+  const values = (name) => args.flatMap((arg, i) => (arg === name ? [args[i + 1]] : []));
+  const devices = values('--device'),
+    block = devices.filter((d) => d?.startsWith('virtio-blk,')),
+    mounts = devices.filter((d) => d?.startsWith('virtio-fs,'));
+  const parameter = (device, key) =>
+    device
+      ?.split(',')
+      .find((part) => part.startsWith(key + '='))
+      ?.slice(key.length + 1);
+  if (
+    JSON.stringify(values('--cpus')) !== JSON.stringify(['2']) ||
+    JSON.stringify(values('--memory')) !== JSON.stringify(['4096']) ||
+    block.length !== 1 ||
+    parameter(block[0], 'path') !== p.files.disk.path ||
+    mounts.length !== 1 ||
+    parameter(mounts[0], 'sharedDir') !== p.canonicalRoot ||
+    parameter(mounts[0], 'mountTag') !== p.machine.definition.Mounts[0].Tag ||
+    values('--bootloader').length !== 1 ||
+    parameter(values('--bootloader')[0], 'variable-store') !== p.files.efi.path ||
+    JSON.stringify(values('--restful-uri')) !==
+      JSON.stringify([
+        'tcp://localhost:' + p.machine.definition.AppleHypervisor.Vfkit.Endpoint.split(':').at(-1),
+      ])
+  )
+    fail('actual exact stock vfkit devices');
 }
 function assertOpenIdentity(pid, file) {
   if (
@@ -789,18 +831,7 @@ function assertNativeProcess(p, record, kind) {
     !current.command.startsWith(helper.path + ' ')
   )
     fail('original native process lineage');
-  if (
-    kind === 'vfkit' &&
-    (!current.command.includes('virtio-blk,path=' + p.files.disk.path) ||
-      !current.command.includes('variable-store=' + p.files.efi.path) ||
-      !current.command.includes('sharedDir=' + p.canonicalRoot) ||
-      !current.command.includes(
-        'tcp://localhost:' + p.machine.definition.AppleHypervisor.Vfkit.Endpoint.split(':').at(-1),
-      ))
-  )
-    fail('actual stock vfkit devices');
-  if (kind === 'gvproxy' && !current.command.includes(p.qualification.machineName))
-    fail('actual fresh networking socket');
+  validateFreshAppleHvNativeArguments(p, current.command, kind);
 }
 function freshAppleHvPhysicalEffects(approved) {
   const p = approved.plan;
@@ -887,6 +918,9 @@ function freshAppleHvPhysicalEffects(approved) {
     );
     if (!uuid.test(guestBoot) || guestBoot !== lineage.guestBootUUID)
       fail('original guest boot identity');
+    assertSupervisor(p, lineage.supervisor, 1);
+    assertNativeProcess(p, lineage.vfkit, 'vfkit');
+    assertNativeProcess(p, lineage.gvproxy, 'gvproxy');
     return {
       state: 'verified_running',
       planSha256: approved.sha256,

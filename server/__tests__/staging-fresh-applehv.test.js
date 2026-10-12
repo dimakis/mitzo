@@ -5,6 +5,8 @@ import {
   createFreshAppleHvPlan,
   createFreshAppleHvOwner,
   validateFreshAppleHvMutableMachine,
+  parseFreshAppleHvOpenFiles,
+  validateFreshAppleHvNativeArguments,
 } from '../../scripts/lib/staging-fresh-applehv.mjs';
 
 import { freshVmInput } from './fixtures/staging-fresh-applehv-plan.js';
@@ -99,6 +101,43 @@ it('mutable LastUp is accepted only within the actual original start interval an
   expect(() =>
     validateFreshAppleHvMutableMachine(plan, current, { startedAt, observedAt }),
   ).toThrow();
+});
+it('open-backing observations bind the exact lsof process and device/inode records', () => {
+  expect(parseFreshAppleHvOpenFiles('p43\nf10\nD0x1\ni99\nn/new.raw\n', 43)).toEqual([
+    { D: '0x1', i: '99', n: '/new.raw' },
+  ]);
+  for (const text of [
+    'p44\nf10\nD0x1\ni99\nn/new.raw\n',
+    'p43\nf10\np99\nn/new.raw\n',
+    'not an observation',
+  ])
+    expect(() => parseFreshAppleHvOpenFiles(text, 43)).toThrow();
+});
+it('actual vfkit command proves one exact raw disk and mount, not a matching path prefix', () => {
+  const plan = createFreshAppleHvPlan(freshVmInput()).plan,
+    machine = plan.machine.definition;
+  const command = [
+    plan.helpers[1].path,
+    '--cpus',
+    '2',
+    '--memory',
+    '4096',
+    '--bootloader',
+    'efi,variable-store=' + plan.files.efi.path + ',create',
+    '--device',
+    'virtio-blk,path=' + plan.files.disk.path,
+    '--device',
+    'virtio-fs,sharedDir=' + plan.canonicalRoot + ',mountTag=' + machine.Mounts[0].Tag,
+    '--restful-uri',
+    'tcp://localhost:62502',
+  ].join(' ');
+  expect(() => validateFreshAppleHvNativeArguments(plan, command, 'vfkit')).not.toThrow();
+  for (const changed of [
+    command.replace('sharedDir=/stage,', 'sharedDir=/stage-quarantine,'),
+    command + ' --device virtio-blk,path=/old.raw',
+    command.replace('--cpus 2', '--cpus 8'),
+  ])
+    expect(() => validateFreshAppleHvNativeArguments(plan, changed, 'vfkit')).toThrow();
 });
 function ownerFixture() {
   const approvedVmPlan = createFreshAppleHvPlan(freshVmInput()),
