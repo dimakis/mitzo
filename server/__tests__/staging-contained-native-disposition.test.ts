@@ -3,7 +3,7 @@ import { mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
 const testHome = vi.hoisted(() => `/private/tmp/mitzo-disposition-tests-${process.pid}`);
-vi.mock('node:os', () => ({ homedir: () => testHome }));
+vi.mock('node:os', () => ({ homedir: () => testHome, userInfo: () => ({ homedir: testHome }) }));
 import {
   createContainedNativeDispositionPlan,
   createContainedNativeDispositionOwner,
@@ -41,7 +41,7 @@ function fixture() {
     purpose: 'canonical native replica',
     retentionReason: 'bounded acceptance',
     reviewAfter: Date.now() + 86400_000,
-    planDirectory: join(root, 'symposium/service/allocations', allocation),
+    planDirectory: join(root, 'symposium/allocations', allocation, 'service'),
     sourceCommit: 'b'.repeat(40),
     buildSha256: hash,
     configSha256: hash,

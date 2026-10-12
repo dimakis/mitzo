@@ -1,9 +1,12 @@
 import { createHash } from 'node:crypto';
-import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { z } from 'zod';
 import type { StagingRecord, StagingRegistration } from './symposium-staging-registry.js';
+import {
+  canonicalNativeAllocationPaths,
+  canonicalStagingRoot,
+} from './symposium-staging-identity.js';
 
 /** This recognizes one incident; another owner, source, boot or runtime requires a
  * separately reviewed protocol. This is not original-owner retirement authority. */
@@ -16,7 +19,7 @@ export const CONTAINED_NATIVE_INCIDENT = Object.freeze({
   configSha256: '81dc11b4e9d22e373c04a3d2a9af6201cd0619a38a699a16775973cc015b8151',
   createdAt: 1791596391790,
 });
-const canonicalRoot = join(homedir(), '.local/share/mitzo-staging');
+const canonicalRoot = canonicalStagingRoot();
 const sha = z.string().regex(/^[a-f0-9]{64}$/);
 const commit = z.string().regex(/^[a-f0-9]{40}$/);
 const uuid = z.string().regex(/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/);
@@ -92,7 +95,7 @@ export function createContainedNativeDispositionPlan(input: unknown) {
     facts.original.planDirectory !== join(canonicalRoot, 'symposium/service') ||
     facts.archiveRoot !== canonicalRoot + '-quarantine/' + facts.operation ||
     facts.registration.planDirectory !==
-      join(canonicalRoot, 'symposium/service/allocations', facts.allocation) ||
+      canonicalNativeAllocationPaths(canonicalRoot, facts.allocation).planDirectory ||
     facts.operation === facts.allocation ||
     facts.registration.sourceCommit === facts.original.sourceCommit
   )

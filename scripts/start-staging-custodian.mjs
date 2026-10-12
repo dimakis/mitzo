@@ -22,11 +22,14 @@ import {
 import { launchStagingCustodian, StagingLaunchSchema } from '../dist/symposium-staging-launch.js';
 import { createCanonicalOwnerRecorder } from '../dist/symposium-canonical-owner-record.js';
 import { runSymposiumCustodian } from '../dist/symposium-custodian-main.js';
+import { requiresContainedNativeAllocation } from '../dist/symposium-staging-identity.js';
 try {
   const canonical = process.argv.length === 6 && process.argv[5] === '--canonical';
   if ((!canonical && ![4, 5].includes(process.argv.length)) || process.send) throw Error();
   const releaseRoot = dirname(dirname(fileURLToPath(import.meta.url)));
   const plan = readOwnedReleasePlan(resolve(process.argv[2]));
+  if (requiresContainedNativeAllocation(plan))
+    throw Error('Fresh contained-native allocation requires its guarded operator launcher');
   if (
     plan.releaseRoot !== releaseRoot ||
     resolve(process.argv[2]) !== join(plan.planDirectory, 'owned-release.json') ||

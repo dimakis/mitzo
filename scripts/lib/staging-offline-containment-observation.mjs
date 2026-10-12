@@ -1115,6 +1115,63 @@ export async function assertOfflineContainmentContained(plan, intent, deps = {})
   await (deps.inspect ?? inspectPhysicalBoundary)(plan, ['app', 'vm_supervisor'], true);
 }
 
+/** Independent old-archive inspection for a NEW reviewed operator protocol.
+ * Current canonical registration/native ownership must be checked independently
+ * by that protocol. This reads the complete old closure; it grants no admission,
+ * retirement, capacity, guard ownership or permission to revive archived state. */
+export async function assertArchivedOfflineContainmentPhysicalClosure(plan) {
+  assertBoundProposal(plan);
+  const facts = plan.facts,
+    unit = facts.units[0];
+  const { bytes, hash } = await import('./staging-cold-audit.mjs');
+  if (successful('/usr/sbin/sysctl', ['-n', 'kern.bootsessionuuid']) !== facts.currentBoot.id)
+    throw Error('Archived containment boot changed; separately reviewed reconciliation required');
+  for (const control of facts.controls) {
+    const stat = lstatSync(control.archivePath);
+    if (
+      !stat.isFile() ||
+      stat.isSymbolicLink() ||
+      stat.nlink !== 1 ||
+      stat.uid !== control.uid ||
+      (stat.mode & 0o777) !== control.mode ||
+      realpathSync(control.archivePath) !== control.archivePath ||
+      hash(bytes(control.archivePath)) !== control.sha256
+    )
+      throw Error('Archived original control changed');
+  }
+  for (const pin of facts.nativeHelpers)
+    if (realpathSync(pin.path) !== pin.path || hash(bytes(pin.path)) !== pin.sha256)
+      throw Error('Archived route native helper changed');
+  const opaque = unit.archivePath;
+  if (lstatSync(join(opaque, 'state/gateway/custodian-retirement.json'), { throwIfNoEntry: false }))
+    throw Error('Original native retirement evidence requires separate reconciliation');
+  assertOpaqueContainmentManifest(inspectOpaqueContainmentTree(opaque), unit);
+  assertScopedNoOpenHandles(
+    command('/usr/sbin/lsof', scopedLsofArguments([opaque], true), undefined, true),
+  );
+  assertScopedNoOpenHandles(
+    command(
+      '/usr/sbin/lsof',
+      scopedLsofArguments(facts.controls.map((c) => c.archivePath)),
+      undefined,
+      true,
+    ),
+  );
+  assertNoScopedMountAliases(successful('/sbin/mount', []), [opaque, dirname(facts.archiveRoot)]);
+  const machineFile = join(
+    opaque,
+    'home/.config/containers/podman/machine/applehv/mitzo-symposium-staging.json',
+  );
+  assertPublicVmMetadataPath(machineFile, opaque);
+  if (hash(bytes(machineFile)) !== OFFLINE_CONTAINMENT_NATIVE_TARGET.machineSha256)
+    throw Error('Archived original machine definition changed');
+  const definition = JSON.parse(bytes(machineFile));
+  validateAppleHvContainmentMachine(definition, facts.canonicalRoot);
+  await observeStoppedAppleHvEndpoint(definition.AppleHypervisor.Vfkit.Endpoint);
+  // Full bytes again after asynchronous endpoint inspection, never timestamps.
+  assertOpaqueContainmentManifest(inspectOpaqueContainmentTree(opaque), unit);
+}
+
 function assertOrdinaryReplacementProof(proof) {
   exactKeys(proof, [
     'phase',
