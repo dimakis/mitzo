@@ -23,6 +23,7 @@ function fixture() {
   fixtures.push({ root, stores });
   return {
     stores,
+    path,
     advance: () => {
       now += 700000;
     },
@@ -34,6 +35,61 @@ const request = (id = 'one') => ({
   pr: 123,
   acceptedCommit: 'a'.repeat(40),
   suite: 'http-readiness',
+});
+const featureRequest = (id = 'feature') => ({
+  ...request(id),
+  version: 2,
+  suite: 'profile-tools-v1',
+  profileId: 'personal-stage',
+  enrollmentRevision: 'e'.repeat(64),
+});
+it('queues versioned profile features in the same singleton without account or model overrides', () => {
+  const {
+    stores: [s, t],
+  } = fixture();
+  s.enqueue(featureRequest());
+  t.enqueue(request());
+  const claim = s.claim('worker');
+  expect(claim.request).toEqual(featureRequest());
+  expect(t.claim('another')).toMatchObject({ granted: false, reason: 'staging-busy' });
+  for (const change of [
+    { model: 'gpt-6.1-sol' },
+    { account: 'production' },
+    { command: 'anything' },
+    { version: 1 },
+    { enrollmentRevision: 'unknown' },
+    { profileId: '../other' },
+  ])
+    expect(() => s.enqueue({ ...featureRequest('bad'), ...change })).toThrow();
+});
+it('feature summaries preserve owner evidence references and refuse bare passing declarations', () => {
+  const {
+    stores: [s],
+  } = fixture();
+  s.enqueue(featureRequest());
+  const claim = s.claim('worker');
+  s.bindBaseline(claim.token, 'a'.repeat(40));
+  s.bindFeaturePlan(claim.token, 'f'.repeat(64), 'owner');
+  s.markDispatched(claim.token);
+  const result = { outcome: 'passed', sourceCommit: 'a'.repeat(40), cleanupConfirmed: true };
+  expect(() => s.finish(claim.token, result)).toThrow(/owner/);
+  const featureReceipt = {
+    version: 1,
+    profileId: 'personal-stage',
+    enrollmentRevision: 'e'.repeat(64),
+    planSha256: 'f'.repeat(64),
+    ownerInstance: 'owner',
+    runId: 'run',
+    ownerReceiptSha256: 'd'.repeat(64),
+  };
+  s.finish(claim.token, { ...result, featureReceipt });
+  expect(s.receipt('feature')).toMatchObject({
+    version: 1,
+    suite: 'profile-tools-v1',
+    profileId: 'personal-stage',
+    enrollmentRevision: 'e'.repeat(64),
+    result: { featureReceipt, liveFeatureValidation: 'requires-owner-verification' },
+  });
 });
 it('deduplicates identical requests but refuses a changed request identity', () => {
   const {
@@ -280,4 +336,54 @@ it('admits retained incident evidence plus a bounded replacement VM while preser
     'host-disk-headroom',
   );
   expect(assessStagingResources(retained, 21).reasons).toContain('staging-disk-budget');
+});
+
+it('a safely deferred profile cannot starve the other ten sessions', () => {
+  const { stores } = fixture();
+  stores[0].enqueue(featureRequest('pending-profile'));
+  for (let i = 1; i < 11; i++) stores[i].enqueue(request('ready-' + i));
+  const first = stores[0].claim('controller');
+  stores[0].defer(first.token, 'stage-unavailable');
+  const seen = [];
+  for (let i = 1; i < 11; i++) {
+    const claim = stores[i].claim('controller-' + i);
+    seen.push(claim.request.id);
+    stores[i].defer(claim.token, 'host-resources');
+  }
+  expect(seen).toEqual(Array.from({ length: 10 }, (_, i) => 'ready-' + (i + 1)));
+  expect(stores[0].claim('controller').request.id).toBe('pending-profile');
+});
+
+it('exact planned work remains under the same idle/source/quarantine admission', () => {
+  const {
+    stores: [s, t],
+  } = fixture();
+  s.enqueue(featureRequest('pending-profile'));
+  s.enqueue(request('selected-ready'));
+  const selected = s.claim('controller', { requestId: 'selected-ready' });
+  expect(selected.request.id).toBe('selected-ready');
+  expect(t.claim('other', { requestId: 'pending-profile' })).toMatchObject({
+    granted: false,
+    reason: 'staging-busy',
+  });
+  s.markDispatched(selected.token);
+  s.quarantine(selected.token, 'test-cleanup-uncertain');
+  expect(t.claim('other', { requestId: 'pending-profile' })).toMatchObject({
+    granted: false,
+    reason: 'environment-quarantined',
+  });
+});
+
+it('preserves queued legacy requests when reopening under fair scheduling', () => {
+  const { stores, path } = fixture();
+  const s = stores[0];
+  s.enqueue(request('legacy-one'));
+  s.enqueue(request('legacy-two'));
+  s.db.exec('ALTER TABLE requests DROP COLUMN last_attempt');
+  const reopened = new StagingPipelineStore(path);
+  stores.push(reopened);
+  const first = reopened.claim('new-controller');
+  expect(first.request.id).toBe('legacy-one');
+  reopened.defer(first.token, 'host-resources');
+  expect(reopened.claim('new-controller').request.id).toBe('legacy-two');
 });

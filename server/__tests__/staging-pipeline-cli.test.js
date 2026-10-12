@@ -16,6 +16,8 @@ import {
   enqueueMergedStagingRequest,
   checkStagingReplicaSnapshots,
   readStagingPipelineReceipt,
+  enqueueMergedFeatureRequest,
+  readStagingFeaturePlan,
 } from '../../scripts/staging-pipeline.mjs';
 it('accepts only bounded pipeline operations and rejects source, model and command overrides', () => {
   expect(parseStagingPipelineArguments(['enqueue', '--pr', '123', '--task', 'session-1'])).toEqual({
@@ -31,6 +33,108 @@ it('accepts only bounded pipeline operations and rejects source, model and comma
     ['run-next', '--root', '/production'],
   ])
     expect(() => parseStagingPipelineArguments(args)).toThrow();
+});
+it('feature CLI accepts only a reviewed profile selection and exact plan digest', () => {
+  expect(
+    parseStagingPipelineArguments([
+      'enqueue-feature',
+      '--pr',
+      '123',
+      '--task',
+      'session',
+      '--profile',
+      'stage-profile',
+    ]),
+  ).toEqual({ command: 'enqueue-feature', pr: 123, taskId: 'session', profileId: 'stage-profile' });
+  expect(parseStagingPipelineArguments(['feature-plan', '--id', 'selected'])).toEqual({
+    command: 'feature-plan',
+    id: 'selected',
+  });
+  expect(parseStagingPipelineArguments(['run-next', '--feature-plan', 'f'.repeat(64)])).toEqual({
+    command: 'run-next',
+    featurePlanSha256: 'f'.repeat(64),
+  });
+  for (const args of [
+    ['enqueue-feature', '--pr', '123', '--task', 's', '--model', 'gpt-6.1-sol'],
+    ['enqueue-feature', '--pr', '123', '--task', 's', '--account', 'production'],
+    ['run-next', '--feature-plan', 'true'],
+  ])
+    expect(() => parseStagingPipelineArguments(args)).toThrow();
+});
+it('feature enqueue obtains the fresh enrollment revision from the authenticated stage', async () => {
+  const store = { enqueue: vi.fn() },
+    run = vi.fn(() => JSON.stringify({ state: 'MERGED', mergeCommit: { oid: 'a'.repeat(40) } }));
+  const effects = {
+    lookupEnrollment: vi.fn(async () => ({
+      profileId: 'stage-profile',
+      enrollmentRevision: 'e'.repeat(64),
+    })),
+  };
+  const options = { pr: 123, taskId: 'session', profileId: 'stage-profile' };
+  const result = await enqueueMergedFeatureRequest(store, options, effects, run);
+  expect(store.enqueue).toHaveBeenCalledWith(
+    expect.objectContaining({
+      version: 2,
+      suite: 'profile-tools-v1',
+      acceptedCommit: 'a'.repeat(40),
+      profileId: 'stage-profile',
+      enrollmentRevision: 'e'.repeat(64),
+    }),
+  );
+  expect((await enqueueMergedFeatureRequest(store, options, effects, run)).requestId).toBe(
+    result.requestId,
+  );
+  effects.lookupEnrollment.mockResolvedValue({
+    profileId: 'other',
+    enrollmentRevision: 'e'.repeat(64),
+  });
+  await expect(enqueueMergedFeatureRequest(store, options, effects, run)).rejects.toThrow();
+});
+it('read-only feature planning retains the queued reservation and reports the actual selected source', async () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'feature-plan-'))),
+    database = join(root, 'queue.db');
+  try {
+    const store = new StagingPipelineStore(database);
+    store.enqueue({
+      version: 2,
+      id: 'feature',
+      pr: 1,
+      taskId: 'session',
+      acceptedCommit: 'a'.repeat(40),
+      suite: 'profile-tools-v1',
+      profileId: 'stage-profile',
+      enrollmentRevision: 'e'.repeat(64),
+    });
+    store.close();
+    const bytes = readFileSync(database),
+      source = 'b'.repeat(40),
+      effects = {
+        check: vi.fn(async () => ({ safe: true, expected: source })),
+        baseline: vi.fn(async () => source),
+        featurePlan: vi.fn(async () => ({
+          publicPlan: {
+            sourceCommit: source,
+            chargedAccount: 'stage-account',
+            selectedModel: 'gpt-6.1-luna',
+          },
+          planSha256: 'f'.repeat(64),
+        })),
+      };
+    expect(await readStagingFeaturePlan(database, 'feature', effects)).toMatchObject({
+      requestId: 'feature',
+      state: 'queued',
+      featurePlanSha256: 'f'.repeat(64),
+      featurePlan: {
+        sourceCommit: source,
+        chargedAccount: 'stage-account',
+        selectedModel: 'gpt-6.1-luna',
+      },
+    });
+    expect(readFileSync(database)).toEqual(bytes);
+    await expect(readStagingFeaturePlan(database, 'missing', effects)).rejects.toThrow();
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 it('accepts only an exact receipt request identifier', () => {
   expect(parseStagingPipelineArguments(['receipt', '--id', 'selected'])).toEqual({
@@ -123,4 +227,26 @@ it('replica CLI reads bounded public snapshots and flags all missing profiles', 
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+it('selects only an existing bounded request with an optional exact feature plan', () => {
+  expect(parseStagingPipelineArguments(['run-next', '--id', 'selected'])).toEqual({
+    command: 'run-next',
+    requestId: 'selected',
+  });
+  expect(
+    parseStagingPipelineArguments([
+      'run-next',
+      '--id',
+      'selected',
+      '--feature-plan',
+      'f'.repeat(64),
+    ]),
+  ).toEqual({ command: 'run-next', requestId: 'selected', featurePlanSha256: 'f'.repeat(64) });
+  for (const args of [
+    ['run-next', '--id', '../outside'],
+    ['run-next', '--id', 'selected', '--id', 'other'],
+    ['run-next', '--id', 'selected', '--feature-plan', 'invalid'],
+  ])
+    expect(() => parseStagingPipelineArguments(args)).toThrow();
 });

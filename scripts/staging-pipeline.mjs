@@ -68,24 +68,120 @@ export function parseStagingPipelineArguments(args) {
   )
     return { command, reference: rest[1], stage: rest[3] };
   if (
-    ['cancel', 'receipt'].includes(command) &&
+    ['cancel', 'receipt', 'feature-plan'].includes(command) &&
     rest.length === 2 &&
     rest[0] === '--id' &&
     identifier.test(rest[1])
   )
     return { command, id: rest[1] };
-  if (command === 'enqueue' && rest.length === 4) {
+  if (
+    command === 'run-next' &&
+    rest.length === 2 &&
+    rest[0] === '--feature-plan' &&
+    /^[a-f0-9]{64}$/.test(rest[1])
+  )
+    return { command, featurePlanSha256: rest[1] };
+  if (
+    command === 'run-next' &&
+    rest[0] === '--id' &&
+    identifier.test(rest[1]) &&
+    (rest.length === 2 ||
+      (rest.length === 4 && rest[2] === '--feature-plan' && /^[a-f0-9]{64}$/.test(rest[3])))
+  )
+    return {
+      command,
+      requestId: rest[1],
+      ...(rest.length === 4 ? { featurePlanSha256: rest[3] } : {}),
+    };
+  const feature = command === 'enqueue-feature';
+  if ((command === 'enqueue' && rest.length === 4) || (feature && rest.length === 6)) {
     const flags = {};
     for (let i = 0; i < rest.length; i += 2) {
-      if (!['--pr', '--task'].includes(rest[i]) || flags[rest[i]])
+      if (
+        !(feature ? ['--pr', '--task', '--profile'] : ['--pr', '--task']).includes(rest[i]) ||
+        flags[rest[i]]
+      )
         throw Error('Unsupported staging arguments');
       flags[rest[i]] = rest[i + 1];
     }
     const pr = Number(flags['--pr']);
-    if (Number.isSafeInteger(pr) && pr > 0 && identifier.test(flags['--task']))
-      return { command, pr, taskId: flags['--task'] };
+    if (
+      Number.isSafeInteger(pr) &&
+      pr > 0 &&
+      identifier.test(flags['--task']) &&
+      (!feature || identifier.test(flags['--profile']))
+    )
+      return {
+        command,
+        pr,
+        taskId: flags['--task'],
+        ...(feature ? { profileId: flags['--profile'] } : {}),
+      };
   }
   throw Error('Unsupported staging arguments');
+}
+export async function enqueueMergedFeatureRequest(
+  store,
+  { pr, taskId, profileId },
+  effects,
+  run = runStagingHostCommand,
+) {
+  const info = JSON.parse(
+    run('gh', ['pr', 'view', String(pr), '--repo', 'dimakis/mitzo', '--json', 'state,mergeCommit']),
+  );
+  const acceptedCommit = info.mergeCommit?.oid;
+  if (info.state !== 'MERGED' || !/^[a-f0-9]{40}$/.test(acceptedCommit ?? ''))
+    throw Error('Only an accepted merged PR can enter feature staging');
+  const enrollment = await effects.lookupEnrollment(profileId);
+  if (enrollment?.profileId !== profileId || !/^[a-f0-9]{64}$/.test(enrollment.enrollmentRevision))
+    throw Error('Fresh reviewed staging profile enrollment required');
+  const request = {
+    version: 2,
+    pr,
+    taskId,
+    acceptedCommit,
+    suite: 'profile-tools-v1',
+    profileId,
+    enrollmentRevision: enrollment.enrollmentRevision,
+  };
+  const id = createHash('sha256').update(JSON.stringify(request)).digest('hex');
+  store.enqueue({ ...request, id });
+  return {
+    version: 2,
+    requestId: id,
+    acceptedCommit,
+    state: 'queued',
+    suite: request.suite,
+    profileId,
+    enrollmentRevision: request.enrollmentRevision,
+  };
+}
+export async function readStagingFeaturePlan(database, id, effects) {
+  const receipt = readStagingPipelineReceipt(database, id);
+  if (receipt.state !== 'queued' || receipt.suite !== 'profile-tools-v1')
+    throw Error('Exact queued feature request required');
+  const request = {
+    version: 2,
+    id: receipt.requestId,
+    pr: receipt.pr,
+    taskId: receipt.taskId,
+    acceptedCommit: receipt.acceptedCommit,
+    suite: receipt.suite,
+    profileId: receipt.profileId,
+    enrollmentRevision: receipt.enrollmentRevision,
+  };
+  const source = await effects.baseline(request.acceptedCommit);
+  const current = await effects.check();
+  if (!current.safe || current.expected !== source)
+    throw Error('Exact accepted feature stage source required');
+  const plan = await effects.featurePlan(request, source);
+  return {
+    version: 1,
+    requestId: id,
+    state: 'queued',
+    featurePlan: plan.publicPlan,
+    featurePlanSha256: plan.planSha256,
+  };
 }
 export function enqueueMergedStagingRequest(store, { pr, taskId }, run = runStagingHostCommand) {
   const info = JSON.parse(
@@ -166,7 +262,7 @@ async function main() {
   const args = parseStagingPipelineArguments(process.argv.slice(2));
   if (args.command === '--help') {
     console.log(
-      'staging-pipeline enqueue --pr NUMBER --task SESSION_ID\nstaging-pipeline status\nstaging-pipeline receipt --id REQUEST_ID\nstaging-pipeline host-resources\nstaging-pipeline run-next\nstaging-pipeline cancel --id REQUEST_ID\nstaging-pipeline replica-check --reference PUBLIC_REFERENCE_JSON --stage PUBLIC_STAGE_JSON',
+      'staging-pipeline enqueue --pr NUMBER --task SESSION_ID\nstaging-pipeline enqueue-feature --pr NUMBER --task SESSION_ID --profile STAGE_PROFILE_ID\nstaging-pipeline feature-plan --id REQUEST_ID\nstaging-pipeline status\nstaging-pipeline receipt --id REQUEST_ID\nstaging-pipeline host-resources\nstaging-pipeline run-next [--feature-plan SHA256]\nstaging-pipeline cancel --id REQUEST_ID\nstaging-pipeline replica-check --reference PUBLIC_REFERENCE_JSON --stage PUBLIC_STAGE_JSON',
     );
     return;
   }
@@ -191,6 +287,15 @@ async function main() {
     database = join(root, 'queue.db');
   if (args.command === 'receipt') {
     console.log(JSON.stringify(readStagingPipelineReceipt(database, args.id)));
+    return;
+  }
+  if (args.command === 'feature-plan') {
+    assertAcceptedController(resolve(dirname(fileURLToPath(import.meta.url)), '..'));
+    console.log(
+      JSON.stringify(
+        await readStagingFeaturePlan(database, args.id, createStagingPipelineEffects()),
+      ),
+    );
     return;
   }
   if (args.command === 'status' && !existsSync(database)) {
@@ -222,6 +327,8 @@ async function main() {
     } else if (args.command === 'merge-reconcile')
       result = { version: 1, ...reconcileStagingSourceMerge(store, args.pr) };
     else if (args.command === 'enqueue') result = enqueueMergedStagingRequest(store, args);
+    else if (args.command === 'enqueue-feature')
+      result = await enqueueMergedFeatureRequest(store, args, createStagingPipelineEffects());
     else if (args.command === 'cancel') {
       store.cancel(args.id);
       result = { requestId: args.id, state: 'cancelled' };
@@ -231,6 +338,7 @@ async function main() {
         store,
         createStagingPipelineEffects(),
         'controller-' + process.pid + '-' + randomUUID(),
+        { featurePlanSha256: args.featurePlanSha256, requestId: args.requestId },
       );
     console.log(JSON.stringify(result));
   } finally {

@@ -6,6 +6,7 @@ import { dirname, resolve } from 'node:path';
 
 const commit = /^[a-f0-9]{40}$/;
 const identifier = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/;
+const digest = /^[a-f0-9]{64}$/;
 const reasons = new Set([
   'host-resources',
   'stage-unavailable',
@@ -14,20 +15,51 @@ const reasons = new Set([
   'deployment-uncertain',
   'test-cleanup-uncertain',
   'controller-lost',
+  'feature-plan-required',
 ]);
 function validateRequest(r) {
+  const feature = r?.version === 2 && r.suite === 'profile-tools-v1';
   if (
     !r ||
-    Object.keys(r).sort().join() !== 'acceptedCommit,id,pr,suite,taskId' ||
+    Object.keys(r).sort().join() !==
+      (feature
+        ? 'acceptedCommit,enrollmentRevision,id,pr,profileId,suite,taskId,version'
+        : 'acceptedCommit,id,pr,suite,taskId') ||
     !identifier.test(r.id) ||
     !identifier.test(r.taskId) ||
     !Number.isSafeInteger(r.pr) ||
     r.pr < 1 ||
     !commit.test(r.acceptedCommit) ||
-    r.suite !== 'http-readiness'
+    (!feature && r.suite !== 'http-readiness') ||
+    (feature && (!identifier.test(r.profileId) || !digest.test(r.enrollmentRevision)))
   )
     throw Error('Exact accepted source and supported staging suite required');
-  return { id: r.id, taskId: r.taskId, pr: r.pr, acceptedCommit: r.acceptedCommit, suite: r.suite };
+  return {
+    id: r.id,
+    taskId: r.taskId,
+    pr: r.pr,
+    acceptedCommit: r.acceptedCommit,
+    suite: r.suite,
+    ...(feature
+      ? { version: 2, profileId: r.profileId, enrollmentRevision: r.enrollmentRevision }
+      : {}),
+  };
+}
+function validateFeatureReceipt(receipt, request) {
+  if (
+    !receipt ||
+    Object.keys(receipt).sort().join() !==
+      'enrollmentRevision,ownerInstance,ownerReceiptSha256,planSha256,profileId,runId,version' ||
+    receipt.version !== 1 ||
+    receipt.profileId !== request.profileId ||
+    receipt.enrollmentRevision !== request.enrollmentRevision ||
+    !identifier.test(receipt.ownerInstance) ||
+    !identifier.test(receipt.runId) ||
+    !digest.test(receipt.planSha256) ||
+    !digest.test(receipt.ownerReceiptSha256)
+  )
+    throw Error('Bounded original-owner feature receipt required');
+  return { ...receipt };
 }
 /** Separate from deployment.lock: this reservation persists through testing and
  * across controller loss. Expiry is never permission to replace native custody. */
@@ -66,10 +98,18 @@ export class StagingPipelineStore {
       .exec(`PRAGMA busy_timeout=5000; PRAGMA journal_mode=DELETE; PRAGMA synchronous=FULL; PRAGMA max_page_count=4096;
       CREATE TABLE IF NOT EXISTS requests(sequence INTEGER PRIMARY KEY AUTOINCREMENT,id TEXT UNIQUE NOT NULL,payload TEXT NOT NULL,fingerprint TEXT NOT NULL,state TEXT NOT NULL,reason TEXT,result TEXT);
       CREATE TABLE IF NOT EXISTS reservation(singleton INTEGER PRIMARY KEY CHECK(singleton=1),epoch INTEGER NOT NULL,state TEXT NOT NULL,request_id TEXT,owner TEXT,nonce TEXT,deadline INTEGER,dispatched INTEGER NOT NULL DEFAULT 0,source_commit TEXT);
+      CREATE TABLE IF NOT EXISTS feature_binding(singleton INTEGER PRIMARY KEY CHECK(singleton=1),epoch INTEGER NOT NULL,request_id TEXT NOT NULL,plan_sha256 TEXT NOT NULL,owner_instance TEXT NOT NULL);
       INSERT OR IGNORE INTO reservation(singleton,epoch,state) VALUES(1,0,'idle');
       CREATE TABLE IF NOT EXISTS source_merge(singleton INTEGER PRIMARY KEY CHECK(singleton=1),epoch INTEGER NOT NULL,state TEXT NOT NULL,pr INTEGER,head TEXT,nonce TEXT);
       INSERT OR IGNORE INTO source_merge(singleton,epoch,state) VALUES(1,0,'idle');`);
     this.transaction(() => {
+      if (
+        !this.db
+          .prepare('PRAGMA table_info(requests)')
+          .all()
+          .some((c) => c.name === 'last_attempt')
+      )
+        this.db.exec('ALTER TABLE requests ADD COLUMN last_attempt INTEGER NOT NULL DEFAULT 0');
       if (
         !this.db
           .prepare('PRAGMA table_info(source_merge)')
@@ -152,7 +192,8 @@ export class StagingPipelineStore {
       .prepare('SELECT payload,state,reason,result FROM requests WHERE id=?')
       .get(id);
     if (!row) return { version: 1, requestId: id, state: 'missing' };
-    const { pr, taskId, acceptedCommit, suite } = JSON.parse(row.payload);
+    const request = JSON.parse(row.payload);
+    const { pr, taskId, acceptedCommit, suite } = request;
     return {
       version: 1,
       requestId: id,
@@ -160,12 +201,17 @@ export class StagingPipelineStore {
       taskId,
       acceptedCommit,
       suite,
+      ...(request.version === 2
+        ? { profileId: request.profileId, enrollmentRevision: request.enrollmentRevision }
+        : {}),
       state: row.state,
       reason: row.reason,
       result: row.result ? JSON.parse(row.result) : null,
     };
   }
-  claim(owner) {
+  claim(owner, { requestId } = {}) {
+    if (requestId !== undefined && (typeof requestId !== 'string' || !identifier.test(requestId)))
+      throw Error('Exact queued request required');
     if (!identifier.test(owner)) throw Error('Controller identity required');
     return this.transaction(() => {
       if (this.sourceMergeStatus().state !== 'idle')
@@ -181,17 +227,31 @@ export class StagingPipelineStore {
                 ? 'reconciliation-required'
                 : 'staging-busy',
         };
-      const next = this.db
-        .prepare("SELECT id,payload FROM requests WHERE state='queued' ORDER BY sequence LIMIT 1")
-        .get();
-      if (!next) return { granted: false, reason: 'queue-empty' };
+      const next =
+        requestId === undefined
+          ? this.db
+              .prepare(
+                "SELECT id,payload FROM requests WHERE state='queued' ORDER BY last_attempt,sequence LIMIT 1",
+              )
+              .get()
+          : this.db
+              .prepare("SELECT id,payload FROM requests WHERE state='queued' AND id=?")
+              .get(requestId);
+      if (!next)
+        return {
+          granted: false,
+          reason: requestId === undefined ? 'queue-empty' : 'request-not-queued',
+        };
       const token = { epoch: r.epoch + 1, requestId: next.id, owner, nonce: randomUUID() };
+      this.db.prepare('DELETE FROM feature_binding').run();
       this.db
         .prepare(
           "UPDATE reservation SET state='active',epoch=?,request_id=?,owner=?,nonce=?,deadline=?,dispatched=0,source_commit=NULL WHERE singleton=1",
         )
         .run(token.epoch, token.requestId, owner, token.nonce, this.clock() + 600000);
-      this.db.prepare("UPDATE requests SET state='active',reason=NULL WHERE id=?").run(next.id);
+      this.db
+        .prepare("UPDATE requests SET state='active',reason=NULL,last_attempt=? WHERE id=?")
+        .run(token.epoch, next.id);
       return { granted: true, token, request: JSON.parse(next.payload) };
     });
   }
@@ -326,6 +386,16 @@ export class StagingPipelineStore {
   markDispatched(t) {
     this.transaction(() => {
       this.assertToken(t);
+      const request = JSON.parse(
+        this.db.prepare('SELECT payload FROM requests WHERE id=?').get(t.requestId).payload,
+      );
+      if (
+        request.version === 2 &&
+        !this.db
+          .prepare('SELECT singleton FROM feature_binding WHERE epoch=? AND request_id=?')
+          .get(t.epoch, t.requestId)
+      )
+        throw Error('Bound original-owner feature plan required');
       this.db.prepare('UPDATE reservation SET dispatched=1 WHERE singleton=1').run();
     });
   }
@@ -341,6 +411,7 @@ export class StagingPipelineStore {
     });
   }
   release() {
+    this.db.prepare('DELETE FROM feature_binding').run();
     this.db
       .prepare(
         "UPDATE reservation SET state='idle',request_id=NULL,owner=NULL,nonce=NULL,deadline=NULL,dispatched=0,source_commit=NULL WHERE singleton=1",
@@ -362,6 +433,28 @@ export class StagingPipelineStore {
       this.db.prepare('UPDATE reservation SET source_commit=? WHERE singleton=1').run(sourceCommit);
     });
   }
+  bindFeaturePlan(t, planSha256, ownerInstance) {
+    if (!digest.test(planSha256) || !identifier.test(ownerInstance))
+      throw Error('Exact original-owner feature plan required');
+    this.transaction(() => {
+      const reservation = this.assertToken(t);
+      const request = JSON.parse(
+        this.db.prepare('SELECT payload FROM requests WHERE id=?').get(t.requestId).payload,
+      );
+      if (
+        request.version !== 2 ||
+        !reservation.source_commit ||
+        reservation.dispatched ||
+        this.db.prepare('SELECT singleton FROM feature_binding').get()
+      )
+        throw Error('Cannot replace a bound or dispatched feature plan');
+      this.db
+        .prepare(
+          'INSERT INTO feature_binding(singleton,epoch,request_id,plan_sha256,owner_instance) VALUES(1,?,?,?,?)',
+        )
+        .run(t.epoch, t.requestId, planSha256, ownerInstance);
+    });
+  }
   finish(t, result) {
     this.transaction(() => {
       const reservation = this.assertToken(t);
@@ -375,6 +468,20 @@ export class StagingPipelineStore {
       )
         throw Error('Test source does not match request');
       if (result.cleanupConfirmed !== true) throw Error('Confirmed test cleanup required');
+      const featureReceipt =
+        r.version === 2 ? validateFeatureReceipt(result.featureReceipt, r) : undefined;
+      if (featureReceipt) {
+        const binding = this.db.prepare('SELECT * FROM feature_binding WHERE singleton=1').get();
+        if (
+          !reservation.dispatched ||
+          !binding ||
+          binding.epoch !== t.epoch ||
+          binding.request_id !== t.requestId ||
+          binding.plan_sha256 !== featureReceipt.planSha256 ||
+          binding.owner_instance !== featureReceipt.ownerInstance
+        )
+          throw Error('Original-owner feature receipt does not match reservation');
+      }
       const receipt = {
         acceptedCommit: r.acceptedCommit,
         outcome: result.outcome,
@@ -383,6 +490,9 @@ export class StagingPipelineStore {
         suite: r.suite,
         cleanupConfirmed: true,
         completedAt: this.clock(),
+        ...(featureReceipt
+          ? { featureReceipt, liveFeatureValidation: 'requires-owner-verification' }
+          : {}),
       };
       this.db
         .prepare('UPDATE requests SET state=?,result=? WHERE id=?')
