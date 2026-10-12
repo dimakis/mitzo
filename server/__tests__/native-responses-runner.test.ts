@@ -138,6 +138,51 @@ describe('durable native Responses turns', () => {
       expect(fetchMock).not.toHaveBeenCalled();
     },
   );
+  it('persists image input and accepts an equal reconstructed prepared payload after restart', async () => {
+    const content = [
+      { type: 'text' as const, text: 'Inspect this screenshot' },
+      {
+        type: 'image' as const,
+        source: { type: 'base64' as const, media_type: 'image/png', data: 'cG5n' },
+      },
+    ];
+    await collect(runner().run(content));
+    store.close();
+    store = new NativeResponsesStore(join(root, 'continuation.db'));
+    const instance = runner();
+    instance.prepare('image-followup', content);
+    await collect(instance.run(structuredClone(content), undefined, 'image-followup'));
+    const input = JSON.parse(fetchMock.mock.calls[1][1].body).input;
+    expect(input.filter((item: { role?: string }) => item.role === 'user')).toHaveLength(2);
+    expect(input[0].content[1]).toEqual({
+      type: 'input_image',
+      image_url: 'data:image/png;base64,cG5n',
+      detail: 'auto',
+    });
+    expect(store.load('app-id', binding)?.history[0].content).toEqual(content);
+  });
+
+  it('rejects changed prepared image bytes before provider dispatch', async () => {
+    const content = [
+      {
+        type: 'image' as const,
+        source: {
+          type: 'base64' as const,
+          media_type: 'image/png',
+          data: 'cG5n',
+        },
+      },
+    ];
+    const instance = runner();
+    instance.prepare('image-identity', content);
+    content[0].source.data = 'bmV3';
+    await expect(collect(instance.run(content, undefined, 'image-identity'))).rejects.toThrow(
+      /identity/,
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(store.load('app-id', binding)).toBeUndefined();
+  });
+
   it('runs and resumes Gemini tool turns with the same durable native tool loop', async () => {
     const googleBinding = { ...binding, provider: 'google-vertex', model: 'gemini-3.8-flash' };
     let turn = 0;

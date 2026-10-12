@@ -7,8 +7,15 @@ const { collectSessionResources, mergeSessionResources } = vi.hoisted(() => ({
   collectSessionResources: vi.fn((_messages?: unknown[], _current?: unknown) => ({
     sources: [],
     outputs: [],
+    references: [],
+    capabilities: [],
   })),
-  mergeSessionResources: vi.fn(() => ({ sources: [], outputs: [] })),
+  mergeSessionResources: vi.fn(() => ({
+    sources: [],
+    outputs: [],
+    references: [],
+    capabilities: [],
+  })),
 }));
 
 vi.mock('../../lib/session-resources', () => ({ collectSessionResources, mergeSessionResources }));

@@ -50,6 +50,172 @@ async function collect(session: ResponsesSession, messages = prompt) {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('ResponsesSession', () => {
+  it('accepts a screenshot-sized base64 payload without regex stack overflow', async () => {
+    const fetcher = vi.fn(async () => response(textEvents()));
+    vi.stubGlobal('fetch', fetcher);
+    const data = Buffer.alloc(1024 * 1024, 1).toString('base64');
+    const session = new ResponsesSession(config, { accountId: 'work', apiKey: 'offline-only' });
+    await collect(session, [
+      {
+        role: 'user',
+        content: [{ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data } }],
+      },
+    ]);
+    expect(JSON.parse(fetcher.mock.calls[0][1].body).input[0].content[0].image_url).toBe(
+      `data:image/jpeg;base64,${data}`,
+    );
+  });
+
+  it('sends text and multiple image blocks together and retains them across checkpoint resume', async () => {
+    const fetcher = vi.fn(async () => response(textEvents()));
+    vi.stubGlobal('fetch', fetcher);
+    const content = [
+      { type: 'text', text: 'Compare these screenshots' },
+      { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'cG5n' } },
+      { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: 'anBlZw==' } },
+    ];
+    const messages = [{ role: 'user', content }] as ConversationMessage[];
+    const session = new ResponsesSession(config, { accountId: 'work', apiKey: 'offline-only' });
+    await collect(session, messages);
+    const expected = {
+      role: 'user',
+      content: [
+        { type: 'input_text', text: 'Compare these screenshots' },
+        { type: 'input_image', image_url: 'data:image/png;base64,cG5n', detail: 'auto' },
+        { type: 'input_image', image_url: 'data:image/jpeg;base64,anBlZw==', detail: 'auto' },
+      ],
+    };
+    expect(JSON.parse(fetcher.mock.calls[0][1].body).input).toEqual([expected]);
+    const checkpoint = session.checkpoint();
+    const resumed = new ResponsesSession(config, {
+      accountId: 'work',
+      apiKey: 'offline-only',
+      checkpoint,
+    });
+    await collect(resumed, [...checkpoint.history, { role: 'user', content: 'What changed?' }]);
+    const input = JSON.parse(fetcher.mock.calls[1][1].body).input;
+    expect(input.filter((item: { role?: string }) => item.role === 'user')).toEqual([
+      expected,
+      { role: 'user', content: 'What changed?' },
+    ]);
+  });
+
+  it('keeps contiguous text and images together around function outputs', async () => {
+    const fetcher = vi.fn(async () => response(textEvents()));
+    vi.stubGlobal('fetch', fetcher);
+    const session = new ResponsesSession(config, { accountId: 'work', apiKey: 'offline-only' });
+    await collect(session, [
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'First' },
+          { type: 'image', source: { type: 'base64', media_type: 'image/webp', data: 'd2VicA==' } },
+          { type: 'text', text: 'Second' },
+          { type: 'tool_result', tool_use_id: 'call-1', content: 'tool output' },
+          { type: 'image', source: { type: 'base64', media_type: 'image/gif', data: 'Z2lm' } },
+          { type: 'text', text: 'Third' },
+        ],
+      },
+    ] as ConversationMessage[]);
+    expect(JSON.parse(fetcher.mock.calls[0][1].body).input).toEqual([
+      {
+        role: 'user',
+        content: [
+          { type: 'input_text', text: 'First' },
+          { type: 'input_image', image_url: 'data:image/webp;base64,d2VicA==', detail: 'auto' },
+          { type: 'input_text', text: 'Second' },
+        ],
+      },
+      { type: 'function_call_output', call_id: 'call-1', output: 'tool output' },
+      {
+        role: 'user',
+        content: [
+          { type: 'input_image', image_url: 'data:image/gif;base64,Z2lm', detail: 'auto' },
+          { type: 'input_text', text: 'Third' },
+        ],
+      },
+    ]);
+  });
+
+  it.each([
+    {
+      source: { type: 'base64', media_type: 'image/svg+xml', data: 'cG5n' },
+      error: /image media type/,
+    },
+    { source: { type: 'base64', media_type: 'image/png', data: '' }, error: /image base64/ },
+    {
+      source: { type: 'base64', media_type: 'image/png', data: 'invalid!' },
+      error: /image base64/,
+    },
+    { source: { type: 'base64', media_type: 'image/png', data: 'ab==' }, error: /image base64/ },
+    {
+      source: { type: 'url', url: 'https://private.invalid/image.png' },
+      error: /base64 image source/,
+    },
+  ])('rejects invalid image input before dispatch: $source', async ({ source, error }) => {
+    const fetcher = vi.fn();
+    vi.stubGlobal('fetch', fetcher);
+    const session = new ResponsesSession(config, { accountId: 'work', apiKey: 'offline-only' });
+    await expect(
+      collect(session, [
+        {
+          role: 'user',
+          content: [{ type: 'image', source }],
+        },
+      ] as ConversationMessage[]),
+    ).rejects.toThrow(error);
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(session.checkpoint().history).toEqual([]);
+  });
+
+  it.each(['api', 'chatgpt-plan'] as const)(
+    'keeps %s text transcript requests text-only',
+    async (authentication) => {
+      const fetcher = vi.fn();
+      vi.stubGlobal('fetch', fetcher);
+      const session = new ResponsesSession(
+        config,
+        authentication === 'api'
+          ? { accountId: 'work', apiKey: 'offline-only', textTranscript: true }
+          : {
+              accountId: 'work',
+              authentication,
+              textTranscript: true,
+              getAccessToken: async () => 'offline-only',
+            },
+      );
+      await expect(
+        collect(session, [
+          {
+            role: 'user',
+            content: [
+              { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'cG5n' } },
+            ],
+          },
+        ] as ConversationMessage[]),
+      ).rejects.toThrow('Text transcript requires text messages');
+      expect(fetcher).not.toHaveBeenCalled();
+    },
+  );
+
+  it('preserves existing text block input formatting', async () => {
+    const fetcher = vi.fn(async () => response(textEvents()));
+    vi.stubGlobal('fetch', fetcher);
+    await collect(new ResponsesSession(config, { accountId: 'work', apiKey: 'offline-only' }), [
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'First' },
+          { type: 'text', text: 'Second' },
+        ],
+      },
+    ]);
+    expect(JSON.parse(fetcher.mock.calls[0][1].body).input).toEqual([
+      { role: 'user', content: 'First' },
+      { role: 'user', content: 'Second' },
+    ]);
+  });
+
   it('uses a distinct plan grant for text-only inference without API credentials, tools or redirects', async () => {
     const fetcher = vi.fn(async () => response(textEvents()));
     vi.stubGlobal('fetch', fetcher);

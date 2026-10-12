@@ -477,7 +477,7 @@ it('clears persisted reasoning when a cold resume explicitly changes native mode
   }
 });
 
-it('routes API accounts through OpenShell by default without resolving host credentials', async () => {
+it('routes API image attachments through OpenShell without resolving host credentials', async () => {
   vi.resetModules();
   vi.clearAllMocks();
   const root = await mkdtemp(join(tmpdir(), 'mitzo-openshell-api-dispatch-'));
@@ -518,6 +518,7 @@ it('routes API accounts through OpenShell by default without resolving host cred
       model: 'test',
       accountProfiles: profiles,
       initialSessionId: 'openshell-api-app',
+      images: [{ data: 'cG5n', mediaType: 'image/png' }],
     });
     expect(credentials.resolve).not.toHaveBeenCalled();
     // The remaining request loads UI agent metadata; the second host request
@@ -529,6 +530,8 @@ it('routes API accounts through OpenShell by default without resolving host cred
     expect(registerSession).not.toHaveBeenCalled();
     expect(capturePromptComparison).not.toHaveBeenCalled();
     const options = vi.mocked(openCodexChat).mock.calls[0][0];
+    expect(options.images).toEqual([{ data: 'cG5n', mediaType: 'image/png' }]);
+    expect(options.prompt).toBe('hello');
     expect(options.profile.planType).toBe('api');
     expect(options.profile.sandboxProvider).toBe('openai-work');
     expect(options.session.cwd).toBe('/sandbox/workspaces/mgmt');
