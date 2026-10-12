@@ -88,6 +88,29 @@ describe('shared web access tool wiring', () => {
     );
     expect(approve.mock.calls.at(-1)![2].sessionGrantKey).not.toBe(options[0].sessionGrantKey);
   });
+  it('keeps public origin scope through model and transport changes, while revocation changes that origin only', async () => {
+    const f = fixture();
+    approve.mockImplementation(async (_name, input) => ({
+      behavior: 'allow',
+      updatedInput: input,
+    }));
+    vi.mocked(fetchPublicPage).mockResolvedValue('page');
+    const input = { operation: 'fetch', url: 'https://example.com/page', reason: 'Read' };
+    const signal = new AbortController().signal;
+    await f.execute(input, signal);
+    const original = approve.mock.calls.at(-1)![2].sessionGrantKey;
+    f.session.model = 'another-model';
+    f.session.accountBinding!.model = 'another-model';
+    const recreated = createWebAccessTool('conversation', f.registry, f.search);
+    await recreated(input, signal);
+    expect(approve.mock.calls.at(-1)![2].sessionGrantKey).toBe(original);
+    await recreated(
+      { operation: 'revoke_access', url: input.url, reason: 'Remove access' },
+      signal,
+    );
+    await recreated(input, signal);
+    expect(approve.mock.calls.at(-1)![2].sessionGrantKey).not.toBe(original);
+  });
   it('offers session search consent without broadly caching the web access tool in Auto mode', async () => {
     const f = fixture('auto');
     const input = { operation: 'search', query: 'Revenue', reason: 'Check guidance' };

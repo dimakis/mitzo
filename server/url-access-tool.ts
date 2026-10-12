@@ -24,15 +24,24 @@ const Input = z
     reason: z.string().trim().min(1).max(1000),
   })
   .strict();
+export function urlReadAccountIdentity(session: ManagedSession) {
+  const account = session.accountBinding;
+  return (
+    account && {
+      accountId: account.accountId,
+      provider: account.provider,
+      profileRevision: account.profileRevision,
+    }
+  );
+}
 interface Grant {
   target: ApprovedUrlTarget;
-  account: ManagedSession['accountBinding'];
-  model: ManagedSession['model'];
+  account: ReturnType<typeof urlReadAccountIdentity>;
   expires: number;
 }
 const revisions = new WeakMap<ManagedSession, Map<string, number>>();
 const grants = new WeakMap<ManagedSession, Map<string, Grant>>();
-/** Model selection changes permanently retire existing approvals, including pending cards. */
+/** Explicit revocation retires URL approvals and pending approval generations. */
 export function clearUrlAccessGrants(session: ManagedSession) {
   clearWebSearchGrant(session);
   grants.delete(session);
@@ -76,8 +85,7 @@ export function createUrlAccessTool(
         if (
           parsed.data.operation === 'request_access' &&
           previous?.expires === Infinity &&
-          isDeepStrictEqual(previous.account, current.session.accountBinding) &&
-          previous.model === current.session.model
+          isDeepStrictEqual(previous.account, urlReadAccountIdentity(current.session))
         )
           return {
             content: `URL read access is approved for ${url.origin} until this session ends.`,
@@ -89,8 +97,7 @@ export function createUrlAccessTool(
           grants.get(current.session)?.delete(url.origin);
           return { content: `URL read access revoked for ${url.origin}`, isError: false };
         }
-        const account = structuredClone(current.session.accountBinding);
-        const model = current.session.model;
+        const account = urlReadAccountIdentity(current.session);
         const target = await withWebAbort(
           deps.resolve(url.href),
           AbortSignal.any([signal, AbortSignal.timeout(20_000)]),
@@ -116,7 +123,7 @@ export function createUrlAccessTool(
             allowSessionGrant: false,
             rememberSessionGrant: false,
             approvalScope: 'session',
-            sessionGrantDescription: `Credential-free HTTP GET reads on ${target.origin} using only the reviewed resolved addresses, until this session ends or access is revoked. Other origins, credentials, and changed account/model require separate consent.`,
+            sessionGrantDescription: `Credential-free HTTP GET reads on ${target.origin} using only the reviewed resolved addresses, until this session ends or access is revoked. Other origins, credentials, and changed account policy require separate consent.`,
             title: redirectedFrom
               ? 'Approve redirected destination?'
               : 'Allow this session to read this website?',
@@ -131,8 +138,7 @@ export function createUrlAccessTool(
         if (decision.behavior !== 'allow') return { content: decision.message, isError: true };
         if (
           !allowed(current.clientId, current.session) ||
-          !isDeepStrictEqual(current.session.accountBinding, account) ||
-          current.session.model !== model ||
+          !isDeepStrictEqual(urlReadAccountIdentity(current.session), account) ||
           versions.get(url.origin) !== revision ||
           !isDeepStrictEqual(decision.updatedInput, payload)
         )
@@ -145,7 +151,6 @@ export function createUrlAccessTool(
         sessionGrants.set(target.origin, {
           target: structuredClone(target),
           account,
-          model,
           expires:
             decision.decisionClassification === 'user_permanent'
               ? Infinity
@@ -177,19 +182,15 @@ export function createUrlAccessTool(
       }
       const grant = grants.get(current.session)?.get(url.origin);
       if (!grant) return undefined;
-      if (
-        !isDeepStrictEqual(grant.account, current.session.accountBinding) ||
-        grant.model !== current.session.model
-      )
+      if (!isDeepStrictEqual(grant.account, urlReadAccountIdentity(current.session)))
         clearUrlAccessGrants(current.session);
       if (
         grant.expires <= deps.now() ||
-        !isDeepStrictEqual(grant.account, current.session.accountBinding) ||
-        grant.model !== current.session.model
+        !isDeepStrictEqual(grant.account, urlReadAccountIdentity(current.session))
       ) {
         return {
           content:
-            'URL read access expired or the account/model changed. Use request_access to approve this origin again.',
+            'URL read access expired or the account changed. Use request_access to approve this origin again.',
           isError: true,
         };
       }
@@ -200,8 +201,7 @@ export function createUrlAccessTool(
         if (
           chain.some(
             ({ grant }) =>
-              !isDeepStrictEqual(grant.account, current.session.accountBinding) ||
-              grant.model !== current.session.model,
+              !isDeepStrictEqual(grant.account, urlReadAccountIdentity(current.session)),
           )
         ) {
           clearUrlAccessGrants(current.session);

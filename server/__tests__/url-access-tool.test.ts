@@ -170,7 +170,7 @@ it('cancels a URL request while name resolution is pending', async () => {
   expect(approve).not.toHaveBeenCalled();
 });
 
-it.each(['account', 'model'])(
+it.each(['account'])(
   'never revives URL approval after an observed %s switch back',
   async (selection) => {
     const f = fixture();
@@ -193,7 +193,7 @@ it.each(['account', 'model'])(
   },
 );
 
-it('invalidates all URL approvals at a model-selection transition without a fetch', async () => {
+it('invalidates all URL approvals after explicit revocation without a fetch', async () => {
   const f = fixture();
   approve.mockImplementation(async (_name, input) => ({ behavior: 'allow', updatedInput: input }));
   const input = { operation: 'request_access', url: 'https://example.com/', reason: 'why' };
@@ -338,4 +338,21 @@ it('keeps a selected session origin grant past fifteen minutes and revokes it ex
   expect(await f.tool.fetch(input.url, signal)).toBeUndefined();
   await f.tool.request(input, signal);
   expect(approve).toHaveBeenCalledTimes(2);
+});
+
+it('keeps nonbillable origin consent across model selection and transport recreation', async () => {
+  const f = fixture();
+  approve.mockImplementation(async (_name, input) => ({
+    behavior: 'allow',
+    updatedInput: input,
+    decisionClassification: 'user_permanent',
+  }));
+  const signal = new AbortController().signal;
+  const input = { operation: 'request_access', url: 'https://example.com/page', reason: 'Read' };
+  await f.tool.request(input, signal);
+  f.session.model = 'another-model';
+  f.session.accountBinding!.model = 'another-model';
+  expect(await f.tool.fetch(input.url, signal)).toMatchObject({ isError: false });
+  await f.tool.request(input, signal);
+  expect(approve).toHaveBeenCalledOnce();
 });
