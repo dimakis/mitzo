@@ -1,3 +1,8 @@
+import {
+  OrdinaryLocalCommandAdmissionSchema,
+  type OrdinaryLocalCommandAdmission,
+  type OrdinaryLocalCommandSelection,
+} from './ordinary-local-admission.js';
 import { isRegisteredConversation } from './conversation-identity.js';
 import { SessionOutputReferenceStore } from './session-output-reference-store.js';
 import {
@@ -576,7 +581,99 @@ export class EventStore {
     ).run(clientMsgId, sessionId, JSON.stringify(payload));
   }
 
+  /** Caller must independently authorize account/context and reserve the workspace.
+   * Uses the existing global command and send ledgers; never launches a provider. */
+  admitOrdinaryLocalCommand(
+    meta: SessionUpsert,
+    binding: unknown,
+    input: {
+      clientMsgId: string;
+      requestFingerprint: string;
+      selection: OrdinaryLocalCommandSelection;
+      payload: Record<string, unknown>;
+    },
+  ): { duplicate: boolean; admission: OrdinaryLocalCommandAdmission } {
+    const admission = OrdinaryLocalCommandAdmissionSchema.parse({
+      version: 1,
+      binding,
+      workspace: { workspaceId: meta.repositoryWorkspaceId, cwd: meta.cwd },
+      selection: input.selection,
+      requestFingerprint: input.requestFingerprint,
+      state: 'reserved',
+    });
+    return this.db!.transaction(() => {
+      const existing = this.getSendCommand(input.clientMsgId);
+      if (!existing && this.getSession(meta.sessionId))
+        throw new Error('Ordinary guarded admission requires a new session');
+      this.claimClientCommand(input.clientMsgId, input.requestFingerprint);
+      this.createSessionWithRuntimeBinding(meta, admission.binding);
+      if (existing) {
+        const previous = this.getOrdinaryLocalCommandAdmission(input.clientMsgId);
+        if (
+          !previous ||
+          existing.sessionId !== meta.sessionId ||
+          JSON.stringify({ ...previous, state: 'reserved' }) !== JSON.stringify(admission) ||
+          JSON.stringify(existing.payload) !== JSON.stringify(input.payload)
+        )
+          throw new Error('Ordinary command admission identity cannot be replaced');
+        return { duplicate: true, admission: previous };
+      }
+      this.insertSendCommand(input.clientMsgId, meta.sessionId, input.payload);
+      this.db!.prepare('UPDATE send_commands SET ordinary_admission=? WHERE client_msg_id=?').run(
+        JSON.stringify(admission),
+        input.clientMsgId,
+      );
+      return { duplicate: false, admission };
+    }).immediate();
+  }
+
+  getOrdinaryLocalCommandAdmission(clientMsgId: string): OrdinaryLocalCommandAdmission | undefined {
+    const row = this.db!.prepare(
+      'SELECT ordinary_admission, session_id FROM send_commands WHERE client_msg_id=?',
+    ).get(clientMsgId) as { ordinary_admission: string | null; session_id: string } | undefined;
+    if (!row?.ordinary_admission) return undefined;
+    const admission = OrdinaryLocalCommandAdmissionSchema.parse(JSON.parse(row.ordinary_admission));
+    const runtime = this.getSessionRuntimeBinding(row.session_id);
+    const session = this.getSession(row.session_id);
+    if (
+      JSON.stringify(runtime) !== JSON.stringify(admission.binding) ||
+      session?.repositoryWorkspaceId !== admission.workspace.workspaceId ||
+      session?.cwd !== admission.workspace.cwd
+    )
+      throw new Error('Ordinary command admission does not match durable session identity');
+    return admission;
+  }
+
+  /** Persist uncertainty BEFORE the first external effect. False forbids replay. */
+  claimOrdinaryLocalCommandDispatch(clientMsgId: string): boolean {
+    return this.db!.transaction(() => {
+      const admission = this.getOrdinaryLocalCommandAdmission(clientMsgId);
+      if (!admission) throw new Error('Ordinary command admission required');
+      if (admission.state !== 'reserved' || this.getSendCommand(clientMsgId)?.error) return false;
+      return (
+        this.db!.prepare(
+          "UPDATE send_commands SET ordinary_admission=? WHERE client_msg_id=? AND json_extract(ordinary_admission,'$.state')='reserved'",
+        ).run(JSON.stringify({ ...admission, state: 'uncertain' }), clientMsgId).changes === 1
+      );
+    }).immediate();
+  }
+
+  completeOrdinaryLocalCommand(clientMsgId: string): void {
+    this.db!.transaction(() => {
+      const admission = this.getOrdinaryLocalCommandAdmission(clientMsgId);
+      if (!admission || admission.state === 'reserved')
+        throw new Error('Ordinary command has not claimed dispatch');
+      if (admission.state === 'consumed') return;
+      this.db!.prepare('UPDATE send_commands SET ordinary_admission=? WHERE client_msg_id=?').run(
+        JSON.stringify({ ...admission, state: 'consumed' }),
+        clientMsgId,
+      );
+    }).immediate();
+  }
+
   completeNativeSendCommand(clientMsgId: string): void {
+    if (this.getOrdinaryLocalCommandAdmission(clientMsgId))
+      throw new Error('Ordinary runtime command cannot complete as native');
     this.db!.prepare("UPDATE send_commands SET session_id = '' WHERE client_msg_id = ?").run(
       clientMsgId,
     );
@@ -621,7 +718,11 @@ export class EventStore {
       // Deliberation receipts intentionally have no user_message event, so
       // generic send recovery must not turn a completed or ambiguous execution
       // into a poisoned receipt before the execution gate can re-evaluate it.
-      if (this.getExecutionAdmission(row.session_id, row.client_msg_id)) continue;
+      if (
+        this.getExecutionAdmission(row.session_id, row.client_msg_id) ||
+        this.getOrdinaryLocalCommandAdmission(row.client_msg_id)
+      )
+        continue;
       const error =
         'Server restarted before message execution was confirmed. Please check the conversation and retry.';
       this.failSendCommand(row.client_msg_id, error);
@@ -688,6 +789,12 @@ export class EventStore {
     this.migrateBootContext(db);
     this.migrateModelSelection(db);
     this.migrateSessionRuntimeBinding(db);
+    if (
+      !(db.prepare('PRAGMA table_info(send_commands)').all() as Array<{ name: string }>).some(
+        (c) => c.name === 'ordinary_admission',
+      )
+    )
+      db.exec('ALTER TABLE send_commands ADD COLUMN ordinary_admission TEXT');
     this.migrateSdkTranscriptVerification(db);
     this.migrateSymposium(db);
     this.migrateConversationSource(db);

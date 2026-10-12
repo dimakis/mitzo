@@ -20,6 +20,14 @@ export interface AcceptSendCommandAsyncOptions {
 
 const pendingAsyncAcceptances = new WeakMap<EventStore, Map<string, Promise<SendReceipt>>>();
 
+function assertLegacySend(store: EventStore, message: SendMessage): void {
+  if (
+    store.getOrdinaryLocalCommandAdmission?.(message.clientMsgId) ||
+    (message.sessionId && store.getSessionRuntimeBinding?.(message.sessionId))
+  )
+    throw new Error('Runtime-bound commands require guarded admission');
+}
+
 /** HTTP command acceptance is independent of event-stream connectivity.
  * A receipt is durable before dispatch; retries return that same receipt.
  * This guarantees one dispatch, not exactly-once external tool execution.
@@ -29,6 +37,7 @@ export function acceptSendCommand(
   message: SendMessage,
   dispatch: (message: SendMessage, sessionId: string) => void | false,
 ): { ok: true; accepted: true; clientMsgId: string; sessionId: string | null } {
+  assertLegacySend(store, message);
   const existing = store.getSendCommand(message.clientMsgId);
   if (existing && !isDeepStrictEqual(existing.payload, message))
     throw new Error('Command ID already used for a different message');
@@ -62,6 +71,7 @@ export function acceptSendCommandAsync(
   dispatch: (message: SendMessage, sessionId: string) => Promise<void | false>,
   options: AcceptSendCommandAsyncOptions = {},
 ): Promise<SendReceipt> {
+  assertLegacySend(store, message);
   const existing = store.getSendCommand(message.clientMsgId);
   if (existing && !isDeepStrictEqual(existing.payload, message))
     throw new Error('Command ID already used for a different message');

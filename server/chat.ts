@@ -1129,6 +1129,13 @@ export async function startChat(
     reattachOnly?: boolean;
   },
 ) {
+  for (const sessionId of [options.resume, options.initialSessionId]) {
+    if (sessionId && eventStore.getSessionRuntimeBinding(sessionId)) {
+      const error = new Error('Runtime-bound commands require guarded admission');
+      options.onStartupAdmission?.(error);
+      throw error;
+    }
+  }
   const repositoryStartupId =
     options.repositoryWorkspaceId && !options.resume
       ? nativeStartupSessionId(`repository:${options.repositoryWorkspaceId}`)
@@ -2760,6 +2767,8 @@ export function preflightStartupProviderCommand(
     reasoningEffort?: string | null;
   },
 ): boolean {
+  if (store.getSessionRuntimeBinding(request.sessionId))
+    throw new Error('Runtime-bound commands require guarded admission');
   const meta = store.getSession(request.sessionId);
   const binding = meta?.accountBinding;
   if (!binding) return false;
