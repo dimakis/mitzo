@@ -1595,6 +1595,87 @@ describe('last native Symposium dispatch fence', () => {
       /private native seat state isolation/i,
     );
   });
+  it.each(['prepare', 'physical-dispatch'] as const)(
+    'refuses native creation when the original provisional deny guard fails at %s',
+    async (failure) => {
+      const work = fixture();
+      const calls: string[] = [];
+      let managerCreated = false;
+      const physicalCreate = vi.fn();
+      const guard = {
+        assertCurrent: () => {
+          calls.push('guard-current');
+          if (failure === 'physical-dispatch' && managerCreated)
+            throw Error('original provisional guard revoked');
+        },
+      };
+      const prepare = vi.fn(async () => {
+        calls.push('prepare');
+        if (failure === 'prepare') throw Error('authenticated prepare unavailable');
+        return guard;
+      });
+      const manager = vi.fn((configuration: BoundOpenShellRuntimeConfig) => {
+        managerCreated = true;
+        calls.push('manager');
+        return {
+          ensure: async (runtimeId: string) => {
+            configuration.beforeSandboxCreate!();
+            physicalCreate();
+            return {
+              sandboxName: sandboxNameForConversation(runtimeId, 13),
+              sandboxId: 'never-created',
+              workdir: '/sandbox/workspaces/mgmt',
+            };
+          },
+        };
+      });
+      const owner = new SymposiumPerSeatSandboxOwner({
+        sessionId: 'symposium',
+        facts: { ...work.facts, assertSymposiumArtifactWorkAllowed: () => {} },
+        profiles,
+        hostGrants,
+        seatSandboxRegistry: seatSandboxRegistry(),
+        resolveProviderIdentity: (name, id) => ({ name, id, type: 'openai', workspace: 'default' }),
+        runtimeConfig: {
+          cli: 'openshell',
+          cliContract: 'v0.1',
+          image: 'image',
+          policy: '/policy',
+          seed: '/seed',
+          serviceProviders: [],
+          grantableServiceProviders: [],
+          workspace: 'default',
+          gateway: 'openshell',
+          gatewayInsecure: false,
+          createDetached: true,
+          sandboxIdLength: 13,
+          workdir: '/sandbox/workspaces/mgmt',
+          webSearch: 'disabled',
+        },
+        readOnlyEnforced: { openaiApi: true, claudeVertex: false },
+        perSeatSandboxVerified: true,
+        stagingPrepareSandbox: prepare,
+        managerFactory: manager,
+      });
+      await expect(
+        owner.ensure('symposium', 'reviewer', new AbortController().signal),
+      ).rejects.toThrow(
+        failure === 'prepare' ? 'authenticated prepare unavailable' : 'guard revoked',
+      );
+      expect(prepare).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sessionId: 'symposium',
+          seatId: 'reviewer',
+          generation: membership.generation,
+          sandboxName: expect.any(String),
+          runtimeId: expect.any(String),
+        }),
+      );
+      expect(physicalCreate).not.toHaveBeenCalled();
+      if (failure === 'prepare') expect(manager).not.toHaveBeenCalled();
+      else expect(calls.slice(0, 3)).toEqual(['prepare', 'guard-current', 'manager']);
+    },
+  );
   it('pins one attachment and one sandbox identity per confirmed seat', async () => {
     const work = fixture();
     const secondSeat = { ...seat, id: 'builder', name: 'Builder', role: 'implementer' };
