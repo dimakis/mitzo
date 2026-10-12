@@ -21,6 +21,34 @@ its actual original VM owner's zero-argument `observeResources` capability.
 Allocation authentication does not prove provider enrollment. Provider
 capabilities are minted inside the original host's actual factories.
 
+The pinned owned-host configuration can specify
+`personal.workApiBillingScopes[profileId] = { organizationId, projectId }` for
+an explicitly configured work API profile. Its original provider factory then
+authenticates a bounded HTTPS `GET /v1/models` with the fresh named credential
+and those exact `OpenAI-Organization` / `OpenAI-Project` headers before creating
+the provider. It rejects redirects, failed authentication, contradictory returned
+organization, oversized or malformed catalogs, and an unavailable exact Luna.
+The [official API overview](https://developers.openai.com/api/reference/overview)
+states that usage with these headers is attributed to their organization/project;
+a returned project header is not part of that contract. This proves API billing
+scope, not a separately verified principal or personal ChatGPT identity.
+
+`captureSymposiumWorkApiCatalog` returns only the original same-gateway capability,
+with fixed billing headers, credential/catalog hashes, selected Luna and a
+five-minute expiry. A JSON copy or reopened configuration cannot recreate it.
+The original provider retains a bounded read-only catalog refresh capability.
+It rereads only its named staging credential, requires its original hash and
+actual provider identity, and sends the same fixed billing headers. Refresh
+invalidates old catalog capabilities and their dependent plans; concurrent
+refreshes and failed authentication refuse, without creating another provider.
+This remains catalog and billing-scope evidence: the native issuer must also
+check the actual current provider credential revision and final outbound headers.
+The native issuer must additionally verify the actual current provider resource,
+credential identity/revision/hash and outbound headers before every dispatch.
+That authenticated native bridge remains unavailable. The configuration alone
+does not approve enrollment or a live test, and ordinary provider creation with
+no explicit staging scope performs no additional network request.
+
 ## Actual bounded execution path
 
 Once the independently reviewed gateway authority exists, the owner resolves
