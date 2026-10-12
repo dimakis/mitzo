@@ -59,9 +59,10 @@ function fixture() {
     registryBackupSha256: hash,
     archiveManifestSha256: hash,
     physicalEvidenceSha256: hash,
-    acceptedController: 'c'.repeat(40),
+    acceptedController: registration.sourceCommit,
     controllerInventorySha256: hash,
     runtimeConfigurationSha256: hash,
+    provisioningPlanSha256: hash,
     registration,
   };
   return { registry, facts, row, registration };
@@ -105,6 +106,11 @@ function effects(_f: ReturnType<typeof fixture>) {
     })),
     appendDisposition: vi.fn(async () => {
       events.push('ledger');
+    }),
+    prepareFreshAllocation: vi.fn(async (_plan, original) => {
+      original.assertCurrent();
+      events.push('provision');
+      original.assertCurrent();
     }),
   };
   return {
@@ -160,6 +166,15 @@ describe('incident-specific native capacity disposition', () => {
     expect(() =>
       createContainedNativeDispositionPlan({ ...f.facts, archiveRoot: root + '/archive' }),
     ).toThrow();
+    expect(() =>
+      createContainedNativeDispositionPlan({ ...f.facts, acceptedController: 'c'.repeat(40) }),
+    ).toThrow();
+    expect(() =>
+      createContainedNativeDispositionPlan({
+        ...f.facts,
+        runtimeConfigurationSha256: 'd'.repeat(64),
+      }),
+    ).toThrow();
     f.registry.close();
   });
   it('holds the original guard and rechecks physical evidence after purpose-specific authentication before granting one reservation', async () => {
@@ -173,6 +188,10 @@ describe('incident-specific native capacity disposition', () => {
       'prior',
       'physical',
       'auth',
+      'source',
+      'physical',
+      'prior',
+      'provision',
       'source',
       'physical',
       'prior',
@@ -216,6 +235,7 @@ describe('incident-specific native capacity disposition', () => {
     'verifyCompletedContainment',
     'authenticateNativeAllocation',
     'appendDisposition',
+    'prepareFreshAllocation',
   ])('refuses failed %s before reservation', async (name) => {
     const f = fixture(),
       { e } = effects(f);

@@ -59,6 +59,7 @@ const factsSchema = z.strictObject({
   acceptedController: commit,
   controllerInventorySha256: sha,
   runtimeConfigurationSha256: sha,
+  provisioningPlanSha256: sha,
   registration: registrationSchema,
 });
 function stable(value: unknown): unknown {
@@ -97,7 +98,9 @@ export function createContainedNativeDispositionPlan(input: unknown) {
     facts.registration.planDirectory !==
       canonicalNativeAllocationPaths(canonicalRoot, facts.allocation).planDirectory ||
     facts.operation === facts.allocation ||
-    facts.registration.sourceCommit === facts.original.sourceCommit
+    facts.registration.sourceCommit === facts.original.sourceCommit ||
+    facts.acceptedController !== facts.registration.sourceCommit ||
+    facts.runtimeConfigurationSha256 !== facts.registration.configSha256
   )
     throw refuse();
   const proposal = {
@@ -146,6 +149,13 @@ export interface ContainedNativeDispositionEffects {
   /** Append-only incident-specific ledger under the ORIGINAL deployment guard;
    * must CAS unchanged original row and capacity1. A ledger never mints a lease. */
   appendDisposition(plan: ContainedNativeDispositionPlan): Promise<void>;
+  /** Same original authenticated guard, before capacity lease issuance. Must
+   * compose the plan-bound stock local-image initializer and actual fresh VM
+   * identity capture; no start, parent JSON grant, or archived-state reuse. */
+  prepareFreshAllocation(
+    plan: ContainedNativeDispositionPlan,
+    original: Readonly<{ assertCurrent(): void }>,
+  ): Promise<void>;
 }
 interface Grant {
   plan: ContainedNativeDispositionPlan;
@@ -177,6 +187,7 @@ export function createContainedNativeDispositionOwner(effects: ContainedNativeDi
     'authenticateNativeAllocation',
     'consumeOperatorAuthority',
     'appendDisposition',
+    'prepareFreshAllocation',
   ] as const)
     if (typeof effects?.[name] !== 'function') throw refuse();
   let attempted = false;
@@ -205,6 +216,14 @@ export function createContainedNativeDispositionOwner(effects: ContainedNativeDi
           assertGuard();
           auth!.assertCurrent();
         };
+        current();
+        await effects.assertAcceptedSource(plan);
+        current();
+        await effects.verifyCompletedContainment(plan);
+        current();
+        await effects.assertNoPriorDisposition(plan);
+        current();
+        await effects.prepareFreshAllocation(plan, Object.freeze({ assertCurrent: current }));
         current();
         await effects.assertAcceptedSource(plan);
         current();
