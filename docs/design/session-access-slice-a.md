@@ -22,7 +22,7 @@ are references only. The subsequent merge is authorized separately; deployment r
 
 ## Capability/evidence matrix
 
-Initial supported live route: an ordinary Claude SDK session with a live registry owner and
+The first delivery supported an ordinary Claude SDK session with a live registry owner and
 exact matching durable session ID, behind the existing operator authentication boundary.
 Empty ordinary chat remains supported before a session, output or Telos item exists.
 
@@ -168,3 +168,42 @@ runtime revision is v1.0.60, avoiding reuse of the two branches' different v1.0.
 contracts. No frontend code changed in this reconciliation, so the completed
 261-check rendered UI run remains applicable; hosted CI and exact-head review
 are required again.
+
+## Codex continuation for Luna-compatible ordinary accounts
+
+This read-only increment begins from accepted main `a8c294da4fe4df47de0c76acf5eec4455f941c7a`.
+It consumes existing ordinary Codex execution ownership; it does not activate the dormant
+local target catalog, picker or first-command admission. Model choice remains the existing
+account's supported catalog and validation, including Luna when that account permits it.
+
+| Fact                                | Codex authority                                                                                 | Projection boundary                                                                                                                                  |
+| ----------------------------------- | ----------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Runtime owner                       | Exact registry session and its `getCodexRuntime` instance                                       | Initialized thread only; lost/closed transport, recovery, pending thread ownership and Symposium owners yield Unknown                                |
+| Account                             | Native verified binding inside the runtime                                                      | Account ID/provider/profile revision must match the exact managed session; no credential/email/workspace/profile payload is exposed                  |
+| Model                               | Verified thread/start or resume response; subsequently acknowledged turn/start selection        | Last acknowledged selection is separate from an unaccepted or queued future model; it is not a fresh provider authorization probe or billing receipt |
+| Execution location                  | The owning `openCodexChat` client-launcher branch                                               | Local/OpenShell provenance does not establish per-seat isolation; search policy/configured targets supply no fallback                                |
+| Mode, approvals, host ceiling       | Restrictive effective mode, session allow-list, active host policy, exact-session pending queue | Mitzo host scope only; native Codex permissions remain Unknown and restricted native skill ceilings remain unsupported                               |
+| Services, full tool surface, limits | No complete session read authority in this slice                                                | Unknown; configured Connections and observed transcript tool names do not establish availability                                                     |
+
+Observation reads invoke no provider RPC, discover/sign-in call, queue admission, reattachment,
+thread creation, grant mutation, capture or publication. Returned metadata is copied. Missing
+live proof cannot be filled from durable selection or cached account capability metadata.
+The shared Access dialog retains composer state and uses the Connections facts/components.
+Pending approvals return to their existing controls; there is no new approval action.
+
+Test-first evidence: the initial observation/projection contracts failed (5 cases), then passed.
+The UI label contract and empty-host-ceiling case failed before their corrections. Launcher
+provenance separately failed when location was inferred from search policy. Focused mocked
+lifecycle/source checks passed (205 before the final provenance tightening, then 12 focused
+checks); UI/design checks passed (112). The initial guarded source build passed under v1.0.67;
+final broad build and compiled-app renders run in hosted CI under current host pressure.
+CI retains the Access/Connections captures for actual mobile/desktop visual inspection.
+
+The canonical staging check still refuses with uncertain custodian check/drain. Resource
+observation reports memory pressure and refuses host admission. No live model call or test
+charge occurred. This implementation supports observing existing Codex sessions; live Luna
+acceptance still requires a qualified canonical staging account/route, an explicitly supported
+Luna selection, and naming the exact model and charged account before the call. The existing
+merge hold and resource-aware source gate remain in force; deployment/live acceptance is
+separate from implementation and reviewed source acceptance. Later retention/release slices
+remain gated.
