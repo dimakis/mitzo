@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import type { PermissionRequest, UserQuestion } from '@mitzo/protocol';
 import type { PermissionResult } from '@anthropic-ai/claude-agent-sdk';
-import { registerPending, resolvePending, hasPending } from './permissions.js';
+import { registerPending, removePending, hasPending } from './permissions.js';
 import { sendPermissionNotification, isConfigured as ntfyConfigured } from './notify.js';
 import {
   sendPermissionNotification as pushoverSendPermission,
@@ -257,8 +257,8 @@ export function buildPermissionHandler(
           addToAllowList(session.sessionAllowList, toolName);
         }
         const resolved = { type: resolutionEvent, permId, sessionId: session.sessionId };
-        transportSend(session.transport, resolved);
-        for (const observer of session.observers) transportSend(observer, resolved);
+        for (const transport of new Set([session.transport, ...session.observers]))
+          transportSend(transport, resolved);
         resolve(result);
         return result;
       };
@@ -266,7 +266,11 @@ export function buildPermissionHandler(
       const onAbort = () => {
         if (hasPending(permId)) {
           resolutionEvent = 'permission_timeout';
-          resolvePending(permId, 'deny');
+          removePending(permId);
+          wrappedResolve({
+            behavior: 'deny',
+            message: 'Tool approval cancelled because the operation was aborted',
+          });
         }
       };
       opts.signal.addEventListener('abort', onAbort, { once: true });
@@ -308,10 +312,16 @@ export function buildPermissionHandler(
       const timeout = setTimeout(() => {
         if (hasPending(permId)) {
           resolutionEvent = 'permission_timeout';
-          resolvePending(permId, 'deny');
+          removePending(permId);
+          wrappedResolve({
+            behavior: 'deny',
+            message: 'Tool approval expired without a response; request approval again',
+          });
         }
       }, PERMISSION_TIMEOUT_MS);
-      transportSend(session.transport, { type: 'permission_request', ...request });
+      const event = { type: 'permission_request', ...request };
+      for (const transport of new Set([session.transport, ...session.observers]))
+        transportSend(transport, event);
     });
   };
 }

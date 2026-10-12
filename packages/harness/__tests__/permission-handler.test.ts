@@ -342,6 +342,79 @@ describe('buildPermissionHandler', () => {
     expect(result.decisionClassification).toBe('user_temporary');
   });
 
+  it('delivers a live request to observers exactly once and lets their response allow the tool', async () => {
+    const owner = fakeTransport();
+    const observer = fakeTransport();
+    registry.register('client-1', {
+      transport: owner,
+      sessionId: 's1',
+      abortController: new AbortController(),
+      mode: 'agent',
+      sessionAllowList: new Set(),
+    });
+    const session = registry.get('client-1')!;
+    session.observers.add(owner);
+    session.observers.add(observer);
+    const pending = buildPermissionHandler('client-1', registry)(
+      'mcp__gws__search',
+      {},
+      {
+        signal: new AbortController().signal,
+        toolUseID: 'workspace-search',
+      },
+    );
+    await Promise.resolve();
+    expect(observer.sent).toEqual(owner.sent);
+    expect(observer.sent).toHaveLength(1);
+    resolvePending(observer.sent[0].permId as string, 'once', undefined, 's1');
+    expect(await pending).toMatchObject({ behavior: 'allow', updatedInput: {} });
+  });
+
+  it.each(['timeout', 'abort'])('does not report %s as a user denial', async (cause) => {
+    vi.useFakeTimers();
+    const transport = fakeTransport();
+    const abort = new AbortController();
+    registry.register('client-1', {
+      transport,
+      sessionId: 's1',
+      abortController: abort,
+      mode: 'agent',
+      sessionAllowList: new Set(),
+    });
+    const lifecycle = vi.fn();
+    const unsubscribe = onPermissionLifecycle(lifecycle);
+    try {
+      const pending = buildPermissionHandler('client-1', registry)(
+        'mcp__telos__save',
+        {},
+        {
+          signal: abort.signal,
+          toolUseID: 'telos-save',
+        },
+      );
+      await Promise.resolve();
+      const permId = transport.sent[0].permId as string;
+      if (cause === 'abort') abort.abort();
+      else await vi.advanceTimersByTimeAsync(120_000);
+      expect(await pending).toMatchObject({
+        behavior: 'deny',
+        message:
+          cause === 'abort'
+            ? 'Tool approval cancelled because the operation was aborted'
+            : 'Tool approval expired without a response; request approval again',
+      });
+      expect(lifecycle).toHaveBeenLastCalledWith({
+        type: 'resolved',
+        permId,
+        resolution: 'expired',
+      });
+      expect(resolvePending(permId, 'once')).toBe(false);
+    } finally {
+      unsubscribe();
+      vi.useRealTimers();
+    }
+  });
+
   it('denies when aborted', async () => {
     const transport = fakeTransport();
     const abort = new AbortController();
