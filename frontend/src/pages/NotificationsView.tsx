@@ -65,7 +65,7 @@ export function RequestDetail({
     try {
       sessionSearch = JSON.parse(request.toolInput).operation === 'search';
     } catch {
-      /* Unrecognized requests require ordinary one-shot review. */
+      /* Keep the ordinary server-described approval scope. */
     }
   }
   const answers = Object.fromEntries(
@@ -141,11 +141,12 @@ export function RequestDetail({
           <p>{request.description}</p>
           <pre className="notification-command">{request.toolInput}</pre>
           <p className="workspace-muted">
-            {request.approvalScope === 'conversation'
-              ? 'This request concerns conversation access. Review its scope in the session.'
-              : sessionSearch
-                ? 'Allow once, or allow searches on this account and model until the session ends. Website access stays separate.'
-                : 'Allow once covers only this request. The existing session policy still applies.'}
+            {request.sessionGrantDescription ||
+              (request.approvalScope === 'conversation'
+                ? 'This request concerns conversation access. Review its scope in the session.'
+                : sessionSearch
+                  ? 'Allow once, or allow searches on this account and model until the session ends. Website access stays separate.'
+                  : 'Allow once covers this request. Allow for session keeps this approval until the session ends.')}
           </p>
         </>
       )}
@@ -158,20 +159,20 @@ export function RequestDetail({
             <div className="notification-actions">
               {request?.approvalScope !== 'conversation' && (
                 <button
-                  className="notification-button notification-primary"
+                  className="notification-button"
                   disabled={busy || (!!request?.questions && !complete)}
                   onClick={() => onRespond('once', request?.questions ? answers : undefined)}
                 >
                   {request?.questions ? 'Send answer' : 'Allow once'}
                 </button>
               )}
-              {sessionSearch && (
+              {request && !request.questions && (
                 <button
                   className="notification-button"
                   disabled={busy}
                   onClick={() => onRespond('always')}
                 >
-                  Allow searches for this session
+                  {sessionSearch ? 'Allow searches for this session' : 'Allow for session'}
                 </button>
               )}
               <button
@@ -179,7 +180,7 @@ export function RequestDetail({
                 disabled={busy}
                 onClick={() => onRespond('deny')}
               >
-                Deny
+                {request?.questions ? 'Cancel' : 'Deny'}
               </button>
             </div>
           </>

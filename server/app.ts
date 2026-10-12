@@ -79,7 +79,10 @@ import { createCustodianProxy } from './symposium-custodian-proxy.js';
 import { createSessionMessagesHandler } from './session-messages-route.js';
 
 import { getConnectionRegistry } from './chat.js';
-import { publicationControllerApproval } from './symposium-publication-approval.js';
+import {
+  publicationControllerApproval,
+  clearPublicationControllerSessionGrants,
+} from './symposium-publication-approval.js';
 
 import { AccountAliases } from './account-aliases.js';
 
@@ -976,15 +979,19 @@ export function configureStagingFeatureOwner(
 }
 if (custodianControllerClient)
   app.use(
-    createCustodianProxy(custodianControllerClient, (req, session, conversationId) =>
-      publicationControllerApproval(
-        registry,
-        isTransportConnectionOwnedBy,
-        conversationId,
-        session.id,
-        req.header('x-connection-id'),
-        getConnectionRegistry() ?? undefined,
-      ),
+    createCustodianProxy(
+      custodianControllerClient,
+      (req, session, conversationId) =>
+        publicationControllerApproval(
+          registry,
+          isTransportConnectionOwnedBy,
+          conversationId,
+          session.id,
+          req.header('x-connection-id'),
+          getConnectionRegistry() ?? undefined,
+        ),
+      (conversationId, connectionId) =>
+        clearPublicationControllerSessionGrants(registry, conversationId, connectionId),
     ),
   );
 receiveCustodianEvents(broadcastDurableSymposiumEvent);
@@ -1008,6 +1015,8 @@ function getNativeService() {
   return (nativeService ??= createSymposiumCustodianService({
     workspaceRoot: BASE_REPO,
     broadcast: broadcastDurableSymposiumEvent,
+    onPublicationConsentInvalidated: (conversationId, connectionId) =>
+      clearPublicationControllerSessionGrants(registry, conversationId, connectionId),
   }));
 }
 export type { SymposiumProductionHost } from './symposium-custodian-service.js';
@@ -2143,6 +2152,7 @@ app.use(
 
 app.delete('/api/sessions/:id', (req, res) => {
   hideSession(req.params.id as string);
+  clearPublicationControllerSessionGrants(registry, req.params.id as string);
   overviewEmitter?.scheduleBroadcast();
   sseRegistry.broadcast('sessions_changed', {});
   res.json({ ok: true });
@@ -2399,6 +2409,7 @@ app.get('/api/sessions/:id/events', (req, res) => {
 
 app.delete('/api/sessions', (_req, res) => {
   hideAllSessions();
+  clearPublicationControllerSessionGrants(registry);
   overviewEmitter?.scheduleBroadcast();
   sseRegistry.broadcast('sessions_changed', {});
   res.json({ ok: true });

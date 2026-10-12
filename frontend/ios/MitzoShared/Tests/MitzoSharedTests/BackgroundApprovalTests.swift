@@ -51,5 +51,21 @@ private func reviewedResponse(actionID: String, item: MitzoNotification, expecte
     #expect(reviewedResponse(actionID: "ALLOW_ONCE_ACTION", item: item, expectedSessionID: "s1", at: 999)?.decision == .once)
     #expect(reviewedResponse(actionID: "DENY_PERMISSION_ACTION", item: item, expectedSessionID: "s1", at: 999)?.decision == .deny)
     #expect(reviewedResponse(actionID: "ALLOW_SEARCH_SESSION_ACTION", item: item, expectedSessionID: "s1", at: 999) == nil)
+    #expect(reviewedResponse(actionID: "ALLOW_SESSION_ACTION", item: item, expectedSessionID: "s1", at: 999)?.decision == .session)
     #expect(backgroundApprovalResponse(actionID: "ALLOW_ONCE_ACTION", item: item, expectedSessionID: "s1", reviewedToolName: "Bash", reviewedInput: "different command", at: 999) == nil)
+}
+
+@Test func backgroundWebsiteSessionRetentionIsDistinctFromSearchConsent() throws {
+    let item = try approval(operation: "fetch", scope: "request")
+    #expect(reviewedResponse(actionID: "ALLOW_SESSION_ACTION", item: item, expectedSessionID: "s1", at: 999)?.decision == .session)
+    #expect(reviewedResponse(actionID: "ALLOW_SEARCH_SESSION_ACTION", item: item, expectedSessionID: "s1", at: 999) == nil)
+}
+
+@Test func backgroundSessionRetentionRequiresTheSameDisplayedScope() throws {
+    let object: [String: Any] = ["id": "permission:p1", "kind": "approval", "title": "Shell", "body": "Session", "sessionId": "s1", "createdAt": 1,
+        "request": ["permId": "p1", "toolName": "Bash", "toolInput": "npm test", "sessionGrantDescription": "Workspace shell until the session ends"]]
+    let item = try JSONDecoder().decode(MitzoNotification.self, from: JSONSerialization.data(withJSONObject: object))
+    #expect(backgroundApprovalResponse(actionID: "ALLOW_SESSION_ACTION", item: item, expectedSessionID: "s1", reviewedToolName: "Bash", reviewedInput: "npm test", at: 999) == nil)
+    #expect(backgroundApprovalResponse(actionID: "ALLOW_SESSION_ACTION", item: item, expectedSessionID: "s1", reviewedToolName: "Bash", reviewedInput: "npm test", reviewedSessionGrantDescription: "Different connection", at: 999) == nil)
+    #expect(backgroundApprovalResponse(actionID: "ALLOW_SESSION_ACTION", item: item, expectedSessionID: "s1", reviewedToolName: "Bash", reviewedInput: "npm test", reviewedSessionGrantDescription: "Workspace shell until the session ends", at: 999)?.decision == .session)
 }

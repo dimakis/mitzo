@@ -196,6 +196,8 @@ export const SYMPOSIUM_CUSTODIAN_SERVICE_PROTOCOL_VERSION = 1;
 export function createSymposiumCustodianService(options: {
   workspaceRoot: string;
   broadcast?: CustodianBroadcast;
+  /** Source-owned standalone ordinary delegate only; this narrows consent. */
+  onPublicationConsentInvalidated?: (conversationId: string, connectionId?: string) => void;
 }) {
   const workspaceRoot = options.workspaceRoot;
   if (
@@ -1079,6 +1081,7 @@ export function createSymposiumCustodianService(options: {
     '/api/sessions/:id/symposium/publication',
     operatorAuthMiddleware,
     createPublicationRouter({
+      onConsentInvalidated: options.onPublicationConsentInvalidated,
       onPublicationCompleted: (sessionId, publication, operation) =>
         symposiumAccessRequests.publicationCompleted(sessionId, publication, operation),
       registration: () => symposiumPublication,
@@ -1092,27 +1095,6 @@ export function createSymposiumCustodianService(options: {
       store: symposiumReviewStore,
       actionAuthority: symposiumReviewActionAuthority,
       currentHost: () => symposiumProductionHost,
-      /** Dispose only a never-installed, inactive semantic fixture/service. This
-       * is not physical native retirement and cannot authorize another owner. */
-      closeUninstalledService() {
-        if (
-          symposiumProductionHost ||
-          symposiumSessionRuntimes.size ||
-          retainedCustodianSessions.size ||
-          stagingFeatureOwner
-        )
-          throw Error('Installed original native owner requires actual retirement');
-        releaseContextPacks();
-        symposiumAccessRequests.close();
-        symposiumProfileProposalStore.close();
-        symposiumAgentContextStore.close();
-        symposiumProfileStore.close();
-        symposiumHostGrants.close();
-        symposiumReviewStore.close();
-        agentLibrary.close();
-        codexStore.close();
-        eventStore.close();
-      },
       runtime: (sessionId) => symposiumRuntimeForSession(sessionId),
       hasSession: (sessionId) => eventStore.getSession(sessionId)?.sessionType === 'symposium',
     }),

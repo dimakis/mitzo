@@ -60,9 +60,10 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
             identifier: "SESSION_PERMISSION", actions: [reviewAction], intentIdentifiers: [], options: []
         )
         let onceAction = UNNotificationAction(identifier: "ALLOW_ONCE_ACTION", title: "Allow once", options: [.authenticationRequired])
+        let sessionAction = UNNotificationAction(identifier: "ALLOW_SESSION_ACTION", title: "Allow for session", options: [.authenticationRequired])
         let searchAction = UNNotificationAction(identifier: "ALLOW_SEARCH_SESSION_ACTION", title: "Allow searches for session", options: [.authenticationRequired])
         let denyAction = UNNotificationAction(identifier: "DENY_PERMISSION_ACTION", title: "Deny", options: [.destructive, .authenticationRequired])
-        let approvalCategory = UNNotificationCategory(identifier: "SESSION_APPROVAL", actions: [onceAction, denyAction, reviewAction], intentIdentifiers: [], options: [])
+        let approvalCategory = UNNotificationCategory(identifier: "SESSION_APPROVAL", actions: [onceAction, sessionAction, denyAction, reviewAction], intentIdentifiers: [], options: [])
         let searchCategory = UNNotificationCategory(identifier: "SESSION_SEARCH_PERMISSION", actions: [onceAction, searchAction, denyAction, reviewAction], intentIdentifiers: [], options: [])
         let updateCategory = UNNotificationCategory(
             identifier: "NOTIFICATION_UPDATE", actions: [viewAction], intentIdentifiers: [], options: []
@@ -167,7 +168,7 @@ private class BackgroundApprovalDelegate: NSObject, UNUserNotificationCenterDele
     func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
                                 withCompletionHandler completionHandler: @escaping () -> Void) {
         let action = response.actionIdentifier
-        guard ["ALLOW_ONCE_ACTION", "ALLOW_SEARCH_SESSION_ACTION", "DENY_PERMISSION_ACTION"].contains(action) else {
+        guard ["ALLOW_ONCE_ACTION", "ALLOW_SESSION_ACTION", "ALLOW_SEARCH_SESSION_ACTION", "DENY_PERMISSION_ACTION"].contains(action) else {
             forward(response, completionHandler: completionHandler)
             return
         }
@@ -182,7 +183,7 @@ private class BackgroundApprovalDelegate: NSObject, UNUserNotificationCenterDele
                 let api = MitzoAPIClient(baseURL: server, authManager: AuthManager())
                 let item = try await api.getNotification(id: id)
                 guard item.id == id, let decision = backgroundApprovalResponse(actionID: action, item: item, expectedSessionID: sessionID,
-                    reviewedToolName: info["approvalToolName"] as? String, reviewedInput: info["approvalInput"] as? String) else {
+                    reviewedToolName: info["approvalToolName"] as? String, reviewedInput: info["approvalInput"] as? String, reviewedSessionGrantDescription: info["approvalSessionGrantDescription"] as? String) else {
                     throw MitzoAPIClient.APIError.invalidResponse
                 }
                 try await api.respondNotification(id: id, response: decision)

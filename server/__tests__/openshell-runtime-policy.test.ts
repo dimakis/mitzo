@@ -4,7 +4,11 @@ import { connectionTemplateRegistry } from '../connections/registry.js';
 import { renderCustomRestProfile } from '../connections-gateway.js';
 import { supportsConnectionRuntimeTemplate } from '../connections/runtime-profiles.js';
 import { expect, it } from 'vitest';
-import { attestEffectiveRuntimePolicy, runtimePolicyHash } from '../openshell-runtime-policy.js';
+import {
+  attestEffectiveRuntimePolicy,
+  runtimePolicyHash,
+  verifiedRuntimeServiceEnvironment,
+} from '../openshell-runtime-policy.js';
 import { base, fixture, type Profile } from './fixtures/effective-runtime-policy.js';
 import type { RuntimePolicyProvider } from '../openshell-runtime-policy.js';
 it('attests the actual canary serializer/profile materialization without losing base or credential inspection', () => {
@@ -270,4 +274,21 @@ it('accepts only documented false Jira protobuf defaults while preserving exact 
   (f.providers[1].profile.endpoints as Record<string, unknown>[])[0].allow_uninspected_credentials =
     true;
   expect(() => attestEffectiveRuntimePolicy(base, f.observed, f.providers)).toThrow();
+});
+
+it('derives required service names from reviewed profiles and excludes inference credentials', () => {
+  const f = fixture(['mitzo-openai-keychain-spike', 'github', 'mitzo-google-workspace-spike']);
+  const required = verifiedRuntimeServiceEnvironment(
+    base,
+    f.observed,
+    f.providers,
+    f.providers[0].name,
+  );
+  expect(required).toContain('GOOGLE_WORKSPACE_CLI_TOKEN');
+  expect(required).not.toContain('OPENAI_API_KEY');
+  const google = f.providers.find((p) => p.type === 'mitzo-google-workspace-spike')!;
+  (google.profile as Profile).credentials[0].env_vars = ['TOKEN;touch /tmp/unreviewed'];
+  expect(() =>
+    verifiedRuntimeServiceEnvironment(base, f.observed, f.providers, f.providers[0].name),
+  ).toThrow();
 });

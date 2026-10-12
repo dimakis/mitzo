@@ -32,6 +32,7 @@ export function createCustodianProxy(
     auth: AuthSession,
     sessionId: string,
   ) => CapabilityApproval | undefined,
+  publicationConsentInvalidated?: (sessionId: string, connectionId: string) => void,
 ): RequestHandler {
   return (req, res, next) => {
     const selected = selectCustodianOperation(req.method, req.path);
@@ -143,6 +144,18 @@ export function createCustodianProxy(
           if (invalidated || auth.expiresAt <= Date.now()) {
             res.status(403).json({ error: 'Operator authorization expired or revoked' });
             return;
+          }
+          const effect = result.body as Record<string, unknown> | null;
+          if (
+            result.status >= 200 &&
+            result.status < 300 &&
+            input.sessionId &&
+            effect &&
+            typeof effect.connectionId === 'string' &&
+            ((input.operation === 'publication.revoke' && effect.revoked === true) ||
+              (input.operation === 'publication.disconnect' && effect.disconnected === true))
+          ) {
+            publicationConsentInvalidated?.(input.sessionId, effect.connectionId);
           }
           res.status(result.status).json(result.body);
         } catch {

@@ -9,7 +9,7 @@ import Testing
 }
 
 @Test func watchBackgroundActionsNeverNavigateOrSubmitTwice() {
-    for action in ["ALLOW_ONCE_ACTION", "ALLOW_SEARCH_SESSION_ACTION", "DENY_PERMISSION_ACTION", "LATER_ACTION", "com.apple.UNNotificationDismissActionIdentifier", "unknown"] {
+    for action in ["ALLOW_ONCE_ACTION", "ALLOW_SESSION_ACTION", "ALLOW_SEARCH_SESSION_ACTION", "DENY_PERMISSION_ACTION", "LATER_ACTION", "com.apple.UNNotificationDismissActionIdentifier", "unknown"] {
         #expect(WatchNotificationDestination(actionID: action, notificationID: "permission:p1", sessionID: "s1") == nil)
     }
     #expect(WatchNotificationDestination(actionID: "VIEW_ACTION", notificationID: "", sessionID: "") == nil)
@@ -41,7 +41,19 @@ private func watchApproval(input: String = "npm test", session: String = "s1", s
     #expect(watchNotificationResponse(reviewed: reviewed, current: reviewed, decision: .once, at: 999)?.decision == .once)
     for changed in [try watchApproval(input: "rm changed"), try watchApproval(session: "s2"), try watchApproval(resolved: true), try watchApproval(scope: "conversation")] {
         #expect(watchNotificationResponse(reviewed: reviewed, current: changed, decision: .once, at: 999) == nil)
+        #expect(watchNotificationResponse(reviewed: reviewed, current: changed, decision: .session, at: 999) == nil)
     }
     #expect(watchNotificationResponse(reviewed: reviewed, current: reviewed, decision: .once, at: 1000) == nil)
-    #expect(watchNotificationResponse(reviewed: reviewed, current: reviewed, decision: .session, at: 999) == nil)
+    #expect(watchNotificationResponse(reviewed: reviewed, current: reviewed, decision: .session, at: 1000) == nil)
+    for scope in ["request", "session", "conversation"] {
+        let item = try watchApproval(scope: scope)
+        #expect(watchNotificationResponse(reviewed: item, current: item, decision: .session, at: 999)?.decision == .session)
+    }
+}
+
+@Test func watchSessionRetentionDoesNotAuthorizeQuestions() throws {
+    let object: [String: Any] = ["id": "permission:q1", "kind": "question", "title": "Choose", "body": "Session", "sessionId": "s1", "createdAt": 1,
+        "request": ["permId": "q1", "toolName": "AskUserQuestion", "toolInput": "", "questions": [["id": "q", "question": "Choose?", "options": [["label": "Yes"]]]]]]
+    let item = try JSONDecoder().decode(MitzoNotification.self, from: JSONSerialization.data(withJSONObject: object))
+    #expect(watchNotificationResponse(reviewed: item, current: item, decision: .session, at: 999) == nil)
 }

@@ -317,6 +317,39 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     reviewedOutbox?.rejectAll('Authentication expired. Sign in again to retry.');
   }
   const parserState: ProtocolParserState = { currentSessionId: undefined };
+  // Transport acceptance does not confirm a permission decision. A later
+  // authoritative pending snapshot must let the operator retry, never resend.
+  const unconfirmedPermissionResponses = new Map<string, string | undefined>();
+  function normalizePermissionAction(action: MessagesAction): MessagesAction {
+    if (action.type === 'PERMISSION_REJECTED' || action.type === 'PERMISSION_TIMEOUT') {
+      unconfirmedPermissionResponses.delete(action.permId);
+    }
+    if (action.type !== 'PERMISSION_SNAPSHOT') return action;
+    const current = store.getState().messages;
+    const previous = [current.permission, ...(current.permissionQueue ?? [])];
+    return {
+      ...action,
+      permissions: action.permissions
+        .filter((permission) => permission && typeof permission.permId === 'string')
+        .map((permission) => {
+          const expectedSession = unconfirmedPermissionResponses.get(permission.permId);
+          if (
+            unconfirmedPermissionResponses.has(permission.permId) &&
+            (!expectedSession || !permission.sessionId || permission.sessionId === expectedSession)
+          ) {
+            unconfirmedPermissionResponses.delete(permission.permId);
+            return {
+              ...permission,
+              responseError: 'This decision was not confirmed. Review the request and try again.',
+            };
+          }
+          const error = previous.find((item) => item?.permId === permission.permId)?.responseError;
+          return error && permission.responseError === undefined
+            ? { ...permission, responseError: error }
+            : permission;
+        }),
+    };
+  }
 
   let historyRequest = 0;
   let historyAbort: AbortController | undefined;
@@ -643,7 +676,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     getTransportConnectionId: () => connection.getConnectionId(),
 
     dispatchMessages(action: MessagesAction) {
-      set((s) => ({ messages: messagesReducer(s.messages, action) }));
+      set((s) => ({ messages: messagesReducer(s.messages, normalizePermissionAction(action)) }));
     },
 
     getConnectionId() {
@@ -651,6 +684,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     },
 
     async switchSession(id: string) {
+      if (id !== parserState.currentSessionId) unconfirmedPermissionResponses.clear();
       const request = ++historyRequest;
       openingHistory = { sessionId: id, request, actions: [] };
       recoveryInFlight = false;
@@ -764,6 +798,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     },
 
     newSession() {
+      unconfirmedPermissionResponses.clear();
       ++historyRequest;
       recoveryInFlight = false;
       historyAbort?.abort();
@@ -957,13 +992,26 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       decision: 'once' | 'always' | 'deny',
       answers?: import('@mitzo/protocol').QuestionAnswers,
     ) {
-      connection.send({
-        type: 'permission_response',
-        ...(parserState.currentSessionId ? { sessionId: parserState.currentSessionId } : {}),
-        permId,
-        decision,
-        ...(answers ? { answers } : {}),
-      });
+      get().dispatchMessages({ type: 'PERMISSION_RESPONDING', permId });
+      unconfirmedPermissionResponses.set(permId, parserState.currentSessionId);
+      let sent = false;
+      try {
+        sent = connection.send({
+          type: 'permission_response',
+          ...(parserState.currentSessionId ? { sessionId: parserState.currentSessionId } : {}),
+          permId,
+          decision,
+          ...(answers ? { answers } : {}),
+        });
+      } catch {
+        // A synchronous transport failure is also unconfirmed, not a decision.
+      }
+      if (!sent)
+        get().dispatchMessages({
+          type: 'PERMISSION_REJECTED',
+          permId,
+          error: 'Could not send this decision. Reconnect and try again.',
+        });
       // Only permission_resolved/timeout from the server dismisses the card.
     },
 
@@ -1635,7 +1683,8 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       }));
     }
 
-    for (const action of result.messagesActions) {
+    for (const incomingAction of result.messagesActions) {
+      const action = normalizePermissionAction(incomingAction);
       const opening = openingHistory;
       if (
         opening !== undefined &&

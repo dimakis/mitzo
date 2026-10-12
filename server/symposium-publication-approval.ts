@@ -1,7 +1,56 @@
 import { randomUUID } from 'node:crypto';
 import type { ConnectionRegistry, SessionRegistry } from '@mitzo/harness';
-import { capabilityApprovalForConversation } from './connections/capabilities/approval.js';
+import {
+  capabilityApprovalForConversation,
+  capabilitySessionGrantKey,
+} from './connections/capabilities/approval.js';
 import type { CapabilityApproval } from './connections/capabilities/types.js';
+// Logical conversations outlive the borrowed permission-registry runtime. This
+// stores only scoped consent, never an owner or authentication decision.
+interface ControllerConsent {
+  grants: Set<string>;
+  connections: Map<string, string>;
+  generations: Map<string, number>;
+}
+const controllerGrants = new WeakMap<SessionRegistry, Map<string, ControllerConsent>>();
+function conversationGrants(registry: SessionRegistry, conversationId: string): ControllerConsent {
+  let conversations = controllerGrants.get(registry);
+  if (!conversations) controllerGrants.set(registry, (conversations = new Map()));
+  let consent = conversations.get(conversationId);
+  if (!consent)
+    conversations.set(
+      conversationId,
+      (consent = { grants: new Set(), connections: new Map(), generations: new Map() }),
+    );
+  return consent;
+}
+
+/** Clear affected controller consent after trusted revocation, or all on logical close. */
+export function clearPublicationControllerSessionGrants(
+  registry: SessionRegistry,
+  conversationId?: string,
+  connectionId?: string,
+): void {
+  const conversations = controllerGrants.get(registry);
+  if (!conversations) return;
+  for (const [id, consent] of conversations) {
+    if (conversationId && id !== conversationId) continue;
+    const session = registry.findBySessionId(id, true)?.session;
+    for (const [key, connection] of consent.connections) {
+      if (connectionId && connection !== connectionId) continue;
+      session?.sessionAllowList.delete(key);
+      consent.grants.delete(key);
+      consent.connections.delete(key);
+    }
+    if (connectionId)
+      consent.generations.set(connectionId, (consent.generations.get(connectionId) ?? 0) + 1);
+    else {
+      consent.grants.clear();
+      conversations.delete(id);
+    }
+  }
+}
+
 /** Native conversations already own ConnectionRegistry watches. Borrow the existing
  * SessionRegistry permission-owner contract only during approval; no SDK dispatch,
  * parallel owner map or durable controller session is introduced. */
@@ -60,7 +109,7 @@ export function publicationControllerApproval(
         sessionId: conversationId,
         transport: watcher.transport,
         abortController: new AbortController(),
-        sessionAllowList: new Set(),
+        sessionAllowList: conversationGrants(registry, conversationId).grants,
         mode: 'agent',
         symposiumPublicationUsers: 0,
       });
@@ -98,12 +147,25 @@ export function publicationControllerApproval(
     try {
       current();
       combined.throwIfAborted();
+      const consent = conversationGrants(registry, conversationId);
+      const key = capabilitySessionGrantKey(request);
+      const generation = consent.generations.get(request.connectionId) ?? 0;
+      consent.connections.set(key, request.connectionId);
+      if (consent.grants.has(key)) session.sessionAllowList.add(key);
       const decision = await capabilityApprovalForConversation(registry, conversationId)(
         request,
         combined,
       );
       current();
       combined.throwIfAborted();
+      if (
+        controllerGrants.get(registry)?.get(conversationId) !== consent ||
+        (consent.generations.get(request.connectionId) ?? 0) !== generation
+      ) {
+        session.sessionAllowList.delete(key);
+        throw new Error('Publication session consent changed during approval');
+      }
+      if (decision && session.sessionAllowList.has(key)) consent.grants.add(key);
       return decision;
     } finally {
       unsubscribe?.();
