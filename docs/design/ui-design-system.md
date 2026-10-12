@@ -155,3 +155,40 @@ Inbox keeps a reading surface of at least three shared control heights on phones
 The terminal retains the shell-owned masthead and uses one compact toolbar for its title, current destination, adviser, controls disclosure and options. Adviser and destination details start collapsed, preserving most of the remaining mobile viewport for output. The command composer retains its 44px controls; duplicate destination/input captions and routine connected metadata do not occupy a separate row. Connected status remains available to assistive technology; errors and reconnection actions remain visible.
 
 Use the shared motion presence helper for terminal disclosures and options without resetting drafts, account selections or subscriptions. A token-styled **Live output** action overlays the output only while history is being browsed. Swipe and wheel gestures operate on retained shell history, with labelled alternatives and an unconditional return-to-live action in Terminal options, including after navigation. Offline checks cover the compact layout, unchanged masthead, narrow phone widths, alternate appearance preferences, keyboard behaviour, output movement and return to live output without shell input. The sr-only clipping geometry and bounded popover width are structural exceptions; spacing, type, colors and control heights use shared tokens.
+
+## Draft image preview and drawing
+
+The shared composer opens draft images from its thumbnail strip and Sources drawer
+through `ImageAttachmentEditor`. The editor extends `HomeDialog` with a fullscreen
+class, retaining native modal focus, Escape dismissal, scroll locking and focus
+restoration. This interaction uses the same attachment state for every runtime.
+
+Keep preview selection separate from the labelled removal button: the image is a
+preview action, and its remove control has a distinct 44px target at the corner.
+Composer thumbnails use shared control/spacing tokens and are slightly larger than
+the prior 64px treatment. Drawer rows expose the same preview action without
+nesting the remove button inside it.
+
+The fullscreen surface uses semantic background/text/border colors, shared type,
+spacing and radius tokens, and the device safe areas. Drawing tools use `UiIcon`
+and labelled controls for Draw, Undo, Clear and pen color. Toolbars wrap or scroll
+within narrow and larger-text viewports; no action can fall below the safe area.
+Canvas dimensions follow the image aspect ratio, and pointer positions map to the
+original pixels rather than the displayed size. This is structural image geometry,
+not a new spacing or palette scale.
+
+Drawing remains a local draft until Save image exports a PNG attachment. Closing
+or cancelling preserves the original image and message text. Apply changes by
+attachment identity within the current conversation; removing that attachment or
+switching conversations must invalidate an outstanding edit. Preview keyboard
+input cannot submit or interrupt the chat behind the modal. Offline component
+and browser checks cover these behaviors across runtimes, mobile and desktop,
+light/dark themes, alternate appearance preferences and larger text.
+
+Offline acceptance captures show [the larger composer thumbnail and separate
+removal control](assets/image-composer-mobile-dark.png), [drawing on a narrow
+phone with larger text and alternate appearance](assets/image-drawing-mobile-light.png),
+and [the full-screen desktop preview](assets/image-preview-desktop-dark.png).
+The intercepted browser fixture checks saved PNG pixels and the exact attachment
+bytes submitted across four runtime bindings on mobile WebKit, mobile Chromium
+and desktop Chromium, without backend or provider calls.

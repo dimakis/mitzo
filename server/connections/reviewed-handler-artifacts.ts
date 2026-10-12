@@ -62,7 +62,14 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../agent-context-binding.ts': '4917ff83899105b7ac2c537c8db18111eeb97386d1ca0a2d2b576d872e1db360',
   '../symposium-personal-connection-router.ts':
     'f254cadb334bc75dbb19104fdb7ed2b3e46bf2856b81d29300fd4f45db02674e',
-  '../app.ts': 'b4d8c9fc2fde67c0818becf924ebc00d902c6376e173db9e3dc0d964c20e1e51',
+  // Request authority and physical review composition share runtime admission.
+  '../app.ts': 'e35d66b692d7131b23832265f513db97bb4c57b37988892232d0e7eb267fa4b2',
+  '../symposium-review-route-composition.ts':
+    'bc2cb2a85517a1f16279fd87757a97b9bb46a16d9efc5f15b52bf41a6f14cae3',
+  '../symposium-review-host-contract.ts':
+    'bd41408c8dfb9fe4a239fca2e35cf8366bc379e63c4a310d3593cf709a1920d3',
+  '../symposium-production-review-composition.ts':
+    '5d0e4d78e45cc6d9b3c601cc1f5587c469432bb3ec9edc0c70fb34153dedfc5e',
   '../ws-handler-v2.ts': '6dc83858d2c813bbce858301458ec0124248def3dfaf61e91a14fe09718517c9',
   '../briefings.ts': '277b26171abc42266a3b621ff7ab10306792764cb55bbc635e41c4ba20e98d49',
   '../home-router.ts': '744708f3503d3ef46114998ce9bb6a68b3068a3c7d57e0c264298cdb69aac982',

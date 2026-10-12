@@ -1,3 +1,7 @@
+import type {
+  SymposiumReviewPhysicalHost,
+  SymposiumReviewRouteHost,
+} from './symposium-review-host-contract.js';
 import { withAgentLibraryRecoveryAuthorization } from './agent-library-transport.js';
 import { terminalAccountRoute } from './terminal-account-route.js';
 import { TerminalAdviser } from './terminal-adviser.js';
@@ -31,17 +35,8 @@ import { createSymposiumSuccessorFixAuthority } from './symposium-artifact-succe
 import { createSymposiumReaderAuthorityBridge } from './symposium-reader-authority-bridge.js';
 import { createSymposiumProductionReviewComposition } from './symposium-production-review-composition.js';
 import type { InitialSourceExportReceipt } from './symposium-source-artifact-seal.js';
-import type {
-  ArtifactGenerationRequest,
-  ArtifactGenerationCopyReceipt,
-} from './symposium-artifact-generations.js';
-import type { ArtifactAdmissionBindingV1, ArtifactAdmissionReferenceV1 } from '@mitzo/protocol';
-import type {
-  PhysicalArtifactSealInput,
-  CompletedArtifactSeal,
-  SuccessorArtifactExportReceipt,
-} from './symposium-physical-artifact-seal.js';
-import { custodianRequestAuthority } from './symposium-custodian-authority.js';
+import type { ArtifactGenerationRequest } from './symposium-artifact-generations.js';
+import type { SuccessorArtifactExportReceipt } from './symposium-physical-artifact-seal.js';
 import {
   createSymposiumApplicationDispatchPolicy,
   selectSymposiumApplicationClaim,
@@ -110,17 +105,10 @@ import {
 
 import type { SandboxCreationFence } from './symposium-workspace-lifecycle.js';
 import type { ConnectionSelection } from './symposium-personal-connections.js';
-import {
-  createSymposiumReviewPublicationPreflight,
-  type ReviewPublicationDependencies,
-} from './symposium-review-publication.js';
 import { SymposiumReviewStore } from './symposium-review-workflows.js';
 import { SymposiumAccessRequests } from './symposium-access-tools.js';
 import { createSymposiumAccessRouter } from './symposium-access-router.js';
-import {
-  createSymposiumReviewRouter,
-  type SymposiumInteractiveReviewHost,
-} from './symposium-review-routes.js';
+import { createSymposiumReviewRouteComposition } from './symposium-review-route-composition.js';
 import { createSymposiumSessionRouter } from './symposium-session-create.js';
 import { createSubscriptionLoginController } from './symposium-subscription-login-route.js';
 import { AccountAliases } from './account-aliases.js';
@@ -187,8 +175,6 @@ import {
   SYMPOSIUM_SUBSCRIPTION_CONTROLLER_COMMAND,
   type VerifySymposiumSubscriptionAuth,
 } from './symposium-subscription-native.js';
-import type { SymposiumAttemptRegistry } from './symposium-attempt-registry.js';
-import type { SqliteArtifactLeaseHost } from './symposium-artifact-host.js';
 import type { ArtifactLeaseRequest } from './symposium-artifact-lease.js';
 import { createSymposiumDirectorRouter } from './symposium-director-routes.js';
 import { SymposiumHostGrants } from './symposium-host-grants.js';
@@ -1127,46 +1113,8 @@ export async function retireRetainedSymposiumRuntimes(identity: string, signal: 
   beginSymposiumShutdown();
   await drainRetainedSymposiumControllers(eventStore, symposiumSessionRuntimes, identity, signal);
 }
-export interface SymposiumProductionHost {
-  sourceImport?: import('./symposium-source-service.js').SymposiumSourceHost & {
-    requireSeal?(
-      sessionId: string,
-    ): ReturnType<
-      typeof import('./symposium-source-artifact-seal.js').requireCompletedImportedSourceSeal
-    >;
-    initialExport?(
-      sessionId: string,
-      operationId: string,
-    ): { receipt: InitialSourceExportReceipt; bundle: Buffer };
-  };
-  gateway?: { workspace: string };
-  sealSessionArtifacts?(
-    input: PhysicalArtifactSealInput,
-    runtime: object,
-    signal: AbortSignal,
-  ): Promise<CompletedArtifactSeal>;
-  recoverPendingArtifactSeal?(
-    input: PhysicalArtifactSealInput,
-    claimToken: string,
-    signal: AbortSignal,
-  ): Promise<CompletedArtifactSeal>;
-  exportSuccessorArtifactBundle?(
-    input: {
-      fenceId: string;
-      operationId: string;
-      sourceBranch: string;
-      baseBranch: string;
-      sourceOid: string;
-      maxBytes: number;
-    },
-    signal: AbortSignal,
-  ): Promise<{ receipt: SuccessorArtifactExportReceipt; bundle: Buffer }>;
-  copySuccessorArtifact?(
-    request: ArtifactGenerationRequest,
-    exported: InitialSourceExportReceipt | SuccessorArtifactExportReceipt,
-    bundle: Buffer,
-    signal: AbortSignal,
-  ): Promise<ArtifactGenerationCopyReceipt>;
+export interface SymposiumProductionHost
+  extends SymposiumReviewPhysicalHost, SymposiumReviewRouteHost {
   activateSuccessorArtifact?(
     request: ArtifactGenerationRequest,
     generationId: string,
@@ -1174,42 +1122,12 @@ export interface SymposiumProductionHost {
     bundle: Buffer,
     signal: AbortSignal,
   ): Promise<{ generationId: string; revision: number }>;
-  admitSuccessorArtifact?(
-    request: ArtifactGenerationRequest,
-    binding: ArtifactAdmissionBindingV1,
-    exported: InitialSourceExportReceipt | SuccessorArtifactExportReceipt,
-    bundle: Buffer,
-    signal: AbortSignal,
-  ): Promise<{ reference: ArtifactAdmissionReferenceV1; receipt: unknown }>;
-  inspectStoppedSuccessorOperation?(selected: {
-    sessionId: string;
-    transitionId: string;
-    workflowId: string;
-    attemptId: string;
-    kind: 'initial' | 'fix';
-  }): 'absent' | 'reserved' | 'copy_uncertain' | 'quarantined' | 'verified' | 'active' | null;
   publicationCredentials?: readonly PublicationCredentialRegistration[];
-  requireCompletedArtifactSeal?: CompletedPublicationHost['requireCompletedArtifactSeal'];
-  inspectCompletedArtifact?: CompletedPublicationHost['inspectCompletedArtifact'];
-  exportCompletedReviewContext?: import('./symposium-physical-artifact-seal.js').PhysicalArtifactSealer['exportCompletedReviewContext'];
-  releaseCompletedReviewStream?: import('./symposium-physical-artifact-seal.js').PhysicalArtifactSealer['releaseCompletedReviewStream'];
-  releaseReadyReviewStream?: import('./symposium-physical-artifact-seal.js').PhysicalArtifactSealer['releaseReadyReviewStream'];
-  releaseStoppedReadyReviewStream?: import('./symposium-physical-artifact-seal.js').PhysicalArtifactSealer['releaseStoppedReadyReviewStream'];
-  trackApplicationTransition?<T>(operation: () => Promise<T>): Promise<T>;
   exportCompletedArtifactBundle?: CompletedPublicationHost['exportCompletedArtifactBundle'];
-  checkCompletedArtifactFile?: import('./symposium-physical-artifact-seal.js').PhysicalArtifactSealer['checkCompletedArtifactFile'];
-  reconcileCompletedArtifactSemantic?: import('./symposium-physical-artifact-seal.js').PhysicalArtifactSealer['reconcileCompletedArtifactSemantic'];
-  getCompletedArtifactSemanticCheckState?: import('./symposium-physical-artifact-seal.js').PhysicalArtifactSealer['getCompletedArtifactSemanticCheckState'];
-  checkCompletedArtifactSemantic?: import('./symposium-physical-artifact-seal.js').PhysicalArtifactSealer['checkCompletedArtifactSemantic'];
-  criterionChecks?: readonly import('./symposium-criterion-receipts.js').CheckDefinition[];
   runSandboxCreation?: SandboxCreationFence;
   ensureSessionArtifacts?: (
     sessionId: string,
   ) => Promise<import('./symposium-session-artifacts.js').SessionArtifactPreparation>;
-  /** Optional until trusted execution/artifact review receipts are installed. */
-  reviewHost?: SymposiumInteractiveReviewHost;
-  /** Optional trusted read-only publication binding. No caller may supply these dependencies. */
-  reviewPublication?: Omit<ReviewPublicationDependencies, 'store'>;
   /** Dedicated upstream routing; never inherit the legacy chat gateway. */
   runtimeConfig: OpenShellRuntimeConfig;
   attestationPath: string;
@@ -1242,18 +1160,9 @@ export interface SymposiumProductionHost {
   readNativeObservation?: (
     claimToken: string,
   ) => import('./symposium-native-observations.js').NativeTurnObservation;
-  currentProfiles: () => AccountProfiles;
   verifySubscriptionPrivateAuth?: VerifySymposiumSubscriptionAuth;
   assertSubscriptionDispatch?: (input: Parameters<VerifySymposiumSubscriptionAuth>[0]) => void;
   physical: SymposiumProductionPhysicalProof;
-  attemptRegistry: SymposiumAttemptRegistry;
-  assertArtifactAdmissionCurrent?: (
-    sessionId: string,
-    reference:
-      | import('@mitzo/protocol').ArtifactAdmissionReferenceV1
-      | import('@mitzo/protocol').ArtifactReaderReferenceV1,
-  ) => void;
-  artifactLeaseHost: SqliteArtifactLeaseHost;
   preinitialSource?: (sessionId: string) => boolean;
   artifactReady?: (sessionId: string, seatId: string, generation: number) => boolean;
   artifactRequest(
@@ -1629,57 +1538,12 @@ app.use(
 );
 app.use(
   '/api/sessions/:id/symposium/reviews',
-  operatorAuthMiddleware,
-  createSymposiumReviewRouter({
+  createSymposiumReviewRouteComposition({
     store: symposiumReviewStore,
-    authorizeContext(req, res, context) {
-      const session = res.locals.authSession as AuthSession | undefined;
-      if (!session) throw new Error('Interactive authorization required');
-      const retained = custodianRequestAuthority(req);
-      let current = true;
-      const unregister = registerAuthSession(session, () => {
-        current = false;
-      });
-      const assertCurrent = () => {
-        if (!current || res.writableEnded || session.expiresAt <= Date.now())
-          throw new Error('Review request authorization expired');
-        if (retained && custodianRequestAuthority(req)?.id !== retained.id)
-          throw new Error('Custodian review request authority changed');
-      };
-      let release: (() => void) | undefined;
-      try {
-        release = symposiumReviewActionAuthority.bind(
-          context,
-          String(req.body?.action ?? ''),
-          assertCurrent,
-        );
-      } catch (error) {
-        unregister();
-        throw error;
-      }
-      const close = () => {
-        current = false;
-        release?.();
-        unregister();
-      };
-      res.once('close', close);
-      res.once('finish', close);
-      return context;
-    },
-    getPublicationPreflight: (sessionId) =>
-      symposiumProductionHost?.reviewHost &&
-      symposiumProductionHost.reviewPublication &&
-      symposiumRuntimeForSession(sessionId)
-        ? createSymposiumReviewPublicationPreflight({
-            ...symposiumProductionHost.reviewPublication,
-            store: symposiumReviewStore,
-          })
-        : null,
+    actionAuthority: symposiumReviewActionAuthority,
+    currentHost: () => symposiumProductionHost,
+    runtime: (sessionId) => symposiumRuntimeForSession(sessionId),
     hasSession: (sessionId) => eventStore.getSession(sessionId)?.sessionType === 'symposium',
-    getHost: (sessionId) =>
-      symposiumProductionHost?.reviewHost && symposiumRuntimeForSession(sessionId)
-        ? symposiumProductionHost.reviewHost
-        : null,
   }),
 );
 app.use(

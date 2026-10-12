@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { artifactAdmissionDigest } from '@mitzo/protocol/event-store';
 import type { ArtifactAdmissionReferenceV1 } from '@mitzo/protocol';
 import type { EventStore } from './event-store.js';
-import type { SymposiumProductionHost } from './app.js';
+import type { SymposiumReviewPhysicalHost } from './symposium-review-host-contract.js';
 import type { SymposiumReviewStore } from './symposium-review-workflows.js';
 import type { SymposiumHostGrants } from './symposium-host-grants.js';
 import type { SymposiumAttemptRegistry } from './symposium-attempt-registry.js';
@@ -30,7 +30,7 @@ import {
 } from './symposium-session-runtime.js';
 import { reconcileStoppedApplicationPreparation } from './symposium-stopped-preparation.js';
 
-type PhysicalHost = SymposiumProductionHost;
+type PhysicalHost = SymposiumReviewPhysicalHost;
 type Identity = { revision: string; hash: string };
 
 /** Stable original operation identity shared by execution and cleanup. */
