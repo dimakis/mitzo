@@ -22,6 +22,13 @@ export interface StagingNativeModelRequestReceipt {
   readonly policyRevision: string;
   readonly revokedAt: number;
 }
+/** Original deny-all preparation, required by native CreateSandbox/GetConfig.
+ * An opaque ID alone is not a grant; the actual native owner consumes the
+ * authenticated reserved-name capability before starting the sandbox. */
+export interface StagingNativeSandboxGuard {
+  readonly guardId: string;
+  assertCurrent(): void;
+}
 export interface StagingNativeModelAuthority {
   plan(input: {
     binding: AccountBinding;
@@ -29,6 +36,15 @@ export interface StagingNativeModelAuthority {
     maxRequests: 2;
     auxiliaryDispatches: 'disabled';
   }): StagingNativeModelPlan;
+  prepareSandbox(
+    plan: StagingNativeModelPlan,
+    input: {
+      sessionId: string;
+      claimToken: string;
+      sandboxName: string;
+      deadlineAt: number;
+    },
+  ): Promise<StagingNativeSandboxGuard>;
   issue(
     plan: StagingNativeModelPlan,
     input: {
@@ -38,6 +54,7 @@ export interface StagingNativeModelAuthority {
       sandboxName: string;
       sandboxId: string;
       deadlineAt: number;
+      preparedGuard: StagingNativeSandboxGuard;
     },
   ): Promise<{
     assertCurrent(): void;

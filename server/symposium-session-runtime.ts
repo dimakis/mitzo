@@ -348,6 +348,14 @@ export interface SymposiumSharedSandboxOwnerDeps {
   verifyHostCapability?: () => SymposiumProviderCapability;
   /** Original host fence for cleanup observations after this runtime closes admission. */
   verifyCleanupCapability?: () => SymposiumProviderCapability;
+  /** Actual original gateway provisional deny guard before native startup. */
+  stagingPrepareSandbox?: (input: {
+    sessionId: string;
+    seatId: string;
+    generation: number;
+    runtimeId: string;
+    sandboxName: string;
+  }) => Promise<{ assertCurrent(): void }>;
   verifiedSubscriptionControllerCommand?: readonly string[];
   verifySubscriptionPrivateAuth?: VerifySymposiumSubscriptionAuth;
   captureSubscriptionLaunchIdentity?: (
@@ -1011,15 +1019,29 @@ export class SymposiumPerSeatSandboxOwner {
             phase: creationPhase,
             failed,
           });
+        const provisional = await this.deps.stagingPrepareSandbox?.({
+          sessionId,
+          seatId,
+          generation: snapshot.generation,
+          runtimeId: snapshot.runtimeId,
+          sandboxName: sandboxNameForConversation(
+            snapshot.runtimeId,
+            this.deps.runtimeConfig.sandboxIdLength,
+          ),
+        });
+        provisional?.assertCurrent();
         const manager = atSymposiumReconciliationStage('SEAT_MANAGER_SETUP_FAILED', () =>
           (this.deps.managerFactory ?? ((config) => new OpenShellRuntimeManager(config)))({
             ...this.deps.runtimeConfig,
             ...(seatPolicy ? { policy: seatPolicy.path } : {}),
-            ...(this.deps.runSandboxCreation
+            ...(this.deps.runSandboxCreation || provisional
               ? {
                   beforeSandboxCreate: () => {
-                    if (!physicalDispatch) throw new Error('Missing sandbox dispatch fence');
-                    physicalDispatch();
+                    provisional?.assertCurrent();
+                    if (this.deps.runSandboxCreation) {
+                      if (!physicalDispatch) throw new Error('Missing sandbox dispatch fence');
+                      physicalDispatch();
+                    }
                   },
                 }
               : {}),

@@ -50,9 +50,14 @@ removal or adoption after restart.
 
 The original host collects the actual session-scoped physical/provider candidate.
 The actual app HostGrants activate a read-only reviewer, and the existing native
-runtime admits its membership generation, creates its owned sandbox, and obtains
-an exact original model budget bound to the sandbox and claim before opening a
-native turn. The fixed delivery requests only the fixture Read and its text.
+runtime admits its membership generation. Before any native manager/startup, an
+awaited original authority prepares a provisional deny-all inference guard for
+the exact original workspace/sandbox name/session/claim. Actual native
+CreateSandbox/GetSandboxConfig must consume that opaque original guard and
+install denial before process startup; a caller flag or bare ID does not grant
+inference. After the actual sandbox ID/current supervisor connection exists, the
+same original guard can issue the exact bounded model budget before a native
+turn. Missing native RPC transport, issuer or guard consumption remains a refusal. The fixed delivery requests only the fixture Read and its text.
 Codex's actual read-only configuration disables shell/exec, so this source adds
 one fixed Read through the existing native dynamic-tool bridge. Its original
 owner reads only the immutable nonce volume through a read-only, no-network
