@@ -1,9 +1,11 @@
+import { isDeepStrictEqual } from 'node:util';
 import { GeminiSession, type GeminiOptions } from './gemini-session.js';
 import type { AccountBinding } from '@mitzo/protocol';
 import {
   ResponsesSession,
   runAgenticLoop,
   type ContentBlock,
+  type ConversationMessage,
   type ModelSessionConfig,
   type ToolUseBlock,
   type ToolResultBlock,
@@ -62,7 +64,7 @@ export class NativeResponsesRunner {
   private prepared = new Map<
     string,
     {
-      prompt: string;
+      prompt: ConversationMessage['content'];
       state: NativeResponsesState;
       selection?: { model?: string; reasoningEffort?: string | null };
     }
@@ -112,7 +114,7 @@ export class NativeResponsesRunner {
    */
   prepare(
     messageId: string,
-    prompt: string,
+    prompt: ConversationMessage['content'],
     selection?: { model?: string; reasoningEffort?: string | null },
   ) {
     if (this.active || this.prepared.size)
@@ -127,17 +129,18 @@ export class NativeResponsesRunner {
       throw new Error('Native Responses conversation already running');
     state.status = 'running';
     recoverToolResults(state);
-    state.history.push({ role: 'user', content: prompt });
-    this.prepared.set(messageId, { prompt, state, selection });
+    const content = structuredClone(prompt);
+    state.history.push({ role: 'user', content });
+    this.prepared.set(messageId, { prompt: content, state, selection });
   }
   // Lazy generator: merely constructing it starts no work and holds no lease.
   // At first next(), both guards run synchronously before any await/yield.
-  async *run(prompt: string, signal?: AbortSignal, messageId?: string) {
+  async *run(prompt: ConversationMessage['content'], signal?: AbortSignal, messageId?: string) {
     if (this.active) throw new Error('Native Responses conversation already running');
     signal?.throwIfAborted();
     const opts = this.options;
     const prepared = messageId ? this.prepared.get(messageId) : undefined;
-    if (messageId && (!prepared || prepared.prompt !== prompt))
+    if (messageId && (!prepared || !isDeepStrictEqual(prepared.prompt, prompt)))
       throw new Error('Native Responses prepared message identity changed');
     if (messageId) this.prepared.delete(messageId);
     const state = prepared?.state ?? opts.store.begin(opts.conversationId, opts.binding);
@@ -154,7 +157,7 @@ export class NativeResponsesRunner {
         save();
       } else {
         recoverToolResults(state);
-        state.history.push({ role: 'user', content: prompt });
+        state.history.push({ role: 'user', content: structuredClone(prompt) });
         save();
       }
       const previousModel = this.selectedModel;

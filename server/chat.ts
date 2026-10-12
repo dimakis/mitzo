@@ -70,6 +70,7 @@ import {
   preflightProviderDispatch,
   type ProviderDispatchAdmission,
 } from './provider-execution.js';
+import { responsesUserContent } from './responses-input.js';
 import { CodexAppServerClient, codexEnvironment } from './codex-app-server-client.js';
 import { verifyCodexAccount, type CodexAccountProfile } from './codex-account.js';
 import {
@@ -1060,9 +1061,11 @@ function makeUserMessage(
   messageId?: string,
   providerAdmission?: ProviderDispatchAdmission,
   inputUuid?: SDKUserMessage['uuid'],
+  mitzoImages?: Array<{ data: string; mediaType: string }>,
 ): SDKUserMessage & {
   mitzoMessageId?: string;
   providerAdmission?: ProviderDispatchAdmission;
+  mitzoImages?: Array<{ data: string; mediaType: string }>;
 } {
   return {
     type: 'user',
@@ -1072,6 +1075,7 @@ function makeUserMessage(
     ...(messageId ? { mitzoMessageId: messageId } : {}),
     ...(providerAdmission ? { providerAdmission } : {}),
     ...(inputUuid ? { uuid: inputUuid } : {}),
+    ...(mitzoImages?.length ? { mitzoImages: structuredClone(mitzoImages) } : {}),
   };
 }
 
@@ -1381,8 +1385,7 @@ async function _startChatInner(
             providerId: profile.sandboxProviderId,
           }),
         );
-        if (options.images?.length)
-          throw new Error('OpenAI API image attachments are not yet supported');
+        responsesUserContent(prompt, options.images);
         if (openShellRequested) {
           if (!profile.sandboxProvider)
             throw new Error('The selected API account has no OpenShell provider binding');
@@ -1699,7 +1702,7 @@ async function _startChatInner(
   const fullPrompt = assemblePrompt(
     prompt,
     cwd,
-    codexProfile ? undefined : options.images,
+    codexProfile || nativeProviderSelected ? undefined : options.images,
     options.contextBlocks,
     options.sourceSnapshots,
   );
@@ -2206,6 +2209,9 @@ This is an independent checkout with its own Git storage, not a linked worktree.
       if (!initialProviderAdmission) {
         throw new Error('Native provider startup is missing durable command admission');
       }
+      const responsesRuntime = getResponsesRuntime(session);
+      if (!responsesRuntime) throw new Error('Native provider startup runtime is unavailable');
+      responsesRuntime.prepare(initialMessageId, responsesUserContent(fullPrompt, options.images));
       storeAndEchoIfNew(
         conversationId,
         initialMessageId,
@@ -2219,7 +2225,14 @@ This is an independent checkout with its own Git storage, not a linked worktree.
       );
       trackResponsesProviderAdmission(session, initialProviderAdmission, eventStore);
       inputQueue.push(
-        makeUserMessage(fullPrompt, 'now', initialMessageId, initialProviderAdmission),
+        makeUserMessage(
+          fullPrompt,
+          'now',
+          initialMessageId,
+          initialProviderAdmission,
+          undefined,
+          options.images,
+        ),
       );
       options.onStartupAdmission?.();
     } else {
@@ -2689,13 +2702,7 @@ function providerFingerprintSource(
   fullPrompt: string,
   images?: Array<{ data: string; mediaType: string }>,
 ): string {
-  let stablePrompt = fullPrompt;
-  if (images?.length) {
-    const stagedImageMarker = `\n\nI've attached ${images.length} image(s). Read them using the Read tool:\n`;
-    const markerIndex = fullPrompt.lastIndexOf(stagedImageMarker);
-    if (markerIndex >= 0) stablePrompt = fullPrompt.slice(0, markerIndex);
-  }
-  return JSON.stringify({ effectivePrompt: stablePrompt, images });
+  return JSON.stringify({ effectivePrompt: fullPrompt, images });
 }
 
 function terminalizeUndispatchedStartup(admission: ProviderDispatchAdmission | undefined): boolean {
@@ -2866,10 +2873,43 @@ export async function sendToChat(
       });
       return false;
     }
+    if (
+      responses &&
+      images?.length &&
+      session.sessionId &&
+      eventStore.getSession(session.sessionId)?.accountBinding?.provider === 'google-vertex'
+    ) {
+      send(session.transport, {
+        type: 'error',
+        sessionId: session.sessionId,
+        error: 'Gemini image attachments are not yet supported',
+      });
+      return false;
+    }
+    if (
+      images?.length &&
+      (responses ||
+        (codex &&
+          (session.accountBinding?.provider ??
+            (session.sessionId
+              ? eventStore.getSession(session.sessionId)?.accountBinding?.provider
+              : undefined)) === 'openai'))
+    ) {
+      try {
+        responsesUserContent(prompt, images);
+      } catch (error) {
+        send(session.transport, {
+          type: 'error',
+          sessionId: session.sessionId,
+          error: error instanceof Error ? error.message : 'Invalid API image attachment',
+        });
+        return false;
+      }
+    }
     const fullPrompt = assemblePrompt(
       prompt,
       session.cwd ?? '.',
-      codex ? undefined : images,
+      codex || responses ? undefined : images,
       contextBlocks,
       sourceSnapshots,
     );
@@ -2895,7 +2935,7 @@ export async function sendToChat(
         validateNativeModelSelection(session.sessionId, model, selectionReasoningEffort);
         const binding = eventStore.getSession(session.sessionId)?.accountBinding ?? undefined;
         const prepare = () =>
-          responses.prepare(messageId, fullPrompt, {
+          responses.prepare(messageId, responsesUserContent(fullPrompt, images), {
             ...(model ? { model } : {}),
             ...(selectionReasoningEffort !== undefined
               ? { reasoningEffort: selectionReasoningEffort }
@@ -3050,7 +3090,14 @@ export async function sendToChat(
           trackResponsesProviderAdmission(session, providerAdmission, eventStore);
         }
         session.inputQueue.push(
-          makeUserMessage(fullPrompt, 'next', responses ? messageId : undefined, providerAdmission),
+          makeUserMessage(
+            fullPrompt,
+            'next',
+            responses ? messageId : undefined,
+            providerAdmission,
+            undefined,
+            responses ? images : undefined,
+          ),
         );
       } catch (error) {
         failPreparedProviderCommand(error);
@@ -3111,10 +3158,43 @@ export async function interruptChat(
     if (!session?.queryInstance || !session?.inputQueue) return false;
     const codex = getCodexRuntime(session);
     const responses = getResponsesRuntime(session);
+    if (
+      responses &&
+      images?.length &&
+      session.sessionId &&
+      eventStore.getSession(session.sessionId)?.accountBinding?.provider === 'google-vertex'
+    ) {
+      send(session.transport, {
+        type: 'error',
+        sessionId: session.sessionId,
+        error: 'Gemini image attachments are not yet supported',
+      });
+      return false;
+    }
+    if (
+      images?.length &&
+      (responses ||
+        (codex &&
+          (session.accountBinding?.provider ??
+            (session.sessionId
+              ? eventStore.getSession(session.sessionId)?.accountBinding?.provider
+              : undefined)) === 'openai'))
+    ) {
+      try {
+        responsesUserContent(prompt, images);
+      } catch (error) {
+        send(session.transport, {
+          type: 'error',
+          sessionId: session.sessionId,
+          error: error instanceof Error ? error.message : 'Invalid API image attachment',
+        });
+        return false;
+      }
+    }
     const fullPrompt = assemblePrompt(
       prompt,
       session.cwd ?? '.',
-      codex ? undefined : images,
+      codex || responses ? undefined : images,
       contextBlocks,
       sourceSnapshots,
     );

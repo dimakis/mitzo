@@ -1,12 +1,13 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AccountProfiles } from '../account-profiles.js';
 
 const native = vi.hoisted(() => ({
-  prompts: [] as string[],
+  prompts: [] as unknown[],
   construct: vi.fn(),
+  prepare: vi.fn(),
   connect: vi.fn(async () => ({
     definitions: [],
     close: async () => {},
@@ -22,11 +23,18 @@ vi.mock('../native-responses-runner.js', () => ({
       native.construct(options);
     }
 
-    async *run(prompt: string) {
+    async *run(prompt: unknown) {
       native.prompts.push(prompt);
       yield { type: 'result', session_id: 'native-test' };
     }
 
+    prepare(...args: unknown[]) {
+      native.prepare(...args);
+    }
+    isRunning() {
+      return false;
+    }
+    abandon() {}
     interrupt() {}
     async waitUntilIdle() {}
   },
@@ -80,6 +88,7 @@ function stubBootContext() {
 afterEach(() => {
   native.prompts.length = 0;
   native.construct.mockReset();
+  native.prepare.mockReset();
   native.connect.mockClear();
   native.googleToken.mockClear();
   native.credentialResolve.mockReset().mockResolvedValue('private-test-key');
@@ -873,6 +882,109 @@ it('terminalizes admission when transcript acknowledgement fails before queue pu
     expect(native.prompts).toEqual([]);
     expect(chat.registry.get('transcript-failure')).toBeUndefined();
   } finally {
+    chat.registry.dispose();
+    chat.eventStore.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+it('admits OpenAI image startup and delivers pixels without staging Read-tool paths', async () => {
+  vi.resetModules();
+  const root = await mkdtemp(join(tmpdir(), 'mitzo-image-startup-'));
+  vi.stubEnv('REPO_PATH', root);
+  vi.stubEnv('WORKTREE_ENABLED', 'false');
+  vi.stubEnv('MITZO_CODEX_PRIVATE_DIR', join(root, 'private'));
+  stubBootContext();
+  const chat = await import('../chat.js');
+  const sent = vi.fn();
+  const images = [{ data: 'cG5n', mediaType: 'image/png' }];
+  const running = chat.startChat({ send: sent, isOpen: () => true }, 'image-startup', 'Inspect', {
+    cwd: root,
+    isolation: false,
+    accountId: 'work-api',
+    model: 'gpt-test',
+    accountProfiles: profiles(),
+    clientMsgId: 'image-initial',
+    images,
+  });
+  try {
+    await vi.waitFor(() =>
+      expect(native.prompts).toEqual([
+        [
+          { type: 'text', text: 'Inspect' },
+          { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'cG5n' } },
+        ],
+      ]),
+    );
+    expect(sent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'user_message',
+        images: ['data:image/png;base64,cG5n'],
+      }),
+    );
+    expect(native.prepare).toHaveBeenCalledExactlyOnceWith('image-initial', [
+      { type: 'text', text: 'Inspect' },
+      { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'cG5n' } },
+    ]);
+    native.prepare.mockClear();
+    const interrupt = vi.spyOn(chat.registry.get('image-startup')!.queryInstance!, 'interrupt');
+    const invalidImages = [{ data: 'not base64', mediaType: 'image/png' }];
+    expect(
+      await chat.sendToChat('image-startup', 'Invalid', invalidImages, undefined, 'invalid-image'),
+    ).toBe(false);
+    expect(
+      await chat.interruptChat(
+        'image-startup',
+        'Invalid',
+        invalidImages,
+        undefined,
+        'invalid-interrupt',
+      ),
+    ).toBe(false);
+    expect(interrupt).not.toHaveBeenCalled();
+    expect(native.prepare).not.toHaveBeenCalled();
+    expect(sent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'error',
+        error: expect.stringMatching(/base64/i),
+      }),
+    );
+    const followup = "Compare\n\nI've attached 1 image(s). Read them using the Read tool:\nfirst";
+    expect(
+      await chat.sendToChat('image-startup', followup, images, undefined, 'image-followup'),
+    ).toBe(true);
+    await vi.waitFor(() => expect(native.prompts).toHaveLength(2));
+    const expectedFollowup = [
+      { type: 'text', text: followup },
+      { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'cG5n' } },
+    ];
+    expect(native.prompts[1]).toEqual(expectedFollowup);
+    expect(native.prepare).toHaveBeenCalledWith('image-followup', expectedFollowup, {});
+    expect(
+      await chat.sendToChat('image-startup', followup, images, undefined, 'image-followup'),
+    ).toBe(true);
+    await expect(
+      chat.sendToChat(
+        'image-startup',
+        followup.replace('first', 'changed'),
+        images,
+        undefined,
+        'image-followup',
+      ),
+    ).rejects.toThrow(/different request/i);
+    expect(native.prompts).toHaveLength(2);
+    expect(
+      await chat.interruptChat('image-startup', 'New view', images, undefined, 'image-interrupt'),
+    ).toBe(true);
+    await vi.waitFor(() => expect(native.prompts).toHaveLength(3));
+    expect(native.prompts[2]).toEqual([
+      { type: 'text', text: 'New view' },
+      { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'cG5n' } },
+    ]);
+    expect(await readdir(root)).not.toContain('.mitzo-images');
+  } finally {
+    chat.stopChat('image-startup');
+    await running;
     chat.registry.dispose();
     chat.eventStore.close();
     await rm(root, { recursive: true, force: true });
