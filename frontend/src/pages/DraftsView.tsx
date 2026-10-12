@@ -63,7 +63,9 @@ export function DraftsView() {
                   </span>
                 </div>
                 <span className="workspace-muted">
-                  {draft.images.length} attachments · {draft.contextBlocks.length} context items
+                  {draft.images.length} attachment{draft.images.length === 1 ? '' : 's'} ·{' '}
+                  {draft.contextBlocks.length} context item
+                  {draft.contextBlocks.length === 1 ? '' : 's'}
                 </span>
               </Link>
               <button
