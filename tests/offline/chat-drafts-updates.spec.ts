@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 import { extname, resolve } from 'node:path';
+import { keepIdleOfflineWebSocket } from '../support/idle-offline-websocket';
 
 // Serve the real production build, but intercept every transport: these checks
 // never start a backend, deploy Mitzo, or call a provider/model.
@@ -61,6 +62,7 @@ async function offline(page: Page) {
   let configured = true;
   let release: (() => void) | undefined;
   let checkFailed = false;
+  let connections = 0;
   page.on('pageerror', (error) => errors.push(error.message));
   await page.addInitScript(() => {
     // These draft/update checks do not consume broadcast events. A fulfilled
@@ -93,24 +95,14 @@ async function offline(page: Page) {
       document.body.style.cssText = 'height:100dvh;overflow:hidden';
     });
   });
-  // Keep the synthetic transport healthy: immediately closing every socket
-  // drives authentication/reconnect requests while a document is being replaced.
-  await page.routeWebSocket('**/*', (socket) => {
-    socket.onMessage((raw) => {
-      const message = JSON.parse(String(raw));
-      if (message.type === 'hello')
-        socket.send(
-          JSON.stringify({
-            type: 'welcome',
-            protocolVersion: 2,
-            connectionId: 'offline-drafts',
-          }),
-        );
-    });
-  });
+  // Closing every fixture socket made the app retry auth every 500 ms,
+  // including during hard navigation when WebKit rejects the departing fetch.
+  await page.routeWebSocket('**/*', (socket) =>
+    keepIdleOfflineWebSocket(socket, () => connections++),
+  );
   await page.route('**/*', async (route) => {
     const url = new URL(route.request().url());
-    const fulfill = (options: Parameters<typeof route.fulfill>[0]) =>
+    const fulfill = (options: NonNullable<Parameters<typeof route.fulfill>[0]>) =>
       route.fulfill({
         ...options,
         headers: {
@@ -228,6 +220,7 @@ async function offline(page: Page) {
   return {
     errors,
     mutations,
+    connections: () => connections,
     state: (next: typeof state) => {
       state = next;
     },
@@ -253,14 +246,23 @@ test('drafts and updates: offline navigation never opens a native event stream',
 }) => {
   const fixture = await offline(page);
   const streams: string[] = [];
+  const authChecks: string[] = [];
   page.on('request', (request) => {
     if (request.headers().accept === 'text/event-stream') streams.push(request.url());
+    if (new URL(request.url()).pathname === '/api/auth/check') authChecks.push(request.url());
   });
   for (const path of ['/sessions/drafts', '/settings/updates', '/sessions/drafts']) {
+    const connections = fixture.connections();
     await page.goto(path);
     await expect(
       page.getByRole('heading', { name: /^(Drafts|A new Mitzo is ready)/ }),
     ).toBeVisible();
+    await expect.poll(() => fixture.connections()).toBeGreaterThan(connections);
+    const settledAuthChecks = authChecks.length;
+    // Observe two 500 ms reconnect intervals: this fixture must stay idle.
+    await page.waitForTimeout(1100);
+    expect(authChecks).toHaveLength(settledAuthChecks);
+    expect(fixture.errors).toEqual([]);
   }
   expect(streams).toEqual([]);
   expect(fixture.errors).toEqual([]);
@@ -511,7 +513,12 @@ test('drafts and updates: narrow/mobile and desktop appearance, scrolling and ke
     ['dark', 'mint', 'georgia'],
     ['light', 'teal', 'system'],
   ]) {
+    const initialConnections = fixture.connections();
     await page.goto('/sessions/drafts');
+    await expect(page.getByRole('heading', { name: /^Drafts(?: \d+)?$/ })).toBeVisible();
+    // A load event precedes async authentication restoration. Replacing that
+    // fresh document can make its auth-restored listeners fetch after unload.
+    await expect.poll(() => fixture.connections()).toBeGreaterThan(initialConnections);
     await page.evaluate(
       ({ theme, accent, font }) => {
         localStorage.setItem('mitzo-theme', theme);
@@ -520,8 +527,10 @@ test('drafts and updates: narrow/mobile and desktop appearance, scrolling and ke
       },
       { theme, accent, font },
     );
+    const reloadConnections = fixture.connections();
     await page.reload();
     await expect(page.getByRole('heading', { name: /^Drafts(?: \d+)?$/ })).toBeVisible();
+    await expect.poll(() => fixture.connections()).toBeGreaterThan(reloadConnections);
     await layout(page);
     const first = page.locator('.saved-draft-open').first();
     await first.focus();
@@ -545,8 +554,10 @@ test('drafts and updates: narrow/mobile and desktop appearance, scrolling and ke
       path: testInfo.outputPath(`drafts-final-item-${theme}.png`),
       animations: 'disabled',
     });
+    const updatesConnections = fixture.connections();
     await page.goto('/settings/updates');
     await expect(page.getByRole('heading', { name: 'A new Mitzo is ready' })).toBeVisible();
+    await expect.poll(() => fixture.connections()).toBeGreaterThan(updatesConnections);
     const check = page.getByRole('button', { name: 'Check for updates' });
     await check.scrollIntoViewIfNeeded();
     await check.focus();
@@ -815,7 +826,7 @@ async function offlineVoice(page: Page) {
         construct(target, args) {
           if (!String(args[0]).includes('/api/yapper-ws/')) return Reflect.construct(target, args);
           const socket = {
-            readyState: NativeWebSocket.CONNECTING,
+            readyState: NativeWebSocket.CONNECTING as number,
             onopen: null,
             onmessage: null,
             onerror: null as ((event: Event) => void) | null,
@@ -860,7 +871,9 @@ async function releaseVoice(page: Page, index: number, text: string) {
   await page.evaluate(
     async ({ index, text }) => {
       (
-        window as Window & { offlineVoice: { pending: { resolve(text: string): void }[] } }
+        window as unknown as Window & {
+          offlineVoice: { pending: { resolve(text: string): void }[] };
+        }
       ).offlineVoice.pending[index].resolve(text);
       // The reply resolves in this document, then the hook and React commit their
       // result. Frames flush that lifecycle without a guessed network delay.
@@ -876,7 +889,8 @@ async function pendingVoice(page: Page, count: number) {
     .poll(() =>
       page.evaluate(
         () =>
-          (window as Window & { offlineVoice: { pending: unknown[] } }).offlineVoice.pending.length,
+          (window as unknown as Window & { offlineVoice: { pending: unknown[] } }).offlineVoice
+            .pending.length,
       ),
     )
     .toBe(count);
@@ -944,14 +958,18 @@ test('drafts: deferred voice replies stay with their owner while same-draft dict
   expect(
     await page.evaluate(
       () =>
-        (window as Window & { offlineVoice: { microphoneRequests: number; stoppedTracks: number } })
-          .offlineVoice.microphoneRequests,
+        (
+          window as unknown as Window & {
+            offlineVoice: { microphoneRequests: number; stoppedTracks: number };
+          }
+        ).offlineVoice.microphoneRequests,
     ),
   ).toBe(3);
   expect(
     await page.evaluate(
       () =>
-        (window as Window & { offlineVoice: { stoppedTracks: number } }).offlineVoice.stoppedTracks,
+        (window as unknown as Window & { offlineVoice: { stoppedTracks: number } }).offlineVoice
+          .stoppedTracks,
     ),
   ).toBeGreaterThanOrEqual(3);
   await page.screenshot({
