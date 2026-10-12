@@ -32,7 +32,9 @@ reparented to PID 1. This never qualifies a newly observed process.
 
 `inspectOriginalFreshVmGuestApi` verifies the private API socket identity and
 kernel peer against the captured gvproxy process. Its bounded read-only
-`GET /libpod/info` uses that same connected socket. The result must agree with
+`GET /v<version>/libpod/info` uses that same connected socket, with the strict
+stock 5.6.x API version observed through the original SSH path before dispatch.
+Podman registers libpod info only on its versioned route. The result must agree with
 stable rootless guest facts observed through the plan's exact stock machine
 SSH path and fresh key. Guest boot identity is checked before and after. The
 rootless remote socket must match the approved stock `HostUser.UID`,

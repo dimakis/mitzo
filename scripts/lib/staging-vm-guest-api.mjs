@@ -13,6 +13,7 @@ function facts(info, guestSocketPath) {
   const host = info?.host,
     version = info?.version;
   if (
+    !/^5\.6\.[0-9]{1,4}$/.test(version?.APIVersion ?? '') ||
     host?.security?.rootless !== true ||
     !/^\/run\/user\/[1-9]\d{0,9}\/podman\/podman\.sock$/.test(guestSocketPath ?? '') ||
     host.remoteSocket?.path !== guestSocketPath ||
@@ -112,6 +113,7 @@ export async function inspectOriginalFreshVmGuestApi({
       guest.guestBootUUID !== socketIdentity.guestBootUUID
     )
       refuse();
+    const guestFacts = facts(guest.info, socketIdentity.guestSocketPath);
     const api = await new Promise((done, reject) => {
       let timer;
       const fail = (error) => {
@@ -122,7 +124,7 @@ export async function inspectOriginalFreshVmGuestApi({
         {
           method: 'GET',
           host: 'localhost',
-          path: '/libpod/info',
+          path: '/v' + guestFacts.apiVersion + '/libpod/info',
           agent,
           headers: { Host: 'localhost', Connection: 'close' },
         },
