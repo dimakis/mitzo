@@ -1,0 +1,81 @@
+/* Reuse Connections groups/facts in the shared, focus-restoring HomeDialog. */
+.session-access {
+  overflow-wrap: anywhere;
+}
+.session-access h3 {
+  font-size: var(--text-base);
+  margin-block: var(--space-3);
+}
+.session-access > p {
+  margin-block: var(--space-3);
+}
+.session-access .access-detail-card {
+  border-radius: var(--radius-panel);
+  margin-block: var(--space-4);
+}
+.session-access .access-detail-card > h3 {
+  padding: var(--space-3) var(--space-4);
+}
+.session-access .access-detail-card > p,
+.session-access .access-detail-card > button {
+  margin: var(--space-3) var(--space-4);
+}
+.session-access .access-resource-facts {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+  margin: 0;
+}
+.session-access .access-resource-facts > div {
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--color-border);
+}
+.session-access .access-resource-facts dt {
+  font-size: var(--text-sm);
+  margin-bottom: var(--space-1);
+}
+.session-access .access-resource-facts dd {
+  font-size: var(--text-base);
+}
+.session-access .access-row-group {
+  border-radius: var(--radius-panel);
+}
+.session-access-connection {
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+}
+.session-access-connection:last-child {
+  border-bottom: 0;
+}
+.session-access-connection summary {
+  min-height: var(--control-height);
+  cursor: pointer;
+}
+.session-access-connection summary span {
+  display: block;
+}
+.session-access-connection p {
+  margin-block: var(--space-2);
+}
+.session-access-connection summary:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.session-access-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--control-height);
+  padding: var(--space-2);
+  flex-shrink: 0;
+  color: var(--color-accent);
+  background: transparent;
+}
+.session-tray-capabilities {
+  margin-top: var(--space-3);
+}
+.session-tray-capabilities summary {
+  min-height: var(--control-height);
+  cursor: pointer;
+  color: var(--color-muted);
+}
