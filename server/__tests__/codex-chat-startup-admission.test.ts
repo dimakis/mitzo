@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeAll, expect, it, vi } from 'vitest';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import { SessionRegistry, type ManagedSession } from '@mitzo/harness';
 import { EventStore } from '@mitzo/protocol/event-store';
 import type { AccountBinding } from '@mitzo/protocol';
@@ -11,15 +11,80 @@ vi.mock('../repository-workspace-runtime.js', () => ({
   getRepositoryWorkspaces: () => ({ startupSeed: repositorySeeds.verify }),
 }));
 const native = vi.hoisted(() => ({ cli: vi.fn(), ssh: vi.fn(), launch: vi.fn() }));
-// Only the native CLI and RPC boundaries are substituted. Conversation, send,
+// Native CLI, reviewed public contract observation and RPC boundaries are substituted.
+// The startup fixture uses a legacy unprepared seed; policy correctness is covered
+// by the real runtime/attestation suites. Conversation, send,
 // queue, lifecycle coordinator, artifact mapping and lifecycle records are real.
 vi.mock('../openshell-runtime.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../openshell-runtime.js')>();
   return {
     ...actual,
-    OpenShellRuntimeManager: class extends actual.OpenShellRuntimeManager {
-      constructor(config: import('../openshell-runtime.js').BoundOpenShellRuntimeConfig) {
-        super(config, native.cli, undefined, native.ssh);
+    OpenShellRuntimeManager: class OfflineRuntimeManager extends actual.OpenShellRuntimeManager {
+      constructor(
+        private fixtureConfig: import('../openshell-runtime.js').BoundOpenShellRuntimeConfig,
+      ) {
+        super(fixtureConfig, native.cli, undefined, native.ssh);
+      }
+      override forSandbox(name: string) {
+        return new OfflineRuntimeManager({ ...this.fixtureConfig, sandboxNameOverride: name });
+      }
+      override async observeContract(
+        conversationId: string,
+        runtime: import('../openshell-runtime.js').OpenShellRuntime,
+        signal: AbortSignal,
+      ) {
+        signal.throwIfAborted();
+        const sandbox = sandboxes.get(runtime.sandboxName);
+        if (
+          !sandbox ||
+          sandbox.id !== runtime.sandboxId ||
+          sandbox.phase !== 'Ready' ||
+          (sandbox.labels as Record<string, string>)['mitzo.conversation'] !==
+            createHash('sha256').update(conversationId).digest('hex').slice(0, 63) ||
+          sandbox.workspace !== runtime.workspace ||
+          (sandbox.labels as Record<string, string>)['mitzo.account_provider'] !==
+            'offline-provider'
+        )
+          throw new Error('Offline runtime observation identity changed');
+        // Construct a real attestation from immutable reviewed public profile bytes,
+        // never credentials. This receipt remains bound to this fixture's sandbox.
+        const profile = {
+          ...(reviewedRuntimeProfile('mitzo-openai-keychain-spike') as Record<string, unknown>),
+          source: 'user',
+          scope: 'workspace',
+          resource_version: 2,
+        };
+        const base = { network_policies: {} };
+        const policy = {
+          network_policies: {
+            _provider_offline_provider: {
+              name: '_provider_offline_provider',
+              endpoints: profile.endpoints,
+              binaries: (profile.binaries as string[]).map((path) => ({ path })),
+            },
+          },
+        };
+        const providers = [
+          {
+            name: 'offline-provider',
+            id: 'offline-provider-id',
+            type: 'mitzo-openai-keychain-spike',
+            profile,
+          },
+        ];
+        const attestation = attestEffectiveRuntimePolicy(base, policy, providers);
+        return {
+          resourceVersion: String(sandbox.resource_version),
+          policy,
+          attestation,
+          approvedGrantableProviders: [],
+          requiredServiceEnvironment: verifiedRuntimeServiceEnvironment(
+            base,
+            policy,
+            providers,
+            'offline-provider',
+          ),
+        };
       }
     },
   };
@@ -34,6 +99,11 @@ import {
   openCodexChat,
 } from '../codex-chat-session.js';
 import { OpenShellRuntimeManager, openShellRuntimeConfig } from '../openshell-runtime.js';
+import {
+  attestEffectiveRuntimePolicy,
+  reviewedRuntimeProfile,
+  verifiedRuntimeServiceEnvironment,
+} from '../openshell-runtime-policy.js';
 import { initializeOpenShellLifecycle } from '../openshell-lifecycle-controller.js';
 import { sharedOpenShellLifecycleCoordinator } from '../openshell-lifecycle.js';
 import { loadAccountProfiles } from '../account-profiles.js';
@@ -104,6 +174,7 @@ beforeAll(() => {
         name,
         id: 'physical-' + name,
         resource_version: '1',
+        workspace: 'default',
         phase: 'Ready',
         labels,
       });
