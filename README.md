@@ -145,6 +145,8 @@ Apple Keychain HTTPS connections support Home Assistant and custom APIs with tok
 
 **Chats → Drafts** keeps unsent new conversations separate from chat history. New chat opens a fresh composer; leaving it saves the message, attachments, context, account, model, thinking level and launch settings on this device. Open a draft to edit it before sending, or explicitly discard it. Failed or uncertain sends retain the draft until acceptance is confirmed. Existing unsent new-chat text is preserved during migration using the device's saved account/model preference; older versions did not record the rest of its settings.
 
+Repository preparations stay with their draft even before typing or after clearing its message. Discard releases an unused preparation before removing the saved draft; if its state or cleanup cannot be confirmed, the draft remains available to reopen and retry.
+
 **More → Settings → Updates** shows the installed commit, interface build and update status, with explicit version checks and interface reload. Review update opens the installation's configured Deploy Mitzo prompt in a fresh chat for review before sending; opening the page never deploys an update. The chat list no longer carries update or deployment controls.
 
 Controls, navigation, resource types and work states share a restrained outline icon family that stays consistent across fonts and platforms. Internal destinations use chevrons, external links use an external-link icon, and command scopes are labelled Workspace, Personal or Built-in.
