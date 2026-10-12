@@ -8,6 +8,7 @@ import { createOfflineContainmentInspectionOwner } from './staging-offline-conta
 import { enrollPreparedOfflineOperatorHelper } from './staging-offline-auth-enrollment.mjs';
 import { createStagingOfflineOperatorAuthorizer } from './staging-offline-operator-auth.mjs';
 import { executeOfflineRecovery } from './staging-offline-execution.mjs';
+import { createStagingSourceAcceptanceWitness } from './staging-source-acceptance-witness.mjs';
 
 /** CLI-only original controller wiring. All adapters below are accepted source,
  * not callbacks, proof flags or credentials loaded from proposal JSON. Tests
@@ -22,12 +23,20 @@ export async function applyOfflineRecoveryProposal(
     typeof verifySource !== 'function'
   )
     throw Error('Exact combined recovery and qualified source verifier required');
+  let sourceWitness, sourceToken;
   const checkSource = async () => {
-    const receipt = await verifySource();
+    const receipt = sourceToken
+      ? await sourceWitness.assertCurrent(sourceToken)
+      : await verifySource();
     if (receipt.sourceCommit !== proposal.ordinaryPlan.facts.source.sourceCommit)
       throw Error('Prepared source changed from authenticated proposal');
     return receipt;
   };
+  sourceWitness = (deps.createSourceWitness ?? createStagingSourceAcceptanceWitness)({
+    canonicalRoot: proposal.containmentPlan.facts.canonicalRoot,
+    sourceRoot,
+    verifyFresh: verifySource,
+  });
   const helper = await (deps.enroll ?? enrollPreparedOfflineOperatorHelper)(
     sourceRoot,
     checkSource,
@@ -42,7 +51,10 @@ export async function applyOfflineRecoveryProposal(
   };
   const physical = {
     assertBeforeMove(plan, phase) {
-      return inspectionFactory().assertBeforeMove(plan, phase);
+      return inspectionFactory({ verifyExecutingSource: checkSource }).assertBeforeMove(
+        plan,
+        phase,
+      );
     },
     async assertContained(plan, intent) {
       current();
@@ -60,10 +72,11 @@ export async function applyOfflineRecoveryProposal(
             birth: captured.originalJob?.birth ?? null,
           }
         : undefined;
-      await inspectionFactory({ replacementApp, verifyCurrentSource: checkSource }).assertContained(
-        plan,
-        intent,
-      );
+      await inspectionFactory({
+        replacementApp,
+        verifyCurrentSource: checkSource,
+        verifyExecutingSource: checkSource,
+      }).assertContained(plan, intent);
       current();
     },
   };
@@ -83,6 +96,9 @@ export async function applyOfflineRecoveryProposal(
   return executeOfflineRecovery({
     proposal,
     authorizer,
+    async admitSource() {
+      sourceToken = await sourceWitness.admit(proposal.ordinaryPlan.facts.source.sourceCommit);
+    },
     assertContained: verifyContainment,
     async contain(plan, authority, originalPhases) {
       phases = originalPhases;
@@ -90,6 +106,7 @@ export async function applyOfflineRecoveryProposal(
         plan,
         sourceRoot,
         assertAuthorityCurrent: current,
+        verifyExecutingSource: checkSource,
         inspectionOwner: physical,
         assertGuardContinuation(...args) {
           if (!ordinaryEffects) throw Error('Original ordinary continuation verifier unavailable');
@@ -127,5 +144,8 @@ export async function applyOfflineRecoveryProposal(
         effects: ordinaryEffects,
       }).apply(authority);
     },
-  }).finally(() => authorizer.close?.());
+  }).finally(() => {
+    authorizer.close?.();
+    sourceWitness.close();
+  });
 }

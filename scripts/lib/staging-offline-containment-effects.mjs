@@ -12,7 +12,14 @@ import {
 /** Original-controller constructor. Dependencies are review/test capabilities,
  * never observations or grants parsed from operator input. No VM command is run. */
 export async function createOfflineContainmentEffects(
-  { plan: selected, sourceRoot, assertAuthorityCurrent, inspectionOwner, assertGuardContinuation },
+  {
+    plan: selected,
+    sourceRoot,
+    assertAuthorityCurrent,
+    inspectionOwner,
+    assertGuardContinuation,
+    verifyExecutingSource,
+  },
   deps = {},
 ) {
   const plan = createOfflineContainmentPlan(selected.facts);
@@ -23,7 +30,9 @@ export async function createOfflineContainmentEffects(
   )
     throw Error('Exact proposal, qualified source and original live authority required');
   const io = deps.io ?? fs;
-  const qualify = deps.qualify ?? qualifyOfflineContainmentController;
+  if (verifyExecutingSource !== undefined && typeof verifyExecutingSource !== 'function')
+    throw Error('Original executing-source capability required');
+  const qualify = verifyExecutingSource ?? deps.qualify ?? qualifyOfflineContainmentController;
   const run =
     deps.command ??
     ((program, args) =>
