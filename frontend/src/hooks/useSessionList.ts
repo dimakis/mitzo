@@ -190,24 +190,20 @@ export function useSessionList(): UseSessionListReturn {
       .catch(() => {});
   }, []);
 
-  const handleRename = useCallback((id: string, title: string) => {
-    sessionCache.update((page) => ({
-      ...page,
-      sessions: page.sessions.map((s) => (s.id === id ? { ...s, summary: title } : s)),
-    }));
-    setSessions((prev) => prev.map((s) => (s.id === id ? { ...s, summary: title } : s)));
-    renameSessionApi(id, title).catch(() => {
-      apiFetch('/api/sessions')
-        .then((r) => r.json())
-        .then((data) => {
-          const { sessions: page, hasMore: more } = parseSessionsResponse(data);
-          setSessions(page);
-          setHasMore(more);
-          nextOffset.current = page.length;
-        })
-        .catch(() => {});
-    });
-  }, []);
+  const handleRename = useCallback(
+    (id: string, title: string) => {
+      sessionCache.update((page) => ({
+        ...page,
+        sessions: page.sessions.map((s) => (s.id === id ? { ...s, summary: title } : s)),
+      }));
+      setSessions((prev) => prev.map((s) => (s.id === id ? { ...s, summary: title } : s)));
+      renameSessionApi(id, title).catch(() => {
+        sessionCache.invalidate();
+        void loadSessions();
+      });
+    },
+    [loadSessions],
+  );
 
   const checkForUpdates = useCallback(async () => {
     setChecking(true);

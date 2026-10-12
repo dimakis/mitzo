@@ -22,6 +22,7 @@ vi.mock('../../lib/event-bus-singleton', () => ({
 
 import { apiFetch } from '../../lib/api-fetch';
 import { useSessionList } from '../useSessionList';
+import { renameSession } from '../../lib/rename-session';
 
 beforeEach(() => {
   window.dispatchEvent(new Event('mitzo:auth-lost'));
@@ -313,4 +314,23 @@ it('retains chats immediately on remount while revalidating and deduplicates con
   await act(async () => finish(Response.json({ sessions: [{ id: 'fresh' }], hasMore: false })));
   await waitFor(() => expect(second.result.current.sessions[0].id).toBe('fresh'));
   expect(third.result.current.sessions[0].id).toBe('fresh');
+});
+
+it('retains the recovered server title after a rejected rename and remount', async () => {
+  vi.mocked(apiFetch).mockImplementation(async (url) =>
+    Response.json(
+      url === '/api/sessions'
+        ? { sessions: [{ id: 'a', summary: 'Original', lastModified: 1 }], hasMore: false }
+        : {},
+    ),
+  );
+  const first = renderHook(() => useSessionList());
+  await waitFor(() => expect(first.result.current.loading).toBe(false));
+  vi.mocked(renameSession).mockRejectedValueOnce(new Error('rejected'));
+  await act(async () => first.result.current.handleRename('a', 'Rejected'));
+  await waitFor(() => expect(first.result.current.sessions[0].summary).toBe('Original'));
+  first.unmount();
+  vi.mocked(apiFetch).mockImplementation(() => new Promise<Response>(() => {}));
+  const restored = renderHook(() => useSessionList());
+  expect(restored.result.current.sessions[0].summary).toBe('Original');
 });

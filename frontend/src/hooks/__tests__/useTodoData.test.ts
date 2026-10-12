@@ -4,6 +4,7 @@ import { renderHook, waitFor, act } from '@testing-library/react';
 
 vi.mock('../../lib/api-fetch', () => ({
   apiFetch: vi.fn(),
+  invalidateTodoReads: vi.fn(),
   AUTH_LOST_EVENT: 'mitzo:auth-lost',
   AUTH_RESTORED_EVENT: 'mitzo:auth-restored',
 }));
@@ -396,4 +397,38 @@ it('restores the same profile immediately on remount and keeps profiles separate
   const other = renderHook(() => useTodoData('personal'));
   expect(other.result.current.loading).toBe(true);
   expect(other.result.current.items).toEqual([]);
+});
+
+it('retries an uncached profile read invalidated by an action finishing after a profile switch', async () => {
+  const hook = renderHook(({ profile }) => useTodoData(profile), {
+    initialProps: { profile: 'work' },
+  });
+  await waitFor(() => expect(hook.result.current.loading).toBe(false));
+  let finishAction!: (response: Response) => void;
+  let finishRead!: (response: Response) => void;
+  vi.mocked(apiFetch).mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finishAction = resolve;
+      }),
+  );
+  let action!: Promise<void>;
+  act(() => {
+    action = hook.result.current.done('abc123');
+  });
+  vi.mocked(apiFetch).mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finishRead = resolve;
+      }),
+  );
+  hook.rerender({ profile: 'personal' });
+  expect(hook.result.current.loading).toBe(true);
+  await act(async () => {
+    finishAction(Response.json({ ok: true }));
+    await action;
+  });
+  await act(async () => finishRead(Response.json({ profiles: ['personal'], items: [] })));
+  await waitFor(() => expect(hook.result.current.loading).toBe(false));
+  expect(apiFetch).toHaveBeenLastCalledWith('/api/todos?profile=personal');
 });

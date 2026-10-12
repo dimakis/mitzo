@@ -175,7 +175,12 @@ export function shouldAutoRename(promptCount: number, manuallyRenamed: boolean):
 export function extractRecentPrompts(events: StoredEvent[]): string[] {
   const prompts: string[] = [];
   for (const evt of events) {
-    if (evt.type === 'user_message' && typeof evt.payload.text === 'string') {
+    if (
+      evt.type === 'user_message' &&
+      typeof evt.payload.text === 'string' &&
+      evt.payload.source !== 'closeout' &&
+      !/^closeout-[a-f0-9]{64}$/.test(String(evt.payload.messageId ?? ''))
+    ) {
       prompts.push(evt.payload.text);
     }
   }

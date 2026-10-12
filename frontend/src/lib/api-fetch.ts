@@ -26,6 +26,11 @@ let cookieRestoreInFlight: {
   promise: Promise<boolean>;
 } | null = null;
 
+/** Fence new list reads from requests started before a refresh or mutation. */
+export function invalidateTodoReads(): void {
+  pendingTodoReads.clear();
+}
+
 type AuthEventSource = 'local' | 'cross-tab';
 
 function dispatchAuthEvent(name: string, source: AuthEventSource = 'local'): void {
@@ -153,6 +158,13 @@ export async function apiFetch(path: string, init?: RequestInit): Promise<Respon
   } else {
     response = await fetch(url, request);
   }
+  if (
+    response.ok &&
+    (path === '/api/todos' || path.startsWith('/api/todos/')) &&
+    init?.method &&
+    !['GET', 'HEAD'].includes(init.method.toUpperCase())
+  )
+    invalidateTodoReads();
   const currentToken = getStoredAuthToken();
   if (
     response.status === 401 &&

@@ -2681,6 +2681,7 @@ function storeAndEchoIfNew(
   images?: string[],
   contextBlocks?: string[],
   sourceSnapshots?: SourceSnapshot[],
+  source: 'user' | 'closeout' = 'user',
 ): boolean {
   if (eventStore.hasUserMessage(sessionId, messageId)) {
     return true;
@@ -2691,6 +2692,7 @@ function storeAndEchoIfNew(
     ts: Date.now(),
     messageId,
     text,
+    ...(source === 'closeout' ? { source } : {}),
     ...(images?.length ? { images } : {}),
     ...(contextBlocks?.length ? { contextBlocks } : {}),
     ...(sourceSnapshots?.length ? { sourceSnapshots } : {}),
@@ -2702,6 +2704,7 @@ function storeAndEchoIfNew(
     v: 2,
     messageId,
     text,
+    ...(source === 'closeout' ? { source } : {}),
     sessionId,
     seq,
     prevSessionSeq: eventStore.getSessionPredecessorSeq(sessionId, seq),
@@ -2713,7 +2716,10 @@ function storeAndEchoIfNew(
   broadcastToObservers(observers, echo);
   // Native providers bypass the SDK query-loop callbacks that name Claude chats.
   const provider = eventStore.getSession(sessionId)?.accountBinding?.provider;
-  if (provider === 'openai-codex' || provider === 'openai' || provider === 'google-vertex') {
+  if (
+    source === 'user' &&
+    (provider === 'openai-codex' || provider === 'openai' || provider === 'google-vertex')
+  ) {
     void tryAutoRename(sessionId, clientId);
   }
   return false;
@@ -3496,6 +3502,10 @@ function queueCloseoutPrompt(
     clientId,
     session.transport,
     session.observers,
+    undefined,
+    undefined,
+    undefined,
+    'closeout',
   );
   if (codex) {
     trackCodexProviderAdmission(session, admission.messageId, admission, eventStore);

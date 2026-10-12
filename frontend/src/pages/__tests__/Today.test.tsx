@@ -46,6 +46,7 @@ vi.mock('../../hooks/useAttentionFeed', () => ({
 }));
 vi.mock('../../lib/event-bus-singleton', () => ({ eventBus: { on: () => () => {} } }));
 vi.mock('../../lib/api-fetch', () => ({
+  invalidateTodoReads: vi.fn(),
   AUTH_LOST_EVENT: 'mitzo:auth-lost',
   AUTH_RESTORED_EVENT: 'mitzo:auth-restored',
   apiFetch: async (url: string) => ({

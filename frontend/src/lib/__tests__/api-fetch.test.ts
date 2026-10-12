@@ -552,3 +552,21 @@ describe('stalled authentication recovery', () => {
     expect(await restoreCookieAuthentication()).toBe(true);
   });
 });
+
+it('starts a new Telos read after a successful write while an older read is still pending', async () => {
+  let finishOld!: (response: Response) => void;
+  mockFetch.mockImplementationOnce(
+    () =>
+      new Promise<Response>((resolve) => {
+        finishOld = resolve;
+      }),
+  );
+  const old = apiFetch('/api/todos');
+  await apiFetch('/api/todos/outcomes', { method: 'POST' });
+  mockFetch.mockResolvedValueOnce(Response.json({ items: [{ id: 'created' }] }));
+  const fresh = apiFetch('/api/todos');
+  expect(mockFetch).toHaveBeenCalledTimes(3);
+  finishOld(Response.json({ items: [] }));
+  expect(await (await fresh).json()).toEqual({ items: [{ id: 'created' }] });
+  await old;
+});

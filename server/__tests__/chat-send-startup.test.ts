@@ -122,6 +122,17 @@ it('counts native messages once for naming and ignores retried message IDs', asy
     expect(chat.eventStore.getSession(sessionId)?.promptCount).toBe(1);
     await chat.sendToChat('native-naming-client', 'Add a regression', undefined, undefined, 'two');
     expect(chat.eventStore.getSession(sessionId)?.promptCount).toBe(2);
+    await chat.sendToChat('native-naming-client', 'Check calendar', undefined, undefined, 'three');
+    expect(chat.eventStore.getSession(sessionId)?.promptCount).toBe(3);
+    chat.closeoutSession('native-naming-client', { id: 'test-closeout', source: 'automatic' });
+    expect(chat.eventStore.getSession(sessionId)?.promptCount).toBe(3);
+    const closeout = chat.eventStore
+      .getSessionEvents(sessionId)
+      .find(
+        (event) =>
+          event.type === 'user_message' && String(event.payload.messageId).startsWith('closeout-'),
+      );
+    expect(closeout?.payload.source).toBe('closeout');
   } finally {
     chat.registry.dispose();
     chat.eventStore.close();

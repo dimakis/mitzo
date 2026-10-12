@@ -1,11 +1,15 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type { TodoItem, TodoData, TodoOutcomeDraft } from '../types/todo';
-import { apiFetch } from '../lib/api-fetch';
+import { apiFetch, invalidateTodoReads } from '../lib/api-fetch';
 import { eventBus } from '../lib/event-bus-singleton';
 import { ListCache, SupersededListRequest } from '../lib/list-cache';
 
 const todoCache = new ListCache<TodoData>();
-eventBus.on('todo_update', () => todoCache.invalidate());
+function invalidateTodos(): void {
+  invalidateTodoReads();
+  todoCache.invalidate();
+}
+eventBus.on('todo_update', invalidateTodos);
 
 export interface UseTodoDataResult {
   loading: boolean;
@@ -84,7 +88,12 @@ export function useTodoData(profile?: string): UseTodoDataResult {
         }
       })
       .catch((error) => {
-        if (!cancelled && !(error instanceof SupersededListRequest)) {
+        if (cancelled) return;
+        if (error instanceof SupersededListRequest) {
+          // An action can finish after switching to an uncached profile.
+          // The mounted consumer still needs a current read after invalidation.
+          setRefreshKey((k) => k + 1);
+        } else {
           setError('Unable to load Telos items');
           setLoading(false);
         }
@@ -122,6 +131,7 @@ export function useTodoData(profile?: string): UseTodoDataResult {
       });
 
       if (res.ok) {
+        invalidateTodoReads();
         todoCache.update((data) => ({ ...data, items: removeFromTree(data.items, id) }));
         setData((prev) => (prev ? { ...prev, items: removeFromTree(prev.items, id) } : prev));
       }
@@ -137,7 +147,7 @@ export function useTodoData(profile?: string): UseTodoDataResult {
   );
   const done = useCallback((id: string) => performAction(id, 'done'), [performAction]);
   const refresh = useCallback(() => {
-    todoCache.invalidate();
+    invalidateTodos();
     setRefreshKey((k) => k + 1);
   }, []);
 
@@ -148,6 +158,7 @@ export function useTodoData(profile?: string): UseTodoDataResult {
     const action = currentItem?.starred ? 'unstar' : 'star';
 
     // Optimistically toggle
+    invalidateTodoReads();
     todoCache.update((data) => ({ ...data, items: toggleStarInTree(data.items, id) }));
     setData((prev) => {
       if (!prev) return prev;
