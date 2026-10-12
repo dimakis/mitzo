@@ -55,7 +55,7 @@ async function seed(page: Page, values: Record<string, string>) {
     sessionStorage.setItem('draft-fixture-seeded', '1');
   }, values);
 }
-async function offline(page: Page) {
+async function offline(page: Page, sessions: unknown[] = []) {
   const errors: string[] = [];
   const mutations: string[] = [];
   let state: 'current' | 'available' | 'error' | 'loading' = 'available';
@@ -179,7 +179,7 @@ async function offline(page: Page) {
         '/api/skills': [],
         '/api/agent-library': { drafts: [], versions: [] },
         '/api/repository-workspaces/catalog': { available: true, repositories: [] },
-        '/api/sessions': { sessions: [], hasMore: false },
+        '/api/sessions': { sessions, hasMore: false },
         '/api/notifications': { items: [], needsYou: 0, unread: 0, total: 0, hasMore: false },
         '/api/service-health': { services: [], checkedAt: Date.now() },
         '/api/home/preferences': {
@@ -265,6 +265,49 @@ test('drafts and updates: offline navigation never opens a native event stream',
     expect(fixture.errors).toEqual([]);
   }
   expect(streams).toEqual([]);
+  expect(fixture.errors).toEqual([]);
+});
+
+test('chats: retained conversations stay usable while auxiliary requests and revalidation wait', async ({
+  page,
+}, testInfo) => {
+  const fixture = await offline(page, [
+    { id: 'cached-chat', summary: 'Fix calendar sync', lastModified: Date.now() },
+  ]);
+  fixture.state('loading');
+  await page.goto('/sessions');
+  await expect(page.getByText('Fix calendar sync', { exact: true })).toBeVisible();
+  await expect(page.getByText('Loading…', { exact: true })).toHaveCount(0);
+  let finish!: () => void;
+  const paused = new Promise<void>((resolve) => {
+    finish = resolve;
+  });
+  let refetches = 0;
+  await page.route('**/api/sessions', async (route) => {
+    refetches++;
+    await paused;
+    await route.fulfill({
+      json: {
+        sessions: [
+          { id: 'cached-chat', summary: 'Updated calendar title', lastModified: Date.now() },
+        ],
+        hasMore: false,
+      },
+    });
+  });
+  await page.getByRole('button', { name: '+ New chat' }).click();
+  await expect(page.getByRole('textbox', { name: 'Message Mitzo' })).toBeVisible();
+  await page.goBack();
+  await expect.poll(() => refetches).toBeGreaterThan(0);
+  await expect(page.getByText('Fix calendar sync', { exact: true })).toBeVisible();
+  await expect(page.getByText('Loading…', { exact: true })).toHaveCount(0);
+  await page.screenshot({
+    path: testInfo.outputPath('chats-retained-during-refresh.png'),
+    animations: 'disabled',
+  });
+  finish();
+  await expect(page.getByText('Updated calendar title', { exact: true })).toBeVisible();
+  expect(fixture.mutations).toEqual([]);
   expect(fixture.errors).toEqual([]);
 });
 
