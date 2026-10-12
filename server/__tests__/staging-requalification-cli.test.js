@@ -146,14 +146,14 @@ function fixture(mode = 'valid') {
     writeFileSync(
       oldInstaller,
       readFileSync(oldInstaller, 'utf8').replace(
-        "  'lib/staging-pipeline-mutation-guard.mjs',\n",
+        /^ {2}'lib\/staging-(?:pipeline-mutation-guard|pipeline-host|resource-budget|deployment-growth)\.mjs',\n/gm,
         '',
       ),
     );
     writeFileSync(
       ordinaryCli,
       readFileSync(ordinaryCli, 'utf8').replace(
-        "import { assertStagingPipelineMutation } from './lib/staging-pipeline-mutation-guard.mjs';\n",
+        /^import \{ (?:assertStagingPipelineMutation|assertStagingSnapshotAdmission|observeMacStagingResources) \} from '\.\/lib\/staging-[^']+\.mjs';\n/gm,
         '',
       ),
     );

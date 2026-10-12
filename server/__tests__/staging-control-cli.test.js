@@ -38,8 +38,16 @@ function fixture(mode = 'valid') {
     'staging-registration',
     'staging-dependency-source',
     'staging-pipeline-mutation-guard',
+    'staging-pipeline-host',
+    'staging-resource-budget',
+    'staging-deployment-growth',
   ])
     cpSync('scripts/lib/' + name + '.mjs', join(root, 'bin/lib', name + '.mjs'));
+  const hostModule = join(root, 'bin/lib/staging-pipeline-host.mjs');
+  writeFileSync(
+    hostModule,
+    readFileSync(hostModule, 'utf8').replace("process.platform !== 'darwin'", 'false'),
+  );
   const receipt = (release, source) => {
     for (const folder of [
       'dist',
@@ -80,6 +88,9 @@ function fixture(mode = 'valid') {
     'staging-registration',
     'staging-dependency-source',
     'staging-pipeline-mutation-guard',
+    'staging-pipeline-host',
+    'staging-resource-budget',
+    'staging-deployment-growth',
   ])
     cpSync(join(root, 'bin/lib', name + '.mjs'), join(next, 'scripts/lib', name + '.mjs'));
   const calls = join(home, 'calls.json');
@@ -89,6 +100,10 @@ function fixture(mode = 'valid') {
     preload,
     `import os from 'node:os';import cp from 'node:child_process';import {readFileSync,writeFileSync} from 'node:fs';import {syncBuiltinESMExports} from 'node:module';os.homedir=()=>${JSON.stringify(home)};const root=${JSON.stringify(root)},oldRelease=${JSON.stringify(oldRelease)},next=${JSON.stringify(next)},mode=${JSON.stringify(mode)},calls=${JSON.stringify(calls)};let stopped=false,started=false,birthReads=0,clock=Date.now();if(mode==='lingering-original')Date.now=()=>{clock+=50000;return clock;};
  cp.spawnSync=(program,args,options)=>{
+  if(program==='/usr/sbin/sysctl')return {status:0,stdout:args.includes('vm.swapusage')?'used = 0.00M':'1'};
+  if(program==='/usr/bin/memory_pressure')return {status:0,stdout:'System-wide memory free percentage: 80%'};
+  if(program==='/bin/df')return {status:0,stdout:'Filesystem 1024-blocks Used Available Capacity Mounted\\nfixture 104857600 1048576 103809024 1% /'};
+  if(program==='/usr/bin/du')return {status:0,stdout:'1024 '+root};
   if(program==='git'){if(args[0]==='-c')args=args.slice(4);if(args[0]==='ls-remote')return {status:0,stdout:${JSON.stringify(target)}+' refs/heads/main'};if(args[0]==='rev-parse'&&args[1]==='--show-toplevel')return {status:0,stdout:mode==='worktree-redirect'&&options.cwd!==oldRelease?oldRelease:options.cwd};if(args[0]==='rev-parse')return {status:0,stdout:args[1]==='HEAD^{tree}'?'c'.repeat(40):options.cwd===oldRelease?${JSON.stringify(old)}:${JSON.stringify(target)}};if(args[0]==='ls-files')return {status:0,stdout:mode==='assume-unchanged'?'h tracked.ts':mode==='skip-worktree'?'S tracked.ts':'H tracked.ts'};if(args[0]==='remote')return {status:0,stdout:'https://github.com/dimakis/mitzo.git'};return {status:0,stdout:''};}
   if(program==='launchctl'){if(args[0]==='print')return {status:0,stdout:'path = '+(mode==='changed-registration'?'/outside.plist':root+'/service/com.mitzo.staging.plist')+'\\n'+(started?'pid = 43':stopped?'state = not running':'pid = 42')};const values=JSON.parse(readFileSync(calls));values.push([program,...args]);writeFileSync(calls,JSON.stringify(values));if(args[0]==='kill')stopped=true;if(args[0]==='kickstart')started=true;return {status:0,stdout:''};}
   if(program==='/bin/ps'){if(args.includes('lstart=')){birthReads++;return {status:0,stdout:mode==='reused-pid'&&birthReads>1?'successor birth':args[1]==='43'?'new birth':'original birth'};}return {status:stopped&&mode!=='lingering-original'?1:0,stdout:stopped&&mode!=='lingering-original'?'':'42'};}
