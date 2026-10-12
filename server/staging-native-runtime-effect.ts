@@ -7,20 +7,23 @@ type Manager = ReturnType<NonNullable<SymposiumSharedSandboxOwnerDeps['managerFa
 export function guardStagingNativeRuntimeEffects(
   manager: Manager,
   assertCurrent: () => void,
+  assertCleanupCurrent: () => void = assertCurrent,
 ): Manager {
   const guard =
-    <A extends unknown[], R>(method: (...args: A) => Promise<R>) =>
+    <A extends unknown[], R>(method: (...args: A) => Promise<R>, current = assertCurrent) =>
     async (...args: A): Promise<R> => {
-      assertCurrent();
+      current();
       const result = await method.apply(manager, args);
-      assertCurrent();
+      current();
       return result;
     };
   return Object.freeze({
     ensure: guard(manager.ensure),
-    ...(manager.inspect ? { inspect: guard(manager.inspect) } : {}),
-    ...(manager.inspectReserved ? { inspectReserved: guard(manager.inspectReserved) } : {}),
-    ...(manager.stop ? { stop: guard(manager.stop) } : {}),
-    ...(manager.delete ? { delete: guard(manager.delete) } : {}),
+    ...(manager.inspect ? { inspect: guard(manager.inspect, assertCleanupCurrent) } : {}),
+    ...(manager.inspectReserved
+      ? { inspectReserved: guard(manager.inspectReserved, assertCleanupCurrent) }
+      : {}),
+    ...(manager.stop ? { stop: guard(manager.stop, assertCleanupCurrent) } : {}),
+    ...(manager.delete ? { delete: guard(manager.delete, assertCleanupCurrent) } : {}),
   });
 }

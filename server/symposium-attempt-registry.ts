@@ -227,6 +227,8 @@ export class SymposiumAttemptRegistry {
     command: readonly string[];
     /** Actual source-only staging queue/lifetime fence; never serialized. */
     assertOriginalEffectCurrent?: () => void;
+    /** Same original queue/source/owner fence, omitting only new resource admission. */
+    assertOriginalCleanupCurrent?: () => void;
   }): ControlledAttemptProcess {
     input.assertOriginalEffectCurrent?.();
     controlledAttemptRoute(input.sandbox);
@@ -251,9 +253,9 @@ export class SymposiumAttemptRegistry {
             try {
               // Retain this exact controlled target. A reconstructed durable route
               // may support ordinary recovery but cannot issue this live receipt.
-              input.assertOriginalEffectCurrent?.();
+              (input.assertOriginalCleanupCurrent ?? input.assertOriginalEffectCurrent)?.();
               await process.confirmStopped();
-              input.assertOriginalEffectCurrent?.();
+              (input.assertOriginalCleanupCurrent ?? input.assertOriginalEffectCurrent)?.();
               const current = this.get(input.claimToken);
               if (
                 !current ||

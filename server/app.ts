@@ -1333,6 +1333,7 @@ const stagingNativeSessions = new Map<
       name: string,
     ): Promise<import('./staging-native-model-authority.js').StagingNativeSandboxGuard>;
     assertCurrent(): void;
+    assertCleanupCurrent(): void;
   }
 >();
 let symposiumRuntimeForSession: (sessionId: string) => SymposiumOrchestrator | null = (
@@ -1348,14 +1349,15 @@ let symposiumRuntimeForSession: (sessionId: string) => SymposiumOrchestrator | n
   if (!attestationPath) return null;
   let verified: ReturnType<typeof verifySymposiumProductionGate>;
   let attestationIdentity: string | undefined;
-  const verifyHostCapability = () => {
+  const verifyHostCapability = (cleanup = false) => {
     if (symposiumShuttingDown) throw new Error('Symposium is shutting down');
     if (!attestationPath || !symposiumProductionHost)
       throw new Error('Symposium production host or attestation is unavailable');
     const feature = stagingNativeSessions.get(sessionId);
     if (feature) {
       if (feature.host !== symposiumProductionHost) throw Error('Original feature host changed');
-      feature.assertCurrent();
+      if (cleanup) feature.assertCleanupCurrent();
+      else feature.assertCurrent();
     }
     const attestation = feature?.candidate ?? readSymposiumProductionAttestation(attestationPath);
     const identity = JSON.stringify(attestation);
@@ -1456,6 +1458,7 @@ let symposiumRuntimeForSession: (sessionId: string) => SymposiumOrchestrator | n
       allowedSeatRoles: verified.allowedRoles,
       allowedAccountProviders: verified.allowedAccountProviders,
       verifyHostCapability,
+      verifyCleanupCapability: () => verifyHostCapability(true),
       attemptRegistry: host.attemptRegistry,
       claimIdFactory: (input) =>
         stagingNativeSessions.get(input.sessionId)?.claimToken ??
@@ -1500,6 +1503,14 @@ let symposiumRuntimeForSession: (sessionId: string) => SymposiumOrchestrator | n
             if (!original || original.host !== host)
               throw Error('Original staging native effect owner unavailable');
             original.assertCurrent();
+          }
+        : undefined,
+      stagingCleanupCurrent: stagingNativeSessions.has(sessionId)
+        ? () => {
+            const original = stagingNativeSessions.get(sessionId);
+            if (!original || original.host !== host)
+              throw Error('Original staging native cleanup owner unavailable');
+            original.assertCleanupCurrent();
           }
         : undefined,
       stagingPrepareSandbox: stagingNativeSessions.has(sessionId)
@@ -1704,6 +1715,7 @@ export function configureStagingNativeFeatureOwner(
               deadlineAt: input.deadlineAt,
             }),
           assertCurrent: input.assertCurrent,
+          assertCleanupCurrent: input.assertCleanupCurrent,
         });
         const active = symposiumHostGrants.activate({
           sessionId,
@@ -1789,15 +1801,17 @@ export function configureStagingNativeFeatureOwner(
             nonce,
             afterSeq: 0,
           });
+          input.assertCleanupCurrent();
           await runtime.drain(AbortSignal.timeout(60000));
+          input.assertCleanupCurrent();
           modelRequests = await budget.revokeAndConfirm();
           if (
             modelRequests.claimToken !== claimToken ||
             modelRequests.sandboxId !== sandbox.sandboxId
           )
             throw Error('Actual native HTTP request budget receipt changed');
-          input.assertCurrent();
-          const retirement = await fixtures.retire(fixture, claimToken, input.assertCurrent);
+          input.assertCleanupCurrent();
+          const retirement = await fixtures.retire(fixture, claimToken, input.assertCleanupCurrent);
           return { evidence, retirement, modelRequests };
         } catch (error) {
           // These are actual original cleanup operations. Their rejection/timeout

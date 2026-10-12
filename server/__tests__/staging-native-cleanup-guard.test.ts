@@ -2,6 +2,34 @@ import { describe, expect, it, vi } from 'vitest';
 import { guardStagingNativeRuntimeEffects } from '../staging-native-runtime-effect.js';
 
 describe('original native runtime effect queue fence', () => {
+  it('blocks new resources under pressure while permitting only original cleanup observations', async () => {
+    const original = {
+      ensure: vi.fn(),
+      inspect: vi.fn().mockResolvedValue({ id: 'original-id', phase: 'Stopped' }),
+      inspectReserved: vi.fn().mockResolvedValue({ id: 'original-id', name: 'original-name' }),
+      stop: vi.fn(),
+      delete: vi.fn(),
+    };
+    const admission = vi.fn(() => {
+      throw Error('resource admission unavailable');
+    });
+    let queueCurrent = true;
+    const cleanup = vi.fn(() => {
+      if (!queueCurrent) throw Error('original private queue lost');
+    });
+    const guarded = guardStagingNativeRuntimeEffects(original, admission, cleanup);
+    const signal = new AbortController().signal;
+    await expect(guarded.ensure('runtime', signal)).rejects.toThrow(/resource admission/);
+    expect(original.ensure).not.toHaveBeenCalled();
+    await guarded.inspect!('runtime', 'original-id', signal);
+    await guarded.inspectReserved!('runtime', signal);
+    await guarded.stop!('runtime', 'original-id', signal);
+    await guarded.delete!('runtime', 'original-id', signal);
+    expect(cleanup).toHaveBeenCalledTimes(8);
+    queueCurrent = false;
+    await expect(guarded.stop!('runtime', 'original-id', signal)).rejects.toThrow(/queue lost/);
+    expect(original.stop).toHaveBeenCalledOnce();
+  });
   it.each(['ensure', 'inspect', 'inspectReserved', 'stop', 'delete'] as const)(
     'rechecks the original queue immediately before and after awaited %s',
     async (method) => {

@@ -363,6 +363,7 @@ export interface SymposiumSharedSandboxOwnerDeps {
   }) => Promise<{ assertCurrent(): void }>;
   /** Source-only actual private queue assertion before/after native lifecycle effects. */
   stagingEffectCurrent?: () => void;
+  stagingCleanupCurrent?: () => void;
   verifiedSubscriptionControllerCommand?: readonly string[];
   verifySubscriptionPrivateAuth?: VerifySymposiumSubscriptionAuth;
   captureSubscriptionLaunchIdentity?: (
@@ -390,14 +391,21 @@ export interface SymposiumSharedSandboxOwnerDeps {
 }
 
 function createOriginalSandboxManager(
-  deps: Pick<SymposiumSharedSandboxOwnerDeps, 'managerFactory' | 'stagingEffectCurrent'>,
+  deps: Pick<
+    SymposiumSharedSandboxOwnerDeps,
+    'managerFactory' | 'stagingEffectCurrent' | 'stagingCleanupCurrent'
+  >,
   config: BoundOpenShellRuntimeConfig,
 ) {
   const original = (deps.managerFactory ?? ((selected) => new OpenShellRuntimeManager(selected)))(
     config,
   );
   return deps.stagingEffectCurrent
-    ? guardStagingNativeRuntimeEffects(original, deps.stagingEffectCurrent)
+    ? guardStagingNativeRuntimeEffects(
+        original,
+        deps.stagingEffectCurrent,
+        deps.stagingCleanupCurrent,
+      )
     : original;
 }
 
@@ -642,7 +650,7 @@ async function withSymposiumSeatLifecycleFence<T>(
 
 type CompletedSandboxCleanupDeps = Pick<
   SymposiumSharedSandboxOwnerDeps,
-  'runtimeConfig' | 'managerFactory' | 'stagingEffectCurrent'
+  'runtimeConfig' | 'managerFactory' | 'stagingEffectCurrent' | 'stagingCleanupCurrent'
 > & {
   seatSandboxRegistry: SeatSandboxRegistry;
   /** Only the trusted retained seal recovery path supplies its original deny fence. */
@@ -1856,7 +1864,7 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
     facts: deps.store,
     artifactReferenceStore: deps.store,
     seatSandboxRegistry: deps.store,
-    verifyCleanupCapability: originalVerify,
+    verifyCleanupCapability: deps.verifyCleanupCapability ?? originalVerify,
   });
   const cache = new Map<string, SymposiumOpenShellSeatExecutor>();
   const executors = new Proxy({} as Record<string, SymposiumSeatExecutor>, {
@@ -1976,6 +1984,7 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
               return input.route.kind === 'openai-api'
                 ? createOpenAiCodexSeat({
                     stagingEffectCurrent: deps.stagingEffectCurrent,
+                    stagingCleanupCurrent: deps.stagingCleanupCurrent,
                     ...input,
                     store: deps.codexStore,
                     loadConversationHistory,
@@ -2008,6 +2017,7 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
                 : input.route.kind === 'chatgpt-subscription-native'
                   ? createChatGptSubscriptionSeat({
                       stagingEffectCurrent: deps.stagingEffectCurrent,
+                      stagingCleanupCurrent: deps.stagingCleanupCurrent,
                       ...input,
                       store: deps.codexStore,
                       loadConversationHistory,
@@ -2023,6 +2033,7 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
                     })
                   : createClaudeVertexSeat({
                       stagingEffectCurrent: deps.stagingEffectCurrent,
+                      stagingCleanupCurrent: deps.stagingCleanupCurrent,
                       ...input,
                       route: input.route,
                       loadConversationHistory,
