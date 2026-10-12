@@ -116,7 +116,7 @@ it('resolves only the actual retained provider function finite literal pin map a
     deriveRetainedNativeImportClosure({
       readModule: read({
         ...files,
-        'infra/openshell/providers/profile.json': '{\"changed\":true}',
+        'infra/openshell/providers/profile.json': '{"changed":true}',
       }),
     }),
   ).toThrow('literal pin');

@@ -2,7 +2,9 @@ import { describe, expect, it, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import { createConnectionsRouter } from '../connections-router.js';
-vi.mock('../auth.js', () => ({ verifyPassphrase: (value: string) => value === 'correct' }));
+vi.mock('../operator-session.js', () => ({
+  verifyPassphrase: (value: string) => value === 'correct',
+}));
 
 describe('new OpenAI account enrollment routes', () => {
   it('requires browser reauthorization, billing consent and fixed destinations; sanitizes failures', async () => {

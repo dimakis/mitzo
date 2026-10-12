@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { GoogleAuth } from 'google-auth-library';
 import { chmodSync, readFileSync } from 'node:fs';
 import { afterEach, expect, it, vi } from 'vitest';
@@ -258,7 +259,6 @@ it('retains verified principal and exact provider intent only under the original
   const receipt = captureSymposiumWorkVertexProvider(f.gateway as never, result.sandboxProviderId);
   expect(receipt).toEqual({
     principal: f.profile.expectedPrincipal,
-    adcSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
     accountId: f.profile.id,
     provider: result.sandboxProvider,
     providerId: 'new-id',
@@ -291,9 +291,23 @@ it('resolves only the original ADC/principal account receipt without fresh readi
   const receipt = captureSymposiumWorkVertexProvider(f.gateway as never, result.sandboxProviderId);
   const commands = f.run.mock.calls.length;
   const original = captureSymposiumWorkVertexAccount(f.gateway as never, f.profile.id);
-  expect(original.identity).toBe(receipt);
+  expect(original.identity).not.toBe(receipt);
+  expect(receipt).not.toHaveProperty('adcSha256');
+  expect(receipt).not.toHaveProperty('refreshRecipeSha256');
   expect(original.identity.principal).toBe(f.profile.expectedPrincipal);
   expect(original.identity.adcSha256).toMatch(/^[a-f0-9]{64}$/);
+  expect(original.identity.refreshRecipeSha256).toBe(
+    createHash('sha256')
+      .update(
+        JSON.stringify({
+          client_id: 'synthetic-client',
+          client_secret: 'synthetic-secret',
+          refresh_token: 'synthetic-refresh',
+        }),
+      )
+      .digest('hex'),
+  );
+  expect(original.identity.refreshRecipeSha256).not.toBe(original.identity.adcSha256);
   expect(f.run.mock.calls).toHaveLength(commands);
   expect(() => captureSymposiumWorkVertexAccount({ ...f.gateway } as never, f.profile.id)).toThrow(
     'Unique original',
