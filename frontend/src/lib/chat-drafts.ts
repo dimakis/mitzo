@@ -122,10 +122,18 @@ export function migrateLegacyChatDraft(): void {
   try {
     const text = localStorage.getItem('mitzo-draft-new');
     if (!text?.trim()) return;
-    // A stable key makes interrupted migrations idempotent.
-    const draft = { ...createChatDraft(), id: 'legacy-new-chat', text };
-    draft.settings.selection = getDefaultAccountModel();
-    if (!getChatDraft(draft.id) && !saveChatDraft(draft)) return;
+    // Older open tabs may still write the shared key after migration. Preserve
+    // each distinct message, while retries of the same content remain idempotent.
+    const migrated = listChatDrafts().find(
+      (draft) => draft.id.startsWith('legacy-') && draft.text === text,
+    );
+    if (!migrated) {
+      const existing = getChatDraft('legacy-new-chat');
+      const fresh = createChatDraft();
+      const draft = { ...fresh, id: existing ? `legacy-${fresh.id}` : 'legacy-new-chat', text };
+      draft.settings.selection = getDefaultAccountModel();
+      if (!saveChatDraft(draft)) return;
+    }
     localStorage.removeItem('mitzo-draft-new');
   } catch {
     /* Keep the original if storage is unavailable. */

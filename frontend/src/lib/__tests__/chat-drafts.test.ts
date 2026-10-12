@@ -12,6 +12,18 @@ import {
 
 beforeEach(() => localStorage.clear());
 describe('saved new-chat drafts', () => {
+  it('retains a newer legacy message written by an older open tab after migration', () => {
+    localStorage.setItem('mitzo-draft-new', 'First legacy message');
+    migrateLegacyChatDraft();
+    localStorage.setItem('mitzo-draft-new', 'Different second message');
+    migrateLegacyChatDraft();
+    expect(
+      listChatDrafts()
+        .map((draft) => draft.text)
+        .sort(),
+    ).toEqual(['Different second message', 'First legacy message']);
+    expect(localStorage.getItem('mitzo-draft-new')).toBeNull();
+  });
   it('creates independent blank composers without reopening a saved draft', () => {
     const first = createChatDraft();
     saveChatDraft({ ...first, text: 'Fix the morning briefing' });
