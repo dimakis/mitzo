@@ -11,5 +11,13 @@ describe('native current authentication requires an actual original gateway cons
         Object.create(OwnedSymposiumGateway.prototype),
       ),
     ).toThrow();
+    expect(() =>
+      captureQualifiedNativeInferenceCurrentAuthentication({
+        captureNativeInferenceCurrentAuthentication: () => ({
+          verifyRequest() {},
+          signResponse() {},
+        }),
+      } as unknown as OwnedSymposiumGateway),
+    ).toThrow();
   });
 });

@@ -43,6 +43,15 @@ export interface StagingNativeModelAuthority {
       claimToken: string;
       sandboxName: string;
       deadlineAt: number;
+      runId: string;
+      planSha256: string;
+      acceptedAppCommit: string;
+      nativeSourceCommit: string;
+      ownerInstance: string;
+      assertCurrent(): void;
+      assertCleanupCurrent(): void;
+      /** Register the original pending deny guard before any native Prepare RPC. */
+      registerPreparedGuard(guard: StagingNativeSandboxGuard): void;
     },
   ): Promise<StagingNativeSandboxGuard>;
   issue(

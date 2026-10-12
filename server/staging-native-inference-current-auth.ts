@@ -1,4 +1,4 @@
-import type { OwnedSymposiumGateway } from './symposium-owned-gateway.js';
+import { OwnedSymposiumGateway } from './symposium-owned-gateway.js';
 import type {
   NativeInferenceCurrentEnvelope,
   NativeInferenceCurrentRequest,
@@ -21,6 +21,7 @@ export interface NativeInferenceCurrentAuthentication {
     result: { kind: 'current' },
   ): NativeInferenceCurrentEnvelope;
 }
+const originalCapture = OwnedSymposiumGateway.prototype.captureNativeInferenceCurrentAuthentication;
 
 /** No setter or JSON registration exists. The original gateway constructor
  * retains the source-qualified native transport, when that producer has been
@@ -28,5 +29,5 @@ export interface NativeInferenceCurrentAuthentication {
 export function captureQualifiedNativeInferenceCurrentAuthentication(
   gateway: OwnedSymposiumGateway,
 ): NativeInferenceCurrentAuthentication {
-  return gateway.captureNativeInferenceCurrentAuthentication();
+  return originalCapture.call(gateway);
 }
