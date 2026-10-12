@@ -6,6 +6,7 @@ import { credentials, CredentialReferenceSchema, type CredentialResolver } from 
 import { CatalogModel } from './model-catalog.js';
 import { validateOpenShellCliEnvironment } from './openshell-cli-environment.js';
 import type { OwnedSymposiumGateway } from './symposium-owned-gateway.js';
+import { StagingApiBillingScopeSchema } from './staging-api-billing-scope.js';
 
 const WorkProfile = z
   .object({
@@ -35,10 +36,6 @@ const originalCreations = new WeakMap<
   OwnedSymposiumGateway,
   Map<string, SymposiumWorkApiCreationCapability>
 >();
-export const StagingApiBillingScopeSchema = z.strictObject({
-  organizationId: z.string().regex(/^[A-Za-z0-9_-]{1,80}$/),
-  projectId: z.string().regex(/^[A-Za-z0-9_-]{1,80}$/),
-});
 export interface SymposiumWorkApiCatalogCapability {
   readonly observation: Readonly<{
     version: 1;
