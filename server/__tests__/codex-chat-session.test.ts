@@ -1388,6 +1388,86 @@ it('registers a newly ensured sandbox before context initialization can fail', a
   }
 });
 
+it('releases startup reservation before hook or client construction when environment attestation fails', async () => {
+  vi.clearAllMocks();
+  mocks.conversationOptions = undefined;
+  const release = vi.fn();
+  const { sharedOpenShellLifecycleCoordinator } = await import('../openshell-lifecycle.js');
+  const reserve = vi
+    .spyOn(sharedOpenShellLifecycleCoordinator, 'reserve')
+    .mockResolvedValue(release);
+  vi.stubEnv('MITZO_OPENSHELL_ENABLED', '1');
+  vi.stubEnv('MITZO_OPENSHELL_IMAGE', 'mitzo-runtime:1');
+  vi.stubEnv('MITZO_OPENSHELL_POLICY', '/config/policy.yaml');
+  vi.stubEnv('MITZO_OPENSHELL_SEED', '/seed/mgmt');
+  const ensure = vi.spyOn(OpenShellRuntimeManager.prototype, 'ensure').mockResolvedValue({
+    sandboxName: 'mitzo-runtime',
+    sandboxId: 'physical-id',
+    workdir: '/sandbox/workspaces/mgmt',
+    appServerCommand: '/sandbox/run-mitzo-app-server',
+    cli: 'openshell',
+    gateway: 'openshell',
+    workspace: 'default',
+    gatewayInsecure: false,
+  });
+  const compile = vi.spyOn(OpenShellRuntimeManager.prototype, 'compileContext').mockResolvedValue({
+    type: 'boot_context',
+    scope: 'sandbox',
+    sourceCount: 0,
+    tokenCount: 0,
+    tokenBudget: 12000,
+    sources: [],
+    included: [],
+    trimmed: [],
+    fullMarkdown: '',
+  });
+  const nativeHooks = await import('../native-hooks.js');
+  const hooks = vi.spyOn(nativeHooks, 'createNativeHooks');
+  const client = vi.spyOn(CodexAppServerClient, 'launchOpenShell');
+  const failure = new RuntimePolicyAttestationError('Unreviewed public provider profile');
+  vi.mocked(OpenShellRuntimeManager.prototype.observeContract).mockRejectedValueOnce(failure);
+  try {
+    const baseOptions = options(new AbortController());
+    await expect(
+      openCodexChat({
+        ...baseOptions,
+        conversationId: 'conversation',
+        binding: {
+          accountId: 'work',
+          accountLabel: 'Work',
+          provider: 'openai',
+          model: 'test-model',
+          profileRevision: '1',
+        },
+        profile: {
+          accountId: 'work',
+          accountLabel: 'Work',
+          email: 'work@example.com',
+          planType: 'api',
+          model: 'test-model',
+          sandboxProvider: 'openai-work',
+        },
+        prompt: 'Read Gmail evidence',
+        messageId: 'message',
+        systemPrompt: 'fixture',
+        env: {},
+      }),
+    ).rejects.toMatchObject({ phase: 'runtime_connection', cause: failure });
+    expect(release).toHaveBeenCalledOnce();
+    expect(hooks).not.toHaveBeenCalled();
+    expect(client).not.toHaveBeenCalled();
+    expect(mocks.initialize).not.toHaveBeenCalled();
+    expect(mocks.send).not.toHaveBeenCalled();
+    expect(mocks.conversationOptions).toBeUndefined();
+  } finally {
+    reserve.mockRestore();
+    ensure.mockRestore();
+    compile.mockRestore();
+    hooks.mockRestore();
+    client.mockRestore();
+  }
+});
+
 it('rejects the legacy shared-sandbox seam in production', async () => {
   vi.clearAllMocks();
   vi.stubEnv('NODE_ENV', 'production');
