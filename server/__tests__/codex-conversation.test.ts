@@ -1105,6 +1105,56 @@ it('finishes failed automatic refresh progress without inventing Access or dispa
   expect(state.store.read('app', state.getBinding()).recovery).toBeTruthy();
 });
 
+it.each(['workspace', 'launcher'] as const)(
+  'ends admission reconnect progress when early %s preparation fails',
+  async (failure) => {
+    const state = await setup();
+    state.conversationOptions.accessLocation = 'local';
+    state.conversationOptions.beforeRuntimeAdmission = async (close) => {
+      await close();
+      return true;
+    };
+    if (failure === 'workspace')
+      state.conversationOptions.beforeReconnect = async () => {
+        throw new Error('Fixture early reattachment refused');
+      };
+    else
+      state.conversationOptions.createClient = () => {
+        throw new Error('Fixture early reattachment refused');
+      };
+    await expect(state.c.send({ id: 'early-refusal', prompt: 'fixture' })).rejects.toThrow(
+      'Fixture early reattachment refused',
+    );
+    expect(state.c.isPaused()).toBe(true);
+    expect(state.c.readAccessObservation()).toBeUndefined();
+    expect(state.c.isRecovering()).toBe(false);
+    expect(state.c.getRecoveryPhase()).toBeUndefined();
+    expect(state.requests.filter((r) => r.method === 'turn/start')).toHaveLength(0);
+    expect(state.store.read('app', state.getBinding()).recovery).toBeTruthy();
+  },
+);
+it('uses the latest verified web-consent resume model after a different acknowledged turn model', async () => {
+  const state = await setup();
+  state.conversationOptions.accessLocation = 'local';
+  await state.c.send({ id: 'consent-model', prompt: 'fixture', model: 'other-model' });
+  expect(state.c.readAccessObservation()).toMatchObject({
+    model: 'other-model',
+    modelSource: 'accepted-turn',
+  });
+  state
+    .getCallbacks()
+    .onNotification('turn/completed', {
+      threadId: 'provider-thread',
+      turn: { id: 'turn-1', status: 'completed' },
+    });
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  await state.c.setWebSearchGrant(0, 'allowed');
+  expect(state.c.readAccessObservation()).toMatchObject({
+    model: state.getBinding().model,
+    modelSource: 'provider-thread',
+  });
+});
+
 it('does not renew the process when provider attachment failed', async () => {
   const state = await setup();
   state.conversationOptions.prepareTurn = async () => 'Google access could not be approved';

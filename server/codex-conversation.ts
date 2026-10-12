@@ -1150,6 +1150,16 @@ export class CodexConversation {
     return this.reconnectBound();
   }
   private async reconnectBound() {
+    try {
+      await this.reconnectOwnedTransport();
+    } finally {
+      // Include workspace preparation and launcher creation in progress cleanup.
+      // Paused/durable recovery and provider ownership remain separate fences.
+      this.recoveryPhase = undefined;
+      this.opts.onQueueChange?.();
+    }
+  }
+  private async reconnectOwnedTransport() {
     if (!this.binding || !this.threadId) throw new Error('Codex recovery state is unavailable');
     if (this.opts.beforeReconnect) {
       this.recoveryPhase = 'starting_workspace';
@@ -1236,11 +1246,6 @@ export class CodexConversation {
     } catch (error) {
       client.close();
       throw error;
-    } finally {
-      // Every reattachment path owns progress here, including runtime admission.
-      // Paused/durable recovery and provider ownership remain separate fences.
-      this.recoveryPhase = undefined;
-      this.opts.onQueueChange?.();
     }
   }
 
@@ -1368,6 +1373,7 @@ export class CodexConversation {
         result.modelProvider !== modelProvider
       )
         throw new Error('Codex execution binding changed');
+      this.accessModel = { model: result.model, modelSource: 'provider-thread' };
       this.ready = true;
       return updated;
     } catch (error) {

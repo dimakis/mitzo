@@ -252,3 +252,11 @@ recovery: verified thread resume supersedes an older turn selection, and a later
 accepted turn supersedes that resume. The read-only cache now updates at both
 verified initialization/resume and accepted turn boundaries. No provider probe is
 added to GET. The final candidate advances to v1.0.75 with 193 source inputs.
+
+Three additional red tests cover early workspace/launcher failure before the
+previous reconnect try/finally (CEN-D3F87C1146BA), and the separate web-consent
+verified resume following a different acknowledged turn model (CEN-3FA766E61487).
+Progress cleanup now wraps the entire reattachment operation; every verified
+initialization, recovery and consent-resume path updates the observed model cache.
+These changes preserve paused/durable recovery and grant/ownership fences. The
+review candidate advances to v1.0.76 with 193 source inputs.
