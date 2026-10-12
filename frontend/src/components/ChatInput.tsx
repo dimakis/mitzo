@@ -25,6 +25,13 @@ import type { UseVoiceReturn } from '../hooks/useVoice';
 import type { TokensState as TokenState } from '@mitzo/client';
 import { useDraft, type DraftSessionAssignment } from '../hooks/useDraft';
 import { useQueuedMessages } from '../hooks/useQueuedMessages';
+import {
+  type ChatDraft,
+  chatDraftStorageKey,
+  getChatDraft,
+  saveChatDraft,
+  consumeChatDraft,
+} from '../lib/chat-drafts';
 
 export interface ChatInputDraftControl {
   storageKey: string | undefined;
@@ -50,6 +57,7 @@ interface Props {
   initialText?: string;
   /** Prompt storage ownership independent of the provider session identity. */
   draftStorageKey?: string;
+  savedChatDraft?: ChatDraft;
   draftControl?: RefObject<ChatInputDraftControl | null>;
   sendDisabledReason?: string;
   cwd?: string;
@@ -79,7 +87,8 @@ export function ChatInput({
   onInterrupt,
   running,
   initialText,
-  draftStorageKey,
+  draftStorageKey: suppliedDraftStorageKey,
+  savedChatDraft,
   draftControl,
   sendDisabledReason,
   cwd,
@@ -98,6 +107,9 @@ export function ChatInput({
   bootContext,
   sessionContext,
 }: Props) {
+  const draftStorageKey = savedChatDraft
+    ? chatDraftStorageKey(savedChatDraft.id)
+    : suppliedDraftStorageKey;
   const sendPending = useRef<{ assignedSessionId?: string } | null>(null);
   // Acceptance can precede the routed render. Keep its exact assignment until
   // that ownership transfer is applied, independently of the pending receipt.
@@ -116,7 +128,7 @@ export function ChatInput({
     draftStorageKey === undefined ? (assignedDraft.current?.assignment ?? null) : null;
   const [text, setText, clearDraft, flushDraft] = useDraft(
     sessionId,
-    initialText,
+    savedChatDraft?.text ?? initialText,
     draftStorageKey,
     assignment,
   );
@@ -124,9 +136,9 @@ export function ChatInput({
     draftStorageKey,
     clearDraft,
   ]);
-  const [images, setImages] = useState<ImageAttachment[]>([]);
+  const [images, setImages] = useState<ImageAttachment[]>(savedChatDraft?.images ?? []);
   const [showSlashPicker, setShowSlashPicker] = useState(false);
-  const [contextBlocks, setContextBlocks] = useState<string[]>([]);
+  const [contextBlocks, setContextBlocks] = useState<string[]>(savedChatDraft?.contextBlocks ?? []);
   const {
     queue: queuedMessages,
     enqueue,
@@ -146,6 +158,19 @@ export function ChatInput({
   }, [assignment, sessionId]);
   const useExternal = externalContextBlocks !== undefined;
   const activeContextBlocks = useExternal ? externalContextBlocks : contextBlocks;
+  const previousSavedId = useRef(savedChatDraft?.id);
+  useEffect(() => {
+    if (previousSavedId.current === savedChatDraft?.id) return;
+    previousSavedId.current = savedChatDraft?.id;
+    setImages(savedChatDraft?.images ?? []);
+    if (!useExternal) setContextBlocks(savedChatDraft?.contextBlocks ?? []);
+  }, [savedChatDraft, useExternal]);
+  const [saveFailed, setSaveFailed] = useState(false);
+  useEffect(() => {
+    if (!savedChatDraft || previousSavedId.current !== savedChatDraft.id) return;
+    const current = getChatDraft(savedChatDraft.id) ?? savedChatDraft;
+    setSaveFailed(!saveChatDraft({ ...current, text, images, contextBlocks: activeContextBlocks }));
+  }, [savedChatDraft, text, images, activeContextBlocks]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const initialApplied = useRef(false);
@@ -225,6 +250,7 @@ export function ChatInput({
       queued = false,
     ): boolean => {
       const submitted = latestDraft.current;
+      const submittedSavedDraft = savedChatDraft ? getChatDraft(savedChatDraft.id) : null;
       const pending: { assignedSessionId?: string } = {};
       sendPending.current = pending;
       // Keep dequeued input under the existing explicit-retry fence until a
@@ -239,6 +265,7 @@ export function ChatInput({
           if (status === 'accepted' && retained) removeSubmitted(retained);
           return;
         }
+        if (status === 'accepted' && submittedSavedDraft) consumeChatDraft(submittedSavedDraft);
         const latest = latestDraft.current;
         const assigned =
           latest.composerGeneration === submitted.composerGeneration &&
@@ -280,7 +307,15 @@ export function ChatInput({
       if (!sent) onDelivery('failed');
       return sent;
     },
-    [onSend, restoreRejected, removeSubmitted, clearDraft, useExternal, draftStorageKey],
+    [
+      onSend,
+      restoreRejected,
+      removeSubmitted,
+      clearDraft,
+      useExternal,
+      draftStorageKey,
+      savedChatDraft,
+    ],
   );
 
   // Auto-send next queued message when agent finishes its turn
@@ -519,6 +554,13 @@ export function ChatInput({
 
   return (
     <div className="chat-input chat-input--compact">
+      {savedChatDraft && (
+        <p className="chat-draft-save-status" role={saveFailed ? 'alert' : 'status'}>
+          {saveFailed
+            ? 'Couldn’t save this draft on this device. Keep it open and free some storage before leaving.'
+            : 'Saved to Drafts · message and settings stay editable'}
+        </p>
+      )}
       {images.length > 0 && (
         <div className="chat-input-previews">
           {images.map((image, index) => (

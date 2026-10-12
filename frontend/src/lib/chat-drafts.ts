@@ -2,6 +2,12 @@ import { z } from 'zod';
 import { getDefaultAccountModel } from './account-preference';
 
 const PREFIX = 'mitzo-chat-draft:';
+export function chatDraftStorageKey(id: string) {
+  return PREFIX + id;
+}
+export function chatDraftIdFromKey(key: string): string | null {
+  return key.startsWith(PREFIX) ? key.slice(PREFIX.length) : null;
+}
 export const CHAT_DRAFTS_CHANGED = 'mitzo-chat-drafts-changed';
 const schema = z.object({
   version: z.literal(1),

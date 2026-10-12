@@ -6,6 +6,12 @@ import {
   useRef,
   useCallback,
 } from 'react';
+import {
+  chatDraftIdFromKey,
+  getChatDraft,
+  saveChatDraft,
+  deleteChatDraft,
+} from '../lib/chat-drafts';
 
 const KEY_PREFIX = 'mitzo-draft-';
 const DEBOUNCE_MS = 400;
@@ -23,6 +29,8 @@ function draftKey(sessionId: string | undefined): string {
 function readDraft(key: string, initialText?: string, scoped = false): string {
   if (!scoped && initialText) return initialText;
   try {
+    const id = chatDraftIdFromKey(key);
+    if (id) return getChatDraft(id)?.text ?? initialText ?? '';
     return localStorage.getItem(key) ?? initialText ?? '';
   } catch {
     return initialText ?? '';
@@ -31,6 +39,15 @@ function readDraft(key: string, initialText?: string, scoped = false): string {
 
 function saveDraft(key: string, text: string, preserveEmpty = false): void {
   try {
+    const id = chatDraftIdFromKey(key);
+    if (id) {
+      if (!text && !preserveEmpty) deleteChatDraft(id);
+      else {
+        const draft = getChatDraft(id);
+        if (draft) saveChatDraft({ ...draft, text });
+      }
+      return;
+    }
     if (text || preserveEmpty) localStorage.setItem(key, text);
     else localStorage.removeItem(key);
   } catch {
