@@ -1,6 +1,7 @@
 import { it, expect, vi } from 'vitest';
 import { recoveryProposal } from './fixtures/staging-offline-plans.js';
 import { applyOfflineRecoveryProposal } from '../../scripts/lib/staging-offline-controller.mjs';
+import { createProcessLocalSourceAcceptanceWitness } from '../../scripts/lib/staging-source-acceptance-witness.mjs';
 function fixture() {
   const proposal = recoveryProposal();
   const order = [];
@@ -9,6 +10,27 @@ function fixture() {
   const closeAuthorizer = vi.fn();
   const receiptSha256 = 'e'.repeat(64);
   const deps = {
+    createSourceWitness: ({ verifyFresh }) => {
+      const original = createProcessLocalSourceAcceptanceWitness({
+        verifyFresh,
+        readPinned: async () => ({
+          receipt: await verifyFresh(),
+          sourceCommit: proposal.ordinaryPlan.facts.source.sourceCommit,
+        }),
+        readMain: async () => proposal.ordinaryPlan.facts.source.sourceCommit,
+        assertAcceptedAncestry: async () => {
+          throw Error('Unexpected synthetic ancestry change');
+        },
+        close: vi.fn(),
+      });
+      return {
+        ...original,
+        async admit(target) {
+          order.push('admit source');
+          return original.admit(target);
+        },
+      };
+    },
     enroll: async (_source, verify) => {
       await verify();
       order.push('enroll');
@@ -26,9 +48,12 @@ function fixture() {
         return base;
       },
     }),
-    createInspectionOwner: () => ({
-      assertBeforeMove: async () => {},
+    createInspectionOwner: ({ verifyExecutingSource }) => ({
+      assertBeforeMove: async () => {
+        await verifyExecutingSource();
+      },
       assertContained: async () => {
+        await verifyExecutingSource();
         order.push('physical contained');
       },
     }),
@@ -78,6 +103,7 @@ it('wires a single qualified helper and original containment capsule into ordina
   const result = await applyOfflineRecoveryProposal(f, f.deps);
   expect(f.order).toEqual([
     'enroll',
+    'admit source',
     'authenticate',
     'preserve native',
     'physical contained',
