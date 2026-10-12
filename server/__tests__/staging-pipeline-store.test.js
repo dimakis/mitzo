@@ -123,6 +123,37 @@ it('expiry leaves the original reservation fenced instead of starting a replacem
     ),
   ).toThrow(/reservation/);
 });
+it('rejects every normal transition with the original valid token after expiry', () => {
+  for (const transition of [
+    (s, t) => s.markDispatched(t),
+    (s, t) => s.bindBaseline(t, 'a'.repeat(40)),
+    (s, t) => s.defer(t, 'host-resources'),
+    (s, t) => s.settleDeployment(t, 'a'.repeat(40)),
+    (s, t) =>
+      s.finish(t, { outcome: 'passed', sourceCommit: 'a'.repeat(40), cleanupConfirmed: true }),
+  ]) {
+    const {
+      stores: [s, other],
+      advance,
+    } = fixture();
+    s.enqueue(request());
+    const c = s.claim('worker');
+    s.bindBaseline(c.token, 'a'.repeat(40));
+    advance();
+    expect(() => transition(s, c.token)).toThrow(/expired/);
+    expect(s.status().reservation.state).toBe('active');
+    expect(s.receipt('one').result).toBeNull();
+    expect(other.claim('replacement')).toMatchObject({
+      granted: false,
+      reason: 'reconciliation-required',
+    });
+    s.quarantine(c.token, 'controller-lost');
+    expect(other.claim('replacement')).toMatchObject({
+      granted: false,
+      reason: 'environment-quarantined',
+    });
+  }
+});
 it('only matching commit and confirmed cleanup can publish a passing result', () => {
   const {
     stores: [s],
@@ -213,7 +244,7 @@ it('holds admission under host pressure, disk shortage, oversized stage or unbou
     { pressureLevel: 2 },
     { swapUsedMiB: 3000 },
     { diskFreeGiB: 10 },
-    { stagingGiB: 40 },
+    { stagingGiB: 49 },
     { vmMemoryMiB: 8192 },
     { vmCpus: 8 },
     { pressureLevel: null },
@@ -296,4 +327,12 @@ it('reads pending and quarantined requests without inventing a result or changin
     result: null,
   });
   expect(s.status()).toEqual(before);
+});
+it('admits retained incident evidence plus a bounded replacement VM while preserving disk headroom', () => {
+  const retained = { ...resources, stagingGiB: 28.151802, diskFreeGiB: 53.24353 };
+  expect(assessStagingResources(retained, 19)).toEqual({ admitted: true, reasons: [] });
+  expect(assessStagingResources({ ...retained, diskFreeGiB: 38 }, 19).reasons).toContain(
+    'host-disk-headroom',
+  );
+  expect(assessStagingResources(retained, 21).reasons).toContain('staging-disk-budget');
 });

@@ -1,7 +1,9 @@
 import { SdkConversationImport } from '../components/SdkConversationImport';
 import { sessionAttentionReason } from '../lib/session-attention';
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
+import { useSavedChatDrafts } from '../hooks/useSavedChatDrafts';
+import '../styles/chat-drafts.css';
 import type { Session } from '../types/chat';
 import { formatRelativeTime } from '../lib/formatTime';
 import { useLongPress } from '../hooks/useLongPress';
@@ -316,16 +318,9 @@ function SwipeableSession({
   );
 }
 
-async function refreshUI() {
-  if ('caches' in window) {
-    const keys = await caches.keys();
-    await Promise.all(keys.map((k) => caches.delete(k)));
-  }
-  location.reload();
-}
-
 export function SessionList() {
   const navigate = useNavigate();
+  const drafts = useSavedChatDrafts();
   const {
     sessions,
     quickActions,
@@ -333,12 +328,9 @@ export function SessionList() {
     error,
     loadingMore,
     hasMore,
-    updateAvailable,
-    checking,
     dismissSession,
     clearAll,
     handleRename,
-    checkForUpdates,
     loadMore,
     retry,
   } = useSessionList();
@@ -373,11 +365,6 @@ export function SessionList() {
   }
   function dismiss(id: string) {
     dismissSession(id);
-  }
-
-  function handleDeployAction() {
-    const deploy = quickActions.find((a) => a.label === 'Deploy Mitzo');
-    if (deploy) handleQuickAction(deploy);
   }
 
   function handleQuickAction(action: QuickAction) {
@@ -419,12 +406,8 @@ export function SessionList() {
               >
                 Import CLI conversation
               </button>
-              <button onClick={checkForUpdates} disabled={checking}>
-                {checking ? 'Checking…' : 'Check for updates'}
-              </button>
-              <button onClick={refreshUI}>Reload interface</button>
               {quickActions
-                .filter((a) => !['Chat Session', 'Files'].includes(a.label))
+                .filter((a) => !['Chat Session', 'Files', 'Deploy Mitzo'].includes(a.label))
                 .map((a) => (
                   <button key={a.label} onClick={() => handleQuickAction(a)}>
                     {a.label}
@@ -466,6 +449,15 @@ export function SessionList() {
         </div>
       )}
       <div className="session-list-scroll">
+        <Link to="/sessions/drafts" className="conversation-drafts-link">
+          <UiIcon name="edit" />
+          <span>
+            <strong>Drafts</strong>
+            <span className="workspace-muted">Pick up where you left off</span>
+          </span>
+          <span className="conversation-draft-count">{drafts.length}</span>
+          <UiIcon name="forward" size={16} />
+        </Link>
         {importOpen && (
           <SdkConversationImport
             onClose={() => {
@@ -477,11 +469,6 @@ export function SessionList() {
               openSession(id);
             }}
           />
-        )}
-        {updateAvailable && (
-          <button className="update-banner" onClick={handleDeployAction}>
-            Update available — Deploy Mitzo
-          </button>
         )}
         {search.active ? (
           <div className="conversation-results" aria-live="polite">

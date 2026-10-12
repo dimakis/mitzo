@@ -33,6 +33,7 @@ const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(va
  */
 export class OrdinaryLocalCodexTarget {
   #descriptor;
+  #declaration;
 
   constructor(configuration: unknown) {
     const parsed = TargetConfiguration.safeParse(configuration);
@@ -50,10 +51,25 @@ export class OrdinaryLocalCodexTarget {
         config.runtimeContractRevision,
       ]),
     };
+    this.#declaration = {
+      targetId: this.#descriptor.targetId,
+      targetRevision: this.#descriptor.targetRevision,
+      location: this.#descriptor.location,
+      harness: this.#descriptor.harness,
+      hostId: config.hostId,
+      runtimeContractRevision: config.runtimeContractRevision,
+    };
   }
 
   descriptor() {
     return { ...this.#descriptor };
+  }
+
+  /** Server-internal expectations for the owning admission authority. These
+   * remain declarations, never observed evidence, and are not picker inventory.
+   */
+  admissionDeclaration() {
+    return { ...this.#declaration };
   }
 }
 

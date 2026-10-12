@@ -11,6 +11,7 @@ export async function runStagingPipelineRequest(store, effects, owner, { feature
     return { requestId: request.id, state: 'queued', reason };
   };
   try {
+    store.assertToken(token);
     if (!(await effects.resources(0)).admitted) return wait('host-resources');
     const sourceCommit = await effects.baseline(request.acceptedCommit);
     if (!sourceCommit) return wait('source-superseded');
@@ -37,7 +38,11 @@ export async function runStagingPipelineRequest(store, effects, owner, { feature
       // Only the canonical read-only source/artifact/dependency verification can
       // establish zero-growth reuse. Existing paths alone are never proof.
       const prepared = await effects.prepared(sourceCommit);
-      if (!(await effects.resources(prepared.growthGiB)).admitted) return wait('host-resources');
+      const snapshotGrowth = await effects.deploymentGrowth();
+      if (!Number.isFinite(snapshotGrowth) || snapshotGrowth < 0)
+        throw Error('Snapshot growth unavailable');
+      if (!(await effects.resources(prepared.growthGiB + snapshotGrowth)).admitted)
+        return wait('host-resources');
       if (!prepared.reused) {
         phase = 'preparing';
         await effects.prepare(sourceCommit);
@@ -45,7 +50,10 @@ export async function runStagingPipelineRequest(store, effects, owner, { feature
       phase = 'planning';
       await effects.plan(sourceCommit, current.expected);
       phase = 'preflight';
-      if (!(await effects.resources(0)).admitted) return wait('host-resources');
+      const currentSnapshotGrowth = await effects.deploymentGrowth();
+      if (!Number.isFinite(currentSnapshotGrowth) || currentSnapshotGrowth < 0)
+        throw Error('Snapshot growth unavailable');
+      if (!(await effects.resources(currentSnapshotGrowth)).admitted) return wait('host-resources');
       store.markDispatched(token);
       phase = 'deploying';
       await effects.deploy(sourceCommit, current.expected);
@@ -61,6 +69,7 @@ export async function runStagingPipelineRequest(store, effects, owner, { feature
       return wait('host-resources');
     }
     if (phase !== 'deploying') store.markDispatched(token);
+    store.assertToken(token);
     phase = 'testing';
     const result = featureContext
       ? await effects.test(request.suite, sourceCommit, featureContext)
@@ -83,6 +92,10 @@ export async function runStagingPipelineRequest(store, effects, owner, { feature
     });
     return { requestId: request.id, state: result.outcome, sourceCommit };
   } catch (error) {
+    if (error.reservationExpired === true) {
+      store.quarantine(token, 'controller-lost');
+      return { requestId: request.id, state: 'quarantined', reason: 'controller-lost' };
+    }
     if (
       (phase === 'preparing' && error.safePreparationRefusal === true) ||
       (phase === 'planning' && error.terminalRefusal === true)

@@ -2,10 +2,11 @@ import process from 'node:process';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, URL } from 'node:url';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, lstatSync, readdirSync, realpathSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { assessStagingResources, STAGING_RESOURCE_BUDGET } from './staging-resource-budget.mjs';
 import { privateJson } from './staging-files.mjs';
+import { measureStagingDeploymentGrowth } from './staging-deployment-growth.mjs';
 
 const sha = /^[a-f0-9]{40}$/;
 /** Never pass inherited provider configuration into a controller/build. GitHub
@@ -68,6 +69,18 @@ export function observeMacStagingResources(
   run = runStagingHostCommand,
 ) {
   if (process.platform !== 'darwin') throw Error('macOS host resource adapter required');
+  const allocations = join(root, 'symposium/allocations');
+  const allocationParent = lstatSync(allocations, { throwIfNoEntry: false });
+  if (
+    allocationParent &&
+    (!allocationParent.isDirectory() ||
+      allocationParent.isSymbolicLink() ||
+      realpathSync(allocations) !== allocations ||
+      readdirSync(allocations).length !== 0)
+  )
+    throw Error(
+      'Fresh native allocation requires resource observations from its actual original VM owner; legacy VM absence cannot qualify zero VM use',
+    );
   const archive = root + '-quarantine';
   const vmPath = join(
     root,
@@ -152,6 +165,7 @@ export function createStagingPipelineEffects({
         throw Error('Authenticated feature plan binding changed');
       return { publicPlan: plan, planSha256 };
     },
+    deploymentGrowth: async () => measureStagingDeploymentGrowth(root),
     prepared: async (target) => {
       exact(target);
       const result = JSON.parse(mutate(['prepare', '--commit', target, '--check-only']));

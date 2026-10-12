@@ -87,5 +87,12 @@ it('uses the original accepted module contract and refuses unknown versions', ()
   expect(originalQualificationControllerFiles(source(legacy))).toEqual(legacy);
   const newer = [...legacy, 'lib/staging-pipeline-mutation-guard.mjs'];
   expect(originalQualificationControllerFiles(source(newer))).toEqual(newer);
+  const withSnapshot = [
+    ...newer,
+    'lib/staging-pipeline-host.mjs',
+    'lib/staging-resource-budget.mjs',
+    'lib/staging-deployment-growth.mjs',
+  ];
+  expect(originalQualificationControllerFiles(source(withSnapshot))).toEqual(withSnapshot);
   expect(() => originalQualificationControllerFiles(source([...legacy, 'unknown.mjs']))).toThrow();
 });

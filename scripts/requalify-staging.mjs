@@ -54,6 +54,9 @@ const names = [
   'lib/staging-registration.mjs',
   'lib/staging-dependency-source.mjs',
   'lib/staging-pipeline-mutation-guard.mjs',
+  'lib/staging-pipeline-host.mjs',
+  'lib/staging-resource-budget.mjs',
+  'lib/staging-deployment-growth.mjs',
 ];
 function run(program, args, cwd = root, userHome = join(root, 'home')) {
   const result = spawnSync(program, args, {

@@ -25,10 +25,39 @@ import {
 } from './lib/staging-pipeline-host.mjs';
 import { assessStagingResources, STAGING_RESOURCE_BUDGET } from './lib/staging-resource-budget.mjs';
 import { assertVisibleTrackedIndex } from './lib/staging-files.mjs';
+import { reconcileStagingSourceMerge } from './lib/staging-source-merge.mjs';
 
 const identifier = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/;
 export function parseStagingPipelineArguments(args) {
   const [command, ...rest] = args;
+  if (['merge-admit', 'merge-dispatch', 'merge-release', 'merge-reconcile'].includes(command)) {
+    const names =
+      command === 'merge-reconcile'
+        ? ['--pr']
+        : command === 'merge-admit'
+          ? ['--pr', '--head']
+          : ['--pr', '--head', '--epoch', '--nonce'];
+    if (rest.length !== names.length * 2 || names.some((name, i) => rest[i * 2] !== name))
+      throw Error('Exact source merge arguments required');
+    const pr = Number(rest[1]),
+      head = rest[3],
+      epoch = Number(rest[5]),
+      nonce = rest[7];
+    if (
+      !Number.isSafeInteger(pr) ||
+      pr < 1 ||
+      (command !== 'merge-reconcile' && !/^[a-f0-9]{40}$/.test(head)) ||
+      (names.length === 4 &&
+        (!Number.isSafeInteger(epoch) || epoch < 1 || !/^[a-f0-9-]{36}$/.test(nonce)))
+    )
+      throw Error('Exact source merge arguments required');
+    return {
+      command,
+      pr,
+      ...(head ? { head } : {}),
+      ...(names.length === 4 ? { epoch, nonce } : {}),
+    };
+  }
   if (['--help', 'status', 'host-resources', 'run-next'].includes(command) && !rest.length)
     return { command };
   if (
@@ -166,7 +195,7 @@ export function readStagingPipelineReceipt(database, id) {
     store.close();
   }
 }
-function assertAcceptedController(sourceRoot) {
+function assertAcceptedController(sourceRoot, { current = true } = {}) {
   const git = (args) =>
     runStagingHostCommand('git', [
       '-C',
@@ -180,9 +209,17 @@ function assertAcceptedController(sourceRoot) {
   const main = JSON.parse(
     runStagingHostCommand('gh', ['api', 'repos/dimakis/mitzo/commits/main']),
   ).sha;
+  const source = git(['rev-parse', 'HEAD']);
+  if (!current) {
+    const ancestry = JSON.parse(
+      runStagingHostCommand('gh', ['api', `repos/dimakis/mitzo/compare/${source}...main`]),
+    );
+    if (!['ahead', 'identical'].includes(ancestry.status) || ancestry.base_commit?.sha !== source)
+      throw Error('Accepted source fence controller required');
+  }
   if (
     git(['rev-parse', '--show-toplevel']) !== sourceRoot ||
-    git(['rev-parse', 'HEAD']) !== main ||
+    (current && source !== main) ||
     git(['remote', 'get-url', 'origin']) !== 'https://github.com/dimakis/mitzo.git' ||
     git(['status', '--porcelain', '--untracked-files=all'])
   )
@@ -250,11 +287,29 @@ async function main() {
   }
   if (args.command === 'run-next')
     assertAcceptedController(resolve(dirname(fileURLToPath(import.meta.url)), '..'));
+  if (args.command.startsWith('merge-'))
+    assertAcceptedController(resolve(dirname(fileURLToPath(import.meta.url)), '..'), {
+      current: false,
+    });
   if (!existsSync(root)) mkdirSync(root, { mode: 0o700 });
   const store = new StagingPipelineStore(database);
   try {
     let result;
-    if (args.command === 'enqueue') result = enqueueMergedStagingRequest(store, args);
+    if (args.command === 'merge-admit')
+      result = { version: 1, ...store.claimSourceMerge({ pr: args.pr, head: args.head }) };
+    else if (args.command === 'merge-dispatch' || args.command === 'merge-release') {
+      const token = { pr: args.pr, head: args.head, epoch: args.epoch, nonce: args.nonce };
+      if (args.command === 'merge-dispatch') store.markSourceMergeDispatched(token);
+      else store.releaseSourceMerge(token);
+      result = {
+        version: 1,
+        state: args.command === 'merge-dispatch' ? 'dispatched' : 'released',
+        pr: args.pr,
+        head: args.head,
+      };
+    } else if (args.command === 'merge-reconcile')
+      result = { version: 1, ...reconcileStagingSourceMerge(store, args.pr) };
+    else if (args.command === 'enqueue') result = enqueueMergedStagingRequest(store, args);
     else if (args.command === 'enqueue-feature')
       result = await enqueueMergedFeatureRequest(store, args, createStagingPipelineEffects());
     else if (args.command === 'cancel') {
