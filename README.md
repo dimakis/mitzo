@@ -131,6 +131,8 @@ Opening Knowledge starts at the Library tree, including when a working copy was 
 
 **Knowledge → Context** curates reusable context packs from accepted document revisions. Save recoverable drafts, inspect history and affected profiles, compile a preview, and explicitly publish a pack revision. Agent Library profiles compose exact pack revisions under one context budget. The advisor can propose a portable draft for review and import. See [context packs](docs/features/context-packs.md).
 
+Per-message context blocks selected in **Sources** appear beside your sent message immediately. Their injected reference text is collapsed by default and can be inspected or copied separately; editing, copying or reading aloud the message uses your prompt. Live echoes and restored history show the same disclosure. Selecting context does not switch the agent profile. Older prompts with ambiguous reference-delimiter examples stay intact so their source text cannot be mistaken for your question.
+
 The Library requires independently reviewed private host enrollment through `MITZO_KNOWLEDGE_LIBRARY_CONFIG`, including explicit document scopes and optional publishing identity. Acceptance is disabled by default. See [Knowledge Library enrollment](docs/operations/knowledge-library.md). Drafts join core SQLite backups with bounded Git recovery bundles, preserving exact prepared review heads after restore into a fresh source mirror. **More → Workspace tools** retains the raw Files browser and existing artifact links; its worktree list loads only on request, with cached, bounded discovery.
 
 ### Draft image preview and drawing
@@ -665,7 +667,7 @@ through the event-store module.
 
 React 19 + Vite. Ten pages (`Login`, `SessionList`, `ChatView`, `DesktopChatView`, `FileViewer`, `InboxView`, `CalendarView`, `TodoView`, `TodoDetailView`, `TaskBoard`), a `useReducer`-based message state machine (`useChatMessages`), module-level WebSocket pool with 500-message buffer, and components for thinking blocks, tool pills, tool groups, permission banners, and a slash-command picker. Capacitor wraps the frontend for iOS deployment via TestFlight.
 
-The chat composer gives draft text the full width, with unboxed utility icons in a toolbar below it and a circular send action at the far right. The context wheel sits beside the recording and send controls, uses the app accent during normal usage, and turns amber/red as context fills. Tap it for context and session token details. Session resources open from the toolbar; commands, attachments, and workspace options collapse into More in narrow composers while recording, interrupt, and send controls remain directly available.
+The chat composer gives draft text the full width, with unboxed utility icons in a toolbar below it and a circular send action at the far right. Commands uses a quiet list icon with its name on hover and keyboard focus; its label stays visible inside the narrow-screen More menu. The context wheel sits beside the recording and send controls, uses the app accent during normal usage, and turns amber/red as context fills. Tap it for context and session token details. Session resources open from the toolbar; commands, attachments, and workspace options collapse into More in narrow composers while recording, interrupt, and send controls remain directly available.
 
 For iOS development, run `./scripts/build-ios.sh` to build the iOS web assets and open Xcode. After the build, `./scripts/build-ios.sh --sync` copies the existing `frontend/dist-ios` assets into the iOS project without rebuilding them.
 
@@ -1206,7 +1208,7 @@ Installs require Node 24 and npm 11.18.0 or newer so workspace security override
 
 ### Canonical staging on the configured macOS host
 
-The narrowly scoped [lost-owner offline preservation procedure](docs/operations/staging-offline-containment.md) retains the original native environment and uncertain history before ordinary staging restoration. Source acceptance, authenticated physical recovery and provider enrollment remain separate.
+The narrowly scoped [lost-owner offline preservation procedure](docs/operations/staging-offline-containment.md) retains the original native environment and uncertain history before ordinary staging restoration. Recovery first admits exact accepted main, then holds a bounded original-process source witness so a later accepted descendant cannot strand an authenticated preservation step. Source or history drift still refuses. Source acceptance, authenticated physical recovery and provider enrollment remain separate.
 
 Reuse the singleton `com.mitzo.staging` service at `http://mitzo-staging.localhost:3190`.
 The [operating procedure](docs/operations/canonical-staging.md) describes integrity/freshness
