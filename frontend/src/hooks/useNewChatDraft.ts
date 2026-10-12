@@ -58,15 +58,26 @@ export function useChatDraftSearch(enabled: boolean) {
     const saved = requestedId ? getChatDraft(requestedId) : null;
     const params = new URLSearchParams(saved?.settings.search);
     routeSearch.forEach((value, key) => params.set(key, value));
-    return { params };
+    return { params, initialSearch: routeSearch.toString() };
   }, [requestedId]); // eslint-disable-line react-hooks/exhaustive-deps
+  const requestedScope = useRef<typeof scope | null>(null);
   const hydratedScope = useRef<typeof scope | null>(null);
-  const search = hydratedScope.current === scope ? routeSearch : scope.params;
+  // Browser history updates before React Router commits its location transition.
+  // Keep restored context effective across intervening renders; only an observed
+  // location update completes hydration. Later explicit query edits stay authoritative.
+  const acknowledged =
+    hydratedScope.current === scope ||
+    routeSearch.toString() !== scope.initialSearch ||
+    scope.params.toString() === scope.initialSearch;
+  const search = acknowledged ? routeSearch : scope.params;
   useEffect(() => {
-    if (hydratedScope.current === scope) return;
-    hydratedScope.current = scope;
-    if (scope.params.toString() !== routeSearch.toString())
-      setRouteSearch(scope.params, { replace: true });
-  }, [scope, routeSearch, setRouteSearch]);
+    if (acknowledged) {
+      hydratedScope.current = scope;
+      return;
+    }
+    if (requestedScope.current === scope) return;
+    requestedScope.current = scope;
+    setRouteSearch(scope.params, { replace: true });
+  }, [acknowledged, scope, setRouteSearch]);
   return search;
 }
