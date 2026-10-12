@@ -110,6 +110,13 @@ export class StagingPipelineStore {
           .some((c) => c.name === 'last_attempt')
       )
         this.db.exec('ALTER TABLE requests ADD COLUMN last_attempt INTEGER NOT NULL DEFAULT 0');
+      if (
+        !this.db
+          .prepare('PRAGMA table_info(source_merge)')
+          .all()
+          .some((c) => c.name === 'stage_fence')
+      )
+        this.db.exec('ALTER TABLE source_merge ADD COLUMN stage_fence TEXT');
     });
   }
   close() {
@@ -273,18 +280,30 @@ export class StagingPipelineStore {
           reason:
             old.state === 'dispatched' ? 'merge-reconciliation-required' : 'source-merge-busy',
         };
-      if (this.db.prepare('SELECT state FROM reservation WHERE singleton=1').get().state !== 'idle')
+      const reservation = this.db.prepare('SELECT * FROM reservation WHERE singleton=1').get();
+      if (!['idle', 'quarantined'].includes(reservation.state))
         return { granted: false, reason: 'staging-busy' };
+      const stageFence = this.captureSourceStageFence();
       const epoch =
           this.db.prepare('SELECT epoch FROM source_merge WHERE singleton=1').get().epoch + 1,
         nonce = randomUUID();
       this.db
         .prepare(
-          "UPDATE source_merge SET epoch=?,state='admitted',pr=?,head=?,nonce=? WHERE singleton=1",
+          "UPDATE source_merge SET epoch=?,state='admitted',pr=?,head=?,nonce=?,stage_fence=? WHERE singleton=1",
         )
-        .run(epoch, input.pr, input.head, nonce);
+        .run(epoch, input.pr, input.head, nonce, stageFence);
       return { granted: true, token: { epoch, pr: input.pr, head: input.head, nonce } };
     });
+  }
+  captureSourceStageFence() {
+    const reservation = this.db.prepare('SELECT * FROM reservation WHERE singleton=1').get();
+    let request = null;
+    if (reservation.state === 'quarantined') {
+      request = this.db.prepare('SELECT * FROM requests WHERE id=?').get(reservation.request_id);
+      if (!request || request.state !== 'quarantined')
+        throw Error('Original quarantined staging fence is inconsistent');
+    } else if (reservation.state !== 'idle') throw Error('Original staging fence is active');
+    return JSON.stringify({ reservation, request });
   }
   assertSourceMerge(t) {
     const row = this.db.prepare('SELECT * FROM source_merge WHERE singleton=1').get();
@@ -297,6 +316,8 @@ export class StagingPipelineStore {
       row.nonce !== t.nonce
     )
       throw Error('Source merge admission changed');
+    if (!row.stage_fence || row.stage_fence !== this.captureSourceStageFence())
+      throw Error('Original staging fence changed; retain source admission');
     return row;
   }
   sourceMergeToken(pr) {
@@ -321,7 +342,7 @@ export class StagingPipelineStore {
   clearSourceMerge() {
     this.db
       .prepare(
-        "UPDATE source_merge SET state='idle',pr=NULL,head=NULL,nonce=NULL WHERE singleton=1",
+        "UPDATE source_merge SET state='idle',pr=NULL,head=NULL,nonce=NULL,stage_fence=NULL WHERE singleton=1",
       )
       .run();
   }

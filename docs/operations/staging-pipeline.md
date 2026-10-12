@@ -201,7 +201,12 @@ The aggregate disk ceiling is 48 GiB so retained incident evidence is counted al
 The paired mandatory MGMT merge gate uses this same private SQLite database to
 serialize Mitzo source acceptance with foreground staging work. `merge-admit`
 holds one exact PR/head admission in a `BEGIN IMMEDIATE` transaction. It refuses
-an active or quarantined staging reservation; staging claim refuses a held source
+an active staging reservation, including one whose deadline expired. An exactly
+quarantined reservation can admit reviewed source repairs: the same transaction
+captures the complete reservation and original quarantined request. Dispatch and
+every terminal reconciliation must match that immutable tuple. This grants no
+staging capacity, cleanup, restart or retirement; queued readiness remains
+pending behind the original quarantine. Staging claim refuses a held source
 merge. This includes preparation, so an admitted merge cannot strand a concurrent
 candidate build or deployment. A benign staging preflight refusal can release its
 existing undispatched reservation and wait.
@@ -247,3 +252,5 @@ The foreground controller may select existing queued work with
 `run-next --id REQUEST_ID`. For a previously announced feature plan, include both
 that ID and `--feature-plan EXACT_PLAN_SHA256`. Selection cannot create a request,
 change its source/profile/account/model, or bypass any original-owner admission.
+
+Stacked non-default-base PR triggers must not occupy the privileged status-writer environment. The writer job skips those triggers; accepted-default-branch schedule or explicit reconciliation can still observe their actual reviews. The default-branch-only environment and trusted App identity remain required. Ancestry checks project only exact commit/status metadata; full patches do not enter the bounded controller handoff.

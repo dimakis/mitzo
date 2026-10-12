@@ -219,12 +219,17 @@ function assertAcceptedController(sourceRoot, { current = true } = {}) {
       ...args,
     ]);
   const main = JSON.parse(
-    runStagingHostCommand('gh', ['api', 'repos/dimakis/mitzo/commits/main']),
+    runStagingHostCommand('gh', ['api', 'repos/dimakis/mitzo/commits/main', '--jq', '{sha}']),
   ).sha;
   const source = git(['rev-parse', 'HEAD']);
   if (!current) {
     const ancestry = JSON.parse(
-      runStagingHostCommand('gh', ['api', `repos/dimakis/mitzo/compare/${source}...main`]),
+      runStagingHostCommand('gh', [
+        'api',
+        `repos/dimakis/mitzo/compare/${source}...main`,
+        '--jq',
+        '{status,base_commit:{sha:.base_commit.sha}}',
+      ]),
     );
     if (!['ahead', 'identical'].includes(ancestry.status) || ancestry.base_commit?.sha !== source)
       throw Error('Accepted source fence controller required');
