@@ -6,8 +6,8 @@ import {
   ContextPackIdSchema,
   type ContextPackDefinition,
 } from '@mitzo/protocol';
-import { registerAuthSession, type AuthSession } from './auth.js';
-import { requireSameOriginJson } from './connections-router.js';
+import { registerAuthSession, type AuthSession } from './operator-session.js';
+import { requireSameOriginJson } from './operator-request-authorization.js';
 import { safeKnowledgePath } from './knowledge-library-source.js';
 import {
   ContextPackConflict,

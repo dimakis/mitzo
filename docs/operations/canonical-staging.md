@@ -493,3 +493,31 @@ uncertain result quarantines the operation and retains its original cleanup
 capability. Recovery requires that same owner, fresh operator authority and
 positive native cleanup proof; it cannot resume after a process restart or clear
 a foreign workspace creation barrier from metadata or inventory absence.
+
+### Retained native semantic service
+
+The original custodian constructs `createSymposiumCustodianService` only after
+its owned workspace and launcher gates are established. This service owns the
+actual native EventStore, grants, runtime, profile/context/review stores, staging
+fixture ledger and authenticated inference-current receiver. It reuses the
+closed custodian command protocol and existing validators through a local
+Express semantic dispatcher; it opens no HTTP listener. The ordinary app child
+forwards this namespace over authenticated original IPC and cannot construct a
+second native owner, including during shutdown. Importing the service for source
+preflight constructs no store or auth state and reads no provider credentials.
+
+Shared policy manifests, operator sessions/reauthorization, feature schemas and
+context compiler source pins have explicit leaf modules. Ordinary app/index
+source seals are excluded from the retained native import graph. The original
+source/build/VM/provider/queue checks still determine admission; a service
+protocol version, source hash, HTTP result or copied observation cannot grant
+native custody or model authority. Offline SQLite/semantic composition tests
+are source validation, not live replica proof. Native inference remains refused
+until its actual original gateway/supervisor producer and authenticated
+account/model enrollment are independently qualified.
+
+Known original cleanup may retain the issued provider/account/profile identity
+after catalog or inference admission expires, only within the original bounded
+cleanup window and still-current private queue token, source/epoch, owner and
+physical runtime identity. It cannot issue new grants or bypass quarantine,
+queue expiry or unknown physical drain.

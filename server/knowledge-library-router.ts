@@ -1,7 +1,7 @@
 import express from 'express';
 import { z } from 'zod';
-import { registerAuthSession, type AuthSession } from './auth.js';
-import { requireSameOriginJson } from './connections-router.js';
+import { registerAuthSession, type AuthSession } from './operator-session.js';
+import { requireSameOriginJson } from './operator-request-authorization.js';
 import {
   AcceptedKnowledgeSource,
   safeKnowledgeDirectory,

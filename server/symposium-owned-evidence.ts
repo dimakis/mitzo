@@ -5,7 +5,7 @@ import {
 } from './symposium-owned-runtime-contract.js';
 import { z } from 'zod';
 import { custodianRequestAuthority } from './symposium-custodian-authority.js';
-import type { AuthSession } from './auth.js';
+import type { AuthSession } from './operator-session.js';
 import { PersonalEvidenceSelection } from './symposium-personal-evidence.js';
 import type { Request, Response, RequestHandler } from 'express';
 import { createHash } from 'node:crypto';

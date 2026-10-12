@@ -1,6 +1,7 @@
 import { STAGING_NATIVE_FIXTURE_REVISION } from './symposium-staging-native-fixture.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import { performance } from 'node:perf_hooks';
 import type { AccountBinding } from '@mitzo/protocol';
 import type { AccountProfiles } from './account-profiles.js';
 import type { OwnedSymposiumGateway } from './symposium-owned-gateway.js';
@@ -10,7 +11,7 @@ import {
   StagingFeaturePlan,
   StagingFeatureRequest,
   StagingFeatureToken,
-} from './staging-feature-owner.js';
+} from './staging-feature-contract.js';
 import type { z } from 'zod';
 import {
   captureQualifiedStagingNativeModelAuthority,
@@ -24,6 +25,8 @@ export interface StagingNativeEnrollment {
   readonly chargedAccount: string;
   readonly personalConnection?: { connectionId: string; expectedRevision: number };
   assertCurrent(): void;
+  /** Retained issued provider/account identity, without catalog admission expiry. */
+  assertOriginalCleanupCurrent(): void;
 }
 type Plan = z.infer<typeof StagingFeaturePlan>;
 type Token = z.infer<typeof StagingFeatureToken>;
@@ -54,6 +57,7 @@ export class StagingNativeFeatureOwner {
   >();
   private readonly receipts = new Map<string, object>();
   private active = false;
+  private planningRun = false;
   constructor(
     private readonly deps: {
       bootstrap: StagingNativeFeatureBootstrap;
@@ -159,7 +163,7 @@ export class StagingNativeFeatureOwner {
         : {}),
     };
   }
-  plan(raw: unknown, sourceCommit: string) {
+  async plan(raw: unknown, sourceCommit: string) {
     const request = StagingFeatureRequest.parse(raw);
     const current = this.capture(request.profileId);
     const appSource = this.appSource();
@@ -171,12 +175,20 @@ export class StagingNativeFeatureOwner {
     )
       throw Error('Exact original native feature source/enrollment required');
     const authority = captureQualifiedStagingNativeModelAuthority(this.deps.gateway);
-    const modelPlan = authority.plan({
+    const modelPlan = await authority.plan({
       binding: current.enrollment.binding,
       selectedModel: current.enrollment.selectedModel,
       maxRequests: 2,
       auxiliaryDispatches: 'same-selected-model-shared-budget',
     });
+    const after = this.capture(request.profileId);
+    if (
+      digest(this.appSource() ?? null) !== digest(appSource ?? null) ||
+      after.enrollmentRevision !== current.enrollmentRevision ||
+      this.plans.size >= 100
+    )
+      throw Error('Original native source/enrollment changed during provider description');
+    current.enrollment.assertCurrent();
     modelPlan.assertCurrent();
     if (modelPlan.selectedModel !== current.enrollment.selectedModel)
       throw Error('Authenticated native model selection differs from the explicit enrolled model');
@@ -233,18 +245,54 @@ export class StagingNativeFeatureOwner {
       token = StagingFeatureToken.parse(rawToken),
       planSha256 = digest(plan);
     const original = this.plans.get(planSha256);
-    if (!original || this.active || token.requestId !== plan.requestId)
+    if (!original || this.active || this.planningRun || token.requestId !== plan.requestId)
       throw Error('Original announced native feature plan required');
-    const current = this.plan(original.request, plan.sourceCommit);
+    this.planningRun = true;
+    let current: Awaited<ReturnType<StagingNativeFeatureOwner['plan']>>;
+    try {
+      current = await this.plan(original.request, plan.sourceCommit);
+    } finally {
+      this.planningRun = false;
+    }
     if (current.planSha256 !== planSha256) throw Error('Original native feature plan changed');
     const deadlineAt = Date.now() + plan.limits.timeoutMs;
+    let cleanupDeadline: number | undefined;
+    let cleanupClosed = false;
+    const assertCleanupWindow = () => {
+      if (cleanupClosed) throw Error('Original native cleanup window closed');
+      if (cleanupDeadline !== undefined && performance.now() >= cleanupDeadline)
+        throw Error('Original native cleanup window expired');
+    };
+    if (
+      typeof original.enrollment.assertOriginalCleanupCurrent !== 'function' ||
+      typeof original.modelPlan.assertOriginalCleanupCurrent !== 'function'
+    )
+      throw Error('Original issued enrollment and model cleanup identity required');
     const assertRunCurrent = (admitResources: boolean) => {
-      if (Date.now() >= deadlineAt) throw Error('Original native feature deadline expired');
+      if (admitResources && Date.now() >= deadlineAt)
+        throw Error('Original native feature deadline expired');
+      if (!admitResources) assertCleanupWindow();
       assertRequestCurrent();
-      this.current(admitResources);
-      original.enrollment.assertCurrent();
-      original.modelPlan.assertCurrent();
+      const appSource = this.appSource(admitResources);
+      if (
+        (appSource?.acceptedAppCommit ?? this.deps.bootstrap.sourceCommit) !== plan.sourceCommit ||
+        digest(appSource ?? null) !== digest(plan.acceptedAppSource ?? null)
+      )
+        throw Error('Original native feature accepted app source changed');
+      if (admitResources) {
+        original.enrollment.assertCurrent();
+        original.modelPlan.assertCurrent();
+      } else {
+        original.enrollment.assertOriginalCleanupCurrent();
+        original.modelPlan.assertOriginalCleanupCurrent();
+      }
       this.deps.assertReservation(plan, token, planSha256);
+      if (!admitResources) {
+        // Arm once only while the same original request and private queue are
+        // still current. Inference/catalog expiry never creates new authority.
+        if (cleanupDeadline === undefined) cleanupDeadline = performance.now() + 120000;
+        assertCleanupWindow();
+      }
     };
     const assertCurrent = () => assertRunCurrent(true),
       assertCleanupCurrent = () => assertRunCurrent(false);
@@ -287,6 +335,7 @@ export class StagingNativeFeatureOwner {
       ...actual,
     };
     this.receipts.set(runId, Object.freeze(ownerReceipt));
+    cleanupClosed = true;
     this.active = false;
     return {
       outcome: 'passed' as const,

@@ -5,13 +5,13 @@ import {
 } from './symposium-custodian-authority.js';
 import express from 'express';
 import { z } from 'zod';
-import type { AuthSession } from './auth.js';
+import type { AuthSession } from './operator-session.js';
 import {
   requireSameOriginJson,
   requireRecentConnectionAuthorization,
   recentAppReauthorizationHandlers,
   recentAuthorizationExpiry,
-} from './connections-router.js';
+} from './operator-request-authorization.js';
 import type { PublicationRegistration } from './symposium-publication-registration.js';
 import type { CapabilityApproval } from './connections/capabilities/types.js';
 const log = createLogger('symposium-publication-routes');

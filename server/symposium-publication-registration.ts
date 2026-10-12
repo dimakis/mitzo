@@ -1,6 +1,6 @@
 import { mkdirSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
-import { type AuthSession, registerAuthSession } from './auth.js';
+import { type AuthSession, registerAuthSession } from './operator-session.js';
 import { credentials, type CredentialResolver } from './credentials.js';
 import {
   PublicationCredentialCustodian,
