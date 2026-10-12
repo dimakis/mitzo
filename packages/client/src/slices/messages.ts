@@ -174,6 +174,7 @@ type MessagesCoreAction =
   | { type: 'CONNECTION_LOST' }
   | { type: 'PERMISSION_REQUEST'; payload: PermissionRequest }
   | { type: 'PERMISSION_REJECTED'; permId: string; error: string }
+  | { type: 'PERMISSION_RESPONDING'; permId: string }
   | { type: 'PERMISSION_TIMEOUT'; permId: string }
   | { type: 'PERMISSION_SNAPSHOT'; permissions: PermissionRequest[] }
   | { type: 'CLEAR_PERMISSIONS' }
@@ -769,6 +770,18 @@ function reduceLegacyMessages(state: MessagesState, action: MessagesAction): Mes
         (request) => request && typeof request.permId === 'string',
       );
       return { ...state, permission: valid[0] ?? null, permissionQueue: valid.slice(1) };
+    }
+
+    case 'PERMISSION_RESPONDING': {
+      const clear = (permission: PermissionRequest) =>
+        permission.permId === action.permId && permission.responseError !== undefined
+          ? { ...permission, responseError: undefined }
+          : permission;
+      return {
+        ...state,
+        permission: state.permission ? clear(state.permission) : null,
+        permissionQueue: state.permissionQueue?.map(clear),
+      };
     }
 
     case 'PERMISSION_REJECTED': {

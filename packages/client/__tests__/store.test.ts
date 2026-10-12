@@ -3777,3 +3777,27 @@ it('keeps scoped refusal feedback for ordinary sends that have no composer deliv
   expect(store.getState().messages.current).toBe(stream);
   expect(store.getState().messages.running).toBe(true);
 });
+
+it('clears a previous approval error before every retry so identical rejections remain retryable', async () => {
+  const store = createReadyStore();
+  await store.getState().switchSession('test-session');
+  lastWs.simulateMessage({
+    type: 'permission_request',
+    sessionId: 'test-session',
+    permId: 'retry',
+    toolName: 'Bash',
+    toolInput: 'echo ok',
+  });
+  for (let attempt = 0; attempt < 2; attempt++) {
+    lastWs.simulateMessage({
+      type: 'permission_response_rejected',
+      sessionId: 'test-session',
+      permId: 'retry',
+      error: 'Same retryable conflict',
+    });
+    expect(store.getState().messages.permission?.responseError).toBe('Same retryable conflict');
+    store.getState().respondToPermission('retry', 'always');
+    expect(store.getState().messages.permission?.responseError).toBeUndefined();
+    expect(store.getState().messages.permission?.permId).toBe('retry');
+  }
+});

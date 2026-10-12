@@ -1,7 +1,37 @@
 import { randomUUID } from 'node:crypto';
 import type { ConnectionRegistry, SessionRegistry } from '@mitzo/harness';
-import { capabilityApprovalForConversation } from './connections/capabilities/approval.js';
+import {
+  capabilityApprovalForConversation,
+  capabilitySessionGrantKey,
+} from './connections/capabilities/approval.js';
 import type { CapabilityApproval } from './connections/capabilities/types.js';
+// Logical conversations outlive the borrowed permission-registry runtime. This
+// stores only scoped consent, never an owner or authentication decision.
+const controllerGrants = new WeakMap<SessionRegistry, Map<string, Set<string>>>();
+function conversationGrants(registry: SessionRegistry, conversationId: string): Set<string> {
+  let conversations = controllerGrants.get(registry);
+  if (!conversations) controllerGrants.set(registry, (conversations = new Map()));
+  let grants = conversations.get(conversationId);
+  if (!grants) conversations.set(conversationId, (grants = new Set()));
+  return grants;
+}
+
+/** Clear only controller consent when its logical conversation or publication access closes. */
+export function clearPublicationControllerSessionGrants(
+  registry: SessionRegistry,
+  conversationId?: string,
+): void {
+  const conversations = controllerGrants.get(registry);
+  if (!conversations) return;
+  for (const [id, grants] of conversations) {
+    if (conversationId && id !== conversationId) continue;
+    const session = registry.findBySessionId(id, true)?.session;
+    for (const grant of grants) session?.sessionAllowList.delete(grant);
+    grants.clear();
+    conversations.delete(id);
+  }
+}
+
 /** Native conversations already own ConnectionRegistry watches. Borrow the existing
  * SessionRegistry permission-owner contract only during approval; no SDK dispatch,
  * parallel owner map or durable controller session is introduced. */
@@ -60,7 +90,7 @@ export function publicationControllerApproval(
         sessionId: conversationId,
         transport: watcher.transport,
         abortController: new AbortController(),
-        sessionAllowList: new Set(),
+        sessionAllowList: conversationGrants(registry, conversationId),
         mode: 'agent',
         symposiumPublicationUsers: 0,
       });
@@ -98,12 +128,16 @@ export function publicationControllerApproval(
     try {
       current();
       combined.throwIfAborted();
+      const grants = conversationGrants(registry, conversationId);
+      const key = capabilitySessionGrantKey(request);
+      if (grants.has(key)) session.sessionAllowList.add(key);
       const decision = await capabilityApprovalForConversation(registry, conversationId)(
         request,
         combined,
       );
       current();
       combined.throwIfAborted();
+      if (decision && session.sessionAllowList.has(key)) grants.add(key);
       return decision;
     } finally {
       unsubscribe?.();

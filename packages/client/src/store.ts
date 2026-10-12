@@ -949,6 +949,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       decision: 'once' | 'always' | 'deny',
       answers?: import('@mitzo/protocol').QuestionAnswers,
     ) {
+      get().dispatchMessages({ type: 'PERMISSION_RESPONDING', permId });
       connection.send({
         type: 'permission_response',
         ...(parserState.currentSessionId ? { sessionId: parserState.currentSessionId } : {}),

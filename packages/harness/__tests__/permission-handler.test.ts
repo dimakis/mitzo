@@ -37,7 +37,6 @@ describe('buildPermissionHandler', () => {
         toolUseID: 'search',
         forcePrompt: true,
         allowSessionGrant: false,
-        rememberSessionGrant: false,
         approvalScope: 'session',
       },
     );
@@ -370,7 +369,7 @@ describe('buildPermissionHandler', () => {
   });
 
   it.each(['GitCommit', 'Bash', 'mcp__gws__gmail_write'])(
-    'advertises a request-only grant for a forced non-cacheable %s approval',
+    'honors the user session choice for a forced %s approval',
     async (toolName) => {
       const transport = fakeTransport();
       const allowList = new Set<string>();
@@ -392,20 +391,66 @@ describe('buildPermissionHandler', () => {
           },
         );
         await Promise.resolve();
+        if (invocation === 0) {
+          const request = transport.sent.find((event) => event.type === 'permission_request')!;
+          expect(request.approvalScope).toBe('session');
+          expect(resolvePending(request.permId as string, 'always')).toBe(true);
+        }
+        expect(await execution).toMatchObject({
+          behavior: 'allow',
+          decisionClassification: 'user_permanent',
+        });
+        expect(allowList.size).toBe(1);
+      }
+      expect(transport.sent.filter((event) => event.type === 'permission_request')).toHaveLength(1);
+    },
+  );
+
+  it('keeps server-owned session grant keys separate for different connection scopes', async () => {
+    const transport = fakeTransport();
+    const abort = new AbortController();
+    const allowList = new Set<string>(['ExecuteProviderCapability']);
+    registry.register('client-1', {
+      transport,
+      abortController: abort,
+      mode: 'agent',
+      sessionAllowList: allowList,
+    });
+    const handler = buildPermissionHandler('client-1', registry);
+    try {
+      for (const [connection, decision] of [
+        ['one', 'always'],
+        ['two', 'once'],
+      ] as const) {
+        const execution = handler(
+          'ExecuteProviderCapability',
+          { operation: connection },
+          {
+            signal: abort.signal,
+            toolUseID: connection,
+            forcePrompt: true,
+            sessionGrantKey: `capability:write:1:${connection}`,
+            sessionGrantDescription:
+              'This operation class on this connection until the session ends.',
+          },
+        );
+        await Promise.resolve();
         const request = transport.sent
           .filter((event) => event.type === 'permission_request')
           .at(-1)!;
-        expect(request.approvalScope).toBe('request');
-        expect(resolvePending(request.permId as string, 'always')).toBe(true);
-        expect(await execution).toMatchObject({
-          behavior: 'allow',
-          decisionClassification: 'user_temporary',
-        });
-        expect(allowList.size).toBe(0);
+        expect(request.sessionGrantDescription).toBe(
+          'This operation class on this connection until the session ends.',
+        );
+        expect(resolvePending(request.permId as string, decision)).toBe(true);
+        expect(await execution).toMatchObject({ behavior: 'allow' });
       }
       expect(transport.sent.filter((event) => event.type === 'permission_request')).toHaveLength(2);
-    },
-  );
+      expect(allowList.has('capability:write:1:one')).toBe(true);
+      expect(allowList.has('capability:write:1:two')).toBe(false);
+    } finally {
+      abort.abort();
+    }
+  });
 
   it('does not reuse a session grant for an exact-action forced prompt', async () => {
     const transport = fakeTransport();
@@ -423,6 +468,7 @@ describe('buildPermissionHandler', () => {
         signal: new AbortController().signal,
         toolUseID: 'tool-1',
         forcePrompt: true,
+        allowSessionGrant: false,
       },
     );
     await Promise.resolve();

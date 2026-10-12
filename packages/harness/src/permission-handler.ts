@@ -133,6 +133,10 @@ export function buildPermissionHandler(
       forcePrompt?: boolean;
       /** Allow a forced prompt to honor an explicit session-wide grant. */
       allowSessionGrant?: boolean;
+      /** Server-owned operation/service identity; never taken from a permission response. */
+      sessionGrantKey?: string;
+      /** Plain description of the retained scope shown with the session choice. */
+      sessionGrantDescription?: string;
       /** The caller may store a narrower account-bound consent instead of a tool-wide grant. */
       rememberSessionGrant?: boolean;
       approvalScope?: 'session' | 'conversation' | 'request';
@@ -199,12 +203,14 @@ export function buildPermissionHandler(
       return { behavior: 'allow', updatedInput: _toolInput };
     }
 
-    // Exact-action and policy gates remain non-cacheable unless the caller
-    // explicitly declares that this forced prompt supports session-wide grants.
+    // A user session grant satisfies a forced ask prompt, while mode, skill and
+    // workspace checks still run first. Scoped adapters must supply their own key.
     if (
       !questions &&
-      (!opts.forcePrompt || opts.allowSessionGrant) &&
-      isAllowListed(session.sessionAllowList, toolName)
+      opts.allowSessionGrant !== false &&
+      (opts.sessionGrantKey
+        ? session.sessionAllowList.has(opts.sessionGrantKey)
+        : isAllowListed(session.sessionAllowList, toolName))
     ) {
       return {
         behavior: 'allow',
@@ -248,11 +254,13 @@ export function buildPermissionHandler(
           }
         }
         if (
+          opts.allowSessionGrant !== false &&
           opts.rememberSessionGrant !== false &&
           result.behavior === 'allow' &&
           result.decisionClassification === 'user_permanent'
         ) {
-          addToAllowList(session.sessionAllowList, toolName);
+          if (opts.sessionGrantKey) session.sessionAllowList.add(opts.sessionGrantKey);
+          else addToAllowList(session.sessionAllowList, toolName);
         }
         const resolved = { type: resolutionEvent, permId, sessionId: session.sessionId };
         for (const transport of new Set([session.transport, ...session.observers]))
@@ -281,11 +289,11 @@ export function buildPermissionHandler(
         description: opts.description,
         displayName: opts.displayName,
         tier,
-        // Exact-action/policy prompts cannot advertise a cached grant they ignore.
-        // Explicit scopes remain owned by adapters that store narrower consent.
         approvalScope:
-          opts.approvalScope ??
-          (opts.forcePrompt && !opts.allowSessionGrant ? 'request' : undefined),
+          opts.approvalScope ?? (opts.allowSessionGrant === false ? 'request' : 'session'),
+        ...(opts.sessionGrantDescription
+          ? { sessionGrantDescription: opts.sessionGrantDescription }
+          : {}),
         sessionId: session.sessionId,
         expiresAt: Date.now() + PERMISSION_TIMEOUT_MS,
         ...(questions ? { questions } : {}),

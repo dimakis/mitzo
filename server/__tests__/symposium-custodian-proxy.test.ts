@@ -330,3 +330,35 @@ it('forwards canonical context pack mutations only to the retained owner', async
   expect(local).not.toHaveBeenCalled();
   expect(invoke).toHaveBeenCalledTimes(3);
 });
+
+it('invalidates logical-session controller consent only after a successful authenticated publication revoke', async () => {
+  const token = (await login(process.env.AUTH_PASSPHRASE!))!;
+  let status = 409;
+  const invoke = vi.fn(async () => ({ status, body: { ok: status === 200 } }));
+  const clear = vi.fn();
+  const app = express();
+  app.use(express.json(), authMiddleware);
+  app.use(createCustodianProxy({ request: invoke, invalidate: vi.fn() }, undefined, clear));
+  const path = '/api/sessions/controller-session/symposium/publication/revoke';
+  expect((await request(app).post(path).send({ grantId: 'grant' })).status).toBe(401);
+  expect(clear).not.toHaveBeenCalled();
+  expect(
+    (
+      await request(app)
+        .post(path)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ grantId: 'grant' })
+    ).status,
+  ).toBe(409);
+  expect(clear).not.toHaveBeenCalled();
+  status = 200;
+  expect(
+    (
+      await request(app)
+        .post(path)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ grantId: 'grant' })
+    ).status,
+  ).toBe(200);
+  expect(clear).toHaveBeenCalledExactlyOnceWith('controller-session');
+});

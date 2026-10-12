@@ -1,3 +1,4 @@
+import { clearPublicationControllerSessionGrants } from './symposium-publication-approval.js';
 import {
   isTransportConnectionOwnedBy,
   liveTransportAuthSessionId,
@@ -1882,6 +1883,7 @@ export function handleSessionClose(
       }
 
       assertOrdinaryContributorControlAllowed(ctx.eventStore, msg.sessionId, 'close');
+      clearPublicationControllerSessionGrants(ctx.sessionRegistry, msg.sessionId);
       closeSessionByUser(found.clientId);
       log.info('session close initiated by user', {
         connectionId,

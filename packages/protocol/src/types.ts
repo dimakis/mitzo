@@ -224,6 +224,8 @@ export interface PermissionRequest {
   displayName?: string;
   tier?: ToolTier;
   approvalScope?: 'session' | 'conversation' | 'request';
+  /** Server-supplied human description of the retained session scope. */
+  sessionGrantDescription?: string;
   responseError?: string;
 }
 
