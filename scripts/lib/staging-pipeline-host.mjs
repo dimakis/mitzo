@@ -24,7 +24,9 @@ export function runStagingHostCommand(program, args, { heapMiB = 1024, timeout =
     maxBuffer: 1048576,
   });
   if (p.status !== 0 || p.signal || p.error)
-    throw Error('Bounded staging host command refused or uncertain');
+    throw Object.assign(Error('Bounded staging host command refused or uncertain'), {
+      terminalRefusal: Number.isInteger(p.status) && p.status !== 0 && !p.signal && !p.error,
+    });
   return p.stdout.trim();
 }
 export function parseMacStagingResources({ pressure, free, swap, disk, usage, vm }) {
@@ -111,7 +113,12 @@ export function createStagingPipelineEffects({
     check,
     prepare: async (target) => {
       exact(target);
-      run(controller, ['prepare', '--commit', target], opts);
+      try {
+        run(controller, ['prepare', '--commit', target], opts);
+      } catch (error) {
+        if (error.terminalRefusal === true) error.safePreparationRefusal = true;
+        throw error;
+      }
     },
     plan: async (target, current) => {
       exact(target, current);

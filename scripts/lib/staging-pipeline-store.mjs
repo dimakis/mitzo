@@ -110,6 +110,7 @@ export class StagingPipelineStore {
         state: row.state,
         epoch: row.epoch,
         requestId: row.request_id,
+        owner: row.owner,
         deadline: row.deadline,
         dispatched: Boolean(row.dispatched),
       },

@@ -45,7 +45,9 @@ export async function runStagingPipelineRequest(store, effects, owner) {
       throw Error('Test lifecycle or baseline uncertain');
     store.finish(token, { outcome: result.outcome, sourceCommit, cleanupConfirmed: true });
     return { requestId: request.id, state: result.outcome, sourceCommit };
-  } catch {
+  } catch (error) {
+    if (phase === 'preparing' && error.safePreparationRefusal === true)
+      return wait('stage-unavailable');
     if (phase === 'preflight') return wait('stage-unavailable');
     const reason = phase === 'testing' ? 'test-cleanup-uncertain' : 'deployment-uncertain';
     store.quarantine(token, reason);

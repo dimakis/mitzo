@@ -112,7 +112,7 @@ async function main() {
       result = await runStagingPipelineRequest(
         store,
         createStagingPipelineEffects(),
-        'controller-' + randomUUID(),
+        'controller-' + process.pid + '-' + randomUUID(),
       );
     console.log(JSON.stringify(result));
   } finally {

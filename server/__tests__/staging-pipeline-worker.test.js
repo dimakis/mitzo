@@ -147,3 +147,14 @@ it('confirmed deployment plus host pressure waits without creating a custody inc
   expect(f.store.quarantine).not.toHaveBeenCalled();
   expect(f.effects.test).not.toHaveBeenCalled();
 });
+it('a terminal pure-preparation refusal leaves work queued without quarantining native custody', async () => {
+  const f = fixture();
+  f.effects.check.mockResolvedValueOnce({ safe: true, expected: 'b'.repeat(40) });
+  f.effects.prepare.mockRejectedValue(
+    Object.assign(Error('main advanced before preparation'), { safePreparationRefusal: true }),
+  );
+  await runStagingPipelineRequest(f.store, f.effects, 'worker');
+  expect(f.store.defer).toHaveBeenCalledWith(token, 'stage-unavailable');
+  expect(f.store.quarantine).not.toHaveBeenCalled();
+  expect(f.effects.deploy).not.toHaveBeenCalled();
+});
