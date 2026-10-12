@@ -21,6 +21,52 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 describe('ordinary Access', () => {
+  it.each([
+    [null, 'None active'],
+    [[], 'No Mitzo host tools permitted'],
+    [['Read'], 'Read'],
+  ] as const)(
+    'shows acknowledged Codex identity with the exact host ceiling %s',
+    async (skillCeiling, expected) => {
+      apiFetch.mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          sessionId: 'one',
+          state: 'current',
+          observedAt: Date.now(),
+          account: {
+            accountId: 'a',
+            accountLabel: 'Luna fixture account',
+            provider: 'openai-codex',
+          },
+          model: 'fixture-luna',
+          modelSource: 'accepted-turn',
+          runtime: { harness: 'codex', location: 'openshell' },
+          mode: 'agent',
+          grants: [],
+          skillCeiling,
+          pending: [],
+          tools: null,
+          attachments: null,
+          limits: null,
+        }),
+      });
+      render(<SessionAccess sessionId="one" />);
+      fireEvent.click(screen.getByRole('button', { name: 'Access' }));
+      await screen.findByText('Luna fixture account');
+      expect(screen.getByText('Codex')).toBeTruthy();
+      expect(screen.getByText('OpenShell sandbox')).toBeTruthy();
+      expect(screen.getByText('Last acknowledged model')).toBeTruthy();
+      expect(screen.getByText('fixture-luna')).toBeTruthy();
+      expect(screen.getByText('No Mitzo host tool grants')).toBeTruthy();
+      expect(
+        screen.getByText('Restricted skill ceilings are unsupported on this Codex route.'),
+      ).toBeTruthy();
+      expect(screen.getByText('Native Codex permissions')).toBeTruthy();
+      expect(screen.getByText(`Mitzo host restriction: ${expected}`)).toBeTruthy();
+      expect(screen.queryByText('No active skill ceiling')).toBeNull();
+    },
+  );
   it('opens before session/output exists and returns from Connections without replacing the composer', async () => {
     getConnectionsAccess.mockResolvedValue({ generatedAt: Date.now(), resources: [], sources: [] });
     render(

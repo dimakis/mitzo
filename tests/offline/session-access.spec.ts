@@ -35,7 +35,7 @@ const inventory = {
     { id: 'google', state: 'unavailable', reason: 'Google could not be checked.' },
   ],
 };
-async function fixture(page: Page, existing = false, pending = true) {
+async function fixture(page: Page, existing = false, pending = true, codex = false) {
   const errors: string[] = [];
   let reads = 0;
   page.on('pageerror', (error) => errors.push(error.message));
@@ -75,8 +75,8 @@ async function fixture(page: Page, existing = false, pending = true) {
       {
         id: 'fixture-account',
         label: 'Fixture account',
-        provider: 'anthropic-vertex',
-        models: [{ id: 'fixture-model', label: 'Fixture model' }],
+        provider: codex ? 'openai-codex' : 'anthropic-vertex',
+        models: [{ id: codex ? 'fixture-luna' : 'fixture-model', label: 'Fixture model' }],
       },
     ],
     '/api/sessions': existing ? [{ id: sessionId, summary: 'Access fixture', isActive: true }] : [],
@@ -89,12 +89,12 @@ async function fixture(page: Page, existing = false, pending = true) {
       accountBinding: {
         accountId: 'fixture-account',
         accountLabel: 'Fixture account',
-        provider: 'anthropic-vertex',
-        model: 'fixture-model',
+        provider: codex ? 'openai-codex' : 'anthropic-vertex',
+        model: codex ? 'fixture-luna' : 'fixture-model',
       },
       modelSelection: {
-        model: 'fixture-model',
-        models: [{ id: 'fixture-model', label: 'Fixture model' }],
+        model: codex ? 'fixture-luna' : 'fixture-model',
+        models: [{ id: codex ? 'fixture-luna' : 'fixture-model', label: 'Fixture model' }],
       },
     },
     [`/api/sessions/${sessionId}/messages`]: [
@@ -148,13 +148,19 @@ async function fixture(page: Page, existing = false, pending = true) {
             account: {
               accountId: 'fixture-account',
               accountLabel: 'Fixture account',
-              provider: 'anthropic-vertex',
+              provider: codex ? 'openai-codex' : 'anthropic-vertex',
             },
-            model: 'fixture-model',
+            model: codex ? 'fixture-luna' : 'fixture-model',
+            ...(codex
+              ? {
+                  modelSource: 'accepted-turn',
+                  runtime: { harness: 'codex', location: 'openshell' },
+                }
+              : {}),
             mode: 'agent',
             grants: ['Read'],
             skillCeiling: null,
-            pending: [{ permId: 'pending', toolName: 'Bash', scope: 'request' }],
+            pending: pending ? [{ permId: 'pending', toolName: 'Bash', scope: 'request' }] : [],
             attachments: null,
             tools: null,
             limits: null,
@@ -182,6 +188,55 @@ async function fixture(page: Page, existing = false, pending = true) {
   });
   return errors;
 }
+
+test('Access: observed Codex route preserves drafts and scopes host approvals', async ({
+  page,
+  isMobile,
+}, testInfo) => {
+  await page.setViewportSize({ width: isMobile ? 320 : 1280, height: 800 });
+  const errors = await fixture(page, true, false, true);
+  await page.goto(`/chat/${sessionId}`);
+  const composer = page.getByPlaceholder('Message Mitzo...');
+  await composer.fill('Keep the Codex draft');
+  await page.getByRole('button', { name: 'Access', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Access', exact: true });
+  await expect(dialog.getByText('Codex', { exact: true })).toBeVisible();
+  await expect(dialog.getByText('fixture-luna', { exact: true })).toBeVisible();
+  await expect(dialog.getByText('Last acknowledged model')).toBeVisible();
+  await expect(dialog.getByText('OpenShell sandbox')).toBeVisible();
+  for (const theme of ['dark', 'light']) {
+    await page.evaluate((theme) => {
+      document.documentElement.dataset.theme = theme;
+      document.documentElement.dataset.accent = theme === 'light' ? 'teal' : 'lavender';
+      document.documentElement.dataset.font = theme === 'light' ? 'georgia' : 'system';
+    }, theme);
+    await dialog.getByText('Fixture account', { exact: true }).scrollIntoViewIfNeeded();
+    await page.screenshot({
+      path: testInfo.outputPath(`codex-access-${theme}.png`),
+      animations: 'disabled',
+    });
+    await dialog.getByText('Native Codex permissions').scrollIntoViewIfNeeded();
+    await expect(
+      dialog.getByText('Unknown — native permissions have not been reported here.'),
+    ).toBeVisible();
+    await page.screenshot({
+      path: testInfo.outputPath(`codex-permissions-${theme}.png`),
+      animations: 'disabled',
+    });
+    await dialog.getByRole('button', { name: 'Connections', exact: true }).click();
+    await expect(dialog.getByText('Team Jira')).toBeVisible();
+    await page.screenshot({
+      path: testInfo.outputPath(`codex-connections-${theme}.png`),
+      animations: 'disabled',
+    });
+    await dialog.getByRole('button', { name: 'Back to Access' }).click();
+  }
+  await dialog.getByRole('button', { name: 'Refresh Access' }).scrollIntoViewIfNeeded();
+  await expect(dialog.getByRole('button', { name: 'Refresh Access' })).toBeInViewport();
+  await dialog.press('Escape');
+  await expect(composer).toHaveValue('Keep the Codex draft');
+  expect(errors).toEqual([]);
+});
 
 test('Access: empty ordinary composer survives Connections and return', async ({
   page,
