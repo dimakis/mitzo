@@ -1155,6 +1155,8 @@ Installs require Node 24 and npm 11.18.0 or newer so workspace security override
 
 The narrowly scoped [lost-owner offline preservation procedure](docs/operations/staging-offline-containment.md) retains the original native environment and uncertain history before ordinary staging restoration. Source acceptance, authenticated physical recovery and provider enrollment remain separate.
 
+The [fresh canonical AppleHV allocation procedure](docs/operations/staging-fresh-applehv.md) describes guarded stock-image initialization, full growth admission and one original-controller VM start after qualified preservation. Its plans grant no host authority; uncertain native state is retained without replay.
+
 Reuse the singleton `com.mitzo.staging` service at `http://mitzo-staging.localhost:3190`.
 The [operating procedure](docs/operations/canonical-staging.md) describes integrity/freshness
 checks, exact-commit preparation, plan/apply updates, private audit/snapshots and uncertain
