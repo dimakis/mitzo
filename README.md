@@ -101,7 +101,7 @@ Symposium director status resolves the verified runtime once per request and reu
 - **Auto-rename sessions** — sessions get meaningful names via LLM summarization after every few prompts
 - **Quick actions** — one-tap commands via `.mitzo.json`
 - **Notifications center** — shared desktop/mobile feed for approvals, questions, session completions, and new Inbox arrivals, with native iPhone/Apple Watch delivery. Native device enrollment retries after login and app resume; partial listener setup resumes without duplicating callbacks. Enable **Show sensitive details** to see complete eligible requests and allow once or deny from an expanded iOS banner without opening Mitzo; search banners also offer session-wide consent bound to the selected account and model.
-- **Image attachments** — send photos/screenshots from your camera. Tap a draft thumbnail or its Sources drawer row to open a full-screen preview, draw on the image, undo or clear marks, and save the annotated image before sending. Close or Cancel retains the original. Preview and drawing use the shared composer across all runtimes; the removal button stays separate from the image preview.
+- **Image attachments** — send photos/screenshots from your camera
 - **Session history** — resume past conversations, swipe to dismiss. Hold a conversation in the recent list or search results to preview its latest saved messages above an action menu; release keeps the preview open. Open, rename, copy the session ID, or delete the conversation without first entering chat. Search results refresh after renames and deletions. Scrolling cancels the hold. Desktop users can right-click or press Shift+F10; Preview conversation is also available in row details. Escape, Close, or a tap outside returns to the list.
 - **Managed Connections** — attach reviewed Jira, GitHub, and bounded custom REST providers to eligible accounts; publish GitHub pull requests through an approved controller operation
 
@@ -128,6 +128,10 @@ Opening Knowledge starts at the Library tree, including when a working copy was 
 **Knowledge → Context** curates reusable context packs from accepted document revisions. Save recoverable drafts, inspect history and affected profiles, compile a preview, and explicitly publish a pack revision. Agent Library profiles compose exact pack revisions under one context budget. The advisor can propose a portable draft for review and import. See [context packs](docs/features/context-packs.md).
 
 The Library requires independently reviewed private host enrollment through `MITZO_KNOWLEDGE_LIBRARY_CONFIG`, including explicit document scopes and optional publishing identity. Acceptance is disabled by default. See [Knowledge Library enrollment](docs/operations/knowledge-library.md). Drafts join core SQLite backups with bounded Git recovery bundles, preserving exact prepared review heads after restore into a fresh source mirror. **More → Workspace tools** retains the raw Files browser and existing artifact links; its worktree list loads only on request, with cached, bounded discovery.
+
+### Draft image preview and drawing
+
+Tap a draft thumbnail or its Sources drawer row to open a full-screen preview, draw on the image, undo or clear marks, and save the annotated image before sending. Close or Cancel retains the original. Preview and drawing use the shared composer across all runtimes; the removal button stays separate from the image preview.
 
 ### Managed Connections
 
