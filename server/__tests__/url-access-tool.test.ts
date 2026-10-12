@@ -356,3 +356,106 @@ it('keeps nonbillable origin consent across model selection and transport recrea
   await f.tool.request(input, signal);
   expect(approve).toHaveBeenCalledOnce();
 });
+
+it('shares matching simultaneous destination approvals while keeping waiter cancellation independent', async () => {
+  const f = fixture();
+  let finish!: (value: unknown) => void;
+  approve.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const input = { operation: 'request_access', url: 'https://example.com/a', reason: 'why' };
+  const firstSignal = new AbortController();
+  const first = f.tool.request(input, firstSignal.signal);
+  const second = f.tool.request(
+    { ...input, url: 'https://example.com/b' },
+    new AbortController().signal,
+  );
+  await vi.waitFor(() => expect(approve).toHaveBeenCalledOnce());
+  firstSignal.abort();
+  expect(await first).toMatchObject({ isError: true });
+  expect(approve.mock.calls[0][2].signal.aborted).toBe(false);
+  finish({
+    behavior: 'allow',
+    updatedInput: approve.mock.calls[0][1],
+    decisionClassification: 'user_permanent',
+  });
+  expect(await second).toMatchObject({ isError: false });
+  expect(approve).toHaveBeenCalledOnce();
+});
+
+it('does not share changed resolved address scopes', async () => {
+  const f = fixture();
+  f.resolve.mockResolvedValueOnce({
+    url: 'https://example.com/a',
+    origin: 'https://example.com',
+    addresses: [{ address: '127.0.0.1', family: 4 }],
+  });
+  f.resolve.mockResolvedValueOnce({
+    url: 'https://example.com/b',
+    origin: 'https://example.com',
+    addresses: [{ address: '127.0.0.2', family: 4 }],
+  });
+  approve.mockImplementation(async (_name, input) => ({ behavior: 'allow', updatedInput: input }));
+  await Promise.all(
+    ['/a', '/b'].map((path) =>
+      f.tool.request(
+        { operation: 'request_access', url: 'https://example.com' + path, reason: 'why' },
+        new AbortController().signal,
+      ),
+    ),
+  );
+  expect(approve).toHaveBeenCalledTimes(2);
+});
+
+it('cannot resurrect a revoked shared approval and checks each waiter policy', async () => {
+  const f = fixture();
+  let finish!: (value: unknown) => void;
+  approve.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const input = { operation: 'request_access', url: 'https://example.com/a', reason: 'why' };
+  const pending = [
+    f.tool.request(input, new AbortController().signal),
+    f.tool.request({ ...input, url: 'https://example.com/b' }, new AbortController().signal),
+  ];
+  await vi.waitFor(() => expect(approve).toHaveBeenCalledOnce());
+  await f.tool.request({ ...input, operation: 'revoke_access' }, new AbortController().signal);
+  finish({
+    behavior: 'allow',
+    updatedInput: approve.mock.calls[0][1],
+    decisionClassification: 'user_permanent',
+  });
+  for (const result of await Promise.all(pending)) expect(result).toMatchObject({ isError: true });
+  expect(await f.tool.fetch(input.url, new AbortController().signal)).toBeUndefined();
+});
+
+it('rechecks current eligibility for all callers after shared consent', async () => {
+  const f = fixture();
+  let finish!: (value: unknown) => void;
+  approve.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const input = { operation: 'request_access', url: 'https://example.com/a', reason: 'why' };
+  const pending = [
+    f.tool.request(input, new AbortController().signal),
+    f.tool.request(input, new AbortController().signal),
+  ];
+  await vi.waitFor(() => expect(approve).toHaveBeenCalledOnce());
+  f.session.mode = 'ask';
+  finish({
+    behavior: 'allow',
+    updatedInput: approve.mock.calls[0][1],
+    decisionClassification: 'user_permanent',
+  });
+  for (const result of await Promise.all(pending)) expect(result).toMatchObject({ isError: true });
+  expect(await f.tool.fetch(input.url, new AbortController().signal)).toBeUndefined();
+});
