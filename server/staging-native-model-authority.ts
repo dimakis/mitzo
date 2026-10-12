@@ -38,7 +38,7 @@ export interface StagingNativeModelAuthority {
     selectedModel: string;
     maxRequests: 2;
     auxiliaryDispatches: 'same-selected-model-shared-budget';
-  }): StagingNativeModelPlan;
+  }): StagingNativeModelPlan | Promise<StagingNativeModelPlan>;
   prepareSandbox(
     plan: StagingNativeModelPlan,
     input: {

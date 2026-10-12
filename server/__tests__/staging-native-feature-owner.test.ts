@@ -61,10 +61,10 @@ function fixture(acceptedAppSource?: OriginalStagingAppSourceWitness) {
   return { owner, current, execute, observeResources };
 }
 describe('concrete conditional native feature owner', () => {
-  it('refuses the missing actual gateway model authority before any fixture or native dispatch', () => {
+  it('refuses the missing actual gateway model authority before any fixture or native dispatch', async () => {
     const f = fixture(),
       enrollment = f.owner.enrollment('stage-api');
-    expect(() =>
+    await expect(
       f.owner.plan(
         {
           version: 2,
@@ -77,7 +77,9 @@ describe('concrete conditional native feature owner', () => {
         },
         sourceCommit,
       ),
-    ).toThrow(/HTTP account\/model\/auxiliary\/max-two-request enforcement is not qualified/);
+    ).rejects.toThrow(
+      /HTTP account\/model\/auxiliary\/max-two-request enforcement is not qualified/,
+    );
     expect(f.execute).not.toHaveBeenCalled();
   });
   it('retains actual original resource callback and source/owner identity, with no JSON capacity input', () => {

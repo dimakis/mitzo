@@ -57,6 +57,7 @@ export class StagingNativeFeatureOwner {
   >();
   private readonly receipts = new Map<string, object>();
   private active = false;
+  private planningRun = false;
   constructor(
     private readonly deps: {
       bootstrap: StagingNativeFeatureBootstrap;
@@ -162,7 +163,7 @@ export class StagingNativeFeatureOwner {
         : {}),
     };
   }
-  plan(raw: unknown, sourceCommit: string) {
+  async plan(raw: unknown, sourceCommit: string) {
     const request = StagingFeatureRequest.parse(raw);
     const current = this.capture(request.profileId);
     const appSource = this.appSource();
@@ -174,12 +175,20 @@ export class StagingNativeFeatureOwner {
     )
       throw Error('Exact original native feature source/enrollment required');
     const authority = captureQualifiedStagingNativeModelAuthority(this.deps.gateway);
-    const modelPlan = authority.plan({
+    const modelPlan = await authority.plan({
       binding: current.enrollment.binding,
       selectedModel: current.enrollment.selectedModel,
       maxRequests: 2,
       auxiliaryDispatches: 'same-selected-model-shared-budget',
     });
+    const after = this.capture(request.profileId);
+    if (
+      digest(this.appSource() ?? null) !== digest(appSource ?? null) ||
+      after.enrollmentRevision !== current.enrollmentRevision ||
+      this.plans.size >= 100
+    )
+      throw Error('Original native source/enrollment changed during provider description');
+    current.enrollment.assertCurrent();
     modelPlan.assertCurrent();
     if (modelPlan.selectedModel !== current.enrollment.selectedModel)
       throw Error('Authenticated native model selection differs from the explicit enrolled model');
@@ -236,9 +245,15 @@ export class StagingNativeFeatureOwner {
       token = StagingFeatureToken.parse(rawToken),
       planSha256 = digest(plan);
     const original = this.plans.get(planSha256);
-    if (!original || this.active || token.requestId !== plan.requestId)
+    if (!original || this.active || this.planningRun || token.requestId !== plan.requestId)
       throw Error('Original announced native feature plan required');
-    const current = this.plan(original.request, plan.sourceCommit);
+    this.planningRun = true;
+    let current: Awaited<ReturnType<StagingNativeFeatureOwner['plan']>>;
+    try {
+      current = await this.plan(original.request, plan.sourceCommit);
+    } finally {
+      this.planningRun = false;
+    }
     if (current.planSha256 !== planSha256) throw Error('Original native feature plan changed');
     const deadlineAt = Date.now() + plan.limits.timeoutMs;
     let cleanupDeadline: number | undefined;
