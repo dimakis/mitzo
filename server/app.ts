@@ -1,3 +1,4 @@
+import { createTelemetryRelay } from './telemetry-relay.js';
 import type {
   SymposiumReviewPhysicalHost,
   SymposiumReviewRouteHost,
@@ -562,6 +563,11 @@ app.post(
   '/api/telos/items/:itemId/artifacts/upload',
   operatorAuthMiddleware,
   express.json({ limit: '8mb' }),
+);
+app.use(
+  '/api/telemetry',
+  authMiddleware,
+  createTelemetryRelay(process.env.OTEL_EXPORTER_OTLP_ENDPOINT),
 );
 app.use(express.json({ limit: '10mb' }));
 
