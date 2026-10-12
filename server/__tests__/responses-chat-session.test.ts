@@ -6,7 +6,7 @@ import { EventStore } from '../event-store.js';
 import { admitProviderDispatch } from '../provider-execution.js';
 const calls = vi.hoisted(() => ({
   options: [] as Record<string, unknown>[],
-  prompts: [] as string[],
+  prompts: [] as unknown[],
   interrupt: vi.fn(),
   releaseInterruptedRun: undefined as (() => void) | undefined,
 }));
@@ -15,7 +15,7 @@ vi.mock('../native-responses-runner.js', () => ({
     constructor(opts: Record<string, unknown>) {
       calls.options.push(opts);
     }
-    async *run(prompt: string) {
+    async *run(prompt: unknown) {
       calls.prompts.push(prompt);
       if (prompt === 'wait-for-interrupt') {
         await new Promise<void>((_, reject) => {
@@ -27,7 +27,7 @@ vi.mock('../native-responses-runner.js', () => ({
           calls.releaseInterruptedRun = resolve;
         });
       }
-      if (prompt.startsWith('vertex-'))
+      if (typeof prompt === 'string' && prompt.startsWith('vertex-'))
         yield {
           type: 'stream_event',
           event: {
@@ -1441,3 +1441,129 @@ it('revalidates source authority on later queued API commands before starting th
     registry.dispose();
   }
 });
+
+it.each(['Describe this', ''])(
+  'converts image turns and image follow-ups into runner content (%j)',
+  async (prompt) => {
+    const registry = new SessionRegistry();
+    registry.register('image-client', {
+      transport: { send: () => {}, isOpen: () => true },
+      abortController: new AbortController(),
+      mode: 'agent',
+      sessionId: 'image-app',
+      cwd: '/tmp',
+      sessionAllowList: new Set(),
+    });
+    const input = new AsyncQueue<{
+      message: { content: string };
+      mitzoImages?: Array<{ data: string; mediaType: string }>;
+    }>();
+    const image = { data: 'aGk=', mediaType: 'image/png' };
+    input.push({ message: { content: prompt }, mitzoImages: [image] });
+    input.push({ message: { content: 'plain follow-up' } });
+    input.push({ message: { content: 'Compare again' }, mitzoImages: [image] });
+    input.close();
+    const prior = calls.prompts.length;
+    try {
+      const chat = await openResponsesChat({
+        conversationId: 'image-app',
+        binding: {
+          accountId: 'fixture',
+          accountLabel: 'Fixture',
+          provider: 'openai',
+          model: 'offline',
+          profileRevision: 'fixture',
+        },
+        apiKey: 'mock-only',
+        session: registry.get('image-client')!,
+        registry,
+        input,
+        systemPrompt: 'context',
+        env: { PATH: '/usr/bin:/bin' },
+        mcpServers: {},
+        store: {} as never,
+      });
+      for await (const event of chat) expect(event).toHaveProperty('type');
+      const block = {
+        type: 'image',
+        source: { type: 'base64', media_type: 'image/png', data: 'aGk=' },
+      };
+      expect(calls.prompts.slice(prior)).toEqual([
+        [...(prompt ? [{ type: 'text', text: prompt }] : []), block],
+        'plain follow-up',
+        [{ type: 'text', text: 'Compare again' }, block],
+      ]);
+    } finally {
+      registry.dispose();
+    }
+  },
+);
+
+it.each([
+  {
+    provider: 'openai' as const,
+    content: [{ type: 'text', text: 'SDK content' }],
+    images: undefined,
+    error: /string/i,
+  },
+  {
+    provider: 'openai' as const,
+    content: '',
+    images: [{ data: 'not base64', mediaType: 'image/png' }],
+    error: /base64/i,
+  },
+  {
+    provider: 'google-vertex' as const,
+    content: 'See this',
+    images: [{ data: 'aGk=', mediaType: 'image/png' }],
+    error: /Vertex.*image/i,
+  },
+])(
+  'rejects unsupported queued content before runner dispatch ($provider)',
+  async ({ provider, content, images, error }) => {
+    const registry = new SessionRegistry();
+    registry.register('invalid-image-client', {
+      transport: { send: () => {}, isOpen: () => true },
+      abortController: new AbortController(),
+      mode: 'agent',
+      sessionId: 'invalid-image-app',
+      cwd: '/tmp',
+      sessionAllowList: new Set(),
+    });
+    const input = new AsyncQueue<{
+      message: { content: unknown };
+      mitzoImages?: Array<{ data: string; mediaType: string }>;
+    }>();
+    input.push({ message: { content }, mitzoImages: images });
+    input.close();
+    const prior = calls.prompts.length;
+    try {
+      const chat = await openResponsesChat({
+        conversationId: 'invalid-image-app',
+        binding: {
+          accountId: 'fixture',
+          accountLabel: 'Fixture',
+          provider,
+          model: 'offline',
+          profileRevision: 'fixture',
+        },
+        apiKey: 'mock-only',
+        session: registry.get('invalid-image-client')!,
+        registry,
+        input,
+        systemPrompt: 'context',
+        env: { PATH: '/usr/bin:/bin' },
+        mcpServers: {},
+        store: {} as never,
+      });
+      await expect(
+        (async () => {
+          for await (const event of chat) void event;
+        })(),
+      ).rejects.toThrow(error);
+      expect(calls.prompts).toHaveLength(prior);
+    } finally {
+      registry.dispose();
+    }
+  },
+);
