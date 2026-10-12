@@ -31,6 +31,30 @@ const props = {
 };
 
 describe('SessionTray', () => {
+  it('previews a draft image by object identity with a separate remove action', () => {
+    const image = { data: 'one', mediaType: 'image/png', preview: 'data:image/png;base64,one' };
+    const preview = vi.fn();
+    const remove = vi.fn();
+    render(
+      <SessionTray
+        {...props}
+        draftImages={[image]}
+        onPreviewImage={preview}
+        onRemoveImage={remove}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Open session tray' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Sources 1' }));
+    const opener = screen.getByRole('button', { name: 'Preview pasted image 1' });
+    const remover = screen.getByRole('button', { name: 'Remove pasted image 1' });
+    expect(opener.contains(remover)).toBe(false);
+    fireEvent.click(opener);
+    expect(preview).toHaveBeenCalledExactlyOnceWith(image);
+    fireEvent.click(remover);
+    expect(remove).toHaveBeenCalledExactlyOnceWith(0);
+    expect(preview).toHaveBeenCalledTimes(1);
+  });
+
   it.each([
     ['toolbar', -80, 'full'],
     ['overlay', 80, 'full'],

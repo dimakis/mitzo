@@ -18,7 +18,7 @@ review composition have separate owners; their unaccepted work cannot establish 
 Open PRs inspected: #798 backup setup, #568 worktree recovery, #540 Codex background state,
 #445/#440 transport changes and older task/provider work. None supplies accepted session Access.
 Do not adopt their proposed transport/runtime semantics. Older inspected checkouts and mockups
-are references only. No main merge or deployment is included.
+are references only. The subsequent merge is authorized separately; deployment remains excluded.
 
 ## Capability/evidence matrix
 
@@ -149,3 +149,10 @@ no contributor parity or review composition was duplicated. The pre-reconciliati
 `819ca378416c6821994496e20f7bbeee6ce79aa3` passed all hosted implementation jobs
 (13,459 tests, browser/layout and native builds); the reconciled head requires its own
 CI and exact-head review. Source acceptance and deployment/live acceptance remain separate.
+
+Main advanced again to `310a9a71` (PR867, draft image preview/drawing) before the
+user-authorized merge. The documentation conflict retains both Access and image
+editor contracts; the shared dialog and tray changes remain as accepted. The affected
+Access/dialog/tray/composer/resource and design tests pass together (146 checks).
+Rendered offline UI is rechecked because the accepted changes touch shared modal
+and draft-image behavior. This reconciliation adds no Access or persistence scope.

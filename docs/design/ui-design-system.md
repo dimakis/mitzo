@@ -170,3 +170,40 @@ the full account/model details. The expanded settings panel measures the space b
 scrolls within that space, retaining those controls under larger text and viewport changes.
 A 45dvh cap is the fallback before measurement. These bounds are structural overlay geometry;
 colors, type, spacing and controls remain shared.
+
+## Draft image preview and drawing
+
+The shared composer opens draft images from its thumbnail strip and Sources drawer
+through `ImageAttachmentEditor`. The editor extends `HomeDialog` with a fullscreen
+class, retaining native modal focus, Escape dismissal, scroll locking and focus
+restoration. This interaction uses the same attachment state for every runtime.
+
+Keep preview selection separate from the labelled removal button: the image is a
+preview action, and its remove control has a distinct 44px target at the corner.
+Composer thumbnails use shared control/spacing tokens and are slightly larger than
+the prior 64px treatment. Drawer rows expose the same preview action without
+nesting the remove button inside it.
+
+The fullscreen surface uses semantic background/text/border colors, shared type,
+spacing and radius tokens, and the device safe areas. Drawing tools use `UiIcon`
+and labelled controls for Draw, Undo, Clear and pen color. Toolbars wrap or scroll
+within narrow and larger-text viewports; no action can fall below the safe area.
+Canvas dimensions follow the image aspect ratio, and pointer positions map to the
+original pixels rather than the displayed size. This is structural image geometry,
+not a new spacing or palette scale.
+
+Drawing remains a local draft until Save image exports a PNG attachment. Closing
+or cancelling preserves the original image and message text. Apply changes by
+attachment identity within the current conversation; removing that attachment or
+switching conversations must invalidate an outstanding edit. Preview keyboard
+input cannot submit or interrupt the chat behind the modal. Offline component
+and browser checks cover these behaviors across runtimes, mobile and desktop,
+light/dark themes, alternate appearance preferences and larger text.
+
+Offline acceptance captures show [the larger composer thumbnail and separate
+removal control](assets/image-composer-mobile-dark.png), [drawing on a narrow
+phone with larger text and alternate appearance](assets/image-drawing-mobile-light.png),
+and [the full-screen desktop preview](assets/image-preview-desktop-dark.png).
+The intercepted browser fixture checks saved PNG pixels and the exact attachment
+bytes submitted across four runtime bindings on mobile WebKit, mobile Chromium
+and desktop Chromium, without backend or provider calls.
