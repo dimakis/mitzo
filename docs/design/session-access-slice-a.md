@@ -246,3 +246,9 @@ progress now ends inside its owning reconnect method for every caller. Read-only
 Access checks both paused memory and durable recovery before projecting evidence.
 Neither change clears recovery acknowledgements or provider ownership fences.
 The combined runtime advances to v1.0.74 with the same 193 source inputs.
+
+A further red test verifies the most recent model acknowledgement after explicit
+recovery: verified thread resume supersedes an older turn selection, and a later
+accepted turn supersedes that resume. The read-only cache now updates at both
+verified initialization/resume and accepted turn boundaries. No provider probe is
+added to GET. The final candidate advances to v1.0.75 with 193 source inputs.

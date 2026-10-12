@@ -1231,6 +1231,7 @@ export class CodexConversation {
       if (replacingInitialThread)
         this.pendingToolSurface = { thread: result.thread.id, revision: toolSurfaceRevision };
       if (replacingProviderThread) this.resetMapper(this.threadId);
+      this.accessModel = { model: result.model, modelSource: 'provider-thread' };
       this.ready = true;
     } catch (error) {
       client.close();

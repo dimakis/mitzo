@@ -247,3 +247,27 @@ it('withholds observation when durable recovery is newer than the memory flag', 
   expect(owned.conversation.readAccessObservation()).toBeUndefined();
   expect(owned.rpc).not.toHaveBeenCalled();
 });
+
+it('uses the latest verified resume model after explicit recovery, rather than an older turn selection', async () => {
+  const owned = fixture();
+  await owned.conversation.initialize();
+  const sending = owned.conversation.send({
+    id: 'selected-model',
+    prompt: 'fixture',
+    model: 'fixture-luna-two',
+  });
+  await vi.waitFor(() => expect(owned.rpc).toHaveBeenCalledWith('turn/start', expect.anything()));
+  owned.acknowledge();
+  await sending;
+  expect(owned.conversation.readAccessObservation()).toMatchObject({
+    model: 'fixture-luna-two',
+    modelSource: 'accepted-turn',
+  });
+  owned.closeTransport();
+  expect(owned.conversation.readAccessObservation()).toBeUndefined();
+  await owned.conversation.acknowledgeRecovery();
+  expect(owned.conversation.readAccessObservation()).toMatchObject({
+    model: 'fixture-luna',
+    modelSource: 'provider-thread',
+  });
+});
