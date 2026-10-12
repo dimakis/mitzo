@@ -1451,13 +1451,55 @@ function assertNativeProcess(p, record, kind) {
     fail('original native process lineage');
   validateFreshAppleHvNativeArguments(p, current.command, kind);
 }
+/** Capture polling belongs to one original start; completing a report closes it. */
+export function createFreshAppleHvStartCapturePoll({
+  assertCurrent,
+  startAuthority,
+  originalLineage,
+  failStart,
+}) {
+  let phase = 'idle',
+    timer;
+  const poll = async () => {
+    if (phase !== 'active') return;
+    try {
+      await assertCurrent();
+      if (phase !== 'active') return;
+      startAuthority.assertCurrent();
+      originalLineage.captureStart();
+      timer = setTimeout(poll, 50);
+    } catch {
+      if (phase === 'active') failStart();
+    }
+  };
+  return Object.freeze({
+    start() {
+      if (phase !== 'idle') fail('original capture poll start');
+      phase = 'active';
+      timer = setTimeout(poll, 0);
+    },
+    finish(report) {
+      if (phase !== 'active') fail('original capture poll finish');
+      phase = 'finished';
+      clearTimeout(timer);
+      startAuthority.assertCurrent();
+      originalLineage.captureStart();
+      const result = originalLineage.finish(report);
+      return result;
+    },
+    stop() {
+      phase = 'stopped';
+      clearTimeout(timer);
+    },
+  });
+}
 function freshAppleHvPhysicalEffects(approved, assertGuardCurrent) {
   const p = approved.plan;
   let server,
     channelLost = false,
     normalStopRequested = false,
     originalLineage,
-    pollTimer;
+    capturePoll;
   const startAuthority = createFreshAppleHvStartRevocation(() => server?.close());
   const originalGuard = () => {
     startAuthority.assertCurrent();
@@ -1898,12 +1940,18 @@ function freshAppleHvPhysicalEffects(approved, assertGuardCurrent) {
           channelLost = true;
           startAuthority.revoke();
           originalLineage.retain();
-          clearTimeout(pollTimer);
+          capturePoll?.stop();
           if (!settled) {
             settled = true;
             rejectStart(Error('Fresh VM start uncertain; retain original state'));
           }
         };
+        capturePoll = createFreshAppleHvStartCapturePoll({
+          assertCurrent,
+          startAuthority,
+          originalLineage,
+          failStart,
+        });
         server = createServer((socket) => {
           startAuthority.track(socket);
           if (socket.destroyed) return;
@@ -1941,25 +1989,12 @@ function freshAppleHvPhysicalEffects(approved, assertGuardCurrent) {
                   await authorize(supervisor);
                   startAuthority.assertCurrent();
                   capturedSupervisor = supervisor;
-                  const poll = async () => {
-                    try {
-                      await assertCurrent();
-                      startAuthority.assertCurrent();
-                      if (settled) return;
-                      originalLineage.captureStart();
-                      pollTimer = setTimeout(poll, 50);
-                    } catch {
-                      failStart();
-                    }
-                  };
-                  pollTimer = setTimeout(poll, 0);
+                  capturePoll.start();
                   socket.write(
                     JSON.stringify({ kind: 'authorized', planSha256: approved.sha256 }) + '\n',
                   );
                 } else if (message.kind === 'running' && authorized && !settled) {
-                  originalLineage.captureStart();
-                  const kernel = originalLineage.finish(message.lineage);
-                  clearTimeout(pollTimer);
+                  const kernel = capturePoll.finish(message.lineage);
                   const lineage = message.lineage;
                   for (const kind of ['supervisor', 'vfkit', 'gvproxy']) {
                     const actual = observeFreshAppleHvProcess(kernel[kind].pid);
@@ -2026,7 +2061,7 @@ function freshAppleHvPhysicalEffects(approved, assertGuardCurrent) {
       channelLost = true;
       startAuthority.revoke();
       originalLineage.retain();
-      clearTimeout(pollTimer);
+      capturePoll?.stop();
       const path = join(p.nativeRoot, 'service/fresh-vm-retained-' + process.pid + '.json');
       const fd = openSync(
         path,

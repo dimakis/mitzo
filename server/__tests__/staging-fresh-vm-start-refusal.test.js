@@ -3,8 +3,52 @@ import { createHash } from 'node:crypto';
 import { mkdtempSync, mkdirSync, writeFileSync, lstatSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { setImmediate } from 'node:timers';
 import { expect, it, vi } from 'vitest';
 import * as vm from '../../scripts/lib/staging-fresh-applehv.mjs';
+it('a suspended capture poll cannot recapture or revoke after the running report finishes lineage', async () => {
+  let release, entered;
+  const observed = new Promise((resolve) => {
+    entered = resolve;
+  });
+  const inspection = new Promise((resolve) => {
+    release = resolve;
+  });
+  let finished = false;
+  const observer = {
+    captureStart: vi.fn(() => {
+      if (finished) throw Error('finished observer');
+    }),
+    finish: vi.fn((report) => {
+      finished = true;
+      return report;
+    }),
+  };
+  const failStart = vi.fn();
+  try {
+    const poll = vm.createFreshAppleHvStartCapturePoll({
+      assertCurrent: () => {
+        entered();
+        return inspection;
+      },
+      startAuthority: { assertCurrent: vi.fn() },
+      originalLineage: observer,
+      failStart,
+    });
+    poll.start();
+    await observed;
+    const report = { supervisor: { pid: 42 } };
+    expect(poll.finish(report)).toBe(report);
+    release();
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(observer.captureStart).toHaveBeenCalledOnce();
+    expect(observer.finish).toHaveBeenCalledOnce();
+    expect(failStart).not.toHaveBeenCalled();
+    expect(() => poll.start()).toThrow();
+  } finally {
+    release?.();
+  }
+});
 it('a timed out original start permanently refuses late inspections and destroys every held connection', async () => {
   const close = vi.fn(),
     authority = vm.createFreshAppleHvStartRevocation(close);
