@@ -231,7 +231,7 @@ describe('ordinary local durable command admission', () => {
     expect(store.getSendCommand('c1')).toBeUndefined();
     expect(() => store.claimClientCommand('c1', 'other')).not.toThrow();
   });
-  it.each(['runtime', 'admission'] as const)(
+  it.each(['runtime', 'admission', 'empty-admission'] as const)(
     'preserves corrupt %s evidence and refuses generic recovery',
     (kind) => {
       const store = open();
@@ -244,7 +244,7 @@ describe('ordinary local durable command admission', () => {
         );
       else
         db.prepare('UPDATE send_commands SET ordinary_admission=? WHERE client_msg_id=?').run(
-          '{"version":99}',
+          kind === 'empty-admission' ? '' : '{"version":99}',
           'c1',
         );
       const receiptBefore = db

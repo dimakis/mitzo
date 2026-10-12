@@ -633,7 +633,7 @@ export class EventStore {
     const row = this.db!.prepare(
       'SELECT ordinary_admission, session_id FROM send_commands WHERE client_msg_id=?',
     ).get(clientMsgId) as { ordinary_admission: string | null; session_id: string } | undefined;
-    if (!row?.ordinary_admission) return undefined;
+    if (!row || row.ordinary_admission === null) return undefined;
     const admission = OrdinaryLocalCommandAdmissionSchema.parse(JSON.parse(row.ordinary_admission));
     const runtime = this.getSessionRuntimeBinding(row.session_id);
     const session = this.getSession(row.session_id);
