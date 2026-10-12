@@ -1,0 +1,85 @@
+{
+  "machineSha256": "64e86ea129a14a1ac27e41c19fe16ada36afa61e95b4378e2170f2f321a56a84",
+  "machine": {
+    "Created": "2026-10-06T18:00:58.193882+01:00",
+    "GvProxy": {
+      "Debug": false,
+      "MTU": 0,
+      "LogFile": "",
+      "PidFile": "",
+      "SSHPort": 0
+    },
+    "HostUser": {
+      "Rootful": false,
+      "UID": 501,
+      "HostUserModified": false
+    },
+    "LastUp": "2026-10-12T09:20:47.495329+01:00",
+    "Mounts": [
+      {
+        "OriginalInput": "",
+        "ReadOnly": false,
+        "Source": "<redacted-unclassified-string>",
+        "Tag": "9a7a5dfb0b8eeb3b7a76da1cd731f8174a54",
+        "Target": "<redacted-unclassified-string>",
+        "Type": "virtiofs",
+        "VSockNumber": null
+      }
+    ],
+    "Name": "mitzo-symposium-staging",
+    "Resources": {
+      "CPUs": 2,
+      "DiskSize": 16,
+      "Memory": 4096,
+      "USBs": []
+    },
+    "SSH": {
+      "IdentityPath": "/Users/dsaridak/.local/share/mitzo-staging/symposium/home/.local/share/containers/podman/machine/machine",
+      "Port": 61408,
+      "RemoteUsername": "core"
+    },
+    "Version": 1,
+    "Swap": 0,
+    "ImagePath": {
+      "Path": "/Users/dsaridak/.local/share/mitzo-staging/symposium/home/.local/share/containers/podman/machine/applehv/mitzo-symposium-staging-arm64.raw"
+    },
+    "AppleHypervisor": {
+      "Vfkit": {
+        "LogLevel": "<redacted-unclassified-string>",
+        "Endpoint": "http://localhost:62752",
+        "BinaryPath": null,
+        "VirtualMachine": {
+          "vcpus": 2,
+          "memoryBytes": 4294967296,
+          "bootloader": {
+            "kind": "efiBootloader",
+            "efiVariableStorePath": "/Users/dsaridak/.local/share/mitzo-staging/symposium/home/.local/share/containers/podman/machine/applehv/efi-bl-mitzo-symposium-staging",
+            "createVariableStore": true
+          }
+        },
+        "Rosetta": true
+      }
+    },
+    "Starting": false,
+    "Rosetta": false,
+    "Ansible": null
+  },
+  "binaries": [
+    {
+      "path": "/opt/homebrew/Cellar/podman/5.6.2/bin/podman-remote",
+      "resolved": "/opt/homebrew/Cellar/podman/5.6.2/bin/podman-remote",
+      "sha256": "4de77b27826a8b3fd35ed08037b35c34cb78d4c0fcf58733ac8d3c0661149996"
+    },
+    {
+      "path": "/opt/homebrew/Cellar/podman/5.6.2/libexec/podman/vfkit",
+      "resolved": "/opt/homebrew/Cellar/podman/5.6.2/libexec/podman/vfkit",
+      "sha256": "5c81d202b521cbc1f67e8b79342b494a2c738f8dcc9e00c291a425f49174036f"
+    },
+    {
+      "path": "/opt/homebrew/Cellar/podman/5.6.2/libexec/podman/gvproxy",
+      "resolved": "/opt/homebrew/Cellar/podman/5.6.2/libexec/podman/gvproxy",
+      "sha256": "bff67aa2b7150768910fc8de3a9d988a717d778b3db318da5e23d51ec3dfcf75"
+    }
+  ],
+  "appPlistSha256": "6dfdc1ef1124964ac1d4ec8f14af80549647fb61977f1ff30cdf8314cb6dda29"
+}

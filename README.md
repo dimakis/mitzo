@@ -645,6 +645,14 @@ bridge; a web deployment alone cannot update installed native code.
 | `session-overview.ts`   | Session overview API                              |
 | `signal-processor.ts`   | Signal processing utilities                       |
 
+Execution admission, provider-attempt transitions and restart recovery live in
+`packages/protocol/src/execution-ledger.ts`. `EventStore` supplies its existing
+SQLite connection and prepared statements and retains schema, backup, close and
+conversation-identity ownership. State changes and their events commit together;
+restart recovery keeps completed per-attempt progress if a later write fails.
+Existing public execution methods and admission error types remain available
+through the event-store module.
+
 ### Frontend (`frontend/`) — React 19 + Vite
 
 React 19 + Vite. Ten pages (`Login`, `SessionList`, `ChatView`, `DesktopChatView`, `FileViewer`, `InboxView`, `CalendarView`, `TodoView`, `TodoDetailView`, `TaskBoard`), a `useReducer`-based message state machine (`useChatMessages`), module-level WebSocket pool with 500-message buffer, and components for thinking blocks, tool pills, tool groups, permission banners, and a slash-command picker. Capacitor wraps the frontend for iOS deployment via TestFlight.
@@ -774,6 +782,14 @@ cancel superseded code-validation runs; description edits rerun only the
 documentation gate. Browser and native checks follow their changed-file
 dependencies, with both checks retained for shared tooling, unknown paths,
 incomplete diffs, and every push to main.
+
+Browser suites keep separate output and HTML report directories. On a failing
+suite, CI uploads its traces, failure screenshots, error snapshots and HTML report
+as `playwright-browser-failure-<run>-<attempt>` or
+`playwright-offline-failure-<run>-<attempt>` for seven days. Download the artifact
+from the Actions run; use `npx playwright show-trace <trace.zip>` or
+`npx playwright show-report <report-directory>` to inspect it. Successful suites
+do not upload artifacts, and retries keep the original attempt's evidence.
 
 Production artifacts are staged with
 `./scripts/stage-openshell-release.sh <mgmt-repo> <new-seed-output>`. It requires
