@@ -2,6 +2,7 @@ import { Router, type Request } from 'express';
 import { effectivePermissionMode, type ManagedSession } from '@mitzo/harness';
 import type { AccountBinding, MitzoMode, PermissionRequest } from '@mitzo/protocol';
 import { recentAuthorizationSession } from './connections-router.js';
+import type { CodexAccessObservation } from './codex-conversation.js';
 
 /** Bounded observation, not admission or an authority token. Unknown is never an empty grant. */
 export interface SessionAccessEvidence {
@@ -10,6 +11,8 @@ export interface SessionAccessEvidence {
   state: 'current' | 'unknown';
   account: Pick<AccountBinding, 'accountId' | 'accountLabel' | 'provider'> | null;
   model: string | null;
+  modelSource: 'live-session' | CodexAccessObservation['modelSource'] | null;
+  runtime: { harness: 'claude-sdk' | 'codex'; location: 'local' | 'openshell' } | null;
   mode: MitzoMode | null;
   grants: string[] | null;
   skillCeiling: string[] | null;
@@ -23,6 +26,7 @@ export function projectSessionAccess(
   session: ManagedSession | undefined,
   pending: PermissionRequest[],
   now = Date.now(),
+  codex?: CodexAccessObservation,
 ): SessionAccessEvidence {
   const value: SessionAccessEvidence = {
     sessionId,
@@ -30,6 +34,8 @@ export function projectSessionAccess(
     state: 'unknown',
     account: null,
     model: null,
+    modelSource: null,
+    runtime: null,
     mode: null,
     grants: null,
     skillCeiling: null,
@@ -38,11 +44,17 @@ export function projectSessionAccess(
     tools: null,
     limits: null,
   };
-  // Initial supported route is the ordinary Claude SDK. Other adapters need their own evidence.
+  if (!session || session.sessionId !== sessionId || !session.accountBinding) return value;
+  const sdk = session.accountBinding.provider === 'anthropic-vertex';
   if (
-    !session ||
-    session.sessionId !== sessionId ||
-    session.accountBinding?.provider !== 'anthropic-vertex'
+    !sdk &&
+    (!['openai-codex', 'openai'].includes(session.accountBinding.provider) ||
+      session.contributorExecutionOwner ||
+      !codex ||
+      codex.sessionId !== sessionId ||
+      codex.account.accountId !== session.accountBinding.accountId ||
+      codex.account.provider !== session.accountBinding.provider ||
+      codex.account.profileRevision !== session.accountBinding.profileRevision)
   )
     return value;
   const { accountId, accountLabel, provider } = session.accountBinding;
@@ -50,7 +62,11 @@ export function projectSessionAccess(
     ...value,
     state: 'current',
     account: { accountId, accountLabel, provider },
-    model: session.model ?? session.accountBinding.model,
+    model: sdk ? (session.model ?? session.accountBinding.model) : codex!.model,
+    modelSource: sdk ? 'live-session' : codex!.modelSource,
+    runtime: sdk
+      ? { harness: 'claude-sdk', location: 'local' }
+      : { harness: 'codex', location: codex!.location },
     mode: effectivePermissionMode(session),
     grants: [...session.sessionAllowList].sort(),
     skillCeiling: session.activeSkillPolicy ? [...session.activeSkillPolicy].sort() : null,

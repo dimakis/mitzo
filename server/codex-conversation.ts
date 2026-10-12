@@ -89,6 +89,15 @@ export interface CodexStartupConfigObservation {
   readonly config: unknown;
 }
 
+/** Current ordinary runtime ownership only; no credential/configuration or provider probe. */
+export interface CodexAccessObservation {
+  sessionId: string;
+  account: Pick<AccountBinding, 'accountId' | 'accountLabel' | 'provider' | 'profileRevision'>;
+  model: string;
+  modelSource: 'provider-thread' | 'accepted-turn';
+  location: 'local' | 'openshell';
+}
+
 export interface CodexConversationOptions {
   ownerKind?: 'ordinary' | 'symposium';
   /** Ordinary capacity recovery creates new linked native turns, never prompt replay. */
@@ -318,6 +327,7 @@ export class CodexConversation {
   private capacityInFlight = false;
   private capacityAdmissionDeadlines = new Map<string, number>();
   private binding?: AccountBinding;
+  private accessModel?: Pick<CodexAccessObservation, 'model' | 'modelSource'>;
   private threadId?: string;
   private pendingToolSurface?: {
     parent?: string;
@@ -575,6 +585,7 @@ export class CodexConversation {
       );
     this.resetMapper(this.threadId, !state.threadId);
     this.ready = true;
+    this.accessModel = { model: result.model, modelSource: 'provider-thread' };
     this.startupObserverInitializing = false;
     this.opts.emit({ type: 'system', subtype: 'init', session_id: this.opts.conversationId });
     this.opts.onQueueChange?.();
@@ -633,6 +644,26 @@ export class CodexConversation {
   }
   isPaused() {
     return this.paused;
+  }
+  readAccessObservation(): CodexAccessObservation | undefined {
+    if (
+      !this.ready ||
+      this.closed ||
+      !this.binding ||
+      !this.threadId ||
+      !this.accessModel ||
+      this.recoveryPhase ||
+      this.pendingToolSurface ||
+      this.opts.ownerKind === 'symposium'
+    )
+      return undefined;
+    const { accountId, accountLabel, provider, profileRevision } = this.binding;
+    return {
+      sessionId: this.opts.conversationId,
+      account: { accountId, accountLabel, provider, profileRevision },
+      ...this.accessModel,
+      location: this.opts.webSearchBackend === 'openshell' ? 'openshell' : 'local',
+    };
   }
   isRecovering() {
     return !!this.recoveryPhase;
@@ -1818,6 +1849,7 @@ export class CodexConversation {
             active.turnId,
           );
         }
+        this.accessModel = { model, modelSource: 'accepted-turn' };
         this.opts.onProviderAccepted?.(command.id, this.threadId!, active.turnId);
         if (systemPrompt !== undefined)
           this.opts.onApplicationContextAccepted?.(

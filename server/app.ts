@@ -2700,12 +2700,16 @@ app.use(
         meta && !meta.isHidden && meta.sessionType !== 'symposium' && !meta.symposiumConfig,
       );
     },
-    read: (id) =>
-      projectSessionAccess(
+    read: (id) => {
+      const session = registry.findBySessionId(id)?.session;
+      return projectSessionAccess(
         id,
-        registry.findBySessionId(id)?.session,
+        session,
         getPendingRequestsBySession(id),
-      ),
+        Date.now(),
+        session ? getCodexRuntime(session)?.readAccessObservation() : undefined,
+      );
+    },
   }),
 );
 
