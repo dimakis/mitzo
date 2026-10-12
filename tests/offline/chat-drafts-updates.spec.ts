@@ -69,21 +69,45 @@ async function offline(page: Page) {
       document.body.style.cssText = 'height:100dvh;overflow:hidden';
     });
   });
-  await page.routeWebSocket('**/*', (socket) => socket.close());
+  // Keep the synthetic transport healthy: immediately closing every socket
+  // drives authentication/reconnect requests while a document is being replaced.
+  await page.routeWebSocket('**/*', (socket) => {
+    socket.onMessage((raw) => {
+      const message = JSON.parse(String(raw));
+      if (message.type === 'hello')
+        socket.send(
+          JSON.stringify({
+            type: 'welcome',
+            protocolVersion: 2,
+            connectionId: 'offline-drafts',
+          }),
+        );
+    });
+  });
   await page.route('**/*', async (route) => {
     const url = new URL(route.request().url());
+    const fulfill = (options: Parameters<typeof route.fulfill>[0]) =>
+      route.fulfill({
+        ...options,
+        headers: {
+          ...options.headers,
+          'Cache-Control': 'no-store',
+          'Access-Control-Allow-Origin': url.origin,
+          'Access-Control-Allow-Credentials': 'true',
+        },
+      });
     if (url.hostname !== 'mitzo-ui.test') return route.abort();
     if (url.pathname.startsWith('/api/')) {
       if (url.pathname === '/api/version/check' && route.request().method() === 'POST') {
         mutations.push(url.pathname);
-        return route.fulfill({
+        return fulfill({
           status: checkFailed ? 503 : 200,
           json: checkFailed ? { error: 'Offline check failed' } : { updateAvailable: false },
         });
       }
       if (route.request().method() !== 'GET') {
         mutations.push(url.pathname);
-        return route.fulfill({
+        return fulfill({
           status: 405,
           json: { error: 'Offline fixture prohibits provider execution' },
         });
@@ -93,7 +117,7 @@ async function offline(page: Page) {
           await new Promise<void>((resolve) => {
             release = resolve;
           });
-        return route.fulfill({
+        return fulfill({
           status: state === 'error' ? 503 : 200,
           json:
             state === 'error'
@@ -106,7 +130,15 @@ async function offline(page: Page) {
         });
       }
       if (url.pathname.endsWith('/events'))
-        return route.fulfill({ contentType: 'text/event-stream', body: 'retry: 60000\n\n' });
+        return fulfill({
+          contentType: 'text/event-stream',
+          headers: {
+            'Cache-Control': 'no-store',
+            'Access-Control-Allow-Origin': url.origin,
+            'Access-Control-Allow-Credentials': 'true',
+          },
+          body: 'retry: 60000\n\n',
+        });
       const fixtures: Record<string, unknown> = {
         '/api/auth/check': { authenticated: true },
         '/api/config': {
@@ -142,7 +174,7 @@ async function offline(page: Page) {
         },
         '/api/git/info': { branch: 'main', repoPath: '/workspace', worktrees: [] },
       };
-      return route.fulfill({ json: fixtures[url.pathname] ?? {} });
+      return fulfill({ json: fixtures[url.pathname] ?? {} });
     }
     const root = resolve('frontend/dist');
     const path = resolve(
@@ -161,17 +193,29 @@ async function offline(page: Page) {
       '.woff2': 'font/woff2',
     };
     try {
-      return route.fulfill({
+      return fulfill({
         body: await readFile(path),
         contentType: mime[extname(path)] ?? 'application/octet-stream',
       });
     } catch {
-      return route.fulfill({ status: 404, body: 'Missing offline asset' });
+      return fulfill({ status: 404, body: 'Missing offline asset' });
     }
   });
   return {
     errors,
     mutations,
+    // This fixture serves finite SSE responses. Complete intercepted requests
+    // before replacing the document so WebKit cannot report a late response
+    // against the new document's access-control context. Keep actual browser
+    // EventSource/fetch behavior and all pageerror assertions intact.
+    goto: async (url: string) => {
+      await page.waitForLoadState('networkidle');
+      return page.goto(url);
+    },
+    reload: async (options?: Parameters<Page['reload']>[0]) => {
+      await page.waitForLoadState('networkidle');
+      return page.reload(options);
+    },
     state: (next: typeof state) => {
       state = next;
     },
@@ -202,7 +246,7 @@ test('drafts: Chats has a dedicated Drafts destination and New chat opens blank'
     'mitzo-accent': 'mint',
     'mitzo-font': 'georgia',
   });
-  await page.goto('/sessions');
+  await fixture.goto('/sessions');
   await expect(page.getByRole('link', { name: /Drafts/ })).toBeVisible();
   await expect(page.getByText(/Update available.*Deploy Mitzo/)).toBeHidden();
   await page.screenshot({
@@ -227,7 +271,7 @@ test('drafts: restore all settings, attachments and context, edit, leave, and re
   const fixture = await offline(page);
   await page.setViewportSize({ width: isMobile ? 320 : 1280, height: 900 });
   await seed(page, { 'mitzo-chat-draft:briefing-draft': JSON.stringify(savedDraft()) });
-  await page.goto('/sessions/drafts');
+  await fixture.goto('/sessions/drafts');
   await page.getByRole('link', { name: /What is the story with my morning briefing/ }).click();
   const input = page.getByRole('textbox', { name: 'Message Mitzo' });
   await expect(input).toHaveValue(message);
@@ -264,7 +308,7 @@ test('drafts: restore all settings, attachments and context, edit, leave, and re
     path: testInfo.outputPath('draft-restored-editable.png'),
     animations: 'disabled',
   });
-  await page.goto('/sessions/drafts');
+  await fixture.goto('/sessions/drafts');
   await page
     .getByRole('link', { name: /Fix the morning briefing with this saved context/ })
     .click();
@@ -289,11 +333,11 @@ test('drafts: unsent new input saves separately and legacy input migrates withou
       reasoningEffort: 'medium',
     }),
   });
-  await page.goto('/chat');
+  await fixture.goto('/chat');
   const input = page.getByRole('textbox', { name: 'Message Mitzo' });
   await expect(input).toHaveValue('');
   await input.fill('A separate new message');
-  await page.goto('/sessions/drafts');
+  await fixture.goto('/sessions/drafts');
   await expect(page.getByRole('link', { name: /Existing legacy briefing draft/ })).toBeVisible();
   await expect(page.getByRole('link', { name: /A separate new message/ })).toBeVisible();
   expect(await page.evaluate(() => localStorage.getItem('mitzo-draft-new'))).toBeNull();
@@ -307,7 +351,7 @@ test('drafts: discard is labelled, cancellable with focus restored, and missing 
 }) => {
   const fixture = await offline(page);
   await seed(page, { 'mitzo-chat-draft:briefing-draft': JSON.stringify(savedDraft()) });
-  await page.goto('/sessions/drafts');
+  await fixture.goto('/sessions/drafts');
   const discard = page.getByRole('button', { name: 'Discard draft', exact: true });
   await discard.click();
   await expect(page.getByRole('dialog', { name: 'Discard this draft?' })).toBeVisible();
@@ -320,7 +364,7 @@ test('drafts: discard is labelled, cancellable with focus restored, and missing 
   await page.getByRole('button', { name: 'Confirm discard' }).click();
   await expect(page.getByText('No drafts yet', { exact: true })).toBeVisible();
   await expect(page.getByRole('link', { name: 'New chat', exact: true })).toBeFocused();
-  await page.goto('/chat?draft=briefing-draft');
+  await fixture.goto('/chat?draft=briefing-draft');
   await expect(page.getByRole('alert')).toContainText(
     /draft.*(unavailable|found|available|missing)/i,
   );
@@ -337,7 +381,7 @@ test('drafts: discard is labelled, cancellable with focus restored, and missing 
         localStorage.setItem('mitzo-chat-draft:unavailable-reference', JSON.stringify(draft)),
       draft,
     );
-    await page.goto('/chat?draft=unavailable-reference');
+    await fixture.goto('/chat?draft=unavailable-reference');
     await workspace(page);
     await expect(page.getByRole('alert')).toContainText('Selected account or model is unavailable');
     await expect(page.getByRole('button', { name: 'Send message', exact: true })).toBeDisabled();
@@ -356,7 +400,7 @@ test('updates: Settings owns available/current/loading/error/missing-action stat
   page,
 }, testInfo) => {
   const fixture = await offline(page);
-  await page.goto('/settings');
+  await fixture.goto('/settings');
   await page.getByRole('link', { name: /Updates/ }).click();
   await expect(page.getByRole('heading', { name: 'A new Mitzo is ready' })).toBeVisible();
   const review = page.getByRole('link', { name: 'Review update' });
@@ -380,7 +424,7 @@ test('updates: Settings owns available/current/loading/error/missing-action stat
     page.getByText('Assign a GitHub connection with repository access to this AI account in'),
   ).toBeVisible();
   expect(fixture.mutations).toEqual([]);
-  await page.goto('/settings/updates');
+  await fixture.goto('/settings/updates');
   await expect(page.getByRole('heading', { name: 'A new Mitzo is ready' })).toBeVisible();
   await page.getByRole('button', { name: 'Check for updates' }).click();
   await expect(page.getByRole('heading', { name: 'You’re up to date' })).toBeVisible();
@@ -388,16 +432,16 @@ test('updates: Settings owns available/current/loading/error/missing-action stat
   await page.getByRole('button', { name: 'Check for updates' }).click();
   await expect(page.getByRole('alert')).toContainText('Couldn’t check for updates');
   fixture.configured(false);
-  await page.reload();
+  await fixture.reload();
   await expect(
     page.getByText('An update action hasn’t been configured for this installation.'),
   ).toBeVisible();
   await expect(review).toBeHidden();
   fixture.state('error');
-  await page.reload();
+  await fixture.reload();
   await expect(page.getByRole('alert')).toContainText('Couldn’t load update information');
   fixture.state('loading');
-  await page.reload({ waitUntil: 'domcontentloaded' });
+  await fixture.reload({ waitUntil: 'domcontentloaded' });
   await expect(page.getByRole('heading', { name: 'Loading update information…' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Check for updates' })).toBeDisabled();
   await page.screenshot({
@@ -437,7 +481,7 @@ test('drafts and updates: narrow/mobile and desktop appearance, scrolling and ke
     ['dark', 'mint', 'georgia'],
     ['light', 'teal', 'system'],
   ]) {
-    await page.goto('/sessions/drafts');
+    await fixture.goto('/sessions/drafts');
     await page.evaluate(
       ({ theme, accent, font }) => {
         localStorage.setItem('mitzo-theme', theme);
@@ -446,7 +490,7 @@ test('drafts and updates: narrow/mobile and desktop appearance, scrolling and ke
       },
       { theme, accent, font },
     );
-    await page.reload();
+    await fixture.reload();
     await expect(page.getByRole('heading', { name: /^Drafts(?: \d+)?$/ })).toBeVisible();
     await layout(page);
     const first = page.locator('.saved-draft-open').first();
@@ -471,7 +515,7 @@ test('drafts and updates: narrow/mobile and desktop appearance, scrolling and ke
       path: testInfo.outputPath(`drafts-final-item-${theme}.png`),
       animations: 'disabled',
     });
-    await page.goto('/settings/updates');
+    await fixture.goto('/settings/updates');
     await expect(page.getByRole('heading', { name: 'A new Mitzo is ready' })).toBeVisible();
     const check = page.getByRole('button', { name: 'Check for updates' });
     await check.scrollIntoViewIfNeeded();
@@ -515,7 +559,7 @@ test('drafts: clearing text removes stale draft and prompt URLs while leaving th
     contextBlocks: [],
   };
   await seed(page, { 'mitzo-chat-draft:cleared-draft': JSON.stringify(draft) });
-  await page.goto('/chat?draft=cleared-draft&prompt=Original%20launch%20prompt');
+  await fixture.goto('/chat?draft=cleared-draft&prompt=Original%20launch%20prompt');
   const input = page.getByRole('textbox', { name: 'Message Mitzo' });
   await expect(input).toHaveValue('A text-only draft');
   await expect(
@@ -542,7 +586,7 @@ test('drafts: clearing text removes stale draft and prompt URLs while leaving th
   await expect
     .poll(() => page.evaluate(() => localStorage.getItem('mitzo-chat-draft:cleared-draft')))
     .toBeNull();
-  await page.reload();
+  await fixture.reload();
   await expect(input).toHaveValue('');
   await expect(page.getByRole('alert')).toHaveCount(0);
   await input.fill('A new editable message after reload');
@@ -610,7 +654,7 @@ test('drafts: preparation-only receipts survive reopen and failed cleanup, then 
     });
   });
   await seed(page, { 'mitzo-chat-draft:preparation-only': JSON.stringify(draft) });
-  await page.goto('/sessions/drafts');
+  await fixture.goto('/sessions/drafts');
   await page.getByRole('link', { name: /Untitled draft/ }).click();
   await expect(page.getByRole('textbox', { name: 'Message Mitzo' })).toHaveValue('');
   await expect(page.getByText('draft/briefing', { exact: true })).toBeVisible();
@@ -623,7 +667,7 @@ test('drafts: preparation-only receipts survive reopen and failed cleanup, then 
       ),
     )
     .toBe(preparationId);
-  await page.reload();
+  await fixture.reload();
   await expect(page.getByText('draft/briefing', { exact: true })).toBeVisible();
   await expect
     .poll(() =>
@@ -635,7 +679,7 @@ test('drafts: preparation-only receipts survive reopen and failed cleanup, then 
       text: '',
       settings: { repositoryWorkspaceId: preparationId, selection: draft.settings.selection },
     });
-  await page.goto('/sessions/drafts');
+  await fixture.goto('/sessions/drafts');
   await expect(page.getByText('Repository preparation saved.', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Discard draft', exact: true }).click();
   await page.getByRole('button', { name: 'Confirm discard', exact: true }).click();
@@ -823,7 +867,7 @@ test('drafts: deferred voice replies stay with their owner while same-draft dict
     'mitzo-chat-draft:voice-first': JSON.stringify(first),
     'mitzo:service-health': JSON.stringify(health),
   });
-  await page.goto('/chat?draft=voice-first');
+  await fixture.goto('/chat?draft=voice-first');
   const input = page.getByRole('textbox', { name: 'Message Mitzo' });
   await expect(input).toHaveValue(first.text);
   await page.getByRole('button', { name: 'Record voice message', exact: true }).click();
