@@ -433,20 +433,27 @@ async function deploy() {
     assertStagingSnapshotAdmission(root, () => observeMacStagingResources(root));
   // Refuse before shutdown, then remeasure after the original app has drained.
   admitSnapshot();
-  let lockFd;
+  let lockFd,
+    physicallyVerified = false;
   await promoteStage(
     { expectedCurrent: expected, target },
     {
       lock: async () => {
+        assertPipeline();
         lockFd = openSync(lock, 'wx', 0o600);
         writeFileSync(lockFd, JSON.stringify({ id, expected, target }) + '\n');
         fsyncSync(lockFd);
       },
       unlock: async () => {
+        if (physicallyVerified) assertPipeline();
         closeSync(lockFd);
+        if (physicallyVerified) assertPipeline();
         unlinkSync(lock);
       },
-      audit: async (event) => audit({ id, ...event }),
+      audit: async (event) => {
+        if (event.phase === 'verified') assertPipeline();
+        audit({ id, ...event });
+      },
       validate: async () => {
         admitSnapshot();
         assertPipeline();
@@ -458,6 +465,7 @@ async function deploy() {
       current: async () => current().sourceCommit,
       stop: async () => {
         assertStageJob(job(), active, originalJob);
+        assertPipeline();
         run('launchctl', ['kill', 'SIGTERM', 'gui/' + process.getuid() + '/' + label]);
         const deadline = Date.now() + 180000;
         while (Date.now() < deadline) {
@@ -476,23 +484,31 @@ async function deploy() {
       snapshot: async () => {
         assertPipeline();
         admitSnapshot();
+        assertPipeline();
         stageDirectory(root, 'service/deployments/' + id, true);
-        for (const directory of ['workspace', 'state'])
+        for (const directory of ['workspace', 'state']) {
+          assertPipeline();
           cpSync(join(root, directory), join(backup, directory), {
             recursive: true,
             verbatimSymlinks: true,
           });
+        }
+        assertPipeline();
         writeFileSync(join(backup, 'previous-release.json'), JSON.stringify(active) + '\n', {
           mode: 0o600,
         });
       },
       activate: async () => {
+        assertPipeline();
         replacePrivateJson(receiptPath, next);
+        assertPipeline();
         stageDirectory(root, 'service/control-lib', true);
+        assertPipeline();
         cpSync(
           new URL('./lib/staging-files.mjs', import.meta.url),
           join(root, 'service/control-lib/staging-files.mjs'),
         );
+        assertPipeline();
         cpSync(
           new URL('./lib/staging-operations.mjs', import.meta.url),
           join(root, 'service/control-lib/staging-operations.mjs'),
@@ -501,15 +517,19 @@ async function deploy() {
           new URL('./lib/staging-launcher-template.mjs', import.meta.url),
         );
         const temporary = join(root, 'service/start.mjs.' + id);
+        assertPipeline();
         writeFileSync(temporary, launcher, { flag: 'wx', mode: 0o600 });
+        assertPipeline();
         renameSync(temporary, join(root, 'service/start.mjs'));
       },
       start: async () => {
+        assertPipeline();
         writeFileSync(
           join(root, 'service/launch-permit.json'),
           JSON.stringify({ id, target, expiresAt: Date.now() + 15000 }) + '\n',
           { flag: 'wx', mode: 0o600 },
         );
+        assertPipeline();
         run('launchctl', ['kickstart', 'gui/' + process.getuid() + '/' + label]);
       },
       verify: async () => {
@@ -520,7 +540,11 @@ async function deploy() {
             const response = await globalThis.fetch('http://127.0.0.1:3190', {
               signal: globalThis.AbortSignal.timeout(2000),
             });
-            if (response.ok) return;
+            if (response.ok) {
+              assertPipeline();
+              physicallyVerified = true;
+              return;
+            }
           } catch {
             /* Keep the same bounded verification deadline; no second start. */
           }
