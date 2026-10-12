@@ -1415,6 +1415,11 @@ export class EventStore {
     return this.sessionOutputs.getContributorForOutput(parentSessionId, outputId);
   }
 
+  /**
+   * Atomically allocate the next durable execution generation for a session.
+   * When a client command identity is supplied, exact retries return the
+   * original token without appending another event or advancing generation.
+   */
   beginExecution(
     sessionId: string,
     executionId?: string,
@@ -1429,14 +1434,17 @@ export class EventStore {
     );
   }
 
+  /** Read the terminal outcome of any generation, including superseded commands. */
   getExecutionTerminalReason(token: ExecutionToken): ExecutionTerminalReason | undefined {
     return this.executionLedger.getExecutionTerminalReason(token);
   }
 
+  /** Read a durable execution admission receipt without consulting transport state. */
   getExecutionAdmission(sessionId: string, clientMsgId: string): ExecutionAdmission | undefined {
     return this.executionLedger.getExecutionAdmission(sessionId, clientMsgId);
   }
 
+  /** Start one durable provider dispatch owned by the exact active execution token. */
   beginProviderAttempt(
     executionToken: ExecutionToken,
     providerAttemptId: string = randomUUID(),
@@ -1445,6 +1453,7 @@ export class EventStore {
     return this.executionLedger.beginProviderAttempt(executionToken, providerAttemptId, options);
   }
 
+  /** Apply a token-guarded provider-attempt transition and event atomically. */
   transitionProviderAttempt(
     token: ProviderAttemptToken,
     nextPhase: ProviderAttemptPhase,
@@ -1453,10 +1462,12 @@ export class EventStore {
     return this.executionLedger.transitionProviderAttempt(token, nextPhase, terminalReason);
   }
 
+  /** Read provider-attempt history for one immutable execution generation. */
   getProviderAttempts(executionToken: ExecutionToken): ProviderAttemptRecord[] {
     return this.executionLedger.getProviderAttempts(executionToken);
   }
 
+  /** Apply one token-guarded execution transition and persist its event atomically. */
   transitionExecution(
     token: ExecutionToken,
     nextPhase: ExecutionPhase,
@@ -1465,6 +1476,7 @@ export class EventStore {
     return this.executionLedger.transitionExecution(token, nextPhase, terminalReason);
   }
 
+  /** Terminalize only non-terminal executions orphaned by a process restart. */
   recoverOrphanedExecutions(options: { excludeSymposium?: boolean } = {}): number {
     return this.executionLedger.recoverOrphanedExecutions(options);
   }
