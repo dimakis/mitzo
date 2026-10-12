@@ -24,6 +24,7 @@ import { AddAgentSheet } from '../components/AddReviewerSheet';
 import { OutputContributorPanel } from '../components/OutputContributorPanel';
 import { useOutputContributors } from '../hooks/useOutputContributors';
 import { PermissionModePicker } from '../components/PermissionModePicker';
+import { SessionAccess } from '../components/SessionAccess';
 import { WorkspaceControls } from '../components/WorkspaceControls';
 import type { WorkspaceSummary } from '../types/workspace';
 import { AccountModelPicker, type AccountSelection } from '../components/AccountModelPicker';
@@ -426,6 +427,13 @@ export function DesktopChatView() {
             lookupLoading={briefingChat.loading}
           />
           <WorkspaceControls
+            actions={
+              <SessionAccess
+                sessionId={repositoryHandoff.present ? undefined : (activeSessionId ?? undefined)}
+                selection={accountSelection}
+                connected={connected}
+              />
+            }
             attention={!!launch || repositoryHandoff.present}
             summary={workspaceSummary}
             status={
