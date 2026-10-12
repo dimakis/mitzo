@@ -186,6 +186,23 @@ it('refuses native readiness and feature capabilities on an unqualified trial be
   expect(run).not.toHaveBeenCalled();
   expect(beforeContainedNativeReady).not.toHaveBeenCalled();
 });
+it('refuses a native VM retirement hook on an unqualified trial before registry reservation', async () => {
+  const f = fixture(),
+    claim = vi.fn(),
+    run = vi.fn(),
+    beforeContainedNativeRetirement = vi.fn(async () => {});
+  await expect(
+    launchStagingCustodian(f.plan, f.registration, {
+      verify() {},
+      claim,
+      run,
+      beforeContainedNativeRetirement,
+    }),
+  ).rejects.toThrow(/canonical/i);
+  expect(claim).not.toHaveBeenCalled();
+  expect(run).not.toHaveBeenCalled();
+  expect(beforeContainedNativeRetirement).not.toHaveBeenCalled();
+});
 it.each([
   ['local-854b-routing-v1', SOURCE_QUALIFIED_SYMPOSIUM_ROUTING_BUILD],
   ['local-854b-routing-v2', SOURCE_QUALIFIED_SYMPOSIUM_CONNECT_PREFACE_BUILD],

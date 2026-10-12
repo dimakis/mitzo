@@ -1,7 +1,7 @@
 import process from 'node:process';
 import { Buffer } from 'node:buffer';
 import { join, dirname } from 'node:path';
-import { homedir } from 'node:os';
+import { userInfo } from 'node:os';
 import { createHash } from 'node:crypto';
 import {
   constants,
@@ -40,7 +40,7 @@ export function createFreshStagingImageInspector({
   assertNativeAuthenticationCurrent,
 }) {
   const image = globalThis.structuredClone(input);
-  const root = join(homedir(), '.local/share/mitzo-staging');
+  const root = join(userInfo().homedir, '.local/share/mitzo-staging');
   if (
     canonicalRoot !== root ||
     image?.compression !== 'zstd' ||

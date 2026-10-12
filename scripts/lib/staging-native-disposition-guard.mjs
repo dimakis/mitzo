@@ -1,6 +1,6 @@
 import process from 'node:process';
 import { Buffer } from 'node:buffer';
-import { homedir } from 'node:os';
+import { userInfo } from 'node:os';
 import { join, dirname } from 'node:path';
 import {
   constants,
@@ -37,7 +37,7 @@ export function createContainedNativeGuard({
   verifyRegisteredLauncher,
 }) {
   if (
-    root !== join(homedir(), '.local/share/mitzo-staging') ||
+    root !== join(userInfo().homedir, '.local/share/mitzo-staging') ||
     !uuid.test(allocation) ||
     !/^[a-f0-9]{64}$/.test(planSha256) ||
     !/^[a-f0-9]{40}$/.test(sourceCommit) ||
@@ -131,7 +131,7 @@ export function createContainedNativeGuard({
       current();
       return Object.freeze({ ...captured, launcher: Object.freeze({ ...captured.launcher }) });
     },
-    async completeNative(verifyOriginalNative) {
+    async completeNative(verifyOriginalNative, handoffOriginalOwner) {
       if (completionAttempted || typeof verifyOriginalNative !== 'function') throw refuse();
       completionAttempted = true;
       current();
@@ -189,6 +189,13 @@ export function createContainedNativeGuard({
       }
       sync(evidence);
       current();
+      if (handoffOriginalOwner !== undefined) {
+        if (typeof handoffOriginalOwner !== 'function') throw refuse();
+        const result = handoffOriginalOwner();
+        if (result instanceof Promise) void result.catch(() => {});
+        if (result !== undefined) throw refuse();
+        current();
+      }
       // Only matching original new guard can be removed after fresh full proof.
       unlinkSync(path);
       sync(dirname(path));

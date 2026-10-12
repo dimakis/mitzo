@@ -274,6 +274,7 @@ export function createCompletedOfflineContainmentInspector({
       ordinaryCompletionSha256: hash(bytes(join(archive, 'ordinary-completed.json'))),
       originalRowSha256: b.rowSha256,
       archiveManifestSha256: b.manifestSha256,
+      registryBackupSha256: b.backupSha256,
       nativeCleanupConfirmed: false,
       capacityGrant: false,
     });

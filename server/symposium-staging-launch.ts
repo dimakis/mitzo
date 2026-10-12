@@ -90,6 +90,9 @@ export async function launchStagingCustodian(
     beforeContainedNativeReady?: NonNullable<
       SymposiumCustodianConstructorHooks['beforeControllerReady']
     >;
+    beforeContainedNativeRetirement?: NonNullable<
+      SymposiumCustodianConstructorHooks['beforeRetirementReceipt']
+    >;
     stagingFeatureBootstrap?: NonNullable<
       SymposiumCustodianConstructorHooks['stagingFeatureBootstrap']
     >;
@@ -115,11 +118,13 @@ export async function launchStagingCustodian(
     (allocation &&
       (!deps.beforeContainedNativeRun ||
         !deps.observeContainedNativeController ||
-        !deps.beforeContainedNativeReady)) ||
+        !deps.beforeContainedNativeReady ||
+        !deps.beforeContainedNativeRetirement)) ||
     (!allocation &&
       (deps.beforeContainedNativeRun ||
         deps.observeContainedNativeController ||
         deps.beforeContainedNativeReady ||
+        deps.beforeContainedNativeRetirement ||
         deps.stagingFeatureBootstrap))
   )
     throw Error('Canonical native allocation requires its original guarded operator launcher');
@@ -150,6 +155,7 @@ export async function launchStagingCustodian(
     if (allocation) await deps.beforeContainedNativeRun!();
     await deps.run({
       ...(allocation ? { beforeControllerReady: deps.beforeContainedNativeReady } : {}),
+      ...(allocation ? { beforeRetirementReceipt: deps.beforeContainedNativeRetirement } : {}),
       ...(deps.stagingFeatureBootstrap
         ? { stagingFeatureBootstrap: deps.stagingFeatureBootstrap }
         : {}),

@@ -3,7 +3,7 @@ import process from 'node:process';
 import { mkdirSync, readFileSync, writeFileSync, rmSync, renameSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 const home = vi.hoisted(() => `/private/tmp/mitzo-new-guard-${globalThis.process.pid}`);
-vi.mock('node:os', () => ({ homedir: () => home }));
+vi.mock('node:os', () => ({ userInfo: () => ({ homedir: home }), homedir: () => home }));
 import { createContainedNativeGuard } from '../../scripts/lib/staging-native-disposition-guard.mjs';
 const root = join(home, '.local/share/mitzo-staging'),
   allocation = '22222222-2222-4222-8222-222222222222';
@@ -104,4 +104,53 @@ it('releases only its matching original new guard after complete fresh owner pro
   expect(completed.proof).toEqual(proof);
   expect(completed.nativeCleanupConfirmed).toBe(false);
   expect(() => f.guard.assertCurrent()).toThrow();
+});
+it('installs the synchronous original owner fence while its exact guard is still held', async () => {
+  const f = fixture();
+  f.guard.acquire();
+  const proof = {
+    allocation,
+    sourceCommit: 'a'.repeat(40),
+    parentPid: process.pid,
+    parentBirth: f.identity.birth,
+    instanceId: '33333333-3333-4333-8333-333333333333',
+    epoch: 1,
+    appPid: process.pid + 1,
+    appBirth: 'synthetic exact child birth',
+    vmObservationSha256: 'd'.repeat(64),
+    archiveProofSha256: 'e'.repeat(64),
+  };
+  const handoff = vi.fn(() => {
+    expect(existsSync(f.path)).toBe(true);
+    f.guard.assertCurrent();
+  });
+  await f.guard.completeNative(async () => proof, handoff);
+  expect(handoff).toHaveBeenCalledOnce();
+  expect(existsSync(f.path)).toBe(false);
+});
+it('retains the exact guard when an asynchronous handoff cannot establish original ownership', async () => {
+  const f = fixture();
+  f.guard.acquire();
+  const proof = {
+    allocation,
+    sourceCommit: 'a'.repeat(40),
+    parentPid: process.pid,
+    parentBirth: f.identity.birth,
+    instanceId: '33333333-3333-4333-8333-333333333333',
+    epoch: 1,
+    appPid: process.pid + 1,
+    appBirth: 'synthetic exact child birth',
+    vmObservationSha256: 'd'.repeat(64),
+    archiveProofSha256: 'e'.repeat(64),
+  };
+  await expect(
+    f.guard.completeNative(
+      async () => proof,
+      async () => {
+        throw Error('asynchronous handoff refused');
+      },
+    ),
+  ).rejects.toThrow();
+  expect(existsSync(f.path)).toBe(true);
+  f.guard.retain();
 });

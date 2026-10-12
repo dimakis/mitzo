@@ -1,5 +1,5 @@
 import process from 'node:process';
-import { homedir } from 'node:os';
+import { userInfo } from 'node:os';
 import { join, dirname, isAbsolute } from 'node:path';
 import {
   lstatSync,
@@ -34,7 +34,7 @@ const freeze = (value) => {
 export function createContainedNativeLauncherPlist(spec) {
   const { root, allocation, sourceCommit, sourceRoot, node, bootstrapSha256 } = spec;
   if (
-    root !== join(homedir(), '.local/share/mitzo-staging') ||
+    root !== join(userInfo().homedir, '.local/share/mitzo-staging') ||
     !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(allocation ?? '') ||
     !/^[a-f0-9]{40}$/.test(sourceCommit ?? '') ||
     sourceRoot !== join(root, 'releases', sourceCommit.slice(0, 12)) ||
