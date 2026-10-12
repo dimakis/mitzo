@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.9';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.60';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.61';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -69,8 +69,10 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../agent-context-binding.ts': '4917ff83899105b7ac2c537c8db18111eeb97386d1ca0a2d2b576d872e1db360',
   '../symposium-personal-connection-router.ts':
     'f254cadb334bc75dbb19104fdb7ed2b3e46bf2856b81d29300fd4f45db02674e',
+  // Read-only session observation is part of the operator route composition.
+  '../session-access.ts': 'e70130c57879d3b22fab78473d90c8d2e787b7a499194c166e7e912fc5cf2767',
   // Request authority and physical review composition share runtime admission.
-  '../app.ts': 'e35d66b692d7131b23832265f513db97bb4c57b37988892232d0e7eb267fa4b2',
+  '../app.ts': '48a9f3db5c4586bd061f8ac0f37135ae1d18bf9a0870aa1aa4de419be9d3d447',
   '../symposium-review-route-composition.ts':
     'bc2cb2a85517a1f16279fd87757a97b9bb46a16d9efc5f15b52bf41a6f14cae3',
   '../symposium-review-host-contract.ts':
