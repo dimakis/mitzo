@@ -383,13 +383,15 @@ test('motion: closing menus hold their final frame without flashing or moving ch
   const header = page.locator('.workspace-controls-heading');
   const toggle = page.getByRole('button', { name: 'More composer actions', exact: true });
   const workspace = page.getByRole('button', { name: /^Workspace controls/ });
-  const baseline = { composer: await composer.boundingBox(), header: await header.boundingBox() };
   for (const theme of ['dark', 'light']) {
     await page.evaluate((theme) => {
       document.documentElement.dataset.theme = theme;
       document.documentElement.dataset.accent = theme === 'dark' ? 'mint' : 'teal';
       document.documentElement.dataset.font = theme === 'dark' ? 'system' : 'georgia';
     }, theme);
+    // Font substitution can change intrinsic height between appearances. Measure
+    // each appearance before toggling so this checks motion, not font metrics.
+    const baseline = { composer: await composer.boundingBox(), header: await header.boundingBox() };
     await toggle.click();
     await expect(page.getByRole('button', { name: 'Commands', exact: true })).toBeVisible();
     await composer.screenshot({
@@ -408,8 +410,8 @@ test('motion: closing menus hold their final frame without flashing or moving ch
     await workspace.click();
     await expect(panel).toBeHidden();
     await expect(draft).toHaveValue('Preserve this draft');
-    // Fonts may change intrinsic header height; dismissal itself must not move it.
-    expect((await composer.boundingBox())!.y).toBe(baseline.composer!.y);
+    expect(await composer.boundingBox()).toEqual(baseline.composer);
+    expect(await header.boundingBox()).toEqual(baseline.header);
   }
   const frames = await page.evaluate(
     () =>
