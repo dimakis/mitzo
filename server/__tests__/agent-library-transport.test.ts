@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+import { profileBuilderDefinition } from '@mitzo/protocol';
 import { afterEach, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   request: vi.fn(),
@@ -102,4 +104,22 @@ it('rechecks the same verified operator after context compilation and refuses re
   expect(() => captured.assertCurrent()).toThrow(/revoked/);
   cleanups.push(bindAgentLibraryTransport('connection', { ...auth, id: 'another-login' }));
   expect(() => captured.assertCurrent()).toThrow(/revoked/);
+});
+
+it('resolves the authenticated built-in builder as a pinned profile without catalog writes', async () => {
+  cleanups.push(
+    bindAgentLibraryTransport('builder', { id: 'login', expiresAt: Date.now() + 10000 }),
+  );
+  const builder = await readAgentLibraryProfile(
+    { profileId: 'mitzo-profile-builder', revision: 1 },
+    'builder',
+  );
+  expect(builder?.definition.name).toBe('Agent Builder');
+  expect(builder?.contentHash).toBe(
+    createHash('sha256').update(JSON.stringify(profileBuilderDefinition)).digest('hex'),
+  );
+  expect(mocks.request).not.toHaveBeenCalled();
+  expect(
+    await readAgentLibraryProfile({ profileId: 'mitzo-profile-builder', revision: 2 }, 'builder'),
+  ).toBeNull();
 });

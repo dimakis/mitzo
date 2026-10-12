@@ -180,3 +180,24 @@ it.each([
     expect(screen.getByLabelText('Chat route').textContent).toContain('prompt=Keep+this');
   },
 );
+
+it('selects the built-in profile builder without a user-created catalog entry', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(response({ drafts: [], versions: [] }));
+  const change = vi.fn();
+  render(
+    <MemoryRouter>
+      <ChatAgentProfilePicker
+        sessionId={null}
+        search="?agentProfile=mitzo-profile-builder&profileRevision=1"
+        onChange={change}
+      />
+    </MemoryRouter>,
+  );
+  await screen.findByRole('option', { name: 'Agent Builder · Creates reusable agents · r1' });
+  await waitFor(() =>
+    expect(change).toHaveBeenLastCalledWith(
+      { profileId: 'mitzo-profile-builder', revision: 1 },
+      undefined,
+    ),
+  );
+});

@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
+  PROFILE_BUILDER_ID,
+  PROFILE_BUILDER_REVISION,
+  profileBuilderDefinition,
   AgentProfileSelectionSchema,
   agentProfileLabel,
   type AgentLibraryVersion,
@@ -9,6 +12,8 @@ import {
 } from '@mitzo/protocol';
 import { apiFetch } from '../lib/api-fetch';
 import './ChatAgentProfilePicker.css';
+
+type ProfileOption = Pick<AgentLibraryVersion, 'profileId' | 'revision' | 'definition'>;
 
 export function ChatAgentProfilePicker({
   sessionId,
@@ -27,7 +32,7 @@ export function ChatAgentProfilePicker({
   onChange(selection: AgentProfileSelection | null, blockedReason?: string): void;
 }) {
   const [, setSearchParams] = useSearchParams();
-  const [versions, setVersions] = useState<AgentLibraryVersion[]>([]);
+  const [versions, setVersions] = useState<ProfileOption[]>([]);
   const [selected, setSelected] = useState<AgentProfileSelection | null>(null);
   const [pinned, setPinned] = useState<AgentLibraryVersion | null>(null);
   const [error, setError] = useState('');
@@ -77,10 +82,21 @@ export function ChatAgentProfilePicker({
         }
         const catalog = body as AgentLibraryCatalog;
         if (!Array.isArray(catalog.versions)) throw Error('Agent Library response is invalid');
-        setVersions(catalog.versions);
+        const available =
+          requested?.profileId === PROFILE_BUILDER_ID
+            ? [
+                ...catalog.versions.filter((v) => v.profileId !== PROFILE_BUILDER_ID),
+                {
+                  profileId: PROFILE_BUILDER_ID,
+                  revision: PROFILE_BUILDER_REVISION,
+                  definition: profileBuilderDefinition,
+                },
+              ]
+            : catalog.versions;
+        setVersions(available);
         if (
           requested &&
-          !catalog.versions.some(
+          !available.some(
             (v) =>
               v.profileId === requested.profileId &&
               v.revision === requested.revision &&
@@ -112,7 +128,7 @@ export function ChatAgentProfilePicker({
         <Link to="/agent-library">Library</Link>
       </div>
     ) : null;
-  const latest = new Map<string, AgentLibraryVersion>();
+  const latest = new Map<string, ProfileOption>();
   for (const version of versions)
     if (
       !latest.has(version.profileId) ||

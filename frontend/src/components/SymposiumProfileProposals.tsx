@@ -43,7 +43,7 @@ function ProposalEditor({
   sessionId: string;
   proposal?: Proposal;
   seed?: SeatProfileSeed;
-  onDone(): void;
+  onDone(savedName?: string): void;
 }) {
   const [definition, setDefinition] = useState<SymposiumProfileDefinition>(
     proposal?.definition ?? seedDefinition(seed!),
@@ -52,7 +52,7 @@ function ProposalEditor({
     proposal?.suggestedProfileId ??
       (seed?.profileBinding && !seed.profileBinding.profileId.startsWith('host-profile:')
         ? seed.profileBinding.profileId
-        : ''),
+        : crypto.randomUUID()),
   );
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -145,7 +145,7 @@ function ProposalEditor({
           }),
         });
       }
-      onDone();
+      onDone(definition.name);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Profile save failed');
     } finally {
@@ -185,16 +185,18 @@ function ProposalEditor({
           ? 'Agent draft for your review. Nothing is saved as a profile yet.'
           : 'Portable draft from this seat. Add guidance before saving; session instructions were not copied.'}
       </p>
-      <label>
-        Profile ID
-        <input
-          value={profileId}
-          onChange={(event) => {
-            saveKey.current = crypto.randomUUID();
-            setProfileId(event.target.value);
-          }}
-        />
-      </label>
+      {(!proposal || proposal.suggestedProfileId) && (
+        <label>
+          Profile ID
+          <input
+            value={profileId}
+            onChange={(event) => {
+              saveKey.current = crypto.randomUUID();
+              setProfileId(event.target.value);
+            }}
+          />
+        </label>
+      )}
       <label>
         Name
         <input value={definition.name} onChange={(event) => update('name', event.target.value)} />
@@ -214,15 +216,6 @@ function ProposalEditor({
           maxLength={500}
           value={definition.description ?? ''}
           onChange={(event) => update('description', event.target.value)}
-        />
-      </label>
-      <label>
-        Role
-        <input
-          value={definition.role}
-          onChange={(event) => update('role', event.target.value)}
-          pattern="[a-z][a-z0-9_-]{0,63}"
-          placeholder="agent, reviewer, writer…"
         />
       </label>
       <label>
@@ -254,18 +247,30 @@ function ProposalEditor({
           }
         />
       </label>
-      <label>
-        Model policy role
-        <input
-          value={definition.modelPolicyRole}
-          onChange={(event) => update('modelPolicyRole', event.target.value)}
+      <details>
+        <summary>Advanced profile settings</summary>
+        <label>
+          Role
+          <input
+            value={definition.role}
+            onChange={(event) => update('role', event.target.value)}
+            pattern="[a-z][a-z0-9_-]{0,63}"
+            placeholder="agent, reviewer, writer…"
+          />
+        </label>
+        <label>
+          Model policy role
+          <input
+            value={definition.modelPolicyRole}
+            onChange={(event) => update('modelPolicyRole', event.target.value)}
+          />
+        </label>
+        <SymposiumProfileRecipeEditor
+          value={definition.recipe}
+          onChange={(recipe) => update('recipe', recipe)}
+          disabled={busy}
         />
-      </label>
-      <SymposiumProfileRecipeEditor
-        value={definition.recipe}
-        onChange={(recipe) => update('recipe', recipe)}
-        disabled={busy}
-      />
+      </details>
       {error && <p role="alert">{error}</p>}
       <button
         type="button"
@@ -296,14 +301,20 @@ export function SymposiumProfileProposals({
   sessionId,
   seatSeed,
   onSeatSeedDone,
+  pendingOnly = false,
+  refreshKey,
 }: {
   id?: string;
   sessionId: string;
   seatSeed?: SeatProfileSeed | null;
   onSeatSeedDone?(): void;
+  pendingOnly?: boolean;
+  refreshKey?: unknown;
 }) {
   const [proposals, setProposals] = useState<Proposal[] | null>(null);
   const [error, setError] = useState('');
+  const [saved, setSaved] = useState('');
+  const dismissed = useRef(new Set<string>());
   useEffect(() => {
     let live = true;
     const refresh = () =>
@@ -313,7 +324,7 @@ export function SymposiumProfileProposals({
         .then((rows) => {
           if (!Array.isArray(rows)) throw new Error('Profile proposals response is invalid');
           if (live) {
-            setProposals(rows);
+            setProposals(rows.filter((row) => !dismissed.current.has(row.proposalId)));
             setError('');
           }
         })
@@ -326,13 +337,24 @@ export function SymposiumProfileProposals({
       live = false;
       window.clearInterval(timer);
     };
-  }, [sessionId]);
-  const remove = (proposalId: string) =>
+  }, [sessionId, refreshKey]);
+  const remove = (proposalId: string, name?: string) => {
+    dismissed.current.add(proposalId);
     setProposals((current) => current?.filter((row) => row.proposalId !== proposalId) ?? null);
+    if (name) setSaved(`Saved ${name} to your Agent Library.`);
+  };
+  if (pendingOnly && !seatSeed && !proposals?.length && !saved) return null;
   return (
     <aside id={id} className="symposium-profile-proposals" aria-label="Reusable profile drafts">
-      {!seatSeed && !error && proposals === null && <p role="status">Loading profile drafts…</p>}
-      {!seatSeed && !error && proposals?.length === 0 && (
+      {saved && (
+        <p role="status">
+          {saved} <a href="/agent-library">Open Agent Library</a>
+        </p>
+      )}
+      {!pendingOnly && !seatSeed && !error && proposals === null && (
+        <p role="status">Loading profile drafts…</p>
+      )}
+      {!pendingOnly && !seatSeed && !error && proposals?.length === 0 && (
         <div className="symposium-profile-empty">
           <p>No profile drafts in this chat yet.</p>
           <p>
@@ -355,7 +377,7 @@ export function SymposiumProfileProposals({
           key={proposal.proposalId}
           sessionId={sessionId}
           proposal={proposal}
-          onDone={() => remove(proposal.proposalId)}
+          onDone={(name) => remove(proposal.proposalId, name)}
         />
       ))}
     </aside>
