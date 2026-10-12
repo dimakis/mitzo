@@ -15,11 +15,13 @@ export const AUTH_LOST_EVENT = 'mitzo:auth-lost';
 export const AUTH_RESTORED_EVENT = 'mitzo:auth-restored';
 let authGeneration = 0;
 let authenticationRestored = false;
+const pendingTodoReads = new Map<string, Promise<Response>>();
 let cookieRestoreInFlight: { generation: number; promise: Promise<boolean> } | null = null;
 
 type AuthEventSource = 'local' | 'cross-tab';
 
 function dispatchAuthEvent(name: string, source: AuthEventSource = 'local'): void {
+  pendingTodoReads.clear();
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent(name, { detail: { source } }));
   }
@@ -119,7 +121,29 @@ export async function apiFetch(path: string, init?: RequestInit): Promise<Respon
   const token = getStoredAuthToken();
   const requestAuthGeneration = authGeneration;
   if (token) headers.set('Authorization', `Bearer ${token}`);
-  const response = await fetch(url, { ...init, headers, credentials: 'include' });
+  const request = { ...init, headers, credentials: 'include' as const };
+  const isTodoList = path === '/api/todos' || path.startsWith('/api/todos?');
+  const shareRead =
+    isTodoList &&
+    [...new URLSearchParams(path.split('?')[1]).keys()].every((key) => key === 'profile') &&
+    (!init?.method || init.method === 'GET') &&
+    Object.keys(init ?? {}).every((key) => key === 'method' || key === 'credentials');
+  let response: Response;
+  if (shareRead) {
+    // Page, Today and badge reads share only outstanding identical requests.
+    // Auth generations prevent a new login from joining an old user's request.
+    const key = JSON.stringify([requestAuthGeneration, token, url]);
+    let pending = pendingTodoReads.get(key);
+    if (!pending) {
+      pending = fetch(url, request).finally(() => {
+        if (pendingTodoReads.get(key) === pending) pendingTodoReads.delete(key);
+      });
+      pendingTodoReads.set(key, pending);
+    }
+    response = (await pending).clone();
+  } else {
+    response = await fetch(url, request);
+  }
   const currentToken = getStoredAuthToken();
   if (
     response.status === 401 &&

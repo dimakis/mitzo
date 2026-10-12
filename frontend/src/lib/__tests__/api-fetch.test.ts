@@ -350,3 +350,79 @@ describe('apiFetch', () => {
     window.removeEventListener(AUTH_RESTORED_EVENT, listener);
   });
 });
+
+describe('concurrent Telos list reads', () => {
+  it('shares identical reads across callers and gives each an independently readable response', async () => {
+    let finish!: (response: Response) => void;
+    mockFetch.mockImplementationOnce(
+      () =>
+        new Promise<Response>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const page = apiFetch('/api/todos');
+    const badge = apiFetch('/api/todos', { credentials: 'include' });
+    expect(mockFetch).toHaveBeenCalledOnce();
+    finish(Response.json({ profiles: ['fixture'], items: [] }));
+    const [one, two] = await Promise.all([page, badge]);
+    expect(await one.json()).toEqual({ profiles: ['fixture'], items: [] });
+    expect(await two.json()).toEqual({ profiles: ['fixture'], items: [] });
+    await apiFetch('/api/todos');
+    expect(mockFetch).toHaveBeenCalledTimes(2); // no response caching
+  });
+
+  it('keeps different profiles separate', async () => {
+    await Promise.all([
+      apiFetch('/api/todos?profile=work'),
+      apiFetch('/api/todos?profile=personal'),
+    ]);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    ['/api/todos?refresh=true&profile=work', undefined],
+    ['/api/todos', { method: 'POST' }],
+    ['/api/todos', { headers: { 'X-Custom': 'fixture' } }],
+    ['/api/todos', { cache: 'no-store' }],
+  ] as const)(
+    'never shares explicit refreshes, writes or custom requests (%s, %j)',
+    async (path, init) => {
+      await Promise.all([apiFetch(path, init), apiFetch(path, init)]);
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it('does not share requests whose cancellation belongs to one caller', async () => {
+    const signal = new AbortController().signal;
+    await Promise.all([apiFetch('/api/todos', { signal }), apiFetch('/api/todos', { signal })]);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('separates reads across authentication changes even while the old request is pending', async () => {
+    loginSucceeded('old-token');
+    let finish!: (response: Response) => void;
+    mockFetch.mockImplementationOnce(
+      () =>
+        new Promise<Response>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const old = apiFetch('/api/todos');
+    loginSucceeded('new-token');
+    mockFetch.mockResolvedValueOnce(Response.json({ items: ['new-account'] }));
+    const fresh = await apiFetch('/api/todos');
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    expect(await fresh.json()).toEqual({ items: ['new-account'] });
+    finish(new Response('', { status: 401 }));
+    await old;
+    expect(localStorage.getItem('mitzo_auth_token')).toBe('new-token');
+  });
+
+  it('retries normally after a shared fetch failure', async () => {
+    mockFetch.mockRejectedValueOnce(new Error('offline'));
+    await expect(apiFetch('/api/todos')).rejects.toThrow('offline');
+    mockFetch.mockResolvedValueOnce(Response.json({ items: [] }));
+    expect(await (await apiFetch('/api/todos')).json()).toEqual({ items: [] });
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
+});
