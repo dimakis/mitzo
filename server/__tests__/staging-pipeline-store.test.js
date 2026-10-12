@@ -189,3 +189,56 @@ it('keeps queued work visible after more than 200 historical receipts', () => {
   s.enqueue(request('current'));
   expect(s.status().requests.some((r) => r.id === 'current')).toBe(true);
 });
+it('looks up an exact old receipt with its accepted and actually tested sources', () => {
+  const {
+    stores: [s],
+  } = fixture();
+  s.enqueue(request('selected'));
+  const c = s.claim('worker');
+  const source = 'b'.repeat(40);
+  s.bindBaseline(c.token, source);
+  s.markDispatched(c.token);
+  s.finish(c.token, { outcome: 'passed', sourceCommit: source, cleanupConfirmed: true });
+  for (let i = 0; i < 201; i++) {
+    s.enqueue(request('later' + i));
+    s.cancel('later' + i);
+  }
+  expect(s.status().requests.some((r) => r.id === 'selected')).toBe(false);
+  expect(s.receipt('selected')).toEqual({
+    version: 1,
+    requestId: 'selected',
+    pr: 123,
+    taskId: 'session-1',
+    acceptedCommit: 'a'.repeat(40),
+    suite: 'http-readiness',
+    state: 'passed',
+    reason: null,
+    result: {
+      acceptedCommit: 'a'.repeat(40),
+      sourceCommit: source,
+      suite: 'http-readiness',
+      epoch: c.token.epoch,
+      outcome: 'passed',
+      cleanupConfirmed: true,
+      completedAt: 1000,
+    },
+  });
+});
+it('reads pending and quarantined requests without inventing a result or changing custody', () => {
+  const {
+    stores: [s],
+  } = fixture();
+  expect(s.receipt('missing')).toEqual({ version: 1, requestId: 'missing', state: 'missing' });
+  s.enqueue(request());
+  expect(s.receipt('one')).toMatchObject({ state: 'queued', result: null });
+  const c = s.claim('worker');
+  expect(s.receipt('one')).toMatchObject({ state: 'active', result: null });
+  s.quarantine(c.token, 'deployment-uncertain');
+  const before = s.status();
+  expect(s.receipt('one')).toMatchObject({
+    state: 'quarantined',
+    reason: 'deployment-uncertain',
+    result: null,
+  });
+  expect(s.status()).toEqual(before);
+});

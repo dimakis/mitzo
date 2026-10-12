@@ -32,7 +32,7 @@ function validateRequest(r) {
 /** Separate from deployment.lock: this reservation persists through testing and
  * across controller loss. Expiry is never permission to replace native custody. */
 export class StagingPipelineStore {
-  constructor(path, { clock = Date.now } = {}) {
+  constructor(path, { clock = Date.now, readOnly = false } = {}) {
     path = resolve(path);
     const parent = lstatSync(dirname(path));
     if (
@@ -43,11 +43,13 @@ export class StagingPipelineStore {
       realpathSync(dirname(path)) !== dirname(path)
     )
       throw Error('Private pipeline directory required');
-    try {
-      const fd = openSync(path, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600);
-      closeSync(fd);
-    } catch (e) {
-      if (e.code !== 'EEXIST') throw e;
+    if (!readOnly) {
+      try {
+        const fd = openSync(path, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600);
+        closeSync(fd);
+      } catch (e) {
+        if (e.code !== 'EEXIST') throw e;
+      }
     }
     const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
     try {
@@ -58,7 +60,8 @@ export class StagingPipelineStore {
       closeSync(fd);
     }
     this.clock = clock;
-    this.db = new DatabaseSync(path);
+    this.db = new DatabaseSync(path, { readOnly });
+    if (readOnly) return;
     this.db
       .exec(`PRAGMA busy_timeout=5000; PRAGMA journal_mode=DELETE; PRAGMA synchronous=FULL; PRAGMA max_page_count=4096;
       CREATE TABLE IF NOT EXISTS requests(sequence INTEGER PRIMARY KEY AUTOINCREMENT,id TEXT UNIQUE NOT NULL,payload TEXT NOT NULL,fingerprint TEXT NOT NULL,state TEXT NOT NULL,reason TEXT,result TEXT);
@@ -127,6 +130,25 @@ export class StagingPipelineStore {
           reason: r.reason,
           result: r.result ? JSON.parse(r.result) : null,
         })),
+    };
+  }
+  receipt(id) {
+    if (!identifier.test(id)) throw Error('Exact request identifier required');
+    const row = this.db
+      .prepare('SELECT payload,state,reason,result FROM requests WHERE id=?')
+      .get(id);
+    if (!row) return { version: 1, requestId: id, state: 'missing' };
+    const { pr, taskId, acceptedCommit, suite } = JSON.parse(row.payload);
+    return {
+      version: 1,
+      requestId: id,
+      pr,
+      taskId,
+      acceptedCommit,
+      suite,
+      state: row.state,
+      reason: row.reason,
+      result: row.result ? JSON.parse(row.result) : null,
     };
   }
   claim(owner) {

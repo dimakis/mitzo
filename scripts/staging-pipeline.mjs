@@ -10,6 +10,7 @@ import {
   openSync,
   closeSync,
   fstatSync,
+  lstatSync,
   readFileSync,
   constants,
 } from 'node:fs';
@@ -37,7 +38,12 @@ export function parseStagingPipelineArguments(args) {
     rest[2] === '--stage'
   )
     return { command, reference: rest[1], stage: rest[3] };
-  if (command === 'cancel' && rest.length === 2 && rest[0] === '--id' && identifier.test(rest[1]))
+  if (
+    ['cancel', 'receipt'].includes(command) &&
+    rest.length === 2 &&
+    rest[0] === '--id' &&
+    identifier.test(rest[1])
+  )
     return { command, id: rest[1] };
   if (command === 'enqueue' && rest.length === 4) {
     const flags = {};
@@ -64,6 +70,17 @@ export function enqueueMergedStagingRequest(store, { pr, taskId }, run = runStag
     .digest('hex');
   store.enqueue({ id, pr, taskId, acceptedCommit, suite: 'http-readiness' });
   return { requestId: id, acceptedCommit, state: 'queued', suite: 'http-readiness' };
+}
+export function readStagingPipelineReceipt(database, id) {
+  if (!identifier.test(id)) throw Error('Exact request identifier required');
+  if (!lstatSync(database, { throwIfNoEntry: false }))
+    return { version: 1, requestId: id, state: 'missing' };
+  const store = new StagingPipelineStore(database, { readOnly: true });
+  try {
+    return store.receipt(id);
+  } finally {
+    store.close();
+  }
 }
 function assertAcceptedController(sourceRoot) {
   const git = (args) =>
@@ -107,7 +124,7 @@ async function main() {
   const args = parseStagingPipelineArguments(process.argv.slice(2));
   if (args.command === '--help') {
     console.log(
-      'staging-pipeline enqueue --pr NUMBER --task SESSION_ID\nstaging-pipeline status\nstaging-pipeline host-resources\nstaging-pipeline run-next\nstaging-pipeline cancel --id REQUEST_ID\nstaging-pipeline replica-check --reference PUBLIC_REFERENCE_JSON --stage PUBLIC_STAGE_JSON',
+      'staging-pipeline enqueue --pr NUMBER --task SESSION_ID\nstaging-pipeline status\nstaging-pipeline receipt --id REQUEST_ID\nstaging-pipeline host-resources\nstaging-pipeline run-next\nstaging-pipeline cancel --id REQUEST_ID\nstaging-pipeline replica-check --reference PUBLIC_REFERENCE_JSON --stage PUBLIC_STAGE_JSON',
     );
     return;
   }
@@ -130,6 +147,10 @@ async function main() {
   }
   const root = join(homedir(), '.local/share/mitzo-staging-pipeline'),
     database = join(root, 'queue.db');
+  if (args.command === 'receipt') {
+    console.log(JSON.stringify(readStagingPipelineReceipt(database, args.id)));
+    return;
+  }
   if (args.command === 'status' && !existsSync(database)) {
     console.log(JSON.stringify({ reservation: { state: 'idle' }, requests: [] }));
     return;

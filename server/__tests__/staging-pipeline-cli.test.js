@@ -1,11 +1,21 @@
 import { expect, it, vi } from 'vitest';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import {
+  mkdtempSync,
+  writeFileSync,
+  rmSync,
+  realpathSync,
+  readFileSync,
+  statSync,
+  existsSync,
+} from 'node:fs';
+import { StagingPipelineStore } from '../../scripts/lib/staging-pipeline-store.mjs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   parseStagingPipelineArguments,
   enqueueMergedStagingRequest,
   checkStagingReplicaSnapshots,
+  readStagingPipelineReceipt,
 } from '../../scripts/staging-pipeline.mjs';
 it('accepts only bounded pipeline operations and rejects source, model and command overrides', () => {
   expect(parseStagingPipelineArguments(['enqueue', '--pr', '123', '--task', 'session-1'])).toEqual({
@@ -21,6 +31,52 @@ it('accepts only bounded pipeline operations and rejects source, model and comma
     ['run-next', '--root', '/production'],
   ])
     expect(() => parseStagingPipelineArguments(args)).toThrow();
+});
+it('accepts only an exact receipt request identifier', () => {
+  expect(parseStagingPipelineArguments(['receipt', '--id', 'selected'])).toEqual({
+    command: 'receipt',
+    id: 'selected',
+  });
+  for (const args of [
+    ['receipt'],
+    ['receipt', '--id', '../queue'],
+    ['receipt', '--id', 'selected', '--apply'],
+  ])
+    expect(() => parseStagingPipelineArguments(args)).toThrow();
+});
+it('receipt lookup never creates a database or writes an enrolled queue', () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'pipeline-receipt-')));
+  const database = join(root, 'queue.db');
+  try {
+    expect(readStagingPipelineReceipt(database, 'missing')).toEqual({
+      version: 1,
+      requestId: 'missing',
+      state: 'missing',
+    });
+    expect(existsSync(database)).toBe(false);
+    const store = new StagingPipelineStore(database);
+    store.enqueue({
+      id: 'pending',
+      pr: 1,
+      taskId: 'session',
+      acceptedCommit: 'a'.repeat(40),
+      suite: 'http-readiness',
+    });
+    store.close();
+    const bytes = readFileSync(database),
+      before = statSync(database);
+    expect(readStagingPipelineReceipt(database, 'pending')).toMatchObject({
+      version: 1,
+      requestId: 'pending',
+      state: 'queued',
+      result: null,
+    });
+    expect(readFileSync(database)).toEqual(bytes);
+    expect(statSync(database).mtimeMs).toBe(before.mtimeMs);
+    expect(statSync(database).ctimeMs).toBe(before.ctimeMs);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 it('enqueues the actual accepted merge commit, never a moving PR head', () => {
   const run = vi.fn(() =>

@@ -14,6 +14,7 @@ workers bounded for the host. After acceptance, run:
 ```sh
 node scripts/staging-pipeline.mjs enqueue --pr NUMBER --task SESSION_ID
 node scripts/staging-pipeline.mjs status
+node scripts/staging-pipeline.mjs receipt --id REQUEST_ID
 ```
 
 Enqueue reads the actual merged PR commit through GitHub CLI; it accepts no
@@ -84,6 +85,23 @@ are bounded by a 16 MiB database ceiling; a full database refuses more work and
 requires an explicit archival/retention decision. Status prioritizes active and
 queued requests over old summaries. Keep any selected receipt needed for release
 qualification with that pipeline task's artifacts.
+
+`receipt --id` reads the exact retained request independently of the bounded
+status summary. It opens an enrolled database read-only and never creates a
+queue, claims work, or changes custody. Its version-1 JSON contains `requestId`,
+`pr`, `taskId`, `acceptedCommit`, `suite`, `state`, `reason`, and `result`.
+Queued and active requests have no result; quarantined and cancelled requests
+also provide no passing evidence. A missing request or absent database returns
+only `version`, `requestId`, and `state: "missing"`. Refused or uncertain reads
+fail instead of manufacturing a missing or passing result.
+
+A settled result retains its `outcome`, original `acceptedCommit`, actual
+tested `sourceCommit`, `suite`, reservation `epoch`, `cleanupConfirmed`, and
+`completedAt` timestamp. Consumers must match the exact request, PR, task, and
+accepted merge, require passed HTTP readiness and confirmed cleanup, and verify
+that the tested source is the intended deployment candidate. A newer tested
+main tip does not rewrite the original accepted merge or qualify an arbitrary
+release. Feature and production acceptance remain separately required.
 
 ## Rollout and remaining integration
 
