@@ -206,3 +206,12 @@ Production ports, services, state, credentials and deployment remain excluded.
 The physical route is grounded in the [Podman 5.6.2 AppleHV implementation](https://github.com/containers/podman/tree/v5.6.2/pkg/machine/apple),
 [vfkit device contract](https://github.com/crc-org/vfkit/blob/main/doc/usage.md), and
 [Apple LocalAuthentication API](https://developer.apple.com/documentation/localauthentication).
+
+The original source witness qualifies the real containment effects at construction
+and before and after native actions, as well as inspection and ordinary restore.
+Its twelve-minute deadline and closed state are rechecked after the final source
+and ancestry reads. The public-history Git fetch runs in its own captured process
+group: timeout, output or scratch refusal terminates transport/pack children too,
+then allows250ms for pipe closure and original-child reaping. An unconfirmed drain
+refuses acceptance and retains its bounded private scratch instead of claiming
+cleanup. This process-group termination never targets staging or a VM.

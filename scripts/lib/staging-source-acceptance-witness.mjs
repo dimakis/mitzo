@@ -49,6 +49,80 @@ export function measureSourceHistoryScratch(root) {
   visit(root);
   return { size, allocated, files, directories };
 }
+/** Observe the original detached POSIX Git process group. Refusal kills its
+ * transports/pack helpers together, then closes inherited pipes after a bounded
+ * reaping grace. This never controls staging, a VM or another process group. */
+export function monitorBoundedSourceHistoryFetch(
+  p,
+  { assertScratch, timeoutMs = 30000, onUnconfirmedDrain = () => {} },
+) {
+  return new Promise((resolve, reject) => {
+    if (
+      !Number.isInteger(timeoutMs) ||
+      timeoutMs < 1 ||
+      timeoutMs > 30000 ||
+      typeof assertScratch !== 'function' ||
+      !Number.isInteger(p.pid) ||
+      p.pid < 1
+    ) {
+      p.once('error', () => {});
+      reject(refuse());
+      return;
+    }
+    const group = p.pid;
+    let output = 0,
+      failed = false,
+      settled = false,
+      reap;
+    const finish = (code, signal) => {
+      if (settled) return;
+      settled = true;
+      clearInterval(poll);
+      clearTimeout(timer);
+      clearTimeout(reap);
+      try {
+        assertScratch();
+        if (failed || signal || code !== 0) throw refuse();
+        resolve();
+      } catch {
+        reject(refuse());
+      }
+    };
+    const stop = () => {
+      if (failed || settled) return;
+      failed = true;
+      // The constructor starts this captured child as a new private group.
+      // Killing only Git would leave inherited pipes and transport children.
+      try {
+        process.kill(-group, 'SIGKILL');
+      } catch {
+        /* Refusal never grants acceptance. */
+      }
+      reap = setTimeout(() => {
+        onUnconfirmedDrain();
+        p.stdout.destroy();
+        p.stderr.destroy();
+        finish(null, 'unconfirmed-fetch-drain');
+      }, 250);
+    };
+    const poll = setInterval(() => {
+      try {
+        assertScratch();
+      } catch {
+        stop();
+      }
+    }, 10);
+    const timer = setTimeout(stop, timeoutMs);
+    for (const stream of [p.stdout, p.stderr])
+      stream.on('data', (chunk) => {
+        output += chunk.length;
+        if (output > 1024 ** 2) stop();
+      });
+    p.on('error', stop);
+    p.on('close', finish);
+  });
+}
+
 /** Original process-local source acceptance only. A serialized witness cannot
  * replay an operation, grant authentication, native capacity or guard custody. */
 export function createProcessLocalSourceAcceptanceWitness(effects) {
@@ -115,7 +189,8 @@ export function createProcessLocalSourceAcceptanceWitness(effects) {
 export function createStagingSourceAcceptanceWitness({ canonicalRoot, sourceRoot, verifyFresh }) {
   let scratch,
     scratchIdentity,
-    fetches = 0;
+    fetches = 0,
+    fetchDrainUncertain = false;
   const provenMain = new Set();
   const hash = (value) => createHash('sha256').update(value).digest('hex');
   const repository = 'https://github.com/dimakis/mitzo.git';
@@ -179,6 +254,7 @@ export function createStagingSourceAcceptanceWitness({ canonicalRoot, sourceRoot
           ...argv,
         ],
         {
+          detached: true,
           stdio: ['ignore', 'pipe', 'pipe'],
           env: {
             PATH: '/usr/bin:/bin',
@@ -191,37 +267,12 @@ export function createStagingSourceAcceptanceWitness({ canonicalRoot, sourceRoot
           },
         },
       );
-      let output = 0,
-        failed = false;
-      const stop = () => {
-        failed = true;
-        p.kill('SIGKILL');
-      };
-      const poll = setInterval(() => {
-        try {
-          assertScratch();
-        } catch {
-          stop();
-        }
-      }, 10);
-      const timer = setTimeout(stop, 30000);
-      for (const stream of [p.stdout, p.stderr])
-        stream.on('data', (chunk) => {
-          output += chunk.length;
-          if (output > 1024 ** 2) stop();
-        });
-      p.on('error', stop);
-      p.on('close', (code, signal) => {
-        clearInterval(poll);
-        clearTimeout(timer);
-        try {
-          assertScratch();
-          if (failed || signal || code !== 0) throw refuse();
-          resolve();
-        } catch {
-          reject(refuse());
-        }
-      });
+      monitorBoundedSourceHistoryFetch(p, {
+        assertScratch,
+        onUnconfirmedDrain: () => {
+          fetchDrainUncertain = true;
+        },
+      }).then(resolve, reject);
     });
   const readPinned = () => {
     const current = git(sourceRoot, 'rev-parse', 'HEAD'),
@@ -310,7 +361,7 @@ export function createStagingSourceAcceptanceWitness({ canonicalRoot, sourceRoot
       throw refuse();
     },
     close() {
-      if (scratch) {
+      if (scratch && !fetchDrainUncertain) {
         const s = lstatSync(scratch);
         if (
           s.isDirectory() &&
