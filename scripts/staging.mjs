@@ -84,6 +84,8 @@ const env = {
   HOME: join(root, 'home'),
   TMPDIR: '/private/tmp',
   LANG: 'en_US.UTF-8',
+  NODE_OPTIONS: '--max-old-space-size=2048',
+  npm_config_jobs: '2',
   GIT_TERMINAL_PROMPT: '0',
   GIT_CONFIG_NOSYSTEM: '1',
   GIT_CONFIG_GLOBAL: '/dev/null',

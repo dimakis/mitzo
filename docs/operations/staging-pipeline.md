@@ -1,0 +1,94 @@
+# Staging pipeline and host budgets
+
+The canonical app remains `http://mitzo-staging.localhost:3190` with the single
+`com.mitzo.staging` service. Pipeline state lives separately in the private
+`~/.local/share/mitzo-staging-pipeline/queue.db`, so resetting staging does not
+silently erase queued requests or custody uncertainty. No new background service,
+VM, sidecar, scheduler or provider connection is installed by the CLI.
+
+## Session and pipeline contract
+
+Run offline feature tests and existing PR review/CI concurrently, with local
+workers bounded for the host. After acceptance, run:
+
+```sh
+node scripts/staging-pipeline.mjs enqueue --pr NUMBER --task SESSION_ID
+node scripts/staging-pipeline.mjs status
+```
+
+Enqueue reads the actual merged PR commit through GitHub CLI; it accepts no
+candidate SHA, shell command, model or account override. Repeated identical
+requests are idempotent. This initial cut exposes the post-merge pipeline step;
+it does not yet add an unattended hook to MGMT's PR shepherd. Until that wiring
+is accepted, the session that merges submits this command explicitly. Future
+feature test suites require their own reviewed contract and fresh staging
+account enrollment. The current receipt is **HTTP readiness**, not feature proof.
+
+One designated foreground controller, from clean exact current accepted source,
+processes one request per invocation:
+
+```sh
+node scripts/staging-pipeline.mjs host-resources
+node scripts/staging-pipeline.mjs run-next
+```
+
+The controller verifies accepted ancestry, binds the actual selected main tip,
+checks canonical stage integrity, and uses existing prepare/plan/apply commands
+when deployment is needed. It keeps the queue reservation until the selected
+source is verified before and after the test. Requests cannot change the test
+suite to run arbitrary code, enroll a provider or issue inference. Native or
+owned topologies unsupported by the existing controller remain fenced.
+
+The resource observations include macOS pressure level, memory-pressure reported
+free percentage, swap, free disk and aggregate staging/quarantine disk use.
+Missing/unknown observations refuse admission. Conservative defaults are normal
+pressure, 25% reported headroom, swap <=2 GiB, free disk >=20 GiB after proposed
+growth and aggregate stage/archive <=32 GiB. Preparation reserves 2 GiB projected
+growth and rechecks actual use afterwards; this is admission accounting, not an
+OS-enforced filesystem quota. If the build exceeds its projection, additional
+work stops pending investigation/retention planning. Historical archives are not
+deleted to make admission pass. The VM maximum is 4096 MiB/two CPUs. Source
+builders propagate a 2048 MiB V8 heap bound; the ordinary app gets 1024 MiB.
+These limits preserve headroom but do not guarantee a whole-host memory cap or
+control unrelated applications, provider processes or other agent sessions.
+The initial test is one bounded GET and creates no provider/task/native resources.
+
+## Waiting, cancellation and uncertain outcomes
+
+Capacity shortage before dispatch returns the request to queued `host-resources`.
+If a deployment completed and the subsequent canonical check confirms its exact
+source and integrity, the controller can wait before testing without fabricating
+native retirement. A normal failed GET has no cleanup obligation and records a
+failed readiness result. Test baseline drift or uncertain deployment keeps a
+quarantined reservation. Deadlines signal reconciliation; they never grant a
+replacement lease or permit deletion of `deployment.lock`.
+
+```sh
+node scripts/staging-pipeline.mjs cancel --id REQUEST_ID
+```
+
+Only unclaimed queued requests can be cancelled. No CLI command fabricates a
+passing result, resets an active reservation or reclaims native ownership.
+Investigate the saved operation and actual owner; perform separately qualified
+reconciliation before replacing uncertain work. Requests and terminal summaries
+are bounded by a 16 MiB database ceiling; a full database refuses more work and
+requires an explicit archival/retention decision. Status prioritizes active and
+queued requests over old summaries. Keep any selected receipt needed for release
+qualification with that pipeline task's artifacts.
+
+## Rollout and remaining integration
+
+1. Accept the source and restore canonical staging through its qualified reset.
+2. Qualify readiness under the real host budget and confirm one runner for concurrent
+   submitters. The offline tests use eleven separate SQLite connections.
+3. Add the post-merge enqueue/status signal to MGMT's existing PR shepherd and
+   production-admission workflow; production deployment remains explicitly requested.
+4. Enroll only required staging capabilities and implement bounded feature suites.
+   Announce the supported exact Luna model and charged account before real tests.
+5. Plan release retention separately: aim for active plus two reusable baselines,
+   preserving releases referenced by uncertain operations. No automatic broad cleanup
+   is part of this cut. Idle native shutdown also requires verified owned-resource
+   closure; it cannot be inferred from an empty queue.
+
+Existing sessions must reread accepted instructions before this policy can be
+claimed as adopted. No cross-session messages or production operations occur here.
