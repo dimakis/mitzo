@@ -1020,6 +1020,139 @@ it('renews the process after approved provider attachment before dispatching the
   expect(state.onError).not.toHaveBeenCalled();
 });
 
+it.each(['before-turn', 'queued-continuation', 'runtime-admission'] as const)(
+  'clears automatic environment refresh progress before the acknowledged %s turn',
+  async (route) => {
+    const state = await setup();
+    let needsRefresh = false;
+    const originalClient = state.conversationOptions.createClient;
+    state.conversationOptions.accessLocation = 'local';
+    state.conversationOptions.createClient = (callbacks) => {
+      needsRefresh = false;
+      return originalClient(callbacks);
+    };
+    state.conversationOptions.refreshTransportBeforeTurn = () => needsRefresh;
+    if (route === 'runtime-admission')
+      state.conversationOptions.beforeRuntimeAdmission = async (close) => {
+        await close();
+        needsRefresh = true;
+        return true;
+      };
+    state.conversationOptions.prepareTurn = async () => {
+      if (route === 'before-turn') needsRefresh = true;
+    };
+    state.conversationOptions.shouldContinueAfterToolResult = () => {
+      needsRefresh = true;
+      return true;
+    };
+    await state.c.send({
+      id: 'refresh-access',
+      prompt: 'Read approved evidence',
+      intent: 'Read mail',
+    });
+    if (route === 'queued-continuation') {
+      await state.getCallbacks().onRequest(
+        'item/tool/call',
+        {
+          threadId: 'provider-thread',
+          turnId: 'turn-1',
+          callId: 'grant-refresh',
+          tool: 'Read',
+          arguments: {},
+        },
+        new AbortController().signal,
+      );
+      state.getCallbacks().onNotification('turn/completed', {
+        threadId: 'provider-thread',
+        turn: { id: 'turn-1', status: 'completed' },
+      });
+      await vi.waitFor(() =>
+        expect(state.requests.filter((r) => r.method === 'turn/start')).toHaveLength(2),
+      );
+    }
+    expect(state.requests.filter((r) => r.method === 'thread/resume')).toHaveLength(1);
+    expect(state.c.isRecovering()).toBe(false);
+    expect(state.c.getRecoveryPhase()).toBeUndefined();
+    expect(state.c.readAccessObservation()).toMatchObject({
+      sessionId: 'app',
+      location: 'local',
+      modelSource: 'accepted-turn',
+    });
+    expect(state.onError).not.toHaveBeenCalled();
+  },
+);
+
+it('finishes failed automatic refresh progress without inventing Access or dispatching a turn', async () => {
+  const state = await setup();
+  const originalClient = state.conversationOptions.createClient;
+  state.conversationOptions.accessLocation = 'local';
+  state.conversationOptions.refreshTransportBeforeTurn = () => true;
+  state.conversationOptions.createClient = (callbacks) => ({
+    ...originalClient(callbacks),
+    initialize: async () => {
+      throw new Error('Fixture reattachment refused');
+    },
+  });
+  await expect(state.c.send({ id: 'refused-refresh', prompt: 'Read evidence' })).rejects.toThrow(
+    'Fixture reattachment refused',
+  );
+  expect(state.requests.filter((r) => r.method === 'turn/start')).toHaveLength(0);
+  expect(state.c.isPaused()).toBe(true);
+  expect(state.c.readAccessObservation()).toBeUndefined();
+  expect(state.c.isRecovering()).toBe(false);
+  expect(state.c.getRecoveryPhase()).toBeUndefined();
+  expect(state.c.queue()).toMatchObject([{ id: 'refused-refresh', status: 'failed' }]);
+  expect(state.store.read('app', state.getBinding()).recovery).toBeTruthy();
+});
+
+it.each(['workspace', 'launcher'] as const)(
+  'ends admission reconnect progress when early %s preparation fails',
+  async (failure) => {
+    const state = await setup();
+    state.conversationOptions.accessLocation = 'local';
+    state.conversationOptions.beforeRuntimeAdmission = async (close) => {
+      await close();
+      return true;
+    };
+    if (failure === 'workspace')
+      state.conversationOptions.beforeReconnect = async () => {
+        throw new Error('Fixture early reattachment refused');
+      };
+    else
+      state.conversationOptions.createClient = () => {
+        throw new Error('Fixture early reattachment refused');
+      };
+    await expect(state.c.send({ id: 'early-refusal', prompt: 'fixture' })).rejects.toThrow(
+      'Fixture early reattachment refused',
+    );
+    expect(state.c.isPaused()).toBe(true);
+    expect(state.c.readAccessObservation()).toBeUndefined();
+    expect(state.c.isRecovering()).toBe(false);
+    expect(state.c.getRecoveryPhase()).toBeUndefined();
+    expect(state.requests.filter((r) => r.method === 'turn/start')).toHaveLength(0);
+    expect(state.store.read('app', state.getBinding()).recovery).toBeTruthy();
+  },
+);
+it('uses the latest verified web-consent resume model after a different acknowledged turn model', async () => {
+  const state = await setup();
+  state.conversationOptions.accessLocation = 'local';
+  await state.c.send({ id: 'consent-model', prompt: 'fixture', model: 'other-model' });
+  expect(state.c.readAccessObservation()).toMatchObject({
+    model: 'other-model',
+    modelSource: 'accepted-turn',
+  });
+  state.getCallbacks().onNotification('turn/completed', {
+    threadId: 'provider-thread',
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  await state.c.setWebSearchGrant(0, 'allowed');
+  expect(state.c.readAccessObservation()).toMatchObject({
+    model: state.getBinding().model,
+    modelSource: 'provider-thread',
+  });
+});
+
 it('does not renew the process when provider attachment failed', async () => {
   const state = await setup();
   state.conversationOptions.prepareTurn = async () => 'Google access could not be approved';

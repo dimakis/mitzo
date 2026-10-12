@@ -90,7 +90,18 @@ export interface CodexStartupConfigObservation {
   readonly config: unknown;
 }
 
+/** Current ordinary runtime ownership only; no credential/configuration or provider probe. */
+export interface CodexAccessObservation {
+  sessionId: string;
+  account: Pick<AccountBinding, 'accountId' | 'accountLabel' | 'provider' | 'profileRevision'>;
+  model: string;
+  modelSource: 'provider-thread' | 'accepted-turn';
+  location: 'local' | 'openshell';
+}
+
 export interface CodexConversationOptions {
+  /** Read-only provenance supplied by the owning ordinary client launcher. */
+  accessLocation?: CodexAccessObservation['location'];
   ownerKind?: 'ordinary' | 'symposium';
   /** Ordinary capacity recovery creates new linked native turns, never prompt replay. */
   enableCapacityRecovery?: boolean;
@@ -330,6 +341,7 @@ export class CodexConversation {
   private capacityInFlight = false;
   private capacityAdmissionDeadlines = new Map<string, number>();
   private binding?: AccountBinding;
+  private accessModel?: Pick<CodexAccessObservation, 'model' | 'modelSource'>;
   private threadId?: string;
   private pendingToolSurface?: {
     parent?: string;
@@ -593,6 +605,7 @@ export class CodexConversation {
       );
     this.resetMapper(this.threadId, !state.threadId);
     this.ready = true;
+    this.accessModel = { model: result.model, modelSource: 'provider-thread' };
     this.startupObserverInitializing = false;
     this.opts.emit({ type: 'system', subtype: 'init', session_id: this.opts.conversationId });
     this.opts.onQueueChange?.();
@@ -651,6 +664,35 @@ export class CodexConversation {
   }
   isPaused() {
     return this.paused;
+  }
+  readAccessObservation(): CodexAccessObservation | undefined {
+    if (
+      !this.ready ||
+      this.closed ||
+      this.paused ||
+      !this.binding ||
+      !this.threadId ||
+      !this.accessModel ||
+      this.recoveryPhase ||
+      this.pendingToolSurface ||
+      this.active?.ownershipPending ||
+      !this.opts.accessLocation ||
+      this.opts.ownerKind === 'symposium'
+    )
+      return undefined;
+    try {
+      if (this.opts.store.read(this.opts.conversationId, this.binding).recovery) return undefined;
+      this.opts.store.assertNoPendingThreadOwnership(this.opts.conversationId, this.binding);
+    } catch {
+      return undefined;
+    }
+    const { accountId, accountLabel, provider, profileRevision } = this.binding;
+    return {
+      sessionId: this.opts.conversationId,
+      account: { accountId, accountLabel, provider, profileRevision },
+      ...this.accessModel,
+      location: this.opts.accessLocation,
+    };
   }
   isRecovering() {
     return !!this.recoveryPhase;
@@ -1108,6 +1150,16 @@ export class CodexConversation {
     return this.reconnectBound();
   }
   private async reconnectBound() {
+    try {
+      await this.reconnectOwnedTransport();
+    } finally {
+      // Include workspace preparation and launcher creation in progress cleanup.
+      // Paused/durable recovery and provider ownership remain separate fences.
+      this.recoveryPhase = undefined;
+      this.opts.onQueueChange?.();
+    }
+  }
+  private async reconnectOwnedTransport() {
     if (!this.binding || !this.threadId) throw new Error('Codex recovery state is unavailable');
     if (this.opts.beforeReconnect) {
       this.recoveryPhase = 'starting_workspace';
@@ -1189,6 +1241,7 @@ export class CodexConversation {
       if (replacingInitialThread)
         this.pendingToolSurface = { thread: result.thread.id, revision: toolSurfaceRevision };
       if (replacingProviderThread) this.resetMapper(this.threadId);
+      this.accessModel = { model: result.model, modelSource: 'provider-thread' };
       this.ready = true;
     } catch (error) {
       client.close();
@@ -1320,6 +1373,7 @@ export class CodexConversation {
         result.modelProvider !== modelProvider
       )
         throw new Error('Codex execution binding changed');
+      this.accessModel = { model: result.model, modelSource: 'provider-thread' };
       this.ready = true;
       return updated;
     } catch (error) {
@@ -1851,6 +1905,7 @@ export class CodexConversation {
             active.turnId,
           );
         }
+        this.accessModel = { model, modelSource: 'accepted-turn' };
         this.opts.onProviderAccepted?.(command.id, this.threadId!, active.turnId);
         if (systemPrompt !== undefined)
           this.opts.onApplicationContextAccepted?.(

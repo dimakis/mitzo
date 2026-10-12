@@ -80,6 +80,7 @@ function AccessContent({ sessionId, selection, connected = true, onShowApproval 
   }, [connections]);
   const stale = Boolean(evidence && (error || !connected || now - evidence.observedAt > 30000));
   const current = evidence?.state === 'current' && !stale && !loading;
+  const codex = evidence?.runtime?.harness === 'codex';
   if (connections)
     return (
       <div className="session-access">
@@ -164,27 +165,54 @@ function AccessContent({ sessionId, selection, connected = true, onShowApproval 
               {evidence?.account?.accountLabel ??
                 (!sessionId ? selection?.accountId : null) ??
                 'Unknown'}
+              {codex && (
+                <p className="workspace-muted">
+                  Bound to this runtime; authorization is rechecked before dispatch.
+                </p>
+              )}
             </dd>
           </div>
           <div>
-            <dt>Model</dt>
+            <dt>
+              {codex
+                ? evidence?.modelSource === 'accepted-turn'
+                  ? 'Last acknowledged model'
+                  : 'Verified thread model'
+                : 'Model'}
+            </dt>
             <dd>{evidence?.model ?? (!sessionId ? selection?.model : null) ?? 'Unknown'}</dd>
           </div>
           <div>
-            <dt>Effective mode</dt>
+            <dt>{codex ? 'Mitzo effective mode' : 'Effective mode'}</dt>
             <dd>{evidence?.mode ?? 'Unknown'}</dd>
           </div>
+          {evidence?.runtime && (
+            <>
+              <div>
+                <dt>Harness</dt>
+                <dd>{codex ? 'Codex' : 'Claude SDK'}</dd>
+              </div>
+              <div>
+                <dt>Execution location</dt>
+                <dd>
+                  {evidence.runtime.location === 'openshell' ? 'OpenShell sandbox' : 'Local host'}
+                </dd>
+              </div>
+            </>
+          )}
           <div>
             <dt>Service attachments</dt>
             <dd>Unknown — configured services have not been observed in this session.</dd>
           </div>
           <div>
-            <dt>Tool approvals</dt>
+            <dt>{codex ? 'Mitzo host tool approvals' : 'Tool approvals'}</dt>
             <dd>
               {evidence?.grants
-                ? evidence.grants.join(', ') || 'No session tool grants'
+                ? evidence.grants.join(', ') ||
+                  (codex ? 'No Mitzo host tool grants' : 'No session tool grants')
                 : 'Unknown'}
               <p className="workspace-muted">
+                {codex && 'Remembered approvals only; mode and tool tiers may allow other calls. '}
                 Skill, workspace and exact-action restrictions still apply.
               </p>
             </dd>
@@ -192,11 +220,29 @@ function AccessContent({ sessionId, selection, connected = true, onShowApproval 
           <div>
             <dt>Skill restriction</dt>
             <dd>
-              {evidence?.state === 'current'
-                ? (evidence.skillCeiling?.join(', ') ?? 'No active skill ceiling')
-                : 'Unknown'}
+              {codex ? (
+                <>
+                  Restricted skill ceilings are unsupported on this Codex route.
+                  <p className="workspace-muted">
+                    Mitzo host restriction:{' '}
+                    {evidence?.skillCeiling
+                      ? evidence.skillCeiling.join(', ') || 'No Mitzo host tools permitted'
+                      : 'None active'}
+                  </p>
+                </>
+              ) : evidence?.state === 'current' ? (
+                (evidence.skillCeiling?.join(', ') ?? 'No active skill ceiling')
+              ) : (
+                'Unknown'
+              )}
             </dd>
           </div>
+          {codex && (
+            <div>
+              <dt>Native Codex permissions</dt>
+              <dd>Unknown — native permissions have not been reported here.</dd>
+            </div>
+          )}
           <div>
             <dt>Available tools</dt>
             <dd>Unknown — callable tools have not been inventoried for this route.</dd>

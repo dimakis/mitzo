@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.9';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.70';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.76';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -104,9 +104,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../symposium-personal-connection-router.ts':
     'f254cadb334bc75dbb19104fdb7ed2b3e46bf2856b81d29300fd4f45db02674e',
   // Read-only session observation is part of the operator route composition.
-  '../session-access.ts': 'e70130c57879d3b22fab78473d90c8d2e787b7a499194c166e7e912fc5cf2767',
+  '../session-access.ts': '91868521579db71b1549bd104dc4c21e5e2f831ea9024c363d9b8ae5fb8107b2',
   // Request authority and physical review composition share runtime admission.
-  '../app.ts': '5d80d4c1778f905ad0ec1f0a868ba57d5b100d045b1b2008f2c628df9a6f7044',
+  '../app.ts': 'a741de58ad9248b52a6394a69bb1a2479d2b2b57f2f8660910807a257e515004',
   '../symposium-review-route-composition.ts':
     'bc2cb2a85517a1f16279fd87757a97b9bb46a16d9efc5f15b52bf41a6f14cae3',
   '../symposium-review-host-contract.ts':
@@ -131,7 +131,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/attest-knowledge-runtime.py':
     '5737ec8e7fc19a17b6ef5a35c1898e834d2a5d2d2a9f7593b607eaaf1971cfeb',
   '../agent-context-sandbox.ts': '8b61edc17ccc94bc95eae3796e68a0beb9540534e3bfbb348a04154c41995416',
-  '../codex-conversation.ts': 'c83119338fc5c238f5ce2a6767a36ee7003a2cd08ec0e09bbd96e53f8207db3f',
+  '../codex-conversation.ts': '9b4210358e864067664a9d7056415fc74fd13fac75018c7a642ad8b8fff1d0a1',
   '../codex-conversation-store.ts':
     '76ef29aa2d6861db49ef3afa8c41464c9f6f4da1fd556fa949e2286fede0a216',
   // Library profile identity, operator ownership and admission are reviewed runtime inputs.
@@ -275,7 +275,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../openshell-runtime-policy.ts':
     '5ea777bb8c0771dfc00e5b683e36d14f3af797bac7dcc1a3fea35f8c2b9ddc90',
   '../openshell-runtime.ts': 'e0b5527a4f4dd03752b38e23535b62d2f05e83c76439ab0478369960f7c745a3',
-  '../codex-chat-session.ts': 'f0d956cb24b595fc42ec186808b8506cb6182abe4c453e0923703fff79c00009',
+  '../codex-chat-session.ts': '01c9a1f9590d30f13d033a34b5a0871963ba8b300e122a38c1b8b10a7a0a6c5a',
   '../connections-runtime.ts': 'dbe641704a1d761d73740260fb28057054fdb34a64513fa77292d2fdb1954a84',
   'capabilities/operation-store.ts':
     '1a235f11d5578880e6dfa7ecf5779e2a011e24430774fc17429d7d22359b93f2',

@@ -192,6 +192,15 @@ Use the shared motion presence helper for terminal disclosures and options witho
 
 ## Ordinary chat Access
 
+Codex observations use the same shared dialog and facts layout. Name the last
+acknowledged model separately from the next selected model, and distinguish Mitzo
+host approvals/ceilings from unknown native Codex permissions. Unsupported native
+skill ceilings are explicit; a missing host ceiling and a ceiling permitting no
+tools have different labels. The source is the initialized ordinary runtime and
+its actual client launcher, never an account catalog or search-policy setting.
+CI retains the compiled-app Access/Connections phone and desktop captures for
+inspection when host pressure prevents a broad local render run.
+
 `WorkspaceControls` accepts always-visible actions alongside its collapsed summary.
 Access uses this slot on mobile and desktop so pending approval overlays cannot cover
 its entry. Its read-only observation and nested Connections view reuse `HomeDialog`,

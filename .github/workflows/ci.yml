@@ -98,6 +98,15 @@ jobs:
           retention-days: 7
           if-no-files-found: warn
 
+      - name: Retain rendered Access verification
+        if: ${{ always() && steps.offline-tests.outcome == 'success' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: session-access-rendered-${{ github.run_id }}-${{ github.run_attempt }}
+          path: test-results/offline/session-access-*/
+          retention-days: 7
+          if-no-files-found: warn
+
   native:
     needs: changes
     if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.native == 'true') }}

@@ -22,6 +22,51 @@ const live = () =>
   }) as ManagedSession;
 
 describe('ordinary session Access evidence', () => {
+  it('requires exact live Codex runtime authority and preserves host approval scope', () => {
+    const owner = {
+      ...live(),
+      accountBinding: {
+        ...live().accountBinding!,
+        provider: 'openai-codex' as const,
+        profileRevision: 'r1',
+      },
+    };
+    const runtime = {
+      sessionId: 'one',
+      account: { ...owner.accountBinding },
+      model: 'fixture-luna',
+      modelSource: 'accepted-turn' as const,
+      location: 'openshell' as const,
+    };
+    expect(projectSessionAccess('one', owner, [], 123, runtime)).toMatchObject({
+      state: 'current',
+      model: 'fixture-luna',
+      modelSource: 'accepted-turn',
+      mode: 'ask',
+      grants: ['Bash'],
+      runtime: { harness: 'codex', location: 'openshell' },
+      tools: null,
+      limits: null,
+      attachments: null,
+    });
+    for (const evidence of [
+      undefined,
+      { ...runtime, sessionId: 'other' },
+      { ...runtime, account: { ...runtime.account, accountId: 'other' } },
+      { ...runtime, account: { ...runtime.account, profileRevision: 'old' } },
+      { ...runtime, account: { ...runtime.account, provider: 'openai' as const } },
+    ]) {
+      expect(projectSessionAccess('one', owner, [], 123, evidence)).toMatchObject({
+        state: 'unknown',
+        model: null,
+        grants: null,
+      });
+    }
+    expect(
+      projectSessionAccess('one', { ...owner, contributorExecutionOwner: true }, [], 123, runtime)
+        .state,
+    ).toBe('unknown');
+  });
   it('includes the read-only operator projection in the reviewed composition source inventory', () => {
     expect(reviewedHandlerSourceArtifacts).toHaveProperty('../session-access.ts');
   });

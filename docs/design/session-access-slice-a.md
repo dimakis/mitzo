@@ -22,7 +22,7 @@ are references only. The subsequent merge is authorized separately; deployment r
 
 ## Capability/evidence matrix
 
-Initial supported live route: an ordinary Claude SDK session with a live registry owner and
+The first delivery supported an ordinary Claude SDK session with a live registry owner and
 exact matching durable session ID, behind the existing operator authentication boundary.
 Empty ordinary chat remains supported before a session, output or Telos item exists.
 
@@ -168,3 +168,95 @@ runtime revision is v1.0.60, avoiding reuse of the two branches' different v1.0.
 contracts. No frontend code changed in this reconciliation, so the completed
 261-check rendered UI run remains applicable; hosted CI and exact-head review
 are required again.
+
+## Codex continuation for Luna-compatible ordinary accounts
+
+This read-only increment begins from accepted main `a8c294da4fe4df47de0c76acf5eec4455f941c7a`.
+It consumes existing ordinary Codex execution ownership; it does not activate the dormant
+local target catalog, picker or first-command admission. Model choice remains the existing
+account's supported catalog and validation, including Luna when that account permits it.
+
+| Fact                                | Codex authority                                                                                 | Projection boundary                                                                                                                                  |
+| ----------------------------------- | ----------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Runtime owner                       | Exact registry session and its `getCodexRuntime` instance                                       | Initialized thread only; lost/closed transport, recovery, pending thread ownership and Symposium owners yield Unknown                                |
+| Account                             | Native verified binding inside the runtime                                                      | Account ID/provider/profile revision must match the exact managed session; no credential/email/workspace/profile payload is exposed                  |
+| Model                               | Verified thread/start or resume response; subsequently acknowledged turn/start selection        | Last acknowledged selection is separate from an unaccepted or queued future model; it is not a fresh provider authorization probe or billing receipt |
+| Execution location                  | The owning `openCodexChat` client-launcher branch                                               | Local/OpenShell provenance does not establish per-seat isolation; search policy/configured targets supply no fallback                                |
+| Mode, approvals, host ceiling       | Restrictive effective mode, session allow-list, active host policy, exact-session pending queue | Mitzo host scope only; native Codex permissions remain Unknown and restricted native skill ceilings remain unsupported                               |
+| Services, full tool surface, limits | No complete session read authority in this slice                                                | Unknown; configured Connections and observed transcript tool names do not establish availability                                                     |
+
+Observation reads invoke no provider RPC, discover/sign-in call, queue admission, reattachment,
+thread creation, grant mutation, capture or publication. Returned metadata is copied. Missing
+live proof cannot be filled from durable selection or cached account capability metadata.
+The shared Access dialog retains composer state and uses the Connections facts/components.
+Pending approvals return to their existing controls; there is no new approval action.
+
+Test-first evidence: the initial observation/projection contracts failed (5 cases), then passed.
+The UI label contract and empty-host-ceiling case failed before their corrections. Launcher
+provenance separately failed when location was inferred from search policy. Focused mocked
+lifecycle/source checks passed (205 before the final provenance tightening, then 12 focused
+checks); UI/design checks passed (112). The initial guarded source build passed under v1.0.67;
+final broad build and compiled-app renders run in hosted CI under current host pressure.
+CI retains the Access/Connections captures for actual mobile/desktop visual inspection.
+
+The canonical staging check still refuses with uncertain custodian check/drain. Resource
+observation reports memory pressure and refuses host admission. No live model call or test
+charge occurred. This implementation supports observing existing Codex sessions; live Luna
+acceptance still requires a qualified canonical staging account/route, an explicitly supported
+Luna selection, and naming the exact model and charged account before the call. The observed main-merge hold expires at 2026-10-12 14:38:39 UTC; the
+resource-aware source gate remains required; deployment/live acceptance is
+separate from implementation and reviewed source acceptance. Later retention/release slices
+remain gated.
+
+### Accepted parity integration
+
+Accepted main `ae8da69ec314f4759c13ed5ba3784b1a159119d0` includes PR879's
+web updates, effective session approvals and retained provider-environment
+continuation. The Codex observation route retains that implementation. Shared
+remembered approvals still describe the Mitzo host scope, with native policy and
+complete available-tool inventory unknown. Parity's ordinary output-workflow panel removal remains
+accepted; historical References remain in the conversation. Only generated
+source fingerprints conflicted during integration; the combined runtime uses
+v1.0.70 instead of either branch's earlier revision. Fresh combined CI, rendered
+Access/Connections evidence and exact-head Centaur review are required before
+source acceptance. Deployment and live Luna acceptance remain separate.
+
+### Reviewed environment refresh correction
+
+Centaur finding CEN-D3F87C1146BA identified retained recovery progress after
+PR879's successful automatic transport refresh. Two red tests reproduced it for
+pre-turn grants and queued environment continuations: both acknowledged resumed
+turns remained recovering, suppressing the Access observation. Automatic refresh
+now ends its progress after completed or refused reattachment and notifies the queue
+observer, without acknowledging user recovery or changing provider-turn ownership.
+Existing interruption, failed refresh, admission, continuation and private-ledger
+fences remain in force. A third red test verifies refusal retains paused/Unknown state, starts no provider turn and stops progress so existing recovery controls remain usable. The combined reviewed runtime advances to v1.0.72.
+
+Accepted replay/reconnect refactor PR889 at
+`8cf8e8e03b24dc129884923c94399908eddc9e82` is preserved. Only the runtime revision
+conflicted; the combined source uses v1.0.73 and includes the new replay-store
+fingerprint. The Access projection and tested refresh correction are retained;
+new exact-head CI/review is required after this accepted-main advance.
+
+Final recovery boundaries also cover admission-driven reconnects whose client
+launcher clears the later refresh flag (CEN-D3F87C1146BA), plus non-transport
+failures, persisted startup recovery and durable recovery newer than memory
+(CEN-3AEE31E28B68). Four red tests reproduced these actual paths. Reattachment
+progress now ends inside its owning reconnect method for every caller. Read-only
+Access checks both paused memory and durable recovery before projecting evidence.
+Neither change clears recovery acknowledgements or provider ownership fences.
+The combined runtime advances to v1.0.74 with the same 193 source inputs.
+
+A further red test verifies the most recent model acknowledgement after explicit
+recovery: verified thread resume supersedes an older turn selection, and a later
+accepted turn supersedes that resume. The read-only cache now updates at both
+verified initialization/resume and accepted turn boundaries. No provider probe is
+added to GET. The final candidate advances to v1.0.75 with 193 source inputs.
+
+Three additional red tests cover early workspace/launcher failure before the
+previous reconnect try/finally (CEN-D3F87C1146BA), and the separate web-consent
+verified resume following a different acknowledged turn model (CEN-3FA766E61487).
+Progress cleanup now wraps the entire reattachment operation; every verified
+initialization, recovery and consent-resume path updates the observed model cache.
+These changes preserve paused/durable recovery and grant/ownership fences. The
+review candidate advances to v1.0.76 with 193 source inputs.

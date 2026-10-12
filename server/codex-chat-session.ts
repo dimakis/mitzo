@@ -1263,6 +1263,7 @@ async function openCodexChatBound(
       : `codex-cli:${SUPPORTED_CODEX_CLI_VERSION}`,
     getMode: () => options.session.mode,
     systemPrompt: persistentSystemPrompt,
+    accessLocation: connectedOpenShell ? 'openshell' : 'local',
     startupSignal: signal,
     prepareAgentContext: options.prepareAgentContext,
     agentContextSource: agentContext?.source,
