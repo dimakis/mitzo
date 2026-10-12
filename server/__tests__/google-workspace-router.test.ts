@@ -2,7 +2,9 @@ import { describe, expect, it, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
 import { createConnectionsRouter } from '../connections-router.js';
-vi.mock('../auth.js', () => ({ verifyPassphrase: (value: string) => value === 'correct' }));
+vi.mock('../operator-session.js', () => ({
+  verifyPassphrase: (value: string) => value === 'correct',
+}));
 describe('Google Workspace operator routes', () => {
   it('requires a browser session, same origin and fresh authorization before importing host credentials', async () => {
     const google = {

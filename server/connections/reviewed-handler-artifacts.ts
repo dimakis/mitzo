@@ -11,7 +11,7 @@ export {
 } from './reviewed-policy-revisions.js';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.77';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.78';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -52,7 +52,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../symposium-personal-host.ts':
     'a19c53e43cdeba9e1c74d7440e16560703380dc60016733079668fb5901acfe1',
   '../symposium-work-vertex-provider.ts':
-    'baca4c97b1cb1f2555cd2fe68191ebf260a9c718a0e4341d37c5774c21602157',
+    'de65388bad75a063c0602a2c4ceb3d7dae78c558ae5146caef8aa78bac79d873',
   '../staging-native-feature-owner.ts':
     '2fb8dec9d8d9af0be74333f751139b4937e94834fb0c659ece3fbf28ea40db2b',
   '../staging-native-model-authority.ts':

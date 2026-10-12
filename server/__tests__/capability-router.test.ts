@@ -8,7 +8,9 @@ import { ConnectionStore } from '../connections-store.js';
 import { createConnectionsRouter } from '../connections-router.js';
 import { createCapabilityOperationsRouter } from '../connections/capabilities/router.js';
 
-vi.mock('../auth.js', () => ({ verifyPassphrase: (value: string) => value === 'correct' }));
+vi.mock('../operator-session.js', () => ({
+  verifyPassphrase: (value: string) => value === 'correct',
+}));
 
 describe('capability operations router', () => {
   it('uses the authoritative conversation account, recent CSRF, and a shared approval service', async () => {

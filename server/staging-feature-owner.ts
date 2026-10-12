@@ -25,6 +25,8 @@ export {
   StagingAcceptedAppSource,
   type StagingFeaturePlanValue,
 } from './staging-feature-contract.js';
+const id = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$/);
+const sha = z.string().regex(/^[a-f0-9]{64}$/);
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const suiteRevision = digest([
   'profile-tools-v1',

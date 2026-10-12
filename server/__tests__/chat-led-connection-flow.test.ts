@@ -9,7 +9,7 @@ import {
 import { createCredentialConnectionTools } from '../credential-connection-tools.js';
 import { createCredentialConnectionsRouter } from '../credential-connections-router.js';
 
-vi.mock('../auth.js', () => ({
+vi.mock('../operator-session.js', () => ({
   verifyPassphrase: (value: string) => value === 'fixture-passphrase',
 }));
 const stores: CredentialConnectionStore[] = [];
