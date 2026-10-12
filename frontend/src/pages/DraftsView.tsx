@@ -5,14 +5,17 @@ import { UiIcon } from '../components/UiIcon';
 import { EmptyState } from '../components/EmptyState';
 import { HomeDialog } from '../components/HomeDialog';
 import { useSavedChatDrafts } from '../hooks/useSavedChatDrafts';
-import { chatDraftUrl, deleteChatDraft } from '../lib/chat-drafts';
+import { chatDraftUrl, type ChatDraft } from '../lib/chat-drafts';
+import { discardChatDraft } from '../lib/discard-chat-draft';
 import { formatRelativeTime } from '../lib/formatTime';
 import '../styles/chat-drafts.css';
 
 export function DraftsView() {
   const drafts = useSavedChatDrafts();
   const mainRef = useRef<HTMLElement>(null);
-  const [discard, setDiscard] = useState<string | null>(null);
+  const [discard, setDiscard] = useState<ChatDraft | null>(null);
+  const [discarding, setDiscarding] = useState(false);
+  const discardPending = useRef(false);
   const [error, setError] = useState('');
   return (
     <main className="workspace-page drafts-page" ref={mainRef}>
@@ -33,7 +36,7 @@ export function DraftsView() {
         Messages, attachments, context and chat settings stay editable until you send. Saved on this
         device.
       </p>
-      {error && <p role="alert">{error}</p>}
+      {error && !discard && <p role="alert">{error}</p>}
       {drafts.length ? (
         <div className="saved-draft-list">
           {drafts.map((draft) => (
@@ -45,7 +48,12 @@ export function DraftsView() {
                 </div>
                 <h2>{draft.text.trim().split('\n')[0].slice(0, 90) || 'Untitled draft'}</h2>
                 <p className="saved-draft-excerpt">
-                  {draft.text || 'Attachments and context ready to send.'}
+                  {draft.text ||
+                    (draft.settings.repositoryWorkspaceId &&
+                    !draft.images.length &&
+                    !draft.contextBlocks.length
+                      ? 'Repository preparation saved.'
+                      : 'Attachments and context ready to send.')}
                 </p>
                 <div className="saved-draft-settings">
                   <span>
@@ -74,7 +82,8 @@ export function DraftsView() {
                 className="saved-draft-discard"
                 onClick={(event) => {
                   event.currentTarget.focus();
-                  setDiscard(draft.id);
+                  setError('');
+                  setDiscard(draft);
                 }}
               >
                 Discard draft
@@ -90,27 +99,58 @@ export function DraftsView() {
         />
       )}
       {discard && (
-        <HomeDialog title="Discard this draft?" onClose={() => setDiscard(null)}>
+        <HomeDialog
+          title="Discard this draft?"
+          onClose={() => {
+            if (!discardPending.current) setDiscard(null);
+          }}
+        >
           <p>The saved message, attachments and settings will be removed from this device.</p>
-          <div className="saved-draft-dialog-actions">
-            <button className="home-secondary" onClick={() => setDiscard(null)}>
+          {discard.settings.repositoryWorkspaceId && (
+            <p>
+              Its unused repository preparation will be released first. If its status is uncertain,
+              the draft will be kept.
+            </p>
+          )}
+          {error && <p role="alert">{error}</p>}
+          <div className="saved-draft-dialog-actions" aria-busy={discarding}>
+            <button
+              className="home-secondary"
+              disabled={discarding}
+              onClick={() => setDiscard(null)}
+            >
               Keep draft
             </button>
             <button
               className="saved-draft-discard"
-              onClick={() => {
-                if (!deleteChatDraft(discard)) setError('Couldn’t discard the draft. Try again.');
-                else
+              disabled={discarding}
+              onClick={async () => {
+                if (discardPending.current) return;
+                discardPending.current = true;
+                setDiscarding(true);
+                setError('');
+                try {
+                  await discardChatDraft(discard);
+                  setDiscard(null);
                   requestAnimationFrame(() => {
                     const target =
                       mainRef.current?.querySelector<HTMLElement>('.saved-draft-open') ??
                       mainRef.current?.querySelector<HTMLElement>('.workspace-primary');
                     target?.focus();
                   });
-                setDiscard(null);
+                } catch (failure) {
+                  setError(
+                    failure instanceof Error
+                      ? failure.message
+                      : 'Couldn’t discard the draft. Try again.',
+                  );
+                } finally {
+                  discardPending.current = false;
+                  setDiscarding(false);
+                }
               }}
             >
-              Confirm discard
+              {discarding ? 'Discarding…' : 'Confirm discard'}
             </button>
           </div>
         </HomeDialog>
