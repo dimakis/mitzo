@@ -210,7 +210,11 @@ test('Access: observed Codex route preserves drafts and scopes host approvals', 
       document.documentElement.dataset.accent = theme === 'light' ? 'teal' : 'lavender';
       document.documentElement.dataset.font = theme === 'light' ? 'georgia' : 'system';
     }, theme);
-    await dialog.getByText('Fixture account', { exact: true }).scrollIntoViewIfNeeded();
+    await dialog
+      .locator('.access-resource-facts')
+      .getByText('Account', { exact: true })
+      .scrollIntoViewIfNeeded();
+    await expect(dialog.getByText('Fixture account', { exact: false })).toBeVisible();
     await page.screenshot({
       path: testInfo.outputPath(`codex-access-${theme}.png`),
       animations: 'disabled',
