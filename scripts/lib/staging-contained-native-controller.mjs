@@ -303,6 +303,24 @@ export function containedNativePreflightSummary(token) {
     modelCalls: 0,
   });
 }
+/** Trusted installation source only; callers still require this original opaque
+ * inspection for preflight. Returned metadata cannot recreate that token. */
+export function containedNativeInstallationInputs(token) {
+  const s = bootstrapInspections.get(token);
+  if (!s) throw refuse('Actual original bootstrap inspection required for installation.');
+  return Object.freeze({
+    root: s.root,
+    sourceRoot: s.sourceRoot,
+    bundle: s.bundle,
+    plan: s.plan,
+    allocation: s.allocation,
+    config: s.config,
+    bootstrapPath: s.service
+      ? join(s.root, 'service/native-dispositions', s.bundle.allocation, 'bootstrap.json')
+      : undefined,
+    bootstrapSha256: hash(s.saved),
+  });
+}
 /** Actual registered original actor; metadata preflight grants no authority. */
 export async function runContainedNativeCanonicalLauncher({
   sourceRoot,

@@ -139,3 +139,38 @@ control, preserves any attempted shutdown on failure, and orders durable stopped
 registration completion and parent guard release before the independent child
 starts once. The concrete private host installation adapter remains under
 implementation; the sequencer cannot install a job or mint a native lease alone.
+
+### Initial ordinary-to-native installation
+
+The prepared source now contains a concrete installer at
+`scripts/install-contained-native-staging.mjs`. Run `plan --bootstrap PATH
+--expected-bootstrap SHA256`, review the returned plan, then use `apply` with the
+same arguments and `--expected-plan PLAN_SHA256`. Both commands require the exact
+accepted prepared canonical source and a private, fully inspected fresh allocation
+bundle. Missing model, native owner or repeated archive-topology source protocols
+refuse before observing or stopping the ordinary app.
+
+Apply retains its own source witness and original PID/birth-bound installation
+guard. It sends one normal SIGTERM to the exact ordinary canonical job, requires
+positive original PID exit and listener closure, then moves its settled ordinary
+data and controls on the same filesystem to that allocation's private
+`ordinary-installation` evidence directory. These inputs are independently
+manifested and rechecked before completing installation. The original incident
+archive and registry row remain unchanged. The installer writes only the exact
+code-owned native plist, canonical routing metadata and wrapper, and private
+empty native actor logs. It verifies the loaded job has no PID and zero runs.
+Only a completed installation may release its own matching guard and record one
+start attempt for the fresh actor. This process supplies no allocation lease or
+MAC grant to that actor; the actor performs its own source, archive, guard and
+fresh device authentication checks.
+
+The installation result reports only the observed first native launcher PID and
+birth, with `nativeReady:false` and `nativeAuthority:false`. Readiness and feature
+acceptance require the actual actor's independent VM, provider, model and awaited
+app proofs. An accepted-main change before fresh actor admission can cause a
+source refusal; there is no automatic rollback or another start. Unknown shutdown,
+registration or launch results retain their evidence and any original guard.
+The portable installer regression uses isolated temporary files/SQLite and mocked
+OS probes; it does not establish live macOS closure or authorize host activation.
+The retained-VM accepted-app replacement control remains a separate unfinished
+source path.
