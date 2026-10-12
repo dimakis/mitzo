@@ -156,6 +156,21 @@ The terminal retains the shell-owned masthead and uses one compact toolbar for i
 
 Use the shared motion presence helper for terminal disclosures and options without resetting drafts, account selections or subscriptions. A token-styled **Live output** action overlays the output only while history is being browsed. Swipe and wheel gestures operate on retained shell history, with labelled alternatives and an unconditional return-to-live action in Terminal options, including after navigation. Offline checks cover the compact layout, unchanged masthead, narrow phone widths, alternate appearance preferences, keyboard behaviour, output movement and return to live output without shell input. The sr-only clipping geometry and bounded popover width are structural exceptions; spacing, type, colors and control heights use shared tokens.
 
+## Ordinary chat Access
+
+`WorkspaceControls` accepts always-visible actions alongside its collapsed summary.
+Access uses this slot on mobile and desktop so pending approval overlays cannot cover
+its entry. Its read-only observation and nested Connections view reuse `HomeDialog`,
+Connections grouped rows/facts, `UiIcon` and shared tokens. Returning leaves the
+composer mounted. Unknown availability and stale observations remain explicit; viewing
+Access cannot authorize a tool or start a session.
+
+On phones the Workspace summary truncates long text while its accessible name keeps
+the full account/model details. The expanded settings panel measures the space before launch actions or the composer and
+scrolls within that space, retaining those controls under larger text and viewport changes.
+A 45dvh cap is the fallback before measurement. These bounds are structural overlay geometry;
+colors, type, spacing and controls remain shared.
+
 ## Draft image preview and drawing
 
 The shared composer opens draft images from its thumbnail strip and Sources drawer

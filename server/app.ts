@@ -263,7 +263,8 @@ import {
   type ConnectionsRuntime,
 } from './connections-runtime.js';
 import { getLocalCommit, isUpdateAvailable } from './git-version.js';
-import { resolvePending } from './permissions.js';
+import { resolvePending, getPendingRequestsBySession } from './permissions.js';
+import { createSessionAccessRouter, projectSessionAccess } from './session-access.js';
 import { createLogger } from './logger.js';
 import {
   handleTaskSet,
@@ -2688,6 +2689,25 @@ app.delete('/api/sessions/:id', (req, res) => {
   sseRegistry.broadcast('sessions_changed', {});
   res.json({ ok: true });
 });
+
+app.use(
+  '/api/sessions/:id/access',
+  operatorAuthMiddleware,
+  createSessionAccessRouter({
+    hasSession: (id) => {
+      const meta = eventStore.getSession(id);
+      return Boolean(
+        meta && !meta.isHidden && meta.sessionType !== 'symposium' && !meta.symposiumConfig,
+      );
+    },
+    read: (id) =>
+      projectSessionAccess(
+        id,
+        registry.findBySessionId(id)?.session,
+        getPendingRequestsBySession(id),
+      ),
+  }),
+);
 
 app.get('/api/sessions/:id/meta', async (req, res) => {
   const meta = eventStore.getSession(req.params.id);
