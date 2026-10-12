@@ -11,7 +11,7 @@ export {
 } from './reviewed-policy-revisions.js';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.78';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.79';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -244,7 +244,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '503c887848f3180647b6188ab65b8503bc6670291d4ce865a1b1df1504f15293',
   '../github-host-source.ts': '2720dd0fedf081780ebd64a485164ec5abc6dee7920de925d35e3e6aa647e084',
   '../github-publishing-tool.ts':
-    '2c6c3d8ca3541ba3d1bc11a5be00ec7f9d6dd7855e09a83aec8acd1d81e47824',
+    'e3b315db2ca547721b5ae0ba3fea1ff31c6bbe12cd601a3b1b8ea035b188a0e7',
   '../capability-conversation-binding.ts':
     '147a328d161f167aeeb31bf0017d5fea25cc3f22933392249a228d7bd61e89aa',
   // Secret custody and its browser/admission boundaries share the runtime review contract.
@@ -272,7 +272,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../native/keychain-helper/main.swift':
     '316b7aaac1027f7f94d26e093edbe39a3ccac64236bd61702c32c47419f6edb1',
   '../openai-key-controller.ts': '721a1c6a513fc5380e4a2222927cda025bf8cbd7e8d49d8c5d526470e2cff217',
-  '../connections-router.ts': 'a305954c6fd3e8605b7efe59128ae2b12478ebcabde66b433d901d1549184965',
+  '../connections-router.ts': 'bd71ac96312af31c94794657dec4d0d9aa9518e7622bc8bcc919cbb29b3da4f2',
   '../connections-service.ts': '1aae9d2c0da483ae798ba03d5804bfb0e81316f3f69666c6595befec3179c314',
   // Repository acquisition and source claims share the ordinary runtime admission review.
   '../git-branch.ts': '6dd4fef0069e65d78fc94d047777442e4ef073596555581da536e1e39a5d3877',

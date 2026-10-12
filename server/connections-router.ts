@@ -12,9 +12,8 @@ export {
   requireRecentConnectionAuthorization,
   requireSameOriginJson,
 } from './operator-request-authorization.js';
-import { custodianRequestAuthority } from './symposium-custodian-authority.js';
 import express from 'express';
-import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
+import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import type { GoogleWorkspaceManagement } from './google-workspace-management.js';
 import { OpenAIKeyRequestError, type OpenAIKeyManagement } from './openai-key-management.js';
@@ -22,7 +21,6 @@ import {
   OpenAIEnrollmentUnresolvedError,
   type OpenAIAccountEnrollment,
 } from './openai-account-enrollment.js';
-import { randomUUID } from 'node:crypto';
 import type { Connection } from './connections-store.js';
 import { ConnectionStore, RevisionConflictError } from './connections-store.js';
 import { ConnectionCreationFailed, ConnectionsService } from './connections-service.js';
@@ -30,11 +28,9 @@ import {
   ConnectionAssignmentsBody,
   ConnectionCapabilitiesBody,
   ConnectionCreateBody,
-  ConnectionReauthorizeBody,
   ConnectionRevisionBody,
   ConnectionRotateBody,
 } from './api-schemas.js';
-import { verifyPassphrase, type AuthSession } from './auth.js';
 import { connectionTemplateRegistry } from './connections/registry.js';
 import type { CapabilityService } from './connections/capabilities/service.js';
 
