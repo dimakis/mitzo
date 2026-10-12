@@ -1,4 +1,8 @@
 import { defineConfig, devices } from '@playwright/test';
+import { assertPlaywrightHost } from './tests/support/playwright-host';
+import { withBrowserStartup } from './tests/support/playwright-browser-startup';
+
+assertPlaywrightHost();
 
 export default defineConfig({
   testDir: './tests/browser',
@@ -9,10 +13,10 @@ export default defineConfig({
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
   },
-  projects: [
+  projects: withBrowserStartup([
     { name: 'mobile-webkit', use: { ...devices['iPhone 13'] } },
     { name: 'desktop-chromium', use: { ...devices['Desktop Chrome'] } },
-  ],
+  ]),
   webServer: {
     command:
       'npx tsc -b packages/protocol packages/client && npx vite frontend --host 127.0.0.1 --port 4179 --strictPort',

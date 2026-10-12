@@ -206,7 +206,7 @@ SDK query failures after input acceptance are recorded under the current convers
 
 The [durable child session allocation design](docs/design/session-service-core.md) describes the SessionService foundation for future bounded Task Board workers and Symposium seats. It records a child conversation and its parent/grant link in one transaction before runtime setup, fences cancellation across descendants, and retains uncertain starts or missing results for recovery. This foundation does not yet change the current Task Board or Symposium runtime paths.
 
-The [session runtime selection foundation](docs/design/session-runtime-selection.md) separates account identity, agent implementation and execution location in a dormant, immutable metadata contract. Explicit creation stores that contract with a new ordinary repository session; legacy sessions are not enrolled. V2 also persists the exact configured target ID and routing revision; V1 remains readable without target inference or automatic upgrade. A pure server resolver checks compatibility against an injected catalog and returns a V2 binding containing its selected target/revision. AccountProfiles can project credential-free local Codex host-login metadata with the exact existing account routing revision when Codex is enabled; this performs no authentication or discovery. A dormant local Codex target loader now validates an explicit operator-owned file and computes its routing revision. Its bounded configuration-only capability snapshot joins that target with the existing local account projection and cached model/thinking metadata; OpenShell remains the default preference with an explicit unavailable reason until its projection is enrolled. Host/runtime verification, other provider projections, an authenticated picker endpoint, authorization and dispatch admission remain separate work. Startup and resume do not consume these bindings yet, and no runtime selector is exposed.
+The [session runtime selection foundation](docs/design/session-runtime-selection.md) separates account identity, agent implementation and execution location in a dormant, immutable metadata contract. Explicit creation stores that contract with a new ordinary repository session; legacy sessions are not enrolled. V2 also persists the exact configured target ID and routing revision; V1 remains readable without target inference or automatic upgrade. A pure server resolver checks compatibility against an injected catalog and returns a V2 binding containing its selected target/revision. AccountProfiles can project credential-free local Codex host-login metadata with the exact existing account routing revision when Codex is enabled; this performs no authentication or discovery. A dormant local Codex target loader now validates an explicit operator-owned file and computes its routing revision. Its bounded configuration-only capability snapshot joins that target with the existing local account projection and cached model/thinking metadata; OpenShell remains the default preference with an explicit unavailable reason until its projection is enrolled. A dormant first-command coordinator requires an explicit server gate and independently qualified owning authority, then atomically saves the exact runtime/workspace binding and frozen published profile, context, permission, model and thinking selection in the existing command receipts. Exact retries retain their choices; uncertainty is saved before workspace or provider effects and cannot replay automatically. Existing-session adoption and later commands are refused by this slice. Legacy send, startup and cold-start preflight fail closed for runtime-bound rows. Actual host/runtime verification, workspace reservation before materialization, provider continuity, other provider projections and an authenticated picker endpoint remain separate work; no live caller or runtime selector is enrolled.
 
 Symposium shutdown fences new admission and dispatch, drains retained seat and login
 cleanup, and awaits the owned gateway child before closing custody stores. A bounded
@@ -782,6 +782,21 @@ npm run test:browser  # Connections scrolling in mobile WebKit and desktop Chrom
 npm run lint         # ESLint: server, frontend and shared packages (including tests, excluding dist)
 npm run format:check # prettier
 ```
+
+On macOS, run Playwright commands in a normal terminal or through an approved
+execution outside the Codex Seatbelt sandbox. Sandboxed launches can abort during
+macOS process registration and produce repeated crash popups. Both test configs
+refuse that environment before starting a browser or preview server; `--list`
+still works for discovery. Browser setup projects open a blank page once per selected
+engine/launch configuration. Playwright selects each setup as a dependency of its
+tests, so a Chromium-only run does not require WebKit. A failed startup blocks the
+dependent tests instead of relaunching a broken browser for each test. The offline suite starts no
+backend and makes no model calls. Ad hoc browser scripts need the same execution
+environment; they do not inherit the config guard.
+
+The browser CI job has a 45-minute budget for cold browser/dependency installation
+and both required suites. Installation can exceed 20 minutes; that time must not
+cancel an otherwise passing browser and offline run.
 
 CI runs the full source test suite without compiled test copies. New PR commits
 cancel superseded code-validation runs; description edits rerun only the

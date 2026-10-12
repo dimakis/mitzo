@@ -1,6 +1,10 @@
 import { readFileSync } from 'node:fs';
 import { load } from 'js-yaml';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+// Inspect config metadata without admitting a browser run. Host admission has
+// separate tests; this file never launches a browser or changes sandbox markers.
+vi.mock('../../tests/support/playwright-host', () => ({ assertPlaywrightHost: vi.fn() }));
 import browser from '../../playwright.config.js';
 import offline from '../../playwright.offline.config.js';
 
