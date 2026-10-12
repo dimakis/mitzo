@@ -27,6 +27,7 @@ function fixture() {
     prepare: vi.fn(async () => {
       events.push('prepare');
     }),
+    prepared: vi.fn(async () => ({ reused: false, growthGiB: 2 })),
     plan: vi.fn(async () => {
       events.push('plan');
     }),
@@ -182,4 +183,36 @@ it('resource waiting after successful preparation can retry and settle the same 
   expect((await runStagingPipelineRequest(f.store, f.effects, 'worker')).state).toBe('passed');
   expect(f.effects.prepare).toHaveBeenCalledTimes(2);
   expect(f.effects.deploy).toHaveBeenCalledTimes(1);
+});
+it('qualified retained candidates need no new growth allowance when retrying near the disk ceiling', async () => {
+  const f = fixture();
+  f.effects.check.mockResolvedValueOnce({ safe: true, expected: 'b'.repeat(40) });
+  f.effects.prepared.mockResolvedValue({ reused: true, growthGiB: 0 });
+  f.effects.resources.mockImplementation(async (growth) => ({ admitted: growth === 0 }));
+  expect((await runStagingPipelineRequest(f.store, f.effects, 'worker')).state).toBe('passed');
+  expect(f.effects.prepared).toHaveBeenCalledWith(request.acceptedCommit);
+  expect(f.effects.resources.mock.calls.every(([growth]) => growth === 0)).toBe(true);
+  expect(f.effects.prepare).not.toHaveBeenCalled();
+  expect(f.effects.deploy).toHaveBeenCalledTimes(1);
+});
+it('accounts the canonical projected copy growth before starting a new build', async () => {
+  const f = fixture();
+  f.effects.check.mockResolvedValueOnce({ safe: true, expected: 'b'.repeat(40) });
+  f.effects.prepared.mockResolvedValue({ reused: false, growthGiB: 6 });
+  f.effects.resources.mockImplementation(async (growth) => ({ admitted: growth < 6 }));
+  expect((await runStagingPipelineRequest(f.store, f.effects, 'worker')).state).toBe('queued');
+  expect(f.effects.resources).toHaveBeenLastCalledWith(6);
+  expect(f.effects.prepare).not.toHaveBeenCalled();
+  expect(f.effects.deploy).not.toHaveBeenCalled();
+});
+it('an unqualified retained candidate cannot skip growth admission or dispatch', async () => {
+  const f = fixture();
+  f.effects.check.mockResolvedValueOnce({ safe: true, expected: 'b'.repeat(40) });
+  f.effects.prepared.mockRejectedValue(
+    Object.assign(Error('artifact drift'), { terminalRefusal: true }),
+  );
+  expect((await runStagingPipelineRequest(f.store, f.effects, 'worker')).state).toBe('queued');
+  expect(f.effects.prepare).not.toHaveBeenCalled();
+  expect(f.store.markDispatched).not.toHaveBeenCalled();
+  expect(f.store.quarantine).not.toHaveBeenCalled();
 });

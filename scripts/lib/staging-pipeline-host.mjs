@@ -124,6 +124,21 @@ export function createStagingPipelineEffects({
       return tip;
     },
     check,
+    prepared: async (target) => {
+      exact(target);
+      const result = JSON.parse(mutate(['prepare', '--commit', target, '--check-only']));
+      if (result.source !== target) throw Error('Candidate validation source changed');
+      if (
+        result.prepared === false &&
+        result.reused === undefined &&
+        Number.isFinite(result.growthGiB) &&
+        result.growthGiB >= 2
+      )
+        return { reused: false, growthGiB: result.growthGiB };
+      if (typeof result.prepared === 'string' && result.reused === true)
+        return { reused: true, growthGiB: 0 };
+      throw Error('Canonical candidate validation unavailable');
+    },
     prepare: async (target) => {
       exact(target);
       try {

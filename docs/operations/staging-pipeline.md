@@ -53,8 +53,9 @@ The resource observations include macOS pressure level, memory-pressure reported
 free percentage, swap, free disk and aggregate staging/quarantine disk use.
 Missing/unknown observations refuse admission. Conservative defaults are normal
 pressure, 25% reported headroom, swap <=2 GiB, free disk >=20 GiB after proposed
-growth and aggregate stage/archive <=32 GiB. Preparation reserves 2 GiB projected
-growth and rechecks actual use afterwards; this is admission accounting, not an
+growth and aggregate stage/archive <=32 GiB. New preparation reserves the full
+observed active release size rounded up to GiB plus a 2 GiB build margin, then
+rechecks actual use afterwards; this is admission accounting, not an
 OS-enforced filesystem quota. If the build exceeds its projection, additional
 work stops pending investigation/retention planning. Historical archives are not
 deleted to make admission pass. The VM maximum is 4096 MiB/two CPUs. Source
@@ -130,3 +131,9 @@ The required replica includes personal ChatGPT, work OpenAI API, Vertex, and eve
 Live model tests require an explicitly supported Luna model and announcement of the charged account. A provider/runtime without Luna requires explicit approval for its alternative model before testing. Provider enrollment and native capacity disposition remain separate reviewed prerequisites.
 
 Prepared candidates are reused only after the canonical controller verifies the exact receipt, accepted source, artifacts, and dependencies. A terminal read-only plan refusal leaves undispatched work waiting; uncertain execution preserves the reservation. Mutations run through the verified current accepted checkout, with apply retaining its candidate byte-identity check.
+
+The read-only `prepare --commit SHA --check-only` probe validates an existing
+candidate before granting zero-growth reuse. An absent candidate reports the
+observed copy/build growth estimate without creating a release or audit record.
+Unknown observations or invalid retained candidates refuse the attempt. Reuse
+still requires current host admission and exact canonical deployment planning.

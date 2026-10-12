@@ -77,3 +77,21 @@ it('readiness test invokes no provider and reports a normal HTTP failure as sett
   const e = createStagingPipelineEffects({ root: '/stage', run });
   await expect(e.test('model-test', 'a'.repeat(40))).rejects.toThrow();
 });
+it('candidate probe accepts only the exact canonical read-only validation result', async () => {
+  const target = 'a'.repeat(40);
+  const run = vi.fn(() => JSON.stringify({ prepared: false, source: target, growthGiB: 6 }));
+  const e = createStagingPipelineEffects({ run });
+  expect(await e.prepared(target)).toEqual({ reused: false, growthGiB: 6 });
+  expect(run.mock.calls[0][1].slice(1)).toEqual(['prepare', '--commit', target, '--check-only']);
+  run.mockReturnValue(JSON.stringify({ prepared: '/stage/release', source: target, reused: true }));
+  expect(await e.prepared(target)).toEqual({ reused: true, growthGiB: 0 });
+  for (const result of [
+    { prepared: true, source: target },
+    { prepared: false, source: target },
+    { prepared: false, source: target, growthGiB: 1 },
+    { prepared: '/stage/release', source: 'b'.repeat(40), reused: true },
+  ]) {
+    run.mockReturnValue(JSON.stringify(result));
+    await expect(e.prepared(target)).rejects.toThrow();
+  }
+});

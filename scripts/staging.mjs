@@ -49,14 +49,14 @@ const args = process.argv.slice(2),
   command = args.shift();
 if (command === '--help' || !command) {
   console.log(
-    'staging check [--offline]\nstaging prepare --commit SHA [--dependency-source PATH --expected-dependency-fingerprint SHA256]\nstaging deploy --commit SHA --expected-current SHA [--apply]',
+    'staging check [--offline]\nstaging prepare --commit SHA [--check-only | --dependency-source PATH --expected-dependency-fingerprint SHA256]\nstaging deploy --commit SHA --expected-current SHA [--apply]',
   );
   process.exit(0);
 }
 if (!['check', 'prepare', 'deploy'].includes(command)) throw Error('Unsupported staging command');
 const flags = {};
 for (let i = 0; i < args.length; i++) {
-  if (['--offline', '--apply'].includes(args[i])) flags[args[i]] = true;
+  if (['--offline', '--apply', '--check-only'].includes(args[i])) flags[args[i]] = true;
   else if (
     [
       '--commit',
@@ -70,6 +70,11 @@ for (let i = 0; i < args.length; i++) {
   else throw Error('Unknown staging argument');
 }
 if (
+  flags['--check-only'] &&
+  (command !== 'prepare' || flags['--apply'] || flags['--dependency-source'])
+)
+  throw Error('Read-only candidate validation is preparation-only');
+if (
   (flags['--dependency-source'] || flags['--expected-dependency-fingerprint']) &&
   (command !== 'prepare' ||
     !flags['--dependency-source'] ||
@@ -82,7 +87,7 @@ const assertPipeline = () =>
     apply: flags['--apply'] === true,
     proof: process.env.MITZO_STAGING_PIPELINE_TOKEN,
   });
-if (command !== 'check') assertPipeline();
+if (command !== 'check' && !flags['--check-only']) assertPipeline();
 if (process.platform !== 'darwin') throw Error('This host controller supports macOS launchd only');
 if (realpathSync(root) !== root) throw Error('Canonical staging root required');
 for (const name of ['service', 'settings', 'workspace', 'state', 'home', 'releases'])
@@ -277,7 +282,7 @@ async function prepare() {
     active = current(),
     freshMain = main();
   if (target !== freshMain) throw Error('Preparation requires exact current accepted main');
-  if (existsSync(final)) {
+  if (lstatSync(final, { throwIfNoEntry: false })) {
     const retained = privateJson(join(final, 'staging-release.json'));
     assertStageCandidate(retained, target, final);
     validateRelease(retained, freshMain);
@@ -286,6 +291,25 @@ async function prepare() {
         prepared: final,
         source: target,
         reused: true,
+        started: false,
+        productionActions: [],
+      }),
+    );
+    return;
+  }
+  if (flags['--check-only']) {
+    validateRelease(active);
+    const usage = run('/usr/bin/du', ['-sk', active.release]).match(/^(\d+)\s+([^\n]+)$/);
+    if (!usage || usage[2] !== active.release || !Number.isSafeInteger(Number(usage[1])))
+      throw Error('Candidate growth observation unavailable');
+    // Budget a complete source/dependency/artifact baseline copy plus a 2 GiB
+    // build margin. This is conservative admission accounting, not a quota.
+    const growthGiB = Math.ceil(Number(usage[1]) / 1048576) + 2;
+    console.log(
+      JSON.stringify({
+        prepared: false,
+        source: target,
+        growthGiB,
         started: false,
         productionActions: [],
       }),

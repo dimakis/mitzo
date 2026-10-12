@@ -18,9 +18,14 @@ export async function runStagingPipelineRequest(store, effects, owner) {
     const current = await effects.check();
     if (!current.safe) return wait('stage-unavailable');
     if (current.expected !== sourceCommit) {
-      if (!(await effects.resources(2)).admitted) return wait('host-resources');
-      phase = 'preparing';
-      await effects.prepare(sourceCommit);
+      // Only the canonical read-only source/artifact/dependency verification can
+      // establish zero-growth reuse. Existing paths alone are never proof.
+      const prepared = await effects.prepared(sourceCommit);
+      if (!(await effects.resources(prepared.growthGiB)).admitted) return wait('host-resources');
+      if (!prepared.reused) {
+        phase = 'preparing';
+        await effects.prepare(sourceCommit);
+      }
       phase = 'planning';
       await effects.plan(sourceCommit, current.expected);
       phase = 'preflight';
