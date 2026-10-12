@@ -215,6 +215,7 @@ export function ChatInput({
   const sendGuard = useRef(false);
   const interruptPending = useRef<object | null>(null);
   const mounted = useRef(true);
+  const voiceOperation = useRef<{ scope: number } | null>(null);
   const latestDraft = useRef({
     text,
     images,
@@ -260,6 +261,17 @@ export function ChatInput({
       mounted.current = false;
     };
   }, []);
+
+  const composerScope = latestDraft.current.scope;
+  const cancelRecording = voice?.cancelRecording;
+  useEffect(
+    () => () => {
+      if (voiceOperation.current?.scope === composerScope) voiceOperation.current = null;
+      // This also invalidates pending microphone permission and aborts STT.
+      cancelRecording?.();
+    },
+    [composerScope, cancelRecording],
+  );
 
   const autoResize = useCallback(() => {
     const el = textareaRef.current;
@@ -543,17 +555,32 @@ export function ChatInput({
         transcribing: voice.transcribing,
         micBlocked: voice.micBlocked,
         onRecordStart: () => {
+          if (!mounted.current || latestDraft.current.scope !== composerScope) return;
+          voiceOperation.current = { scope: composerScope };
           voice.stopSpeaking();
           return voice.startRecording();
         },
         onRecordStop: async () => {
+          if (!mounted.current || latestDraft.current.scope !== composerScope) return;
+          const operation = { scope: composerScope };
+          voiceOperation.current = operation;
           const transcript = await voice.stopRecording();
-          if (transcript) {
-            setText((prev) => (prev ? `${prev} ${transcript}` : transcript));
+          const ownsTranscript = () =>
+            mounted.current &&
+            latestDraft.current.scope === composerScope &&
+            voiceOperation.current === operation;
+          if (transcript && ownsTranscript()) {
+            setText((prev) =>
+              ownsTranscript() ? (prev ? `${prev} ${transcript}` : transcript) : prev,
+            );
             textareaRef.current?.focus();
           }
         },
-        onRecordCancel: voice.cancelRecording,
+        onRecordCancel: () => {
+          if (!mounted.current || latestDraft.current.scope !== composerScope) return;
+          voiceOperation.current = null;
+          voice.cancelRecording();
+        },
       }
     : null;
 
