@@ -6,7 +6,13 @@ assertPlaywrightHost();
 
 export default defineConfig({
   testDir: './tests/browser',
-  use: { baseURL: 'http://127.0.0.1:4179', trace: 'retain-on-failure' },
+  outputDir: 'test-results/browser',
+  reporter: [['list'], ['html', { outputFolder: 'playwright-report/browser', open: 'never' }]],
+  use: {
+    baseURL: 'http://127.0.0.1:4179',
+    trace: 'retain-on-failure',
+    screenshot: 'only-on-failure',
+  },
   projects: withBrowserStartup([
     { name: 'mobile-webkit', use: { ...devices['iPhone 13'] } },
     { name: 'desktop-chromium', use: { ...devices['Desktop Chrome'] } },
