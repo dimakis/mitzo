@@ -118,6 +118,8 @@ export interface CapabilityRequest {
 }
 
 export interface CapabilityApprovalRequest {
+  /** Authoritative semantic connection policy revision, not a credential epoch. */
+  connectionRevision?: number;
   capabilityId: string;
   capabilityVersion: number;
   connectionId: string;

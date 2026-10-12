@@ -21,6 +21,7 @@ const capability = z.strictObject({
   capabilityId: id,
   capabilityVersion: z.number().int().positive(),
   connectionId: id,
+  connectionRevision: z.number().int().positive().optional(),
   operationId: id,
   input: z.record(z.string(), z.union([z.string(), z.boolean()])),
   forcePrompt: z.literal(true),

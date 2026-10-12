@@ -16,6 +16,7 @@ const capability: CapabilityApprovalRequest = {
   capabilityId: 'github.create_pr',
   capabilityVersion: 1,
   connectionId: 'credential',
+  connectionRevision: 7,
   operationId: 'operation',
   input: { repository: 'owner/repo', title: 'Reviewed' },
   forcePrompt: true,

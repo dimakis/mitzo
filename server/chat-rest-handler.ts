@@ -1,3 +1,5 @@
+import { operatorAuthMiddleware } from './auth.js';
+import { getPendingRequestsBySession } from './permissions.js';
 import {
   assertOrdinaryContributorControlAllowed,
   SessionControlRejected,
@@ -389,7 +391,7 @@ export function createChatRestRouter(
     }
   });
 
-  router.post('/permission', (req, res) => {
+  router.post('/permission', operatorAuthMiddleware, (req, res) => {
     const connectionId = getConnectionId(req, res);
     if (!connectionId) return;
     if (!requireConnection(connectionId, ctx.connRegistry, res)) return;
@@ -405,11 +407,17 @@ export function createChatRestRouter(
     }
     const msg = parsed.data;
     try {
-      if (!handlePermissionResponseV2(connectionId, msg, ctx)) {
+      if (!handlePermissionResponseV2(connectionId, msg, ctx, res.locals.authSession.id)) {
         res.status(409).json({
           ok: false,
           type: 'permission_response_rejected',
           permId: msg.permId,
+          ...(msg.sessionId
+            ? {
+                sessionId: msg.sessionId,
+                pendingPermissions: getPendingRequestsBySession(msg.sessionId),
+              }
+            : {}),
           error: 'Permission response was invalid or expired. Review the prompt and try again.',
         });
         return;

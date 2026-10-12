@@ -7,6 +7,20 @@ import type { OrdinaryTurnLifecycle } from './ordinary-turn-lifecycle.js';
 import type { SymposiumSeatExecutionResult } from './symposium-orchestrator.js';
 import type { OrdinarySymposiumTurn } from './symposium-shared-execution.js';
 
+export class OrdinaryEnvironmentPendingError extends Error {
+  readonly code = 'environment_pending';
+  constructor(
+    readonly commandId: string,
+    readonly providerThreadId: string,
+    readonly providerTurnId: string,
+  ) {
+    super(
+      'Approved integration environment is pending. Partial work and access are retained; this task is unfinished and requires its owner-reviewed continuation.',
+    );
+    this.name = 'OrdinaryEnvironmentPendingError';
+  }
+}
+
 export interface OrdinaryChatPort {
   startChat(
     transport: SessionTransport,
@@ -57,6 +71,7 @@ export function createOrdinarySymposiumTurn(deps: {
   let terminal: { turn: string; status: 'completed' | 'interrupted' | 'failed' } | undefined;
   let acceptedTurn: string | undefined;
   let terminalConflict = false;
+  let environmentPendingTurn: string | undefined;
   let query: { interrupt(): Promise<void> } | undefined;
   let queryClosed: Promise<void> | undefined;
   let queryEnded = false;
@@ -180,6 +195,12 @@ export function createOrdinarySymposiumTurn(deps: {
                 terminal = { turn: rawTurn, status };
                 notifyTerminal();
               },
+              environmentPending(commandId, rawTurn) {
+                exactCommand(commandId);
+                if (!acceptedTurn || acceptedTurn !== rawTurn)
+                  throw new Error('Ordinary Symposium environment identity changed');
+                environmentPendingTurn = rawTurn;
+              },
               terminalConflict(commandId, rawTurn) {
                 exactCommand(commandId);
                 if (rawTurn !== acceptedTurn)
@@ -207,6 +228,12 @@ export function createOrdinarySymposiumTurn(deps: {
         throw new Error('Ordinary Symposium turn cancelled');
       if (terminal.status !== 'completed')
         throw failure ?? new Error('Ordinary Symposium provider turn failed');
+      if (environmentPendingTurn)
+        throw new OrdinaryEnvironmentPendingError(
+          input.idempotencyKey,
+          sessionId,
+          environmentPendingTurn,
+        );
       return { providerThreadId: sessionId, content: [...textBlocks.values()].join('\n\n') };
     },
     async cancelAndDrain() {
