@@ -554,6 +554,10 @@ at 1 MiB, with a two-second collector deadline. The iOS build must use this
 relay: `localhost:4318` would address the phone itself. Direct collector URLs
 remain supported for local browser development and receive no Mitzo token.
 Browser spans export in bounded batches to reduce per-span network work.
+Authentication checks use a shared W3C trace context between the phone and
+server, with separate `http.auth.check` spans for network wait and server
+verification. These spans record the static route, HTTP method and response
+status; they exclude cookies, tokens, query strings and request contents.
 
 | File                | Purpose                                                                                          |
 | ------------------- | ------------------------------------------------------------------------------------------------ |
