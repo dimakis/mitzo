@@ -27,7 +27,13 @@ Once the independently reviewed gateway authority exists, the owner resolves
 only the requested current profile and chooses an explicitly supported Luna.
 The exact charged account must be returned by the original authenticated model
 policy capability; a profile label or newly created provider alone cannot prove
-billing identity. The exact model/account, all dispatch scope, accepted source, original owner,
+billing identity. Native plans announce `same-selected-model-shared-budget`:
+every main or auxiliary inference uses that exact authenticated account/model
+within the same two-request total and deadline. There is no separate auxiliary
+budget or claim that ordinary Responses auxiliary calls can always be
+distinguished from main calls. Unknown/compact/helper endpoints remain refused
+unless separately qualified. If an auxiliary consumes the budget needed by the
+nonce Read, the test fails. The exact model/account, all dispatch scope, accepted source, original owner,
 profile/enrollment revisions, runner/suite digests and bounds enter the immutable
 plan/hash. A single-model Vertex catalog can identify an exact candidate for
 exception review; only the authenticated original gateway policy may supply the
@@ -76,8 +82,20 @@ It refuses conflicting, mixed, stale, incomplete or oversized facts (at most
 256 events and 64 KiB). It proves neither model enforcement nor cleanup itself.
 Actual checked HTTP requests and positive grant revocation must come from the
 separately qualified original gateway, with the same account/model/claim/sandbox,
-no more than two inference requests, and disabled auxiliary scope. All failed
+no more than two total inference requests, and the same selected-model scope for
+every main or auxiliary call. All failed
 attempts, retries, compaction and helper inference routes must be covered.
+The only currently authorized non-Luna candidate is Vertex's exact
+`claude-haiku-4-5@20251001`; an authenticated original approval remains mandatory.
+No other provider/model can use that exception.
+
+Public plans/enrollments/resource observations may carry a paired
+`nativeSourceCommit` and exact `acceptedAppSource` certificate. These identify
+the retained native source and currently accepted app child separately. The
+parser checks finite fields, source/owner equality, positive PIDs/epoch and the
+compatibility digest, but the JSON cannot establish custody or byte compatibility.
+Only the original launcher's branded process-local witness can authorize a
+retained-VM child update or a native current assertion.
 
 Cleanup awaits the original controlled target's positive controller stop
 acknowledgement; durable recovery/confirmed rows cannot mint this receipt.
