@@ -131,7 +131,33 @@ async function startPodman(approved) {
   const after = lstatSync(p.qualification.apiSocket);
   if (after.dev !== socket.dev || after.ino !== socket.ino || (after.mode & 0o777) !== 0o600)
     refuse();
-  return { podman, vfkit, gvproxy, startedAt };
+  const guest = spawnSync(
+    podmanPin.path,
+    ['machine', 'ssh', p.qualification.machineName, 'cat', '/proc/sys/kernel/random/boot_id'],
+    {
+      env: p.qualification.environment,
+      cwd: p.nativeRoot,
+      encoding: 'utf8',
+      timeout: 15000,
+      maxBuffer: 1024,
+    },
+  );
+  const guestBootUUID = guest.stdout?.trim();
+  if (
+    guest.status !== 0 ||
+    guest.error ||
+    guest.signal ||
+    !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(guestBootUUID)
+  )
+    refuse();
+  return {
+    podman,
+    vfkit,
+    gvproxy,
+    startedAt,
+    guestBootUUID,
+    apiSocket: { dev: after.dev, ino: after.ino },
+  };
 }
 /** Trusted dependency injection is for offline tests. The real CLI builds its
  * channel only to the actual original controller's private live socket. JSON
@@ -149,6 +175,13 @@ export async function superviseFreshAppleHvVm(approved, requestGuard, effects = 
   });
   if (ack?.kind !== 'authorized' || ack.planSha256 !== approved.sha256) refuse();
   await verifyInputs();
+  const current = await requestGuard({
+    kind: 'current',
+    pid: supervisor.pid,
+    birth: supervisor.birth,
+    planSha256: approved.sha256,
+  });
+  if (current?.kind !== 'current') refuse();
   const started = await (effects.startPodman ?? (() => startPodman(approved)))();
   const lineage = { ...started, supervisor };
   const saved = await requestGuard({ kind: 'running', lineage });
@@ -224,6 +257,7 @@ async function main() {
     console.log('Registered canonical fresh VM supervisor; no manual start or JSON reopen.');
     return;
   }
+  process.umask(0o077);
   const { planPath, guardPath } = parseFreshAppleHvSupervisorArguments(process.argv.slice(2)),
     approved = readPlan(planPath);
   if (
@@ -244,6 +278,7 @@ async function main() {
         kind: 'current',
         pid: lineage.supervisor.pid,
         birth: lineage.supervisor.birth,
+        planSha256: approved.sha256,
       });
       if (ack?.kind !== 'current') refuse();
     }

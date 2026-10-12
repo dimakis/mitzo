@@ -1,5 +1,11 @@
 import { expect, it, vi } from 'vitest';
-import { freshVmInput } from './staging-fresh-applehv.test.js';
+import process from 'node:process';
+import { randomUUID } from 'node:crypto';
+import { mkdtempSync, mkdirSync, writeFileSync, realpathSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { freshVmInput } from './fixtures/staging-fresh-applehv-plan.js';
 import { createFreshAppleHvPlan } from '../../scripts/lib/staging-fresh-applehv.mjs';
 import {
   superviseFreshAppleHvVm,
@@ -47,7 +53,9 @@ function fixture() {
     calls.push(message.kind);
     return message.kind === 'authorize'
       ? { kind: 'authorized', planSha256: approved.sha256 }
-      : { kind: 'recorded' };
+      : message.kind === 'current'
+        ? { kind: 'current' }
+        : { kind: 'recorded' };
   });
   const effects = {
     verifyInputs: vi.fn(async () => {}),
@@ -68,7 +76,7 @@ it('no native start happens without original live controller acknowledgement', a
 it('exact guard acknowledgement precedes one stock start and original-lineage report', async () => {
   const f = fixture();
   const result = await superviseFreshAppleHvVm(f.approved, f.request, f.effects);
-  expect(f.calls).toEqual(['authorize', 'podman', 'running']);
+  expect(f.calls).toEqual(['authorize', 'current', 'podman', 'running']);
   expect(result.supervisor.pid).toBe(42);
   expect(f.effects.startPodman).toHaveBeenCalledTimes(1);
 });
@@ -77,4 +85,30 @@ it('a mismatched acknowledgement cannot select the native helper', async () => {
   f.request.mockResolvedValue({ kind: 'authorized', planSha256: '0'.repeat(64) });
   await expect(superviseFreshAppleHvVm(f.approved, f.request, f.effects)).rejects.toThrow();
   expect(f.effects.startPodman).not.toHaveBeenCalled();
+});
+it('actual supervisor CLI cannot reopen a saved plan without its original private live guard', () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'fresh-vm-orphan-')));
+  try {
+    const input = freshVmInput(root, randomUUID());
+    input.node.path = input.supervisor.programArguments[0] = process.execPath;
+    const approved = createFreshAppleHvPlan(input),
+      path = input.supervisor.programArguments[3];
+    mkdirSync(join(input.nativeRoot, 'service'), { recursive: true, mode: 0o700 });
+    writeFileSync(path, JSON.stringify(approved.plan), { mode: 0o600 });
+    const r = spawnSync(
+      process.execPath,
+      [
+        'scripts/start-staging-allocation-vm.mjs',
+        '--plan',
+        path,
+        '--guard',
+        approved.plan.qualification.guardSocket,
+      ],
+      { encoding: 'utf8', timeout: 5000, env: { NODE_OPTIONS: '--max-old-space-size=1024' } },
+    );
+    expect(r.status).not.toBe(0);
+    expect(r.stderr).toContain('supervisor refused or uncertain');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

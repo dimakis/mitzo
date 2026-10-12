@@ -386,6 +386,8 @@ export function createFreshAppleHvOwner(
     typeof assertAcceptedSource !== 'function'
   )
     fail('original allocation capability');
+  if (!effects && canonicalRoot !== OFFLINE_CONTAINMENT_TARGET.canonicalRoot)
+    fail('actual canonical staging root');
   effects ??= freshAppleHvPhysicalEffects(approved);
   let stopped = false,
     attempted = false,
@@ -875,6 +877,16 @@ function freshAppleHvPhysicalEffects(approved) {
     const socket = lstatSync(p.qualification.apiSocket);
     if (!socket.isSocket() || socket.uid !== process.getuid() || socket.mode & 0o077)
       fail('fresh rootless API socket');
+    if (socket.dev !== lineage.apiSocket?.dev || socket.ino !== lineage.apiSocket?.ino)
+      fail('original rootless API socket identity');
+    const podman = p.helpers.find((helper) => helper.kind === 'podman');
+    const guestBoot = command(
+      podman.path,
+      ['machine', 'ssh', p.qualification.machineName, 'cat', '/proc/sys/kernel/random/boot_id'],
+      p.qualification.environment,
+    );
+    if (!uuid.test(guestBoot) || guestBoot !== lineage.guestBootUUID)
+      fail('original guest boot identity');
     return {
       state: 'verified_running',
       planSha256: approved.sha256,
@@ -891,6 +903,7 @@ function freshAppleHvPhysicalEffects(approved) {
       if (lstatSync(p.qualification.guardSocket, { throwIfNoEntry: false }))
         fail('existing start guard endpoint');
       let authorized = false,
+        capturedSupervisor,
         settled = false,
         timer;
       const result = new Promise((resolveStart, rejectStart) => {
@@ -927,6 +940,7 @@ function freshAppleHvPhysicalEffects(approved) {
                   await inspectFreshAppleHvInputs(approved);
                   authorized = true;
                   await authorize(supervisor);
+                  capturedSupervisor = supervisor;
                   socket.write(
                     JSON.stringify({ kind: 'authorized', planSha256: approved.sha256 }) + '\n',
                   );
@@ -942,6 +956,12 @@ function freshAppleHvPhysicalEffects(approved) {
                   resolveStart(lineage);
                   socket.write('{"kind":"recorded"}\n');
                 } else if (message.kind === 'current' && authorized) {
+                  if (
+                    message.pid !== capturedSupervisor?.pid ||
+                    message.birth !== capturedSupervisor.birth ||
+                    message.planSha256 !== approved.sha256
+                  )
+                    fail('original supervisor current fence');
                   await assertCurrent();
                   assertSupervisor(p, { pid: message.pid, birth: message.birth }, 1);
                   socket.write('{"kind":"current"}\n');
