@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
 import { cleanup, renderHook, act } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
-import { useNewChatDraft } from '../useNewChatDraft';
+import { useNewChatDraft, useChatDraftSearch } from '../useNewChatDraft';
+import { Router, createPath, useNavigate, type Navigator } from 'react-router-dom';
+import { StrictMode, type ReactNode } from 'react';
 import { createChatDraft, saveChatDraft, getChatDraft } from '../../lib/chat-drafts';
 afterEach(() => {
   cleanup();
@@ -64,3 +66,118 @@ it.each([true, false])(
     }
   },
 );
+
+it('retains restored launch context until router location acknowledges hydration, then honors explicit removals and draft switches', () => {
+  const first = { ...createChatDraft(), id: 'first-search', text: 'First draft' };
+  first.settings.search = 'cwd=%2Fworkspace&extraTools=Files';
+  const second = { ...createChatDraft(), id: 'second-search', text: 'Second draft' };
+  second.settings.search = 'cwd=%2Fsecond&extraTools=Read';
+  saveChatDraft(first);
+  saveChatDraft(second);
+  let location = '/chat?draft=first-search&prompt=Original';
+  const replace = vi.fn<Navigator['replace']>();
+  const navigator: Navigator = {
+    createHref: (target) => (typeof target === 'string' ? target : createPath(target)),
+    go: vi.fn<Navigator['go']>(),
+    push: vi.fn<Navigator['push']>(),
+    replace,
+  };
+  const wrapper = ({ children }: { children: ReactNode }) => (
+    <StrictMode>
+      <Router location={location} navigator={navigator}>
+        {children}
+      </Router>
+    </StrictMode>
+  );
+  const { result, rerender } = renderHook(() => useChatDraftSearch(true), { wrapper });
+  expect(result.current.get('cwd')).toBe('/workspace');
+  expect(replace).toHaveBeenCalledTimes(1);
+  // Browser history has changed, but React Router's transition has not committed
+  // its location yet. An unrelated urgent render must retain the effective view.
+  rerender();
+  expect(result.current.get('cwd')).toBe('/workspace');
+  expect(result.current.get('extraTools')).toBe('Files');
+  const cleared = new URLSearchParams(result.current);
+  cleared.delete('draft');
+  cleared.delete('prompt');
+  expect(cleared.toString()).toBe('cwd=%2Fworkspace&extraTools=Files');
+  location = '/chat?cwd=%2Fworkspace&extraTools=Files&draft=first-search&prompt=Original';
+  rerender();
+  // Once restored location is observed, removing context is an explicit edit.
+  location = '/chat?draft=first-search&prompt=Original';
+  rerender();
+  expect(result.current.get('cwd')).toBeNull();
+  expect(result.current.get('extraTools')).toBeNull();
+  location = '/chat?draft=second-search';
+  rerender();
+  rerender();
+  expect(result.current.get('cwd')).toBe('/second');
+  expect(result.current.get('extraTools')).toBe('Read');
+});
+
+it('keeps an explicit query edit authoritative even before hydration location commits', () => {
+  const draft = { ...createChatDraft(), id: 'pending-edit', text: 'Saved draft' };
+  draft.settings.search = 'cwd=%2Fworkspace&extraTools=Files';
+  saveChatDraft(draft);
+  let location = '/chat?draft=pending-edit&prompt=Original';
+  const replace = vi.fn<Navigator['replace']>();
+  const navigator: Navigator = {
+    createHref: (target) => (typeof target === 'string' ? target : createPath(target)),
+    go: vi.fn(),
+    push: vi.fn(),
+    replace,
+  };
+  const wrapper = ({ children }: { children: ReactNode }) => (
+    <Router location={location} navigator={navigator}>
+      {children}
+    </Router>
+  );
+  const { result, rerender } = renderHook(() => useChatDraftSearch(true), { wrapper });
+  location = '/chat?draft=pending-edit&prompt=Explicit';
+  rerender();
+  expect(result.current.get('cwd')).toBeNull();
+  location = '/chat?draft=pending-edit&prompt=Original';
+  rerender();
+  expect(result.current.get('cwd')).toBeNull();
+  expect(replace).toHaveBeenCalledTimes(1);
+});
+
+it('clears a pending restored draft into a reloadable context URL without another hydration request', () => {
+  const draft = { ...createChatDraft(), id: 'pending-clear', text: 'Saved draft' };
+  draft.settings.search = 'cwd=%2Fworkspace&extraTools=Files';
+  saveChatDraft(draft);
+  let location = '/chat?draft=pending-clear&prompt=Original';
+  const replace = vi.fn<Navigator['replace']>();
+  const navigator: Navigator = {
+    createHref: (target) => (typeof target === 'string' ? target : createPath(target)),
+    go: vi.fn(),
+    push: vi.fn(),
+    replace,
+  };
+  const wrapper = ({ children }: { children: ReactNode }) => (
+    <Router location={location} navigator={navigator}>
+      {children}
+    </Router>
+  );
+  const { result, rerender } = renderHook(
+    () => ({ search: useChatDraftSearch(true), navigate: useNavigate() }),
+    { wrapper },
+  );
+  rerender();
+  const cleared = new URLSearchParams(result.current.search);
+  cleared.delete('draft');
+  cleared.delete('prompt');
+  act(() => result.current.navigate(`/chat?${cleared}`, { replace: true }));
+  expect(replace).toHaveBeenLastCalledWith(
+    expect.objectContaining({ pathname: '/chat', search: '?cwd=%2Fworkspace&extraTools=Files' }),
+    undefined,
+    { replace: true },
+  );
+  location = `/chat?${cleared}`;
+  rerender();
+  rerender();
+  expect(result.current.search.get('draft')).toBeNull();
+  expect(result.current.search.get('prompt')).toBeNull();
+  expect(result.current.search.get('cwd')).toBe('/workspace');
+  expect(replace).toHaveBeenCalledTimes(2);
+});
