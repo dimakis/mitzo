@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import express from 'express';
 import request from 'supertest';
+import type { Server } from 'node:http';
+import { listenOnLoopback, closeTestServer } from './loopback-test-server.js';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -10,10 +12,24 @@ import { compileQuoteCatalog } from '../quote-catalog.js';
 import { EventStore } from '@mitzo/protocol/event-store';
 
 let root: string;
+const servers: Server[] = [];
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), 'mitzo-home-api-'));
 });
-afterEach(() => rmSync(root, { recursive: true, force: true }));
+afterEach(async () => {
+  for (const server of servers.splice(0)) {
+    const closed = closeTestServer(server);
+    server.closeAllConnections();
+    await closed;
+    expect(server.listening).toBe(false);
+  }
+  rmSync(root, { recursive: true, force: true });
+});
+async function ownFixture(app: express.Express): Promise<Server> {
+  const server = await listenOnLoopback(app);
+  servers.push(server);
+  return server;
+}
 const entry = {
   id: 'epictetus-5',
   text: 'Inspect your judgement.',
@@ -27,8 +43,17 @@ const entry = {
   explainerUrl: 'https://dcc.dickinson.edu/epictetus-encheiridion/chapter-5',
   authorUrl: 'https://plato.stanford.edu/entries/epictetus/',
 };
-function app(changed = vi.fn()) {
-  const app = express();
+function fixtureRoutes() {
+  const routes = express();
+  const fixtureRoot = root;
+  routes.use((_req, res, next) => {
+    res.set('X-Home-Test-Fixture', encodeURIComponent(fixtureRoot));
+    next();
+  });
+  return routes;
+}
+async function app(changed = vi.fn(), errors?: unknown[]) {
+  const app = fixtureRoutes();
   app.use(express.json());
   app.use(
     '/api/home',
@@ -58,10 +83,34 @@ function app(changed = vi.fn()) {
           : null,
     }),
   );
-  return app;
+  if (errors) {
+    app.use(
+      (
+        error: unknown,
+        _req: express.Request,
+        _res: express.Response,
+        _next: express.NextFunction,
+      ) => {
+        errors.push(error);
+      },
+    );
+  }
+  return ownFixture(app);
 }
+it('owns one IPv4 listener across requests and keeps fixture identity observable', async () => {
+  const api = await app();
+  expect(api.listening).toBe(true);
+  expect(api.address()).toMatchObject({ address: '127.0.0.1', family: 'IPv4' });
+  const address = api.address();
+  for (let index = 0; index < 20; index++) {
+    const response = await request(api).get('/api/home/preferences');
+    expect(response.status).toBe(200);
+    expect(response.headers['x-home-test-fixture']).toBe(encodeURIComponent(root));
+    expect(api.address()).toEqual(address);
+  }
+});
 it('validates writes and reports stale device edits without overwriting preferences', async () => {
-  const api = app();
+  const api = await app();
   expect((await request(api).get('/api/home/preferences')).body.revision).toBe(0);
   expect(
     (
@@ -84,28 +133,19 @@ it('validates writes and reports stale device edits without overwriting preferen
 });
 it('broadcasts saved preferences only after a successful write', async () => {
   const changed = vi.fn();
-  const api = app(changed);
+  const api = await app(changed);
   await request(api).put('/api/home/preferences').send({ revision: 0, pins: [] });
   expect(changed).toHaveBeenCalledTimes(1);
   await request(api).put('/api/home/preferences').send({ revision: 0, pins: [] });
   expect(changed).toHaveBeenCalledTimes(1);
 });
 it('keeps a durable preference write successful when notification delivery fails', async () => {
-  const api = app(
+  const errors: unknown[] = [];
+  const api = await app(
     vi.fn(() => {
       throw new Error('Notification unavailable');
     }),
-  );
-  const errors: unknown[] = [];
-  api.use(
-    (
-      error: unknown,
-      _req: express.Request,
-      _res: express.Response,
-      _next: express.NextFunction,
-    ) => {
-      errors.push(error);
-    },
+    errors,
   );
   const saved = await request(api)
     .put('/api/home/preferences')
@@ -115,7 +155,7 @@ it('keeps a durable preference write successful when notification delivery fails
   expect((await request(api).get('/api/home/preferences')).body.names.briefing).toBe('Jeeves');
 });
 it('registers only actual session account/model bindings and returns exact report conversations', async () => {
-  const api = app();
+  const api = await app();
   const binding = {
     date: '2026-10-10',
     revision: 'a'.repeat(64),
@@ -159,9 +199,9 @@ it('registers only actual session account/model bindings and returns exact repor
 it('does not reuse or register a deleted briefing chat while preserving its saved history', async () => {
   const sessions = new EventStore(':memory:');
   const store = new HomeStore(join(root, 'home.json'));
-  const api = express();
-  api.use(express.json());
-  api.use(
+  const routes = fixtureRoutes();
+  routes.use(express.json());
+  routes.use(
     '/api/home',
     createHomeRouter({
       store,
@@ -171,10 +211,11 @@ it('does not reuse or register a deleted briefing chat while preserving its save
     }),
   );
   // The real DELETE route hides the row; the EventStore deliberately retains its metadata.
-  api.delete('/api/sessions/:id', (req, res) => {
+  routes.delete('/api/sessions/:id', (req, res) => {
     sessions.hideSession(req.params.id);
     res.sendStatus(204);
   });
+  const api = await ownFixture(routes);
   const selection = {
     accountId: 'work',
     accountLabel: 'Work',
@@ -220,7 +261,7 @@ it('does not reuse or register a deleted briefing chat while preserving its save
   }
 });
 it('serves the cached daily quote and saved briefing, with explicit missing and invalid states', async () => {
-  const api = app();
+  const api = await app();
   const quote = await request(api).get('/api/home/quote?date=2026-10-10');
   expect(quote.status).toBe(200);
   expect(quote.body.quote.id).toBe(entry.id);

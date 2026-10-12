@@ -97,6 +97,8 @@ export function createOfflineRecoveryPreparationEffects({ sourceRoot }) {
         HOME: buildHome ?? '/private/tmp',
         TMPDIR: '/private/tmp',
         LANG: 'en_US.UTF-8',
+        NODE_OPTIONS: '--max-old-space-size=2048',
+        npm_config_jobs: '2',
         GIT_CONFIG_GLOBAL: '/dev/null',
         GIT_CONFIG_NOSYSTEM: '1',
         GIT_OPTIONAL_LOCKS: '0',
