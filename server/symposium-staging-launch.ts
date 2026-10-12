@@ -103,6 +103,12 @@ export async function launchStagingCustodian(
     createStagingFeatureBootstrap?(): NonNullable<
       SymposiumCustodianConstructorHooks['stagingFeatureBootstrap']
     >;
+    observeContainedNativeAppChildControl?: NonNullable<
+      SymposiumCustodianConstructorHooks['observeOriginalAppChildControl']
+    >;
+    beforeContainedNativeAppChildFork?: NonNullable<
+      SymposiumCustodianConstructorHooks['beforeOriginalAppChildFork']
+    >;
   },
 ) {
   const input = StagingLaunchSchema.parse(registration);
@@ -128,6 +134,8 @@ export async function launchStagingCustodian(
         !deps.beforeContainedNativeReady ||
         !deps.beforeContainedNativeRetirement ||
         !deps.observeContainedNativeCustodianLifetime ||
+        !deps.observeContainedNativeAppChildControl ||
+        !deps.beforeContainedNativeAppChildFork ||
         typeof deps.createStagingFeatureBootstrap !== 'function')) ||
     (!allocation &&
       (deps.beforeContainedNativeRun ||
@@ -135,6 +143,8 @@ export async function launchStagingCustodian(
         deps.beforeContainedNativeReady ||
         deps.beforeContainedNativeRetirement ||
         deps.observeContainedNativeCustodianLifetime ||
+        deps.observeContainedNativeAppChildControl ||
+        deps.beforeContainedNativeAppChildFork ||
         deps.createStagingFeatureBootstrap ||
         deps.stagingFeatureBootstrap))
   )
@@ -171,6 +181,10 @@ export async function launchStagingCustodian(
       ...(allocation
         ? { observeOriginalCustodianLifetime: deps.observeContainedNativeCustodianLifetime }
         : {}),
+      ...(allocation
+        ? { observeOriginalAppChildControl: deps.observeContainedNativeAppChildControl }
+        : {}),
+      ...(allocation ? { beforeOriginalAppChildFork: deps.beforeContainedNativeAppChildFork } : {}),
       ...(featureBootstrap ? { stagingFeatureBootstrap: featureBootstrap } : {}),
       ...(admissionBuildSelection ? { admissionBuildSelection } : {}),
       observeController(identity, current) {

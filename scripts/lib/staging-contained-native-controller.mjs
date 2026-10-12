@@ -28,6 +28,8 @@ import { createUnmutatedNativeAllocationInspector } from './staging-native-unmut
 import { createNativeOriginalOwnerHandoff } from './staging-native-owner-handoff.mjs';
 import { createNativeAppCompatibilityInspector } from './staging-native-app-compatibility.mjs';
 import { createOriginalNativeAppSourceBridge } from './staging-native-app-source.mjs';
+import { createOriginalNativeAppUpdateController } from './staging-native-app-update.mjs';
+import { createOriginalNativeAppControlServer } from './staging-native-app-control-transport.mjs';
 const bootstrapInspections = new WeakMap();
 const hash = (bytes) => createHash('sha256').update(bytes).digest('hex');
 const refuse = (diagnostic) =>
@@ -76,6 +78,7 @@ export function assertNativeReplicaSourceProtocol(main) {
     main?.STAGING_NATIVE_FEATURE_BOOTSTRAP_PROTOCOL_VERSION !== 1 ||
     main?.STAGING_NATIVE_MODEL_ENFORCEMENT_PROTOCOL_VERSION !== 1 ||
     main?.CUSTODIAN_NATIVE_OWNER_LIFETIME_PROTOCOL_VERSION !== 1 ||
+    main?.CUSTODIAN_ORIGINAL_APP_CHILD_UPDATE_PROTOCOL_VERSION !== 2 ||
     main?.ORIGINAL_STAGING_NATIVE_BOOTSTRAP_PROTOCOL_VERSION !== 1 ||
     main?.SYMPOSIUM_CUSTODIAN_SERVICE_PROTOCOL_VERSION !== 1 ||
     typeof main.runSymposiumCustodian !== 'function'
@@ -354,6 +357,7 @@ export async function runContainedNativeCanonicalLauncher({
     registration,
     disposition,
     provisioning,
+    load,
   } = inspected;
   const qualified = async () => {
     await qualifyOfflineContainmentController({ canonicalRoot: root, sourceRoot });
@@ -384,6 +388,8 @@ export async function runContainedNativeCanonicalLauncher({
     unmutatedInspector,
     guardAcquired = false,
     nativePreparationAttempted = false;
+  let nativeVmPlan, originalAppChildControl, appUpdates, appControlServer;
+  let registeredSourceCurrent, loadedNativeContinuity, originalRegistrar;
   const assertBootstrap = () => {
     if (!privateBytes(bootstrapPath).equals(saved))
       throw refuse('Original bootstrap bytes changed.');
@@ -411,8 +417,11 @@ export async function runContainedNativeCanonicalLauncher({
   });
   const handoff = createNativeOriginalOwnerHandoff({
     assertRegisteredOriginal: () => {
-      assertBootstrap();
-      observer.observe();
+      if (originalRegistrar) originalRegistrar.assertRegistrationCurrent();
+      else {
+        assertBootstrap();
+        observer.observe();
+      }
     },
     assertInitialGuard: () => guard.assertCurrent(),
     assertInitialAuthentication() {
@@ -539,6 +548,7 @@ export async function runContainedNativeCanonicalLauncher({
             assertCurrent();
           },
         });
+        nativeVmPlan = approvedVmPlan;
         vmOwner = vm.createFreshAppleHvOwner({
           allocation,
           canonicalRoot: root,
@@ -564,23 +574,55 @@ export async function runContainedNativeCanonicalLauncher({
       nativeSourceRoot: sourceRoot,
       nativeCommit: bundle.sourceCommit,
     });
+    originalRegistrar = await observer.captureLoadedCurrent(
+      provisioning.plan.node.sha256,
+      verifyPreparedController(root, sourceRoot, bundle.sourceCommit).compiledArtifacts[
+        'dist/native-held-file-custody.js'
+      ],
+    );
+    registeredSourceCurrent = originalRegistrar.assertCurrent;
+    loadedNativeContinuity =
+      await sourceInspector.prepareOriginalContinuity(registeredSourceCurrent);
     const appSourceBridge = createOriginalNativeAppSourceBridge({
       nativeSource: sourceInspector.original,
       assertOriginalCustodianCurrent() {
-        original();
-        custodianCurrent?.();
-        if (vmStarted) vmOwner.assertOriginalRunningCurrent();
+        // Source binding is deliberately independent of host.currentProfiles:
+        // the gateway verifies this binding from inside its own custody check.
+        loadedNativeContinuity.assertCurrent();
       },
       inspectSource: (selected) => sourceInspector.inspect(selected),
+      captureSourceContinuity: (snapshot) => sourceInspector.captureSourceContinuity(snapshot),
       async assertAcceptedCandidate(selected) {
-        if (selected !== bundle.sourceCommit)
-          throw refuse('Fresh queue-owned app candidate qualification required.');
-        await sourceCurrent();
+        if (!appUpdates?.selectedTransition()) {
+          await sourceCurrent();
+          appUpdates?.assertRetainedSourceCurrent(selected);
+        } else await appUpdates.assertSelectedSourceCurrent(selected);
       },
     });
     const acceptedAppSource = appWitness.createOriginalStagingAppSourceWitness(() =>
       appSourceBridge.capture(),
     );
+    const childSelections = await load('symposium-original-app-child-update');
+    const createAppUpdates = () =>
+      createOriginalNativeAppUpdateController({
+        root,
+        allocation: bundle.allocation,
+        nativeSourceCommit: bundle.sourceCommit,
+        sourceInspector,
+        appSourceBridge,
+        vmOwner,
+        observeRegisteredOriginal: () => observer.observe(),
+        assertOriginalCurrent() {
+          original();
+          custodianCurrent();
+          vmOwner.assertOriginalRunningCurrent();
+        },
+        createChildSelection: childSelections.createOriginalAppChildSelection,
+        replaceOriginalChild: (selection) => {
+          if (!originalAppChildControl) throw refuse('Actual original app child control missing.');
+          return originalAppChildControl.replace(selection);
+        },
+      });
     const recordOwner = ownerRecords.createCanonicalOwnerRecorder(
       plan,
       undefined,
@@ -613,6 +655,8 @@ export async function runContainedNativeCanonicalLauncher({
         await vmOwner.startOnce();
         vmStarted = true;
         await vmOwner.verifyRunning();
+        if (appUpdates) throw refuse('Original app update owner already constructed.');
+        appUpdates = createAppUpdates();
       },
       observeContainedNativeController(identity, current) {
         // Registry observation precedes the awaited fence. The owner record
@@ -649,18 +693,42 @@ export async function runContainedNativeCanonicalLauncher({
           },
           join(plan.planDirectory, 'staging-operator.json'),
           () => {
-            assertBootstrap();
-            observer.observe();
+            loadedNativeContinuity.assertCurrent();
+          },
+          () => {
+            originalRegistrar.assertRegistrationCurrent();
             release.verifyRetainedOwnedRelease(plan);
-            assertBootstrap();
+            sourceInspector.inspect(bundle.sourceCommit);
+            loadedNativeContinuity.assertCurrent();
           },
         ),
-      async beforeContainedNativeReady(identity, current) {
+      observeContainedNativeAppChildControl(control) {
+        if (originalAppChildControl || typeof control?.replace !== 'function')
+          throw refuse('Actual original app control may be captured only once.');
+        originalAppChildControl = control;
+      },
+      async beforeContainedNativeAppChildFork(selectedRoot, current) {
         current();
-        const appCandidate = await appSourceBridge.qualify(bundle.sourceCommit);
+        original();
+        const selected = appUpdates.selectedSource();
+        if (selectedRoot !== join(root, 'releases', selected.slice(0, 12)))
+          throw refuse('Actual app fork source differs from original accepted selection.');
+        if (appUpdates.selectedTransition()) await appUpdates.assertSelectedSourceCurrent(selected);
+        else appUpdates.assertRetainedSourceCurrent(selected);
+        current();
+        original();
+        vmOwner.assertRunningCurrent();
+      },
+      async beforeContainedNativeReady(identity, current, loadedChildCurrent) {
+        if (typeof loadedChildCurrent !== 'function')
+          throw refuse('Actual original main child source continuity closure required.');
+        current();
+        const appCandidate = appUpdates.selectedTransition()
+          ? appUpdates.observeReadyCandidate()
+          : await appSourceBridge.qualify(appUpdates.selectedSource());
         await appSourceBridge.assertCandidateCurrent(appCandidate);
         current();
-        appSourceBridge.observeChild(appCandidate, identity, current);
+        appSourceBridge.observeChild(appCandidate, identity, loadedChildCurrent);
         observeOriginalController(identity, current);
         original();
         if (ready) {
@@ -714,6 +782,25 @@ export async function runContainedNativeCanonicalLauncher({
         auth.close();
         imageInspector.close();
         sourceWitness.close();
+        appControlServer = createOriginalNativeAppControlServer({
+          root,
+          allocation: bundle.allocation,
+          nativeSourceRoot: sourceRoot,
+          nativeSourceCommit: bundle.sourceCommit,
+          approvedPeerInspector: nativeVmPlan.plan.peerInspector,
+          assertOriginalCurrent() {
+            original();
+            custodianCurrent();
+            vmOwner.assertOriginalRunningCurrent();
+          },
+          operations: {
+            resources: appUpdates.resources,
+            plan: appUpdates.plan,
+            apply: appUpdates.apply,
+          },
+        });
+        await appControlServer.listen();
+        current();
       },
       async beforeContainedNativeRetirement(identity, current, signal) {
         if (!ready || !vmOwner || !ownerCurrent || !claimed)
@@ -726,6 +813,7 @@ export async function runContainedNativeCanonicalLauncher({
         )
           throw refuse('Original native retirement identity changed.');
         await handoff.retire(current, async () => {
+          appControlServer?.fence();
           assertNativeDrainCurrent = current;
           try {
             await sourceCurrent();

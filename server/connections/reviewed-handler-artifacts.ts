@@ -11,7 +11,7 @@ export {
 } from './reviewed-policy-revisions.js';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.79';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.81';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -25,7 +25,7 @@ export function reviewedHandlerSourceFingerprint(source: string) {
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   // Original registered-stage bootstrap and immutable private delegation source.
   '../staging-native-feature-bootstrap.ts':
-    '1007ce52dc853ac362a1ebaec63ccf6006a50eae63c98ee0647ff38598d94594',
+    '6740a9017e3354aa4b2a9894b20ada8728fdcb9dfcee783f97f9c487b08972a1',
   // Original authenticated account/catalog capabilities and charged-scope matching.
   '../symposium-subscription-provisioner.ts':
     '2f0a72ef69ba04daefebe1c98b0dd8dc3b6662ff56fb9874f5ab50b3b3f95da9',

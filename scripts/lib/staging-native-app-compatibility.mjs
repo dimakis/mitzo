@@ -8,6 +8,7 @@ import { fingerprintDependencyCopy } from './staging-files.mjs';
 import { bytes, hash, inventory, git } from './staging-cold-audit.mjs';
 import { deriveRetainedNativeImportClosure } from './staging-native-import-closure.mjs';
 import { assertByteCompatibleNativeApp } from './staging-native-app-source.mjs';
+import { captureOriginalNativeSourceContinuity } from './staging-native-source-continuity.mjs';
 const refuse = () =>
   Error(
     'Complete native app compatibility proof unavailable; retained runtime cannot be updated by a child replacement',
@@ -118,8 +119,30 @@ export function createNativeAppCompatibilityInspector({
     return Object.freeze(snapshot);
   };
   const original = inspect(nativeCommit);
+  let continuity;
   return Object.freeze({
     original,
+    async prepareOriginalContinuity(assertRegisteredOriginalCurrent) {
+      if (continuity || digest(inspect(nativeCommit)) !== digest(original)) throw refuse();
+      continuity = await captureOriginalNativeSourceContinuity({
+        sourceRoot: nativeSourceRoot,
+        sourceCommit: nativeCommit,
+        heldFileModuleSha256: verifyPreparedController(
+          canonicalRoot,
+          nativeSourceRoot,
+          nativeCommit,
+        ).compiledArtifacts['dist/native-held-file-custody.js'],
+        assertRegisteredOriginalCurrent,
+      });
+      if (digest(inspect(nativeCommit)) !== digest(original)) throw refuse();
+      continuity.assertCurrent();
+      return continuity;
+    },
+    captureSourceContinuity(snapshot) {
+      if (!continuity || digest(inspect(snapshot.sourceCommit)) !== digest(snapshot))
+        throw refuse();
+      return continuity.captureChild(snapshot);
+    },
     inspect(selected) {
       if (digest(inspect(nativeCommit)) !== digest(original)) throw refuse();
       const candidate = inspect(selected);

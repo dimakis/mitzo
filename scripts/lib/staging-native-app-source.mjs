@@ -48,6 +48,7 @@ export function createOriginalNativeAppSourceBridge({
   assertOriginalCustodianCurrent,
   inspectSource,
   assertAcceptedCandidate,
+  captureSourceContinuity,
   now = () => performance.now(),
 }) {
   const original = normalized(nativeSource);
@@ -56,6 +57,8 @@ export function createOriginalNativeAppSourceBridge({
       (fn) => typeof fn !== 'function',
     )
   )
+    throw refuse();
+  if (captureSourceContinuity !== undefined && typeof captureSourceContinuity !== 'function')
     throw refuse();
   const proposals = new WeakMap();
   let latest;
@@ -68,14 +71,17 @@ export function createOriginalNativeAppSourceBridge({
     if (result === false) throw refuse();
     return result;
   };
+  const assert = (fn) => {
+    if (sync(fn) !== undefined) throw refuse();
+  };
   const read = (selected) => {
-    sync(assertOriginalCustodianCurrent);
+    assert(assertOriginalCustodianCurrent);
     const frozen = normalized(sync(() => inspectSource(selected)));
     if (frozen.sourceCommit !== selected) throw refuse();
     const native = normalized(sync(() => inspectSource(original.sourceCommit)));
     if (digest(native) !== digest(original)) throw refuse();
     assertByteCompatibleNativeApp(original, frozen);
-    sync(assertOriginalCustodianCurrent);
+    assert(assertOriginalCustodianCurrent);
     return frozen;
   };
   const accepted = async (selected) => {
@@ -91,7 +97,7 @@ export function createOriginalNativeAppSourceBridge({
     async qualify(selected) {
       if (!commit.test(selected)) throw refuse();
       const deadline = now() + 12 * 60 * 1000;
-      sync(assertOriginalCustodianCurrent);
+      assert(assertOriginalCustodianCurrent);
       await accepted(selected);
       const snapshot = read(selected);
       await accepted(selected);
@@ -111,7 +117,7 @@ export function createOriginalNativeAppSourceBridge({
     },
     observeChild(token, identity, current) {
       const candidate = proposal(token);
-      sync(assertOriginalCustodianCurrent);
+      assert(assertOriginalCustodianCurrent);
       if (
         typeof current !== 'function' ||
         !identity ||
@@ -131,24 +137,46 @@ export function createOriginalNativeAppSourceBridge({
             identity.controllerPid === latest.identity.controllerPid))
       )
         throw refuse();
-      sync(current);
+      assert(current);
       if (digest(read(candidate.snapshot.sourceCommit)) !== digest(candidate.snapshot))
         throw refuse();
-      sync(current);
+      assert(current);
       if (now() >= candidate.deadline) throw refuse();
+      // Capture only at the actual awaited child handoff, after complete byte
+      // admission. The physical inspector retains its own file descriptors;
+      // public snapshots cannot construct this ongoing source capability.
+      const continuity =
+        captureSourceContinuity && sync(() => captureSourceContinuity(candidate.snapshot));
+      if (
+        captureSourceContinuity &&
+        (!continuity ||
+          typeof continuity.assertCurrent !== 'function' ||
+          typeof continuity.closeAfterReplacement !== 'function')
+      )
+        throw refuse();
+      if (continuity) assert(() => continuity.assertCurrent());
+      assert(current);
       candidate.used = true;
+      const previous = latest;
       latest = Object.freeze({
         snapshot: candidate.snapshot,
         identity: Object.freeze({ ...identity }),
         current,
+        continuity,
       });
+      // The actual main control cannot publish the new child until it has
+      // positively observed its original previous child exit. Only descriptors
+      // captured for that previous child are released; native files stay held.
+      if (previous?.continuity) assert(() => previous.continuity.closeAfterReplacement());
     },
     capture() {
       if (!latest) throw refuse();
-      sync(assertOriginalCustodianCurrent);
-      sync(latest.current);
-      if (digest(read(latest.snapshot.sourceCommit)) !== digest(latest.snapshot)) throw refuse();
-      sync(latest.current);
+      assert(assertOriginalCustodianCurrent);
+      assert(latest.current);
+      if (latest.continuity) assert(() => latest.continuity.assertCurrent());
+      else if (digest(read(latest.snapshot.sourceCommit)) !== digest(latest.snapshot))
+        throw refuse();
+      assert(latest.current);
       return Object.freeze({
         nativeSourceCommit: original.sourceCommit,
         acceptedAppCommit: latest.snapshot.sourceCommit,

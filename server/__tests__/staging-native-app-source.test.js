@@ -106,3 +106,52 @@ it('expires a pending replacement token while retaining a qualified actual child
   await expect(bridge.assertCandidateCurrent(target)).rejects.toThrow();
   expect(bridge.capture().acceptedAppCommit).toBe(native.sourceCommit);
 });
+
+it('uses admitted original held source continuity for repeated live child bindings without whole release inspection', async () => {
+  const inspect = vi.fn((selected) => (selected === native.sourceCommit ? native : candidate));
+  let held = true;
+  const close = vi.fn();
+  const bridge = createOriginalNativeAppSourceBridge({
+    nativeSource: native,
+    assertOriginalCustodianCurrent() {},
+    inspectSource: inspect,
+    assertAcceptedCandidate: async () => {},
+    captureSourceContinuity: () => ({
+      assertCurrent() {
+        if (!held) throw Error('original held source lost');
+      },
+      closeAfterReplacement: close,
+    }),
+  });
+  bridge.observeChild(await bridge.qualify(native.sourceCommit), child, () => {});
+  inspect.mockClear();
+  for (let index = 0; index < 100; index++) expect(bridge.capture().epoch).toBe(1);
+  expect(inspect).not.toHaveBeenCalled();
+  const next = await bridge.qualify(candidate.sourceCommit);
+  bridge.observeChild(next, { ...child, epoch: 2, controllerPid: 102 }, () => {});
+  expect(close).toHaveBeenCalledTimes(1);
+  held = false;
+  expect(() => bridge.capture()).toThrow('original held source lost');
+});
+
+it('rejects missing continuity capture and nonvoid or asynchronous current assertions', async () => {
+  for (const current of [() => true, async () => {}]) {
+    const bridge = createOriginalNativeAppSourceBridge({
+      nativeSource: native,
+      assertOriginalCustodianCurrent() {},
+      inspectSource: () => native,
+      assertAcceptedCandidate: async () => {},
+    });
+    const token = await bridge.qualify(native.sourceCommit);
+    expect(() => bridge.observeChild(token, child, current)).toThrow();
+  }
+  const bridge = createOriginalNativeAppSourceBridge({
+    nativeSource: native,
+    assertOriginalCustodianCurrent() {},
+    inspectSource: () => native,
+    assertAcceptedCandidate: async () => {},
+    captureSourceContinuity: () => undefined,
+  });
+  const token = await bridge.qualify(native.sourceCommit);
+  expect(() => bridge.observeChild(token, child, () => {})).toThrow();
+});

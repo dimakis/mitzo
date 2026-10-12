@@ -49,6 +49,7 @@ type PrivateBootstrap = {
   operatorIdentity: string;
   operatorSha256: string;
   assertRegisteredSourceCurrent(): void;
+  assertNewControlSourceCurrent?: () => void;
 };
 const originalBootstraps = new WeakMap<object, PrivateBootstrap>();
 const refuse = () =>
@@ -117,6 +118,7 @@ export function createOriginalStagingNativeBootstrap(
   input: StagingNativeFeatureBootstrap,
   operatorPath: string,
   assertRegisteredSourceCurrent: () => void,
+  assertNewControlSourceCurrent?: () => void,
 ): StagingNativeFeatureBootstrap {
   const root = join(userInfo().homedir, '.local/share/mitzo-staging');
   if (
@@ -151,6 +153,7 @@ export function createOriginalStagingNativeBootstrap(
     operatorIdentity: operator.identity,
     operatorSha256: operator.sha256,
     assertRegisteredSourceCurrent,
+    ...(assertNewControlSourceCurrent ? { assertNewControlSourceCurrent } : {}),
   });
   return frozen;
 }
@@ -178,6 +181,14 @@ export function captureOriginalStagingNativeBootstrap(value: StagingNativeFeatur
     sourceCommit: value.sourceCommit,
     sourceRoot: value.sourceRoot,
     assertCurrent: () => {
+      original(value);
+    },
+    /** Full prepared/dependency proof for a new native control. This expensive
+     * admission is separate from the ongoing loaded-source current assertion. */
+    assertNewControlSourceCurrent() {
+      const { captured } = original(value);
+      if (!captured.assertNewControlSourceCurrent) throw refuse();
+      sync(captured.assertNewControlSourceCurrent);
       original(value);
     },
     captureAcceptedAppSource(ownerInstance: string) {
