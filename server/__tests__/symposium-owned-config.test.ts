@@ -106,6 +106,38 @@ function fixture() {
   return { root, filename, config, save, gateway, tools };
 }
 describe('explicit private owned startup configuration', () => {
+  it('passes exact pinned API billing scope into the original provider catalog factory', async () => {
+    const f = fixture();
+    const scope = { organizationId: 'org-stage', projectId: 'proj_stage' };
+    Object.assign(f.config.personal, { workApiBillingScopes: { work: scope } });
+    f.save();
+    const host = await bootstrapConfiguredSymposiumHost(
+      f.filename,
+      { facts: {} as never, hostGrants: { verifySeat: vi.fn() } },
+      f.tools as never,
+    );
+    expect(f.tools.provisionWork).toHaveBeenCalledWith(
+      f.gateway,
+      f.config.personal.workProfiles[0],
+      { stagingCatalogScope: scope },
+    );
+    host.stop();
+  });
+  it('refuses API billing scopes for unconfigured profiles before gateway launch', async () => {
+    const f = fixture();
+    Object.assign(f.config.personal, {
+      workApiBillingScopes: { foreign: { organizationId: 'org-stage', projectId: 'proj_stage' } },
+    });
+    f.save();
+    await expect(
+      bootstrapConfiguredSymposiumHost(
+        f.filename,
+        { facts: {} as never, hostGrants: { verifySeat: vi.fn() } },
+        f.tools as never,
+      ),
+    ).rejects.toThrow('private valid');
+    expect(f.tools.launch).not.toHaveBeenCalled();
+  });
   it('does not invoke queued prelaunch inspection after synchronous owner pause', async () => {
     const f = fixture();
     const inspect = vi.fn();
