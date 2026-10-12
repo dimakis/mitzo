@@ -51,7 +51,9 @@ it('refuses Vertex draft by default and admits only through original host capabi
   try {
     expect((await dispatch(createSymposiumSessionRouter(deps), body)).status).toBe(409);
     expect(store.listSessions()).toHaveLength(0);
-    const assertVertexDraftAvailable = vi.fn(() => {
+    const assertVertexDraftAvailable = vi.fn<
+      NonNullable<Parameters<typeof createSymposiumSessionRouter>[0]['assertVertexDraftAvailable']>
+    >(() => {
       throw new Error('Actual reviewed Vertex host unavailable');
     });
     expect(

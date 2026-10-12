@@ -779,7 +779,7 @@ it('reclaims a dead original lifecycle owner only for the same pending seal clea
   expect(another.status).toBe(0);
   let stopped = false;
   const manager = {
-    inspect: vi.fn(async () => ({ phase: stopped ? 'Stopped' : 'Ready' })),
+    inspect: vi.fn(async () => ({ id: 'physical', phase: stopped ? 'Stopped' : 'Ready' })),
     inspectReserved: vi.fn(async () => null),
     stop: vi.fn(async () => {
       stopped = true;
