@@ -7,5 +7,19 @@ export interface StagingNativeFeatureBootstrap {
   readonly sourceRoot: string;
   readonly fixtureRoot: string;
   assertOriginalOwnerCurrent(): void;
-  assertFreshEnrollmentCurrent(): void;
+  /** Original retained VM owner observation. JSON cannot recreate this capability. */
+  observeResources(): Readonly<{
+    aggregateGiB: number;
+    growthGiB: number;
+    diskFreeGiB: number;
+    vmMemoryMiB: 4096;
+    vmCpus: 2;
+    allocationUUID: string;
+    planSha256: string;
+    bootUUID: string;
+    supervisorPid: number;
+    vfkitPid: number;
+    observationSha256: string;
+    nativeRetirementClaim: false;
+  }>;
 }

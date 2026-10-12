@@ -31,6 +31,12 @@ export interface SymposiumCustodianConstructorHooks {
     identity: Readonly<OriginalSymposiumControllerIdentity>,
     assertCurrent: () => void,
   ) => Promise<void>;
+  /** After original host/native closure, before any retirement receipt. */
+  beforeRetirementReceipt?: (
+    identity: Readonly<{ instanceId: string; controllerGeneration: number }>,
+    assertOriginalRetirementCurrent: () => void,
+    signal: AbortSignal,
+  ) => Promise<void>;
   observeRetirement?: (
     state: 'retiring' | 'retired' | 'uncertain',
     stateParent: string,
@@ -53,6 +59,7 @@ export interface SymposiumCustodianConstructorHooks {
 export async function runSymposiumCustodian(hooks: SymposiumCustodianConstructorHooks = {}) {
   const {
     observeRetirement,
+    beforeRetirementReceipt,
     stagingFeatureBootstrap,
     beforeControllerReady,
     bootstrapTools,
@@ -77,13 +84,15 @@ export async function runSymposiumCustodian(hooks: SymposiumCustodianConstructor
     // from public context or substitute the local feature factory here.
     if (
       typeof stagingFeatureBootstrap.assertOriginalOwnerCurrent !== 'function' ||
-      typeof stagingFeatureBootstrap.assertFreshEnrollmentCurrent !== 'function'
+      typeof stagingFeatureBootstrap.observeResources !== 'function'
     )
       throw Error('Original staging feature constructor capabilities required');
     throw Error('Native staging feature owner qualification is not implemented');
   }
   if (observeNativeTurnInput !== undefined && typeof observeNativeTurnInput !== 'boolean')
     throw Error('Native input diagnostic must be a trusted constructor boolean');
+  if (beforeRetirementReceipt !== undefined && typeof beforeRetirementReceipt !== 'function')
+    throw Error('Original retirement hook must be a trusted constructor capability');
   if (observeRetirement !== undefined && typeof observeRetirement !== 'function')
     throw Error('Retirement observer must be a trusted constructor callback');
   if (observeOriginalProcess !== undefined && typeof observeOriginalProcess !== 'function')
@@ -321,7 +330,27 @@ export async function runSymposiumCustodian(hooks: SymposiumCustodianConstructor
             signal,
           ),
         drainHost: (signal) => host.drain(signal),
-        closeHost: (signal) => host.closeAfterDrain(signal),
+        closeHost: async (signal) => {
+          await host.closeAfterDrain(signal);
+          signal.throwIfAborted();
+          const originalPid = process.pid;
+          let current = true;
+          const assertOriginalRetirementCurrent = () => {
+            signal.throwIfAborted();
+            if (!current || process.pid !== originalPid)
+              throw Error('Original post-host retirement lifetime expired');
+          };
+          try {
+            await beforeRetirementReceipt?.(
+              Object.freeze({ instanceId: identity, controllerGeneration }),
+              assertOriginalRetirementCurrent,
+              signal,
+            );
+            assertOriginalRetirementCurrent();
+          } finally {
+            current = false;
+          }
+        },
         record: () =>
           writeCustodianRetirementReceipt({
             stateParent: dirname(host.gateway.stateDirectory),
