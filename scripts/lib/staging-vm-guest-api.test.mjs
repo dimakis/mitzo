@@ -27,7 +27,11 @@ describe('rootless API is bound to independently authenticated fresh guest facts
         requests = 0;
       const server = createServer((request, response) => {
         requests++;
-        expect(request.url).toBe('/libpod/info');
+        if (request.url !== '/v5.6.2/libpod/info') {
+          response.statusCode = 404;
+          response.end('Stock libpod info requires its versioned route');
+          return;
+        }
         response.end(JSON.stringify(info()));
       });
       server.on('connection', () => connections++);
@@ -105,3 +109,16 @@ describe('rootless API is bound to independently authenticated fresh guest facts
     ).toThrow();
   });
 });
+
+it.each(['5.7.0', '5.6.2/../other'])(
+  'refuses a foreign or path-shaped SSH API version %s',
+  (version) => {
+    const guest = info();
+    guest.version.APIVersion = version;
+    expect(() =>
+      compareFreshVmGuestApiFacts(guest, guest, {
+        guestSocketPath: '/run/user/501/podman/podman.sock',
+      }),
+    ).toThrow();
+  },
+);
