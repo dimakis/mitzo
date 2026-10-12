@@ -5,6 +5,7 @@ import {
   createSymposiumWorkApiProvider,
   captureSymposiumWorkApiProvider,
   captureSymposiumWorkApiCatalog,
+  captureSymposiumWorkApiAccount,
   refreshSymposiumWorkApiCatalog,
   type SymposiumWorkApiProfile,
 } from '../symposium-work-api-provider.js';
@@ -174,6 +175,43 @@ describe('original authenticated staging API billing scope and catalog', () => {
       stagingCatalogScope: scope,
       request,
     });
+  it('resolves exactly the original account creation and fresh catalog objects', async () => {
+    const f = fixture();
+    await provision(f, vi.fn().mockResolvedValue(response()));
+    const captured = captureSymposiumWorkApiAccount(f.gateway as never, 'work');
+    expect(captured.provider).toBe(captureSymposiumWorkApiProvider(f.gateway as never, 'new-id'));
+    expect(captured.catalog).toBe(captureSymposiumWorkApiCatalog(f.gateway as never, 'new-id'));
+    expect(() => captureSymposiumWorkApiAccount(f.gateway as never, 'Work API')).toThrow('Unique');
+    expect(() => captureSymposiumWorkApiAccount({ ...f.gateway } as never, 'work')).toThrow(
+      'Unique',
+    );
+    vi.spyOn(Date, 'now').mockReturnValue(captured.catalog.observation.expiresAt + 1);
+    expect(() => captureSymposiumWorkApiAccount(f.gateway as never, 'work')).toThrow('catalog');
+  });
+  it('refuses an ambiguous account with multiple independently created original providers', async () => {
+    const f = fixture();
+    let count = 0,
+      name = '';
+    f.run.mockImplementation((_file, args) => {
+      if (args.includes('create')) {
+        count++;
+        name = args[args.indexOf('--name') + 1];
+        return { status: 0, stdout: 'Created provider' };
+      }
+      return {
+        status: 0,
+        stdout: JSON.stringify({
+          providers: [
+            { name, id: `original-${count}`, workspace: 'new-workspace', type: 'openai' },
+          ],
+          next_page_token: '',
+        }),
+      };
+    });
+    await provision(f, vi.fn().mockResolvedValue(response()));
+    await provision(f, vi.fn().mockResolvedValue(response()));
+    expect(() => captureSymposiumWorkApiAccount(f.gateway as never, 'work')).toThrow('Unique');
+  });
   it('refreshes an expired catalog on the same original provider and credential, invalidating the old capability', async () => {
     const f = fixture(),
       request = vi.fn().mockImplementation(async () => response());

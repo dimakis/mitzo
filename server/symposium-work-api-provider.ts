@@ -121,6 +121,30 @@ export function captureSymposiumWorkApiCatalog(
   capability.assertCurrent();
   return capability;
 }
+/** Resolve only an exact original creation account, never catalog display labels
+ * or inventory JSON. The issuer must retain both original capability objects. */
+export function captureSymposiumWorkApiAccount(
+  gateway: OwnedSymposiumGateway,
+  accountId: string,
+): {
+  provider: SymposiumWorkApiCreationCapability;
+  catalog: SymposiumWorkApiCatalogCapability;
+} {
+  gateway.verifyCustody();
+  const matches = [...(originalCreations.get(gateway)?.values() ?? [])].filter(
+    (receipt) => receipt.identity.accountId === accountId,
+  );
+  if (matches.length !== 1) throw Error('Unique original work API account creation required');
+  const provider = matches[0];
+  provider.assertCurrent();
+  const catalog = captureSymposiumWorkApiCatalog(gateway, provider.identity.providerId);
+  if (
+    catalog.observation.providerName !== provider.identity.providerName ||
+    catalog.observation.workspace !== provider.identity.workspace
+  )
+    throw Error('Original work API account catalog differs');
+  return Object.freeze({ provider, catalog });
+}
 async function authenticatedCatalog(
   gateway: OwnedSymposiumGateway,
   profile: SymposiumWorkApiProfile,
