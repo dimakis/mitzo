@@ -2,7 +2,6 @@ import { githubRepositoryConnections } from './github-repository-connections.js'
 import { realpathSync } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
-import { z } from 'zod';
 import { createLogger } from '@mitzo/harness';
 import { safeGithubSeedFailure, githubSeedFailureMessage } from './github-seeded-source.js';
 const publicationLog = createLogger('github-publication');
@@ -12,7 +11,6 @@ import {
   effectivePermissionMode,
   type SessionRegistry,
 } from '@mitzo/harness';
-import type { ToolDefinition } from '@mitzo/harness';
 import { getConnectionsRuntime } from './connections-runtime.js';
 import {
   bindLiveCapabilityConversation,
@@ -22,9 +20,7 @@ import {
 import { capabilityApprovalForConversation } from './connections/capabilities/approval.js';
 import { canonicalJson } from './connections/capabilities/input-validation.js';
 import {
-  GithubPublishingFields,
   GithubPublishingInput as Input,
-  githubPublishingDefinition,
   REQUEST_GITHUB_PUBLISH,
 } from './github-publishing-definition.js';
 export {

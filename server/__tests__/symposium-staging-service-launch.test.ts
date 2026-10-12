@@ -54,6 +54,8 @@ function fixture(canonical = false) {
     'symposium-staging-environment',
     'symposium-canonical-control',
     'symposium-canonical-owner-record',
+    'staging-feature-contract',
+    'staging-native-app-witness',
     'symposium-staging-identity',
     'symposium-staging-service',
     'symposium-staging-launch-schema',

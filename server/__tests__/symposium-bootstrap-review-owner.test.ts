@@ -1,6 +1,6 @@
 vi.mock('../mcp-config.js', () => ({ loadMcpServers: () => ({}) }));
 import { afterAll, expect, it, vi } from 'vitest';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { SymposiumReviewStore } from '../symposium-review-workflows.js';
@@ -41,13 +41,15 @@ vi.mock('node:child_process', async (original) => ({
 afterAll(() => {
   vi.unstubAllEnvs();
 });
-it('returns the exact existing real review owner already mounted by app, without constructing another owner', async () => {
-  const root = mkdtempSync(join(tmpdir(), 'symposium-bootstrap-owner-'));
+it('returns the exact real review owner already mounted by the native service, without constructing another owner', async () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'symposium-bootstrap-owner-')));
   vi.stubEnv('REPO_PATH', root);
   vi.stubEnv('MITZO_SYMPOSIUM_CUSTODIAN_OWNER', '1');
-  const app = await import('../app.js');
-  const first = app.getSymposiumBootstrapDependencies();
-  const second = app.getSymposiumBootstrapDependencies();
+  vi.stubEnv('MITZO_CODEX_PRIVATE_DIR', join(root, 'private-codex'));
+  const { createSymposiumCustodianService } = await import('../symposium-custodian-service.js');
+  const service = createSymposiumCustodianService({ workspaceRoot: root });
+  const first = service.getSymposiumBootstrapDependencies();
+  const second = service.getSymposiumBootstrapDependencies();
   expect(captured.stores).toHaveLength(1);
   expect(first.reviews).toBeInstanceOf(SymposiumReviewStore);
   expect(first.reviews).toBe(captured.stores[0]);
@@ -57,4 +59,6 @@ it('returns the exact existing real review owner already mounted by app, without
     'Original native observation owner unavailable',
   );
   expect(captured.effects).not.toHaveBeenCalled();
+  service.closeUninstalledService();
+  rmSync(root, { recursive: true, force: true });
 });
