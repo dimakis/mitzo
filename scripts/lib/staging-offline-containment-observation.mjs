@@ -998,14 +998,25 @@ export function assertOpaqueContainmentManifest(manifest, unit) {
   )
     throw Error('Whole opaque unit manifest changed');
 }
-async function inspectPhysicalBoundary(plan, invalidatedControls, contained, replacementApp) {
+async function inspectPhysicalBoundary(
+  plan,
+  invalidatedControls,
+  contained,
+  replacementApp,
+  verifyExecutingSource,
+) {
   const facts = plan.facts,
     unit = facts.units[0],
     invalidated = invalidatedSet(invalidatedControls);
-  await qualifyOfflineContainmentController({
-    canonicalRoot: facts.canonicalRoot,
-    sourceRoot: resolve(fileURLToPath(new URL('../..', import.meta.url))),
-  });
+  if (verifyExecutingSource) {
+    if (typeof verifyExecutingSource !== 'function')
+      throw Error('Original source witness required');
+    await verifyExecutingSource();
+  } else
+    await qualifyOfflineContainmentController({
+      canonicalRoot: facts.canonicalRoot,
+      sourceRoot: resolve(fileURLToPath(new URL('../..', import.meta.url))),
+    });
   const { bytes, hash } = await import('./staging-cold-audit.mjs');
   const absent = (path) => !lstatSync(path, { throwIfNoEntry: false });
   const boot = successful('/usr/sbin/sysctl', ['-n', 'kern.bootsessionuuid']);
@@ -1107,7 +1118,15 @@ export async function assertOfflineContainmentBeforeMove(
 ) {
   assertBoundProposal(plan);
   invalidatedSet(invalidatedControls);
-  await (deps.inspect ?? inspectPhysicalBoundary)(plan, invalidatedControls, false);
+  if (deps.verifyExecutingSource)
+    await (deps.inspect ?? inspectPhysicalBoundary)(
+      plan,
+      invalidatedControls,
+      false,
+      undefined,
+      deps.verifyExecutingSource,
+    );
+  else await (deps.inspect ?? inspectPhysicalBoundary)(plan, invalidatedControls, false);
 }
 export async function assertOfflineContainmentContained(plan, intent, deps = {}) {
   assertBoundProposal(plan);
@@ -1272,7 +1291,7 @@ async function inspectReplacementBinding(proof) {
 /** Capture the independently reviewed replacement at construction. Changing a
  * caller record later cannot broaden the old-resource containment inspection. */
 export function createOfflineContainmentInspectionOwner(
-  { replacementApp, verifyCurrentSource } = {},
+  { replacementApp, verifyCurrentSource, verifyExecutingSource } = {},
   deps = {},
 ) {
   if (replacementApp && typeof verifyCurrentSource !== 'function')
@@ -1284,7 +1303,8 @@ export function createOfflineContainmentInspectionOwner(
     Object.freeze(captured);
   }
   return Object.freeze({
-    assertBeforeMove: (plan, phase) => assertOfflineContainmentBeforeMove(plan, phase, deps),
+    assertBeforeMove: (plan, phase) =>
+      assertOfflineContainmentBeforeMove(plan, phase, { ...deps, verifyExecutingSource }),
     async assertContained(plan, intent) {
       assertBoundProposal(plan);
       if (intent?.planSha256 !== plan.sha256)
@@ -1295,6 +1315,7 @@ export function createOfflineContainmentInspectionOwner(
         ['app', 'vm_supervisor'],
         true,
         captured,
+        verifyExecutingSource,
       );
     },
   });
