@@ -4825,3 +4825,31 @@ it('a stop while the synthetic child prepares prevents renewed provider dispatch
   expect(c.isPaused()).toBe(true);
   expect(requests.filter((r) => r.method === 'turn/start')).toHaveLength(1);
 });
+
+it('reports a trusted external owner environment receipt without creating an unadmitted child', async () => {
+  const state = await setup();
+  const pending = vi.fn();
+  state.conversationOptions.shouldContinueAfterToolResult = () => true;
+  state.conversationOptions.environmentContinuationOwner = 'external';
+  state.conversationOptions.onEnvironmentPending = pending;
+  await state.c.send({
+    id: 'external-command',
+    prompt: 'Read approved evidence',
+    intent: 'Read Gmail',
+  });
+  const result = await state.callbacks.onRequest(
+    'item/tool/call',
+    { threadId: 'provider-thread', turnId: 'turn-1', callId: 'grant', tool: 'Read', arguments: {} },
+    new AbortController().signal,
+  );
+  expect(pending).toHaveBeenCalledWith('external-command', 'turn-1');
+  expect(JSON.stringify(result)).toContain('unfinished');
+  expect(state.c.queue().filter((command) => command.environmentContinuation)).toHaveLength(0);
+  const terminal = vi.fn();
+  state.conversationOptions.onProviderTerminal = terminal;
+  state.callbacks.onNotification('turn/completed', {
+    threadId: 'provider-thread',
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  expect(terminal).toHaveBeenCalledWith('external-command', 'turn-1', 'completed');
+});

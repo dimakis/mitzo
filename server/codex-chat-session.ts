@@ -1578,10 +1578,19 @@ async function openCodexChatBound(
       ? {
           refreshTransportBeforeTurn: () => integrationTransportNeedsRefresh,
           shouldContinueAfterToolResult: (name, _input, result) =>
-            !options.ordinaryTurnLifecycle &&
-            name === GRANT_INTEGRATION_TOOL &&
-            !result.isError &&
-            integrationTransportNeedsRefresh,
+            name === GRANT_INTEGRATION_TOOL && !result.isError && integrationTransportNeedsRefresh,
+          ...(options.ordinaryTurnLifecycle
+            ? {
+                environmentContinuationOwner: 'external' as const,
+                onEnvironmentPending: (commandId: string, providerTurnId: string) => {
+                  if (!options.ordinaryTurnLifecycle?.environmentPending)
+                    throw new Error(
+                      'The owning controller does not support unfinished environment receipts',
+                    );
+                  options.ordinaryTurnLifecycle.environmentPending(commandId, providerTurnId);
+                },
+              }
+            : {}),
           prepareTurn: async ({ providerPrompt, userIntent, turnId }, signal: AbortSignal) => {
             integrationTurn = { id: turnId, denied: new Set(), pending: new Map() };
             // Older persisted commands did not retain separate raw intent. Do

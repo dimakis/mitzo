@@ -124,6 +124,9 @@ export interface CodexConversationOptions {
     input: ObjectValue,
     result: { content: string; isError: boolean },
   ) => boolean;
+  /** External owners retain admission authority for unfinished environment changes. */
+  environmentContinuationOwner?: 'external';
+  onEnvironmentPending?: (commandId: string, providerTurnId: string) => void;
   requestUserInput?: (params: ObjectValue, signal: AbortSignal) => Promise<ObjectValue>;
   validateModel?: (model: string, reasoningEffort?: string) => void;
   displayToolName?: (name: string) => string;
@@ -2404,7 +2407,7 @@ export class CodexConversation {
       this.opts.shouldContinueAfterToolResult?.(call.tool, call.arguments, result)
     ) {
       result = {
-        content: `${result.content}\n[Mitzo: This access changes the environment for a freshly launched transport. Do not execute credential-dependent commands in this existing turn. Finalize this turn; the retained user request will continue once after a verified completed boundary and transport refresh, or an already queued user follow-up will use the refreshed environment.]`,
+        content: `${result.content}\n[Mitzo: This access changes the environment for a freshly launched transport. Do not execute credential-dependent commands in this existing turn or claim the task is finished. ${this.opts.environmentContinuationOwner === 'external' ? 'The task remains unfinished; finalize this turn so the owning controller can retain partial work and require its reviewed continuation after environment refresh.' : 'Finalize this turn; the retained user request will continue once after a verified completed boundary and transport refresh, or an already queued user follow-up will use the refreshed environment.'}]`,
         isError: false,
       };
       // Capture a replayable host receipt before admitting any one-shot follow-up.
@@ -2418,7 +2421,11 @@ export class CodexConversation {
           toolIdentity,
           result,
         );
-        if (
+        if (this.opts.environmentContinuationOwner === 'external') {
+          if (!this.opts.onEnvironmentPending)
+            throw new Error('External environment receipt observer is unavailable');
+          this.opts.onEnvironmentPending(active.command.id, call.turnId);
+        } else if (
           this.opts.store.queueEnvironmentContinuation(
             this.opts.conversationId,
             this.binding!,
