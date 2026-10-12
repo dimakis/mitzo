@@ -221,3 +221,17 @@ it('stale guard or accepted source cannot cross a native start boundary', async 
   await expect(f.owner.verifyStopped()).rejects.toThrow();
   expect(f.effects.startSupervisor).not.toHaveBeenCalled();
 });
+it('synchronous current capability needs original verified lineage and the live handoff fence', async () => {
+  const f = ownerFixture();
+  f.effects.assertRunningCurrent = vi.fn(() => ({ vmMemoryMiB: 4096, vmCpus: 2 }));
+  expect(() => f.owner.assertRunningCurrent()).toThrow();
+  await f.owner.verifyStopped();
+  await f.owner.startOnce();
+  expect(f.owner.assertRunningCurrent()).toEqual({ vmMemoryMiB: 4096, vmCpus: 2 });
+  f.assertGuardCurrent.mockImplementation(() => {
+    throw Error('original custodian lost');
+  });
+  expect(() => f.owner.assertRunningCurrent()).toThrow();
+  await f.owner.retain();
+  expect(() => f.owner.assertRunningCurrent()).toThrow();
+});

@@ -13,8 +13,9 @@ import {
   readSync,
   chmodSync,
   writeFileSync,
+  readdirSync,
 } from 'node:fs';
-import { spawnSync } from 'node:child_process';
+import { spawnSync, spawn } from 'node:child_process';
 import { createServer } from 'node:net';
 import { setTimeout, clearTimeout } from 'node:timers';
 import { OFFLINE_CONTAINMENT_TARGET } from './staging-offline-containment-contract.mjs';
@@ -61,6 +62,396 @@ export function freshAppleHvConfiguration() {
     OFFLINE_CONTAINMENT_TARGET.nativeHelpers.find((h) => h.kind === 'vfkit').path,
   );
   return `[engine]\nhelper_binaries_dir = [${JSON.stringify(directory)}]\n[machine]\nprovider = "applehv"\nrosetta = false\n`;
+}
+/** Reviewable fixed provisioning facts. A plan does not authorize a native operation. */
+export function createFreshAppleHvProvisionPlan(input) {
+  const copy = globalThis.structuredClone(input);
+  const previous = copy?.qualification;
+  if (copy) delete copy.qualification;
+  fields(
+    copy,
+    'version,allocationUUID,canonicalRoot,nativeRoot,sourceRoot,sourceCommit,sourceTree,sourceInventory,bootUUID,node,helpers,oldIdentities,budget,resourcePolicy,sourceImage',
+  );
+  if (
+    Buffer.byteLength(JSON.stringify(copy)) > 262144 ||
+    copy.version !== 1 ||
+    !uuid.test(copy.allocationUUID) ||
+    !absolute(copy.canonicalRoot) ||
+    copy.nativeRoot !== join(copy.canonicalRoot, 'symposium/allocations', copy.allocationUUID) ||
+    !commit.test(copy.sourceCommit) ||
+    !commit.test(copy.sourceTree) ||
+    copy.sourceRoot !== join(copy.canonicalRoot, 'releases', copy.sourceCommit.slice(0, 12)) ||
+    typeof copy.bootUUID !== 'string' ||
+    !uuid.test(copy.bootUUID.toLowerCase())
+  )
+    fail('provisioning identity');
+  validateSourcePins(copy);
+  fields(copy.sourceImage, 'path,dev,ino,uid,mode,nlink,size,sha256,expandedBytes,compression');
+  const { expandedBytes, compression, ...imageIdentity } = copy.sourceImage;
+  if (!['zstd', 'xz'].includes(compression)) fail('stock image compression');
+  fileIdentity(
+    imageIdentity,
+    join(
+      copy.canonicalRoot,
+      'symposium/image-sources',
+      copy.sourceImage?.sha256 + '-arm64.raw.' + (compression === 'zstd' ? 'zst' : 'xz'),
+    ),
+    0o600,
+  );
+  if (
+    !integer(expandedBytes) ||
+    expandedBytes < 1 ||
+    expandedBytes > 16 * 1073741824 ||
+    copy.sourceImage.size > 1073741824 ||
+    copy.budget.candidateAllocatedGiB !== 0 ||
+    copy.budget.scratchGrowthGiB < copy.sourceImage.size / 1073741824
+  )
+    fail('bounded fresh image');
+  if (!Array.isArray(copy.oldIdentities) || copy.oldIdentities.length !== 3)
+    fail('retained identity exclusion');
+  for (const old of copy.oldIdentities) {
+    fields(old, 'dev,ino');
+    if (!integer(old.dev) || !integer(old.ino)) fail();
+  }
+  const machineName = 'mitzo-staging-' + copy.allocationUUID.replaceAll('-', '');
+  const home = join(copy.nativeRoot, 'home');
+  const qualification = {
+    machineName,
+    ...qualifyBudget(copy),
+    environment: {
+      PATH: '/usr/bin:/bin:/usr/sbin:/sbin',
+      HOME: home,
+      XDG_CONFIG_HOME: join(home, '.config'),
+      XDG_DATA_HOME: join(home, '.local/share'),
+      XDG_CACHE_HOME: join(home, '.cache'),
+      TMPDIR: '/private/tmp',
+      LC_ALL: 'C',
+      CONTAINERS_CONF: join(copy.nativeRoot, 'settings/containers.conf'),
+      CONTAINERS_MACHINE_PROVIDER: 'applehv',
+      CONTAINER_CONNECTION: machineName,
+      NODE_OPTIONS: '--max-old-space-size=1024',
+    },
+    commandArguments: [
+      'machine',
+      'init',
+      '--image',
+      copy.sourceImage.path,
+      '--cpus',
+      '2',
+      '--memory',
+      '4096',
+      '--disk-size',
+      '16',
+      '--rootful=false',
+      '--volume',
+      copy.canonicalRoot + ':' + copy.canonicalRoot,
+      machineName,
+    ],
+  };
+  if (previous && digest(previous) !== digest(qualification)) fail('provisioning tuple drift');
+  const plan = canonical({ ...copy, qualification });
+  // These public getters remain derived; normalization never accepts caller argv.
+  Object.defineProperties(plan, {
+    machineName: { value: machineName, enumerable: false },
+    commandArguments: { value: qualification.commandArguments, enumerable: false },
+  });
+  return freeze({ plan, sha256: digest(plan) });
+}
+/** Runs only inside the original qualified canonical controller process. All
+ * four authority assertions are live callbacks, never JSON declarations. */
+export async function provisionFreshAppleHvAllocation(options, effects) {
+  const {
+    allocation,
+    canonicalRoot,
+    sourceRoot,
+    approvedProvisioningPlan,
+    assertGuardCurrent,
+    assertAcceptedSource,
+    assertNativeAuthenticationCurrent,
+    assertApprovedImage,
+  } = options;
+  if (
+    [
+      assertGuardCurrent,
+      assertAcceptedSource,
+      assertNativeAuthenticationCurrent,
+      assertApprovedImage,
+    ].some((fn) => typeof fn !== 'function')
+  )
+    fail('original provisioning authority');
+  const approved = createFreshAppleHvProvisionPlan(approvedProvisioningPlan?.plan),
+    p = approved.plan;
+  if (
+    approved.sha256 !== approvedProvisioningPlan.sha256 ||
+    canonicalRoot !== p.canonicalRoot ||
+    sourceRoot !== p.sourceRoot ||
+    allocation?.allocationUUID !== p.allocationUUID ||
+    allocation.nativeRoot !== p.nativeRoot
+  )
+    fail('original allocation provisioning');
+  if (!effects && canonicalRoot !== OFFLINE_CONTAINMENT_TARGET.canonicalRoot)
+    fail('actual canonical staging root');
+  const synchronous = (fn) => {
+    const result = fn();
+    if (result === false || result instanceof Promise)
+      fail('live synchronous provisioning authority');
+  };
+  const fence = async () => {
+    synchronous(assertGuardCurrent);
+    synchronous(assertNativeAuthenticationCurrent);
+    if (
+      (await assertAcceptedSource()) === false ||
+      (await assertApprovedImage(p.sourceImage)) === false
+    )
+      fail('accepted source/image authority');
+    synchronous(assertGuardCurrent);
+    synchronous(assertNativeAuthenticationCurrent);
+  };
+  effects ??= freshAppleHvProvisionEffects(approved);
+  await fence();
+  await effects.verifyPrerequisites();
+  await fence();
+  await effects.initializeOnce({ assertCurrent: fence });
+  await fence();
+  const facts = await effects.capturePlan({ assertCurrent: fence });
+  await fence();
+  return facts;
+}
+function freshAppleHvProvisionEffects(approved) {
+  const p = approved.plan,
+    q = p.qualification,
+    home = q.environment.HOME;
+  const measuredFile = (path, mode, maxSize) => ({
+    ...identity(path),
+    sha256: checkedFile(path, { mode, maxSize }).sha256,
+  });
+  async function prerequisites() {
+    const policy = await verifyFreshSource(p);
+    for (const directory of [
+      p.nativeRoot,
+      home,
+      join(p.nativeRoot, 'workspace'),
+      join(p.nativeRoot, 'settings'),
+      join(p.nativeRoot, 'service'),
+    ]) {
+      const s = lstatSync(directory);
+      if (
+        !s.isDirectory() ||
+        s.isSymbolicLink() ||
+        s.uid !== process.getuid() ||
+        (s.mode & 0o777) !== 0o700 ||
+        realpathSync(directory) !== directory
+      )
+        fail('fresh private allocation');
+    }
+    if (
+      readdirSync(home).length ||
+      lstatSync(q.environment.CONTAINERS_CONF, { throwIfNoEntry: false }) ||
+      lstatSync(join(p.nativeRoot, 'service/fresh-vm-init-attempt.json'), { throwIfNoEntry: false })
+    )
+      fail('never initialized fresh allocation');
+    const image = measuredFile(p.sourceImage.path, 0o600, 1073741824);
+    if (!sameIdentity(image, p.sourceImage) || image.sha256 !== p.sourceImage.sha256)
+      fail('independently qualified local image bytes');
+    const usagePaths = [p.canonicalRoot, p.canonicalRoot + '-quarantine'];
+    const usage = command('/usr/bin/du', ['-sk', ...usagePaths]).split('\n');
+    if (
+      usage.length !== 2 ||
+      usage.some(
+        (line, i) => !/^\d+\s+/.test(line) || line.replace(/^\d+\s+/, '') !== usagePaths[i],
+      )
+    )
+      fail('provisioning aggregate observation');
+    const aggregate = usage.reduce((n, line) => n + Number(line.match(/^\d+/)[0]) / 1048576, 0);
+    const free = command('/bin/df', ['-kP', p.canonicalRoot])
+      .split('\n')
+      .at(-1)
+      ?.trim()
+      .split(/\s+/)[3];
+    if (
+      !/^\d+$/.test(free ?? '') ||
+      aggregate + p.budget.inflightGiB + q.projectedGrowthGiB > policy.stagingGiB ||
+      Number(free) / 1048576 - q.projectedGrowthGiB < policy.diskFreeGiB
+    )
+      fail('awaiting separate retention/operator plan');
+    const oldJob = spawnSync(
+      '/bin/launchctl',
+      ['print', `gui/${process.getuid()}/com.mitzo.staging.vm`],
+      { encoding: 'utf8', timeout: 15000, maxBuffer: 1048576 },
+    );
+    // A removed original registration must be proved by launchd, not plan JSON.
+    if (
+      oldJob.error ||
+      oldJob.signal ||
+      oldJob.status === 0 ||
+      !/Could not find service/.test(oldJob.stderr)
+    )
+      fail('original VM registration still present or uncertain');
+  }
+  return {
+    verifyPrerequisites: prerequisites,
+    initializeOnce: async ({ assertCurrent }) => {
+      await prerequisites();
+      await assertCurrent();
+      // Exclusive intent is never deleted, including on failure or loss of authority.
+      writeFileSync(
+        join(p.nativeRoot, 'service/fresh-vm-init-attempt.json'),
+        JSON.stringify({
+          version: 1,
+          planSha256: approved.sha256,
+          controllerPid: process.pid,
+          startedAt: Date.now(),
+        }) + '\n',
+        { flag: 'wx', mode: 0o600 },
+      );
+      await assertCurrent();
+      writeFileSync(q.environment.CONTAINERS_CONF, freshAppleHvConfiguration(), {
+        flag: 'wx',
+        mode: 0o600,
+      });
+      await assertCurrent();
+      await new Promise((resolvePromise, reject) => {
+        const child = spawn(p.helpers.find((h) => h.kind === 'podman').path, q.commandArguments, {
+          cwd: p.nativeRoot,
+          env: q.environment,
+          stdio: ['ignore', 'pipe', 'pipe'],
+        });
+        let size = 0,
+          settled = false;
+        const finish = (error) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(deadline);
+          clearTimeout(tick);
+          if (error) reject(error);
+          else resolvePromise();
+        };
+        const deadline = setTimeout(
+          () =>
+            finish(Error('Refused uncertain one-shot VM initialization; retain files and process')),
+          180000,
+        );
+        let tick;
+        const observe = async () => {
+          try {
+            await assertCurrent();
+            if (!settled) tick = setTimeout(observe, 1000);
+          } catch (error) {
+            finish(error);
+          }
+        };
+        tick = setTimeout(observe, 1000);
+        for (const stream of [child.stdout, child.stderr])
+          stream.on('data', (bytes) => {
+            size += bytes.length;
+            if (size > 65536)
+              finish(Error('Refused initialization output bound; retain uncertainty'));
+          });
+        child.once('error', finish);
+        child.once('exit', (code, signal) =>
+          finish(
+            code === 0 && !signal
+              ? undefined
+              : Error('Refused stock initialization outcome; retain uncertainty'),
+          ),
+        );
+      });
+    },
+    capturePlan: async ({ assertCurrent }) => {
+      await verifyFreshSource(p);
+      const name = q.machineName,
+        data = join(home, '.local/share/containers/podman/machine/applehv'),
+        machinePath = join(home, '.config/containers/podman/machine/applehv', name + '.json');
+      const measuredMachine = machineDefinition({ ...p, machine: { path: machinePath } });
+      const machine = measuredMachine.machine;
+      privateParents(p, join(data, name + '-arm64.raw'));
+      privateParents(p, join(home, '.local/share/containers/podman/machine/machine'));
+      const disk = measuredFile(join(data, name + '-arm64.raw'), 0o644, 16 * 1073741824);
+      const ssh = measuredFile(
+        join(home, '.local/share/containers/podman/machine/machine'),
+        0o600,
+        1048576,
+      );
+      const configuration = measuredFile(q.environment.CONTAINERS_CONF, 0o600, 65536);
+      const efiPath = join(data, 'efi-bl-' + name),
+        parent = lstatSync(data);
+      if (lstatSync(efiPath, { throwIfNoEntry: false }))
+        fail('unexpected EFI store before first start');
+      const efi = {
+        path: efiPath,
+        state: 'expected-absent',
+        parent: {
+          path: data,
+          dev: parent.dev,
+          ino: parent.ino,
+          uid: parent.uid,
+          mode: parent.mode & 0o777,
+        },
+      };
+      const programArguments = [
+        p.node.path,
+        join(p.sourceRoot, 'scripts/start-staging-allocation-vm.mjs'),
+        '--plan',
+        join(p.nativeRoot, 'service/fresh-vm-plan.json'),
+        '--guard',
+        '/private/tmp/mitzo-vm-' + p.allocationUUID + '.sock',
+      ];
+      const xml = (value) =>
+        String(value)
+          .replaceAll('&', '&amp;')
+          .replaceAll('<', '&lt;')
+          .replaceAll('>', '&gt;')
+          .replaceAll('"', '&quot;');
+      const environment =
+        '<dict>' +
+        Object.entries(q.environment)
+          .map(([k, v]) => '<key>' + xml(k) + '</key><string>' + xml(v) + '</string>')
+          .join('') +
+        '</dict>';
+      const plist =
+        '<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict><key>Label</key><string>com.mitzo.staging.vm</string><key>ProgramArguments</key><array>' +
+        programArguments.map((arg) => '<string>' + xml(arg) + '</string>').join('') +
+        '</array><key>WorkingDirectory</key><string>' +
+        xml(p.nativeRoot) +
+        '</string><key>RunAtLoad</key><false/><key>KeepAlive</key><false/><key>EnvironmentVariables</key>' +
+        environment +
+        '</dict></plist>\n';
+      const supervisor = {
+        plistPath: join(p.nativeRoot, 'service/com.mitzo.staging.vm.plist'),
+        plistSha256: hash(plist),
+        programArguments,
+        workingDirectory: p.nativeRoot,
+        label: 'com.mitzo.staging.vm',
+        keepAlive: false,
+        runAtLoad: false,
+        initialRuns: 0,
+      };
+      const { sourceImage, qualification, ...base } = p;
+      void sourceImage;
+      void qualification;
+      // The original image/source callbacks must independently qualify the image's
+      // expanded upper bound before init. Runtime disk identity is measured here.
+      const vm = createFreshAppleHvPlan({
+        ...base,
+        machine: {
+          path: machinePath,
+          sha256: measuredMachine.sha256,
+          definition: machine,
+        },
+        files: { disk, efi, ssh, configuration },
+        supervisor,
+      });
+      privateParents(p, supervisor.plistPath);
+      await assertCurrent();
+      writeFileSync(supervisor.plistPath, plist, { flag: 'wx', mode: 0o600 });
+      await assertCurrent();
+      writeFileSync(join(p.nativeRoot, 'service/fresh-vm-plan.json'), JSON.stringify(vm) + '\n', {
+        flag: 'wx',
+        mode: 0o600,
+      });
+      return vm;
+    },
+  };
 }
 function fileIdentity(file, path, mode, size) {
   fields(file, 'path,dev,ino,uid,mode,nlink,size,sha256');
@@ -148,6 +539,77 @@ function validateDefinition(m, plan) {
     mount.VSockNumber !== null
   )
     fail('stock fresh AppleHV boundary');
+}
+function validateSourcePins(copy) {
+  fields(copy.node, 'path,sha256');
+  if (!absolute(copy.node.path) || !sha.test(copy.node.sha256)) fail('node executable pin');
+  if (JSON.stringify(copy.helpers) !== JSON.stringify(OFFLINE_CONTAINMENT_TARGET.nativeHelpers))
+    fail('stock helper pins');
+  if (
+    !Array.isArray(copy.sourceInventory) ||
+    copy.sourceInventory.length < 3 ||
+    copy.sourceInventory.length > 512
+  )
+    fail('source inventory');
+  for (const file of copy.sourceInventory) {
+    fields(file, 'path,sha256');
+    if (
+      !/^(scripts|dist|frontend\/dist|packages\/(protocol|harness|client)\/dist)\/[A-Za-z0-9._/-]+$/.test(
+        file.path,
+      ) ||
+      file.path.split('/').some((p) => p === '..' || p === '.') ||
+      !sha.test(file.sha256)
+    )
+      fail('source inventory');
+  }
+  const names = copy.sourceInventory.map((f) => f.path);
+  if (
+    new Set(names).size !== names.length ||
+    [
+      'scripts/start-staging-allocation-vm.mjs',
+      'scripts/lib/staging-fresh-applehv.mjs',
+      'scripts/lib/staging-offline-containment-contract.mjs',
+    ].some((p) => !names.includes(p))
+  )
+    fail('supervisor source inventory');
+  fields(copy.resourcePolicy, 'path,sha256,aggregateGiBLimit,minFreeGiB');
+  if (
+    copy.resourcePolicy.path !== 'scripts/lib/staging-resource-budget.mjs' ||
+    !sha.test(copy.resourcePolicy.sha256) ||
+    !Number.isFinite(copy.resourcePolicy.aggregateGiBLimit) ||
+    copy.resourcePolicy.aggregateGiBLimit < 16 ||
+    copy.resourcePolicy.minFreeGiB !== 20 ||
+    !copy.sourceInventory.some(
+      (f) => f.path === copy.resourcePolicy.path && f.sha256 === copy.resourcePolicy.sha256,
+    )
+  )
+    fail('accepted source resource policy');
+}
+function qualifyBudget(copy) {
+  fields(
+    copy.budget,
+    'aggregateGiBLimit,minFreeGiB,stageGiB,quarantineGiB,inflightGiB,candidateAllocatedGiB,releaseGrowthGiB,scratchGrowthGiB,additionalGrowthGiB,diskFreeGiB',
+  );
+  if (
+    Object.values(copy.budget).some((n) => !Number.isFinite(n) || n < 0) ||
+    copy.budget.aggregateGiBLimit !== copy.resourcePolicy.aggregateGiBLimit ||
+    copy.budget.minFreeGiB !== copy.resourcePolicy.minFreeGiB ||
+    copy.budget.candidateAllocatedGiB > 16
+  )
+    fail('reviewed resource policy');
+  const projectedGrowthGiB =
+    16 -
+    copy.budget.candidateAllocatedGiB +
+    copy.budget.releaseGrowthGiB +
+    copy.budget.scratchGrowthGiB +
+    copy.budget.additionalGrowthGiB;
+  const projectedAggregateGiB =
+    copy.budget.stageGiB + copy.budget.quarantineGiB + copy.budget.inflightGiB + projectedGrowthGiB;
+  const remainingFreeGiB = copy.budget.diskFreeGiB - projectedGrowthGiB;
+  if (projectedAggregateGiB > copy.budget.aggregateGiBLimit)
+    fail('awaiting separate retention/operator plan');
+  if (remainingFreeGiB < copy.budget.minFreeGiB) fail('host disk headroom');
+  return { projectedGrowthGiB, projectedAggregateGiB, remainingFreeGiB };
 }
 /** Pure normalized facts for independent review. This JSON grants no ownership,
  * provisioning, native start, model authority or reopening capability. */
@@ -237,49 +699,7 @@ export function createFreshAppleHvPlan(input) {
   )
     fail('fresh machine definition');
   validateDefinition(copy.machine.definition, copy);
-  fields(copy.node, 'path,sha256');
-  if (!absolute(copy.node.path) || !sha.test(copy.node.sha256)) fail('node executable pin');
-  if (JSON.stringify(copy.helpers) !== JSON.stringify(OFFLINE_CONTAINMENT_TARGET.nativeHelpers))
-    fail('stock helper pins');
-  if (
-    !Array.isArray(copy.sourceInventory) ||
-    copy.sourceInventory.length < 3 ||
-    copy.sourceInventory.length > 512
-  )
-    fail('source inventory');
-  for (const file of copy.sourceInventory) {
-    fields(file, 'path,sha256');
-    if (
-      !/^(scripts|dist|frontend\/dist|packages\/(protocol|harness|client)\/dist)\/[A-Za-z0-9._/-]+$/.test(
-        file.path,
-      ) ||
-      file.path.split('/').some((p) => p === '..' || p === '.') ||
-      !sha.test(file.sha256)
-    )
-      fail('source inventory');
-  }
-  const names = copy.sourceInventory.map((f) => f.path);
-  if (
-    new Set(names).size !== names.length ||
-    [
-      'scripts/start-staging-allocation-vm.mjs',
-      'scripts/lib/staging-fresh-applehv.mjs',
-      'scripts/lib/staging-offline-containment-contract.mjs',
-    ].some((p) => !names.includes(p))
-  )
-    fail('supervisor source inventory');
-  fields(copy.resourcePolicy, 'path,sha256,aggregateGiBLimit,minFreeGiB');
-  if (
-    copy.resourcePolicy.path !== 'scripts/lib/staging-resource-budget.mjs' ||
-    !sha.test(copy.resourcePolicy.sha256) ||
-    !Number.isFinite(copy.resourcePolicy.aggregateGiBLimit) ||
-    copy.resourcePolicy.aggregateGiBLimit < 16 ||
-    copy.resourcePolicy.minFreeGiB !== 20 ||
-    !copy.sourceInventory.some(
-      (f) => f.path === copy.resourcePolicy.path && f.sha256 === copy.resourcePolicy.sha256,
-    )
-  )
-    fail('accepted source resource policy');
+  validateSourcePins(copy);
   fields(
     copy.supervisor,
     'plistPath,plistSha256,programArguments,workingDirectory,label,keepAlive,runAtLoad,initialRuns',
@@ -304,29 +724,7 @@ export function createFreshAppleHvPlan(input) {
     copy.supervisor.initialRuns !== 0
   )
     fail('canonical supervisor binding');
-  fields(
-    copy.budget,
-    'aggregateGiBLimit,minFreeGiB,stageGiB,quarantineGiB,inflightGiB,candidateAllocatedGiB,releaseGrowthGiB,scratchGrowthGiB,additionalGrowthGiB,diskFreeGiB',
-  );
-  if (
-    Object.values(copy.budget).some((n) => !Number.isFinite(n) || n < 0) ||
-    copy.budget.aggregateGiBLimit !== copy.resourcePolicy.aggregateGiBLimit ||
-    copy.budget.minFreeGiB !== copy.resourcePolicy.minFreeGiB ||
-    copy.budget.candidateAllocatedGiB > 16
-  )
-    fail('reviewed resource policy');
-  const projectedGrowthGiB =
-    16 -
-    copy.budget.candidateAllocatedGiB +
-    copy.budget.releaseGrowthGiB +
-    copy.budget.scratchGrowthGiB +
-    copy.budget.additionalGrowthGiB;
-  const projectedAggregateGiB =
-    copy.budget.stageGiB + copy.budget.quarantineGiB + copy.budget.inflightGiB + projectedGrowthGiB;
-  const remainingFreeGiB = copy.budget.diskFreeGiB - projectedGrowthGiB;
-  if (projectedAggregateGiB > copy.budget.aggregateGiBLimit)
-    fail('awaiting separate retention/operator plan');
-  if (remainingFreeGiB < copy.budget.minFreeGiB) fail('host disk headroom');
+  const { projectedGrowthGiB, projectedAggregateGiB, remainingFreeGiB } = qualifyBudget(copy);
   const environment = {
     PATH: '/usr/bin:/bin:/usr/sbin:/sbin',
     HOME: home,
@@ -392,6 +790,7 @@ export function createFreshAppleHvOwner(
   let stopped = false,
     attempted = false,
     lineage,
+    runningVerified = false,
     retained = false;
   const fence = async () => {
     const guard = assertGuardCurrent();
@@ -431,14 +830,35 @@ export function createFreshAppleHvOwner(
         fail('original supervisor lineage');
       lineage = freeze(globalThis.structuredClone(result));
       await fence();
-      return effects.verifyRunning(lineage);
+      const observation = await effects.verifyRunning(lineage);
+      await fence();
+      runningVerified = true;
+      return observation;
     },
     verifyRunning: async () => {
       if (!lineage || retained) fail('original running capability');
+      runningVerified = false;
       await fence();
       const observation = await effects.verifyRunning(lineage);
       await fence();
+      runningVerified = true;
       return observation;
+    },
+    assertRunningCurrent: () => {
+      if (
+        !lineage ||
+        !runningVerified ||
+        retained ||
+        typeof effects.assertRunningCurrent !== 'function'
+      )
+        fail('original verified running capability');
+      const guard = assertGuardCurrent();
+      if (guard === false || guard instanceof Promise) fail('original live handoff fence');
+      const facts = effects.assertRunningCurrent(lineage);
+      if (facts instanceof Promise) fail('synchronous actual owner facts');
+      const again = assertGuardCurrent();
+      if (again === false || again instanceof Promise) fail('original live handoff fence');
+      return facts;
     },
     retain: async () => {
       if (!retained) {
@@ -610,8 +1030,7 @@ function scopedNoOpenHandles(paths) {
 function bootUUID() {
   return command('/usr/sbin/sysctl', ['-n', 'kern.bootsessionuuid']);
 }
-export async function inspectFreshAppleHvInputs(approved, { running = false } = {}) {
-  const p = approved.plan;
+async function verifyFreshSource(p) {
   if (
     process.platform !== 'darwin' ||
     bootUUID() !== p.bootUUID ||
@@ -638,6 +1057,11 @@ export async function inspectFreshAppleHvInputs(approved, { running = false } = 
     policy.workers !== 1
   )
     fail('actual accepted resource policy');
+  return policy;
+}
+export async function inspectFreshAppleHvInputs(approved, { running = false } = {}) {
+  const p = approved.plan;
+  const policy = await verifyFreshSource(p);
   privateParents(p, p.supervisor.plistPath);
   if (checkedFile(p.supervisor.plistPath, { mode: 0o600 }).sha256 !== p.supervisor.plistSha256)
     fail('supervisor plist bytes');
@@ -718,6 +1142,9 @@ export async function inspectFreshAppleHvInputs(approved, { running = false } = 
     if (!running && checkedFile(p.files.efi.path, { mode: 0o644 }).sha256 !== p.files.efi.sha256)
       fail('prestart EFI bytes');
   }
+  return { current, disk, efi, ...observeFreshResources(p, policy) };
+}
+function observeFreshResources(p, policy) {
   const usagePaths = [p.canonicalRoot, p.canonicalRoot + '-quarantine'];
   const usage = command('/usr/bin/du', ['-sk', ...usagePaths]).split('\n');
   if (
@@ -755,7 +1182,13 @@ export async function inspectFreshAppleHvInputs(approved, { running = false } = 
     Number(diskFree) / 1048576 - growth < policy.diskFreeGiB
   )
     fail('current conservative host resources');
-  return { current, disk, efi, aggregateGiB: aggregate, growthGiB: growth };
+  return {
+    aggregateGiB: aggregate,
+    growthGiB: growth,
+    diskFreeGiB: Number(diskFree) / 1048576,
+    vmMemoryMiB: p.machine.definition.Resources.Memory,
+    vmCpus: p.machine.definition.Resources.CPUs,
+  };
 }
 export function parseFreshAppleHvOpenFiles(text, pid) {
   const rows = text.trim().split('\n');
@@ -933,6 +1366,52 @@ function freshAppleHvPhysicalEffects(approved) {
   return {
     verifyStopped,
     verifyRunning,
+    assertRunningCurrent: (lineage) => {
+      if (channelLost || bootUUID() !== p.bootUUID) fail('original current native owner');
+      assertSupervisor(p, lineage.supervisor, 1);
+      assertNativeProcess(p, lineage.vfkit, 'vfkit');
+      assertNativeProcess(p, lineage.gvproxy, 'gvproxy');
+      const current = machineDefinition(p);
+      validateFreshAppleHvMutableMachine(p, current.machine, {
+        startedAt: lineage.startedAt,
+        observedAt: Date.now(),
+      });
+      const disk = identity(p.files.disk.path),
+        efi = identity(p.files.efi.path);
+      if (!sameIdentity(disk, p.files.disk) || !sameIdentity(efi, lineage.efi))
+        fail('original current backing identities');
+      assertOpenIdentity(lineage.vfkit.pid, disk);
+      assertOpenIdentity(lineage.vfkit.pid, efi);
+      const socket = lstatSync(p.qualification.apiSocket);
+      if (
+        !socket.isSocket() ||
+        socket.uid !== process.getuid() ||
+        socket.mode & 0o077 ||
+        socket.dev !== lineage.apiSocket.dev ||
+        socket.ino !== lineage.apiSocket.ino
+      )
+        fail('original current rootless socket');
+      for (const item of [...p.helpers, p.node])
+        if (checkedFile(item.path, { uid: null }).sha256 !== item.sha256)
+          fail('current executable bytes');
+      for (const item of p.sourceInventory)
+        if (checkedFile(join(p.sourceRoot, item.path), { uid: null }).sha256 !== item.sha256)
+          fail('current accepted source bytes');
+      const facts = observeFreshResources(p, {
+        stagingGiB: p.resourcePolicy.aggregateGiBLimit,
+        diskFreeGiB: p.resourcePolicy.minFreeGiB,
+      });
+      return freeze({
+        ...facts,
+        allocationUUID: p.allocationUUID,
+        planSha256: approved.sha256,
+        bootUUID: p.bootUUID,
+        supervisorPid: lineage.supervisor.pid,
+        vfkitPid: lineage.vfkit.pid,
+        observationSha256: digest({ current, disk, efi, facts }),
+        nativeRetirementClaim: false,
+      });
+    },
     startSupervisor: async ({ authorize, assertCurrent }) => {
       if (lstatSync(p.qualification.guardSocket, { throwIfNoEntry: false }))
         fail('existing start guard endpoint');
