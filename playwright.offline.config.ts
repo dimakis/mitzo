@@ -4,8 +4,14 @@ import { defineConfig, devices } from '@playwright/test';
 // no web server, backend, provider configuration or live network dependency.
 export default defineConfig({
   testDir: './tests/offline',
+  outputDir: 'test-results/offline',
+  reporter: [['list'], ['html', { outputFolder: 'playwright-report/offline', open: 'never' }]],
   workers: 2,
-  use: { baseURL: 'http://mitzo-ui.test', trace: 'retain-on-failure' },
+  use: {
+    baseURL: 'http://mitzo-ui.test',
+    trace: 'retain-on-failure',
+    screenshot: 'only-on-failure',
+  },
   projects: [
     { name: 'mobile-webkit', use: { ...devices['iPhone 13'] } },
     { name: 'mobile-chromium', use: { ...devices['Pixel 7'] } },

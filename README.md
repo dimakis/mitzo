@@ -781,6 +781,14 @@ documentation gate. Browser and native checks follow their changed-file
 dependencies, with both checks retained for shared tooling, unknown paths,
 incomplete diffs, and every push to main.
 
+Browser suites keep separate output and HTML report directories. On a failing
+suite, CI uploads its traces, failure screenshots, error snapshots and HTML report
+as `playwright-browser-failure-<run>-<attempt>` or
+`playwright-offline-failure-<run>-<attempt>` for seven days. Download the artifact
+from the Actions run; use `npx playwright show-trace <trace.zip>` or
+`npx playwright show-report <report-directory>` to inspect it. Successful suites
+do not upload artifacts, and retries keep the original attempt's evidence.
+
 Production artifacts are staged with
 `./scripts/stage-openshell-release.sh <mgmt-repo> <new-seed-output>`. It requires
 clean Mitzo and MGMT checkouts at current `origin/main`, then builds and verifies
