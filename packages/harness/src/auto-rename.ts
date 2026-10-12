@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { AnthropicVertex } from '@anthropic-ai/vertex-sdk';
-import type { StoredEvent } from '@mitzo/protocol';
+import { splitContextPrompt, type StoredEvent } from '@mitzo/protocol';
 import { createLogger } from './logger.js';
 
 const log = createLogger('auto-rename');
@@ -196,7 +196,8 @@ export function generateSessionNameFallback(prompts: string[]): string {
   // Collect word frequencies across all prompts
   const freq = new Map<string, number>();
   for (const prompt of prompts) {
-    const words = prompt
+    const readablePrompt = splitContextPrompt(prompt)?.text ?? prompt;
+    const words = readablePrompt
       .toLowerCase()
       .replace(/[^a-z0-9\s-]/g, ' ')
       .split(/\s+/)
