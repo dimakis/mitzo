@@ -3801,3 +3801,92 @@ it('clears a previous approval error before every retry so identical rejections 
     expect(store.getState().messages.permission?.permId).toBe('retry');
   }
 });
+
+it.each(['unavailable', 'throws'])(
+  'keeps an approval retryable when transport %s',
+  async (failure) => {
+    const store = createReadyStore();
+    await store.getState().switchSession('test-session');
+    lastWs.simulateMessage({
+      type: 'permission_request',
+      sessionId: 'test-session',
+      permId: 'unsent',
+      toolName: 'Bash',
+      toolInput: 'echo ok',
+    });
+    const socket = lastWs;
+    if (failure === 'unavailable') socket.readyState = WS_READY_STATE.CLOSED;
+    else
+      vi.spyOn(socket, 'send').mockImplementation(() => {
+        throw new Error('Offline transport');
+      });
+    for (let attempt = 0; attempt < 2; attempt++) {
+      expect(() => store.getState().respondToPermission('unsent', 'always')).not.toThrow();
+      expect(store.getState().messages.permission).toMatchObject({
+        permId: 'unsent',
+        responseError: expect.stringContaining('try again'),
+      });
+    }
+    expect(
+      socket.parsedSent().filter((message) => message.type === 'permission_response'),
+    ).toHaveLength(0);
+  },
+);
+
+it.each(['public', 'protocol'])(
+  'restores retry for an unconfirmed response on an authoritative %s snapshot without resending',
+  async (path) => {
+    const store = createReadyStore();
+    await store.getState().switchSession('test-session');
+    const question = {
+      permId: 'lost',
+      sessionId: 'test-session',
+      toolName: 'AskUserQuestion',
+      toolInput: '',
+      questions: [
+        {
+          id: 'choice',
+          header: 'Choice',
+          question: 'Choose?',
+          multiSelect: false,
+          options: [{ label: 'Yes', description: '' }],
+        },
+      ],
+    };
+    lastWs.simulateMessage({ type: 'permission_request', ...question });
+    lastWs.simulateMessage({
+      type: 'permission_request',
+      sessionId: 'test-session',
+      permId: 'queued',
+      toolName: 'Write',
+      toolInput: 'notes',
+    });
+    store.getState().respondToPermission('lost', 'once', { choice: ['Yes'] });
+    const sent = lastWs
+      .parsedSent()
+      .filter((message) => message.type === 'permission_response').length;
+    const permissions = [
+      question,
+      { permId: 'queued', sessionId: 'test-session', toolName: 'Write', toolInput: 'notes' },
+    ];
+    if (path === 'public')
+      store.getState().dispatchMessages({ type: 'PERMISSION_SNAPSHOT', permissions });
+    else
+      lastWs.simulateMessage({
+        type: 'session_reconnect_snapshot',
+        sessionId: 'test-session',
+        cursor: 0,
+        cursorValid: true,
+        state: 'idle',
+        pendingPermissions: permissions,
+      });
+    expect(store.getState().messages.permission).toMatchObject({
+      ...question,
+      responseError: expect.stringContaining('try again'),
+    });
+    expect(store.getState().messages.permissionQueue?.[0]?.responseError).toBeUndefined();
+    expect(
+      lastWs.parsedSent().filter((message) => message.type === 'permission_response'),
+    ).toHaveLength(sent);
+  },
+);

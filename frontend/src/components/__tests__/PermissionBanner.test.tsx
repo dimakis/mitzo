@@ -21,6 +21,34 @@ afterEach(() => {
 });
 
 describe('PermissionBanner', () => {
+  it('preserves written answers and releases busy for repeated identical immediate failures', () => {
+    const onRespond = vi.fn();
+    render(
+      <PermissionBanner
+        {...defaultProps}
+        onRespond={onRespond}
+        responseError="Reconnect and try again."
+        questions={[
+          { id: 'q', header: 'Choice', question: 'Choose?', multiSelect: false, options: [] },
+        ]}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText('Your answer'), {
+      target: { value: 'Keep this answer' },
+    });
+    for (let attempt = 0; attempt < 2; attempt++) {
+      fireEvent.click(screen.getByRole('button', { name: 'Send answer' }));
+      expect(screen.getByRole('button', { name: 'Send answer' }).hasAttribute('disabled')).toBe(
+        false,
+      );
+      expect((screen.getByLabelText('Your answer') as HTMLTextAreaElement).value).toBe(
+        'Keep this answer',
+      );
+    }
+    expect(onRespond).toHaveBeenCalledTimes(2);
+    expect(onRespond).toHaveBeenLastCalledWith('p1', 'once', 'Bash', { q: ['Keep this answer'] });
+  });
+
   it('shows response progress, prevents duplicates and allows retry after failure', () => {
     const onRespond = vi.fn();
     const { rerender } = render(<PermissionBanner {...defaultProps} onRespond={onRespond} />);

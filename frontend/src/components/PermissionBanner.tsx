@@ -50,8 +50,8 @@ export function PermissionBanner({
 }: Props) {
   const [submitting, setSubmitting] = useState(false);
   useEffect(() => {
-    if (responseError) setSubmitting(false);
-  }, [responseError]);
+    if (responseError && submitting) setSubmitting(false);
+  }, [responseError, submitting]);
   const respond: Props['onRespond'] = (id, decision, tool, answers) => {
     setSubmitting(true);
     if (answers) onRespond(id, decision, tool, answers);
