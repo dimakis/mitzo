@@ -25,7 +25,9 @@ capabilities are minted inside the original host's actual factories.
 
 Once the independently reviewed gateway authority exists, the owner resolves
 only the requested current profile and chooses an explicitly supported Luna.
-The exact model/account, all dispatch scope, accepted source, original owner,
+The exact charged account must be returned by the original authenticated model
+policy capability; a profile label or newly created provider alone cannot prove
+billing identity. The exact model/account, all dispatch scope, accepted source, original owner,
 profile/enrollment revisions, runner/suite digests and bounds enter the immutable
 plan/hash. A single-model Vertex catalog can identify an exact candidate for
 exception review; only the authenticated original gateway policy may supply the
@@ -51,6 +53,14 @@ The actual app HostGrants activate a read-only reviewer, and the existing native
 runtime admits its membership generation, creates its owned sandbox, and obtains
 an exact original model budget bound to the sandbox and claim before opening a
 native turn. The fixed delivery requests only the fixture Read and its text.
+Codex's actual read-only configuration disables shell/exec, so this source adds
+one fixed Read through the existing native dynamic-tool bridge. Its original
+owner reads only the immutable nonce volume through a read-only, no-network
+32 MiB/eight-PID helper, checks mode/size/link/hash, and positively removes the
+exact helper before returning the real tool result. The original accepted
+runtime/claim must qualify that tool; cached nonce data or result flags cannot.
+A missing/ambiguous Read receipt blocks fixture retirement. Claude Vertex uses
+its actual native built-in Read and receives no additional host tools.
 It uses the ordinary native Codex/Claude factories and their current source
 admission; it does not substitute a local provider or another runtime.
 

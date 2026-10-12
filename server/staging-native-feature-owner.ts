@@ -1,3 +1,4 @@
+import { STAGING_NATIVE_FIXTURE_REVISION } from './symposium-staging-native-fixture.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import type { AccountBinding } from '@mitzo/protocol';
@@ -35,6 +36,7 @@ const suiteRevision = digest({
   seat: 'primary',
   role: 'reviewer',
   mainRounds: 2,
+  fixtureRevision: STAGING_NATIVE_FIXTURE_REVISION,
 });
 /** Instantiated by the actual original custodian app composition. The real app
  * port owns fixture/grants/runtime/claims/events/physical retirement; no HTTP
@@ -135,12 +137,13 @@ export class StagingNativeFeatureOwner {
     const authority = captureQualifiedStagingNativeModelAuthority(this.deps.gateway);
     const modelPlan = authority.plan({
       binding: current.enrollment.binding,
-      chargedAccount: current.enrollment.chargedAccount,
       selectedModel: current.enrollment.selectedModel,
       maxRequests: 2,
       auxiliaryDispatches: 'disabled',
     });
     modelPlan.assertCurrent();
+    if (modelPlan.selectedModel !== current.enrollment.selectedModel)
+      throw Error('Authenticated native model selection differs from the explicit enrolled model');
     if (
       !/^gpt-\d+(?:\.\d+)?-luna$/.test(current.enrollment.selectedModel) &&
       !modelPlan.modelApprovalId
@@ -157,7 +160,7 @@ export class StagingNativeFeatureOwner {
       runtime: 'openshell-native',
       runtimeRevision: modelPlan.revision,
       ownerInstance: this.deps.ownerInstance,
-      chargedAccount: current.enrollment.chargedAccount,
+      chargedAccount: modelPlan.chargedAccount,
       selectedModel: current.enrollment.selectedModel,
       modelApprovalId: modelPlan.modelApprovalId,
       suite: request.suite,
@@ -166,7 +169,7 @@ export class StagingNativeFeatureOwner {
       modelDispatches: [
         {
           purpose: 'main',
-          chargedAccount: current.enrollment.chargedAccount,
+          chargedAccount: modelPlan.chargedAccount,
           selectedModel: current.enrollment.selectedModel,
           maxModelRounds: 2,
         },

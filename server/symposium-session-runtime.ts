@@ -1610,6 +1610,11 @@ export interface SymposiumSessionRuntimeDeps extends Omit<
   observeStartupConfig?: import('./symposium-codex-native.js').OpenAiCodexSeatInput['observeStartupConfig'];
   observePrelaunch?: import('./symposium-codex-native.js').OpenAiCodexSeatInput['observePrelaunch'];
   openNative?: SymposiumOpenShellSeatExecutorDeps['openNative'];
+  /** Source-owned stage fixture tool on this original native runtime only. */
+  stagingFixtureTools?: (
+    execution: SymposiumSeatExecution,
+    verifyCurrent: () => void,
+  ) => SymposiumNativeProfileTools;
   /** Explicit host attestation of exact OpenShell 0.1 seat isolation and attachment semantics. */
   perSeatSandboxVerified?: boolean;
   /** Roles certified by the host capability gate. A production gate supplies this explicitly. */
@@ -1892,7 +1897,7 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
                 workdir: input.sandbox.workdir,
                 verifyCurrent: verifyNativeToolCurrent,
               });
-              const hostTools = accessTools
+              const ordinaryHostTools = accessTools
                 ? {
                     tools: [...(profileTools?.tools ?? []), ...accessTools.tools],
                     instructions: [profileTools?.instructions, accessTools.instructions]
@@ -1913,6 +1918,9 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
                           })),
                   }
                 : profileTools;
+              const hostTools = deps.stagingFixtureTools
+                ? deps.stagingFixtureTools(input.execution, verifyNativeToolCurrent)
+                : ordinaryHostTools;
               const loadConversationHistory = () =>
                 symposiumSeatRolloverHistory(
                   deps.store,

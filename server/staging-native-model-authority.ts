@@ -5,6 +5,9 @@ import type { OwnedSymposiumGateway } from './symposium-owned-gateway.js';
  * The original gateway must mint this after its exact source/build is verified. */
 export interface StagingNativeModelPlan {
   readonly revision: string;
+  /** Authenticated billing/account identity; never a caller's profile label. */
+  readonly chargedAccount: string;
+  readonly selectedModel: string;
   readonly modelApprovalId: string | null;
   assertCurrent(): void;
 }
@@ -22,7 +25,6 @@ export interface StagingNativeModelRequestReceipt {
 export interface StagingNativeModelAuthority {
   plan(input: {
     binding: AccountBinding;
-    chargedAccount: string;
     selectedModel: string;
     maxRequests: 2;
     auxiliaryDispatches: 'disabled';

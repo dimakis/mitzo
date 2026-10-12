@@ -1,10 +1,13 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { chmodSync, linkSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   SymposiumStagingNativeFixtures,
   STAGING_NATIVE_FIXTURE_WRITER,
+  STAGING_NATIVE_FIXTURE_READER,
 } from '../symposium-staging-native-fixture.js';
 import { artifactVolumeLabels } from '../symposium-session-artifacts.js';
 import type { SymposiumSessionArtifacts } from '../symposium-session-artifacts.js';
@@ -94,6 +97,10 @@ describe('original native fixture child lifecycle', () => {
     ]);
     await expect(owner.prepare('other', 'c'.repeat(64), guard)).rejects.toThrow(/reconciliation/);
     expect(() => owner.bindRuntime(cap, {} as never)).toThrow(/custody/);
+    expect(() =>
+      owner.readTools(cap, { sessionId: cap.sessionId, seat: { id: 'primary' } } as never, vi.fn()),
+    ).toThrow(/Read capability/);
+    expect(f.command).toHaveBeenCalledTimes(3);
     await expect(owner.retire({ ...cap }, 'claim', guard)).rejects.toThrow(/capability/);
     owner.close();
   });
@@ -135,5 +142,32 @@ describe('original native fixture child lifecycle', () => {
     ).rejects.toThrow(/reservation lost/);
     expect(f.command).toHaveBeenCalledTimes(1);
     owner.close();
+  });
+});
+
+describe('fixed physical native fixture reader', () => {
+  it('reads only an immutable single-link bounded file with the exact fixture hash', () => {
+    const root = mkdtempSync(join(tmpdir(), 'native-fixture-reader-'));
+    roots.push(root);
+    const nonce = 'a'.repeat(64),
+      path = join(root, 'nonce.txt');
+    writeFileSync(path, nonce + '\n', { mode: 0o400 });
+    const sha = createHash('sha256').update(nonce).digest('hex');
+    const read = (expected = sha) =>
+      execFileSync(
+        '/usr/bin/python3',
+        ['-I', '-B', '-S', '-c', STAGING_NATIVE_FIXTURE_READER, root, expected],
+        { encoding: 'utf8', timeout: 1000, maxBuffer: 1024, stdio: ['ignore', 'pipe', 'pipe'] },
+      );
+    expect(read()).toBe(nonce + '\n');
+    expect(() => read('b'.repeat(64))).toThrow();
+    chmodSync(path, 0o600);
+    expect(() => read()).toThrow();
+    chmodSync(path, 0o400);
+    linkSync(path, join(root, 'other-link'));
+    expect(() => read()).toThrow();
+    rmSync(path);
+    symlinkSync(join(root, 'other-link'), path);
+    expect(() => read()).toThrow();
   });
 });
