@@ -2874,7 +2874,15 @@ export async function sendToChat(
       });
       return false;
     }
-    if (responses && images?.length) {
+    if (
+      images?.length &&
+      (responses ||
+        (codex &&
+          (session.accountBinding?.provider ??
+            (session.sessionId
+              ? eventStore.getSession(session.sessionId)?.accountBinding?.provider
+              : undefined)) === 'openai'))
+    ) {
       try {
         responsesUserContent(prompt, images);
       } catch (error) {
@@ -3151,7 +3159,15 @@ export async function interruptChat(
       });
       return false;
     }
-    if (responses && images?.length) {
+    if (
+      images?.length &&
+      (responses ||
+        (codex &&
+          (session.accountBinding?.provider ??
+            (session.sessionId
+              ? eventStore.getSession(session.sessionId)?.accountBinding?.provider
+              : undefined)) === 'openai'))
+    ) {
       try {
         responsesUserContent(prompt, images);
       } catch (error) {
