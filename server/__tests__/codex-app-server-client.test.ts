@@ -3,6 +3,8 @@ import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { readFileSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { verifiedRuntimeServiceEnvironment } from '../openshell-runtime-policy.js';
+import { base, fixture } from './fixtures/effective-runtime-policy.js';
 import {
   CodexAppServerClient,
   CodexRequestError,
@@ -450,6 +452,59 @@ describe('Codex app-server transport', () => {
         encoding: 'utf8',
       }),
     ).toBe('');
+  });
+
+  it('launches with either reviewed GitHub alias while requiring every independent service credential', () => {
+    const f = fixture(['mitzo-openai-keychain-spike', 'github', 'mitzo-google-workspace-spike']);
+    const required = verifiedRuntimeServiceEnvironment(
+      base,
+      f.observed,
+      f.providers,
+      f.providers[0].name,
+    );
+    const spec = openShellCodexProcessSpec({
+      sandboxName: 'approved-sandbox',
+      workdir: '/sandbox/workspaces/mgmt',
+      requiredProviderEnvironment: required,
+    });
+    const remote = spec.args.at(-1)!.replaceAll('/sandbox/run-mitzo-app-server', '/usr/bin/true');
+    for (const alias of ['GITHUB_TOKEN', 'GH_TOKEN']) {
+      expect(
+        execFileSync('/bin/sh', ['-c', remote], {
+          env: {
+            [alias]: 'synthetic-github-placeholder',
+            GOOGLE_WORKSPACE_CLI_TOKEN: 'synthetic-gws-placeholder',
+          },
+          encoding: 'utf8',
+        }),
+      ).toBe('');
+    }
+    for (const env of [
+      {},
+      { GITHUB_TOKEN: '', GH_TOKEN: '', GOOGLE_WORKSPACE_CLI_TOKEN: 'synthetic-gws-placeholder' },
+      { GITHUB_TOKEN: 'synthetic-github-placeholder' },
+      { GOOGLE_WORKSPACE_CLI_TOKEN: 'synthetic-gws-placeholder' },
+    ]) {
+      expect(() => execFileSync('/bin/sh', ['-c', remote], { env, stdio: 'pipe' })).toThrow(
+        expect.objectContaining({ status: 78, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0) }),
+      );
+    }
+  });
+
+  it('rejects malformed credential alternative groups before launching', () => {
+    for (const requiredProviderEnvironment of [
+      [[]],
+      [['GH_TOKEN', 'TOKEN;touch /tmp/unreviewed']],
+      [Array.from({ length: 65 }, (_, i) => `TOKEN_${i}`)],
+    ]) {
+      expect(() =>
+        openShellCodexProcessSpec({
+          sandboxName: 'approved-sandbox',
+          workdir: '/sandbox/workspaces/mgmt',
+          requiredProviderEnvironment,
+        }),
+      ).toThrow('environment name');
+    }
   });
 
   it('cancels pending environment retries when the client closes', async () => {
