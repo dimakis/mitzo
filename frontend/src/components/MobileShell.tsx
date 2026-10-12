@@ -12,6 +12,7 @@ const HIDE_TAB_BAR = ['/login'];
 const COLLECTION_ROUTES = new Set([
   '/',
   '/sessions',
+  '/sessions/drafts',
   '/inbox',
   '/todos',
   '/more',
@@ -19,6 +20,7 @@ const COLLECTION_ROUTES = new Set([
   '/connections-access',
   '/connections',
   '/settings',
+  '/settings/updates',
   '/settings/backups',
   '/settings/notifications',
   '/calendar',
