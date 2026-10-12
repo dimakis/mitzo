@@ -56,6 +56,31 @@ function fixture() {
   return { deps, command, current, mapping };
 }
 describe('original native fixture child lifecycle', () => {
+  it('permits an unused original ledger to drain without any physical effects', () => {
+    const f = fixture(),
+      owner = new SymposiumStagingNativeFixtures(f.deps);
+    expect(() => owner.assertOriginalDrained()).not.toThrow();
+    expect(f.command).not.toHaveBeenCalled();
+    owner.close();
+    expect(() => owner.assertOriginalDrained()).toThrow();
+  });
+
+  it('refuses a positive drain after writer failure, including a reopened journal', async () => {
+    const f = fixture(),
+      owner = new SymposiumStagingNativeFixtures(f.deps);
+    f.command.mockRejectedValueOnce(Error('original helper creation uncertain'));
+    await expect(owner.prepare(f.mapping.sessionId, 'b'.repeat(64), vi.fn())).rejects.toThrow(
+      /uncertain/,
+    );
+    expect(() => owner.assertOriginalDrained()).toThrow(/retirement is incomplete/);
+    expect(f.command).toHaveBeenCalledTimes(1);
+    owner.close();
+    const reopened = new SymposiumStagingNativeFixtures(f.deps);
+    expect(() => reopened.assertOriginalDrained()).toThrow(/retirement is incomplete/);
+    expect(f.command).toHaveBeenCalledTimes(1);
+    reopened.close();
+  });
+
   it('uses only the fixed isolated bounded writer, then positively removes the exact helper', async () => {
     const f = fixture(),
       owner = new SymposiumStagingNativeFixtures(f.deps),
@@ -64,6 +89,7 @@ describe('original native fixture child lifecycle', () => {
     expect(cap.fixturePath).toBe('/sandbox/workspaces/mgmt/nonce.txt');
     expect(Object.isFrozen(cap)).toBe(true);
     expect(f.command).toHaveBeenCalledTimes(3);
+    expect(() => owner.assertOriginalDrained()).toThrow(/retirement is incomplete/);
     expect(f.command.mock.calls[0][0]).toEqual([
       'create',
       '--pull=never',
