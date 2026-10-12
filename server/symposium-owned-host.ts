@@ -165,6 +165,22 @@ export interface OwnedSymposiumHostOptions {
   artifacts: readonly { sessionId: string; volumeName: string; volumeGeneration: string }[];
 }
 
+export interface OriginalOwnedPersonalCatalogRefresh {
+  assertCurrent(): void;
+  refresh(id: string, revision: number, assertOriginalCurrent: () => void): Promise<unknown>;
+}
+const originalPersonalCatalogRefresh = new WeakMap<object, OriginalOwnedPersonalCatalogRefresh>();
+/** Only the exact object returned by the actual owned-host constructor is known.
+ * Copied host methods, HTTP payloads and bootstrap flags cannot mint this port. */
+export function captureOwnedPersonalCatalogRefresh(
+  host: object,
+): OriginalOwnedPersonalCatalogRefresh {
+  const capability = originalPersonalCatalogRefresh.get(host);
+  if (!capability) throw Error('Original owned personal catalog host required');
+  capability.assertCurrent();
+  return capability;
+}
+
 /** Explicit bootstrap only: importing this module launches nothing. A new
  * dedicated gateway owns fresh private registries and management credentials.
  * Pending evidence permits catalog/login setup, but the separate application
@@ -1495,7 +1511,7 @@ export async function createOwnedSymposiumHost(
           },
         }),
       );
-    return {
+    const ownedHost = {
       criterionChecks: options.criterionChecks,
       resolveSeatPolicy,
       gateway,
@@ -2211,6 +2227,32 @@ export async function createOwnedSymposiumHost(
         }
       },
     };
+    const assertCatalogHostCurrent = () => {
+      if (stopped || draining || controllerPaused || !subscription)
+        throw Error('Original personal catalog owner unavailable');
+      custody();
+    };
+    const catalogRefresh: OriginalOwnedPersonalCatalogRefresh = Object.freeze({
+      assertCurrent: assertCatalogHostCurrent,
+      refresh: (id: string, revision: number, assertOriginalCurrent: () => void) =>
+        track(async () => {
+          const assertCurrent = () => {
+            assertOriginalCurrent();
+            assertCatalogHostCurrent();
+          };
+          assertCurrent();
+          const result = await subscription!.refreshAuthenticatedModels(
+            id,
+            revision,
+            options.personal.selectedModel,
+            assertCurrent,
+          );
+          assertCurrent();
+          return result;
+        }),
+    });
+    originalPersonalCatalogRefresh.set(ownedHost, catalogRefresh);
+    return ownedHost;
   } catch (error) {
     subscription?.invalidate();
     native?.registry.close();

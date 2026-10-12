@@ -23,7 +23,8 @@ const Adc = z.object({
 type Material = z.infer<typeof Adc>;
 export interface SymposiumWorkVertexReceipt {
   readonly principal: string;
-  /** Actual immutable fresh ADC snapshot digest; never the rotating OAuth token digest. */
+  /** SHA256 of the canonical parsed fresh ADC material actually used for creation;
+   * neither a raw file-byte hash nor the rotating OAuth token digest. */
   readonly adcSha256: string;
   readonly accountId: string;
   readonly provider: string;
