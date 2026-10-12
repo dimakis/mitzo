@@ -103,3 +103,11 @@ and preserve historical References without inferred outputs.
 Shared tokens, HomeDialog, WorkspaceControls, UiIcon and Connections grouped facts/rows are reused.
 Screenshots cover 320px phones and 1280px desktop, light/dark, Teal/Georgia and Lavender/System.
 The new heading slot uses token spacing; no palette, typography or motion constants were added.
+
+Inspected captures: [desktop Access](assets/session-access-desktop-dark.png),
+[mobile Connections with Teal/Georgia](assets/session-access-connections-mobile-light.png),
+[stale observation](assets/session-access-stale-desktop.png), and
+[mobile References](assets/session-access-references-mobile.png).
+Related mock-only regressions: 13 files / 120 checks pass, including composer ownership
+and existing exact-output/contributor tests. Shared design guards: 106 checks pass.
+Frontend build and server compile pass. Full offline UI and hosted CI are tracked separately.
