@@ -11,7 +11,7 @@ export {
 } from './reviewed-policy-revisions.js';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.74';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.75';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -25,7 +25,7 @@ export function reviewedHandlerSourceFingerprint(source: string) {
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   // Intentional native service extraction and original cleanup identity contracts.
   '../symposium-custodian-service.ts':
-    'c3c73bcc94a4b2141906a8884f7832fb99e35b930e33f3ea697c4e1514b2eb9c',
+    'f742ab9767685afbfe87f9f42c66e0127e348e9811729b0d52fb525bc09f84c4',
   '../operator-session.ts': 'e05d1098f3725dd1b483b842f1dc5b3ba8b9037c03fe1b8c5897d01334428aad',
   '../operator-request-authorization.ts':
     '2420302f368d9f4291d14aba1acbab9b1e126f9ccc36cb7906ff2383ae27fb7d',

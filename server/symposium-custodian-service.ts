@@ -1092,27 +1092,6 @@ export function createSymposiumCustodianService(options: {
       store: symposiumReviewStore,
       actionAuthority: symposiumReviewActionAuthority,
       currentHost: () => symposiumProductionHost,
-      /** Dispose only a never-installed, inactive semantic fixture/service. This
-       * is not physical native retirement and cannot authorize another owner. */
-      closeUninstalledService() {
-        if (
-          symposiumProductionHost ||
-          symposiumSessionRuntimes.size ||
-          retainedCustodianSessions.size ||
-          stagingFeatureOwner
-        )
-          throw Error('Installed original native owner requires actual retirement');
-        releaseContextPacks();
-        symposiumAccessRequests.close();
-        symposiumProfileProposalStore.close();
-        symposiumAgentContextStore.close();
-        symposiumProfileStore.close();
-        symposiumHostGrants.close();
-        symposiumReviewStore.close();
-        agentLibrary.close();
-        codexStore.close();
-        eventStore.close();
-      },
       runtime: (sessionId) => symposiumRuntimeForSession(sessionId),
       hasSession: (sessionId) => eventStore.getSession(sessionId)?.sessionType === 'symposium',
     }),
