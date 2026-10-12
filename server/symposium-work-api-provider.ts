@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { z } from 'zod';
 import { AccountProfiles } from './account-profiles.js';
 import { credentials, CredentialReferenceSchema, type CredentialResolver } from './credentials.js';
@@ -35,6 +35,135 @@ const originalCreations = new WeakMap<
   OwnedSymposiumGateway,
   Map<string, SymposiumWorkApiCreationCapability>
 >();
+export const StagingApiBillingScopeSchema = z.strictObject({
+  organizationId: z.string().regex(/^[A-Za-z0-9_-]{1,80}$/),
+  projectId: z.string().regex(/^[A-Za-z0-9_-]{1,80}$/),
+});
+export interface SymposiumWorkApiCatalogCapability {
+  readonly observation: Readonly<{
+    version: 1;
+    providerId: string;
+    providerName: string;
+    workspace: string;
+    organizationId: string;
+    projectId: string;
+    selectedModel: string;
+    credentialSha256: string;
+    catalogSha256: string;
+    listedModels: readonly string[];
+    observedAt: number;
+    expiresAt: number;
+    requestId: string | null;
+    /** Billing-scope proof from accepted exact headers, not principal identity. */
+    accountHeaders: Readonly<{ 'OpenAI-Organization': string; 'OpenAI-Project': string }>;
+  }>;
+  assertCurrent(): void;
+}
+const originalCatalogs = new WeakMap<
+  OwnedSymposiumGateway,
+  Map<string, SymposiumWorkApiCatalogCapability>
+>();
+export function captureSymposiumWorkApiCatalog(
+  gateway: OwnedSymposiumGateway,
+  providerId: string,
+): SymposiumWorkApiCatalogCapability {
+  const capability = originalCatalogs.get(gateway)?.get(providerId);
+  if (!capability) throw Error('Original authenticated API catalog capability unavailable');
+  capability.assertCurrent();
+  return capability;
+}
+async function authenticatedCatalog(
+  gateway: OwnedSymposiumGateway,
+  profile: SymposiumWorkApiProfile,
+  secret: string,
+  rawScope: z.infer<typeof StagingApiBillingScopeSchema>,
+  request: typeof fetch,
+) {
+  const scope = StagingApiBillingScopeSchema.parse(rawScope);
+  const selectedModel = profile.models.find((model) =>
+    /^gpt-\d+(?:\.\d+)?-luna$/.test(model.id),
+  )?.id;
+  if (!selectedModel || !/^[^\s]{1,16384}$/.test(secret))
+    throw Error('Explicit staging Luna and fresh credential required');
+  const accountHeaders = Object.freeze({
+    'OpenAI-Organization': scope.organizationId,
+    'OpenAI-Project': scope.projectId,
+  });
+  gateway.verifyCustody();
+  const response = await request('https://api.openai.com/v1/models', {
+    method: 'GET',
+    headers: { authorization: `Bearer ${secret}`, ...accountHeaders },
+    redirect: 'error',
+    signal: AbortSignal.timeout(15000),
+  });
+  gateway.verifyCustody();
+  if (
+    response.status !== 200 ||
+    response.redirected ||
+    (response.url && response.url !== 'https://api.openai.com/v1/models') ||
+    !response.body ||
+    Number(response.headers.get('content-length')) > 131072
+  )
+    throw Error('Authenticated bounded API catalog unavailable');
+  const returnedOrg = response.headers.get('openai-organization');
+  if (returnedOrg !== null && returnedOrg !== scope.organizationId)
+    throw Error('Authenticated API organization differs');
+  // Organization is a documented common response header, not guaranteed;
+  // no returned-project header is documented. The accepted authenticated
+  // request's exact fixed headers establish billing scope, never a principal.
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    for (;;) {
+      const next = await reader.read();
+      gateway.verifyCustody();
+      if (next.done) break;
+      size += next.value.length;
+      if (size > 131072) {
+        await reader.cancel();
+        throw Error('Authenticated API catalog exceeded bound');
+      }
+      chunks.push(next.value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const body = Buffer.concat(chunks);
+  const parsed = z
+    .object({
+      object: z.literal('list'),
+      data: z
+        .array(
+          z.object({
+            id: z.string().min(1).max(200),
+            object: z.literal('model'),
+            created: z.number().int().nonnegative(),
+            owned_by: z.string().min(1).max(200),
+          }),
+        )
+        .max(1000),
+    })
+    .parse(JSON.parse(body.toString('utf8')));
+  const listedModels = parsed.data.map((model) => model.id).sort();
+  if (new Set(listedModels).size !== listedModels.length || !listedModels.includes(selectedModel))
+    throw Error('Exact staging Luna is unavailable');
+  const requestId = response.headers.get('x-request-id');
+  if (requestId !== null && !/^[A-Za-z0-9_-]{1,200}$/.test(requestId))
+    throw Error('Bounded API request identity required');
+  const observedAt = Date.now();
+  return {
+    ...scope,
+    selectedModel,
+    accountHeaders,
+    credentialSha256: createHash('sha256').update(secret).digest('hex'),
+    catalogSha256: createHash('sha256').update(body).digest('hex'),
+    listedModels: Object.freeze(listedModels),
+    observedAt,
+    expiresAt: observedAt + 300000,
+    requestId,
+  };
+}
 /** Fresh creation in this exact gateway owner. Inventory JSON and reopened
  * configurations cannot recreate the original enrollment capability. */
 export function captureSymposiumWorkApiProvider(
@@ -53,7 +182,13 @@ export function captureSymposiumWorkApiProvider(
 export async function createSymposiumWorkApiProvider(
   gateway: OwnedSymposiumGateway,
   input: SymposiumWorkApiProfile,
-  dependencies: { resolver?: Pick<CredentialResolver, 'resolve'>; run?: typeof spawnSync } = {},
+  dependencies: {
+    resolver?: Pick<CredentialResolver, 'resolve'>;
+    run?: typeof spawnSync;
+    /** Source-owned reviewed stage scope; no ambient env/profile label fallback. */
+    stagingCatalogScope?: z.infer<typeof StagingApiBillingScopeSchema>;
+    request?: typeof fetch;
+  } = {},
 ): Promise<SymposiumWorkApiProfile & { sandboxProvider: string; sandboxProviderId: string }> {
   const profile = WorkProfile.parse(input);
   new AccountProfiles([profile]);
@@ -82,6 +217,16 @@ export async function createSymposiumWorkApiProvider(
     const secret = await (dependencies.resolver ?? credentials).resolve(profile.credentialRef);
     gateway.verifyCustody();
     if (!secret.trim()) throw new Error('Work credential unavailable');
+    const catalog = dependencies.stagingCatalogScope
+      ? await authenticatedCatalog(
+          gateway,
+          profile,
+          secret,
+          dependencies.stagingCatalogScope,
+          dependencies.request ?? fetch,
+        )
+      : undefined;
+    gateway.verifyCustody();
     invoke(
       ['create', '--name', provider, '--type', 'openai', '--credential', 'OPENAI_API_KEY'],
       secret,
@@ -145,6 +290,27 @@ export async function createSymposiumWorkApiProvider(
     });
     retained.set(found.id, receipt);
     originalCreations.set(gateway, retained);
+    if (catalog) {
+      const catalogs = originalCatalogs.get(gateway) ?? new Map();
+      const capability: SymposiumWorkApiCatalogCapability = Object.freeze({
+        observation: Object.freeze({ version: 1 as const, ...identity, ...catalog }),
+        assertCurrent() {
+          try {
+            receipt.assertCurrent();
+            if (
+              Date.now() >= catalog.expiresAt ||
+              originalCatalogs.get(gateway)?.get(identity.providerId) !== capability
+            )
+              throw Error();
+          } catch {
+            originalCatalogs.get(gateway)?.delete(identity.providerId);
+            throw Error('Original authenticated API catalog capability unavailable');
+          }
+        },
+      });
+      catalogs.set(identity.providerId, capability);
+      originalCatalogs.set(gateway, catalogs);
+    }
     return { ...profile, sandboxProvider: provider, sandboxProviderId: found.id };
   } catch {
     // Secret-store and process errors may contain credentials; do not retain causes.

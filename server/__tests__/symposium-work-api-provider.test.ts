@@ -4,6 +4,7 @@ import type { OwnedSymposiumGateway } from '../symposium-owned-gateway.js';
 import {
   createSymposiumWorkApiProvider,
   captureSymposiumWorkApiProvider,
+  captureSymposiumWorkApiCatalog,
   type SymposiumWorkApiProfile,
 } from '../symposium-work-api-provider.js';
 function fixture() {
@@ -151,5 +152,89 @@ describe('owned work API provisioning', () => {
     });
     await expect(f.provision()).rejects.toThrow('no new account profile');
     expect(f.run).not.toHaveBeenCalled();
+  });
+});
+
+describe('original authenticated staging API billing scope and catalog', () => {
+  const scope = { organizationId: 'org-isolated', projectId: 'proj_isolated' };
+  const response = (headers: Record<string, string> = {}) =>
+    new Response(
+      JSON.stringify({
+        object: 'list',
+        data: [{ id: 'gpt-5.6-luna', object: 'model', created: 1, owned_by: 'openai' }],
+      }),
+      { headers: { 'content-type': 'application/json', ...headers } },
+    );
+  const provision = (f: ReturnType<typeof fixture>, request: typeof fetch) =>
+    createSymposiumWorkApiProvider(f.gateway as unknown as OwnedSymposiumGateway, f.profile, {
+      resolver: f.resolver,
+      run: f.run as unknown as typeof spawnSync,
+      stagingCatalogScope: scope,
+      request,
+    });
+  it('captures only an accepted authenticated catalog from the original fresh credential and exact billing headers', async () => {
+    const f = fixture();
+    const request = vi.fn().mockResolvedValue(response());
+    const result = await provision(f, request);
+    expect(request).toHaveBeenCalledExactlyOnceWith('https://api.openai.com/v1/models', {
+      method: 'GET',
+      headers: {
+        authorization: 'Bearer fake-work-secret',
+        'OpenAI-Organization': scope.organizationId,
+        'OpenAI-Project': scope.projectId,
+      },
+      redirect: 'error',
+      signal: expect.any(AbortSignal),
+    });
+    const cap = captureSymposiumWorkApiCatalog(
+      f.gateway as unknown as OwnedSymposiumGateway,
+      result.sandboxProviderId,
+    );
+    expect(cap.observation).toMatchObject({
+      version: 1,
+      providerId: 'new-id',
+      providerName: result.sandboxProvider,
+      workspace: 'new-workspace',
+      organizationId: scope.organizationId,
+      projectId: scope.projectId,
+      selectedModel: 'gpt-5.6-luna',
+      credentialSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+      catalogSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+      observedAt: expect.any(Number),
+    });
+    expect(JSON.stringify(cap.observation)).not.toContain('fake-work-secret');
+    cap.assertCurrent();
+    expect(() => captureSymposiumWorkApiCatalog({ ...f.gateway } as never, 'new-id')).toThrow();
+    f.gateway.verifyCustody.mockImplementation(() => {
+      throw Error('owner lost');
+    });
+    expect(() => cap.assertCurrent()).toThrow();
+  });
+  it.each(['unauthorized', 'foreign-org', 'missing-luna', 'oversized'])(
+    'refuses %s catalog without publishing a profile or account capability',
+    async (failure) => {
+      const f = fixture();
+      const request = vi
+        .fn()
+        .mockResolvedValue(
+          failure === 'unauthorized'
+            ? new Response('denied', { status: 401 })
+            : failure === 'foreign-org'
+              ? response({ 'openai-organization': 'org-other' })
+              : failure === 'missing-luna'
+                ? new Response(JSON.stringify({ object: 'list', data: [] }))
+                : new Response('x'.repeat(131073)),
+        );
+      await expect(provision(f, request)).rejects.toThrow('no new account profile');
+      expect(() => captureSymposiumWorkApiCatalog(f.gateway as never, 'new-id')).toThrow();
+      expect(f.run).not.toHaveBeenCalled();
+    },
+  );
+  it('keeps ordinary provider creation free of network catalog discovery and staging authority', async () => {
+    const f = fixture();
+    const result = await f.provision();
+    expect(() =>
+      captureSymposiumWorkApiCatalog(f.gateway as never, result.sandboxProviderId),
+    ).toThrow();
   });
 });

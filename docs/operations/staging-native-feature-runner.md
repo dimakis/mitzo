@@ -21,6 +21,27 @@ its actual original VM owner's zero-argument `observeResources` capability.
 Allocation authentication does not prove provider enrollment. Provider
 capabilities are minted inside the original host's actual factories.
 
+The pinned owned-host configuration can specify
+`personal.workApiBillingScopes[profileId] = { organizationId, projectId }` for
+an explicitly configured work API profile. Its original provider factory then
+authenticates a bounded HTTPS `GET /v1/models` with the fresh named credential
+and those exact `OpenAI-Organization` / `OpenAI-Project` headers before creating
+the provider. It rejects redirects, failed authentication, contradictory returned
+organization, oversized or malformed catalogs, and an unavailable exact Luna.
+The [official API overview](https://developers.openai.com/api/reference/overview)
+states that usage with these headers is attributed to their organization/project;
+a returned project header is not part of that contract. This proves API billing
+scope, not a separately verified principal or personal ChatGPT identity.
+
+`captureSymposiumWorkApiCatalog` returns only the original same-gateway capability,
+with fixed billing headers, credential/catalog hashes, selected Luna and a
+five-minute expiry. A JSON copy or reopened configuration cannot recreate it.
+The native issuer must additionally verify the actual current provider resource,
+credential identity/revision/hash and outbound headers before every dispatch.
+That authenticated native bridge remains unavailable. The configuration alone
+does not approve enrollment or a live test, and ordinary provider creation with
+no explicit staging scope performs no additional network request.
+
 ## Actual bounded execution path
 
 Once the independently reviewed gateway authority exists, the owner resolves
