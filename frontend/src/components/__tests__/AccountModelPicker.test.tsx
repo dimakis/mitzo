@@ -1164,3 +1164,67 @@ it('keeps terminal adviser account, model and thinking independent of chat defau
     reasoningEffort: 'low',
   });
 });
+it('locks repository account and model while keeping thinking editable', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(
+    new Response(
+      JSON.stringify([
+        {
+          id: 'work',
+          label: 'Work',
+          models: [{ id: 'luna', label: 'Luna', reasoningEfforts: ['low', 'high'] }],
+        },
+      ]),
+    ),
+  );
+  const onChange = vi.fn();
+  render(
+    <AccountModelPicker
+      sessionId={null}
+      preferredModel="luna"
+      initialSelection={{ accountId: 'work', model: 'luna', reasoningEffort: 'high' }}
+      lockAccountModel
+      onChange={onChange}
+    />,
+  );
+  const thinking = (await screen.findByLabelText('Thinking')) as HTMLSelectElement;
+  expect((screen.getByLabelText('Account') as HTMLSelectElement).disabled).toBe(true);
+  expect((screen.getByLabelText('Model') as HTMLSelectElement).disabled).toBe(true);
+  expect(thinking.disabled).toBe(false);
+  fireEvent.change(thinking, { target: { value: 'low' } });
+  expect(onChange).toHaveBeenLastCalledWith({
+    accountId: 'work',
+    model: 'luna',
+    reasoningEffort: 'low',
+  });
+});
+it('reports editable staged settings separately while the new account awaits confirmation', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(
+    new Response(
+      JSON.stringify([
+        {
+          id: 'work',
+          label: 'Work',
+          models: [{ id: 'luna', label: 'Luna', reasoningEfforts: ['low', 'high'] }],
+        },
+      ]),
+    ),
+  );
+  const onChange = vi.fn();
+  const onDraftSelectionChange = vi.fn();
+  render(
+    <AccountModelPicker
+      sessionId={null}
+      preferredModel="luna"
+      onChange={onChange}
+      onDraftSelectionChange={onDraftSelectionChange}
+    />,
+  );
+  const thinking = await screen.findByLabelText('Thinking');
+  fireEvent.change(thinking, { target: { value: 'high' } });
+  expect(onChange).toHaveBeenLastCalledWith(null);
+  expect(onDraftSelectionChange).toHaveBeenLastCalledWith({
+    accountId: 'work',
+    model: 'luna',
+    reasoningEffort: 'high',
+  });
+});
