@@ -61,7 +61,7 @@ export class StagingPipelineStore {
     this.db = new DatabaseSync(path);
     this.db.exec(`PRAGMA busy_timeout=5000; PRAGMA journal_mode=DELETE; PRAGMA synchronous=FULL;
       CREATE TABLE IF NOT EXISTS requests(sequence INTEGER PRIMARY KEY AUTOINCREMENT,id TEXT UNIQUE NOT NULL,payload TEXT NOT NULL,fingerprint TEXT NOT NULL,state TEXT NOT NULL,reason TEXT,result TEXT);
-      CREATE TABLE IF NOT EXISTS reservation(singleton INTEGER PRIMARY KEY CHECK(singleton=1),epoch INTEGER NOT NULL,state TEXT NOT NULL,request_id TEXT,owner TEXT,nonce TEXT,deadline INTEGER,dispatched INTEGER NOT NULL DEFAULT 0);
+      CREATE TABLE IF NOT EXISTS reservation(singleton INTEGER PRIMARY KEY CHECK(singleton=1),epoch INTEGER NOT NULL,state TEXT NOT NULL,request_id TEXT,owner TEXT,nonce TEXT,deadline INTEGER,dispatched INTEGER NOT NULL DEFAULT 0,source_commit TEXT);
       INSERT OR IGNORE INTO reservation(singleton,epoch,state) VALUES(1,0,'idle');`);
   }
   close() {
@@ -144,7 +144,7 @@ export class StagingPipelineStore {
       const token = { epoch: r.epoch + 1, requestId: next.id, owner, nonce: randomUUID() };
       this.db
         .prepare(
-          "UPDATE reservation SET state='active',epoch=?,request_id=?,owner=?,nonce=?,deadline=?,dispatched=0 WHERE singleton=1",
+          "UPDATE reservation SET state='active',epoch=?,request_id=?,owner=?,nonce=?,deadline=?,dispatched=0,source_commit=NULL WHERE singleton=1",
         )
         .run(token.epoch, token.requestId, owner, token.nonce, this.clock() + 600000);
       this.db.prepare("UPDATE requests SET state='active',reason=NULL WHERE id=?").run(next.id);
@@ -184,24 +184,32 @@ export class StagingPipelineStore {
   release() {
     this.db
       .prepare(
-        "UPDATE reservation SET state='idle',request_id=NULL,owner=NULL,nonce=NULL,deadline=NULL,dispatched=0 WHERE singleton=1",
+        "UPDATE reservation SET state='idle',request_id=NULL,owner=NULL,nonce=NULL,deadline=NULL,dispatched=0,source_commit=NULL WHERE singleton=1",
       )
       .run();
   }
+  bindBaseline(t, sourceCommit) {
+    if (!commit.test(sourceCommit)) throw Error('Exact test source required');
+    this.transaction(() => {
+      if (this.assertToken(t).dispatched) throw Error('Cannot change dispatched test source');
+      this.db.prepare('UPDATE reservation SET source_commit=? WHERE singleton=1').run(sourceCommit);
+    });
+  }
   finish(t, result) {
     this.transaction(() => {
-      this.assertToken(t);
+      const reservation = this.assertToken(t);
       const r = JSON.parse(
         this.db.prepare('SELECT payload FROM requests WHERE id=?').get(t.requestId).payload,
       );
       if (
         !result ||
         !['passed', 'failed'].includes(result.outcome) ||
-        result.sourceCommit !== r.acceptedCommit
+        result.sourceCommit !== (reservation.source_commit ?? r.acceptedCommit)
       )
         throw Error('Test source does not match request');
       if (result.cleanupConfirmed !== true) throw Error('Confirmed test cleanup required');
       const receipt = {
+        acceptedCommit: r.acceptedCommit,
         outcome: result.outcome,
         sourceCommit: result.sourceCommit,
         epoch: t.epoch,
