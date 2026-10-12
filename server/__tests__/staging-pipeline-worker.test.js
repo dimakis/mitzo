@@ -43,6 +43,114 @@ function fixture() {
   store.assertToken = vi.fn();
   return { store, effects, events };
 }
+function featureFixture() {
+  const f = fixture();
+  const featureRequest = {
+    ...request,
+    version: 2,
+    suite: 'profile-tools-v1',
+    profileId: 'stage-profile',
+    enrollmentRevision: 'e'.repeat(64),
+  };
+  f.store.claim.mockReturnValue({ granted: true, request: featureRequest, token });
+  f.effects.featurePlan = vi.fn(async () => ({
+    planSha256: 'f'.repeat(64),
+    publicPlan: {
+      ownerInstance: 'owner',
+      chargedAccount: 'stage-account',
+      selectedModel: 'gpt-6.1-luna',
+    },
+  }));
+  f.store.bindFeaturePlan = vi.fn();
+  f.effects.test.mockResolvedValue({
+    outcome: 'passed',
+    cleanupConfirmed: true,
+    featureReceipt: {
+      version: 1,
+      profileId: 'stage-profile',
+      enrollmentRevision: 'e'.repeat(64),
+      planSha256: 'f'.repeat(64),
+      ownerInstance: 'owner',
+      runId: 'run',
+      ownerReceiptSha256: 'd'.repeat(64),
+    },
+  });
+  return { ...f, featureRequest };
+}
+it('feature work waits with an exact charged account/model plan before any dispatch', async () => {
+  const f = featureFixture();
+  expect(await runStagingPipelineRequest(f.store, f.effects, 'worker')).toMatchObject({
+    state: 'queued',
+    reason: 'feature-plan-required',
+    featurePlanSha256: 'f'.repeat(64),
+    featurePlan: { chargedAccount: 'stage-account', selectedModel: 'gpt-6.1-luna' },
+  });
+  expect(f.effects.prepare).not.toHaveBeenCalled();
+  expect(f.effects.test).not.toHaveBeenCalled();
+  expect(f.store.markDispatched).not.toHaveBeenCalled();
+});
+it('matching feature plan hash allows only the trusted runner under the original reservation', async () => {
+  const f = featureFixture();
+  expect(
+    (
+      await runStagingPipelineRequest(f.store, f.effects, 'worker', {
+        featurePlanSha256: 'f'.repeat(64),
+      })
+    ).state,
+  ).toBe('passed');
+  expect(f.effects.featurePlan).toHaveBeenCalledWith(
+    f.featureRequest,
+    request.acceptedCommit,
+    token,
+  );
+  expect(f.effects.test).toHaveBeenCalledWith(
+    'profile-tools-v1',
+    request.acceptedCommit,
+    expect.objectContaining({ request: f.featureRequest, token, planSha256: 'f'.repeat(64) }),
+  );
+  expect(f.store.finish).toHaveBeenCalledWith(
+    token,
+    expect.objectContaining({
+      featureReceipt: expect.objectContaining({ ownerReceiptSha256: 'd'.repeat(64) }),
+    }),
+  );
+  expect(f.store.bindFeaturePlan).toHaveBeenCalledWith(token, 'f'.repeat(64), 'owner');
+});
+it('feature planning waits for exact deployed source and never replaces its original owner', async () => {
+  const f = featureFixture();
+  f.effects.check.mockResolvedValueOnce({ safe: true, expected: 'b'.repeat(40) });
+  expect(
+    (
+      await runStagingPipelineRequest(f.store, f.effects, 'worker', {
+        featurePlanSha256: 'f'.repeat(64),
+      })
+    ).state,
+  ).toBe('queued');
+  expect(f.effects.featurePlan).not.toHaveBeenCalled();
+  expect(f.effects.prepare).not.toHaveBeenCalled();
+  expect(f.effects.test).not.toHaveBeenCalled();
+});
+it('changed feature plan or owner cleanup cannot publish an accepted feature summary', async () => {
+  const drift = featureFixture();
+  expect(
+    (
+      await runStagingPipelineRequest(drift.store, drift.effects, 'worker', {
+        featurePlanSha256: 'c'.repeat(64),
+      })
+    ).state,
+  ).toBe('queued');
+  expect(drift.effects.test).not.toHaveBeenCalled();
+  const cleanup = featureFixture();
+  cleanup.effects.test.mockResolvedValue({ outcome: 'passed', cleanupConfirmed: false });
+  expect(
+    (
+      await runStagingPipelineRequest(cleanup.store, cleanup.effects, 'worker', {
+        featurePlanSha256: 'f'.repeat(64),
+      })
+    ).state,
+  ).toBe('quarantined');
+  expect(cleanup.store.finish).not.toHaveBeenCalled();
+});
 it('holds one reservation across prepare, plan, apply, test and final source verification', async () => {
   const f = fixture();
   f.effects.check.mockResolvedValueOnce({ safe: true, expected: 'b'.repeat(40) });
@@ -239,4 +347,10 @@ it('an unqualified retained candidate cannot skip growth admission or dispatch',
   expect(f.effects.prepare).not.toHaveBeenCalled();
   expect(f.store.markDispatched).not.toHaveBeenCalled();
   expect(f.store.quarantine).not.toHaveBeenCalled();
+});
+
+it('passes the exact requested identity into the same original singleton claim', async () => {
+  const f = fixture();
+  await runStagingPipelineRequest(f.store, f.effects, 'worker', { requestId: 'r' });
+  expect(f.store.claim).toHaveBeenCalledWith('worker', { requestId: 'r' });
 });

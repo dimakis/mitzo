@@ -118,3 +118,82 @@ it('candidate probe accepts only the exact canonical read-only validation result
     await expect(e.prepared(target)).rejects.toThrow();
   }
 });
+it('feature dispatch uses authenticated stage selection and exact plan/source/owner evidence', async () => {
+  const request = {
+    version: 2,
+    id: 'feature',
+    suite: 'profile-tools-v1',
+    profileId: 'stage-profile',
+    enrollmentRevision: 'e'.repeat(64),
+  };
+  const source = 'a'.repeat(40),
+    token = { epoch: 1, requestId: 'feature', owner: 'worker', nonce: 'nonce' };
+  const plan = {
+    version: 1,
+    requestId: 'feature',
+    sourceCommit: source,
+    profileId: 'stage-profile',
+    enrollmentRevision: 'e'.repeat(64),
+    ownerInstance: 'owner',
+    chargedAccount: 'stage-account',
+    selectedModel: 'gpt-6.1-luna',
+  };
+  const featureResult = {
+    version: 1,
+    profileId: 'stage-profile',
+    enrollmentRevision: 'e'.repeat(64),
+    planSha256: 'f'.repeat(64),
+    ownerInstance: 'owner',
+    runId: 'run',
+    ownerReceiptSha256: 'd'.repeat(64),
+  };
+  const profiles = {
+    lookupEnrollment: vi.fn(async () => ({
+      profileId: request.profileId,
+      enrollmentRevision: request.enrollmentRevision,
+    })),
+    plan: vi.fn(async () => ({ plan, planSha256: 'f'.repeat(64) })),
+    run: vi.fn(async () => ({
+      outcome: 'passed',
+      sourceCommit: source,
+      cleanupConfirmed: true,
+      featureResult,
+    })),
+  };
+  const effects = createStagingPipelineEffects({ profiles });
+  expect(await effects.lookupEnrollment(request.profileId)).toEqual({
+    profileId: request.profileId,
+    enrollmentRevision: request.enrollmentRevision,
+  });
+  expect(await effects.featurePlan(request, source)).toEqual({
+    publicPlan: plan,
+    planSha256: 'f'.repeat(64),
+  });
+  expect(
+    await effects.test('profile-tools-v1', source, {
+      request,
+      token,
+      plan,
+      planSha256: 'f'.repeat(64),
+    }),
+  ).toEqual({ outcome: 'passed', cleanupConfirmed: true, featureReceipt: featureResult });
+  expect(profiles.run).toHaveBeenCalledWith(plan, token);
+  profiles.plan.mockResolvedValue({
+    plan: { ...plan, sourceCommit: 'b'.repeat(40) },
+    planSha256: 'f'.repeat(64),
+  });
+  await expect(effects.featurePlan(request, source)).rejects.toThrow();
+  profiles.run.mockResolvedValue({
+    outcome: 'passed',
+    sourceCommit: source,
+    cleanupConfirmed: true,
+    featureResult: { ...featureResult, ownerInstance: 'successor' },
+  });
+  await expect(
+    effects.test('profile-tools-v1', source, { request, token, plan, planSha256: 'f'.repeat(64) }),
+  ).rejects.toThrow();
+});
+it('uninstalled feature owner authority fails closed without provider or fixture calls', async () => {
+  const effects = createStagingPipelineEffects({ root: '/nonexistent-stage-root' });
+  await expect(effects.lookupEnrollment('stage-profile')).rejects.toThrow();
+});
