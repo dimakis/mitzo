@@ -1,3 +1,4 @@
+import type { StagingFeatureAdapterOptions } from './staging-feature-cleanup.js';
 import { assertNativeCodexContextAdmission } from './native-codex-context-admission.js';
 import {
   assertOrdinaryContributorControlAllowed,
@@ -1122,6 +1123,8 @@ export async function startChat(
     retainWorkspace?: boolean;
     contributorExecution?: OrdinaryContributorExecution;
     onQueryReady?: (query: { interrupt(): Promise<void> }) => void;
+    /** Trusted stage owner only; never supplied by API/WS payloads. */
+    stagingFeature?: StagingFeatureAdapterOptions;
     onTurnResult?: (result: { is_error?: boolean }, inputUuid?: string) => void;
     /** Trusted live-query observer, never a viewer transport or replay subscription. */
     onQueryEvent?: (event: Readonly<Record<string, unknown>>) => void;
@@ -1227,6 +1230,8 @@ async function _startChatInner(
     retainWorkspace?: boolean;
     contributorExecution?: OrdinaryContributorExecution;
     onQueryReady?: (query: { interrupt(): Promise<void> }) => void;
+    /** Trusted stage owner only; never supplied by API/WS payloads. */
+    stagingFeature?: StagingFeatureAdapterOptions;
     onTurnResult?: (result: { is_error?: boolean }, inputUuid?: string) => void;
     /** Trusted live-query observer, never a viewer transport or replay subscription. */
     onQueryEvent?: (event: Readonly<Record<string, unknown>>) => void;
@@ -1330,13 +1335,25 @@ async function _startChatInner(
         } else {
           if (!codexProfile.credentialRef)
             throw new Error('The selected ChatGPT account has no host login binding');
+          options.stagingFeature?.beforeDispatch();
           const preflight = CodexAppServerClient.launch(codexProfile.credentialRef);
+          options.stagingFeature?.retainCleanup(async () => {
+            const acknowledgment = await preflight.closeAndConfirm();
+            if (acknowledgment.state !== 'confirmed')
+              throw new Error('Staging preflight cleanup unconfirmed');
+          });
+          let preflightCleaned = false;
           try {
             await preflight.initialize();
             await verifyCodexAccount(preflight, codexProfile, accountBinding);
           } finally {
-            preflight.close();
+            if (options.stagingFeature) {
+              const cleanup = await preflight.closeAndConfirm();
+              preflightCleaned = cleanup.state === 'confirmed';
+            } else preflight.close();
           }
+          if (options.stagingFeature && !preflightCleaned)
+            throw new Error('Staging account preflight cleanup is unconfirmed');
         }
         accountEnv = openShellRequested
           ? restrictedChildEnv()
@@ -2149,6 +2166,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
         },
         reattachOnly: options.reattachOnly,
         ordinaryTurnLifecycle: options.ordinaryTurnLifecycle,
+        stagingFeature: options.stagingFeature,
         contributorGuidance: options.contributorGuidance,
       });
     } else if (apiKey || gemini) {
@@ -2157,6 +2175,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
       options.onSessionResolved?.(conversationId);
       send(transport, { type: 'session_id', sessionId: conversationId });
       q = await openResponsesChat({
+        stagingFeature: options.stagingFeature,
         resume: !!options.resume,
         conversationId,
         binding: accountBinding!,
@@ -2514,6 +2533,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
           options.onSessionResolved?.(sessionId);
         },
         onInitialPrompt: (sessionId: string) => {
+          if (options.stagingFeature) return;
           tryAutoRename(sessionId, clientId).catch(() => {
             /* errors logged internally */
           });

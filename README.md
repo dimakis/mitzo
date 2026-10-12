@@ -1139,6 +1139,13 @@ Installs require Node 24 and npm 11.18.0 or newer so workspace security override
 
 ### Canonical staging on the configured macOS host
 
+A conditional [bounded staging feature runner](docs/operations/staging-feature-runner.md)
+prepares authenticated text/Read evidence and original-adapter cleanup under the
+existing queue reservation. It defaults unavailable pending qualified source,
+original-owner and fresh provider enrollment. Codex auxiliary-compaction
+qualification and native/Vertex feature wiring remain pending; this source does
+not claim live or complete profile acceptance.
+
 The narrowly scoped [lost-owner offline preservation procedure](docs/operations/staging-offline-containment.md) retains the original native environment and uncertain history before ordinary staging restoration. Source acceptance, authenticated physical recovery and provider enrollment remain separate.
 
 Reuse the singleton `com.mitzo.staging` service at `http://mitzo-staging.localhost:3190`.

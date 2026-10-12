@@ -1,3 +1,6 @@
+import { createRequire } from 'node:module';
+import { StagingFeatureOwner, type StagingFeatureOwnerAuthority } from './staging-feature-owner.js';
+import { createStagingFeatureRouter } from './staging-feature-router.js';
 import type {
   SymposiumReviewPhysicalHost,
   SymposiumReviewRouteHost,
@@ -999,6 +1002,47 @@ app.post('/api/auth/logout', async (req, res) => {
 });
 
 app.use('/api', authMiddleware);
+let stagingFeatureOwner: StagingFeatureOwner | undefined;
+/** Trusted qualified stage bootstrap only. There is no public install endpoint.
+ * Current bootstrap installs none while native custody/enrollment is pending. */
+export function configureStagingFeatureOwner(
+  authority: Omit<
+    StagingFeatureOwnerAuthority,
+    'port' | 'assertReservation' | 'currentProfiles'
+  > & { pipelineRoot: string },
+): void {
+  if (
+    process.env.PORT !== '3190' ||
+    process.env.MITZO_BIND_HOST !== '127.0.0.1' ||
+    custodianOwnerMode ||
+    custodianControllerClient ||
+    stagingFeatureOwner
+  )
+    throw new Error('Qualified ordinary canonical staging bootstrap required');
+  authority.assertOriginalOwner();
+  const module = createRequire(import.meta.url)(
+    '../scripts/lib/staging-pipeline-mutation-guard.mjs',
+  ) as {
+    assertStagingPipelineFeatureDispatch(input: unknown, options: { root: string }): void;
+  };
+  if (typeof module.assertStagingPipelineFeatureDispatch !== 'function')
+    throw new Error('Accepted feature reservation guard unavailable');
+  stagingFeatureOwner = new StagingFeatureOwner({
+    ...authority,
+    currentProfiles: loadAccountProfiles,
+    assertReservation: (plan, token, planSha256) =>
+      module.assertStagingPipelineFeatureDispatch(
+        { sourceCommit: plan.sourceCommit, token, planSha256, plan },
+        { root: authority.pipelineRoot },
+      ),
+    port: { startChat, stopChat, registry, eventStore, isAllowedPath },
+  });
+}
+app.use(
+  '/api/staging/features',
+  operatorAuthMiddleware,
+  createStagingFeatureRouter(() => stagingFeatureOwner),
+);
 if (custodianControllerClient)
   app.use(
     createCustodianProxy(custodianControllerClient, (req, session, conversationId) =>

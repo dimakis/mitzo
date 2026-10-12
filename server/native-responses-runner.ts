@@ -188,6 +188,7 @@ export class NativeResponsesRunner {
         beforeDispatch: async () => {
           await opts.prepareAgentContext?.(abort.signal);
           abort.signal.throwIfAborted();
+          await opts.beforeDispatch?.();
         },
       };
       const session = opts.gemini

@@ -49,6 +49,14 @@ interface RpcProcess extends EventEmitter {
   stderr: Readable;
   kill(): unknown;
 }
+export type OwnedCodexProcessClose =
+  | {
+      state: 'confirmed';
+      resource: 'owned-process';
+      code: number | null;
+      signal: NodeJS.Signals | null;
+    }
+  | { state: 'uncertain'; resource: 'owned-process' };
 const hostToolFailureMessages = {
   invalid_tool_request:
     'Mitzo rejected an invalid tool request. Correct the request format before retrying.',
@@ -353,6 +361,8 @@ export class CodexAppServerClient {
   private readonly timeoutMs: number;
   private readonly loginOnly: boolean;
   private readonly observeTurnStartWrite?: TurnInputWriteObserver;
+  private processClose?: Extract<OwnedCodexProcessClose, { state: 'confirmed' }>;
+  private readonly processClosed: Promise<Extract<OwnedCodexProcessClose, { state: 'confirmed' }>>;
 
   constructor(
     private child: RpcProcess,
@@ -370,6 +380,12 @@ export class CodexAppServerClient {
     this.loginOnly = options.loginOnly ?? false;
     this.timeoutMs = options.timeoutMs ?? 30_000;
     this.maxFrameBytes = options.maxFrameBytes ?? 4 * 1024 * 1024;
+    this.processClosed = new Promise((resolve) => {
+      child.once('close', (code: number | null, signal: NodeJS.Signals | null) => {
+        this.processClose = { state: 'confirmed', resource: 'owned-process', code, signal };
+        resolve(this.processClose);
+      });
+    });
     child.stdout.on('data', (chunk: Buffer) => this.receive(chunk));
     // Provider diagnostics may contain private paths or credential material.
     child.stderr.resume();
@@ -483,6 +499,30 @@ export class CodexAppServerClient {
     this.hostRequests.clear();
     this.child.kill();
     this.lifecycle?.onClose(error);
+  }
+
+  /** Wait for this original child's close/stdio drain after normal shutdown.
+   * An SSH child's close is not remote sandbox/volume retirement evidence.
+   * Timeout never discovers/signals another PID or sends an escalated signal. */
+  async closeAndConfirm(timeoutMs = 5000): Promise<OwnedCodexProcessClose> {
+    if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 30000)
+      throw new Error('Bounded owned process close deadline required');
+    this.close();
+    if (this.processClose) return { ...this.processClose };
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        this.processClosed,
+        new Promise<OwnedCodexProcessClose>((resolve) => {
+          timer = setTimeout(
+            () => resolve({ state: 'uncertain', resource: 'owned-process' }),
+            timeoutMs,
+          );
+        }),
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
   }
 
   private sendRequest(method: string, params: JsonObject): Promise<unknown> {
