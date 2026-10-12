@@ -284,8 +284,9 @@ it('derives required service names from reviewed profiles and excludes inference
     f.providers,
     f.providers[0].name,
   );
-  expect(required).toContain('GOOGLE_WORKSPACE_CLI_TOKEN');
-  expect(required).not.toContain('OPENAI_API_KEY');
+  expect(required).toContainEqual(['GOOGLE_WORKSPACE_CLI_TOKEN']);
+  expect(required).toContainEqual(['GH_TOKEN', 'GITHUB_TOKEN']);
+  expect(required.flat()).not.toContain('OPENAI_API_KEY');
   const google = f.providers.find((p) => p.type === 'mitzo-google-workspace-spike')!;
   (google.profile as Profile).credentials[0].env_vars = ['TOKEN;touch /tmp/unreviewed'];
   expect(() =>
