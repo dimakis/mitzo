@@ -3,7 +3,9 @@ import express from 'express';
 import request from 'supertest';
 import { CredentialConnections, CredentialConnectionStore } from '../credential-connections.js';
 import { createCredentialConnectionsRouter } from '../credential-connections-router.js';
-vi.mock('../auth.js', () => ({ verifyPassphrase: (value: string) => value === 'correct' }));
+vi.mock('../operator-session.js', () => ({
+  verifyPassphrase: (value: string) => value === 'correct',
+}));
 const stores: CredentialConnectionStore[] = [];
 afterEach(() => stores.splice(0).forEach((s) => s.close()));
 function setup() {

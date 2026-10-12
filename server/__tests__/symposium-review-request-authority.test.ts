@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events';
 import type { Request, Response } from 'express';
 import { afterEach, expect, it, vi } from 'vitest';
-import * as auth from '../auth.js';
+import * as auth from '../operator-session.js';
 import { bindCustodianAuthority } from '../symposium-custodian-authority.js';
 import { SymposiumReviewActionAuthority } from '../symposium-review-action-authority.js';
 import { createSymposiumReviewRequestAuthorizer } from '../symposium-review-route-composition.js';
