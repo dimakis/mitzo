@@ -33,6 +33,7 @@ it('pins actual transitive native imports and excludes only the source-owned app
 it('refuses computed imports, escaped modules, unknown executable asset URLs and a second app fork', () => {
   for (const body of [
     `await import(variable);`,
+    `fork(variable);`,
     `import '../../escape.js';`,
     `new URL(variable, import.meta.url);`,
     `fork(new URL('./index.js',import.meta.url));fork(new URL('./index.js',import.meta.url));`,
@@ -40,6 +41,41 @@ it('refuses computed imports, escaped modules, unknown executable asset URLs and
     expect(() =>
       deriveRetainedNativeImportClosure({
         readModule: read({ 'dist/symposium-custodian-main.js': body }),
+      }),
+    ).toThrow('closure');
+});
+it('pins retained child-control code while excluding only its mutually exclusive accepted app fork', () => {
+  const files = {
+    'dist/symposium-custodian-main.js': `import './symposium-original-app-child-update.js';const child=appChildControl ? fork(resolve(selectedRoot, 'dist/index.js'),[],{}) : fork(new URL('./index.js',import.meta.url),[],{});`,
+    'dist/symposium-original-app-child-update.js': `export const originalControl=1;`,
+    'dist/index.js': `import './ordinary-only.js';`,
+  };
+  const first = deriveRetainedNativeImportClosure({ readModule: read(files) });
+  expect(first.modules.map((x) => x.path)).toEqual([
+    'dist/symposium-custodian-main.js',
+    'dist/symposium-original-app-child-update.js',
+  ]);
+  expect(
+    deriveRetainedNativeImportClosure({
+      readModule: read({ ...files, 'dist/index.js': 'different ordinary backend' }),
+    }).sha256,
+  ).toBe(first.sha256);
+  expect(
+    deriveRetainedNativeImportClosure({
+      readModule: read({
+        ...files,
+        'dist/symposium-original-app-child-update.js': 'export const originalControl=2;',
+      }),
+    }).sha256,
+  ).not.toBe(first.sha256);
+  for (const body of [
+    `fork(resolve(selectedRoot, 'dist/index.js'));`,
+    `appChildControl ? fork(resolve(selectedRoot, 'dist/other.js')) : fork(new URL('./index.js',import.meta.url));`,
+    `unrelatedFlag ? fork(resolve(selectedRoot, 'dist/index.js')) : fork(new URL('./index.js',import.meta.url));`,
+  ])
+    expect(() =>
+      deriveRetainedNativeImportClosure({
+        readModule: read({ ...files, 'dist/symposium-custodian-main.js': body }),
       }),
     ).toThrow('closure');
 });

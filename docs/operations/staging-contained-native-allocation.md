@@ -137,8 +137,8 @@ primitives do not yet expose an installed queue-owned child updater.
 The initial installation sequencer places actual preflight before ordinary
 control, preserves any attempted shutdown on failure, and orders durable stopped
 registration completion and parent guard release before the independent child
-starts once. The concrete private host installation adapter remains under
-implementation; the sequencer cannot install a job or mint a native lease alone.
+starts once. Its concrete private host adapter is described below; the sequencing
+function alone supplies no native lease.
 
 ### Initial ordinary-to-native installation
 
@@ -182,3 +182,38 @@ they are not copy-on-write credit or a claim that the app already exists. First
 readiness independently checks the actual parent/app PID, cwd and parentage. A
 future accepted app-child release is a different path and requires fresh measured
 incremental resource admission, including all retained and in-flight inputs.
+
+### Retained native service and app-child control
+
+The original parent now constructs `createSymposiumCustodianService` using the
+exact owned workspace. Its actual native stores, runtime maps, provider host,
+fixture executor and finite authenticated request handlers live in that service;
+the parent does not import the ordinary Express app. The app child delegates the
+native namespace to the existing authenticated custodian channel. Importing the
+service creates no stores, credentials or listeners. Service protocol 1 is
+required by the initial source preflight independently of model enforcement.
+
+The source-owned app-child controller is wired into the parent's actual fork,
+readiness, drain and positive exit loop. Only a process-local accepted selection
+can disconnect its current child. It cannot fork the candidate until that exact
+child has positively exited after controller drain. The next child must prove
+the same custodian and instance, a new PID and a greater epoch through the awaited
+readiness fence. Its fork and cwd use the exact immutable candidate release.
+Final native retirement permanently closes this app-update controller rather
+than treating shutdown as an app replacement. Unknown drain or readiness fences
+the controller and retains uncertainty.
+
+The retained import inspector pins the full service/control import and asset
+closure, excluding only the ordinary app fork. A changed ordinary backend can be
+compatible while changed retained custody code remains incompatible. The private
+queue-owned plan/apply adapter and paired canonical owner-record handling are
+still unfinished; these source methods do not advertise an installed updater or
+authorize an app replacement through JSON.
+
+Known native fixture cleanup has a single 120-second monotonic window retained
+by the original run. It still requires current original request and private queue
+reservation, source/epoch, issued provider/account identity, model policy/drain
+identity and physical custody. Inference deadline, catalog admission freshness
+and resource pressure continue to refuse new work while permitting this exact
+known cleanup. Queue expiry/quarantine and owner loss refuse positive cleanup;
+terminal receipt closes the window permanently.

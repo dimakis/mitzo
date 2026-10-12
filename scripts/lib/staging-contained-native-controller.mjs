@@ -74,6 +74,7 @@ export function assertNativeReplicaSourceProtocol(main) {
     main?.STAGING_NATIVE_FEATURE_BOOTSTRAP_PROTOCOL_VERSION !== 1 ||
     main?.STAGING_NATIVE_MODEL_ENFORCEMENT_PROTOCOL_VERSION !== 1 ||
     main?.CUSTODIAN_NATIVE_OWNER_LIFETIME_PROTOCOL_VERSION !== 1 ||
+    main?.SYMPOSIUM_CUSTODIAN_SERVICE_PROTOCOL_VERSION !== 1 ||
     typeof main.runSymposiumCustodian !== 'function'
   )
     throw refuse(

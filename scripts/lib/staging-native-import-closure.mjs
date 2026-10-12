@@ -12,7 +12,8 @@ export function deriveRetainedNativeImportClosure({ readModule }) {
   const modules = new Map(),
     external = new Set();
   let totalBytes = 0,
-    childForks = 0;
+    childForks = 0,
+    selectedChildForks = 0;
   const visit = (path) => {
     if (modules.has(path)) return;
     if (modules.size >= 2048 || !/^dist\/[A-Za-z0-9_./-]+\.js$/.test(path) || path.includes('/../'))
@@ -111,6 +112,31 @@ export function deriveRetainedNativeImportClosure({ readModule }) {
       }
     };
     const walk = (node) => {
+      if (
+        ts.isCallExpression(node) &&
+        ts.isIdentifier(node.expression) &&
+        node.expression.text === 'fork'
+      ) {
+        const first = node.arguments[0];
+        const isDefault =
+          first &&
+          ts.isNewExpression(first) &&
+          first.expression.getText(parsed) === 'URL' &&
+          literal(first.arguments?.[0]) === './index.js' &&
+          first.arguments?.[1]?.getText(parsed) === 'import.meta.url';
+        const isSelected =
+          first?.getText(parsed) === "resolve(selectedRoot, 'dist/index.js')" &&
+          path === 'dist/symposium-custodian-main.js' &&
+          ts.isConditionalExpression(node.parent) &&
+          node.parent.condition.getText(parsed) === 'appChildControl' &&
+          node.parent.whenTrue === node &&
+          ts.isCallExpression(node.parent.whenFalse) &&
+          node.parent.whenFalse.expression.getText(parsed) === 'fork';
+        if ((!isDefault && !isSelected) || path !== 'dist/symposium-custodian-main.js')
+          throw refuse('unqualified executable fork in ' + path);
+        if (isSelected && ++selectedChildForks > 1)
+          throw refuse('second selected app fork boundary');
+      }
       if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) {
         if (node.moduleSpecifier) dependency(literal(node.moduleSpecifier));
       }
