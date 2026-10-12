@@ -41,7 +41,7 @@ it('the same transaction boundary makes a source merge and staging claim mutuall
     reason: 'staging-busy',
   });
   b.quarantine(staging.token, 'controller-lost');
-  expect(a.claimSourceMerge({ pr: 123, head })).toMatchObject({ granted: false });
+  expect(a.claimSourceMerge({ pr: 123, head })).toMatchObject({ granted: true });
 });
 it('uncertain dispatched merges retain capacity indefinitely and cannot retry or benign-release', () => {
   const [a, b] = fixture(),
@@ -73,4 +73,69 @@ it('a failed enqueue preserves merge capacity and a stale token cannot release a
   expect(() => a.completeSourceMerge(merge.token, request)).toThrow();
   expect(b.sourceMergeStatus().state).toBe('dispatched');
   expect(() => b.releaseSourceMerge({ ...merge.token, nonce: 'wrong' })).toThrow();
+});
+
+it('reviewed repair acceptance preserves the complete quarantined operation and cannot grant staging', () => {
+  const [a, b] = fixture();
+  a.enqueue({ ...request, id: 'old-stage', pr: 122, taskId: 'old-stage' });
+  const stage = a.claim('original-worker');
+  a.bindBaseline(stage.token, accepted);
+  a.markDispatched(stage.token);
+  a.quarantine(stage.token, 'deployment-uncertain');
+  const before = a.db.prepare('SELECT * FROM reservation').get();
+  const oldRequest = a.receipt('old-stage');
+  const merge = b.claimSourceMerge({ pr: 123, head });
+  expect(merge.granted).toBe(true);
+  b.markSourceMergeDispatched(merge.token);
+  b.completeSourceMerge(merge.token, request);
+  expect(a.db.prepare('SELECT * FROM reservation').get()).toEqual(before);
+  expect(a.receipt('old-stage')).toEqual(oldRequest);
+  expect(a.receipt(request.id).state).toBe('queued');
+  expect(a.claim('replacement')).toMatchObject({
+    granted: false,
+    reason: 'environment-quarantined',
+  });
+  for (const use of [
+    () => a.markDispatched(stage.token),
+    () => a.bindBaseline(stage.token, head),
+    () => a.settleDeployment(stage.token, accepted),
+    () => a.defer(stage.token, 'stage-unavailable'),
+    () =>
+      a.finish(stage.token, { outcome: 'passed', sourceCommit: accepted, cleanupConfirmed: true }),
+    () => a.cancel('old-stage'),
+  ])
+    expect(use).toThrow();
+  expect(a.db.prepare('SELECT * FROM reservation').get()).toEqual(before);
+});
+it.each(['admission', 'dispatch', 'reconciliation'])(
+  'retains the repair fence when the original quarantine changes during %s',
+  (phase) => {
+    const [a, b] = fixture();
+    a.enqueue({ ...request, id: 'old-stage' });
+    const stage = a.claim('original-worker');
+    a.quarantine(stage.token, 'controller-lost');
+    const merge = b.claimSourceMerge({ pr: 123, head });
+    expect(merge.granted).toBe(true);
+    if (phase === 'reconciliation') b.markSourceMergeDispatched(merge.token);
+    a.db.prepare('UPDATE reservation SET source_commit=?').run(head);
+    const operation =
+      phase === 'admission'
+        ? () => b.releaseSourceMerge(merge.token)
+        : phase === 'dispatch'
+          ? () => b.markSourceMergeDispatched(merge.token)
+          : () => b.completeSourceMerge(merge.token, request);
+    expect(operation).toThrow(/staging fence/i);
+    expect(b.sourceMergeStatus().state).not.toBe('idle');
+    expect(a.receipt(request.id).state).toBe('missing');
+  },
+);
+it('an expired active operation remains active and cannot admit a source repair', () => {
+  const [a, b] = fixture();
+  a.enqueue(request);
+  a.claim('worker');
+  a.db.prepare('UPDATE reservation SET deadline=0').run();
+  expect(b.claimSourceMerge({ pr: 123, head })).toMatchObject({
+    granted: false,
+    reason: 'staging-busy',
+  });
 });

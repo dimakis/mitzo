@@ -29,7 +29,12 @@ export function reconcileStagingSourceMerge(store, pr, run = runStagingHostComma
   if (value.state !== 'MERGED' || !/^[a-f0-9]{40}$/.test(acceptedCommit ?? ''))
     throw Error('Actual merge outcome unconfirmed; retain source fence');
   const ancestry = JSON.parse(
-    run('gh', ['api', `repos/dimakis/mitzo/compare/${acceptedCommit}...main`]),
+    run('gh', [
+      'api',
+      `repos/dimakis/mitzo/compare/${acceptedCommit}...main`,
+      '--jq',
+      '{status,base_commit:{sha:.base_commit.sha}}',
+    ]),
   );
   if (
     !['ahead', 'identical'].includes(ancestry.status) ||
