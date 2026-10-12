@@ -307,3 +307,37 @@ describe('createAnthropicClient (Vertex)', () => {
     expect(client).toBeInstanceOf(Anthropic);
   });
 });
+
+it('excludes generated closeout messages from later session naming, including legacy events', () => {
+  const events: StoredEvent[] = [
+    {
+      seq: 1,
+      sessionId: 's1',
+      type: 'user_message',
+      payload: { text: 'Calendar sync' },
+      createdAt: 1,
+    },
+    {
+      seq: 2,
+      sessionId: 's1',
+      type: 'user_message',
+      payload: { text: 'Commit and save memory', source: 'closeout' },
+      createdAt: 2,
+    },
+    {
+      seq: 3,
+      sessionId: 's1',
+      type: 'user_message',
+      payload: { text: 'Legacy closeout', messageId: `closeout-${'a'.repeat(64)}` },
+      createdAt: 3,
+    },
+    {
+      seq: 4,
+      sessionId: 's1',
+      type: 'user_message',
+      payload: { text: 'Regression coverage' },
+      createdAt: 4,
+    },
+  ];
+  expect(extractRecentPrompts(events)).toEqual(['Calendar sync', 'Regression coverage']);
+});

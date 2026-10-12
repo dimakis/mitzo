@@ -30,6 +30,14 @@ afterEach(() => {
   cleanup();
   localStorage.clear();
 });
+it('hides the Drafts destination when there are no saved drafts', () => {
+  render(
+    <MemoryRouter>
+      <SessionList />
+    </MemoryRouter>,
+  );
+  expect(screen.queryByRole('link', { name: /Drafts/ })).toBeNull();
+});
 it('shows a counted Drafts destination and removes update controls from Chats', () => {
   saveChatDraft({ ...createChatDraft(), text: 'Unsent thought' });
   render(

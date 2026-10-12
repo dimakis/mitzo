@@ -6,17 +6,8 @@ import { BackupsView } from './pages/BackupsView';
 import { NotificationProvider } from './components/NotificationProvider';
 import { NotificationsView } from './pages/NotificationsView';
 import { SymposiumSavedReviewRecordPage } from './components/SymposiumSavedReviewRecordPage';
-import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
-import { useState, useEffect } from 'react';
-import {
-  AUTH_LOST_EVENT,
-  AUTH_RESTORED_EVENT,
-  isCrossTabAuthEvent,
-  isLogoutPending,
-  restoreCookieAuthentication,
-} from './lib/api-fetch';
-import { hideSplash } from './lib/splash';
-import { saveTokenToWatch } from './lib/watch-auth';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { ProtectedRoute } from './components/ProtectedRoute';
 import { Login } from './pages/Login';
 import { Today } from './pages/Today';
 import { QuoteView } from './pages/QuoteView';
@@ -40,81 +31,6 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { MobileShell } from './components/MobileShell';
 import { DesktopShell } from './components/DesktopShell';
 import { useIsDesktop } from './hooks/useMediaQuery';
-
-function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const location = useLocation();
-  const [auth, setAuth] = useState<'loading' | 'ok' | 'denied' | 'unavailable'>('loading');
-  const [attempt, setAttempt] = useState(0);
-  useEffect(() => {
-    let ignoreCheckResult = false;
-    const onAuthLost = () => {
-      ignoreCheckResult = true;
-      localStorage.removeItem('mitzo_auth_token');
-      setAuth('denied');
-      hideSplash();
-    };
-    const onAuthRestored = (event: Event) => {
-      if (!isCrossTabAuthEvent(event)) return;
-      ignoreCheckResult = true;
-      setAuth('loading');
-      setAttempt((value) => value + 1);
-    };
-    window.addEventListener(AUTH_LOST_EVENT, onAuthLost);
-    window.addEventListener(AUTH_RESTORED_EVENT, onAuthRestored);
-    if (isLogoutPending()) {
-      onAuthLost();
-      return () => {
-        window.removeEventListener(AUTH_LOST_EVENT, onAuthLost);
-        window.removeEventListener(AUTH_RESTORED_EVENT, onAuthRestored);
-      };
-    }
-    restoreCookieAuthentication()
-      .then((authenticated) => {
-        if (ignoreCheckResult) return;
-        setAuth(authenticated ? 'ok' : 'denied');
-        if (authenticated) {
-          const token = localStorage.getItem('mitzo_auth_token');
-          if (token) saveTokenToWatch(token);
-        }
-      })
-      .catch(() => {
-        if (!ignoreCheckResult) setAuth('unavailable');
-      })
-      .finally(() => hideSplash());
-    return () => {
-      ignoreCheckResult = true;
-      window.removeEventListener(AUTH_LOST_EVENT, onAuthLost);
-      window.removeEventListener(AUTH_RESTORED_EVENT, onAuthRestored);
-    };
-  }, [attempt]);
-  if (auth === 'denied')
-    return (
-      <Navigate
-        to={`/login?returnTo=${encodeURIComponent(location.pathname + location.search + location.hash)}`}
-        replace
-      />
-    );
-  if (auth === 'loading') {
-    return <div className="auth-status">Checking authentication…</div>;
-  }
-  if (auth === 'unavailable') {
-    return (
-      <div className="auth-status" role="alert">
-        <p>Mitzo could not be reached. Check your connection and try again.</p>
-        <button
-          className="btn-primary"
-          onClick={() => {
-            setAuth('loading');
-            setAttempt((value) => value + 1);
-          }}
-        >
-          Retry
-        </button>
-      </div>
-    );
-  }
-  return <>{children}</>;
-}
 
 function HomeRoute() {
   return (
