@@ -27,6 +27,8 @@ interface Props {
   onToggleContextBlock: (name: string) => void;
   onAddImages: () => void;
   onRemoveImage: (index: number) => void;
+  onPreviewImage?: (image: ImageAttachment) => void;
+  getDraftImageKey?: (image: ImageAttachment) => string | number;
 }
 
 const SNAP_ORDER: TraySnap[] = ['peek', 'half', 'full'];
@@ -95,6 +97,8 @@ export function SessionTray({
   onToggleContextBlock,
   onAddImages,
   onRemoveImage,
+  onPreviewImage,
+  getDraftImageKey,
 }: Props) {
   const contentId = useId();
   const outputsContentId = useId();
@@ -129,6 +133,7 @@ export function SessionTray({
   const visibleSnap = placement === 'toolbar' && present ? lastOpenSnap.current : snap;
 
   const keyForDraftImage = (image: ImageAttachment) => {
+    if (getDraftImageKey) return getDraftImageKey(image);
     let key = draftImageKeys.current.get(image);
     if (!key) {
       key = `draft:${nextDraftImageKey.current++}`;
@@ -306,10 +311,29 @@ export function SessionTray({
                   <div className="session-tray-resources">
                     {draftImages.map((image, index) => (
                       <div className="session-tray-resource" key={keyForDraftImage(image)}>
-                        <img className="session-tray-thumb" src={image.preview} alt="" />
-                        <span className="session-tray-resource-label">
-                          Pasted image {index + 1}
-                        </span>
+                        {onPreviewImage ? (
+                          <button
+                            type="button"
+                            className="session-tray-draft-preview"
+                            aria-label={`Preview pasted image ${index + 1}`}
+                            onClick={(event) => {
+                              event.currentTarget.focus();
+                              onPreviewImage(image);
+                            }}
+                          >
+                            <img className="session-tray-thumb" src={image.preview} alt="" />
+                            <span className="session-tray-resource-label">
+                              Pasted image {index + 1}
+                            </span>
+                          </button>
+                        ) : (
+                          <>
+                            <img className="session-tray-thumb" src={image.preview} alt="" />
+                            <span className="session-tray-resource-label">
+                              Pasted image {index + 1}
+                            </span>
+                          </>
+                        )}
                         <button
                           type="button"
                           className="session-tray-remove"
