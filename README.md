@@ -329,6 +329,15 @@ behavior for unmatched requests. The router resolves the current host's narrow
 connection service per request; application composition retains host installation,
 and the existing services retain credentials, discovery and cleanup ownership.
 
+Review HTTP composition lives in `server/symposium-review-route-composition.ts`.
+It preserves prefix-scoped operator authentication and binds each request to the
+existing action authority, releasing its capability and authentication listener
+on response completion or disconnect. Review and publication hosts resolve at
+request time; application bootstrap retains the stores and runtime installation.
+`server/symposium-review-host-contract.ts` defines the physical review capabilities
+independently of application bootstrap, preserving existing artifact and native
+cleanup owners.
+
 Shared and native execution validate durable dispatch authority through
 `server/symposium-dispatch-boundary.ts`. That transport-neutral fence checks the
 current artifact, configuration, membership, trusted grants, admission and exact

@@ -1,7 +1,7 @@
 # Ordinary session Access — first correction slice
 
 Outcome `4f55b423d0731750`, source-audit milestone `cbc784ecd482c3f9`.
-Audited accepted main: `0b81f65f0312bfe08434d4e624f3713817fa3503` (12 October 2026).
+Initial audited accepted main: `0b81f65f0312bfe08434d4e624f3713817fa3503` (12 October 2026).
 Canonical Telos outcome and eight children retrieved from the operator's canonical store.
 Pinned revision-1 plan, workflow and two follow-up reviews were retrieved and SHA256-verified.
 
@@ -135,3 +135,17 @@ Accepted runtime-selection metadata from PR859 is documented in
 It records immutable target identity for continuation; it does not establish callable
 tools, attachment freshness or new route readiness. This slice preserves that contract
 and does not activate or duplicate the separate inventory/admission owner's picker.
+
+## Accepted-main reconciliation during validation
+
+Main advanced to `80681392e0a378ee711fc59306548fc1e809aa40` while this PR's
+checks ran. PR863's contributor-account characterization and PR864's review route/host
+extraction were merged into this branch. Their implementation and test files are
+preserved unchanged from accepted main. The only conflict was the shared source-pin
+map: it now contains both owners' entries and the combined app digest, under runtime
+implementation revision v1.0.59. The new failing digest assertion preceded this update.
+Relative to this accepted main, the app delta remains the read-only Access import/mount;
+no contributor parity or review composition was duplicated. The pre-reconciliation head
+`819ca378416c6821994496e20f7bbeee6ce79aa3` passed all hosted implementation jobs
+(13,459 tests, browser/layout and native builds); the reconciled head requires its own
+CI and exact-head review. Source acceptance and deployment/live acceptance remain separate.
