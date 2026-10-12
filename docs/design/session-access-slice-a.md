@@ -118,3 +118,20 @@ revision v1.0.58, with a failing inventory test before the update. This is sourc
 coverage for the new read route; capability executors, admission logic, provider policy
 and approval semantics are untouched. Full handler-source tests and guarded server build
 verify every other recorded digest remains unchanged.
+
+A hosted WebKit regression after briefing account selection exposed an expanded
+Workspace overlay covering the launch action. A 20px-root-text fixture reproduced
+it locally. WorkspaceControls now measures the space before the existing launch
+actions/composer and scrolls settings within that boundary; long summary text is
+clamped while its accessible name retains the full details. Twelve focused browser
+checks (Access, References and larger-text briefing return) pass across all three
+targets. The [inspected larger-text capture](assets/session-access-workspace-large-text.png)
+shows both Workspace settings and Send launch prompt reachable. Motion, layout and
+design guards pass. This changes layout only, not account selection or admission.
+
+Accepted runtime-selection metadata from PR859 is documented in
+`docs/design/session-runtime-selection.md` and persisted through
+`packages/protocol/src/session-runtime-binding.ts` / `server/ordinary-session-runtime.ts`.
+It records immutable target identity for continuation; it does not establish callable
+tools, attachment freshness or new route readiness. This slice preserves that contract
+and does not activate or duplicate the separate inventory/admission owner's picker.

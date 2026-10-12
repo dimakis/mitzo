@@ -164,3 +164,9 @@ its entry. Its read-only observation and nested Connections view reuse `HomeDial
 Connections grouped rows/facts, `UiIcon` and shared tokens. Returning leaves the
 composer mounted. Unknown availability and stale observations remain explicit; viewing
 Access cannot authorize a tool or start a session.
+
+On phones the Workspace summary truncates long text while its accessible name keeps
+the full account/model details. The expanded settings panel measures the space before launch actions or the composer and
+scrolls within that space, retaining those controls under larger text and viewport changes.
+A 45dvh cap is the fallback before measurement. These bounds are structural overlay geometry;
+colors, type, spacing and controls remain shared.
