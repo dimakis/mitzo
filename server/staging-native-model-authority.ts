@@ -34,7 +34,7 @@ export interface StagingNativeModelAuthority {
     binding: AccountBinding;
     selectedModel: string;
     maxRequests: 2;
-    auxiliaryDispatches: 'disabled';
+    auxiliaryDispatches: 'same-selected-model-shared-budget';
   }): StagingNativeModelPlan;
   prepareSandbox(
     plan: StagingNativeModelPlan,

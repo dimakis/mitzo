@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import type { AccountBinding } from '@mitzo/protocol';
 import type { AccountProfiles } from './account-profiles.js';
 import type { OwnedSymposiumGateway } from './symposium-owned-gateway.js';
+import { captureOriginalStagingAppSource } from './staging-native-app-witness.js';
 import type { StagingNativeFeatureBootstrap } from './staging-native-feature-bootstrap.js';
 import {
   StagingFeaturePlan,
@@ -70,6 +71,7 @@ export class StagingNativeFeatureOwner {
         modelPlan: StagingNativeModelPlan;
         deadlineAt: number;
         assertCurrent(): void;
+        assertCleanupCurrent(): void;
       }): Promise<{
         evidence: object;
         retirement: object;
@@ -77,17 +79,37 @@ export class StagingNativeFeatureOwner {
       }>;
     },
   ) {}
-  private current() {
+  private current(admitResources = true) {
     this.deps.bootstrap.assertOriginalOwnerCurrent();
     this.deps.assertOriginalOwnerCurrent();
     this.deps.gateway.verifyCustody();
-    this.deps.bootstrap.observeResources();
+    if (admitResources) this.deps.bootstrap.observeResources();
+  }
+  private appSource(admitResources = true) {
+    this.current(admitResources);
+    if (!this.deps.bootstrap.acceptedAppSource) return undefined;
+    const appSource = captureOriginalStagingAppSource(
+      this.deps.bootstrap.acceptedAppSource,
+      this.deps.bootstrap.sourceCommit,
+      this.deps.ownerInstance,
+    );
+    if (
+      !this.deps.bootstrap.sourceRoot.endsWith(
+        '/releases/' + this.deps.bootstrap.sourceCommit.slice(0, 12),
+      ) ||
+      appSource.appRoot.slice(0, -12) !== this.deps.bootstrap.sourceRoot.slice(0, -12)
+    )
+      throw Error('Actual accepted app and original native source namespace differ');
+    return appSource;
   }
   resources() {
-    this.current();
+    const appSource = this.appSource();
     return {
       version: 1,
-      sourceCommit: this.deps.bootstrap.sourceCommit,
+      sourceCommit: appSource?.acceptedAppCommit ?? this.deps.bootstrap.sourceCommit,
+      ...(appSource
+        ? { nativeSourceCommit: appSource.nativeSourceCommit, acceptedAppSource: appSource }
+        : {}),
       ownerInstance: this.deps.ownerInstance,
       resources: this.deps.bootstrap.observeResources(),
     };
@@ -111,8 +133,10 @@ export class StagingNativeFeatureOwner {
     if (!selected) throw Error('Explicit supported Luna or approved exact alternative required');
     const enrollment = this.deps.captureEnrollment(profileId, selected.id);
     enrollment.assertCurrent();
+    const appSource = this.appSource();
     const enrollmentRevision = digest({
-      sourceCommit: this.deps.bootstrap.sourceCommit,
+      sourceCommit: appSource?.acceptedAppCommit ?? this.deps.bootstrap.sourceCommit,
+      nativeSourceCommit: this.deps.bootstrap.sourceCommit,
       ownerInstance: this.deps.ownerInstance,
       binding: enrollment.binding,
       chargedAccount: enrollment.chargedAccount,
@@ -122,13 +146,25 @@ export class StagingNativeFeatureOwner {
   }
   enrollment(profileId: string) {
     const current = this.capture(profileId);
-    return { profileId, enrollmentRevision: current.enrollmentRevision };
+    const appSource = this.appSource();
+    return {
+      profileId,
+      enrollmentRevision: current.enrollmentRevision,
+      ...(appSource
+        ? {
+            sourceCommit: appSource.acceptedAppCommit,
+            nativeSourceCommit: appSource.nativeSourceCommit,
+            acceptedAppSource: appSource,
+          }
+        : {}),
+    };
   }
   plan(raw: unknown, sourceCommit: string) {
     const request = StagingFeatureRequest.parse(raw);
     const current = this.capture(request.profileId);
+    const appSource = this.appSource();
     if (
-      sourceCommit !== this.deps.bootstrap.sourceCommit ||
+      sourceCommit !== (appSource?.acceptedAppCommit ?? this.deps.bootstrap.sourceCommit) ||
       request.acceptedCommit !== sourceCommit ||
       request.enrollmentRevision !== current.enrollmentRevision ||
       this.plans.size >= 100
@@ -139,7 +175,7 @@ export class StagingNativeFeatureOwner {
       binding: current.enrollment.binding,
       selectedModel: current.enrollment.selectedModel,
       maxRequests: 2,
-      auxiliaryDispatches: 'disabled',
+      auxiliaryDispatches: 'same-selected-model-shared-budget',
     });
     modelPlan.assertCurrent();
     if (modelPlan.selectedModel !== current.enrollment.selectedModel)
@@ -153,6 +189,9 @@ export class StagingNativeFeatureOwner {
       version: 1,
       requestId: request.id,
       sourceCommit,
+      ...(appSource
+        ? { nativeSourceCommit: appSource.nativeSourceCommit, acceptedAppSource: appSource }
+        : {}),
       profileId: request.profileId,
       enrollmentRevision: current.enrollmentRevision,
       profileRevision: current.enrollment.binding.profileRevision,
@@ -168,13 +207,13 @@ export class StagingNativeFeatureOwner {
       runnerRevision,
       modelDispatches: [
         {
-          purpose: 'main',
+          purpose: 'all-inference',
           chargedAccount: modelPlan.chargedAccount,
           selectedModel: current.enrollment.selectedModel,
           maxModelRounds: 2,
         },
       ],
-      auxiliaryDispatches: 'disabled',
+      auxiliaryDispatches: 'same-selected-model-shared-budget',
       limits: { maxProviderDispatches: 1, timeoutMs: 180000, maxOutputBytes: 65536 },
     });
     const planSha256 = digest(plan);
@@ -199,21 +238,30 @@ export class StagingNativeFeatureOwner {
     const current = this.plan(original.request, plan.sourceCommit);
     if (current.planSha256 !== planSha256) throw Error('Original native feature plan changed');
     const deadlineAt = Date.now() + plan.limits.timeoutMs;
-    const assertCurrent = () => {
+    const assertRunCurrent = (admitResources: boolean) => {
       if (Date.now() >= deadlineAt) throw Error('Original native feature deadline expired');
       assertRequestCurrent();
-      this.current();
+      this.current(admitResources);
       original.enrollment.assertCurrent();
       original.modelPlan.assertCurrent();
       this.deps.assertReservation(plan, token, planSha256);
     };
+    const assertCurrent = () => assertRunCurrent(true),
+      assertCleanupCurrent = () => assertRunCurrent(false);
     assertCurrent();
     this.active = true;
     const runId = randomUUID();
     // Failure retains the original active runner and all cleanup capabilities.
     // A timeout/rejection is never permission to start another runner.
-    const actual = await this.deps.execute({ plan, runId, ...original, deadlineAt, assertCurrent });
-    assertCurrent();
+    const actual = await this.deps.execute({
+      plan,
+      runId,
+      ...original,
+      deadlineAt,
+      assertCurrent,
+      assertCleanupCurrent,
+    });
+    assertCleanupCurrent();
     const charged = actual.modelRequests;
     if (
       charged.chargedAccount !== plan.chargedAccount ||
@@ -224,10 +272,14 @@ export class StagingNativeFeatureOwner {
       !Number.isFinite(charged.revokedAt)
     )
       throw Error('Actual native HTTP model/account/request retirement receipt differs');
+    const appSource = this.appSource(false);
     const ownerReceipt = {
       version: 1,
       runId,
       sourceCommit: plan.sourceCommit,
+      ...(appSource
+        ? { nativeSourceCommit: appSource.nativeSourceCommit, acceptedAppSource: appSource }
+        : {}),
       ownerInstance: plan.ownerInstance,
       profileId: plan.profileId,
       enrollmentRevision: plan.enrollmentRevision,
