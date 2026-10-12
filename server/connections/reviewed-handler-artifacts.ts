@@ -22,8 +22,10 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
-  '../symposium-attempt-registry.ts': '4279b2bb867aac492bcf4a7827f1f1129e146e1546a1c6cbb8bc5226c6181bf4',
-  '../staging-native-runtime-effect.ts': '12009111ff20f86c14f36ecd6906f66305e66ff68760c475189ec7e440d7981b',
+  '../symposium-attempt-registry.ts':
+    '4279b2bb867aac492bcf4a7827f1f1129e146e1546a1c6cbb8bc5226c6181bf4',
+  '../staging-native-runtime-effect.ts':
+    '12009111ff20f86c14f36ecd6906f66305e66ff68760c475189ec7e440d7981b',
   '../../packages/protocol/src/ordinary-local-admission.ts':
     '85f66be424edfcbcb5b072b79a7113b491b1f486b7d6a0ba03ad9cbf2d3bdf2e',
   '../send-command.ts': '18bc97eb0e66226fd777c77d58597293872c3e6378b071a91c6514511ffe9750',
