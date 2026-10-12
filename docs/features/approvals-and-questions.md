@@ -14,9 +14,11 @@ Approval cards display complete arguments rather than the shortened notification
 
 `permission_request` includes `permId`, optional application `sessionId`, an absolute `expiresAt`, and optional `questions`. `permission_response` adds optional `answers: Record<string, string[]>`. A response carrying a different bound session ID is rejected. Legacy responses without a session ID remain compatible.
 
+Interactive operators can answer an exact session-bound card from another authenticated device watching that session, through HTTP or WebSocket, without transferring execution ownership. The server validates the live transport login and watched session; a subscription or connection ID alone grants no approval authority. Internal service credentials cannot use the interactive HTTP approval endpoint.
+
 The client queues concurrent requests and deduplicates repeated request IDs. Reconnecting or switching to a live session replays its unresolved requests with the original deadline. Resolution clears timeout and notification timers and emits `permission_resolved` to the active transport and observers. Stop/abort denies pending work; a socket closing during delivery cannot prevent resolution.
 
-This registry is in memory. It does not restore approvals after a server restart or replay tool effects. Durable interrupted/uncertain outcomes belong to the server lifecycle integration. The client retains a submitted card until the server confirms resolution, so a queued or invalid response does not silently dismiss it. Draft answers are not durable across reloads.
+This registry is in memory. It does not restore approvals after a server restart or replay tool effects. Durable interrupted/uncertain outcomes belong to the server lifecycle integration. The client retains a submitted card until the server confirms resolution, so a queued or invalid response does not silently dismiss it. Draft answers are not durable across reloads. HTTP rejections retain the authoritative pending-card snapshot, so a card resolved on another device clears after a stale submission. Cancellation and expiration are reported separately from a user denial.
 
 ## Other model backends
 
