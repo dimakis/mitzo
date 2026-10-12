@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.9';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.70';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.72';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -76,7 +76,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   // Read-only session observation is part of the operator route composition.
   '../session-access.ts': 'e70130c57879d3b22fab78473d90c8d2e787b7a499194c166e7e912fc5cf2767',
   // Request authority and physical review composition share runtime admission.
-  '../app.ts': '1c9b798b6412b26e466011333f58c7a7f04dce02806663e1a8da2f2e99cb6570',
+  '../app.ts': 'cb369366ee71521a5af155e642d121b4a1557b4abb9c1eec1a4a801f1c750b3b',
   '../symposium-review-route-composition.ts':
     'bc2cb2a85517a1f16279fd87757a97b9bb46a16d9efc5f15b52bf41a6f14cae3',
   '../symposium-review-host-contract.ts':
@@ -118,7 +118,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'aadefe0eab442dc27ce68b86654291299dc6664a185b903af44756f79ff26680',
   '../symposium-profiles.ts': '4138fce2cc44220fa90b3ef65b207b89c06a5f02cd24750a748f79d84d297c95',
   '../symposium-custodian-protocol.ts':
-    '14143aaa949c5a47b9aec8e4b2a8f5dce9670c9a6d47d1af68839d95d84f55d5',
+    'a24e231b8e548a29a4ddacce17e577621eb972fbd9b2cfbe831fae122dec71ab',
   '../symposium-custodian-proxy.ts':
     '4e37191b7019eb16732f53c0ccd1be2f05ca77db92001510933ae2fe97ed971b',
   '../../packages/protocol/src/agent-library.ts':

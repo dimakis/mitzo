@@ -3,6 +3,7 @@ import {
   type StagingNativeEnrollment,
 } from './staging-native-feature-owner.js';
 import type { StagingNativeFeatureBootstrap } from './staging-native-feature-bootstrap.js';
+import { StagingNativeInferenceCurrentOwner } from './staging-native-inference-current-owner.js';
 import type { SymposiumStagingNativeFixtures } from './symposium-staging-native-fixture.js';
 import { collectStagingNativeTextReadEvidence } from './staging-native-feature-evidence.js';
 import type { StagingNativeModelRequestReceipt } from './staging-native-model-authority.js';
@@ -1015,6 +1016,9 @@ app.post('/api/auth/logout', async (req, res) => {
 
 app.use('/api', authMiddleware);
 let stagingFeatureOwner: StagingFeatureOwnerProtocol | undefined;
+let stagingNativeInferenceCurrentOwner:
+  | import('./staging-native-inference-current-owner.js').StagingNativeInferenceCurrentOwner
+  | undefined;
 /** Trusted qualified stage bootstrap only. There is no public install endpoint.
  * Current bootstrap installs none while native custody/enrollment is pending. */
 export function configureStagingFeatureOwner(
@@ -1067,7 +1071,10 @@ receiveCustodianEvents(broadcastDurableSymposiumEvent);
 app.use(
   '/api/staging/features',
   operatorAuthMiddleware,
-  createStagingFeatureRouter(() => stagingFeatureOwner),
+  createStagingFeatureRouter(
+    () => stagingFeatureOwner,
+    () => stagingNativeInferenceCurrentOwner,
+  ),
 );
 
 app.use(
@@ -1617,6 +1624,8 @@ export function configureStagingNativeFeatureOwner(
   if (typeof mutation.assertStagingPipelineFeatureDispatch !== 'function')
     throw Error('Accepted original feature singleton guard unavailable');
   let fixtures: SymposiumStagingNativeFixtures | undefined;
+  const inferenceCurrent = new StagingNativeInferenceCurrentOwner(host.gateway);
+  stagingNativeInferenceCurrentOwner = inferenceCurrent;
   stagingFeatureOwner = new StagingNativeFeatureOwner({
     bootstrap,
     gateway: host.gateway,
@@ -1630,7 +1639,7 @@ export function configureStagingNativeFeatureOwner(
     },
     assertReservation: (plan, token, planSha256) =>
       mutation.assertStagingPipelineFeatureDispatch(
-        { sourceCommit: bootstrap.sourceCommit, token, planSha256, plan },
+        { sourceCommit: plan.sourceCommit, token, planSha256, plan },
         { root: join(homedir(), '.local/share/mitzo-staging') },
       ),
     execute: (input) =>
@@ -1707,13 +1716,31 @@ export function configureStagingNativeFeatureOwner(
           fixture,
           fixtures,
           sandboxGuards: new Map(),
-          prepareSandbox: (name) =>
-            input.modelAuthority.prepareSandbox(input.modelPlan, {
+          prepareSandbox: async (name) => {
+            const original = {
+              runId: input.runId,
+              planSha256: createHash('sha256').update(JSON.stringify(input.plan)).digest('hex'),
+              acceptedAppCommit: input.plan.sourceCommit,
+              nativeSourceCommit: input.plan.nativeSourceCommit ?? bootstrap.sourceCommit,
+              ownerInstance,
               sessionId,
               claimToken,
               sandboxName: name,
+              assertCurrent: input.assertCurrent,
+              assertCleanupCurrent: input.assertCleanupCurrent,
+            };
+            const guard = await input.modelAuthority.prepareSandbox(input.modelPlan, {
+              ...original,
               deadlineAt: input.deadlineAt,
-            }),
+              registerPreparedGuard: (pending) => {
+                inferenceCurrent.registerGuard(original, pending);
+                stagingNativeSessions.get(sessionId)!.sandboxGuards.set(name, pending);
+              },
+            });
+            if (stagingNativeSessions.get(sessionId)!.sandboxGuards.get(name) !== guard)
+              throw Error('Original pre-RPC native guard registration differs');
+            return guard;
+          },
           assertCurrent: input.assertCurrent,
           assertCleanupCurrent: input.assertCleanupCurrent,
         });
@@ -1747,6 +1774,11 @@ export function configureStagingNativeFeatureOwner(
           AbortSignal.timeout(60000),
         );
         if (!sandbox.sandboxId) throw Error('Original staging native sandbox identity unavailable');
+        const preparedGuard = stagingNativeSessions
+          .get(sessionId)!
+          .sandboxGuards.get(sandbox.sandboxName);
+        if (!preparedGuard) throw Error('Original provisional native sandbox guard unavailable');
+        inferenceCurrent.bindSandbox(preparedGuard, sandbox.sandboxId);
         const budget = await input.modelAuthority.issue(input.modelPlan, {
           sessionId,
           seatId: 'primary',
@@ -1754,14 +1786,7 @@ export function configureStagingNativeFeatureOwner(
           sandboxName: sandbox.sandboxName,
           sandboxId: sandbox.sandboxId,
           deadlineAt: input.deadlineAt,
-          preparedGuard: (() => {
-            const guard = stagingNativeSessions
-              .get(sessionId)!
-              .sandboxGuards.get(sandbox.sandboxName);
-            if (!guard) throw Error('Original provisional native sandbox guard unavailable');
-            guard.assertCurrent();
-            return guard;
-          })(),
+          preparedGuard,
         });
         budget.assertCurrent();
         input.assertCurrent();

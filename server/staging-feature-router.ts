@@ -28,6 +28,12 @@ export type StagingFeatureOwnerProtocol = Pick<
 };
 export function createStagingFeatureRouter(
   currentOwner: () => StagingFeatureOwnerProtocol | undefined,
+  currentNativeInference: () =>
+    | Pick<
+        import('./staging-native-inference-current-owner.js').StagingNativeInferenceCurrentOwner,
+        'current'
+      >
+    | undefined = () => undefined,
 ) {
   const router = Router();
   router.use((_req, res, next) => {
@@ -36,6 +42,16 @@ export function createStagingFeatureRouter(
       return;
     }
     next();
+  });
+  router.post('/native-inference/current', (req, res) => {
+    res.setHeader('cache-control', 'no-store');
+    try {
+      const original = currentNativeInference();
+      if (!original) throw Error('Original native inference owner unavailable');
+      res.json(original.current({ method: req.method, url: req.originalUrl }, req.body));
+    } catch {
+      res.status(503).json({ error: 'Original native inference current authority unavailable' });
+    }
   });
   router.get('/resources', (_req, res) => {
     try {

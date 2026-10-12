@@ -48,6 +48,7 @@ const operations = {
   'feature.run': ['POST', '/api/staging/features/run'],
   'feature.receipt': ['GET', '/api/staging/features/runs/:resourceId'],
   'feature.resources': ['GET', '/api/staging/features/resources'],
+  'feature.nativeInferenceCurrent': ['POST', '/api/staging/features/native-inference/current'],
   'custody.status': ['GET', '/api/symposium/custody'],
   'director.status': ['GET', '/api/sessions/:sessionId/symposium'],
   'director.durableStatus': ['GET', '/api/sessions/:sessionId/symposium/status'],
