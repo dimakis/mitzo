@@ -47,7 +47,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../logger.ts': '563ccb2a9ba950c4c1c8de6c1198622c13bd1c89e7a79d8bac208658cf0b728c',
   '../symposium-owned-host.ts': '0952ceeda0ba856c2dfc58e09345999aed6e3bb7bd5a86b886bbfddd481cec68',
   '../symposium-personal-host.ts':
-    '7c1ab92b6a906dba90536df97f18e9f0f162ac176be26f5042a0f5536990019d',
+    'a19c53e43cdeba9e1c74d7440e16560703380dc60016733079668fb5901acfe1',
   '../symposium-work-vertex-provider.ts':
     'baca4c97b1cb1f2555cd2fe68191ebf260a9c718a0e4341d37c5774c21602157',
   '../staging-native-feature-owner.ts':

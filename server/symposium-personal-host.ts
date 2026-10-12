@@ -388,7 +388,12 @@ export function createPersonalSubscriptionHost(
         );
         assertCurrent();
         catalog.assertCurrent();
-        const models = catalog.observation.listedModels.map((id) => ({ id, label: id }));
+        // Preserve the explicit source-selected Luna first, so readonly planning
+        // selects the same authenticated catalog scope even if upstream order differs.
+        const models = [
+          selectedModel,
+          ...catalog.observation.listedModels.filter((id) => id !== selectedModel),
+        ].map((id) => ({ id, label: id }));
         proof.publish(models, lease.revision + 1);
         // Publishing changes the binding generation; no old proof is reused.
         assertOriginalCurrent();

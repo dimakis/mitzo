@@ -46,7 +46,7 @@ vi.mock('../symposium-subscription-host.js', () => ({
             workspace: 'workspace',
             chargedAccount: 'real-account',
             selectedModel,
-            listedModels: [selectedModel],
+            listedModels: ['gpt-6-luna', selectedModel],
             credentialSha256: 'a'.repeat(64),
             catalogSha256: 'b'.repeat(64),
             observationRevision: 'c'.repeat(64),
@@ -922,7 +922,10 @@ it('publishes the authenticated catalog through the same connection lease withou
     status: 'complete',
     inference: false,
     connection: { state: 'connected' },
-    models: [{ id: 'gpt-5.6-luna', label: 'gpt-5.6-luna' }],
+    models: [
+      { id: 'gpt-5.6-luna', label: 'gpt-5.6-luna' },
+      { id: 'gpt-6-luna', label: 'gpt-6-luna' },
+    ],
   });
   expect(discover).not.toHaveBeenCalled();
   expect(current.mock.calls.length).toBeGreaterThan(2);
@@ -932,6 +935,11 @@ it('publishes the authenticated catalog through the same connection lease withou
     source.catalog.observation.chargedAccount,
   );
   expect(host.currentProfiles.resolve(row.id, 'gpt-5.6-luna').model).toBe('gpt-5.6-luna');
+  expect(
+    host.currentProfiles
+      .catalog()[0]
+      .models.find((model) => /^gpt-\d+(?:\.\d+)?-luna$/.test(model.id))?.id,
+  ).toBe(source.catalog.observation.selectedModel);
 });
 
 it('releases only its known readonly lease after a catalog failure and leaves model admission stale', async () => {

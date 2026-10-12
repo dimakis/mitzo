@@ -1235,6 +1235,15 @@ connects Vertex drafts and candidates to the actual original gateway receipt and
 reviewed runtime gate. Fresh staging enrollment, explicit non-Luna test approval,
 accepted model enforcement and authentic live evidence remain required.
 
+The original staging host can refresh a personal account's authenticated catalog
+without a discovery sandbox or another login solely because its five-minute
+observation expired. The retained credential expires with its verified JWT.
+API enrollment binds explicit organization/project billing scope; Vertex binds
+its verified principal and selected public project/region. These original
+capabilities and catalog reads do not qualify model execution: the native runner
+still requires accepted enforcement and fresh staging authorization. See the
+[account enrollment contract](docs/operations/staging-native-feature-runner.md).
+
 The narrowly scoped [lost-owner offline preservation procedure](docs/operations/staging-offline-containment.md) retains the original native environment and uncertain history before ordinary staging restoration. Recovery first admits exact accepted main, then holds a bounded original-process source witness so a later accepted descendant cannot strand an authenticated preservation step. Source or history drift still refuses. Source acceptance, authenticated physical recovery and provider enrollment remain separate.
 The separate [contained-native allocation source protocol](docs/operations/staging-contained-native-allocation.md) preserves that unchanged uncertain row and requires fresh purpose authentication, a new original launcher guard and complete independent archived-closure evidence. Its launcher refuses when the reviewed native model or owner-lifetime implementation is missing; source availability does not claim a live allocation or provider enrollment.
 
