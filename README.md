@@ -110,7 +110,7 @@ Symposium director status resolves the verified runtime once per request and reu
 - **Auto-rename sessions** — sessions get meaningful names via LLM summarization after every few prompts
 - **Quick actions** — one-tap commands via `.mitzo.json`
 - **Notifications center** — shared desktop/mobile feed for approvals, questions, session completions, and new Inbox arrivals, with native iPhone/Apple Watch delivery. Native device enrollment retries after login and app resume; partial listener setup resumes without duplicating callbacks. Enable **Show sensitive details** to see complete eligible requests and allow once or deny from an expanded iOS banner without opening Mitzo; search banners also offer session-wide consent bound to the selected account and model.
-- **Image attachments** — send photos/screenshots from your camera
+- **Image attachments** — send photos/screenshots from your camera. OpenAI API chats accept PNG, JPEG, WebP and GIF attachments up to 10 MiB each on initial sends, follow-ups and interrupts, through both OpenShell and direct Responses execution. Direct Responses sends the image bytes as native image inputs and preserves them for conversation continuation; invalid attachments are rejected before interrupting an active turn. See [OpenAI image input](docs/features/openai-responses-session.md).
 - **Session history** — resume past conversations, swipe to dismiss. Hold a conversation in the recent list or search results to preview its latest saved messages above an action menu; release keeps the preview open. Open, rename, copy the session ID, or delete the conversation without first entering chat. Search results refresh after renames and deletions. Scrolling cancels the hold. Desktop users can right-click or press Shift+F10; Preview conversation is also available in row details. Escape, Close, or a tap outside returns to the list.
 - **Managed Connections** — attach reviewed Jira, GitHub, and bounded custom REST providers to eligible accounts; publish GitHub pull requests through an approved controller operation
 
@@ -151,6 +151,12 @@ Apple Keychain HTTPS connections support Home Assistant and custom APIs with tok
 **Shared UI motion** — Pages fade quickly; menus, sheets and disclosures use the same brief transitions on web and iOS. Reduce Motion disables animations. Shared motion tokens and reusable components keep new routes and controls consistent; CI rejects ad hoc durations and direct animation calls. See [the frontend motion contract](docs/design/frontend-motion.md). Installed iOS apps receive this behavior with an updated app bundle.
 
 **Settings → Appearance** offers Lavender, Teal, Rose, Amber, Blue, Mint, Coral and Plum accents and System, Arial, Georgia, Verdana, Trebuchet MS, Palatino and Courier New UI fonts. Font stacks use local fallbacks when the selected family is unavailable. Changes preview immediately, apply to every route, and persist locally on the current device across reloads. Each accent has light/dark variants; code retains its monospace font. Reset appearance restores the defaults.
+
+**Chats → Drafts** keeps unsent new conversations separate from chat history. New chat opens a fresh composer; leaving it saves the message, attachments, context, account, model, thinking level and launch settings on this device. Open a draft to edit it before sending, or explicitly discard it. Failed or uncertain sends retain the draft until acceptance is confirmed. Existing unsent new-chat text is preserved during migration using the device's saved account/model preference; older versions did not record the rest of its settings.
+
+Repository preparations stay with their draft even before typing or after clearing its message. Discard releases an unused preparation before removing the saved draft; if its state or cleanup cannot be confirmed, the draft remains available to reopen and retry.
+
+**More → Settings → Updates** shows the installed commit, interface build and update status, with explicit version checks and interface reload. Review update opens the installation's configured Deploy Mitzo prompt in a fresh chat for review before sending; opening the page never deploys an update. The chat list no longer carries update or deployment controls.
 
 Controls, navigation, resource types and work states share a restrained outline icon family that stays consistent across fonts and platforms. Internal destinations use chevrons, external links use an external-link icon, and command scopes are labelled Workspace, Personal or Built-in.
 
@@ -652,6 +658,14 @@ bridge; a web deployment alone cannot update installed native code.
 | `session-overview.ts`   | Session overview API                              |
 | `signal-processor.ts`   | Signal processing utilities                       |
 
+Execution admission, provider-attempt transitions and restart recovery live in
+`packages/protocol/src/execution-ledger.ts`. `EventStore` supplies its existing
+SQLite connection and prepared statements and retains schema, backup, close and
+conversation-identity ownership. State changes and their events commit together;
+restart recovery keeps completed per-attempt progress if a later write fails.
+Existing public execution methods and admission error types remain available
+through the event-store module.
+
 ### Frontend (`frontend/`) — React 19 + Vite
 
 React 19 + Vite. Ten pages (`Login`, `SessionList`, `ChatView`, `DesktopChatView`, `FileViewer`, `InboxView`, `CalendarView`, `TodoView`, `TodoDetailView`, `TaskBoard`), a `useReducer`-based message state machine (`useChatMessages`), module-level WebSocket pool with 500-message buffer, and components for thinking blocks, tool pills, tool groups, permission banners, and a slash-command picker. Capacitor wraps the frontend for iOS deployment via TestFlight.
@@ -781,6 +795,14 @@ cancel superseded code-validation runs; description edits rerun only the
 documentation gate. Browser and native checks follow their changed-file
 dependencies, with both checks retained for shared tooling, unknown paths,
 incomplete diffs, and every push to main.
+
+Browser suites keep separate output and HTML report directories. On a failing
+suite, CI uploads its traces, failure screenshots, error snapshots and HTML report
+as `playwright-browser-failure-<run>-<attempt>` or
+`playwright-offline-failure-<run>-<attempt>` for seven days. Download the artifact
+from the Actions run; use `npx playwright show-trace <trace.zip>` or
+`npx playwright show-report <report-directory>` to inspect it. Successful suites
+do not upload artifacts, and retries keep the original attempt's evidence.
 
 Production artifacts are staged with
 `./scripts/stage-openshell-release.sh <mgmt-repo> <new-seed-output>`. It requires

@@ -30,6 +30,7 @@ import type {
   ProviderAttemptToken,
 } from '@mitzo/protocol';
 import { NativeResponsesRunner } from './native-responses-runner.js';
+import { responsesUserContent } from './responses-input.js';
 import { NativeResponsesStore } from './native-responses-store.js';
 import { codexPrivateDirectory } from './codex-private-path.js';
 import { connectCodexMcpTools } from './codex-mcp-tools.js';
@@ -118,6 +119,7 @@ interface Options {
   input: AsyncIterable<{
     message: { content: unknown };
     mitzoMessageId?: string;
+    mitzoImages?: Array<{ data: string; mediaType: string }>;
     providerAdmission?: ProviderDispatchAdmission;
   }> & {
     close(): void;
@@ -327,7 +329,13 @@ export async function openResponsesChat(options: Options) {
             signal.throwIfAborted();
           }
           if (typeof message.message.content !== 'string')
-            throw new Error('API chat currently supports text input');
+            throw new Error(
+              'API chat requires a string prompt with optional Mitzo image attachments',
+            );
+          if (options.binding.provider === 'google-vertex' && message.mitzoImages?.length) {
+            throw new Error('Google Vertex image attachments are not supported');
+          }
+          const content = responsesUserContent(message.message.content, message.mitzoImages);
           let providerAttempt: ProviderAttemptToken | undefined;
           if (providerAdmission) {
             const attempt = options.eventStore!.beginProviderAttempt(
@@ -369,11 +377,7 @@ export async function openResponsesChat(options: Options) {
           try {
             await options.prepareAgentContext?.(signal);
             signal.throwIfAborted();
-            for await (const event of runner.run(
-              message.message.content,
-              signal,
-              message.mitzoMessageId,
-            )) {
+            for await (const event of runner.run(content, signal, message.mitzoMessageId)) {
               // The Responses adapter emits message_start only after response.created.
               // Local initialization and a failed request are not delivery evidence.
               if (
