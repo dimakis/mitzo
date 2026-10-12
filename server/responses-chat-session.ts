@@ -1,3 +1,4 @@
+import type { StagingFeatureAdapterOptions } from './staging-feature-cleanup.js';
 import {
   sessionCredentialTools,
   CONNECTION_TOOL_INSTRUCTIONS,
@@ -105,6 +106,7 @@ function store() {
   return privateStore;
 }
 interface Options {
+  stagingFeature?: StagingFeatureAdapterOptions;
   publishingGitStorageRoots?: readonly string[];
   resume?: boolean;
   conversationId: string;
@@ -153,7 +155,7 @@ export async function openResponsesChat(options: Options) {
     options.session.cwd!,
     options.conversationId,
     options.env,
-    { trustProjectHooks: process.env.MITZO_TRUST_PROJECT_HOOKS === '1' },
+    { trustProjectHooks: !options.stagingFeature && process.env.MITZO_TRUST_PROJECT_HOOKS === '1' },
   );
   let startup;
   try {
@@ -164,7 +166,7 @@ export async function openResponsesChat(options: Options) {
     dispose();
     throw error;
   }
-  const mcp = await connectCodexMcpTools(options.mcpServers, {
+  const mcp = await connectCodexMcpTools(options.stagingFeature ? {} : options.mcpServers, {
     cwd: options.session.cwd!,
     env: options.env,
     signal,
@@ -189,6 +191,10 @@ export async function openResponsesChat(options: Options) {
     GITHUB_PUBLISHING_INSTRUCTIONS +
     (startup.context ? `\n\n${startup.context}` : '');
   const runner = new NativeResponsesRunner({
+    maxTurns: options.stagingFeature?.maxModelRounds,
+    beforeDispatch: options.stagingFeature
+      ? async () => options.stagingFeature!.beforeDispatch()
+      : undefined,
     conversationId: options.conversationId,
     binding: options.binding,
     apiKey: options.apiKey,
@@ -197,17 +203,29 @@ export async function openResponsesChat(options: Options) {
     store: privateStorage,
     systemPrompt,
     prepareAgentContext: options.prepareAgentContext,
-    maxTokens: 8192,
+    maxTokens: options.stagingFeature ? 512 : 8192,
     selectedModel: options.selectedModel,
     reasoningEffort: options.reasoningEffort ?? undefined,
-    tools: [
-      ...connectionTools.definitions,
-      ...nativeToolDefinitions,
-      ...mcp.definitions,
-      webAccessDefinition,
-      githubPublishingDefinition,
-    ],
+    tools: options.stagingFeature
+      ? nativeToolDefinitions.filter((tool) => tool.name === 'Read')
+      : [
+          ...connectionTools.definitions,
+          ...nativeToolDefinitions,
+          ...mcp.definitions,
+          webAccessDefinition,
+          githubPublishingDefinition,
+        ],
     executeTool: async (block, signal) => {
+      if (options.stagingFeature) {
+        options.stagingFeature.beforeDispatch();
+        if (block.name !== 'Read' || block.input.file_path !== options.stagingFeature.fixturePath)
+          return {
+            type: 'tool_result',
+            tool_use_id: block.id,
+            content: 'Staging text/Read tool unavailable',
+            is_error: true,
+          };
+      }
       const result = await hooks.executeTool(
         block.name,
         block.input,
@@ -268,6 +286,7 @@ export async function openResponsesChat(options: Options) {
   });
   runtimes.set(options.session, runner);
   let closed = false;
+  let cleanupResult: Promise<PromiseSettledResult<unknown>[]> | undefined;
   function close() {
     if (closed) return;
     closed = true;
@@ -280,15 +299,29 @@ export async function openResponsesChat(options: Options) {
     } finally {
       githubPublishing.close();
       runtimes.delete(options.session);
-      void hooks
-        .run('SessionEnd', { reason: 'other' }, AbortSignal.timeout(5000))
-        .catch(() => {})
-        .finally(dispose);
+      cleanupResult = Promise.allSettled([
+        hooks.run('SessionEnd', { reason: 'other' }, AbortSignal.timeout(5000)).finally(dispose),
+        mcp.close(),
+      ]);
       runner.interrupt();
       options.input.close();
-      void mcp.close();
     }
   }
+  const closeAndConfirm = async () => {
+    if (options.binding.provider !== 'openai')
+      throw new Error('Selected adapter cleanup requires its original owner');
+    close();
+    await runner.waitUntilIdle();
+    await activeTurnFinalized;
+    const results = await cleanupResult;
+    await mcp.confirmClosed();
+    if (!results || results.some((result) => result.status !== 'fulfilled'))
+      throw new Error('Local Responses adapter cleanup is unconfirmed');
+    return { runtime: 'local-responses' as const, resource: 'adapter-owned-cleanup' as const };
+  };
+  options.stagingFeature?.retainCleanup(async () => {
+    await closeAndConfirm();
+  });
   signal.addEventListener('abort', close, { once: true });
   return {
     async *[Symbol.asyncIterator]() {
@@ -493,6 +526,7 @@ export async function openResponsesChat(options: Options) {
       if (cancellationError) throw cancellationError;
     },
     close,
+    closeAndConfirm,
     stopTask: async () => {
       throw new Error('Native API subagents are unavailable');
     },

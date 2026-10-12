@@ -72,6 +72,12 @@ export interface ManagedSession {
     };
     interrupt: () => Promise<void>;
     close: () => void;
+    /** Positive acknowledgment of resources owned by this exact local adapter.
+     * Absent on SDK/native routes until their own physical cleanup bridge exists. */
+    closeAndConfirm?: () => Promise<{
+      runtime: 'local-codex' | 'local-responses';
+      resource: 'adapter-owned-cleanup';
+    }>;
     stopTask: (taskId: string) => Promise<void>;
   };
   inputQueue?: { push: (msg: unknown) => void; close: () => void };
