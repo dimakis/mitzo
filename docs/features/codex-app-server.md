@@ -63,6 +63,25 @@ restores the configured label.
   whether reconnection is needed. Check current state before retrying an uncertain
   action.
 
+## Approved environment changes
+
+A successful integration attachment refreshes the retained OpenShell transport
+before its next provider turn, preserving the exact account and conversation.
+When an ordinary user chat discovers that missing access during a turn, the host
+records its exact tool result and queues at most one trusted continuation of the
+original request. The access result tells the current turn to defer commands that
+need the changed credentials. The continuation runs only after the exact source
+turn completes and the retained thread generation still matches. It asks the
+agent to inspect completed work and continue only unfinished authorized work;
+it does not replay the original prompt or previous mutations.
+
+An already queued user follow-up serves the refreshed environment instead. A
+new explicit follow-up cancels an undispatched synthetic continuation. Stop,
+failed/interrupted turns, conflicting identity and restart recovery retain normal
+pause fences. Historical commands without raw user intent do not synthesize
+authorization. Externally owned execution-ledger sessions do not create synthetic
+children; their next reviewed command can use the refreshed transport.
+
 ## Execution limits
 
 Codex-native shell, execution, agents, apps, plugins, hooks, computer/browser,

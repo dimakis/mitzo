@@ -978,6 +978,7 @@ async function openCodexChatBound(
       toolUseID: randomUUID(),
       forcePrompt: true,
       approvalScope: 'conversation',
+      rememberSessionGrant: false,
       controlPlane,
       title: `Grant ${providerLabel} to this conversation?`,
       description: `This attaches the reviewed ${providerLabel} provider to the retained conversation sandbox across reconnects and Mitzo restarts, until the sandbox is deleted or access is revoked. It does not request or change external account consent.`,
@@ -1547,6 +1548,11 @@ async function openCodexChatBound(
     ...(openShell && runtimeManager && managedOpenShell && grantableProviders.length
       ? {
           refreshTransportBeforeTurn: () => integrationTransportNeedsRefresh,
+          shouldContinueAfterToolResult: (name, _input, result) =>
+            !options.ordinaryTurnLifecycle &&
+            name === GRANT_INTEGRATION_TOOL &&
+            !result.isError &&
+            integrationTransportNeedsRefresh,
           prepareTurn: async ({ providerPrompt, userIntent, turnId }, signal: AbortSignal) => {
             integrationTurn = { id: turnId, denied: new Set(), pending: new Map() };
             // Older persisted commands did not retain separate raw intent. Do

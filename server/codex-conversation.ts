@@ -17,6 +17,7 @@ import type { ToolDefinition } from '@mitzo/harness';
 import {
   CodexHostToolRequestError,
   CodexRequestError,
+  CodexTransportError,
   type CodexLifecycleTransport,
 } from './codex-app-server-client.js';
 import { verifyCodexAccount, type CodexAccountProfile } from './codex-account.js';
@@ -117,6 +118,12 @@ export interface CodexConversationOptions {
     result: { content: string; isError: boolean },
     context: { turnId: string; callId: string },
   ) => Promise<void> | void;
+  /** Trusted adapter confirms this exact successful tool changed the retained environment. */
+  shouldContinueAfterToolResult?: (
+    name: string,
+    input: ObjectValue,
+    result: { content: string; isError: boolean },
+  ) => boolean;
   requestUserInput?: (params: ObjectValue, signal: AbortSignal) => Promise<ObjectValue>;
   validateModel?: (model: string, reasoningEffort?: string) => void;
   displayToolName?: (name: string) => string;
@@ -366,8 +373,14 @@ export class CodexConversation {
   private createClient() {
     const generation = ++this.transportGeneration;
     return this.opts.createClient({
-      onNotification: (m, p) => this.notification(m, p),
-      onRequest: (m, p, s) => this.request(m, p, s),
+      onNotification: (m, p) => {
+        if (!this.closed && generation === this.transportGeneration) this.notification(m, p);
+      },
+      onRequest: (m, p, s) => {
+        if (this.closed || generation !== this.transportGeneration)
+          return Promise.reject(new CodexTransportError('connection'));
+        return this.request(m, p, s);
+      },
       onClose: (error) => this.transportClosed(generation, error),
     });
   }
@@ -2376,6 +2389,49 @@ export class CodexConversation {
       } catch {
         result = {
           content: 'Tool result delivery is pending; retry this exact call.',
+          isError: true,
+        };
+      }
+    }
+    if (
+      this.opts.ownerKind !== 'symposium' &&
+      !result.isError &&
+      this.active === active &&
+      !this.closed &&
+      !active.interruptRequested &&
+      !toolSignal.aborted &&
+      !active.command.environmentContinuation &&
+      this.opts.shouldContinueAfterToolResult?.(call.tool, call.arguments, result)
+    ) {
+      result = {
+        content: `${result.content}\n[Mitzo: This access changes the environment for a freshly launched transport. Do not execute credential-dependent commands in this existing turn. Finalize this turn; the retained user request will continue once after a verified completed boundary and transport refresh, or an already queued user follow-up will use the refreshed environment.]`,
+        isError: false,
+      };
+      // Capture a replayable host receipt before admitting any one-shot follow-up.
+      // Queue admission is bound to this source turn, account and thread generation.
+      try {
+        this.opts.store.recordToolResult(
+          this.opts.conversationId,
+          this.binding!,
+          active.command.id,
+          call.callId,
+          toolIdentity,
+          result,
+        );
+        if (
+          this.opts.store.queueEnvironmentContinuation(
+            this.opts.conversationId,
+            this.binding!,
+            active.command.id,
+            call.turnId,
+            call.callId,
+          )
+        )
+          this.opts.onQueueChange?.();
+      } catch {
+        result = {
+          content:
+            'Integration access changed, but continuation could not be confirmed. Inspect the conversation before continuing.',
           isError: true,
         };
       }

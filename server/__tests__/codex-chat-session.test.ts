@@ -1051,6 +1051,7 @@ it('advertises reviewed per-chat provider grants to a managed OpenShell runtime'
       expect.objectContaining({
         forcePrompt: true,
         approvalScope: 'conversation',
+        rememberSessionGrant: false,
         controlPlane: false,
         title: 'Grant Google Workspace to this conversation?',
         description: expect.stringContaining('across reconnects and Mitzo restarts'),
@@ -1257,7 +1258,7 @@ it('preserves image attachments while binding a trusted capability, forcing appr
     expect(mocks.permissionHandler).toHaveBeenCalledWith(
       'ExecuteProviderCapability',
       expect.any(Object),
-      expect.objectContaining({ forcePrompt: true, approvalScope: 'conversation' }),
+      expect.objectContaining({ forcePrompt: true, approvalScope: 'request' }),
     );
     const beforeReconnect = mocks.conversationOptions?.beforeReconnect as () => Promise<void>;
     mocks.setArtifactRuntime.mockClear();
