@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   apiFetch,
   getApiBaseUrl,
@@ -16,6 +16,8 @@ import {
 
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
+
+afterEach(() => vi.useRealTimers());
 
 beforeEach(() => {
   mockFetch.mockReset();
@@ -349,4 +351,222 @@ describe('apiFetch', () => {
     expect(listener).toHaveBeenCalledOnce();
     window.removeEventListener(AUTH_RESTORED_EVENT, listener);
   });
+});
+
+describe('concurrent Telos list reads', () => {
+  it('shares identical reads across callers and gives each an independently readable response', async () => {
+    let finish!: (response: Response) => void;
+    mockFetch.mockImplementationOnce(
+      () =>
+        new Promise<Response>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const page = apiFetch('/api/todos');
+    const badge = apiFetch('/api/todos', { credentials: 'include' });
+    expect(mockFetch).toHaveBeenCalledOnce();
+    finish(Response.json({ profiles: ['fixture'], items: [] }));
+    const [one, two] = await Promise.all([page, badge]);
+    expect(await one.json()).toEqual({ profiles: ['fixture'], items: [] });
+    expect(await two.json()).toEqual({ profiles: ['fixture'], items: [] });
+    await apiFetch('/api/todos');
+    expect(mockFetch).toHaveBeenCalledTimes(2); // no response caching
+  });
+
+  it('keeps different profiles separate', async () => {
+    await Promise.all([
+      apiFetch('/api/todos?profile=work'),
+      apiFetch('/api/todos?profile=personal'),
+    ]);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    ['/api/todos?refresh=true&profile=work', undefined],
+    ['/api/todos', { method: 'POST' }],
+    ['/api/todos', { headers: { 'X-Custom': 'fixture' } }],
+    ['/api/todos', { cache: 'no-store' }],
+  ] as const)(
+    'never shares explicit refreshes, writes or custom requests (%s, %j)',
+    async (path, init) => {
+      await Promise.all([apiFetch(path, init), apiFetch(path, init)]);
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it('does not share requests whose cancellation belongs to one caller', async () => {
+    const signal = new AbortController().signal;
+    await Promise.all([apiFetch('/api/todos', { signal }), apiFetch('/api/todos', { signal })]);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('separates reads across authentication changes even while the old request is pending', async () => {
+    loginSucceeded('old-token');
+    let finish!: (response: Response) => void;
+    mockFetch.mockImplementationOnce(
+      () =>
+        new Promise<Response>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const old = apiFetch('/api/todos');
+    loginSucceeded('new-token');
+    mockFetch.mockResolvedValueOnce(Response.json({ items: ['new-account'] }));
+    const fresh = await apiFetch('/api/todos');
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    expect(await fresh.json()).toEqual({ items: ['new-account'] });
+    finish(new Response('', { status: 401 }));
+    await old;
+    expect(localStorage.getItem('mitzo_auth_token')).toBe('new-token');
+  });
+
+  it('retries normally after a shared fetch failure', async () => {
+    mockFetch.mockRejectedValueOnce(new Error('offline'));
+    await expect(apiFetch('/api/todos')).rejects.toThrow('offline');
+    mockFetch.mockResolvedValueOnce(Response.json({ items: [] }));
+    expect(await (await apiFetch('/api/todos')).json()).toEqual({ items: [] });
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('verified route authentication reuse', () => {
+  it('avoids another auth round trip when navigating within the same verified login', async () => {
+    expect(await restoreCookieAuthentication()).toBe(true);
+    expect(await restoreCookieAuthentication()).toBe(true);
+    expect(mockFetch).toHaveBeenCalledOnce();
+  });
+
+  it('rechecks after the short verification window expires', async () => {
+    vi.useFakeTimers();
+    try {
+      expect(await restoreCookieAuthentication()).toBe(true);
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(await restoreCookieAuthentication()).toBe(true);
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('rechecks after authentication loss or another tab changes the credential', async () => {
+    expect(await restoreCookieAuthentication()).toBe(true);
+    markAuthLost();
+    expect(await restoreCookieAuthentication()).toBe(true);
+    localStorage.setItem('mitzo_auth_token', 'other-tab-token');
+    window.dispatchEvent(
+      new StorageEvent('storage', { key: 'mitzo_auth_token', newValue: 'other-tab-token' }),
+    );
+    expect(await restoreCookieAuthentication()).toBe(true);
+    expect(mockFetch).toHaveBeenCalledTimes(3);
+  });
+
+  it('never uses a verified result after logout begins', async () => {
+    expect(await restoreCookieAuthentication()).toBe(true);
+    localStorage.setItem('mitzo_logout_pending', '1');
+    expect(await restoreCookieAuthentication()).toBe(false);
+  });
+});
+
+it('does not reuse or grant auth proof for a token replaced during verification', async () => {
+  localStorage.setItem('mitzo_auth_token', 'old-token');
+  let finishOld!: (response: Response) => void;
+  mockFetch.mockReturnValueOnce(
+    new Promise<Response>((resolve) => {
+      finishOld = resolve;
+    }),
+  );
+  const old = restoreCookieAuthentication();
+  // A direct token replacement can occur before its cross-tab event arrives.
+  localStorage.setItem('mitzo_auth_token', 'new-token');
+  mockFetch.mockResolvedValueOnce(new Response('', { status: 403 }));
+  const fresh = restoreCookieAuthentication();
+  expect(mockFetch).toHaveBeenCalledTimes(2);
+  await expect(fresh).resolves.toBe(false);
+  finishOld(new Response('{}', { status: 200 }));
+  await expect(old).resolves.toBe(false);
+});
+
+describe('stalled authentication recovery', () => {
+  it('bounds a shared stalled check, aborts it and allows a fresh retry without deleting credentials', async () => {
+    vi.useFakeTimers();
+    localStorage.setItem('mitzo_auth_token', 'valid-token');
+    mockFetch.mockReturnValueOnce(new Promise(() => {}));
+    const rejected = vi.fn();
+    const first = restoreCookieAuthentication();
+    const second = restoreCookieAuthentication();
+    void first.catch(rejected);
+    void second.catch(rejected);
+    expect(mockFetch).toHaveBeenCalledOnce();
+
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(rejected).toHaveBeenCalledTimes(2);
+    expect(mockFetch.mock.calls[0][1].signal.aborted).toBe(true);
+    expect(localStorage.getItem('mitzo_auth_token')).toBe('valid-token');
+    expect(await restoreCookieAuthentication()).toBe(true);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it.each([200, 401])(
+    'ignores a late %s from an expired check while its retry is pending',
+    async (status) => {
+      vi.useFakeTimers();
+      localStorage.setItem('mitzo_auth_token', 'valid-token');
+      let finishOld!: (response: Response) => void;
+      let finishRetry!: (response: Response) => void;
+      mockFetch.mockReturnValueOnce(
+        new Promise<Response>((resolve) => {
+          finishOld = resolve;
+        }),
+      );
+      const rejected = vi.fn();
+      void restoreCookieAuthentication().catch(rejected);
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(rejected).toHaveBeenCalledOnce();
+
+      mockFetch.mockReturnValueOnce(
+        new Promise<Response>((resolve) => {
+          finishRetry = resolve;
+        }),
+      );
+      const retry = restoreCookieAuthentication();
+      finishOld(new Response('{}', { status }));
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(localStorage.getItem('mitzo_auth_token')).toBe('valid-token');
+      const joined = restoreCookieAuthentication();
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+      finishRetry(new Response('{}', { status: 200 }));
+      await expect(Promise.all([retry, joined])).resolves.toEqual([true, true]);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(vi.getTimerCount()).toBe(0);
+    },
+  );
+
+  it('treats a server outage as retryable unavailability, preserving the login', async () => {
+    localStorage.setItem('mitzo_auth_token', 'valid-token');
+    mockFetch.mockResolvedValueOnce(new Response('{}', { status: 503 }));
+    await expect(restoreCookieAuthentication()).rejects.toThrow();
+    expect(localStorage.getItem('mitzo_auth_token')).toBe('valid-token');
+    expect(await restoreCookieAuthentication()).toBe(true);
+  });
+});
+
+it('starts a new Telos read after a successful write while an older read is still pending', async () => {
+  let finishOld!: (response: Response) => void;
+  mockFetch.mockImplementationOnce(
+    () =>
+      new Promise<Response>((resolve) => {
+        finishOld = resolve;
+      }),
+  );
+  const old = apiFetch('/api/todos');
+  await apiFetch('/api/todos/outcomes', { method: 'POST' });
+  mockFetch.mockResolvedValueOnce(Response.json({ items: [{ id: 'created' }] }));
+  const fresh = apiFetch('/api/todos');
+  expect(mockFetch).toHaveBeenCalledTimes(3);
+  finishOld(Response.json({ items: [] }));
+  expect(await (await fresh).json()).toEqual({ items: [{ id: 'created' }] });
+  await old;
 });

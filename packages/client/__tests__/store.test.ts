@@ -2682,6 +2682,46 @@ describe('task CRUD actions', () => {
 });
 
 describe('foreground recovery', () => {
+  it('keeps loaded messages visible without history loading while foreground recovery is pending', async () => {
+    const transport = mockTransport();
+    let finish!: (value: unknown) => void;
+    (transport.fetch as ReturnType<typeof vi.fn>).mockImplementation((url: string) =>
+      url.includes('/messages')
+        ? new Promise((resolve) => {
+            finish = resolve;
+          })
+        : Promise.resolve({ ok: true, json: async () => [] }),
+    );
+    const store = createReadyStore(transport);
+    const existing = {
+      messageId: 'existing',
+      role: 'assistant' as const,
+      blocks: [],
+      isStreaming: false,
+    };
+    store.setState((s) => ({
+      sessions: { ...s.sessions, active: 'sess-1' },
+      messages: { ...s.messages, messages: [existing] },
+    }));
+    lastWs.simulateMessage({ type: '_foreground' });
+    expect(store.getState().historyLoading).toBe(false);
+    expect(store.getState().messages.messages).toEqual([existing]);
+    finish({
+      ok: true,
+      json: async () => [
+        existing,
+        { messageId: 'missed', role: 'assistant', blocks: [], isStreaming: false },
+      ],
+    });
+    await vi.waitFor(() =>
+      expect(store.getState().messages.messages.map((m) => m.messageId)).toEqual([
+        'existing',
+        'missed',
+      ]),
+    );
+    expect(store.getState().historyLoading).toBe(false);
+  });
+
   it('restores seat currents while retaining a newer ordinary current covered by the cursor', async () => {
     const seat = {
       seatId: 'architect',

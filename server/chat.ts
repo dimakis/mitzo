@@ -239,7 +239,11 @@ import {
 } from './agent-context-delivery.js';
 import { retainAgentContextAuthority } from './agent-context-authority.js';
 import { captureAgentLibraryAuthorization } from './agent-library-transport.js';
-import { shouldAutoRename, extractRecentPrompts } from './auto-rename.js';
+import {
+  shouldAutoRename,
+  extractRecentPrompts,
+  generateSessionNameFallback,
+} from './auto-rename.js';
 import {
   registerSession,
   updateSessionTitle,
@@ -2677,6 +2681,7 @@ function storeAndEchoIfNew(
   images?: string[],
   contextBlocks?: string[],
   sourceSnapshots?: SourceSnapshot[],
+  source: 'user' | 'closeout' = 'user',
 ): boolean {
   if (eventStore.hasUserMessage(sessionId, messageId)) {
     return true;
@@ -2687,6 +2692,7 @@ function storeAndEchoIfNew(
     ts: Date.now(),
     messageId,
     text,
+    ...(source === 'closeout' ? { source } : {}),
     ...(images?.length ? { images } : {}),
     ...(contextBlocks?.length ? { contextBlocks } : {}),
     ...(sourceSnapshots?.length ? { sourceSnapshots } : {}),
@@ -2698,6 +2704,7 @@ function storeAndEchoIfNew(
     v: 2,
     messageId,
     text,
+    ...(source === 'closeout' ? { source } : {}),
     sessionId,
     seq,
     prevSessionSeq: eventStore.getSessionPredecessorSeq(sessionId, seq),
@@ -2707,6 +2714,14 @@ function storeAndEchoIfNew(
   };
   send(transport, echo);
   broadcastToObservers(observers, echo);
+  // Native providers bypass the SDK query-loop callbacks that name Claude chats.
+  const provider = eventStore.getSession(sessionId)?.accountBinding?.provider;
+  if (
+    source === 'user' &&
+    (provider === 'openai-codex' || provider === 'openai' || provider === 'google-vertex')
+  ) {
+    void tryAutoRename(sessionId, clientId);
+  }
   return false;
 }
 
@@ -3030,9 +3045,17 @@ export async function sendToChat(
           contextBlocks,
           ...(sourceSnapshots?.length ? ([sourceSnapshots] as const) : ([] as const)),
         );
-        tryAutoRename(session.sessionId, clientId).catch(() => {
-          /* errors logged internally */
-        });
+        const provider = eventStore.getSession(session.sessionId)?.accountBinding?.provider;
+        if (
+          !isDup &&
+          provider !== 'openai-codex' &&
+          provider !== 'openai' &&
+          provider !== 'google-vertex'
+        ) {
+          tryAutoRename(session.sessionId, clientId).catch(() => {
+            /* errors logged internally */
+          });
+        }
         return isDup;
       } else {
         // Pre-session-resolve: no eventStore to dedup against.
@@ -3479,6 +3502,10 @@ function queueCloseoutPrompt(
     clientId,
     session.transport,
     session.observers,
+    undefined,
+    undefined,
+    undefined,
+    'closeout',
   );
   if (codex) {
     trackCodexProviderAdmission(session, admission.messageId, admission, eventStore);
@@ -3977,7 +4004,14 @@ export function getSessionsCached(offset = 0, limit = SESSION_PAGE_SIZE) {
   return {
     sessions: page.map((m) => ({
       id: m.sessionId,
-      summary: m.summary ?? '',
+      summary:
+        m.summary ||
+        (m.manuallyRenamed
+          ? ''
+          : generateSessionNameFallback([
+              m.initialPrompt ||
+                String(eventStore.getLatestEvent(m.sessionId, 'user_message')?.payload.text ?? ''),
+            ])),
       lastModified: m.updatedAt,
       branch: m.branch ?? undefined,
       cwd: m.cwd ?? undefined,

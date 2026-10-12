@@ -14,6 +14,7 @@ vi.mock('../../lib/event-bus-singleton', () => ({
 }));
 
 import { SessionList } from '../SessionList';
+import { createChatDraft, saveChatDraft } from '../../lib/chat-drafts';
 
 function mockFetchResponses(overrides: Record<string, unknown> = {}) {
   const defaults: Record<string, unknown> = {
@@ -37,6 +38,7 @@ function mockFetchResponses(overrides: Record<string, unknown> = {}) {
 let container: HTMLDivElement;
 
 beforeEach(() => {
+  localStorage.clear();
   container = document.createElement('div');
   document.body.appendChild(container);
   vi.stubGlobal(
@@ -196,6 +198,7 @@ describe('SessionList', () => {
   });
 
   it('keeps updates in Settings even when a new version is available', async () => {
+    saveChatDraft({ ...createChatDraft(), text: 'Unsent fixture thought' });
     mockFetchResponses({
       '/api/version': { updateAvailable: true },
     });

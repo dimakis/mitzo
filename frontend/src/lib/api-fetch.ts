@@ -15,11 +15,27 @@ export const AUTH_LOST_EVENT = 'mitzo:auth-lost';
 export const AUTH_RESTORED_EVENT = 'mitzo:auth-restored';
 let authGeneration = 0;
 let authenticationRestored = false;
-let cookieRestoreInFlight: { generation: number; promise: Promise<boolean> } | null = null;
+const pendingTodoReads = new Map<string, Promise<Response>>();
+const COOKIE_AUTH_VERIFICATION_MS = 30_000;
+const COOKIE_AUTH_CHECK_TIMEOUT_MS = 5_000;
+let verifiedCookieAuth: { generation: number; token: string | null; expiresAt: number } | null =
+  null;
+let cookieRestoreInFlight: {
+  generation: number;
+  token: string | null;
+  promise: Promise<boolean>;
+} | null = null;
+
+/** Fence new list reads from requests started before a refresh or mutation. */
+export function invalidateTodoReads(): void {
+  pendingTodoReads.clear();
+}
 
 type AuthEventSource = 'local' | 'cross-tab';
 
 function dispatchAuthEvent(name: string, source: AuthEventSource = 'local'): void {
+  pendingTodoReads.clear();
+  verifiedCookieAuth = null;
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent(name, { detail: { source } }));
   }
@@ -119,10 +135,40 @@ export async function apiFetch(path: string, init?: RequestInit): Promise<Respon
   const token = getStoredAuthToken();
   const requestAuthGeneration = authGeneration;
   if (token) headers.set('Authorization', `Bearer ${token}`);
-  const response = await fetch(url, { ...init, headers, credentials: 'include' });
+  const request = { ...init, headers, credentials: 'include' as const };
+  const isTodoList = path === '/api/todos' || path.startsWith('/api/todos?');
+  const shareRead =
+    isTodoList &&
+    [...new URLSearchParams(path.split('?')[1]).keys()].every((key) => key === 'profile') &&
+    (!init?.method || init.method === 'GET') &&
+    Object.keys(init ?? {}).every((key) => key === 'method' || key === 'credentials');
+  let response: Response;
+  if (shareRead) {
+    // Page, Today and badge reads share only outstanding identical requests.
+    // Auth generations prevent a new login from joining an old user's request.
+    const key = JSON.stringify([requestAuthGeneration, token, url]);
+    let pending = pendingTodoReads.get(key);
+    if (!pending) {
+      pending = fetch(url, request).finally(() => {
+        if (pendingTodoReads.get(key) === pending) pendingTodoReads.delete(key);
+      });
+      pendingTodoReads.set(key, pending);
+    }
+    response = (await pending).clone();
+  } else {
+    response = await fetch(url, request);
+  }
+  if (
+    response.ok &&
+    (path === '/api/todos' || path.startsWith('/api/todos/')) &&
+    init?.method &&
+    !['GET', 'HEAD'].includes(init.method.toUpperCase())
+  )
+    invalidateTodoReads();
   const currentToken = getStoredAuthToken();
   if (
     response.status === 401 &&
+    !init?.signal?.aborted &&
     !path.endsWith('/api/auth/login') &&
     currentToken === token &&
     authGeneration === requestAuthGeneration
@@ -132,19 +178,58 @@ export async function apiFetch(path: string, init?: RequestInit): Promise<Respon
   return response;
 }
 
-/** Restore transport authorization when a failed login left a valid cookie session intact. */
+/** Verify cookie authorization; briefly reuse proof across route changes in the same login. */
 export function restoreCookieAuthentication(): Promise<boolean> {
   const restoreGeneration = authGeneration;
-  if (cookieRestoreInFlight?.generation === restoreGeneration) {
+  const restoreToken = getStoredAuthToken();
+  if (isLogoutPending()) return Promise.resolve(false);
+  if (
+    verifiedCookieAuth?.generation === restoreGeneration &&
+    verifiedCookieAuth.token === restoreToken &&
+    Date.now() < verifiedCookieAuth.expiresAt
+  )
+    return Promise.resolve(true);
+  if (
+    cookieRestoreInFlight?.generation === restoreGeneration &&
+    cookieRestoreInFlight.token === restoreToken
+  ) {
     return cookieRestoreInFlight.promise;
   }
   const attempt = (async () => {
-    const response = await apiFetch('/api/auth/check');
-    if (!response.ok || authGeneration !== restoreGeneration || isLogoutPending()) return false;
-    loginSucceeded();
-    return true;
+    const controller = new AbortController();
+    let timeout!: ReturnType<typeof setTimeout>;
+    // Bound settlement even if a native transport does not acknowledge abort.
+    const deadline = new Promise<never>((_resolve, reject) => {
+      timeout = setTimeout(() => {
+        reject(new Error('Authentication check timed out'));
+        controller.abort();
+      }, COOKIE_AUTH_CHECK_TIMEOUT_MS);
+    });
+    try {
+      const response = await Promise.race([
+        apiFetch('/api/auth/check', { signal: controller.signal }),
+        deadline,
+      ]);
+      if (
+        authGeneration !== restoreGeneration ||
+        getStoredAuthToken() !== restoreToken ||
+        isLogoutPending()
+      )
+        return false;
+      if (response.status === 401 || response.status === 403) return false;
+      if (!response.ok) throw new Error('Authentication service unavailable');
+      loginSucceeded();
+      verifiedCookieAuth = {
+        generation: authGeneration,
+        token: getStoredAuthToken(),
+        expiresAt: Date.now() + COOKIE_AUTH_VERIFICATION_MS,
+      };
+      return true;
+    } finally {
+      clearTimeout(timeout);
+    }
   })();
-  cookieRestoreInFlight = { generation: restoreGeneration, promise: attempt };
+  cookieRestoreInFlight = { generation: restoreGeneration, token: restoreToken, promise: attempt };
   const clear = () => {
     if (cookieRestoreInFlight?.promise === attempt) cookieRestoreInFlight = null;
   };

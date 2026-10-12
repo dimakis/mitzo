@@ -2,8 +2,22 @@ export type MotionKind = 'page' | 'fade' | 'popover' | 'sheet' | 'disclosure';
 
 export const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)';
 
+/** Capture an interrupted animation before cancelling its effect. */
+export function motionFrame(element: HTMLElement, kind: MotionKind): Keyframe {
+  const styles = getComputedStyle(element);
+  const frame: Keyframe = { opacity: styles.opacity };
+  if (kind === 'popover' || kind === 'sheet') frame.translate = styles.translate;
+  if (kind === 'disclosure') frame.height = `${element.getBoundingClientRect().height}px`;
+  return frame;
+}
+
 /** CSS owns all timings; absent styles or browser support mean immediate updates. */
-export function animateMotion(element: HTMLElement, kind: MotionKind, opening = true) {
+export function animateMotion(
+  element: HTMLElement,
+  kind: MotionKind,
+  opening = true,
+  from?: Keyframe,
+) {
   if (!element.animate || window.matchMedia?.(REDUCED_MOTION_QUERY).matches) return null;
   const styles = getComputedStyle(document.documentElement);
   const token = kind === 'popover' ? 'fast' : 'standard';
@@ -22,12 +36,18 @@ export function animateMotion(element: HTMLElement, kind: MotionKind, opening = 
   }
   if (kind === 'disclosure') {
     closed.height = '0px';
-    opened.height = `${element.scrollHeight}px`;
+    opened.height = `${opening ? element.scrollHeight : element.getBoundingClientRect().height}px`;
   }
-  const animation = element.animate(opening ? [closed, opened] : [opened, closed], {
-    duration,
-    easing,
-  });
+  const animation = element.animate(
+    [from ?? (opening ? closed : opened), opening ? opened : closed],
+    {
+      duration,
+      easing,
+      // React may hide retained content on a later frame. Hold exits until that
+      // commit; entrances must release height so content can grow and scroll.
+      fill: opening ? 'none' : 'forwards',
+    },
+  );
   animation.id = `mitzo:${kind}`;
   return animation;
 }

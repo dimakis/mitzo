@@ -124,13 +124,14 @@ export function attestEffectiveRuntimePolicy(
     );
   }
 }
-/** Public required names only; policy/profile validation must precede workload gating. */
+/** Each required credential accepts any of its public env aliases. Independent
+ * credentials remain separate requirements; attestation precedes workload gating. */
 export function verifiedRuntimeServiceEnvironment(
   base: unknown,
   observed: unknown,
   providers: RuntimePolicyProvider[],
   accountProvider: string,
-): string[] {
+): string[][] {
   attestEffectiveRuntimePolicy(base, observed, providers);
   const profile = z.object({
     credentials: z
@@ -153,10 +154,13 @@ export function verifiedRuntimeServiceEnvironment(
           profile
             .parse(p.profile)
             .credentials.filter((c) => c.required)
-            .flatMap((c) => c.env_vars),
+            .filter((c) => c.env_vars.length > 0)
+            .map((c) => JSON.stringify([...new Set(c.env_vars)].sort())),
         ),
     ),
-  ].sort();
+  ]
+    .sort()
+    .map((group) => JSON.parse(group) as string[]);
 }
 
 function attestEffectiveRuntimePolicyUnchecked(
