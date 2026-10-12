@@ -217,6 +217,7 @@ export class SymposiumStagingNativeFixtures {
       const removed = await command(['rm', helperId], 512, undefined, 20000);
       if (removed.trim() !== helperId)
         throw Error('Original fixture helper removal is unconfirmed');
+      this.current(assertRunCurrent);
       this.db
         .prepare('UPDATE staging_native_fixtures SET helper_removed=1 WHERE session_id=?')
         .run(sessionId);
@@ -378,6 +379,7 @@ export class SymposiumStagingNativeFixtures {
         current();
         if ((await command(['rm', helperId], 512, undefined, 20000)).trim() !== helperId)
           throw Error('Original Read helper removal is unconfirmed');
+        current();
         this.db
           .prepare('UPDATE staging_native_fixtures SET read_helper_removed=1 WHERE session_id=?')
           .run(fixture.sessionId);
@@ -462,6 +464,24 @@ export class SymposiumStagingNativeFixtures {
     });
     retained.retired = receipt;
     return receipt;
+  }
+  /** The retained original journal records only positively completed cleanup.
+   * This is a shutdown prerequisite, never a reopened runtime capability or a
+   * physical stop receipt. It needs no new work or resource admission. */
+  assertOriginalDrained(): void {
+    if (
+      !this.db.open ||
+      this.preparing ||
+      [...this.retained.values()].some((value) => !value.retired) ||
+      this.db
+        .prepare(
+          `SELECT 1 FROM staging_native_fixtures
+           WHERE volume_removed=0 OR helper_removed=0
+           OR (read_helper_name IS NOT NULL AND read_helper_removed=0) LIMIT 1`,
+        )
+        .get()
+    )
+      throw Error('Original native fixture retirement is incomplete');
   }
   close() {
     this.retained.clear();

@@ -2143,6 +2143,7 @@ export async function createOwnedSymposiumHost(
         await artifactSealer?.releaseAbandonedReadyReviewStreams();
         signal.throwIfAborted();
         if (failed) throw new Error('Host operation did not settle cleanly');
+        nativeFeatureFixtures?.assertOriginalDrained();
       },
       markShutdownUncertain() {
         for (const claim of native!.registry.pending())
@@ -2152,8 +2153,10 @@ export async function createOwnedSymposiumHost(
         signal.throwIfAborted();
         await artifactSealer?.releaseAbandonedReadyReviewStreams();
         signal.throwIfAborted();
+        nativeFeatureFixtures?.assertOriginalDrained();
         await gateway.stopAndWait(signal);
         signal.throwIfAborted();
+        nativeFeatureFixtures?.assertOriginalDrained();
         stopped = true;
         abortPrelaunchInspections();
         subscription!.invalidate();
