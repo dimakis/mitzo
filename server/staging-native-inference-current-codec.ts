@@ -4,9 +4,9 @@ export const NATIVE_INFERENCE_CURRENT_PATH = '/api/staging/features/native-infer
 const purpose = 'mitzo-staging-native-inference-current-v1';
 const hex64 = /^[a-f0-9]{64}$/;
 const commit = /^[a-f0-9]{40}$/;
-const refuse = (): never => {
+function refuse(): never {
   throw Error('Original native inference current authentication unavailable');
-};
+}
 
 export interface NativeInferenceOriginalBinding {
   gatewayInstance: string;
