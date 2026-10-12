@@ -1778,6 +1778,10 @@ export class CodexConversation {
           this.retireTransportForRecovery();
           try {
             await this.reconnectBound();
+            // Automatic refresh owns only reattachment progress, not a user
+            // recovery acknowledgement or the resumed provider turn.
+            this.recoveryPhase = undefined;
+            this.opts.onQueueChange?.();
           } finally {
             transportGeneration = this.transportGeneration;
           }

@@ -1020,6 +1020,64 @@ it('renews the process after approved provider attachment before dispatching the
   expect(state.onError).not.toHaveBeenCalled();
 });
 
+it.each(['before-turn', 'queued-continuation'] as const)(
+  'clears automatic environment refresh progress before the acknowledged %s turn',
+  async (route) => {
+    const state = await setup();
+    let needsRefresh = false;
+    const originalClient = state.conversationOptions.createClient;
+    state.conversationOptions.accessLocation = 'local';
+    state.conversationOptions.createClient = (callbacks) => {
+      needsRefresh = false;
+      return originalClient(callbacks);
+    };
+    state.conversationOptions.refreshTransportBeforeTurn = () => needsRefresh;
+    state.conversationOptions.prepareTurn = async () => {
+      if (route === 'before-turn') needsRefresh = true;
+    };
+    state.conversationOptions.shouldContinueAfterToolResult = () => {
+      needsRefresh = true;
+      return true;
+    };
+    await state.c.send({
+      id: 'refresh-access',
+      prompt: 'Read approved evidence',
+      intent: 'Read mail',
+    });
+    if (route === 'queued-continuation') {
+      await state
+        .getCallbacks()
+        .onRequest(
+          'item/tool/call',
+          {
+            threadId: 'provider-thread',
+            turnId: 'turn-1',
+            callId: 'grant-refresh',
+            tool: 'Read',
+            arguments: {},
+          },
+          new AbortController().signal,
+        );
+      state.getCallbacks().onNotification('turn/completed', {
+        threadId: 'provider-thread',
+        turn: { id: 'turn-1', status: 'completed' },
+      });
+      await vi.waitFor(() =>
+        expect(state.requests.filter((r) => r.method === 'turn/start')).toHaveLength(2),
+      );
+    }
+    expect(state.requests.filter((r) => r.method === 'thread/resume')).toHaveLength(1);
+    expect(state.c.isRecovering()).toBe(false);
+    expect(state.c.getRecoveryPhase()).toBeUndefined();
+    expect(state.c.readAccessObservation()).toMatchObject({
+      sessionId: 'app',
+      location: 'local',
+      modelSource: 'accepted-turn',
+    });
+    expect(state.onError).not.toHaveBeenCalled();
+  },
+);
+
 it('does not renew the process when provider attachment failed', async () => {
   const state = await setup();
   state.conversationOptions.prepareTurn = async () => 'Google access could not be approved';

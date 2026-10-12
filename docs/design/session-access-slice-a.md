@@ -220,3 +220,14 @@ source fingerprints conflicted during integration; the combined runtime uses
 v1.0.70 instead of either branch's earlier revision. Fresh combined CI, rendered
 Access/Connections evidence and exact-head Centaur review are required before
 source acceptance. Deployment and live Luna acceptance remain separate.
+
+### Reviewed environment refresh correction
+
+Centaur finding CEN-D3F87C1146BA identified retained recovery progress after
+PR879's successful automatic transport refresh. Two red tests reproduced it for
+pre-turn grants and queued environment continuations: both acknowledged resumed
+turns remained recovering, suppressing the Access observation. Automatic refresh
+now clears its progress after successful reattachment and notifies the queue
+observer, without acknowledging user recovery or changing provider-turn ownership.
+Existing interruption, failed refresh, admission, continuation and private-ledger
+fences remain in force. The combined reviewed runtime advances to v1.0.71.
