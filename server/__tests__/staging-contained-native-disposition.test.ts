@@ -2,7 +2,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
-const testHome = vi.hoisted(() => `/private/tmp/mitzo-disposition-tests-${process.pid}`);
+const testHome = await vi.hoisted(async () => {
+  const os = await vi.importActual<typeof import('node:os')>('node:os');
+  const fs = await vi.importActual<typeof import('node:fs')>('node:fs');
+  return `${fs.realpathSync(os.tmpdir())}/mitzo-disposition-tests-${globalThis.process.pid}`;
+});
 vi.mock('node:os', () => ({ homedir: () => testHome, userInfo: () => ({ homedir: testHome }) }));
 import {
   createContainedNativeDispositionPlan,

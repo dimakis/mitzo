@@ -2,7 +2,11 @@ import { afterEach, expect, it, vi } from 'vitest';
 import process from 'node:process';
 import { mkdirSync, readFileSync, writeFileSync, rmSync, renameSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
-const home = vi.hoisted(() => `/private/tmp/mitzo-new-guard-${globalThis.process.pid}`);
+const home = await vi.hoisted(async () => {
+  const os = await vi.importActual('node:os');
+  const fs = await vi.importActual('node:fs');
+  return `${fs.realpathSync(os.tmpdir())}/mitzo-new-guard-${globalThis.process.pid}`;
+});
 vi.mock('node:os', () => ({ userInfo: () => ({ homedir: home }), homedir: () => home }));
 import { createContainedNativeGuard } from '../../scripts/lib/staging-native-disposition-guard.mjs';
 const root = join(home, '.local/share/mitzo-staging'),
@@ -10,6 +14,10 @@ const root = join(home, '.local/share/mitzo-staging'),
 afterEach(() => rmSync(home, { recursive: true, force: true }));
 function fixture() {
   mkdirSync(join(root, 'service'), { recursive: true, mode: 0o700 });
+  mkdirSync(join(root, 'service/native-dispositions', allocation), {
+    recursive: true,
+    mode: 0o700,
+  });
   const sourceCommit = 'a'.repeat(40),
     sourceRoot = join(root, 'releases', sourceCommit.slice(0, 12));
   const identity = {
@@ -151,6 +159,53 @@ it('retains the exact guard when an asynchronous handoff cannot establish origin
       },
     ),
   ).rejects.toThrow();
+  expect(existsSync(f.path)).toBe(true);
+  f.guard.retain();
+});
+it('releases only its own live pre-mutation refusal after actual source/archive/row/VM-absence verification', async () => {
+  const f = fixture();
+  f.guard.acquire();
+  const verify = vi.fn(async () => {
+    f.guard.assertCurrent();
+    return {
+      allocation,
+      sourceCommit: 'a'.repeat(40),
+      parentPid: process.pid,
+      parentBirth: f.identity.birth,
+      originalRowSha256: 'd'.repeat(64),
+      archiveProofSha256: 'e'.repeat(64),
+      preallocationSnapshotSha256: 'f'.repeat(64),
+    };
+  });
+  await f.guard.refuseBeforeNativeMutation(verify);
+  expect(verify).toHaveBeenCalledOnce();
+  expect(existsSync(f.path)).toBe(false);
+  const evidence = JSON.parse(
+    readFileSync(
+      join(
+        root,
+        'service/native-dispositions',
+        allocation,
+        'launcher-refused-before-native-mutation.json',
+      ),
+      'utf8',
+    ),
+  );
+  expect(evidence).toMatchObject({
+    nativeMutationAttempted: false,
+    capacityReleased: false,
+    nativeCleanupConfirmed: false,
+  });
+  expect(() => f.guard.acquire()).toThrow();
+});
+it('retains a pre-mutation refusal guard when physical absence is unknown or its source changes', async () => {
+  const f = fixture();
+  f.guard.acquire();
+  await expect(
+    f.guard.refuseBeforeNativeMutation(async () => {
+      throw Error('VM absence unknown');
+    }),
+  ).rejects.toThrow('VM absence unknown');
   expect(existsSync(f.path)).toBe(true);
   f.guard.retain();
 });

@@ -131,6 +131,68 @@ export function createContainedNativeGuard({
       current();
       return Object.freeze({ ...captured, launcher: Object.freeze({ ...captured.launcher }) });
     },
+    /** Only the still-live original actor may acknowledge a positively verified
+     * pre-mutation refusal. This is not cleanup, capacity release, replay or
+     * permission to restart a registration. JSON alone supplies no verifier. */
+    async refuseBeforeNativeMutation(verifyNoMutation) {
+      if (completionAttempted || typeof verifyNoMutation !== 'function') throw refuse();
+      completionAttempted = true;
+      current();
+      const proof = await verifyNoMutation();
+      current();
+      if (
+        !proof ||
+        Object.keys(proof).sort().join() !==
+          'allocation,archiveProofSha256,originalRowSha256,parentBirth,parentPid,preallocationSnapshotSha256,sourceCommit' ||
+        proof.allocation !== allocation ||
+        proof.sourceCommit !== sourceCommit ||
+        proof.parentPid !== process.pid ||
+        proof.parentBirth !== captured.launcher.birth ||
+        ['archiveProofSha256', 'originalRowSha256', 'preallocationSnapshotSha256'].some(
+          (key) => !/^[a-f0-9]{64}$/.test(proof[key] ?? ''),
+        )
+      )
+        throw refuse();
+      const evidence = join(root, 'service/native-dispositions', allocation);
+      const s = lstatSync(evidence);
+      if (
+        !s.isDirectory() ||
+        s.uid !== process.getuid() ||
+        (s.mode & 0o777) !== 0o700 ||
+        realpathSync(evidence) !== evidence
+      )
+        throw refuse();
+      const record = openSync(
+        join(evidence, 'launcher-refused-before-native-mutation.json'),
+        constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW,
+        0o600,
+      );
+      try {
+        writeFileSync(
+          record,
+          JSON.stringify({
+            version: 1,
+            allocation,
+            sourceCommit,
+            planSha256,
+            proof,
+            nativeMutationAttempted: false,
+            capacityReleased: false,
+            nativeCleanupConfirmed: false,
+          }) + '\n',
+        );
+        fsyncSync(record);
+      } finally {
+        closeSync(record);
+      }
+      sync(evidence);
+      current();
+      unlinkSync(path);
+      sync(dirname(path));
+      closed = true;
+      closeSync(fd);
+      fd = undefined;
+    },
     async completeNative(verifyOriginalNative, handoffOriginalOwner) {
       if (completionAttempted || typeof verifyOriginalNative !== 'function') throw refuse();
       completionAttempted = true;

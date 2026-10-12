@@ -5,7 +5,11 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, writeFileSync, lstatSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { zstdCompressSync } from 'node:zlib';
-const home = vi.hoisted(() => `/private/tmp/mitzo-image-proof-${globalThis.process.pid}`);
+const home = await vi.hoisted(async () => {
+  const os = await vi.importActual('node:os');
+  const fs = await vi.importActual('node:fs');
+  return `${fs.realpathSync(os.tmpdir())}/mitzo-image-proof-${globalThis.process.pid}`;
+});
 vi.mock('node:os', () => ({ userInfo: () => ({ homedir: home }), homedir: () => home }));
 import { createFreshStagingImageInspector } from '../../scripts/lib/staging-fresh-image.mjs';
 const root = join(home, '.local/share/mitzo-staging');

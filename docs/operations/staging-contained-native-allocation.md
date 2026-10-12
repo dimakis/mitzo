@@ -84,3 +84,13 @@ from the updated app source. Changes to retained custodian, provider, inference
 or VM runtime code require a separately reviewed runtime transition. Merely
 reopening a plan, changing topology JSON, starting another VM or retaining a new
 16 GiB disk on every revision is not an implemented source-update path.
+
+A cancellation before any native preparation attempt may be acknowledged only
+by the still-live original new launcher. The physical inspector captures the
+complete private fresh allocation tree, requires empty fresh HOME/workspace,
+excludes an init attempt, VM plan/plist/configuration or guard socket, and
+positively observes the exact native job absent. Source, completed archive and
+sole unchanged original row must also remain independently current. The actor
+fsyncs a separate refusal receipt before releasing only its matching new guard;
+the receipt explicitly grants no capacity release, cleanup or replay. Any
+preparation attempt or unknown observation preserves that guard and evidence.
