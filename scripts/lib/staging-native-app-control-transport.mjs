@@ -155,6 +155,9 @@ export function createOriginalNativeAppControlServer({
     }
     clients.add(socket);
     socket.once('close', () => clients.delete(socket));
+    // A refused/disconnected private caller cannot crash the retained native
+    // parent through Node's unhandled Socket error event.
+    socket.on('error', () => socket.destroy());
     socket.setTimeout(180000, () => socket.destroy());
     let text = '',
       received = false;
