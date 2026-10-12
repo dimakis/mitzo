@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeAll, expect, it, vi } from 'vitest';
 import { DraftsView } from '../DraftsView';
@@ -8,6 +8,7 @@ import {
   saveChatDraft,
   listChatDrafts,
   getChatDraft,
+  deleteChatDraft,
 } from '../../lib/chat-drafts';
 import { apiFetch } from '../../lib/api-fetch';
 vi.mock('../../lib/api-fetch', () => ({ apiFetch: vi.fn() }));
@@ -19,6 +20,26 @@ beforeAll(() => {
     this.removeAttribute('open');
   };
 });
+it.each(['Keep draft', 'Close'])(
+  'restores focus after %s when another tab removed the original row',
+  async (action) => {
+    const draft = { ...createChatDraft(), text: 'Removed elsewhere' };
+    saveChatDraft(draft);
+    render(
+      <MemoryRouter>
+        <DraftsView />
+      </MemoryRouter>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Discard draft' }));
+    act(() => {
+      deleteChatDraft(draft.id);
+    });
+    fireEvent.click(screen.getByRole('button', { name: action }));
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole('link', { name: /New chat/ })),
+    );
+  },
+);
 afterEach(() => {
   cleanup();
   localStorage.clear();

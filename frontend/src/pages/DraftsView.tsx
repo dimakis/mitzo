@@ -16,7 +16,18 @@ export function DraftsView() {
   const [discard, setDiscard] = useState<ChatDraft | null>(null);
   const [discarding, setDiscarding] = useState(false);
   const discardPending = useRef(false);
+  const discardOpener = useRef<HTMLElement | null>(null);
   const [error, setError] = useState('');
+  const closeDiscard = () => {
+    setDiscard(null);
+    requestAnimationFrame(() => {
+      if (discardOpener.current?.isConnected) return;
+      const target =
+        mainRef.current?.querySelector<HTMLElement>('.saved-draft-open') ??
+        mainRef.current?.querySelector<HTMLElement>('.workspace-primary');
+      target?.focus();
+    });
+  };
   return (
     <main className="workspace-page drafts-page" ref={mainRef}>
       <Link to="/sessions" className="drafts-back">
@@ -82,6 +93,7 @@ export function DraftsView() {
                 className="saved-draft-discard"
                 onClick={(event) => {
                   event.currentTarget.focus();
+                  discardOpener.current = event.currentTarget;
                   setError('');
                   setDiscard(draft);
                 }}
@@ -102,7 +114,7 @@ export function DraftsView() {
         <HomeDialog
           title="Discard this draft?"
           onClose={() => {
-            if (!discardPending.current) setDiscard(null);
+            if (!discardPending.current) closeDiscard();
           }}
         >
           <p>The saved message, attachments and settings will be removed from this device.</p>
@@ -114,11 +126,7 @@ export function DraftsView() {
           )}
           {error && <p role="alert">{error}</p>}
           <div className="saved-draft-dialog-actions" aria-busy={discarding}>
-            <button
-              className="home-secondary"
-              disabled={discarding}
-              onClick={() => setDiscard(null)}
-            >
+            <button className="home-secondary" disabled={discarding} onClick={closeDiscard}>
               Keep draft
             </button>
             <button
@@ -131,13 +139,7 @@ export function DraftsView() {
                 setError('');
                 try {
                   await discardChatDraft(discard);
-                  setDiscard(null);
-                  requestAnimationFrame(() => {
-                    const target =
-                      mainRef.current?.querySelector<HTMLElement>('.saved-draft-open') ??
-                      mainRef.current?.querySelector<HTMLElement>('.workspace-primary');
-                    target?.focus();
-                  });
+                  closeDiscard();
                 } catch (failure) {
                   setError(
                     failure instanceof Error
