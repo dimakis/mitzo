@@ -172,7 +172,22 @@ export function createFreshAppleHvPlan(input) {
     0o644,
     16 * 1073741824,
   );
-  fileIdentity(copy.files.efi, join(data, 'efi-bl-' + copy.machineName), 0o644);
+  if (copy.files.efi?.state === 'expected-absent') {
+    fields(copy.files.efi, 'path,state,parent');
+    fields(copy.files.efi.parent, 'path,dev,ino,uid,mode');
+    const parent = copy.files.efi.parent;
+    if (
+      copy.files.efi.path !== join(data, 'efi-bl-' + copy.machineName) ||
+      parent.path !== data ||
+      !integer(parent.dev) ||
+      !integer(parent.ino) ||
+      parent.ino < 1 ||
+      parent.uid !== process.getuid() ||
+      !integer(parent.mode) ||
+      parent.mode & 0o022
+    )
+      fail('expected-absent fresh EFI parent');
+  } else fileIdentity(copy.files.efi, join(data, 'efi-bl-' + copy.machineName), 0o644);
   fileIdentity(copy.files.ssh, join(home, '.local/share/containers/podman/machine/machine'), 0o600);
   fileIdentity(
     copy.files.configuration,
@@ -192,7 +207,11 @@ export function createFreshAppleHvPlan(input) {
     Object.values(copy.files).some((file) =>
       copy.oldIdentities.some((old) => old.dev === file.dev && old.ino === file.ino),
     ) ||
-    new Set(Object.values(copy.files).map((f) => `${f.dev}:${f.ino}`)).size !== 4
+    new Set(
+      Object.values(copy.files)
+        .filter((f) => f.state !== 'expected-absent')
+        .map((f) => `${f.dev}:${f.ino}`),
+    ).size !== (copy.files.efi.state === 'expected-absent' ? 3 : 4)
   )
     fail('reused retained identity');
   fields(copy.machine, 'path,sha256,definition');

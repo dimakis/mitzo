@@ -208,6 +208,18 @@ it('refuses reused disk identity, old endpoint, broad mounts, nonstock helper an
     expect(() => createFreshAppleHvPlan(input)).toThrow();
   }
 });
+it('stock first boot may create only the exact expected-absent EFI store under its pinned private parent', () => {
+  const input = freshVmInput(),
+    path = input.files.efi.path;
+  input.files.efi = {
+    path,
+    state: 'expected-absent',
+    parent: { path: join(path, '..'), dev: 1, ino: 50, uid: process.getuid(), mode: 0o755 },
+  };
+  expect(createFreshAppleHvPlan(input).plan.files.efi.state).toBe('expected-absent');
+  input.files.efi.parent.path = '/old/quarantine';
+  expect(() => createFreshAppleHvPlan(input)).toThrow();
+});
 function ownerFixture() {
   const approvedVmPlan = createFreshAppleHvPlan(freshVmInput()),
     events = [];
