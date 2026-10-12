@@ -134,13 +134,15 @@ function fixture(mode = 'confirmed') {
     source,
     plan.configSha256,
     plan.buildSha256,
-    'active',
+    mode === 'inactive' ? 'retirement_uncertain' : 'active',
     'original',
     2,
     50,
     null,
     null,
   );
+  if (mode === 'inactive')
+    writeFileSync(join(service, 'owned-release.json'), 'must never be opened', { mode: 0o600 });
   if (mode === 'archived') {
     db.exec('CREATE TABLE contained_owned_launches(recordJson TEXT)');
     db.prepare('INSERT INTO contained_owned_launches VALUES(?)').run(
@@ -242,4 +244,15 @@ it('owned check and drain refuse changed canonical launchd registration without 
     expect(result.status).not.toBe(0);
     expect(JSON.parse(readFileSync(f.calls, 'utf8'))).toEqual([]);
   }
+});
+
+it('refuses unarchived inactive inputs before any logical plan read or control', () => {
+  const f = fixture('inactive');
+  for (const args of [['check', '--offline'], f.drain]) {
+    const result = f.run(args);
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('Inactive original plan cannot be selected as live owner');
+  }
+  expect(JSON.parse(readFileSync(f.calls, 'utf8'))).toEqual([]);
+  expect(existsSync(join(f.root, 'service/deployment.lock'))).toBe(false);
 });

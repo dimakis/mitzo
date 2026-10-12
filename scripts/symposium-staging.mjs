@@ -105,6 +105,14 @@ try {
             archivedInput: true,
           });
       }
+      const selectedRows = db
+        .prepare('SELECT state FROM launches WHERE planDirectory=? LIMIT 2')
+        .all(service);
+      if (selectedRows.length !== 1 || selectedRows[0].state !== 'active')
+        throw Object.assign(
+          Error('Only the actual active original inputs can be selected as live owner'),
+          { inactiveInput: true },
+        );
     } finally {
       db.close();
     }
@@ -348,13 +356,10 @@ try {
         }),
       );
     }
-    const selectedRows = db
-      .prepare('SELECT state FROM launches WHERE planDirectory=? LIMIT 2')
-      .all(service);
-    if (selectedRows.length !== 1 || selectedRows[0].state !== 'active')
-      throw Error('Only the actual active original inputs can be selected as live owner');
   }
 } catch (error) {
+  if (error?.inactiveInput === true)
+    console.error('Inactive original plan cannot be selected as live owner');
   if (error?.archivedInput === true)
     console.error('Archived historical plan cannot be selected as live owner');
   console.error(

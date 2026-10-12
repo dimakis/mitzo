@@ -1,4 +1,5 @@
 import { expect, it } from 'vitest';
+import process from 'node:process';
 import { userInfo } from 'node:os';
 import { join } from 'node:path';
 import {
