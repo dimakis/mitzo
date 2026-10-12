@@ -52,6 +52,7 @@ function fixture(acceptedAppSource?: OriginalStagingAppSourceWitness) {
       selectedModel: model,
       chargedAccount: profile,
       assertCurrent: current,
+      assertOriginalCleanupCurrent: current,
     }),
     assertOriginalOwnerCurrent: current,
     assertReservation: vi.fn(),

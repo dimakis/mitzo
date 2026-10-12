@@ -10,6 +10,9 @@ export interface StagingNativeModelPlan {
   readonly selectedModel: string;
   readonly modelApprovalId: string | null;
   assertCurrent(): void;
+  /** Original gateway/policy/run identity and held-permit drain, independent
+   * of inference deadline and catalog admission freshness. */
+  assertOriginalCleanupCurrent(): void;
 }
 export interface StagingNativeModelRequestReceipt {
   readonly version: 1;
