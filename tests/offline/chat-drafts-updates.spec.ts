@@ -676,3 +676,214 @@ test('drafts: preparation-only receipts survive reopen and failed cleanup, then 
   expect(fixture.mutations).toEqual([]);
   expect(fixture.errors).toEqual([]);
 });
+
+async function offlineVoice(page: Page) {
+  const health = {
+    services: [{ name: 'yapper', ok: true, detail: { stt: true, tts: false } }],
+    checkedAt: Date.now(),
+  };
+  await page.route('**/api/service-health', (route) => route.fulfill({ json: health }));
+  await page.addInitScript(() => {
+    // No browser permission or physical microphone is used. The production
+    // recorder and hook receive synthetic audio and a deferred fake STT reply.
+    const state = {
+      pending: [] as { resolve(text: string): void }[],
+      microphoneRequests: 0,
+      stoppedTracks: 0,
+    };
+    Object.assign(window, { offlineVoice: state });
+    Object.defineProperty(navigator, 'mediaDevices', {
+      configurable: true,
+      value: {
+        getUserMedia: async () => {
+          state.microphoneRequests += 1;
+          const track = {
+            kind: 'audio',
+            stop: () => {
+              state.stoppedTracks += 1;
+            },
+          };
+          return { getTracks: () => [track], getAudioTracks: () => [track] };
+        },
+      },
+    });
+    class FakeMediaRecorder {
+      static isTypeSupported() {
+        return true;
+      }
+      state = 'inactive';
+      mimeType: string;
+      ondataavailable: ((event: { data: Blob }) => void) | null = null;
+      onstop: (() => void) | null = null;
+      constructor(_stream: unknown, options: { mimeType: string }) {
+        this.mimeType = options.mimeType;
+      }
+      start() {
+        this.state = 'recording';
+      }
+      stop() {
+        if (this.state === 'inactive') return;
+        this.state = 'inactive';
+        queueMicrotask(() => {
+          this.ondataavailable?.({
+            data: new Blob(['synthetic offline audio'], { type: this.mimeType }),
+          });
+          this.onstop?.();
+        });
+      }
+    }
+    Object.assign(window, { MediaRecorder: FakeMediaRecorder });
+    const NativeWebSocket = window.WebSocket;
+    // Deterministically select the hook's batch fallback without opening a
+    // Yapper connection. All ordinary app sockets remain fixture-intercepted.
+    Object.assign(window, {
+      WebSocket: new Proxy(NativeWebSocket, {
+        construct(target, args) {
+          if (!String(args[0]).includes('/api/yapper-ws/')) return Reflect.construct(target, args);
+          const socket = {
+            readyState: NativeWebSocket.CONNECTING,
+            onopen: null,
+            onmessage: null,
+            onerror: null as ((event: Event) => void) | null,
+            onclose: null as ((event: Event) => void) | null,
+            send: () => {},
+            close: () => {
+              socket.readyState = NativeWebSocket.CLOSED;
+            },
+          };
+          queueMicrotask(() => {
+            socket.readyState = NativeWebSocket.CLOSED;
+            socket.onerror?.(new Event('error'));
+          });
+          return socket;
+        },
+      }),
+    });
+    const realFetch = window.fetch.bind(window);
+    window.fetch = (input, options) => {
+      const url = new URL(
+        typeof input === 'string' ? input : input instanceof URL ? input.href : input.url,
+        location.href,
+      );
+      if (url.pathname !== '/api/yapper/v1/transcribe') return realFetch(input, options);
+      // Keep the response independently releasable even after AbortSignal
+      // cancellation, proving a late transport result cannot cross owners.
+      return new Promise<Response>((resolve) => {
+        state.pending.push({
+          resolve: (text) =>
+            resolve(
+              new Response(JSON.stringify({ text }), {
+                headers: { 'Content-Type': 'application/json' },
+              }),
+            ),
+        });
+      });
+    };
+  });
+  return health;
+}
+async function releaseVoice(page: Page, index: number, text: string) {
+  await page.evaluate(
+    async ({ index, text }) => {
+      (
+        window as Window & { offlineVoice: { pending: { resolve(text: string): void }[] } }
+      ).offlineVoice.pending[index].resolve(text);
+      // The reply resolves in this document, then the hook and React commit their
+      // result. Frames flush that lifecycle without a guessed network delay.
+      await new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      );
+    },
+    { index, text },
+  );
+}
+async function pendingVoice(page: Page, count: number) {
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (window as Window & { offlineVoice: { pending: unknown[] } }).offlineVoice.pending.length,
+      ),
+    )
+    .toBe(count);
+}
+
+test('drafts: deferred voice replies stay with their owner while same-draft dictation preserves typing', async ({
+  page,
+  isMobile,
+}, testInfo) => {
+  const fixture = await offline(page);
+  const health = await offlineVoice(page);
+  const first = {
+    ...savedDraft('voice-first', 'Original saved draft A'),
+    images: [],
+    contextBlocks: [],
+  };
+  await seed(page, {
+    'mitzo-chat-draft:voice-first': JSON.stringify(first),
+    'mitzo:service-health': JSON.stringify(health),
+  });
+  await page.goto('/chat?draft=voice-first');
+  const input = page.getByRole('textbox', { name: 'Message Mitzo' });
+  await expect(input).toHaveValue(first.text);
+  await page.getByRole('button', { name: 'Record voice message', exact: true }).click();
+  await page.getByRole('button', { name: 'Stop recording', exact: true }).click();
+  await pendingVoice(page, 1);
+  await page.getByRole('button', { name: isMobile ? 'New chat' : 'New Chat', exact: true }).click();
+  await expect(input).toHaveValue('');
+  await input.fill('Independent draft B');
+  await releaseVoice(page, 0, 'Late words from draft A');
+  await expect(input).toHaveValue('Independent draft B');
+  expect(
+    await page.evaluate(
+      () => JSON.parse(localStorage.getItem('mitzo-chat-draft:voice-first')!).text,
+    ),
+  ).toBe(first.text);
+  await page.getByRole('button', { name: 'Record voice message', exact: true }).click();
+  await page.getByRole('button', { name: 'Stop recording', exact: true }).click();
+  await pendingVoice(page, 2);
+  await input.fill('Independent draft B with newer typing');
+  await releaseVoice(page, 1, 'Current dictated words');
+  await expect(input).toHaveValue('Independent draft B with newer typing Current dictated words');
+  await expect(input).toBeFocused();
+  await expect.poll(() => new URL(page.url()).searchParams.get('draft')).not.toBeNull();
+  const secondId = new URL(page.url()).searchParams.get('draft');
+  expect(secondId).not.toBe('voice-first');
+  await page.getByRole('button', { name: 'Record voice message', exact: true }).click();
+  await page.getByRole('button', { name: 'Stop recording', exact: true }).click();
+  await pendingVoice(page, 3);
+  await page.getByRole('link', { name: isMobile ? 'Back to chats' : 'Chats', exact: true }).click();
+  await page.getByRole('link', { name: /Drafts/ }).click();
+  await page.getByRole('link', { name: /Original saved draft A/ }).click();
+  await expect(input).toHaveValue(first.text);
+  const controls = page.getByRole('button', { name: /^Workspace controls/ });
+  await controls.focus();
+  await releaseVoice(page, 2, 'Late words from unmounted draft B');
+  await expect(input).toHaveValue(first.text);
+  await expect(controls).toBeFocused();
+  expect(
+    await page.evaluate(
+      (id) => JSON.parse(localStorage.getItem(`mitzo-chat-draft:${id}`)!).text,
+      secondId,
+    ),
+  ).toBe('Independent draft B with newer typing Current dictated words');
+  expect(
+    await page.evaluate(
+      () =>
+        (window as Window & { offlineVoice: { microphoneRequests: number; stoppedTracks: number } })
+          .offlineVoice.microphoneRequests,
+    ),
+  ).toBe(3);
+  expect(
+    await page.evaluate(
+      () =>
+        (window as Window & { offlineVoice: { stoppedTracks: number } }).offlineVoice.stoppedTracks,
+    ),
+  ).toBeGreaterThanOrEqual(3);
+  await page.screenshot({
+    path: testInfo.outputPath('voice-owner-preserved-draft.png'),
+    animations: 'disabled',
+  });
+  expect(fixture.mutations).toEqual([]);
+  expect(fixture.errors).toEqual([]);
+});
