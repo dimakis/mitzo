@@ -1778,12 +1778,13 @@ export class CodexConversation {
           this.retireTransportForRecovery();
           try {
             await this.reconnectBound();
-            // Automatic refresh owns only reattachment progress, not a user
-            // recovery acknowledgement or the resumed provider turn.
-            this.recoveryPhase = undefined;
-            this.opts.onQueueChange?.();
           } finally {
             transportGeneration = this.transportGeneration;
+            // Reattachment progress ends on success or refusal. Failed refresh
+            // retains paused/unknown state and requires existing recovery; this
+            // does not acknowledge user recovery or provider-turn ownership.
+            this.recoveryPhase = undefined;
+            this.opts.onQueueChange?.();
           }
         };
         if (this.opts.reconnectGuard) await this.opts.reconnectGuard(renew);

@@ -227,7 +227,7 @@ Centaur finding CEN-D3F87C1146BA identified retained recovery progress after
 PR879's successful automatic transport refresh. Two red tests reproduced it for
 pre-turn grants and queued environment continuations: both acknowledged resumed
 turns remained recovering, suppressing the Access observation. Automatic refresh
-now clears its progress after successful reattachment and notifies the queue
+now ends its progress after completed or refused reattachment and notifies the queue
 observer, without acknowledging user recovery or changing provider-turn ownership.
 Existing interruption, failed refresh, admission, continuation and private-ledger
-fences remain in force. The combined reviewed runtime advances to v1.0.71.
+fences remain in force. A third red test verifies refusal retains paused/Unknown state, starts no provider turn and stops progress so existing recovery controls remain usable. The combined reviewed runtime advances to v1.0.72.

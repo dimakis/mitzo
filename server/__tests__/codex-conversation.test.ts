@@ -1045,19 +1045,17 @@ it.each(['before-turn', 'queued-continuation'] as const)(
       intent: 'Read mail',
     });
     if (route === 'queued-continuation') {
-      await state
-        .getCallbacks()
-        .onRequest(
-          'item/tool/call',
-          {
-            threadId: 'provider-thread',
-            turnId: 'turn-1',
-            callId: 'grant-refresh',
-            tool: 'Read',
-            arguments: {},
-          },
-          new AbortController().signal,
-        );
+      await state.getCallbacks().onRequest(
+        'item/tool/call',
+        {
+          threadId: 'provider-thread',
+          turnId: 'turn-1',
+          callId: 'grant-refresh',
+          tool: 'Read',
+          arguments: {},
+        },
+        new AbortController().signal,
+      );
       state.getCallbacks().onNotification('turn/completed', {
         threadId: 'provider-thread',
         turn: { id: 'turn-1', status: 'completed' },
@@ -1077,6 +1075,29 @@ it.each(['before-turn', 'queued-continuation'] as const)(
     expect(state.onError).not.toHaveBeenCalled();
   },
 );
+
+it('finishes failed automatic refresh progress without inventing Access or dispatching a turn', async () => {
+  const state = await setup();
+  const originalClient = state.conversationOptions.createClient;
+  state.conversationOptions.accessLocation = 'local';
+  state.conversationOptions.refreshTransportBeforeTurn = () => true;
+  state.conversationOptions.createClient = (callbacks) => ({
+    ...originalClient(callbacks),
+    initialize: async () => {
+      throw new Error('Fixture reattachment refused');
+    },
+  });
+  await expect(state.c.send({ id: 'refused-refresh', prompt: 'Read evidence' })).rejects.toThrow(
+    'Fixture reattachment refused',
+  );
+  expect(state.requests.filter((r) => r.method === 'turn/start')).toHaveLength(0);
+  expect(state.c.isPaused()).toBe(true);
+  expect(state.c.readAccessObservation()).toBeUndefined();
+  expect(state.c.isRecovering()).toBe(false);
+  expect(state.c.getRecoveryPhase()).toBeUndefined();
+  expect(state.c.queue()).toMatchObject([{ id: 'refused-refresh', status: 'failed' }]);
+  expect(state.store.read('app', getBinding()).recovery).toBeTruthy();
+});
 
 it('does not renew the process when provider attachment failed', async () => {
   const state = await setup();
