@@ -86,3 +86,45 @@ it('makes an accepted session routable before boot completes and preserves its p
     await rm(root, { recursive: true, force: true });
   }
 });
+
+it('counts native messages once for naming and ignores retried message IDs', async () => {
+  vi.resetModules();
+  const root = await mkdtemp(join(tmpdir(), 'mitzo-native-naming-'));
+  vi.stubEnv('REPO_PATH', root);
+  const chat = await import('../chat.js');
+  const { AsyncQueue } = await import('../async-queue.js');
+  const sessionId = 'native-naming';
+  chat.eventStore.upsertSession({
+    sessionId,
+    conversationSource: 'mitzo',
+    accountBinding: {
+      accountId: 'offline',
+      accountLabel: 'Offline fixture',
+      provider: 'openai-codex',
+      model: 'luna-fixture',
+      profileRevision: 'fixture',
+    },
+  });
+  chat.registry.register('native-naming-client', {
+    transport: { send: () => {}, isOpen: () => true },
+    abortController: new AbortController(),
+    mode: 'auto',
+    cwd: root,
+    sessionId,
+    inputQueue: new AsyncQueue(),
+    sessionAllowList: new Set(),
+    agentName: 'fixture',
+  });
+  try {
+    await chat.sendToChat('native-naming-client', 'Fix calendar sync', undefined, undefined, 'one');
+    expect(chat.eventStore.getSession(sessionId)?.promptCount).toBe(1);
+    await chat.sendToChat('native-naming-client', 'Fix calendar sync', undefined, undefined, 'one');
+    expect(chat.eventStore.getSession(sessionId)?.promptCount).toBe(1);
+    await chat.sendToChat('native-naming-client', 'Add a regression', undefined, undefined, 'two');
+    expect(chat.eventStore.getSession(sessionId)?.promptCount).toBe(2);
+  } finally {
+    chat.registry.dispose();
+    chat.eventStore.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});

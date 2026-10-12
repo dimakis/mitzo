@@ -3039,9 +3039,17 @@ export async function sendToChat(
           contextBlocks,
           ...(sourceSnapshots?.length ? ([sourceSnapshots] as const) : ([] as const)),
         );
-        tryAutoRename(session.sessionId, clientId).catch(() => {
-          /* errors logged internally */
-        });
+        const provider = eventStore.getSession(session.sessionId)?.accountBinding?.provider;
+        if (
+          !isDup &&
+          provider !== 'openai-codex' &&
+          provider !== 'openai' &&
+          provider !== 'google-vertex'
+        ) {
+          tryAutoRename(session.sessionId, clientId).catch(() => {
+            /* errors logged internally */
+          });
+        }
         return isDup;
       } else {
         // Pre-session-resolve: no eventStore to dedup against.
