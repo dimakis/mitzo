@@ -195,7 +195,7 @@ describe('SessionList', () => {
     expect(inboxBtn).toBeNull();
   });
 
-  it('renders update banner when version endpoint reports update', async () => {
+  it('keeps updates in Settings even when a new version is available', async () => {
     mockFetchResponses({
       '/api/version': { updateAvailable: true },
     });
@@ -207,8 +207,8 @@ describe('SessionList', () => {
     });
 
     const banner = container.querySelector('.update-banner');
-    expect(banner).not.toBeNull();
-    expect(banner!.textContent).toMatch(/Update available/);
+    expect(banner).toBeNull();
+    expect(container.querySelector('a[href="/sessions/drafts"]')).not.toBeNull();
   });
 
   it('renders the hero New Chat button', async () => {
