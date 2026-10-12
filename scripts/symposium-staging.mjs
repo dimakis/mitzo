@@ -15,7 +15,8 @@ import {
   unlinkSync,
 } from 'node:fs';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
+import { createNativeAppCompatibilityInspector } from './lib/staging-native-app-compatibility.mjs';
 import { setTimeout } from 'node:timers/promises';
 import Database from 'better-sqlite3';
 import {
@@ -186,13 +187,35 @@ try {
     assertCanonicalStagingService(plan, selected.registrationPath, root);
     if (JSON.stringify(readCanonicalPrivateJson(ownerPath)) !== JSON.stringify(owner))
       throw Error('Original controller changed; re-plan');
-    assertCanonicalOwnerRuntime(plan, owner, registry(), {
-      jobPid: jobPid(),
-      parent: observeCanonicalProcess(owner.parent.pid),
-      app: observeCanonicalProcess(owner.app.pid),
-      portPids: portPids(3190),
-      protectedPids: [...portPids(3100), ...portPids(3101)],
-    });
+    assertCanonicalOwnerRuntime(
+      plan,
+      owner,
+      registry(),
+      {
+        jobPid: jobPid(),
+        parent: observeCanonicalProcess(owner.parent.pid),
+        app: observeCanonicalProcess(owner.app.pid),
+        portPids: portPids(3190),
+        protectedPids: [...portPids(3100), ...portPids(3101)],
+      },
+      (source) => {
+        const inspector = createNativeAppCompatibilityInspector({
+          canonicalRoot: root,
+          nativeSourceRoot: plan.releaseRoot,
+          nativeCommit: plan.sourceCommit,
+        });
+        const compatibilitySha256 = createHash('sha256')
+          .update(
+            JSON.stringify({
+              native: inspector.inspect(plan.sourceCommit),
+              app: inspector.inspect(source.acceptedAppCommit),
+            }),
+          )
+          .digest('hex');
+        if (compatibilitySha256 !== source.compatibilitySha256)
+          throw Error('Complete physical retained native/app compatibility changed');
+      },
+    );
   }
   validate();
   if (lstatSync(lockPath, { throwIfNoEntry: false }))
@@ -223,10 +246,17 @@ try {
       JSON.stringify({
         safe: true,
         mode: 'owned-custodian',
-        source: plan.sourceCommit,
+        source: owner.acceptedAppSource?.acceptedAppCommit ?? plan.sourceCommit,
+        expected: owner.acceptedAppSource?.acceptedAppCommit ?? plan.sourceCommit,
+        ...(owner.acceptedAppSource
+          ? { nativeSourceCommit: plan.sourceCommit, acceptedAppSource: owner.acceptedAppSource }
+          : {}),
         main,
         mainChecked: !flags['--offline'],
-        stale: main === null ? null : main !== plan.sourceCommit,
+        stale:
+          main === null
+            ? null
+            : main !== (owner.acceptedAppSource?.acceptedAppCommit ?? plan.sourceCommit),
         instanceId: owner.instanceId,
         epoch: owner.epoch,
         parentPid: owner.parent.pid,
@@ -239,7 +269,7 @@ try {
     if (
       flags['--instance'] !== owner.instanceId ||
       Number(flags['--epoch']) !== owner.epoch ||
-      flags['--source'] !== owner.sourceCommit
+      flags['--source'] !== (owner.acceptedAppSource?.acceptedAppCommit ?? owner.sourceCommit)
     )
       throw Error('Exact original instance, epoch and source required');
     if (!flags['--apply'])
@@ -249,7 +279,10 @@ try {
           apply: false,
           instanceId: owner.instanceId,
           epoch: owner.epoch,
-          source: owner.sourceCommit,
+          source: owner.acceptedAppSource?.acceptedAppCommit ?? owner.sourceCommit,
+          ...(owner.acceptedAppSource
+            ? { nativeSourceCommit: owner.sourceCommit, acceptedAppSource: owner.acceptedAppSource }
+            : {}),
           control: 'original com.mitzo.staging SIGTERM',
           requires: 'original native retirement receipt and absent parent/app/listener',
           productionActions: [],
@@ -262,7 +295,10 @@ try {
       const lock = {
         id,
         mode: 'owned-custodian-drain',
-        source: owner.sourceCommit,
+        source: owner.acceptedAppSource?.acceptedAppCommit ?? owner.sourceCommit,
+        ...(owner.acceptedAppSource
+          ? { nativeSourceCommit: owner.sourceCommit, acceptedAppSource: owner.acceptedAppSource }
+          : {}),
         instanceId: owner.instanceId,
         epoch: owner.epoch,
         requestedAt,
@@ -348,7 +384,10 @@ try {
         JSON.stringify({
           retired: true,
           id,
-          source: owner.sourceCommit,
+          source: owner.acceptedAppSource?.acceptedAppCommit ?? owner.sourceCommit,
+          ...(owner.acceptedAppSource
+            ? { nativeSourceCommit: owner.sourceCommit, acceptedAppSource: owner.acceptedAppSource }
+            : {}),
           instanceId: owner.instanceId,
           epoch: owner.epoch,
           replacementStarted: false,
