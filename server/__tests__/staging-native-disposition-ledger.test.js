@@ -1,9 +1,8 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import process from 'node:process';
 import { mkdirSync, rmSync, chmodSync } from 'node:fs';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
-const home = vi.hoisted(() => `/private/tmp/mitzo-native-ledger-${process.pid}`);
+const home = vi.hoisted(() => `/private/tmp/mitzo-native-ledger-${globalThis.process.pid}`);
 vi.mock('node:os', () => ({ homedir: () => home }));
 import { createContainedNativeDispositionLedger } from '../../scripts/lib/staging-native-disposition-ledger.mjs';
 import {

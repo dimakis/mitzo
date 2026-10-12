@@ -2,7 +2,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import process from 'node:process';
 import { mkdirSync, readFileSync, writeFileSync, rmSync, renameSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
-const home = vi.hoisted(() => `/private/tmp/mitzo-new-guard-${process.pid}`);
+const home = vi.hoisted(() => `/private/tmp/mitzo-new-guard-${globalThis.process.pid}`);
 vi.mock('node:os', () => ({ homedir: () => home }));
 import { createContainedNativeGuard } from '../../scripts/lib/staging-native-disposition-guard.mjs';
 const root = join(home, '.local/share/mitzo-staging'),
@@ -77,4 +77,31 @@ it('rechecks source identity before release and refuses app/native proof for ano
   ).rejects.toThrow();
   expect(existsSync(f.path)).toBe(true);
   f.guard.retain();
+});
+it('releases only its matching original new guard after complete fresh owner proof and retains a separate completion record', async () => {
+  const f = fixture();
+  f.guard.acquire();
+  const proof = {
+    allocation,
+    sourceCommit: 'a'.repeat(40),
+    parentPid: process.pid,
+    parentBirth: f.identity.birth,
+    instanceId: '33333333-3333-4333-8333-333333333333',
+    epoch: 1,
+    appPid: process.pid + 1,
+    appBirth: 'synthetic exact child birth',
+    vmObservationSha256: 'd'.repeat(64),
+    archiveProofSha256: 'e'.repeat(64),
+  };
+  await f.guard.completeNative(async () => proof);
+  expect(existsSync(f.path)).toBe(false);
+  const completed = JSON.parse(
+    readFileSync(
+      join(root, 'service/native-dispositions', allocation, 'launcher-completed.json'),
+      'utf8',
+    ),
+  );
+  expect(completed.proof).toEqual(proof);
+  expect(completed.nativeCleanupConfirmed).toBe(false);
+  expect(() => f.guard.assertCurrent()).toThrow();
 });
