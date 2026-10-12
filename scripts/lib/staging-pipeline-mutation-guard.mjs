@@ -63,7 +63,7 @@ export function assertStagingPipelineFeatureDispatch(
       row.owner !== token.owner ||
       row.nonce !== token.nonce ||
       row.source_commit !== sourceCommit ||
-      Date.now() > row.deadline ||
+      Date.now() >= row.deadline ||
       row.feature_epoch !== token.epoch ||
       row.feature_request !== token.requestId ||
       row.plan_sha256 !== planSha256 ||

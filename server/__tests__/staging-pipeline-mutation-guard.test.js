@@ -113,6 +113,12 @@ it('feature dispatch requires an exact enrolled profile, announced plan and orig
     { plan: { ...plan, enrollmentRevision: 'c'.repeat(64) } },
   ])
     expect(() => assertStagingPipelineFeatureDispatch({ ...input, ...change }, { root })).toThrow();
+  const { deadline } = store.db.prepare('SELECT deadline FROM reservation WHERE singleton=1').get();
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(deadline - 1);
+  expect(() => assertStagingPipelineFeatureDispatch(input, { root })).not.toThrow();
+  clock.mockReturnValue(deadline);
+  expect(() => assertStagingPipelineFeatureDispatch(input, { root })).toThrow(/reservation/);
+  clock.mockRestore();
   store.quarantine(c.token, 'test-cleanup-uncertain');
   expect(() => assertStagingPipelineFeatureDispatch(input, { root })).toThrow();
 });
