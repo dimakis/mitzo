@@ -12,12 +12,22 @@ export const custodianControllerMode = validateCustodianMode(
 export const custodianOwnerMode = process.env.MITZO_SYMPOSIUM_CUSTODIAN_OWNER === '1';
 if (custodianControllerMode && custodianOwnerMode)
   throw Error('Custodian cannot also be its app controller');
+const originalReadiness = process.env.MITZO_SYMPOSIUM_AWAIT_ORIGINAL_READINESS;
+if (
+  originalReadiness !== undefined &&
+  (originalReadiness !== '1' ||
+    !custodianControllerMode ||
+    process.env.PORT !== '3190' ||
+    process.env.MITZO_BIND_HOST !== '127.0.0.1')
+)
+  throw Error('Bounded canonical original readiness mode required');
 let broadcast: ((sessionId: string, event: Record<string, unknown>) => void) | undefined;
 export function receiveCustodianEvents(listener: typeof broadcast) {
   broadcast = listener;
 }
 export const custodianControllerClient = custodianControllerMode
   ? createCustodianIpcClient(process as unknown as CustodianChannel, {
+      ...(originalReadiness ? { startupTimeoutMs: 120000 } : {}),
       onEvent: (sessionId, event) => broadcast?.(sessionId, event),
     })
   : undefined;
