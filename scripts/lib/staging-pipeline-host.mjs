@@ -1,7 +1,7 @@
 import process from 'node:process';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, URL } from 'node:url';
 import { existsSync, readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { assessStagingResources, STAGING_RESOURCE_BUDGET } from './staging-resource-budget.mjs';

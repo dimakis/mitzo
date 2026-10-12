@@ -1,6 +1,6 @@
 import { expect, it, vi } from 'vitest';
 import process from 'node:process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, URL } from 'node:url';
 import {
   parseMacStagingResources,
   createStagingPipelineEffects,
