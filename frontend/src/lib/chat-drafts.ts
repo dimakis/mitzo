@@ -77,7 +77,12 @@ function changed() {
 }
 export function saveChatDraft(draft: ChatDraft): boolean {
   try {
-    if (!draft.text.trim() && !draft.images.length && !draft.contextBlocks.length)
+    if (
+      !draft.text.trim() &&
+      !draft.images.length &&
+      !draft.contextBlocks.length &&
+      !draft.settings.repositoryWorkspaceId
+    )
       localStorage.removeItem(PREFIX + draft.id);
     else
       localStorage.setItem(PREFIX + draft.id, JSON.stringify({ ...draft, updatedAt: Date.now() }));

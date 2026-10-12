@@ -74,6 +74,28 @@ describe('saved new-chat drafts', () => {
     saveChatDraft({ ...second, text: '' });
     expect(listChatDrafts()).toEqual([]);
   });
+  it('retains repository preparation and its account binding before typing or after clearing content', () => {
+    const draft = createChatDraft();
+    draft.settings = {
+      ...draft.settings,
+      selection: { accountId: 'work', model: 'model-a', reasoningEffort: 'medium' },
+      repositoryWorkspaceId: '00000000-0000-4000-8000-000000000001',
+    };
+    expect(saveChatDraft(draft)).toBe(true);
+    expect(getChatDraft(draft.id)).toMatchObject({ text: '', settings: draft.settings });
+    expect(listChatDrafts().map((saved) => saved.id)).toEqual([draft.id]);
+    saveChatDraft({ ...draft, text: 'A message' });
+    saveChatDraft(draft);
+    expect(getChatDraft(draft.id)?.settings.repositoryWorkspaceId).toBe(
+      draft.settings.repositoryWorkspaceId,
+    );
+    // Explicitly removing the preparation makes the blank composer disposable.
+    saveChatDraft({
+      ...draft,
+      settings: { ...draft.settings, repositoryWorkspaceId: null },
+    });
+    expect(getChatDraft(draft.id)).toBeNull();
+  });
   it('migrates the existing shared draft once with saved account preferences', () => {
     localStorage.setItem('mitzo-draft-new', 'Existing unsent message');
     localStorage.setItem(
