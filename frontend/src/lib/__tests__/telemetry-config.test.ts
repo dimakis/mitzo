@@ -2,15 +2,15 @@ import { describe, expect, it } from 'vitest';
 import { browserTelemetryConfig } from '../telemetry-config';
 
 describe('browser telemetry destination', () => {
-  it('uses the authenticated API relay on iOS and reads the current token for each export', () => {
+  it('uses the authenticated API relay on iOS and reads the current token for each export', async () => {
     let token: string | null = 'first';
     const config = browserTelemetryConfig('api', 'https://mitzo.example:3100', () => token)!;
     expect(config.url).toBe('https://mitzo.example:3100/api/telemetry/v1/traces');
-    expect(config.headers!()).toEqual({ Authorization: 'Bearer first' });
+    expect(await config.headers!()).toEqual({ Authorization: 'Bearer first' });
     token = 'second';
-    expect(config.headers!()).toEqual({ Authorization: 'Bearer second' });
+    expect(await config.headers!()).toEqual({ Authorization: 'Bearer second' });
     token = null;
-    expect(config.headers!()).toEqual({});
+    expect(await config.headers!()).toEqual({});
   });
 
   it('supports same-origin cookie export and keeps direct collectors free of Mitzo tokens', () => {
