@@ -857,6 +857,11 @@ it('admits OpenAI image startup and delivers pixels without staging Read-tool pa
         images: ['data:image/png;base64,cG5n'],
       }),
     );
+    expect(native.prepare).toHaveBeenCalledExactlyOnceWith('image-initial', [
+      { type: 'text', text: 'Inspect' },
+      { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'cG5n' } },
+    ]);
+    native.prepare.mockClear();
     const interrupt = vi.spyOn(chat.registry.get('image-startup')!.queryInstance!, 'interrupt');
     const invalidImages = [{ data: 'not base64', mediaType: 'image/png' }];
     expect(

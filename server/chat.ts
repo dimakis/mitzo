@@ -2202,6 +2202,9 @@ This is an independent checkout with its own Git storage, not a linked worktree.
       if (!initialProviderAdmission) {
         throw new Error('Native provider startup is missing durable command admission');
       }
+      const responsesRuntime = getResponsesRuntime(session);
+      if (!responsesRuntime) throw new Error('Native provider startup runtime is unavailable');
+      responsesRuntime.prepare(initialMessageId, responsesUserContent(fullPrompt, options.images));
       storeAndEchoIfNew(
         conversationId,
         initialMessageId,
