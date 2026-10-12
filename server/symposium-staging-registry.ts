@@ -7,7 +7,9 @@ import { readCustodianRetirementReceipt } from './symposium-custodian-retirement
 import {
   consumeContainedNativeCapacityLease,
   revokeContainedNativeCapacityLease,
+  CONTAINED_NATIVE_INCIDENT,
 } from './staging-contained-native-disposition.js';
+import { canonicalStagingRoot } from './symposium-staging-identity.js';
 
 const identifier = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_. -]{0,199}$/);
 const Registration = z.strictObject({
@@ -29,6 +31,46 @@ export interface StagingRecord extends StagingRegistration {
   controllerGeneration: number;
   retirementStateParent: string | null;
   completedAt: number | null;
+}
+/** Evidence routing only. Never reinterpret a preserved original logical path as
+ * new native inputs or reconstruct a live owner from retained metadata. */
+export function resolveStagingRecordInputs(
+  record: Pick<StagingRecord, 'launchId' | 'planDirectory' | 'sourceCommit' | 'state'>,
+  history?: {
+    recordJson: string;
+    classification: string;
+    archive: string;
+    operationId: string;
+    receiptSha256: string;
+  },
+) {
+  const root = canonicalStagingRoot();
+  if (record.launchId === CONTAINED_NATIVE_INCIDENT.launchId) {
+    if (
+      !history ||
+      history.recordJson !== JSON.stringify(record) ||
+      history.classification !== 'contained_offline_native_cleanup_unconfirmed' ||
+      !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(history.operationId) ||
+      history.archive !== root + '-quarantine/' + history.operationId ||
+      !/^[a-f0-9]{64}$/.test(history.receiptSha256) ||
+      record.planDirectory !== join(root, 'symposium/service') ||
+      record.sourceCommit !== CONTAINED_NATIVE_INCIDENT.sourceCommit ||
+      record.state !== 'retirement_uncertain'
+    )
+      throw Error(
+        'Retained original inputs require exact archived evidence; never resolve as live owner',
+      );
+    return {
+      kind: 'archived_evidence' as const,
+      planDirectory: join(history.archive, 'symposium/service'),
+      nativeAuthority: false as const,
+    };
+  }
+  return {
+    kind: 'retained_inputs' as const,
+    planDirectory: record.planDirectory,
+    nativeAuthority: false as const,
+  };
 }
 /** Operator ledger only. No record confers native custody, cleanup, or adoption.
  * Mutators are fresh process-local launcher closures; reopening exposes no adopt API. */

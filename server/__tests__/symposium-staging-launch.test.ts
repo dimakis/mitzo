@@ -149,6 +149,26 @@ function fixture() {
   mkdirSync(gatewayStateDirectory, { mode: 0o700 });
   return { root, plan, registration, stateParent, gatewayStateDirectory, config };
 }
+it('refuses a contained-native authorization hook on an unqualified noncanonical trial before any native claim', async () => {
+  const f = fixture(),
+    claim = vi.fn(),
+    run = vi.fn(),
+    authorizeContainedNativeAllocation = vi.fn(async () => ({
+      lease: { planSha256: 'a'.repeat(64) },
+      close() {},
+    }));
+  await expect(
+    launchStagingCustodian(f.plan, f.registration, {
+      verify() {},
+      claim,
+      run,
+      authorizeContainedNativeAllocation,
+    }),
+  ).rejects.toThrow(/canonical/i);
+  expect(claim).not.toHaveBeenCalled();
+  expect(run).not.toHaveBeenCalled();
+  expect(authorizeContainedNativeAllocation).not.toHaveBeenCalled();
+});
 it.each([
   ['local-854b-routing-v1', SOURCE_QUALIFIED_SYMPOSIUM_ROUTING_BUILD],
   ['local-854b-routing-v2', SOURCE_QUALIFIED_SYMPOSIUM_CONNECT_PREFACE_BUILD],
