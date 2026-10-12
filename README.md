@@ -198,9 +198,16 @@ If the service template catalog is temporarily unavailable, existing connections
 
 ## Architecture
 
+Browser and native iOS chat use SSE for live updates and acknowledged HTTP POST
+for prompts and controls, independently of the selected AI provider. Prompts
+can enter the delivery outbox while the event stream reconnects; drafts clear
+only after acceptance. An explicit `mitzo:transport=ws` localStorage preference
+retains WebSocket for diagnostics. Existing overrides are preserved; remove that
+preference to use SSE. Installed iOS apps need an updated bundle to adopt this default.
+
 ```
 Phone (Tailscale) ──┬── HTTP: REST API
-                    └── WebSocket: v2 streaming protocol
+                    └── SSE: v2 streaming protocol (WS diagnostic override)
                         │
                     Server (Node + TypeScript)
                         │
