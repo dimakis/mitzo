@@ -63,6 +63,7 @@ it('provisioning requires live original guard, current authentication and indepe
     approvedProvisioningPlan,
     assertGuardCurrent: vi.fn(() => events.push('guard')),
     assertAcceptedSource: vi.fn(async () => events.push('source')),
+    assertArchivedNativeTopologyCurrent: vi.fn(async () => events.push('archive')),
     assertNativeAuthenticationCurrent: vi.fn(() => events.push('auth')),
     assertApprovedImage: vi.fn(async () => {
       throw Error('no independently reviewed stock image');
@@ -76,6 +77,11 @@ it('provisioning requires live original guard, current authentication and indepe
   await expect(provisionFreshAppleHvAllocation(options, effects)).rejects.toThrow();
   expect(effects.initializeOnce).not.toHaveBeenCalled();
   options.assertApprovedImage.mockResolvedValue(undefined);
+  options.assertArchivedNativeTopologyCurrent.mockRejectedValueOnce(
+    Error('original archive changed'),
+  );
+  await expect(provisionFreshAppleHvAllocation(options, effects)).rejects.toThrow(/archive/);
+  expect(effects.initializeOnce).not.toHaveBeenCalled();
   expect(await provisionFreshAppleHvAllocation(options, effects)).toEqual({
     measured: 'facts-only',
   });

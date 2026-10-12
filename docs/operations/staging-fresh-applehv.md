@@ -76,8 +76,8 @@ The plan file alone cannot reopen this channel or running capability.
 
 `verifyRunning()` binds the original supervisor/vfkit/gvproxy PID births, current
 macOS boot, actual guest boot, rootless socket, TCP control endpoint ownership,
-and open raw-disk/EFI device and inode records. Only LastUp within the original
-start interval may change; all other machine fields remain pinned. The actual
+and open raw-disk/EFI device and inode records. Stock LastUp stays zero through startup and direct vfkit retirement; all
+machine fields remain pinned while process/guest evidence proves the lifecycle. The actual
 new EFI identity is captured once. Mutable disk bytes are not compared to a
 pre-start hash as running proof.
 
@@ -127,7 +127,7 @@ retained and counted. Old archived reservations and backing are untouched.
 ## Offline evidence and remaining host qualification
 
 Focused tests cover normalized plans, growth refusal, authority refusal, one-shot
-and concurrent start fences, original-owner handoff, mutable LastUp, exact native
+and concurrent start fences, original-owner handoff, stock LastUp, exact native
 argv/open handles and refusal of a saved plan without its live guard. They run
 with one worker and a 1024 MiB V8 heap, without VM initialization, startup,
 provider enrollment or model calls. They do not prove actual host admission,

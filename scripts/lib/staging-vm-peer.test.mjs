@@ -69,6 +69,30 @@ describe('original kernel VM start lineage', () => {
     f.rows.set(14, { ...f.rows.get(14), ppid: 1 });
     expect(f.observer.assertCurrent()).toEqual(captured);
   });
+  it('continues polling captured helpers after their original Podman parent exits, without adopting an uncaptured orphan', async () => {
+    const f = fixture();
+    await f.observer.captureSupervisor({});
+    f.observer.captureStart();
+    f.rows.delete(12);
+    f.rows.set(13, { ...f.rows.get(13), ppid: 1 });
+    f.rows.set(14, { ...f.rows.get(14), ppid: 1 });
+    expect(() => f.observer.captureStart()).not.toThrow();
+    expect(() =>
+      f.observer.finish({
+        supervisor: { pid: 11 },
+        podman: { pid: 12 },
+        vfkit: { pid: 13 },
+        gvproxy: { pid: 14 },
+      }),
+    ).not.toThrow();
+    const g = fixture();
+    g.rows.delete(14);
+    await g.observer.captureSupervisor({});
+    g.observer.captureStart();
+    g.rows.delete(12);
+    g.rows.set(14, { ...f.rows.get(14) });
+    expect(() => g.observer.captureStart()).toThrow();
+  });
   it('rejects JSON supervisor PID spoofing', async () => {
     const f = fixture();
     await f.observer.captureSupervisor({});

@@ -39,10 +39,10 @@ int main(int argc, char **argv) {
   if (pid < 2) return 1;
   struct proc_bsdinfo before = {0}, after = {0};
   char executable[PROC_PIDPATHINFO_MAXSIZE] = {0};
-  if (proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &before, sizeof(before)) != sizeof(before) ||
+  if (proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &before, sizeof(before)) != (int)sizeof(before) ||
       before.pbi_pid != (uint32_t)pid || before.pbi_uid != geteuid() ||
       proc_pidpath(pid, executable, sizeof(executable)) <= 0 ||
-      proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &after, sizeof(after)) != sizeof(after) ||
+      proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &after, sizeof(after)) != (int)sizeof(after) ||
       before.pbi_pid != after.pbi_pid || before.pbi_ppid != after.pbi_ppid ||
       before.pbi_uid != after.pbi_uid ||
       before.pbi_start_tvsec != after.pbi_start_tvsec ||

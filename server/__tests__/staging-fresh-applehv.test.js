@@ -317,3 +317,31 @@ it('synchronous current capability needs original verified lineage and the live 
   await f.owner.retain();
   expect(() => f.owner.assertRunningCurrent()).toThrow();
 });
+
+it('original cleanup retains identity and guard checks when only new-work resource admission refuses', async () => {
+  const f = ownerFixture();
+  f.effects.assertRunningCurrent = vi.fn(() => {
+    throw Error('host pressure2');
+  });
+  f.effects.assertOriginalRunningCurrent = vi.fn(() => ({ original: true }));
+  expect(() => f.owner.assertOriginalRunningCurrent()).toThrow();
+  await f.owner.verifyStopped();
+  await f.owner.startOnce();
+  expect(() => f.owner.assertRunningCurrent()).toThrow(/pressure/);
+  expect(f.owner.assertOriginalRunningCurrent()).toEqual({ original: true });
+  f.assertGuardCurrent.mockImplementation(() => {
+    throw Error('original queue owner lost');
+  });
+  expect(() => f.owner.assertOriginalRunningCurrent()).toThrow(/queue/);
+  expect(f.effects.assertOriginalRunningCurrent).toHaveBeenCalledTimes(1);
+});
+it('the compiled peer, accepted C source and receipt must match the same reviewable inventory', () => {
+  for (const field of ['sha256', 'sourceSha256', 'buildReceiptSha256', 'path']) {
+    const input = freshVmInput();
+    input.peerInspector[field] = field === 'path' ? '/borrowed/helper' : '0'.repeat(64);
+    expect(() => createFreshAppleHvPlan(input)).toThrow(/peer/);
+  }
+  const input = freshVmInput();
+  delete input.peerInspector;
+  expect(() => createFreshAppleHvPlan(input)).toThrow();
+});

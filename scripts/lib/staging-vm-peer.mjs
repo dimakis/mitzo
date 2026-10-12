@@ -196,6 +196,17 @@ export function createOriginalVmStartLineageObserver({
       if (!captured.supervisor || finished) refuse();
       if (!same(inspect(captured.supervisor.pid), captured.supervisor)) refuse();
       const all = rows();
+      if (captured.vfkit && captured.gvproxy) {
+        // Both helper births were captured while their original parent was
+        // alive. Its normal exit does not erase that proof or require adoption.
+        for (const kind of ['vfkit', 'gvproxy']) {
+          const actual = inspect(captured[kind].pid);
+          if (!same(actual, captured[kind]) || ![captured.podman.pid, 1].includes(actual.ppid))
+            refuse();
+        }
+        current();
+        return;
+      }
       if (!captured.podman) {
         const candidates = all.filter(
           (p) => p.ppid === captured.supervisor.pid && p.command === podman.argv,

@@ -19,7 +19,15 @@ import {
 import { spawnSync, spawn } from 'node:child_process';
 import { createServer } from 'node:net';
 import { setTimeout, clearTimeout } from 'node:timers';
+import {
+  createDarwinVmPeerInspector,
+  createOriginalVmStartLineageObserver,
+} from './staging-vm-peer.mjs';
+import { inspectOriginalFreshVmGuestApi } from './staging-vm-guest-api.mjs';
 import { OFFLINE_CONTAINMENT_TARGET } from './staging-offline-containment-contract.mjs';
+
+export const FRESH_APPLEHV_ORIGINAL_RUNNING_PROTOCOL_VERSION = 1;
+export const FRESH_APPLEHV_ARCHIVED_TOPOLOGY_PROTOCOL_VERSION = 1;
 
 const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
 const sha = /^[a-f0-9]{64}$/;
@@ -71,7 +79,7 @@ export function createFreshAppleHvProvisionPlan(input) {
   if (copy) delete copy.qualification;
   fields(
     copy,
-    'version,allocationUUID,canonicalRoot,nativeRoot,sourceRoot,sourceCommit,sourceTree,sourceInventory,bootUUID,node,helpers,oldIdentities,budget,resourcePolicy,sourceImage',
+    'version,allocationUUID,canonicalRoot,nativeRoot,sourceRoot,sourceCommit,sourceTree,sourceInventory,bootUUID,node,helpers,peerInspector,oldIdentities,budget,resourcePolicy,sourceImage',
   );
   if (
     Buffer.byteLength(JSON.stringify(copy)) > 262144 ||
@@ -170,6 +178,7 @@ export async function provisionFreshAppleHvAllocation(options, effects) {
     assertAcceptedSource,
     assertNativeAuthenticationCurrent,
     assertApprovedImage,
+    assertArchivedNativeTopologyCurrent,
   } = options;
   if (
     [
@@ -177,6 +186,7 @@ export async function provisionFreshAppleHvAllocation(options, effects) {
       assertAcceptedSource,
       assertNativeAuthenticationCurrent,
       assertApprovedImage,
+      assertArchivedNativeTopologyCurrent,
     ].some((fn) => typeof fn !== 'function')
   )
     fail('original provisioning authority');
@@ -202,6 +212,7 @@ export async function provisionFreshAppleHvAllocation(options, effects) {
     synchronous(assertNativeAuthenticationCurrent);
     if (
       (await assertAcceptedSource()) === false ||
+      (await assertArchivedNativeTopologyCurrent()) === false ||
       (await assertApprovedImage(p.sourceImage)) === false
     )
       fail('accepted source/image authority');
@@ -288,6 +299,17 @@ function freshAppleHvProvisionEffects(approved) {
       !/Could not find service/.test(oldJob.stderr)
     )
       fail('original VM registration still present or uncertain');
+    const executables = command('/bin/ps', ['-axo', 'comm='])
+      .split('\n')
+      .map((line) => line.trim());
+    if (
+      executables.some((executable) =>
+        p.helpers
+          .filter((h) => ['vfkit', 'gvproxy'].includes(h.kind))
+          .some((helper) => executable === helper.path || executable === helper.kind),
+      )
+    )
+      fail('original native helper topology still present');
   }
   return {
     verifyPrerequisites: prerequisites,
@@ -550,6 +572,16 @@ function validateDefinition(m, plan) {
     fail('stock fresh AppleHV boundary');
 }
 function validateSourcePins(copy) {
+  fields(copy.peerInspector, 'path,sha256,sourceSha256,buildReceiptSha256');
+  if (
+    copy.peerInspector.path !== join(copy.sourceRoot, 'dist/staging-vm-peer/helper') ||
+    [
+      copy.peerInspector.sha256,
+      copy.peerInspector.sourceSha256,
+      copy.peerInspector.buildReceiptSha256,
+    ].some((value) => !sha.test(value))
+  )
+    fail('accepted kernel peer helper pins');
   fields(copy.node, 'path,sha256');
   if (!absolute(copy.node.path) || !sha.test(copy.node.sha256)) fail('node executable pin');
   if (JSON.stringify(copy.helpers) !== JSON.stringify(OFFLINE_CONTAINMENT_TARGET.nativeHelpers))
@@ -578,9 +610,21 @@ function validateSourcePins(copy) {
       'scripts/start-staging-allocation-vm.mjs',
       'scripts/lib/staging-fresh-applehv.mjs',
       'scripts/lib/staging-offline-containment-contract.mjs',
+      'scripts/lib/staging-vm-peer.mjs',
+      'scripts/lib/staging-vm-guest-api.mjs',
+      'scripts/native/staging-vm-peer.c',
+      'dist/staging-vm-peer/helper',
+      'dist/staging-vm-peer/build.json',
     ].some((p) => !names.includes(p))
   )
     fail('supervisor source inventory');
+  for (const [path, expected] of [
+    ['scripts/native/staging-vm-peer.c', copy.peerInspector.sourceSha256],
+    ['dist/staging-vm-peer/helper', copy.peerInspector.sha256],
+    ['dist/staging-vm-peer/build.json', copy.peerInspector.buildReceiptSha256],
+  ])
+    if (!copy.sourceInventory.some((file) => file.path === path && file.sha256 === expected))
+      fail('kernel peer accepted source inventory');
   fields(copy.resourcePolicy, 'path,sha256,aggregateGiBLimit,minFreeGiB');
   if (
     copy.resourcePolicy.path !== 'scripts/lib/staging-resource-budget.mjs' ||
@@ -634,7 +678,7 @@ export function createFreshAppleHvPlan(input) {
   }
   fields(
     copy,
-    'version,allocationUUID,canonicalRoot,nativeRoot,sourceRoot,sourceCommit,sourceTree,sourceInventory,bootUUID,node,helpers,machine,files,oldIdentities,supervisor,budget,resourcePolicy',
+    'version,allocationUUID,canonicalRoot,nativeRoot,sourceRoot,sourceCommit,sourceTree,sourceInventory,bootUUID,node,helpers,peerInspector,machine,files,oldIdentities,supervisor,budget,resourcePolicy',
   );
   if (
     Buffer.byteLength(JSON.stringify(copy)) > 262144 ||
@@ -802,7 +846,7 @@ export function createFreshAppleHvOwner(
     fail('original allocation capability');
   if (!effects && canonicalRoot !== OFFLINE_CONTAINMENT_TARGET.canonicalRoot)
     fail('actual canonical staging root');
-  effects ??= freshAppleHvPhysicalEffects(approved);
+  effects ??= freshAppleHvPhysicalEffects(approved, assertGuardCurrent);
   let stopped = false,
     attempted = false,
     lineage,
@@ -874,7 +918,24 @@ export function createFreshAppleHvOwner(
       const guard = assertGuardCurrent();
       if (guard === false || guard instanceof Promise) fail('original live handoff fence');
       const facts = effects.assertRunningCurrent(lineage);
-      if (facts instanceof Promise) fail('synchronous actual owner facts');
+      if (facts === false || facts instanceof Promise) fail('synchronous actual owner facts');
+      const again = assertGuardCurrent();
+      if (again === false || again instanceof Promise) fail('original live handoff fence');
+      return facts;
+    },
+    assertOriginalRunningCurrent: () => {
+      if (
+        !lineage ||
+        !runningVerified ||
+        retained ||
+        stopAttempted ||
+        typeof effects.assertOriginalRunningCurrent !== 'function'
+      )
+        fail('original verified running capability');
+      const guard = assertGuardCurrent();
+      if (guard === false || guard instanceof Promise) fail('original live handoff fence');
+      const facts = effects.assertOriginalRunningCurrent(lineage);
+      if (facts === false || facts instanceof Promise) fail('synchronous actual owner facts');
       const again = assertGuardCurrent();
       if (again === false || again instanceof Promise) fail('original live handoff fence');
       return facts;
@@ -1105,6 +1166,41 @@ function scopedNoOpenHandles(paths) {
 function bootUUID() {
   return command('/usr/sbin/sysctl', ['-n', 'kern.bootsessionuuid']);
 }
+function verifyPeerBuild(p) {
+  const pin = p.peerInspector;
+  const path = join(p.sourceRoot, 'dist/staging-vm-peer/build.json');
+  const measured = checkedFile(path, { mode: 0o600, maxSize: 8192 });
+  if (measured.sha256 !== pin.buildReceiptSha256) fail('sealed kernel peer receipt bytes');
+  const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+  let receipt;
+  try {
+    const bytes = Buffer.alloc(measured.stat.size);
+    const stat = fstatSync(fd);
+    if (
+      stat.dev !== measured.stat.dev ||
+      stat.ino !== measured.stat.ino ||
+      readSync(fd, bytes, 0, bytes.length, 0) !== bytes.length ||
+      hash(bytes) !== measured.sha256
+    )
+      fail('current kernel peer receipt');
+    receipt = JSON.parse(bytes);
+  } finally {
+    closeSync(fd);
+  }
+  if (
+    receipt.version !== 1 ||
+    receipt.sourceCommit !== p.sourceCommit ||
+    receipt.sourcePath !== 'scripts/native/staging-vm-peer.c' ||
+    receipt.sourceSha256 !== pin.sourceSha256 ||
+    receipt.compiledPath !== 'dist/staging-vm-peer/helper' ||
+    receipt.compiledSha256 !== pin.sha256 ||
+    receipt.platform !== 'darwin' ||
+    receipt.architecture !== process.arch ||
+    !/^Apple clang version [0-9]/.test(receipt.clangVersion ?? '') ||
+    checkedFile(pin.path, { mode: 0o500 }).sha256 !== pin.sha256
+  )
+    fail('sealed accepted kernel peer build');
+}
 async function verifyFreshSource(p) {
   if (
     process.platform !== 'darwin' ||
@@ -1121,6 +1217,7 @@ async function verifyFreshSource(p) {
   for (const item of p.sourceInventory)
     if (checkedFile(join(p.sourceRoot, item.path), { uid: null }).sha256 !== item.sha256)
       fail('accepted source inventory');
+  verifyPeerBuild(p);
   const { STAGING_RESOURCE_BUDGET: policy } = await import(
     pathToFileURL(join(p.sourceRoot, p.resourcePolicy.path)).href
   );
@@ -1354,12 +1451,58 @@ function assertNativeProcess(p, record, kind) {
     fail('original native process lineage');
   validateFreshAppleHvNativeArguments(p, current.command, kind);
 }
-function freshAppleHvPhysicalEffects(approved) {
+function freshAppleHvPhysicalEffects(approved, assertGuardCurrent) {
   const p = approved.plan;
   let server,
     channelLost = false,
-    normalStopRequested = false;
+    normalStopRequested = false,
+    originalLineage,
+    pollTimer;
   const startAuthority = createFreshAppleHvStartRevocation(() => server?.close());
+  const originalGuard = () => {
+    startAuthority.assertCurrent();
+    const current = assertGuardCurrent();
+    if (current === false || current instanceof Promise)
+      fail('original synchronous native owner guard');
+  };
+  const peerInspector = createDarwinVmPeerInspector({
+    ...p.peerInspector,
+    assertCurrent: originalGuard,
+  });
+  const listProcesses = () => {
+    const census = command('/bin/ps', ['-axo', 'pid=,ppid='])
+      .split('\n')
+      .filter(Boolean)
+      .map((row) => {
+        const match = row.match(/^\s*(\d+)\s+(\d+)\s*$/);
+        if (!match) fail('bounded native parent census');
+        return { pid: Number(match[1]), ppid: Number(match[2]), command: '' };
+      });
+    if (census.length > 32768) fail('bounded native parent census');
+    const job = observeFreshAppleHvJob(p);
+    const parents = new Set(census.filter((row) => row.ppid === job.pid).map((row) => row.pid));
+    for (const row of census)
+      if (row.pid === job.pid || row.ppid === job.pid || parents.has(row.ppid))
+        row.command = command('/bin/ps', ['-ww', '-p', String(row.pid), '-o', 'command=']);
+    return census;
+  };
+  originalLineage = createOriginalVmStartLineageObserver({
+    supervisor: { path: p.node.path, argv: p.supervisor.programArguments.join(' ') },
+    podman: {
+      path: p.helpers.find((h) => h.kind === 'podman').path,
+      argv:
+        p.helpers.find((h) => h.kind === 'podman').path +
+        ' machine start ' +
+        p.qualification.machineName,
+    },
+    vfkit: p.helpers.find((h) => h.kind === 'vfkit'),
+    gvproxy: p.helpers.find((h) => h.kind === 'gvproxy'),
+    uid: process.getuid(),
+    assertCurrent: originalGuard,
+    observePeer: peerInspector.observePeer,
+    observeProcess: peerInspector.observeProcess,
+    listProcesses,
+  });
   const verifyStopped = async () => {
     assertSupervisor(p, null, 0);
     const inputs = await inspectFreshAppleHvInputs(approved);
@@ -1396,6 +1539,8 @@ function freshAppleHvPhysicalEffects(approved) {
     };
   };
   const verifyRunning = async (lineage, { admitResources = true } = {}) => {
+    originalGuard();
+    originalLineage.assertCurrent();
     if (channelLost) fail('original supervisor channel lost');
     assertSupervisor(p, lineage.supervisor, 1);
     const inputs = await inspectFreshAppleHvInputs(approved, { running: true, admitResources });
@@ -1441,6 +1586,44 @@ function freshAppleHvPhysicalEffects(approved) {
     );
     if (!uuid.test(guestBoot) || guestBoot !== lineage.guestBootUUID)
       fail('original guest boot identity');
+    const api = await inspectOriginalFreshVmGuestApi({
+      socketPath: p.qualification.apiSocket,
+      socketIdentity: {
+        ...lineage.apiSocket,
+        guestBootUUID: lineage.guestBootUUID,
+        guestSocketPath: '/run/user/' + p.machine.definition.HostUser.UID + '/podman/podman.sock',
+      },
+      peerInspector,
+      originalLineage,
+      assertCurrent: originalGuard,
+      observeGuest: async () => {
+        const before = command(
+          podman.path,
+          ['machine', 'ssh', p.qualification.machineName, 'cat', '/proc/sys/kernel/random/boot_id'],
+          p.qualification.environment,
+        );
+        const info = JSON.parse(
+          command(
+            podman.path,
+            ['machine', 'ssh', p.qualification.machineName, 'podman', 'info', '--format', 'json'],
+            p.qualification.environment,
+          ),
+        );
+        const after = command(
+          podman.path,
+          ['machine', 'ssh', p.qualification.machineName, 'cat', '/proc/sys/kernel/random/boot_id'],
+          p.qualification.environment,
+        );
+        if (!uuid.test(before) || before !== after || before !== lineage.guestBootUUID)
+          fail('original SSH guest boot');
+        return { guestBootUUID: before, info };
+      },
+    });
+    if (lineage.guestApiProof && lineage.guestApiProof.guestFactsSha256 !== api.guestFactsSha256)
+      fail('original guest API identity facts');
+    if (!lineage.guestApiProof && !Object.isFrozen(lineage)) lineage.guestApiProof = api;
+    originalGuard();
+    originalLineage.assertCurrent();
     assertSupervisor(p, lineage.supervisor, 1);
     assertNativeProcess(p, lineage.vfkit, 'vfkit');
     assertNativeProcess(p, lineage.gvproxy, 'gvproxy');
@@ -1452,6 +1635,67 @@ function freshAppleHvPhysicalEffects(approved) {
       observationSha256: digest({ inputs, lineage }),
       nativeRetirementClaim: false,
     };
+  };
+  const assertOriginalRunning = (lineage, admitResources) => {
+    originalLineage.assertCurrent();
+    startAuthority.assertCurrent();
+    if (!lineage.guestApiProof) fail('original verified guest API proof');
+    const guestBoot = command(
+      p.helpers.find((h) => h.kind === 'podman').path,
+      ['machine', 'ssh', p.qualification.machineName, 'cat', '/proc/sys/kernel/random/boot_id'],
+      p.qualification.environment,
+    );
+    if (guestBoot !== lineage.guestBootUUID) fail('original current guest boot');
+    if (channelLost || bootUUID() !== p.bootUUID) fail('original current native owner');
+    assertSupervisor(p, lineage.supervisor, 1);
+    assertNativeProcess(p, lineage.vfkit, 'vfkit');
+    assertNativeProcess(p, lineage.gvproxy, 'gvproxy');
+    const current = machineDefinition(p);
+    validateFreshAppleHvMutableMachine(p, current.machine, {
+      startedAt: lineage.startedAt,
+      observedAt: Date.now(),
+    });
+    const disk = identity(p.files.disk.path),
+      efi = identity(p.files.efi.path);
+    if (!sameIdentity(disk, p.files.disk) || !sameIdentity(efi, lineage.efi))
+      fail('original current backing identities');
+    assertOpenIdentity(lineage.vfkit.pid, disk);
+    assertOpenIdentity(lineage.vfkit.pid, efi);
+    const socket = lstatSync(p.qualification.apiSocket);
+    if (
+      !socket.isSocket() ||
+      socket.uid !== process.getuid() ||
+      socket.mode & 0o077 ||
+      socket.dev !== lineage.apiSocket.dev ||
+      socket.ino !== lineage.apiSocket.ino
+    )
+      fail('original current rootless socket');
+    for (const item of [...p.helpers, p.node])
+      if (checkedFile(item.path, { uid: null }).sha256 !== item.sha256)
+        fail('current executable bytes');
+    for (const item of p.sourceInventory)
+      if (checkedFile(join(p.sourceRoot, item.path), { uid: null }).sha256 !== item.sha256)
+        fail('current accepted source bytes');
+    inspectFreshAppleHvImmutableInputs(p);
+    if (checkedFile(p.supervisor.plistPath, { mode: 0o600 }).sha256 !== p.supervisor.plistSha256)
+      fail('current canonical registration bytes');
+    verifyPeerBuild(p);
+    const facts = admitResources
+      ? observeFreshResources(p, {
+          stagingGiB: p.resourcePolicy.aggregateGiBLimit,
+          diskFreeGiB: p.resourcePolicy.minFreeGiB,
+        })
+      : {};
+    return freeze({
+      ...facts,
+      allocationUUID: p.allocationUUID,
+      planSha256: approved.sha256,
+      bootUUID: p.bootUUID,
+      supervisorPid: lineage.supervisor.pid,
+      vfkitPid: lineage.vfkit.pid,
+      observationSha256: digest({ current, disk, efi, facts }),
+      nativeRetirementClaim: false,
+    });
   };
   return {
     verifyStopped,
@@ -1639,55 +1883,8 @@ function freshAppleHvPhysicalEffects(approved) {
         backingRetained: true,
       });
     },
-    assertRunningCurrent: (lineage) => {
-      if (channelLost || bootUUID() !== p.bootUUID) fail('original current native owner');
-      assertSupervisor(p, lineage.supervisor, 1);
-      assertNativeProcess(p, lineage.vfkit, 'vfkit');
-      assertNativeProcess(p, lineage.gvproxy, 'gvproxy');
-      const current = machineDefinition(p);
-      validateFreshAppleHvMutableMachine(p, current.machine, {
-        startedAt: lineage.startedAt,
-        observedAt: Date.now(),
-      });
-      const disk = identity(p.files.disk.path),
-        efi = identity(p.files.efi.path);
-      if (!sameIdentity(disk, p.files.disk) || !sameIdentity(efi, lineage.efi))
-        fail('original current backing identities');
-      assertOpenIdentity(lineage.vfkit.pid, disk);
-      assertOpenIdentity(lineage.vfkit.pid, efi);
-      const socket = lstatSync(p.qualification.apiSocket);
-      if (
-        !socket.isSocket() ||
-        socket.uid !== process.getuid() ||
-        socket.mode & 0o077 ||
-        socket.dev !== lineage.apiSocket.dev ||
-        socket.ino !== lineage.apiSocket.ino
-      )
-        fail('original current rootless socket');
-      for (const item of [...p.helpers, p.node])
-        if (checkedFile(item.path, { uid: null }).sha256 !== item.sha256)
-          fail('current executable bytes');
-      for (const item of p.sourceInventory)
-        if (checkedFile(join(p.sourceRoot, item.path), { uid: null }).sha256 !== item.sha256)
-          fail('current accepted source bytes');
-      inspectFreshAppleHvImmutableInputs(p);
-      if (checkedFile(p.supervisor.plistPath, { mode: 0o600 }).sha256 !== p.supervisor.plistSha256)
-        fail('current canonical registration bytes');
-      const facts = observeFreshResources(p, {
-        stagingGiB: p.resourcePolicy.aggregateGiBLimit,
-        diskFreeGiB: p.resourcePolicy.minFreeGiB,
-      });
-      return freeze({
-        ...facts,
-        allocationUUID: p.allocationUUID,
-        planSha256: approved.sha256,
-        bootUUID: p.bootUUID,
-        supervisorPid: lineage.supervisor.pid,
-        vfkitPid: lineage.vfkit.pid,
-        observationSha256: digest({ current, disk, efi, facts }),
-        nativeRetirementClaim: false,
-      });
-    },
+    assertRunningCurrent: (lineage) => assertOriginalRunning(lineage, true),
+    assertOriginalRunningCurrent: (lineage) => assertOriginalRunning(lineage, false),
     startSupervisor: async ({ authorize, assertCurrent }) => {
       startAuthority.assertCurrent();
       if (lstatSync(p.qualification.guardSocket, { throwIfNoEntry: false }))
@@ -1700,6 +1897,8 @@ function freshAppleHvPhysicalEffects(approved) {
         const failStart = () => {
           channelLost = true;
           startAuthority.revoke();
+          originalLineage.retain();
+          clearTimeout(pollTimer);
           if (!settled) {
             settled = true;
             rejectStart(Error('Fresh VM start uncertain; retain original state'));
@@ -1730,7 +1929,11 @@ function freshAppleHvPhysicalEffects(approved) {
                 const message = JSON.parse(row);
                 if (message.kind === 'authorize' && !authorized) {
                   if (message.planSha256 !== approved.sha256) fail();
-                  const supervisor = observeFreshAppleHvProcess(message.pid);
+                  const kernelSupervisor = await originalLineage.captureSupervisor(socket);
+                  startAuthority.assertCurrent();
+                  await assertCurrent();
+                  if (message.pid !== kernelSupervisor.pid) fail('actual supervisor peer');
+                  const supervisor = observeFreshAppleHvProcess(kernelSupervisor.pid);
                   assertSupervisor(p, supervisor, 1);
                   await inspectFreshAppleHvInputs(approved);
                   startAuthority.assertCurrent();
@@ -1738,11 +1941,36 @@ function freshAppleHvPhysicalEffects(approved) {
                   await authorize(supervisor);
                   startAuthority.assertCurrent();
                   capturedSupervisor = supervisor;
+                  const poll = async () => {
+                    try {
+                      await assertCurrent();
+                      startAuthority.assertCurrent();
+                      if (settled) return;
+                      originalLineage.captureStart();
+                      pollTimer = setTimeout(poll, 50);
+                    } catch {
+                      failStart();
+                    }
+                  };
+                  pollTimer = setTimeout(poll, 0);
                   socket.write(
                     JSON.stringify({ kind: 'authorized', planSha256: approved.sha256 }) + '\n',
                   );
                 } else if (message.kind === 'running' && authorized && !settled) {
+                  originalLineage.captureStart();
+                  const kernel = originalLineage.finish(message.lineage);
+                  clearTimeout(pollTimer);
                   const lineage = message.lineage;
+                  for (const kind of ['supervisor', 'vfkit', 'gvproxy']) {
+                    const actual = observeFreshAppleHvProcess(kernel[kind].pid);
+                    if (
+                      lineage[kind].birth !== actual.birth ||
+                      lineage[kind].command !== actual.command
+                    )
+                      fail('independent kernel and process report');
+                    lineage[kind] = actual;
+                  }
+                  lineage.kernelLineage = kernel;
                   assertSupervisor(p, lineage.supervisor, 1);
                   assertNativeProcess(p, lineage.vfkit, 'vfkit');
                   assertNativeProcess(p, lineage.gvproxy, 'gvproxy');
@@ -1797,6 +2025,8 @@ function freshAppleHvPhysicalEffects(approved) {
     retain: async (state) => {
       channelLost = true;
       startAuthority.revoke();
+      originalLineage.retain();
+      clearTimeout(pollTimer);
       const path = join(p.nativeRoot, 'service/fresh-vm-retained-' + process.pid + '.json');
       const fd = openSync(
         path,

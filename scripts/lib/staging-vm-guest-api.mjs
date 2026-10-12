@@ -9,12 +9,13 @@ import { setTimeout, clearTimeout } from 'node:timers';
 const refuse = () => {
   throw Error('Original gvproxy socket or fresh guest API binding unavailable');
 };
-function facts(info) {
+function facts(info, guestSocketPath) {
   const host = info?.host,
     version = info?.version;
   if (
     host?.security?.rootless !== true ||
-    host.remoteSocket?.path !== '/run/user/1000/podman/podman.sock' ||
+    !/^\/run\/user\/[1-9]\d{0,9}\/podman\/podman\.sock$/.test(guestSocketPath ?? '') ||
+    host.remoteSocket?.path !== guestSocketPath ||
     !['aarch64', 'arm64'].includes(host.arch) ||
     typeof host.hostname !== 'string' ||
     !/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$/.test(host.hostname)
@@ -29,7 +30,7 @@ function facts(info) {
     apiVersion: version?.APIVersion,
     gitCommit: version?.GitCommit,
     rootless: true,
-    remoteSocket: '/run/user/1000/podman/podman.sock',
+    remoteSocket: guestSocketPath,
   };
   for (const value of Object.values(values))
     if (
@@ -42,9 +43,9 @@ function facts(info) {
       refuse();
   return Object.freeze(values);
 }
-export function compareFreshVmGuestApiFacts(api, guest) {
-  const a = facts(api),
-    b = facts(guest);
+export function compareFreshVmGuestApiFacts(api, guest, { guestSocketPath } = {}) {
+  const a = facts(api, guestSocketPath),
+    b = facts(guest, guestSocketPath);
   if (JSON.stringify(a) !== JSON.stringify(b)) refuse();
   return a;
 }
@@ -162,8 +163,12 @@ export async function inspectOriginalFreshVmGuestApi({
     assertCurrent();
     originalLineage.assertCurrent();
     if (afterGuest.guestBootUUID !== guest.guestBootUUID) refuse();
-    const stable = compareFreshVmGuestApiFacts(api, guest.info);
-    compareFreshVmGuestApiFacts(api, afterGuest.info);
+    const stable = compareFreshVmGuestApiFacts(api, guest.info, {
+      guestSocketPath: socketIdentity.guestSocketPath,
+    });
+    compareFreshVmGuestApiFacts(api, afterGuest.info, {
+      guestSocketPath: socketIdentity.guestSocketPath,
+    });
     const after = lstatSync(socketPath);
     if (
       after.dev !== before.dev ||
