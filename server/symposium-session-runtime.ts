@@ -1975,6 +1975,7 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
               };
               return input.route.kind === 'openai-api'
                 ? createOpenAiCodexSeat({
+                    stagingEffectCurrent: deps.stagingEffectCurrent,
                     ...input,
                     store: deps.codexStore,
                     loadConversationHistory,
@@ -2006,6 +2007,7 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
                   })
                 : input.route.kind === 'chatgpt-subscription-native'
                   ? createChatGptSubscriptionSeat({
+                      stagingEffectCurrent: deps.stagingEffectCurrent,
                       ...input,
                       store: deps.codexStore,
                       loadConversationHistory,
@@ -2020,6 +2022,7 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
                       assertSubscriptionDispatch: deps.assertSubscriptionDispatch,
                     })
                   : createClaudeVertexSeat({
+                      stagingEffectCurrent: deps.stagingEffectCurrent,
                       ...input,
                       route: input.route,
                       loadConversationHistory,

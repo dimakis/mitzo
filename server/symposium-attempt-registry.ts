@@ -225,7 +225,10 @@ export class SymposiumAttemptRegistry {
     artifact?: ArtifactAdmissionReferenceV1 | ArtifactReaderReferenceV1;
     access: 'read' | 'write';
     command: readonly string[];
+    /** Actual source-only staging queue/lifetime fence; never serialized. */
+    assertOriginalEffectCurrent?: () => void;
   }): ControlledAttemptProcess {
+    input.assertOriginalEffectCurrent?.();
     controlledAttemptRoute(input.sandbox);
     this.reserve(input);
     try {
@@ -248,7 +251,9 @@ export class SymposiumAttemptRegistry {
             try {
               // Retain this exact controlled target. A reconstructed durable route
               // may support ordinary recovery but cannot issue this live receipt.
+              input.assertOriginalEffectCurrent?.();
               await process.confirmStopped();
+              input.assertOriginalEffectCurrent?.();
               const current = this.get(input.claimToken);
               if (
                 !current ||

@@ -192,6 +192,8 @@ interface ClaudeProcess extends EventEmitter {
 }
 
 export interface ClaudeVertexSeatInput {
+  /** Actual app's original staging queue/lifetime capability, never config. */
+  stagingEffectCurrent?: () => void;
   sandbox: ControlledAttemptSandbox;
   route: ClaudeRoute;
   execution: SymposiumSeatExecution;
@@ -352,6 +354,7 @@ export async function createClaudeVertexSeat(
         else {
           if (!input.attemptRegistry) throw new Error('Native attempt registry is unavailable');
           const controlled = input.attemptRegistry.launch({
+            assertOriginalEffectCurrent: input.stagingEffectCurrent,
             sandbox: input.sandbox,
             sessionId: execution.sessionId,
             claimToken: execution.claimToken,

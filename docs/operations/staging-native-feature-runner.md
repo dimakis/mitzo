@@ -81,6 +81,11 @@ attempts, retries, compaction and helper inference routes must be covered.
 
 Cleanup awaits the original controlled target's positive controller stop
 acknowledgement; durable recovery/confirmed rows cannot mint this receipt.
+The actual Codex, personal ChatGPT and Claude constructors pass the original
+staging queue/lifetime assertion into the original attempt registry's launch.
+It checks before launch and before/after the retained process's positive stop
+acknowledgement. Lost authority keeps the claim uncertain and cannot mint an
+original stop receipt; a rejected confirmation is retained rather than replayed.
 The original manager's ensure/inspect/stop/delete methods check the same private
 queue reservation before and after each awaited staging effect. The wrapper
 delegates to that retained manager and preserves missing methods; it supplies no
