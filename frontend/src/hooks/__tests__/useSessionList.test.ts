@@ -8,6 +8,8 @@ vi.mock('../../lib/rename-session', () => ({
 
 vi.mock('../../lib/api-fetch', () => ({
   apiFetch: vi.fn(),
+  AUTH_LOST_EVENT: 'mitzo:auth-lost',
+  AUTH_RESTORED_EVENT: 'mitzo:auth-restored',
 }));
 
 vi.mock('../../lib/event-bus-singleton', () => ({
@@ -22,6 +24,7 @@ import { apiFetch } from '../../lib/api-fetch';
 import { useSessionList } from '../useSessionList';
 
 beforeEach(() => {
+  window.dispatchEvent(new Event('mitzo:auth-lost'));
   vi.mocked(apiFetch).mockReset();
 
   // Default: all fetches succeed with empty data
@@ -264,4 +267,50 @@ it.each([
   expect(result.current.hasMore).toBe(true);
   act(() => result.current.loadMore());
   expect(apiFetch).toHaveBeenCalledWith('/api/sessions?offset=2');
+});
+
+it('finishes loading chats while configuration and version requests are still pending', async () => {
+  vi.mocked(apiFetch).mockImplementation((url) =>
+    url === '/api/sessions'
+      ? Promise.resolve(
+          Response.json({
+            sessions: [{ id: 'ready', summary: 'Ready', lastModified: 1 }],
+            hasMore: false,
+          }),
+        )
+      : new Promise<Response>(() => {}),
+  );
+  const { result } = renderHook(() => useSessionList());
+  await waitFor(() => expect(result.current.loading).toBe(false));
+  expect(result.current.sessions[0].id).toBe('ready');
+});
+
+it('retains chats immediately on remount while revalidating and deduplicates concurrent refreshes', async () => {
+  vi.mocked(apiFetch).mockImplementation(async (url) =>
+    Response.json(
+      url === '/api/sessions'
+        ? { sessions: [{ id: 'cached', summary: 'Cached', lastModified: 1 }], hasMore: false }
+        : {},
+    ),
+  );
+  const first = renderHook(() => useSessionList());
+  await waitFor(() => expect(first.result.current.loading).toBe(false));
+  first.unmount();
+  vi.mocked(apiFetch).mockClear();
+  let finish!: (response: Response) => void;
+  vi.mocked(apiFetch).mockImplementation((url) =>
+    url === '/api/sessions'
+      ? new Promise<Response>((resolve) => {
+          finish = resolve;
+        })
+      : Promise.resolve(Response.json({})),
+  );
+  const second = renderHook(() => useSessionList());
+  const third = renderHook(() => useSessionList());
+  expect(second.result.current.loading).toBe(false);
+  expect(second.result.current.sessions[0].id).toBe('cached');
+  expect(apiFetch).toHaveBeenCalledTimes(5); // one shared sessions request, config/version per mount
+  await act(async () => finish(Response.json({ sessions: [{ id: 'fresh' }], hasMore: false })));
+  await waitFor(() => expect(second.result.current.sessions[0].id).toBe('fresh'));
+  expect(third.result.current.sessions[0].id).toBe('fresh');
 });

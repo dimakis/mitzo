@@ -4,6 +4,13 @@ import { renameSession as renameSessionApi } from '../lib/rename-session';
 import { apiFetch } from '../lib/api-fetch';
 import { eventBus } from '../lib/event-bus-singleton';
 import type { SessionActivity } from './useSessionOverview';
+import { ListCache, SupersededListRequest } from '../lib/list-cache';
+
+type SessionPage = { sessions: Session[]; hasMore: boolean };
+const sessionCache = new ListCache<SessionPage>();
+const sessionsUrl = '/api/sessions';
+// Invalidate once per broadcast, before the mounted consumers revalidate.
+eventBus.on('sessions_changed', () => sessionCache.invalidate());
 
 export interface QuickAction {
   label: string;
@@ -60,51 +67,53 @@ function parseSessionsResponse(data: unknown): { sessions: Session[]; hasMore: b
 }
 
 export function useSessionList(): UseSessionListReturn {
-  const [sessions, setSessions] = useState<Session[]>([]);
+  const [sessions, setSessions] = useState<Session[]>(
+    () => sessionCache.get(sessionsUrl)?.sessions ?? [],
+  );
   const [quickActions, setQuickActions] = useState<QuickAction[]>(DEFAULT_ACTIONS);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => !sessionCache.get(sessionsUrl));
   const [error, setError] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [hasMore, setHasMore] = useState(false);
+  const [hasMore, setHasMore] = useState(() => sessionCache.get(sessionsUrl)?.hasMore ?? false);
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const [checking, setChecking] = useState(false);
-  const nextOffset = useRef(0);
+  const nextOffset = useRef(sessions.length);
 
   const loadSessions = useCallback(async () => {
     try {
-      const response = await apiFetch('/api/sessions');
-      if (!response.ok) throw new Error(`Sessions request failed (${response.status})`);
-      const { sessions: page, hasMore: more } = parseSessionsResponse(await response.json());
+      const { sessions: page, hasMore: more } = await sessionCache.load(sessionsUrl, async () => {
+        const response = await apiFetch(sessionsUrl);
+        if (!response.ok) throw new Error(`Sessions request failed (${response.status})`);
+        return parseSessionsResponse(await response.json());
+      });
       setSessions(page);
       setHasMore(more);
       nextOffset.current = page.length;
       setError(null);
-    } catch {
-      setError('Couldn’t load chats. Check the connection and try again.');
+    } catch (error) {
+      if (!(error instanceof SupersededListRequest))
+        setError('Couldn’t load chats. Check the connection and try again.');
+    } finally {
+      setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    const loadAll = async () => {
-      await Promise.all([
-        loadSessions(),
-        apiFetch('/api/config')
-          .then((r) => r.json())
-          .catch(() => ({}))
-          .then((config) => setQuickActions(buildQuickActions(config.quickActions))),
-        apiFetch('/api/version')
-          .then((r) => r.json())
-          .catch(() => ({}))
-          .then((version) => {
-            if (version?.updateAvailable) setUpdateAvailable(true);
-          }),
-      ]);
-    };
-
-    loadAll().finally(() => setLoading(false));
+    void loadSessions();
+    // Auxiliary metadata must never hold the conversation list in loading state.
+    void apiFetch('/api/config')
+      .then((r) => r.json())
+      .catch(() => ({}))
+      .then((config) => setQuickActions(buildQuickActions(config.quickActions)));
+    void apiFetch('/api/version')
+      .then((r) => r.json())
+      .catch(() => ({}))
+      .then((version) => {
+        if (version?.updateAvailable) setUpdateAvailable(true);
+      });
 
     const onVisible = () => {
-      if (document.visibilityState === 'visible') loadAll();
+      if (document.visibilityState === 'visible') void loadSessions();
     };
     document.addEventListener('visibilitychange', onVisible);
 
@@ -157,7 +166,13 @@ export function useSessionList(): UseSessionListReturn {
   const dismissSession = useCallback((id: string) => {
     apiFetch(`/api/sessions/${id}`, { method: 'DELETE' })
       .then((response) => {
-        if (response.ok) setSessions((prev) => prev.filter((s) => s.id !== id));
+        if (response.ok) {
+          sessionCache.update((page) => ({
+            ...page,
+            sessions: page.sessions.filter((s) => s.id !== id),
+          }));
+          setSessions((prev) => prev.filter((s) => s.id !== id));
+        }
       })
       .catch(() => {});
   }, []);
@@ -166,6 +181,8 @@ export function useSessionList(): UseSessionListReturn {
     apiFetch('/api/sessions', { method: 'DELETE' })
       .then((response) => {
         if (!response.ok) return;
+        sessionCache.clear();
+        sessionCache.set(sessionsUrl, { sessions: [], hasMore: false });
         setSessions([]);
         setHasMore(false);
         nextOffset.current = 0;
@@ -174,6 +191,10 @@ export function useSessionList(): UseSessionListReturn {
   }, []);
 
   const handleRename = useCallback((id: string, title: string) => {
+    sessionCache.update((page) => ({
+      ...page,
+      sessions: page.sessions.map((s) => (s.id === id ? { ...s, summary: title } : s)),
+    }));
     setSessions((prev) => prev.map((s) => (s.id === id ? { ...s, summary: title } : s)));
     renameSessionApi(id, title).catch(() => {
       apiFetch('/api/sessions')
