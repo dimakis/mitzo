@@ -176,6 +176,26 @@ async function* orderedEvents(body: ReadableStream<Uint8Array>) {
   }
 }
 
+function inputImage(block: Extract<ContentBlock, { type: 'image' }>): Record<string, unknown> {
+  const source = block.source;
+  if (!source || source.type !== 'base64') throw new Error('OpenAI requires a base64 image source');
+  if (!['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(source.media_type))
+    throw new Error('Unsupported OpenAI image media type');
+  if (
+    typeof source.data !== 'string' ||
+    !source.data ||
+    source.data.length % 4 !== 0 ||
+    !/^[A-Za-z0-9+/]*={0,2}$/.test(source.data) ||
+    Buffer.from(source.data, 'base64').toString('base64') !== source.data
+  )
+    throw new Error('Invalid OpenAI image base64 data');
+  return {
+    type: 'input_image',
+    image_url: `data:${source.media_type};base64,${source.data}`,
+    detail: 'auto',
+  };
+}
+
 function inputMessages(messages: ConversationMessage[]): Record<string, unknown>[] {
   return messages.flatMap((message) => {
     if (message.role !== 'user')
@@ -183,17 +203,37 @@ function inputMessages(messages: ConversationMessage[]): Record<string, unknown>
         'OpenAI new input must contain only user messages; assistant history requires a checkpoint',
       );
     if (typeof message.content === 'string') return [{ role: 'user', content: message.content }];
-    return message.content.map((block): Record<string, unknown> => {
-      if (block.type === 'text') return { role: 'user', content: block.text };
+    const input: Record<string, unknown>[] = [];
+    const hasImages = message.content.some((block) => block.type === 'image');
+    let content: Record<string, unknown>[] = [];
+    const flush = () => {
+      if (content.length) input.push({ role: 'user', content });
+      content = [];
+    };
+    for (const block of message.content) {
+      if (block.type === 'text') {
+        if (hasImages) content.push({ type: 'input_text', text: block.text });
+        else input.push({ role: 'user', content: block.text });
+        continue;
+      }
+      if (block.type === 'image') {
+        content.push(inputImage(block));
+        continue;
+      }
+      flush();
       // Responses has no is_error field: tool failures are explicitly marked in output text.
-      if (block.type === 'tool_result')
-        return {
+      if (block.type === 'tool_result') {
+        input.push({
           type: 'function_call_output',
           call_id: block.tool_use_id,
           output: block.is_error ? `[error] ${block.content}` : block.content,
-        };
+        });
+        continue;
+      }
       throw new Error('Unsupported OpenAI input content block');
-    });
+    }
+    flush();
+    return input;
   });
 }
 

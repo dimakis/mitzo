@@ -10,11 +10,16 @@ Provider failure, incomplete output, malformed function arguments, mismatched hi
 
 The API endpoint is intentionally fixed to OpenAI for this native slice. Arbitrary proxy/base-URL routing is outside the account and credential contract; tests inject fetch without redirecting credentials to another host.
 
-## Current boundary
+## Image input and chat integration
 
-This is an invocation adapter checkpoint, not a completed OpenAI mobile route. The [native execution foundation](openai-native-execution.md) adds permission-checked file/shell execution and a durable server-only runner. It is not yet connected to chat dispatch, follow-up queues, MCP clients or mobile account selection. Image input, long-history compaction and lifecycle acceptance remain outstanding. Anthropic-style thinking budgets are rejected explicitly. No live account test has been performed for this adapter yet.
+OpenAI API chat dispatch accepts PNG, JPEG, WebP and GIF attachments up to 10 MiB decoded per image. Initial sends, follow-ups and interrupts carry validated base64 images with the prompt; multiple images preserve attachment order. The OpenShell route passes them to its existing Codex image handling. Direct Responses converts provider-neutral image blocks into `input_image` content with a base64 data URL and `detail: "auto"`, alongside `input_text` content.
+
+Native history and server-only checkpoints retain image content across tool turns, explicit follow-ups and process restart. Retry identity includes the complete prompt and attachment bytes. Invalid attachments are rejected before a new provider admission or interruption of an active turn. Image previews continue to use the existing user-message transcript fields.
+
+This does not enable images for the separate text-only ChatGPT-plan adviser or Google Vertex route. Long-history compaction and live account acceptance remain outstanding. Anthropic-style thinking budgets are rejected explicitly. Image acceptance is covered by mocked provider tests; no live account test was performed for this change. Canonical staging must pass its operating checks before a supported Luna model and charged account can be selected for live acceptance.
 
 ## References
 
 - [Responses streaming](https://developers.openai.com/api/docs/guides/streaming-responses)
 - [Function calling and continuation](https://developers.openai.com/api/docs/guides/function-calling)
+- [Images and vision](https://developers.openai.com/api/docs/guides/images-vision)
