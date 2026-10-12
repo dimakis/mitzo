@@ -83,24 +83,37 @@ it('stock first boot may create only the exact expected-absent EFI store under i
   input.files.efi.parent.path = '/old/quarantine';
   expect(() => createFreshAppleHvPlan(input)).toThrow();
 });
-it('mutable LastUp is accepted only within the actual original start interval and all other VM fields stay pinned', () => {
+it('stock running and direct-vfkit retirement preserve zero LastUp; process and guest evidence authorize the lifecycle', () => {
   const plan = createFreshAppleHvPlan(freshVmInput()).plan;
   const current = globalThis.structuredClone(plan.machine.definition);
   const startedAt = Date.parse('2026-10-12T12:00:00Z'),
     observedAt = startedAt + 1000;
-  current.LastUp = new Date(startedAt + 500).toISOString();
   expect(() =>
     validateFreshAppleHvMutableMachine(plan, current, { startedAt, observedAt }),
   ).not.toThrow();
-  current.LastUp = '2020-01-01T00:00:00Z';
+  current.LastUp = new Date(startedAt + 500).toISOString();
   expect(() =>
     validateFreshAppleHvMutableMachine(plan, current, { startedAt, observedAt }),
   ).toThrow();
-  current.LastUp = new Date(startedAt + 500).toISOString();
+  current.LastUp = plan.machine.definition.LastUp;
   current.ImagePath.Path = '/old/retained.raw';
   expect(() =>
     validateFreshAppleHvMutableMachine(plan, current, { startedAt, observedAt }),
   ).toThrow();
+});
+it('pins generated first-boot Ignition and rejects changed identity, aliased path, or writable modes', () => {
+  const original = createFreshAppleHvPlan(freshVmInput());
+  const changed = freshVmInput();
+  changed.files.ignition.sha256 = '9'.repeat(64);
+  expect(createFreshAppleHvPlan(changed).sha256).not.toBe(original.sha256);
+  for (const change of [{ path: '/outside.ign' }, { mode: 0o666 }, { ino: 1 }]) {
+    const input = freshVmInput();
+    Object.assign(input.files.ignition, change);
+    expect(() => createFreshAppleHvPlan(input)).toThrow();
+  }
+  const privateFiles = freshVmInput();
+  privateFiles.files.disk.mode = privateFiles.files.efi.mode = 0o600;
+  expect(() => createFreshAppleHvPlan(privateFiles)).not.toThrow();
 });
 it('open-backing observations bind the exact lsof process and device/inode records', () => {
   expect(parseFreshAppleHvOpenFiles('p43\nf10\nD0x1\ni99\nn/new.raw\n', 43)).toEqual([

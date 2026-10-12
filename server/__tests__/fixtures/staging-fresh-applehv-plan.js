@@ -35,6 +35,12 @@ export function freshVmInput(
     0o600,
   );
   configuration.sha256 = createHash('sha256').update(freshAppleHvConfiguration()).digest('hex');
+  const ignition = identity(
+    join(home, '.config/containers/podman/machine/applehv', machineName + '.ign'),
+    5,
+    100,
+    0o600,
+  );
   const definition = {
     Name: machineName,
     Version: 1,
@@ -55,7 +61,7 @@ export function freshVmInput(
         ReadOnly: false,
         Source: canonicalRoot,
         Target: canonicalRoot,
-        Tag: 'c'.repeat(32),
+        Tag: 'c'.repeat(36),
         Type: 'virtiofs',
         VSockNumber: null,
       },
@@ -101,7 +107,7 @@ export function freshVmInput(
       sha256: 'b'.repeat(64),
       definition,
     },
-    files: { disk, efi, ssh, configuration },
+    files: { disk, efi, ssh, configuration, ignition },
     oldIdentities: [
       { dev: 1, ino: 20 },
       { dev: 1, ino: 21 },

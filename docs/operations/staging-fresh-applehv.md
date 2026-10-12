@@ -135,3 +135,7 @@ image qualification, launchd lineage or live VM readiness.
 
 The fixed route follows the [Podman 5.6.2 init contract](https://docs.podman.io/en/v5.6.2/markdown/podman-machine-init.1.html)
 and its [stock AppleHV implementation](https://github.com/containers/podman/blob/v5.6.2/pkg/machine/applehv/stubber.go).
+
+Stock Podman5.6.2 uses a 36-character hexadecimal virtiofs mount tag. Its `LastUp` remains zero after first startup and after our direct vfkit graceful retirement; running ownership requires original independently captured process and guest boot evidence. The generated machine `.ign` file is included in the measured plan and its identity, permissions and bytes are rechecked before authorization, dispatch and current/stopped proof. Private umask-generated mode0600 and stock mode0644 are allowed at capture and the exact observed mode remains pinned.
+
+The one-shot initialization record must fsync both its file and private parent before Podman may run. Any persistence failure retains the exclusive attempt. Start timeout, channel failure or retention permanently revokes authorization and closes every held connection; late completion of an awaited inspection cannot acknowledge or dispatch another start. These source changes require independent review and a qualified native tuple before host use.

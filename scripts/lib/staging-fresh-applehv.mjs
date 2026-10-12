@@ -8,6 +8,7 @@ import {
   openSync,
   closeSync,
   fstatSync,
+  fsyncSync,
   lstatSync,
   realpathSync,
   readSync,
@@ -294,15 +295,14 @@ function freshAppleHvProvisionEffects(approved) {
       await prerequisites();
       await assertCurrent();
       // Exclusive intent is never deleted, including on failure or loss of authority.
-      writeFileSync(
+      persistFreshVmInitializationAttempt(
         join(p.nativeRoot, 'service/fresh-vm-init-attempt.json'),
-        JSON.stringify({
+        {
           version: 1,
           planSha256: approved.sha256,
           controllerPid: process.pid,
           startedAt: Date.now(),
-        }) + '\n',
-        { flag: 'wx', mode: 0o600 },
+        },
       );
       await assertCurrent();
       writeFileSync(q.environment.CONTAINERS_CONF, freshAppleHvConfiguration(), {
@@ -366,10 +366,15 @@ function freshAppleHvProvisionEffects(approved) {
       const machine = measuredMachine.machine;
       privateParents(p, join(data, name + '-arm64.raw'));
       privateParents(p, join(home, '.local/share/containers/podman/machine/machine'));
-      const disk = measuredFile(join(data, name + '-arm64.raw'), 0o644, 16 * 1073741824);
+      const disk = measuredFile(join(data, name + '-arm64.raw'), [0o600, 0o644], 16 * 1073741824);
       const ssh = measuredFile(
         join(home, '.local/share/containers/podman/machine/machine'),
         0o600,
+        1048576,
+      );
+      const ignition = measuredFile(
+        join(home, '.config/containers/podman/machine/applehv', name + '.ign'),
+        [0o600, 0o644],
         1048576,
       );
       const configuration = measuredFile(q.environment.CONTAINERS_CONF, 0o600, 65536);
@@ -438,7 +443,7 @@ function freshAppleHvProvisionEffects(approved) {
           sha256: measuredMachine.sha256,
           definition: machine,
         },
-        files: { disk, efi, ssh, configuration },
+        files: { disk, efi, ssh, configuration, ignition },
         supervisor,
       });
       privateParents(p, supervisor.plistPath);
@@ -465,7 +470,7 @@ function fileIdentity(file, path, mode, size) {
     !integer(file.ino) ||
     file.ino < 1 ||
     file.uid !== process.getuid() ||
-    file.mode !== mode ||
+    !(Array.isArray(mode) ? mode.includes(file.mode) : file.mode === mode) ||
     file.nlink !== 1 ||
     !integer(file.size) ||
     file.size < 1 ||
@@ -539,7 +544,7 @@ function validateDefinition(m, plan) {
     mount.ReadOnly !== false ||
     mount.Type !== 'virtiofs' ||
     mount.OriginalInput !== '' ||
-    !/^[a-f0-9]{32}$/.test(mount.Tag) ||
+    !/^[a-f0-9]{36}$/.test(mount.Tag) ||
     mount.VSockNumber !== null
   )
     fail('stock fresh AppleHV boundary');
@@ -646,11 +651,11 @@ export function createFreshAppleHvPlan(input) {
   copy.machineName = 'mitzo-staging-' + copy.allocationUUID.replaceAll('-', '');
   const home = join(copy.nativeRoot, 'home'),
     data = join(home, '.local/share/containers/podman/machine/applehv');
-  fields(copy.files, 'disk,efi,ssh,configuration');
+  fields(copy.files, 'disk,efi,ssh,configuration,ignition');
   fileIdentity(
     copy.files.disk,
     join(data, copy.machineName + '-arm64.raw'),
-    0o644,
+    [0o600, 0o644],
     16 * 1073741824,
   );
   if (copy.files.efi?.state === 'expected-absent') {
@@ -668,7 +673,13 @@ export function createFreshAppleHvPlan(input) {
       parent.mode & 0o022
     )
       fail('expected-absent fresh EFI parent');
-  } else fileIdentity(copy.files.efi, join(data, 'efi-bl-' + copy.machineName), 0o644);
+  } else fileIdentity(copy.files.efi, join(data, 'efi-bl-' + copy.machineName), [0o600, 0o644]);
+  fileIdentity(
+    copy.files.ignition,
+    join(home, '.config/containers/podman/machine/applehv', copy.machineName + '.ign'),
+    [0o600, 0o644],
+  );
+  if (copy.files.ignition.size > 1048576) fail('bounded first-boot Ignition');
   fileIdentity(copy.files.ssh, join(home, '.local/share/containers/podman/machine/machine'), 0o600);
   fileIdentity(
     copy.files.configuration,
@@ -692,7 +703,7 @@ export function createFreshAppleHvPlan(input) {
       Object.values(copy.files)
         .filter((f) => f.state !== 'expected-absent')
         .map((f) => `${f.dev}:${f.ino}`),
-    ).size !== (copy.files.efi.state === 'expected-absent' ? 3 : 4)
+    ).size !== (copy.files.efi.state === 'expected-absent' ? 4 : 5)
   )
     fail('reused retained identity');
   fields(copy.machine, 'path,sha256,definition');
@@ -937,19 +948,17 @@ export function createFreshAppleHvOwner(
 /** Pure invariant check only; it grants no running capability. The live owner
  * supplies an observed original-start interval, never a reopened JSON receipt. */
 export function validateFreshAppleHvMutableMachine(plan, current, { startedAt, observedAt }) {
-  const lastUp = Date.parse(current?.LastUp);
   if (
     !Number.isFinite(startedAt) ||
     !Number.isFinite(observedAt) ||
     observedAt < startedAt ||
-    !Number.isFinite(lastUp) ||
-    lastUp < startedAt ||
-    lastUp > observedAt ||
-    current.Starting !== false
+    current?.Starting !== false
   )
     fail('original VM start interval');
-  const immutable = { ...current, LastUp: plan.machine.definition.LastUp };
-  if (digest(immutable) !== digest(plan.machine.definition)) fail('mutable machine invariant');
+  // Stock5.6.2 writes LastUp in stopLocked, never in Start. Our sole normal
+  // retirement uses vfkit RequestStop, so even after retirement LastUp stays0.
+  // Captured independent helper/guest boot evidence authorizes the lifecycle.
+  if (digest(current) !== digest(plan.machine.definition)) fail('mutable machine invariant');
 }
 
 function command(program, args, env) {
@@ -971,7 +980,8 @@ function checkedFile(path, { mode, uid = process.getuid(), maxSize = 67108864 } 
       !stat.isFile() ||
       stat.nlink !== 1 ||
       stat.mode & 0o022 ||
-      (mode !== undefined && (stat.mode & 0o777) !== mode) ||
+      (mode !== undefined &&
+        !(Array.isArray(mode) ? mode.includes(stat.mode & 0o777) : (stat.mode & 0o777) === mode)) ||
       (uid !== null && stat.uid !== uid) ||
       stat.size > maxSize
     )
@@ -1124,6 +1134,20 @@ async function verifyFreshSource(p) {
     fail('actual accepted resource policy');
   return policy;
 }
+/** Positive current bytes/identity check; this alone grants no VM authority. */
+export function inspectFreshAppleHvImmutableInputs(p) {
+  for (const file of [p.files.ssh, p.files.configuration, p.files.ignition]) {
+    privateParents(p, file.path);
+    if (
+      !sameIdentity(identity(file.path), file) ||
+      checkedFile(file.path, {
+        mode: file.mode,
+        maxSize: file === p.files.ignition ? 1048576 : 67108864,
+      }).sha256 !== file.sha256
+    )
+      fail('original immutable input changed');
+  }
+}
 export async function inspectFreshAppleHvInputs(
   approved,
   { running = false, admitResources = true } = {},
@@ -1145,14 +1169,7 @@ export async function inspectFreshAppleHvInputs(
     digest(plist.EnvironmentVariables) !== digest(p.qualification.environment)
   )
     fail('exact fresh supervisor plist');
-  for (const file of [p.files.ssh, p.files.configuration]) {
-    privateParents(p, file.path);
-    if (
-      !sameIdentity(identity(file.path), file) ||
-      checkedFile(file.path, { mode: file.mode }).sha256 !== file.sha256
-    )
-      fail('fresh immutable file');
-  }
+  inspectFreshAppleHvImmutableInputs(p);
   const current = machineDefinition(p);
   if (
     !running &&
@@ -1169,8 +1186,8 @@ export async function inspectFreshAppleHvInputs(
       ...(p.files.efi.state === 'expected-absent' ? [] : [p.files.efi.path]),
     ]);
     if (
-      checkedFile(p.files.disk.path, { mode: 0o644, maxSize: 16 * 1073741824 }).sha256 !==
-      p.files.disk.sha256
+      checkedFile(p.files.disk.path, { mode: p.files.disk.mode, maxSize: 16 * 1073741824 })
+        .sha256 !== p.files.disk.sha256
     )
       fail('prestart raw disk bytes');
     const fd = openSync(p.files.disk.path, constants.O_RDONLY | constants.O_NOFOLLOW),
@@ -1207,7 +1224,10 @@ export async function inspectFreshAppleHvInputs(
     efi = identity(p.files.efi.path);
     if (p.files.efi.state !== 'expected-absent' && !sameIdentity(efi, p.files.efi))
       fail('original EFI identity');
-    if (!running && checkedFile(p.files.efi.path, { mode: 0o644 }).sha256 !== p.files.efi.sha256)
+    if (
+      !running &&
+      checkedFile(p.files.efi.path, { mode: p.files.efi.mode }).sha256 !== p.files.efi.sha256
+    )
       fail('prestart EFI bytes');
   }
   return { current, disk, efi, ...(admitResources ? observeFreshResources(p, policy) : {}) };
@@ -1339,6 +1359,7 @@ function freshAppleHvPhysicalEffects(approved) {
   let server,
     channelLost = false,
     normalStopRequested = false;
+  const startAuthority = createFreshAppleHvStartRevocation(() => server?.close());
   const verifyStopped = async () => {
     assertSupervisor(p, null, 0);
     const inputs = await inspectFreshAppleHvInputs(approved);
@@ -1550,12 +1571,7 @@ function freshAppleHvPhysicalEffects(approved) {
       if (!sameIdentity(disk, p.files.disk) || !sameIdentity(efi, lineage.efi))
         fail('original stopped backing identity');
       scopedNoOpenHandles([disk.path, efi.path]);
-      for (const file of [p.files.ssh, p.files.configuration])
-        if (
-          !sameIdentity(identity(file.path), file) ||
-          checkedFile(file.path, { mode: file.mode }).sha256 !== file.sha256
-        )
-          fail('original stopped immutable inputs');
+      inspectFreshAppleHvImmutableInputs(p);
       if (checkedFile(p.supervisor.plistPath, { mode: 0o600 }).sha256 !== p.supervisor.plistSha256)
         fail('original stopped registration bytes');
       const current = machineDefinition(p);
@@ -1654,14 +1670,7 @@ function freshAppleHvPhysicalEffects(approved) {
       for (const item of p.sourceInventory)
         if (checkedFile(join(p.sourceRoot, item.path), { uid: null }).sha256 !== item.sha256)
           fail('current accepted source bytes');
-      for (const file of [p.files.ssh, p.files.configuration]) {
-        privateParents(p, file.path);
-        if (
-          !sameIdentity(identity(file.path), file) ||
-          checkedFile(file.path, { mode: file.mode }).sha256 !== file.sha256
-        )
-          fail('current immutable configuration');
-      }
+      inspectFreshAppleHvImmutableInputs(p);
       if (checkedFile(p.supervisor.plistPath, { mode: 0o600 }).sha256 !== p.supervisor.plistSha256)
         fail('current canonical registration bytes');
       const facts = observeFreshResources(p, {
@@ -1680,6 +1689,7 @@ function freshAppleHvPhysicalEffects(approved) {
       });
     },
     startSupervisor: async ({ authorize, assertCurrent }) => {
+      startAuthority.assertCurrent();
       if (lstatSync(p.qualification.guardSocket, { throwIfNoEntry: false }))
         fail('existing start guard endpoint');
       let authorized = false,
@@ -1688,12 +1698,16 @@ function freshAppleHvPhysicalEffects(approved) {
         timer;
       const result = new Promise((resolveStart, rejectStart) => {
         const failStart = () => {
+          channelLost = true;
+          startAuthority.revoke();
           if (!settled) {
             settled = true;
             rejectStart(Error('Fresh VM start uncertain; retain original state'));
           }
         };
         server = createServer((socket) => {
+          startAuthority.track(socket);
+          if (socket.destroyed) return;
           let buffer = '';
           socket.setEncoding('utf8');
           socket.on('error', () => {
@@ -1712,14 +1726,17 @@ function freshAppleHvPhysicalEffects(approved) {
               const row = buffer.slice(0, newline);
               buffer = buffer.slice(newline + 1);
               try {
+                startAuthority.assertCurrent();
                 const message = JSON.parse(row);
                 if (message.kind === 'authorize' && !authorized) {
                   if (message.planSha256 !== approved.sha256) fail();
                   const supervisor = observeFreshAppleHvProcess(message.pid);
                   assertSupervisor(p, supervisor, 1);
                   await inspectFreshAppleHvInputs(approved);
+                  startAuthority.assertCurrent();
                   authorized = true;
                   await authorize(supervisor);
+                  startAuthority.assertCurrent();
                   capturedSupervisor = supervisor;
                   socket.write(
                     JSON.stringify({ kind: 'authorized', planSha256: approved.sha256 }) + '\n',
@@ -1731,6 +1748,7 @@ function freshAppleHvPhysicalEffects(approved) {
                   assertNativeProcess(p, lineage.gvproxy, 'gvproxy');
                   lineage.efi = identity(p.files.efi.path);
                   await verifyRunning(lineage);
+                  startAuthority.assertCurrent();
                   settled = true;
                   clearTimeout(timer);
                   resolveStart(lineage);
@@ -1743,6 +1761,7 @@ function freshAppleHvPhysicalEffects(approved) {
                   )
                     fail('original supervisor current fence');
                   await assertCurrent();
+                  startAuthority.assertCurrent();
                   assertSupervisor(p, { pid: message.pid, birth: message.birth }, 1);
                   socket.write(
                     JSON.stringify({ kind: 'current', normalRetirement: normalStopRequested }) +
@@ -1758,9 +1777,11 @@ function freshAppleHvPhysicalEffects(approved) {
         });
         server.on('error', failStart);
         server.listen(p.qualification.guardSocket, async () => {
+          if (channelLost) return;
           chmodSync(p.qualification.guardSocket, 0o600);
           try {
             await assertCurrent();
+            startAuthority.assertCurrent();
             command('/bin/launchctl', [
               'kickstart',
               `gui/${process.getuid()}/com.mitzo.staging.vm`,
@@ -1774,7 +1795,8 @@ function freshAppleHvPhysicalEffects(approved) {
       return result.finally(() => clearTimeout(timer));
     },
     retain: async (state) => {
-      if (server) server.close();
+      channelLost = true;
+      startAuthority.revoke();
       const path = join(p.nativeRoot, 'service/fresh-vm-retained-' + process.pid + '.json');
       const fd = openSync(
         path,
@@ -1799,4 +1821,59 @@ function freshAppleHvPhysicalEffects(approved) {
       }
     },
   };
+}
+
+/** This latch only revokes; it grants no native authorization or replay. */
+export function createFreshAppleHvStartRevocation(closeListener) {
+  let revoked = false;
+  const sockets = new Set();
+  return Object.freeze({
+    assertCurrent() {
+      if (revoked) fail('start authorization permanently revoked');
+    },
+    track(socket) {
+      if (revoked) {
+        socket.destroy();
+        return;
+      }
+      sockets.add(socket);
+      socket.once?.('close', () => sockets.delete(socket));
+    },
+    revoke() {
+      if (revoked) return;
+      revoked = true;
+      for (const socket of sockets) socket.destroy();
+      sockets.clear();
+      try {
+        closeListener();
+      } catch {
+        /* Revocation remains permanent even if listener closure is uncertain. */
+      }
+    },
+  });
+}
+/** Persist the one-shot attempt before any native spawn. A failed fsync retains
+ * the exclusive file and refuses dispatch; it never deletes or retries intent. */
+export function persistFreshVmInitializationAttempt(
+  path,
+  receipt,
+  fs = { openSync, writeFileSync, fsyncSync, closeSync },
+) {
+  const fd = fs.openSync(
+    path,
+    constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW,
+    0o600,
+  );
+  try {
+    fs.writeFileSync(fd, JSON.stringify(receipt) + '\n');
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
+  const parent = fs.openSync(dirname(path), constants.O_RDONLY | constants.O_NOFOLLOW);
+  try {
+    fs.fsyncSync(parent);
+  } finally {
+    fs.closeSync(parent);
+  }
 }
