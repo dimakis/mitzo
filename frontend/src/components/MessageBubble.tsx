@@ -181,6 +181,7 @@ export function TextBubble({
         return <p>{children}</p>;
       },
       a: ({ href, children }) => {
+        if (!href) return <span>{children}</span>;
         const destination = href?.startsWith(FILE_SCHEME) ? decodeFilePathUrl(href) : href;
         if (destination && isTelosArtifactUrl(destination)) {
           return <FileShareLink filePath={destination}>{children}</FileShareLink>;
@@ -222,7 +223,11 @@ export function TextBubble({
           );
         }
         return (
-          <a href={href} target="_blank" rel="noopener noreferrer">
+          <a
+            href={href}
+            target={/^(?:https?:)?\/\//i.test(href) ? '_blank' : undefined}
+            rel="noopener noreferrer"
+          >
             {children}
           </a>
         );

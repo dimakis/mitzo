@@ -48,11 +48,24 @@ describe('TextBubble file link rendering', () => {
   it.each([
     '/workspace/report.pdf',
     '/workspace/report.docx',
+    '/workspace/report.xml',
+    '/workspace/packet.bin',
     'file:///workspace/report.xlsx',
     'sandbox:/mnt/data/report.pptx',
   ])('keeps generated document link %s inside Mitzo', (href) => {
     const html = renderBubble(`[report](${href})`);
     expect(html).toContain('file-path-link');
+    expect(html).not.toContain('target="_blank"');
+  });
+
+  it.each([
+    'file://remote-host/report.pdf',
+    'sandbox:/mnt/data/%E0%A4%A.pdf',
+    'javascript:alert(1)',
+  ])('keeps filtered destination %s readable without opening the app URL', (href) => {
+    const html = renderBubble(`[report](${href})`);
+    expect(html).toContain('report');
+    expect(html).not.toContain('href=""');
     expect(html).not.toContain('target="_blank"');
   });
 
@@ -77,6 +90,10 @@ describe('TextBubble file link rendering', () => {
       cleanup();
     },
   );
+
+  it('keeps fragment links in the current webview', () => {
+    expect(renderBubble('[section](#section)')).not.toContain('target="_blank"');
+  });
 
   it('keeps external and page-relative browser links outside artifact routing', () => {
     const html = renderBubble('[site](https://example.com) [section](#section)');

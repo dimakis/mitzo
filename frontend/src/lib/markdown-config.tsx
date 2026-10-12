@@ -55,6 +55,7 @@ export function artifactMarkdownComponents(
   return {
     ...markdownComponents,
     a: ({ href, children, title }) => {
+      if (!href) return <span>{children}</span>;
       if (href && isTelosArtifactUrl(href)) {
         return <FileShareLink filePath={href}>{children}</FileShareLink>;
       }

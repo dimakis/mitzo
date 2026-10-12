@@ -1,5 +1,3 @@
-import { mimeFromExt } from './file-metadata';
-
 /** Internal scheme for file path links — intercepted by the custom renderer. */
 export const FILE_SCHEME = 'file-path://';
 
@@ -61,7 +59,7 @@ export function absoluteMarkdownArtifactPath(href: string): string | null {
       [...path].some((char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127)
     )
       return null;
-    return explicitFileUri || sandboxUri || mimeFromExt(path) !== 'application/octet-stream'
+    return explicitFileUri || sandboxUri || /(?:^|\/)[^/]+\.[a-z\d][a-z\d._-]*$/i.test(path)
       ? path
       : null;
   } catch {

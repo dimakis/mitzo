@@ -62,7 +62,7 @@ for (const appearance of ['dark', 'light'] as const) {
                 {
                   blockId: 'text',
                   blockType: 'text',
-                  content: `Saved revision 2: [Telos artifact](${artifact}?revision=2). Also [PDF report](/workspace/report.pdf).`,
+                  content: `Saved revision 2: [Telos artifact](${artifact}?revision=2). Also [PDF report](/workspace/report.pdf), [binary file](/workspace/packet.bin) and [section](#details). [Filtered file](sandbox:/mnt/data/%E0%A4%A.pdf).`,
                 },
               ],
             },
@@ -118,6 +118,16 @@ for (const appearance of ['dark', 'light'] as const) {
       'target',
       '_blank',
     );
+    await expect(page.getByRole('link', { name: 'binary file', exact: true })).not.toHaveAttribute(
+      'target',
+      '_blank',
+    );
+    await expect(page.getByRole('link', { name: 'section', exact: true })).not.toHaveAttribute(
+      'target',
+      '_blank',
+    );
+    await expect(page.getByText('Filtered file', { exact: true })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Filtered file', exact: true })).toHaveCount(0);
     await page.screenshot({ path: testInfo.outputPath('artefact-sharing.png') });
   });
 }
