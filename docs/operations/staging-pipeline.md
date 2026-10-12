@@ -141,3 +141,43 @@ Unknown observations or invalid retained candidates refuse the attempt. Reuse
 still requires current host admission and exact canonical deployment planning.
 
 The aggregate disk ceiling is 48 GiB so retained incident evidence is counted alongside the single replacement VM, rather than deleted or hidden. The measured 28.151802 GiB retained tree plus a conservative 16 GiB VM upper bound, two 1 GiB controllers and 1 GiB dependency/scratch allowance totals 47.151802 GiB. With 53.24353 GiB free before those allocations, projected free space remains above 34 GiB. These are admission projections; unknown additional scratch/provider artifacts must be measured and may refuse admission. The 20 GiB free-space floor and all memory/CPU/concurrency limits remain enforced.
+
+## Atomic source merge admission
+
+The paired mandatory MGMT merge gate uses this same private SQLite database to
+serialize Mitzo source acceptance with foreground staging work. `merge-admit`
+holds one exact PR/head admission in a `BEGIN IMMEDIATE` transaction. It refuses
+an active or quarantined staging reservation; staging claim refuses a held source
+merge. This includes preparation, so an admitted merge cannot strand a concurrent
+candidate build or deployment. A benign staging preflight refusal can release its
+existing undispatched reservation and wait.
+
+MGMT then rechecks every current CI, Centaur, review-thread and exact-head gate
+inside the admission. A blocked pre-dispatch review may release its original
+token. Before its existing head-fenced GitHub merge, it consumes `merge-dispatch`.
+This is permanent until actual GitHub reconciliation; time, owner loss, a lost
+receipt or an OPEN PR cannot reclaim it or authorize retry.
+
+`merge-reconcile --pr NUMBER` reads the actual PR head/state/merge commit and
+verifies accepted ancestry. For the admitted exact merged head, it retains the
+stable `http-readiness` request and clears the source fence in one transaction.
+A full queue, changed identity, network error or unconfirmed outcome leaves the
+fence held. An actually closed, unmerged exact PR is a terminal nonmerge outcome.
+The accepted MGMT shepherd retries this reconciliation before readiness can be
+reported complete; its separate retry CLI can also reconcile without merging.
+
+Merge bookkeeping uses a clean pinned accepted ancestor controller, so a source
+merge does not invalidate the original reconciliation implementation. Foreground
+staging deployment continues to require the exact current accepted controller.
+These are fixed operations with finite PR/head/epoch/nonce arguments; requests
+cannot supply commands. There is no new worker, backend, service, expiry or stale
+lock deletion. Status reports the held source admission without its nonce.
+
+This atomic fence covers merges through the mandatory MGMT gate and this queue.
+GitHub UI, unrelated clients and other hosts cannot be atomically excluded by a
+local database without separately authorized GitHub-wide enforcement. This
+implementation changes no repository protection or admin authority and must not
+be presented as such enforcement. Accept the queue protocol, then the paired
+MGMT change and enroll its clean accepted controller before using the new gate.
+Missing/older/unqualified enrollment blocks a Mitzo merge rather than bypassing
+the shared admission. Offline tests grant no host enrollment or live dispatch.

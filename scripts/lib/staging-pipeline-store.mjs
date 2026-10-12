@@ -66,7 +66,9 @@ export class StagingPipelineStore {
       .exec(`PRAGMA busy_timeout=5000; PRAGMA journal_mode=DELETE; PRAGMA synchronous=FULL; PRAGMA max_page_count=4096;
       CREATE TABLE IF NOT EXISTS requests(sequence INTEGER PRIMARY KEY AUTOINCREMENT,id TEXT UNIQUE NOT NULL,payload TEXT NOT NULL,fingerprint TEXT NOT NULL,state TEXT NOT NULL,reason TEXT,result TEXT);
       CREATE TABLE IF NOT EXISTS reservation(singleton INTEGER PRIMARY KEY CHECK(singleton=1),epoch INTEGER NOT NULL,state TEXT NOT NULL,request_id TEXT,owner TEXT,nonce TEXT,deadline INTEGER,dispatched INTEGER NOT NULL DEFAULT 0,source_commit TEXT);
-      INSERT OR IGNORE INTO reservation(singleton,epoch,state) VALUES(1,0,'idle');`);
+      INSERT OR IGNORE INTO reservation(singleton,epoch,state) VALUES(1,0,'idle');
+      CREATE TABLE IF NOT EXISTS source_merge(singleton INTEGER PRIMARY KEY CHECK(singleton=1),epoch INTEGER NOT NULL,state TEXT NOT NULL,pr INTEGER,head TEXT,nonce TEXT);
+      INSERT OR IGNORE INTO source_merge(singleton,epoch,state) VALUES(1,0,'idle');`);
   }
   close() {
     this.db.close();
@@ -83,32 +85,35 @@ export class StagingPipelineStore {
     }
   }
   enqueue(input) {
-    const r = validateRequest(input),
-      payload = JSON.stringify(r),
+    const r = validateRequest(input);
+    return this.transaction(() => this.retainRequest(r));
+  }
+  retainRequest(r) {
+    const payload = JSON.stringify(r),
       fingerprint = createHash('sha256').update(payload).digest('hex');
-    return this.transaction(() => {
-      const old = this.db.prepare('SELECT fingerprint FROM requests WHERE id=?').get(r.id);
-      if (old) {
-        if (old.fingerprint !== fingerprint) throw Error('Request identity changed');
-        return r.id;
-      }
-      if (
-        this.db
-          .prepare(
-            "SELECT count(*) AS n FROM requests WHERE state IN ('queued','active','quarantined')",
-          )
-          .get().n >= 100
-      )
-        throw Error('Staging queue capacity reached');
-      this.db
-        .prepare("INSERT INTO requests(id,payload,fingerprint,state) VALUES(?,?,?,'queued')")
-        .run(r.id, payload, fingerprint);
+
+    const old = this.db.prepare('SELECT fingerprint FROM requests WHERE id=?').get(r.id);
+    if (old) {
+      if (old.fingerprint !== fingerprint) throw Error('Request identity changed');
       return r.id;
-    });
+    }
+    if (
+      this.db
+        .prepare(
+          "SELECT count(*) AS n FROM requests WHERE state IN ('queued','active','quarantined')",
+        )
+        .get().n >= 100
+    )
+      throw Error('Staging queue capacity reached');
+    this.db
+      .prepare("INSERT INTO requests(id,payload,fingerprint,state) VALUES(?,?,?,'queued')")
+      .run(r.id, payload, fingerprint);
+    return r.id;
   }
   status() {
     const row = this.db.prepare('SELECT * FROM reservation WHERE singleton=1').get();
     return {
+      sourceMerge: this.sourceMergeStatus(),
       reservation: {
         state: row.state,
         epoch: row.epoch,
@@ -154,6 +159,8 @@ export class StagingPipelineStore {
   claim(owner) {
     if (!identifier.test(owner)) throw Error('Controller identity required');
     return this.transaction(() => {
+      if (this.sourceMergeStatus().state !== 'idle')
+        return { granted: false, reason: 'source-merge-busy' };
       const r = this.db.prepare('SELECT * FROM reservation WHERE singleton=1').get();
       if (r.state !== 'idle')
         return {
@@ -177,6 +184,103 @@ export class StagingPipelineStore {
         .run(token.epoch, token.requestId, owner, token.nonce, this.clock() + 600000);
       this.db.prepare("UPDATE requests SET state='active',reason=NULL WHERE id=?").run(next.id);
       return { granted: true, token, request: JSON.parse(next.payload) };
+    });
+  }
+  sourceMergeStatus() {
+    const row = this.db
+      .prepare('SELECT epoch,state,pr,head FROM source_merge WHERE singleton=1')
+      .get();
+    return row.state === 'idle'
+      ? { state: 'idle' }
+      : { state: row.state, epoch: row.epoch, pr: row.pr, head: row.head };
+  }
+  claimSourceMerge(input) {
+    if (
+      !input ||
+      Object.keys(input).sort().join() !== 'head,pr' ||
+      !Number.isSafeInteger(input.pr) ||
+      input.pr < 1 ||
+      !commit.test(input.head)
+    )
+      throw Error('Exact source merge request required');
+    return this.transaction(() => {
+      const old = this.sourceMergeStatus();
+      if (old.state !== 'idle')
+        return {
+          granted: false,
+          reason:
+            old.state === 'dispatched' ? 'merge-reconciliation-required' : 'source-merge-busy',
+        };
+      if (this.db.prepare('SELECT state FROM reservation WHERE singleton=1').get().state !== 'idle')
+        return { granted: false, reason: 'staging-busy' };
+      const epoch =
+          this.db.prepare('SELECT epoch FROM source_merge WHERE singleton=1').get().epoch + 1,
+        nonce = randomUUID();
+      this.db
+        .prepare(
+          "UPDATE source_merge SET epoch=?,state='admitted',pr=?,head=?,nonce=? WHERE singleton=1",
+        )
+        .run(epoch, input.pr, input.head, nonce);
+      return { granted: true, token: { epoch, pr: input.pr, head: input.head, nonce } };
+    });
+  }
+  assertSourceMerge(t) {
+    const row = this.db.prepare('SELECT * FROM source_merge WHERE singleton=1').get();
+    if (
+      !t ||
+      row.state === 'idle' ||
+      row.epoch !== t.epoch ||
+      row.pr !== t.pr ||
+      row.head !== t.head ||
+      row.nonce !== t.nonce
+    )
+      throw Error('Source merge admission changed');
+    return row;
+  }
+  sourceMergeToken(pr) {
+    const row = this.db.prepare('SELECT * FROM source_merge WHERE singleton=1').get();
+    if (row.state === 'idle' || row.pr !== pr) throw Error('Exact held source merge required');
+    return { epoch: row.epoch, pr: row.pr, head: row.head, nonce: row.nonce };
+  }
+  markSourceMergeDispatched(t) {
+    this.transaction(() => {
+      if (this.assertSourceMerge(t).state !== 'admitted')
+        throw Error('Merge dispatch already consumed');
+      this.db.prepare("UPDATE source_merge SET state='dispatched' WHERE singleton=1").run();
+    });
+  }
+  releaseSourceMerge(t) {
+    this.transaction(() => {
+      if (this.assertSourceMerge(t).state !== 'admitted')
+        throw Error('Uncertain dispatched merge requires actual outcome reconciliation');
+      this.clearSourceMerge();
+    });
+  }
+  clearSourceMerge() {
+    this.db
+      .prepare(
+        "UPDATE source_merge SET state='idle',pr=NULL,head=NULL,nonce=NULL WHERE singleton=1",
+      )
+      .run();
+  }
+  completeSourceMerge(t, input) {
+    const request = validateRequest(input);
+    this.transaction(() => {
+      this.assertSourceMerge(t);
+      if (
+        request.pr !== t.pr ||
+        request.suite !== 'http-readiness' ||
+        request.taskId !== `pr-dimakis-mitzo-${t.pr}`
+      )
+        throw Error('Exact accepted merge readiness required');
+      this.retainRequest(request);
+      this.clearSourceMerge();
+    });
+  }
+  reconcileClosedSourceMerge(t) {
+    this.transaction(() => {
+      this.assertSourceMerge(t);
+      this.clearSourceMerge();
     });
   }
   assertToken(t, { allowExpired = false } = {}) {
