@@ -34,7 +34,7 @@ function fixture(mode = 'confirmed') {
     state = join(root, 'symposium/state/gateway');
   for (const p of [
     release,
-    join(release, 'scripts'),
+    join(release, 'scripts/lib'),
     join(release, 'dist'),
     service,
     state,
@@ -49,6 +49,7 @@ function fixture(mode = 'confirmed') {
   writeFileSync(join(release, 'package.json'), '{"type":"module"}');
   symlinkSync(realpathSync('node_modules'), join(release, 'node_modules'));
   cpSync('scripts/symposium-staging.mjs', join(release, 'scripts/symposium-staging.mjs'));
+  cpSync('scripts/lib', join(release, 'scripts/lib'), { recursive: true });
   // Select only the macOS adapter branch; keep Node/native-addon platform real.
   const cliPath = join(release, 'scripts/symposium-staging.mjs');
   writeFileSync(
@@ -63,6 +64,8 @@ function fixture(mode = 'confirmed') {
     'symposium-canonical-control',
     'symposium-canonical-owner-record',
     'symposium-custodian-retirement',
+    'staging-feature-contract',
+    'staging-native-app-witness',
   ])
     writeFileSync(
       join(release, 'dist', name + '.js'),

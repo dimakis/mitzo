@@ -2,7 +2,7 @@ import { mkdtempSync, mkdirSync, chmodSync, readdirSync, readFileSync, rmSync } 
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createPrivateOriginalProcessJournal } from '../symposium-original-process-retention.js';
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { EventEmitter } from 'node:events';
 import { fileURLToPath } from 'node:url';
 const effects = vi.hoisted(() => ({
@@ -21,16 +21,23 @@ const effects = vi.hoisted(() => ({
   bootstrap: vi.fn(),
   install: vi.fn(),
 }));
-vi.mock('../app.js', () => ({
-  getSymposiumBootstrapDependencies: () => effects.dependencies,
-  installSymposiumProductionHost: effects.install,
-  pauseSymposiumController: vi.fn(),
-  resumeSymposiumController: vi.fn(),
-  drainSymposiumController: vi.fn(async () => {}),
-  setSymposiumCustodianBroadcast: vi.fn(),
-  beginSymposiumShutdown: vi.fn(),
-  retireRetainedSymposiumRuntimes: vi.fn(async () => {}),
+vi.mock('../symposium-custodian-service.js', () => ({
+  SYMPOSIUM_CUSTODIAN_SERVICE_PROTOCOL_VERSION: 1,
+  createSymposiumCustodianService: () => ({
+    getSymposiumBootstrapDependencies: () => effects.dependencies,
+    installSymposiumProductionHost: effects.install,
+    pauseSymposiumController: vi.fn(),
+    resumeSymposiumController: vi.fn(),
+    drainSymposiumController: vi.fn(async () => {}),
+    setSymposiumCustodianBroadcast: vi.fn(),
+    beginSymposiumShutdown: vi.fn(),
+    retireRetainedSymposiumRuntimes: vi.fn(async () => {}),
+    closeUninstalledService: vi.fn(),
+  }),
 }));
+vi.mock('../app.js', () => {
+  throw Error('Original native custodian must not import ordinary app');
+});
 vi.mock('../symposium-owned-config.js', () => ({
   bootstrapConfiguredSymposiumHost: effects.bootstrap,
 }));
@@ -44,7 +51,10 @@ vi.mock('../symposium-custodian-ipc.js', async (original) => {
         : actual.serveCustodianController(...args),
   };
 });
-vi.mock('../auth.js', () => ({ revokeAuthSession: vi.fn(), registerAuthSession: vi.fn() }));
+vi.mock('../operator-session.js', () => ({
+  revokeAuthSession: vi.fn(),
+  registerAuthSession: vi.fn(),
+}));
 vi.mock('dotenv/config', () => {
   effects.dotenv();
   return {};
@@ -58,6 +68,7 @@ afterEach(() => {
   vi.restoreAllMocks();
   process.exitCode = undefined;
 });
+beforeEach(() => vi.stubEnv('REPO_PATH', '/synthetic-original-workspace'));
 it('exports the fresh custodian constructor without startup, dotenv, process or app side effects on import', async () => {
   vi.stubEnv('MITZO_SYMPOSIUM_CUSTODIAN_CONTROLLER', '1');
   const stderr = vi.spyOn(process.stderr, 'write').mockReturnValue(true);

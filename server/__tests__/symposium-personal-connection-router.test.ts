@@ -278,8 +278,11 @@ it('retains routing diagnostic validation and delegates to its existing owner', 
   expect(f.service.diagnoseRouting).toHaveBeenCalledWith('personal_test', 3, expect.any(Function));
 });
 
-it('mounts the focused router in app composition with authentication owned by each matched route', () => {
-  const source = readFileSync(new URL('../app.ts', import.meta.url), 'utf8');
+it('mounts the focused router in the native service with authentication owned by each matched route', () => {
+  const source = readFileSync(
+    new URL('../symposium-custodian-service.ts', import.meta.url),
+    'utf8',
+  );
   expect(source).toMatch(
     /app\.use\(\s*'\/api\/symposium\/personal\/connections',\s*createSymposiumPersonalConnectionRouter/,
   );
