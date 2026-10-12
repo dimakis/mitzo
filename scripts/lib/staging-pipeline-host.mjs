@@ -8,7 +8,11 @@ import { assessStagingResources, STAGING_RESOURCE_BUDGET } from './staging-resou
 const sha = /^[a-f0-9]{40}$/;
 /** Never pass inherited provider configuration into a controller/build. GitHub
  * uses the operator's existing CLI authorization only for public source reads. */
-export function runStagingHostCommand(program, args, { heapMiB = 1024, timeout = 30000 } = {}) {
+export function runStagingHostCommand(
+  program,
+  args,
+  { heapMiB = 1024, timeout = 30000, pipelineToken } = {},
+) {
   const p = spawnSync(program, args, {
     env: {
       PATH: '/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin',
@@ -18,6 +22,7 @@ export function runStagingHostCommand(program, args, { heapMiB = 1024, timeout =
       GIT_TERMINAL_PROMPT: '0',
       NODE_OPTIONS: `--max-old-space-size=${heapMiB}`,
       npm_config_jobs: '2',
+      ...(pipelineToken ? { MITZO_STAGING_PIPELINE_TOKEN: pipelineToken } : {}),
     },
     encoding: 'utf8',
     timeout,
@@ -96,6 +101,9 @@ export function createStagingPipelineEffects({
     return r;
   };
   return {
+    authorize: (token) => {
+      opts.pipelineToken = JSON.stringify(token);
+    },
     resources: async (growth) =>
       assessStagingResources(observeMacStagingResources(root, run), growth),
     baseline: async (origin) => {

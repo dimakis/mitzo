@@ -37,6 +37,7 @@ import {
   stageDirectory,
   appendAudit,
 } from './lib/staging-files.mjs';
+import { assertStagingPipelineMutation } from './lib/staging-pipeline-mutation-guard.mjs';
 import { assertStageJob } from './lib/staging-job.mjs';
 import { assertStageRegistration } from './lib/staging-registration.mjs';
 import { verifyDependencySource } from './lib/staging-dependency-source.mjs';
@@ -75,6 +76,13 @@ if (
     !flags['--expected-dependency-fingerprint'])
 )
   throw Error('Dependency source and fingerprint are paired preparation-only arguments');
+const assertPipeline = () =>
+  assertStagingPipelineMutation({
+    target: flags['--commit'],
+    apply: flags['--apply'] === true,
+    proof: process.env.MITZO_STAGING_PIPELINE_TOKEN,
+  });
+if (command !== 'check') assertPipeline();
 if (process.platform !== 'darwin') throw Error('This host controller supports macOS launchd only');
 if (realpathSync(root) !== root) throw Error('Canonical staging root required');
 for (const name of ['service', 'settings', 'workspace', 'state', 'home', 'releases'])
@@ -367,6 +375,7 @@ async function deploy() {
     'scripts/lib/staging-launcher-template.mjs',
     'scripts/lib/staging-registration.mjs',
     'scripts/lib/staging-dependency-source.mjs',
+    'scripts/lib/staging-pipeline-mutation-guard.mjs',
   ]) {
     const installed = new URL(name.replace('scripts/', ''), import.meta.url);
     const p = fileURLToPath(installed);
@@ -392,6 +401,7 @@ async function deploy() {
       },
       audit: async (event) => audit({ id, ...event }),
       validate: async () => {
+        assertPipeline();
         assertStageCandidate(next, target, path);
         validateRelease(next, main());
         validateRelease(active);

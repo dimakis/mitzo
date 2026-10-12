@@ -4,6 +4,7 @@ export async function runStagingPipelineRequest(store, effects, owner) {
   const claim = store.claim(owner);
   if (!claim.granted) return claim;
   const { token, request } = claim;
+  effects.authorize?.(token);
   let phase = 'preflight';
   const wait = (reason) => {
     store.defer(token, reason);
