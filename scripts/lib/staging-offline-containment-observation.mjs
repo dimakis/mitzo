@@ -28,7 +28,8 @@ import {
  * upstream v5.6.2 AppleHV device construction is part of this reviewed contract;
  * a version string or filename alone never selects a direct raw attachment. */
 export const OFFLINE_CONTAINMENT_NATIVE_TARGET = Object.freeze({
-  machineSha256: 'f1a65c06c279469d81ba86505da625cf6088c045e1731fefaa44429bc56c3705',
+  machineSha256: '64e86ea129a14a1ac27e41c19fe16ada36afa61e95b4378e2170f2f321a56a84',
+  vmSupervisorRuns: 1,
   appPlistSha256: OFFLINE_CONTAINMENT_TARGET.controls[0].sha256,
   vmPlistSha256: OFFLINE_CONTAINMENT_TARGET.controls[1].sha256,
   helpers: OFFLINE_CONTAINMENT_TARGET.nativeHelpers,
@@ -755,7 +756,7 @@ async function collectOriginal(options) {
     appJob.status !== 'absent' ||
     listeners.length ||
     vmSupervisor.state !== 'not running' ||
-    vmSupervisor.runs !== 0 ||
+    vmSupervisor.runs !== OFFLINE_CONTAINMENT_NATIVE_TARGET.vmSupervisorRuns ||
     vmSupervisor.pid !== null ||
     vmSupervisor.automaticRestart ||
     vmSupervisor.plistSha256 !== OFFLINE_CONTAINMENT_NATIVE_TARGET.vmPlistSha256
@@ -1052,7 +1053,7 @@ async function inspectPhysicalBoundary(plan, invalidatedControls, contained, rep
       if (
         field('path') !== control.path ||
         field('state') !== 'not running' ||
-        field('runs') !== '0' ||
+        field('runs') !== String(OFFLINE_CONTAINMENT_NATIVE_TARGET.vmSupervisorRuns) ||
         field('pid')
       )
         throw Error('Original VM supervisor changed');

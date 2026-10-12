@@ -27,6 +27,8 @@ interface Props {
   onToggleContextBlock: (name: string) => void;
   onAddImages: () => void;
   onRemoveImage: (index: number) => void;
+  onPreviewImage?: (image: ImageAttachment) => void;
+  getDraftImageKey?: (image: ImageAttachment) => string | number;
 }
 
 const SNAP_ORDER: TraySnap[] = ['peek', 'half', 'full'];
@@ -95,11 +97,15 @@ export function SessionTray({
   onToggleContextBlock,
   onAddImages,
   onRemoveImage,
+  onPreviewImage,
+  getDraftImageKey,
 }: Props) {
   const contentId = useId();
   const outputsContentId = useId();
+  const referencesContentId = useId();
   const sourcesContentId = useId();
   const [snap, setSnap] = useState<TraySnap>('peek');
+  const [referencesExpanded, setReferencesExpanded] = useState(false);
   const [outputsExpanded, setOutputsExpanded] = useState(false);
   const [sourcesExpanded, setSourcesExpanded] = useState(false);
   const [dragOffset, setDragOffset] = useState(0);
@@ -115,7 +121,7 @@ export function SessionTray({
   );
   const outputsCount = resources.outputs.length;
   const sourcesCount = resources.sources.length + draftImages.length;
-  const resourceCount = sourcesCount + outputsCount;
+  const resourceCount = sourcesCount + outputsCount + resources.references.length;
   const pendingAttachmentCount = draftImages.length + selectedContextBlocks.length;
   const toolbarCount = resourceCount + selectedContextBlocks.length;
   const isOpen = snap !== 'peek';
@@ -129,6 +135,7 @@ export function SessionTray({
   const visibleSnap = placement === 'toolbar' && present ? lastOpenSnap.current : snap;
 
   const keyForDraftImage = (image: ImageAttachment) => {
+    if (getDraftImageKey) return getDraftImageKey(image);
     let key = draftImageKeys.current.get(image);
     if (!key) {
       key = `draft:${nextDraftImageKey.current++}`;
@@ -207,7 +214,7 @@ export function SessionTray({
           }}
         >
           <span className="session-tray-grabber" />
-          <span className="session-tray-handle-label">Outputs / Sources</span>
+          <span className="session-tray-handle-label">Outputs / Sources / References</span>
           {resourceCount > 0 && <span className="session-tray-count">{resourceCount}</span>}
           {pendingAttachmentCount > 0 && (
             <span
@@ -243,13 +250,13 @@ export function SessionTray({
                   <button
                     type="button"
                     className="session-tray-section-toggle"
-                    aria-label={`Outputs ${outputsCount}`}
+                    aria-label="Outputs"
                     aria-expanded={outputsExpanded}
                     aria-controls={outputsContentId}
                     onClick={() => setOutputsExpanded((expanded) => !expanded)}
                   >
                     <span>Outputs</span>
-                    <span className="session-tray-section-count">{outputsCount}</span>
+
                     <span className="session-tray-section-chevron" aria-hidden="true">
                       <UiIcon name={outputsExpanded ? 'down' : 'forward'} size={16} />
                     </span>
@@ -266,11 +273,49 @@ export function SessionTray({
                     </div>
                   ) : (
                     <p className="session-tray-empty">
-                      Generated files and previews will appear here
+                      Explicitly kept outputs remain in the conversation. Mentioned links are
+                      References.
                     </p>
                   )}
                 </div>
               )}
+            </section>
+
+            <section className="session-tray-section">
+              <h2>
+                <button
+                  type="button"
+                  className="session-tray-section-toggle"
+                  aria-label={`References ${resources.references.length}`}
+                  aria-expanded={referencesExpanded}
+                  aria-controls={referencesContentId}
+                  onClick={() => setReferencesExpanded((value) => !value)}
+                >
+                  <span>References</span>
+                  <span className="session-tray-section-count">{resources.references.length}</span>
+                  <UiIcon name={referencesExpanded ? 'down' : 'forward'} size={16} />
+                </button>
+              </h2>
+              {referencesExpanded && (
+                <div id={referencesContentId} className="session-tray-resources">
+                  <p className="session-tray-empty">
+                    Mentioned links and workspace paths; availability and retention have not been
+                    checked.
+                  </p>
+                  {resources.references.map((resource) => (
+                    <ResourceRow key={resource.id} resource={resource} />
+                  ))}
+                </div>
+              )}
+              <details className="session-tray-capabilities">
+                <summary>Observed capabilities</summary>
+                <p className="session-tray-empty">
+                  Tool names seen in this conversation. Current availability is unknown.
+                </p>
+                {resources.capabilities.map((resource) => (
+                  <ResourceRow key={resource.id} resource={resource} />
+                ))}
+              </details>
             </section>
 
             <section className="session-tray-section">
@@ -306,10 +351,29 @@ export function SessionTray({
                   <div className="session-tray-resources">
                     {draftImages.map((image, index) => (
                       <div className="session-tray-resource" key={keyForDraftImage(image)}>
-                        <img className="session-tray-thumb" src={image.preview} alt="" />
-                        <span className="session-tray-resource-label">
-                          Pasted image {index + 1}
-                        </span>
+                        {onPreviewImage ? (
+                          <button
+                            type="button"
+                            className="session-tray-draft-preview"
+                            aria-label={`Preview pasted image ${index + 1}`}
+                            onClick={(event) => {
+                              event.currentTarget.focus();
+                              onPreviewImage(image);
+                            }}
+                          >
+                            <img className="session-tray-thumb" src={image.preview} alt="" />
+                            <span className="session-tray-resource-label">
+                              Pasted image {index + 1}
+                            </span>
+                          </button>
+                        ) : (
+                          <>
+                            <img className="session-tray-thumb" src={image.preview} alt="" />
+                            <span className="session-tray-resource-label">
+                              Pasted image {index + 1}
+                            </span>
+                          </>
+                        )}
                         <button
                           type="button"
                           className="session-tray-remove"

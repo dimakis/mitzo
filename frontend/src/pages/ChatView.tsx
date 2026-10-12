@@ -1,3 +1,5 @@
+import { useNewChatDraft, useChatDraftSearch } from '../hooks/useNewChatDraft';
+import { CHAT_DRAFTS_CHANGED, getChatDraft, chatDraftStorageKey } from '../lib/chat-drafts';
 import { useBriefingChat } from '../hooks/useBriefingChat';
 import { BriefingChatBanner } from '../components/BriefingChatBanner';
 import { ChatAgentProfilePicker } from '../components/ChatAgentProfilePicker';
@@ -25,13 +27,14 @@ import { OutputContributorPanel } from '../components/OutputContributorPanel';
 import { useOutputContributors } from '../hooks/useOutputContributors';
 import { PermissionModePicker } from '../components/PermissionModePicker';
 import { StatusBar } from '../components/StatusBar';
+import { SessionAccess } from '../components/SessionAccess';
 import { WorkspaceControls } from '../components/WorkspaceControls';
 import type { WorkspaceSummary } from '../types/workspace';
 import { CodexQueueStatus } from '../components/CodexQueueStatus';
 import { WebSearchConsent } from '../components/WebSearchConsent';
 import { AccountModelPicker, type AccountSelection } from '../components/AccountModelPicker';
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { Link, useParams, useSearchParams, useNavigate } from 'react-router-dom';
+import { useCallback, useEffect, useRef, useState, useMemo } from 'react';
+import { Link, useParams, useNavigate } from 'react-router-dom';
 import { SymposiumConversation } from '../components/SymposiumConversation';
 import { SymposiumDirectorPanel } from '../components/SymposiumDirectorPanel';
 import { ChatInput, type ChatInputDraftControl } from '../components/ChatInput';
@@ -61,7 +64,7 @@ export function ChatView() {
     [],
   );
   const { sessionId } = useParams<{ sessionId?: string }>();
-  const [searchParams] = useSearchParams();
+  const searchParams = useChatDraftSearch(!sessionId);
   const [agentProfile, setAgentProfile] = useState<AgentProfileSelection | null>(null);
   const [agentProfileBlocked, setAgentProfileBlocked] = useState<string | undefined>();
   const onAgentProfileChange = useCallback(
@@ -116,6 +119,16 @@ export function ChatView() {
     retryRegistration,
   } = usePendingLaunch();
 
+  const draftEnabled = !sessionId && !activeSessionId && !repositoryHandoff.present && !launch;
+  const newChatDraft = useNewChatDraft(searchParams.get('draft'), chatDraftRevision, draftEnabled);
+  const missingDraftReason = newChatDraft.missing
+    ? 'This draft is unavailable. Open Drafts or start a new chat.'
+    : undefined;
+  const draftSearch = new URLSearchParams(searchParams);
+  draftSearch.delete('draft');
+  draftSearch.delete('prompt');
+  const settingsSearch = draftSearch.toString();
+
   const connected = connection.status === 'connected';
 
   // Local model state — persisted to localStorage, sent in payload
@@ -125,12 +138,14 @@ export function ChatView() {
     summary: WorkspaceSummary | null;
   } | null>(null);
   const workspaceSummary =
-    summaryForSession?.sessionId === activeSessionId ? summaryForSession.summary : null;
+    summaryForSession?.sessionId === (activeSessionId ?? newChatDraft.draft.id)
+      ? summaryForSession.summary
+      : null;
   const setWorkspaceSummary = useCallback(
     (summary: WorkspaceSummary | null) => {
-      setSummaryForSession({ sessionId: activeSessionId, summary });
+      setSummaryForSession({ sessionId: activeSessionId ?? newChatDraft.draft.id, summary });
     },
-    [activeSessionId],
+    [activeSessionId, newChatDraft.draft.id],
   );
   const isSymposium = workspaceSummary?.sessionType === 'symposium';
   const ordinaryControls = !activeSessionId || workspaceSummary?.sessionType === 'chat';
@@ -139,21 +154,67 @@ export function ChatView() {
     workspaceSummary?.sessionType === 'chat' && (!sessionId || sessionId === activeSessionId),
     `${messages.messages.length}:${messages.running}`,
   );
-  const [accountSelection, setAccountSelection] = useState<AccountSelection | null>(null);
-  const repositoryScope = `${repositoryHandoff.present ? repositoryHandoff.scope : ''}:${chatDraftRevision}:${accountSelection?.accountId ?? ''}:${accountSelection?.model ?? ''}`;
+  const accountScope = !sessionId && !activeSessionId ? newChatDraft.draft.id : activeSessionId;
+  const [accountChoice, setAccountChoice] = useState<{
+    scope: string | null;
+    selection: AccountSelection | null;
+  } | null>(null);
+  const accountSelection = accountChoice?.scope === accountScope ? accountChoice.selection : null;
+  const [stagedAccountChoice, setStagedAccountChoice] = useState<{
+    scope: string | null;
+    selection: AccountSelection;
+  } | null>(null);
+  const stagedAccountSelection =
+    stagedAccountChoice?.scope === accountScope ? stagedAccountChoice.selection : null;
+  const saveStagedAccount = useCallback(
+    (selection: AccountSelection) => {
+      setStagedAccountChoice({ scope: accountScope, selection });
+    },
+    [accountScope],
+  );
+  const retainedDraftAccount = useRef<{ scope: string | null; selection: AccountSelection | null }>(
+    { scope: accountScope, selection: newChatDraft.draft.settings.selection },
+  );
+  if (retainedDraftAccount.current.scope !== accountScope)
+    retainedDraftAccount.current = {
+      scope: accountScope,
+      selection: newChatDraft.draft.settings.selection,
+    };
+  if (accountSelection) retainedDraftAccount.current.selection = accountSelection;
+  const repositoryAccountSelection = draftEnabled
+    ? (accountSelection ?? stagedAccountSelection ?? retainedDraftAccount.current.selection)
+    : accountSelection;
+  const repositoryScope = `${repositoryHandoff.present ? repositoryHandoff.scope : newChatDraft.draft.id}:${chatDraftRevision}:${repositoryAccountSelection?.accountId ?? ''}:${repositoryAccountSelection?.model ?? ''}`;
   const [repositoryChoice, setRepositoryChoice] = useState<{
     scope: string;
     selection: RepositoryChatSelection | null;
   } | null>(null);
+  const [repositoryAccountError, setRepositoryAccountError] = useState<{
+    scope: string;
+    message: string;
+  } | null>(null);
+  const repositoryAccountReason =
+    repositoryAccountError?.scope === newChatDraft.draft.id
+      ? repositoryAccountError.message
+      : undefined;
+  const [removedRepositoryScope, setRemovedRepositoryScope] = useState<string | null>(null);
+  const initialRepositoryId =
+    draftEnabled && removedRepositoryScope !== newChatDraft.draft.id
+      ? newChatDraft.draft.settings.repositoryWorkspaceId
+      : undefined;
   const repositorySelection =
     repositoryChoice?.scope === repositoryScope
       ? repositoryChoice.selection
       : repositoryHandoff.present
         ? { blocked: true }
-        : accountSelection?.accountId &&
-            savedRepositoryDraft(accountSelection.accountId, accountSelection.model)
-          ? { blocked: true }
-          : null;
+        : draftEnabled
+          ? initialRepositoryId
+            ? { blocked: true, repositoryWorkspaceId: initialRepositoryId }
+            : null
+          : accountSelection?.accountId &&
+              savedRepositoryDraft(accountSelection.accountId, accountSelection.model)
+            ? { blocked: true }
+            : null;
   const repositoryHandoffReason =
     (repositoryHandoff.present && (messages.running || sendStatus)
       ? 'Waiting for repository conversation confirmation…'
@@ -178,7 +239,22 @@ export function ChatView() {
   const selectAccount = useCallback(
     (selection: AccountSelection | null) => {
       if (repositoryHandoff.present && activeSessionId) return;
-      setAccountSelection(selection);
+      const binding = repositoryAccountSelection ?? newChatDraft.draft.settings.selection;
+      if (
+        draftEnabled &&
+        repositorySelection?.repositoryWorkspaceId &&
+        selection &&
+        binding &&
+        (binding.accountId !== selection.accountId || binding.model !== selection.model)
+      ) {
+        setRepositoryAccountError({
+          scope: newChatDraft.draft.id,
+          message: 'Remove the repository preparation before changing account or model.',
+        });
+        return;
+      }
+      if (selection) setRepositoryAccountError(null);
+      setAccountChoice({ scope: accountScope, selection });
       if (selection) {
         if (
           !!launch?.briefing ||
@@ -197,6 +273,11 @@ export function ChatView() {
       }
     },
     [
+      accountScope,
+      repositoryAccountSelection,
+      draftEnabled,
+      newChatDraft.draft,
+      repositorySelection?.repositoryWorkspaceId,
       setModel,
       storeSetModel,
       activeSessionId,
@@ -207,11 +288,115 @@ export function ChatView() {
     ],
   );
 
-  const mode = useMitzoStore((s) => s.config.mode);
+  const storeMode = useMitzoStore((s) => s.config.mode);
+  const initialDraftMode = newChatDraft.restored
+    ? newChatDraft.draft.settings.mode
+    : searchParams.get('extraTools')
+      ? 'auto'
+      : storeMode;
+  const [draftOptions, setDraftOptions] = useState({
+    id: newChatDraft.draft.id,
+    mode: initialDraftMode,
+    isolation: newChatDraft.restored ? newChatDraft.draft.settings.isolation : true,
+  });
+  const mode = !draftEnabled
+    ? storeMode
+    : draftOptions.id === newChatDraft.draft.id
+      ? draftOptions.mode
+      : initialDraftMode;
+  const isolation =
+    draftOptions.id === newChatDraft.draft.id
+      ? draftOptions.isolation
+      : newChatDraft.restored
+        ? newChatDraft.draft.settings.isolation
+        : true;
+  const setIsolation = useCallback(
+    (value: boolean | ((old: boolean) => boolean)) => {
+      setDraftOptions({
+        id: newChatDraft.draft.id,
+        mode,
+        isolation: typeof value === 'function' ? value(isolation) : value,
+      });
+    },
+    [newChatDraft.draft.id, mode, isolation],
+  );
+  const restoredOptionsScope = useRef<string | null>(null);
   useEffect(() => {
-    if (!activeSessionId && searchParams.get('extraTools')) storeSetMode('auto');
-  }, [activeSessionId, searchParams, storeSetMode]);
-  const [isolation, setIsolation] = useState(true);
+    if (!draftEnabled || restoredOptionsScope.current === newChatDraft.draft.id) return;
+    restoredOptionsScope.current = newChatDraft.draft.id;
+    setDraftOptions({ id: newChatDraft.draft.id, mode: initialDraftMode, isolation });
+    if (initialDraftMode !== storeMode && modeChangeReady !== false) storeSetMode(initialDraftMode);
+  }, [
+    newChatDraft.draft.id,
+    draftEnabled,
+    initialDraftMode,
+    isolation,
+    storeMode,
+    modeChangeReady,
+    storeSetMode,
+  ]);
+  const savedChatDraft = useMemo(
+    () =>
+      draftEnabled && !newChatDraft.missing
+        ? {
+            ...newChatDraft.draft,
+            settings: {
+              selection: repositoryAccountSelection ?? newChatDraft.draft.settings.selection,
+              summary: workspaceSummary ?? newChatDraft.draft.settings.summary,
+              mode,
+              isolation,
+              repositoryWorkspaceId: repositorySelection?.repositoryWorkspaceId ?? null,
+              search: settingsSearch,
+            },
+          }
+        : undefined,
+    [
+      draftEnabled,
+      newChatDraft.draft,
+      newChatDraft.missing,
+      repositoryAccountSelection,
+      workspaceSummary,
+      mode,
+      isolation,
+      repositorySelection?.repositoryWorkspaceId,
+      settingsSearch,
+    ],
+  );
+  const saveDraftSettings = newChatDraft.saveSettings;
+  useEffect(() => {
+    if (savedChatDraft) saveDraftSettings(savedChatDraft.settings);
+  }, [savedChatDraft, saveDraftSettings]);
+  const releaseDraftReference = newChatDraft.releaseReference;
+  useEffect(() => {
+    if (!draftEnabled || newChatDraft.missing) return;
+    const retainUrl = () => {
+      const saved = getChatDraft(newChatDraft.draft.id);
+      const referencedId = searchParams.get('draft');
+      if (saved && referencedId === newChatDraft.draft.id) return;
+      if (!saved && referencedId !== newChatDraft.draft.id) return;
+      const params = new URLSearchParams(searchParams);
+      if (saved) params.set('draft', newChatDraft.draft.id);
+      else {
+        // An emptied draft has no persistent owner. Keep this mounted composer’s
+        // settings, but reload must open a blank chat rather than a missing ID.
+        releaseDraftReference();
+        params.delete('draft');
+        params.delete('prompt');
+      }
+      const query = params.toString();
+      navigate(`/chat${query ? `?${query}` : ''}`, { replace: true });
+    };
+    retainUrl();
+    window.addEventListener(CHAT_DRAFTS_CHANGED, retainUrl);
+    return () => window.removeEventListener(CHAT_DRAFTS_CHANGED, retainUrl);
+  }, [
+    draftEnabled,
+    newChatDraft.draft.id,
+    newChatDraft.missing,
+    searchParams,
+    navigate,
+    releaseDraftReference,
+  ]);
 
   const voice = useVoice();
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -300,7 +485,13 @@ export function ChatView() {
     onDelivery?: import('@mitzo/client').SendMessageOptions['onDelivery'],
     onSessionAssigned?: import('@mitzo/client').SendMessageOptions['onSessionAssigned'],
   ): boolean {
-    if (repositoryHandoffReason || (repositoryHandoff.present && launching)) return false;
+    if (
+      missingDraftReason ||
+      repositoryAccountReason ||
+      repositoryHandoffReason ||
+      (repositoryHandoff.present && launching)
+    )
+      return false;
     if (launch?.briefing && !launching) return false;
     if (!activeSessionId && agentProfileBlocked) return false;
     if (launching && activeSessionId) return sendLaunch();
@@ -408,6 +599,7 @@ export function ChatView() {
   }
 
   function handleModeChange(newMode: 'ask' | 'agent' | 'auto') {
+    if (draftEnabled) setDraftOptions({ id: newChatDraft.draft.id, mode: newMode, isolation });
     storeSetMode(newMode);
   }
 
@@ -456,6 +648,13 @@ export function ChatView() {
           lookupLoading={briefingChat.loading}
         />
         <WorkspaceControls
+          actions={
+            <SessionAccess
+              sessionId={repositoryHandoff.present ? undefined : (activeSessionId ?? undefined)}
+              selection={accountSelection}
+              connected={connected}
+            />
+          }
           attention={!!launch || repositoryHandoff.present}
           summary={workspaceSummary}
           status={
@@ -473,7 +672,11 @@ export function ChatView() {
           <div className="chat-account-bar">
             {!repositoryHandoff.present || activeSessionId || repositoryHandoff.preparation ? (
               <AccountModelPicker
-                key={chatDraftRevision}
+                key={`${chatDraftRevision}:${newChatDraft.draft.id}`}
+                initialSelection={
+                  draftEnabled ? (newChatDraft.draft.settings.selection ?? undefined) : undefined
+                }
+                lockAccountModel={draftEnabled && !!repositorySelection?.repositoryWorkspaceId}
                 requiredSelection={
                   !activeSessionId && repositoryHandoff.preparation
                     ? {
@@ -489,6 +692,7 @@ export function ChatView() {
                 }
                 sessionId={activeSessionId}
                 preferredModel={modelState}
+                onDraftSelectionChange={draftEnabled ? saveStagedAccount : undefined}
                 onChange={selectAccount}
                 onSummaryChange={setWorkspaceSummary}
               />
@@ -625,6 +829,14 @@ export function ChatView() {
         ordinaryComposer={
           <>
             <RepositoryChatDraftNotice handoff={repositoryHandoff} />
+            {missingDraftReason && <div role="alert">{missingDraftReason}</div>}
+            {repositoryAccountReason && <div role="alert">{repositoryAccountReason}</div>}
+            {draftEnabled && repositorySelection?.repositoryWorkspaceId && (
+              <p role="status">Remove the repository preparation to change account or model.</p>
+            )}
+            {newChatDraft.settingsError && (
+              <div role="alert">Draft settings could not be saved on this device.</div>
+            )}
             {launch && !repositoryHandoff.present && (
               <div role="status" className="chat-account-bar">
                 <p>
@@ -648,18 +860,26 @@ export function ChatView() {
               </div>
             )}
             {!activeSessionId &&
-              accountSelection?.accountId &&
+              repositoryAccountSelection?.accountId &&
               (!repositoryHandoff.present ||
                 (repositoryHandoff.preparation &&
-                  accountSelection.accountId === repositoryHandoff.preparation.accountId &&
-                  accountSelection.model === repositoryHandoff.preparation.model)) && (
+                  repositoryAccountSelection.accountId ===
+                    repositoryHandoff.preparation.accountId &&
+                  repositoryAccountSelection.model === repositoryHandoff.preparation.model)) && (
                 <RepositoryChatPicker
                   key={repositoryScope}
-                  accountId={accountSelection.accountId}
-                  model={accountSelection.model}
-                  initialPreparationId={repositoryHandoff.preparation?.id}
+                  accountId={repositoryAccountSelection.accountId}
+                  model={repositoryAccountSelection.model}
+                  draftScoped={draftEnabled}
+                  initialPreparationId={
+                    repositoryHandoff.preparation?.id ?? initialRepositoryId ?? undefined
+                  }
                   onChange={(selection) => {
                     setRepositoryChoice({ scope: repositoryScope, selection });
+                    if (!selection) {
+                      setRepositoryAccountError(null);
+                      setRemovedRepositoryScope(newChatDraft.draft.id);
+                    }
                     if (repositoryHandoff.present && !selection)
                       navigate('/chat', { replace: true });
                   }}
@@ -667,6 +887,7 @@ export function ChatView() {
               )}
             <CodexQueueStatus sessionId={activeSessionId} />
             <ChatInput
+              savedChatDraft={savedChatDraft}
               composerGeneration={chatDraftRevision}
               key={
                 repositoryHandoff.present
@@ -684,9 +905,13 @@ export function ChatView() {
               draftStorageKey={
                 repositoryHandoff.present
                   ? repositoryPromptDraftKey(repositoryHandoff.id ?? '')
-                  : undefined
+                  : newChatDraft.missing
+                    ? chatDraftStorageKey(newChatDraft.draft.id)
+                    : undefined
               }
               sendDisabledReason={
+                missingDraftReason ??
+                repositoryAccountReason ??
                 (launch?.briefing
                   ? 'Send the reviewed briefing prompt first, then ask a follow-up.'
                   : undefined) ??

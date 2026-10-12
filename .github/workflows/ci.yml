@@ -57,8 +57,9 @@ jobs:
     if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.browser == 'true') }}
     name: Connections browser regression
     runs-on: ubuntu-latest
-    # A cold browser download can consume ten minutes before tests begin.
-    timeout-minutes: 20
+    # A measured cold install took 22 minutes; both suites then passed in 12.
+    # Keep a bounded budget that includes installation and both required suites.
+    timeout-minutes: 45
     permissions:
       contents: read
     steps:
@@ -71,9 +72,31 @@ jobs:
       - run: npm install --no-audit
       - run: npx playwright install --with-deps webkit chromium
       - run: npm run test:browser
+        id: browser-tests
+      - name: Retain browser failure evidence
+        if: ${{ always() && steps.browser-tests.outcome == 'failure' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-browser-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            test-results/browser/
+            playwright-report/browser/
+          retention-days: 7
+          if-no-files-found: warn
       - name: Verify shared theme and mobile layouts without a backend
+        id: offline-tests
         if: always()
         run: npm run test:ui
+      - name: Retain offline layout failure evidence
+        if: ${{ always() && steps.offline-tests.outcome == 'failure' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-offline-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            test-results/offline/
+            playwright-report/offline/
+          retention-days: 7
+          if-no-files-found: warn
 
   native:
     needs: changes

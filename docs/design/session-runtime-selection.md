@@ -3,7 +3,57 @@
 Status: incremental design and source audit. Dormant infrastructure includes
 versioned EventStore bindings, configuration resolution, local Codex account
 projection and V2 configured-target persistence. This document does not establish
-live, staged or deployed support for any selectable route.
+live, staged or deployed support for any selectable route. The first-command
+guard below is an injected, dormant coordinator; no live caller is enrolled.
+
+## Guarded local Codex first-command contract
+
+[`OrdinaryLocalCodexAdmissionCoordinator`](../../server/ordinary-local-codex-admission.ts)
+accepts only a new ordinary session's first command or an exact persisted retry.
+It refuses adoption of legacy or pre-existing dormant V2 sessions and refuses
+additional commands on an existing bound session. Future-turn admission and
+settings edits require a separate integration.
+This bounded slice requires an explicit published agent profile using the
+existing `AgentProfileSelection` ID and positive numeric revision; bundled-agent
+name selection is not enrolled by this contract.
+
+An explicit server gate and an independently qualified owning authority are
+both required. The authority must observe the exact host, runtime contract,
+host-login account, agent and context revisions, permission revision, model,
+thinking level and workspace reservation. It must hold its lifecycle and
+revocation fence through persistence, workspace preparation and provider dispatch,
+and recheck it at each effect boundary. The configured target's private
+`admissionDeclaration()` contains expectations only; neither it nor the public
+capability inventory proves the actual host or account is authorized.
+
+The existing EventStore global command claim, runtime-bound session row and
+`send_commands` receipt are saved in one immediate SQLite transaction. The
+additive nullable `ordinary_admission` field freezes the selected command,
+workspace and V2 runtime identity. It is not a second execution or workspace
+ledger. Changed identity, prompt payload or settings cannot replace a receipt.
+
+| Receipt state | Meaning                                                              | Retry behavior                                                            |
+| ------------- | -------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| `reserved`    | Intent saved; no external effects have begun                         | Exact retry must requalify current authority before claiming effects      |
+| `uncertain`   | Atomic claim saved before workspace preparation or provider dispatch | Preserve evidence; never replay effects automatically                     |
+| `consumed`    | The injected dispatch operation returned successfully                | Exact retry returns without effects; this does not prove model completion |
+
+Two independent stores cannot both claim effects. A crash or failure after the
+claim retains uncertainty, including workspace preparation failures. Generic
+restart recovery preserves guarded receipts. Legacy send acceptance, direct
+startup and cold-start preflight refuse runtime-bound rows before runtime
+effects; native-command completion cannot erase a guarded receipt's session ID.
+Canonical workspace/ContexGin recipe pins are passed to their owning authority;
+native Codex packs retain their existing continuation-barrier refusal.
+
+Activation still requires an actual host/runtime/account authority, a workspace
+metadata reservation before filesystem materialization, and reviewed integration
+with Codex's existing thread, queue, cancellation and recovery ownership. The
+current CLI-version/account observations and post-launch runtime policy checks
+do not satisfy that pre-effect authority. No endpoint, default verifier, host
+probe, runtime launch or picker behavior is added by this coordinator. OpenShell
+remains the approved default for the eventual picker; local selection must be
+explicit once qualified.
 
 ## Separate account identity from execution choice
 
@@ -248,6 +298,73 @@ fences, reopened V2 identity, exact retries across two stores, target and versio
 drift, failed-write rollback, corrupt V2 metadata, required catalog revisions and
 request rejection of a supplied target revision. The increment has no startup,
 resume, command, HTTP/WS, permission, lifecycle or UI consumer.
+
+## Fifth increment: dormant trusted local capability snapshot
+
+`loadOrdinaryLocalCodexTarget` reads only an explicitly selected
+`MITZO_ORDINARY_LOCAL_CODEX_TARGET_FILE` in the operator-owned server environment.
+It is dormant: startup, HTTP/WS, discovery and dispatch do not call the loader.
+Missing configuration is disabled. Relative paths, symlinks, non-regular files,
+invalid UTF-8/JSON, content over 64 KiB and unknown fields fail with a fixed error
+that does not disclose the path or content. Neither account files nor Symposium
+or OpenShell settings supply a fallback.
+
+The strict version-1 file declares one local Codex target:
+
+```json
+{
+  "version": 1,
+  "targetId": "local-mac",
+  "label": "Local Mac",
+  "hostId": "operator-declared-host-id",
+  "runtimeContractRevision": "reviewed-local-runtime-contract-r1"
+}
+```
+
+These are operator declarations, not observed host/runtime evidence. The operator
+must name the owning host and reviewed local runtime contract; future admission
+must independently verify that the selected runtime matches both declarations.
+The file cannot supply a target revision, executable, credential, gateway or
+another execution location. A canonical SHA-256 routing revision includes the
+schema/route version, target ID, host ID and runtime contract revision; file
+formatting and the presentation label do not change it. `descriptor()` exposes
+only ID, label, revision, local location and Codex harness. Private snapshot fields
+and returned copies prevent mutation from changing the retained target.
+
+`AccountProfiles.ordinaryLocalCodexInventory` reuses the accepted exclusive
+host-login projection and existing configured/cached Codex model metadata. It
+performs no sign-in check, general account catalog lookup, discovery refresh or
+provider launch. Credential references, email, workspace, provider/grant data and
+raw profiles never enter the projected inventory. Cached discovery source,
+recorded update time and its existing stale/error flag remain explicit; they do
+not authorize dispatch or claim fresh provider availability.
+
+`OrdinaryLocalCodexCapabilityCatalog` retains that metadata and target together
+as one independent snapshot. Its existing pure resolver checks the exact account/
+harness/target reference. It advertises configured modes from that resolver and
+Codex's unsupported restricted skill ceiling, not permission or tool parity.
+Callers must explicitly classify the server deployment; missing or invalid classification fails rather than defaulting to ordinary execution. Custodian deployments keep local routes unavailable. The response retains
+`defaultLocation: "openshell"` and reports `openshell_projection_pending`; it does
+not select a local replacement. Missing targets and absent eligible accounts have
+finite local unavailable reasons. Native/brokered/API/Vertex profiles are not
+projected by this increment.
+
+Inventory validation bounds 64 accounts, 256 models per account, 16 thinking
+values per model, reference/label lengths and a total encoded payload of 1 MiB.
+Duplicate account/model IDs or thinking values, unsupported default thinking and
+invalid metadata fail with one non-sensitive error rather than returning a
+partial selectable catalog. No model IDs or thinking values are invented.
+`capabilityRevision` binds routing identity, model/thinking choices and discovery
+source/stale state separately from target and account routing revisions. Labels
+and discovery timestamps do not change capability identity. Responses are deep
+copies; subsequent cache updates cannot rewrite an existing snapshot.
+
+This completes the first local configuration projection within plan Step 2, not
+the full picker API or route qualification. Other provider/OpenShell projections,
+published-agent composition, authenticated inventory delivery, host/runtime
+verification, live authorization and create/turn admission require subsequent
+reviewed increments. No session model setting, runtime selection, provider
+continuation or existing API/UI behavior changes here.
 
 ## Invariants for subsequent adoption
 

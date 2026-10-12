@@ -984,7 +984,7 @@
     padding: 8px 12px;
     flex-wrap: wrap;
   }
-  .workspace-chat .workspace-controls > div:not([hidden]) {
+  .workspace-chat .workspace-controls > .motion-disclosure:not([hidden]) {
     position: absolute;
     top: 100%;
     right: 0;
@@ -1317,5 +1317,36 @@
 @container (max-width: 360px) {
   .chat-input--compact .composer-toolbar {
     flex-wrap: wrap;
+  }
+}
+
+/* Shared always-reachable actions beside the collapsed workspace summary. */
+.workspace-controls-heading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding-right: var(--page-gutter);
+}
+.workspace-controls-heading .workspace-controls-toggle {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+}
+
+@media (max-width: 767px) {
+  /* Summaries retain their full accessible name; settings remain in the disclosure. */
+  .workspace-controls-heading .workspace-controls-summary > span {
+    display: block;
+    max-width: 100%;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  /* Bound this overlay so it cannot consume the composer's launch-action area. */
+  .workspace-chat .workspace-controls > .motion-disclosure:not([hidden]) {
+    max-height: min(
+      var(--workspace-disclosure-space, 45dvh),
+      calc(100dvh - 88px - env(safe-area-inset-bottom))
+    );
   }
 }

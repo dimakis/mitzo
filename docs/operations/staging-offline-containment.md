@@ -14,6 +14,17 @@ The supported incident is the source/build/configuration tuple recorded by
 configuration, owner, storage reference or control binding requires separate
 investigation and review. Historical diagnostic inventory is not authorization.
 
+The original VM was resumed once for an approved read-only inspection on 11 October,
+then normally stopped on 12 October to release its host allocation. The unchanged
+supervisor is now inactive with exactly one run and no PID. Its measured machine
+SHA256 is `64e86ea129a14a1ac27e41c19fe16ada36afa61e95b4378e2170f2f321a56a84`;
+Podman changed `LastUp` to `2026-10-12T09:20:47.495329+01:00` during normal stop.
+The controller pins that actual tuple; it refuses zero or additional runs, a live
+PID, or different machine bytes. No registration history was reset. Fresh
+physical closure, source qualification, native device-owner authentication and
+complete archive verification remain required. Normal VM stop did not retire the
+uncertain launch or grant replacement native capacity.
+
 ## Independent preparation and review
 
 Run the existing canonical check first. Its refusal is evidence to preserve,

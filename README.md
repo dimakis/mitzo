@@ -11,6 +11,8 @@ Claude Code on your phone. A self-hosted web UI built on the [Agent SDK](https:/
 
 Expand **Workspace** in chat to choose the account and model. **Make default for new chats** saves that pair (and thinking setting) on this browser; **Clear new-chat default** removes it. Existing conversations keep their bound account. When no default is saved, select an account or confirm the suggested account with **Use** before sending. If a saved account or model is unavailable, choose a replacement explicitly.
 
+**Access** stays beside Workspace controls before a chat starts and while approvals are pending. Its read-only Connections view preserves your draft and attachments on return. Configured account/service access is separate from current session evidence; missing evidence is Unknown and older observations are Stale. Historical links and successful workspace paths appear as References, and tool names are observed capabilities. Mentioning a URL or receiving an image does not keep an output.
+
 Telos **Open in Chat** and **Start Session** open a launch preview with Workspace expanded. Review the account and model, then select **Send launch prompt**. The chat follows the session created for that launch and keeps its Telos context and task identity. The preview stays available until delivery is confirmed through the HTTP receipt or a matching persisted WebSocket user-message echo; a failed send can be retried with the same task context.
 
 Codex provider failures show sanitized, actionable messages for known capacity, account, context and connection failures. Known native capacity failures schedule up to five continuations from saved progress, 30 seconds apart, using the same account, model and provider thread. **Try again** runs one attempt immediately within that budget; after exhaustion it explicitly starts a new five-attempt cycle. **Stop retries** cancels waiting work and interrupts only its active continuation. A new user message supersedes pending retries. Each continuation is a new native turn with fresh standard admission and acknowledgment-bound context delivery; it does not replay the original prompt or replace completed tool results. Restart stops the retry schedule until a manual **Try again**; uncertain dispatched work remains held for inspection.
@@ -101,7 +103,7 @@ Symposium director status resolves the verified runtime once per request and reu
 - **Auto-rename sessions** — sessions get meaningful names via LLM summarization after every few prompts
 - **Quick actions** — one-tap commands via `.mitzo.json`
 - **Notifications center** — shared desktop/mobile feed for approvals, questions, session completions, and new Inbox arrivals, with native iPhone/Apple Watch delivery. Native device enrollment retries after login and app resume; partial listener setup resumes without duplicating callbacks. Enable **Show sensitive details** to see complete eligible requests and allow once or deny from an expanded iOS banner without opening Mitzo; search banners also offer session-wide consent bound to the selected account and model.
-- **Image attachments** — send photos/screenshots from your camera
+- **Image attachments** — send photos/screenshots from your camera. OpenAI API chats accept PNG, JPEG, WebP and GIF attachments up to 10 MiB each on initial sends, follow-ups and interrupts, through both OpenShell and direct Responses execution. Direct Responses sends the image bytes as native image inputs and preserves them for conversation continuation; invalid attachments are rejected before interrupting an active turn. See [OpenAI image input](docs/features/openai-responses-session.md).
 - **Session history** — resume past conversations, swipe to dismiss. Hold a conversation in the recent list or search results to preview its latest saved messages above an action menu; release keeps the preview open. Open, rename, copy the session ID, or delete the conversation without first entering chat. Search results refresh after renames and deletions. Scrolling cancels the hold. Desktop users can right-click or press Shift+F10; Preview conversation is also available in row details. Escape, Close, or a tap outside returns to the list.
 - **Managed Connections** — attach reviewed Jira, GitHub, and bounded custom REST providers to eligible accounts; publish GitHub pull requests through an approved controller operation
 
@@ -131,6 +133,10 @@ Per-message context blocks selected in **Sources** appear beside your sent messa
 
 The Library requires independently reviewed private host enrollment through `MITZO_KNOWLEDGE_LIBRARY_CONFIG`, including explicit document scopes and optional publishing identity. Acceptance is disabled by default. See [Knowledge Library enrollment](docs/operations/knowledge-library.md). Drafts join core SQLite backups with bounded Git recovery bundles, preserving exact prepared review heads after restore into a fresh source mirror. **More → Workspace tools** retains the raw Files browser and existing artifact links; its worktree list loads only on request, with cached, bounded discovery.
 
+### Draft image preview and drawing
+
+Tap a draft thumbnail or its Sources drawer row to open a full-screen preview, draw on the image, undo or clear marks, and save the annotated image before sending. Close or Cancel retains the original. Preview and drawing use the shared composer across all runtimes; the removal button stays separate from the image preview.
+
 ### Managed Connections
 
 Apple Keychain HTTPS connections support Home Assistant and custom APIs with tokens, API keys or username/password authentication. Open **More → API connections** or **Connections → Add connection → Authenticated API** to configure any HTTPS API with its own origin, paths and methods. The generic entry starts with a blank custom service; Home Assistant is an optional template. The selected template is saved with the connection, and both the UI and controller restrict Home Assistant dashboard scope to that integration. Deploy the updated backend before distributing the new frontend, which submits this template metadata. Agents discover configured connections and request approval for each session. The new mobile navigation requires distributing an updated iOS bundle; a backend update alone does not update installed app assets. Credentials stay in Keychain and are supplied only by the trusted request client. A signed Mac helper and explicit configuration are required; this feature is disabled by default. Apple Passwords records are not automatically browsed or synced. Any Keychain service connection can enable bounded authenticated text WebSocket requests through `ConnectionWebSocket`, using its configured path, header or JSON authentication, and optional subprotocols. Credentials stay private, generic commands require session approval and are blocked in Ask mode, and unconfirmed commands are never replayed automatically. Home Assistant connections can also enable dashboard list/read/save over authenticated WebSocket API calls. Dashboard writes require explicit scope and session approval, check the last-read configuration hash before saving, and verify the saved configuration by reading it back. Ask mode permits dashboard reads only; storage dashboards can be updated, while YAML dashboards remain owned by their source. See [Keychain setup and session access](docs/keychain-connections.md).
@@ -140,6 +146,12 @@ Apple Keychain HTTPS connections support Home Assistant and custom APIs with tok
 **Shared UI motion** — Pages fade quickly; menus, sheets and disclosures use the same brief transitions on web and iOS. Reduce Motion disables animations. Shared motion tokens and reusable components keep new routes and controls consistent; CI rejects ad hoc durations and direct animation calls. See [the frontend motion contract](docs/design/frontend-motion.md). Installed iOS apps receive this behavior with an updated app bundle.
 
 **Settings → Appearance** offers Lavender, Teal, Rose, Amber, Blue, Mint, Coral and Plum accents and System, Arial, Georgia, Verdana, Trebuchet MS, Palatino and Courier New UI fonts. Font stacks use local fallbacks when the selected family is unavailable. Changes preview immediately, apply to every route, and persist locally on the current device across reloads. Each accent has light/dark variants; code retains its monospace font. Reset appearance restores the defaults.
+
+**Chats → Drafts** keeps unsent new conversations separate from chat history. New chat opens a fresh composer; leaving it saves the message, attachments, context, account, model, thinking level and launch settings on this device. Open a draft to edit it before sending, or explicitly discard it. Failed or uncertain sends retain the draft until acceptance is confirmed. Existing unsent new-chat text is preserved during migration using the device's saved account/model preference; older versions did not record the rest of its settings.
+
+Repository preparations stay with their draft even before typing or after clearing its message. Discard releases an unused preparation before removing the saved draft; if its state or cleanup cannot be confirmed, the draft remains available to reopen and retry.
+
+**More → Settings → Updates** shows the installed commit, interface build and update status, with explicit version checks and interface reload. Review update opens the installation's configured Deploy Mitzo prompt in a fresh chat for review before sending; opening the page never deploys an update. The chat list no longer carries update or deployment controls.
 
 Controls, navigation, resource types and work states share a restrained outline icon family that stays consistent across fonts and platforms. Internal destinations use chevrons, external links use an external-link icon, and command scopes are labelled Workspace, Personal or Built-in.
 
@@ -196,7 +208,7 @@ SDK query failures after input acceptance are recorded under the current convers
 
 The [durable child session allocation design](docs/design/session-service-core.md) describes the SessionService foundation for future bounded Task Board workers and Symposium seats. It records a child conversation and its parent/grant link in one transaction before runtime setup, fences cancellation across descendants, and retains uncertain starts or missing results for recovery. This foundation does not yet change the current Task Board or Symposium runtime paths.
 
-The [session runtime selection foundation](docs/design/session-runtime-selection.md) separates account identity, agent implementation and execution location in a dormant, immutable metadata contract. Explicit creation stores that contract with a new ordinary repository session; legacy sessions are not enrolled. V2 also persists the exact configured target ID and routing revision; V1 remains readable without target inference or automatic upgrade. A pure server resolver checks compatibility against an injected catalog and returns a V2 binding containing its selected target/revision. AccountProfiles can project credential-free local Codex host-login metadata with the exact existing account routing revision when Codex is enabled; this performs no authentication or discovery. Trusted target loading and revision provenance, authorization and dispatch admission remain separate work. Startup and resume do not consume these bindings yet, and no runtime selector is exposed.
+The [session runtime selection foundation](docs/design/session-runtime-selection.md) separates account identity, agent implementation and execution location in a dormant, immutable metadata contract. Explicit creation stores that contract with a new ordinary repository session; legacy sessions are not enrolled. V2 also persists the exact configured target ID and routing revision; V1 remains readable without target inference or automatic upgrade. A pure server resolver checks compatibility against an injected catalog and returns a V2 binding containing its selected target/revision. AccountProfiles can project credential-free local Codex host-login metadata with the exact existing account routing revision when Codex is enabled; this performs no authentication or discovery. A dormant local Codex target loader now validates an explicit operator-owned file and computes its routing revision. Its bounded configuration-only capability snapshot joins that target with the existing local account projection and cached model/thinking metadata; OpenShell remains the default preference with an explicit unavailable reason until its projection is enrolled. A dormant first-command coordinator requires an explicit server gate and independently qualified owning authority, then atomically saves the exact runtime/workspace binding and frozen published profile, context, permission, model and thinking selection in the existing command receipts. Exact retries retain their choices; uncertainty is saved before workspace or provider effects and cannot replay automatically. Existing-session adoption and later commands are refused by this slice. Legacy send, startup and cold-start preflight fail closed for runtime-bound rows. Actual host/runtime verification, workspace reservation before materialization, provider continuity, other provider projections and an authenticated picker endpoint remain separate work; no live caller or runtime selector is enrolled.
 
 Symposium shutdown fences new admission and dispatch, drains retained seat and login
 cleanup, and awaits the owned gateway child before closing custody stores. A bounded
@@ -641,6 +653,14 @@ bridge; a web deployment alone cannot update installed native code.
 | `session-overview.ts`   | Session overview API                              |
 | `signal-processor.ts`   | Signal processing utilities                       |
 
+Execution admission, provider-attempt transitions and restart recovery live in
+`packages/protocol/src/execution-ledger.ts`. `EventStore` supplies its existing
+SQLite connection and prepared statements and retains schema, backup, close and
+conversation-identity ownership. State changes and their events commit together;
+restart recovery keeps completed per-attempt progress if a later write fails.
+Existing public execution methods and admission error types remain available
+through the event-store module.
+
 ### Frontend (`frontend/`) — React 19 + Vite
 
 React 19 + Vite. Ten pages (`Login`, `SessionList`, `ChatView`, `DesktopChatView`, `FileViewer`, `InboxView`, `CalendarView`, `TodoView`, `TodoDetailView`, `TaskBoard`), a `useReducer`-based message state machine (`useChatMessages`), module-level WebSocket pool with 500-message buffer, and components for thinking blocks, tool pills, tool groups, permission banners, and a slash-command picker. Capacitor wraps the frontend for iOS deployment via TestFlight.
@@ -765,11 +785,34 @@ npm run lint         # ESLint: server, frontend and shared packages (including t
 npm run format:check # prettier
 ```
 
+On macOS, run Playwright commands in a normal terminal or through an approved
+execution outside the Codex Seatbelt sandbox. Sandboxed launches can abort during
+macOS process registration and produce repeated crash popups. Both test configs
+refuse that environment before starting a browser or preview server; `--list`
+still works for discovery. Browser setup projects open a blank page once per selected
+engine/launch configuration. Playwright selects each setup as a dependency of its
+tests, so a Chromium-only run does not require WebKit. A failed startup blocks the
+dependent tests instead of relaunching a broken browser for each test. The offline suite starts no
+backend and makes no model calls. Ad hoc browser scripts need the same execution
+environment; they do not inherit the config guard.
+
+The browser CI job has a 45-minute budget for cold browser/dependency installation
+and both required suites. Installation can exceed 20 minutes; that time must not
+cancel an otherwise passing browser and offline run.
+
 CI runs the full source test suite without compiled test copies. New PR commits
 cancel superseded code-validation runs; description edits rerun only the
 documentation gate. Browser and native checks follow their changed-file
 dependencies, with both checks retained for shared tooling, unknown paths,
 incomplete diffs, and every push to main.
+
+Browser suites keep separate output and HTML report directories. On a failing
+suite, CI uploads its traces, failure screenshots, error snapshots and HTML report
+as `playwright-browser-failure-<run>-<attempt>` or
+`playwright-offline-failure-<run>-<attempt>` for seven days. Download the artifact
+from the Actions run; use `npx playwright show-trace <trace.zip>` or
+`npx playwright show-report <report-directory>` to inspect it. Successful suites
+do not upload artifacts, and retries keep the original attempt's evidence.
 
 Production artifacts are staged with
 `./scripts/stage-openshell-release.sh <mgmt-repo> <new-seed-output>`. It requires
@@ -1085,6 +1128,42 @@ and immutable incremental export to iCloud Drive. It is not enabled in productio
 Live store fences, independent recovery keys, upload verification, scheduling and
 replacement-machine acceptance must be configured before claiming protection. See
 [the implementation and rollout contract](docs/operations/icloud-ecosystem-backup.md).
+
+### Resource-aware staging pipeline
+
+After an accepted Mitzo PR merge, enqueue staging readiness instead of deploying
+from each agent session:
+
+```sh
+node scripts/staging-pipeline.mjs enqueue --pr NUMBER --task SESSION_ID
+node scripts/staging-pipeline.mjs status
+node scripts/staging-pipeline.mjs host-resources
+node scripts/staging-pipeline.mjs run-next
+```
+
+`run-next` runs once in the foreground from clean exact accepted main. One durable
+reservation spans preparation, deployment and testing; eleven callers still get
+one runner. It uses the canonical stage and accepted exact-commit plan/apply.
+An advanced main tip may validate an earlier accepted merge only after ancestry
+is checked; the receipt names both the requested and actually tested commits.
+The initial suite checks HTTP readiness only, with no provider or model calls.
+The paired MGMT merge-gate handoff can enqueue automatically after host
+enrollment. Feature-specific live suites and PR-shepherd result consumption
+remain separate integration work; readiness does not prove a feature or native runtime.
+
+Admission requires normal macOS memory pressure, at least 25% reported memory
+headroom, no more than 2 GiB swap use, at least 20 GiB free disk after proposed
+growth, and at most 48 GiB across staging and its quarantine archive. Deployment
+reserves the complete workspace/state snapshot, including full sparse-file copy
+size and control metadata, even when reusing a release. The staging
+VM ceiling is 4 GiB and two CPUs. Node build heaps are capped at 2 GiB and the
+ordinary app heap at 1 GiB; heap limits do not cap all native/process RSS. One
+queue controller admits work at a time. The private queue has at most 100 pending
+requests and a 16 MiB SQLite ceiling. Resource shortages remain queued. Expired
+owners cannot dispatch, finish or defer; they retain their reservation for
+reconciliation. Uncertain effects also retain capacity; no
+forced restart, automatic rollback or historical evidence deletion is provided.
+See [pipeline operations](docs/operations/staging-pipeline.md).
 
 ### Canonical Symposium staging on macOS
 

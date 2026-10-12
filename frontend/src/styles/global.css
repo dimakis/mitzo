@@ -4355,11 +4355,22 @@ textarea:focus {
 .chat-input-preview {
   position: relative;
   flex-shrink: 0;
-  width: 4rem;
-  height: 4rem;
-  border-radius: 8px;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-1);
+}
+
+.chat-input-preview-open {
+  width: calc(var(--control-height) + var(--space-5));
+  height: calc(var(--control-height) + var(--space-5));
+  min-width: var(--control-height);
+  padding: 0;
+  flex-shrink: 0;
+  border-radius: var(--radius-control);
   overflow: hidden;
   border: 1px solid var(--border);
+  background: var(--color-surface);
+  cursor: pointer;
 }
 
 .chat-input-preview img {
@@ -4369,21 +4380,19 @@ textarea:focus {
 }
 
 .chat-input-preview-remove {
-  position: absolute;
-  top: 2px;
-  right: 2px;
-  width: 1.2rem;
-  height: 1.2rem;
+  width: var(--control-height);
+  height: var(--control-height);
+  min-width: var(--control-height);
+  flex-shrink: 0;
   padding: 0;
   font-size: var(--text-xxs);
   line-height: 1;
-  border-radius: 50%;
+  border-radius: var(--radius-control);
   background: var(--color-overlay);
   color: var(--color-text);
   display: flex;
   align-items: center;
   justify-content: center;
-  min-width: unset;
 }
 
 /* Images in message bubbles */
@@ -7115,9 +7124,31 @@ a.session-tray-resource:hover {
   object-fit: cover;
 }
 
+.session-tray-draft-preview {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  min-height: var(--control-height);
+  gap: var(--space-2);
+  padding: var(--space-1);
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--color-text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.session-tray-draft-preview:hover {
+  background: var(--hover);
+}
+
 .session-tray-remove {
-  width: 1.6rem;
-  height: 1.6rem;
+  width: var(--control-height);
+  height: var(--control-height);
+  min-width: var(--control-height);
+  flex-shrink: 0;
   margin-left: auto;
   border-radius: 50%;
   font-size: 1rem;

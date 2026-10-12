@@ -16,6 +16,7 @@ import { extractImageFiles } from '../lib/paste-images';
 import { MAX_IMAGE_ATTACHMENTS } from '../lib/constants';
 import { SlashPicker } from './SlashPicker';
 import { SessionTray } from './SessionTray';
+import { ImageAttachmentEditor } from './ImageAttachmentEditor';
 import { ComposerTools } from './ComposerTools';
 import { UiIcon } from './UiIcon';
 import { MicButton } from './MicButton';
@@ -25,6 +26,13 @@ import type { UseVoiceReturn } from '../hooks/useVoice';
 import type { TokensState as TokenState } from '@mitzo/client';
 import { useDraft, type DraftSessionAssignment } from '../hooks/useDraft';
 import { useQueuedMessages } from '../hooks/useQueuedMessages';
+import {
+  type ChatDraft,
+  chatDraftStorageKey,
+  getChatDraft,
+  saveChatDraft,
+  consumeChatDraft,
+} from '../lib/chat-drafts';
 
 export interface ChatInputDraftControl {
   storageKey: string | undefined;
@@ -50,6 +58,7 @@ interface Props {
   initialText?: string;
   /** Prompt storage ownership independent of the provider session identity. */
   draftStorageKey?: string;
+  savedChatDraft?: ChatDraft;
   draftControl?: RefObject<ChatInputDraftControl | null>;
   sendDisabledReason?: string;
   cwd?: string;
@@ -79,7 +88,8 @@ export function ChatInput({
   onInterrupt,
   running,
   initialText,
-  draftStorageKey,
+  draftStorageKey: suppliedDraftStorageKey,
+  savedChatDraft,
   draftControl,
   sendDisabledReason,
   cwd,
@@ -98,6 +108,9 @@ export function ChatInput({
   bootContext,
   sessionContext,
 }: Props) {
+  const draftStorageKey = savedChatDraft
+    ? chatDraftStorageKey(savedChatDraft.id)
+    : suppliedDraftStorageKey;
   const sendPending = useRef<{ assignedSessionId?: string } | null>(null);
   // Acceptance can precede the routed render. Keep its exact assignment until
   // that ownership transfer is applied, independently of the pending receipt.
@@ -116,7 +129,7 @@ export function ChatInput({
     draftStorageKey === undefined ? (assignedDraft.current?.assignment ?? null) : null;
   const [text, setText, clearDraft, flushDraft] = useDraft(
     sessionId,
-    initialText,
+    initialText ?? savedChatDraft?.text,
     draftStorageKey,
     assignment,
   );
@@ -124,9 +137,28 @@ export function ChatInput({
     draftStorageKey,
     clearDraft,
   ]);
-  const [images, setImages] = useState<ImageAttachment[]>([]);
+  const [images, setImages] = useState<ImageAttachment[]>(savedChatDraft?.images ?? []);
+  const [preview, setPreview] = useState<{
+    image: ImageAttachment;
+    sessionId: string | undefined;
+    composerGeneration: number;
+    draftStorageKey: string | undefined;
+  } | null>(null);
+  const previewRef = useRef(preview);
+  previewRef.current = preview;
+  const previewScope = useRef({ sessionId, composerGeneration, draftStorageKey });
+  previewScope.current = { sessionId, composerGeneration, draftStorageKey };
+  const imageKeys = useRef(new WeakMap<ImageAttachment, number>());
+  const nextImageKey = useRef(0);
+  const previewOpen =
+    preview !== null &&
+    preview.sessionId === sessionId &&
+    preview.composerGeneration === composerGeneration &&
+    preview.draftStorageKey === draftStorageKey &&
+    images.includes(preview.image);
+  if (preview && !previewOpen) setPreview(null);
   const [showSlashPicker, setShowSlashPicker] = useState(false);
-  const [contextBlocks, setContextBlocks] = useState<string[]>([]);
+  const [contextBlocks, setContextBlocks] = useState<string[]>(savedChatDraft?.contextBlocks ?? []);
   const {
     queue: queuedMessages,
     enqueue,
@@ -146,25 +178,60 @@ export function ChatInput({
   }, [assignment, sessionId]);
   const useExternal = externalContextBlocks !== undefined;
   const activeContextBlocks = useExternal ? externalContextBlocks : contextBlocks;
+  const previousSavedId = useRef(savedChatDraft?.id);
+  const savedOwnerChanging = previousSavedId.current !== savedChatDraft?.id;
+  useEffect(() => {
+    if (!savedOwnerChanging) return;
+    previousSavedId.current = savedChatDraft?.id;
+    setImages(savedChatDraft?.images ?? []);
+    if (!useExternal) setContextBlocks(savedChatDraft?.contextBlocks ?? []);
+  }, [savedChatDraft, savedOwnerChanging, useExternal]);
+  const [saveFailed, setSaveFailed] = useState(false);
+  useEffect(() => {
+    if (!savedChatDraft || savedOwnerChanging) return;
+    const current = getChatDraft(savedChatDraft.id) ?? savedChatDraft;
+    setSaveFailed(
+      !saveChatDraft({
+        ...current,
+        settings: savedChatDraft.settings,
+        text,
+        images,
+        contextBlocks: activeContextBlocks,
+      }),
+    );
+  }, [savedChatDraft, savedOwnerChanging, text, images, activeContextBlocks]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const initialApplied = useRef(false);
-  const prevRunning = useRef(running);
+  const prevRunning = useRef({ running, sessionId, composerGeneration, draftStorageKey });
+  if (
+    prevRunning.current.sessionId !== sessionId ||
+    prevRunning.current.composerGeneration !== composerGeneration ||
+    prevRunning.current.draftStorageKey !== draftStorageKey
+  ) {
+    // A deferred completion authorizes only the queue owned by that draft.
+    prevRunning.current = { running, sessionId, composerGeneration, draftStorageKey };
+  }
   const sendGuard = useRef(false);
   const interruptPending = useRef<object | null>(null);
   const mounted = useRef(true);
+  const voiceOperation = useRef<{ scope: number } | null>(null);
   const latestDraft = useRef({
     text,
     images,
     contextBlocks: activeContextBlocks,
     sessionId,
     composerGeneration,
+    draftStorageKey,
     scope: 0,
     revision: 0,
   });
   const previous = latestDraft.current;
   const generationChanged = previous.composerGeneration !== composerGeneration;
-  const scopeChanged = previous.sessionId !== sessionId || generationChanged;
+  const scopeChanged =
+    previous.sessionId !== sessionId ||
+    previous.draftStorageKey !== draftStorageKey ||
+    generationChanged;
   if (scopeChanged) {
     interruptPending.current = null;
     if (generationChanged || sendPending.current?.assignedSessionId !== sessionId)
@@ -177,6 +244,7 @@ export function ChatInput({
     contextBlocks: activeContextBlocks,
     sessionId,
     composerGeneration,
+    draftStorageKey,
     scope: previous.scope + (scopeChanged ? 1 : 0),
     revision:
       previous.revision +
@@ -193,6 +261,17 @@ export function ChatInput({
       mounted.current = false;
     };
   }, []);
+
+  const composerScope = latestDraft.current.scope;
+  const cancelRecording = voice?.cancelRecording;
+  useEffect(
+    () => () => {
+      if (voiceOperation.current?.scope === composerScope) voiceOperation.current = null;
+      // This also invalidates pending microphone permission and aborts STT.
+      cancelRecording?.();
+    },
+    [composerScope, cancelRecording],
+  );
 
   const autoResize = useCallback(() => {
     const el = textareaRef.current;
@@ -225,6 +304,7 @@ export function ChatInput({
       queued = false,
     ): boolean => {
       const submitted = latestDraft.current;
+      const submittedSavedDraft = savedChatDraft ? getChatDraft(savedChatDraft.id) : null;
       const pending: { assignedSessionId?: string } = {};
       sendPending.current = pending;
       // Keep dequeued input under the existing explicit-retry fence until a
@@ -239,6 +319,11 @@ export function ChatInput({
           if (status === 'accepted' && retained) removeSubmitted(retained);
           return;
         }
+        const savedRevisionConsumed =
+          status === 'accepted' && submittedSavedDraft
+            ? consumeChatDraft(submittedSavedDraft)
+            : true;
+        if (status === 'accepted' && !savedRevisionConsumed) return;
         const latest = latestDraft.current;
         const assigned =
           latest.composerGeneration === submitted.composerGeneration &&
@@ -280,16 +365,25 @@ export function ChatInput({
       if (!sent) onDelivery('failed');
       return sent;
     },
-    [onSend, restoreRejected, removeSubmitted, clearDraft, useExternal, draftStorageKey],
+    [
+      onSend,
+      restoreRejected,
+      removeSubmitted,
+      clearDraft,
+      useExternal,
+      draftStorageKey,
+      savedChatDraft,
+    ],
   );
 
   // Auto-send next queued message when agent finishes its turn
   useEffect(() => {
     if (
-      prevRunning.current &&
+      prevRunning.current.running &&
       !running &&
       !sendPending.current &&
       !interruptPending.current &&
+      !previewOpen &&
       queuedMessages.length > 0
     ) {
       const q = dequeue();
@@ -297,8 +391,10 @@ export function ChatInput({
         sendOrdinary(q, true);
       }
     }
-    prevRunning.current = running;
-  }, [running, queuedMessages, sendOrdinary, dequeue]);
+    // Keep a completed turn pending while the editor is modal. Its already
+    // queued message may drain once editing closes, without sending this draft.
+    if (!previewOpen || running) prevRunning.current.running = running;
+  }, [running, queuedMessages, sendOrdinary, dequeue, previewOpen]);
 
   // Show/hide slash picker based on input
   // TODO: Verify picker reopens correctly on backspace after space (e.g. "/simplify " → "/simplify")
@@ -318,7 +414,13 @@ export function ChatInput({
   }
 
   function handleSend() {
-    if (sendGuard.current || sendPending.current || interruptPending.current || sendDisabledReason)
+    if (
+      previewOpen ||
+      sendGuard.current ||
+      sendPending.current ||
+      interruptPending.current ||
+      sendDisabledReason
+    )
       return;
     const trimmed = text.trim();
     if (!trimmed && images.length === 0) return;
@@ -340,6 +442,10 @@ export function ChatInput({
   }
 
   function handleKeyDown(e: KeyboardEvent) {
+    if (previewOpen) {
+      if (e.key === 'Enter') e.preventDefault();
+      return;
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       if (running && onInterrupt) {
@@ -356,17 +462,27 @@ export function ChatInput({
 
     const remaining = MAX_IMAGE_ATTACHMENTS - images.length;
     const toProcess = Array.from(files).slice(0, remaining);
+    const ownerScope = latestDraft.current.scope;
 
     for (const file of toProcess) {
       try {
+        if (!mounted.current || latestDraft.current.scope !== ownerScope) return;
         const attachment = await resizeImage(file);
-        setImages((prev) => [...prev, attachment]);
+        if (!mounted.current || latestDraft.current.scope !== ownerScope) return;
+        setImages((prev) =>
+          mounted.current &&
+          latestDraft.current.scope === ownerScope &&
+          prev.length < MAX_IMAGE_ATTACHMENTS
+            ? [...prev, attachment]
+            : prev,
+        );
       } catch {
         // Image resize failed — skip this attachment silently
       }
     }
 
-    if (fileInputRef.current) fileInputRef.current.value = '';
+    if (mounted.current && latestDraft.current.scope === ownerScope && fileInputRef.current)
+      fileInputRef.current.value = '';
   }
 
   async function handlePaste(e: React.ClipboardEvent) {
@@ -377,10 +493,19 @@ export function ChatInput({
     if (files.length === 0) return;
 
     e.preventDefault();
+    const ownerScope = latestDraft.current.scope;
     for (const file of files) {
       try {
+        if (!mounted.current || latestDraft.current.scope !== ownerScope) return;
         const attachment = await resizeImage(file);
-        setImages((prev) => [...prev, attachment]);
+        if (!mounted.current || latestDraft.current.scope !== ownerScope) return;
+        setImages((prev) =>
+          mounted.current &&
+          latestDraft.current.scope === ownerScope &&
+          prev.length < MAX_IMAGE_ATTACHMENTS
+            ? [...prev, attachment]
+            : prev,
+        );
       } catch {
         // Image resize failed — skip silently
       }
@@ -389,6 +514,36 @@ export function ChatInput({
 
   function removeImage(index: number) {
     setImages((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  function previewImage(image: ImageAttachment) {
+    setPreview({ image, sessionId, composerGeneration, draftStorageKey });
+  }
+
+  function savePreview(updated: ImageAttachment) {
+    const selected = preview;
+    const scope = previewScope.current;
+    if (
+      !selected ||
+      previewRef.current !== selected ||
+      selected.sessionId !== scope.sessionId ||
+      selected.composerGeneration !== scope.composerGeneration ||
+      selected.draftStorageKey !== scope.draftStorageKey ||
+      !latestDraft.current.images.includes(selected.image)
+    )
+      return;
+    imageKeys.current.set(updated, imageKey(selected.image));
+    setImages((draft) => draft.map((image) => (image === selected.image ? updated : image)));
+    setPreview(null);
+  }
+
+  function imageKey(image: ImageAttachment) {
+    let key = imageKeys.current.get(image);
+    if (key === undefined) {
+      key = nextImageKey.current++;
+      imageKeys.current.set(image, key);
+    }
+    return key;
   }
 
   const canSend = text.trim() || images.length > 0;
@@ -400,22 +555,37 @@ export function ChatInput({
         transcribing: voice.transcribing,
         micBlocked: voice.micBlocked,
         onRecordStart: () => {
+          if (!mounted.current || latestDraft.current.scope !== composerScope) return;
+          voiceOperation.current = { scope: composerScope };
           voice.stopSpeaking();
           return voice.startRecording();
         },
         onRecordStop: async () => {
+          if (!mounted.current || latestDraft.current.scope !== composerScope) return;
+          const operation = { scope: composerScope };
+          voiceOperation.current = operation;
           const transcript = await voice.stopRecording();
-          if (transcript) {
-            setText((prev) => (prev ? `${prev} ${transcript}` : transcript));
+          const ownsTranscript = () =>
+            mounted.current &&
+            latestDraft.current.scope === composerScope &&
+            voiceOperation.current === operation;
+          if (transcript && ownsTranscript()) {
+            setText((prev) =>
+              ownsTranscript() ? (prev ? `${prev} ${transcript}` : transcript) : prev,
+            );
             textareaRef.current?.focus();
           }
         },
-        onRecordCancel: voice.cancelRecording,
+        onRecordCancel: () => {
+          if (!mounted.current || latestDraft.current.scope !== composerScope) return;
+          voiceOperation.current = null;
+          voice.cancelRecording();
+        },
       }
     : null;
 
   function handleQueue() {
-    if (sendPending.current) return;
+    if (previewOpen || sendPending.current) return;
     const trimmed = text.trim();
     if (!trimmed && images.length === 0) return;
     const added = enqueue({
@@ -447,6 +617,7 @@ export function ChatInput({
   }
 
   function fireQueuedAsInterrupt(index: number) {
+    if (previewOpen) return;
     const q = queuedMessages[index];
     if (!q || sendPending.current || interruptPending.current || sendDisabledReason) return;
     if (!running) {
@@ -475,6 +646,7 @@ export function ChatInput({
 
   function handleInterrupt() {
     if (
+      previewOpen ||
       sendGuard.current ||
       sendPending.current ||
       interruptPending.current ||
@@ -519,12 +691,30 @@ export function ChatInput({
 
   return (
     <div className="chat-input chat-input--compact">
+      {savedChatDraft && (
+        <p className="chat-draft-save-status" role={saveFailed ? 'alert' : 'status'}>
+          {saveFailed
+            ? 'Couldn’t save this draft on this device. Keep it open and free some storage before leaving.'
+            : 'Saved to Drafts · message and settings stay editable'}
+        </p>
+      )}
       {images.length > 0 && (
         <div className="chat-input-previews">
           {images.map((image, index) => (
-            <div key={index} className="chat-input-preview">
-              <img src={image.preview} alt={`Attachment ${index + 1}`} />
+            <div key={imageKey(image)} className="chat-input-preview">
               <button
+                type="button"
+                className="chat-input-preview-open"
+                aria-label={`Preview attachment ${index + 1}`}
+                onClick={(event) => {
+                  event.currentTarget.focus();
+                  previewImage(image);
+                }}
+              >
+                <img src={image.preview} alt={`Attachment ${index + 1}`} />
+              </button>
+              <button
+                type="button"
                 className="chat-input-preview-remove"
                 aria-label={`Remove attachment ${index + 1}`}
                 onClick={() => removeImage(index)}
@@ -534,6 +724,14 @@ export function ChatInput({
             </div>
           ))}
         </div>
+      )}
+      {previewOpen && preview && (
+        <ImageAttachmentEditor
+          key={imageKey(preview.image)}
+          image={preview.image}
+          onSave={savePreview}
+          onClose={() => setPreview(null)}
+        />
       )}
       <MotionPresence open={showSlashPicker} kind="popover" appear={false}>
         <SlashPicker
@@ -639,6 +837,8 @@ export function ChatInput({
                 }
                 onAddImages={() => fileInputRef.current?.click()}
                 onRemoveImage={removeImage}
+                onPreviewImage={previewImage}
+                getDraftImageKey={imageKey}
               />
             )}
           </div>

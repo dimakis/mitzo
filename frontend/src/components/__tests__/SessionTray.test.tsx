@@ -31,6 +31,30 @@ const props = {
 };
 
 describe('SessionTray', () => {
+  it('previews a draft image by object identity with a separate remove action', () => {
+    const image = { data: 'one', mediaType: 'image/png', preview: 'data:image/png;base64,one' };
+    const preview = vi.fn();
+    const remove = vi.fn();
+    render(
+      <SessionTray
+        {...props}
+        draftImages={[image]}
+        onPreviewImage={preview}
+        onRemoveImage={remove}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Open session tray' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Sources 1' }));
+    const opener = screen.getByRole('button', { name: 'Preview pasted image 1' });
+    const remover = screen.getByRole('button', { name: 'Remove pasted image 1' });
+    expect(opener.contains(remover)).toBe(false);
+    fireEvent.click(opener);
+    expect(preview).toHaveBeenCalledExactlyOnceWith(image);
+    fireEvent.click(remover);
+    expect(remove).toHaveBeenCalledExactlyOnceWith(0);
+    expect(preview).toHaveBeenCalledTimes(1);
+  });
+
   it.each([
     ['toolbar', -80, 'full'],
     ['overlay', 80, 'full'],
@@ -200,7 +224,7 @@ describe('SessionTray', () => {
     expect(screen.getByTestId('session-tray').dataset.snap).toBe('peek');
   });
 
-  it('renders collected session sources and outputs', () => {
+  it('renders sources, References and observed capabilities separately', () => {
     render(
       <SessionTray
         {...props}
@@ -230,13 +254,19 @@ describe('SessionTray', () => {
     );
     fireEvent.click(screen.getByRole('button', { name: 'Open session tray' }));
     expect(screen.queryByText('project-spec')).toBeNull();
-    expect(screen.queryByText('Generated files and previews will appear here')).toBeNull();
+    expect(
+      screen.queryByText(
+        'Explicitly kept outputs remain in the conversation. Mentioned links are References.',
+      ),
+    ).toBeNull();
 
-    fireEvent.click(screen.getByRole('button', { name: /Sources 2/ }));
-    fireEvent.click(screen.getByRole('button', { name: /Outputs 2/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Sources 1/ }));
+    fireEvent.click(screen.getByRole('button', { name: /References 2/ }));
 
     expect(screen.getByText('project-spec')).toBeTruthy();
+    fireEvent.click(screen.getByText('Observed capabilities'));
     expect(screen.getByText('Write')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Outputs' })).toBeTruthy();
     expect(screen.getByRole('link', { name: /localhost:3196/ }).getAttribute('href')).toBe(
       'http://localhost:3196',
     );
@@ -256,7 +286,7 @@ describe('SessionTray', () => {
     );
     fireEvent.click(screen.getByRole('button', { name: 'Open session tray' }));
 
-    const outputs = screen.getByRole('button', { name: /Outputs 0/ });
+    const outputs = screen.getByRole('button', { name: 'Outputs' });
     const sources = screen.getByRole('button', { name: /Sources 1/ });
     expect(outputs.getAttribute('aria-expanded')).toBe('false');
     expect(sources.getAttribute('aria-expanded')).toBe('false');
@@ -268,7 +298,11 @@ describe('SessionTray', () => {
     expect(screen.getByText('Pasted image 1')).toBeTruthy();
     expect(outputs.getAttribute('aria-expanded')).toBe('false');
     fireEvent.click(outputs);
-    expect(screen.getByText('Generated files and previews will appear here')).toBeTruthy();
+    expect(
+      screen.getByText(
+        'Explicitly kept outputs remain in the conversation. Mentioned links are References.',
+      ),
+    ).toBeTruthy();
   });
 
   it('closes on Escape', () => {

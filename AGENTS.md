@@ -19,6 +19,18 @@ For any user-facing UI change, read [the UI design contract](docs/design/ui-desi
 
 For live Mitzo testing on the configured macOS host, reuse `http://mitzo-staging.localhost:3190` and `com.mitzo.staging`. Read [the operating procedure](docs/operations/canonical-staging.md) and run `~/.local/share/mitzo-staging/bin/mitzo-staging check` first. Do not create additional staging backends, custodians or background previews, borrow production configuration, or use production as a test fallback. Staging changes use the audited exact-commit plan/apply command; a lock or uncertain drain requires investigation, never forced restart or automatic rollback. Provider setup and retained diagnostic resources remain separate. Production deployment is a separate explicit user action.
 
+## Staging pipeline admission
+
+For accepted Mitzo changes, use [the staging pipeline](docs/operations/staging-pipeline.md):
+`node scripts/staging-pipeline.mjs enqueue --pr NUMBER --task SESSION_ID` after merge,
+then inspect its status. One designated controller runs `run-next` from clean exact
+accepted main; feature sessions do not independently replace the test baseline.
+The initial suite proves only HTTP readiness; feature/native/provider acceptance
+remains separate until those suites are enrolled. Check `host-resources` before
+local staging builds. Use one local test worker and a 1 GiB Node heap for focused
+regressions; leave broad builds/tests in CI while macOS reports memory pressure.
+Do not delete historical releases or uncertainty records to satisfy disk admission.
+
 ## Required merge gate
 
 Green CI is insufficient to merge. Require Centaur's final LGTM and `merge` recommendation for the exact current PR head, with zero new or unresolved blocking findings. Missing, stale, dismissed, `fix`, and `human_decision` reviews block merge. Pushing a fix does not verify it. If the automatic review limit is reached, request an explicit final Centaur review. Recheck after every push, and use `--match-head-commit` when merging. Never bypass the gate with an admin merge. MGMT provides `python -m mgmt_lib.pr_merge_gate OWNER/REPO NUMBER [--merge]` for this check.
@@ -26,6 +38,16 @@ Green CI is insufficient to merge. Require Centaur's final LGTM and `merge` reco
 Production activation requires reviewed, accepted sources. A publication is distinct from consumer adoption: verify the selected knowledge and actual runtime before delivering it between turns. Keep published knowledge separate from writable task roots. Repair only the selected invalid content-addressed knowledge cache under its owning sandbox's lifecycle fence; preserve task data and unrelated views.
 
 Tests that make real model calls must explicitly use a supported Luna model. State the exact model and charged account before live tests; obtain approval if Luna is unavailable or another model is required.
+
+## Playwright on macOS
+
+Run browser tests and ad hoc Playwright scripts outside the Codex Seatbelt sandbox
+using the approved execution tool or a normal terminal. Sandboxed browser launches
+abort during macOS process registration and trigger crash popups. Do not retry
+failed launches, switch browser binaries, or unset `CODEX_SANDBOX` to bypass the
+host check. `--list` is safe inside the sandbox. The offline `npm run test:ui`
+suite intercepts all app traffic and needs no backend or model calls; live tests
+still follow the canonical staging and Luna requirements above.
 
 The `Centaur merge gate` workflow requires a dedicated GitHub App credential isolated in the default-branch-only `centaur-status-writer` environment. Branch protection must bind `Centaur final LGTM` to this App's numeric ID alongside CI. See `docs/operations/mgmt-knowledge-publication.md` for mandatory provisioning. Pushes and review comments wake the writer; five-minute reconciliation covers review changes. Missing or stale reports stay pending, blocking or dismissed reports fail. Verify App identity, environment restrictions, a real status and branch protection before claiming enforcement.
 

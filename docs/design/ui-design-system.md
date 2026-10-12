@@ -27,6 +27,16 @@ Use `WorkspacePageHeading` for title, a short description, optional count and pa
 
 Use grouped bordered rows and quiet surfaces for lists. Put the most useful title first, concise context below, and secondary metadata last. Long technical names must wrap or be clamped in the list and remain available in the full detail. Destructive actions need visible labelled controls; Proposals opens its full content before reviewing it in a chat. Return to the filtered list without losing the query.
 
+## Drafts and updates
+
+Chats keeps a counted Drafts destination separate from active and recent conversations. The dedicated collection uses `WorkspacePageHeading`, `MobileShell`/`DesktopShell`, shared iconography and token-based quiet records. Each record leads with the message, shows the saved account/model/thinking context, and exposes a labelled discard action through `HomeDialog`. Draft text wraps or clamps in the list and remains editable in the ordinary composer. Save failures stay visible. New chat always starts fresh; switching drafts must never copy one draft's content or settings into another.
+
+Empty messages with a repository preparation retain their exact receipt and account/model binding. Discard confirms and releases unused preparations before removing the local draft; unavailable or uncertain cleanup keeps the draft and reports the error. Pending attachment imports remain fenced to their originating composer. Clearing an ordinary draft leaves an editable blank composer whose URL can be reloaded.
+
+Settings owns the Updates destination and its availability summary. The dedicated update panel uses the shared surface, accent action and secondary controls; commit/build metadata remains secondary. Review update opens the existing configured prompt for user review. Loading, unavailable configuration and failed checks must remain distinct from an up-to-date release. Both pages inherit theme, accent, font, shell scrolling and navigation motion; neither defines another palette or wordmark.
+
+Offline acceptance captures show [Chats with its Drafts shortcut](assets/chat-library-chats-drafts-mobile-dark.png), [saved drafts on a narrow phone](assets/chat-library-drafts-mobile-dark.png), [the light desktop collection](assets/chat-library-drafts-desktop-light.png), [mobile Updates](assets/chat-library-updates-mobile-light.png) and [desktop Updates](assets/chat-library-updates-desktop-dark.png). The all-intercept fixture checks 320px mobile and 1280px desktop, light/dark themes, Mint/Georgia and Teal/System, larger text, final-item scrolling, keyboard focus, modal dismissal and confirmation, missing account/model selections and loading/error/update states. The fixture starts no server, provider or model. Discard confirmation returns focus to the next draft or New chat.
+
 ## Icons
 
 Use `UiIcon` for application controls, navigation, resources and status indicators. It renders decorative SVGs with a shared 24-unit viewbox, rounded 1.7-unit strokes and `currentColor`; use 16px in dense controls, 20px in navigation and 24px in empty states. These dimensions describe icon geometry, not a competing spacing scale. Keep touch targets at `--control-height` even when their visible icon is smaller. Filled stars distinguish pinned items; other icons use outlines. Busy icons respect reduced motion.
@@ -179,3 +189,55 @@ disclosure and reduced motion with no backend or provider.
 The terminal retains the shell-owned masthead and uses one compact toolbar for its title, current destination, adviser, controls disclosure and options. Adviser and destination details start collapsed, preserving most of the remaining mobile viewport for output. The command composer retains its 44px controls; duplicate destination/input captions and routine connected metadata do not occupy a separate row. Connected status remains available to assistive technology; errors and reconnection actions remain visible.
 
 Use the shared motion presence helper for terminal disclosures and options without resetting drafts, account selections or subscriptions. A token-styled **Live output** action overlays the output only while history is being browsed. Swipe and wheel gestures operate on retained shell history, with labelled alternatives and an unconditional return-to-live action in Terminal options, including after navigation. Offline checks cover the compact layout, unchanged masthead, narrow phone widths, alternate appearance preferences, keyboard behaviour, output movement and return to live output without shell input. The sr-only clipping geometry and bounded popover width are structural exceptions; spacing, type, colors and control heights use shared tokens.
+
+## Ordinary chat Access
+
+`WorkspaceControls` accepts always-visible actions alongside its collapsed summary.
+Access uses this slot on mobile and desktop so pending approval overlays cannot cover
+its entry. Its read-only observation and nested Connections view reuse `HomeDialog`,
+Connections grouped rows/facts, `UiIcon` and shared tokens. Returning leaves the
+composer mounted. Unknown availability and stale observations remain explicit; viewing
+Access cannot authorize a tool or start a session.
+
+On phones the Workspace summary truncates long text while its accessible name keeps
+the full account/model details. The expanded settings panel measures the space before launch actions or the composer and
+scrolls within that space, retaining those controls under larger text and viewport changes.
+A 45dvh cap is the fallback before measurement. These bounds are structural overlay geometry;
+colors, type, spacing and controls remain shared.
+
+## Draft image preview and drawing
+
+The shared composer opens draft images from its thumbnail strip and Sources drawer
+through `ImageAttachmentEditor`. The editor extends `HomeDialog` with a fullscreen
+class, retaining native modal focus, Escape dismissal, scroll locking and focus
+restoration. This interaction uses the same attachment state for every runtime.
+
+Keep preview selection separate from the labelled removal button: the image is a
+preview action, and its remove control has a distinct 44px target at the corner.
+Composer thumbnails use shared control/spacing tokens and are slightly larger than
+the prior 64px treatment. Drawer rows expose the same preview action without
+nesting the remove button inside it.
+
+The fullscreen surface uses semantic background/text/border colors, shared type,
+spacing and radius tokens, and the device safe areas. Drawing tools use `UiIcon`
+and labelled controls for Draw, Undo, Clear and pen color. Toolbars wrap or scroll
+within narrow and larger-text viewports; no action can fall below the safe area.
+Canvas dimensions follow the image aspect ratio, and pointer positions map to the
+original pixels rather than the displayed size. This is structural image geometry,
+not a new spacing or palette scale.
+
+Drawing remains a local draft until Save image exports a PNG attachment. Closing
+or cancelling preserves the original image and message text. Apply changes by
+attachment identity within the current conversation; removing that attachment or
+switching conversations must invalidate an outstanding edit. Preview keyboard
+input cannot submit or interrupt the chat behind the modal. Offline component
+and browser checks cover these behaviors across runtimes, mobile and desktop,
+light/dark themes, alternate appearance preferences and larger text.
+
+Offline acceptance captures show [the larger composer thumbnail and separate
+removal control](assets/image-composer-mobile-dark.png), [drawing on a narrow
+phone with larger text and alternate appearance](assets/image-drawing-mobile-light.png),
+and [the full-screen desktop preview](assets/image-preview-desktop-dark.png).
+The intercepted browser fixture checks saved PNG pixels and the exact attachment
+bytes submitted across four runtime bindings on mobile WebKit, mobile Chromium
+and desktop Chromium, without backend or provider calls.

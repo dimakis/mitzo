@@ -2334,6 +2334,15 @@ test('failed briefing registration survives a completed turn and reload without 
     .selectOption(changedBinding.model);
   await changedPicker.getByRole('button', { name: 'Use selection', exact: true }).click();
   await expect(page).toHaveURL(/\/chat$/);
+  // Larger text must not let the expanded Workspace overlay cover launch actions.
+  if (isMobile)
+    await page.evaluate(() => {
+      document.documentElement.style.fontSize = '20px';
+    });
+  await page.screenshot({
+    path: testInfo.outputPath('briefing-launch-access-large-text.png'),
+    animations: 'disabled',
+  });
   await page.getByRole('button', { name: 'Send launch prompt', exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`/chat/${changedSessionId}$`));
   await expect.poll(() => posts.length).toBe(3);
