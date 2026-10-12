@@ -94,6 +94,9 @@ export function createOriginalNativeAppSourceBridge({
     return selected;
   };
   return Object.freeze({
+    hasObservedChild() {
+      return Boolean(latest);
+    },
     async qualify(selected) {
       if (!commit.test(selected)) throw refuse();
       const deadline = now() + 12 * 60 * 1000;

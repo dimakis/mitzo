@@ -699,6 +699,8 @@ export async function runContainedNativeCanonicalLauncher({
             originalRegistrar.assertRegistrationCurrent();
             release.verifyRetainedOwnedRelease(plan);
             sourceInspector.inspect(bundle.sourceCommit);
+            if (appSourceBridge.hasObservedChild())
+              sourceInspector.inspect(appSourceBridge.capture().acceptedAppCommit);
             loadedNativeContinuity.assertCurrent();
           },
         ),
