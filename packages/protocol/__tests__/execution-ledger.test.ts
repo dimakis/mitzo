@@ -67,6 +67,7 @@ function fixture(before = false, file = false) {
   cleanups.push(() => store.close());
   store!.upsertSession({ sessionId: 'session', conversationSource: 'mitzo' });
   return {
+    path,
     get store() {
       return store;
     },
@@ -79,9 +80,14 @@ function fixture(before = false, file = false) {
     },
     snapshot() {
       return Object.fromEntries(
-        ['sessions', 'execution_admissions', 'provider_attempts', 'events', 'sqlite_sequence'].map(
-          (table) => [table, db.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all()],
-        ),
+        [
+          'sessions',
+          'client_command_claims',
+          'execution_admissions',
+          'provider_attempts',
+          'events',
+          'sqlite_sequence',
+        ].map((table) => [table, db.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all()]),
       );
     },
     attempt(action: () => unknown) {
@@ -93,7 +99,9 @@ function fixture(before = false, file = false) {
           error: {
             name: error.name,
             message: error.message,
-            ...(error instanceof ExecutionAdmissionError ? { code: error.code } : {}),
+            ...(typeof (error as { code?: unknown }).code === 'string'
+              ? { code: (error as { code: string }).code }
+              : {}),
           },
         };
       }
@@ -173,17 +181,16 @@ it.each([
   );
 });
 
-it.each(['RUNNING', 'REQUIRES_ACTION', 'STOPPING', 'TERMINAL'] as const)(
-  'preserves execution transition matrix from %s',
-  (phase) => {
+const phases = ['RUNNING', 'REQUIRES_ACTION', 'STOPPING', 'TERMINAL'] as const;
+it.each(phases.flatMap((phase) => phases.map((next) => ({ phase, next }))))(
+  'preserves direct execution transition $phase to $next',
+  ({ phase, next }) => {
     parity((f) => {
       const { token } = f.store.beginExecution('session', 'one');
       if (phase !== 'RUNNING')
         f.store.transitionExecution(token, phase, phase === 'TERMINAL' ? 'completed' : undefined);
-      return (['RUNNING', 'REQUIRES_ACTION', 'STOPPING', 'TERMINAL'] as const).map((next) =>
-        f.attempt(() =>
-          f.store.transitionExecution(token, next, next === 'TERMINAL' ? 'failed' : undefined),
-        ),
+      return f.attempt(() =>
+        f.store.transitionExecution(token, next, next === 'TERMINAL' ? 'failed' : undefined),
       );
     });
   },
@@ -341,4 +348,111 @@ it('preserves closed-owner errors and never replaces a closed database', () => {
     f.attempt(() => f.store.recoverOrphanedExecutions()),
   ];
   expect(run(after)).toEqual(run(before));
+});
+
+it('acquires the immediate owner write lock before a competing connection can claim the session', () => {
+  parity((f) => {
+    const peer = new EventStore(f.path);
+    cleanups.push(() => peer.close());
+    const peerDb = (peer as unknown as { db: Database.Database }).db;
+    peerDb.function('unixepoch', { varargs: true }, () => 1_800_000_000);
+    peerDb.pragma('busy_timeout = 0');
+    f.db.pragma('busy_timeout = 0');
+    const read = f.store.getExecutionAdmission.bind(f.store);
+    let competing: unknown;
+    vi.spyOn(f.store, 'getExecutionAdmission').mockImplementation((id, command) => {
+      competing = f.attempt(() => peer.beginExecution(id, 'competing', 'competitor', 'peer-fp'));
+      return read(id, command);
+    });
+    const result = f.attempt(() => f.store.beginExecution('session', 'owned', 'command', 'fp'));
+    expect(competing).toMatchObject({ error: { code: 'SQLITE_BUSY' } });
+    expect(result).toMatchObject({ value: { duplicate: false, token: { executionId: 'owned' } } });
+    expect(f.store.getExecutionAdmission('session', 'competitor')).toBeUndefined();
+    return { result, competing };
+  }, true);
+});
+
+it.each(['type', 'config', 'both'])(
+  'preserves retained Symposium recovery exclusion by %s',
+  (binding) => {
+    parity((f) => {
+      const ordinary = f.store.beginExecution('session', 'ordinary');
+      f.store.upsertSession({ sessionId: 'retained', conversationSource: 'mitzo' });
+      const retained = f.store.beginExecution('retained', 'native');
+      f.store.beginProviderAttempt(retained.token, 'original-native-attempt');
+      // Historical retained configuration remains excluded even when its session type disagrees.
+      f.db
+        .prepare('UPDATE sessions SET session_type=?, symposium_config=? WHERE session_id=?')
+        .run(
+          binding === 'config' ? 'chat' : 'symposium',
+          binding === 'type' ? null : '{}',
+          'retained',
+        );
+      const count = f.store.recoverOrphanedExecutions({ excludeSymposium: true });
+      expect(count).toBe(1);
+      expect(f.store.getExecutionTerminalReason(ordinary.token)).toBe('server_restart');
+      expect(f.store.getProviderAttempts(retained.token)[0].phase).toBe('RUNNING');
+      return { count, retained: f.store.getProviderAttempts(retained.token) };
+    });
+  },
+);
+
+it('retains old-generation provider receipts without authorizing fresh work on their stale token', () => {
+  parity((f) => {
+    const first = f.store.beginExecution('session', 'first');
+    const attempt = f.store.beginProviderAttempt(first.token, 'original');
+    f.store.transitionProviderAttempt(attempt.token, 'TERMINAL', 'ambiguous');
+    f.store.transitionExecution(first.token, 'TERMINAL', 'server_restart');
+    const second = f.store.beginExecution('session', 'second');
+    const duplicate = f.store.beginProviderAttempt(first.token, 'original');
+    const fresh = f.attempt(() => f.store.beginProviderAttempt(first.token, 'must-not-start'));
+    const rebound = f.attempt(() => f.store.beginProviderAttempt(second.token, 'original'));
+    const conflict = f.store.transitionProviderAttempt(attempt.token, 'TERMINAL', 'completed');
+    expect(duplicate.duplicate).toBe(true);
+    expect(fresh).toHaveProperty('error');
+    expect(rebound).toHaveProperty('error');
+    expect(conflict.status).toBe('conflict');
+    return { duplicate, fresh, rebound, conflict };
+  });
+});
+
+it.each(['unknown', 'unregistered', 'internal'])(
+  'preserves %s conversation admission fencing',
+  (kind) => {
+    parity((f) => {
+      let id = 'missing';
+      if (kind === 'unregistered') {
+        id = 'session';
+        f.db.exec(
+          "UPDATE sessions SET conversation_source='legacy',is_active=0,prompt_count=0,num_turns=0,initial_prompt=NULL,account_binding=NULL,symposium_config=NULL WHERE session_id='session'",
+        );
+      }
+      if (kind === 'internal') {
+        id = 'reserved';
+        f.store.registerInternalSdkExecution({
+          sdkSessionId: id,
+          parentSessionId: 'session',
+          operationId: 'operation',
+          purpose: 'web_search',
+          cwd: '/offline',
+        });
+      }
+      const before = f.snapshot();
+      const result = f.attempt(() => f.store.beginExecution(id, 'must-not-start'));
+      expect(result).toHaveProperty('error');
+      expect(f.snapshot()).toEqual(before);
+      return result;
+    });
+  },
+);
+
+it('shares admission validation and canonical error identity with global ingress command claims', () => {
+  const f = fixture();
+  expect(() => f.store.claimClientCommand('', 'fp')).toThrow(ExecutionAdmissionError);
+  f.store.claimClientCommand('command', 'fp');
+  f.store.claimClientCommand('command', 'fp');
+  expect(() => f.store.claimClientCommand('command', 'different')).toThrow(ExecutionAdmissionError);
+  expect(f.db.prepare('SELECT * FROM client_command_claims').all()).toEqual([
+    { client_msg_id: 'command', request_fingerprint: 'fp' },
+  ]);
 });

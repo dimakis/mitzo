@@ -615,34 +615,33 @@ bridge; a web deployment alone cannot update installed native code.
 
 **Supporting**
 
-| File                | Purpose                                           |
-| ------------------- | ------------------------------------------------- |
-| `tool-tiers.ts`     | Risk classification + mode/tier auto-allow matrix |
-| `tool-summary.ts`   | Summarizes tool inputs for pill display           |
-| `permissions.ts`    | Request/response registry                         |
-| `content-blocks.ts` | SDK content block parsing                         |
-| `event-store.ts`    | Persistent event store for session replay         |
-
-| `auto-rename.ts` | LLM-based session auto-renaming |
-| `hook-bridge.ts` | Project hooks → Agent SDK bridge |
-| `api-schemas.ts` | Zod validation schemas for HTTP |
-| `mcp-config.ts` | Loads Cursor MCP config |
-| `repo-config.ts` | `.mitzo.json` reader |
-| `app.ts` | Express app factory (testability via supertest) |
-| `inbox.ts` | Inbox integration endpoint |
-| `internal-token.ts` | Internal token generation for inter-process auth |
-| `auth.ts` | Passphrase + JWT |
-| `git-version.ts` | Local/remote commit comparison |
-| `port-check.ts` | Prevents duplicate server instances |
-| `constants.ts` | Server-wide constants |
-| `index.ts` | Express app, HTTP server + WebSocket |
-| `goal-client.ts` | ContexGin Goal Registry client |
-| `progress-tracker.ts` | Progress tracking utilities |
-| `prompt-compare.ts` | Prompt comparison utilities |
-| `workflow-templates.ts` | Workflow templates |
-| `workload-store.ts` | Workload persistence |
-| `session-overview.ts` | Session overview API |
-| `signal-processor.ts` | Signal processing utilities |
+| File                    | Purpose                                           |
+| ----------------------- | ------------------------------------------------- |
+| `tool-tiers.ts`         | Risk classification + mode/tier auto-allow matrix |
+| `tool-summary.ts`       | Summarizes tool inputs for pill display           |
+| `permissions.ts`        | Request/response registry                         |
+| `content-blocks.ts`     | SDK content block parsing                         |
+| `event-store.ts`        | Persistent event store for session replay         |
+| `auto-rename.ts`        | LLM-based session auto-renaming                   |
+| `hook-bridge.ts`        | Project hooks → Agent SDK bridge                  |
+| `api-schemas.ts`        | Zod validation schemas for HTTP                   |
+| `mcp-config.ts`         | Loads Cursor MCP config                           |
+| `repo-config.ts`        | `.mitzo.json` reader                              |
+| `app.ts`                | Express app factory (testability via supertest)   |
+| `inbox.ts`              | Inbox integration endpoint                        |
+| `internal-token.ts`     | Internal token generation for inter-process auth  |
+| `auth.ts`               | Passphrase + JWT                                  |
+| `git-version.ts`        | Local/remote commit comparison                    |
+| `port-check.ts`         | Prevents duplicate server instances               |
+| `constants.ts`          | Server-wide constants                             |
+| `index.ts`              | Express app, HTTP server + WebSocket              |
+| `goal-client.ts`        | ContexGin Goal Registry client                    |
+| `progress-tracker.ts`   | Progress tracking utilities                       |
+| `prompt-compare.ts`     | Prompt comparison utilities                       |
+| `workflow-templates.ts` | Workflow templates                                |
+| `workload-store.ts`     | Workload persistence                              |
+| `session-overview.ts`   | Session overview API                              |
+| `signal-processor.ts`   | Signal processing utilities                       |
 
 Execution admission, provider-attempt transitions and restart recovery live in
 `packages/protocol/src/execution-ledger.ts`. `EventStore` supplies its existing
