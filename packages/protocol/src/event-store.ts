@@ -1,3 +1,4 @@
+import { SessionLifecycleStore } from './session-lifecycle-store.js';
 import {
   ConversationReplayStore,
   type ConversationTextEvent,
@@ -419,20 +420,11 @@ const SCHEMA = `
   );
 `;
 
-const VALID_TRANSITIONS: Record<SessionState, SessionState[]> = {
-  CREATED: ['STARTING', 'ENDED'],
-  STARTING: ['ACTIVE', 'ENDED'],
-  ACTIVE: ['DETACHED', 'SUSPENDED', 'CLOSING', 'ENDED'],
-  DETACHED: ['ACTIVE', 'SUSPENDED', 'CLOSING', 'ENDED'],
-  SUSPENDED: ['ACTIVE', 'ENDED'],
-  CLOSING: ['ENDED'],
-  ENDED: ['CREATED'],
-};
-
 export class EventStore {
   private db: Database.Database | null;
   private readonly sessionOutputs: SessionOutputReferenceStore;
   private readonly conversationReplay: ConversationReplayStore<EventRow>;
+  private readonly sessionLifecycle: SessionLifecycleStore;
   private readonly executionLedger: ExecutionLedger<SessionRow>;
   private log: EventStoreLogger;
   private stmts: {
@@ -818,6 +810,16 @@ export class EventStore {
       transitionProviderAttempt: (token, phase, reason) =>
         this.transitionProviderAttempt(token, phase, reason),
       transitionExecution: (token, phase, reason) => this.transitionExecution(token, phase, reason),
+    });
+    this.sessionLifecycle = new SessionLifecycleStore({
+      database: () => this.db,
+      statements: this.stmts,
+      logger: this.log,
+      getSession: (id) => this.getSession(id),
+      getSessionClientState: (id) => this.getSessionClientState(id),
+      append: (id, type, payload) => this.append(id, type, payload),
+      setSessionState: (id, state, opts) => this.setSessionState(id, state, opts),
+      toClientState,
     });
     this.conversationReplay = new ConversationReplayStore<EventRow>({
       database: () => this.db,
@@ -6321,84 +6323,16 @@ export class EventStore {
     newState: SessionState,
     opts?: { clientId?: string; reason?: string; force?: boolean },
   ): void {
-    const current = this.getSession(sessionId);
-    const fromState = (current?.state as SessionState) ?? null;
-    const now = Date.now();
-
-    if (fromState && !opts?.force) {
-      const allowed = VALID_TRANSITIONS[fromState];
-      if (!allowed?.includes(newState)) {
-        this.log.info('invalid session state transition (warn-only)', {
-          sessionId,
-          fromState,
-          toState: newState,
-          clientId: opts?.clientId,
-          reason: opts?.reason,
-        });
-      }
-    }
-
-    // Sync is_active from state (backwards-compatible, P0).
-    // Only ENDED/CLOSING are inactive. CREATED is transient — see recoverStaleSessions().
-    const isActive = newState !== 'ENDED' && newState !== 'CLOSING' ? 1 : 0;
-    this.stmts.setSessionState.run(newState, now, isActive, sessionId);
-
-    // Emit session_state_changed event for client consumption (P0)
-    const clientState = this.getSessionClientState(sessionId) ?? toClientState(newState);
-    this.append(sessionId, 'session_state_changed', {
-      sessionId,
-      state: clientState,
-      internalState: newState,
-      timestamp: now,
-    });
-
-    this.log.info('session state transition', {
-      sessionId,
-      fromState,
-      toState: newState,
-      clientState,
-      clientId: opts?.clientId,
-      reason: opts?.reason,
-    });
+    this.sessionLifecycle.setSessionState(sessionId, newState, opts);
   }
 
   getSessionState(sessionId: string): SessionState | null {
-    const row = this.stmts.getSessionState.get(sessionId) as { state: string | null } | undefined;
-    return (row?.state as SessionState) ?? null;
+    return this.sessionLifecycle.getSessionState(sessionId);
   }
 
-  /**
-   * Recover sessions left in incomplete states after a server crash/restart.
-   * Any session in ACTIVE, STARTING, DETACHED, SUSPENDED, or CLOSING is transitioned to ENDED.
-   * CLOSING is included because the process performing graceful shutdown is gone after a crash.
-   * Returns the number of sessions recovered.
-   */
+  /** Recover incomplete sessions after restart, preserving per-session failure progress. */
   recoverStaleSessions(options: { excludeSymposium?: boolean } = {}): number {
-    // CREATED excluded: transient state, moves to STARTING synchronously in startChat().
-    // The crash window between CREATED and STARTING is negligible.
-    const staleStates = ['ACTIVE', 'STARTING', 'DETACHED', 'SUSPENDED', 'CLOSING'];
-    const placeholders = staleStates.map(() => '?').join(', ');
-    // Inline prepare is intentional — this runs once at startup, not worth caching.
-    const rows = this.db!.prepare(
-      `SELECT session_id FROM sessions WHERE state IN (${placeholders})
-       AND (? = 0 OR (COALESCE(session_type,'') != 'symposium' AND symposium_config IS NULL))`,
-    ).all(...staleStates, options.excludeSymposium ? 1 : 0) as Array<{ session_id: string }>;
-
-    for (const row of rows) {
-      this.setSessionState(row.session_id, 'ENDED', {
-        reason: 'server_restart',
-        force: true,
-      });
-    }
-
-    if (rows.length > 0) {
-      this.log.info('recovered stale sessions on startup', {
-        count: rows.length,
-        sessionIds: rows.map((r) => r.session_id),
-      });
-    }
-
-    return rows.length;
+    return this.sessionLifecycle.recoverStaleSessions(options);
   }
 
   recordUsage(
