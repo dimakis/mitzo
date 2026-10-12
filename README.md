@@ -783,6 +783,21 @@ npm run lint         # ESLint: server, frontend and shared packages (including t
 npm run format:check # prettier
 ```
 
+On macOS, run Playwright commands in a normal terminal or through an approved
+execution outside the Codex Seatbelt sandbox. Sandboxed launches can abort during
+macOS process registration and produce repeated crash popups. Both test configs
+refuse that environment before starting a browser or preview server; `--list`
+still works for discovery. Browser setup projects open a blank page once per selected
+engine/launch configuration. Playwright selects each setup as a dependency of its
+tests, so a Chromium-only run does not require WebKit. A failed startup blocks the
+dependent tests instead of relaunching a broken browser for each test. The offline suite starts no
+backend and makes no model calls. Ad hoc browser scripts need the same execution
+environment; they do not inherit the config guard.
+
+The browser CI job has a 45-minute budget for cold browser/dependency installation
+and both required suites. Installation can exceed 20 minutes; that time must not
+cancel an otherwise passing browser and offline run.
+
 CI runs the full source test suite without compiled test copies. New PR commits
 cancel superseded code-validation runs; description edits rerun only the
 documentation gate. Browser and native checks follow their changed-file
