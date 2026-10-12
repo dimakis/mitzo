@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.9';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.71';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.72';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -118,7 +118,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'aadefe0eab442dc27ce68b86654291299dc6664a185b903af44756f79ff26680',
   '../symposium-profiles.ts': '4138fce2cc44220fa90b3ef65b207b89c06a5f02cd24750a748f79d84d297c95',
   '../symposium-custodian-protocol.ts':
-    '14143aaa949c5a47b9aec8e4b2a8f5dce9670c9a6d47d1af68839d95d84f55d5',
+    'a24e231b8e548a29a4ddacce17e577621eb972fbd9b2cfbe831fae122dec71ab',
   '../symposium-custodian-proxy.ts':
     '4e37191b7019eb16732f53c0ccd1be2f05ca77db92001510933ae2fe97ed971b',
   '../../packages/protocol/src/agent-library.ts':
