@@ -36,6 +36,13 @@ scope, not a separately verified principal or personal ChatGPT identity.
 `captureSymposiumWorkApiCatalog` returns only the original same-gateway capability,
 with fixed billing headers, credential/catalog hashes, selected Luna and a
 five-minute expiry. A JSON copy or reopened configuration cannot recreate it.
+The original provider retains a bounded read-only catalog refresh capability.
+It rereads only its named staging credential, requires its original hash and
+actual provider identity, and sends the same fixed billing headers. Refresh
+invalidates old catalog capabilities and their dependent plans; concurrent
+refreshes and failed authentication refuse, without creating another provider.
+This remains catalog and billing-scope evidence: the native issuer must also
+check the actual current provider credential revision and final outbound headers.
 The native issuer must additionally verify the actual current provider resource,
 credential identity/revision/hash and outbound headers before every dispatch.
 That authenticated native bridge remains unavailable. The configuration alone

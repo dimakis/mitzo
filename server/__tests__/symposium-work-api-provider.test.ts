@@ -1,12 +1,14 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { spawnSync } from 'node:child_process';
 import type { OwnedSymposiumGateway } from '../symposium-owned-gateway.js';
 import {
   createSymposiumWorkApiProvider,
   captureSymposiumWorkApiProvider,
   captureSymposiumWorkApiCatalog,
+  refreshSymposiumWorkApiCatalog,
   type SymposiumWorkApiProfile,
 } from '../symposium-work-api-provider.js';
+afterEach(() => vi.restoreAllMocks());
 function fixture() {
   const gateway = {
     gateway: 'new-gateway',
@@ -172,6 +174,66 @@ describe('original authenticated staging API billing scope and catalog', () => {
       stagingCatalogScope: scope,
       request,
     });
+  it('refreshes an expired catalog on the same original provider and credential, invalidating the old capability', async () => {
+    const f = fixture(),
+      request = vi.fn().mockImplementation(async () => response());
+    const result = await provision(f, request);
+    const old = captureSymposiumWorkApiCatalog(f.gateway as never, result.sandboxProviderId);
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(old.observation.expiresAt + 1);
+    expect(() => old.assertCurrent()).toThrow();
+    const fresh = await refreshSymposiumWorkApiCatalog(f.gateway as never, 'new-id');
+    expect(fresh.observation.providerId).toBe(old.observation.providerId);
+    expect(fresh.observation.credentialSha256).toBe(old.observation.credentialSha256);
+    expect(fresh.observation.accountHeaders).toEqual(old.observation.accountHeaders);
+    expect(fresh.observation.observedAt).toBe(clock());
+    expect(fresh).not.toBe(old);
+    expect(fresh.observation.observationRevision).not.toBe(old.observation.observationRevision);
+    expect(() => old.assertCurrent()).toThrow();
+    fresh.assertCurrent();
+    expect(f.run.mock.calls.filter((call) => call[1].includes('create'))).toHaveLength(1);
+    expect(request).toHaveBeenCalledTimes(2);
+  });
+
+  it('refuses changed credentials before a catalog request and invalidates prior catalog evidence', async () => {
+    const f = fixture(),
+      request = vi.fn().mockImplementation(async () => response());
+    await provision(f, request);
+    const old = captureSymposiumWorkApiCatalog(f.gateway as never, 'new-id');
+    f.resolver.resolve.mockResolvedValue('different-fake-secret');
+    await expect(refreshSymposiumWorkApiCatalog(f.gateway as never, 'new-id')).rejects.toThrow(
+      /unavailable/,
+    );
+    expect(request).toHaveBeenCalledOnce();
+    expect(() => old.assertCurrent()).toThrow();
+    await expect(
+      refreshSymposiumWorkApiCatalog({ ...f.gateway } as never, 'new-id'),
+    ).rejects.toThrow();
+  });
+
+  it('refuses parallel refreshes and never restores a prior capability after failed authentication', async () => {
+    const f = fixture(),
+      request = vi.fn().mockImplementation(async () => response());
+    await provision(f, request);
+    const old = captureSymposiumWorkApiCatalog(f.gateway as never, 'new-id');
+    let resolve!: (response: Response) => void;
+    request.mockImplementationOnce(
+      () =>
+        new Promise<Response>((done) => {
+          resolve = done;
+        }),
+    );
+    const pending = refreshSymposiumWorkApiCatalog(f.gateway as never, 'new-id');
+    await vi.waitFor(() => expect(resolve).toBeTypeOf('function'));
+    expect(() => old.assertCurrent()).toThrow();
+    await expect(refreshSymposiumWorkApiCatalog(f.gateway as never, 'new-id')).rejects.toThrow(
+      /unavailable/,
+    );
+    resolve(new Response('denied', { status: 401 }));
+    await expect(pending).rejects.toThrow(/unavailable/);
+    expect(() => captureSymposiumWorkApiCatalog(f.gateway as never, 'new-id')).toThrow();
+    expect(request).toHaveBeenCalledTimes(2);
+    expect(f.run.mock.calls.filter((call) => call[1].includes('create'))).toHaveLength(1);
+  });
   it('captures only an accepted authenticated catalog from the original fresh credential and exact billing headers', async () => {
     const f = fixture();
     const request = vi.fn().mockResolvedValue(response());

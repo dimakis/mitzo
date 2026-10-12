@@ -47,6 +47,8 @@ export interface SymposiumWorkApiCatalogCapability {
     selectedModel: string;
     credentialSha256: string;
     catalogSha256: string;
+    /** Distinct source-minted epoch of an accepted authenticated observation. */
+    observationRevision: string;
     listedModels: readonly string[];
     observedAt: number;
     expiresAt: number;
@@ -60,6 +62,56 @@ const originalCatalogs = new WeakMap<
   OwnedSymposiumGateway,
   Map<string, SymposiumWorkApiCatalogCapability>
 >();
+const originalCatalogRefreshers = new WeakMap<
+  OwnedSymposiumGateway,
+  Map<string, () => Promise<SymposiumWorkApiCatalogCapability>>
+>();
+/** Read-only operation on the same retained creation and credential reference.
+ * No new provider, runtime or inferred principal is created by a refresh. */
+export async function refreshSymposiumWorkApiCatalog(
+  gateway: OwnedSymposiumGateway,
+  providerId: string,
+): Promise<SymposiumWorkApiCatalogCapability> {
+  const refresh = originalCatalogRefreshers.get(gateway)?.get(providerId);
+  if (!refresh) throw Error('Original authenticated API catalog refresh unavailable');
+  return refresh();
+}
+function publishCatalog(
+  gateway: OwnedSymposiumGateway,
+  receipt: SymposiumWorkApiCreationCapability,
+  catalog: Awaited<ReturnType<typeof authenticatedCatalog>>,
+): SymposiumWorkApiCatalogCapability {
+  receipt.assertCurrent();
+  const identity = receipt.identity;
+  const catalogs = originalCatalogs.get(gateway) ?? new Map();
+  const capability: SymposiumWorkApiCatalogCapability = Object.freeze({
+    observation: Object.freeze({
+      version: 1 as const,
+      providerId: identity.providerId,
+      providerName: identity.providerName,
+      workspace: identity.workspace,
+      ...catalog,
+    }),
+    assertCurrent() {
+      try {
+        receipt.assertCurrent();
+        if (
+          Date.now() >= catalog.expiresAt ||
+          originalCatalogs.get(gateway)?.get(identity.providerId) !== capability
+        )
+          throw Error();
+      } catch {
+        // An expired/replaced capability cannot invalidate its fresh successor.
+        if (originalCatalogs.get(gateway)?.get(identity.providerId) === capability)
+          originalCatalogs.get(gateway)?.delete(identity.providerId);
+        throw Error('Original authenticated API catalog capability unavailable');
+      }
+    },
+  });
+  catalogs.set(identity.providerId, capability);
+  originalCatalogs.set(gateway, catalogs);
+  return capability;
+}
 export function captureSymposiumWorkApiCatalog(
   gateway: OwnedSymposiumGateway,
   providerId: string,
@@ -155,6 +207,7 @@ async function authenticatedCatalog(
     accountHeaders,
     credentialSha256: createHash('sha256').update(secret).digest('hex'),
     catalogSha256: createHash('sha256').update(body).digest('hex'),
+    observationRevision: randomBytes(32).toString('hex'),
     listedModels: Object.freeze(listedModels),
     observedAt,
     expiresAt: observedAt + 300000,
@@ -188,9 +241,16 @@ export async function createSymposiumWorkApiProvider(
   } = {},
 ): Promise<SymposiumWorkApiProfile & { sandboxProvider: string; sandboxProviderId: string }> {
   const profile = WorkProfile.parse(input);
+  const catalogProfile = WorkProfile.parse(profile);
   new AccountProfiles([profile]);
   const environment = validateOpenShellCliEnvironment(gateway.managementEnvironment);
   const run = dependencies.run ?? spawnSync;
+  const resolver = dependencies.resolver ?? credentials;
+  const resolveCredential = resolver.resolve.bind(resolver);
+  const request = dependencies.request ?? fetch;
+  const scope = dependencies.stagingCatalogScope
+    ? Object.freeze(StagingApiBillingScopeSchema.parse(dependencies.stagingCatalogScope))
+    : undefined;
   const provider = `symposium-work-${randomBytes(12).toString('hex')}`;
   const invoke = (args: string[], secret?: string): unknown => {
     gateway.verifyCustody();
@@ -211,17 +271,11 @@ export async function createSymposiumWorkApiProvider(
   };
   try {
     gateway.verifyCustody();
-    const secret = await (dependencies.resolver ?? credentials).resolve(profile.credentialRef);
+    const secret = await resolveCredential(profile.credentialRef);
     gateway.verifyCustody();
     if (!secret.trim()) throw new Error('Work credential unavailable');
-    const catalog = dependencies.stagingCatalogScope
-      ? await authenticatedCatalog(
-          gateway,
-          profile,
-          secret,
-          dependencies.stagingCatalogScope,
-          dependencies.request ?? fetch,
-        )
+    const catalog = scope
+      ? await authenticatedCatalog(gateway, catalogProfile, secret, scope, request)
       : undefined;
     gateway.verifyCustody();
     invoke(
@@ -288,25 +342,53 @@ export async function createSymposiumWorkApiProvider(
     retained.set(found.id, receipt);
     originalCreations.set(gateway, retained);
     if (catalog) {
-      const catalogs = originalCatalogs.get(gateway) ?? new Map();
-      const capability: SymposiumWorkApiCatalogCapability = Object.freeze({
-        observation: Object.freeze({ version: 1 as const, ...identity, ...catalog }),
-        assertCurrent() {
-          try {
-            receipt.assertCurrent();
-            if (
-              Date.now() >= catalog.expiresAt ||
-              originalCatalogs.get(gateway)?.get(identity.providerId) !== capability
-            )
-              throw Error();
-          } catch {
-            originalCatalogs.get(gateway)?.delete(identity.providerId);
-            throw Error('Original authenticated API catalog capability unavailable');
-          }
-        },
+      publishCatalog(gateway, receipt, catalog);
+      const refreshers = originalCatalogRefreshers.get(gateway) ?? new Map();
+      let refreshing = false;
+      const originalCredentialSha256 = catalog.credentialSha256;
+      refreshers.set(identity.providerId, async () => {
+        if (refreshing) throw Error('Original authenticated API catalog refresh unavailable');
+        refreshing = true;
+        originalCatalogs.get(gateway)?.delete(identity.providerId);
+        try {
+          receipt.assertCurrent();
+          const freshSecret = await resolveCredential(catalogProfile.credentialRef);
+          receipt.assertCurrent();
+          if (createHash('sha256').update(freshSecret).digest('hex') !== originalCredentialSha256)
+            throw Error();
+          // Read metadata from the actual original gateway. Inventory is only an
+          // identity observation; the native issuer must still verify its actual
+          // current credential identity/revision/hash before any inference.
+          const page = invoke(['list', '--output', 'json', '--page-size', '100']) as {
+            providers?: Array<Record<string, unknown>>;
+            next_page_token?: string;
+          };
+          if (!Array.isArray(page.providers) || page.next_page_token !== '') throw Error();
+          const matches = page.providers.filter((row) => row.id === identity.providerId);
+          if (
+            matches.length !== 1 ||
+            matches[0].name !== identity.providerName ||
+            matches[0].workspace !== identity.workspace ||
+            matches[0].type !== identity.provider
+          )
+            throw Error();
+          const fresh = await authenticatedCatalog(
+            gateway,
+            catalogProfile,
+            freshSecret,
+            scope!,
+            request,
+          );
+          receipt.assertCurrent();
+          return publishCatalog(gateway, receipt, fresh);
+        } catch {
+          originalCatalogs.get(gateway)?.delete(identity.providerId);
+          throw Error('Original authenticated API catalog refresh unavailable');
+        } finally {
+          refreshing = false;
+        }
       });
-      catalogs.set(identity.providerId, capability);
-      originalCatalogs.set(gateway, catalogs);
+      originalCatalogRefreshers.set(gateway, refreshers);
     }
     return { ...profile, sandboxProvider: provider, sandboxProviderId: found.id };
   } catch {
