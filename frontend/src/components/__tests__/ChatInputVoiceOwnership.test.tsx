@@ -60,7 +60,7 @@ it.each(['new', 'draft', 'return', 'unmount'] as const)(
     const voice = makeVoice({
       stopRecording: vi.fn(
         () =>
-          new Promise((resolve) => {
+          new Promise<string>((resolve) => {
             finish = resolve;
           }),
       ),
@@ -104,7 +104,7 @@ it('appends same-owner transcription to typing performed while the transcript wa
   const voice = makeVoice({
     stopRecording: vi.fn(
       () =>
-        new Promise((resolve) => {
+        new Promise<string>((resolve) => {
           finish = resolve;
         }),
     ),
@@ -158,7 +158,7 @@ it('refuses a deferred transcript after explicit cancellation in the same compos
   const voice = makeVoice({
     stopRecording: vi.fn(
       () =>
-        new Promise((resolve) => {
+        new Promise<string>((resolve) => {
           finish = resolve;
         }),
     ),
@@ -179,7 +179,7 @@ it('keeps newer dictated words after acceptance of the older submitted draft rev
   const voice = makeVoice({
     stopRecording: vi.fn(
       () =>
-        new Promise((resolve) => {
+        new Promise<string>((resolve) => {
           finish = resolve;
         }),
     ),
