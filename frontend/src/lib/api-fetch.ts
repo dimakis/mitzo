@@ -197,10 +197,10 @@ export function restoreCookieAuthentication(): Promise<boolean> {
   ) {
     return cookieRestoreInFlight.promise;
   }
-  const attempt = traceAuthenticationCheck(async (span, headers) => {
+  const attempt = (async () => {
     const controller = new AbortController();
     let timeout!: ReturnType<typeof setTimeout>;
-    // Bound settlement even if a native transport does not acknowledge abort.
+    // Include tracing initialization in the same bounded authentication budget.
     const deadline = new Promise<never>((_resolve, reject) => {
       timeout = setTimeout(() => {
         reject(new Error('Authentication check timed out'));
@@ -208,30 +208,42 @@ export function restoreCookieAuthentication(): Promise<boolean> {
       }, COOKIE_AUTH_CHECK_TIMEOUT_MS);
     });
     try {
-      const response = await Promise.race([
-        apiFetch('/api/auth/check', { signal: controller.signal, headers }),
+      return await Promise.race([
+        traceAuthenticationCheck(async (span, headers) => {
+          if (
+            authGeneration !== restoreGeneration ||
+            getStoredAuthToken() !== restoreToken ||
+            isLogoutPending()
+          )
+            return false;
+          const response = await apiFetch('/api/auth/check', {
+            signal: controller.signal,
+            headers,
+          });
+          if (controller.signal.aborted) throw new Error('Authentication check timed out');
+          span.setAttribute('http.response.status_code', response.status);
+          if (
+            authGeneration !== restoreGeneration ||
+            getStoredAuthToken() !== restoreToken ||
+            isLogoutPending()
+          )
+            return false;
+          if (response.status === 401 || response.status === 403) return false;
+          if (!response.ok) throw new Error('Authentication service unavailable');
+          loginSucceeded();
+          verifiedCookieAuth = {
+            generation: authGeneration,
+            token: getStoredAuthToken(),
+            expiresAt: Date.now() + COOKIE_AUTH_VERIFICATION_MS,
+          };
+          return true;
+        }, controller.signal),
         deadline,
       ]);
-      span.setAttribute('http.response.status_code', response.status);
-      if (
-        authGeneration !== restoreGeneration ||
-        getStoredAuthToken() !== restoreToken ||
-        isLogoutPending()
-      )
-        return false;
-      if (response.status === 401 || response.status === 403) return false;
-      if (!response.ok) throw new Error('Authentication service unavailable');
-      loginSucceeded();
-      verifiedCookieAuth = {
-        generation: authGeneration,
-        token: getStoredAuthToken(),
-        expiresAt: Date.now() + COOKIE_AUTH_VERIFICATION_MS,
-      };
-      return true;
     } finally {
       clearTimeout(timeout);
     }
-  });
+  })();
   cookieRestoreInFlight = { generation: restoreGeneration, token: restoreToken, promise: attempt };
   const clear = () => {
     if (cookieRestoreInFlight?.promise === attempt) cookieRestoreInFlight = null;
