@@ -121,3 +121,21 @@ latest original app-channel fence, so the retained VM resource observer does not
 admit feature work while an app is quiesced. The actor wires pre-mutation
 cancellation to the physical inspector and retains its guard after any native
 preparation attempt, claim or uncertain verification.
+
+The app-source compatibility inspector derives the retained native transitive
+compiled-JS import closure from the fixed custodian entry point. It pins static
+imports/re-exports, literal dynamic imports/require and local code assets, and
+excludes only the reviewed single app-child fork boundary. Dependencies,
+workspace targets, helper scripts and package inputs stay pinned. An unused
+child-only backend module may change; a reached native engine/route module may
+not. Computed imports and unknown code dependencies refuse with diagnostics.
+The process-local source bridge additionally binds exact accepted admission,
+actual latest child PID/epoch and immutable physical source bytes, keeping
+original native source separate from accepted app source. These source
+primitives do not yet expose an installed queue-owned child updater.
+
+The initial installation sequencer places actual preflight before ordinary
+control, preserves any attempted shutdown on failure, and orders durable stopped
+registration completion and parent guard release before the independent child
+starts once. The concrete private host installation adapter remains under
+implementation; the sequencer cannot install a job or mint a native lease alone.
