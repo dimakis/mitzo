@@ -1240,3 +1240,5 @@ and install the helper from the accepted release with its existing signing ident
 before enabling replacement; see [OpenAI key replacement](docs/features/openai-key-replacement.md).
 
 The staging source-merge queue permits reviewed source repairs while retaining an exact unchanged quarantined operation. Active operations remain exclusive; repair acceptance leaves physical capacity and readiness quarantined until independently verified recovery.
+
+Source admissions from an older controller that lack the captured staging tuple remain held for inspection; upgrading the controller cannot reconstruct or release that missing proof.
