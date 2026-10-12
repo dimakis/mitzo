@@ -513,7 +513,12 @@ test('drafts and updates: narrow/mobile and desktop appearance, scrolling and ke
     ['dark', 'mint', 'georgia'],
     ['light', 'teal', 'system'],
   ]) {
+    const initialConnections = fixture.connections();
     await page.goto('/sessions/drafts');
+    await expect(page.getByRole('heading', { name: /^Drafts(?: \d+)?$/ })).toBeVisible();
+    // A load event precedes async authentication restoration. Replacing that
+    // fresh document can make its auth-restored listeners fetch after unload.
+    await expect.poll(() => fixture.connections()).toBeGreaterThan(initialConnections);
     await page.evaluate(
       ({ theme, accent, font }) => {
         localStorage.setItem('mitzo-theme', theme);
@@ -522,8 +527,10 @@ test('drafts and updates: narrow/mobile and desktop appearance, scrolling and ke
       },
       { theme, accent, font },
     );
+    const reloadConnections = fixture.connections();
     await page.reload();
     await expect(page.getByRole('heading', { name: /^Drafts(?: \d+)?$/ })).toBeVisible();
+    await expect.poll(() => fixture.connections()).toBeGreaterThan(reloadConnections);
     await layout(page);
     const first = page.locator('.saved-draft-open').first();
     await first.focus();
@@ -547,8 +554,10 @@ test('drafts and updates: narrow/mobile and desktop appearance, scrolling and ke
       path: testInfo.outputPath(`drafts-final-item-${theme}.png`),
       animations: 'disabled',
     });
+    const updatesConnections = fixture.connections();
     await page.goto('/settings/updates');
     await expect(page.getByRole('heading', { name: 'A new Mitzo is ready' })).toBeVisible();
+    await expect.poll(() => fixture.connections()).toBeGreaterThan(updatesConnections);
     const check = page.getByRole('button', { name: 'Check for updates' });
     await check.scrollIntoViewIfNeeded();
     await check.focus();
