@@ -1,4 +1,7 @@
-import { claimTransportConnection } from '../transport-auth-ownership.js';
+import {
+  claimTransportConnection,
+  releaseTransportConnection,
+} from '../transport-auth-ownership.js';
 import { permissionRevision } from '../session-permission-revision.js';
 import { describe, it, expect, vi } from 'vitest';
 import type { SessionTransport } from '@mitzo/harness';
@@ -2070,6 +2073,7 @@ describe('handlePermissionResponseV2', () => {
       sessionId: 'shared-approval-session',
       decision: 'once' as const,
     };
+    expect(handlePermissionResponseV2('approval-owner', response, ctx, 'other-login')).toBe(false);
     expect(handlePermissionResponseV2('approval-stranger', response, ctx)).toBe(false);
     expect(handlePermissionResponseV2('approval-unwatched', response, ctx)).toBe(false);
     expect(
@@ -2105,6 +2109,18 @@ describe('handlePermissionResponseV2', () => {
       undefined,
       'shared-approval-session',
     );
+    vi.mocked(resolvePending).mockClear();
+    expect(handlePermissionResponseV2('approval-owner', response, ctx, 'approval-login')).toBe(
+      true,
+    );
+    vi.mocked(resolvePending).mockClear();
+    releaseTransportConnection('approval-owner', 'approval-login');
+    expect(handlePermissionResponseV2('approval-owner', response, ctx, 'approval-login')).toBe(
+      false,
+    );
+    vi.spyOn(ctx.connRegistry.get('approval-tab')!.transport, 'isOpen').mockReturnValue(false);
+    expect(handlePermissionResponseV2('approval-tab', response, ctx, 'approval-login')).toBe(false);
+    expect(resolvePending).not.toHaveBeenCalled();
     vi.mocked(getPendingSessionId).mockReset();
     vi.mocked(resolvePending).mockReset();
   });

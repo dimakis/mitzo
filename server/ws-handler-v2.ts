@@ -1499,6 +1499,21 @@ export function handlePermissionResponseV2(
       'ws.permId': msg.permId,
     },
     () => {
+      // Interactive HTTP authority must belong to the supplied transport even
+      // when that connection owns execution. Its ID is not a credential.
+      if (
+        operatorAuthSessionId !== undefined &&
+        (liveTransportAuthSessionId(connectionId) !== operatorAuthSessionId ||
+          ctx.connRegistry.get(connectionId)?.transport.isOpen() !== true)
+      ) {
+        sendPermissionResponseRejected(
+          ctx.connRegistry.get(connectionId)?.transport,
+          connectionId,
+          msg.permId,
+          msg.sessionId,
+        );
+        return false;
+      }
       const pendingSessionId = getPendingSessionId(msg.permId);
       if (pendingSessionId) {
         const found = ctx.sessionRegistry.findBySessionId(pendingSessionId, true);
