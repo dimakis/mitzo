@@ -504,3 +504,175 @@ test('drafts and updates: narrow/mobile and desktop appearance, scrolling and ke
   });
   expect(fixture.errors).toEqual([]);
 });
+
+test('drafts: clearing text removes stale draft and prompt URLs while leaving the composer editable after reload', async ({
+  page,
+}) => {
+  const fixture = await offline(page);
+  const draft = {
+    ...savedDraft('cleared-draft', 'A text-only draft'),
+    images: [],
+    contextBlocks: [],
+  };
+  await seed(page, { 'mitzo-chat-draft:cleared-draft': JSON.stringify(draft) });
+  await page.goto('/chat?draft=cleared-draft&prompt=Original%20launch%20prompt');
+  const input = page.getByRole('textbox', { name: 'Message Mitzo' });
+  await expect(input).toHaveValue('A text-only draft');
+  await expect(
+    page.getByText('Assign a GitHub connection with repository access to this AI account in'),
+  ).toBeVisible();
+  await input.fill('');
+  await expect.poll(() => new URL(page.url()).searchParams.get('draft')).toBeNull();
+  expect(new URL(page.url()).searchParams.get('prompt')).toBeNull();
+  expect(new URL(page.url()).searchParams.get('cwd')).toBe('/workspace');
+  expect(new URL(page.url()).searchParams.get('extraTools')).toBe('Files');
+  await input.fill('Refill the same editable draft');
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        JSON.parse(localStorage.getItem('mitzo-chat-draft:cleared-draft') || '{}'),
+      ),
+    )
+    .toMatchObject({
+      text: 'Refill the same editable draft',
+      settings: { selection: draft.settings.selection, mode: 'ask', isolation: false },
+    });
+  await input.fill('');
+  await expect.poll(() => new URL(page.url()).searchParams.get('draft')).toBeNull();
+  await expect
+    .poll(() => page.evaluate(() => localStorage.getItem('mitzo-chat-draft:cleared-draft')))
+    .toBeNull();
+  await page.reload();
+  await expect(input).toHaveValue('');
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  await input.fill('A new editable message after reload');
+  await expect(input).toHaveValue('A new editable message after reload');
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          Object.keys(localStorage)
+            .filter((key) => key.startsWith('mitzo-chat-draft:'))
+            .map((key) => JSON.parse(localStorage.getItem(key)!))
+            .filter((draft) => draft.text === 'A new editable message after reload').length,
+      ),
+    )
+    .toBe(1);
+  expect(fixture.mutations).toEqual([]);
+  expect(fixture.errors).toEqual([]);
+});
+
+test('drafts: preparation-only receipts survive reopen and failed cleanup, then discard only after server confirmation', async ({
+  page,
+}, testInfo) => {
+  const fixture = await offline(page);
+  const preparationId = '11111111-1111-4111-8111-111111111111';
+  const base = savedDraft('preparation-only', '');
+  const draft = {
+    ...base,
+    images: [],
+    contextBlocks: [],
+    settings: { ...base.settings, repositoryWorkspaceId: preparationId },
+  };
+  const receipt = {
+    id: preparationId,
+    repository: 'offline/mitzo',
+    baseBranch: 'main',
+    baseOid: 'a'.repeat(40),
+    featureBranch: 'draft/briefing',
+    state: 'ready',
+  };
+  let allowDiscard = false;
+  let holdDiscard = false;
+  let releaseDiscard: (() => void) | undefined;
+  const deletes: string[] = [];
+  await page.route(`**/api/repository-workspaces/${preparationId}*`, async (route) => {
+    const url = new URL(route.request().url());
+    expect(url.searchParams.get('accountId')).toBe(account.id);
+    expect(url.searchParams.get('model')).toBe('luna-alternate');
+    if (route.request().method() === 'GET') return route.fulfill({ json: receipt });
+    if (route.request().method() === 'DELETE') {
+      deletes.push(url.pathname);
+      if (holdDiscard)
+        await new Promise<void>((resolve) => {
+          releaseDiscard = resolve;
+        });
+      return route.fulfill({
+        status: allowDiscard ? 200 : 503,
+        json: allowDiscard
+          ? { discarded: true }
+          : { error: 'Offline cleanup temporarily unavailable' },
+      });
+    }
+    return route.fulfill({
+      status: 405,
+      json: { error: 'No repository execution in offline fixture' },
+    });
+  });
+  await seed(page, { 'mitzo-chat-draft:preparation-only': JSON.stringify(draft) });
+  await page.goto('/sessions/drafts');
+  await page.getByRole('link', { name: /Untitled draft/ }).click();
+  await expect(page.getByRole('textbox', { name: 'Message Mitzo' })).toHaveValue('');
+  await expect(page.getByText('draft/briefing', { exact: true })).toBeVisible();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          JSON.parse(localStorage.getItem('mitzo-chat-draft:preparation-only') || '{}').settings
+            ?.repositoryWorkspaceId,
+      ),
+    )
+    .toBe(preparationId);
+  await page.reload();
+  await expect(page.getByText('draft/briefing', { exact: true })).toBeVisible();
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        JSON.parse(localStorage.getItem('mitzo-chat-draft:preparation-only') || '{}'),
+      ),
+    )
+    .toMatchObject({
+      text: '',
+      settings: { repositoryWorkspaceId: preparationId, selection: draft.settings.selection },
+    });
+  await page.goto('/sessions/drafts');
+  await expect(page.getByText('Repository preparation saved.', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Discard draft', exact: true }).click();
+  await page.getByRole('button', { name: 'Confirm discard', exact: true }).click();
+  await expect(page.getByRole('alert')).toBeVisible();
+  await expect(page.getByRole('link', { name: /Untitled draft/ })).toBeVisible();
+  expect(
+    await page.evaluate(() => localStorage.getItem('mitzo-chat-draft:preparation-only')),
+  ).not.toBeNull();
+  await page.screenshot({
+    path: testInfo.outputPath('repository-draft-cleanup-retry.png'),
+    animations: 'disabled',
+  });
+  allowDiscard = true;
+  holdDiscard = true;
+  const confirm = page.getByRole('button', { name: 'Confirm discard', exact: true });
+  if (!(await confirm.isVisible()))
+    await page.getByRole('button', { name: 'Discard draft', exact: true }).click();
+  await confirm.click();
+  await expect(page.getByRole('button', { name: 'Discarding…', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Keep draft', exact: true })).toBeDisabled();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog', { name: 'Discard this draft?' })).toBeVisible();
+  await page.screenshot({
+    path: testInfo.outputPath('repository-draft-cleanup-pending.png'),
+    animations: 'disabled',
+  });
+  await expect.poll(() => typeof releaseDiscard).toBe('function');
+  releaseDiscard!();
+  await expect(page.getByText('No drafts yet', { exact: true })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'New chat', exact: true })).toBeFocused();
+  expect(
+    await page.evaluate(() => localStorage.getItem('mitzo-chat-draft:preparation-only')),
+  ).toBeNull();
+  expect(deletes).toEqual([
+    `/api/repository-workspaces/${preparationId}`,
+    `/api/repository-workspaces/${preparationId}`,
+  ]);
+  expect(fixture.mutations).toEqual([]);
+  expect(fixture.errors).toEqual([]);
+});
