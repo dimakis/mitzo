@@ -1323,6 +1323,15 @@ const stagingNativeSessions = new Map<
     host: SymposiumProductionHost;
     candidate: import('./symposium-production-gate.js').SymposiumProductionAttestation;
     claimToken: string;
+    fixture: import('./symposium-staging-native-fixture.js').StagingNativeFixture;
+    fixtures: SymposiumStagingNativeFixtures;
+    sandboxGuards: Map<
+      string,
+      import('./staging-native-model-authority.js').StagingNativeSandboxGuard
+    >;
+    prepareSandbox(
+      name: string,
+    ): Promise<import('./staging-native-model-authority.js').StagingNativeSandboxGuard>;
     assertCurrent(): void;
   }
 >();
@@ -1388,7 +1397,9 @@ let symposiumRuntimeForSession: (sessionId: string) => SymposiumOrchestrator | n
       store: eventStore,
       profiles: host.currentProfiles(),
       currentProfiles: host.currentProfiles,
-      observeDurableReviewToolResult: host.observeDurableReviewToolResult,
+      observeDurableReviewToolResult: stagingNativeSessions.has(sessionId)
+        ? undefined
+        : host.observeDurableReviewToolResult,
       observeNativeTurnInput: host.observeNativeTurnInput,
       observeStartupConfig: host.observeStartupConfig,
       observePrelaunch: host.observePrelaunch,
@@ -1483,6 +1494,46 @@ let symposiumRuntimeForSession: (sessionId: string) => SymposiumOrchestrator | n
         chatgptSubscription: verified.readOnlyEnforced,
         claudeVertex: verified.claudeProviders.size > 0,
       },
+      stagingEffectCurrent: stagingNativeSessions.has(sessionId)
+        ? () => {
+            const original = stagingNativeSessions.get(sessionId);
+            if (!original || original.host !== host)
+              throw Error('Original staging native effect owner unavailable');
+            original.assertCurrent();
+          }
+        : undefined,
+      stagingPrepareSandbox: stagingNativeSessions.has(sessionId)
+        ? async (selected) => {
+            const original = stagingNativeSessions.get(sessionId)!;
+            original.assertCurrent();
+            if (selected.sessionId !== sessionId || selected.seatId !== 'primary')
+              throw Error('Original provisional sandbox scope changed');
+            const guard =
+              original.sandboxGuards.get(selected.sandboxName) ??
+              (await original.prepareSandbox(selected.sandboxName));
+            guard.assertCurrent();
+            original.assertCurrent();
+            original.sandboxGuards.set(selected.sandboxName, guard);
+            return guard;
+          }
+        : undefined,
+      stagingFixtureTools: stagingNativeSessions.has(sessionId)
+        ? (execution, verifyCurrent) => {
+            const original = stagingNativeSessions.get(sessionId)!;
+            original.assertCurrent();
+            if (execution.claimToken !== original.claimToken)
+              throw Error('Original feature tool claim changed');
+            if (execution.seat.accountBinding?.provider === 'anthropic-vertex')
+              return {
+                tools: [],
+                instructions: 'Use the native Read exactly once on the requested nonce fixture.',
+                executeTool: async () => {
+                  throw Error('Additional feature host tools are unavailable');
+                },
+              };
+            return original.fixtures.readTools(original.fixture, execution, verifyCurrent);
+          }
+        : undefined,
       recordAccepted: (receipt) => eventStore.markSymposiumRecipientAccepted(receipt),
       recordEvent: (execution, event) => symposiumNativeEvents.record(execution, event),
     });
@@ -1642,6 +1693,16 @@ export function configureStagingNativeFeatureOwner(
           host,
           candidate,
           claimToken,
+          fixture,
+          fixtures,
+          sandboxGuards: new Map(),
+          prepareSandbox: (name) =>
+            input.modelAuthority.prepareSandbox(input.modelPlan, {
+              sessionId,
+              claimToken,
+              sandboxName: name,
+              deadlineAt: input.deadlineAt,
+            }),
           assertCurrent: input.assertCurrent,
         });
         const active = symposiumHostGrants.activate({
@@ -1681,6 +1742,14 @@ export function configureStagingNativeFeatureOwner(
           sandboxName: sandbox.sandboxName,
           sandboxId: sandbox.sandboxId,
           deadlineAt: input.deadlineAt,
+          preparedGuard: (() => {
+            const guard = stagingNativeSessions
+              .get(sessionId)!
+              .sandboxGuards.get(sandbox.sandboxName);
+            if (!guard) throw Error('Original provisional native sandbox guard unavailable');
+            guard.assertCurrent();
+            return guard;
+          })(),
         });
         budget.assertCurrent();
         input.assertCurrent();

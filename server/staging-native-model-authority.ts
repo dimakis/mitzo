@@ -5,6 +5,9 @@ import type { OwnedSymposiumGateway } from './symposium-owned-gateway.js';
  * The original gateway must mint this after its exact source/build is verified. */
 export interface StagingNativeModelPlan {
   readonly revision: string;
+  /** Authenticated billing/account identity; never a caller's profile label. */
+  readonly chargedAccount: string;
+  readonly selectedModel: string;
   readonly modelApprovalId: string | null;
   assertCurrent(): void;
 }
@@ -19,14 +22,29 @@ export interface StagingNativeModelRequestReceipt {
   readonly policyRevision: string;
   readonly revokedAt: number;
 }
+/** Original deny-all preparation, required by native CreateSandbox/GetConfig.
+ * An opaque ID alone is not a grant; the actual native owner consumes the
+ * authenticated reserved-name capability before starting the sandbox. */
+export interface StagingNativeSandboxGuard {
+  readonly guardId: string;
+  assertCurrent(): void;
+}
 export interface StagingNativeModelAuthority {
   plan(input: {
     binding: AccountBinding;
-    chargedAccount: string;
     selectedModel: string;
     maxRequests: 2;
     auxiliaryDispatches: 'disabled';
   }): StagingNativeModelPlan;
+  prepareSandbox(
+    plan: StagingNativeModelPlan,
+    input: {
+      sessionId: string;
+      claimToken: string;
+      sandboxName: string;
+      deadlineAt: number;
+    },
+  ): Promise<StagingNativeSandboxGuard>;
   issue(
     plan: StagingNativeModelPlan,
     input: {
@@ -36,6 +54,7 @@ export interface StagingNativeModelAuthority {
       sandboxName: string;
       sandboxId: string;
       deadlineAt: number;
+      preparedGuard: StagingNativeSandboxGuard;
     },
   ): Promise<{
     assertCurrent(): void;

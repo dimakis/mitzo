@@ -89,6 +89,8 @@ export interface NativePrelaunchObservation {
   readonly cwd: string;
 }
 export interface OpenAiCodexSeatInput {
+  /** Original stage queue/lifetime capability, held only by actual app composition. */
+  stagingEffectCurrent?: () => void;
   /** Trusted constructor-only inspection before any native controller starts. */
   observePrelaunch?: (
     event: NativePrelaunchObservation,
@@ -403,6 +405,7 @@ export async function createCodexNativeSeat(
         subscriptionIdentityFrame(auth.launchIdentity, controllerClaimDigest(execution.claimToken));
       execution.signal.throwIfAborted();
       controlled = input.attemptRegistry.launch({
+        assertOriginalEffectCurrent: input.stagingEffectCurrent,
         sandbox,
         sessionId: execution.sessionId,
         claimToken: execution.claimToken,

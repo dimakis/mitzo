@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.9';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.67';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.69';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,6 +22,8 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  '../symposium-attempt-registry.ts': '4279b2bb867aac492bcf4a7827f1f1129e146e1546a1c6cbb8bc5226c6181bf4',
+  '../staging-native-runtime-effect.ts': '12009111ff20f86c14f36ecd6906f66305e66ff68760c475189ec7e440d7981b',
   '../../packages/protocol/src/ordinary-local-admission.ts':
     '85f66be424edfcbcb5b072b79a7113b491b1f486b7d6a0ba03ad9cbf2d3bdf2e',
   '../send-command.ts': '18bc97eb0e66226fd777c77d58597293872c3e6378b071a91c6514511ffe9750',
@@ -72,7 +74,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   // Read-only session observation is part of the operator route composition.
   '../session-access.ts': 'e70130c57879d3b22fab78473d90c8d2e787b7a499194c166e7e912fc5cf2767',
   // Request authority and physical review composition share runtime admission.
-  '../app.ts': '325d4ab581f8094cfa85d8471599e1bda663f5d6d13018a03b96cc598dc7cf12',
+  '../app.ts': '083cd6b37a895f9040211e2aaaf27c28f50d3c633fa3d7cb2be951ae098004ff',
   '../symposium-review-route-composition.ts':
     'bc2cb2a85517a1f16279fd87757a97b9bb46a16d9efc5f15b52bf41a6f14cae3',
   '../symposium-review-host-contract.ts':
@@ -296,16 +298,16 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../symposium-agent-context.ts':
     '5aac047168428af37b9167a9dd4f9eccf91354a76c6bfc3a0907659782e5af2d',
   '../symposium-claude-native.ts':
-    '901a5ad5c65e70e56973cb79509df4f637182f1428dd8f103df0400c5b2e4880',
+    'cea0cd5920407d4b075e7bca49ce3fa479c7e58661be5878a3f1687ec9535b37',
   '../symposium-codex-native.ts':
-    '1bb7c2637d825683b178b64f333eebe5a7216dc6f82c6e210b87b4ffe5f8c7fe',
+    '0a998081e9b5e53ed54bf45154ac0800c979386b156af30feef6e24701a09de6',
   '../symposium-openshell-seat-executor.ts':
     '74f8428334c14dd0efcf4e8bd12b265ed279e2ba238934f15636c1719aed9f66',
   '../symposium-orchestrator.ts':
     '3a695f4f38a4828c935342930f01cd1237f88233fc2a641e6917991f1bc85d6f',
   '../symposium-seat-prompt.ts': '1f29774555808c5db22e0458f9767c2b498e99430dbd13da6ab94e607291bf4f',
   '../symposium-session-runtime.ts':
-    'c89e423508da5bd236032b21d06a89288cbd20a5efa16693f9b7faac846feed3',
+    '81b99da9190c3927e5d38f45b000c719a06917265e24cf035c2422d15fecab90',
   '../telos-artifact-tools.ts': '560e27e41df29aa0b5e8a859731bc956b165e6309f9a0974c16da9ee2c2525e5',
   '../symposium-agent-context-authorization.ts':
     '497a2c4bbb4ca61892e392b11fe554bb88d5302921eef7305f88e74d03c206cc',

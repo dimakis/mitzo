@@ -1,3 +1,5 @@
+import type { SymposiumNativeProfileTools } from './symposium-native-profile-tools.js';
+import type { SymposiumSeatExecution } from './symposium-orchestrator.js';
 import Database from 'better-sqlite3';
 import { chmodSync, lstatSync, statSync } from 'node:fs';
 import { dirname } from 'node:path';
@@ -32,8 +34,24 @@ with os.fdopen(fd, 'w') as stream:
     os.fsync(stream.fileno())
 print('MITZO_STAGING_FIXTURE_V1')
 `;
+export const STAGING_NATIVE_FIXTURE_READER = String.raw`
+import hashlib, os, stat, sys
+root, expected = sys.argv[1:]
+fd = os.open(root + '/nonce.txt', os.O_RDONLY | os.O_NOFOLLOW)
+try:
+    info = os.fstat(fd)
+    if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_size != 65 or stat.S_IMODE(info.st_mode) != 0o400:
+        raise RuntimeError('immutable bounded fixture required')
+    value = os.read(fd, 66)
+    if len(value) != 65 or value[-1:] != b'\n' or hashlib.sha256(value[:-1]).hexdigest() != expected:
+        raise RuntimeError('fixture identity changed')
+    sys.stdout.write(value.decode('ascii'))
+finally:
+    os.close(fd)
+`;
+
 export const STAGING_NATIVE_FIXTURE_REVISION = createHash('sha256')
-  .update(STAGING_NATIVE_FIXTURE_WRITER)
+  .update(STAGING_NATIVE_FIXTURE_WRITER + STAGING_NATIVE_FIXTURE_READER)
   .digest('hex');
 type Runtime = ReturnType<typeof createSymposiumSessionRuntime>;
 export interface StagingNativeFixture {
@@ -50,7 +68,13 @@ export class SymposiumStagingNativeFixtures {
   private readonly db: Database.Database;
   private readonly retained = new Map<
     StagingNativeFixture,
-    { runtime?: Runtime; retired?: object }
+    {
+      runtime?: Runtime;
+      retired?: object;
+      readIssued?: boolean;
+      readStarted?: boolean;
+      readReceipt?: object;
+    }
   >();
   private preparing = false;
   constructor(
@@ -81,8 +105,19 @@ export class SymposiumStagingNativeFixtures {
     this.db.exec(`CREATE TABLE IF NOT EXISTS staging_native_fixtures (
       session_id TEXT PRIMARY KEY, mapping_json TEXT NOT NULL, nonce_sha256 TEXT NOT NULL,
       helper_name TEXT NOT NULL, helper_id TEXT, helper_removed INTEGER NOT NULL DEFAULT 0,
-      volume_removed INTEGER NOT NULL DEFAULT 0
+      volume_removed INTEGER NOT NULL DEFAULT 0,
+      read_helper_name TEXT, read_helper_id TEXT, read_helper_removed INTEGER NOT NULL DEFAULT 0
     )`);
+    const columns = this.db.pragma('table_info(staging_native_fixtures)') as Array<{
+      name: string;
+    }>;
+    for (const [name, definition] of [
+      ['read_helper_name', 'TEXT'],
+      ['read_helper_id', 'TEXT'],
+      ['read_helper_removed', 'INTEGER NOT NULL DEFAULT 0'],
+    ])
+      if (!columns.some((column) => column.name === name))
+        this.db.exec(`ALTER TABLE staging_native_fixtures ADD COLUMN ${name} ${definition}`);
   }
   private current(assertRunCurrent: () => void) {
     this.deps.assertOriginalOwnerCurrent();
@@ -223,10 +258,145 @@ export class SymposiumStagingNativeFixtures {
     );
     retained.runtime = runtime;
   }
+  /** The actual native Codex dynamic-tool bridge calls this fixed Read. It
+   * reads the original physical volume, never a local nonce copy or result flag. */
+  readTools(
+    fixture: StagingNativeFixture,
+    execution: SymposiumSeatExecution,
+    verifyNativeToolCurrent: () => void,
+  ): SymposiumNativeProfileTools {
+    const retained = this.retained.get(fixture);
+    if (
+      !retained?.runtime ||
+      retained.readIssued ||
+      retained.retired ||
+      execution.sessionId !== fixture.sessionId ||
+      execution.seat.id !== 'primary'
+    )
+      throw Error('Original native fixture Read capability unavailable');
+    assertSymposiumRuntimeForStagingFeature(
+      retained.runtime,
+      this.deps.events,
+      this.deps.leases,
+      this.deps.attempts,
+      fixture.sessionId,
+    );
+    retained.readIssued = true;
+    return {
+      tools: [
+        {
+          name: 'Read',
+          description: 'Read this immutable staging nonce fixture exactly once.',
+          input_schema: {
+            type: 'object',
+            properties: { file_path: { type: 'string', enum: [fixture.fixturePath] } },
+            required: ['file_path'],
+            additionalProperties: false,
+          },
+        },
+      ],
+      instructions:
+        'Use Read exactly once on the requested fixture. Other tools and delegation are unavailable.',
+      executeTool: async (name, args, signal) => {
+        if (
+          name !== 'Read' ||
+          !args ||
+          Array.isArray(args) ||
+          Object.keys(args).join() !== 'file_path' ||
+          args.file_path !== fixture.fixturePath ||
+          retained.readStarted ||
+          retained.retired
+        )
+          throw Error('Exact original nonce Read required');
+        const current = () => {
+          signal.throwIfAborted();
+          execution.signal.throwIfAborted();
+          this.current(verifyNativeToolCurrent);
+          assertSymposiumRuntimeForStagingFeature(
+            retained.runtime!,
+            this.deps.events,
+            this.deps.leases,
+            this.deps.attempts,
+            fixture.sessionId,
+            execution.claimToken,
+          );
+        };
+        current();
+        retained.readStarted = true;
+        const helperName = `${fixture.volumeName}-stage-read`;
+        this.db
+          .prepare('UPDATE staging_native_fixtures SET read_helper_name=? WHERE session_id=?')
+          .run(helperName, fixture.sessionId);
+        await this.inspect(fixture, current);
+        const command = this.deps.leases.snapshotCommand();
+        const helperId = (
+          await command(
+            [
+              'create',
+              '--pull=never',
+              '--name',
+              helperName,
+              '--network=none',
+              '--read-only',
+              '--cap-drop=ALL',
+              '--security-opt=no-new-privileges',
+              '--pids-limit=8',
+              '--memory=32m',
+              '--cpus=1',
+              '--timeout=20',
+              '--user',
+              `${this.deps.owner.uid}:${this.deps.owner.gid}`,
+              '--mount',
+              `type=volume,src=${fixture.volumeName},dst=${SYMPOSIUM_ARTIFACT_TARGET},ro=true`,
+              '--entrypoint=/usr/bin/python3',
+              this.deps.owner.image,
+              '-I',
+              '-B',
+              '-S',
+              '-c',
+              STAGING_NATIVE_FIXTURE_READER,
+              SYMPOSIUM_ARTIFACT_TARGET,
+              fixture.nonceSha256,
+            ],
+            512,
+            undefined,
+            20000,
+          )
+        ).trim();
+        if (!/^[a-f0-9]{64}$/.test(helperId))
+          throw Error('Original Read helper identity unavailable');
+        this.db
+          .prepare('UPDATE staging_native_fixtures SET read_helper_id=? WHERE session_id=?')
+          .run(helperId, fixture.sessionId);
+        current();
+        const content = await command(['start', '--attach', helperId], 128, undefined, 20000);
+        if (
+          !/^[a-f0-9]{64}\n$/.test(content) ||
+          createHash('sha256').update(content.slice(0, -1)).digest('hex') !== fixture.nonceSha256
+        )
+          throw Error('Original Read helper content is unconfirmed');
+        current();
+        if ((await command(['rm', helperId], 512, undefined, 20000)).trim() !== helperId)
+          throw Error('Original Read helper removal is unconfirmed');
+        this.db
+          .prepare('UPDATE staging_native_fixtures SET read_helper_removed=1 WHERE session_id=?')
+          .run(fixture.sessionId);
+        current();
+        retained.readReceipt = Object.freeze({
+          claimToken: execution.claimToken,
+          contentSha256: createHash('sha256').update(content).digest('hex'),
+          helperIdSha256: createHash('sha256').update(helperId).digest('hex'),
+          confirmedAt: Date.now(),
+        });
+        return { content, isError: false };
+      },
+    };
+  }
+
   async retire(fixture: StagingNativeFixture, claimToken: string, assertRunCurrent: () => void) {
     this.current(assertRunCurrent);
     const retained = this.retained.get(fixture);
-    if (!retained?.runtime || retained.retired)
+    if (!retained?.runtime || retained.retired || (retained.readIssued && !retained.readReceipt))
       throw Error('Original fixture retirement capability unavailable');
     assertSymposiumRuntimeForStagingFeature(
       retained.runtime,
@@ -281,6 +451,13 @@ export class SymposiumStagingNativeFixtures {
       fixtureRevision: STAGING_NATIVE_FIXTURE_REVISION,
       processReceiptSha256: createHash('sha256').update(JSON.stringify(process)).digest('hex'),
       sandboxReceiptSha256: createHash('sha256').update(JSON.stringify(sandbox)).digest('hex'),
+      ...(retained.readReceipt
+        ? {
+            readReceiptSha256: createHash('sha256')
+              .update(JSON.stringify(retained.readReceipt))
+              .digest('hex'),
+          }
+        : {}),
       confirmedAt: Date.now(),
     });
     retained.retired = receipt;

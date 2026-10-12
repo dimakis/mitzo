@@ -25,7 +25,9 @@ capabilities are minted inside the original host's actual factories.
 
 Once the independently reviewed gateway authority exists, the owner resolves
 only the requested current profile and chooses an explicitly supported Luna.
-The exact model/account, all dispatch scope, accepted source, original owner,
+The exact charged account must be returned by the original authenticated model
+policy capability; a profile label or newly created provider alone cannot prove
+billing identity. The exact model/account, all dispatch scope, accepted source, original owner,
 profile/enrollment revisions, runner/suite digests and bounds enter the immutable
 plan/hash. A single-model Vertex catalog can identify an exact candidate for
 exception review; only the authenticated original gateway policy may supply the
@@ -48,9 +50,22 @@ removal or adoption after restart.
 
 The original host collects the actual session-scoped physical/provider candidate.
 The actual app HostGrants activate a read-only reviewer, and the existing native
-runtime admits its membership generation, creates its owned sandbox, and obtains
-an exact original model budget bound to the sandbox and claim before opening a
-native turn. The fixed delivery requests only the fixture Read and its text.
+runtime admits its membership generation. Before any native manager/startup, an
+awaited original authority prepares a provisional deny-all inference guard for
+the exact original workspace/sandbox name/session/claim. Actual native
+CreateSandbox/GetSandboxConfig must consume that opaque original guard and
+install denial before process startup; a caller flag or bare ID does not grant
+inference. After the actual sandbox ID/current supervisor connection exists, the
+same original guard can issue the exact bounded model budget before a native
+turn. Missing native RPC transport, issuer or guard consumption remains a refusal. The fixed delivery requests only the fixture Read and its text.
+Codex's actual read-only configuration disables shell/exec, so this source adds
+one fixed Read through the existing native dynamic-tool bridge. Its original
+owner reads only the immutable nonce volume through a read-only, no-network
+32 MiB/eight-PID helper, checks mode/size/link/hash, and positively removes the
+exact helper before returning the real tool result. The original accepted
+runtime/claim must qualify that tool; cached nonce data or result flags cannot.
+A missing/ambiguous Read receipt blocks fixture retirement. Claude Vertex uses
+its actual native built-in Read and receives no additional host tools.
 It uses the ordinary native Codex/Claude factories and their current source
 admission; it does not substitute a local provider or another runtime.
 
@@ -66,6 +81,16 @@ attempts, retries, compaction and helper inference routes must be covered.
 
 Cleanup awaits the original controlled target's positive controller stop
 acknowledgement; durable recovery/confirmed rows cannot mint this receipt.
+The actual Codex, personal ChatGPT and Claude constructors pass the original
+staging queue/lifetime assertion into the original attempt registry's launch.
+It checks before launch and before/after the retained process's positive stop
+acknowledgement. Lost authority keeps the claim uncertain and cannot mint an
+original stop receipt; a rejected confirmation is retained rather than replayed.
+The original manager's ensure/inspect/stop/delete methods check the same private
+queue reservation before and after each awaited staging effect. The wrapper
+delegates to that retained manager and preserves missing methods; it supplies no
+runtime replacement or successful observations. Queue loss after an effect
+prevents a positive cleanup result and retains uncertainty for reconciliation.
 The actual original sandbox owner requires its retained terminal creation,
 positive physical stop and deletion, and artifact lease release. Reconstructed
 owners, disappeared resources, SDK abort, idle, suspension and transcript end

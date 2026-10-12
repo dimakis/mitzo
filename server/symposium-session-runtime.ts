@@ -3,6 +3,7 @@ import type {
   SymposiumHostGrantVerifier,
 } from './symposium-dispatch-boundary.js';
 import { canonicalReviewJson } from './symposium-review-records.js';
+import { guardStagingNativeRuntimeEffects } from './staging-native-runtime-effect.js';
 import {
   atSymposiumReconciliationStage,
   atSymposiumReconciliationStageAsync,
@@ -352,6 +353,16 @@ export interface SymposiumSharedSandboxOwnerDeps {
   verifyHostCapability?: () => SymposiumProviderCapability;
   /** Original host fence for cleanup observations after this runtime closes admission. */
   verifyCleanupCapability?: () => SymposiumProviderCapability;
+  /** Actual original gateway provisional deny guard before native startup. */
+  stagingPrepareSandbox?: (input: {
+    sessionId: string;
+    seatId: string;
+    generation: number;
+    runtimeId: string;
+    sandboxName: string;
+  }) => Promise<{ assertCurrent(): void }>;
+  /** Source-only actual private queue assertion before/after native lifecycle effects. */
+  stagingEffectCurrent?: () => void;
   verifiedSubscriptionControllerCommand?: readonly string[];
   verifySubscriptionPrivateAuth?: VerifySymposiumSubscriptionAuth;
   captureSubscriptionLaunchIdentity?: (
@@ -376,6 +387,18 @@ export interface SymposiumSharedSandboxOwnerDeps {
     stop?(runtimeId: string, physicalId: string, signal: AbortSignal): Promise<void>;
     delete?(runtimeId: string, physicalId: string, signal: AbortSignal): Promise<void>;
   };
+}
+
+function createOriginalSandboxManager(
+  deps: Pick<SymposiumSharedSandboxOwnerDeps, 'managerFactory' | 'stagingEffectCurrent'>,
+  config: BoundOpenShellRuntimeConfig,
+) {
+  const original = (deps.managerFactory ?? ((selected) => new OpenShellRuntimeManager(selected)))(
+    config,
+  );
+  return deps.stagingEffectCurrent
+    ? guardStagingNativeRuntimeEffects(original, deps.stagingEffectCurrent)
+    : original;
 }
 
 function verifyClaudeSeatCapability(
@@ -488,9 +511,7 @@ export class SymposiumSharedSandboxOwner {
         throw new Error(
           'Private native seat state isolation is not verified in the shared sandbox',
         );
-      const manager = (
-        this.deps.managerFactory ?? ((config) => new OpenShellRuntimeManager(config))
-      )({
+      const manager = createOriginalSandboxManager(this.deps, {
         ...this.deps.runtimeConfig,
         account: snapshot.owner,
         accountProviderBindings: snapshot.bindings,
@@ -621,7 +642,7 @@ async function withSymposiumSeatLifecycleFence<T>(
 
 type CompletedSandboxCleanupDeps = Pick<
   SymposiumSharedSandboxOwnerDeps,
-  'runtimeConfig' | 'managerFactory'
+  'runtimeConfig' | 'managerFactory' | 'stagingEffectCurrent'
 > & {
   seatSandboxRegistry: SeatSandboxRegistry;
   /** Only the trusted retained seal recovery path supplies its original deny fence. */
@@ -730,7 +751,7 @@ export async function stopRetainedSealSandbox(
       )
         throw new Error('Retained seal sandbox identity requires reconciliation');
       if (current.state === 'stopped') return;
-      const manager = (deps.managerFactory ?? ((config) => new OpenShellRuntimeManager(config)))({
+      const manager = createOriginalSandboxManager(deps, {
         ...deps.runtimeConfig,
         account: { kind: 'api', provider: record.providerName, model: record.model },
         accountProviderBindings: [
@@ -1015,15 +1036,29 @@ export class SymposiumPerSeatSandboxOwner {
             phase: creationPhase,
             failed,
           });
+        const provisional = await this.deps.stagingPrepareSandbox?.({
+          sessionId,
+          seatId,
+          generation: snapshot.generation,
+          runtimeId: snapshot.runtimeId,
+          sandboxName: sandboxNameForConversation(
+            snapshot.runtimeId,
+            this.deps.runtimeConfig.sandboxIdLength,
+          ),
+        });
+        provisional?.assertCurrent();
         const manager = atSymposiumReconciliationStage('SEAT_MANAGER_SETUP_FAILED', () =>
-          (this.deps.managerFactory ?? ((config) => new OpenShellRuntimeManager(config)))({
+          createOriginalSandboxManager(this.deps, {
             ...this.deps.runtimeConfig,
             ...(seatPolicy ? { policy: seatPolicy.path } : {}),
-            ...(this.deps.runSandboxCreation
+            ...(this.deps.runSandboxCreation || provisional
               ? {
                   beforeSandboxCreate: () => {
-                    if (!physicalDispatch) throw new Error('Missing sandbox dispatch fence');
-                    physicalDispatch();
+                    provisional?.assertCurrent();
+                    if (this.deps.runSandboxCreation) {
+                      if (!physicalDispatch) throw new Error('Missing sandbox dispatch fence');
+                      physicalDispatch();
+                    }
                   },
                 }
               : {}),
@@ -1418,9 +1453,7 @@ export class SymposiumPerSeatSandboxOwner {
             );
           }
 
-          const manager = (
-            this.deps.managerFactory ?? ((config) => new OpenShellRuntimeManager(config))
-          )({
+          const manager = createOriginalSandboxManager(this.deps, {
             ...this.deps.runtimeConfig,
             account: { kind: 'api', provider: record.providerName, model: record.model },
             accountProviderBindings: [
@@ -1614,6 +1647,11 @@ export interface SymposiumSessionRuntimeDeps extends Omit<
   observeStartupConfig?: import('./symposium-codex-native.js').OpenAiCodexSeatInput['observeStartupConfig'];
   observePrelaunch?: import('./symposium-codex-native.js').OpenAiCodexSeatInput['observePrelaunch'];
   openNative?: SymposiumOpenShellSeatExecutorDeps['openNative'];
+  /** Source-owned stage fixture tool on this original native runtime only. */
+  stagingFixtureTools?: (
+    execution: SymposiumSeatExecution,
+    verifyCurrent: () => void,
+  ) => SymposiumNativeProfileTools;
   /** Explicit host attestation of exact OpenShell 0.1 seat isolation and attachment semantics. */
   perSeatSandboxVerified?: boolean;
   /** Roles certified by the host capability gate. A production gate supplies this explicitly. */
@@ -1896,7 +1934,7 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
                 workdir: input.sandbox.workdir,
                 verifyCurrent: verifyNativeToolCurrent,
               });
-              const hostTools = accessTools
+              const ordinaryHostTools = accessTools
                 ? {
                     tools: [...(profileTools?.tools ?? []), ...accessTools.tools],
                     instructions: [profileTools?.instructions, accessTools.instructions]
@@ -1917,6 +1955,9 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
                           })),
                   }
                 : profileTools;
+              const hostTools = deps.stagingFixtureTools
+                ? deps.stagingFixtureTools(input.execution, verifyNativeToolCurrent)
+                : ordinaryHostTools;
               const loadConversationHistory = () =>
                 symposiumSeatRolloverHistory(
                   deps.store,
@@ -1934,6 +1975,7 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
               };
               return input.route.kind === 'openai-api'
                 ? createOpenAiCodexSeat({
+                    stagingEffectCurrent: deps.stagingEffectCurrent,
                     ...input,
                     store: deps.codexStore,
                     loadConversationHistory,
@@ -1965,6 +2007,7 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
                   })
                 : input.route.kind === 'chatgpt-subscription-native'
                   ? createChatGptSubscriptionSeat({
+                      stagingEffectCurrent: deps.stagingEffectCurrent,
                       ...input,
                       store: deps.codexStore,
                       loadConversationHistory,
@@ -1979,6 +2022,7 @@ export function createSymposiumSessionRuntime(deps: SymposiumSessionRuntimeDeps)
                       assertSubscriptionDispatch: deps.assertSubscriptionDispatch,
                     })
                   : createClaudeVertexSeat({
+                      stagingEffectCurrent: deps.stagingEffectCurrent,
                       ...input,
                       route: input.route,
                       loadConversationHistory,
