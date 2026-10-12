@@ -21,6 +21,34 @@ its actual original VM owner's zero-argument `observeResources` capability.
 Allocation authentication does not prove provider enrollment. Provider
 capabilities are minted inside the original host's actual factories.
 
+The pinned owned-host configuration can specify
+`personal.workApiBillingScopes[profileId] = { organizationId, projectId }` for
+an explicitly configured work API profile. Its original provider factory then
+authenticates a bounded HTTPS `GET /v1/models` with the fresh named credential
+and those exact `OpenAI-Organization` / `OpenAI-Project` headers before creating
+the provider. It rejects redirects, failed authentication, contradictory returned
+organization, oversized or malformed catalogs, and an unavailable exact Luna.
+The [official API overview](https://developers.openai.com/api/reference/overview)
+states that usage with these headers is attributed to their organization/project;
+a returned project header is not part of that contract. This proves API billing
+scope, not a separately verified principal or personal ChatGPT identity.
+
+`captureSymposiumWorkApiCatalog` returns only the original same-gateway capability,
+with fixed billing headers, credential/catalog hashes, selected Luna and a
+five-minute expiry. A JSON copy or reopened configuration cannot recreate it.
+The original provider retains a bounded read-only catalog refresh capability.
+It rereads only its named staging credential, requires its original hash and
+actual provider identity, and sends the same fixed billing headers. Refresh
+invalidates old catalog capabilities and their dependent plans; concurrent
+refreshes and failed authentication refuse, without creating another provider.
+This remains catalog and billing-scope evidence: the native issuer must also
+check the actual current provider credential revision and final outbound headers.
+The native issuer must additionally verify the actual current provider resource,
+credential identity/revision/hash and outbound headers before every dispatch.
+That authenticated native bridge remains unavailable. The configuration alone
+does not approve enrollment or a live test, and ordinary provider creation with
+no explicit staging scope performs no additional network request.
+
 ## Actual bounded execution path
 
 Once the independently reviewed gateway authority exists, the owner resolves
@@ -172,6 +200,38 @@ and fresh authorization; it is not a conversion of an existing private ChatGPT
 provider or a borrowed Codex token. It remains a source/enrollment dependency.
 
 ## Authenticated existing IPC and resources
+
+Personal staging catalog refresh uses the original connected subscription
+adapter's private JWT-verified account and fresh login credential. The actual
+owned-host constructor retains an opaque refresh port for its own returned host
+object. The canonical service installs it only during original native feature
+bootstrap; the existing authenticated personal models/refresh operation then
+performs a bounded HTTPS GET to the Codex 0.159.1 first-party models endpoint.
+It uses the actual account header and credential, refuses redirects, non-200
+responses, missing/oversized/unsupported catalogs, competing refreshes and lost
+owner or connection authority. It never creates a discovery sandbox or performs
+inference. Ordinary account discovery retains its existing native path.
+
+An authenticated catalog observation lasts at most five minutes. Its private
+credential can be reused for another read only until the actual verified JWT
+expiry; expiry and explicit invalidation erase that retained credential. A new
+catalog observation invalidates the old one without recreating the provider or
+requiring another human login solely because five minutes elapsed. The native
+issuer must independently match the current resolver revision and token digest;
+automatic native OAuth rotation is not adopted from display metadata or cache.
+The original receipt identity may survive temporal expiry only for known cleanup
+under the same private queue/source/physical-owner fence.
+
+Enrollment and native model plans must agree on the authentic charged scope:
+API uses `openai/ORGANIZATION/PROJECT` from the accepted authenticated catalog's
+fixed billing headers; personal uses the actual private ChatGPT account ID;
+Vertex uses `VERIFIED_PRINCIPAL@PROJECT/global` from its original creation
+receipt. These formatters and JSON observations grant no authority. The original
+capability objects, current authenticated native provider description and exact
+wire enforcement remain required. The known public Vertex project is
+`itpc-ca-638a2a9c7c` and region is `global`; the separately approved test exception
+is only `claude-haiku-4-5@20251001`. Fresh staging ADC/principal enrollment and
+qualified native enforcement are still pending.
 
 The finite existing custodian protocol adds only enrollment, plan, run, receipt
 and resources operations. The canonical controller forwards them to its actual

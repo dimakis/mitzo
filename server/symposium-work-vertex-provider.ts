@@ -5,7 +5,7 @@ import {
   assertSymposiumWorkVertexReadinessAsync,
 } from './symposium-work-vertex-readiness.js';
 import { execFile, spawnSync } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, createHash } from 'node:crypto';
 import { closeSync, constants, fstatSync, openSync, readSync } from 'node:fs';
 import { GoogleAuth } from 'google-auth-library';
 import { z } from 'zod';
@@ -23,6 +23,9 @@ const Adc = z.object({
 type Material = z.infer<typeof Adc>;
 export interface SymposiumWorkVertexReceipt {
   readonly principal: string;
+  /** SHA256 of the canonical parsed fresh ADC material actually used for creation;
+   * neither a raw file-byte hash nor the rotating OAuth token digest. */
+  readonly adcSha256: string;
   readonly accountId: string;
   readonly provider: string;
   readonly providerId: string;
@@ -92,6 +95,23 @@ export function captureSymposiumWorkVertexOriginalIdentity(
   };
   assertCurrent();
   return Object.freeze({ identity: original.receipt, assertCurrent });
+}
+/** Same-process original ADC/principal creation lookup. Inventory/account labels
+ * cannot mint it; inference still requires actual resolver+scope+exact model approval. */
+export function captureSymposiumWorkVertexAccount(
+  gateway: OwnedSymposiumGateway,
+  accountId: string,
+) {
+  verifyCustody(gateway);
+  const matches = [...(receipts.get(gateway)?.values() ?? [])].filter(
+    (entry) => entry.receipt.accountId === accountId,
+  );
+  if (matches.length !== 1) throw Error('Unique original Vertex account creation required');
+  const original = matches[0];
+  const provider = captureSymposiumWorkVertexOriginalIdentity(gateway, original.receipt.providerId);
+  if (provider.identity !== original.receipt)
+    throw Error('Original Vertex account identity differs');
+  return provider;
 }
 async function verifyCustodyAsync(gateway: OwnedSymposiumGateway): Promise<void> {
   try {
@@ -295,6 +315,7 @@ export async function createSymposiumWorkVertexProvider(
     retained.set(found.id, {
       receipt: Object.freeze({
         principal: verified.email,
+        adcSha256: createHash('sha256').update(JSON.stringify(material)).digest('hex'),
         accountId: profile.id,
         provider,
         providerId: found.id,

@@ -63,6 +63,7 @@ function fixture(canonical = false) {
     'staging-contained-native-disposition',
     'symposium-custodian-retirement',
     'symposium-owned-config-schema',
+    'staging-api-billing-scope',
     'symposium-owned-network-config',
     'credentials',
     'model-catalog',

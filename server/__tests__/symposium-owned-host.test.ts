@@ -30,6 +30,7 @@ import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import {
   createOwnedSymposiumHost,
+  captureOwnedPersonalCatalogRefresh,
   type OwnedSymposiumHostOptions,
 } from '../symposium-owned-host.js';
 import type { OwnedSymposiumGateway } from '../symposium-owned-gateway.js';
@@ -101,6 +102,26 @@ function fixture() {
   return { root, gateway, options, launch, seat, membership };
 }
 describe('explicit owned Symposium host composition', () => {
+  it('retains the original personal catalog refresh port and rejects copied host methods or lost owner admission', async () => {
+    const f = fixture();
+    const host = await createOwnedSymposiumHost(f.options, f.launch);
+    try {
+      const original = captureOwnedPersonalCatalogRefresh(host);
+      expect(captureOwnedPersonalCatalogRefresh(host)).toBe(original);
+      expect(() => captureOwnedPersonalCatalogRefresh({ ...host })).toThrow('Original owned');
+      const current = vi.fn();
+      await expect(original.refresh('personal', 1, current)).rejects.toThrow(
+        'Discovery is unavailable',
+      );
+      expect(current).toHaveBeenCalled();
+      host.pauseController();
+      expect(() => original.assertCurrent()).toThrow('owner unavailable');
+      host.stop();
+      expect(() => original.assertCurrent()).toThrow('owner unavailable');
+    } finally {
+      host.stop();
+    }
+  });
   it('sweeps abandoned ready review streams before exposing a fresh owner', async () => {
     const f = fixture();
     const events = new EventStore(join(f.root, 'facts.db'));

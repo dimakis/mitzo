@@ -11,6 +11,7 @@ import { SymposiumWorkVertexProfile } from './symposium-work-vertex-profile.js';
 import { PublicationCredentialRegistrationSchema } from './symposium-publication-registration-schema.js';
 import { isPodmanSandboxNamespace } from './symposium-podman-namespace.js';
 import { CriterionCheckDefinitionSchema } from './symposium-criterion-definition.js';
+import { StagingApiBillingScopeSchema } from './staging-api-billing-scope.js';
 const path = z.string().refine(isAbsolute, 'Absolute path required');
 const digest = z.string().regex(/^[a-f0-9]{64}$/);
 const id = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/);
@@ -84,14 +85,34 @@ export const OwnedSymposiumConfigSchema = z.strictObject({
     }),
     sandboxNamespace: z.string().refine(isPodmanSandboxNamespace),
   }),
-  personal: z.strictObject({
-    deviceLoginExecutable: z.strictObject({ executable: path, sha256: digest }).optional(),
-    workProfiles: z.array(z.discriminatedUnion('provider', [Work, SymposiumWorkVertexProfile])),
-    accountId: z.string().regex(/^[a-zA-Z0-9_-]+$/),
-    label: z.string().min(1),
-    selectedModel: z.string().min(1),
-    models: z.array(CatalogModel.strict()).min(1),
-  }),
+  personal: z
+    .strictObject({
+      deviceLoginExecutable: z.strictObject({ executable: path, sha256: digest }).optional(),
+      workProfiles: z.array(z.discriminatedUnion('provider', [Work, SymposiumWorkVertexProfile])),
+      workApiBillingScopes: z
+        .record(z.string().regex(/^[a-zA-Z0-9_-]+$/), StagingApiBillingScopeSchema)
+        .optional(),
+      accountId: z.string().regex(/^[a-zA-Z0-9_-]+$/),
+      label: z.string().min(1),
+      selectedModel: z.string().min(1),
+      models: z.array(CatalogModel.strict()).min(1),
+    })
+    .superRefine((personal, context) => {
+      const scopes = Object.keys(personal.workApiBillingScopes ?? {});
+      if (
+        scopes.length > 20 ||
+        scopes.some(
+          (profileId) =>
+            !personal.workProfiles.some(
+              (profile) => profile.id === profileId && profile.provider === 'openai',
+            ),
+        )
+      )
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Explicit configured API billing scopes required',
+        });
+    }),
   artifacts: z.array(z.strictObject({ sessionId: id, volumeName: id, volumeGeneration: id })),
   providerProfiles: z.array(z.strictObject({ path, sha256: digest })).min(1),
 });

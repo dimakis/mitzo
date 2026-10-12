@@ -77,7 +77,7 @@ it('preserves known original cleanup at pressure while refusing new admission an
     captureEnrollment: (profile, selected) => ({
       binding: profiles.resolve(profile, selected),
       selectedModel: selected,
-      chargedAccount: 'stage-api',
+      chargedAccount: 'authenticated-stage-account',
       assertCurrent: () => {
         current();
         if (temporalExpired) throw Error('catalog expired');
@@ -148,75 +148,83 @@ it('preserves known original cleanup at pressure while refusing new admission an
   model.current.mockReset();
   model.cleanup.mockReset();
 });
-it('rechecks original enrollment identity after the awaited authenticated provider description before recording a plan', async () => {
-  const sourceCommit = 'a'.repeat(40);
-  let chargedAccount = 'stage-api';
-  const current = vi.fn();
-  const profiles = new AccountProfiles([
-    {
-      id: 'stage-api',
-      label: 'Stage API',
-      provider: 'openai',
-      credentialRef: { provider: 'keychain', service: 'synthetic-only', account: 'stage' },
-      sandboxProvider: 'fresh',
-      sandboxProviderId: 'fresh',
-      models: [{ id: 'gpt-6-luna', label: 'Luna' }],
-    },
-  ]);
-  const execute = vi.fn();
-  const feature = new StagingNativeFeatureOwner({
-    bootstrap: {
-      sourceCommit,
-      sourceRoot: '/isolated/source',
-      fixtureRoot: '/isolated/fixture',
-      assertOriginalOwnerCurrent: current,
-      observeResources: () => ({
-        aggregateGiB: 1,
-        growthGiB: 0,
-        diskFreeGiB: 100,
-        vmMemoryMiB: 4096,
-        vmCpus: 2,
-        allocationUUID: 'isolated',
-        planSha256: 'b'.repeat(64),
-        bootUUID: 'boot',
-        supervisorPid: 100,
-        vfkitPid: 101,
-        observationSha256: 'c'.repeat(64),
-        nativeRetirementClaim: false,
-      }),
-    },
-    gateway: { verifyCustody: current } as unknown as OwnedSymposiumGateway,
-    ownerInstance: 'original',
-    currentProfiles: () => profiles,
-    captureEnrollment: (profile, selected) => ({
-      binding: profiles.resolve(profile, selected),
-      selectedModel: selected,
-      chargedAccount,
-      assertCurrent: current,
-      assertOriginalCleanupCurrent: current,
-    }),
-    assertOriginalOwnerCurrent: current,
-    assertReservation: current,
-    execute,
-  });
-  const enrollment = feature.enrollment('stage-api');
-  model.describe.mockImplementationOnce(async () => {
-    await Promise.resolve();
-    chargedAccount = 'different-authenticated-account';
-  });
-  await expect(
-    feature.plan(
+it.each(['enrollment-after-await', 'different-provider-account'] as const)(
+  'refuses %s before recording a native plan or dispatching fixtures',
+  async (drift) => {
+    const sourceCommit = 'a'.repeat(40);
+    let chargedAccount =
+      drift === 'enrollment-after-await'
+        ? 'authenticated-stage-account'
+        : 'different-authenticated-account';
+    const current = vi.fn();
+    const profiles = new AccountProfiles([
       {
-        version: 2,
-        id: 'request',
-        pr: 1,
-        taskId: 'task',
-        acceptedCommit: sourceCommit,
-        suite: 'profile-tools-v1',
-        ...enrollment,
+        id: 'stage-api',
+        label: 'Stage API',
+        provider: 'openai',
+        credentialRef: { provider: 'keychain', service: 'synthetic-only', account: 'stage' },
+        sandboxProvider: 'fresh',
+        sandboxProviderId: 'fresh',
+        models: [{ id: 'gpt-6-luna', label: 'Luna' }],
       },
-      sourceCommit,
-    ),
-  ).rejects.toThrow('source/enrollment changed');
-  expect(execute).not.toHaveBeenCalled();
-});
+    ]);
+    const execute = vi.fn();
+    const feature = new StagingNativeFeatureOwner({
+      bootstrap: {
+        sourceCommit,
+        sourceRoot: '/isolated/source',
+        fixtureRoot: '/isolated/fixture',
+        assertOriginalOwnerCurrent: current,
+        observeResources: () => ({
+          aggregateGiB: 1,
+          growthGiB: 0,
+          diskFreeGiB: 100,
+          vmMemoryMiB: 4096,
+          vmCpus: 2,
+          allocationUUID: 'isolated',
+          planSha256: 'b'.repeat(64),
+          bootUUID: 'boot',
+          supervisorPid: 100,
+          vfkitPid: 101,
+          observationSha256: 'c'.repeat(64),
+          nativeRetirementClaim: false,
+        }),
+      },
+      gateway: { verifyCustody: current } as unknown as OwnedSymposiumGateway,
+      ownerInstance: 'original',
+      currentProfiles: () => profiles,
+      captureEnrollment: (profile, selected) => ({
+        binding: profiles.resolve(profile, selected),
+        selectedModel: selected,
+        chargedAccount,
+        assertCurrent: current,
+        assertOriginalCleanupCurrent: current,
+      }),
+      assertOriginalOwnerCurrent: current,
+      assertReservation: current,
+      execute,
+    });
+    const enrollment = feature.enrollment('stage-api');
+    model.describe.mockImplementationOnce(async () => {
+      await Promise.resolve();
+      if (drift === 'enrollment-after-await') chargedAccount = 'different-authenticated-account';
+    });
+    await expect(
+      feature.plan(
+        {
+          version: 2,
+          id: 'request',
+          pr: 1,
+          taskId: 'task',
+          acceptedCommit: sourceCommit,
+          suite: 'profile-tools-v1',
+          ...enrollment,
+        },
+        sourceCommit,
+      ),
+    ).rejects.toThrow(
+      drift === 'enrollment-after-await' ? 'source/enrollment changed' : 'charged account differs',
+    );
+    expect(execute).not.toHaveBeenCalled();
+  },
+);

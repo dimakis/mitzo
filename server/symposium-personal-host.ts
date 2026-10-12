@@ -1,3 +1,6 @@
+import type { AuthenticatedPersonalModelCatalog } from './symposium-subscription-provisioner.js';
+import { randomBytes } from 'node:crypto';
+import type { OwnedSymposiumGateway } from './symposium-owned-gateway.js';
 import type { SubscriptionLaunchIdentity } from './symposium-subscription-identity.js';
 import type { CatalogModel } from './model-catalog.js';
 import {
@@ -16,6 +19,95 @@ import {
   type SymposiumSubscriptionHostOptions,
 } from './symposium-subscription-host.js';
 import type { VerifySymposiumSubscriptionAuth } from './symposium-subscription-native.js';
+export interface OriginalPersonalPrincipalCapability {
+  readonly observation: Readonly<{
+    profileId: string;
+    providerId: string;
+    providerName: string;
+    workspace: string;
+    /** The actual private JWT-authenticated ChatGPT account ID, not display metadata. */
+    chargedAccount: string;
+    connectionRevision: number;
+    observationRevision: string;
+    observedAt: number;
+    /** Bounded observation lifetime, not a claim about resolver credential expiry. */
+    expiresAt: number;
+  }>;
+  assertCurrent(): void;
+  assertOriginalCleanupCurrent(): void;
+}
+const originalPrincipalIssuers = new WeakMap<
+  OwnedSymposiumGateway,
+  Set<(profileId: string) => OriginalPersonalPrincipalCapability | undefined>
+>();
+/** Retains only the actual original connected adapter's verified private receipt.
+ * Copied gateway/account/read/catalog display JSON cannot reconstruct this capability. */
+export function captureSymposiumPersonalPrincipal(
+  gateway: OwnedSymposiumGateway,
+  profileId: string,
+): OriginalPersonalPrincipalCapability {
+  gateway.verifyCustody();
+  const matches = [...(originalPrincipalIssuers.get(gateway) ?? [])]
+    .map((issue) => issue(profileId))
+    .filter((cap): cap is OriginalPersonalPrincipalCapability => Boolean(cap));
+  if (matches.length !== 1)
+    throw Error('Unique original authenticated personal principal required');
+  matches[0].assertCurrent();
+  return matches[0];
+}
+const originalCatalogIssuers = new WeakMap<
+  OwnedSymposiumGateway,
+  Set<(profileId: string, selectedModel: string) => AuthenticatedPersonalModelCatalog | undefined>
+>();
+const originalCatalogRefreshers = new WeakMap<
+  OwnedSymposiumGateway,
+  Set<
+    (
+      profileId: string,
+      selectedModel: string,
+      current: () => void,
+    ) => Promise<AuthenticatedPersonalModelCatalog | undefined>
+  >
+>();
+export function captureSymposiumPersonalModelCatalog(
+  gateway: OwnedSymposiumGateway,
+  profileId: string,
+  selectedModel: string,
+) {
+  gateway.verifyCustody();
+  const matches = [...(originalCatalogIssuers.get(gateway) ?? [])]
+    .map((issue) => issue(profileId, selectedModel))
+    .filter((cap): cap is AuthenticatedPersonalModelCatalog => Boolean(cap));
+  if (matches.length !== 1) throw Error('Unique original authenticated personal catalog required');
+  const principal = captureSymposiumPersonalPrincipal(gateway, profileId),
+    catalog = matches[0];
+  catalog.assertCurrent();
+  if (
+    catalog.observation.chargedAccount !== principal.observation.chargedAccount ||
+    catalog.observation.providerId !== principal.observation.providerId ||
+    catalog.observation.workspace !== principal.observation.workspace
+  )
+    throw Error('Original personal principal and catalog differ');
+  return Object.freeze({ principal, catalog });
+}
+/** Source-only actual original adapter refresh; no provider recreation or native
+ * process. The original request/owner callback is rechecked at every read boundary. */
+export async function refreshSymposiumPersonalModelCatalog(
+  gateway: OwnedSymposiumGateway,
+  profileId: string,
+  selectedModel: string,
+  current: () => void,
+) {
+  current();
+  gateway.verifyCustody();
+  const refreshers = [...(originalCatalogRefreshers.get(gateway) ?? [])];
+  if (refreshers.length !== 1) throw Error('Unique original personal catalog refresher required');
+  const catalog = await refreshers[0](profileId, selectedModel, current);
+  current();
+  gateway.verifyCustody();
+  if (!catalog) throw Error('Original connected personal catalog unavailable');
+  return captureSymposiumPersonalModelCatalog(gateway, profileId, selectedModel);
+}
 type DiscoveryRecovery = (assertCurrent: () => void) => Promise<DiscoveryResult>;
 export interface PersonalRoutingDiagnosticOutcome {
   result: RoutingDiagnosticResult;
@@ -170,9 +262,155 @@ export function createPersonalSubscriptionHost(
       throw error;
     }
   };
+  const principals = new Map<string, OriginalPersonalPrincipalCapability>();
+  const capturePrincipal = (profileId: string): OriginalPersonalPrincipalCapability | undefined => {
+    const row = connections.list().find((candidate) => candidate.id === profileId);
+    if (!row || row.state !== 'connected') return undefined;
+    const prior = principals.get(profileId);
+    if (prior) {
+      try {
+        prior.assertCurrent();
+        return prior;
+      } catch {
+        principals.delete(profileId);
+      }
+    }
+    assertNoDiscovery();
+    const originalAdapter = connections.adapter(row.id);
+    const receipt = originalAdapter.captureDiscovery();
+    const identity = receipt.launchIdentity();
+    const assertIdentity = () => {
+      options.gateway.verifyCustody();
+      const current = connections.list().find((candidate) => candidate.id === profileId);
+      if (
+        !current ||
+        current.state !== 'connected' ||
+        current.revision !== row.revision ||
+        connections.adapter(row.id) !== originalAdapter
+      )
+        throw Error('Original personal principal connection changed');
+      receipt.assertCurrent();
+      identity.assertCurrent();
+    };
+    assertIdentity();
+    const observedAt = Date.now();
+    const capability: OriginalPersonalPrincipalCapability = Object.freeze({
+      observation: Object.freeze({
+        profileId,
+        providerId: receipt.provider.id,
+        providerName: receipt.provider.name,
+        workspace: options.gateway.workspace,
+        chargedAccount: identity.accountId,
+        connectionRevision: row.revision,
+        observationRevision: randomBytes(32).toString('hex'),
+        observedAt,
+        expiresAt: observedAt + 300000,
+      }),
+      assertCurrent: () => {
+        assertIdentity();
+        assertNoDiscovery();
+        if (Date.now() >= observedAt + 300000 || principals.get(profileId) !== capability)
+          throw Error('Original personal principal observation expired');
+      },
+      assertOriginalCleanupCurrent: assertIdentity,
+    });
+    principals.set(profileId, capability);
+    capability.assertCurrent();
+    return capability;
+  };
+  const issuers = originalPrincipalIssuers.get(options.gateway) ?? new Set();
+  if (issuers.size >= 100) throw Error('Original personal principal issuer limit');
+  issuers.add(capturePrincipal);
+  originalPrincipalIssuers.set(options.gateway, issuers);
+  const catalogIssuers = originalCatalogIssuers.get(options.gateway) ?? new Set();
+  catalogIssuers.add((profileId: string, selectedModel: string) => {
+    const row = connections.list().find((candidate) => candidate.id === profileId);
+    if (!row || row.state !== 'connected') return undefined;
+    assertNoDiscovery();
+    return connections.adapter(row.id).captureAuthenticatedCatalog(selectedModel);
+  });
+  originalCatalogIssuers.set(options.gateway, catalogIssuers);
+  const catalogRefreshers = originalCatalogRefreshers.get(options.gateway) ?? new Set();
+  catalogRefreshers.add(async (profileId: string, selectedModel: string, current: () => void) => {
+    const row = connections.list().find((candidate) => candidate.id === profileId);
+    if (!row || row.state !== 'connected') return undefined;
+    assertNoDiscovery();
+    const adapter = connections.adapter(row.id);
+    const assertCurrent = () => {
+      current();
+      options.gateway.verifyCustody();
+      assertNoDiscovery();
+      const now = connections.list().find((candidate) => candidate.id === profileId);
+      if (
+        !now ||
+        now.state !== 'connected' ||
+        now.revision !== row.revision ||
+        connections.adapter(row.id) !== adapter
+      )
+        throw Error('Original personal catalog connection changed');
+    };
+    const catalog = await adapter.refreshAuthenticatedCatalog(selectedModel, assertCurrent);
+    assertCurrent();
+    return catalog;
+  });
+  originalCatalogRefreshers.set(options.gateway, catalogRefreshers);
   const adapter = (input: Parameters<VerifySymposiumSubscriptionAuth>[0]) =>
     connections.adapter(input.execution.seat.accountBinding?.accountId ?? '');
   return {
+    /** Invoked only through the original host's private staging capability.
+     * This uses the same connection lease, but allocates no discovery sandbox. */
+    async refreshAuthenticatedModels(
+      id: string,
+      revision: number,
+      selectedModel: string,
+      assertOriginalCurrent: () => void,
+    ) {
+      assertOriginalCurrent();
+      options.gateway.verifyCustody();
+      assertNoDiscovery();
+      if (connections.list().some((row) => ['connecting', 'disconnecting'].includes(row.state)))
+        throw Error('Account change is pending');
+      const lease = connections.beginDiscovery(id, revision);
+      let finished = false;
+      try {
+        const proof = lease.adapter.captureDiscovery();
+        const assertCurrent = () => {
+          assertOriginalCurrent();
+          options.gateway.verifyCustody();
+          connections.assertDiscovery(lease);
+          proof.assertCurrent();
+        };
+        assertCurrent();
+        proof.invalidateCatalog();
+        const catalog = await lease.adapter.refreshAuthenticatedCatalog(
+          selectedModel,
+          assertCurrent,
+        );
+        assertCurrent();
+        catalog.assertCurrent();
+        const models = catalog.observation.listedModels.map((id) => ({ id, label: id }));
+        proof.publish(models, lease.revision + 1);
+        // Publishing changes the binding generation; no old proof is reused.
+        assertOriginalCurrent();
+        options.gateway.verifyCustody();
+        connections.assertDiscovery(lease);
+        const connection = connections.finishDiscovery(lease, true);
+        finished = true;
+        catalog.assertCurrent();
+        return { status: 'complete' as const, inference: false as const, connection, models };
+      } catch {
+        if (!finished) {
+          try {
+            // This exact source path performed only bounded HTTPS catalog reads,
+            // never native allocation, credential mutation or inference.
+            connections.finishDiscovery(lease, true);
+          } catch {
+            /* The owning metadata layer retains failed persistence authority. */
+          }
+        }
+        throw Error('Original authenticated personal catalog refresh unavailable');
+      }
+    },
     captureAdmissionProvider(selection: ConnectionSelection) {
       options.gateway.verifyCustody();
       assertNoDiscovery();

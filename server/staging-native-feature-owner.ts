@@ -192,6 +192,8 @@ export class StagingNativeFeatureOwner {
     modelPlan.assertCurrent();
     if (modelPlan.selectedModel !== current.enrollment.selectedModel)
       throw Error('Authenticated native model selection differs from the explicit enrolled model');
+    if (modelPlan.chargedAccount !== current.enrollment.chargedAccount)
+      throw Error('Authenticated native charged account differs from the original enrollment');
     if (
       !/^gpt-\d+(?:\.\d+)?-luna$/.test(current.enrollment.selectedModel) &&
       !modelPlan.modelApprovalId

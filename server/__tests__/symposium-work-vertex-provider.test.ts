@@ -8,6 +8,7 @@ import {
   createSymposiumWorkVertexProvider,
   captureSymposiumWorkVertexProvider,
   captureSymposiumWorkVertexProviderAsync,
+  captureSymposiumWorkVertexAccount,
 } from '../symposium-work-vertex-provider.js';
 const roots: string[] = [];
 afterEach(() => roots.splice(0).forEach((p) => rmSync(p, { recursive: true, force: true })));
@@ -257,6 +258,7 @@ it('retains verified principal and exact provider intent only under the original
   const receipt = captureSymposiumWorkVertexProvider(f.gateway as never, result.sandboxProviderId);
   expect(receipt).toEqual({
     principal: f.profile.expectedPrincipal,
+    adcSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
     accountId: f.profile.id,
     provider: result.sandboxProvider,
     providerId: 'new-id',
@@ -282,6 +284,27 @@ it('retains verified principal and exact provider intent only under the original
   expect(() => captureSymposiumWorkVertexProvider(f.gateway as never, 'new-id')).toThrow(
     'Vertex provider custody unavailable',
   );
+});
+it('resolves only the original ADC/principal account receipt without fresh readiness or copied-gateway authority', async () => {
+  const f = fixture();
+  const result = await f.invoke();
+  const receipt = captureSymposiumWorkVertexProvider(f.gateway as never, result.sandboxProviderId);
+  const commands = f.run.mock.calls.length;
+  const original = captureSymposiumWorkVertexAccount(f.gateway as never, f.profile.id);
+  expect(original.identity).toBe(receipt);
+  expect(original.identity.principal).toBe(f.profile.expectedPrincipal);
+  expect(original.identity.adcSha256).toMatch(/^[a-f0-9]{64}$/);
+  expect(f.run.mock.calls).toHaveLength(commands);
+  expect(() => captureSymposiumWorkVertexAccount({ ...f.gateway } as never, f.profile.id)).toThrow(
+    'Unique original',
+  );
+  expect(() =>
+    captureSymposiumWorkVertexAccount(f.gateway as never, f.profile.expectedPrincipal),
+  ).toThrow('Unique original');
+  f.gateway.verifyCustody.mockImplementation(() => {
+    throw Error('lost original');
+  });
+  expect(() => original.assertCurrent()).toThrow('custody');
 });
 
 it('rechecks current installed credential readiness on every retained capability capture', async () => {
