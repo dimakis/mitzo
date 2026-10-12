@@ -120,3 +120,28 @@ it('counts all own scratch bytes and rejects oversized stores and symbolic alias
     rmSync(root, { recursive: true });
   }
 });
+
+it.each(['final-main', 'final-pinned', 'final-ancestry', 'close'])(
+  'refuses %s crossing the original verification deadline',
+  async (phase) => {
+    const f = fixture();
+    const token = await f.owner.admit(target);
+    let reads = 0;
+    f.e.readMain.mockImplementation(async () => {
+      reads++;
+      if (reads === 2 && phase === 'final-main') f.setTime(12 * 60 * 1000);
+      return reads === 2 && phase === 'final-ancestry' ? next : target;
+    });
+    const originalPinned = f.e.readPinned.getMockImplementation();
+    let pinnedReads = 0;
+    f.e.readPinned.mockImplementation(async () => {
+      if (++pinnedReads === 2) {
+        if (phase === 'final-pinned') f.setTime(12 * 60 * 1000);
+        if (phase === 'close') f.owner.close();
+      }
+      return originalPinned();
+    });
+    f.e.assertAcceptedAncestry.mockImplementation(async () => f.setTime(12 * 60 * 1000));
+    await expect(f.owner.assertCurrent(token)).rejects.toThrow();
+  },
+);

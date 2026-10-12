@@ -98,7 +98,8 @@ export function createProcessLocalSourceAcceptanceWitness(effects) {
         if (!sha.test(after)) throw refuse();
         await effects.assertAcceptedAncestry(target, after);
       }
-      if (digest(await effects.readPinned()) !== frozen) throw refuse();
+      if (digest(await effects.readPinned()) !== frozen || closed || now() >= deadline)
+        throw refuse();
       return JSON.parse(JSON.stringify(receipt));
     },
     close() {
