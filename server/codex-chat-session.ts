@@ -864,7 +864,6 @@ async function openCodexChatBound(
   try {
     await prepareProviderEnvironment();
   } catch (error) {
-    dispose();
     startupReservation?.();
     throw new CodexStartupError('runtime_connection', error);
   }
