@@ -51,7 +51,11 @@ import {
 import { createWebAccessTool } from './web-access-tool.js';
 import { connectCodexMcpTools } from './codex-mcp-tools.js';
 import { AsyncQueue } from './async-queue.js';
-import { CodexAppServerClient, SUPPORTED_CODEX_CLI_VERSION } from './codex-app-server-client.js';
+import {
+  CodexAppServerClient,
+  SUPPORTED_CODEX_CLI_VERSION,
+  type OpenShellCodexOptions,
+} from './codex-app-server-client.js';
 import { CodexConversation } from './codex-conversation.js';
 import {
   CodexConversationStore,
@@ -836,7 +840,7 @@ async function openCodexChatBound(
         }
       : undefined);
   const connectedOpenShell = !!openShell;
-  const openShellClient =
+  const openShellClient: OpenShellCodexOptions | undefined =
     openShell && managedConnection?.templateId === 'jira-readonly'
       ? { ...openShell, connectionEnv: managedJiraConnectionEnv(managedConnection) }
       : openShell;
@@ -846,6 +850,24 @@ async function openCodexChatBound(
         ...onDemandConnections.map((connection) => connection.gatewayProviderName),
       ]
     : [];
+  const prepareProviderEnvironment = async () => {
+    if (!runtimeManager || !managedOpenShell || !openShellClient) return;
+    const observation = await runtimeManager.observeContract(
+      options.conversationId,
+      managedOpenShell,
+      signal,
+    );
+    Object.assign(openShellClient, {
+      requiredProviderEnvironment: observation.requiredServiceEnvironment,
+    });
+  };
+  try {
+    await prepareProviderEnvironment();
+  } catch (error) {
+    dispose();
+    startupReservation?.();
+    throw new CodexStartupError('runtime_connection', error);
+  }
   const integrationTools = grantIntegrationTools(grantableProviders);
   const openShellHostTools = connectedOpenShell
     ? [
@@ -1371,6 +1393,7 @@ async function openCodexChatBound(
             if (!managedOpenShell?.sandboxId || !configuredRuntime) return false;
             return sharedOpenShellLifecycleCoordinator.admit(options.conversationId, async () => {
               const previousId = managedOpenShell!.sandboxId;
+              const previousEnvironment = openShellClient?.requiredProviderEnvironment ?? [];
               const selected = await prepareRetainedRuntimeMigration({
                 conversationId: options.conversationId,
                 binding: options.binding,
@@ -1398,7 +1421,13 @@ async function openCodexChatBound(
                   options.binding,
                   migration,
                 );
-              return selected.runtime.sandboxId !== previousId;
+              await prepareProviderEnvironment();
+              const environmentChanged = !isDeepStrictEqual(
+                previousEnvironment,
+                openShellClient?.requiredProviderEnvironment ?? [],
+              );
+              if (environmentChanged) await closeOwnedTransport();
+              return selected.runtime.sandboxId !== previousId || environmentChanged;
             });
           },
           beforeReconnect: async () => {
@@ -1458,6 +1487,7 @@ async function openCodexChatBound(
               Object.assign(managedOpenShell!, recovered);
               if (openShellClient) Object.assign(openShellClient, recovered);
               persistArtifactRuntime();
+              await prepareProviderEnvironment();
             });
             if (managedCapabilityConnection && options.binding?.accountId)
               await capabilityTools.service?.recoverPendingForConversation(

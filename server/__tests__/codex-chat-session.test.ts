@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -102,9 +102,19 @@ import { getLiveCapabilityConversationBinding } from '../capability-conversation
 import { SymposiumProfileProposalStore } from '../symposium-profile-proposals.js';
 import { SymposiumProfileStore } from '../symposium-profiles.js';
 
+beforeEach(() => {
+  vi.spyOn(OpenShellRuntimeManager.prototype, 'observeContract').mockResolvedValue({
+    resourceVersion: 'test-observation',
+    policy: {},
+    attestation: { basePolicy: {}, effectivePolicyHash: 'test', providers: [] },
+    approvedGrantableProviders: [],
+    requiredServiceEnvironment: [],
+  });
+});
 afterEach(() => {
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
+  vi.mocked(OpenShellRuntimeManager.prototype.observeContract).mockRestore();
 });
 it('uses assigned GitHub credentials instead of the legacy fallback on a new runtime', () => {
   const managed = [
@@ -1258,7 +1268,7 @@ it('preserves image attachments while binding a trusted capability, forcing appr
     expect(mocks.permissionHandler).toHaveBeenCalledWith(
       'ExecuteProviderCapability',
       expect.any(Object),
-      expect.objectContaining({ forcePrompt: true, approvalScope: 'request' }),
+      expect.objectContaining({ forcePrompt: true, approvalScope: 'session' }),
     );
     const beforeReconnect = mocks.conversationOptions?.beforeReconnect as () => Promise<void>;
     mocks.setArtifactRuntime.mockClear();
