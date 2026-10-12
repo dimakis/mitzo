@@ -87,6 +87,13 @@ export function createOriginalAppChildUpdateControl({
       throw refuse();
     }
   };
+  const synchronousCurrent = (assertCurrent: () => void) => {
+    const result: unknown = assertCurrent();
+    if (result !== undefined) {
+      if (result instanceof Promise) void result.catch(() => {});
+      throw refuse('synchronous original current proof required');
+    }
+  };
   const candidate = async (selected: NonNullable<ReturnType<typeof selections.get>>) => {
     original();
     const result: unknown = await selected.assertCurrent();
@@ -103,7 +110,7 @@ export function createOriginalAppChildUpdateControl({
       active.child.signalCode !== null
     )
       throw refuse('actual current child missing');
-    active.current();
+    synchronousCurrent(active.current);
     original();
     return active;
   };
@@ -189,7 +196,7 @@ export function createOriginalAppChildUpdateControl({
             identity.controllerPid === latest.controllerPid))
       )
         throw refuse('awaited new child identity');
-      current();
+      synchronousCurrent(current);
       original();
       const actual = Object.freeze({ ...identity });
       active.identity = actual;

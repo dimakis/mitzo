@@ -114,3 +114,35 @@ it('refuses JSON candidate replay, foreign child exit, stale epoch and lost orig
   await expect(work).rejects.toThrow('uncertain');
   await expect(f.port.nextSource()).rejects.toThrow();
 });
+it('refuses asynchronous or nonvoid readiness and active current proofs before disconnecting the actual child', async () => {
+  const port = createOriginalAppChildUpdateControl({
+    nativeSourceRoot: native,
+    assertOriginalCustodianCurrent() {},
+  });
+  const child = {
+    pid: process.pid + 1,
+    exitCode: null,
+    signalCode: null,
+    connected: true,
+    disconnect: vi.fn(),
+  };
+  const identity = {
+    instanceId: 'actual',
+    custodianPid: process.pid,
+    controllerPid: child.pid,
+    epoch: 1,
+  };
+  port.created(child, native);
+  expect(() => port.ready(identity, async () => {})).toThrow('synchronous');
+  expect(() => port.ready(identity, () => true)).toThrow('synchronous');
+  let asynchronous = false;
+  port.ready(identity, () => (asynchronous ? Promise.resolve() : undefined));
+  asynchronous = true;
+  const selected = createOriginalAppChildSelection({
+    sourceCommit: 'b'.repeat(40),
+    sourceRoot: app,
+    assertCurrent: async () => {},
+  });
+  await expect(port.replace(selected)).rejects.toThrow('synchronous');
+  expect(child.disconnect).not.toHaveBeenCalled();
+});
