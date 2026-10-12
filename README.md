@@ -1180,6 +1180,20 @@ The paired MGMT merge-gate handoff can enqueue automatically after host
 enrollment. Feature-specific live suites and PR-shepherd result consumption
 remain separate integration work; readiness does not prove a feature or native runtime.
 
+The conditional `profile-tools-v1` bridge shares this reservation. After its
+paired authenticated stage feature owner is independently qualified,
+`enqueue-feature --pr NUMBER --task SESSION_ID --profile STAGE_PROFILE_ID`
+pins the fresh reviewed enrollment. Read `feature-plan --id REQUEST_ID`, announce
+its exact charged account/model, then pass its unchanged digest to
+`run-next --id REQUEST_ID --feature-plan SHA256`. The plan is read-only; the digest fences drift
+and grants no authentication, model exception or cleanup authority. Missing
+enrollment/owner capabilities refuse execution. Exact retained results are
+available through `receipt --id REQUEST_ID`; feature summaries still require
+authenticated original-owner evidence before live acceptance. Safely deferred
+work yields to requests with fewer attempts, so one pending profile cannot
+starve the other sessions. Selecting a queued request ID still requires the same
+singleton, source-merge and original-owner admission.
+
 Admission requires normal macOS memory pressure, at least 25% reported memory
 headroom, no more than 2 GiB swap use, at least 20 GiB free disk after proposed
 growth, and at most 48 GiB across staging and its quarantine archive. Deployment
