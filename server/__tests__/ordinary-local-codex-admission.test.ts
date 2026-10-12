@@ -3,6 +3,12 @@ import { createHash } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { SessionRuntimeBindingV2Schema, type OrdinaryLocalCommandAdmission } from '@mitzo/protocol';
+import type {
+  OrdinaryLocalCodexAdmissionExpectation,
+  OrdinaryLocalCodexAdmissionLease,
+  OrdinaryLocalCodexAdmissionEffects,
+} from '../ordinary-local-codex-admission.js';
 import { EventStore } from '../event-store.js';
 import { OrdinaryLocalCodexAdmissionCoordinator } from '../ordinary-local-codex-admission.js';
 
@@ -14,10 +20,11 @@ function fixture(realStore?: EventStore, enabled = true, hasAuthority = true) {
     harness: { implementation: 'codex' },
     execution: { location: 'local', targetId: 'mac', targetRevision: 'target-1' },
   };
+  const context: { source: string; revision: string | null } = { source: 'none', revision: null };
   const selection = {
     version: 1,
     agent: { profileId: 'agent', revision: 1 },
-    context: { source: 'none', revision: null },
+    context,
     permission: { mode: 'agent', revision: 1 },
     model: 'fixture-model',
     thinking: 'low',
@@ -30,12 +37,24 @@ function fixture(realStore?: EventStore, enabled = true, hasAuthority = true) {
     payload: { text: 'offline' },
   };
   const trace: string[] = [];
-  let state = 'reserved';
+  let state: OrdinaryLocalCommandAdmission['state'] = 'reserved';
   const store = {
-    admitOrdinaryLocalCommand: vi.fn(() => {
-      trace.push('persist');
-      return { duplicate: false, admission: { binding, selection, state } };
-    }),
+    admitOrdinaryLocalCommand: vi.fn<EventStore['admitOrdinaryLocalCommand']>(
+      (meta, runtime, input) => {
+        trace.push('persist');
+        return {
+          duplicate: false,
+          admission: {
+            version: 1,
+            binding: SessionRuntimeBindingV2Schema.parse(runtime),
+            workspace: { workspaceId: meta.repositoryWorkspaceId!, cwd: meta.cwd! },
+            selection: input.selection,
+            requestFingerprint: input.requestFingerprint,
+            state,
+          },
+        };
+      },
+    ),
     claimOrdinaryLocalCommandDispatch: vi.fn(() => {
       trace.push('claim');
       if (state !== 'reserved') return false;
@@ -62,16 +81,21 @@ function fixture(realStore?: EventStore, enabled = true, hasAuthority = true) {
   };
   const lease = { assertCurrent: vi.fn(async () => {}) };
   const authority = {
-    withAdmission: vi.fn(async (_expected, operation) => {
+    withAdmission: vi.fn<
+      (
+        expected: Readonly<OrdinaryLocalCodexAdmissionExpectation>,
+        operation: (lease: OrdinaryLocalCodexAdmissionLease) => Promise<{ dispatched: boolean }>,
+      ) => Promise<{ dispatched: boolean }>
+    >(async (_expected, operation) => {
       trace.push('authorize');
       return operation(lease);
     }),
   };
   const effects = {
-    prepareWorkspace: vi.fn(async () => {
+    prepareWorkspace: vi.fn<OrdinaryLocalCodexAdmissionEffects['prepareWorkspace']>(async () => {
       trace.push('prepare');
     }),
-    dispatch: vi.fn(async () => {
+    dispatch: vi.fn<OrdinaryLocalCodexAdmissionEffects['dispatch']>(async () => {
       trace.push('dispatch');
     }),
   };
@@ -485,9 +509,9 @@ describe('guarded local Codex coordinator', () => {
       f.catalog.resolve().binding.execution.targetRevision = 'mutated-target';
     });
     await f.coordinator.admit(f.meta, f.request, f.effects);
-    expect(f.store.admitOrdinaryLocalCommand.mock.calls[0][1].execution.targetRevision).toBe(
-      'target-1',
-    );
+    expect(f.store.admitOrdinaryLocalCommand.mock.calls[0][1]).toMatchObject({
+      execution: { targetRevision: 'target-1' },
+    });
     expect(f.effects.dispatch.mock.calls[0][0].binding.execution.targetRevision).toBe('target-1');
   });
   it('captures constructor declaration and gate independently of caller mutation', async () => {
