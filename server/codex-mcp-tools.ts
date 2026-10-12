@@ -51,7 +51,7 @@ type Permission = (
   name: string,
   input: Input,
   signal: AbortSignal,
-) => Promise<{ behavior: 'allow' | 'deny'; updatedInput?: Input }>;
+) => Promise<{ behavior: 'allow' | 'deny'; updatedInput?: Input; message?: string }>;
 function mcpWireName(canonical: string): string {
   const identity = createHash('sha256').update(canonical).digest('hex').slice(0, 32);
   return `mitzo_mcp_${identity}`;
@@ -132,7 +132,7 @@ export async function connectCodexMcpTools(
       const decision = await permission(tool.canonical, input, signal);
       signal.throwIfAborted();
       if (decision.behavior !== 'allow')
-        return { content: 'MCP tool permission denied', isError: true };
+        return { content: decision.message || 'MCP tool permission denied', isError: true };
       const result = await tool.peer.callTool(
         { name: tool.name, arguments: decision.updatedInput ?? input },
         signal,

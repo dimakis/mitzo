@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { OwnedReleasePlan } from './symposium-owned-release.js';
 import type { CustodianRetirementReceipt } from './symposium-custodian-retirement.js';
 import { dirname } from 'node:path';
+import { StagingAcceptedAppSource } from './staging-feature-contract.js';
 const pid = z.number().int().min(2).max(2147483647);
 const processIdentity = z.strictObject({
   pid,
@@ -18,6 +19,7 @@ export const CanonicalOwnerSchema = z.strictObject({
   capturedAt: z.number().int().positive(),
   parent: processIdentity,
   app: processIdentity.extend({ parentPid: pid }),
+  acceptedAppSource: StagingAcceptedAppSource.optional(),
 });
 export type CanonicalOwner = z.infer<typeof CanonicalOwnerSchema>;
 export interface CanonicalRegistryObservation {
@@ -45,8 +47,29 @@ export function assertCanonicalOwnerRuntime(
   input: CanonicalOwner,
   registry: CanonicalRegistryObservation,
   runtime: CanonicalRuntimeObservation,
+  assertAcceptedAppSource?: (source: NonNullable<CanonicalOwner['acceptedAppSource']>) => void,
 ) {
   const owner = CanonicalOwnerSchema.parse(input);
+  const appSource = owner.acceptedAppSource;
+  if (appSource) {
+    if (
+      !assertAcceptedAppSource ||
+      appSource.nativeSourceCommit !== plan.sourceCommit ||
+      appSource.instanceId !== owner.instanceId ||
+      appSource.custodianPid !== owner.parent.pid ||
+      appSource.controllerPid !== owner.app.pid ||
+      appSource.epoch !== owner.epoch ||
+      appSource.appRoot.slice(0, -12) !== plan.releaseRoot.slice(0, -12) ||
+      appSource.appRoot !==
+        dirname(plan.releaseRoot) + '/' + appSource.acceptedAppCommit.slice(0, 12)
+    )
+      throw Error('Independently verified original native/accepted app source required');
+    const proof: unknown = assertAcceptedAppSource(appSource);
+    if (proof !== undefined) {
+      if (proof instanceof Promise) void proof.catch(() => {});
+      throw Error('Accepted app compatibility must be a synchronous original source check');
+    }
+  }
   const same = (a: CanonicalOwner['parent'], b: CanonicalOwner['parent']) =>
     a.pid === b.pid && a.birth === b.birth && a.cwd === b.cwd;
   if (
@@ -55,7 +78,7 @@ export function assertCanonicalOwnerRuntime(
     owner.configSha256 !== plan.configSha256 ||
     owner.buildSha256 !== plan.buildSha256 ||
     owner.parent.cwd !== plan.releaseRoot ||
-    owner.app.cwd !== plan.releaseRoot ||
+    owner.app.cwd !== (appSource?.appRoot ?? plan.releaseRoot) ||
     owner.app.parentPid !== owner.parent.pid ||
     registry.planDirectory !== plan.planDirectory ||
     registry.sourceCommit !== plan.sourceCommit ||

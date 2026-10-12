@@ -33,6 +33,29 @@ function createStagingOfflineOperatorAuthorizer(options) {
   return value;
 }
 const planSha256 = 'a'.repeat(64);
+it('binds native allocation to a different reviewed helper command and refuses unknown authentication purposes', async () => {
+  const options = {
+    helperPath,
+    expectedSha256: createHash('sha256').update('synthetic helper never executed').digest('hex'),
+    purpose: 'contained_native_allocation',
+  };
+  const native = createStagingOfflineOperatorAuthorizer(options);
+  const pending = native.authenticate(planSha256);
+  expect(spawn).toHaveBeenLastCalledWith(
+    helperPath,
+    expect.arrayContaining(['authenticate-native-allocation', '--plan-sha256', planSha256]),
+    expect.any(Object),
+  );
+  success();
+  const authority = await pending;
+  expect(() => authorizer.consume(authority, planSha256)).toThrow();
+  const lease = native.consume(authority, planSha256);
+  expect(lease.assertCurrent(planSha256)).toBe(true);
+  lease.close();
+  expect(() =>
+    createStagingOfflineOperatorAuthorizer({ ...options, purpose: 'retire_everything' }),
+  ).toThrow();
+});
 let directory, helperPath, authorizer, child;
 beforeEach(() => {
   vi.useFakeTimers();

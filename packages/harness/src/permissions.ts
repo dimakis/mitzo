@@ -70,18 +70,28 @@ export function resolvePending(
   decision: 'once' | 'always' | 'deny',
   answers?: QuestionAnswers,
   sessionId?: string,
+  /** Internal policy denial; never supplied by a transport response. */
+  denialReason?: string,
 ): boolean {
   const entry = pending.get(permId);
   if (!entry || (sessionId && entry.sessionId && entry.sessionId !== sessionId)) return false;
 
+  // Timer callbacks can be delayed while transports reconnect or the event loop
+  // is busy. The advertised absolute deadline remains authoritative.
+  if (entry.request?.expiresAt !== undefined && entry.request.expiresAt <= Date.now()) {
+    pending.delete(permId);
+    entry.resolver({
+      behavior: 'deny',
+      message: 'Tool approval expired without a response; request approval again',
+    });
+    notifyLifecycle({ type: 'resolved', permId, resolution: 'expired' });
+    return false;
+  }
+
   let toolInput = entry.toolInput;
   // Questions never grant session-wide tool permission. Treat a legacy/malformed
   // "always" response as a one-shot answer instead of leaving it pending forever.
-  const effectiveDecision =
-    (entry.request?.questions || entry.request?.approvalScope === 'request') &&
-    decision === 'always'
-      ? 'once'
-      : decision;
+  const effectiveDecision = entry.request?.questions && decision === 'always' ? 'once' : decision;
   if (entry.request?.questions && effectiveDecision !== 'deny') {
     if (!answers || Object.keys(answers).length !== entry.request.questions.length) return false;
     for (const question of entry.request.questions) {
@@ -128,8 +138,8 @@ export function resolvePending(
   } else {
     requestedResult = {
       behavior: 'deny',
-      message: 'User denied',
-      decisionClassification: 'user_reject',
+      message: denialReason ?? 'User denied',
+      ...(denialReason ? {} : { decisionClassification: 'user_reject' as const }),
     };
   }
   const appliedResult = resolver(requestedResult);

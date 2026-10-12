@@ -87,6 +87,7 @@ export function custodianAppEnvironment(
     if (source[name] !== undefined) result[name] = source[name];
   if (source.MITZO_SYMPOSIUM_CANONICAL_STAGE === '1') {
     Object.assign(result, canonicalSidecars);
+    result.NODE_OPTIONS = '--max-old-space-size=1024';
   }
   // Waiting is not authority; only the paired original constructor selects this
   // bounded native startup policy. Ambient flags are never forwarded.

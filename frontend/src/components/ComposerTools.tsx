@@ -108,11 +108,11 @@ export function ComposerTools({
             setToolsExpanded(false);
             onCommands();
           }}
-          title="Skills"
+          title="Commands"
           aria-label="Commands"
           aria-expanded={commandsExpanded}
         >
-          <span aria-hidden="true">/</span>
+          <UiIcon name="list" size={16} />
           <span className="chat-input-command-label">Commands</span>
         </button>
         <button

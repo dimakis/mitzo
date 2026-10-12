@@ -25,7 +25,12 @@ function fixture(mode = 'confirmed') {
   const root = join(home, '.local/share/mitzo-staging'),
     source = 'a'.repeat(40),
     release = join(root, 'releases', source.slice(0, 12)),
-    service = join(root, 'symposium/service'),
+    allocation = '22222222-2222-4222-8222-222222222222',
+    nativeRoot =
+      mode === 'allocation'
+        ? join(root, 'symposium/allocations', allocation)
+        : join(root, 'symposium'),
+    service = join(nativeRoot, 'service'),
     state = join(root, 'symposium/state/gateway');
   for (const p of [
     release,
@@ -36,9 +41,9 @@ function fixture(mode = 'confirmed') {
     join(state, 'gateway-one'),
     join(root, 'registry'),
     join(root, 'service'),
-    join(root, 'symposium/settings'),
-    join(root, 'symposium/home'),
-    join(root, 'symposium/workspace'),
+    join(nativeRoot, 'settings'),
+    join(nativeRoot, 'home'),
+    join(nativeRoot, 'workspace'),
   ])
     mkdirSync(p, { recursive: true, mode: 0o700 });
   writeFileSync(join(release, 'package.json'), '{"type":"module"}');
@@ -81,9 +86,9 @@ function fixture(mode = 'confirmed') {
     entry: 'dist/symposium-custodian-main.js',
     releaseRoot: release,
     planDirectory: service,
-    repositoryPath: join(root, 'symposium/workspace'),
-    appHome: join(root, 'symposium/home'),
-    configPath: join(root, 'symposium/settings/owned-host.json'),
+    repositoryPath: join(nativeRoot, 'workspace'),
+    appHome: join(nativeRoot, 'home'),
+    configPath: join(nativeRoot, 'settings/owned-host.json'),
     sourceCommit: source,
     configSha256: 'b'.repeat(64),
     buildSha256: 'c'.repeat(64),
@@ -93,7 +98,12 @@ function fixture(mode = 'confirmed') {
     writeFileSync(p, JSON.stringify(value), { mode: 0o600 });
   json(join(service, 'owned-release.json'), plan);
   json(plan.configPath, { gateway: { stateParent: state } });
-  json(join(root, 'symposium/settings/staging-registration.json'), {
+  json(join(root, 'service/topology.json'), {
+    mode: 'owned-custodian',
+    sourceCommit: source,
+    ...(mode === 'allocation' ? { allocation } : {}),
+  });
+  json(join(nativeRoot, 'settings/staging-registration.json'), {
     registryDirectory: join(root, 'registry'),
     capacity: 1,
     ownerChat: 'cli-test',
@@ -124,13 +134,24 @@ function fixture(mode = 'confirmed') {
     source,
     plan.configSha256,
     plan.buildSha256,
-    'active',
+    mode === 'inactive' ? 'retirement_uncertain' : 'active',
     'original',
     2,
     50,
     null,
     null,
   );
+  if (mode === 'inactive')
+    writeFileSync(join(service, 'owned-release.json'), 'must never be opened', { mode: 0o600 });
+  if (mode === 'archived') {
+    db.exec('CREATE TABLE contained_owned_launches(recordJson TEXT)');
+    db.prepare('INSERT INTO contained_owned_launches VALUES(?)').run(
+      JSON.stringify({ planDirectory: service }),
+    );
+    writeFileSync(join(service, 'owned-release.json'), 'must never be opened as a live plan', {
+      mode: 0o600,
+    });
+  }
   db.close();
   const prelude = join(release, 'operator-fixture.mjs'),
     calls = join(home, 'calls.json');
@@ -171,6 +192,25 @@ it('checks the original topology through the actual CLI without controlling it',
   expect(JSON.parse(result.stdout)).toMatchObject({ safe: true, parentPid: 111, appPid: 112 });
   expect(JSON.parse(readFileSync(f.calls, 'utf8'))).toEqual([]);
 });
+it('selects the exact new UUID allocation for actual canonical check and normal drain', () => {
+  const f = fixture('allocation');
+  const check = f.run(['check', '--offline']);
+  expect(check.status, check.stderr).toBe(0);
+  expect(JSON.parse(check.stdout)).toMatchObject({ safe: true, parentPid: 111, appPid: 112 });
+  const drain = f.run(f.drain);
+  expect(drain.status, drain.stderr).toBe(0);
+  expect(JSON.parse(drain.stdout)).toMatchObject({ retired: true });
+});
+it('refuses archived legacy input routing before reading its old logical live plan', () => {
+  const f = fixture('archived');
+  for (const args of [['check', '--offline'], f.drain]) {
+    const result = f.run(args);
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('Archived historical plan cannot be selected as live owner');
+  }
+  expect(JSON.parse(readFileSync(f.calls, 'utf8'))).toEqual([]);
+  expect(existsSync(join(f.root, 'service/deployment.lock'))).toBe(false);
+});
 it('signals only the original staging job and confirms the real registry/receipt before unlocking', () => {
   const f = fixture();
   const result = f.run(f.drain);
@@ -204,4 +244,15 @@ it('owned check and drain refuse changed canonical launchd registration without 
     expect(result.status).not.toBe(0);
     expect(JSON.parse(readFileSync(f.calls, 'utf8'))).toEqual([]);
   }
+});
+
+it('refuses unarchived inactive inputs before any logical plan read or control', () => {
+  const f = fixture('inactive');
+  for (const args of [['check', '--offline'], f.drain]) {
+    const result = f.run(args);
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('Inactive original plan cannot be selected as live owner');
+  }
+  expect(JSON.parse(readFileSync(f.calls, 'utf8'))).toEqual([]);
+  expect(existsSync(join(f.root, 'service/deployment.lock'))).toBe(false);
 });

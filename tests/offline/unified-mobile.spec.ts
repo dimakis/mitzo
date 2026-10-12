@@ -351,6 +351,46 @@ test('motion: Reduce Motion disables navigation and control animations', async (
   expect(animations).toBe(0);
 });
 
+test('composer: commands use a quiet icon with discoverable labels', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto('/chat');
+  const commands = page.getByRole('button', { name: 'Commands', exact: true });
+  const draft = page.getByRole('textbox', { name: 'Message Mitzo', exact: true });
+  await draft.fill('Keep this draft while browsing commands');
+  await expect(commands).toBeVisible();
+  const bounds = (await commands.boundingBox())!;
+  expect(bounds.width).toBeLessThanOrEqual(bounds.height + 1);
+  await expect(commands.locator('[data-icon="list"]')).toBeVisible();
+  await expect(commands.locator('.chat-input-command-label')).toBeHidden();
+  await commands.focus();
+  await expect(commands.locator('.chat-input-command-label')).toBeVisible();
+  await commands.press('Enter');
+  await expect(draft).toHaveValue('Keep this draft while browsing commands');
+  await expect(draft).toBeFocused();
+  await draft.click();
+  await page.mouse.move(0, 0);
+  for (const theme of ['dark', 'light'] as const) {
+    await page.evaluate((theme) => {
+      document.documentElement.dataset.theme = theme;
+      document.documentElement.dataset.accent = theme === 'dark' ? 'coral' : 'teal';
+      document.documentElement.dataset.font = theme === 'dark' ? 'system' : 'georgia';
+    }, theme);
+    await page.locator('.chat-input--compact .chat-input-row').screenshot({
+      path: testInfo.outputPath(`composer-icons-${theme}.png`),
+      animations: 'disabled',
+    });
+  }
+  await page.setViewportSize({ width: 320, height: 740 });
+  await page.getByRole('button', { name: 'More composer actions', exact: true }).click();
+  await draft.fill('Keep this draft while browsing commands');
+  await expect(commands.locator('.chat-input-command-label')).toBeVisible();
+  // WebKit can report 43.99997px for a 44px control during menu motion.
+  expect(Math.round((await commands.boundingBox())!.height)).toBeGreaterThanOrEqual(44);
+  await commands.click();
+  await expect(draft).toHaveValue('Keep this draft while browsing commands');
+  await page.keyboard.press('Escape');
+});
+
 test('motion: a wide mobile composer keeps inline actions accessible', async ({
   page,
 }, testInfo) => {
@@ -2867,6 +2907,33 @@ for (const appearance of [
             toolError: true,
           },
           {
+            blockId: 'delegation',
+            blockType: 'tool_use',
+            content: '',
+            toolName: 'Agent',
+            toolInput: 'Check delegated records',
+            toolResult: 'Delegate finished',
+            subagent: {
+              messageId: 'delegate',
+              summary: 'Delegate checked the records',
+              blocks: [
+                {
+                  blockId: 'delegate-thought',
+                  blockType: 'thinking',
+                  content: 'Checking delegated evidence.',
+                },
+                {
+                  blockId: 'delegate-tool',
+                  blockType: 'tool_use',
+                  content: '',
+                  toolName: 'Read',
+                  toolInput: 'delegated-records.md',
+                  toolResult: 'Delegated evidence retrieved',
+                },
+              ],
+            },
+          },
+          {
             blockId: 'read',
             blockType: 'tool_use',
             content: '',
@@ -2898,11 +2965,14 @@ for (const appearance of [
       return route.fallback();
     });
     await page.goto(`/chat/${sessionId}`);
-    const toggle = page.getByRole('button', { name: /Agent at work/ });
+    await expect(page.getByRole('region', { name: 'Outputs', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Keep as output', exact: true })).toHaveCount(0);
+    const toggle = page.getByRole('button', { name: /Agents? at work/ });
     await expect(toggle).toHaveCount(1);
     await expect(toggle).toHaveAttribute('aria-expanded', 'false');
     await expect(toggle).toContainText('Read');
     await expect(toggle).toContainText('1 failed');
+    await expect(toggle).toContainText('1 delegated');
     await expect(page.getByText('I will check the records.', { exact: true })).toBeVisible();
     await expect(page.getByText('Here are the results.', { exact: true })).toBeVisible();
     const alignment = await page.locator('.msg-bubble-group--user').evaluate((user) => {
@@ -2926,7 +2996,16 @@ for (const appearance of [
     await expect(
       page.getByText('Checking the latest records and their status.', { exact: true }),
     ).toBeVisible();
-    await page.getByRole('button', { name: /^Read/ }).click();
+    await page.getByRole('button', { name: /^Agent Delegate checked the records/ }).click();
+    await expect(page.getByText('Checking delegated evidence.', { exact: true })).toBeVisible();
+    await page
+      .getByRole('button', { name: /^Agent Delegate checked the records/ })
+      .scrollIntoViewIfNeeded();
+    await page.screenshot({
+      path: testInfo.outputPath(`activity-delegated-${appearance.theme}.png`),
+      animations: 'disabled',
+    });
+    await page.getByRole('button', { name: /^Read \/workspace/ }).click();
     await expect(page.getByText('Records retrieved successfully', { exact: true })).toBeVisible();
     await page.screenshot({
       path: testInfo.outputPath(`activity-expanded-${appearance.theme}.png`),
@@ -3021,8 +3100,8 @@ for (const reducedMotion of ['no-preference', 'reduce'] as const) {
       return route.fallback();
     });
     await page.goto(`/chat/${sessionId}`);
-    const toggle = page.getByRole('button', { name: /Agent at work/ }).first();
-    await expect(page.getByRole('button', { name: /Agent at work/ })).toHaveCount(1);
+    const toggle = page.getByRole('button', { name: /Agents? at work/ }).first();
+    await expect(page.getByRole('button', { name: /Agents? at work/ })).toHaveCount(1);
     await expect(toggle).toHaveAttribute('aria-expanded', 'true');
     const read = page.getByRole('button', { name: /^Read/ });
     await read.focus();
@@ -3057,8 +3136,8 @@ for (const reducedMotion of ['no-preference', 'reduce'] as const) {
       blockType: 'thinking',
       delta: 'Checking the next records',
     });
-    const next = page.getByRole('button', { name: /Agent at work/ }).last();
-    await expect(page.getByRole('button', { name: /Agent at work/ })).toHaveCount(2);
+    const next = page.getByRole('button', { name: /Agents? at work/ }).last();
+    await expect(page.getByRole('button', { name: /Agents? at work/ })).toHaveCount(2);
     await expect(next).toHaveAttribute('aria-expanded', 'true');
     const composer = page.getByRole('textbox', { name: 'Message Mitzo', exact: true });
     await composer.focus();

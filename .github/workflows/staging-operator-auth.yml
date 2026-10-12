@@ -21,3 +21,8 @@ jobs:
           swiftc -module-cache-path "$RUNNER_TEMP/staging-auth-module-cache" \
             -o "$RUNNER_TEMP/staging-operator-auth" \
             scripts/native/staging-operator-auth.swift
+
+      - name: Compile and test read-only kernel peer inspection
+        run: |
+          clang -Wall -Wextra -Werror -O2 scripts/native/staging-vm-peer.c -o "$RUNNER_TEMP/staging-vm-peer" -lproc
+          node scripts/native/staging-vm-peer-fixture.mjs "$RUNNER_TEMP/staging-vm-peer"

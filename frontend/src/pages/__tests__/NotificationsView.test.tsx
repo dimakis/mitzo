@@ -80,6 +80,30 @@ function show(path = '/notifications') {
   );
 }
 describe('Notifications experience', () => {
+  it('submits session retention using the displayed server-owned scope', async () => {
+    const original = vi.mocked(apiFetch).getMockImplementation()!;
+    vi.mocked(apiFetch).mockImplementation(async (url, options) => {
+      const response = await original(url, options);
+      if (options?.method) return response;
+      const data = await response.json();
+      data.items[0].request.sessionGrantDescription =
+        'Keep workspace shell checks allowed until this session ends.';
+      return new Response(JSON.stringify(data));
+    });
+    show();
+    fireEvent.click(await screen.findByRole('button', { name: 'Review request' }));
+    expect(
+      screen.getByText('Keep workspace shell checks allowed until this session ends.'),
+    ).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Allow for session' }));
+    await waitFor(() =>
+      expect(apiFetch).toHaveBeenCalledWith(
+        '/api/notifications/permission%3Ap1/respond',
+        expect.objectContaining({ body: JSON.stringify({ sessionId: 's1', decision: 'always' }) }),
+      ),
+    );
+  });
+
   it.each([
     { toolName: 'Bash', toolInput: 'npm test' },
     {
@@ -102,8 +126,11 @@ describe('Notifications experience', () => {
     });
     show();
     fireEvent.click(await screen.findByRole('button', { name: 'Review request' }));
-    await screen.findByRole('button', { name: 'Deny' });
+    await screen.findByRole('button', { name: 'questions' in request ? 'Cancel' : 'Deny' });
     expect(screen.queryByText('Allow searches for this session')).not.toBeInTheDocument();
+    if ('questions' in request)
+      expect(screen.queryByRole('button', { name: 'Allow for session' })).toBeNull();
+    else expect(screen.getByRole('button', { name: 'Allow for session' })).toBeVisible();
   });
   it('offers an explicit session search grant in notification details', async () => {
     const original = vi.mocked(apiFetch).getMockImplementation()!;
@@ -175,11 +202,11 @@ describe('Notifications experience', () => {
       );
     },
   );
-  it('shows real request details and only one-shot approval from the notification center', async () => {
+  it('offers one-time and session approval from the notification center', async () => {
     show();
     fireEvent.click(await screen.findByRole('button', { name: 'Review request' }));
     expect(await screen.findByText('npm test')).toBeVisible();
-    expect(screen.queryByRole('button', { name: /always/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Allow for session' })).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: 'Allow once' }));
     await waitFor(() =>
       expect(apiFetch).toHaveBeenCalledWith(
@@ -233,6 +260,7 @@ describe('Notifications experience', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Review request' }));
     expect(screen.queryByRole('button', { name: 'Allow once' })).toBeNull();
     expect(screen.getByRole('link', { name: 'Open session' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Allow for session' })).toBeVisible();
   });
   it('does not equate marking updates read with granting approval', async () => {
     show();

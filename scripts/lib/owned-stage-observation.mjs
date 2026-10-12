@@ -61,8 +61,16 @@ export async function observeLiveOwner(root) {
       await import('../../dist/symposium-canonical-control.js'),
     { observeCanonicalProcess } = await import('../../dist/symposium-canonical-owner-record.js'),
     { readOwnedSymposiumHostConfig } = await import('../../dist/symposium-owned-config-schema.js');
-  const owned = join(root, 'symposium/service'),
-    plan = readOwnedReleasePlan(join(owned, 'owned-release.json'));
+  const owned = join(root, 'symposium/service');
+  // Legacy initial-stage update never selects a contained historical logical
+  // path or a fresh UUID allocation as live owner inputs. Resolve active rows
+  // first, before any old plan/config bytes are opened.
+  const rows = stageRows(root);
+  if (rows.length !== 1 || rows[0].state !== 'active' || rows[0].planDirectory !== owned)
+    throw Error(
+      'Legacy original active inputs required; archived or UUID allocation inputs excluded',
+    );
+  const plan = readOwnedReleasePlan(join(owned, 'owned-release.json'));
   verifyRetainedOwnedRelease(plan);
   if (
     plan.planDirectory !== owned ||
@@ -72,7 +80,6 @@ export async function observeLiveOwner(root) {
   )
     throw Error('Canonical original source required');
   const owner = CanonicalOwnerSchema.parse(privateJson(join(owned, 'original-owner.json'))),
-    rows = stageRows(root),
     job = stageJob(root),
     config = readOwnedSymposiumHostConfig(plan.configPath);
   if (rows.length !== 1) throw Error('Exactly one original owner required');

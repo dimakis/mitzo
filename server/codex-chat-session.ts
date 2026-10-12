@@ -52,7 +52,11 @@ import {
 import { createWebAccessTool } from './web-access-tool.js';
 import { connectCodexMcpTools } from './codex-mcp-tools.js';
 import { AsyncQueue } from './async-queue.js';
-import { CodexAppServerClient, SUPPORTED_CODEX_CLI_VERSION } from './codex-app-server-client.js';
+import {
+  CodexAppServerClient,
+  SUPPORTED_CODEX_CLI_VERSION,
+  type OpenShellCodexOptions,
+} from './codex-app-server-client.js';
 import { CodexConversation } from './codex-conversation.js';
 import {
   CodexConversationStore,
@@ -838,7 +842,7 @@ async function openCodexChatBound(
         }
       : undefined);
   const connectedOpenShell = !!openShell;
-  const openShellClient =
+  const openShellClient: OpenShellCodexOptions | undefined =
     openShell && managedConnection?.templateId === 'jira-readonly'
       ? { ...openShell, connectionEnv: managedJiraConnectionEnv(managedConnection) }
       : openShell;
@@ -848,6 +852,23 @@ async function openCodexChatBound(
         ...onDemandConnections.map((connection) => connection.gatewayProviderName),
       ]
     : [];
+  const prepareProviderEnvironment = async () => {
+    if (!runtimeManager || !managedOpenShell || !openShellClient) return;
+    const observation = await runtimeManager.observeContract(
+      options.conversationId,
+      managedOpenShell,
+      signal,
+    );
+    Object.assign(openShellClient, {
+      requiredProviderEnvironment: observation.requiredServiceEnvironment,
+    });
+  };
+  try {
+    await prepareProviderEnvironment();
+  } catch (error) {
+    startupReservation?.();
+    throw new CodexStartupError('runtime_connection', error);
+  }
   const integrationTools = grantIntegrationTools(grantableProviders);
   const openShellHostTools = connectedOpenShell
     ? [
@@ -864,6 +885,7 @@ async function openCodexChatBound(
         pending: Map<string, Promise<{ content: string; isError: boolean }>>;
       }
     | undefined;
+  let integrationTransportNeedsRefresh = false;
   const requestIntegrationAccess = async (
     provider: string,
     signal: AbortSignal,
@@ -945,6 +967,7 @@ async function openCodexChatBound(
                 signal,
               ),
           );
+          integrationTransportNeedsRefresh = true;
           return true;
         }
         await runtimeManager!.grantServiceProvider(
@@ -957,6 +980,7 @@ async function openCodexChatBound(
         signal.throwIfAborted();
         return false;
       }
+      integrationTransportNeedsRefresh = true;
       return true;
     };
     if (access.state === 'approved-detached') {
@@ -977,6 +1001,7 @@ async function openCodexChatBound(
       toolUseID: randomUUID(),
       forcePrompt: true,
       approvalScope: 'conversation',
+      rememberSessionGrant: false,
       controlPlane,
       title: `Grant ${providerLabel} to this conversation?`,
       description: `This attaches the reviewed ${providerLabel} provider to the retained conversation sandbox across reconnects and Mitzo restarts, until the sandbox is deleted or access is revoked. It does not request or change external account consent.`,
@@ -1368,6 +1393,7 @@ async function openCodexChatBound(
             if (!managedOpenShell?.sandboxId || !configuredRuntime) return false;
             return sharedOpenShellLifecycleCoordinator.admit(options.conversationId, async () => {
               const previousId = managedOpenShell!.sandboxId;
+              const previousEnvironment = openShellClient?.requiredProviderEnvironment ?? [];
               const selected = await prepareRetainedRuntimeMigration({
                 conversationId: options.conversationId,
                 binding: options.binding,
@@ -1395,7 +1421,13 @@ async function openCodexChatBound(
                   options.binding,
                   migration,
                 );
-              return selected.runtime.sandboxId !== previousId;
+              await prepareProviderEnvironment();
+              const environmentChanged = !isDeepStrictEqual(
+                previousEnvironment,
+                openShellClient?.requiredProviderEnvironment ?? [],
+              );
+              if (environmentChanged) await closeOwnedTransport();
+              return selected.runtime.sandboxId !== previousId || environmentChanged;
             });
           },
           beforeReconnect: async () => {
@@ -1455,6 +1487,7 @@ async function openCodexChatBound(
               Object.assign(managedOpenShell!, recovered);
               if (openShellClient) Object.assign(openShellClient, recovered);
               persistArtifactRuntime();
+              await prepareProviderEnvironment();
             });
             if (managedCapabilityConnection && options.binding?.accountId)
               await capabilityTools.service?.recoverPendingForConversation(
@@ -1495,6 +1528,7 @@ async function openCodexChatBound(
           ? CodexAppServerClient.launchOpenShell(openShellClient!, process.env, callbacks)
           : CodexAppServerClient.launch(options.profile.credentialRef!, process.env, callbacks);
         ownedClients.push(client);
+        integrationTransportNeedsRefresh = false;
         return client;
       } catch (cause) {
         throw new CodexStartupError('runtime_connection', cause);
@@ -1550,6 +1584,21 @@ async function openCodexChatBound(
     },
     ...(openShell && runtimeManager && managedOpenShell && grantableProviders.length
       ? {
+          refreshTransportBeforeTurn: () => integrationTransportNeedsRefresh,
+          shouldContinueAfterToolResult: (name, _input, result) =>
+            name === GRANT_INTEGRATION_TOOL && !result.isError && integrationTransportNeedsRefresh,
+          ...(options.ordinaryTurnLifecycle
+            ? {
+                environmentContinuationOwner: 'external' as const,
+                onEnvironmentPending: (commandId: string, providerTurnId: string) => {
+                  if (!options.ordinaryTurnLifecycle?.environmentPending)
+                    throw new Error(
+                      'The owning controller does not support unfinished environment receipts',
+                    );
+                  options.ordinaryTurnLifecycle.environmentPending(commandId, providerTurnId);
+                },
+              }
+            : {}),
           prepareTurn: async ({ providerPrompt, userIntent, turnId }, signal: AbortSignal) => {
             integrationTurn = { id: turnId, denied: new Set(), pending: new Map() };
             // Older persisted commands did not retain separate raw intent. Do
@@ -1657,6 +1706,7 @@ async function openCodexChatBound(
           signal,
           toolUseID: randomUUID(),
           forcePrompt: name === 'TelosSaveArtifact',
+          allowSessionGrant: true,
           title:
             name === 'TelosSaveArtifact'
               ? 'Save this document in live Telos?'
@@ -1690,6 +1740,7 @@ async function openCodexChatBound(
           signal,
           toolUseID: randomUUID(),
           forcePrompt: true,
+          allowSessionGrant: true,
           title: 'Create this outcome in live Telos?',
           description:
             'This writes the approved outcome and milestones to the host Telos store linked to this Mitzo session.',

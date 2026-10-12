@@ -273,6 +273,7 @@ export function ChatArea({
                   text={textBlock?.content}
                   images={msg.images}
                   contextBlocks={msg.contextBlocks}
+                  contextInjections={msg.contextInjections}
                   timestamp={msg.timestamp}
                   readAloud={
                     voice?.ttsAvailable
@@ -448,6 +449,7 @@ export function ChatArea({
           displayName={permission.displayName}
           tier={permission.tier}
           approvalScope={permission.approvalScope}
+          sessionGrantDescription={permission.sessionGrantDescription}
           responseError={permission.responseError}
           onRespond={onPermissionRespond}
           onExpire={onPermissionExpire}

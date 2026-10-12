@@ -194,6 +194,8 @@ export interface FinishedMessage {
   blocks: FinishedBlock[];
   images?: string[];
   contextBlocks?: string[];
+  /** Display projection of context already included in this message's prompt. */
+  contextInjections?: import('./context-injection.js').ContextInjection[];
   sourceSnapshots?: SourceSnapshot[];
   timestamp?: number;
 }
@@ -224,6 +226,8 @@ export interface PermissionRequest {
   displayName?: string;
   tier?: ToolTier;
   approvalScope?: 'session' | 'conversation' | 'request';
+  /** Server-supplied human description of the retained session scope. */
+  sessionGrantDescription?: string;
   responseError?: string;
 }
 

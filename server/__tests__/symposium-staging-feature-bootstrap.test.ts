@@ -40,6 +40,11 @@ it('rejects serialized retirement acknowledgement before any host effect', async
     'capability',
   );
 });
+it('rejects a serialized original custodian lifetime callback before any host effect', async () => {
+  await expect(
+    runSymposiumCustodian({ observeOriginalCustodianLifetime: true as never }),
+  ).rejects.toThrow('lifetime observer');
+});
 it('refuses non-callable awaited source/owner fence before allocating an owner', async () => {
   await expect(runSymposiumCustodian({ beforeControllerReady: true as never })).rejects.toThrow(
     'fence',

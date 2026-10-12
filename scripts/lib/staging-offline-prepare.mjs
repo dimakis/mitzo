@@ -21,6 +21,7 @@ import {
 } from './staging-files.mjs';
 import { verifyDependencySource } from './staging-dependency-source.mjs';
 import { buildStagingOfflineAuthHelper } from './staging-offline-auth-build.mjs';
+import { buildStagingVmPeerHelper } from './staging-vm-peer-build.mjs';
 import { verifyPreparedController } from './staging-cold-control.mjs';
 
 const repository = 'https://github.com/dimakis/mitzo.git';
@@ -96,6 +97,8 @@ export function createOfflineRecoveryPreparationEffects({ sourceRoot }) {
         HOME: buildHome ?? '/private/tmp',
         TMPDIR: '/private/tmp',
         LANG: 'en_US.UTF-8',
+        NODE_OPTIONS: '--max-old-space-size=2048',
+        npm_config_jobs: '2',
         GIT_CONFIG_GLOBAL: '/dev/null',
         GIT_CONFIG_NOSYSTEM: '1',
         GIT_OPTIONAL_LOCKS: '0',
@@ -165,13 +168,15 @@ export function createOfflineRecoveryPreparationEffects({ sourceRoot }) {
       run('/opt/homebrew/bin/npm', ['run', 'build'], attempt);
     },
     compileOperatorHelper({ target }) {
-      buildStagingOfflineAuthHelper({
+      const helperInputs = {
         controllerRoot: attempt,
         sourceCommit: target,
         assertQualifiedSource(path, selected) {
           qualify(path, selected);
         },
-      });
+      };
+      buildStagingOfflineAuthHelper(helperInputs);
+      buildStagingVmPeerHelper(helperInputs);
     },
     freezePreparedController({ target, dependencySource }) {
       if (fingerprintDirectory(dependencySource, 'node_modules') !== dependencyBefore)

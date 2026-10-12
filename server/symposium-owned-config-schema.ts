@@ -78,6 +78,9 @@ export const OwnedSymposiumConfigSchema = z.strictObject({
       PATH: z.string().min(1),
       XDG_CONFIG_HOME: path.optional(),
       CONTAINER_CONNECTION: id.optional(),
+      /** Exact private source-owned configuration is required by fresh native
+       * allocation qualification; this field never authorizes native ownership. */
+      CONTAINERS_CONF: path.optional(),
     }),
     sandboxNamespace: z.string().refine(isPodmanSandboxNamespace),
   }),

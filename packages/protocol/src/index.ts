@@ -320,6 +320,7 @@ export {
 } from './agent-context-recipe.js';
 export { AgentContextSnapshotSchema, type AgentContextSnapshot } from './agent-context-recipe.js';
 export * from './agent-context-pack.js';
+export { splitContextPrompt, type ContextInjection } from './context-injection.js';
 
 export { AgentContextReceiptSchema, type AgentContextReceipt } from './agent-context-recipe.js';
 export {
@@ -327,4 +328,5 @@ export {
   type AgentSandboxContextScope,
 } from './agent-context-recipe.js';
 
+export { sessionApprovalServer } from './session-approval-scope.js';
 export * from './ordinary-local-admission.js';

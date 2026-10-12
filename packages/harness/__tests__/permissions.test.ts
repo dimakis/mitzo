@@ -8,7 +8,7 @@ import {
 } from '../src/permissions.js';
 
 describe('permissions module', () => {
-  it('treats a legacy always response to an exact-request card as one-time approval', () => {
+  it('preserves a session-retention choice for non-question legacy request cards', () => {
     let result: Record<string, unknown> | undefined;
     registerPending(
       'web-request',
@@ -27,7 +27,7 @@ describe('permissions module', () => {
       },
     );
     expect(resolvePending('web-request', 'always')).toBe(true);
-    expect(result?.decisionClassification).toBe('user_temporary');
+    expect(result?.decisionClassification).toBe('user_permanent');
   });
   const permId = 'test-perm-001';
   const toolInput = { command: 'ls' };
