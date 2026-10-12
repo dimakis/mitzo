@@ -12,6 +12,7 @@ export async function executeOfflineRecovery({
   contain,
   restore,
   assertContained,
+  admitSource,
 }) {
   const proposal = createOfflineRecoveryProposal(selected);
   if (
@@ -26,6 +27,11 @@ export async function executeOfflineRecovery({
     assertContainmentReady: assertContained,
   });
   try {
+    if (admitSource) {
+      if (typeof admitSource !== 'function')
+        throw Error('Original source admission capability required');
+      await admitSource();
+    }
     const authority = await authorizer.authenticate(proposal.sha256);
     const containment = await contain(proposal.containmentPlan, authority, phases);
     const ordinary = await restore(proposal.ordinaryPlan, authority, phases);
