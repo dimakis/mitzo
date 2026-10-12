@@ -186,3 +186,5 @@ be presented as such enforcement. Accept the queue protocol, then the paired
 MGMT change and enroll its clean accepted controller before using the new gate.
 Missing/older/unqualified enrollment blocks a Mitzo merge rather than bypassing
 the shared admission. Offline tests grant no host enrollment or live dispatch.
+
+Stacked non-default-base PR triggers must not occupy the privileged status-writer environment. The writer job skips those triggers; accepted-default-branch schedule or explicit reconciliation can still observe their actual reviews. The default-branch-only environment and trusted App identity remain required. Ancestry checks project only exact commit/status metadata; full patches do not enter the bounded controller handoff.

@@ -192,3 +192,27 @@ it.each([
 ])('fails closed on unknown or tied trusted verdict chronology', async (records) => {
   expect((await execute(records)).at(-1)?.state).not.toBe('success');
 });
+
+it('stacked non-default-base triggers cannot hold the trusted writer environment or shared queue', () => {
+  const gate = readFileSync('.github/workflows/centaur-gate.yml', 'utf8');
+  const condition = gate.match(/centaur:\n {4}if: >-\n([\s\S]+?)\n {4}runs-on:/)?.[1].trim();
+  expect(condition).toBeTruthy();
+  const allowed = (eventName: string, event: Record<string, unknown>) =>
+    new Script(condition!).runInNewContext({ github: { event_name: eventName, event } });
+  const repository = { default_branch: 'main' };
+  expect(
+    allowed('pull_request_target', { repository, pull_request: { base: { ref: 'main' } } }),
+  ).toBe(true);
+  expect(
+    allowed('pull_request_target', {
+      repository,
+      pull_request: { base: { ref: 'unaccepted-stack' } },
+    }),
+  ).toBe(false);
+  expect(allowed('issue_comment', { issue: {} })).toBeFalsy();
+  expect(allowed('issue_comment', { issue: { pull_request: {} } })).toBeTruthy();
+  expect(allowed('schedule', {})).toBe(true);
+  expect(allowed('workflow_dispatch', {})).toBe(true);
+  expect(gate).toContain('environment: centaur-status-writer');
+  expect(gate).toContain('cancel-in-progress: false');
+});

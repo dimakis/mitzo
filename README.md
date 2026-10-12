@@ -1242,3 +1242,5 @@ before enabling replacement; see [OpenAI key replacement](docs/features/openai-k
 The staging source-merge queue permits reviewed source repairs while retaining an exact unchanged quarantined operation. Active operations remain exclusive; repair acceptance leaves physical capacity and readiness quarantined until independently verified recovery.
 
 Source admissions from an older controller that lack the captured staging tuple remain held for inspection; upgrading the controller cannot reconstruct or release that missing proof.
+
+The trusted Centaur status writer skips stacked PR base branches that cannot enter its accepted-main-only environment. Default-branch reconciliation still reads their authoritative reviews. Bounded source ancestry queries return only commit/status metadata, preserving response limits as main advances.
