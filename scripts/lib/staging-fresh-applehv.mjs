@@ -445,10 +445,14 @@ function freshAppleHvProvisionEffects(approved) {
       await assertCurrent();
       writeFileSync(supervisor.plistPath, plist, { flag: 'wx', mode: 0o600 });
       await assertCurrent();
-      writeFileSync(join(p.nativeRoot, 'service/fresh-vm-plan.json'), JSON.stringify(vm) + '\n', {
-        flag: 'wx',
-        mode: 0o600,
-      });
+      writeFileSync(
+        join(p.nativeRoot, 'service/fresh-vm-plan.json'),
+        JSON.stringify(vm.plan) + '\n',
+        {
+          flag: 'wx',
+          mode: 0o600,
+        },
+      );
       return vm;
     },
   };
@@ -1397,6 +1401,16 @@ function freshAppleHvPhysicalEffects(approved) {
       for (const item of p.sourceInventory)
         if (checkedFile(join(p.sourceRoot, item.path), { uid: null }).sha256 !== item.sha256)
           fail('current accepted source bytes');
+      for (const file of [p.files.ssh, p.files.configuration]) {
+        privateParents(p, file.path);
+        if (
+          !sameIdentity(identity(file.path), file) ||
+          checkedFile(file.path, { mode: file.mode }).sha256 !== file.sha256
+        )
+          fail('current immutable configuration');
+      }
+      if (checkedFile(p.supervisor.plistPath, { mode: 0o600 }).sha256 !== p.supervisor.plistSha256)
+        fail('current canonical registration bytes');
       const facts = observeFreshResources(p, {
         stagingGiB: p.resourcePolicy.aggregateGiBLimit,
         diskFreeGiB: p.resourcePolicy.minFreeGiB,
@@ -1487,9 +1501,10 @@ function freshAppleHvPhysicalEffects(approved) {
           });
         });
         server.on('error', failStart);
-        server.listen(p.qualification.guardSocket, () => {
+        server.listen(p.qualification.guardSocket, async () => {
           chmodSync(p.qualification.guardSocket, 0o600);
           try {
+            await assertCurrent();
             command('/bin/launchctl', [
               'kickstart',
               `gui/${process.getuid()}/com.mitzo.staging.vm`,
