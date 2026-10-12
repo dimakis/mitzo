@@ -45,6 +45,7 @@ const names = [
   'lib/staging-launcher-template.mjs',
   'lib/staging-registration.mjs',
   'lib/staging-dependency-source.mjs',
+  'lib/staging-pipeline-mutation-guard.mjs',
 ];
 const env = {
   PATH: '/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin',
