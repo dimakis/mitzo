@@ -156,3 +156,15 @@ editor contracts; the shared dialog and tray changes remain as accepted. The aff
 Access/dialog/tray/composer/resource and design tests pass together (146 checks).
 Rendered offline UI is rechecked because the accepted changes touch shared modal
 and draft-image behavior. This reconciliation adds no Access or persistence scope.
+
+At the gated merge attempt main advanced to `b66c3516` (PR862, the separately
+owned dormant trusted local Codex capability projection). Its account-profile
+projection, immutable capability revision, discovery source/stale evidence and
+strict snapshot loader remain as accepted; the Access projection continues to
+support the single ordinary Anthropic route in this slice. Configured local
+Codex target evidence does not establish session attachments or execution grants.
+The source-pin map merges cleanly and retains both implementations; its combined
+runtime revision is v1.0.60, avoiding reuse of the two branches' different v1.0.59
+contracts. No frontend code changed in this reconciliation, so the completed
+261-check rendered UI run remains applicable; hosted CI and exact-head review
+are required again.

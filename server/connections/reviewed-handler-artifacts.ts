@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.9';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.59';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.60';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -29,7 +29,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../chat-rest-handler.ts': '35dbf6b8632965712b047b156491bbadb8cda42899d06ff52c8a426150e21ed7',
   // Contributor live-query capture and exact output ownership share runtime admission.
   '../query-loop.ts': '536109be7d7bbdb74f21b521265c789765d967eb871f802388a9e6ec7236ac04',
-  '../account-profiles.ts': '6de5c87f62d5234cb68e3f857c8431160f63562fea3b78ec62e5dd2f381e3745',
+  '../account-profiles.ts': '0de19ad8f7541f9632c6c553bf9104a80965af84eb0f93b0e4a13a8d9ffcba76',
   '../ordinary-turn-lifecycle.ts':
     '136bdac73de0f9280676a209a234972393ca14e84fca40616ac93f204c31e7de',
   '../ordinary-contributor-guidance.ts':
