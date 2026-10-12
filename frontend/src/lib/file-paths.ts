@@ -1,5 +1,12 @@
+import { mimeFromExt } from './file-metadata';
+
 /** Internal scheme for file path links — intercepted by the custom renderer. */
 export const FILE_SCHEME = 'file-path://';
+
+/** Only durable Telos downloads are eligible for the authenticated sharing flow. */
+export function isTelosArtifactUrl(url: string): boolean {
+  return /^\/api\/telos\/artifacts\/[a-f0-9]{32}(?:\?revision=[1-9]\d*)?$/.test(url);
+}
 
 /** Build an authenticated API URL scoped to the session that created an artifact. */
 export function artifactApiUrl(
@@ -34,8 +41,10 @@ export function relativeArtifactPath(href: string): string | null {
 
 /** Recognize explicit local Markdown destinations, leaving application URLs alone. */
 export function absoluteMarkdownArtifactPath(href: string): string | null {
-  const explicitFileUri = /^file:\/\/(?:localhost)?(?=\/)/i.test(href);
-  const local = href.replace(/^file:\/\/(?:localhost)?(?=\/)/i, '');
+  const sandboxUri = /^sandbox:\/(?=\/|[^/])/i.test(href);
+  const source = sandboxUri ? href.replace(/^sandbox:/i, '') : href;
+  const explicitFileUri = /^file:\/\/(?:localhost)?(?=\/)/i.test(source);
+  const local = source.replace(/^file:\/\/(?:localhost)?(?=\/)/i, '');
   if ((!local.startsWith('/') && !local.startsWith('~/')) || local.startsWith('//')) return null;
   try {
     const path = decodeURIComponent(local.split(/[?#]/, 1)[0]).replace(/:\d+(?::\d+)?$/, '');
@@ -52,7 +61,9 @@ export function absoluteMarkdownArtifactPath(href: string): string | null {
       [...path].some((char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127)
     )
       return null;
-    return /\.mdx?$/i.test(path) ? path : null;
+    return explicitFileUri || sandboxUri || mimeFromExt(path) !== 'application/octet-stream'
+      ? path
+      : null;
   } catch {
     return null;
   }

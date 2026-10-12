@@ -18,12 +18,21 @@ export function ShareButton(props: ShareButtonProps) {
   );
 }
 
+/** Reuse the same busy/error/cancellation handling for artefact links in Markdown. */
+export function FileShareLink({
+  children,
+  ...props
+}: ShareButtonProps & { children: React.ReactNode }) {
+  return <FileActionButton {...props} action="share" linkLabel={children} />;
+}
+
 function FileActionButton({
   filePath,
   sessionId,
   className,
   action,
-}: ShareButtonProps & { action: 'share' | 'download' }) {
+  linkLabel,
+}: ShareButtonProps & { action: 'share' | 'download'; linkLabel?: React.ReactNode }) {
   const operation = action === 'download' ? downloadFile : shareFile;
   const [state, setState] = useState<'idle' | 'busy' | 'done' | 'error'>('idle');
   const busyRef = useRef(false);
@@ -99,17 +108,30 @@ function FileActionButton({
 
   return (
     <>
-      <button
-        type="button"
-        aria-busy={state === 'busy'}
-        className={`share-btn ${className ?? ''} ${state !== 'idle' ? `share-btn--${state}` : ''}`.trim()}
-        aria-label={label}
-        title={error || label}
-        onClick={handleShare}
-        disabled={state === 'busy'}
-      >
-        <UiIcon name={icon} size={16} />
-      </button>
+      {linkLabel !== undefined ? (
+        <a
+          href={filePath}
+          className={['artifact-share-link', className].filter(Boolean).join(' ')}
+          onClick={handleShare}
+          aria-busy={state === 'busy'}
+          aria-disabled={state === 'busy'}
+          title={error || label}
+        >
+          {linkLabel}
+        </a>
+      ) : (
+        <button
+          type="button"
+          aria-busy={state === 'busy'}
+          className={`share-btn ${className ?? ''} ${state !== 'idle' ? `share-btn--${state}` : ''}`.trim()}
+          aria-label={label}
+          title={error || label}
+          onClick={handleShare}
+          disabled={state === 'busy'}
+        >
+          <UiIcon name={icon} size={16} />
+        </button>
+      )}
       {error && (
         <span className="share-error" role="alert">
           {error}

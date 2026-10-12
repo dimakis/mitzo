@@ -1,4 +1,5 @@
 import React from 'react';
+import { FileShareLink } from '../components/ShareButton';
 import { MarkdownCodeBlock } from '../components/MarkdownCodeBlock';
 import { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -12,6 +13,7 @@ import {
   FILE_SCHEME,
   linkedArtifactPath,
   remarkLocalMarkdownLinks,
+  isTelosArtifactUrl,
 } from './file-paths';
 
 const sanitizeSchema = {
@@ -53,6 +55,9 @@ export function artifactMarkdownComponents(
   return {
     ...markdownComponents,
     a: ({ href, children, title }) => {
+      if (href && isTelosArtifactUrl(href)) {
+        return <FileShareLink filePath={href}>{children}</FileShareLink>;
+      }
       const filePath = href?.startsWith(FILE_SCHEME)
         ? decodeFilePathUrl(href)
         : href

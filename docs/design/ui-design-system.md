@@ -271,3 +271,14 @@ Cancel and direct answers to the full iPhone form.
 Offline approval fixtures cover 320px mobile WebKit/Chromium and desktop Chromium,
 light/dark themes, Mint/Georgia appearance, larger text, long request details,
 keyboard focus and 44px controls without a backend or model call.
+
+## Artefact sharing links
+
+Markdown Telos artefact links reuse `FileShareLink` and the file-action handler
+for busy, cancellation, retry and inline error feedback. They use the normal
+prose link style with an inline `--control-height` target and preserve keyboard
+activation. Local document links use the existing Files viewer and session scope.
+Native sharing presents the platform sheet with a named local file; browser
+sharing retains the original download fallback. The offline artefact fixture
+checks keyboard sharing, exact revision/bytes/filename, no external window,
+mobile/desktop geometry and dark/light Teal/Georgia appearance.

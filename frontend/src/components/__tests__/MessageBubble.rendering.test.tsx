@@ -2,7 +2,7 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { MemoryRouter } from 'react-router-dom';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { useLocation } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
@@ -12,6 +12,11 @@ import {
   remarkPlugins,
   rehypePlugins,
 } from '../../lib/markdown-config';
+vi.mock('../../lib/share-file', () => ({
+  shareFile: vi.fn().mockResolvedValue(true),
+  downloadFile: vi.fn(),
+}));
+import { shareFile } from '../../lib/share-file';
 import { MessageBubble, TextBubble } from '../MessageBubble';
 import type { FinishedMessage } from '../../types/chat';
 
@@ -26,6 +31,31 @@ function renderBubble(content: string, streaming = false): string {
 }
 
 describe('TextBubble file link rendering', () => {
+  it('shares a stored Telos link without opening another app or losing its revision', async () => {
+    const href = '/api/telos/artifacts/' + 'a'.repeat(32) + '?revision=2';
+    render(
+      <MemoryRouter>
+        <TextBubble content={`[Telos artifact](${href})`} />
+      </MemoryRouter>,
+    );
+    const link = screen.getByRole('link', { name: 'Telos artifact' });
+    expect(link.getAttribute('target')).toBeNull();
+    fireEvent.click(link);
+    expect(shareFile).toHaveBeenCalledWith(href);
+    cleanup();
+  });
+
+  it.each([
+    '/workspace/report.pdf',
+    '/workspace/report.docx',
+    'file:///workspace/report.xlsx',
+    'sandbox:/mnt/data/report.pptx',
+  ])('keeps generated document link %s inside Mitzo', (href) => {
+    const html = renderBubble(`[report](${href})`);
+    expect(html).toContain('file-path-link');
+    expect(html).not.toContain('target="_blank"');
+  });
+
   it.each(['report.html', 'outputs/report.html', './outputs/report.html'])(
     'opens relative Markdown artifact %s in the originating session',
     (path) => {

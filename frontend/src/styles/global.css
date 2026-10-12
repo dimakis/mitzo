@@ -1996,6 +1996,14 @@ textarea:focus {
   text-underline-offset: 2px;
 }
 
+.artifact-share-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--control-height);
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
 .file-path-group {
   display: inline-flex;
   align-items: center;
