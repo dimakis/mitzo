@@ -1,4 +1,5 @@
 import { createTelemetryRelay } from './telemetry-relay.js';
+import { traceAuthCheck } from './auth-check-tracing.js';
 import type {
   SymposiumReviewPhysicalHost,
   SymposiumReviewRouteHost,
@@ -555,6 +556,7 @@ app.use('/api/capability-operations', authMiddleware, (req, res, next) => {
     return res.status(503).json({ error: 'Capability operations are not configured.' });
   return capabilityOperationsRouter(req, res, next);
 });
+app.use(traceAuthCheck);
 // Two 5 MiB UTF-8 documents can each expand sixfold when JSON escapes control bytes.
 app.put('/api/files/write', authMiddleware, express.json({ limit: 60 * 1024 * 1024 + 64 * 1024 }));
 // Authenticate before accepting the expanded JSON envelope; decoded document bytes remain capped at 5 MiB.
