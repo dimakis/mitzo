@@ -1180,6 +1180,7 @@ reviewed runtime gate. Fresh staging enrollment, explicit non-Luna test approval
 and a native feature runner remain required.
 
 The narrowly scoped [lost-owner offline preservation procedure](docs/operations/staging-offline-containment.md) retains the original native environment and uncertain history before ordinary staging restoration. Source acceptance, authenticated physical recovery and provider enrollment remain separate.
+The separate [contained-native allocation source protocol](docs/operations/staging-contained-native-allocation.md) preserves that unchanged uncertain row and requires fresh purpose authentication, a new original launcher guard and complete independent archived-closure evidence. Its launcher refuses when the reviewed native model or owner-lifetime implementation is missing; source availability does not claim a live allocation or provider enrollment.
 
 Reuse the singleton `com.mitzo.staging` service at `http://mitzo-staging.localhost:3190`.
 The [operating procedure](docs/operations/canonical-staging.md) describes integrity/freshness
