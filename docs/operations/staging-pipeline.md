@@ -147,7 +147,12 @@ The aggregate disk ceiling is 48 GiB so retained incident evidence is counted al
 The paired mandatory MGMT merge gate uses this same private SQLite database to
 serialize Mitzo source acceptance with foreground staging work. `merge-admit`
 holds one exact PR/head admission in a `BEGIN IMMEDIATE` transaction. It refuses
-an active or quarantined staging reservation; staging claim refuses a held source
+an active staging reservation, including one whose deadline expired. An exactly
+quarantined reservation can admit reviewed source repairs: the same transaction
+captures the complete reservation and original quarantined request. Dispatch and
+every terminal reconciliation must match that immutable tuple. This grants no
+staging capacity, cleanup, restart or retirement; queued readiness remains
+pending behind the original quarantine. Staging claim refuses a held source
 merge. This includes preparation, so an admitted merge cannot strand a concurrent
 candidate build or deployment. A benign staging preflight refusal can release its
 existing undispatched reservation and wait.

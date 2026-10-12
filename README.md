@@ -1238,3 +1238,5 @@ An account awaiting Keychain approval keeps **Replace API key** available and re
 Mitzo passphrase reauthorization before the explicit Mac authorization step. Rebuild
 and install the helper from the accepted release with its existing signing identity
 before enabling replacement; see [OpenAI key replacement](docs/features/openai-key-replacement.md).
+
+The staging source-merge queue permits reviewed source repairs while retaining an exact unchanged quarantined operation. Active operations remain exclusive; repair acceptance leaves physical capacity and readiness quarantined until independently verified recovery.
