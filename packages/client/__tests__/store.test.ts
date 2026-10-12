@@ -91,6 +91,41 @@ function createReadyStore(transport?: TransportAdapter) {
 // ─── Tests ──────────────────────────────────────────────────────────────────
 
 describe('createMitzoStore', () => {
+  it('retains injected context when an older history request overlaps an optimistic send', async () => {
+    const transport = mockTransport();
+    const store = createReadyStore(transport);
+    let complete!: (response: unknown) => void;
+    (transport.fetch as ReturnType<typeof vi.fn>).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          complete = resolve;
+        }),
+    );
+    const opening = store.getState().switchSession('context-session');
+    const text = 'What state are my Strats in?';
+    store.getState().sendMessage(text, { contextBlocks: ['Jira Essentials'] });
+    const messageId = store.getState().messages.messages[0].messageId;
+    const expanded = `The user has attached the following reference files for this message.\nUse them to inform your response.\n\n<context name="Jira Essentials" source="routing.md">\nMaintained Jira route\n</context>\n\n---CONTEXT_END---\n${text}`;
+    complete({
+      ok: true,
+      json: async () => [
+        {
+          messageId,
+          role: 'user',
+          contextBlocks: ['Jira Essentials'],
+          blocks: [{ blockId: 'text', blockType: 'text', content: expanded }],
+        },
+      ],
+      text: async () => '',
+    });
+    await opening;
+    expect(store.getState().messages.messages).toHaveLength(1);
+    expect(store.getState().messages.messages[0].blocks[0].content).toBe(text);
+    expect(store.getState().messages.messages[0].contextInjections?.[0].content).toBe(
+      'Maintained Jira route',
+    );
+  });
+
   it('creates a store with initial state', () => {
     const store = createMitzoStore(makeOptions());
     const state = store.getState();

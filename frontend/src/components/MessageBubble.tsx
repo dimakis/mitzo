@@ -22,7 +22,12 @@ import { markdownComponents } from '../lib/markdown-config';
 import { MarkdownCodeBlock } from './MarkdownCodeBlock';
 import { MarkdownPreviewCard } from './MarkdownPreviewCard';
 import { HtmlPreviewCard } from './HtmlPreviewCard';
-import { findArtifactCapabilityByPath } from '@mitzo/protocol';
+import {
+  findArtifactCapabilityByPath,
+  splitContextPrompt,
+  type ContextInjection,
+} from '@mitzo/protocol';
+import { ContextInjectionDisclosure } from './ContextInjectionDisclosure';
 
 const COLLAPSE_HEIGHT = 300;
 
@@ -36,6 +41,7 @@ interface UserBubbleProps {
   text?: string;
   images?: string[];
   contextBlocks?: string[];
+  contextInjections?: ContextInjection[];
   onEdit?: (text: string) => void;
   timestamp?: number;
   readAloud?: ReadAloudProps;
@@ -45,22 +51,24 @@ export function UserBubble({
   text,
   images,
   contextBlocks,
+  contextInjections,
   onEdit,
   timestamp,
   readAloud,
 }: UserBubbleProps) {
+  const context = text && splitContextPrompt(text);
+  const displayText = context ? context.text : text;
+  const injections = contextInjections ?? (context ? context.injections : undefined);
   const time = formatTime(timestamp);
   return (
     <div className="msg-bubble-group msg-bubble-group--user">
+      <ContextInjectionDisclosure names={contextBlocks ?? []} injections={injections} />
       <div
         className={`msg-bubble msg-bubble--user${onEdit ? ' msg-bubble--editable' : ''}`}
-        onClick={() => text && onEdit?.(text)}
+        onClick={() => displayText && onEdit?.(displayText)}
         role={onEdit ? 'button' : undefined}
         tabIndex={onEdit ? 0 : undefined}
       >
-        {contextBlocks && contextBlocks.length > 0 && (
-          <div className="msg-bubble-context">@ {contextBlocks.join(', ')}</div>
-        )}
         {images && images.length > 0 && (
           <div className="msg-bubble-images">
             {images.map((src, i) => (
@@ -68,20 +76,22 @@ export function UserBubble({
             ))}
           </div>
         )}
-        {text && <div className="msg-bubble-content">{text}</div>}
-        {(time || text) && (
+        {displayText && <div className="msg-bubble-content">{displayText}</div>}
+        {(time || displayText) && (
           <div className="msg-bubble-footer msg-bubble-footer--user">
             {time && <span className="msg-timestamp msg-timestamp--user">{time}</span>}
-            {text && readAloud && (
+            {displayText && readAloud && (
               <ReadAloudButton
-                text={text}
+                text={displayText}
                 active={readAloud.active}
                 onSpeak={readAloud.onSpeak}
                 onStop={readAloud.onStop}
                 className="msg-bubble-read-aloud msg-bubble-read-aloud--user"
               />
             )}
-            {text && <CopyButton text={text} className="msg-bubble-copy msg-bubble-copy--user" />}
+            {displayText && (
+              <CopyButton text={displayText} className="msg-bubble-copy msg-bubble-copy--user" />
+            )}
           </div>
         )}
       </div>
@@ -266,7 +276,13 @@ export function MessageBubble({ message, artifactSessionId }: MessageBubbleProps
   if (message.role === 'user') {
     const textBlock = message.blocks.find((b) => b.blockType === 'text');
     return (
-      <UserBubble text={textBlock?.content} images={message.images} timestamp={message.timestamp} />
+      <UserBubble
+        text={textBlock?.content}
+        images={message.images}
+        contextBlocks={message.contextBlocks}
+        contextInjections={message.contextInjections}
+        timestamp={message.timestamp}
+      />
     );
   }
   const textBlock = message.blocks.find((b) => b.blockType === 'text');
