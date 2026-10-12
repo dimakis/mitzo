@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeAll, expect, it } from 'vitest';
 import { DraftsView } from '../DraftsView';
@@ -16,7 +16,7 @@ afterEach(() => {
   cleanup();
   localStorage.clear();
 });
-it('shows the saved prompt and its account, model and thinking level with an editable link', () => {
+it('shows the saved prompt and its account, model and thinking level with an editable link', async () => {
   const draft = { ...createChatDraft(), text: 'Fix the morning briefing' };
   draft.settings.selection = { accountId: 'work', model: 'model-a', reasoningEffort: 'high' };
   draft.settings.summary = { profile: 'Work API', model: 'Model A', thinking: 'Thinking: high' };
@@ -35,6 +35,9 @@ it('shows the saved prompt and its account, model and thinking level with an edi
   fireEvent.click(screen.getByRole('button', { name: 'Confirm discard' }));
   expect(listChatDrafts()).toEqual([]);
   expect(screen.getByText('No drafts yet')).toBeTruthy();
+  await waitFor(() =>
+    expect(document.activeElement).toBe(screen.getByRole('link', { name: /New chat/ })),
+  );
 });
 it('preserves and shows the old shared new-chat draft instead of opening it as New chat', () => {
   localStorage.setItem('mitzo-draft-new', 'Existing unsent message');

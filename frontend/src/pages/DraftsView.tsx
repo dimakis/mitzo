@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { WorkspacePageHeading } from '../components/WorkspacePageHeading';
 import { UiIcon } from '../components/UiIcon';
@@ -11,10 +11,11 @@ import '../styles/chat-drafts.css';
 
 export function DraftsView() {
   const drafts = useSavedChatDrafts();
+  const mainRef = useRef<HTMLElement>(null);
   const [discard, setDiscard] = useState<string | null>(null);
   const [error, setError] = useState('');
   return (
-    <main className="workspace-page drafts-page">
+    <main className="workspace-page drafts-page" ref={mainRef}>
       <Link to="/sessions" className="drafts-back">
         <UiIcon name="back" size={16} /> Chats
       </Link>
@@ -99,6 +100,13 @@ export function DraftsView() {
               className="saved-draft-discard"
               onClick={() => {
                 if (!deleteChatDraft(discard)) setError('Couldn’t discard the draft. Try again.');
+                else
+                  requestAnimationFrame(() => {
+                    const target =
+                      mainRef.current?.querySelector<HTMLElement>('.saved-draft-open') ??
+                      mainRef.current?.querySelector<HTMLElement>('.workspace-primary');
+                    target?.focus();
+                  });
                 setDiscard(null);
               }}
             >
