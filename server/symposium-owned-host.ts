@@ -1,8 +1,16 @@
+import { captureSymposiumWorkApiProvider } from './symposium-work-api-provider.js';
+import { SymposiumStagingNativeFixtures } from './symposium-staging-native-fixture.js';
+import {
+  selectSessionOwnedProviderEvidence,
+  assertSessionOwnedProviderEvidence,
+  assertSessionOwnedVertexReceipt,
+} from './symposium-session-evidence-selection.js';
 import { observeMountJson, type OpenShellMountJsonOperation } from './openshell-runtime.js';
 import { digestSymposiumSeedTree } from './symposium-production-gate.js';
 import {
   collectSessionOwnedAdmissionEvidence,
   SessionEvidenceBinding,
+  SessionOwnedEvidenceSelection,
 } from './symposium-owned-evidence.js';
 import type { SymposiumOwnedBuildSelection } from './symposium-owned-runtime-contract.js';
 import { isDeepStrictEqual } from 'node:util';
@@ -263,6 +271,7 @@ export async function createOwnedSymposiumHost(
   let artifactSealer: PhysicalArtifactSealer | undefined;
   let subscription: ReturnType<typeof createPersonalSubscriptionHost> | undefined;
   let sessionArtifacts: SymposiumSessionArtifacts | undefined;
+  let nativeFeatureFixtures: SymposiumStagingNativeFixtures | undefined;
   let stopped = false;
   const prelaunchInspections = new Set<AbortController>();
   const abortPrelaunchInspections = () => {
@@ -1406,23 +1415,16 @@ export async function createOwnedSymposiumHost(
               config.data.revision !== input.configRevision
             )
               throw new Error('Current original Symposium draft revision required');
-            const profiles = currentProfiles();
-            const primary = config.data.seats.find((seat) => seat.id === 'primary');
-            if (
-              !primary ||
-              primary.accountBinding?.provider !== 'openai' ||
-              input.providerInstances.length !== 1
-            )
-              throw new Error('Original current Work API provider required');
-            const profile = profiles.apiProfile(primary.accountBinding);
-            const instance = input.providerInstances[0];
-            if (
-              profile.sandboxProvider !== instance.name ||
-              profile.sandboxProviderId !== instance.id ||
-              instance.type !== 'openai' ||
-              instance.profileName !== 'openai'
-            )
-              throw new Error('Original current Work API provider required');
+            assertSessionOwnedProviderEvidence(
+              config.data,
+              currentProfiles(),
+              {
+                providerInstances: input.providerInstances,
+                allowedRoles: input.allowedRoles,
+                allowedAccountProviders: input.allowedAccountProviders,
+              },
+              'owned-draft',
+            );
             const mapping = sessionArtifacts!.getReady(input.sessionId);
             if (!mapping) throw new Error('Original ready artifact mapping unavailable');
             return { volumeName: mapping.volumeName, volumeGeneration: mapping.volumeGeneration };
@@ -1439,7 +1441,7 @@ export async function createOwnedSymposiumHost(
             assertRequestCurrent?.();
           },
           collect: (input) => collectExplicitEvidence(input, assertRequestCurrent),
-          verifyCandidate: (candidate) => {
+          verifyCandidate: async (candidate) => {
             custody();
             if (
               candidate.seedTreeSha256 !== digestSymposiumSeedTree(runtimeConfig.seed) ||
@@ -1447,6 +1449,48 @@ export async function createOwnedSymposiumHost(
                 createHash('sha256').update(readFileSync(runtimeConfig.policy)).digest('hex')
             )
               throw new Error('Original admission local input changed');
+            const selected = SessionOwnedEvidenceSelection.parse(selection);
+            if (selected.allowedAccountProviders.includes('anthropic-vertex')) {
+              const readDraft = () => {
+                assertRequestCurrent?.();
+                custody();
+                const session = options.facts.getSession?.(selected.sessionId);
+                const config = session?.symposiumConfig
+                  ? SymposiumConfigSchema.parse(JSON.parse(session.symposiumConfig))
+                  : null;
+                if (
+                  session?.sessionType !== 'symposium' ||
+                  !config ||
+                  config.state !== 'draft' ||
+                  config.revision !== selected.configRevision
+                )
+                  throw new Error('Original Vertex draft revision changed');
+                assertSessionOwnedProviderEvidence(
+                  config,
+                  currentProfiles(),
+                  {
+                    providerInstances: selected.providerInstances,
+                    allowedRoles: selected.allowedRoles,
+                    allowedAccountProviders: selected.allowedAccountProviders,
+                  },
+                  'owned-draft',
+                );
+                return config;
+              };
+              readDraft();
+              const receipt = await captureSymposiumWorkVertexProviderAsync(
+                gateway,
+                selected.providerInstances[0].id,
+              );
+              assertSessionOwnedVertexReceipt(
+                readDraft(),
+                currentProfiles(),
+                receipt,
+                gateway.workspace,
+              );
+              assertRequestCurrent?.();
+              custody();
+            }
           },
         }),
       );
@@ -1477,37 +1521,8 @@ export async function createOwnedSymposiumHost(
             config.revision !== binding.configRevision
           )
             throw Error('Current original Symposium draft revision required');
-          const roles = [...new Set(config.seats.map((seat) => seat.role))];
-          if (!roles.length || roles.some((role) => role !== 'coder' && role !== 'reviewer'))
-            throw Error('Only Work API coder/reviewer draft roles supported');
-          const primary = config.seats.find((seat) => seat.id === 'primary');
-          if (primary?.accountBinding?.provider !== 'openai')
-            throw Error('Original Work API primary required');
-          const profiles = currentProfiles();
-          const profile = profiles.apiProfile(primary.accountBinding);
-          for (const seat of config.seats) {
-            if (seat.accountBinding?.provider !== 'openai')
-              throw Error('Only Work API draft accounts supported');
-            const selected = profiles.apiProfile(seat.accountBinding);
-            if (
-              selected.sandboxProvider !== profile.sandboxProvider ||
-              selected.sandboxProviderId !== profile.sandboxProviderId
-            )
-              throw Error('Only the original primary Work API provider is supported');
-          }
-          return {
-            ...binding,
-            providerInstances: [
-              {
-                name: profile.sandboxProvider,
-                id: profile.sandboxProviderId,
-                type: 'openai' as const,
-                profileName: 'openai' as const,
-              },
-            ],
-            allowedRoles: roles as ('coder' | 'reviewer')[],
-            allowedAccountProviders: ['openai' as const],
-          };
+          const selected = selectSessionOwnedProviderEvidence(config, currentProfiles());
+          return { ...binding, ...selected };
         };
         const original = select();
         const assertCurrent = () => {
@@ -1562,6 +1577,101 @@ export async function createOwnedSymposiumHost(
             collect: collectExplicitEvidence,
           });
         }),
+      /** Source-only fresh feature capabilities. The actual original host fixes
+       * every gateway/store/lease/command object; HTTP cannot substitute them. */
+      captureStagingFeatureEnrollment(profileId: string, selectedModel: string) {
+        if (stopped || draining || controllerPaused)
+          throw Error('Original feature enrollment owner unavailable');
+        const profiles = currentProfiles();
+        const binding = profiles.resolve(profileId, selectedModel);
+        profiles.validateModelSelection(binding, selectedModel);
+        const catalog = profiles.catalog().find((entry) => entry.id === profileId);
+        if (!catalog || catalog.modelDiscovery.stale)
+          throw Error('Fresh native model catalog required');
+        let assertProviderCurrent: () => void;
+        let personalConnection: { connectionId: string; expectedRevision: number } | undefined;
+        if (binding.provider === 'openai') {
+          const route = profiles.apiProfile(binding);
+          const original = captureSymposiumWorkApiProvider(gateway, route.sandboxProviderId ?? '');
+          if (
+            original.identity.accountId !== binding.accountId ||
+            original.identity.providerName !== route.sandboxProvider
+          )
+            throw Error('Original fresh API enrollment differs');
+          assertProviderCurrent = original.assertCurrent;
+        } else if (binding.provider === 'openai-codex') {
+          if (
+            !catalog.personalConnection ||
+            profiles.codexProfile(binding).nativeAuth !== 'sandbox-chatgpt'
+          )
+            throw Error('Original isolated native personal connection required');
+          personalConnection = {
+            connectionId: catalog.personalConnection.id,
+            expectedRevision: catalog.personalConnection.revision,
+          };
+          const original = subscription!.captureAdmissionProvider(personalConnection);
+          assertProviderCurrent = original.assertCurrent;
+        } else if (binding.provider === 'anthropic-vertex') {
+          const route = profiles.vertexSandboxRoute(binding);
+          const original = captureSymposiumWorkVertexProvider(gateway, route.providerId);
+          if (
+            original.accountId !== binding.accountId ||
+            original.projectId !== route.projectId ||
+            original.region !== route.region ||
+            original.model !== selectedModel ||
+            !original.principal
+          )
+            throw Error('Original fresh Vertex enrollment differs');
+          assertProviderCurrent = () => {
+            captureSymposiumWorkVertexProvider(gateway, route.providerId);
+          };
+        } else throw Error('Provider lacks an original native feature adapter');
+        const assertCurrent = () => {
+          if (stopped || draining || controllerPaused)
+            throw Error('Original feature enrollment owner unavailable');
+          assertProviderCurrent();
+          const current = currentProfiles();
+          current.resume(binding);
+          current.validateModelSelection(binding, selectedModel);
+          if (current.catalog().find((entry) => entry.id === profileId)?.modelDiscovery.stale)
+            throw Error('Original native model catalog became stale');
+        };
+        assertCurrent();
+        return Object.freeze({
+          binding,
+          selectedModel,
+          chargedAccount: binding.accountId,
+          ...(personalConnection ? { personalConnection } : {}),
+          assertCurrent,
+        });
+      },
+      createStagingFeatureFixtures(assertOriginalOwnerCurrent: () => void) {
+        custody();
+        if (!(options.facts instanceof EventStore))
+          throw Error('Original fixture EventStore required');
+        if (nativeFeatureFixtures)
+          throw Error('Original native fixture owner is already constructed');
+        nativeFeatureFixtures = new SymposiumStagingNativeFixtures({
+          path: join(options.gateway.stateParent, 'staging-native-fixtures.db'),
+          gateway,
+          owner: artifactOwner,
+          artifacts: sessionArtifacts!,
+          leases: leaseHost!,
+          attempts: native!.registry,
+          events: options.facts,
+          assertOriginalOwnerCurrent: () => {
+            assertOriginalOwnerCurrent();
+            custody();
+          },
+        });
+        return nativeFeatureFixtures;
+      },
+      runStagingFeatureOperation<T>(operation: () => Promise<T>): Promise<T> {
+        if (draining || stopped || controllerPaused)
+          throw Error('Original native feature operation owner unavailable');
+        custody();
+        return track(operation);
+      },
       currentProfiles,
       ...(observeNativeTurnInput === undefined ? {} : { observeNativeTurnInput }),
       observeStartupConfig,
@@ -2051,6 +2161,7 @@ export async function createOwnedSymposiumHost(
         artifactSealer?.close();
         leaseHost!.close();
         sessionArtifacts!.close();
+        nativeFeatureFixtures?.close();
       },
       stop() {
         if (stopped) return;
@@ -2071,6 +2182,7 @@ export async function createOwnedSymposiumHost(
               artifactSealer?.close();
               leaseHost!.close();
               sessionArtifacts!.close();
+              nativeFeatureFixtures?.close();
             } finally {
               gateway.stop();
             }
@@ -2084,6 +2196,7 @@ export async function createOwnedSymposiumHost(
     artifactSealer?.close();
     leaseHost?.close();
     sessionArtifacts?.close();
+    nativeFeatureFixtures?.close();
     gateway.stop();
     throw error;
   }

@@ -271,3 +271,26 @@ it('refuses mapping or custody loss during candidate collection and never return
   };
   await expect(collectSessionOwnedAdmissionEvidence(raw, deps)).rejects.toThrow('mapping changed');
 });
+it('awaits the original async candidate check and rechecks mapping before returning authority', async () => {
+  const raw = {
+    sessionId: 'original',
+    configRevision: 1,
+    providerInstances: [{ name: 'provider', id: 'id', type: 'openai', profileName: 'openai' }],
+    allowedRoles: ['coder'],
+    allowedAccountProviders: ['openai'],
+  };
+  let mapping = { volumeName: 'original-volume', volumeGeneration: 'one' };
+  const verifyCandidate = vi.fn(async () => {
+    await Promise.resolve();
+    mapping = { ...mapping, volumeGeneration: 'changed-during-verification' };
+  });
+  await expect(
+    collectSessionOwnedAdmissionEvidence(raw, {
+      readCurrent: () => mapping,
+      inspectCurrent: async () => {},
+      collect: async () => ({}) as never,
+      verifyCandidate,
+    }),
+  ).rejects.toThrow('mapping changed');
+  expect(verifyCandidate).toHaveBeenCalledOnce();
+});

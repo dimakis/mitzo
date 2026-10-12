@@ -1,3 +1,4 @@
+import type { StagingFeatureAdapterOptions } from './staging-feature-cleanup.js';
 import { assertNativeCodexContextAdmission } from './native-codex-context-admission.js';
 import type { OrdinaryTurnLifecycle } from './ordinary-turn-lifecycle.js';
 import type { RepositoryChatWorkspace } from './repository-chat-startup.js';
@@ -489,6 +490,7 @@ export function readCodexLifecycleQueue(conversationId: string, binding: Account
   return store().lifecycleQueue(conversationId, binding);
 }
 interface Options {
+  stagingFeature?: StagingFeatureAdapterOptions;
   ordinaryTurnLifecycle?: OrdinaryTurnLifecycle;
   contributorGuidance?: string;
   agentProfile?: AgentLibraryVersion;
@@ -1017,7 +1019,7 @@ async function openCodexChatBound(
   const hookRuntime = connectedOpenShell
     ? undefined
     : createNativeHooks(options.session.cwd!, options.conversationId, options.env, {
-        trustProjectHooks: process.env.MITZO_TRUST_PROJECT_HOOKS === '1',
+        trustProjectHooks: !options.stagingFeature && process.env.MITZO_TRUST_PROJECT_HOOKS === '1',
       });
   const hooks = hookRuntime?.hooks;
   const dispose = hookRuntime?.dispose ?? (() => {});
@@ -1095,7 +1097,7 @@ async function openCodexChatBound(
           throw new Error('Host MCP tools are unavailable inside OpenShell');
         },
       }
-    : await connectCodexMcpTools(options.mcpServers, {
+    : await connectCodexMcpTools(options.stagingFeature ? {} : options.mcpServers, {
         cwd: options.session.cwd!,
         env: options.env,
         signal: options.session.abortController.signal,
@@ -1157,20 +1159,19 @@ async function openCodexChatBound(
   );
   const events = new AsyncQueue<Record<string, unknown>>();
   let closed = false;
+  let finishResult: Promise<PromiseSettledResult<unknown>[]> | undefined;
+  const ownedClients: CodexAppServerClient[] = [];
   function finish() {
     if (closed) return;
     closed = true;
     githubPublishing.close();
     cancelTrackedProviderAdmissions(options.session);
-    if (hooks)
-      void hooks
-        .run('SessionEnd', { reason: 'other' }, AbortSignal.timeout(5000))
-        .catch(() => {})
-        .finally(dispose);
-    else dispose();
+    const hooksClosed = hooks
+      ? hooks.run('SessionEnd', { reason: 'other' }, AbortSignal.timeout(5000)).finally(dispose)
+      : Promise.resolve().then(dispose);
+    finishResult = Promise.allSettled([hooksClosed, mcp.close()]);
     signal.removeEventListener('abort', close);
     events.close();
-    void mcp.close();
     runtimes.delete(options.session);
     const livePublishingOwner = getLiveCapabilityConversationBinding(
       options.conversationId,
@@ -1467,29 +1468,34 @@ async function openCodexChatBound(
     validateModel: (model, reasoningEffort) => {
       loadAccountProfiles().validateModel(options.binding, model, reasoningEffort);
     },
-    tools: connectedOpenShell
-      ? [
-          ...connectionTools.definitions,
-          ...openShellHostTools,
-          ...capabilityTools.definitions,
-          webAccessDefinition,
-          githubPublishingDefinition,
-        ]
-      : [
-          ...connectionTools.definitions,
-          symposiumProposeProfileDefinition,
-          ...nativeToolDefinitions,
-          ...mcp.definitions,
-          ...capabilityTools.definitions,
-          webAccessDefinition,
-          githubPublishingDefinition,
-        ],
+    tools: options.stagingFeature
+      ? nativeToolDefinitions.filter((tool) => tool.name === 'Read')
+      : connectedOpenShell
+        ? [
+            ...connectionTools.definitions,
+            ...openShellHostTools,
+            ...capabilityTools.definitions,
+            webAccessDefinition,
+            githubPublishingDefinition,
+          ]
+        : [
+            ...connectionTools.definitions,
+            symposiumProposeProfileDefinition,
+            ...nativeToolDefinitions,
+            ...mcp.definitions,
+            ...capabilityTools.definitions,
+            webAccessDefinition,
+            githubPublishingDefinition,
+          ],
     displayToolName: mcp.displayName,
     createClient: (callbacks) => {
+      options.stagingFeature?.beforeDispatch();
       try {
-        return connectedOpenShell
+        const client = connectedOpenShell
           ? CodexAppServerClient.launchOpenShell(openShellClient!, process.env, callbacks)
           : CodexAppServerClient.launch(options.profile.credentialRef!, process.env, callbacks);
+        ownedClients.push(client);
+        return client;
       } catch (cause) {
         throw new CodexStartupError('runtime_connection', cause);
       }
@@ -1508,6 +1514,7 @@ async function openCodexChatBound(
     emit: (event) => events.push(event),
     onProviderDispatch: (messageId) => {
       options.ordinaryTurnLifecycle?.beforeDispatch(messageId);
+      options.stagingFeature?.beforeDispatch();
       beginTrackedProviderAttempt(options.session, messageId);
     },
     onProviderAccepted: (messageId, threadId, turnId) => {
@@ -1535,6 +1542,8 @@ async function openCodexChatBound(
       finish();
     },
     requestUserInput: async (params, signal) => {
+      if (options.stagingFeature)
+        throw new Error('Staging text/Read suite does not expose questions');
       const owner = options.registry.findBySessionId(options.conversationId);
       if (!owner) throw new Error('Codex session unavailable');
       return requestCodexUserInput(params, signal, owner.clientId, options.registry);
@@ -1567,6 +1576,11 @@ async function openCodexChatBound(
         }
       : {}),
     executeTool: async (name, input, signal, callContext) => {
+      if (options.stagingFeature) {
+        options.stagingFeature.beforeDispatch();
+        if (name !== 'Read' || input.file_path !== options.stagingFeature.fixturePath)
+          return { content: 'Staging text/Read tool unavailable', isError: true };
+      }
       const keychainResult = await connectionTools.execute(name, input, signal);
       if (keychainResult) return keychainResult;
       if (name === REQUEST_GITHUB_PUBLISH) return githubPublishing(input, signal, callContext);
@@ -1783,6 +1797,25 @@ async function openCodexChatBound(
     runtime.close();
     finish();
   }
+  const closeAndConfirm = async () => {
+    if (connectedOpenShell) throw new Error('Native sandbox cleanup requires its original owner');
+    close();
+    const processes = await Promise.all(ownedClients.map((client) => client.closeAndConfirm()));
+    const resources = await finishResult;
+    if (!('confirmClosed' in mcp)) throw new Error('Original local MCP cleanup unavailable');
+    await mcp.confirmClosed();
+    if (
+      !ownedClients.length ||
+      processes.some((process) => process.state !== 'confirmed') ||
+      !resources ||
+      resources.some((result) => result.status !== 'fulfilled')
+    )
+      throw new Error('Local Codex adapter cleanup is unconfirmed');
+    return { runtime: 'local-codex' as const, resource: 'adapter-owned-cleanup' as const };
+  };
+  options.stagingFeature?.retainCleanup(async () => {
+    await closeAndConfirm();
+  });
   signal.addEventListener('abort', close, { once: true });
   try {
     signal.throwIfAborted();
@@ -1845,6 +1878,7 @@ async function openCodexChatBound(
     getWebSearchGrant: () => runtime.getWebSearchGrant(),
     interrupt: () => runtime.interrupt(),
     close,
+    closeAndConfirm,
     stopTask: async () => {
       throw new Error('Codex subagents are unavailable');
     },

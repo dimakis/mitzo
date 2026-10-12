@@ -65,11 +65,16 @@ export async function connectCodexMcpTools(
   const mapping = new Map<string, { peer: Connection; name: string; canonical: string }>();
   const definitions: ToolDefinition[] = [];
   let closed = false;
+  let closeResult: Promise<PromiseSettledResult<void>[]> | undefined;
   const close = async () => {
-    if (closed) return;
+    if (closed) {
+      await closeResult;
+      return;
+    }
     closed = true;
     options.signal.removeEventListener('abort', onAbort);
-    await Promise.allSettled(peers.map((p) => p.close()));
+    closeResult = Promise.allSettled(peers.map((p) => Promise.resolve().then(() => p.close())));
+    await closeResult;
   };
   const onAbort = () => {
     void close();
@@ -111,6 +116,11 @@ export async function connectCodexMcpTools(
     throw new Error('MCP initialization failed. Check configured servers and retry.');
   }
   return {
+    async confirmClosed() {
+      await close();
+      if ((await closeResult)?.some((result) => result.status !== 'fulfilled'))
+        throw new Error('Owned MCP cleanup is unconfirmed');
+    },
     definitions,
     displayName: (wire: string) => mapping.get(wire)?.canonical ?? wire,
     close,

@@ -5,12 +5,32 @@ import { WorkspacePageHeading } from '../components/WorkspacePageHeading';
 import { ACCENTS, FONTS, useAppearance } from '../hooks/useAppearance';
 import { HomeDisplaySettings } from '../components/HomeDisplaySettings';
 import { MinionNameSettings } from '../components/MinionNameSettings';
+import { useMitzoUpdates } from '../hooks/useMitzoUpdates';
 export function SettingsView() {
   const { preference, setTheme } = useTheme();
   const appearance = useAppearance();
+  const updates = useMitzoUpdates();
   return (
     <main className="workspace-page settings-page">
       <WorkspacePageHeading title="Settings" description="Your preferences and data protection." />
+      <section className="today-section">
+        <h2>Mitzo</h2>
+        <Link className="workspace-record" to="/settings/updates">
+          <span>
+            <strong>Updates</strong>
+            <span className="workspace-muted">
+              {updates.loading
+                ? 'Checking version…'
+                : updates.version
+                  ? updates.version.updateAvailable
+                    ? 'Update available'
+                    : 'Up to date'
+                  : 'Update status unavailable'}
+            </span>
+          </span>
+          <UiIcon name="forward" size={16} />
+        </Link>
+      </section>
       <HomeDisplaySettings />
       <MinionNameSettings />
       <section className="appearance-section">

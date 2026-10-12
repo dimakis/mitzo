@@ -1,3 +1,4 @@
+import type { AccountBinding } from '@mitzo/protocol';
 import { agentProfileLabel } from '@mitzo/protocol';
 import type { SessionArtifactPreparation } from './symposium-session-artifacts.js';
 import { createHash, randomUUID } from 'node:crypto';
@@ -28,6 +29,8 @@ export function createSymposiumSessionRouter(deps: {
   >;
   profiles: Pick<SymposiumProfileStore, 'get'>;
   currentAccounts(): AccountProfiles;
+  /** Actual original host attestation + fresh Vertex provider receipt, never request JSON. */
+  assertVertexDraftAvailable?(binding: AccountBinding): void;
   newSessionId?: () => string;
   onSessionCreated?: (sessionId: string) => void;
   ensureSessionArtifacts?: (sessionId: string) => Promise<SessionArtifactPreparation>;
@@ -77,7 +80,11 @@ export function createSymposiumSessionRouter(deps: {
       const accounts = deps.currentAccounts();
       const binding = accounts.resolve(selection.accountId, selection.model);
       accounts.validateModelSelection(binding, selection.model, selection.reasoningEffort);
-      if (!['openai', 'openai-codex'].includes(binding.provider))
+      if (binding.provider === 'anthropic-vertex') {
+        if (!deps.assertVertexDraftAvailable)
+          throw new Error('Original reviewed Vertex draft capability unavailable');
+        deps.assertVertexDraftAvailable(binding);
+      } else if (!['openai', 'openai-codex'].includes(binding.provider))
         throw new Error('This account provider is not available for native Symposium creation');
       const profile = deps.profiles.get(
         'user',

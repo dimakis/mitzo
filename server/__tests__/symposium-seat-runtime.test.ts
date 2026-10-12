@@ -3997,6 +3997,22 @@ describe('mixed personal subscription and work seat isolation', () => {
         );
         expect(deleted).toBe(true);
         expect(
+          artifactOwner.readOriginalRetirement('personal', membership.generation),
+        ).toMatchObject({
+          version: 1,
+          sessionId: 'symposium',
+          seatId: 'personal',
+          generation: membership.generation,
+          physicalId: 'terminal-id',
+          artifactLeaseReleased: true,
+        });
+        expect(() =>
+          new SymposiumPerSeatSandboxOwner({
+            ...phasedDeps,
+            seatSandboxRegistry: failedRegistry,
+          }).readOriginalRetirement('personal', membership.generation),
+        ).toThrow(/original/);
+        expect(
           leaseDb.prepare('SELECT count(*) AS n FROM symposium_artifact_leases').get(),
         ).toEqual({ n: 0 });
         expect(
