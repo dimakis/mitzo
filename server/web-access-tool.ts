@@ -4,7 +4,7 @@ import {
   saveWebSearchGrant,
   webSearchGrantRevision,
 } from './web-search-grants.js';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import {
   buildPermissionHandler,
@@ -68,16 +68,33 @@ export function createWebAccessTool(
             signal,
             toolUseID: operationId,
             forcePrompt: true,
-            allowSessionGrant: false,
-            rememberSessionGrant: false,
-            approvalScope: request.operation === 'search' ? 'session' : 'request',
+            allowSessionGrant: request.operation === 'fetch',
+            rememberSessionGrant: request.operation === 'fetch',
+            approvalScope: 'session',
+            ...(request.operation === 'fetch'
+              ? {
+                  sessionGrantKey:
+                    'public-url-read:' +
+                    createHash('sha256')
+                      .update(
+                        JSON.stringify({
+                          binding,
+                          model,
+                          searchRevision,
+                          origin: new URL(request.url).origin,
+                        }),
+                      )
+                      .digest('hex'),
+                  sessionGrantDescription: `Credential-free public HTTPS reads on ${new URL(request.url).origin} until this session ends. Other origins, accounts, and models require separate consent. Network and DNS safety checks still apply to every read.`,
+                }
+              : {}),
             title: redirectedFrom
               ? 'Approve redirected destination?'
               : request.operation === 'search'
                 ? 'Allow this web search?'
                 : 'Allow this website read?',
             description: redirectedFrom
-              ? `The approved page at ${new URL(redirectedFrom).origin} moved to ${request.operation === 'fetch' ? new URL(request.url).origin : ''}. Approve the destination to continue this read. Approval covers this request only.`
+              ? `The approved page at ${new URL(redirectedFrom).origin} moved to ${request.operation === 'fetch' ? new URL(request.url).origin : ''}. Approve the destination to continue this read. Session access covers only this destination origin.`
               : request.operation === 'search'
                 ? 'Runs searches using the selected account and model. Provider search and model charges may apply. Allow once, or allow searches until this session ends. Changing the account or model requires new consent.'
                 : 'Reads this public HTTPS URL without credentials. Approval covers this origin and read only; shell networking and authenticated browsing remain restricted.',

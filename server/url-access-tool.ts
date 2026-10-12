@@ -72,6 +72,17 @@ export function createUrlAccessTool(
           versions = new Map();
           revisions.set(current.session, versions);
         }
+        const previous = grants.get(current.session)?.get(url.origin);
+        if (
+          parsed.data.operation === 'request_access' &&
+          previous?.expires === Infinity &&
+          isDeepStrictEqual(previous.account, current.session.accountBinding) &&
+          previous.model === current.session.model
+        )
+          return {
+            content: `URL read access is approved for ${url.origin} until this session ends.`,
+            isError: false,
+          };
         const revision = (versions.get(url.origin) ?? 0) + 1;
         versions.set(url.origin, revision);
         if (parsed.data.operation === 'revoke_access') {
@@ -93,7 +104,7 @@ export function createUrlAccessTool(
           origin: target.origin,
           resolvedAddresses: target.addresses.map((a) => a.address),
           access:
-            'Credential-free HTTP GET reads on this origin for 15 minutes or until this session closes',
+            'Credential-free HTTP GET reads on this origin: once for 15 minutes, or until this session ends when session access is selected',
         };
         const decision = await buildPermissionHandler(current.clientId, registry)(
           REQUEST_WEB_ACCESS,
@@ -103,7 +114,9 @@ export function createUrlAccessTool(
             toolUseID: randomUUID(),
             forcePrompt: true,
             allowSessionGrant: false,
-            approvalScope: 'request',
+            rememberSessionGrant: false,
+            approvalScope: 'session',
+            sessionGrantDescription: `Credential-free HTTP GET reads on ${target.origin} using only the reviewed resolved addresses, until this session ends or access is revoked. Other origins, credentials, and changed account/model require separate consent.`,
             title: redirectedFrom
               ? 'Approve redirected destination?'
               : 'Allow this session to read this website?',
@@ -115,7 +128,7 @@ export function createUrlAccessTool(
           },
         );
         signal.throwIfAborted();
-        if (decision.behavior !== 'allow') return { content: 'URL access declined', isError: true };
+        if (decision.behavior !== 'allow') return { content: decision.message, isError: true };
         if (
           !allowed(current.clientId, current.session) ||
           !isDeepStrictEqual(current.session.accountBinding, account) ||
@@ -133,10 +146,13 @@ export function createUrlAccessTool(
           target: structuredClone(target),
           account,
           model,
-          expires: deps.now() + 15 * 60 * 1000,
+          expires:
+            decision.decisionClassification === 'user_permanent'
+              ? Infinity
+              : deps.now() + 15 * 60 * 1000,
         });
         return {
-          content: `URL read access approved for ${target.origin} for 15 minutes in this session. Use RequestWebAccess with operation fetch to read pages on this origin, or revoke_access to remove access.`,
+          content: `URL read access approved for ${target.origin} ${decision.decisionClassification === 'user_permanent' ? 'until this session ends' : 'for 15 minutes in this session'}. Use RequestWebAccess with operation fetch to read pages on this origin, or revoke_access to remove access.`,
           isError: false,
         };
       } catch {

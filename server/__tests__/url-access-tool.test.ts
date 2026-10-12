@@ -308,3 +308,34 @@ it('returns only fixed granted read errors to the UI and agent', async () => {
   const result = await f.tool.fetch(input.url, new AbortController().signal);
   expect(result?.content).not.toContain('secret');
 });
+
+it('keeps a selected session origin grant past fifteen minutes and revokes it explicitly', async () => {
+  const f = fixture();
+  approve.mockImplementation(async (_name, input) => ({
+    behavior: 'allow',
+    updatedInput: input,
+    decisionClassification: 'user_permanent',
+  }));
+  const input = {
+    operation: 'request_access',
+    url: 'https://example.com/page',
+    reason: 'Read evidence',
+  };
+  const signal = new AbortController().signal;
+  expect(await f.tool.request(input, signal)).toMatchObject({ isError: false });
+  f.expire();
+  expect(await f.tool.fetch('https://example.com/other', signal)).toMatchObject({ isError: false });
+  expect(
+    await f.tool.request({ ...input, url: 'https://example.com/third' }, signal),
+  ).toMatchObject({ isError: false });
+  expect(approve).toHaveBeenCalledOnce();
+  expect(approve.mock.calls[0][2]).toMatchObject({
+    approvalScope: 'session',
+    rememberSessionGrant: false,
+    sessionGrantDescription: expect.stringContaining('https://example.com'),
+  });
+  await f.tool.request({ ...input, operation: 'revoke_access' }, signal);
+  expect(await f.tool.fetch(input.url, signal)).toBeUndefined();
+  await f.tool.request(input, signal);
+  expect(approve).toHaveBeenCalledTimes(2);
+});
