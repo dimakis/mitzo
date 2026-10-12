@@ -1,10 +1,33 @@
 import { expect, it, vi } from 'vitest';
 import process from 'node:process';
 import { fileURLToPath, URL } from 'node:url';
+import { mkdtempSync, mkdirSync, rmSync, symlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
   parseMacStagingResources,
   createStagingPipelineEffects,
+  observeMacStagingResources,
 } from '../../scripts/lib/staging-pipeline-host.mjs';
+it.runIf(process.platform === 'darwin')(
+  'refuses any unqualified new native allocation before inferring legacy VM absence',
+  () => {
+    const root = mkdtempSync(join(tmpdir(), 'mitzo-resource-fence-'));
+    const run = vi.fn();
+    try {
+      const allocations = join(root, 'symposium/allocations');
+      mkdirSync(join(allocations, 'fresh-uuid'), { recursive: true });
+      expect(() => observeMacStagingResources(root, run)).toThrow('actual original VM owner');
+      expect(run).not.toHaveBeenCalled();
+      rmSync(allocations, { recursive: true });
+      symlinkSync('/unknown/native/storage', allocations);
+      expect(() => observeMacStagingResources(root, run)).toThrow('actual original VM owner');
+      expect(run).not.toHaveBeenCalled();
+    } finally {
+      rmSync(root, { recursive: true });
+    }
+  },
+);
 const output = {
   pressure: '1',
   free: 'System-wide memory free percentage: 45%',
