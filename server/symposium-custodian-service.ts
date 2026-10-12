@@ -202,6 +202,9 @@ export function createSymposiumCustodianService(options: {
   broadcast?: CustodianBroadcast;
   /** Source-owned standalone ordinary delegate only; this narrows consent. */
   onPublicationConsentInvalidated?: (conversationId: string, connectionId?: string) => void;
+  /** Actual ordinary app delegate retains its own scoped controller approval.
+   * Native custodian requests always use their opaque authenticated IPC approval. */
+  publicationApproval?: Parameters<typeof createPublicationRouter>[0]['approval'];
 }) {
   const workspaceRoot = options.workspaceRoot;
   if (
@@ -1108,7 +1111,11 @@ export function createSymposiumCustodianService(options: {
         symposiumAccessRequests.publicationCompleted(sessionId, publication, operation),
       registration: () => symposiumPublication,
       hasSession: (id) => eventStore.getSession(id)?.sessionType === 'symposium',
-      approval: (req, session, conversationId) => custodianPublicationApproval(req),
+      approval: (req, session, conversationId) =>
+        custodianPublicationApproval(req) ??
+        (!custodianOwnerMode
+          ? options.publicationApproval?.(req, session, conversationId)
+          : undefined),
     }),
   );
   app.use(

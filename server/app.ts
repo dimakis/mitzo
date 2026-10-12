@@ -1,9 +1,5 @@
 import { initializeOperatorSession } from './operator-session.js';
 import { createSymposiumCustodianService } from './symposium-custodian-service.js';
-import type { SymposiumProductionHost } from './symposium-custodian-service.js';
-
-import { StagingNativeInferenceCurrentOwner } from './staging-native-inference-current-owner.js';
-
 import { createRequire } from 'node:module';
 import { StagingFeatureOwner, type StagingFeatureOwnerAuthority } from './staging-feature-owner.js';
 import {
@@ -939,9 +935,6 @@ app.post('/api/auth/logout', async (req, res) => {
 
 app.use('/api', authMiddleware);
 let stagingFeatureOwner: StagingFeatureOwnerProtocol | undefined;
-let stagingNativeInferenceCurrentOwner:
-  | import('./staging-native-inference-current-owner.js').StagingNativeInferenceCurrentOwner
-  | undefined;
 /** Trusted qualified stage bootstrap only. There is no public install endpoint.
  * Current bootstrap installs none while native custody/enrollment is pending. */
 export function configureStagingFeatureOwner(
@@ -1003,10 +996,7 @@ app.use((req, res, next) => {
 app.use(
   '/api/staging/features',
   operatorAuthMiddleware,
-  createStagingFeatureRouter(
-    () => stagingFeatureOwner,
-    () => stagingNativeInferenceCurrentOwner,
-  ),
+  createStagingFeatureRouter(() => stagingFeatureOwner),
 );
 
 let nativeService: ReturnType<typeof createSymposiumCustodianService> | undefined;
@@ -1017,6 +1007,15 @@ function getNativeService() {
     broadcast: broadcastDurableSymposiumEvent,
     onPublicationConsentInvalidated: (conversationId, connectionId) =>
       clearPublicationControllerSessionGrants(registry, conversationId, connectionId),
+    publicationApproval: (req, session, conversationId) =>
+      publicationControllerApproval(
+        registry,
+        isTransportConnectionOwnedBy,
+        conversationId,
+        session.id,
+        req.header('x-connection-id'),
+        getConnectionRegistry() ?? undefined,
+      ),
   }));
 }
 export type { SymposiumProductionHost } from './symposium-custodian-service.js';

@@ -201,6 +201,38 @@ provider or a borrowed Codex token. It remains a source/enrollment dependency.
 
 ## Authenticated existing IPC and resources
 
+Personal staging catalog refresh uses the original connected subscription
+adapter's private JWT-verified account and fresh login credential. The actual
+owned-host constructor retains an opaque refresh port for its own returned host
+object. The canonical service installs it only during original native feature
+bootstrap; the existing authenticated personal models/refresh operation then
+performs a bounded HTTPS GET to the Codex 0.159.1 first-party models endpoint.
+It uses the actual account header and credential, refuses redirects, non-200
+responses, missing/oversized/unsupported catalogs, competing refreshes and lost
+owner or connection authority. It never creates a discovery sandbox or performs
+inference. Ordinary account discovery retains its existing native path.
+
+An authenticated catalog observation lasts at most five minutes. Its private
+credential can be reused for another read only until the actual verified JWT
+expiry; expiry and explicit invalidation erase that retained credential. A new
+catalog observation invalidates the old one without recreating the provider or
+requiring another human login solely because five minutes elapsed. The native
+issuer must independently match the current resolver revision and token digest;
+automatic native OAuth rotation is not adopted from display metadata or cache.
+The original receipt identity may survive temporal expiry only for known cleanup
+under the same private queue/source/physical-owner fence.
+
+Enrollment and native model plans must agree on the authentic charged scope:
+API uses `openai/ORGANIZATION/PROJECT` from the accepted authenticated catalog's
+fixed billing headers; personal uses the actual private ChatGPT account ID;
+Vertex uses `VERIFIED_PRINCIPAL@PROJECT/global` from its original creation
+receipt. These formatters and JSON observations grant no authority. The original
+capability objects, current authenticated native provider description and exact
+wire enforcement remain required. The known public Vertex project is
+`itpc-ca-638a2a9c7c` and region is `global`; the separately approved test exception
+is only `claude-haiku-4-5@20251001`. Fresh staging ADC/principal enrollment and
+qualified native enforcement are still pending.
+
 The finite existing custodian protocol adds only enrollment, plan, run, receipt
 and resources operations. The canonical controller forwards them to its actual
 retained owner before any controller-local feature route. There is no install,
