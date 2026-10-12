@@ -171,6 +171,7 @@ it('executes one normal ordinary drain, preserves exact settled bytes and indepe
     const { createHash } = await import('node:crypto'),
       bootstrapSha256 = createHash('sha256').update(readFileSync(bootstrapPath)).digest('hex');
     probes.receipt = { sourceCommit };
+    file(join(sourceRoot, 'staging-release.json'), JSON.stringify(probes.receipt));
     probes.archive = { syntheticCompleteArchive: true };
     const bundle = {
       allocation,

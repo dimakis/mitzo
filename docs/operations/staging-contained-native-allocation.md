@@ -174,3 +174,11 @@ The portable installer regression uses isolated temporary files/SQLite and mocke
 OS probes; it does not establish live macOS closure or authorize host activation.
 The retained-VM accepted-app replacement control remains a separate unfinished
 source path.
+
+The installation plan records planned initial source sharing with the exact native
+parent and app source paths, prepared directory identity and receipt hash. These
+are one physical prepared release, counted once by actual canonical disk usage;
+they are not copy-on-write credit or a claim that the app already exists. First
+readiness independently checks the actual parent/app PID, cwd and parentage. A
+future accepted app-child release is a different path and requires fresh measured
+incremental resource admission, including all retained and in-flight inputs.

@@ -296,6 +296,15 @@ export async function createContainedNativeInstallationHost({ inspection }) {
     controls,
     directories,
     preservation,
+    sourceSharing: {
+      nativeSourceRoot: sourceRoot,
+      initialAppSourceRoot: sourceRoot,
+      sourceCommit: bundle.sourceCommit,
+      directory: identity(privateDirectory(sourceRoot)),
+      preparedReceiptSha256: hash(bytes(join(sourceRoot, 'staging-release.json'))),
+      planned: true,
+      actualAppObserved: false,
+    },
     nativeRegistrationSha256: expected.sha256,
     topologySha256: hash(encoded(nextTopology)),
     wrapperSha256: hash(wrapper),
@@ -348,6 +357,11 @@ export async function createContainedNativeInstallationHost({ inspection }) {
   };
   const sourceCurrent = async () => {
     need(hash(bytes(bootstrapPath)) === bootstrapSha256);
+    need(digest(identity(privateDirectory(sourceRoot))) === digest(facts.sourceSharing.directory));
+    need(
+      hash(bytes(join(sourceRoot, 'staging-release.json'))) ===
+        facts.sourceSharing.preparedReceiptSha256,
+    );
     const receipt = sourceToken ? await witness.assertCurrent(sourceToken) : await qualified();
     need(digest(receipt) === bundle.disposition.facts.controllerInventorySha256);
     if (guardFd !== undefined && !parentReleased) guardCurrent();
