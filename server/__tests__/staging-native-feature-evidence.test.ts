@@ -5,6 +5,7 @@ import { collectStagingNativeTextReadEvidence } from '../staging-native-feature-
 const nonce = 'b'.repeat(64);
 const binding = {
   accountId: 'fresh-stage',
+  accountLabel: 'Fresh staging API',
   provider: 'openai' as const,
   model: 'luna',
   profileRevision: 'revision',
