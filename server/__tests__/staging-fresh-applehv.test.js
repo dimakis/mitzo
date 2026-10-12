@@ -162,6 +162,12 @@ function ownerFixture() {
     retain: vi.fn(async () => {
       events.push('retained');
     }),
+    stopOnce: vi.fn(async () => {}),
+    confirmStopped: vi.fn(async () => ({
+      state: 'verified_stopped',
+      nativeRetirementClaim: true,
+      backingRetained: true,
+    })),
   };
   const assertGuardCurrent = vi.fn(() => {
       events.push('guard');
@@ -169,6 +175,7 @@ function ownerFixture() {
     assertAcceptedSource = vi.fn(async () => {
       events.push('accepted');
     });
+  const assertNativeDrainCurrent = vi.fn(() => events.push('drained'));
   const owner = createFreshAppleHvOwner(
     {
       allocation: {
@@ -180,10 +187,11 @@ function ownerFixture() {
       approvedVmPlan,
       assertGuardCurrent,
       assertAcceptedSource,
+      assertNativeDrainCurrent,
     },
     effects,
   );
-  return { owner, effects, events, approvedVmPlan, assertGuardCurrent };
+  return { owner, effects, events, approvedVmPlan, assertGuardCurrent, assertNativeDrainCurrent };
 }
 it('a saved plan cannot reopen running capability; only one guarded original start establishes lineage', async () => {
   const f = ownerFixture();
@@ -194,6 +202,67 @@ it('a saved plan cannot reopen running capability; only one guarded original sta
   await expect(f.owner.startOnce()).rejects.toThrow(/once/);
   expect(f.effects.startSupervisor).toHaveBeenCalledTimes(1);
   expect(f.events.filter((event) => event === 'guard').length).toBeGreaterThan(2);
+});
+it('normal retirement consumes the original stop once and requires positive stopped proof', async () => {
+  const f = ownerFixture();
+  await expect(f.owner.confirmStopped()).rejects.toThrow();
+  await f.owner.verifyStopped();
+  await f.owner.startOnce();
+  await f.owner.stopOnce();
+  expect(await f.owner.confirmStopped()).toMatchObject({
+    nativeRetirementClaim: true,
+    backingRetained: true,
+  });
+  expect(f.effects.stopOnce).toHaveBeenCalledTimes(1);
+  expect(f.assertNativeDrainCurrent).toHaveBeenCalled();
+  await expect(f.owner.stopOnce()).rejects.toThrow();
+  await expect(f.owner.startOnce()).rejects.toThrow();
+  await expect(f.owner.verifyRunning()).rejects.toThrow();
+});
+it('expired initial auth and completed startup guard permit only the original live custodian lifetime', async () => {
+  const f = ownerFixture();
+  let phase = 'startup',
+    auth = true,
+    startup = true,
+    custodian = true;
+  f.effects.assertRunningCurrent = vi.fn(() => ({ vmMemoryMiB: 4096, vmCpus: 2 }));
+  f.assertGuardCurrent.mockImplementation(() => {
+    if (phase === 'startup' ? !auth || !startup : !custodian) throw Error('original owner fence');
+  });
+  await f.owner.verifyStopped();
+  await f.owner.startOnce();
+  phase = 'custodian';
+  auth = false;
+  startup = false;
+  expect(await f.owner.verifyRunning()).toBeTruthy();
+  expect(f.owner.assertRunningCurrent().vmCpus).toBe(2);
+  await expect(f.owner.startOnce()).rejects.toThrow();
+  await f.owner.stopOnce();
+  expect(await f.owner.confirmStopped()).toMatchObject({ nativeRetirementClaim: true });
+  custodian = false;
+  await expect(f.owner.confirmStopped()).rejects.toThrow();
+});
+it('a refused or uncertain original drain cannot be forced or replayed', async () => {
+  const f = ownerFixture();
+  await f.owner.verifyStopped();
+  await f.owner.startOnce();
+  f.assertNativeDrainCurrent.mockImplementation(() => {
+    throw Error('drain unconfirmed');
+  });
+  await expect(f.owner.stopOnce()).rejects.toThrow();
+  expect(f.effects.stopOnce).not.toHaveBeenCalled();
+  const g = ownerFixture();
+  await g.owner.verifyStopped();
+  await g.owner.startOnce();
+  g.effects.stopOnce.mockRejectedValue(Error('uncertain stop'));
+  await expect(g.owner.stopOnce()).rejects.toThrow();
+  await expect(g.owner.stopOnce()).rejects.toThrow();
+  expect(g.effects.stopOnce).toHaveBeenCalledTimes(1);
+  expect(g.effects.retain).toHaveBeenCalledWith(
+    expect.objectContaining({ stopAttempted: true, stopUncertain: true }),
+  );
+  g.effects.confirmStopped.mockRejectedValue(Error('original helpers still present'));
+  await expect(g.owner.confirmStopped()).rejects.toThrow();
 });
 it('uncertain start is retained and cannot be automatically replayed or stopped', async () => {
   const f = ownerFixture();

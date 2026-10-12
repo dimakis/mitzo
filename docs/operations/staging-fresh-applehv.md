@@ -95,6 +95,35 @@ stops, force-restarts or replays the VM. A generic queue resource observer must
 refuse a fresh allocation unless it has a separately implemented authentic
 original-owner resource path. Missing legacy machine files cannot imply VM zero.
 
+## Original-owner retirement
+
+For normal final retirement, the original owner also exposes `stopOnce()` and
+`confirmStopped()`. Its constructor captures `assertNativeDrainCurrent`, a live
+synchronous assertion from the actual original host's completed drain. The
+retirement hook must keep that assertion and the independent original
+parent/custodian registration, PID birth and source fence live through shutdown,
+including after the app/gateway IPC closes. Expired initial admission does not
+invalidate this original lifetime; it cannot authorize another start.
+
+`stopOnce()` verifies the original guest/helper/backing identities, consumes one
+attempt and sends only stock vfkit's graceful `POST /vm/state` with `Stop`.
+It does not invoke `podman machine stop`: Podman 5.6.2's
+[AppleHV stop helper](https://github.com/containers/podman/blob/v5.6.2/pkg/machine/applehv/machine.go)
+calls the [wait-enabled vfkit helper](https://github.com/containers/podman/blob/v5.6.2/pkg/machine/apple/vfkit/helper.go),
+which escalates to a hard stop after 90 seconds. The direct
+[vfkit 0.6.1 graceful state handler](https://github.com/crc-org/vfkit/blob/v0.6.1/pkg/rest/vf/state_change.go)
+uses `RequestStop`, with no delayed escalation. After positive guest closure,
+only the captured networking helper may receive normal SIGTERM; no SIGKILL,
+retry, adoption or forced VM stop exists. The original foreground supervisor
+exits through its authenticated live controller's retirement response.
+
+`confirmStopped()` positively checks original process absence, unchanged machine
+and backing identities, no open disk/EFI handles and no live control/API socket.
+Unknown or changed state refuses and records uncertainty; only the same live
+owner can reconcile an uncertain stop. Shutdown needs no new resource admission,
+so pressure cannot prevent a known owner's drain. New disk/EFI backing remains
+retained and counted. Old archived reservations and backing are untouched.
+
 ## Offline evidence and remaining host qualification
 
 Focused tests cover normalized plans, growth refusal, authority refusal, one-shot

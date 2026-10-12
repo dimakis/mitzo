@@ -774,6 +774,7 @@ export function createFreshAppleHvOwner(
     approvedVmPlan,
     assertGuardCurrent,
     assertAcceptedSource,
+    assertNativeDrainCurrent,
   },
   effects,
 ) {
@@ -795,6 +796,8 @@ export function createFreshAppleHvOwner(
     attempted = false,
     lineage,
     runningVerified = false,
+    stopAttempted = false,
+    stopUncertain = false,
     retained = false;
   const fence = async () => {
     const guard = assertGuardCurrent();
@@ -840,7 +843,7 @@ export function createFreshAppleHvOwner(
       return observation;
     },
     verifyRunning: async () => {
-      if (!lineage || retained) fail('original running capability');
+      if (!lineage || retained || stopAttempted) fail('original running capability');
       runningVerified = false;
       await fence();
       const observation = await effects.verifyRunning(lineage);
@@ -853,6 +856,7 @@ export function createFreshAppleHvOwner(
         !lineage ||
         !runningVerified ||
         retained ||
+        stopAttempted ||
         typeof effects.assertRunningCurrent !== 'function'
       )
         fail('original verified running capability');
@@ -864,10 +868,67 @@ export function createFreshAppleHvOwner(
       if (again === false || again instanceof Promise) fail('original live handoff fence');
       return facts;
     },
+    stopOnce: async () => {
+      if (
+        !lineage ||
+        !runningVerified ||
+        retained ||
+        stopAttempted ||
+        typeof assertNativeDrainCurrent !== 'function'
+      )
+        fail('original one-shot drained VM owner');
+      const drain = assertNativeDrainCurrent();
+      if (drain === false || drain instanceof Promise) fail('original synchronous native drain');
+      stopAttempted = true;
+      runningVerified = false;
+      try {
+        await fence();
+        await effects.verifyRunning(lineage, { admitResources: false });
+        const again = assertNativeDrainCurrent();
+        if (again === false || again instanceof Promise) fail('original synchronous native drain');
+        await fence();
+        await effects.stopOnce(lineage, {
+          assertCurrent: fence,
+          assertDrained: assertNativeDrainCurrent,
+        });
+        await fence();
+        const facts = await effects.confirmStopped(lineage);
+        await fence();
+        stopUncertain = false;
+        return facts;
+      } catch (error) {
+        stopUncertain = true;
+        try {
+          await effects.retain({ attempted, lineage, stopAttempted, stopUncertain });
+        } catch {
+          /* Retain refusal if recording fails. */
+        }
+        throw error;
+      }
+    },
+    confirmStopped: async () => {
+      if (!lineage || !stopAttempted || retained)
+        fail('original stopped reconciliation capability');
+      try {
+        await fence();
+        const facts = await effects.confirmStopped(lineage);
+        await fence();
+        stopUncertain = false;
+        return facts;
+      } catch (error) {
+        stopUncertain = true;
+        try {
+          await effects.retain({ attempted, lineage, stopAttempted, stopUncertain });
+        } catch {
+          /* Physical uncertainty remains when recording fails. */
+        }
+        throw error;
+      }
+    },
     retain: async () => {
       if (!retained) {
         retained = true;
-        await effects.retain({ attempted, lineage });
+        await effects.retain({ attempted, lineage, stopAttempted, stopUncertain });
       }
       return { state: 'retained_uncertain', nativeRetirementClaim: false };
     },
@@ -1063,7 +1124,10 @@ async function verifyFreshSource(p) {
     fail('actual accepted resource policy');
   return policy;
 }
-export async function inspectFreshAppleHvInputs(approved, { running = false } = {}) {
+export async function inspectFreshAppleHvInputs(
+  approved,
+  { running = false, admitResources = true } = {},
+) {
   const p = approved.plan;
   const policy = await verifyFreshSource(p);
   privateParents(p, p.supervisor.plistPath);
@@ -1146,7 +1210,7 @@ export async function inspectFreshAppleHvInputs(approved, { running = false } = 
     if (!running && checkedFile(p.files.efi.path, { mode: 0o644 }).sha256 !== p.files.efi.sha256)
       fail('prestart EFI bytes');
   }
-  return { current, disk, efi, ...observeFreshResources(p, policy) };
+  return { current, disk, efi, ...(admitResources ? observeFreshResources(p, policy) : {}) };
 }
 function observeFreshResources(p, policy) {
   const usagePaths = [p.canonicalRoot, p.canonicalRoot + '-quarantine'];
@@ -1273,7 +1337,8 @@ function assertNativeProcess(p, record, kind) {
 function freshAppleHvPhysicalEffects(approved) {
   const p = approved.plan;
   let server,
-    channelLost = false;
+    channelLost = false,
+    normalStopRequested = false;
   const verifyStopped = async () => {
     assertSupervisor(p, null, 0);
     const inputs = await inspectFreshAppleHvInputs(approved);
@@ -1309,10 +1374,10 @@ function freshAppleHvPhysicalEffects(approved) {
       nativeRetirementClaim: false,
     };
   };
-  const verifyRunning = async (lineage) => {
+  const verifyRunning = async (lineage, { admitResources = true } = {}) => {
     if (channelLost) fail('original supervisor channel lost');
     assertSupervisor(p, lineage.supervisor, 1);
-    const inputs = await inspectFreshAppleHvInputs(approved, { running: true });
+    const inputs = await inspectFreshAppleHvInputs(approved, { running: true, admitResources });
     validateFreshAppleHvMutableMachine(p, inputs.current.machine, {
       startedAt: lineage.startedAt,
       observedAt: Date.now(),
@@ -1370,6 +1435,194 @@ function freshAppleHvPhysicalEffects(approved) {
   return {
     verifyStopped,
     verifyRunning,
+    stopOnce: async (lineage, { assertCurrent, assertDrained }) => {
+      await assertCurrent();
+      assertSupervisor(p, lineage.supervisor, 1);
+      assertNativeProcess(p, lineage.vfkit, 'vfkit');
+      assertNativeProcess(p, lineage.gvproxy, 'gvproxy');
+      const drain = assertDrained();
+      if (drain === false || drain instanceof Promise) fail('original synchronous native drain');
+      const port = p.machine.definition.AppleHypervisor.Vfkit.Endpoint.split(':').at(-1);
+      const owners = command('/usr/sbin/lsof', [
+        '-nP',
+        `-iTCP:${port}`,
+        '-sTCP:LISTEN',
+        '-Fp',
+      ]).split('\n');
+      if (owners.some((row) => row !== 'p' + lineage.vfkit.pid))
+        fail('original graceful endpoint owner');
+      normalStopRequested = true;
+      // Podman Stop(false,true) escalates to HardStop after90s. Never invoke it.
+      // Stock vfkit Stop is RequestStop only; no delayed force or retry exists here.
+      const response = await globalThis.fetch('http://127.0.0.1:' + port + '/vm/state', {
+        method: 'POST',
+        body: '{"state":"Stop"}',
+        headers: { 'content-type': 'application/json' },
+        redirect: 'error',
+        signal: globalThis.AbortSignal.timeout(3000),
+      });
+      if (!response.ok) fail('original graceful request unconfirmed');
+      await response.body?.cancel();
+      const deadline = Date.now() + 60000;
+      while (Date.now() < deadline) {
+        await assertCurrent();
+        const current = assertDrained();
+        if (current === false || current instanceof Promise)
+          fail('original drain lost during graceful stop');
+        const child = spawnSync('/bin/ps', ['-p', String(lineage.vfkit.pid), '-o', 'pid='], {
+          encoding: 'utf8',
+          timeout: 15000,
+          maxBuffer: 1024,
+        });
+        if (child.status === 1 && !child.error && !child.signal && !child.stdout && !child.stderr) {
+          const disk = identity(p.files.disk.path),
+            efi = identity(p.files.efi.path);
+          if (!sameIdentity(disk, p.files.disk) || !sameIdentity(efi, lineage.efi))
+            fail('original graceful backing identity');
+          scopedNoOpenHandles([disk.path, efi.path]);
+          const gone = (record) => {
+            const result = spawnSync('/bin/ps', ['-p', String(record.pid), '-o', 'pid='], {
+              encoding: 'utf8',
+              timeout: 15000,
+              maxBuffer: 1024,
+            });
+            if (
+              result.status === 1 &&
+              !result.error &&
+              !result.signal &&
+              !result.stdout &&
+              !result.stderr
+            )
+              return true;
+            if (result.status !== 0 || result.error || result.signal)
+              fail('original helper closure uncertain');
+            const actual = observeFreshAppleHvProcess(record.pid);
+            if (actual.birth !== record.birth || actual.command !== record.command)
+              fail('original helper PID reused');
+            return false;
+          };
+          if (!gone(lineage.gvproxy)) {
+            await assertCurrent();
+            const drained = assertDrained();
+            if (drained === false || drained instanceof Promise) fail('original networking drain');
+            // Normal shutdown of this captured networking helper only. No escalation.
+            assertNativeProcess(p, lineage.gvproxy, 'gvproxy');
+            process.kill(lineage.gvproxy.pid, 'SIGTERM');
+          }
+          while (Date.now() < deadline) {
+            await assertCurrent();
+            const currentDrain = assertDrained();
+            if (currentDrain === false || currentDrain instanceof Promise)
+              fail('original drain lost during helper closure');
+            if (gone(lineage.gvproxy) && gone(lineage.supervisor)) return;
+            await new Promise((done) => setTimeout(done, 250));
+          }
+          fail('original helper graceful closure unconfirmed');
+        }
+        if (child.error || child.signal || child.status !== 0)
+          fail('original graceful process outcome uncertain');
+        assertNativeProcess(p, lineage.vfkit, 'vfkit');
+        await new Promise((done) => setTimeout(done, 250));
+      }
+      fail('original guest graceful closure unconfirmed');
+    },
+    confirmStopped: async (lineage) => {
+      await verifyFreshSource(p);
+      const job = observeFreshAppleHvJob(p);
+      if (job.runs !== 1 || job.pid !== null) fail('original supervisor has not exited normally');
+      for (const processRecord of [lineage.supervisor, lineage.vfkit, lineage.gvproxy]) {
+        const observed = spawnSync('/bin/ps', ['-p', String(processRecord.pid), '-o', 'pid='], {
+          encoding: 'utf8',
+          timeout: 15000,
+          maxBuffer: 1024,
+        });
+        if (
+          observed.status !== 1 ||
+          observed.error ||
+          observed.signal ||
+          observed.stdout ||
+          observed.stderr
+        )
+          fail('original process absent or PID reused is uncertain');
+      }
+      const disk = identity(p.files.disk.path),
+        efi = identity(p.files.efi.path);
+      if (!sameIdentity(disk, p.files.disk) || !sameIdentity(efi, lineage.efi))
+        fail('original stopped backing identity');
+      scopedNoOpenHandles([disk.path, efi.path]);
+      for (const file of [p.files.ssh, p.files.configuration])
+        if (
+          !sameIdentity(identity(file.path), file) ||
+          checkedFile(file.path, { mode: file.mode }).sha256 !== file.sha256
+        )
+          fail('original stopped immutable inputs');
+      if (checkedFile(p.supervisor.plistPath, { mode: 0o600 }).sha256 !== p.supervisor.plistSha256)
+        fail('original stopped registration bytes');
+      const current = machineDefinition(p);
+      validateFreshAppleHvMutableMachine(p, current.machine, {
+        startedAt: lineage.startedAt,
+        observedAt: Date.now(),
+      });
+      const processes = command('/bin/ps', ['-axo', 'command=']);
+      if (
+        processes
+          .split('\n')
+          .some(
+            (cmd) =>
+              cmd.includes(p.qualification.machineName) &&
+              p.helpers.some((h) => cmd.startsWith(h.path + ' ')),
+          )
+      )
+        fail('fresh native helper still present');
+      const port = p.machine.definition.AppleHypervisor.Vfkit.Endpoint.split(':').at(-1);
+      const listener = spawnSync('/usr/sbin/lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN'], {
+        encoding: 'utf8',
+        timeout: 15000,
+        maxBuffer: 1048576,
+      });
+      if (
+        listener.status !== 1 ||
+        listener.error ||
+        listener.signal ||
+        listener.stdout ||
+        listener.stderr
+      )
+        fail('original VM control endpoint still present or uncertain');
+      const socket = lstatSync(p.qualification.apiSocket, { throwIfNoEntry: false });
+      if (socket) {
+        if (
+          !socket.isSocket() ||
+          socket.uid !== process.getuid() ||
+          (socket.mode & 0o777) !== 0o600 ||
+          socket.nlink !== 1 ||
+          socket.dev !== lineage.apiSocket.dev ||
+          socket.ino !== lineage.apiSocket.ino
+        )
+          fail('original stopped API socket drift');
+        scopedNoOpenHandles([p.qualification.apiSocket]);
+      }
+      if (server) server.close();
+      const facts = {
+        job,
+        current,
+        disk,
+        efi,
+        supervisor: lineage.supervisor,
+        vfkit: lineage.vfkit,
+        gvproxy: lineage.gvproxy,
+      };
+      return freeze({
+        state: 'verified_stopped',
+        allocationUUID: p.allocationUUID,
+        planSha256: approved.sha256,
+        sourceCommit: p.sourceCommit,
+        guestBootUUID: lineage.guestBootUUID,
+        observationSha256: digest(facts),
+        observedAt: Date.now(),
+        nativeRetirementClaim: true,
+        backingRetained: true,
+      });
+    },
     assertRunningCurrent: (lineage) => {
       if (channelLost || bootUUID() !== p.bootUUID) fail('original current native owner');
       assertSupervisor(p, lineage.supervisor, 1);
@@ -1491,7 +1744,10 @@ function freshAppleHvPhysicalEffects(approved) {
                     fail('original supervisor current fence');
                   await assertCurrent();
                   assertSupervisor(p, { pid: message.pid, birth: message.birth }, 1);
-                  socket.write('{"kind":"current"}\n');
+                  socket.write(
+                    JSON.stringify({ kind: 'current', normalRetirement: normalStopRequested }) +
+                      '\n',
+                  );
                 } else fail();
               } catch {
                 failStart();
@@ -1533,6 +1789,8 @@ function freshAppleHvPhysicalEffects(approved) {
             planSha256: approved.sha256,
             attempted: state.attempted,
             originalLineage: state.lineage ?? null,
+            stopAttempted: state.stopAttempted ?? false,
+            stopUncertain: state.stopUncertain ?? false,
             nativeRetirementClaim: false,
           }) + '\n',
         );

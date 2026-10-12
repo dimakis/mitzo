@@ -270,10 +270,6 @@ async function main() {
     const lineage = await superviseFreshAppleHvVm(approved, channel.request);
     while (!channel.socket.destroyed) {
       await delay(5000);
-      for (const original of [lineage.vfkit, lineage.gvproxy]) {
-        const now = observeFreshAppleHvProcess(original.pid);
-        if (now.birth !== original.birth || now.command !== original.command) refuse();
-      }
       const ack = await channel.request({
         kind: 'current',
         pid: lineage.supervisor.pid,
@@ -281,6 +277,11 @@ async function main() {
         planSha256: approved.sha256,
       });
       if (ack?.kind !== 'current') refuse();
+      if (ack.normalRetirement === true) return; // Only the original controller's live drain path can request this.
+      for (const original of [lineage.vfkit, lineage.gvproxy]) {
+        const now = observeFreshAppleHvProcess(original.pid);
+        if (now.birth !== original.birth || now.command !== original.command) refuse();
+      }
     }
     refuse(); // Channel loss retains a running VM; it never stops or restarts it.
   } finally {
