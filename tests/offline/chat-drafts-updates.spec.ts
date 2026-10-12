@@ -63,6 +63,7 @@ async function offline(page: Page, sessions: unknown[] = []) {
   let release: (() => void) | undefined;
   let checkFailed = false;
   let connections = 0;
+  let authChecks = 0;
   page.on('pageerror', (error) => errors.push(error.message));
   await page.addInitScript(() => {
     // These draft/update checks do not consume broadcast events. A fulfilled
@@ -114,6 +115,7 @@ async function offline(page: Page, sessions: unknown[] = []) {
       });
     if (url.hostname !== 'mitzo-ui.test') return route.abort();
     if (url.pathname.startsWith('/api/')) {
+      if (url.pathname === '/api/auth/check') authChecks++;
       if (url.pathname === '/api/version/check' && route.request().method() === 'POST') {
         mutations.push(url.pathname);
         return fulfill({
@@ -221,6 +223,7 @@ async function offline(page: Page, sessions: unknown[] = []) {
     errors,
     mutations,
     connections: () => connections,
+    authChecks: () => authChecks,
     state: (next: typeof state) => {
       state = next;
     },
@@ -278,6 +281,8 @@ test('chats: retained conversations stay usable while auxiliary requests and rev
   await page.goto('/sessions');
   await expect(page.getByText('Fix calendar sync', { exact: true })).toBeVisible();
   await expect(page.getByText('Loading…', { exact: true })).toHaveCount(0);
+  await expect.poll(() => fixture.connections()).toBeGreaterThan(0);
+  const checksBeforeNavigation = fixture.authChecks();
   let finish!: () => void;
   const paused = new Promise<void>((resolve) => {
     finish = resolve;
@@ -307,6 +312,7 @@ test('chats: retained conversations stay usable while auxiliary requests and rev
   });
   finish();
   await expect(page.getByText('Updated calendar title', { exact: true })).toBeVisible();
+  expect(fixture.authChecks()).toBe(checksBeforeNavigation);
   expect(fixture.mutations).toEqual([]);
   expect(fixture.errors).toEqual([]);
 });

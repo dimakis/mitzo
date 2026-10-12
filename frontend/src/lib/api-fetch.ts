@@ -16,12 +16,20 @@ export const AUTH_RESTORED_EVENT = 'mitzo:auth-restored';
 let authGeneration = 0;
 let authenticationRestored = false;
 const pendingTodoReads = new Map<string, Promise<Response>>();
-let cookieRestoreInFlight: { generation: number; promise: Promise<boolean> } | null = null;
+const COOKIE_AUTH_VERIFICATION_MS = 30_000;
+let verifiedCookieAuth: { generation: number; token: string | null; expiresAt: number } | null =
+  null;
+let cookieRestoreInFlight: {
+  generation: number;
+  token: string | null;
+  promise: Promise<boolean>;
+} | null = null;
 
 type AuthEventSource = 'local' | 'cross-tab';
 
 function dispatchAuthEvent(name: string, source: AuthEventSource = 'local'): void {
   pendingTodoReads.clear();
+  verifiedCookieAuth = null;
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent(name, { detail: { source } }));
   }
@@ -156,19 +164,41 @@ export async function apiFetch(path: string, init?: RequestInit): Promise<Respon
   return response;
 }
 
-/** Restore transport authorization when a failed login left a valid cookie session intact. */
+/** Verify cookie authorization; briefly reuse proof across route changes in the same login. */
 export function restoreCookieAuthentication(): Promise<boolean> {
   const restoreGeneration = authGeneration;
-  if (cookieRestoreInFlight?.generation === restoreGeneration) {
+  const restoreToken = getStoredAuthToken();
+  if (isLogoutPending()) return Promise.resolve(false);
+  if (
+    verifiedCookieAuth?.generation === restoreGeneration &&
+    verifiedCookieAuth.token === restoreToken &&
+    Date.now() < verifiedCookieAuth.expiresAt
+  )
+    return Promise.resolve(true);
+  if (
+    cookieRestoreInFlight?.generation === restoreGeneration &&
+    cookieRestoreInFlight.token === restoreToken
+  ) {
     return cookieRestoreInFlight.promise;
   }
   const attempt = (async () => {
     const response = await apiFetch('/api/auth/check');
-    if (!response.ok || authGeneration !== restoreGeneration || isLogoutPending()) return false;
+    if (
+      !response.ok ||
+      authGeneration !== restoreGeneration ||
+      getStoredAuthToken() !== restoreToken ||
+      isLogoutPending()
+    )
+      return false;
     loginSucceeded();
+    verifiedCookieAuth = {
+      generation: authGeneration,
+      token: getStoredAuthToken(),
+      expiresAt: Date.now() + COOKIE_AUTH_VERIFICATION_MS,
+    };
     return true;
   })();
-  cookieRestoreInFlight = { generation: restoreGeneration, promise: attempt };
+  cookieRestoreInFlight = { generation: restoreGeneration, token: restoreToken, promise: attempt };
   const clear = () => {
     if (cookieRestoreInFlight?.promise === attempt) cookieRestoreInFlight = null;
   };

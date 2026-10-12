@@ -426,3 +426,60 @@ describe('concurrent Telos list reads', () => {
     expect(mockFetch).toHaveBeenCalledTimes(2);
   });
 });
+
+describe('verified route authentication reuse', () => {
+  it('avoids another auth round trip when navigating within the same verified login', async () => {
+    expect(await restoreCookieAuthentication()).toBe(true);
+    expect(await restoreCookieAuthentication()).toBe(true);
+    expect(mockFetch).toHaveBeenCalledOnce();
+  });
+
+  it('rechecks after the short verification window expires', async () => {
+    vi.useFakeTimers();
+    try {
+      expect(await restoreCookieAuthentication()).toBe(true);
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(await restoreCookieAuthentication()).toBe(true);
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('rechecks after authentication loss or another tab changes the credential', async () => {
+    expect(await restoreCookieAuthentication()).toBe(true);
+    markAuthLost();
+    expect(await restoreCookieAuthentication()).toBe(true);
+    localStorage.setItem('mitzo_auth_token', 'other-tab-token');
+    window.dispatchEvent(
+      new StorageEvent('storage', { key: 'mitzo_auth_token', newValue: 'other-tab-token' }),
+    );
+    expect(await restoreCookieAuthentication()).toBe(true);
+    expect(mockFetch).toHaveBeenCalledTimes(3);
+  });
+
+  it('never uses a verified result after logout begins', async () => {
+    expect(await restoreCookieAuthentication()).toBe(true);
+    localStorage.setItem('mitzo_logout_pending', '1');
+    expect(await restoreCookieAuthentication()).toBe(false);
+  });
+});
+
+it('does not reuse or grant auth proof for a token replaced during verification', async () => {
+  localStorage.setItem('mitzo_auth_token', 'old-token');
+  let finishOld!: (response: Response) => void;
+  mockFetch.mockReturnValueOnce(
+    new Promise<Response>((resolve) => {
+      finishOld = resolve;
+    }),
+  );
+  const old = restoreCookieAuthentication();
+  // A direct token replacement can occur before its cross-tab event arrives.
+  localStorage.setItem('mitzo_auth_token', 'new-token');
+  mockFetch.mockResolvedValueOnce(new Response('', { status: 403 }));
+  const fresh = restoreCookieAuthentication();
+  expect(mockFetch).toHaveBeenCalledTimes(2);
+  await expect(fresh).resolves.toBe(false);
+  finishOld(new Response('{}', { status: 200 }));
+  await expect(old).resolves.toBe(false);
+});
