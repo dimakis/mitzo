@@ -16,6 +16,7 @@ import { extractImageFiles } from '../lib/paste-images';
 import { MAX_IMAGE_ATTACHMENTS } from '../lib/constants';
 import { SlashPicker } from './SlashPicker';
 import { SessionTray } from './SessionTray';
+import { ImageAttachmentEditor } from './ImageAttachmentEditor';
 import { ComposerTools } from './ComposerTools';
 import { UiIcon } from './UiIcon';
 import { MicButton } from './MicButton';
@@ -137,6 +138,25 @@ export function ChatInput({
     clearDraft,
   ]);
   const [images, setImages] = useState<ImageAttachment[]>(savedChatDraft?.images ?? []);
+  const [preview, setPreview] = useState<{
+    image: ImageAttachment;
+    sessionId: string | undefined;
+    composerGeneration: number;
+    draftStorageKey: string | undefined;
+  } | null>(null);
+  const previewRef = useRef(preview);
+  previewRef.current = preview;
+  const previewScope = useRef({ sessionId, composerGeneration, draftStorageKey });
+  previewScope.current = { sessionId, composerGeneration, draftStorageKey };
+  const imageKeys = useRef(new WeakMap<ImageAttachment, number>());
+  const nextImageKey = useRef(0);
+  const previewOpen =
+    preview !== null &&
+    preview.sessionId === sessionId &&
+    preview.composerGeneration === composerGeneration &&
+    preview.draftStorageKey === draftStorageKey &&
+    images.includes(preview.image);
+  if (preview && !previewOpen) setPreview(null);
   const [showSlashPicker, setShowSlashPicker] = useState(false);
   const [contextBlocks, setContextBlocks] = useState<string[]>(savedChatDraft?.contextBlocks ?? []);
   const {
@@ -183,7 +203,15 @@ export function ChatInput({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const initialApplied = useRef(false);
-  const prevRunning = useRef(running);
+  const prevRunning = useRef({ running, sessionId, composerGeneration, draftStorageKey });
+  if (
+    prevRunning.current.sessionId !== sessionId ||
+    prevRunning.current.composerGeneration !== composerGeneration ||
+    prevRunning.current.draftStorageKey !== draftStorageKey
+  ) {
+    // A deferred completion authorizes only the queue owned by that draft.
+    prevRunning.current = { running, sessionId, composerGeneration, draftStorageKey };
+  }
   const sendGuard = useRef(false);
   const interruptPending = useRef<object | null>(null);
   const mounted = useRef(true);
@@ -339,10 +367,11 @@ export function ChatInput({
   // Auto-send next queued message when agent finishes its turn
   useEffect(() => {
     if (
-      prevRunning.current &&
+      prevRunning.current.running &&
       !running &&
       !sendPending.current &&
       !interruptPending.current &&
+      !previewOpen &&
       queuedMessages.length > 0
     ) {
       const q = dequeue();
@@ -350,8 +379,10 @@ export function ChatInput({
         sendOrdinary(q, true);
       }
     }
-    prevRunning.current = running;
-  }, [running, queuedMessages, sendOrdinary, dequeue]);
+    // Keep a completed turn pending while the editor is modal. Its already
+    // queued message may drain once editing closes, without sending this draft.
+    if (!previewOpen || running) prevRunning.current.running = running;
+  }, [running, queuedMessages, sendOrdinary, dequeue, previewOpen]);
 
   // Show/hide slash picker based on input
   // TODO: Verify picker reopens correctly on backspace after space (e.g. "/simplify " → "/simplify")
@@ -371,7 +402,13 @@ export function ChatInput({
   }
 
   function handleSend() {
-    if (sendGuard.current || sendPending.current || interruptPending.current || sendDisabledReason)
+    if (
+      previewOpen ||
+      sendGuard.current ||
+      sendPending.current ||
+      interruptPending.current ||
+      sendDisabledReason
+    )
       return;
     const trimmed = text.trim();
     if (!trimmed && images.length === 0) return;
@@ -393,6 +430,10 @@ export function ChatInput({
   }
 
   function handleKeyDown(e: KeyboardEvent) {
+    if (previewOpen) {
+      if (e.key === 'Enter') e.preventDefault();
+      return;
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       if (running && onInterrupt) {
@@ -444,6 +485,36 @@ export function ChatInput({
     setImages((prev) => prev.filter((_, i) => i !== index));
   }
 
+  function previewImage(image: ImageAttachment) {
+    setPreview({ image, sessionId, composerGeneration, draftStorageKey });
+  }
+
+  function savePreview(updated: ImageAttachment) {
+    const selected = preview;
+    const scope = previewScope.current;
+    if (
+      !selected ||
+      previewRef.current !== selected ||
+      selected.sessionId !== scope.sessionId ||
+      selected.composerGeneration !== scope.composerGeneration ||
+      selected.draftStorageKey !== scope.draftStorageKey ||
+      !latestDraft.current.images.includes(selected.image)
+    )
+      return;
+    imageKeys.current.set(updated, imageKey(selected.image));
+    setImages((draft) => draft.map((image) => (image === selected.image ? updated : image)));
+    setPreview(null);
+  }
+
+  function imageKey(image: ImageAttachment) {
+    let key = imageKeys.current.get(image);
+    if (key === undefined) {
+      key = nextImageKey.current++;
+      imageKeys.current.set(image, key);
+    }
+    return key;
+  }
+
   const canSend = text.trim() || images.length > 0;
 
   const micProps = voice
@@ -468,7 +539,7 @@ export function ChatInput({
     : null;
 
   function handleQueue() {
-    if (sendPending.current) return;
+    if (previewOpen || sendPending.current) return;
     const trimmed = text.trim();
     if (!trimmed && images.length === 0) return;
     const added = enqueue({
@@ -500,6 +571,7 @@ export function ChatInput({
   }
 
   function fireQueuedAsInterrupt(index: number) {
+    if (previewOpen) return;
     const q = queuedMessages[index];
     if (!q || sendPending.current || interruptPending.current || sendDisabledReason) return;
     if (!running) {
@@ -528,6 +600,7 @@ export function ChatInput({
 
   function handleInterrupt() {
     if (
+      previewOpen ||
       sendGuard.current ||
       sendPending.current ||
       interruptPending.current ||
@@ -582,9 +655,20 @@ export function ChatInput({
       {images.length > 0 && (
         <div className="chat-input-previews">
           {images.map((image, index) => (
-            <div key={index} className="chat-input-preview">
-              <img src={image.preview} alt={`Attachment ${index + 1}`} />
+            <div key={imageKey(image)} className="chat-input-preview">
               <button
+                type="button"
+                className="chat-input-preview-open"
+                aria-label={`Preview attachment ${index + 1}`}
+                onClick={(event) => {
+                  event.currentTarget.focus();
+                  previewImage(image);
+                }}
+              >
+                <img src={image.preview} alt={`Attachment ${index + 1}`} />
+              </button>
+              <button
+                type="button"
                 className="chat-input-preview-remove"
                 aria-label={`Remove attachment ${index + 1}`}
                 onClick={() => removeImage(index)}
@@ -594,6 +678,14 @@ export function ChatInput({
             </div>
           ))}
         </div>
+      )}
+      {previewOpen && preview && (
+        <ImageAttachmentEditor
+          key={imageKey(preview.image)}
+          image={preview.image}
+          onSave={savePreview}
+          onClose={() => setPreview(null)}
+        />
       )}
       <MotionPresence open={showSlashPicker} kind="popover" appear={false}>
         <SlashPicker
@@ -699,6 +791,8 @@ export function ChatInput({
                 }
                 onAddImages={() => fileInputRef.current?.click()}
                 onRemoveImage={removeImage}
+                onPreviewImage={previewImage}
+                getDraftImageKey={imageKey}
               />
             )}
           </div>
