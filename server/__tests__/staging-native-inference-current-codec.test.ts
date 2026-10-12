@@ -77,7 +77,8 @@ describe('purpose-bound current MAC transport, separate from model authority', (
   });
   it('rejects duplicate/unknown tuple keys and an old app source after a legitimate source handoff', () => {
     const { codec, handoff } = fixture();
-    expect(() => codec.signRequest({ ...request(), unknown: true })).toThrow();
+    const unknownKey = { ...request(), unknown: true };
+    expect(() => codec.signRequest(unknownKey)).toThrow();
     const envelope = codec.signRequest(request());
     const duplicate = envelope.canonicalBody.replace('"version":1', '"version":1,"version":1');
     expect(() =>
