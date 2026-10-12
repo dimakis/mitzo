@@ -54,11 +54,8 @@ struct ChatView: View {
                 if let perm = viewModel.permissionRequest {
                     PermissionBanner(
                         request: perm,
-                        onAllow: {
-                            Task { await viewModel.respondToPermission(decision: .once) }
-                        },
-                        onDeny: {
-                            Task { await viewModel.respondToPermission(decision: .deny) }
+                        onResolved: { permId in
+                            viewModel.dismissReviewedPermission(permId: permId)
                         }
                     )
                 }

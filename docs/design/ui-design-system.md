@@ -238,7 +238,11 @@ Inbox request details use the same quiet action labels and server-owned scope
 caption, with Allow for session available for each authorization and no retention
 for questions. Native notification actions revalidate displayed input and scope;
 the Watch rechecks the complete reviewed request through its authenticated phone
-relay before submitting a session decision.
+relay before submitting a session decision. Ordinary Watch chat uses a quiet
+44px Review request entry into that same complete review surface; it never
+approves from a truncated preview. A successful or expired review clears only
+the matching pending card, preserving a newer request. Watch questions expose
+Cancel and direct answers to the full iPhone form.
 
 Offline approval fixtures cover 320px mobile WebKit/Chromium and desktop Chromium,
 light/dark themes, Mint/Georgia appearance, larger text, long request details,

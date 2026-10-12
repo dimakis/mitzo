@@ -17,6 +17,7 @@ final class AppState {
 struct ChatViewModelReceiptTests {
     @MainActor static func main() async throws {
         guard CommandLine.arguments.count == 3 else { throw Failure.missingFixture }
+        try reviewedPermissionDismissalPreservesReplacement()
         try await backendRuntimeFailureIsVisible(fixturePath: CommandLine.arguments[1], iteratorThrow: false, newerPending: false)
         try await backendRuntimeFailureIsVisible(fixturePath: CommandLine.arguments[1], iteratorThrow: false, newerPending: true)
         try await backendRuntimeFailureIsVisible(fixturePath: CommandLine.arguments[1], iteratorThrow: true, newerPending: false)
@@ -535,6 +536,15 @@ struct ChatViewModelReceiptTests {
         precondition(vm.sendDraft.pending?.clientMsgId == next.clientMsgId && vm.sendDraft.rejectedText == nil)
         precondition(vm.sendDraft.text == "Newer Watch draft" && app.sent.count == 3)
         precondition(vm.permissionRequest?.permId == "retained-permission")
+    }
+
+    @MainActor static func reviewedPermissionDismissalPreservesReplacement() throws {
+        let vm = ChatViewModel(sessionId: "s1")
+        vm.handleMessage(try decode("{\"type\":\"permission_request\",\"permId\":\"newer\",\"toolName\":\"Bash\",\"toolInput\":\"npm test\"}"))
+        vm.dismissReviewedPermission(permId: "older")
+        precondition(vm.permissionRequest?.permId == "newer")
+        vm.dismissReviewedPermission(permId: "newer")
+        precondition(vm.permissionRequest == nil)
     }
 
     enum Failure: Error { case missingPending, missingFixture }
