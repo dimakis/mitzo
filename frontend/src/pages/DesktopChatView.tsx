@@ -23,8 +23,6 @@ import {
 import { RepositoryChatDraftNotice } from '../components/RepositoryChatDraftNotice';
 import { SymposiumReviewEntry } from '../components/SymposiumReviewPanel';
 import { AddAgentSheet } from '../components/AddReviewerSheet';
-import { OutputContributorPanel } from '../components/OutputContributorPanel';
-import { useOutputContributors } from '../hooks/useOutputContributors';
 import { PermissionModePicker } from '../components/PermissionModePicker';
 import { SessionAccess } from '../components/SessionAccess';
 import { WorkspaceControls } from '../components/WorkspaceControls';
@@ -138,11 +136,6 @@ export function DesktopChatView() {
   );
   const isSymposium = workspaceSummary?.sessionType === 'symposium';
   const ordinaryControls = !activeSessionId || workspaceSummary?.sessionType === 'chat';
-  const outputContributors = useOutputContributors(
-    activeSessionId,
-    workspaceSummary?.sessionType === 'chat' && (!sessionId || sessionId === activeSessionId),
-    `${messages.messages.length}:${messages.running}`,
-  );
   const accountScope = !sessionId && !activeSessionId ? newChatDraft.draft.id : activeSessionId;
   const [accountChoice, setAccountChoice] = useState<{
     scope: string | null;
@@ -770,9 +763,6 @@ export function DesktopChatView() {
           <SymposiumConversation
             profileToolsTarget={profileToolsTarget}
             sessionId={activeSessionId}
-            ordinaryAfterMessages={
-              outputContributors ? <OutputContributorPanel {...outputContributors} /> : null
-            }
             chat={{
               sessionId: sessionId || activeSessionId || undefined,
               messages: sessionId && sessionId !== activeSessionId ? [] : messages.messages,

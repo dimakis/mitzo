@@ -470,3 +470,85 @@ it('includes saved expected output and acceptance criteria before separate user 
   );
   expect(f.seat).toEqual(original);
 });
+
+it('preserves a completed provider turn as unfinished work when its integration environment is pending', async () => {
+  const f = input();
+  const port: OrdinaryChatPort = {
+    stopChat: vi.fn(),
+    startChat: vi.fn(async (_transport, _client, _prompt, options) => {
+      const lifecycle = options.ordinaryTurnLifecycle!;
+      lifecycle.beforeDispatch('recipient');
+      lifecycle.accepted('recipient', 'raw-thread', 'raw-turn');
+      lifecycle.environmentPending!('recipient', 'raw-turn');
+      lifecycle.terminal('recipient', 'raw-turn', 'completed');
+    }),
+  };
+  const runner = createOrdinarySymposiumTurn({
+    port,
+    binding: f.seat.accountBinding!,
+    cwd: '/task',
+    mode: 'agent',
+  });
+  await expect(
+    runner.run(f, { beforeDispatch: () => {}, accepted: () => {} }),
+  ).rejects.toMatchObject({
+    code: 'environment_pending',
+    commandId: 'recipient',
+    providerTurnId: 'raw-turn',
+  });
+});
+
+it('rejects pending-environment callbacks from another command or provider turn', async () => {
+  const f = input();
+  const port: OrdinaryChatPort = {
+    stopChat: vi.fn(),
+    startChat: vi.fn(async (_transport, _client, _prompt, options) => {
+      const lifecycle = options.ordinaryTurnLifecycle!;
+      lifecycle.beforeDispatch('recipient');
+      lifecycle.accepted('recipient', 'raw-thread', 'raw-turn');
+      expect(() => lifecycle.environmentPending!('other', 'raw-turn')).toThrow('identity changed');
+      expect(() => lifecycle.environmentPending!('recipient', 'other-turn')).toThrow(
+        'identity changed',
+      );
+      lifecycle.terminal('recipient', 'raw-turn', 'completed');
+    }),
+  };
+  const runner = createOrdinarySymposiumTurn({
+    port,
+    binding: f.seat.accountBinding!,
+    cwd: '/task',
+    mode: 'agent',
+  });
+  await expect(
+    runner.run(f, { beforeDispatch: () => {}, accepted: () => {} }),
+  ).resolves.toMatchObject({ content: '' });
+});
+
+it.each(['failed', 'interrupted'] as const)(
+  'preserves actual %s provider outcome even when the environment is pending',
+  async (status) => {
+    const f = input();
+    const port: OrdinaryChatPort = {
+      stopChat: vi.fn(),
+      startChat: vi.fn(async (_transport, _client, _prompt, options) => {
+        const lifecycle = options.ordinaryTurnLifecycle!;
+        lifecycle.beforeDispatch('recipient');
+        lifecycle.accepted('recipient', 'raw-thread', 'raw-turn');
+        lifecycle.environmentPending!('recipient', 'raw-turn');
+        lifecycle.terminal('recipient', 'raw-turn', status);
+      }),
+    };
+    const runner = createOrdinarySymposiumTurn({
+      port,
+      binding: f.seat.accountBinding!,
+      cwd: '/task',
+      mode: 'agent',
+    });
+    const error = await runner
+      .run(f, { beforeDispatch: () => {}, accepted: () => {} })
+      .catch((error: unknown) => error);
+    expect(error).toBeInstanceOf(Error);
+    expect(error).not.toHaveProperty('code', 'environment_pending');
+    expect((error as Error).message).toMatch(status === 'failed' ? /failed/ : /cancelled/);
+  },
+);

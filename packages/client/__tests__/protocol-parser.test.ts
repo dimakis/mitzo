@@ -392,6 +392,7 @@ describe('permission events', () => {
         toolInput: 'rm -rf /',
         tier: 'elevated',
         approvalScope: 'conversation',
+        sessionGrantDescription: 'This operation class on this connection until the session ends.',
       },
       makeState(),
       makeCallbacks(),
@@ -404,6 +405,7 @@ describe('permission events', () => {
         toolName: 'Bash',
         tier: 'elevated',
         approvalScope: 'conversation',
+        sessionGrantDescription: 'This operation class on this connection until the session ends.',
       },
     });
   });

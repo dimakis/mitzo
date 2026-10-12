@@ -247,6 +247,7 @@ async function setup(
   recordProviderRequest?: (method: string) => void,
   prepareAgentContext?: (signal: AbortSignal) => Promise<void>,
   disableProjectDocuments = false,
+  shouldContinueAfterToolResult?: CodexConversationOptions['shouldContinueAfterToolResult'],
 ) {
   const dir = mkdtempSync(join(tmpdir(), 'mitzo-codex-'));
   const store = existingStore ?? new CodexConversationStore(join(dir, 'private.db'));
@@ -335,6 +336,7 @@ async function setup(
     prepareSystemPrompt,
     prepareAgentContext,
     disableProjectDocuments,
+    shouldContinueAfterToolResult,
     onApplicationContextAccepted,
     beforeRuntimeAdmission,
     reconnectGuard,
@@ -393,7 +395,14 @@ async function setup(
   return {
     c,
     store,
-    callbacks,
+    callbacks: {
+      onNotification: (method: string, params: Record<string, unknown>) =>
+        callbacks.onNotification(method, params),
+      onRequest: (method: string, params: Record<string, unknown>, signal: AbortSignal) =>
+        callbacks.onRequest(method, params, signal),
+      onClose: (error: Error) => callbacks.onClose(error),
+    },
+    getCallbacks: () => callbacks,
     rpc,
     requests,
     events,
@@ -958,6 +967,72 @@ it('runs queued turns sequentially, rechecks account and never uses SDK/provider
   await c.send({ id: 'b', prompt: 'next' });
   expect(requests.filter((r) => r.method === 'turn/start')).toHaveLength(2);
 });
+it('renews the process after approved provider attachment before dispatching the original turn', async () => {
+  const state = await setup();
+  const oldCallbacks = state.getCallbacks();
+  let needsRefresh = false;
+  state.conversationOptions.prepareTurn = async () => {
+    needsRefresh = true;
+  };
+  (
+    state.conversationOptions as CodexConversationOptions & {
+      refreshTransportBeforeTurn?: () => boolean;
+    }
+  ).refreshTransportBeforeTurn = () => needsRefresh;
+  await state.c.send({
+    id: 'gmail-access',
+    prompt: 'Read the Gmail evidence',
+    intent: 'Read Gmail',
+  });
+  const methods = state.requests.map(({ method }) => method);
+  expect(state.rpc.close).toHaveBeenCalledOnce();
+  expect(methods.indexOf('thread/resume')).toBeGreaterThan(0);
+  expect(methods.indexOf('thread/resume')).toBeLessThan(methods.indexOf('turn/start'));
+  expect(state.requests.find(({ method }) => method === 'thread/resume')!.params.threadId).toBe(
+    'provider-thread',
+  );
+  expect(state.requests.find(({ method }) => method === 'turn/start')!.params.input).toEqual([
+    { type: 'text', text: 'Read the Gmail evidence' },
+  ]);
+  const eventCount = state.events.length;
+  oldCallbacks.onNotification('turn/completed', {
+    threadId: 'provider-thread',
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  expect(state.events).toHaveLength(eventCount);
+  await expect(
+    oldCallbacks.onRequest(
+      'item/tool/call',
+      {
+        threadId: 'provider-thread',
+        turnId: 'turn-1',
+        callId: 'stale-call',
+        namespace: null,
+        tool: 'Read',
+        arguments: { file_path: 'note' },
+      },
+      new AbortController().signal,
+    ),
+  ).rejects.toThrow('Codex connection closed');
+  expect(state.execute).not.toHaveBeenCalled();
+  oldCallbacks.onClose(new Error('old SSH closed'));
+  expect(state.onTransportClosed).not.toHaveBeenCalled();
+  expect(state.onError).not.toHaveBeenCalled();
+});
+
+it('does not renew the process when provider attachment failed', async () => {
+  const state = await setup();
+  state.conversationOptions.prepareTurn = async () => 'Google access could not be approved';
+  (
+    state.conversationOptions as CodexConversationOptions & {
+      refreshTransportBeforeTurn?: () => boolean;
+    }
+  ).refreshTransportBeforeTurn = () => false;
+  await state.c.send({ id: 'gmail-denied', prompt: 'Read Gmail' });
+  expect(state.rpc.close).not.toHaveBeenCalled();
+  expect(state.requests.filter(({ method }) => method === 'thread/resume')).toHaveLength(0);
+});
+
 it('prepares a turn from its raw user intent before sending its provider prompt', async () => {
   const prepareTurn = vi.fn(
     async (turn: { providerPrompt: string }) => `prepared: ${turn.providerPrompt}`,
@@ -4660,4 +4735,121 @@ it('rejects trusted pack context before constructing any native client', () => {
       } as unknown as CodexConversationOptions),
   ).toThrow(/trusted native continuation barrier/);
   expect(createClient).not.toHaveBeenCalled();
+});
+
+it('continues one trusted environment grant only after exact completion, preserving model and source without replay', async () => {
+  const args: Parameters<typeof setup> = [];
+  args[27] = () => true;
+  const { c, callbacks, requests, execute } = await setup(...args);
+  await c.send({
+    id: 'grant-task',
+    prompt: 'expanded original',
+    intent: 'Read my pending mail',
+    model: 'other-model',
+    reasoningEffort: 'low',
+  });
+  const call = {
+    threadId: 'provider-thread',
+    turnId: 'turn-1',
+    callId: 'grant',
+    tool: 'Read',
+    arguments: {},
+  };
+  await callbacks.onRequest('item/tool/call', call, new AbortController().signal);
+  await callbacks.onRequest('item/tool/call', call, new AbortController().signal);
+  expect(execute).toHaveBeenCalledOnce();
+  expect(requests.filter((r) => r.method === 'turn/start')).toHaveLength(1);
+  expect(c.queue().filter((command) => command.environmentContinuation)).toHaveLength(1);
+  callbacks.onNotification('turn/completed', {
+    threadId: 'provider-thread',
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  await vi.waitFor(() => expect(requests.filter((r) => r.method === 'turn/start')).toHaveLength(2));
+  const second = requests.filter((r) => r.method === 'turn/start')[1].params;
+  expect(second).toMatchObject({ threadId: 'provider-thread', model: 'other-model' });
+  expect(JSON.stringify(second.input)).not.toContain('expanded original');
+  await callbacks.onRequest(
+    'item/tool/call',
+    { ...call, turnId: 'turn-2', callId: 'another-grant' },
+    new AbortController().signal,
+  );
+  expect(c.queue().filter((command) => command.environmentContinuation)).toHaveLength(1);
+});
+it('interrupt between trusted continuation admission and completion never dispatches the child', async () => {
+  const args: Parameters<typeof setup> = [];
+  args[27] = () => true;
+  const { c, callbacks, requests } = await setup(...args);
+  await c.send({ id: 'grant-stop', prompt: 'original', intent: 'Read pending mail' });
+  await callbacks.onRequest(
+    'item/tool/call',
+    { threadId: 'provider-thread', turnId: 'turn-1', callId: 'grant', tool: 'Read', arguments: {} },
+    new AbortController().signal,
+  );
+  await c.interrupt();
+  expect(requests.filter((r) => r.method === 'turn/start')).toHaveLength(1);
+  expect(c.isPaused()).toBe(true);
+});
+
+it('a stop while the synthetic child prepares prevents renewed provider dispatch', async () => {
+  let release!: () => void;
+  const waiting = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let preparing = false;
+  const args: Parameters<typeof setup> = [];
+  args[27] = () => true;
+  args[7] = async ({ providerPrompt }) => {
+    if (providerPrompt.startsWith('Mitzo has applied')) {
+      preparing = true;
+      await waiting;
+    }
+  };
+  const { c, callbacks, requests } = await setup(...args);
+  await c.send({ id: 'stop-child', prompt: 'original', intent: 'Read pending mail' });
+  const result = await callbacks.onRequest(
+    'item/tool/call',
+    { threadId: 'provider-thread', turnId: 'turn-1', callId: 'grant', tool: 'Read', arguments: {} },
+    new AbortController().signal,
+  );
+  expect(JSON.stringify(result)).toContain('Do not execute credential-dependent commands');
+  callbacks.onNotification('turn/completed', {
+    threadId: 'provider-thread',
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  await vi.waitFor(() => expect(preparing).toBe(true));
+  await c.interrupt();
+  release();
+  await vi.waitFor(() =>
+    expect(c.queue().some((command) => command.status === 'running')).toBe(false),
+  );
+  expect(c.isPaused()).toBe(true);
+  expect(requests.filter((r) => r.method === 'turn/start')).toHaveLength(1);
+});
+
+it('reports a trusted external owner environment receipt without creating an unadmitted child', async () => {
+  const state = await setup();
+  const pending = vi.fn();
+  state.conversationOptions.shouldContinueAfterToolResult = () => true;
+  state.conversationOptions.environmentContinuationOwner = 'external';
+  state.conversationOptions.onEnvironmentPending = pending;
+  await state.c.send({
+    id: 'external-command',
+    prompt: 'Read approved evidence',
+    intent: 'Read Gmail',
+  });
+  const result = await state.callbacks.onRequest(
+    'item/tool/call',
+    { threadId: 'provider-thread', turnId: 'turn-1', callId: 'grant', tool: 'Read', arguments: {} },
+    new AbortController().signal,
+  );
+  expect(pending).toHaveBeenCalledWith('external-command', 'turn-1');
+  expect(JSON.stringify(result)).toContain('unfinished');
+  expect(state.c.queue().filter((command) => command.environmentContinuation)).toHaveLength(0);
+  const terminal = vi.fn();
+  state.conversationOptions.onProviderTerminal = terminal;
+  state.callbacks.onNotification('turn/completed', {
+    threadId: 'provider-thread',
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  expect(terminal).toHaveBeenCalledWith('external-command', 'turn-1', 'completed');
 });

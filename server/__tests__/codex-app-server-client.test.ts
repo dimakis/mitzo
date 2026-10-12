@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { readFileSync } from 'node:fs';
@@ -406,6 +407,106 @@ describe('Codex app-server transport', () => {
       }),
     ).toEqual({ PATH: '/bin', HOME: '/user', CODEX_HOME: '/explicit/codex-home' });
     client.close();
+  });
+
+  it('gates a same-launch provider environment without sending credential values or accepting invalid names', () => {
+    const spec = openShellCodexProcessSpec({
+      sandboxName: 'approved-sandbox',
+      workdir: '/sandbox/workspaces/mgmt',
+      requiredProviderEnvironment: ['GOOGLE_WORKSPACE_CLI_TOKEN'],
+    });
+    expect(spec.args.at(-1)).toContain('GOOGLE_WORKSPACE_CLI_TOKEN');
+    expect(spec.args.at(-1)).toContain('exit 78');
+    expect(spec.env).not.toHaveProperty('GOOGLE_WORKSPACE_CLI_TOKEN');
+    expect(() =>
+      openShellCodexProcessSpec({
+        sandboxName: 'approved-sandbox',
+        workdir: '/sandbox/workspaces/mgmt',
+        requiredProviderEnvironment: ['TOKEN;touch /tmp/unreviewed'],
+      }),
+    ).toThrow('environment name');
+  });
+
+  it('checks the environment privately in the exact shell that execs the fake application', () => {
+    const spec = openShellCodexProcessSpec({
+      sandboxName: 'approved-sandbox',
+      workdir: '/sandbox/workspaces/mgmt',
+      requiredProviderEnvironment: ['GOOGLE_WORKSPACE_CLI_TOKEN'],
+    });
+    const remote = spec.args.at(-1)!.replaceAll('/sandbox/run-mitzo-app-server', '/usr/bin/true');
+    try {
+      execFileSync('/bin/sh', ['-c', remote], {
+        env: {},
+        encoding: 'utf8',
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      throw new Error('Missing environment should block the fake application');
+    } catch (error) {
+      expect(error).toMatchObject({ status: 78, stdout: '', stderr: '' });
+    }
+    expect(
+      execFileSync('/bin/sh', ['-c', remote], {
+        env: { GOOGLE_WORKSPACE_CLI_TOKEN: 'synthetic-placeholder' },
+        encoding: 'utf8',
+      }),
+    ).toBe('');
+  });
+
+  it('cancels pending environment retries when the client closes', async () => {
+    vi.useFakeTimers();
+    const first = processStub();
+    const create = vi.fn();
+    const client = new CodexAppServerClient(first.child, { environmentLaunch: { create } });
+    const ready = client.initialize().catch(() => undefined);
+    first.child.emit('exit', 78);
+    client.close();
+    await vi.advanceTimersByTimeAsync(30_000);
+    await ready;
+    expect(create).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('retries only missing provider environment before initialization and never starts a model turn', async () => {
+    vi.useFakeTimers();
+    const first = processStub();
+    const second = processStub();
+    const create = vi.fn(() => second.child);
+    const closed = vi.fn();
+    const client = new CodexAppServerClient(first.child, {
+      environmentLaunch: { create },
+      lifecycle: { onNotification: vi.fn(), onRequest: vi.fn(async () => ({})), onClose: closed },
+    });
+    const ready = client.initialize();
+    first.child.emit('exit', 78);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(create).toHaveBeenCalledOnce();
+    expect(closed).not.toHaveBeenCalled();
+    expect(second.sent).toEqual(first.sent);
+    expect(second.sent[0].method).toBe('initialize');
+    second.reply({ id: second.sent[0].id, result: {} });
+    await ready;
+    expect(second.sent.some((frame) => frame.method === 'turn/start')).toBe(false);
+    client.close();
+  });
+
+  it('reports bounded environment pending rather than usable or denied after all fresh launches miss credentials', async () => {
+    vi.useFakeTimers();
+    const peers = [processStub(), processStub(), processStub()];
+    let next = 1;
+    const client = new CodexAppServerClient(peers[0].child, {
+      environmentLaunch: { create: () => peers[next++].child },
+    });
+    const ready = client.initialize();
+    const rejected = expect(ready).rejects.toMatchObject({ category: 'environment_pending' });
+    for (let attempt = 0; attempt < 3; attempt++) {
+      peers[attempt].child.emit('exit', 78);
+      if (attempt < 2) await vi.advanceTimersByTimeAsync(10_000);
+    }
+    await rejected;
+    expect(next).toBe(3);
+    expect(peers.every((peer) => peer.sent.every((frame) => frame.method === 'initialize'))).toBe(
+      true,
+    );
   });
 
   it('builds a credential-free OpenShell app-server process boundary', () => {

@@ -33,6 +33,46 @@ function setup(
   return { store, center, push, changed };
 }
 describe('central notification delivery', () => {
+  it.each([false, true])(
+    'binds notification retention to the displayed scope and removes oversized details (%s)',
+    async (oversized) => {
+      const { store, center, push } = setup();
+      store.setPreferences({ sensitivePreviews: true });
+      const permId = `displayed-scope-${oversized}`;
+      const description = oversized
+        ? 'scope '.repeat(600)
+        : 'Keep workspace shell checks allowed until this session ends.';
+      try {
+        registerPending(permId, 'Bash', vi.fn(), { command: 'npm test' }, 'elevated', 's1', {
+          permId,
+          toolName: 'Bash',
+          toolInput: 'npm test',
+          sessionId: 's1',
+          approvalScope: 'session',
+          sessionGrantDescription: description,
+        });
+        await center.flush();
+        const message = push.mock.calls[0][0];
+        if (oversized) {
+          expect(message.category).toBe('SESSION_PERMISSION');
+          expect(message.data.approvalSessionGrantDescription).toBeUndefined();
+          expect(message.data.approvalInput).toBeUndefined();
+        } else {
+          expect(message.category).toBe('SESSION_APPROVAL');
+          expect(message.body).toContain(description);
+          expect(message.data.approvalSessionGrantDescription).toBe(description);
+          expect(store.get(`permission:${permId}`)?.request?.sessionGrantDescription).toBe(
+            description,
+          );
+        }
+      } finally {
+        removePending(permId);
+        center.close();
+        store.close();
+      }
+    },
+  );
+
   afterEach(() => vi.useRealTimers());
   it('persists accepted devices across restart and excludes them from a partial alert retry', async () => {
     vi.useFakeTimers();

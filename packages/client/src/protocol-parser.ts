@@ -483,6 +483,9 @@ export function parseServerMessage(
           displayName: msg.displayName as string | undefined,
           tier: msg.tier as ToolTier | undefined,
           approvalScope: msg.approvalScope as 'session' | 'conversation' | 'request' | undefined,
+          ...(typeof msg.sessionGrantDescription === 'string'
+            ? { sessionGrantDescription: msg.sessionGrantDescription }
+            : {}),
         },
       });
       break;

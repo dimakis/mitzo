@@ -10,7 +10,11 @@ import {
   SANDBOX_CONTEXT_CONTEXGIN_COMMIT,
   type SandboxAgentPresets,
 } from './agent-context-sandbox.js';
-import { attestEffectiveRuntimePolicy, runtimePolicyHash } from './openshell-runtime-policy.js';
+import {
+  attestEffectiveRuntimePolicy,
+  runtimePolicyHash,
+  verifiedRuntimeServiceEnvironment,
+} from './openshell-runtime-policy.js';
 import { load } from 'js-yaml';
 import { knowledgeStoreFromEnvironment, type KnowledgeStore } from './knowledge-store-config.js';
 import type { KnowledgeAdoptionSelection } from './codex-conversation-store.js';
@@ -1206,6 +1210,12 @@ export class OpenShellRuntimeManager {
       policy: detail.policy as unknown,
       attestation,
       approvedGrantableProviders: granted,
+      requiredServiceEnvironment: verifiedRuntimeServiceEnvironment(
+        attestation.basePolicy,
+        detail.policy,
+        providers,
+        this.config.account.provider,
+      ),
     };
   }
   async hasServiceProviderAccess(

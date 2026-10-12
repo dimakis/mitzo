@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import type { QuestionAnswers, UserQuestion } from '@mitzo/protocol';
+import { UiIcon } from './UiIcon';
+import { sessionApprovalServer, type QuestionAnswers, type UserQuestion } from '@mitzo/protocol';
 
 export type ToolTier = 'safe' | 'standard' | 'elevated' | 'unknown';
 interface Props {
@@ -12,6 +13,7 @@ interface Props {
   displayName?: string;
   tier?: ToolTier;
   approvalScope?: 'session' | 'conversation' | 'request';
+  sessionGrantDescription?: string;
   responseError?: string;
   expiresAt?: number;
   questions?: UserQuestion[];
@@ -40,11 +42,21 @@ export function PermissionBanner({
   tier,
   approvalScope,
   responseError,
+  sessionGrantDescription,
   questions,
   expiresAt,
   onRespond,
   onExpire,
 }: Props) {
+  const [submitting, setSubmitting] = useState(false);
+  useEffect(() => {
+    if (responseError && submitting) setSubmitting(false);
+  }, [responseError, submitting]);
+  const respond: Props['onRespond'] = (id, decision, tool, answers) => {
+    setSubmitting(true);
+    if (answers) onRespond(id, decision, tool, answers);
+    else onRespond(id, decision, tool);
+  };
   const [selections, setSelections] = useState<Map<string, string[]>>(() => new Map());
   const [written, setWritten] = useState<Map<string, string>>(() => new Map());
   const deadline = useMemo(
@@ -56,8 +68,6 @@ export function PermissionBanner({
   );
   const expireRef = useRef(onExpire);
   expireRef.current = onExpire;
-  const respondRef = useRef(onRespond);
-  respondRef.current = onRespond;
   useEffect(() => {
     let expired = false;
     const update = () => {
@@ -66,15 +76,15 @@ export function PermissionBanner({
       if (seconds === 0 && !expired) {
         expired = true;
         expireRef.current?.(permId);
-        respondRef.current(permId, 'deny', toolName);
       }
     };
     update();
     if (deadline.at <= Date.now()) return;
     const timer = setInterval(update, 1000);
     return () => clearInterval(timer);
-  }, [deadline, permId, toolName]);
+  }, [deadline, permId]);
   useEffect(() => {
+    setSubmitting(false);
     setSelections(new Map());
     setWritten(new Map());
   }, [permId]);
@@ -98,20 +108,21 @@ export function PermissionBanner({
       // Unknown input retains the ordinary approval description.
     }
   }
-  const server = toolName.startsWith('mcp__') ? toolName.split('__')[1] : undefined;
+  const server = sessionApprovalServer(toolName);
   const tierClass =
     tier === 'elevated'
       ? ' perm-banner--elevated'
       : tier === 'unknown'
         ? ' perm-banner--unknown'
         : '';
-  // Expiry is terminal for this card even if the server timeout won the race
-  // and rejected our denial. Keep retryable errors visible only while valid.
+  // Local expiry hides this card; the server owns timeout resolution.
+  // Keep retryable errors visible only while the request remains valid.
   if (remaining === 0 || deadline.at <= Date.now()) return null;
 
   return createPortal(
     <section
       className={`perm-banner perm-banner--visible${tierClass}`}
+      aria-busy={submitting}
       aria-label={questions ? 'Agent questions' : 'Approval required'}
     >
       <div className="perm-banner-heading">
@@ -193,22 +204,36 @@ export function PermissionBanner({
         ) : (
           <>
             {description && <p className="perm-banner-desc">{description}</p>}
-            {toolInput && <pre className="perm-banner-input">{toolInput}</pre>}
             <p className="perm-banner-scope">
-              {approvalScope === 'conversation'
-                ? 'This integration remains available to this conversation across reconnects and Mitzo restarts, until its sandbox is deleted or access is revoked.'
-                : approvalScope === 'request'
-                  ? 'This approval covers only the displayed request. Another request needs its own approval.'
-                  : sessionSearch
-                    ? 'Allow searches on this account and model until the session ends. Website access stays separate.'
-                    : server
-                      ? `Session allowance covers all ${server} tools.`
-                      : 'Session allowance covers this tool until the task ends.'}
+              {sessionGrantDescription ||
+                (approvalScope === 'conversation'
+                  ? 'This integration remains available to this conversation across reconnects and Mitzo restarts, until its sandbox is deleted or access is revoked.'
+                  : approvalScope === 'request'
+                    ? 'Allow once covers the displayed request. Allow for session keeps this approval until the session ends.'
+                    : sessionSearch
+                      ? 'Allow searches on this account and model until the session ends. Website access stays separate.'
+                      : server
+                        ? `Session allowance covers all ${server} tools.`
+                        : 'Session allowance covers this tool until the task ends.')}
             </p>
+            {toolInput && (
+              <details key={permId} className="perm-banner-details" open>
+                <summary>
+                  <UiIcon name="forward" size={16} />
+                  Request details
+                </summary>
+                <pre className="perm-banner-input">{toolInput}</pre>
+              </details>
+            )}
           </>
         )}
       </div>
-      <div className="perm-banner-actions">
+      <div className={`perm-banner-actions${questions ? ' perm-banner-actions--questions' : ''}`}>
+        {submitting && (
+          <p className="perm-banner-scope perm-banner-submitting" role="status">
+            Sending response…
+          </p>
+        )}
         {responseError && (
           <p className="perm-banner-response-error" role="alert">
             {responseError}
@@ -217,8 +242,8 @@ export function PermissionBanner({
         {questions ? (
           <button
             className="perm-banner-btn perm-banner-btn--once"
-            disabled={!complete || remaining === 0}
-            onClick={() => onRespond(permId, 'once', toolName, answers)}
+            disabled={submitting || !complete || remaining === 0}
+            onClick={() => respond(permId, 'once', toolName, answers)}
           >
             Send answer
           </button>
@@ -226,25 +251,26 @@ export function PermissionBanner({
           <>
             <button
               className="perm-banner-btn perm-banner-btn--once"
-              disabled={remaining === 0}
-              onClick={() => onRespond(permId, 'once', toolName)}
+              aria-label={approvalScope === 'conversation' ? 'Grant to conversation' : 'Allow Once'}
+              disabled={submitting || remaining === 0}
+              onClick={() => respond(permId, 'once', toolName)}
             >
-              {approvalScope === 'conversation' ? 'Grant to conversation' : 'Allow Once'}
+              {approvalScope === 'conversation' ? 'Grant' : 'Once'}
             </button>
-            {approvalScope !== 'conversation' && approvalScope !== 'request' && (
-              <button
-                className="perm-banner-btn perm-banner-btn--always"
-                disabled={remaining === 0}
-                onClick={() => onRespond(permId, 'always', toolName)}
-              >
-                {sessionSearch ? 'Allow searches for this session' : 'Allow for session'}
-              </button>
-            )}
+            <button
+              className="perm-banner-btn perm-banner-btn--always"
+              aria-label={sessionSearch ? 'Allow searches for this session' : 'Allow for session'}
+              disabled={submitting || remaining === 0}
+              onClick={() => respond(permId, 'always', toolName)}
+            >
+              Session
+            </button>
           </>
         )}
         <button
           className="perm-banner-btn perm-banner-btn--deny"
-          onClick={() => onRespond(permId, 'deny', toolName)}
+          disabled={submitting}
+          onClick={() => respond(permId, 'deny', toolName)}
         >
           {questions ? 'Cancel' : 'Deny'}
         </button>

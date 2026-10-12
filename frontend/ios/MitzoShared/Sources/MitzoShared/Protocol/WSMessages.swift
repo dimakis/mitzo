@@ -610,6 +610,8 @@ public struct PermissionRequestParams: Codable, Sendable {
     public let decisionReason: String?
     public let tier: ToolTier?
     public let approvalScope: ApprovalScope?
+    public let sessionGrantDescription: String?
+    public let questions: [NotificationQuestion]?
 }
 
 public struct ToolResultParams: Codable, Sendable {

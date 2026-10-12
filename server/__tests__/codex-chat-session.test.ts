@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { afterEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -89,7 +89,7 @@ import {
   waitForCodexRuntimeBySessionId,
 } from '../codex-chat-session.js';
 import { KnowledgePublicationUnavailableError } from '../knowledge-publication-bridge.js';
-import { CodexRequestError } from '../codex-app-server-client.js';
+import { CodexAppServerClient, CodexRequestError } from '../codex-app-server-client.js';
 import { CodexStartupError } from '../codex-startup-error.js';
 import { RuntimePolicyAttestationError } from '../openshell-runtime-policy.js';
 import { OpenShellRuntimeManager } from '../openshell-runtime.js';
@@ -102,9 +102,19 @@ import { getLiveCapabilityConversationBinding } from '../capability-conversation
 import { SymposiumProfileProposalStore } from '../symposium-profile-proposals.js';
 import { SymposiumProfileStore } from '../symposium-profiles.js';
 
+beforeEach(() => {
+  vi.spyOn(OpenShellRuntimeManager.prototype, 'observeContract').mockResolvedValue({
+    resourceVersion: 'test-observation',
+    policy: {},
+    attestation: { basePolicy: {}, effectivePolicyHash: 'test', providers: [] },
+    approvedGrantableProviders: [],
+    requiredServiceEnvironment: [],
+  });
+});
 afterEach(() => {
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
+  vi.mocked(OpenShellRuntimeManager.prototype.observeContract).mockRestore();
 });
 it('uses assigned GitHub credentials instead of the legacy fallback on a new runtime', () => {
   const managed = [
@@ -551,7 +561,7 @@ it('does not advertise unavailable host tools to an OpenShell runtime', async ()
   expect(mocks.permissionHandler).toHaveBeenCalledWith(
     'TelosCreateOutcome',
     input,
-    expect.objectContaining({ forcePrompt: true }),
+    expect.objectContaining({ forcePrompt: true, allowSessionGrant: true }),
   );
   expect(fetch).toHaveBeenCalledWith(
     'http://localhost:3100/api/internal/telos/outcomes',
@@ -581,6 +591,11 @@ it('does not advertise unavailable host tools to an OpenShell runtime', async ()
   expect(
     await executeTool('TelosSaveArtifact', artifactInput, new AbortController().signal),
   ).toEqual({ content: JSON.stringify(receipt), isError: false });
+  expect(mocks.permissionHandler).toHaveBeenLastCalledWith(
+    'TelosSaveArtifact',
+    artifactInput,
+    expect.objectContaining({ forcePrompt: true, allowSessionGrant: true }),
+  );
   expect(fetch).toHaveBeenLastCalledWith(
     'http://localhost:3101/api/internal/telos/artifacts/save',
     expect.anything(),
@@ -808,6 +823,17 @@ it('advertises reviewed per-chat provider grants to a managed OpenShell runtime'
         signal,
       ),
     ).resolves.toBe(undefined);
+    const refreshTransport = mocks.conversationOptions?.refreshTransportBeforeTurn as () => boolean;
+    expect(refreshTransport()).toBe(true);
+    const launch = vi
+      .spyOn(CodexAppServerClient, 'launchOpenShell')
+      .mockReturnValue({} as CodexAppServerClient);
+    const createClient = mocks.conversationOptions?.createClient as (
+      callbacks: Record<string, unknown>,
+    ) => unknown;
+    createClient({});
+    expect(refreshTransport()).toBe(false);
+    launch.mockRestore();
     expect(hasAccess).toHaveBeenCalledWith(
       'conversation',
       expect.objectContaining({ sandboxName: 'mitzo-runtime' }),
@@ -848,6 +874,7 @@ it('advertises reviewed per-chat provider grants to a managed OpenShell runtime'
         signal,
       ),
     ).resolves.toContain('did not enable Google Workspace');
+    expect(refreshTransport()).toBe(false);
     expect(mocks.permissionHandler).toHaveBeenCalledOnce();
     vi.clearAllMocks();
 
@@ -1034,6 +1061,7 @@ it('advertises reviewed per-chat provider grants to a managed OpenShell runtime'
       expect.objectContaining({
         forcePrompt: true,
         approvalScope: 'conversation',
+        rememberSessionGrant: false,
         controlPlane: false,
         title: 'Grant Google Workspace to this conversation?',
         description: expect.stringContaining('across reconnects and Mitzo restarts'),
@@ -1240,7 +1268,7 @@ it('preserves image attachments while binding a trusted capability, forcing appr
     expect(mocks.permissionHandler).toHaveBeenCalledWith(
       'ExecuteProviderCapability',
       expect.any(Object),
-      expect.objectContaining({ forcePrompt: true, approvalScope: 'conversation' }),
+      expect.objectContaining({ forcePrompt: true, approvalScope: 'session' }),
     );
     const beforeReconnect = mocks.conversationOptions?.beforeReconnect as () => Promise<void>;
     mocks.setArtifactRuntime.mockClear();
@@ -1357,6 +1385,86 @@ it('registers a newly ensured sandbox before context initialization can fail', a
     provisional.mockRestore();
     compile.mockRestore();
     vi.unstubAllEnvs();
+  }
+});
+
+it('releases startup reservation before hook or client construction when environment attestation fails', async () => {
+  vi.clearAllMocks();
+  mocks.conversationOptions = undefined;
+  const release = vi.fn();
+  const { sharedOpenShellLifecycleCoordinator } = await import('../openshell-lifecycle.js');
+  const reserve = vi
+    .spyOn(sharedOpenShellLifecycleCoordinator, 'reserve')
+    .mockResolvedValue(release);
+  vi.stubEnv('MITZO_OPENSHELL_ENABLED', '1');
+  vi.stubEnv('MITZO_OPENSHELL_IMAGE', 'mitzo-runtime:1');
+  vi.stubEnv('MITZO_OPENSHELL_POLICY', '/config/policy.yaml');
+  vi.stubEnv('MITZO_OPENSHELL_SEED', '/seed/mgmt');
+  const ensure = vi.spyOn(OpenShellRuntimeManager.prototype, 'ensure').mockResolvedValue({
+    sandboxName: 'mitzo-runtime',
+    sandboxId: 'physical-id',
+    workdir: '/sandbox/workspaces/mgmt',
+    appServerCommand: '/sandbox/run-mitzo-app-server',
+    cli: 'openshell',
+    gateway: 'openshell',
+    workspace: 'default',
+    gatewayInsecure: false,
+  });
+  const compile = vi.spyOn(OpenShellRuntimeManager.prototype, 'compileContext').mockResolvedValue({
+    type: 'boot_context',
+    scope: 'sandbox',
+    sourceCount: 0,
+    tokenCount: 0,
+    tokenBudget: 12000,
+    sources: [],
+    included: [],
+    trimmed: [],
+    fullMarkdown: '',
+  });
+  const nativeHooks = await import('../native-hooks.js');
+  const hooks = vi.spyOn(nativeHooks, 'createNativeHooks');
+  const client = vi.spyOn(CodexAppServerClient, 'launchOpenShell');
+  const failure = new RuntimePolicyAttestationError('Unreviewed public provider profile');
+  vi.mocked(OpenShellRuntimeManager.prototype.observeContract).mockRejectedValueOnce(failure);
+  try {
+    const baseOptions = options(new AbortController());
+    await expect(
+      openCodexChat({
+        ...baseOptions,
+        conversationId: 'conversation',
+        binding: {
+          accountId: 'work',
+          accountLabel: 'Work',
+          provider: 'openai',
+          model: 'test-model',
+          profileRevision: '1',
+        },
+        profile: {
+          accountId: 'work',
+          accountLabel: 'Work',
+          email: 'work@example.com',
+          planType: 'api',
+          model: 'test-model',
+          sandboxProvider: 'openai-work',
+        },
+        prompt: 'Read Gmail evidence',
+        messageId: 'message',
+        systemPrompt: 'fixture',
+        env: {},
+      }),
+    ).rejects.toMatchObject({ phase: 'runtime_connection', cause: failure });
+    expect(release).toHaveBeenCalledOnce();
+    expect(hooks).not.toHaveBeenCalled();
+    expect(client).not.toHaveBeenCalled();
+    expect(mocks.initialize).not.toHaveBeenCalled();
+    expect(mocks.send).not.toHaveBeenCalled();
+    expect(mocks.conversationOptions).toBeUndefined();
+  } finally {
+    reserve.mockRestore();
+    ensure.mockRestore();
+    compile.mockRestore();
+    hooks.mockRestore();
+    client.mockRestore();
   }
 });
 

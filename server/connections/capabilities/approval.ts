@@ -30,6 +30,17 @@ export function capabilityApprovalPayload(request: Parameters<CapabilityApproval
   return payload;
 }
 
+/** Trusted operation class and connection policy scope, isolated by the owning session. */
+export function capabilitySessionGrantKey(request: Parameters<CapabilityApproval>[0]): string {
+  return JSON.stringify([
+    'capability',
+    request.capabilityId,
+    request.capabilityVersion,
+    request.connectionId,
+    request.connectionRevision ?? null,
+  ]);
+}
+
 /**
  * Capability mutations deliberately use Mitzo's existing permission queue. A
  * model, browser, or reconnect cannot convert a prior tool permission into a
@@ -49,7 +60,10 @@ export function capabilityApprovalForConversation(
         signal,
         toolUseID: randomUUID(),
         forcePrompt: request.forcePrompt,
-        approvalScope: 'conversation',
+        approvalScope: 'session',
+        sessionGrantKey: capabilitySessionGrantKey(request),
+        sessionGrantDescription:
+          'This capability class on this connection until this session ends. Current inputs and connection policy are checked on every operation.',
         title: 'Approve provider capability?',
         description:
           'This performs the reviewed provider operation shown below. Mitzo will record the result and verify it before reporting success.',

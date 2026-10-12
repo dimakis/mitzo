@@ -6,6 +6,7 @@ import type { ProviderPolicy } from './connections/types.js';
 import { createHash } from 'node:crypto';
 import { lstatSync, readFileSync, realpathSync } from 'node:fs';
 import { load } from 'js-yaml';
+import { z } from 'zod';
 import { canonicalJsonPayload } from '../scripts/verify-openshell-production.mjs';
 
 export interface RuntimePolicyProvider {
@@ -123,6 +124,41 @@ export function attestEffectiveRuntimePolicy(
     );
   }
 }
+/** Public required names only; policy/profile validation must precede workload gating. */
+export function verifiedRuntimeServiceEnvironment(
+  base: unknown,
+  observed: unknown,
+  providers: RuntimePolicyProvider[],
+  accountProvider: string,
+): string[] {
+  attestEffectiveRuntimePolicy(base, observed, providers);
+  const profile = z.object({
+    credentials: z
+      .array(
+        z.object({
+          required: z.boolean().default(false),
+          env_vars: z
+            .array(z.string().regex(/^[A-Z][A-Z0-9_]{0,127}$/))
+            .max(64)
+            .default([]),
+        }),
+      )
+      .default([]),
+  });
+  return [
+    ...new Set(
+      providers
+        .filter((p) => p.name !== accountProvider)
+        .flatMap((p) =>
+          profile
+            .parse(p.profile)
+            .credentials.filter((c) => c.required)
+            .flatMap((c) => c.env_vars),
+        ),
+    ),
+  ].sort();
+}
+
 function attestEffectiveRuntimePolicyUnchecked(
   base: unknown,
   observed: unknown,
