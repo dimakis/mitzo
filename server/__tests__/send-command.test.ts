@@ -10,6 +10,133 @@ const message = {
 };
 
 describe('durable send acceptance', () => {
+  it.each(['sync', 'async'] as const)(
+    'refuses %s null-session retries when the durable receipt session is bound',
+    (kind) => {
+      const store = new EventStore(':memory:');
+      const dispatch = vi.fn();
+      try {
+        const original = acceptSendCommand(store, message, dispatch);
+        const account = {
+          accountId: 'personal',
+          provider: 'openai-codex' as const,
+          profileRevision: 'p1',
+        };
+        store.createSessionWithRuntimeBinding(
+          {
+            sessionId: original.sessionId!,
+            repositoryWorkspaceId: 'w1',
+            cwd: '/task',
+            accountBinding: { ...account, accountLabel: 'Personal', model: 'fixture' },
+          },
+          {
+            version: 2,
+            account,
+            harness: { implementation: 'codex' },
+            execution: { location: 'local', targetId: 'mac', targetRevision: 't1' },
+          },
+        );
+        dispatch.mockClear();
+        expect(() =>
+          kind === 'sync'
+            ? acceptSendCommand(store, message, dispatch)
+            : acceptSendCommandAsync(store, message, dispatch, { replayExisting: true }),
+        ).toThrow(/guarded admission/i);
+        expect(dispatch).not.toHaveBeenCalled();
+        expect(store.getSendCommand(message.clientMsgId)?.sessionId).toBe(original.sessionId);
+      } finally {
+        store.close();
+      }
+    },
+  );
+  it.each(['sync', 'async'] as const)(
+    'refuses %s legacy ingress for runtime-bound sessions',
+    (kind) => {
+      const store = new EventStore(':memory:');
+      const dispatch = vi.fn();
+      try {
+        const binding = {
+          version: 2 as const,
+          account: {
+            accountId: 'personal',
+            provider: 'openai-codex' as const,
+            profileRevision: 'p1',
+          },
+          harness: { implementation: 'codex' as const },
+          execution: { location: 'local' as const, targetId: 'mac', targetRevision: 't1' },
+        };
+        store.createSessionWithRuntimeBinding(
+          {
+            sessionId: 'bound',
+            repositoryWorkspaceId: 'w1',
+            cwd: '/task',
+            accountBinding: { ...binding.account, accountLabel: 'Personal', model: 'fixture' },
+          },
+          binding,
+        );
+        const bound = { ...message, sessionId: 'bound' };
+        expect(() =>
+          kind === 'sync'
+            ? acceptSendCommand(store, bound, dispatch)
+            : acceptSendCommandAsync(store, bound, dispatch, { replayExisting: true }),
+        ).toThrow(/guarded admission/i);
+        expect(dispatch).not.toHaveBeenCalled();
+        expect(store.getSendCommand(message.clientMsgId)).toBeUndefined();
+      } finally {
+        store.close();
+      }
+    },
+  );
+  it.each(['sync', 'async'] as const)(
+    'refuses %s legacy retries of guarded first commands',
+    (kind) => {
+      const store = new EventStore(':memory:');
+      const dispatch = vi.fn();
+      try {
+        const binding = {
+          version: 2 as const,
+          account: {
+            accountId: 'personal',
+            provider: 'openai-codex' as const,
+            profileRevision: 'p1',
+          },
+          harness: { implementation: 'codex' as const },
+          execution: { location: 'local' as const, targetId: 'mac', targetRevision: 't1' },
+        };
+        store.admitOrdinaryLocalCommand(
+          {
+            sessionId: 'bound',
+            repositoryWorkspaceId: 'w1',
+            cwd: '/task',
+            accountBinding: { ...binding.account, accountLabel: 'Personal', model: 'fixture' },
+          },
+          binding,
+          {
+            clientMsgId: message.clientMsgId,
+            requestFingerprint: 'fp',
+            payload: message,
+            selection: {
+              version: 1,
+              agent: { profileId: 'a', revision: 1 },
+              context: { source: 'none', revision: null },
+              permission: { mode: 'ask', revision: 0 },
+              model: 'fixture',
+              thinking: null,
+            },
+          },
+        );
+        expect(() =>
+          kind === 'sync'
+            ? acceptSendCommand(store, message, dispatch)
+            : acceptSendCommandAsync(store, message, dispatch, { replayExisting: true }),
+        ).toThrow(/guarded admission/i);
+        expect(dispatch).not.toHaveBeenCalled();
+        expect(store.getOrdinaryLocalCommandAdmission(message.clientMsgId)?.state).toBe('reserved');
+      } finally {
+        store.close();
+      }
+    },
+  );
   it('accepts without a stream and dispatches a lost-response retry only once', () => {
     const store = new EventStore(':memory:');
     const dispatch = vi.fn();

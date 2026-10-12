@@ -97,6 +97,140 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+it('refuses runtime-bound legacy startup and preflight before provider or transcript effects', async () => {
+  vi.resetModules();
+  const root = await mkdtemp(join(tmpdir(), 'mitzo-bound-legacy-startup-'));
+  await writeFile(join(root, '.mitzo.json'), '{}');
+  vi.stubEnv('REPO_PATH', root);
+  vi.stubEnv('WORKTREE_ENABLED', 'false');
+  vi.stubEnv('MITZO_CODEX_PRIVATE_DIR', join(root, 'private'));
+  stubBootContext();
+  const chat = await import('../chat.js');
+  const accountProfiles = profiles();
+  const accountBinding = accountProfiles.resolve('work-api', 'gpt-test');
+  const sessionId = 'bound-runtime';
+  chat.eventStore.createSessionWithRuntimeBinding(
+    { sessionId, cwd: root, repositoryWorkspaceId: 'reserved-workspace', accountBinding },
+    {
+      version: 2,
+      account: {
+        accountId: accountBinding.accountId,
+        provider: accountBinding.provider,
+        profileRevision: accountBinding.profileRevision,
+      },
+      harness: { implementation: 'responses' },
+      execution: {
+        location: 'local',
+        targetId: 'fixture-local',
+        targetRevision: 'fixture-v1',
+      },
+    },
+  );
+  try {
+    expect(() =>
+      chat.preflightStartupProviderCommand(chat.eventStore, {
+        sessionId,
+        clientMsgId: 'cold-command',
+        prompt: 'hello',
+        cwd: root,
+      }),
+    ).toThrow(/guarded admission/i);
+    const onStartupAdmission = vi.fn();
+    await expect(
+      chat.startChat({ send: vi.fn(), isOpen: () => true }, 'bound-client', 'hello', {
+        resume: sessionId,
+        cwd: root,
+        accountProfiles,
+        clientMsgId: 'cold-command',
+        onStartupAdmission,
+      }),
+    ).rejects.toThrow(/guarded admission/i);
+    expect(onStartupAdmission).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: 'Runtime-bound commands require guarded admission',
+      }),
+    );
+    expect(native.construct).not.toHaveBeenCalled();
+    expect(native.connect).not.toHaveBeenCalled();
+    expect(native.credentialResolve).not.toHaveBeenCalled();
+    expect(chat.eventStore.hasUserMessage(sessionId, 'cold-command')).toBe(false);
+    expect(chat.registry.get('bound-client')).toBeUndefined();
+  } finally {
+    chat.registry.dispose();
+    chat.eventStore.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+it.each(['command', 'reattach-command', 'repository'] as const)(
+  'refuses a runtime binding under the effective %s-derived initial identity before startup effects',
+  async (source) => {
+    vi.resetModules();
+    const root = await mkdtemp(join(tmpdir(), 'mitzo-derived-bound-startup-'));
+    await writeFile(join(root, '.mitzo.json'), '{}');
+    vi.stubEnv('REPO_PATH', root);
+    vi.stubEnv('WORKTREE_ENABLED', 'false');
+    vi.stubEnv('MITZO_CODEX_PRIVATE_DIR', join(root, 'private'));
+    stubBootContext();
+    const chat = await import('../chat.js');
+    const accountProfiles = profiles();
+    const accountBinding = accountProfiles.resolve('work-api', 'gpt-test');
+    const clientMsgId = 'bound-derived-command';
+    const workspaceId = 'reserved-derived-workspace';
+    const sessionId = chat.nativeStartupSessionId(
+      source === 'repository' ? `repository:${workspaceId}` : clientMsgId,
+    );
+    chat.eventStore.createSessionWithRuntimeBinding(
+      { sessionId, cwd: root, repositoryWorkspaceId: workspaceId, accountBinding },
+      {
+        version: 2,
+        account: {
+          accountId: accountBinding.accountId,
+          provider: accountBinding.provider,
+          profileRevision: accountBinding.profileRevision,
+        },
+        harness: { implementation: 'responses' },
+        execution: { location: 'local', targetId: 'fixture-local', targetRevision: 'fixture-v1' },
+      },
+    );
+    const onStartupAdmission = vi.fn();
+    const transport = { send: vi.fn(), isOpen: () => true };
+    const reserveStartup = vi.spyOn(chat.eventStore, 'reserveOrdinaryStartup');
+    try {
+      // The old bypass enters the fake native queue indefinitely. Interrupt its
+      // viewer loop after the fake provider's first event so the Red run terminates.
+      const running = chat.startChat(transport, 'derived-bound-client', 'hello', {
+        cwd: root,
+        isolation: false,
+        accountId: 'work-api',
+        model: 'gpt-test',
+        accountProfiles,
+        clientMsgId,
+        onStartupAdmission,
+        ...(source === 'repository' ? { repositoryWorkspaceId: workspaceId } : {}),
+        ...(source === 'reattach-command' ? { reattachOnly: true } : {}),
+        onQueryEvent: () => chat.stopChat('derived-bound-client'),
+      });
+      await expect(running).rejects.toThrow(/guarded admission/i);
+      expect(onStartupAdmission).toHaveBeenCalledWith(
+        expect.objectContaining({ message: 'Runtime-bound commands require guarded admission' }),
+      );
+      expect(reserveStartup).not.toHaveBeenCalled();
+      expect(native.construct).not.toHaveBeenCalled();
+      expect(native.connect).not.toHaveBeenCalled();
+      expect(native.credentialResolve).not.toHaveBeenCalled();
+      expect(chat.registry.get('derived-bound-client')).toBeUndefined();
+      expect(chat.eventStore.hasUserMessage(sessionId, clientMsgId)).toBe(false);
+      expect(transport.send).not.toHaveBeenCalled();
+    } finally {
+      chat.stopChat('derived-bound-client');
+      chat.registry.dispose();
+      chat.eventStore.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+);
+
 it.each(['enrolled', 'managed'] as const)(
   'dispatches the exact verified %s key without a second generic credential read',
   async (custody) => {
