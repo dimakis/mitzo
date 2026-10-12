@@ -218,4 +218,49 @@ describe('ordinary local durable command admission', () => {
     ).toThrow();
     expect(store.getSession('s1')).toBeNull();
   });
+  it('rejects initial account-model contradiction without claiming or writing', () => {
+    const store = open();
+    expect(() =>
+      store.admitOrdinaryLocalCommand(
+        { ...meta, accountBinding: { ...meta.accountBinding, model: 'other' } },
+        binding,
+        input,
+      ),
+    ).toThrow(/model/i);
+    expect(store.getSession('s1')).toBeNull();
+    expect(store.getSendCommand('c1')).toBeUndefined();
+    expect(() => store.claimClientCommand('c1', 'other')).not.toThrow();
+  });
+  it.each(['runtime', 'admission'] as const)(
+    'preserves corrupt %s evidence and refuses generic recovery',
+    (kind) => {
+      const store = open();
+      store.admitOrdinaryLocalCommand(meta, binding, input);
+      const db = (store as unknown as { db: import('better-sqlite3').Database }).db;
+      if (kind === 'runtime')
+        db.prepare('UPDATE sessions SET runtime_binding=? WHERE session_id=?').run(
+          '{"version":99}',
+          's1',
+        );
+      else
+        db.prepare('UPDATE send_commands SET ordinary_admission=? WHERE client_msg_id=?').run(
+          '{"version":99}',
+          'c1',
+        );
+      const receiptBefore = db
+        .prepare('SELECT * FROM send_commands WHERE client_msg_id=?')
+        .get('c1');
+      const sessionBefore = db.prepare('SELECT * FROM sessions WHERE session_id=?').get('s1');
+      const eventsBefore = db.prepare('SELECT * FROM events WHERE session_id=?').all('s1');
+      expect(() => store.recoverPendingSendCommands()).toThrow();
+      expect(() => store.claimOrdinaryLocalCommandDispatch('c1')).toThrow();
+      expect(db.prepare('SELECT * FROM send_commands WHERE client_msg_id=?').get('c1')).toEqual(
+        receiptBefore,
+      );
+      expect(db.prepare('SELECT * FROM sessions WHERE session_id=?').get('s1')).toEqual(
+        sessionBefore,
+      );
+      expect(db.prepare('SELECT * FROM events WHERE session_id=?').all('s1')).toEqual(eventsBefore);
+    },
+  );
 });

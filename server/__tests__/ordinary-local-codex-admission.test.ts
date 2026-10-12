@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { createHash } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -109,6 +110,52 @@ function fixture(realStore?: EventStore, enabled = true, hasAuthority = true) {
   };
 }
 
+function recipeMetadata() {
+  const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
+  const recipe = {
+    version: 1,
+    source: 'workspace',
+    files: [],
+    tokenBudget: 256,
+    required: [],
+    excluded: [],
+  };
+  const definition = {
+    name: 'Agent',
+    descriptor: 'Test',
+    role: 'agent',
+    instructions: 'Offline',
+    expectedOutput: 'Evidence',
+    acceptanceCriteria: ['Use evidence'],
+    modelPolicyRole: 'agent',
+    contextRecipe: recipe,
+  };
+  const profile = { profileId: 'agent', revision: 1, definition, contentHash: hash(definition) };
+  const context = {
+    type: 'boot_context',
+    source: 'contexgin',
+    sourceCount: 0,
+    tokenCount: 1,
+    tokenBudget: 256,
+    sources: [],
+    included: [],
+    trimmed: [],
+    fullMarkdown: 'Offline',
+  };
+  const snapshot = {
+    source: 'workspace',
+    compilerRevision: 'fixture',
+    recipeHash: hash(recipe),
+    payloadHash: hash(context),
+    workspaceIdentity: 'b'.repeat(64),
+    context,
+    profileId: 'agent',
+    revision: 1,
+    profileHash: profile.contentHash,
+  };
+  return { profile, snapshot };
+}
+
 describe('guarded local Codex coordinator', () => {
   it.each(['disabled', 'missing-authority'])('fails closed when %s', async (kind) => {
     const f = fixture(undefined, kind !== 'disabled', kind !== 'missing-authority');
@@ -126,6 +173,140 @@ describe('guarded local Codex coordinator', () => {
       'invalid_request',
     );
     expect(f.trace).toEqual([]);
+  });
+  it.each([
+    { mode: 'auto' },
+    { selectedModel: 'other' },
+    { reasoningEffort: 'high' },
+    {
+      accountBinding: {
+        accountId: 'personal',
+        accountLabel: 'Personal',
+        provider: 'openai-codex',
+        profileRevision: 'profile-1',
+        model: 'other',
+      },
+    },
+    { agentProfile: { profileId: 'other', revision: 1 } },
+    { agentContext: { source: 'workspace', recipeHash: 'other' } },
+  ])('rejects metadata contradicting qualified command %s before authority', async (metadata) => {
+    const f = fixture();
+    Object.assign(f.meta, metadata);
+    await expect(f.coordinator.admit(f.meta, f.request, f.effects)).rejects.toThrow('metadata');
+    expect(f.trace).toEqual([]);
+  });
+  it('derives absent picker fields from qualified command settings', async () => {
+    const f = fixture();
+    await f.coordinator.admit(f.meta, f.request, f.effects);
+    expect(f.store.admitOrdinaryLocalCommand.mock.calls[0][0]).toMatchObject({
+      mode: 'agent',
+      selectedModel: 'fixture-model',
+      reasoningEffort: 'low',
+    });
+  });
+  it('passes a supplied canonical profile snapshot to owning authority', async () => {
+    const f = fixture();
+    const definition = {
+      name: 'Agent',
+      descriptor: 'Test',
+      role: 'agent',
+      instructions: 'Offline',
+      expectedOutput: 'Evidence',
+      acceptanceCriteria: ['Use evidence'],
+      modelPolicyRole: 'agent',
+    };
+    const profile = {
+      profileId: 'agent',
+      revision: 1,
+      definition,
+      contentHash: createHash('sha256').update(JSON.stringify(definition)).digest('hex'),
+    };
+    Object.assign(f.meta, { agentProfile: profile });
+    await f.coordinator.admit(f.meta, f.request, f.effects);
+    expect(f.authority.withAdmission.mock.calls[0][0].agentProfile).toEqual(profile);
+  });
+  it('passes exact supplied recipe and profile snapshots to authority and persistence', async () => {
+    const f = fixture();
+    const { profile, snapshot } = recipeMetadata();
+    Object.assign(f.meta, { agentProfile: profile, agentContext: snapshot });
+    f.request.selection.context = { source: 'workspace', revision: snapshot.recipeHash };
+    await f.coordinator.admit(f.meta, f.request, f.effects);
+    expect(f.authority.withAdmission.mock.calls[0][0]).toMatchObject({
+      agentProfile: profile,
+      agentContext: snapshot,
+    });
+    expect(f.store.admitOrdinaryLocalCommand.mock.calls[0][0]).toMatchObject({
+      agentProfile: profile,
+      agentContext: snapshot,
+    });
+  });
+  it.each(['recipeHash', 'profileHash', 'profileId', 'revision'])(
+    'rejects supplied snapshot %s drift before authority',
+    async (field) => {
+      const f = fixture();
+      const { profile, snapshot } = recipeMetadata();
+      f.request.selection.context = { source: 'workspace', revision: snapshot.recipeHash };
+      Object.assign(snapshot, {
+        [field]: field === 'revision' ? 2 : field === 'profileId' ? 'other' : 'a'.repeat(64),
+      });
+      Object.assign(f.meta, { agentProfile: profile, agentContext: snapshot });
+      await expect(f.coordinator.admit(f.meta, f.request, f.effects)).rejects.toThrow('metadata');
+      expect(f.trace).toEqual([]);
+    },
+  );
+  it('rejects changed compiled snapshots on an exact SQLite receipt retry', async () => {
+    const store = new EventStore(':memory:');
+    try {
+      const f = fixture(store);
+      const { profile, snapshot } = recipeMetadata();
+      Object.assign(f.meta, { agentProfile: profile, agentContext: snapshot });
+      f.request.selection.context = { source: 'workspace', revision: snapshot.recipeHash };
+      await f.coordinator.admit(f.meta, f.request, f.effects);
+      const changed = structuredClone(snapshot);
+      changed.context.fullMarkdown = 'Changed compiled context';
+      changed.payloadHash = createHash('sha256')
+        .update(JSON.stringify(changed.context))
+        .digest('hex');
+      Object.assign(f.meta, { agentContext: changed });
+      await expect(f.coordinator.admit(f.meta, f.request, f.effects)).rejects.toThrow(
+        'identity_conflict',
+      );
+      expect(f.effects.dispatch).toHaveBeenCalledTimes(1);
+      expect(store.getSession('session')?.agentContext?.context.fullMarkdown).toBe('Offline');
+    } finally {
+      store.close();
+    }
+  });
+  it('rejects changed profile content under the same pin and SQLite receipt', async () => {
+    const store = new EventStore(':memory:');
+    try {
+      const f = fixture(store);
+      const { profile } = recipeMetadata();
+      const { contextRecipe, ...definition } = profile.definition;
+      expect(contextRecipe.source).toBe('workspace');
+      const original = {
+        ...profile,
+        definition,
+        contentHash: createHash('sha256').update(JSON.stringify(definition)).digest('hex'),
+      };
+      Object.assign(f.meta, { agentProfile: original });
+      await f.coordinator.admit(f.meta, f.request, f.effects);
+      const changedDefinition = { ...definition, instructions: 'Changed profile instructions' };
+      Object.assign(f.meta, {
+        agentProfile: {
+          ...original,
+          definition: changedDefinition,
+          contentHash: createHash('sha256').update(JSON.stringify(changedDefinition)).digest('hex'),
+        },
+      });
+      await expect(f.coordinator.admit(f.meta, f.request, f.effects)).rejects.toThrow(
+        'identity_conflict',
+      );
+      expect(f.effects.dispatch).toHaveBeenCalledTimes(1);
+      expect(store.getSession('session')?.agentProfile?.contentHash).toBe(original.contentHash);
+    } finally {
+      store.close();
+    }
   });
   it('persists exact intent inside owning authority before resource effects', async () => {
     const f = fixture();
@@ -271,10 +452,22 @@ describe('guarded local Codex coordinator', () => {
     let store = new EventStore(path);
     try {
       const first = fixture(store);
+      const { profile, snapshot } = recipeMetadata();
+      Object.assign(first.meta, { agentProfile: profile, agentContext: snapshot });
+      first.request.selection.context = { source: 'workspace', revision: snapshot.recipeHash };
       await first.coordinator.admit(first.meta, first.request, first.effects);
       store.close();
       store = new EventStore(path);
       const resumed = fixture(store);
+      const saved = store.getSession('session')!;
+      Object.assign(resumed.meta, {
+        agentProfile: saved.agentProfile,
+        agentContext: saved.agentContext,
+      });
+      resumed.request.selection.context = {
+        source: 'workspace',
+        revision: saved.agentContext!.recipeHash,
+      };
       expect(
         await resumed.coordinator.admit(resumed.meta, resumed.request, resumed.effects),
       ).toEqual({ dispatched: false });

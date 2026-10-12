@@ -3,6 +3,9 @@ import { z } from 'zod';
 import {
   SessionRuntimeBindingV1Schema,
   OrdinaryLocalCommandSelectionSchema,
+  AgentLibraryVersionSchema,
+  AgentContextSnapshotSchema,
+  AccountBindingSchema,
   type SessionRuntimeBindingV2,
 } from '@mitzo/protocol';
 import type { EventStore } from './event-store.js';
@@ -36,6 +39,8 @@ export interface OrdinaryLocalCodexAdmissionExpectation {
   capabilityRevision: string;
   workspace: { workspaceId: string; cwd: string };
   selection: z.infer<typeof Selection>;
+  agentProfile?: Meta['agentProfile'];
+  agentContext?: Meta['agentContext'];
 }
 /** Injection belongs exclusively to the actual host-login/runtime/agent-context
  * owning authority. It must independently observe exact host, runtime, account,
@@ -81,6 +86,73 @@ function canonical(value: unknown): unknown {
 class OrdinaryLocalCodexAdmissionError extends Error {}
 function fail(reason: string): never {
   throw new OrdinaryLocalCodexAdmissionError(`Ordinary local Codex admission ${reason}`);
+}
+
+const contentDigest = (value: unknown) =>
+  createHash('sha256').update(JSON.stringify(value)).digest('hex');
+
+/** Session metadata cannot introduce a second model, mode, agent or recipe tuple. */
+function reconcileSessionMetadata(meta: Meta, request: OrdinaryLocalCodexCommandRequest): void {
+  const chosen = request.selection;
+  if (
+    (meta.mode !== undefined && meta.mode !== chosen.permission.mode) ||
+    (meta.selectedModel !== undefined && meta.selectedModel !== chosen.model) ||
+    (meta.reasoningEffort !== undefined && meta.reasoningEffort !== chosen.thinking)
+  )
+    fail('metadata_selection_mismatch');
+  meta.mode = chosen.permission.mode;
+  meta.selectedModel = chosen.model;
+  meta.reasoningEffort = chosen.thinking;
+  const account = AccountBindingSchema.safeParse(meta.accountBinding);
+  if (
+    !account.success ||
+    account.data.accountId !== request.runtime.account.accountId ||
+    account.data.provider !== request.runtime.account.provider ||
+    account.data.profileRevision !== request.runtime.account.profileRevision ||
+    account.data.model !== chosen.model
+  )
+    fail('metadata_account_mismatch');
+  meta.accountBinding = account.data;
+  if (meta.agentProfile !== undefined) {
+    const parsed = AgentLibraryVersionSchema.safeParse(meta.agentProfile);
+    if (
+      !parsed.success ||
+      parsed.data.profileId !== chosen.agent.profileId ||
+      parsed.data.revision !== chosen.agent.revision ||
+      parsed.data.contentHash !== contentDigest(parsed.data.definition)
+    )
+      fail('metadata_agent_mismatch');
+    const recipe = parsed.data.definition.contextRecipe;
+    if (
+      recipe
+        ? chosen.context.source !== recipe.source ||
+          chosen.context.revision !== contentDigest(recipe)
+        : chosen.context.source !== 'none'
+    )
+      fail('metadata_recipe_mismatch');
+    meta.agentProfile = parsed.data;
+  }
+  if (meta.agentContext !== undefined) {
+    const parsed = AgentContextSnapshotSchema.safeParse(meta.agentContext);
+    if (
+      !parsed.success ||
+      !meta.agentProfile ||
+      parsed.data.sandbox !== undefined ||
+      parsed.data.profileId !== chosen.agent.profileId ||
+      parsed.data.revision !== chosen.agent.revision ||
+      parsed.data.profileHash !== meta.agentProfile.contentHash ||
+      parsed.data.source !== chosen.context.source ||
+      parsed.data.recipeHash !== chosen.context.revision ||
+      parsed.data.payloadHash !==
+        contentDigest(
+          parsed.data.provenance
+            ? { context: parsed.data.context, provenance: parsed.data.provenance }
+            : parsed.data.context,
+        )
+    )
+      fail('metadata_context_mismatch');
+    meta.agentContext = parsed.data;
+  }
 }
 
 /** New-session first-command coordinator and exact-receipt retries only.
@@ -137,7 +209,8 @@ export class OrdinaryLocalCodexAdmissionCoordinator {
     const admittedMeta = structuredClone(meta);
     if (!admittedMeta.repositoryWorkspaceId || !admittedMeta.cwd) fail('workspace_unavailable');
     if (request.selection.permission.mode !== request.runtime.mode) fail('permission_mismatch');
-    assertNativeCodexContextAdmission(request.selection.context);
+    assertNativeCodexContextAdmission(request.selection.context, admittedMeta.agentContext);
+    reconcileSessionMetadata(admittedMeta, request);
     const inventory = structuredClone(d.catalog.inventory());
     if (inventory.capabilityRevision !== request.capabilityRevision) fail('capability_changed');
     const resolution = structuredClone(d.catalog.resolve(request.runtime));
@@ -171,6 +244,8 @@ export class OrdinaryLocalCodexAdmissionCoordinator {
       capabilityRevision: request.capabilityRevision,
       workspace: { workspaceId: admittedMeta.repositoryWorkspaceId, cwd: admittedMeta.cwd },
       selection: request.selection,
+      agentProfile: admittedMeta.agentProfile,
+      agentContext: admittedMeta.agentContext,
     };
     // Clone every boundary so an asynchronous owner cannot rewrite admitted input.
     const snapshot = structuredClone(expected);
@@ -189,7 +264,16 @@ export class OrdinaryLocalCodexAdmissionCoordinator {
           fail('authority_unavailable');
         }
         const fingerprint = `ordinary-local-codex-v1:${createHash('sha256')
-          .update(JSON.stringify(canonical({ request, workspace: snapshot.workspace })))
+          .update(
+            JSON.stringify(
+              canonical({
+                request,
+                workspace: snapshot.workspace,
+                agentProfile: snapshot.agentProfile,
+                agentContext: snapshot.agentContext,
+              }),
+            ),
+          )
           .digest('hex')}`;
         try {
           d.store.admitOrdinaryLocalCommand(

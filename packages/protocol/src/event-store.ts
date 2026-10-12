@@ -601,6 +601,8 @@ export class EventStore {
       requestFingerprint: input.requestFingerprint,
       state: 'reserved',
     });
+    if (AccountBindingSchema.parse(meta.accountBinding).model !== admission.selection.model)
+      throw new Error('Ordinary initial account model does not match command selection');
     return this.db!.transaction(() => {
       const existing = this.getSendCommand(input.clientMsgId);
       if (!existing && this.getSession(meta.sessionId))

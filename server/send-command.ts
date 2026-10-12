@@ -21,8 +21,10 @@ export interface AcceptSendCommandAsyncOptions {
 const pendingAsyncAcceptances = new WeakMap<EventStore, Map<string, Promise<SendReceipt>>>();
 
 function assertLegacySend(store: EventStore, message: SendMessage): void {
+  const retainedSessionId = store.getSendCommand(message.clientMsgId)?.sessionId;
   if (
     store.getOrdinaryLocalCommandAdmission?.(message.clientMsgId) ||
+    (retainedSessionId && store.getSessionRuntimeBinding?.(retainedSessionId)) ||
     (message.sessionId && store.getSessionRuntimeBinding?.(message.sessionId))
   )
     throw new Error('Runtime-bound commands require guarded admission');

@@ -11,6 +11,45 @@ const message = {
 
 describe('durable send acceptance', () => {
   it.each(['sync', 'async'] as const)(
+    'refuses %s null-session retries when the durable receipt session is bound',
+    (kind) => {
+      const store = new EventStore(':memory:');
+      const dispatch = vi.fn();
+      try {
+        const original = acceptSendCommand(store, message, dispatch);
+        const account = {
+          accountId: 'personal',
+          provider: 'openai-codex' as const,
+          profileRevision: 'p1',
+        };
+        store.createSessionWithRuntimeBinding(
+          {
+            sessionId: original.sessionId!,
+            repositoryWorkspaceId: 'w1',
+            cwd: '/task',
+            accountBinding: { ...account, accountLabel: 'Personal', model: 'fixture' },
+          },
+          {
+            version: 2,
+            account,
+            harness: { implementation: 'codex' },
+            execution: { location: 'local', targetId: 'mac', targetRevision: 't1' },
+          },
+        );
+        dispatch.mockClear();
+        expect(() =>
+          kind === 'sync'
+            ? acceptSendCommand(store, message, dispatch)
+            : acceptSendCommandAsync(store, message, dispatch, { replayExisting: true }),
+        ).toThrow(/guarded admission/i);
+        expect(dispatch).not.toHaveBeenCalled();
+        expect(store.getSendCommand(message.clientMsgId)?.sessionId).toBe(original.sessionId);
+      } finally {
+        store.close();
+      }
+    },
+  );
+  it.each(['sync', 'async'] as const)(
     'refuses %s legacy ingress for runtime-bound sessions',
     (kind) => {
       const store = new EventStore(':memory:');

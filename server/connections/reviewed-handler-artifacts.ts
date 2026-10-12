@@ -24,9 +24,9 @@ export function reviewedHandlerSourceFingerprint(source: string) {
 export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/ordinary-local-admission.ts':
     '85f66be424edfcbcb5b072b79a7113b491b1f486b7d6a0ba03ad9cbf2d3bdf2e',
-  '../send-command.ts': 'bdaf9e7574c1e59f6de84a5b6d693b2480a711871957d30fd7c639df5f8051d7',
+  '../send-command.ts': '18bc97eb0e66226fd777c77d58597293872c3e6378b071a91c6514511ffe9750',
   '../ordinary-local-codex-admission.ts':
-    'af25b0fb0b5d000288c85e9e9969c741609856f3f160618b629b62c7c7a77bbd',
+    'e6415b6b0b9e56620235134655c3715157d7205ea67be025c47bbca2adc30c81',
   '../ordinary-local-codex-capabilities.ts':
     'bea6fe896ae2956aca4d8b7ec62077ef2d35d0753a94ca78e888a721a26815ea',
   '../index.ts': 'e1fc4a9796bcf7d091aed3f5a93dff0e598719c95c8a6fc6edce7b214b450392',
@@ -218,7 +218,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../native-tool-executor.ts': '9c2f349a51febe5b8818358f558a67a4e324eda2f525d85a5578e84463f5dc01',
   '../repository-workspaces.ts': 'b7e8cd755cdf6483d706f41d5deca216736b40dbd7863a3be20edfd32abb811c',
   '../../packages/protocol/src/event-store.ts':
-    '1183a7703133018d82a4fe025258b736016d0a0fee7e9f208e31c51ec32d07ff',
+    '7ed44e360de257a3af728b46ebbc380334ef7666ef6d2fdb0bd6f92a82b7fc78',
   '../../packages/protocol/src/session-runtime-binding.ts':
     '074c03124322359a02795c7865a718205f80f8aa9fc6b4e0b5a8f43746d6ca4d',
   '../../packages/protocol/src/types.ts':
