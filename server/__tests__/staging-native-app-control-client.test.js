@@ -12,6 +12,8 @@ import { spawnSync } from 'node:child_process';
 import {
   parseNativeAppControlArguments,
   requestQualifiedNativeAppControl,
+  assertNativeAppClientCompletion,
+  selectNativeAppControlRow,
 } from '../../scripts/lib/staging-native-app-control-client.mjs';
 
 const allocation = '11111111-1111-1111-1111-111111111111';
@@ -90,5 +92,109 @@ describe('exact original native app control client', () => {
     ).rejects.toThrow();
     expect(lstatSync).not.toHaveBeenCalled();
     expect(spawnSync).not.toHaveBeenCalled();
+  });
+  it('accepts a genuine successful app replacement only after authenticated response against the new physical owner', () => {
+    const input = parseNativeAppControlArguments(argv('apply', digest), environment).input;
+    const parent = { pid: 20, birth: 'original', cwd: '/original' };
+    const original = {
+      sourceCommit: current,
+      instanceId: 'owner',
+      epoch: 1,
+      parent,
+      app: { pid: 30 },
+      acceptedAppSource: { acceptedAppCommit: current },
+    };
+    const owner = {
+      ...original,
+      epoch: 2,
+      app: { pid: 40 },
+      acceptedAppSource: { acceptedAppCommit: target },
+    };
+    const output = {
+      version: 1,
+      nativeSourceCommit: current,
+      acceptedAppSource: owner.acceptedAppSource,
+      planSha256: digest,
+      nativeAllocationChanged: false,
+      nativeRetirementClaim: false,
+    };
+    expect(() =>
+      assertNativeAppClientCompletion(input, current, undefined, original, {
+        phase: 'before-request',
+      }),
+    ).not.toThrow();
+    expect(() =>
+      assertNativeAppClientCompletion(input, current, original, owner, { phase: 'before-request' }),
+    ).toThrow();
+    expect(() =>
+      assertNativeAppClientCompletion(input, current, original, owner, {
+        phase: 'after-response',
+        output,
+      }),
+    ).not.toThrow();
+    for (const changed of [
+      { owner: { ...owner, epoch: 1 } },
+      { owner: { ...owner, app: { pid: 30 } } },
+      { owner: { ...owner, instanceId: 'foreign' } },
+      { owner: { ...owner, parent: { ...parent, pid: 21 } } },
+      { output: { ...output, planSha256: 'd'.repeat(64) } },
+      { output: { ...output, nativeRetirementClaim: true } },
+      { output: { ...output, acceptedAppSource: { acceptedAppCommit: current } } },
+    ])
+      expect(() =>
+        assertNativeAppClientCompletion(input, current, original, changed.owner ?? owner, {
+          phase: 'after-response',
+          output: changed.output ?? output,
+        }),
+      ).toThrow();
+    expect(() =>
+      assertNativeAppClientCompletion(
+        { ...input, operation: 'resources' },
+        current,
+        original,
+        owner,
+        { phase: 'after-response', output },
+      ),
+    ).toThrow();
+  });
+  it('keeps the exact historical uncertain launch and selects only one new active launch', () => {
+    const original = { launchId: 'old', state: 'retirement_uncertain', instanceId: 'original' };
+    const facts = {
+      original,
+      operation: allocation,
+      archiveRoot: '/archive',
+      registryBackupSha256: 'd'.repeat(64),
+      containmentReceiptSha256: 'e'.repeat(64),
+    };
+    const disposition = { facts, sha256: 'f'.repeat(64) };
+    const history = {
+      launchId: 'old',
+      classification: 'contained_offline_native_cleanup_unconfirmed',
+      recordJson: JSON.stringify({
+        instanceId: 'original',
+        launchId: 'old',
+        state: 'retirement_uncertain',
+      }),
+      proposalSha256: disposition.sha256,
+      operationId: allocation,
+      archive: '/archive',
+      registryBackupSha256: facts.registryBackupSha256,
+      receiptSha256: facts.containmentReceiptSha256,
+    };
+    const active = { launchId: 'new', state: 'active' },
+      rows = [original, active];
+    expect(selectNativeAppControlRow(rows, history, disposition)).toBe(active);
+    expect(original.state).toBe('retirement_uncertain');
+    for (const changed of [
+      { rows: [{ ...original, state: 'retired' }, active] },
+      { rows: [original, active, { launchId: 'foreign', state: 'active' }] },
+      { history: { ...history, operationId: 'foreign' } },
+      { history: { ...history, recordJson: '{"launchId":"old"}' } },
+      { history: { ...history, receiptSha256: '0'.repeat(64) } },
+      { rows: [original] },
+    ])
+      expect(() =>
+        selectNativeAppControlRow(changed.rows ?? rows, changed.history ?? history, disposition),
+      ).toThrow();
   });
 });

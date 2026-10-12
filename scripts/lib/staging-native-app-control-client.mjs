@@ -118,6 +118,70 @@ export function parseNativeAppControlArguments(argv, environment) {
   });
 }
 
+/** Receipt consistency only. Owner fields must come from independent physical
+ * checks; this function cannot restore native custody. */
+export function assertNativeAppClientCompletion(input, nativeCommit, original, owner, context) {
+  const selected = owner.acceptedAppSource?.acceptedAppCommit ?? owner.sourceCommit;
+  if (!context || !['before-request', 'after-response'].includes(context.phase)) throw refuse();
+  if (context.phase === 'before-request' || input.operation !== 'apply') {
+    if (
+      selected !== input.expectedCurrent ||
+      (original &&
+        (owner.instanceId !== original.instanceId ||
+          owner.epoch !== original.epoch ||
+          owner.app.pid !== original.app.pid))
+    )
+      throw refuse();
+    return;
+  }
+  const output = context.output;
+  if (
+    !original ||
+    !owner.acceptedAppSource ||
+    selected !== input.target ||
+    owner.instanceId !== original.instanceId ||
+    owner.epoch <= original.epoch ||
+    owner.app.pid === original.app.pid ||
+    digest(owner.parent) !== digest(original.parent) ||
+    !output ||
+    Object.keys(output).sort().join() !==
+      'acceptedAppSource,nativeAllocationChanged,nativeRetirementClaim,nativeSourceCommit,planSha256,version' ||
+    output.version !== 1 ||
+    output.nativeSourceCommit !== nativeCommit ||
+    output.planSha256 !== input.planSha256 ||
+    output.nativeAllocationChanged !== false ||
+    output.nativeRetirementClaim !== false ||
+    digest(output.acceptedAppSource) !== digest(owner.acceptedAppSource)
+  )
+    throw refuse();
+}
+
+/** Read-only historical selection. The original uncertain row is never changed
+ * or inferred retired. This view grants no capacity or original-owner authority. */
+export function selectNativeAppControlRow(rows, history, disposition) {
+  const facts = disposition.facts,
+    original = facts.original;
+  const prior = rows.find((value) => value.launchId === original.launchId);
+  if (!history || typeof history.recordJson !== 'string') throw refuse();
+  const recorded = JSON.parse(history.recordJson);
+  if (
+    digest(prior) !== digest(original) ||
+    digest(recorded) !== digest(original) ||
+    JSON.stringify(recorded) !== history.recordJson ||
+    history.launchId !== original.launchId ||
+    history.classification !== 'contained_offline_native_cleanup_unconfirmed' ||
+    history.proposalSha256 !== disposition.sha256 ||
+    history.operationId !== facts.operation ||
+    history.archive !== facts.archiveRoot ||
+    history.registryBackupSha256 !== facts.registryBackupSha256 ||
+    history.receiptSha256 !== facts.containmentReceiptSha256
+  )
+    throw refuse();
+  const active = rows.filter((value) => value.launchId !== original.launchId);
+  if (active.length !== 1 || active[0].state !== 'active') throw refuse();
+  return active[0];
+}
+
 /** Read-only physical client qualification. A record routes observations; it
  * cannot recreate native custody. The original server independently checks its
  * retained VM/child/queue lifetime before every operation and authenticates its
@@ -163,11 +227,15 @@ export async function requestQualifiedNativeAppControl({ allocation, input }) {
   });
   const service = join(root, 'symposium/allocations', allocation, 'service');
   const load = (name) => import(pathToFileURL(join(nativeSourceRoot, 'dist', name + '.js')).href);
-  const [releases, owners, controls] = await Promise.all([
+  const [releases, owners, controls, files, native] = await Promise.all([
     load('symposium-owned-release'),
     load('symposium-canonical-owner-record'),
     load('symposium-canonical-control'),
+    load('native-held-file-custody'),
+    load('staging-contained-native-disposition'),
   ]);
+  const disposition = native.createContainedNativeDispositionPlan(bootstrap.disposition.facts);
+  if (digest(disposition) !== digest(bootstrap.disposition)) throw refuse();
   const plan = releases.readOwnedReleasePlan(join(service, 'owned-release.json'));
   if (
     plan.sourceCommit !== nativeCommit ||
@@ -184,8 +252,24 @@ export async function requestQualifiedNativeAppControl({ allocation, input }) {
     nativeCommit,
   });
   const registryPath = join(root, 'registry/staging.db');
-  let originalPeer;
-  const assertServerCurrent = (peer) => {
+  const held = [];
+  const capture = (path, expected, maximumBytes) => {
+    const uid = lstatSync(path).uid;
+    if (![0, process.getuid()].includes(uid)) throw refuse();
+    const file = files.captureOriginalImmutableFile({
+      path,
+      sha256: expected,
+      maximumBytes,
+      uid,
+      assertCurrent() {
+        if (realpathSync(nativeSourceRoot) !== nativeSourceRoot) throw refuse();
+      },
+    });
+    held.push(file);
+  };
+  let originalPeer, originalOwner;
+  const assertServerCurrent = (peer, context) => {
+    for (const file of held) file.assertCurrent();
     if (
       !peer ||
       peer.uid !== process.getuid() ||
@@ -235,12 +319,17 @@ export async function requestQualifiedNativeAppControl({ allocation, input }) {
     let row;
     try {
       const rows = db.prepare('SELECT * FROM launches WHERE state != ?').all('retired');
+      if (db.prepare('SELECT capacity FROM policy WHERE id=1').get()?.capacity !== 1)
+        throw refuse();
+      const history = db
+        .prepare('SELECT * FROM contained_owned_launches WHERE launchId=?')
+        .get(disposition.facts.original.launchId);
+      row = selectNativeAppControlRow(rows, history, disposition);
       if (
-        rows.length !== 1 ||
-        db.prepare('SELECT capacity FROM policy WHERE id=1').get()?.capacity !== 1
+        sha(privateBytes(join(disposition.facts.archiveRoot, 'containment-receipt.json'))) !==
+        disposition.facts.containmentReceiptSha256
       )
         throw refuse();
-      row = rows[0];
     } finally {
       db.close();
     }
@@ -262,10 +351,7 @@ export async function requestQualifiedNativeAppControl({ allocation, input }) {
         compatibility.inspect(source.acceptedAppCommit);
       },
     );
-    if (
-      (owner.acceptedAppSource?.acceptedAppCommit ?? owner.sourceCommit) !== input.expectedCurrent
-    )
-      throw refuse();
+    assertNativeAppClientCompletion(input, nativeCommit, originalOwner, owner, context);
     assertStagingPipelineMutation({
       target: input.target,
       apply: input.operation === 'apply',
@@ -274,12 +360,38 @@ export async function requestQualifiedNativeAppControl({ allocation, input }) {
     if (digest(verifyPreparedController(root, nativeSourceRoot, nativeCommit)) !== digest(receipt))
       throw refuse();
     originalPeer ??= Object.freeze({ ...peer });
+    originalOwner ??= owner;
   };
-  return await requestOriginalNativeAppControl({
-    root,
-    allocation,
-    input,
-    approvedPeerInspector: provisioning.plan.peerInspector,
-    assertServerCurrent,
-  });
+  try {
+    capture(
+      join(disposition.facts.archiveRoot, 'original-registry.db'),
+      disposition.facts.registryBackupSha256,
+      64 * 1024 ** 2,
+    );
+    capture(process.execPath, provisioning.plan.node.sha256, 256 * 1024 ** 2);
+    capture(
+      provisioning.plan.peerInspector.path,
+      provisioning.plan.peerInspector.sha256,
+      1024 ** 2,
+    );
+    capture(
+      join(nativeSourceRoot, 'scripts/native/staging-vm-peer.c'),
+      provisioning.plan.peerInspector.sourceSha256,
+      1024 ** 2,
+    );
+    capture(
+      join(nativeSourceRoot, 'dist/staging-vm-peer/build.json'),
+      provisioning.plan.peerInspector.buildReceiptSha256,
+      8192,
+    );
+    return await requestOriginalNativeAppControl({
+      root,
+      allocation,
+      input,
+      approvedPeerInspector: provisioning.plan.peerInspector,
+      assertServerCurrent,
+    });
+  } finally {
+    for (const file of held) file.close();
+  }
 }
