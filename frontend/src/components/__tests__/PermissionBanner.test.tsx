@@ -21,6 +21,41 @@ afterEach(() => {
 });
 
 describe('PermissionBanner', () => {
+  it('shows response progress, prevents duplicates and allows retry after failure', () => {
+    const onRespond = vi.fn();
+    const { rerender } = render(<PermissionBanner {...defaultProps} onRespond={onRespond} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Allow for session' }));
+    expect(screen.getByRole('status').textContent).toContain('Sending response');
+    fireEvent.click(screen.getByRole('button', { name: 'Allow for session' }));
+    expect(onRespond).toHaveBeenCalledTimes(1);
+    rerender(
+      <PermissionBanner {...defaultProps} onRespond={onRespond} responseError="Try again" />,
+    );
+    expect(screen.getByRole('button', { name: 'Allow for session' }).hasAttribute('disabled')).toBe(
+      false,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Allow for session' }));
+    expect(onRespond).toHaveBeenCalledTimes(2);
+  });
+
+  it('uses the server-owned scope explanation for session retention', () => {
+    render(
+      <PermissionBanner
+        {...defaultProps}
+        approvalScope="request"
+        sessionGrantDescription="Keep website access for this domain until the session ends."
+      />,
+    );
+    expect(
+      screen.getByText('Keep website access for this domain until the session ends.'),
+    ).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Allow for session' })).toBeTruthy();
+  });
+  it('keeps approval details collapsed behind a labelled disclosure', () => {
+    render(<PermissionBanner {...defaultProps} />);
+    expect(screen.getByText('Request details').closest('details')?.open).toBe(false);
+  });
+
   it('renders at the document root so mobile navigation cannot cover its actions', () => {
     render(<PermissionBanner {...defaultProps} />);
 
@@ -66,13 +101,13 @@ describe('PermissionBanner', () => {
     expect(onRespond).toHaveBeenCalledWith('p1', 'deny', 'Bash');
   });
 
-  it('auto-deny fires when timer reaches 0', () => {
+  it('local expiry does not fabricate a user denial', () => {
     const onRespond = vi.fn();
     render(<PermissionBanner {...defaultProps} onRespond={onRespond} />);
     act(() => {
       vi.advanceTimersByTime(120_000);
     });
-    expect(onRespond).toHaveBeenCalledWith('p1', 'deny', 'Bash');
+    expect(onRespond).not.toHaveBeenCalled();
   });
 
   it('removes the expired card even when the timeout response is rejected', () => {
@@ -97,7 +132,7 @@ describe('PermissionBanner', () => {
     expect(screen.queryByLabelText('Approval required')).toBeNull();
   });
 
-  it('removes the permission from local state before submitting the timeout denial', () => {
+  it('removes the permission from local state without submitting a timeout denial', () => {
     const calls: string[] = [];
     const onExpire = vi.fn(() => calls.push('expire'));
     const onRespond = vi.fn(() => calls.push('deny'));
@@ -111,7 +146,8 @@ describe('PermissionBanner', () => {
     );
     act(() => vi.advanceTimersByTime(1000));
     expect(onExpire).toHaveBeenCalledExactlyOnceWith('p1');
-    expect(calls).toEqual(['expire', 'deny']);
+    expect(calls).toEqual(['expire']);
+    expect(onRespond).not.toHaveBeenCalled();
   });
 
   it('renders all action buttons with correct CSS classes', () => {
@@ -204,8 +240,8 @@ describe('PermissionBanner', () => {
       <PermissionBanner {...defaultProps} onRespond={onRespond} expiresAt={Date.now() + 3000} />,
     );
     act(() => vi.advanceTimersByTime(3000));
-    expect(onRespond).toHaveBeenCalledTimes(1);
-    expect(onRespond).toHaveBeenCalledWith('p1', 'deny', 'Bash');
+    expect(onRespond).not.toHaveBeenCalled();
+    expect(screen.queryByLabelText('Approval required')).toBeNull();
   });
   it('shows full approval input and explains the scope of session allowance', () => {
     const input = 'x'.repeat(450);
@@ -214,7 +250,7 @@ describe('PermissionBanner', () => {
     expect(screen.getByRole('button', { name: 'Allow for session' })).toBeTruthy();
   });
 
-  it('discloses durable conversation grants without session or once wording', () => {
+  it('offers session retention alongside a durable conversation grant', () => {
     const onRespond = vi.fn();
     render(
       <PermissionBanner
@@ -227,7 +263,7 @@ describe('PermissionBanner', () => {
 
     expect(screen.getByText(/across reconnects and Mitzo restarts/)).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Allow Once' })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Allow for session' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Allow for session' })).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Grant to conversation' }));
     expect(onRespond).toHaveBeenCalledWith('p1', 'once', 'GrantIntegrationAccess');
   });
@@ -251,19 +287,19 @@ describe('PermissionBanner', () => {
     expect(
       screen.queryByText('Session allowance covers this tool until the task ends.'),
     ).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Allow for session' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Allow searches for this session' })).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Allow searches for this session' }));
     expect(onRespond).toHaveBeenCalledWith('p1', 'always', 'RequestWebAccess');
   });
   it.each(['RequestWebAccess', 'GitCommit', 'Bash', 'ExecuteProviderCapability'])(
-    'offers only a one-time approval for exact %s requests',
+    'offers session retention for exact %s requests',
     (toolName) => {
       render(<PermissionBanner {...defaultProps} toolName={toolName} approvalScope="request" />);
       expect(screen.getByRole('button', { name: 'Allow Once' })).toBeTruthy();
-      expect(screen.queryByRole('button', { name: 'Allow for session' })).toBeNull();
+      expect(screen.getByRole('button', { name: 'Allow for session' })).toBeTruthy();
       expect(
         screen.getByText(
-          'This approval covers only the displayed request. Another request needs its own approval.',
+          'Allow once covers the displayed request. Allow for session keeps this approval until the session ends.',
         ),
       ).toBeTruthy();
     },

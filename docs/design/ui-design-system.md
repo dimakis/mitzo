@@ -217,3 +217,22 @@ and [the full-screen desktop preview](assets/image-preview-desktop-dark.png).
 The intercepted browser fixture checks saved PNG pixels and the exact attachment
 bytes submitted across four runtime bindings on mobile WebKit, mobile Chromium
 and desktop Chromium, without backend or provider calls.
+
+## Approval cards
+
+`PermissionBanner` uses a quiet token-styled surface and content-width outlined
+44px actions. Allow once, Allow for session and Deny remain explicit; durable
+integration grants keep their existing conversation label alongside session
+retention. The server supplies the human scope explanation when available.
+Request details start collapsed in a native labelled disclosure with `UiIcon`,
+keeping full long input accessible without crowding the decision. Shared CSS
+entrance motion remains in effect. The card body scrolls independently while
+its decision row stays reachable on narrow phones and with larger text.
+
+Structured questions retain their choices and written answer fields, Send answer
+and Cancel. They do not offer session authorization. Response progress disables
+duplicate decisions; errors retain the card and allow retry. Local expiry removes
+the card without submitting a user denial; the server owns timeout resolution.
+Offline approval fixtures cover 320px mobile WebKit/Chromium and desktop Chromium,
+light/dark themes, Mint/Georgia appearance, larger text, long request details,
+keyboard focus and 44px controls without a backend or model call.
