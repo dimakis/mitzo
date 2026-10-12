@@ -8,7 +8,9 @@ import { ConnectionStore } from '../connections-store.js';
 import { RevisionConflictError } from '../connections-store.js';
 import { ConnectionCreationFailed } from '../connections-service.js';
 import { createConnectionsRouter } from '../connections-router.js';
-vi.mock('../auth.js', () => ({ verifyPassphrase: (value: string) => value === 'correct' }));
+vi.mock('../operator-session.js', () => ({
+  verifyPassphrase: (value: string) => value === 'correct',
+}));
 describe('connections router', () => {
   it('requires an operator browser session and fresh reauthorization for advanced custom create and rotate', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'connections-router-'));

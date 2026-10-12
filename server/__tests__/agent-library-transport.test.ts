@@ -4,7 +4,7 @@ const mocks = vi.hoisted(() => ({
   invalidate: vi.fn(),
   revoked: (() => {}) as () => void,
 }));
-vi.mock('../auth.js', () => ({
+vi.mock('../operator-session.js', () => ({
   registerAuthSession: (_auth: unknown, onRevoked: () => void) => {
     mocks.revoked = onRevoked;
     return () => {};

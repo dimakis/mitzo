@@ -426,6 +426,7 @@ it('provisions a new draft through owned argv and makes its checked mapping avai
         profileName: 'codex',
       },
       assertCurrent,
+      assertOriginalCleanupCurrent: assertCurrent,
     }),
   }));
   const config = {
