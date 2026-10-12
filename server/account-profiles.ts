@@ -319,6 +319,28 @@ export class AccountProfiles {
     );
   }
 
+  /** Configuration/cache metadata for the dormant local capability snapshot.
+   * Never refreshes discovery, checks sign-in or opens a provider connection.
+   */
+  ordinaryLocalCodexInventory() {
+    return this.ordinaryLocalCodexAccounts().map((account) => {
+      const profile = this.profiles.find((candidate) => candidate.id === account.accountId)!;
+      const discovered = cachedModels(JSON.stringify(profile));
+      const { accountId, provider, profileRevision, planType } = account;
+      return {
+        account: { accountId, provider, profileRevision },
+        planType,
+        label: profile.label,
+        models: structuredClone(discovered?.models ?? profile.models),
+        modelDiscovery: {
+          source: discovered?.models ? ('cached' as const) : ('configured' as const),
+          stale: !!discovered?.error,
+          ...(discovered?.updatedAt === undefined ? {} : { updatedAt: discovered.updatedAt }),
+        },
+      };
+    });
+  }
+
   catalog() {
     return this.profiles
       .filter((p) => p.provider !== 'openai-codex' || this.options.codexEnabled)
