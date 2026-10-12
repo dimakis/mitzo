@@ -1,6 +1,10 @@
 import { defineConfig, devices } from '@playwright/test';
+import { assertPlaywrightHost } from './tests/support/playwright-host';
+
+assertPlaywrightHost();
 
 export default defineConfig({
+  globalSetup: './tests/support/playwright-global-setup.ts',
   testDir: './tests/browser',
   use: { baseURL: 'http://127.0.0.1:4179', trace: 'retain-on-failure' },
   projects: [

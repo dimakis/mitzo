@@ -767,6 +767,16 @@ npm run lint         # ESLint: server, frontend and shared packages (including t
 npm run format:check # prettier
 ```
 
+On macOS, run Playwright commands in a normal terminal or through an approved
+execution outside the Codex Seatbelt sandbox. Sandboxed launches can abort during
+macOS process registration and produce repeated crash popups. Both test configs
+refuse that environment before starting a browser or preview server; `--list`
+still works for discovery. A startup preflight opens a blank page once per configured
+browser engine/launch configuration and stops the suite if startup fails, so a
+broken browser is not relaunched for every test. The offline suite starts no
+backend and makes no model calls. Ad hoc browser scripts need the same execution
+environment; they do not inherit the config guard.
+
 CI runs the full source test suite without compiled test copies. New PR commits
 cancel superseded code-validation runs; description edits rerun only the
 documentation gate. Browser and native checks follow their changed-file
