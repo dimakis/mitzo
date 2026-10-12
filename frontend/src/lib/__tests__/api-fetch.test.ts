@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   apiFetch,
   getApiBaseUrl,
@@ -16,6 +16,8 @@ import {
 
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
+
+afterEach(() => vi.useRealTimers());
 
 beforeEach(() => {
   mockFetch.mockReset();
@@ -482,4 +484,71 @@ it('does not reuse or grant auth proof for a token replaced during verification'
   await expect(fresh).resolves.toBe(false);
   finishOld(new Response('{}', { status: 200 }));
   await expect(old).resolves.toBe(false);
+});
+
+describe('stalled authentication recovery', () => {
+  it('bounds a shared stalled check, aborts it and allows a fresh retry without deleting credentials', async () => {
+    vi.useFakeTimers();
+    localStorage.setItem('mitzo_auth_token', 'valid-token');
+    mockFetch.mockReturnValueOnce(new Promise(() => {}));
+    const rejected = vi.fn();
+    const first = restoreCookieAuthentication();
+    const second = restoreCookieAuthentication();
+    void first.catch(rejected);
+    void second.catch(rejected);
+    expect(mockFetch).toHaveBeenCalledOnce();
+
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(rejected).toHaveBeenCalledTimes(2);
+    expect(mockFetch.mock.calls[0][1].signal.aborted).toBe(true);
+    expect(localStorage.getItem('mitzo_auth_token')).toBe('valid-token');
+    expect(await restoreCookieAuthentication()).toBe(true);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it.each([200, 401])(
+    'ignores a late %s from an expired check while its retry is pending',
+    async (status) => {
+      vi.useFakeTimers();
+      localStorage.setItem('mitzo_auth_token', 'valid-token');
+      let finishOld!: (response: Response) => void;
+      let finishRetry!: (response: Response) => void;
+      mockFetch.mockReturnValueOnce(
+        new Promise<Response>((resolve) => {
+          finishOld = resolve;
+        }),
+      );
+      const rejected = vi.fn();
+      void restoreCookieAuthentication().catch(rejected);
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(rejected).toHaveBeenCalledOnce();
+
+      mockFetch.mockReturnValueOnce(
+        new Promise<Response>((resolve) => {
+          finishRetry = resolve;
+        }),
+      );
+      const retry = restoreCookieAuthentication();
+      finishOld(new Response('{}', { status }));
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(localStorage.getItem('mitzo_auth_token')).toBe('valid-token');
+      const joined = restoreCookieAuthentication();
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+      finishRetry(new Response('{}', { status: 200 }));
+      await expect(Promise.all([retry, joined])).resolves.toEqual([true, true]);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(vi.getTimerCount()).toBe(0);
+    },
+  );
+
+  it('treats a server outage as retryable unavailability, preserving the login', async () => {
+    localStorage.setItem('mitzo_auth_token', 'valid-token');
+    mockFetch.mockResolvedValueOnce(new Response('{}', { status: 503 }));
+    await expect(restoreCookieAuthentication()).rejects.toThrow();
+    expect(localStorage.getItem('mitzo_auth_token')).toBe('valid-token');
+    expect(await restoreCookieAuthentication()).toBe(true);
+  });
 });

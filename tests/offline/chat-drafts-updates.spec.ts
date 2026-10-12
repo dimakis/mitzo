@@ -240,6 +240,67 @@ async function workspace(page: Page) {
   const toggle = page.getByRole('button', { name: /^Workspace controls/ });
   if ((await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click();
 }
+
+for (const theme of ['light', 'dark']) {
+  test(`authentication recovery: stalled startup stays recoverable across tabs (${theme})`, async ({
+    page,
+    isMobile,
+  }, testInfo) => {
+    const fixture = await offline(page);
+    await seed(page, {
+      mitzo_auth_token: 'offline-valid-token',
+      'mitzo-theme': theme,
+      'mitzo-accent': 'mint',
+      'mitzo-font': 'georgia',
+    });
+    await page.addInitScript(() => {
+      const originalFetch = window.fetch.bind(window);
+      let stalled = true;
+      Object.assign(window, {
+        recoverOfflineAuthentication: () => {
+          stalled = false;
+        },
+      });
+      window.fetch = (input, init) => {
+        const url =
+          typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+        if (stalled && new URL(url, location.href).pathname === '/api/auth/check')
+          return new Promise<Response>(() => {}); // Deliberately ignore abort, like a stalled transport.
+        return originalFetch(input, init);
+      };
+    });
+    await page.clock.install();
+    await page.goto('/sessions');
+    await expect(page.getByText('Checking authentication…')).toBeVisible();
+    if (isMobile) {
+      await page.getByRole('link', { name: 'Today', exact: true }).click();
+      await page.getByRole('link', { name: 'Chats', exact: true }).click();
+    }
+    await page.clock.fastForward(5_000);
+    await expect(page.getByRole('alert')).toContainText('Mitzo could not be reached');
+    await expect(page.getByText('Checking authentication…')).toHaveCount(0);
+    const retry = page.getByRole('button', { name: 'Retry', exact: true });
+    await expect(retry).toBeVisible();
+    await page.screenshot({
+      path: testInfo.outputPath(`auth-timeout-${theme}.png`),
+      animations: 'disabled',
+    });
+    expect(await page.evaluate(() => localStorage.getItem('mitzo_auth_token'))).toBe(
+      'offline-valid-token',
+    );
+    await page.evaluate(() =>
+      (
+        window as unknown as { recoverOfflineAuthentication: () => void }
+      ).recoverOfflineAuthentication(),
+    );
+    await retry.click();
+    await expect(page.getByRole('heading', { name: 'Chats', exact: true })).toBeVisible();
+    await expect(page.getByRole('link', { name: /Drafts/ })).toHaveCount(0);
+    await layout(page);
+    expect(fixture.mutations).toEqual([]);
+    expect(fixture.errors).toEqual([]);
+  });
+}
 async function layout(page: Page) {
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 }

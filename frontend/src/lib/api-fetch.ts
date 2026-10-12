@@ -17,6 +17,7 @@ let authGeneration = 0;
 let authenticationRestored = false;
 const pendingTodoReads = new Map<string, Promise<Response>>();
 const COOKIE_AUTH_VERIFICATION_MS = 30_000;
+const COOKIE_AUTH_CHECK_TIMEOUT_MS = 5_000;
 let verifiedCookieAuth: { generation: number; token: string | null; expiresAt: number } | null =
   null;
 let cookieRestoreInFlight: {
@@ -155,6 +156,7 @@ export async function apiFetch(path: string, init?: RequestInit): Promise<Respon
   const currentToken = getStoredAuthToken();
   if (
     response.status === 401 &&
+    !init?.signal?.aborted &&
     !path.endsWith('/api/auth/login') &&
     currentToken === token &&
     authGeneration === requestAuthGeneration
@@ -182,21 +184,38 @@ export function restoreCookieAuthentication(): Promise<boolean> {
     return cookieRestoreInFlight.promise;
   }
   const attempt = (async () => {
-    const response = await apiFetch('/api/auth/check');
-    if (
-      !response.ok ||
-      authGeneration !== restoreGeneration ||
-      getStoredAuthToken() !== restoreToken ||
-      isLogoutPending()
-    )
-      return false;
-    loginSucceeded();
-    verifiedCookieAuth = {
-      generation: authGeneration,
-      token: getStoredAuthToken(),
-      expiresAt: Date.now() + COOKIE_AUTH_VERIFICATION_MS,
-    };
-    return true;
+    const controller = new AbortController();
+    let timeout!: ReturnType<typeof setTimeout>;
+    // Bound settlement even if a native transport does not acknowledge abort.
+    const deadline = new Promise<never>((_resolve, reject) => {
+      timeout = setTimeout(() => {
+        reject(new Error('Authentication check timed out'));
+        controller.abort();
+      }, COOKIE_AUTH_CHECK_TIMEOUT_MS);
+    });
+    try {
+      const response = await Promise.race([
+        apiFetch('/api/auth/check', { signal: controller.signal }),
+        deadline,
+      ]);
+      if (
+        authGeneration !== restoreGeneration ||
+        getStoredAuthToken() !== restoreToken ||
+        isLogoutPending()
+      )
+        return false;
+      if (response.status === 401 || response.status === 403) return false;
+      if (!response.ok) throw new Error('Authentication service unavailable');
+      loginSucceeded();
+      verifiedCookieAuth = {
+        generation: authGeneration,
+        token: getStoredAuthToken(),
+        expiresAt: Date.now() + COOKIE_AUTH_VERIFICATION_MS,
+      };
+      return true;
+    } finally {
+      clearTimeout(timeout);
+    }
   })();
   cookieRestoreInFlight = { generation: restoreGeneration, token: restoreToken, promise: attempt };
   const clear = () => {
