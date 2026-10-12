@@ -115,8 +115,8 @@ export function PermissionBanner({
       : tier === 'unknown'
         ? ' perm-banner--unknown'
         : '';
-  // Expiry is terminal for this card even if the server timeout won the race
-  // and rejected our denial. Keep retryable errors visible only while valid.
+  // Local expiry hides this card; the server owns timeout resolution.
+  // Keep retryable errors visible only while the request remains valid.
   if (remaining === 0 || deadline.at <= Date.now()) return null;
 
   return createPortal(
@@ -205,7 +205,7 @@ export function PermissionBanner({
           <>
             {description && <p className="perm-banner-desc">{description}</p>}
             {toolInput && (
-              <details className="perm-banner-details">
+              <details key={permId} className="perm-banner-details" open>
                 <summary>
                   <UiIcon name="forward" size={16} />
                   Request details
@@ -228,7 +228,7 @@ export function PermissionBanner({
           </>
         )}
       </div>
-      <div className="perm-banner-actions">
+      <div className={`perm-banner-actions${questions ? ' perm-banner-actions--questions' : ''}`}>
         {submitting && (
           <p className="perm-banner-scope perm-banner-submitting" role="status">
             Sending response…
@@ -251,17 +251,19 @@ export function PermissionBanner({
           <>
             <button
               className="perm-banner-btn perm-banner-btn--once"
+              aria-label={approvalScope === 'conversation' ? 'Grant to conversation' : 'Allow Once'}
               disabled={submitting || remaining === 0}
               onClick={() => respond(permId, 'once', toolName)}
             >
-              {approvalScope === 'conversation' ? 'Grant to conversation' : 'Allow Once'}
+              {approvalScope === 'conversation' ? 'Grant' : 'Once'}
             </button>
             <button
               className="perm-banner-btn perm-banner-btn--always"
+              aria-label={sessionSearch ? 'Allow searches for this session' : 'Allow for session'}
               disabled={submitting || remaining === 0}
               onClick={() => respond(permId, 'always', toolName)}
             >
-              {sessionSearch ? 'Allow searches for this session' : 'Allow for session'}
+              Session
             </button>
           </>
         )}

@@ -224,9 +224,15 @@ for (const theme of ['dark', 'light']) {
         'rgba(0, 0, 0, 0)',
       );
     }
+    const actionBoxes = await Promise.all(
+      ['Allow Once', 'Allow for session', 'Deny'].map((name) =>
+        card.getByRole('button', { name, exact: true }).boundingBox(),
+      ),
+    );
+    expect(
+      Math.max(...actionBoxes.map((box) => box!.y)) - Math.min(...actionBoxes.map((box) => box!.y)),
+    ).toBeLessThan(1);
     const details = card.locator('details');
-    await expect(details).not.toHaveAttribute('open', '');
-    await card.getByText('Request details', { exact: true }).click();
     await expect(details).toHaveAttribute('open', '');
     await expect(card.locator('pre')).toContainText('long-request-path/'.repeat(50));
     for (const button of await card.getByRole('button').all())
@@ -234,6 +240,8 @@ for (const theme of ['dark', 'light']) {
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
       true,
     );
+    await card.getByText('Request details', { exact: true }).click();
+    await expect(details).not.toHaveAttribute('open', '');
     await card.getByText('Request details', { exact: true }).click();
     await page.evaluate((theme) => {
       if (theme === 'dark') document.documentElement.style.fontSize = '';

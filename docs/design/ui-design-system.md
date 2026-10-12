@@ -220,12 +220,13 @@ and desktop Chromium, without backend or provider calls.
 
 ## Approval cards
 
-`PermissionBanner` uses a quiet token-styled surface and content-width outlined
-44px actions. Allow once, Allow for session and Deny remain explicit; durable
+`PermissionBanner` uses a quiet token-styled surface and compact outlined
+44px actions in one row. Allow once, Allow for session and Deny remain explicit; durable
 integration grants keep their existing conversation label alongside session
 retention. The server supplies the human scope explanation when available.
-Request details start collapsed in a native labelled disclosure with `UiIcon`,
-keeping full long input accessible without crowding the decision. Shared CSS
+Request details start open in a native labelled disclosure with `UiIcon`,
+keeping full long input accessible and collapsible. Visible Once, Session and Deny
+labels retain full accessible action names. Shared CSS
 entrance motion remains in effect. The card body scrolls independently while
 its decision row stays reachable on narrow phones and with larger text.
 

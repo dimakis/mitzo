@@ -51,9 +51,15 @@ describe('PermissionBanner', () => {
     ).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Allow for session' })).toBeTruthy();
   });
-  it('keeps approval details collapsed behind a labelled disclosure', () => {
-    render(<PermissionBanner {...defaultProps} />);
+  it('shows details by default, preserves collapse and opens the next request', () => {
+    const { rerender } = render(<PermissionBanner {...defaultProps} />);
+    const details = screen.getByText('Request details').closest('details')!;
+    expect(details.open).toBe(true);
+    details.open = false;
+    rerender(<PermissionBanner {...defaultProps} responseError="Try again" />);
     expect(screen.getByText('Request details').closest('details')?.open).toBe(false);
+    rerender(<PermissionBanner {...defaultProps} permId="next" />);
+    expect(screen.getByText('Request details').closest('details')?.open).toBe(true);
   });
 
   it('renders at the document root so mobile navigation cannot cover its actions', () => {
@@ -83,14 +89,14 @@ describe('PermissionBanner', () => {
   it('Allow Once calls onRespond with correct args', () => {
     const onRespond = vi.fn();
     render(<PermissionBanner {...defaultProps} onRespond={onRespond} />);
-    fireEvent.click(screen.getByText('Allow Once'));
+    fireEvent.click(screen.getByRole('button', { name: 'Allow Once' }));
     expect(onRespond).toHaveBeenCalledWith('p1', 'once', 'Bash');
   });
 
   it('session allowance calls onRespond with correct args', () => {
     const onRespond = vi.fn();
     render(<PermissionBanner {...defaultProps} onRespond={onRespond} />);
-    fireEvent.click(screen.getByText('Allow for session'));
+    fireEvent.click(screen.getByRole('button', { name: 'Allow for session' }));
     expect(onRespond).toHaveBeenCalledWith('p1', 'always', 'Bash');
   });
 
@@ -160,7 +166,7 @@ describe('PermissionBanner', () => {
   it('shows a retryable permission response error without dismissing the prompt', () => {
     render(<PermissionBanner {...defaultProps} responseError="Review the prompt and try again." />);
     expect(screen.getByRole('alert').textContent).toContain('Review the prompt and try again.');
-    expect(screen.getByText('Allow Once')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Allow Once' })).toBeTruthy();
   });
 
   it('adds perm-banner--visible class after mount', () => {
