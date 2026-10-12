@@ -89,7 +89,6 @@ export function DesktopChatView() {
   const storeCloseSession = useMitzoStore((s) => s.closeSession);
   const storeSetMode = useMitzoStore((s) => s.setMode);
   const storeSetModel = useMitzoStore((s) => s.setModel);
-  const storeDispatchMessages = useMitzoStore((s) => s.dispatchMessages);
   const connectionId = useMitzoStore((s) => s.connection.clientId);
   const storeFetchSessionMeta = useMitzoStore((s) => s.fetchSessionMeta);
   const sessionContext = useMitzoStore((s) => s.messages.sessionContext);
@@ -477,10 +476,8 @@ export function DesktopChatView() {
     if (!activeSessionId && agentProfileBlocked) return false;
     if (launching && activeSessionId) return sendLaunch();
     if (!activeSessionId && (!accountSelection || repositorySelection?.blocked)) return false;
-    if (activeSessionId && connection.status !== 'connected') {
-      storeDispatchMessages({ type: 'CONNECTION_LOST' });
-      return false;
-    }
+    // Prompt delivery has its own authenticated outbox and acknowledgement;
+    // event-stream recovery must not block an existing conversation's input.
     voice.stopSpeaking();
     const options = {
       images,
