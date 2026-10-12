@@ -46,3 +46,27 @@ export function verifyRetainedQualification({
     fail();
   return prior;
 }
+
+/** Select the module contract from the original accepted installer, never from
+ * current disk presence. Unknown contract versions remain fenced. */
+export function originalQualificationControllerFiles(installerSource) {
+  const legacy = [
+    'staging.mjs',
+    'lib/staging-files.mjs',
+    'lib/staging-operations.mjs',
+    'lib/staging-job.mjs',
+    'lib/staging-launcher-template.mjs',
+    'lib/staging-registration.mjs',
+    'lib/staging-dependency-source.mjs',
+  ];
+  const withQueue = [...legacy, 'lib/staging-pipeline-mutation-guard.mjs'];
+  const match = installerSource.toString('utf8').match(/const names = \[([\s\S]*?)\];/);
+  if (!match) throw Error('Original qualification module contract unavailable');
+  const selected = [...match[1].matchAll(/'([^']+)'/g)].map((m) => m[1]);
+  if (
+    JSON.stringify(selected) !== JSON.stringify(legacy) &&
+    JSON.stringify(selected) !== JSON.stringify(withQueue)
+  )
+    throw Error('Unsupported original qualification module contract');
+  return selected;
+}

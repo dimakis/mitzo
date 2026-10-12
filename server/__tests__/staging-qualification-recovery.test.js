@@ -71,3 +71,21 @@ it('refuses partial migration, changed old evidence, and unrelated metadata rewr
     }),
   ).toThrow();
 });
+
+import { originalQualificationControllerFiles } from '../../scripts/lib/staging-qualification-recovery.mjs';
+it('uses the original accepted module contract and refuses unknown versions', () => {
+  const legacy = [
+    'staging.mjs',
+    'lib/staging-files.mjs',
+    'lib/staging-operations.mjs',
+    'lib/staging-job.mjs',
+    'lib/staging-launcher-template.mjs',
+    'lib/staging-registration.mjs',
+    'lib/staging-dependency-source.mjs',
+  ];
+  const source = (names) => 'const names = [' + names.map((n) => "'" + n + "'").join(',') + '];';
+  expect(originalQualificationControllerFiles(source(legacy))).toEqual(legacy);
+  const newer = [...legacy, 'lib/staging-pipeline-mutation-guard.mjs'];
+  expect(originalQualificationControllerFiles(source(newer))).toEqual(newer);
+  expect(() => originalQualificationControllerFiles(source([...legacy, 'unknown.mjs']))).toThrow();
+});

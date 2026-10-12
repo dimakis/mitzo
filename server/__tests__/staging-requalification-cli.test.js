@@ -141,6 +141,24 @@ function fixture(mode = 'valid') {
     verifyCli,
     readFileSync(verifyCli, 'utf8').replace("process.platform !== 'darwin'", 'false'),
   );
+  if (mode === 'historical-contract') {
+    const oldInstaller = join(source, 'scripts/requalify-staging.mjs');
+    writeFileSync(
+      oldInstaller,
+      readFileSync(oldInstaller, 'utf8').replace(
+        "  'lib/staging-pipeline-mutation-guard.mjs',\n",
+        '',
+      ),
+    );
+    writeFileSync(
+      ordinaryCli,
+      readFileSync(ordinaryCli, 'utf8').replace(
+        "import { assertStagingPipelineMutation } from './lib/staging-pipeline-mutation-guard.mjs';\n",
+        '',
+      ),
+    );
+    rmSync(join(source, 'scripts/lib/staging-pipeline-mutation-guard.mjs'));
+  }
   git(source, 'add', '.');
   git(source, 'commit', '-qm', 'controller');
   git(source, 'remote', 'add', 'origin', 'https://github.com/dimakis/mitzo.git');
@@ -270,8 +288,8 @@ it('an actual partial archive write retains the lock and original receipt before
     'uncertain',
   );
 });
-function completedRetainedOperation() {
-  const f = fixture(),
+function completedRetainedOperation(mode) {
+  const f = fixture(mode),
     report = JSON.parse(f.run('audit').stdout);
   const applied = f.run(
     'apply',
@@ -375,3 +393,16 @@ it('recovery retains the lock after canonical re-registration or original proces
     expect(existsSync(join(f.root, 'service/deployment.lock'))).toBe(true);
   }
 }, 30000);
+
+it('verification of a completed historical operation does not require the later queue guard', () => {
+  const { f, report, operation } = completedRetainedOperation('historical-contract');
+  expect(existsSync(join(f.root, 'bin/lib/staging-pipeline-mutation-guard.mjs'))).toBe(false);
+  const recovered = f.runRecovery(
+    '--operation',
+    operation.id,
+    '--expected-audit',
+    report.auditSha256,
+  );
+  expect(recovered.status, recovered.stderr).toBe(0);
+  expect(JSON.parse(recovered.stdout).lockReleased).toBe(true);
+}, 15000);
