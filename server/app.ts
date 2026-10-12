@@ -171,6 +171,7 @@ import type { OpenShellRuntimeConfig } from './openshell-runtime.js';
 import {
   readSymposiumProductionAttestation,
   verifySymposiumProductionGate,
+  assertSymposiumAttestedClaudeProvider,
   type SymposiumProductionPhysicalProof,
 } from './symposium-production-gate.js';
 import { SYMPOSIUM_CODEX_CONTROLLER_COMMAND } from './symposium-codex-native.js';
@@ -1530,6 +1531,26 @@ app.use(
     store: eventStore,
     profiles: symposiumProfileStore,
     currentAccounts: symposiumAccountProfiles,
+    assertVertexDraftAvailable: (binding) => {
+      const host = symposiumProductionHost;
+      if (!host) throw new Error('Original native Vertex host unavailable');
+      const profiles = host.currentProfiles();
+      const route = profiles.vertexSandboxRoute(binding);
+      const capability = verifySymposiumProductionGate(
+        host.runtimeConfig,
+        readSymposiumProductionAttestation(host.attestationPath),
+        host.physical,
+        undefined,
+        host.admissionBuildSelection,
+      );
+      if (!capability.allowedAccountProviders.has('anthropic-vertex'))
+        throw new Error('Vertex outside reviewed native host scope');
+      assertSymposiumAttestedClaudeProvider(capability, {
+        accountId: binding.accountId,
+        ...route,
+        workspace: host.runtimeConfig.workspace,
+      });
+    },
     onSessionCreated: (sessionId) => retainedCustodianSessions.add(sessionId),
     ensureSessionArtifacts: async (sessionId) => {
       if (custodianOwnerMode && !retainedCustodianSessions.has(sessionId))

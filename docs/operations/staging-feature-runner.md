@@ -71,9 +71,10 @@ The native feature owner must be constructed inside `runSymposiumCustodian` afte
 its actual `bootstrapConfiguredSymposiumHost` / `installSymposiumProductionHost`,
 with that original host's current lifetime, attempt registry, resource ledger and
 physical owner. Its fixture must use real session drafts, host-issued grants and
-seat admission. The existing public session-create route currently restricts
-providers to OpenAI and Codex despite a Claude Vertex executor; a reviewed Vertex
-draft/grant path is required before selecting that adapter. The native collector
+seat admission. The [native admission preparation](staging-native-feature-admission.md) connects
+Vertex drafts/candidates to the actual original host receipt and runtime gate;
+fresh accepted provider enrollment and actual native feature execution remain
+required before selecting that adapter. The native collector
 must verify claim/provenance/delivery facts and actual original controlled-target
 `confirmStopped()` plus owned sandbox retirement acknowledgments. It must account
 for intentionally retained session artifact volumes rather than invent deletion
