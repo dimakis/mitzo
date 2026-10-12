@@ -21,11 +21,19 @@ function fixture(
   ownerKind: 'ordinary' | 'symposium' = 'ordinary',
   searchBackend?: 'host' | 'openshell',
   declareLocation = true,
+  deferOwnership = false,
 ) {
   const root = mkdtempSync(join(tmpdir(), 'codex-access-'));
   const store = new CodexConversationStore(join(root, 'private.db'));
   let callbacks!: CodexLifecycleTransport;
   let acknowledge: (() => void) | undefined;
+  let finishOwnership: (() => void) | undefined;
+  const observeOwnership = vi.fn(async () => {
+    if (deferOwnership)
+      await new Promise<void>((resolve) => {
+        finishOwnership = resolve;
+      });
+  });
   const rpc = vi.fn(async (method: string, params: Record<string, unknown>) => {
     if (method === 'config/read') return { config: {} };
     if (method === 'thread/start' || method === 'thread/resume')
@@ -57,6 +65,8 @@ function fixture(
     systemPrompt: 'PRIVATE_PROMPT',
     ...(declareLocation ? { accessLocation: location } : {}),
     tools: [],
+    deferToolSurfaceReplacement: deferOwnership,
+    onThreadChanged: observeOwnership,
     emit: vi.fn(),
     executeTool: vi.fn(),
     verifyBinding: async () => ({ ...binding }),
@@ -82,6 +92,8 @@ function fixture(
     rpc,
     closeTransport: () => callbacks.onClose(new Error('fixture disconnect')),
     acknowledge: () => acknowledge!(),
+    observeOwnership,
+    finishOwnership: () => finishOwnership!(),
   };
 }
 it.each(['local', 'openshell'] as const)(
@@ -110,6 +122,22 @@ it.each(['local', 'openshell'] as const)(
     expect(rpc).not.toHaveBeenCalled();
   },
 );
+it('withholds live evidence until acknowledged provider thread ownership is settled', async () => {
+  const held = fixture('local', 'ordinary', undefined, true, true);
+  await held.conversation.initialize();
+  expect(held.conversation.readAccessObservation()).toBeUndefined();
+  const sending = held.conversation.send({ id: 'first', prompt: 'fixture' });
+  await vi.waitFor(() => expect(held.rpc).toHaveBeenCalledWith('turn/start', expect.anything()));
+  held.acknowledge();
+  await vi.waitFor(() => expect(held.observeOwnership).toHaveBeenCalled());
+  try {
+    expect(held.conversation.readAccessObservation()).toBeUndefined();
+  } finally {
+    held.finishOwnership();
+    await sending;
+  }
+  expect(held.conversation.readAccessObservation()).toBeDefined();
+});
 it('reports acknowledged model selection, never a preparing or queued future model', async () => {
   const { conversation, rpc, acknowledge } = fixture();
   await conversation.initialize();

@@ -656,6 +656,7 @@ export class CodexConversation {
       !this.accessModel ||
       this.recoveryPhase ||
       this.pendingToolSurface ||
+      this.active?.ownershipPending ||
       !this.opts.accessLocation ||
       this.opts.ownerKind === 'symposium'
     )

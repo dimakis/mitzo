@@ -97,7 +97,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../scripts/attest-knowledge-runtime.py':
     '5737ec8e7fc19a17b6ef5a35c1898e834d2a5d2d2a9f7593b607eaaf1971cfeb',
   '../agent-context-sandbox.ts': '8b61edc17ccc94bc95eae3796e68a0beb9540534e3bfbb348a04154c41995416',
-  '../codex-conversation.ts': 'e6b200ed4aaa6b60b1837a0a1d59bd459287a2ef8cda9106df98030dfacd7753',
+  '../codex-conversation.ts': 'bae61df9e4be4b4ed8cf58a098dcc5f500404a3eb5ae07ec86fef0d44a0f5b97',
   '../codex-conversation-store.ts':
     'c36089ad3386e3a716c9c059428fa0ec14d66385d686682badc243087670d5ed',
   // Library profile identity, operator ownership and admission are reviewed runtime inputs.

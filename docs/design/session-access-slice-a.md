@@ -203,7 +203,7 @@ The canonical staging check still refuses with uncertain custodian check/drain. 
 observation reports memory pressure and refuses host admission. No live model call or test
 charge occurred. This implementation supports observing existing Codex sessions; live Luna
 acceptance still requires a qualified canonical staging account/route, an explicitly supported
-Luna selection, and naming the exact model and charged account before the call. The existing
-merge hold and resource-aware source gate remain in force; deployment/live acceptance is
+Luna selection, and naming the exact model and charged account before the call. The observed main-merge hold expires at 2026-10-12 14:38:39 UTC; the
+resource-aware source gate remains required; deployment/live acceptance is
 separate from implementation and reviewed source acceptance. Later retention/release slices
 remain gated.
