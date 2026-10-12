@@ -159,6 +159,70 @@ function mount(Page: typeof ChatView, entry: string) {
   return { store, send, ...view };
 }
 for (const Page of [ChatView, DesktopChatView]) {
+  it(`${Page.name} clears an emptied draft reference so reloading opens a usable blank composer`, () => {
+    const draft = { ...createChatDraft(), text: 'Clear this draft' };
+    draft.settings.selection = { accountId: 'work', model: 'luna', reasoningEffort: 'high' };
+    draft.settings.mode = 'ask';
+    draft.settings.search = 'cwd=%2Fworkspace';
+    saveChatDraft(draft);
+    const view = mount(Page, `/chat?draft=${draft.id}&cwd=%2Fworkspace`);
+    fireEvent.click(screen.getByRole('button', { name: 'Hydrate account' }));
+    fireEvent.change(screen.getByLabelText('Message Mitzo'), { target: { value: '' } });
+    expect(getChatDraft(draft.id)).toBeNull();
+    expect(screen.getByTestId('location').textContent).toBe('/chat?cwd=%2Fworkspace');
+    expect(screen.queryByRole('alert')).toBeNull();
+    fireEvent.change(screen.getByLabelText('Message Mitzo'), {
+      target: { value: 'Still editable' },
+    });
+    expect(getChatDraft(draft.id)?.settings).toMatchObject({
+      selection: draft.settings.selection,
+      mode: 'ask',
+    });
+    fireEvent.change(screen.getByLabelText('Message Mitzo'), { target: { value: '' } });
+    const clearedUrl = screen.getByTestId('location').textContent!;
+    view.unmount();
+    const reloaded = mount(Page, clearedUrl);
+    expect(screen.getByLabelText('Message Mitzo')).toHaveProperty('value', '');
+    expect(screen.queryByRole('alert')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Hydrate account' }));
+    fireEvent.change(screen.getByLabelText('Message Mitzo'), { target: { value: 'After reload' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+    expect(reloaded.send).toHaveBeenCalled();
+  });
+  it(`${Page.name} keeps a preparation-only draft before typing, after clearing and through reload until removal`, () => {
+    const view = mount(Page, '/chat');
+    fireEvent.click(screen.getByRole('button', { name: 'Hydrate account' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Ready scoped repository' }));
+    const draft = listChatDrafts()[0];
+    expect(draft?.text).toBe('');
+    expect(draft?.settings).toMatchObject({
+      repositoryWorkspaceId: '8ca30b0d-3e65-4eeb-8244-f6277350818f',
+      selection: { accountId: 'work', model: 'luna', reasoningEffort: 'high' },
+    });
+    fireEvent.change(screen.getByLabelText('Message Mitzo'), {
+      target: { value: 'Temporary text' },
+    });
+    fireEvent.change(screen.getByLabelText('Message Mitzo'), { target: { value: '' } });
+    const savedUrl = screen.getByTestId('location').textContent!;
+    expect(savedUrl).toContain(`draft=${draft.id}`);
+    view.unmount();
+    mount(Page, savedUrl);
+    expect(screen.queryByRole('alert')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Hydrate account' }));
+    expect(screen.getByTestId('repository-id').textContent).toBe(
+      draft.settings.repositoryWorkspaceId,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Remove scoped repository' }));
+    expect(getChatDraft(draft.id)).toBeNull();
+    expect(screen.getByTestId('location').textContent).toBe('/chat');
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+  it(`${Page.name} removes a cleared quick-action prompt from its reload URL`, () => {
+    mount(Page, '/chat?prompt=Clear+this+prompt&cwd=%2Fworkspace');
+    fireEvent.change(screen.getByLabelText('Message Mitzo'), { target: { value: '' } });
+    expect(screen.getByTestId('location').textContent).toBe('/chat?cwd=%2Fworkspace');
+    expect(listChatDrafts()).toEqual([]);
+  });
   it(`${Page.name} restores retained account, reasoning, mode and isolation and preserves them while loading`, async () => {
     const draft = { ...createChatDraft(), text: 'Retained briefing' };
     draft.settings = {

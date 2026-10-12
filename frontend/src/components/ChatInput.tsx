@@ -450,17 +450,27 @@ export function ChatInput({
 
     const remaining = MAX_IMAGE_ATTACHMENTS - images.length;
     const toProcess = Array.from(files).slice(0, remaining);
+    const ownerScope = latestDraft.current.scope;
 
     for (const file of toProcess) {
       try {
+        if (!mounted.current || latestDraft.current.scope !== ownerScope) return;
         const attachment = await resizeImage(file);
-        setImages((prev) => [...prev, attachment]);
+        if (!mounted.current || latestDraft.current.scope !== ownerScope) return;
+        setImages((prev) =>
+          mounted.current &&
+          latestDraft.current.scope === ownerScope &&
+          prev.length < MAX_IMAGE_ATTACHMENTS
+            ? [...prev, attachment]
+            : prev,
+        );
       } catch {
         // Image resize failed — skip this attachment silently
       }
     }
 
-    if (fileInputRef.current) fileInputRef.current.value = '';
+    if (mounted.current && latestDraft.current.scope === ownerScope && fileInputRef.current)
+      fileInputRef.current.value = '';
   }
 
   async function handlePaste(e: React.ClipboardEvent) {
@@ -471,10 +481,19 @@ export function ChatInput({
     if (files.length === 0) return;
 
     e.preventDefault();
+    const ownerScope = latestDraft.current.scope;
     for (const file of files) {
       try {
+        if (!mounted.current || latestDraft.current.scope !== ownerScope) return;
         const attachment = await resizeImage(file);
-        setImages((prev) => [...prev, attachment]);
+        if (!mounted.current || latestDraft.current.scope !== ownerScope) return;
+        setImages((prev) =>
+          mounted.current &&
+          latestDraft.current.scope === ownerScope &&
+          prev.length < MAX_IMAGE_ATTACHMENTS
+            ? [...prev, attachment]
+            : prev,
+        );
       } catch {
         // Image resize failed — skip silently
       }

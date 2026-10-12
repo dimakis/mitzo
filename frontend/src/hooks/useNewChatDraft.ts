@@ -10,10 +10,12 @@ export function useNewChatDraft(requestedId: string | null, generation: number, 
     missing: boolean;
     generation: number;
   } | null>(null);
+  const releasedReference = useRef<string | null>(null);
   const owner = useMemo(() => {
     if (
       previousOwner.current?.generation === generation &&
-      requestedId === previousOwner.current.draft.id
+      (requestedId === previousOwner.current.draft.id ||
+        (requestedId === null && releasedReference.current === previousOwner.current.draft.id))
     )
       return previousOwner.current;
     const saved = requestedId ? getChatDraft(requestedId) : null;
@@ -42,7 +44,10 @@ export function useNewChatDraft(requestedId: string | null, generation: number, 
     },
     [enabled, owner],
   );
-  return { ...owner, saveSettings, settingsError };
+  const releaseReference = useCallback(() => {
+    releasedReference.current = owner.draft.id;
+  }, [owner.draft.id]);
+  return { ...owner, saveSettings, settingsError, releaseReference };
 }
 
 /** Restore the launch context once; later explicit query edits remain authoritative. */

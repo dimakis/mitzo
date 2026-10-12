@@ -5,6 +5,7 @@ import type { ImageAttachment } from '../../types/chat';
 import type { ComponentProps } from 'react';
 import type { SendMessageOptions } from '@mitzo/client';
 import { ChatInput } from '../ChatInput';
+import { resizeImage } from '../../lib/resizeImage';
 import { createChatDraft, saveChatDraft, getChatDraft } from '../../lib/chat-drafts';
 
 const editor = vi.hoisted(() => ({
@@ -337,3 +338,67 @@ it('keeps a saved draft image edit after acceptance of the older submitted image
   expect(screen.getByAltText('Attachment 1').getAttribute('src')).toContain('edited');
   expect(screen.getByLabelText('Message Mitzo')).toHaveProperty('value', draft.text);
 });
+
+for (const input of ['file', 'paste'] as const) {
+  it.each(['new', 'draft', 'unmount'] as const)(
+    `ignores pending ${input} image results after %s ownership ends`,
+    async (change) => {
+      const first = { ...createChatDraft(), text: 'First draft' };
+      const second = { ...createChatDraft(), text: 'Second draft' };
+      saveChatDraft(first);
+      saveChatDraft(second);
+      let finishResize!: (image: ImageAttachment) => void;
+      const resize = vi.mocked(resizeImage);
+      const callsBefore = resize.mock.calls.length;
+      resize.mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishResize = resolve;
+          }),
+      );
+      const view = render(
+        <ChatInput
+          {...props}
+          sessionId={undefined}
+          savedChatDraft={first}
+          composerGeneration={0}
+        />,
+      );
+      const files = ['old.png', 'not-started.png'].map(
+        (name) => new File(['pixels'], name, { type: 'image/png' }),
+      );
+      if (input === 'file')
+        fireEvent.change(view.container.querySelector('input[type="file"]')!, {
+          target: { files },
+        });
+      else
+        fireEvent.paste(screen.getByLabelText('Message Mitzo'), {
+          clipboardData: {
+            items: files.map((file) => ({ kind: 'file', type: file.type, getAsFile: () => file })),
+          },
+        });
+      expect(resize.mock.calls.length - callsBefore).toBe(1);
+      if (change === 'unmount') view.unmount();
+      else
+        view.rerender(
+          <ChatInput
+            {...props}
+            sessionId={undefined}
+            savedChatDraft={change === 'draft' ? second : createChatDraft()}
+            composerGeneration={change === 'new' ? 1 : 0}
+          />,
+        );
+      await act(async () =>
+        finishResize({
+          data: 'old-image',
+          mediaType: 'image/png',
+          preview: 'data:image/png;base64,old-image',
+        }),
+      );
+      expect(resize.mock.calls.length - callsBefore).toBe(1);
+      expect(getChatDraft(first.id)?.images).toEqual([]);
+      expect(getChatDraft(second.id)?.images).toEqual([]);
+      if (change !== 'unmount') expect(screen.queryByAltText('Attachment 1')).toBeNull();
+    },
+  );
+}

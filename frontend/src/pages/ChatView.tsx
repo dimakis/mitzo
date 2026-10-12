@@ -365,22 +365,37 @@ export function ChatView() {
   useEffect(() => {
     if (savedChatDraft) saveDraftSettings(savedChatDraft.settings);
   }, [savedChatDraft, saveDraftSettings]);
+  const releaseDraftReference = newChatDraft.releaseReference;
   useEffect(() => {
     if (!draftEnabled || newChatDraft.missing) return;
     const retainUrl = () => {
-      if (
-        !getChatDraft(newChatDraft.draft.id) ||
-        searchParams.get('draft') === newChatDraft.draft.id
-      )
-        return;
+      const saved = getChatDraft(newChatDraft.draft.id);
+      const referencedId = searchParams.get('draft');
+      if (saved && referencedId === newChatDraft.draft.id) return;
+      if (!saved && referencedId !== newChatDraft.draft.id) return;
       const params = new URLSearchParams(searchParams);
-      params.set('draft', newChatDraft.draft.id);
-      navigate(`/chat?${params}`, { replace: true });
+      if (saved) params.set('draft', newChatDraft.draft.id);
+      else {
+        // An emptied draft has no persistent owner. Keep this mounted composer’s
+        // settings, but reload must open a blank chat rather than a missing ID.
+        releaseDraftReference();
+        params.delete('draft');
+        params.delete('prompt');
+      }
+      const query = params.toString();
+      navigate(`/chat${query ? `?${query}` : ''}`, { replace: true });
     };
     retainUrl();
     window.addEventListener(CHAT_DRAFTS_CHANGED, retainUrl);
     return () => window.removeEventListener(CHAT_DRAFTS_CHANGED, retainUrl);
-  }, [draftEnabled, newChatDraft.draft.id, newChatDraft.missing, searchParams, navigate]);
+  }, [
+    draftEnabled,
+    newChatDraft.draft.id,
+    newChatDraft.missing,
+    searchParams,
+    navigate,
+    releaseDraftReference,
+  ]);
 
   const voice = useVoice();
   const scrollRef = useRef<HTMLDivElement>(null);
