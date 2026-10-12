@@ -18,7 +18,9 @@ import {
 import { openAIEnrollmentCredentialReference } from '../openai-account-enrollment-keychain.js';
 import { discoverOpenAIEnrollmentModels } from '../openai-enrollment-models.js';
 
-vi.mock('../auth.js', () => ({ verifyPassphrase: (value: string) => value === 'correct' }));
+vi.mock('../operator-session.js', () => ({
+  verifyPassphrase: (value: string) => value === 'correct',
+}));
 const cleanup: (() => void)[] = [];
 afterEach(() => {
   cleanup

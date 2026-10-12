@@ -21,6 +21,24 @@ export interface SubscriptionIdentity {
   email: string;
   planType: string;
 }
+export interface AuthenticatedPersonalModelCatalog {
+  readonly observation: Readonly<{
+    providerId: string;
+    providerName: string;
+    workspace: string;
+    chargedAccount: string;
+    selectedModel: string;
+    listedModels: readonly string[];
+    credentialSha256: string;
+    catalogSha256: string;
+    observationRevision: string;
+    observedAt: number;
+    expiresAt: number;
+    accountHeaders: Readonly<{ 'ChatGPT-Account-ID': string }>;
+  }>;
+  assertCurrent(): void;
+  assertOriginalCleanupCurrent(): void;
+}
 /** Host-only dependencies, never supplied by an HTTP request or account profile. */
 export interface SubscriptionProvisioningHost {
   readonly workspace: string;
@@ -89,6 +107,10 @@ export class SymposiumSubscriptionProvisioner {
     providerId: string;
     binding: AccountBinding;
   };
+  private catalogAuthorization?: { token: string; expiresAt: number };
+  private catalogAuthorizationExpiry?: ReturnType<typeof setTimeout>;
+  private catalog?: AuthenticatedPersonalModelCatalog;
+  private catalogRefreshing = false;
   private pending?: { state: string; nonce: string; verifier: string; expires: number };
   private busy = false;
   private resources = new Map<string, { refreshDeleted: boolean; providerDeleted: boolean }>();
@@ -110,6 +132,7 @@ export class SymposiumSubscriptionProvisioner {
   begin(): string {
     this.verifyCustody();
     if (this.busy) throw new Error('Subscription provisioning is already running');
+    this.clearCatalogAuthorization();
     this.receipt = undefined;
     this.generation += 1;
     const state = random(),
@@ -301,7 +324,8 @@ export class SymposiumSubscriptionProvisioner {
       )
     )
       throw new Error('OAuth token response is incomplete');
-    const verified = identity(await this.auth.verifyIdToken(tokens.id_token, nonce));
+    const verifiedPayload = await this.auth.verifyIdToken(tokens.id_token, nonce);
+    const verified = identity(verifiedPayload);
     if (tokens.account_id !== undefined && tokens.account_id !== verified.accountId)
       throw new Error('Subscription cached account identity changed');
     assertCurrent();
@@ -379,13 +403,202 @@ export class SymposiumSubscriptionProvisioner {
       throw new Error('Installed subscription binding is invalid');
     assertCurrent();
     this.receipt = { identity: verified, provider, providerId, binding: { ...binding } };
+    // Only a freshly verified JWT expiry can bound retained catalog authorization.
+    // Ordinary adapters with no measured expiry cannot mint this capability.
+    this.clearCatalogAuthorization();
+    this.catalogAuthorization =
+      typeof verifiedPayload.exp === 'number' &&
+      Number.isSafeInteger(verifiedPayload.exp) &&
+      Number.isSafeInteger(verifiedPayload.exp * 1000) &&
+      verifiedPayload.exp * 1000 > Date.now()
+        ? {
+            token: tokens.access_token,
+            expiresAt: verifiedPayload.exp * 1000,
+          }
+        : undefined;
+    if (this.catalogAuthorization) this.expireCatalogAuthorization(this.catalogAuthorization);
+    this.catalog = undefined;
     return { ...verified, binding };
   }
 
   invalidate(): void {
+    this.clearCatalogAuthorization();
     this.generation += 1;
     this.receipt = undefined;
     this.pending = undefined;
+  }
+
+  private clearCatalogAuthorization(): void {
+    if (this.catalogAuthorizationExpiry) clearTimeout(this.catalogAuthorizationExpiry);
+    this.catalogAuthorizationExpiry = undefined;
+    // Issued catalog closures retain only this object; erase its credential too.
+    if (this.catalogAuthorization) this.catalogAuthorization.token = '';
+    this.catalogAuthorization = undefined;
+    this.catalog = undefined;
+  }
+
+  private expireCatalogAuthorization(authorization: { token: string; expiresAt: number }): void {
+    const remaining = authorization.expiresAt - Date.now();
+    if (remaining <= 0) {
+      if (this.catalogAuthorization === authorization) this.clearCatalogAuthorization();
+      return;
+    }
+    this.catalogAuthorizationExpiry = setTimeout(
+      () => {
+        if (this.catalogAuthorization === authorization)
+          this.expireCatalogAuthorization(authorization);
+      },
+      Math.min(remaining, 2147483647),
+    );
+    this.catalogAuthorizationExpiry.unref();
+  }
+
+  /** Read-only authenticated first-party catalog. This never launches a native
+   * process, uses builtin model metadata, follows redirects or calls inference. */
+  async refreshAuthenticatedCatalog(
+    selectedModel: string,
+    assertOriginalCurrent: () => void,
+  ): Promise<AuthenticatedPersonalModelCatalog> {
+    const receipt = this.receipt,
+      authorization = this.catalogAuthorization;
+    if (
+      !receipt ||
+      !authorization ||
+      this.catalogRefreshing ||
+      !/^gpt-\d+(?:\.\d+)?-luna$/.test(selectedModel)
+    )
+      throw Error('Original fresh personal catalog authorization unavailable');
+    const assertIdentity = () => {
+      this.verifyCustody();
+      if (this.receipt !== receipt) throw Error('Original personal catalog identity changed');
+    };
+    const assertAuthorization = () => {
+      assertOriginalCurrent();
+      assertIdentity();
+      if (
+        this.catalogAuthorization !== authorization ||
+        !authorization.token ||
+        Date.now() >= authorization.expiresAt
+      ) {
+        if (this.catalogAuthorization === authorization) this.clearCatalogAuthorization();
+        throw Error('Fresh personal catalog authorization expired');
+      }
+    };
+    assertAuthorization();
+    this.catalogRefreshing = true;
+    this.catalog = undefined;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+    try {
+      const response = await this.auth.fetch(
+        'https://chatgpt.com/backend-api/codex/models?client_version=0.159.1',
+        {
+          method: 'GET',
+          redirect: 'error',
+          signal: controller.signal,
+          headers: {
+            authorization: `Bearer ${authorization.token}`,
+            'ChatGPT-Account-ID': receipt.identity.accountId,
+          },
+        },
+      );
+      assertAuthorization();
+      if (
+        response.status !== 200 ||
+        !response.body ||
+        !/^application\/json(?:;|$)/i.test(response.headers.get('content-type') ?? '')
+      )
+        throw Error('Authenticated personal catalog response refused');
+      const reader = response.body.getReader(),
+        chunks: Buffer[] = [];
+      let bytes = 0;
+      for (;;) {
+        const part = await reader.read();
+        assertAuthorization();
+        if (controller.signal.aborted) throw Error('Personal catalog deadline expired');
+        if (part.done) break;
+        bytes += part.value.byteLength;
+        if (bytes > 262144) {
+          await reader.cancel();
+          throw Error('Personal catalog response exceeds bound');
+        }
+        chunks.push(Buffer.from(part.value));
+      }
+      const body = Buffer.concat(chunks),
+        parsed: unknown = JSON.parse(body.toString('utf8'));
+      if (
+        !parsed ||
+        typeof parsed !== 'object' ||
+        !('models' in parsed) ||
+        !Array.isArray(parsed.models) ||
+        !parsed.models.length ||
+        parsed.models.length > 1000
+      )
+        throw Error('Authenticated personal catalog shape refused');
+      const models = parsed.models.map((entry: unknown) => {
+        if (
+          !entry ||
+          typeof entry !== 'object' ||
+          !('slug' in entry) ||
+          typeof entry.slug !== 'string' ||
+          !/^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,199}$/.test(entry.slug)
+        )
+          throw Error('Authenticated personal catalog model refused');
+        return entry.slug;
+      });
+      if (new Set(models).size !== models.length || !models.includes(selectedModel))
+        throw Error('Explicit Luna unavailable in authenticated personal catalog');
+      assertAuthorization();
+      const observedAt = Date.now();
+      const capability: AuthenticatedPersonalModelCatalog = Object.freeze({
+        observation: Object.freeze({
+          providerId: receipt.providerId,
+          providerName: receipt.provider,
+          workspace: this.host.workspace,
+          chargedAccount: receipt.identity.accountId,
+          selectedModel,
+          listedModels: Object.freeze(models),
+          credentialSha256: createHash('sha256').update(authorization.token).digest('hex'),
+          catalogSha256: createHash('sha256').update(body).digest('hex'),
+          observationRevision: randomBytes(32).toString('hex'),
+          observedAt,
+          expiresAt: Math.min(observedAt + 300000, authorization.expiresAt),
+          accountHeaders: Object.freeze({ 'ChatGPT-Account-ID': receipt.identity.accountId }),
+        }),
+        assertCurrent: () => {
+          assertIdentity();
+          if (
+            this.catalogAuthorization !== authorization ||
+            !authorization.token ||
+            Date.now() >= authorization.expiresAt
+          ) {
+            if (this.catalogAuthorization === authorization) this.clearCatalogAuthorization();
+            throw Error('Original personal catalog authorization expired');
+          }
+          if (Date.now() >= capability.observation.expiresAt)
+            throw Error('Original personal catalog observation expired');
+          if (this.catalog !== capability)
+            throw Error('Original personal catalog observation replaced');
+        },
+        assertOriginalCleanupCurrent: assertIdentity,
+      });
+      this.catalog = capability;
+      capability.assertCurrent();
+      return capability;
+    } catch {
+      this.catalog = undefined;
+      throw Error('Original authenticated personal catalog unavailable');
+    } finally {
+      clearTimeout(timeout);
+      this.catalogRefreshing = false;
+    }
+  }
+  captureAuthenticatedCatalog(selectedModel: string): AuthenticatedPersonalModelCatalog {
+    const capability = this.catalog;
+    if (!capability || capability.observation.selectedModel !== selectedModel)
+      throw Error('Original authenticated personal catalog unavailable');
+    capability.assertCurrent();
+    return capability;
   }
 
   captureDiscovery() {

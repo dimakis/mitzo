@@ -11,7 +11,7 @@ export {
 } from './reviewed-policy-revisions.js';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.75';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.79';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -23,9 +23,18 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  // Original authenticated account/catalog capabilities and charged-scope matching.
+  '../symposium-subscription-provisioner.ts':
+    '2f0a72ef69ba04daefebe1c98b0dd8dc3b6662ff56fb9874f5ab50b3b3f95da9',
+  '../symposium-subscription-host.ts':
+    'ab79c9a8b452ec2b82eca3ecbabbade6bdc771306a2c6f9b7159f6d21d7a8ed6',
+  '../symposium-work-api-provider.ts':
+    'a3c33ff3284b2c6afd1567e2b7ccd3e0850f78aed31b9141614a0c433d663027',
+  '../staging-authenticated-account-scope.ts':
+    '3dd033155f29408b58dd79b05d275e950edec390382a0b51a2d53d1b3b77a285',
   // Intentional native service extraction and original cleanup identity contracts.
   '../symposium-custodian-service.ts':
-    'b59ab2af54b077e1d54f2946066520de78d2f8959a666270747b2d8c28c6c98e',
+    'ddd3dd1886f722a8b6ebec7ffb474d10fc1b4de42f5f52318ac8d0658be2f5fa',
   '../operator-session.ts': 'e05d1098f3725dd1b483b842f1dc5b3ba8b9037c03fe1b8c5897d01334428aad',
   '../operator-request-authorization.ts':
     '2420302f368d9f4291d14aba1acbab9b1e126f9ccc36cb7906ff2383ae27fb7d',
@@ -36,13 +45,13 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../native-context-artifacts.ts':
     '6fdb1f39b66c21271b59b919f67f151fd2bfd382910e3cd43265b974d7c9f297',
   '../logger.ts': '563ccb2a9ba950c4c1c8de6c1198622c13bd1c89e7a79d8bac208658cf0b728c',
-  '../symposium-owned-host.ts': 'd0aa30df7340e517e27f063fed95b6bfe369eb6320d3fd31aae354ac56109174',
+  '../symposium-owned-host.ts': '0952ceeda0ba856c2dfc58e09345999aed6e3bb7bd5a86b886bbfddd481cec68',
   '../symposium-personal-host.ts':
-    'a3882babc7292b2bbd400f9c664beab01ae35232319f661a23c2a202b514378e',
+    'a19c53e43cdeba9e1c74d7440e16560703380dc60016733079668fb5901acfe1',
   '../symposium-work-vertex-provider.ts':
-    'c361a1edea9b8f56d047690375702a17d8070250d1453f7fe6d1d630fa2a2c60',
+    'de65388bad75a063c0602a2c4ceb3d7dae78c558ae5146caef8aa78bac79d873',
   '../staging-native-feature-owner.ts':
-    'a01d2597b50c10c47d77c72a1e918c1992ddd09f6a70d4457a84574fb0824cb3',
+    '70973711fe9f317a082f9cf40898dae7b149799ceda12b9258c5278cccda1b87',
   '../staging-native-model-authority.ts':
     '128a803b95baab65a081557a0706b42466e1b685ab354be148541606fdc844d9',
   '../staging-feature-router.ts':
@@ -142,7 +151,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   // Read-only session observation is part of the operator route composition.
   '../session-access.ts': 'e70130c57879d3b22fab78473d90c8d2e787b7a499194c166e7e912fc5cf2767',
   // Request authority and physical review composition share runtime admission.
-  '../app.ts': 'd0d4a01c5142b4e1bdd82474d5d2bebe9ce504e4dc1d822731bf13941150d197',
+  '../app.ts': '947fb8e3766faad19733d2d9f2fea6d2a6059c1240d10d25837c0080c8106828',
   '../symposium-review-route-composition.ts':
     '65fccf488a644e090d9ec946bd82f17eae2200c03d7d81420bd3db6f1f03559c',
   '../symposium-review-host-contract.ts':
@@ -235,7 +244,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '503c887848f3180647b6188ab65b8503bc6670291d4ce865a1b1df1504f15293',
   '../github-host-source.ts': '2720dd0fedf081780ebd64a485164ec5abc6dee7920de925d35e3e6aa647e084',
   '../github-publishing-tool.ts':
-    '2c6c3d8ca3541ba3d1bc11a5be00ec7f9d6dd7855e09a83aec8acd1d81e47824',
+    'e3b315db2ca547721b5ae0ba3fea1ff31c6bbe12cd601a3b1b8ea035b188a0e7',
   '../capability-conversation-binding.ts':
     '147a328d161f167aeeb31bf0017d5fea25cc3f22933392249a228d7bd61e89aa',
   // Secret custody and its browser/admission boundaries share the runtime review contract.
@@ -263,7 +272,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../native/keychain-helper/main.swift':
     '316b7aaac1027f7f94d26e093edbe39a3ccac64236bd61702c32c47419f6edb1',
   '../openai-key-controller.ts': '721a1c6a513fc5380e4a2222927cda025bf8cbd7e8d49d8c5d526470e2cff217',
-  '../connections-router.ts': 'a305954c6fd3e8605b7efe59128ae2b12478ebcabde66b433d901d1549184965',
+  '../connections-router.ts': 'bd71ac96312af31c94794657dec4d0d9aa9518e7622bc8bcc919cbb29b3da4f2',
   '../connections-service.ts': '1aae9d2c0da483ae798ba03d5804bfb0e81316f3f69666c6595befec3179c314',
   // Repository acquisition and source claims share the ordinary runtime admission review.
   '../git-branch.ts': '6dd4fef0069e65d78fc94d047777442e4ef073596555581da536e1e39a5d3877',

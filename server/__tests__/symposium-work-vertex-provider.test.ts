@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { GoogleAuth } from 'google-auth-library';
 import { chmodSync, readFileSync } from 'node:fs';
 import { afterEach, expect, it, vi } from 'vitest';
@@ -8,6 +9,7 @@ import {
   createSymposiumWorkVertexProvider,
   captureSymposiumWorkVertexProvider,
   captureSymposiumWorkVertexProviderAsync,
+  captureSymposiumWorkVertexAccount,
 } from '../symposium-work-vertex-provider.js';
 const roots: string[] = [];
 afterEach(() => roots.splice(0).forEach((p) => rmSync(p, { recursive: true, force: true })));
@@ -282,6 +284,41 @@ it('retains verified principal and exact provider intent only under the original
   expect(() => captureSymposiumWorkVertexProvider(f.gateway as never, 'new-id')).toThrow(
     'Vertex provider custody unavailable',
   );
+});
+it('resolves only the original ADC/principal account receipt without fresh readiness or copied-gateway authority', async () => {
+  const f = fixture();
+  const result = await f.invoke();
+  const receipt = captureSymposiumWorkVertexProvider(f.gateway as never, result.sandboxProviderId);
+  const commands = f.run.mock.calls.length;
+  const original = captureSymposiumWorkVertexAccount(f.gateway as never, f.profile.id);
+  expect(original.identity).not.toBe(receipt);
+  expect(receipt).not.toHaveProperty('adcSha256');
+  expect(receipt).not.toHaveProperty('refreshRecipeSha256');
+  expect(original.identity.principal).toBe(f.profile.expectedPrincipal);
+  expect(original.identity.adcSha256).toMatch(/^[a-f0-9]{64}$/);
+  expect(original.identity.refreshRecipeSha256).toBe(
+    createHash('sha256')
+      .update(
+        JSON.stringify({
+          client_id: 'synthetic-client',
+          client_secret: 'synthetic-secret',
+          refresh_token: 'synthetic-refresh',
+        }),
+      )
+      .digest('hex'),
+  );
+  expect(original.identity.refreshRecipeSha256).not.toBe(original.identity.adcSha256);
+  expect(f.run.mock.calls).toHaveLength(commands);
+  expect(() => captureSymposiumWorkVertexAccount({ ...f.gateway } as never, f.profile.id)).toThrow(
+    'Unique original',
+  );
+  expect(() =>
+    captureSymposiumWorkVertexAccount(f.gateway as never, f.profile.expectedPrincipal),
+  ).toThrow('Unique original');
+  f.gateway.verifyCustody.mockImplementation(() => {
+    throw Error('lost original');
+  });
+  expect(() => original.assertCurrent()).toThrow('custody');
 });
 
 it('rechecks current installed credential readiness on every retained capability capture', async () => {

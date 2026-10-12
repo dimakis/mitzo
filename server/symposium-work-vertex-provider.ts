@@ -5,7 +5,7 @@ import {
   assertSymposiumWorkVertexReadinessAsync,
 } from './symposium-work-vertex-readiness.js';
 import { execFile, spawnSync } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, createHash } from 'node:crypto';
 import { closeSync, constants, fstatSync, openSync, readSync } from 'node:fs';
 import { GoogleAuth } from 'google-auth-library';
 import { z } from 'zod';
@@ -31,6 +31,13 @@ export interface SymposiumWorkVertexReceipt {
   readonly model: 'claude-haiku-4-5@20251001';
   readonly workspace: string;
 }
+/** Private original creation evidence. Public readiness DTOs cannot reconstruct it. */
+export interface OriginalSymposiumWorkVertexAccountReceipt extends SymposiumWorkVertexReceipt {
+  /** Canonical parsed ADC snapshot, distinct from the refresh recipe and rotating token. */
+  readonly adcSha256: string;
+  /** Canonical sorted JSON of exactly the three actual OAuth refresh material keys. */
+  readonly refreshRecipeSha256: string;
+}
 // Same-process capability, not a persisted ledger or reconstructed authority.
 const receipts = new WeakMap<
   OwnedSymposiumGateway,
@@ -38,6 +45,7 @@ const receipts = new WeakMap<
     string,
     {
       receipt: SymposiumWorkVertexReceipt;
+      accountIdentity: OriginalSymposiumWorkVertexAccountReceipt;
       verifyReadiness(): void;
       verifyReadinessAsync(): Promise<void>;
     }
@@ -92,6 +100,26 @@ export function captureSymposiumWorkVertexOriginalIdentity(
   };
   assertCurrent();
   return Object.freeze({ identity: original.receipt, assertCurrent });
+}
+/** Same-process original ADC/principal creation lookup. Inventory/account labels
+ * cannot mint it; inference still requires actual resolver+scope+exact model approval. */
+export function captureSymposiumWorkVertexAccount(
+  gateway: OwnedSymposiumGateway,
+  accountId: string,
+) {
+  verifyCustody(gateway);
+  const matches = [...(receipts.get(gateway)?.values() ?? [])].filter(
+    (entry) => entry.receipt.accountId === accountId,
+  );
+  if (matches.length !== 1) throw Error('Unique original Vertex account creation required');
+  const original = matches[0];
+  const provider = captureSymposiumWorkVertexOriginalIdentity(gateway, original.receipt.providerId);
+  if (provider.identity !== original.receipt)
+    throw Error('Original Vertex account identity differs');
+  return Object.freeze({
+    identity: original.accountIdentity,
+    assertCurrent: provider.assertCurrent,
+  });
 }
 async function verifyCustodyAsync(gateway: OwnedSymposiumGateway): Promise<void> {
   try {
@@ -292,17 +320,32 @@ export async function createSymposiumWorkVertexProvider(
     invoke(['refresh', 'rotate', provider, '--credential-key', 'GOOGLE_VERTEX_AI_TOKEN']);
     verifyCustody(gateway);
     const retained = receipts.get(gateway) ?? new Map();
+    const receipt: SymposiumWorkVertexReceipt = Object.freeze({
+      principal: verified.email,
+      accountId: profile.id,
+      provider,
+      providerId: found.id,
+      projectId: profile.projectId,
+      region: profile.region,
+      model: profile.models[0].id,
+      workspace: gateway.workspace,
+    });
+    const accountIdentity = Object.freeze({
+      ...receipt,
+      adcSha256: createHash('sha256').update(JSON.stringify(material)).digest('hex'),
+      refreshRecipeSha256: createHash('sha256')
+        .update(
+          JSON.stringify({
+            client_id: material.client_id,
+            client_secret: material.client_secret,
+            refresh_token: material.refresh_token,
+          }),
+        )
+        .digest('hex'),
+    });
     retained.set(found.id, {
-      receipt: Object.freeze({
-        principal: verified.email,
-        accountId: profile.id,
-        provider,
-        providerId: found.id,
-        projectId: profile.projectId,
-        region: profile.region,
-        model: profile.models[0].id,
-        workspace: gateway.workspace,
-      }),
+      receipt,
+      accountIdentity,
       verifyReadinessAsync: () =>
         assertSymposiumWorkVertexReadinessAsync({
           provider,

@@ -3,6 +3,10 @@ import {
   type StagingNativeEnrollment,
 } from './staging-native-feature-owner.js';
 import type { StagingNativeFeatureBootstrap } from './staging-native-feature-bootstrap.js';
+import {
+  captureOwnedPersonalCatalogRefresh,
+  type OriginalOwnedPersonalCatalogRefresh,
+} from './symposium-owned-host.js';
 import { StagingNativeInferenceCurrentOwner } from './staging-native-inference-current-owner.js';
 import type { SymposiumStagingNativeFixtures } from './symposium-staging-native-fixture.js';
 import { collectStagingNativeTextReadEvidence } from './staging-native-feature-evidence.js';
@@ -198,6 +202,9 @@ export function createSymposiumCustodianService(options: {
   broadcast?: CustodianBroadcast;
   /** Source-owned standalone ordinary delegate only; this narrows consent. */
   onPublicationConsentInvalidated?: (conversationId: string, connectionId?: string) => void;
+  /** Actual ordinary app delegate retains its own scoped controller approval.
+   * Native custodian requests always use their opaque authenticated IPC approval. */
+  publicationApproval?: Parameters<typeof createPublicationRouter>[0]['approval'];
 }) {
   const workspaceRoot = options.workspaceRoot;
   if (
@@ -257,6 +264,7 @@ export function createSymposiumCustodianService(options: {
   );
   const releaseContextPacks = installContextPackRuntime(getKnowledgeLibraryRuntime);
   let stagingFeatureOwner: StagingFeatureOwnerProtocol | undefined;
+  let stagingPersonalCatalogRefresh: OriginalOwnedPersonalCatalogRefresh | undefined;
   let stagingNativeInferenceCurrentOwner: StagingNativeInferenceCurrentOwner | undefined;
   app.use(
     '/api/staging/features',
@@ -753,6 +761,7 @@ export function createSymposiumCustodianService(options: {
       !host.runStagingFeatureOperation
     )
       throw Error('Actual original canonical native feature composition required');
+    const originalCatalogRefresh = captureOwnedPersonalCatalogRefresh(host);
     const mutation = createRequire(import.meta.url)(
       '../scripts/lib/staging-pipeline-mutation-guard.mjs',
     ) as { assertStagingPipelineFeatureDispatch(input: unknown, options: { root: string }): void };
@@ -1000,6 +1009,22 @@ export function createSymposiumCustodianService(options: {
           }
         }),
     });
+    const assertCatalogCurrent = () => {
+      assertOriginalOwnerCurrent();
+      bootstrap.assertOriginalOwnerCurrent();
+      bootstrap.observeResources();
+      if (symposiumProductionHost !== host || symposiumShuttingDown || symposiumControllerPaused)
+        throw Error('Original staging personal catalog composition changed');
+      originalCatalogRefresh.assertCurrent();
+    };
+    stagingPersonalCatalogRefresh = Object.freeze({
+      assertCurrent: assertCatalogCurrent,
+      refresh: (id: string, revision: number, assertOperator: () => void) =>
+        originalCatalogRefresh.refresh(id, revision, () => {
+          assertOperator();
+          assertCatalogCurrent();
+        }),
+    });
   }
 
   function getSymposiumBootstrapDependencies() {
@@ -1086,7 +1111,11 @@ export function createSymposiumCustodianService(options: {
         symposiumAccessRequests.publicationCompleted(sessionId, publication, operation),
       registration: () => symposiumPublication,
       hasSession: (id) => eventStore.getSession(id)?.sessionType === 'symposium',
-      approval: (req, session, conversationId) => custodianPublicationApproval(req),
+      approval: (req, session, conversationId) =>
+        custodianPublicationApproval(req) ??
+        (!custodianOwnerMode
+          ? options.publicationApproval?.(req, session, conversationId)
+          : undefined),
     }),
   );
   app.use(
@@ -1175,7 +1204,16 @@ export function createSymposiumCustodianService(options: {
   );
   app.use(
     '/api/symposium/personal/connections',
-    createSymposiumPersonalConnectionRouter(() => symposiumProductionHost?.personalConnections),
+    createSymposiumPersonalConnectionRouter(() => {
+      const service = symposiumProductionHost?.personalConnections;
+      if (!service || !stagingPersonalCatalogRefresh) return service;
+      const original = stagingPersonalCatalogRefresh;
+      return {
+        ...service,
+        discoverModels: (id, revision, assertOperator) =>
+          original.refresh(id, revision, assertOperator),
+      };
+    }),
   );
   app.get('/api/symposium/personal/login/status', operatorAuthMiddleware, subscriptionLogin.status);
   app.post('/api/symposium/personal/login', operatorAuthMiddleware, subscriptionLogin.start);

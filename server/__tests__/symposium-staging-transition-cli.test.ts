@@ -71,7 +71,12 @@ function fixture(mode = 'ok') {
       recursive: true,
       verbatimSymlinks: true,
     });
-  for (const name of ['symposium-canonical-owner-record', 'symposium-canonical-control'])
+  for (const name of [
+    'symposium-canonical-owner-record',
+    'symposium-canonical-control',
+    'staging-feature-contract',
+    'staging-native-app-witness',
+  ])
     writeFileSync(
       join(release, 'dist', name + '.js'),
       ts.transpileModule(readFileSync('server/' + name + '.ts', 'utf8'), {

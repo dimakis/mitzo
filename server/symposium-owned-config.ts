@@ -117,12 +117,16 @@ export async function bootstrapConfiguredSymposiumHost(
         ]);
       }
       const work = [];
-      for (const source of config.personal.workProfiles)
+      for (const source of config.personal.workProfiles) {
+        const scope = config.personal.workApiBillingScopes?.[source.id];
         work.push(
           source.provider === 'anthropic-vertex'
             ? await (tools.provisionVertex ?? createSymposiumWorkVertexProvider)(gateway, source)
-            : await tools.provisionWork(gateway, source),
+            : scope
+              ? await tools.provisionWork(gateway, source, { stagingCatalogScope: scope })
+              : await tools.provisionWork(gateway, source),
         );
+      }
       return work;
     },
   );

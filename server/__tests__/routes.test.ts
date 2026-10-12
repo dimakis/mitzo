@@ -236,6 +236,8 @@ Some body text here.
 beforeAll(async () => {
   mockRemoteArtifactRead.mockRejectedValue(new Error('Workspace receipt unavailable'));
   mkdirSync(TEST_REPO, { recursive: true });
+  // The mocked EventStore omits its real constructor's database-directory creation.
+  mkdirSync(join(TEST_REPO, '.mitzo'), { recursive: true });
   writeFileSync(join(TEST_REPO, 'test.txt'), 'hello world');
   writeFileSync(join(TEST_REPO, 'oversized.txt'), Buffer.alloc(5 * 1024 * 1024 + 1, 'x'));
   mkdirSync(join(TEST_REPO, 'subdir'), { recursive: true });

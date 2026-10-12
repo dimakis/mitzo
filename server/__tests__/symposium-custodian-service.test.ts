@@ -18,7 +18,10 @@ function directory() {
   directories.push(root);
   return root;
 }
-function command(operation: CustodianRequest['operation'], body: unknown = {}): CustodianRequest {
+function command(
+  operation: CustodianRequest['operation'],
+  body: Record<string, unknown> = {},
+): CustodianRequest {
   return {
     epoch: 1,
     requestId: 'original-semantic-request',

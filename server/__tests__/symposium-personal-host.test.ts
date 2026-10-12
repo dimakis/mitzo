@@ -9,11 +9,14 @@ import {
   type RoutingDiagnosticResult,
 } from '../symposium-model-discovery.js';
 import type { SymposiumSubscriptionHostOptions } from '../symposium-subscription-host.js';
+import type { AuthenticatedPersonalModelCatalog } from '../symposium-subscription-provisioner.js';
 type FakeAdapter = {
   complete(plan?: 'plus' | 'pro'): void;
   disconnect: ReturnType<typeof vi.fn>;
   beginDeviceLogin: ReturnType<typeof vi.fn>;
   captureDiscovery: ReturnType<typeof vi.fn>;
+  refreshAuthenticatedCatalog: ReturnType<typeof vi.fn>;
+  captureAuthenticatedCatalog: ReturnType<typeof vi.fn>;
 };
 const state = vi.hoisted(() => ({ adapters: new Map<string, FakeAdapter>() }));
 vi.mock('../symposium-subscription-host.js', () => ({
@@ -21,15 +24,50 @@ vi.mock('../symposium-subscription-host.js', () => ({
     let definition: unknown;
     let finish: (value: unknown) => void;
     let fail: (error: Error) => void;
+    let catalog: AuthenticatedPersonalModelCatalog | undefined;
     const adapter = {
       get activeDefinition() {
         return definition;
       },
       invalidate: vi.fn(() => {
         definition = undefined;
+        catalog = undefined;
       }),
       disconnect: vi.fn(async () => {
         definition = undefined;
+        catalog = undefined;
+      }),
+      refreshAuthenticatedCatalog: vi.fn(async (selectedModel: string, current: () => void) => {
+        current();
+        catalog = Object.freeze({
+          observation: Object.freeze({
+            providerId: 'provider-id',
+            providerName: 'physical-provider',
+            workspace: 'workspace',
+            chargedAccount: 'real-account',
+            selectedModel,
+            listedModels: ['gpt-6-luna', selectedModel],
+            credentialSha256: 'a'.repeat(64),
+            catalogSha256: 'b'.repeat(64),
+            observationRevision: 'c'.repeat(64),
+            observedAt: Date.now(),
+            expiresAt: Date.now() + 300000,
+            accountHeaders: Object.freeze({ 'ChatGPT-Account-ID': 'real-account' }),
+          }),
+          assertCurrent() {
+            if (!definition || !catalog) throw Error('catalog changed');
+          },
+          assertOriginalCleanupCurrent() {
+            if (!definition) throw Error('receipt changed');
+          },
+        });
+        current();
+        return catalog;
+      }),
+      captureAuthenticatedCatalog: vi.fn(() => {
+        if (!catalog) throw Error('catalog unavailable');
+        catalog.assertCurrent();
+        return catalog;
       }),
       captureDiscovery: vi.fn(() => ({
         provider: { name: 'physical-provider', id: 'provider-id' },
@@ -91,6 +129,8 @@ import {
   createPersonalSubscriptionHost,
   preparePersonalRoutingDiagnostic,
   createPersonalRoutingDiagnosticDispatchWitness,
+  captureSymposiumPersonalPrincipal,
+  captureSymposiumPersonalModelCatalog,
 } from '../symposium-personal-host.js';
 import { AccountProfiles } from '../account-profiles.js';
 const roots: string[] = [];
@@ -106,12 +146,13 @@ function fixture(
     | RoutingDiagnosticResult
     | Awaited<ReturnType<NonNullable<Parameters<typeof createPersonalSubscriptionHost>[3]>>>
   >,
+  gateway = { verifyCustody: vi.fn(), workspace: 'workspace' },
 ) {
   const root = mkdtempSync(join(tmpdir(), 'personal-host-'));
   roots.push(root);
   return createPersonalSubscriptionHost(
     {
-      gateway: { verifyCustody: vi.fn() } as never,
+      gateway: gateway as never,
       seatProof: { verify: vi.fn(), assertCurrent: vi.fn() },
       workProfiles: [],
       accountId: 'default',
@@ -826,3 +867,97 @@ it.each(['forged', 'malformed', 'complete', 'reconciliation_required'] as const)
     });
   },
 );
+
+it('retains the actual private account principal, not display metadata or copied gateway methods', async () => {
+  const gateway = { verifyCustody: vi.fn(), workspace: 'workspace' };
+  const host = fixture(undefined, undefined, gateway);
+  const row = await connected(host, 'pro');
+  const principal = captureSymposiumPersonalPrincipal(gateway as never, row.id);
+  expect(principal.observation.chargedAccount).toBe('real-account');
+  expect(principal.observation.chargedAccount).not.toBe(row.account?.email);
+  expect(captureSymposiumPersonalPrincipal(gateway as never, row.id)).toBe(principal);
+  expect(() => captureSymposiumPersonalPrincipal({ ...gateway } as never, row.id)).toThrow(
+    'Unique original',
+  );
+  expect(() => captureSymposiumPersonalPrincipal(gateway as never, 'display-account')).toThrow(
+    'Unique original',
+  );
+  expect(JSON.stringify(principal)).not.toContain('token');
+});
+
+it('expires principal admission but retains only the exact original connection for known cleanup', async () => {
+  const gateway = { verifyCustody: vi.fn(), workspace: 'workspace' };
+  const host = fixture(undefined, undefined, gateway);
+  const row = await connected(host, 'pro');
+  const principal = captureSymposiumPersonalPrincipal(gateway as never, row.id);
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(principal.observation.expiresAt + 1);
+  try {
+    expect(() => principal.assertCurrent()).toThrow('expired');
+    principal.assertOriginalCleanupCurrent();
+    const next = captureSymposiumPersonalPrincipal(gateway as never, row.id);
+    expect(next).not.toBe(principal);
+    expect(next.observation.chargedAccount).toBe(principal.observation.chargedAccount);
+    await host.personalConnections.disconnect(row.id, row.revision);
+    expect(() => principal.assertOriginalCleanupCurrent()).toThrow('connection changed');
+    expect(() => next.assertCurrent()).toThrow('connection changed');
+  } finally {
+    clock.mockRestore();
+  }
+});
+
+it('publishes the authenticated catalog through the same connection lease without entering native discovery', async () => {
+  const gateway = { verifyCustody: vi.fn(), workspace: 'workspace' };
+  const discover = vi.fn();
+  const host = fixture(discover, undefined, gateway);
+  const row = await connected(host, 'pro');
+  const oldPrincipal = captureSymposiumPersonalPrincipal(gateway as never, row.id);
+  const current = vi.fn();
+  const result = await host.refreshAuthenticatedModels(
+    row.id,
+    row.revision,
+    'gpt-5.6-luna',
+    current,
+  );
+  expect(result).toMatchObject({
+    status: 'complete',
+    inference: false,
+    connection: { state: 'connected' },
+    models: [
+      { id: 'gpt-5.6-luna', label: 'gpt-5.6-luna' },
+      { id: 'gpt-6-luna', label: 'gpt-6-luna' },
+    ],
+  });
+  expect(discover).not.toHaveBeenCalled();
+  expect(current.mock.calls.length).toBeGreaterThan(2);
+  expect(() => oldPrincipal.assertCurrent()).toThrow('connection changed');
+  const source = captureSymposiumPersonalModelCatalog(gateway as never, row.id, 'gpt-5.6-luna');
+  expect(source.principal.observation.chargedAccount).toBe(
+    source.catalog.observation.chargedAccount,
+  );
+  expect(host.currentProfiles.resolve(row.id, 'gpt-5.6-luna').model).toBe('gpt-5.6-luna');
+  expect(
+    host.currentProfiles
+      .catalog()[0]
+      .models.find((model) => /^gpt-\d+(?:\.\d+)?-luna$/.test(model.id))?.id,
+  ).toBe(source.catalog.observation.selectedModel);
+});
+
+it('releases only its known readonly lease after a catalog failure and leaves model admission stale', async () => {
+  const gateway = { verifyCustody: vi.fn(), workspace: 'workspace' };
+  const discover = vi.fn();
+  const host = fixture(discover, undefined, gateway);
+  const row = await connected(host, 'pro');
+  state.adapters
+    .get(row.id)!
+    .refreshAuthenticatedCatalog.mockRejectedValueOnce(Error('catalog unavailable'));
+  await expect(
+    host.refreshAuthenticatedModels(row.id, row.revision, 'gpt-5.6-luna', () => {}),
+  ).rejects.toThrow('refresh unavailable');
+  expect(discover).not.toHaveBeenCalled();
+  expect(host.personalConnections.list()[0]).toMatchObject({ state: 'connected' });
+  expect(host.personalConnections.list()[0].modelDiscovery).toBeUndefined();
+  expect(host.currentProfiles.catalog()[0].modelDiscovery.stale).toBe(true);
+  expect(() =>
+    captureSymposiumPersonalModelCatalog(gateway as never, row.id, 'gpt-5.6-luna'),
+  ).toThrow('catalog unavailable');
+});

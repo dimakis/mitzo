@@ -406,3 +406,145 @@ it('uses the supplied attempt deadline without extending custody', async () => {
     now.mockRestore();
   }
 });
+
+async function catalogFixture() {
+  const f = fixture();
+  const claims = { ...(await f.auth.verifyIdToken()), exp: Math.floor(Date.now() / 1000) + 600 };
+  f.auth.verifyIdToken.mockResolvedValue(claims);
+  await f.service.complete(f.begin());
+  return f;
+}
+const catalogResponse = (models = ['gpt-5.6-luna'], status = 200) =>
+  new Response(JSON.stringify({ models: models.map((slug) => ({ slug })) }), {
+    status,
+    headers: { 'content-type': 'application/json' },
+  });
+it('captures only the exact fresh authenticated personal catalog, token/account tuple and original provider', async () => {
+  const f = await catalogFixture();
+  f.auth.fetch.mockResolvedValueOnce(catalogResponse());
+  const commands = f.host.run.mock.calls.length;
+  const original = f.service.captureDiscovery();
+  const cap = await f.service.refreshAuthenticatedCatalog('gpt-5.6-luna', () => {});
+  expect(f.auth.fetch).toHaveBeenLastCalledWith(
+    'https://chatgpt.com/backend-api/codex/models?client_version=0.159.1',
+    {
+      method: 'GET',
+      redirect: 'error',
+      signal: expect.any(AbortSignal),
+      headers: { authorization: 'Bearer fake-access', 'ChatGPT-Account-ID': 'actual-account' },
+    },
+  );
+  expect(cap.observation).toMatchObject({
+    providerId: original.provider.id,
+    providerName: original.provider.name,
+    workspace: 'workspace',
+    chargedAccount: 'actual-account',
+    selectedModel: 'gpt-5.6-luna',
+    listedModels: ['gpt-5.6-luna'],
+    accountHeaders: { 'ChatGPT-Account-ID': 'actual-account' },
+  });
+  expect(f.service.captureAuthenticatedCatalog('gpt-5.6-luna')).toBe(cap);
+  expect(f.host.run.mock.calls).toHaveLength(commands);
+  expect(JSON.stringify(cap)).not.toContain('fake-access');
+});
+it('keeps catalog identity independent of the completed read request but expires admission and fences lost receipt', async () => {
+  const f = await catalogFixture();
+  f.auth.fetch.mockResolvedValueOnce(catalogResponse());
+  let requestCurrent = true;
+  const cap = await f.service.refreshAuthenticatedCatalog('gpt-5.6-luna', () => {
+    if (!requestCurrent) throw Error('request ended');
+  });
+  requestCurrent = false;
+  cap.assertCurrent();
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(cap.observation.expiresAt + 1);
+  expect(() => cap.assertCurrent()).toThrow('expired');
+  cap.assertOriginalCleanupCurrent();
+  f.service.invalidate();
+  expect(() => cap.assertOriginalCleanupCurrent()).toThrow('identity changed');
+  clock.mockRestore();
+});
+it('refreshes an expired catalog on the same verified credential without another login or provider creation', async () => {
+  const f = await catalogFixture();
+  f.auth.fetch.mockResolvedValueOnce(catalogResponse());
+  const first = await f.service.refreshAuthenticatedCatalog('gpt-5.6-luna', () => {});
+  const commands = f.host.run.mock.calls.length;
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(first.observation.expiresAt + 1);
+  try {
+    expect(() => first.assertCurrent()).toThrow('observation expired');
+    f.auth.fetch.mockResolvedValueOnce(catalogResponse());
+    const next = await f.service.refreshAuthenticatedCatalog('gpt-5.6-luna', () => {});
+    expect(next.observation.observationRevision).not.toBe(first.observation.observationRevision);
+    expect(next.observation.credentialSha256).toBe(first.observation.credentialSha256);
+    expect(next.observation.providerId).toBe(first.observation.providerId);
+    expect(f.host.run.mock.calls).toHaveLength(commands);
+    expect(() => first.assertCurrent()).toThrow();
+    first.assertOriginalCleanupCurrent();
+    next.assertCurrent();
+  } finally {
+    clock.mockRestore();
+    f.service.invalidate();
+  }
+});
+it('erases expired retained catalog authorization while preserving only original identity for known cleanup', async () => {
+  vi.useFakeTimers();
+  try {
+    const f = await catalogFixture();
+    f.auth.fetch.mockResolvedValueOnce(catalogResponse());
+    const cap = await f.service.refreshAuthenticatedCatalog('gpt-5.6-luna', () => {});
+    await vi.advanceTimersByTimeAsync(600001);
+    expect(() => cap.assertCurrent()).toThrow('authorization expired');
+    cap.assertOriginalCleanupCurrent();
+    const fetches = f.auth.fetch.mock.calls.length;
+    await expect(f.service.refreshAuthenticatedCatalog('gpt-5.6-luna', () => {})).rejects.toThrow(
+      'authorization',
+    );
+    expect(f.auth.fetch.mock.calls).toHaveLength(fetches);
+    f.service.invalidate();
+    expect(() => cap.assertOriginalCleanupCurrent()).toThrow('identity changed');
+  } finally {
+    vi.useRealTimers();
+  }
+});
+it('refuses unmeasured authorization expiry, non-Luna,304,401 and unsupported catalog without fallback', async () => {
+  const noExpiry = fixture();
+  await noExpiry.service.complete(noExpiry.begin());
+  const before = noExpiry.auth.fetch.mock.calls.length;
+  await expect(
+    noExpiry.service.refreshAuthenticatedCatalog('gpt-5.6-luna', () => {}),
+  ).rejects.toThrow('authorization');
+  expect(noExpiry.auth.fetch.mock.calls).toHaveLength(before);
+  const f = await catalogFixture();
+  await expect(f.service.refreshAuthenticatedCatalog('gpt-6.1-sol', () => {})).rejects.toThrow(
+    'authorization',
+  );
+  for (const response of [
+    new Response(null, { status: 304 }),
+    catalogResponse([], 401),
+    catalogResponse(['gpt-6.1-sol']),
+  ]) {
+    f.auth.fetch.mockResolvedValueOnce(response);
+    await expect(f.service.refreshAuthenticatedCatalog('gpt-5.6-luna', () => {})).rejects.toThrow(
+      'unavailable',
+    );
+    expect(() => f.service.captureAuthenticatedCatalog('gpt-5.6-luna')).toThrow('unavailable');
+  }
+});
+it('refuses a catalog completed after source custody/receipt loss and never publishes the observation', async () => {
+  const f = await catalogFixture();
+  let resolve!: (response: Response) => void;
+  f.auth.fetch.mockImplementationOnce(
+    () =>
+      new Promise((done) => {
+        resolve = done;
+      }),
+  );
+  const pending = f.service.refreshAuthenticatedCatalog('gpt-5.6-luna', () => {});
+  await vi.waitFor(() => expect(resolve).toBeTypeOf('function'));
+  await expect(f.service.refreshAuthenticatedCatalog('gpt-5.6-luna', () => {})).rejects.toThrow(
+    'authorization',
+  );
+  f.service.invalidate();
+  resolve(catalogResponse());
+  await expect(pending).rejects.toThrow('unavailable');
+  expect(() => f.service.captureAuthenticatedCatalog('gpt-5.6-luna')).toThrow('unavailable');
+});

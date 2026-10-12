@@ -1,4 +1,8 @@
-import { captureSymposiumWorkApiProvider } from './symposium-work-api-provider.js';
+import { captureSymposiumWorkApiAccount } from './symposium-work-api-provider.js';
+import {
+  stagingApiChargedAccount,
+  stagingVertexChargedAccount,
+} from './staging-authenticated-account-scope.js';
 import { SymposiumStagingNativeFixtures } from './symposium-staging-native-fixture.js';
 import {
   selectSessionOwnedProviderEvidence,
@@ -92,6 +96,7 @@ import {
   createPersonalSubscriptionHost,
   preparePersonalRoutingDiagnostic,
   createPersonalRoutingDiagnosticDispatchWitness,
+  captureSymposiumPersonalModelCatalog,
 } from './symposium-personal-host.js';
 import type { ConnectionSelection } from './symposium-personal-connections.js';
 import { SymposiumConfigSchema } from '@mitzo/protocol';
@@ -163,6 +168,22 @@ export interface OwnedSymposiumHostOptions {
     assertAdmissionStaged(binding: ArtifactReaderAdmissionBindingV1): true;
   };
   artifacts: readonly { sessionId: string; volumeName: string; volumeGeneration: string }[];
+}
+
+export interface OriginalOwnedPersonalCatalogRefresh {
+  assertCurrent(): void;
+  refresh(id: string, revision: number, assertOriginalCurrent: () => void): Promise<unknown>;
+}
+const originalPersonalCatalogRefresh = new WeakMap<object, OriginalOwnedPersonalCatalogRefresh>();
+/** Only the exact object returned by the actual owned-host constructor is known.
+ * Copied host methods, HTTP payloads and bootstrap flags cannot mint this port. */
+export function captureOwnedPersonalCatalogRefresh(
+  host: object,
+): OriginalOwnedPersonalCatalogRefresh {
+  const capability = originalPersonalCatalogRefresh.get(host);
+  if (!capability) throw Error('Original owned personal catalog host required');
+  capability.assertCurrent();
+  return capability;
 }
 
 /** Explicit bootstrap only: importing this module launches nothing. A new
@@ -1495,7 +1516,7 @@ export async function createOwnedSymposiumHost(
           },
         }),
       );
-    return {
+    const ownedHost = {
       criterionChecks: options.criterionChecks,
       resolveSeatPolicy,
       gateway,
@@ -1591,16 +1612,26 @@ export async function createOwnedSymposiumHost(
           throw Error('Fresh native model catalog required');
         let assertProviderCurrent: () => void;
         let assertOriginalProviderCleanupCurrent: () => void;
+        let chargedAccount: string;
         let personalConnection: { connectionId: string; expectedRevision: number } | undefined;
         if (binding.provider === 'openai') {
           const route = profiles.apiProfile(binding);
-          const original = captureSymposiumWorkApiProvider(gateway, route.sandboxProviderId ?? '');
+          const { provider: original, catalog: authenticated } = captureSymposiumWorkApiAccount(
+            gateway,
+            binding.accountId,
+          );
           if (
             original.identity.accountId !== binding.accountId ||
-            original.identity.providerName !== route.sandboxProvider
+            original.identity.providerId !== route.sandboxProviderId ||
+            original.identity.providerName !== route.sandboxProvider ||
+            authenticated.observation.selectedModel !== selectedModel
           )
             throw Error('Original fresh API enrollment differs');
-          assertProviderCurrent = original.assertCurrent;
+          chargedAccount = stagingApiChargedAccount(authenticated.observation);
+          assertProviderCurrent = () => {
+            original.assertCurrent();
+            authenticated.assertCurrent();
+          };
           assertOriginalProviderCleanupCurrent = original.assertCurrent;
         } else if (binding.provider === 'openai-codex') {
           if (
@@ -1613,7 +1644,17 @@ export async function createOwnedSymposiumHost(
             expectedRevision: catalog.personalConnection.revision,
           };
           const original = subscription!.captureAdmissionProvider(personalConnection);
-          assertProviderCurrent = original.assertCurrent;
+          const authenticated = captureSymposiumPersonalModelCatalog(
+            gateway,
+            binding.accountId,
+            selectedModel,
+          );
+          chargedAccount = authenticated.principal.observation.chargedAccount;
+          assertProviderCurrent = () => {
+            original.assertCurrent();
+            authenticated.principal.assertCurrent();
+            authenticated.catalog.assertCurrent();
+          };
           assertOriginalProviderCleanupCurrent = original.assertOriginalCleanupCurrent;
         } else if (binding.provider === 'anthropic-vertex') {
           const route = profiles.vertexSandboxRoute(binding);
@@ -1626,6 +1667,7 @@ export async function createOwnedSymposiumHost(
             !original.principal
           )
             throw Error('Original fresh Vertex enrollment differs');
+          chargedAccount = stagingVertexChargedAccount(original);
           assertProviderCurrent = () => {
             captureSymposiumWorkVertexProvider(gateway, route.providerId);
           };
@@ -1657,7 +1699,7 @@ export async function createOwnedSymposiumHost(
         return Object.freeze({
           binding: Object.freeze({ ...binding }),
           selectedModel,
-          chargedAccount: binding.accountId,
+          chargedAccount,
           ...(personalConnection ? { personalConnection } : {}),
           assertCurrent,
           assertOriginalCleanupCurrent,
@@ -2211,6 +2253,32 @@ export async function createOwnedSymposiumHost(
         }
       },
     };
+    const assertCatalogHostCurrent = () => {
+      if (stopped || draining || controllerPaused || !subscription)
+        throw Error('Original personal catalog owner unavailable');
+      custody();
+    };
+    const catalogRefresh: OriginalOwnedPersonalCatalogRefresh = Object.freeze({
+      assertCurrent: assertCatalogHostCurrent,
+      refresh: (id: string, revision: number, assertOriginalCurrent: () => void) =>
+        track(async () => {
+          const assertCurrent = () => {
+            assertOriginalCurrent();
+            assertCatalogHostCurrent();
+          };
+          assertCurrent();
+          const result = await subscription!.refreshAuthenticatedModels(
+            id,
+            revision,
+            options.personal.selectedModel,
+            assertCurrent,
+          );
+          assertCurrent();
+          return result;
+        }),
+    });
+    originalPersonalCatalogRefresh.set(ownedHost, catalogRefresh);
+    return ownedHost;
   } catch (error) {
     subscription?.invalidate();
     native?.registry.close();
