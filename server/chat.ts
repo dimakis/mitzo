@@ -1133,10 +1133,33 @@ export async function startChat(
     reattachOnly?: boolean;
   },
 ) {
+  // Resolve every identity the legacy startup path may derive before account,
+  // repository, registry or transport effects. Keep one generated message ID so
+  // the native path cannot later select an unchecked conversation identity.
+  const initialMessageId = options.clientMsgId ?? randomUUID();
+  options = { ...options, clientMsgId: initialMessageId };
   const repositoryStartupId =
     options.repositoryWorkspaceId && !options.resume
       ? nativeStartupSessionId(`repository:${options.repositoryWorkspaceId}`)
       : undefined;
+  const commandStartupId =
+    !options.resume && !options.initialSessionId && !repositoryStartupId
+      ? nativeStartupSessionId(initialMessageId)
+      : undefined;
+  try {
+    for (const sessionId of [
+      options.resume,
+      options.initialSessionId,
+      repositoryStartupId,
+      commandStartupId,
+    ]) {
+      if (sessionId && eventStore.getSessionRuntimeBinding(sessionId))
+        throw new Error('Runtime-bound commands require guarded admission');
+    }
+  } catch (error) {
+    options.onStartupAdmission?.(error);
+    throw error;
+  }
   if (repositoryStartupId) {
     if (repositoryStartups.has(repositoryStartupId))
       throw new Error('Repository conversation startup is already in progress');
@@ -2767,6 +2790,8 @@ export function preflightStartupProviderCommand(
     reasoningEffort?: string | null;
   },
 ): boolean {
+  if (store.getSessionRuntimeBinding(request.sessionId))
+    throw new Error('Runtime-bound commands require guarded admission');
   const meta = store.getSession(request.sessionId);
   const binding = meta?.accountBinding;
   if (!binding) return false;
