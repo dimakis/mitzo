@@ -73,6 +73,26 @@ export function captureSymposiumWorkVertexProvider(
   }
   return retained.receipt;
 }
+/** Original successful creation/principal identity only. It cannot admit new
+ * inference or refresh readiness; known cleanup retains this exact private receipt. */
+export function captureSymposiumWorkVertexOriginalIdentity(
+  gateway: OwnedSymposiumGateway,
+  providerId: string,
+) {
+  verifyCustody(gateway);
+  const original = receipts.get(gateway)?.get(providerId);
+  if (!original) throw Error('Original Vertex creation identity unavailable');
+  const assertCurrent = () => {
+    verifyCustody(gateway);
+    if (
+      receipts.get(gateway)?.get(providerId) !== original ||
+      original.receipt.workspace !== gateway.workspace
+    )
+      throw Error('Original Vertex creation identity changed');
+  };
+  assertCurrent();
+  return Object.freeze({ identity: original.receipt, assertCurrent });
+}
 async function verifyCustodyAsync(gateway: OwnedSymposiumGateway): Promise<void> {
   try {
     await gateway.verifyCustodyAsync();

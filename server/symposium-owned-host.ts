@@ -29,6 +29,7 @@ import { createOwnedSeatPolicySelector } from './symposium-owned-seat-policy.js'
 import {
   captureSymposiumWorkVertexProvider,
   captureSymposiumWorkVertexProviderAsync,
+  captureSymposiumWorkVertexOriginalIdentity,
 } from './symposium-work-vertex-provider.js';
 import { createSymposiumSourceHost } from './symposium-source-service.js';
 import {
@@ -1589,6 +1590,7 @@ export async function createOwnedSymposiumHost(
         if (!catalog || catalog.modelDiscovery.stale)
           throw Error('Fresh native model catalog required');
         let assertProviderCurrent: () => void;
+        let assertOriginalProviderCleanupCurrent: () => void;
         let personalConnection: { connectionId: string; expectedRevision: number } | undefined;
         if (binding.provider === 'openai') {
           const route = profiles.apiProfile(binding);
@@ -1599,6 +1601,7 @@ export async function createOwnedSymposiumHost(
           )
             throw Error('Original fresh API enrollment differs');
           assertProviderCurrent = original.assertCurrent;
+          assertOriginalProviderCleanupCurrent = original.assertCurrent;
         } else if (binding.provider === 'openai-codex') {
           if (
             !catalog.personalConnection ||
@@ -1611,6 +1614,7 @@ export async function createOwnedSymposiumHost(
           };
           const original = subscription!.captureAdmissionProvider(personalConnection);
           assertProviderCurrent = original.assertCurrent;
+          assertOriginalProviderCleanupCurrent = original.assertOriginalCleanupCurrent;
         } else if (binding.provider === 'anthropic-vertex') {
           const route = profiles.vertexSandboxRoute(binding);
           const original = captureSymposiumWorkVertexProvider(gateway, route.providerId);
@@ -1625,6 +1629,13 @@ export async function createOwnedSymposiumHost(
           assertProviderCurrent = () => {
             captureSymposiumWorkVertexProvider(gateway, route.providerId);
           };
+          const originalIdentity = captureSymposiumWorkVertexOriginalIdentity(
+            gateway,
+            route.providerId,
+          );
+          if (originalIdentity.identity !== original)
+            throw Error('Original Vertex issued identity differs');
+          assertOriginalProviderCleanupCurrent = originalIdentity.assertCurrent;
         } else throw Error('Provider lacks an original native feature adapter');
         const assertCurrent = () => {
           if (stopped || draining || controllerPaused)
@@ -1636,13 +1647,20 @@ export async function createOwnedSymposiumHost(
           if (current.catalog().find((entry) => entry.id === profileId)?.modelDiscovery.stale)
             throw Error('Original native model catalog became stale');
         };
+        const assertOriginalCleanupCurrent = () => {
+          if (stopped) throw Error('Original feature enrollment owner stopped');
+          custody();
+          assertOriginalProviderCleanupCurrent();
+          currentProfiles().assertOriginalCleanupBinding(binding);
+        };
         assertCurrent();
         return Object.freeze({
-          binding,
+          binding: Object.freeze({ ...binding }),
           selectedModel,
           chargedAccount: binding.accountId,
           ...(personalConnection ? { personalConnection } : {}),
           assertCurrent,
+          assertOriginalCleanupCurrent,
         });
       },
       createStagingFeatureFixtures(assertOriginalOwnerCurrent: () => void) {

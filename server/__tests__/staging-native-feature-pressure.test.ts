@@ -1,5 +1,5 @@
-import { expect, it, vi } from 'vitest';
-const model = vi.hoisted(() => ({ current: vi.fn() }));
+import { afterEach, expect, it, vi } from 'vitest';
+const model = vi.hoisted(() => ({ current: vi.fn(), cleanup: vi.fn() }));
 vi.mock('../staging-native-model-authority.js', () => ({
   captureQualifiedStagingNativeModelAuthority: () => ({
     plan: () => ({
@@ -8,16 +8,25 @@ vi.mock('../staging-native-model-authority.js', () => ({
       selectedModel: 'gpt-6-luna',
       modelApprovalId: null,
       assertCurrent: model.current,
+      assertOriginalCleanupCurrent: model.cleanup,
     }),
   }),
 }));
 import { AccountProfiles } from '../account-profiles.js';
 import { StagingNativeFeatureOwner } from '../staging-native-feature-owner.js';
 import type { OwnedSymposiumGateway } from '../symposium-owned-gateway.js';
+afterEach(() => vi.restoreAllMocks());
 it('preserves known original cleanup at pressure while refusing new admission and lost original ownership', async () => {
   const sourceCommit = 'a'.repeat(40);
   let pressure = false,
-    owner = true;
+    owner = true,
+    temporalExpired = false,
+    queueCurrent = true;
+  let retainedCleanup: (() => void) | undefined;
+  const clock = vi.spyOn(Date, 'now');
+  model.current.mockImplementation(() => {
+    if (temporalExpired) throw Error('inference/catalog expired');
+  });
   const current = () => {
     if (!owner) throw Error('original owner lost');
   };
@@ -63,11 +72,19 @@ it('preserves known original cleanup at pressure while refusing new admission an
       binding: profiles.resolve(profile, selected),
       selectedModel: selected,
       chargedAccount: 'stage-api',
-      assertCurrent: current,
+      assertCurrent: () => {
+        current();
+        if (temporalExpired) throw Error('catalog expired');
+      },
+      assertOriginalCleanupCurrent: current,
     }),
     assertOriginalOwnerCurrent: current,
-    assertReservation: current,
+    assertReservation: () => {
+      current();
+      if (!queueCurrent) throw Error('original queue expired or quarantined');
+    },
     execute: async (input) => {
+      retainedCleanup = input.assertCleanupCurrent;
       pressure = true;
       expect(() => input.assertCurrent()).toThrow('resource admission');
       expect(() => input.assertCleanupCurrent()).not.toThrow();
@@ -75,6 +92,14 @@ it('preserves known original cleanup at pressure while refusing new admission an
       expect(() => input.assertCleanupCurrent()).toThrow('original owner lost');
       owner = true;
       input.assertCleanupCurrent();
+      temporalExpired = true;
+      clock.mockReturnValue(input.deadlineAt + 1);
+      expect(() => input.assertCurrent()).toThrow('deadline');
+      expect(() => input.assertCleanupCurrent()).not.toThrow();
+      expect(model.cleanup).toHaveBeenCalled();
+      queueCurrent = false;
+      expect(() => input.assertCleanupCurrent()).toThrow('queue expired');
+      queueCurrent = true;
       return {
         evidence: { synthetic: true },
         retirement: { syntheticOriginalCleanup: true },
@@ -111,5 +136,9 @@ it('preserves known original cleanup at pressure while refusing new admission an
     current,
   );
   expect(result.cleanupConfirmed).toBe(true);
+  expect(() => retainedCleanup!()).toThrow('closed');
   expect(() => feature.enrollment('stage-api')).toThrow('resource admission');
+  clock.mockRestore();
+  model.current.mockReset();
+  model.cleanup.mockReset();
 });

@@ -1,12 +1,16 @@
 import type { CapabilityApproval } from './connections/capabilities/types.js';
 import { randomUUID } from 'node:crypto';
 import type { Request, RequestHandler } from 'express';
-import { operatorAuthMiddleware, registerAuthSession, type AuthSession } from './auth.js';
+import {
+  operatorAuthMiddleware,
+  registerAuthSession,
+  type AuthSession,
+} from './operator-session.js';
 import {
   requireSameOriginJson,
   requireRecentConnectionAuthorization,
   recentAuthorizationExpiry,
-} from './connections-router.js';
+} from './operator-request-authorization.js';
 import {
   decodeCustodianRequest,
   selectCustodianOperation,

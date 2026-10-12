@@ -768,6 +768,18 @@ export class AccountProfiles {
       throw new Error('Thinking level unavailable for this model');
   }
 
+  /** Identity comparison for an already-issued original cleanup capability.
+   * This does not admit a model or substitute for an authenticated provider receipt. */
+  assertOriginalCleanupBinding(binding: AccountBinding): void {
+    const profile = this.profiles.find((entry) => entry.id === binding.accountId);
+    if (
+      !profile ||
+      profile.provider !== binding.provider ||
+      routingRevision(profile) !== binding.profileRevision
+    )
+      throw Error('Original issued cleanup account configuration changed');
+  }
+
   resume(binding: AccountBinding): AccountBinding {
     const current = this.resolve(
       binding.accountId,

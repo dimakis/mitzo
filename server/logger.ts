@@ -117,11 +117,14 @@ export interface Logger {
 }
 
 export function createLogger(module: string): Logger {
-  const child = getRootLogger().child({ module });
+  // Source preflight may import native modules before allocation. Defer the
+  // real log destination/transport until an actual log is emitted.
+  let activeChild: pino.Logger | undefined;
+  const child = () => (activeChild ??= getRootLogger().child({ module }));
   return {
-    debug: (message: string, ctx?: Record<string, unknown>) => child.debug(ctx ?? {}, message),
-    info: (message: string, ctx?: Record<string, unknown>) => child.info(ctx ?? {}, message),
-    warn: (message: string, ctx?: Record<string, unknown>) => child.warn(ctx ?? {}, message),
-    error: (message: string, ctx?: Record<string, unknown>) => child.error(ctx ?? {}, message),
+    debug: (message: string, ctx?: Record<string, unknown>) => child().debug(ctx ?? {}, message),
+    info: (message: string, ctx?: Record<string, unknown>) => child().info(ctx ?? {}, message),
+    warn: (message: string, ctx?: Record<string, unknown>) => child().warn(ctx ?? {}, message),
+    error: (message: string, ctx?: Record<string, unknown>) => child().error(ctx ?? {}, message),
   };
 }

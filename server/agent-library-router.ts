@@ -4,7 +4,7 @@ import type { AgentLibraryStore } from './agent-library-store.js';
 import { PortableProfileDefinitionSchema } from './symposium-profile-portability.js';
 import { buildAgentProfilePrompt } from './agent-library-prompt.js';
 import { compileAgentContext, type AuthorizedContextPacks } from './agent-context-compiler.js';
-import { registerAuthSession, type AuthSession } from './auth.js';
+import { registerAuthSession, type AuthSession } from './operator-session.js';
 
 const OWNER = 'user'; // Stable authenticated subject, never the rotating login JTI.
 function failure(res: Response, error: unknown) {

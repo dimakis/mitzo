@@ -9,7 +9,10 @@ import { posix } from 'node:path';
 import { z } from 'zod';
 import type { SymposiumSeatExecution } from './symposium-orchestrator.js';
 import type { SymposiumNativeProfileTools } from './symposium-native-profile-tools.js';
-import { GithubPublishingFields, githubPublishingDefinition } from './github-publishing-tool.js';
+import {
+  GithubPublishingFields,
+  githubPublishingDefinition,
+} from './github-publishing-definition.js';
 import { webAccessDefinition, withWebAbort } from './request-web-access.js';
 import {
   canonicalApprovalUrl,

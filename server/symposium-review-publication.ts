@@ -24,7 +24,7 @@ import {
   canonicalJson,
   validateCapabilityInput,
 } from './connections/capabilities/input-validation.js';
-import { connectionTemplateRegistry } from './connections/registry.js';
+import { githubPublicationTemplate } from './connections/github-publication-template.js';
 
 /** Versioned digest of Git's committed regular-file manifest, not a worktree checksum.
  * Git object IDs bind blob contents; this digest also binds paths and executable modes.
@@ -192,7 +192,7 @@ export async function prepareSymposiumReviewPublication(
     await artifactDriverConfigForLease(deps.leaseHost, lease);
   };
   await check();
-  const template = connectionTemplateRegistry.getCapabilityTemplate('github.publish-pr', 1)!;
+  const template = githubPublicationTemplate;
   const validated = validateCapabilityInput(template.inputSchema, input);
   if (
     createHash('sha256').update(canonicalJson(validated)).digest('hex') !==
