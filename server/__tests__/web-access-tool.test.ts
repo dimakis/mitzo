@@ -54,9 +54,62 @@ describe('shared web access tool wiring', () => {
     expect(approve.mock.calls[1][1].url).toBe('https://other.example/pricing');
     expect(approve.mock.calls[1][2]).toMatchObject({
       title: 'Approve redirected destination?',
-      approvalScope: 'request',
-      allowSessionGrant: false,
+      approvalScope: 'session',
+      allowSessionGrant: true,
     });
+  });
+  it('offers narrowly scoped session consent for public reads without sharing hosts or accounts', async () => {
+    const f = fixture();
+    approve.mockImplementation(async (_name, input) => ({
+      behavior: 'allow',
+      updatedInput: input,
+    }));
+    vi.mocked(fetchPublicPage).mockResolvedValue('page');
+    const signal = new AbortController().signal;
+    for (const url of [
+      'https://example.com/one',
+      'https://example.com/two',
+      'https://other.example/',
+    ])
+      await f.execute({ operation: 'fetch', url, reason: 'Read' }, signal);
+    const options = approve.mock.calls.map((call) => call[2]);
+    expect(options[0]).toMatchObject({
+      allowSessionGrant: true,
+      approvalScope: 'session',
+      sessionGrantKey: expect.any(String),
+      sessionGrantDescription: expect.stringContaining('https://example.com'),
+    });
+    expect(options[0].sessionGrantKey).toBe(options[1].sessionGrantKey);
+    expect(options[0].sessionGrantKey).not.toBe(options[2].sessionGrantKey);
+    f.session.accountBinding!.profileRevision = 'changed';
+    await f.execute(
+      { operation: 'fetch', url: 'https://example.com/three', reason: 'Read' },
+      signal,
+    );
+    expect(approve.mock.calls.at(-1)![2].sessionGrantKey).not.toBe(options[0].sessionGrantKey);
+  });
+  it('keeps public origin scope through model and transport changes, while revocation changes that origin only', async () => {
+    const f = fixture();
+    approve.mockImplementation(async (_name, input) => ({
+      behavior: 'allow',
+      updatedInput: input,
+    }));
+    vi.mocked(fetchPublicPage).mockResolvedValue('page');
+    const input = { operation: 'fetch', url: 'https://example.com/page', reason: 'Read' };
+    const signal = new AbortController().signal;
+    await f.execute(input, signal);
+    const original = approve.mock.calls.at(-1)![2].sessionGrantKey;
+    f.session.model = 'another-model';
+    f.session.accountBinding!.model = 'another-model';
+    const recreated = createWebAccessTool('conversation', f.registry, f.search);
+    await recreated(input, signal);
+    expect(approve.mock.calls.at(-1)![2].sessionGrantKey).toBe(original);
+    await recreated(
+      { operation: 'revoke_access', url: input.url, reason: 'Remove access' },
+      signal,
+    );
+    await recreated(input, signal);
+    expect(approve.mock.calls.at(-1)![2].sessionGrantKey).not.toBe(original);
   });
   it('offers session search consent without broadly caching the web access tool in Auto mode', async () => {
     const f = fixture('auto');
@@ -106,7 +159,7 @@ describe('shared web access tool wiring', () => {
     expect(secondExecution.operationId).not.toBe(firstExecution.operationId);
     await recreated({ operation: 'fetch', url: 'https://example.com', reason: 'Read' }, signal);
     expect(approve).toHaveBeenCalledTimes(2);
-    expect(approve.mock.calls.at(-1)?.[2]).toMatchObject({ approvalScope: 'request' });
+    expect(approve.mock.calls.at(-1)?.[2]).toMatchObject({ approvalScope: 'session' });
     f.session.model = 'other-model';
     await recreated({ operation: 'search', query: 'Third', reason: 'Research' }, signal);
     expect(approve).toHaveBeenCalledTimes(3);
@@ -197,4 +250,38 @@ it('routes exact URL access requests through the shared session approval tool', 
       new AbortController().signal,
     ),
   ).toMatchObject({ isError: false });
+});
+
+it('does not execute a public read approved after its origin was revoked', async () => {
+  approve.mockReset();
+  vi.mocked(fetchPublicPage).mockClear();
+  const session = {
+    sessionId: 'pending-public',
+    mode: 'agent',
+    activeSkillPolicy: null,
+    accountBinding: { accountId: 'a', provider: 'openai', model: 'm', profileRevision: '1' },
+  } as unknown as ManagedSession;
+  const registry = {
+    get: () => session,
+    findBySessionId: () => ({ clientId: 'owner', session }),
+  } as unknown as SessionRegistry;
+  const execute = createWebAccessTool('pending-public', registry, vi.fn());
+  let finish!: (value: unknown) => void;
+  approve.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const input = { operation: 'fetch', url: 'https://example.com/a', reason: 'why' };
+  const result = execute(input, new AbortController().signal);
+  await vi.waitFor(() => expect(approve).toHaveBeenCalledOnce());
+  await execute({ ...input, operation: 'revoke_access' }, new AbortController().signal);
+  finish({
+    behavior: 'allow',
+    updatedInput: approve.mock.calls[0][1],
+    decisionClassification: 'user_permanent',
+  });
+  expect(await result).toMatchObject({ isError: true });
+  expect(fetchPublicPage).not.toHaveBeenCalled();
 });

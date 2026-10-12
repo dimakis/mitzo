@@ -102,6 +102,7 @@ export function createCredentialConnectionTools(
         signal,
         toolUseID: randomUUID(),
         forcePrompt: true,
+        rememberSessionGrant: false,
         approvalScope: 'conversation',
         title: `Allow ${c.label} in this chat?`,
         description: scope,

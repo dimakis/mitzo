@@ -157,6 +157,7 @@ public struct PermissionRequest: Codable, Sendable, Equatable {
     public let displayName: String?
     public let tier: ToolTier?
     public let approvalScope: ApprovalScope?
+    public let sessionGrantDescription: String?
     public let questions: [NotificationQuestion]?
 }
 

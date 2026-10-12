@@ -65,3 +65,11 @@ it('explains a failed resume with no matching native binding without inventing p
   expect(codexRuntimeDiagnostic(upstream)).toBeUndefined();
   expect(codexRuntimeErrorTelemetry(upstream)).toEqual({});
 });
+
+it('reports retained approval with pending workload environment without claiming user denial', () => {
+  const message = codexRuntimeDiagnostic(new CodexTransportError('environment_pending'))!;
+  expect(message).toContain('access is retained');
+  expect(message).toContain('environment is still pending');
+  expect(message).toContain('No new model turn');
+  expect(message).not.toContain('denied');
+});

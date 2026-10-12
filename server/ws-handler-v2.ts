@@ -1,3 +1,9 @@
+import { clearPublicationControllerSessionGrants } from './symposium-publication-approval.js';
+import {
+  isTransportConnectionOwnedBy,
+  liveTransportAuthSessionId,
+  transportConnectionsShareOwner,
+} from './transport-auth-ownership.js';
 import {
   assertOrdinaryContributorControlAllowed,
   SessionControlRejected,
@@ -1484,6 +1490,7 @@ export function handlePermissionResponseV2(
   connectionId: string,
   msg: PermissionMsg,
   ctx: V2HandlerContext,
+  operatorAuthSessionId?: string,
 ): boolean {
   return withSpan(
     'ws.permission_response',
@@ -1493,14 +1500,45 @@ export function handlePermissionResponseV2(
       'ws.permId': msg.permId,
     },
     () => {
+      // Interactive HTTP authority must belong to the supplied transport even
+      // when that connection owns execution. Its ID is not a credential.
+      if (
+        operatorAuthSessionId !== undefined &&
+        (liveTransportAuthSessionId(connectionId) !== operatorAuthSessionId ||
+          ctx.connRegistry.get(connectionId)?.transport.isOpen() !== true)
+      ) {
+        sendPermissionResponseRejected(
+          ctx.connRegistry.get(connectionId)?.transport,
+          connectionId,
+          msg.permId,
+          msg.sessionId,
+        );
+        return false;
+      }
       const pendingSessionId = getPendingSessionId(msg.permId);
       if (pendingSessionId) {
         const found = ctx.sessionRegistry.findBySessionId(pendingSessionId, true);
         const ownerConnection =
           found?.session?.ownerConnectionId ??
           (found ? getOwnerConnection(found.clientId) : undefined);
+        // Watching alone is not authority. Another tab of the owner's login
+        // may answer the same card without taking over the provider session.
+        const sameOwnerWatcher =
+          ownerConnection !== undefined &&
+          liveTransportAuthSessionId(connectionId) !== undefined &&
+          ctx.connRegistry.get(connectionId)?.transport.isOpen() === true &&
+          ctx.connRegistry.get(connectionId)?.watchedSessions.has(pendingSessionId) === true &&
+          transportConnectionsShareOwner(connectionId, ownerConnection);
+        // HTTP supplies this only after interactive operator authentication.
+        // Bind that authority to the actual transport and exact reviewed session.
+        const operatorWatcher =
+          !!operatorAuthSessionId &&
+          msg.sessionId === pendingSessionId &&
+          isTransportConnectionOwnedBy(connectionId, operatorAuthSessionId) &&
+          ctx.connRegistry.get(connectionId)?.transport.isOpen() === true &&
+          ctx.connRegistry.get(connectionId)?.watchedSessions.has(pendingSessionId) === true;
         if (
-          ownerConnection !== connectionId ||
+          (ownerConnection !== connectionId && !sameOwnerWatcher && !operatorWatcher) ||
           (msg.sessionId && msg.sessionId !== pendingSessionId)
         ) {
           sendPermissionResponseRejected(
@@ -1845,6 +1883,7 @@ export function handleSessionClose(
       }
 
       assertOrdinaryContributorControlAllowed(ctx.eventStore, msg.sessionId, 'close');
+      clearPublicationControllerSessionGrants(ctx.sessionRegistry, msg.sessionId);
       closeSessionByUser(found.clientId);
       log.info('session close initiated by user', {
         connectionId,
@@ -1947,7 +1986,12 @@ export async function dispatchV2Message(
         await handleInterruptV2(connectionId, transport, msg, ctx);
         break;
       case 'permission_response':
-        handlePermissionResponseV2(connectionId, msg, ctx);
+        handlePermissionResponseV2(
+          connectionId,
+          msg,
+          ctx,
+          liveTransportAuthSessionId(connectionId),
+        );
         break;
       case 'set_mode':
         await handleSetModeV2(connectionId, msg, ctx);

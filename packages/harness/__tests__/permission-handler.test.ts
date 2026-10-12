@@ -1,7 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { SessionRegistry } from '../src/session-registry.js';
 import { buildPermissionHandler, permissionDisplayInput } from '../src/permission-handler.js';
-import { resolvePending, onPermissionLifecycle } from '../src/permissions.js';
+import {
+  resolvePending,
+  onPermissionLifecycle,
+  getPendingRequestsBySession,
+} from '../src/permissions.js';
 import { setSkillPolicy } from '../src/skill-policy.js';
 import { applyTierOverrides } from '../src/tool-tiers.js';
 import type { SessionTransport } from '../src/session-transport.js';
@@ -33,7 +37,6 @@ describe('buildPermissionHandler', () => {
         toolUseID: 'search',
         forcePrompt: true,
         allowSessionGrant: false,
-        rememberSessionGrant: false,
         approvalScope: 'session',
       },
     );
@@ -281,6 +284,281 @@ describe('buildPermissionHandler', () => {
     expect(transport.sent.filter((event) => event.type === 'permission_request')).toHaveLength(1);
   });
 
+  it('settles already-pending requests only in the approved session service scope', async () => {
+    const transport = fakeTransport();
+    const abort = new AbortController();
+    registry.register('parallel', {
+      sessionId: 'parallel-session',
+      transport,
+      abortController: abort,
+      mode: 'agent',
+      sessionAllowList: new Set(),
+    });
+    const handler = buildPermissionHandler('parallel', registry);
+    const opts = { signal: abort.signal, toolUseID: 'parallel', forcePrompt: true };
+    const first = handler('mcp__gws__gmail_write', { value: 'first' }, opts);
+    const second = handler('mcp__gws__drive_write', { value: 'second' }, opts);
+    const unrelated = handler('mcp__other__write', { value: 'other' }, opts);
+    const question = handler(
+      'AskUserQuestion',
+      { questions: [{ question: 'Select one?', header: 'Question', options: [{ label: 'One' }] }] },
+      opts,
+    );
+    let secondResult: unknown;
+    void second.then((result) => {
+      secondResult = result;
+    });
+    try {
+      await Promise.resolve();
+      expect(transport.sent.filter((event) => event.type === 'permission_request')).toHaveLength(4);
+      resolvePending(transport.sent[0].permId as string, 'always', undefined, 'parallel-session');
+      expect(await first).toMatchObject({ behavior: 'allow', updatedInput: { value: 'first' } });
+      await vi.waitFor(() =>
+        expect(secondResult).toMatchObject({
+          behavior: 'allow',
+          updatedInput: { value: 'second' },
+        }),
+      );
+      expect(
+        getPendingRequestsBySession('parallel-session').map((entry) => entry.toolName),
+      ).toEqual(['mcp__other__write', 'AskUserQuestion']);
+    } finally {
+      abort.abort();
+      await Promise.allSettled([first, second, unrelated, question]);
+    }
+  });
+
+  it.each(['mode', 'skill', 'workspace', 'workspace-race'])(
+    'rechecks current %s policy before settling a queued peer from a session grant',
+    async (policy) => {
+      const transport = fakeTransport();
+      const lifecycle = vi.fn();
+      const unsubscribe = onPermissionLifecycle(lifecycle);
+      const abort = new AbortController();
+      registry.register('parallel-policy', {
+        sessionId: 'parallel-policy-session',
+        transport,
+        abortController: abort,
+        mode: 'agent',
+        sessionAllowList: new Set(),
+      });
+      const session = registry.get('parallel-policy')!;
+      if (policy.startsWith('workspace'))
+        session.worktreePaths.set('repo', { path: '/isolated', wtId: 'wt' });
+      const handler = buildPermissionHandler('parallel-policy', registry);
+      const opts = { signal: abort.signal, toolUseID: 'policy', forcePrompt: true };
+      const firstTool = policy.startsWith('workspace') ? 'Write' : 'mcp__gws__first';
+      const secondTool = policy.startsWith('workspace') ? 'Write' : 'mcp__gws__second';
+      const first = handler(firstTool, { file_path: '/isolated/keep/first' }, opts);
+      const second = handler(secondTool, { file_path: '/isolated/blocked/second' }, opts);
+      let secondResult: unknown;
+      void second.then((result) => {
+        secondResult = result;
+      });
+      try {
+        await Promise.resolve();
+        if (policy === 'skill') setSkillPolicy(registry, 'parallel-policy', [firstTool]);
+        if (policy === 'workspace')
+          session.worktreePaths.set('repo', { path: '/isolated/keep', wtId: 'wt' });
+        if (policy === 'workspace-race') {
+          const originalEntries = session.worktreePaths.entries.bind(session.worktreePaths);
+          vi.spyOn(session.worktreePaths, 'entries').mockImplementationOnce(() => {
+            queueMicrotask(() =>
+              session.worktreePaths.set('repo', { path: '/different', wtId: 'replacement' }),
+            );
+            return originalEntries();
+          });
+        }
+        resolvePending(
+          transport.sent[0].permId as string,
+          'always',
+          undefined,
+          'parallel-policy-session',
+        );
+        if (policy === 'mode') registry.setMode('parallel-policy', 'ask');
+        expect(await first).toMatchObject({ behavior: 'allow' });
+        await vi.waitFor(() => expect(secondResult).toMatchObject({ behavior: 'deny' }));
+        expect(lifecycle).toHaveBeenCalledWith({
+          type: 'resolved',
+          permId: transport.sent[1].permId,
+          resolution: 'denied',
+        });
+      } finally {
+        abort.abort();
+        unsubscribe();
+        await Promise.allSettled([first, second]);
+      }
+    },
+  );
+
+  it('rejects approval after its absolute deadline even before the timeout callback runs', async () => {
+    vi.useFakeTimers();
+    const abort = new AbortController();
+    const transport = fakeTransport();
+    const allowList = new Set<string>();
+    registry.register('client-1', {
+      sessionId: 'deadline-session',
+      transport,
+      abortController: abort,
+      mode: 'agent',
+      sessionAllowList: allowList,
+    });
+    try {
+      const execution = buildPermissionHandler('client-1', registry)(
+        'mcp__gws__gmail_write',
+        {},
+        { signal: abort.signal, toolUseID: 'deadline' },
+      );
+      await Promise.resolve();
+      const request = transport.sent[0];
+      // Move wall time without advancing timers: the timeout callback has not run.
+      vi.setSystemTime(request.expiresAt as number);
+      expect(
+        resolvePending(request.permId as string, 'always', undefined, 'deadline-session'),
+      ).toBe(false);
+      expect(await execution).toMatchObject({
+        behavior: 'deny',
+        message: 'Tool approval expired without a response; request approval again',
+      });
+      expect(allowList.size).toBe(0);
+      expect(getPendingRequestsBySession('deadline-session')).toEqual([]);
+    } finally {
+      abort.abort();
+      vi.useRealTimers();
+    }
+  });
+
+  it.each([
+    ['TelosCreateOutcome', 'TelosSaveArtifact'],
+    ['TelosSaveArtifact', 'mcp__telos__TelosCreateOutcome'],
+    ['mcp__telos__TelosSaveArtifact', 'TelosCreateOutcome'],
+  ])('shares the advertised Telos session scope between %s and %s', async (initial, next) => {
+    const transport = fakeTransport();
+    const allowList = new Set<string>();
+    const abort = new AbortController();
+    registry.register('client-1', {
+      transport,
+      abortController: abort,
+      mode: 'agent',
+      sessionAllowList: allowList,
+    });
+    const handler = buildPermissionHandler('client-1', registry);
+    const options = {
+      signal: abort.signal,
+      toolUseID: 'telos',
+      forcePrompt: true,
+      allowSessionGrant: true,
+    };
+    try {
+      const first = handler(initial, { itemId: 'item' }, options);
+      await Promise.resolve();
+      resolvePending(transport.sent[0].permId as string, 'always');
+      expect(await first).toMatchObject({
+        behavior: 'allow',
+        decisionClassification: 'user_permanent',
+      });
+      expect(allowList).toContain('mcp__telos__');
+      const second = handler(next, { itemId: 'item' }, options);
+      await Promise.resolve();
+      expect(transport.sent.filter((event) => event.type === 'permission_request')).toHaveLength(1);
+      expect(await second).toMatchObject({
+        behavior: 'allow',
+        decisionClassification: 'user_permanent',
+      });
+      const unknown = handler('TelosUnregisteredWrite', {}, options);
+      await Promise.resolve();
+      expect(transport.sent.filter((event) => event.type === 'permission_request')).toHaveLength(2);
+      abort.abort();
+      expect(await unknown).toMatchObject({ behavior: 'deny' });
+    } finally {
+      abort.abort();
+    }
+  });
+
+  it.each(['GitCommit', 'Bash', 'mcp__gws__gmail_write'])(
+    'honors the user session choice for a forced %s approval',
+    async (toolName) => {
+      const transport = fakeTransport();
+      const allowList = new Set<string>();
+      registry.register('client-1', {
+        transport,
+        abortController: new AbortController(),
+        mode: 'agent',
+        sessionAllowList: allowList,
+      });
+      const handler = buildPermissionHandler('client-1', registry);
+      for (let invocation = 0; invocation < 2; invocation++) {
+        const execution = handler(
+          toolName,
+          { command: 'echo reviewed' },
+          {
+            signal: new AbortController().signal,
+            toolUseID: String(invocation),
+            forcePrompt: true,
+          },
+        );
+        await Promise.resolve();
+        if (invocation === 0) {
+          const request = transport.sent.find((event) => event.type === 'permission_request')!;
+          expect(request.approvalScope).toBe('session');
+          expect(resolvePending(request.permId as string, 'always')).toBe(true);
+        }
+        expect(await execution).toMatchObject({
+          behavior: 'allow',
+          decisionClassification: 'user_permanent',
+        });
+        expect(allowList.size).toBe(1);
+      }
+      expect(transport.sent.filter((event) => event.type === 'permission_request')).toHaveLength(1);
+    },
+  );
+
+  it('keeps server-owned session grant keys separate for different connection scopes', async () => {
+    const transport = fakeTransport();
+    const abort = new AbortController();
+    const allowList = new Set<string>(['ExecuteProviderCapability']);
+    registry.register('client-1', {
+      transport,
+      abortController: abort,
+      mode: 'agent',
+      sessionAllowList: allowList,
+    });
+    const handler = buildPermissionHandler('client-1', registry);
+    try {
+      for (const [connection, decision] of [
+        ['one', 'always'],
+        ['two', 'once'],
+      ] as const) {
+        const execution = handler(
+          'ExecuteProviderCapability',
+          { operation: connection },
+          {
+            signal: abort.signal,
+            toolUseID: connection,
+            forcePrompt: true,
+            sessionGrantKey: `capability:write:1:${connection}`,
+            sessionGrantDescription:
+              'This operation class on this connection until the session ends.',
+          },
+        );
+        await Promise.resolve();
+        const request = transport.sent
+          .filter((event) => event.type === 'permission_request')
+          .at(-1)!;
+        expect(request.sessionGrantDescription).toBe(
+          'This operation class on this connection until the session ends.',
+        );
+        expect(resolvePending(request.permId as string, decision)).toBe(true);
+        expect(await execution).toMatchObject({ behavior: 'allow' });
+      }
+      expect(transport.sent.filter((event) => event.type === 'permission_request')).toHaveLength(2);
+      expect(allowList.has('capability:write:1:one')).toBe(true);
+      expect(allowList.has('capability:write:1:two')).toBe(false);
+    } finally {
+      abort.abort();
+    }
+  });
+
   it('does not reuse a session grant for an exact-action forced prompt', async () => {
     const transport = fakeTransport();
     registry.register('client-1', {
@@ -297,6 +575,7 @@ describe('buildPermissionHandler', () => {
         signal: new AbortController().signal,
         toolUseID: 'tool-1',
         forcePrompt: true,
+        allowSessionGrant: false,
       },
     );
     await Promise.resolve();
@@ -340,6 +619,79 @@ describe('buildPermissionHandler', () => {
     const result = await promise;
     expect(result.behavior).toBe('allow');
     expect(result.decisionClassification).toBe('user_temporary');
+  });
+
+  it('delivers a live request to observers exactly once and lets their response allow the tool', async () => {
+    const owner = fakeTransport();
+    const observer = fakeTransport();
+    registry.register('client-1', {
+      transport: owner,
+      sessionId: 's1',
+      abortController: new AbortController(),
+      mode: 'agent',
+      sessionAllowList: new Set(),
+    });
+    const session = registry.get('client-1')!;
+    session.observers.add(owner);
+    session.observers.add(observer);
+    const pending = buildPermissionHandler('client-1', registry)(
+      'mcp__gws__search',
+      {},
+      {
+        signal: new AbortController().signal,
+        toolUseID: 'workspace-search',
+      },
+    );
+    await Promise.resolve();
+    expect(observer.sent).toEqual(owner.sent);
+    expect(observer.sent).toHaveLength(1);
+    resolvePending(observer.sent[0].permId as string, 'once', undefined, 's1');
+    expect(await pending).toMatchObject({ behavior: 'allow', updatedInput: {} });
+  });
+
+  it.each(['timeout', 'abort'])('does not report %s as a user denial', async (cause) => {
+    vi.useFakeTimers();
+    const transport = fakeTransport();
+    const abort = new AbortController();
+    registry.register('client-1', {
+      transport,
+      sessionId: 's1',
+      abortController: abort,
+      mode: 'agent',
+      sessionAllowList: new Set(),
+    });
+    const lifecycle = vi.fn();
+    const unsubscribe = onPermissionLifecycle(lifecycle);
+    try {
+      const pending = buildPermissionHandler('client-1', registry)(
+        'mcp__telos__save',
+        {},
+        {
+          signal: abort.signal,
+          toolUseID: 'telos-save',
+        },
+      );
+      await Promise.resolve();
+      const permId = transport.sent[0].permId as string;
+      if (cause === 'abort') abort.abort();
+      else await vi.advanceTimersByTimeAsync(120_000);
+      expect(await pending).toMatchObject({
+        behavior: 'deny',
+        message:
+          cause === 'abort'
+            ? 'Tool approval cancelled because the operation was aborted'
+            : 'Tool approval expired without a response; request approval again',
+      });
+      expect(lifecycle).toHaveBeenLastCalledWith({
+        type: 'resolved',
+        permId,
+        resolution: 'expired',
+      });
+      expect(resolvePending(permId, 'once')).toBe(false);
+    } finally {
+      unsubscribe();
+      vi.useRealTimers();
+    }
   });
 
   it('denies when aborted', async () => {
