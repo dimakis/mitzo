@@ -268,6 +268,20 @@ test('drafts and updates: offline navigation never opens a native event stream',
   expect(fixture.errors).toEqual([]);
 });
 
+test('drafts: Chats hides the shortcut with no saved drafts', async ({ page }, testInfo) => {
+  const fixture = await offline(page);
+  await page.goto('/sessions');
+  await expect(page.getByRole('heading', { name: 'Chats', exact: true })).toBeVisible();
+  await expect(page.getByRole('link', { name: /Drafts/ })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '+ New chat' })).toBeVisible();
+  await page.screenshot({
+    path: testInfo.outputPath('chats-no-drafts.png'),
+    animations: 'disabled',
+  });
+  expect(fixture.mutations).toEqual([]);
+  expect(fixture.errors).toEqual([]);
+});
+
 test('drafts: Chats has a dedicated Drafts destination and New chat opens blank', async ({
   page,
 }, testInfo) => {
