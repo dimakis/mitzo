@@ -3,6 +3,7 @@ import request from 'supertest';
 import { describe, expect, it, vi } from 'vitest';
 import { projectSessionAccess, createSessionAccessRouter } from '../session-access.js';
 import type { ManagedSession } from '@mitzo/harness';
+import { reviewedHandlerSourceArtifacts } from '../connections/reviewed-handler-artifacts.js';
 
 const live = () =>
   ({
@@ -21,6 +22,9 @@ const live = () =>
   }) as ManagedSession;
 
 describe('ordinary session Access evidence', () => {
+  it('includes the read-only operator projection in the reviewed composition source inventory', () => {
+    expect(reviewedHandlerSourceArtifacts).toHaveProperty('../session-access.ts');
+  });
   it('projects actual binding, restrictive effective mode and scoped grants, never configuration as availability', () => {
     const value = projectSessionAccess(
       'one',

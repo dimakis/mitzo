@@ -111,3 +111,10 @@ Inspected captures: [desktop Access](assets/session-access-desktop-dark.png),
 Related mock-only regressions: 13 files / 120 checks pass, including composer ownership
 and existing exact-output/contributor tests. Shared design guards: 106 checks pass.
 Frontend build and server compile pass. Full offline UI and hosted CI are tracked separately.
+
+Hosted CI exposed the existing full `app.ts` composition source pin. The pin and
+read-only `session-access.ts` inventory entry are updated under runtime implementation
+revision v1.0.58, with a failing inventory test before the update. This is source-review
+coverage for the new read route; capability executors, admission logic, provider policy
+and approval semantics are untouched. Full handler-source tests and guarded server build
+verify every other recorded digest remains unchanged.
