@@ -1,4 +1,5 @@
 import { expect, it } from 'vitest';
+import { createHash } from 'node:crypto';
 import { deriveRetainedNativeImportClosure } from '../../scripts/lib/staging-native-import-closure.mjs';
 const read = (files) => (path) => {
   if (!(path in files)) throw Error('missing ' + path);
@@ -41,4 +42,55 @@ it('refuses computed imports, escaped modules, unknown executable asset URLs and
         readModule: read({ 'dist/symposium-custodian-main.js': body }),
       }),
     ).toThrow('closure');
+});
+it('pins actual tracked native data/helper assets without treating their bytes as JavaScript', () => {
+  const files = {
+    'dist/symposium-custodian-main.js': `import './host.js';fork(new URL('./index.js',import.meta.url));`,
+    'dist/host.js': `new URL('../server/helper.py',import.meta.url);new URL('../content/quotes/catalog.json',import.meta.url);`,
+    'server/helper.py': 'import json\n',
+    'content/quotes/catalog.json': '{"quotes":[]}',
+  };
+  const first = deriveRetainedNativeImportClosure({ readModule: read(files) });
+  expect(first.modules.map((x) => x.path)).toContain('server/helper.py');
+  expect(
+    deriveRetainedNativeImportClosure({
+      readModule: read({ ...files, 'server/helper.py': 'import sys\n' }),
+    }).sha256,
+  ).not.toBe(first.sha256);
+  expect(() =>
+    deriveRetainedNativeImportClosure({
+      readModule: read({
+        ...files,
+        'dist/host.js': `new URL('../../escape/config.json',import.meta.url);`,
+      }),
+    }),
+  ).toThrow();
+});
+it('resolves only the actual retained provider function finite literal pin map and refuses computed or added map inputs', () => {
+  const body = `export function reviewedRuntimeProfile(type){const pins={'profile':['../infra/openshell/providers/profile.json','${createHash('sha256').update('{}').digest('hex')}']};const pin=pins[type];if(!pin)throw Error();const path=new URL(pin[0],import.meta.url);}`;
+  const files = {
+    'dist/symposium-custodian-main.js': `import './openshell-runtime-policy.js';fork(new URL('./index.js',import.meta.url));`,
+    'dist/openshell-runtime-policy.js': body,
+    'infra/openshell/providers/profile.json': '{}',
+  };
+  expect(
+    deriveRetainedNativeImportClosure({ readModule: read(files) }).modules.map((x) => x.path),
+  ).toContain('infra/openshell/providers/profile.json');
+  expect(() =>
+    deriveRetainedNativeImportClosure({
+      readModule: read({
+        ...files,
+        'infra/openshell/providers/profile.json': '{\"changed\":true}',
+      }),
+    }),
+  ).toThrow('literal pin');
+  for (const changed of [
+    body.replace('pins[type]', 'other[type]'),
+    body.replace("'../infra/openshell/providers/profile.json'", 'externalPath'),
+  ])
+    expect(() =>
+      deriveRetainedNativeImportClosure({
+        readModule: read({ ...files, 'dist/openshell-runtime-policy.js': changed }),
+      }),
+    ).toThrow();
 });

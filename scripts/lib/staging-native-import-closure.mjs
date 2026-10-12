@@ -42,6 +42,74 @@ export function deriveRetainedNativeImportClosure({ readModule }) {
         );
       } else throw refuse('unknown external module ' + specifier);
     };
+    const asset = (specifier) => {
+      if (typeof specifier !== 'string' || !specifier.startsWith('.'))
+        throw refuse('unknown asset ' + path);
+      const next = posix.normalize(posix.join(posix.dirname(path), specifier));
+      if (
+        !/^(?:dist|server|content|docs|infra|scripts)\/[A-Za-z0-9_./-]+$/.test(next) ||
+        next.includes('/../') ||
+        next.includes('/./')
+      )
+        throw refuse('escaped asset ' + specifier);
+      if (next.endsWith('.js')) return dependency(specifier);
+      if (modules.has(next)) return modules.get(next);
+      if (modules.size >= 2048) throw refuse('unbounded assets');
+      const body = readModule(next);
+      if (typeof body !== 'string' || (totalBytes += Buffer.byteLength(body)) > 32 * 1024 * 1024)
+        throw refuse('bounded actual asset bytes required');
+      modules.set(next, sha(body));
+      return modules.get(next);
+    };
+    const providerAssets = (node) => {
+      if (
+        path !== 'dist/openshell-runtime-policy.js' ||
+        node.arguments?.[0]?.getText(parsed) !== 'pin[0]'
+      )
+        throw refuse('computed asset URL in ' + path);
+      let owner = node.parent;
+      while (owner && !ts.isFunctionDeclaration(owner)) owner = owner.parent;
+      if (!owner?.body || owner.name?.text !== 'reviewedRuntimeProfile')
+        throw refuse('unknown finite provider asset owner');
+      const declarations = owner.body.statements
+        .filter(ts.isVariableStatement)
+        .flatMap((statement) => [...statement.declarationList.declarations]);
+      const pins = declarations.filter((d) => ts.isIdentifier(d.name) && d.name.text === 'pins');
+      const selected = declarations.filter((d) => ts.isIdentifier(d.name) && d.name.text === 'pin');
+      if (
+        pins.length !== 1 ||
+        selected.length !== 1 ||
+        !ts.isObjectLiteralExpression(pins[0].initializer) ||
+        selected[0].initializer?.getText(parsed) !== 'pins[type]' ||
+        pins[0].initializer.properties.length < 1 ||
+        pins[0].initializer.properties.length > 20
+      )
+        throw refuse('unknown finite provider asset map');
+      const names = new Set();
+      for (const entry of pins[0].initializer.properties) {
+        if (
+          !ts.isPropertyAssignment(entry) ||
+          !entry.name ||
+          ts.isComputedPropertyName(entry.name) ||
+          !ts.isArrayLiteralExpression(entry.initializer) ||
+          entry.initializer.elements.length !== 2
+        )
+          throw refuse('nonliteral provider asset map');
+        const name =
+            literal(entry.name) ?? (ts.isIdentifier(entry.name) ? entry.name.text : undefined),
+          values = entry.initializer.elements;
+        if (
+          !name ||
+          names.has(name) ||
+          !literal(values[0]) ||
+          !/^[a-f0-9]{64}$/.test(literal(values[1]) ?? '')
+        )
+          throw refuse('nonliteral provider asset pin');
+        names.add(name);
+        if (asset(literal(values[0])) !== literal(values[1]))
+          throw refuse('physical provider asset differs from its literal pin');
+      }
+    };
     const walk = (node) => {
       if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) {
         if (node.moduleSpecifier) dependency(literal(node.moduleSpecifier));
@@ -73,8 +141,8 @@ export function deriveRetainedNativeImportClosure({ readModule }) {
         ) {
           if (++childForks > 1) throw refuse('second app fork boundary');
         } else if (base === 'import.meta.url' && target) {
-          dependency(target);
-        } else if (base === 'import.meta.url') throw refuse('computed asset URL in ' + path);
+          asset(target);
+        } else if (base === 'import.meta.url') providerAssets(node);
         // Other URLs are network/address data. Computed import()/require() are
         // independently refused above; these expressions grant no code loader.
       }

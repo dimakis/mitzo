@@ -44,9 +44,24 @@ export function createNativeAppCompatibilityInspector({
       sourceRoot,
       runtimeArtifactsSha256: deriveRetainedNativeImportClosure({
         readModule(path) {
-          if (!Object.hasOwn(first.compiledArtifacts, path)) throw refuse();
           const body = bytes(join(sourceRoot, path));
-          if (hash(body) !== first.compiledArtifacts[path]) throw refuse();
+          if (Object.hasOwn(first.compiledArtifacts, path)) {
+            if (hash(body) !== first.compiledArtifacts[path]) throw refuse();
+          } else {
+            // Noncompiled literal data/helper assets must be actual tracked
+            // immutable source, never candidate JSON or an untracked file.
+            if (git(sourceRoot, 'ls-files', '--error-unmatch', '--', path) !== path) throw refuse();
+            const stat = lstatSync(join(sourceRoot, path));
+            if (
+              !stat.isFile() ||
+              stat.isSymbolicLink() ||
+              stat.uid !== process.getuid() ||
+              stat.nlink !== 1 ||
+              stat.mode & 0o022 ||
+              realpathSync(join(sourceRoot, path)) !== join(sourceRoot, path)
+            )
+              throw refuse();
+          }
           return body.toString('utf8');
         },
       }).sha256,
@@ -94,7 +109,11 @@ export function createNativeAppCompatibilityInspector({
       } else if (!s.isFile()) throw refuse();
     };
     visit(join(sourceRoot, 'node_modules'));
-    if (digest(verifyPreparedController(canonicalRoot, sourceRoot, selected)) !== digest(first))
+    if (
+      !['', '?? staging-release.json'].includes(git(sourceRoot, 'status', '--porcelain')) ||
+      git(sourceRoot, 'rev-parse', 'HEAD') !== selected ||
+      digest(verifyPreparedController(canonicalRoot, sourceRoot, selected)) !== digest(first)
+    )
       throw refuse();
     return Object.freeze(snapshot);
   };
