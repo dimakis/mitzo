@@ -99,3 +99,19 @@ describe('saved new-chat drafts', () => {
     fail.mockRestore();
   });
 });
+it('creates independent persistent draft identities on remote HTTP without randomUUID', () => {
+  vi.stubGlobal('crypto', { getRandomValues: crypto.getRandomValues.bind(crypto) });
+  try {
+    const first = createChatDraft();
+    const second = createChatDraft();
+    expect(first.id).toMatch(
+      /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/,
+    );
+    expect(second.id).not.toBe(first.id);
+    saveChatDraft({ ...first, text: 'Saved over HTTP' });
+    expect(getChatDraft(first.id)?.id).toBe(first.id);
+    expect(getChatDraft(first.id)?.text).toBe('Saved over HTTP');
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});

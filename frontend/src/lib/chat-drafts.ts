@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { createBrowserId } from './browser-crypto';
 import { getDefaultAccountModel } from './account-preference';
 
 const PREFIX = 'mitzo-chat-draft:';
@@ -42,7 +43,7 @@ export type ChatDraftContent = Pick<ChatDraft, 'text' | 'images' | 'contextBlock
 export function createChatDraft(): ChatDraft {
   return {
     version: 1,
-    id: crypto.randomUUID(),
+    id: createBrowserId(),
     text: '',
     images: [],
     contextBlocks: [],
