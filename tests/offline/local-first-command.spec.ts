@@ -584,7 +584,9 @@ test('OpenShell conversation: default route starts and continues without legacy 
   await expect.poll(() => fixture.requests.length).toBe(1);
   await page.getByRole('combobox', { name: 'Thinking', exact: true }).selectOption('high');
   await page.getByRole('textbox', { name: 'Message Mitzo' }).fill('Continue in this checkout');
-  await page.getByRole('button', { name: 'Send message', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Send message', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Queue message', exact: true })).toBeEnabled();
+  await page.getByRole('button', { name: 'Queue message', exact: true }).click();
   await expect.poll(() => fixture.requests.length).toBe(2);
   expect(fixture.requests).toMatchObject([
     { runOn: 'openshell', capabilityRevision: 'sandbox-caps-r1', selection: { thinking: 'low' } },
