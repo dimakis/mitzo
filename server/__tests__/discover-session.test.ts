@@ -1,4 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { readdirSync } from 'fs';
+
+vi.mock('fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('fs')>();
+  return { ...actual, readdirSync: vi.fn(actual.readdirSync) };
+});
 
 const mockGetSessionInfo = vi.fn();
 const mockUpsertSession = vi.fn();
@@ -288,6 +294,46 @@ it('does not replace a recorded historical workspace with SDK metadata', async (
 const savedEvents = [
   { seq: 1, type: 'user_message', payload: { prompt: 'Saved request' }, timestamp: 1 },
 ];
+
+describe('durable history fast path', () => {
+  it.each(['getMessages', 'getSessionTranscript'] as const)(
+    'does not enumerate SDK directories for %s with a recorded workspace',
+    async (method) => {
+      mockEventStore.getSessionEvents.mockReturnValue(savedEvents);
+      mockGetSession.mockReturnValue({ sessionId: 'fast', cwd: '/recorded/worktree' });
+      const chat = await import('../chat.js');
+      vi.mocked(readdirSync).mockClear();
+
+      const result = await chat[method]('fast');
+
+      expect(result).toBeDefined();
+      expect(readdirSync).not.toHaveBeenCalled();
+      expect(mockGetSessionInfo).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(['openai', 'openai-codex', 'google-vertex'])(
+    'does not wait for unrelated SDK metadata when opening %s history',
+    async (provider) => {
+      mockEventStore.getSessionEvents.mockReturnValue(savedEvents);
+      mockGetSession.mockReturnValue({
+        sessionId: 'native',
+        cwd: null,
+        accountBinding: { provider },
+      });
+      mockGetSessionInfo.mockImplementation(() => new Promise(() => {}));
+      const chat = await import('../chat.js');
+      vi.mocked(readdirSync).mockClear();
+
+      const transcript = chat.getSessionTranscript('native');
+
+      expect(mockGetSessionInfo).not.toHaveBeenCalled();
+      expect(readdirSync).not.toHaveBeenCalled();
+      expect(await transcript).toMatchObject({ messages: [expect.any(Object)], cursor: 1 });
+      expect(await chat.getMessages('native')).toHaveLength(1);
+    },
+  );
+});
 
 it.each(['getMessages', 'getSessionTranscript'] as const)(
   'recovers missing workspace for durable %s history',

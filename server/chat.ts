@@ -5412,9 +5412,15 @@ export function replayEventsToMessages(
 }
 
 /** Recover legacy workspace metadata without changing session identity or permissions. */
-async function recoverSessionWorkspace(sessionId: string, dirs = getSessionDirs()) {
-  if (eventStore.getSession(sessionId)?.cwd) return;
-  for (const dir of dirs) {
+async function recoverSessionWorkspace(sessionId: string, dirs?: string[]) {
+  const session = eventStore.getSession(sessionId);
+  if (session?.cwd) return;
+  // Only Claude SDK history can supply legacy workspace metadata. In
+  // particular, a native provider's missing cwd must not scan Claude files.
+  const provider = session?.accountBinding?.provider;
+  if (provider && provider !== 'anthropic') return;
+  // Discover directories only after the cheap metadata checks above.
+  for (const dir of dirs ?? getSessionDirs()) {
     try {
       const info = await getSessionInfo(sessionId, { dir });
       if (typeof info?.cwd !== 'string' || !isAbsolute(info.cwd)) continue;
