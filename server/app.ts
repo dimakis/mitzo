@@ -406,6 +406,8 @@ app.use(
 
 // --- CORS for non-same-origin clients (Capacitor iOS, etc.) ---
 // Mounted before yapper proxy so cross-origin voice requests get CORS headers.
+// Auth preflight must be observed before CORS responds without reaching the route.
+app.use(traceAuthCheck);
 const CORS_ALLOWED_ORIGINS =
   process.env.CORS_ALLOWED_ORIGINS?.split(',').map((s) => s.trim()) ?? [];
 
@@ -415,11 +417,14 @@ if (CORS_ALLOWED_ORIGINS.length > 0) {
     if (origin && CORS_ALLOWED_ORIGINS.includes(origin)) {
       res.setHeader('Access-Control-Allow-Origin', origin);
       res.setHeader('Access-Control-Allow-Credentials', 'true');
+      res.vary('Origin');
       res.setHeader(
         'Access-Control-Allow-Headers',
         'Content-Type, Authorization, X-CSRF-Token, X-Connection-ID, traceparent',
       );
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+      // Cache transport permission, not authentication or API responses.
+      if (req.method === 'OPTIONS') res.setHeader('Access-Control-Max-Age', '600');
     }
     if (req.method === 'OPTIONS') {
       res.status(204).end();
@@ -556,7 +561,6 @@ app.use('/api/capability-operations', authMiddleware, (req, res, next) => {
     return res.status(503).json({ error: 'Capability operations are not configured.' });
   return capabilityOperationsRouter(req, res, next);
 });
-app.use(traceAuthCheck);
 // Two 5 MiB UTF-8 documents can each expand sixfold when JSON escapes control bytes.
 app.put('/api/files/write', authMiddleware, express.json({ limit: 60 * 1024 * 1024 + 64 * 1024 }));
 // Authenticate before accepting the expanded JSON envelope; decoded document bytes remain capped at 5 MiB.
