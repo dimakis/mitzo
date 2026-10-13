@@ -54,7 +54,7 @@ import {
 } from './ws-handler-v2.js';
 import type { SessionSseRegistry } from './session-sse-registry.js';
 import { SseTransport } from './sse-transport.js';
-import { effectivePermissionMode } from '@mitzo/harness';
+import { effectivePermissionMode, getTransportAttachmentIdentity } from '@mitzo/harness';
 import { isTransportConnectionOwnedBy } from './transport-auth-ownership.js';
 import { createLogger } from './logger.js';
 import { ExecutionAdmissionError } from '@mitzo/protocol/event-store';
@@ -217,7 +217,11 @@ export function createChatRestRouter(
         } = {},
       ) => {
         const delegate = new SseTransport(connectionId, sseRegistry);
+        const connectionTransport = ctx.connRegistry.get(connectionId)?.transport;
         const transport = {
+          attachmentIdentity: connectionTransport
+            ? getTransportAttachmentIdentity(connectionTransport)
+            : undefined,
           // This transport accepts events into durable storage even offline.
           isOpen: () => true,
           send(data: Record<string, unknown>) {

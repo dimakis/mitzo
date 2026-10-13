@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { Response } from 'express';
+import type { Request, Response, Router } from 'express';
 import type { WebSocket } from 'ws';
 import { ConnectionRegistry, type SessionTransport } from '@mitzo/harness';
 import { SessionSseRegistry } from '../session-sse-registry.js';
@@ -81,11 +81,15 @@ function attachment(kind: 'SSE' | 'WS', connectionId: string) {
   let close: () => void;
   let transport: SessionTransport;
   if (kind === 'SSE') {
-    streams.add(connectionId, {
-      write: vi.fn(() => true),
-      end: vi.fn(),
-      writableEnded: false,
-    } as unknown as Response);
+    streams.add(
+      connectionId,
+      {
+        write: vi.fn(() => true),
+        end: vi.fn(),
+        writableEnded: false,
+      } as unknown as Response,
+      'offline-ordinary-login',
+    );
     transport = new SseTransport(connectionId, streams);
     close = () => streams.remove(connectionId);
   } else {
@@ -105,15 +109,17 @@ function attachment(kind: 'SSE' | 'WS', connectionId: string) {
   };
 }
 
-async function startOrdinary(kind: 'SSE' | 'WS', resume: boolean) {
-  const sessionId = randomUUID(),
-    connectionId = `ordinary:${randomUUID()}`;
+async function startOrdinary(kind: 'SSE' | 'WS', resume: boolean, rest = false) {
+  let sessionId = randomUUID();
+  const connectionId = `ordinary:${randomUUID()}`;
+  const clientMsgId = randomUUID();
   let resolve!: () => void;
   const held = new Promise<void>((done) => {
     resolve = done;
   });
   finish = resolve;
   sdk.query.mockImplementation((args) => {
+    if (rest && !resume) sessionId = args.options.sessionId;
     expect(resume ? args.options.resume : args.options.sessionId).toBe(sessionId);
     return (async function* () {
       yield {
@@ -137,27 +143,62 @@ async function startOrdinary(kind: 'SSE' | 'WS', resume: boolean) {
     chat.eventStore.setSessionState(sessionId, 'ENDED', { force: true });
   }
   const original = attachment(kind, connectionId);
-  await ws.handleSendV2(
-    connectionId,
-    original.transport,
-    {
-      type: 'send',
-      sessionId: resume ? sessionId : null,
-      clientMsgId: randomUUID(),
-      prompt: 'Offline ordinary task',
-      cwd: root,
-      isolation: false,
-    },
-    {
-      sessionRegistry: chat.registry,
-      connRegistry: connections,
-      eventStore: chat.eventStore,
-      nativeCommands: {
-        execute: vi.fn(),
-      } as unknown as import('../ws-handler-v2.js').V2HandlerContext['nativeCommands'],
-    },
-    { initialSessionId: resume ? undefined : sessionId, awaitStartupAdmission: true },
-  );
+  const command = {
+    type: 'send' as const,
+    sessionId: resume ? sessionId : null,
+    clientMsgId,
+    prompt: 'Offline ordinary task',
+    cwd: root,
+    isolation: false,
+  };
+  const context = {
+    sessionRegistry: chat.registry,
+    connRegistry: connections,
+    eventStore: chat.eventStore,
+    nativeCommands: {
+      execute: vi.fn(),
+    } as unknown as import('../ws-handler-v2.js').V2HandlerContext['nativeCommands'],
+  };
+  if (rest) {
+    const { createChatRestRouter } = await import('../chat-rest-handler.js');
+    const router = createChatRestRouter(streams, context);
+    const response = await new Promise<{ status: number; body: unknown }>((resolve, reject) => {
+      let status = 200;
+      const req = {
+        method: 'POST',
+        url: '/send',
+        path: '/send',
+        originalUrl: '/api/chat/send',
+        headers: { 'x-connection-id': connectionId },
+        body: command,
+      } as unknown as Request;
+      const res = {
+        locals: { authSession: { id: 'offline-ordinary-login' } },
+        status(code: number) {
+          status = code;
+          return this;
+        },
+        json(body: unknown) {
+          resolve({ status, body });
+          return this;
+        },
+      } as unknown as Response;
+      (
+        router as Router & {
+          handle(req: Request, res: Response, next: (error?: unknown) => void): void;
+        }
+      ).handle(req, res, (error) => reject(error ?? Error('Unmatched route')));
+    });
+    expect(response).toEqual({
+      status: 202,
+      body: { ok: true, accepted: true, clientMsgId, sessionId },
+    });
+  } else {
+    await ws.handleSendV2(connectionId, original.transport, command, context, {
+      initialSessionId: resume ? undefined : sessionId,
+      awaitStartupAdmission: true,
+    });
+  }
   await vi.waitFor(() =>
     expect(connections.get(connectionId)?.watchedSessions.has(sessionId)).toBe(true),
   );
@@ -165,7 +206,7 @@ async function startOrdinary(kind: 'SSE' | 'WS', resume: boolean) {
   expect(driver.session.transport).not.toBe(original.transport);
   expect(sdk.query).toHaveBeenCalledOnce();
   expect(driver.session.queryInstance).toBeTruthy();
-  return { sessionId, original, driver };
+  return { sessionId, clientMsgId, original, driver };
 }
 
 it.each([
@@ -218,6 +259,37 @@ it.each(['SSE', 'WS'] as const)(
       true,
     );
     await vi.waitFor(() => expect(chat.registry.findBySessionId(sessionId)).toBeNull());
+    expect(sdk.query).toHaveBeenCalledOnce();
+  },
+);
+
+it.each([false, true])(
+  'ordinary REST/SSE startup (resume: %s) detaches and records unattended completion through both decorators',
+  async (resume) => {
+    const notifications = await import('../notification-center.js');
+    const record = vi.spyOn(notifications, 'recordTurnNotification');
+    const { sessionId, clientMsgId, original, driver } = await startOrdinary('SSE', resume, true);
+    const receipt = chat.eventStore.getSendCommand(clientMsgId);
+    const query = driver.session.queryInstance;
+    expect(receipt).toMatchObject({ sessionId, error: null });
+    original.close();
+    expect(chat.detachChatIfCurrentTransport(driver.clientId, original.transport)).toBe(true);
+    expect(chat.registry.isAttached(driver.clientId)).toBe(false);
+    expect(chat.eventStore.getSessionState(sessionId)).toBe('DETACHED');
+    expect(changes).toHaveBeenCalledWith(driver.clientId, 'detach', sessionId);
+    expect(driver.session.queryInstance).toBe(query);
+    expect(driver.session.abortController.signal.aborted).toBe(false);
+    finish();
+    await vi.waitFor(() => expect(record).toHaveBeenCalled());
+    expect(record).toHaveBeenCalledWith(
+      sessionId,
+      expect.any(Number),
+      expect.any(String),
+      undefined,
+      true,
+    );
+    await vi.waitFor(() => expect(chat.registry.findBySessionId(sessionId)).toBeNull());
+    expect(chat.eventStore.getSendCommand(clientMsgId)).toEqual(receipt);
     expect(sdk.query).toHaveBeenCalledOnce();
   },
 );
