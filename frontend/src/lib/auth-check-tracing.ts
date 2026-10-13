@@ -1,4 +1,5 @@
 import { SpanStatusCode, SpanKind, type Span } from '@opentelemetry/api';
+import { Capacitor } from '@capacitor/core';
 import { tracer, injectTraceparent, tracingReady } from './tracing';
 
 function untilAbort<T>(work: Promise<T>, signal?: AbortSignal): Promise<T> {
@@ -18,10 +19,15 @@ export async function traceAuthenticationCheck<T>(
   check: (span: Span, headers: Record<string, string>) => Promise<T>,
   signal?: AbortSignal,
 ): Promise<T> {
+  const initializationStartedAt = performance.now();
   const options = {
     kind: SpanKind.CLIENT,
     startTime: Date.now(),
-    attributes: { 'http.request.method': 'GET', 'http.route': '/api/auth/check' },
+    attributes: {
+      'http.request.method': 'GET',
+      'http.route': '/api/auth/check',
+      'mitzo.client.platform': Capacitor.getPlatform(),
+    },
   };
   if (tracingReady) {
     try {
@@ -41,6 +47,10 @@ export async function traceAuthenticationCheck<T>(
   }
   if (signal?.aborted) throw new Error('Authentication check cancelled');
   const span = tracer.startSpan('http.auth.check', options);
+  span.setAttribute(
+    'mitzo.auth.tracing_initialization_ms',
+    performance.now() - initializationStartedAt,
+  );
   try {
     return await untilAbort(check(span, injectTraceparent(span)), signal);
   } catch (error) {
