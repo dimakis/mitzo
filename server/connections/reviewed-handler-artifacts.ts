@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.9';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.105';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.106';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -33,6 +33,8 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../owned-local-codex-control.ts':
     'c96a60d72a69955c516614d5677d25c6a303c66ef0b47910be03cdb49e5598d8',
   '../permissions.ts': 'f4c54aaa6d5d118ad08b7dcedb2e566ce12d2853c370bbeea89a7b50079a9bec',
+  '../symposium-director-route-composition.ts':
+    '6978b9c8ebbaaf7ae50a7086e096e94542654c40f2005d944651426226b9dabe',
   '../symposium-artifact-route-composition.ts':
     '8d9e87e2a2873f0dc841429a5b9a43b93aa194237e4f9594b572e87bff27142b',
   '../../frontend/src/styles/workspace-chat.css':
@@ -212,7 +214,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   // Read-only session observation is part of the operator route composition.
   '../session-access.ts': 'e70130c57879d3b22fab78473d90c8d2e787b7a499194c166e7e912fc5cf2767',
   // Request authority and physical review composition share runtime admission.
-  '../app.ts': '17e116d249cbd649e0bcb17ab8ad2b2fb3a2c79b5203fa0c0f31acedfd6ffd40',
+  '../app.ts': 'abab90886617b3a4b49672b9fac557f367eb2114ec3e97788f52edc2d396e537',
   '../auth-check-tracing.ts': '067dc344d8ee76ffe39739a99076f614711ca3d11f96682c842c596a7bbd112e',
   '../telemetry-relay.ts': '302bf6cec2b988ae71a123a5dd04d0f2266a82c3ee51873ec64d8be452c25427',
   '../symposium-review-route-composition.ts':
