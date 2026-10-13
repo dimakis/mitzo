@@ -8,7 +8,11 @@
 import { createStore } from 'zustand/vanilla';
 import type { StoreApi } from 'zustand/vanilla';
 import type { FinishedMessage, MitzoMode, ImageAttachment, SourceSnapshot } from '@mitzo/protocol';
-import { splitContextPrompt } from '@mitzo/protocol';
+import {
+  splitContextPrompt,
+  LocalCodexFirstCommandSchema,
+  type LocalCodexFirstCommand,
+} from '@mitzo/protocol';
 
 import type { TransportAdapter } from './types.js';
 import { messagesReducer, INITIAL_MESSAGES_STATE } from './slices/messages.js';
@@ -116,6 +120,19 @@ export interface MitzoStoreState {
   // Current server-issued transport identity; never persisted across reconnect.
   getTransportConnectionId(): string | null;
 
+  /** Dedicated first-command delivery intent; never a runtime readiness receipt. */
+  localFirstCommandTransportAvailable: boolean;
+  localCommand: {
+    request?: LocalCodexFirstCommand;
+    state: string;
+    sessionId?: string;
+    originDraftId?: string;
+  } | null;
+  sendLocalFirstCommand(
+    request: LocalCodexFirstCommand,
+    observers?: Pick<SendMessageOptions, 'onDelivery' | 'onSessionAssigned'> & { draftId?: string },
+  ): boolean;
+  recoverLocalCommand(): boolean;
   // Actions — chat
   dispatchMessages(action: MessagesAction): void;
   getConnectionId(): string | null;
@@ -182,6 +199,7 @@ export interface MitzoStoreOptions {
   sseConfig?: SseConnectionConfig;
   /** Durable HTTP admission of initial reviewed briefing commands while WS receives events. */
   reviewedSendConfig?: { url: string; storage: Pick<Storage, 'getItem' | 'setItem'> };
+  localFirstCommandConfig?: { url: string; storage: Pick<Storage, 'getItem' | 'setItem'> };
   /** Start with transports latched off until restoreAuthentication() after an explicit login. */
   initiallyAuthenticated?: boolean;
   /** Global durable command handoff, recreated at bootstrap and independent of UI observers. */
@@ -311,10 +329,63 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
         },
       })
     : null;
+  const localOutbox =
+    options.sseConfig && options.localFirstCommandConfig
+      ? new SendOutbox({
+          ...options.localFirstCommandConfig,
+          localFirstCommand: true,
+          fetch: async (url, init) => {
+            if (!reviewedAuthenticated || !connection.getConnectionId())
+              throw Error('Live SSE required');
+            return options.transport.fetch(url, init);
+          },
+          headers: () => ({ 'X-Connection-ID': connection.getConnectionId() ?? '' }),
+          notify(event) {
+            if (event.type !== '_local_command_state') return;
+            const parsed = LocalCodexFirstCommandSchema.safeParse(event.request);
+            const request = parsed.success ? parsed.data : undefined;
+            const state = String(event.state);
+            const sessionId = typeof event.sessionId === 'string' ? event.sessionId : undefined;
+            store.setState({
+              localCommand: {
+                request,
+                state,
+                sessionId,
+                ...(typeof event.originDraftId === 'string'
+                  ? { originDraftId: event.originDraftId }
+                  : {}),
+              },
+              sendStatus:
+                state === 'consumed'
+                  ? 'Local command dispatched.'
+                  : state === 'pending'
+                    ? 'Sending Local command…'
+                    : 'Local command retained. Review before retrying.',
+            });
+            if (!request) return;
+            if (sessionId) {
+              const foreground = bindLaunchAssignment(request.clientMsgId, sessionId);
+              if (foreground) {
+                parserState.currentSessionId = sessionId;
+                store.setState((s) => ({
+                  sessions: { ...s.sessions, active: sessionId },
+                  modeChangeReady: false,
+                }));
+                connection.send({ type: 'switch_session', sessionId });
+                store.getState().fetchSessionMeta(sessionId);
+              }
+            }
+            if (state === 'consumed') settleDelivery(request.clientMsgId, 'accepted');
+            else if (state === 'uncertain' || state === 'reserved' || state === 'retained')
+              settleDelivery(request.clientMsgId, 'uncertain');
+          },
+        })
+      : null;
   function pauseReviewedDelivery() {
     if (!reviewedAuthenticated) return;
     reviewedAuthenticated = false;
     reviewedOutbox?.rejectAll('Authentication expired. Sign in again to retry.');
+    localOutbox?.rejectAll('Authentication changed. Review the retained Local command.');
   }
   const parserState: ProtocolParserState = { currentSessionId: undefined };
   // Transport acceptance does not confirm a permission decision. A later
@@ -832,6 +903,48 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
       connection.send({ type: 'session_close', sessionId });
     },
 
+    localCommand: null,
+    localFirstCommandTransportAvailable: !!localOutbox,
+    sendLocalFirstCommand(request: LocalCodexFirstCommand, opts = {}) {
+      const parsed = LocalCodexFirstCommandSchema.safeParse(request);
+      if (
+        !parsed.success ||
+        !localOutbox ||
+        !reviewedAuthenticated ||
+        !connection.getConnectionId() ||
+        parserState.currentSessionId ||
+        (get().localCommand && get().localCommand!.state !== 'consumed')
+      )
+        return false;
+      const frozen = parsed.data;
+      observeDelivery(frozen.clientMsgId, opts, 'send');
+      const sent = localOutbox.enqueue(frozen, Date.now(), opts.draftId);
+      if (!sent) {
+        settleDelivery(frozen.clientMsgId, 'failed');
+        return false;
+      }
+      pendingOptimisticMessageIds.add(frozen.clientMsgId);
+      set((s) => ({
+        sendError: null,
+        modeChangeReady: false,
+        messages: messagesReducer(s.messages, {
+          type: 'USER_SEND',
+          text: frozen.payload.text,
+          clientMsgId: frozen.clientMsgId,
+          images: frozen.payload.images?.map(
+            (image) => `data:${image.mediaType};base64,${image.data}`,
+          ),
+        }),
+      }));
+      return true;
+    },
+    recoverLocalCommand() {
+      return (
+        !!reviewedAuthenticated &&
+        !!connection.getConnectionId() &&
+        !!localOutbox?.retryLocalCommand()
+      );
+    },
     sendMessage(text: string, opts?: SendMessageOptions) {
       const clientMsgId = `user-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       pendingOptimisticMessageIds.add(clientMsgId);
@@ -1278,6 +1391,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
     restoreAuthentication() {
       reviewedAuthenticated = true;
       reviewedOutbox?.start();
+      localOutbox?.start();
       connection.restoreAuthentication();
     },
 
@@ -1810,7 +1924,10 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
   connection.onMessage(wsListener);
   if (options.initiallyAuthenticated === false) connection.blockAuthentication();
   connection.connect();
-  if (reviewedAuthenticated) reviewedOutbox?.start();
+  if (reviewedAuthenticated) {
+    reviewedOutbox?.start();
+    localOutbox?.start();
+  }
 
   return store;
 }

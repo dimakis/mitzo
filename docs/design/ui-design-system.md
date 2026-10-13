@@ -300,3 +300,32 @@ component checks use no backend, credential, or model. The full-app offline fixt
 also covers enabled and legacy policy on mobile WebKit/Chromium and desktop
 Chromium; broad build/browser acceptance runs in CI when local memory pressure
 prevents the full suite.
+
+## Explicit Local first-command selection
+
+The gated ordinary-chat entry extends the existing Workspace disclosure and
+account/profile pickers with controlled metadata and Run on. It uses native labelled
+selects, existing account-model fields and chat-agent-profile styles; color, spacing,
+type, radii, control heights, focus and disclosure motion remain shared. It adds no
+page theme. An untouched enrolled draft retains OpenShell; unavailable choices
+retain their labels and reasons. Explicit Local uses a separate strict first-command
+HTTP route while existing event-stream transcript and permission handling stay shared.
+Configuration metadata never establishes runtime readiness.
+
+Mobile and desktop write the same account/profile/target/capability intent into
+saved drafts. Model/thinking and published revisions are never silently replaced
+when unavailable. Local requires a prepared repository, a published agent and the
+original permission policy. It disables unsupported context additions, command
+pickers, worktree toggles, web grants and subsequent sends; attached context remains
+removable without deleting draft text or images. Bound conversations display the
+Local first-command limit on reload and keep account/profile/runtime choices fixed.
+Recovery shows the original command tuple and resends its retained envelope only
+on a deliberate operator action. Authentication restoration does not replay it.
+
+The intercepted Local browser fixture covers review, preparation, immutable POST,
+bound settings and disabled-gate draft restoration on mobile and desktop in light
+and dark appearance with alternate accent/font settings. Screenshot evidence goes
+to the Playwright artifact output paths for review. Component/hook/client regressions
+require no backend, credential, native provider or model. Rendered browser acceptance
+and inspection remain required in hosted CI when local memory pressure precludes
+building or browser execution; fixture presence alone is not visual acceptance.

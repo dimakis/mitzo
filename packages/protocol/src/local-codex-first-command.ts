@@ -63,3 +63,12 @@ export const LocalCodexFirstCommandReceiptSchema = z.strictObject({
   state: z.enum(['reserved', 'uncertain', 'consumed']),
 });
 export type LocalCodexFirstCommandReceipt = z.infer<typeof LocalCodexFirstCommandReceiptSchema>;
+/** A retained receipt observation is not acknowledgement of this submitted request. */
+export const LocalCodexRetainedCommandObservationSchema = z.strictObject({
+  ok: z.literal(false),
+  code: z.literal('retained_command'),
+  error: z.literal('Local Codex entry unavailable'),
+  clientMsgId: reference,
+  sessionId: reference,
+  state: z.enum(['reserved', 'uncertain', 'consumed']),
+});

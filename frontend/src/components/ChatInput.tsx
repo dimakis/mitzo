@@ -61,6 +61,7 @@ interface Props {
   savedChatDraft?: ChatDraft;
   draftControl?: RefObject<ChatInputDraftControl | null>;
   sendDisabledReason?: string;
+  boundedFirstCommand?: boolean;
   cwd?: string;
   voice?: UseVoiceReturn;
   branch?: string;
@@ -91,7 +92,8 @@ export function ChatInput({
   draftStorageKey: suppliedDraftStorageKey,
   savedChatDraft,
   draftControl,
-  sendDisabledReason,
+  sendDisabledReason: suppliedSendDisabledReason,
+  boundedFirstCommand = false,
   cwd,
   voice,
   branch,
@@ -178,6 +180,11 @@ export function ChatInput({
   }, [assignment, sessionId]);
   const useExternal = externalContextBlocks !== undefined;
   const activeContextBlocks = useExternal ? externalContextBlocks : contextBlocks;
+  const sendDisabledReason =
+    suppliedSendDisabledReason ??
+    (boundedFirstCommand && activeContextBlocks.length
+      ? 'Remove attached context before sending the Local command.'
+      : undefined);
   const previousSavedId = useRef(savedChatDraft?.id);
   const savedOwnerChanging = previousSavedId.current !== savedChatDraft?.id;
   useEffect(() => {
@@ -399,13 +406,17 @@ export function ChatInput({
   // Show/hide slash picker based on input
   // TODO: Verify picker reopens correctly on backspace after space (e.g. "/simplify " → "/simplify")
   useEffect(() => {
+    if (boundedFirstCommand) {
+      setShowSlashPicker(false);
+      return;
+    }
     const trimmed = text.trimStart();
     if (trimmed.startsWith('/') && !trimmed.includes(' ')) {
       setShowSlashPicker(true);
     } else if (!trimmed.startsWith('/')) {
       setShowSlashPicker(false);
     }
-  }, [text]);
+  }, [text, boundedFirstCommand]);
 
   function handleSlashSelect(name: string) {
     setText((draft) => `/${name} ${draft.trimStart().startsWith('/') ? '' : draft}`);
@@ -793,7 +804,7 @@ export function ChatInput({
           >
             <ComposerTools
               terminalHref={
-                sessionId
+                sessionId && !boundedFirstCommand
                   ? `/terminal?sessionId=${encodeURIComponent(sessionId)}&returnTo=${encodeURIComponent(`/chat/${sessionId}`)}`
                   : undefined
               }
@@ -803,6 +814,7 @@ export function ChatInput({
                 textareaRef.current?.focus();
               }}
               commandsExpanded={showSlashPicker}
+              commandsDisabled={boundedFirstCommand}
               onAttach={() => fileInputRef.current?.click()}
               attachmentDisabled={images.length >= MAX_IMAGE_ATTACHMENTS}
               onDismiss={() => textareaRef.current?.focus()}
@@ -824,6 +836,7 @@ export function ChatInput({
             {!useExternal && (
               <SessionTray
                 placement="toolbar"
+                contextRemovalOnly={boundedFirstCommand}
                 messages={messages}
                 current={current}
                 bootContext={bootContext}

@@ -10,7 +10,20 @@ import {
 import { apiFetch } from '../lib/api-fetch';
 import './ChatAgentProfilePicker.css';
 
-export function ChatAgentProfilePicker({
+export function ChatAgentProfilePicker(
+  props: Parameters<typeof LibraryChatAgentProfilePicker>[0] & {
+    controlled?: {
+      versions: AgentLibraryVersion[];
+      selection: AgentProfileSelection | null;
+      onChange(selection: AgentProfileSelection | null): void;
+    };
+  },
+) {
+  if (props.controlled)
+    return <ControlledAgentProfilePicker {...props.controlled} disabled={props.disabled} />;
+  return <LibraryChatAgentProfilePicker {...props} />;
+}
+function LibraryChatAgentProfilePicker({
   sessionId,
   search,
   onChange,
@@ -173,6 +186,75 @@ export function ChatAgentProfilePicker({
       </label>
       <Link to="/agent-library">Library</Link>
       {error && <span role="alert">{error}</span>}
+    </div>
+  );
+}
+
+const controlledProfileKey = (selection: AgentProfileSelection) =>
+  JSON.stringify([
+    ('kind' in selection ? selection.kind : undefined) ?? 'saved',
+    selection.profileId,
+    selection.revision,
+  ]);
+
+function ControlledAgentProfilePicker({
+  versions,
+  selection,
+  onChange,
+  disabled,
+}: {
+  versions: AgentLibraryVersion[];
+  selection: AgentProfileSelection | null;
+  onChange(selection: AgentProfileSelection | null): void;
+  disabled?: boolean;
+}) {
+  const [, setSearchParams] = useSearchParams();
+  const value = selection ? controlledProfileKey(selection) : '';
+  return (
+    <div className="chat-agent-profile">
+      <label>
+        Agent
+        <select
+          aria-label="Agent"
+          value={value}
+          disabled={disabled}
+          onChange={(e) => {
+            const selected = versions.find((v) => controlledProfileKey(v) === e.target.value);
+            onChange(
+              selected ? { profileId: selected.profileId, revision: selected.revision } : null,
+            );
+            setSearchParams(
+              (params) => {
+                const next = new URLSearchParams(params);
+                next.delete('agentProfileKind');
+                if (selected) {
+                  next.set('agentProfile', selected.profileId);
+                  next.set('profileRevision', String(selected.revision));
+                } else {
+                  next.delete('agentProfile');
+                  next.delete('profileRevision');
+                }
+                return next;
+              },
+              { replace: true },
+            );
+          }}
+        >
+          <option value="">Choose published agent</option>
+          {value && !versions.some((v) => controlledProfileKey(v) === value) && (
+            <option value={value} disabled>
+              Unavailable {selection && 'kind' in selection ? 'builtin agent' : 'agent'} · r
+              {selection!.revision}
+            </option>
+          )}
+          {versions.map((v) => (
+            <option key={controlledProfileKey(v)} value={controlledProfileKey(v)}>
+              {agentProfileLabel(v.definition)} · r{v.revision}
+            </option>
+          ))}
+        </select>
+      </label>
+      <Link to="/agent-library">Library</Link>
     </div>
   );
 }

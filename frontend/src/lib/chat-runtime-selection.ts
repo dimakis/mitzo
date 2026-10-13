@@ -142,7 +142,12 @@ export function evaluateChatRuntimeSelection(
 }
 
 function sameProfile(left: AgentProfileSelection | null, right: AgentProfileSelection | null) {
-  return left?.profileId === right?.profileId && left?.revision === right?.revision;
+  return (
+    left?.profileId === right?.profileId &&
+    left?.revision === right?.revision &&
+    (left && 'kind' in left ? left.kind : undefined) ===
+      (right && 'kind' in right ? right.kind : undefined)
+  );
 }
 
 /** Model/thinking are future-command intent; account/profile/location remain bound. */
@@ -207,6 +212,7 @@ export function chatAgentProfileFromSearch(search: string): AgentProfileSelectio
   const parsed = AgentProfileSelectionSchema.safeParse({
     profileId: params.get('agentProfile'),
     revision: Number(params.get('profileRevision')),
+    ...(params.has('agentProfileKind') ? { kind: params.get('agentProfileKind') } : {}),
   });
   return parsed.success ? parsed.data : null;
 }

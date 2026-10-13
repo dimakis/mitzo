@@ -1,3 +1,4 @@
+import { disabledLocalCapabilities } from '../support/disabled-local-capabilities';
 import { expect, test, type Page } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 import { extname, resolve } from 'node:path';
@@ -134,6 +135,7 @@ async function fixture(page: Page, existing = false, pending = true) {
     if (url.hostname !== 'mitzo-ui.test') return route.abort();
     if (url.pathname.endsWith('/events'))
       return route.fulfill({ contentType: 'text/event-stream', body: 'retry: 60000\n\n' });
+    if (await disabledLocalCapabilities(route, url)) return;
     if (url.pathname.startsWith('/api/')) {
       if (route.request().method() !== 'GET')
         return route.fulfill({ status: 405, json: { error: 'No writes in this fixture' } });

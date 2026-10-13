@@ -68,7 +68,13 @@ export function WorkspaceControls({
       <div className="workspace-controls-heading">
         <button
           className="workspace-controls-toggle"
-          aria-label={['Workspace controls', summary?.profile, summary?.model, summary?.thinking]
+          aria-label={[
+            'Workspace controls',
+            summary?.profile,
+            summary?.model,
+            summary?.thinking,
+            summary?.location,
+          ]
             .filter(Boolean)
             .join(', ')}
           aria-expanded={open}
@@ -92,6 +98,9 @@ export function WorkspaceControls({
                 {(summary.model || summary.thinking) && (
                   <span className="workspace-controls-details">
                     {summary.model && <span>{summary.model}</span>}
+                    {summary.location && (
+                      <span>{summary.location === 'local' ? 'Local' : 'OpenShell'}</span>
+                    )}
                     {summary.thinking && <span>{summary.thinking}</span>}
                   </span>
                 )}
