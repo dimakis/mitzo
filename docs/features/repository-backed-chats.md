@@ -54,6 +54,13 @@ The source chat keeps its workspace, branch, permissions and provider history.
 The task draft carries the requested work; it does not copy the entire transcript.
 Existing conversation workspaces are never switched by this tool.
 
+iOS background suspension buffers chat events while the current turn continues.
+It does not revoke repository discovery, preparation or draft recovery. Those
+tools still require the owning live session and its current account, model,
+connection scope and skill permissions; closing or cancelling the session blocks
+them. Preparation still requires Agent or Auto mode. The user must review and
+send the returned draft before its new provider or sandbox starts.
+
 Editable prompts use a browser draft keyed to their preparation. Reload preserves
 edits, including an intentionally empty prompt, without changing ordinary unsent
 chat drafts. Send saves the current edit before transport; only the matching new
