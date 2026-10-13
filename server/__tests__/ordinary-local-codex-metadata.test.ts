@@ -41,3 +41,20 @@ it('keeps a retained local conversation visibly first-command-only after ending'
     store.close();
   }
 });
+
+it('advertises normal conversation scope only from a qualified retained runtime owner', () => {
+  const store = {
+    getSessionRuntimeBinding: () => ({
+      version: 2,
+      account: { accountId: 'personal', provider: 'openai-codex', profileRevision: 'account' },
+      harness: { implementation: 'codex' },
+      execution: { location: 'local', targetId: 'mac', targetRevision: 'target' },
+    }),
+  };
+  expect(ownedLocalCodexMetadata(store as never, 'bound', true)).toMatchObject({
+    runtimeCommandScope: 'conversation',
+  });
+  expect(ownedLocalCodexMetadata(store as never, 'bound', false)).toMatchObject({
+    runtimeCommandScope: 'first-command-only',
+  });
+});

@@ -5,7 +5,21 @@ import { randomUUID } from 'node:crypto';
 import { existsSync, writeFileSync } from 'node:fs';
 
 import { revokeAuthSession } from '../auth.js';
+import { CodexConversationStore } from '../codex-conversation-store.js';
+import { join } from 'node:path';
+import { bindAgentLibraryTransport } from '../agent-library-transport.js';
+import { loadAccountProfiles } from '../account-profiles.js';
+import { OrdinaryLocalCodexHostRuntime } from '../ordinary-local-codex-host-runtime.js';
+import { OrdinaryLocalCodexCapabilityCatalog } from '../ordinary-local-codex-capabilities.js';
+vi.mock('../auth.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../auth.js')>()),
+  hasPersistentRevocationAuthority: () => true,
+}));
 import { buildAgentProfilePrompt } from '../agent-library-prompt.js';
+import {
+  OrdinaryLocalCodexOwnedRuntime,
+  type OrdinaryLocalCodexOwnedDispatch,
+} from '../ordinary-local-codex-owned-runtime.js';
 
 const deployment = vi.hoisted(() => ({ controller: false, owner: false }));
 vi.mock('../symposium-custodian-mode.js', async (importOriginal) => ({
@@ -329,5 +343,362 @@ it.each(['controller', 'owner'] as const)(
     expect(() => f.create()).toThrow('Owned local Codex runtime unavailable');
     expect(f.launch).not.toHaveBeenCalled();
     expect(f.events.getSession(f.reservation.conversationId)).toBeNull();
+  },
+);
+
+it('retains native custody for an admitted later command and never replays its consumed retry', async () => {
+  const f = await fixture();
+  const continuation = vi.fn(async (input: OrdinaryLocalCodexOwnedDispatch) => {
+    expect(input.lease).toBe(f.dispatch.mock.calls[0][0].lease);
+    expect(f.events.getOrdinaryLocalCommandAdmission(input.commandId)?.state).toBe('uncertain');
+    input.admission.assertBeforeEnqueue({
+      id: input.commandId,
+      prompt: input.payload.text,
+      intent: input.payload.intent,
+      model: input.expected.selection.model,
+      reasoningEffort: input.expected.selection.thinking,
+    });
+  });
+  const driver = new OrdinaryLocalCodexOwnedRuntime({
+    ...f.dependencies,
+    dispatchContinuation: continuation,
+  });
+  cleanups.push(() => driver.close());
+  await driver.admit(f.request);
+  const next = {
+    ...structuredClone(f.request),
+    clientMsgId: randomUUID(),
+    payload: { text: 'Second explicit message' },
+  };
+  await expect(driver.admitContinuation(next)).resolves.toEqual({ dispatched: true });
+  expect(f.events.getOrdinaryLocalCommandAdmission(next.clientMsgId)?.state).toBe('consumed');
+  expect(f.launch).toHaveBeenCalledOnce();
+  expect(continuation).toHaveBeenCalledOnce();
+  await expect(driver.admitContinuation(next)).resolves.toEqual({ dispatched: false });
+  expect(continuation).toHaveBeenCalledOnce();
+  const admission = f.dispatch.mock.calls[0][0].admission;
+  admission.assertBeforeDispatch(next.clientMsgId);
+  expect(() => admission.assertBeforeDispatch(next.clientMsgId)).toThrow();
+});
+
+it('rejects missing native model support before saving a later command and retains task files', async () => {
+  const f = await fixture();
+  const continuation = vi.fn();
+  const driver = new OrdinaryLocalCodexOwnedRuntime({
+    ...f.dependencies,
+    dispatchContinuation: continuation,
+  });
+  cleanups.push(() => driver.close());
+  await driver.admit(f.request);
+  const rpc = f.rpc.request.getMockImplementation()!;
+  f.rpc.request.mockImplementation(async (method) =>
+    method === 'model/list' ? { data: [], nextCursor: null } : rpc(method),
+  );
+  const next = {
+    ...structuredClone(f.request),
+    clientMsgId: randomUUID(),
+    payload: { text: 'Missing native support' },
+  };
+  await expect(driver.admitContinuation(next)).rejects.toThrow();
+  expect(f.events.getSendCommand(next.clientMsgId)).toBeUndefined();
+  expect(continuation).not.toHaveBeenCalled();
+  // An empty native catalog is a discovery-contract failure, not removal of
+  // one historical model while another supported selection remains available.
+  expect(f.rpc.close).toHaveBeenCalledOnce();
+  expect(existsSync(f.reserved.directory)).toBe(true);
+});
+
+it.each([false, true])(
+  'reopens exact retained cold custody with changed model %s and frozen queued settings',
+  async (changedModel) => {
+    const f = await fixture();
+    if (changedModel) {
+      f.configuration[0].models.push({
+        id: 'future-model',
+        label: 'Future',
+        reasoningEfforts: ['high'],
+      });
+      f.writeProfiles();
+      f.request.capabilityRevision = new OrdinaryLocalCodexCapabilityCatalog(
+        loadAccountProfiles(),
+        new OrdinaryLocalCodexHostRuntime(f.dependencies.env).target(),
+        'ordinary',
+      ).inventory().capabilityRevision;
+      const rpc = f.rpc.request.getMockImplementation()!;
+      f.rpc.request.mockImplementation(async (method) =>
+        method === 'model/list'
+          ? {
+              data: [
+                {
+                  model: 'fixture-model',
+                  displayName: 'Fixture',
+                  supportedReasoningEfforts: [{ reasoningEffort: 'low' }],
+                },
+                {
+                  model: 'future-model',
+                  displayName: 'Future',
+                  supportedReasoningEfforts: [{ reasoningEffort: 'high' }],
+                },
+              ],
+              nextCursor: null,
+            }
+          : rpc(method),
+      );
+    }
+    const first = f.create();
+    await first.admit(f.request);
+    const original = f.dispatch.mock.calls[0][0];
+    const native = new CodexConversationStore(join(f.root, 'native.db'));
+    cleanups.push(() => native.close());
+    native.create(original.sessionId, original.lease.binding, original.workspace.directory!);
+    original.admission.persistCustody(native);
+    native.bindThread(original.sessionId, original.lease.binding, 'retained-thread');
+    const custody = native.readHostCustody(original.sessionId, original.lease.binding)!;
+    native.enqueue(original.sessionId, original.lease.binding, {
+      id: original.commandId,
+      prompt: original.payload.text,
+      intent: original.payload.intent,
+      model: original.expected.selection.model,
+      reasoningEffort: original.expected.selection.thinking,
+    });
+    native.claimNext(original.sessionId, original.lease.binding);
+    native.recoverAtStartup('ordinary');
+    expect(native.commands(original.sessionId, original.lease.binding)[0].status).toBe(
+      'interrupted',
+    );
+    const queuedId = randomUUID(),
+      queuedPayload = { text: 'Saved FIFO message', systemPrompt: original.payload.systemPrompt };
+    f.events.admitOrdinaryLocalContinuation(
+      {
+        sessionId: original.sessionId,
+        accountBinding: original.lease.binding,
+        cwd: original.workspace.directory,
+        repositoryWorkspaceId: original.workspace.id,
+        agentProfile: original.expected.agentProfile,
+        mode: 'agent',
+        selectedModel: original.expected.selection.model,
+        reasoningEffort: original.expected.selection.thinking,
+      },
+      original.expected.binding,
+      {
+        clientMsgId: queuedId,
+        requestFingerprint: 'saved-queue',
+        selection: original.expected.selection,
+        payload: queuedPayload,
+      },
+    );
+    f.events.claimOrdinaryLocalCommandDispatch(queuedId);
+    f.events.completeOrdinaryLocalCommand(queuedId);
+    native.enqueue(original.sessionId, original.lease.binding, {
+      id: queuedId,
+      prompt: queuedPayload.text,
+      model: original.expected.selection.model,
+      reasoningEffort: original.expected.selection.thinking,
+    });
+    first.close();
+    const next = {
+      ...structuredClone(f.request),
+      clientMsgId: randomUUID(),
+      payload: { text: 'Resume original thread' },
+    };
+    if (changedModel) {
+      next.selection.model = 'future-model';
+      next.selection.thinking = 'high';
+    }
+    const resumed = vi.fn(async (value: OrdinaryLocalCodexOwnedDispatch) => {
+      expect(value.resume).toBe(true);
+      expect(value.lease.binding.model).toBe('fixture-model');
+      expect(value.expected.selection.model).toBe(changedModel ? 'future-model' : 'fixture-model');
+      expect(value.lease.privateHome).toBe(custody.login.privateHome);
+      value.admission.assertOptions({
+        conversationId: value.sessionId,
+        messageId: value.commandId,
+        resume: true,
+        binding: value.lease.binding,
+        profile: value.profile,
+        session: { cwd: value.workspace.directory, mode: 'agent' },
+        prompt: value.payload.text,
+        systemPrompt: value.payload.systemPrompt,
+        model: value.expected.selection.model,
+        reasoningEffort: value.expected.selection.thinking,
+        agentProfile: value.expected.agentProfile,
+        repositoryWorkspace: value.workspace,
+      });
+      value.admission.persistCustody(native);
+      value.admission.assertBeforeDispatch(queuedId);
+      expect(() => value.admission.assertBeforeDispatch(queuedId)).toThrow();
+      expect(
+        native
+          .commands(value.sessionId, value.lease.binding)
+          .find((command) => command.status === 'queued')?.id,
+      ).toBe(queuedId);
+      expect(() => value.admission.assertBeforeDispatch(original.commandId)).toThrow();
+      expect(native.commands(value.sessionId, value.lease.binding)[0].status).toBe('interrupted');
+      value.admission.assertBeforeEnqueue({
+        id: value.commandId,
+        prompt: value.payload.text,
+        model: value.expected.selection.model,
+        reasoningEffort: value.expected.selection.thinking,
+      });
+    });
+    const driver = new OrdinaryLocalCodexOwnedRuntime({
+      ...f.dependencies,
+      nativeStore: native,
+      commandId: next.clientMsgId,
+      launch: () => f.rpc,
+      dispatch: resumed,
+    });
+    cleanups.push(() => driver.close());
+    await expect(driver.admitResume(next)).resolves.toEqual({ dispatched: true });
+    expect(resumed).toHaveBeenCalledOnce();
+    expect(f.events.getOrdinaryLocalCommandAdmission(f.request.clientMsgId)?.state).toBe(
+      'consumed',
+    );
+    expect(native.read(original.sessionId, original.lease.binding).threadId).toBe(
+      'retained-thread',
+    );
+    expect(native.readHostCustody(original.sessionId, original.lease.binding)).toEqual(custody);
+  },
+);
+
+it.each(['legacy', 'other-operator'] as const)(
+  'refuses cold %s adoption before native effects',
+  async (reason) => {
+    const f = await fixture(),
+      first = f.create();
+    await first.admit(f.request);
+    const original = f.dispatch.mock.calls[0][0];
+    const native = new CodexConversationStore(join(f.root, 'native.db'));
+    cleanups.push(() => native.close());
+    native.create(original.sessionId, original.lease.binding, original.workspace.directory!);
+    if (reason !== 'legacy') original.admission.persistCustody(native);
+    native.bindThread(original.sessionId, original.lease.binding, 'retained-thread');
+    first.close();
+    const next = {
+      ...structuredClone(f.request),
+      clientMsgId: randomUUID(),
+      payload: { text: 'Cold command' },
+    };
+    const otherId = randomUUID();
+    cleanups.push(
+      bindAgentLibraryTransport(otherId, { id: 'another-operator', expiresAt: Date.now() + 60000 }),
+    );
+    const launch = vi.fn(() => f.rpc),
+      dispatch = vi.fn();
+    const driver = new OrdinaryLocalCodexOwnedRuntime({
+      ...f.dependencies,
+      nativeStore: native,
+      operatorConnectionId:
+        reason === 'other-operator' ? otherId : f.dependencies.operatorConnectionId,
+      commandId: next.clientMsgId,
+      launch,
+      dispatch,
+    });
+    cleanups.push(() => driver.close());
+    await expect(driver.admitResume(next)).rejects.toThrow();
+    expect(launch).not.toHaveBeenCalled();
+    expect(dispatch).not.toHaveBeenCalled();
+    expect(f.events.getSendCommand(next.clientMsgId)).toBeUndefined();
+    expect(native.read(original.sessionId, original.lease.binding).threadId).toBe(
+      'retained-thread',
+    );
+  },
+);
+
+it.each(['completed', 'queued', 'running'] as const)(
+  'checks removed original model against %s native work rather than completed history',
+  async (status) => {
+    const f = await fixture();
+    f.configuration[0].models.push({
+      id: 'future-model',
+      label: 'Future',
+      reasoningEfforts: ['low'],
+    });
+    f.writeProfiles();
+    const revision = () =>
+      new OrdinaryLocalCodexCapabilityCatalog(
+        loadAccountProfiles(),
+        new OrdinaryLocalCodexHostRuntime(f.dependencies.env).target(),
+        'ordinary',
+      ).inventory().capabilityRevision;
+    f.request.capabilityRevision = revision();
+    const rpc = f.rpc.request.getMockImplementation()!;
+    let originalAvailable = true;
+    f.rpc.request.mockImplementation(async (method) =>
+      method === 'model/list'
+        ? {
+            data: [
+              ...(originalAvailable
+                ? [
+                    {
+                      model: 'fixture-model',
+                      displayName: 'Fixture',
+                      supportedReasoningEfforts: [{ reasoningEffort: 'low' }],
+                    },
+                  ]
+                : []),
+              {
+                model: 'future-model',
+                displayName: 'Future',
+                supportedReasoningEfforts: [{ reasoningEffort: 'low' }],
+              },
+            ],
+            nextCursor: null,
+          }
+        : rpc(method),
+    );
+    const native = new CodexConversationStore(join(f.root, 'native.db'));
+    cleanups.push(() => native.close());
+    const continuation = vi.fn(async (value: OrdinaryLocalCodexOwnedDispatch) =>
+      value.admission.assertBeforeEnqueue({
+        id: value.commandId,
+        prompt: value.payload.text,
+        model: value.expected.selection.model,
+        reasoningEffort: value.expected.selection.thinking,
+      }),
+    );
+    const first = new OrdinaryLocalCodexOwnedRuntime({
+      ...f.dependencies,
+      nativeStore: native,
+      dispatchContinuation: continuation,
+      dispatch: async (value) => {
+        await f.dispatch(value);
+        native.create(value.sessionId, value.lease.binding, value.workspace.directory!);
+        value.admission.persistCustody(native);
+        native.enqueue(value.sessionId, value.lease.binding, {
+          id: value.commandId,
+          prompt: value.payload.text,
+          model: value.expected.selection.model,
+          reasoningEffort: value.expected.selection.thinking,
+        });
+        if (status !== 'queued') native.claimNext(value.sessionId, value.lease.binding);
+        if (status === 'completed')
+          native.finish(value.sessionId, value.lease.binding, value.commandId, 'completed');
+      },
+    });
+    cleanups.push(() => first.close());
+    await first.admit(f.request);
+    f.configuration[0].models.splice(0, 1);
+    f.writeProfiles();
+    originalAvailable = false;
+    const next = {
+      ...structuredClone(f.request),
+      clientMsgId: randomUUID(),
+      capabilityRevision: revision(),
+      selection: { ...f.request.selection, model: 'future-model' },
+      payload: { text: 'Valid future model' },
+    };
+    if (status === 'completed') {
+      await expect(first.admitContinuation(next)).resolves.toEqual({ dispatched: true });
+      expect(continuation).toHaveBeenCalledOnce();
+      expect(f.rpc.close).not.toHaveBeenCalled();
+    } else {
+      await expect(first.admitContinuation(next)).rejects.toThrow();
+      expect(continuation).not.toHaveBeenCalled();
+      expect(f.events.getSendCommand(next.clientMsgId)).toBeUndefined();
+      expect(native.commands(f.reservation.conversationId, f.reservation.binding)[0].status).toBe(
+        status,
+      );
+    }
   },
 );

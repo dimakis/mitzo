@@ -38,6 +38,37 @@ const binding = {
   profileRevision: 'chatgpt:test@example.com:test',
 };
 
+it.each(['commit', 'cancel'] as const)(
+  'keeps a guarded uncertain FIFO entry undispatched until %s',
+  async (outcome) => {
+    const f = await setup();
+    let consumed = false;
+    f.conversationOptions.canClaimCommand = (id) => id === 'first' || consumed;
+    await f.c.send({ id: 'first', prompt: 'First authorized turn' });
+    await f.c.admitExplicitSend({ id: 'future', prompt: 'Frozen pending admission' });
+    f.callbacks.onNotification('turn/completed', {
+      threadId: f.getProviderThread(),
+      turn: { id: 'turn-1', status: 'completed' },
+    });
+    await vi.waitFor(() => expect(f.c.queue()[0].status).toBe('completed'));
+    await f.c.startQueued();
+    expect(f.c.queue().find((command) => command.id === 'future')?.status).toBe('queued');
+    expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
+    if (outcome === 'cancel') {
+      expect(f.c.cancelQueued('future')).toBe('cancelled');
+      await f.c.startQueued();
+      expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
+    } else {
+      consumed = true;
+      await f.c.resumeAfterExplicitSend();
+      expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(2);
+      expect(f.c.queue().find((command) => command.id === 'future')?.prompt).toBe(
+        'Frozen pending admission',
+      );
+    }
+  },
+);
+
 it('runs the owning enqueue fence before direct or serialized command persistence', async () => {
   const f = await setup();
   const beforeRequests = f.requests.length;

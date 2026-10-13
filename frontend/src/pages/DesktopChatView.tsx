@@ -1,6 +1,10 @@
 import { useExplicitLocalChat } from '../hooks/useExplicitLocalChat';
 import { ChatExecutionPicker } from '../components/ChatExecutionPicker';
-import { buildLocalFirstCommand, prepareLocalFirstCommand } from '../lib/explicit-local-chat';
+import {
+  buildLocalFirstCommand,
+  prepareLocalFirstCommand,
+  prepareLocalContinuationCommand,
+} from '../lib/explicit-local-chat';
 import { createBrowserId } from '../lib/browser-crypto';
 import { useNewChatDraft, useChatDraftSearch } from '../hooks/useNewChatDraft';
 import { CHAT_DRAFTS_CHANGED, getChatDraft, chatDraftStorageKey } from '../lib/chat-drafts';
@@ -126,9 +130,11 @@ export function DesktopChatView() {
   const explicitNew = localRuntime.visible && !activeSessionId;
   const localBound =
     localRuntime.bound || (!!activeSessionId && localCommand?.sessionId === activeSessionId);
-  const localFirstCommand = explicitNew && localRuntime.selectedLocal;
+  const localFirstCommand = explicitNew;
   const controlsBlocked =
-    localBound || localRuntime.metadataPending || (!!sessionId && sessionId !== activeSessionId);
+    (localBound && !localRuntime.continuation) ||
+    localRuntime.metadataPending ||
+    (!!sessionId && sessionId !== activeSessionId);
 
   const missingDraftReason = newChatDraft.missing
     ? 'This draft is unavailable. Open Drafts or start a new chat.'
@@ -162,11 +168,12 @@ export function DesktopChatView() {
     scope: string | null;
     selection: AccountSelection | null;
   } | null>(null);
-  const accountSelection = explicitNew
-    ? localRuntime.intent.account
-    : accountChoice?.scope === accountScope
-      ? accountChoice.selection
-      : null;
+  const accountSelection =
+    explicitNew || localRuntime.continuation
+      ? localRuntime.intent.account
+      : accountChoice?.scope === accountScope
+        ? accountChoice.selection
+        : null;
   const [stagedAccountChoice, setStagedAccountChoice] = useState<{
     scope: string | null;
     selection: AccountSelection;
@@ -372,6 +379,7 @@ export function DesktopChatView() {
         ? {
             ...newChatDraft.draft,
             settings: {
+              retainRuntimeIntent: newChatDraft.draft.settings.retainRuntimeIntent,
               runtimeSelection: explicitNew
                 ? localRuntime.intent
                 : newChatDraft.draft.settings.runtimeSelection,
@@ -522,6 +530,24 @@ export function DesktopChatView() {
     onSessionAssigned?: import('@mitzo/client').SendMessageOptions['onSessionAssigned'],
   ): boolean {
     if (controlsBlocked) return false;
+    if (localRuntime.continuation && activeSessionId) {
+      if (
+        ctxBlocks?.length ||
+        launching ||
+        localRuntime.reason ||
+        !localRuntime.repositoryWorkspaceId
+      )
+        return false;
+      const command = prepareLocalContinuationCommand(localRuntime.intent, localRuntime.inventory, {
+        sessionId: activeSessionId,
+        clientMsgId: createBrowserId(),
+        repositoryWorkspaceId: localRuntime.repositoryWorkspaceId,
+        mode: localRuntime.mode ?? 'agent',
+        text,
+        images: images?.map(({ data, mediaType }) => ({ data, mediaType })),
+      });
+      return !!command.request && sendLocalFirstCommand(command.request, { onDelivery });
+    }
     if (explicitNew) {
       if (
         !localFirstCommand ||
@@ -633,7 +659,7 @@ export function DesktopChatView() {
     ctxBlocks?: string[],
     onDelivery?: import('@mitzo/client').SendMessageOptions['onDelivery'],
   ): void {
-    if (controlsBlocked || explicitNew) {
+    if (controlsBlocked || explicitNew || localBound) {
       onDelivery?.('failed');
       return;
     }
@@ -764,13 +790,22 @@ export function DesktopChatView() {
               {!repositoryHandoff.present || activeSessionId || repositoryHandoff.preparation ? (
                 <AccountModelPicker
                   controlled={
-                    explicitNew
+                    explicitNew || localRuntime.continuation
                       ? {
                           accounts: (localRuntime.inventory?.accounts ?? []).map((a) => ({
                             ...a,
                             id: a.account.accountId,
                           })),
                           selection: localRuntime.intent.account,
+                          onAccountChange: (selection) =>
+                            localRuntime.update(
+                              {
+                                ...localRuntime.intent,
+                                account: selection,
+                                capabilityRevision: null,
+                              },
+                              true,
+                            ),
                           onChange: (selection) =>
                             localRuntime.update({
                               ...localRuntime.intent,
@@ -784,6 +819,7 @@ export function DesktopChatView() {
                   initialSelection={
                     draftEnabled ? (newChatDraft.draft.settings.selection ?? undefined) : undefined
                   }
+                  lockAccount={localBound}
                   lockAccountModel={draftEnabled && !!repositorySelection?.repositoryWorkspaceId}
                   requiredSelection={
                     !activeSessionId && repositoryHandoff.preparation
@@ -802,7 +838,7 @@ export function DesktopChatView() {
                   onSessionHydrated={hydrateAccount}
                   onSummaryChange={setWorkspaceSummary}
                   disabled={
-                    messages.running ||
+                    (messages.running && !localRuntime.continuation) ||
                     controlsBlocked ||
                     repositoryHandoff.loading ||
                     briefingChat.selectionLocked
@@ -816,7 +852,7 @@ export function DesktopChatView() {
                   <PermissionModePicker
                     mode={mode}
                     onChange={handleModeChange}
-                    disabled={controlsBlocked || modeChangeReady === false}
+                    disabled={controlsBlocked || localBound || modeChangeReady === false}
                   />
                   {!activeSessionId && !explicitNew && (
                     <button
@@ -851,7 +887,7 @@ export function DesktopChatView() {
             <div className="workspace-session-settings">
               <ChatAgentProfilePicker
                 controlled={
-                  explicitNew
+                  explicitNew || localRuntime.continuation
                     ? {
                         versions: localRuntime.inventory?.agentProfiles ?? [],
                         selection: localRuntime.intent.agentProfile,
@@ -868,25 +904,28 @@ export function DesktopChatView() {
                 sessionId={activeSessionId}
                 search={searchParams.toString()}
                 onChange={onAgentProfileChange}
-                disabled={messages.running || controlsBlocked}
+                disabled={messages.running || controlsBlocked || localBound}
               />
               <ChatExecutionPicker
                 runtime={localRuntime}
-                disabled={messages.running || (!!localCommand && localCommand.state !== 'consumed')}
+                disabled={
+                  (messages.running && !localRuntime.continuation) ||
+                  (!!localCommand && localCommand.state !== 'consumed')
+                }
               />
               {localCommand && (
                 <div className="chat-agent-profile" role="status">
                   <span>
                     {localCommand.state === 'consumed'
-                      ? 'Original Local command dispatched.'
-                      : 'Local command retained. Review its original choices before recovery.'}
+                      ? `Original ${localCommand.request?.runOn === 'openshell' ? 'OpenShell' : 'Local'} command dispatched.`
+                      : `${localCommand.request?.runOn === 'openshell' ? 'OpenShell' : 'Local'} command retained. Review its original choices before recovery.`}
                   </span>
                   {localCommand.request && (
                     <span>
                       Account: {localCommand.request.runtime.account.accountId} · Model:{' '}
                       {localCommand.request.selection.model} · Thinking:{' '}
                       {localCommand.request.selection.thinking ?? 'not configurable'} · Agent
-                      revision: {localCommand.request.selection.agent.revision} · Local target:{' '}
+                      revision: {localCommand.request.selection.agent.revision} · Execution target:{' '}
                       {localCommand.request.runtime.targetId}
                     </span>
                   )}
@@ -908,12 +947,13 @@ export function DesktopChatView() {
                     }
                     onClick={() => recoverLocalCommand()}
                   >
-                    Recover original Local command
+                    Recover original{' '}
+                    {localCommand.request?.runOn === 'openshell' ? 'OpenShell' : 'Local'} command
                   </button>
                 </div>
               )}
 
-              {ordinaryControls && !explicitNew && !controlsBlocked && (
+              {ordinaryControls && !explicitNew && !controlsBlocked && !localBound && (
                 <WebSearchConsent
                   key={activeSessionId ?? 'new'}
                   sessionId={activeSessionId}
@@ -924,18 +964,18 @@ export function DesktopChatView() {
                 />
               )}
               <div className="workspace-session-actions">
-                {activeSessionId && !controlsBlocked && (
+                {activeSessionId && !controlsBlocked && !localBound && (
                   <AddAgentSheet sessionId={activeSessionId} />
                 )}
                 {activeSessionId && (
                   <SymposiumReviewEntry
                     key={activeSessionId}
                     sessionId={activeSessionId}
-                    readOnly={controlsBlocked}
+                    readOnly={controlsBlocked || localBound}
                   />
                 )}
               </div>
-              {activeSessionId && !controlsBlocked && (
+              {activeSessionId && !controlsBlocked && !localBound && (
                 <SymposiumDirectorPanel sessionId={activeSessionId} />
               )}
               <div ref={setProfileToolsTarget} />
@@ -964,7 +1004,7 @@ export function DesktopChatView() {
           <ScrollFab scrollRef={scrollRef} />
           <SymposiumConversation
             profileToolsTarget={profileToolsTarget}
-            readOnly={controlsBlocked}
+            readOnly={controlsBlocked || localBound}
             sessionId={activeSessionId}
             chat={{
               sessionId: sessionId || activeSessionId || undefined,
@@ -1044,17 +1084,34 @@ export function DesktopChatView() {
                 {!controlsBlocked && <CodexQueueStatus sessionId={activeSessionId} />}
                 <ChatInput
                   boundedFirstCommand={localFirstCommand || controlsBlocked}
+                  guardedConversation={localRuntime.continuation}
                   validateSend={
-                    localFirstCommand && repositorySelection?.repositoryWorkspaceId
+                    localRuntime.continuation &&
+                    activeSessionId &&
+                    localRuntime.repositoryWorkspaceId
                       ? (text, images) =>
-                          prepareLocalFirstCommand(localRuntime.intent, localRuntime.inventory, {
-                            clientMsgId: createBrowserId(),
-                            repositoryWorkspaceId: repositorySelection.repositoryWorkspaceId!,
-                            mode,
-                            text,
-                            images: images?.map(({ data, mediaType }) => ({ data, mediaType })),
-                          }).reason
-                      : undefined
+                          prepareLocalContinuationCommand(
+                            localRuntime.intent,
+                            localRuntime.inventory,
+                            {
+                              sessionId: activeSessionId,
+                              clientMsgId: createBrowserId(),
+                              repositoryWorkspaceId: localRuntime.repositoryWorkspaceId!,
+                              mode: localRuntime.mode ?? 'agent',
+                              text,
+                              images: images?.map(({ data, mediaType }) => ({ data, mediaType })),
+                            },
+                          ).reason
+                      : localFirstCommand && repositorySelection?.repositoryWorkspaceId
+                        ? (text, images) =>
+                            prepareLocalFirstCommand(localRuntime.intent, localRuntime.inventory, {
+                              clientMsgId: createBrowserId(),
+                              repositoryWorkspaceId: repositorySelection.repositoryWorkspaceId!,
+                              mode,
+                              text,
+                              images: images?.map(({ data, mediaType }) => ({ data, mediaType })),
+                            }).reason
+                        : undefined
                   }
                   savedChatDraft={savedChatDraft}
                   composerGeneration={chatDraftRevision}
@@ -1066,14 +1123,17 @@ export function DesktopChatView() {
                   sendDisabledReason={
                     localRuntime.reason ??
                     (controlsBlocked ? 'Loading conversation settings…' : undefined) ??
+                    (localRuntime.continuation && localCommand && localCommand.state !== 'consumed'
+                      ? 'Review the retained Local command before sending.'
+                      : undefined) ??
                     (explicitNew && localCommand && localCommand.state !== 'consumed'
                       ? 'Review the retained Local command before sending.'
                       : undefined) ??
                     (localFirstCommand && (!localTransportAvailable || !connected)
-                      ? 'Local connection is unavailable. Reconnect before sending.'
+                      ? 'Execution connection is unavailable. Reconnect before sending.'
                       : undefined) ??
                     (localFirstCommand && !repositorySelection?.repositoryWorkspaceId
-                      ? 'Prepare a repository before sending the Local command.'
+                      ? 'Prepare a repository before sending the command.'
                       : undefined) ??
                     missingDraftReason ??
                     repositoryAccountReason ??
@@ -1092,7 +1152,7 @@ export function DesktopChatView() {
                     handleSend(text, images, context, false, onDelivery, onSessionAssigned)
                   }
                   onStop={handleStop}
-                  onInterrupt={handleInterrupt}
+                  onInterrupt={localBound ? undefined : handleInterrupt}
                   running={repositoryHandoff.present ? false : messages.running}
                   draftControl={repositoryHandoff.present ? repositoryDraftControl : undefined}
                   draftStorageKey={

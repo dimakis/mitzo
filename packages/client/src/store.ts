@@ -10,8 +10,10 @@ import type { StoreApi } from 'zustand/vanilla';
 import type { FinishedMessage, MitzoMode, ImageAttachment, SourceSnapshot } from '@mitzo/protocol';
 import {
   splitContextPrompt,
-  LocalCodexFirstCommandSchema,
-  type LocalCodexFirstCommand,
+  OrdinaryCodexFirstCommandSchema,
+  OrdinaryCodexContinuationCommandSchema,
+  type OrdinaryCodexContinuationCommand,
+  type OrdinaryCodexFirstCommand,
 } from '@mitzo/protocol';
 
 import type { TransportAdapter } from './types.js';
@@ -123,13 +125,13 @@ export interface MitzoStoreState {
   /** Dedicated first-command delivery intent; never a runtime readiness receipt. */
   localFirstCommandTransportAvailable: boolean;
   localCommand: {
-    request?: LocalCodexFirstCommand;
+    request?: OrdinaryCodexFirstCommand | OrdinaryCodexContinuationCommand;
     state: string;
     sessionId?: string;
     originDraftId?: string;
   } | null;
   sendLocalFirstCommand(
-    request: LocalCodexFirstCommand,
+    request: OrdinaryCodexFirstCommand | OrdinaryCodexContinuationCommand,
     observers?: Pick<SendMessageOptions, 'onDelivery' | 'onSessionAssigned'> & { draftId?: string },
   ): boolean;
   recoverLocalCommand(): boolean;
@@ -342,7 +344,9 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
           headers: () => ({ 'X-Connection-ID': connection.getConnectionId() ?? '' }),
           notify(event) {
             if (event.type !== '_local_command_state') return;
-            const parsed = LocalCodexFirstCommandSchema.safeParse(event.request);
+            const parsed = OrdinaryCodexFirstCommandSchema.or(
+              OrdinaryCodexContinuationCommandSchema,
+            ).safeParse(event.request);
             const request = parsed.success ? parsed.data : undefined;
             const state = String(event.state);
             const sessionId = typeof event.sessionId === 'string' ? event.sessionId : undefined;
@@ -356,6 +360,7 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
                 launchGeneration,
                 running: store.getState().messages.running,
               });
+            const locationLabel = request?.runOn === 'openshell' ? 'OpenShell' : 'Local';
             store.setState({
               localCommand: {
                 request,
@@ -367,15 +372,15 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
               },
               sendStatus:
                 state === 'consumed'
-                  ? 'Local command dispatched.'
+                  ? `${locationLabel} command dispatched.`
                   : state === 'pending'
-                    ? 'Sending Local command…'
-                    : 'Local command retained. Review before retrying.',
+                    ? `Sending ${locationLabel} command…`
+                    : `${locationLabel} command retained. Review before retrying.`,
             });
             if (!request) return;
             // Only a validated202 acknowledges this submitted request; a retained409
             // session is an observation and must not consume its launch identity.
-            if (sessionId && event.acknowledged === true) {
+            if (sessionId && event.acknowledged === true && !('sessionId' in request)) {
               const foreground = bindLaunchAssignment(
                 request.clientMsgId,
                 sessionId,
@@ -949,14 +954,21 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
 
     localCommand: null,
     localFirstCommandTransportAvailable: !!localOutbox,
-    sendLocalFirstCommand(request: LocalCodexFirstCommand, opts = {}) {
-      const parsed = LocalCodexFirstCommandSchema.safeParse(request);
+    sendLocalFirstCommand(
+      request: OrdinaryCodexFirstCommand | OrdinaryCodexContinuationCommand,
+      opts = {},
+    ) {
+      const parsed = OrdinaryCodexFirstCommandSchema.or(
+        OrdinaryCodexContinuationCommandSchema,
+      ).safeParse(request);
       if (
         !parsed.success ||
         !localOutbox ||
         !reviewedAuthenticated ||
         !connection.getConnectionId() ||
-        parserState.currentSessionId ||
+        (parsed.success && 'sessionId' in parsed.data
+          ? parserState.currentSessionId !== parsed.data.sessionId
+          : !!parserState.currentSessionId) ||
         (get().localCommand && get().localCommand!.state !== 'consumed')
       )
         return false;

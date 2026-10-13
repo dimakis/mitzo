@@ -603,3 +603,33 @@ export function markOpenShellLifecycleIdle(conversationId: string) {
     idleSince: now,
   });
 }
+
+/** Read-only physical ownership fence for explicitly admitted ordinary routes.
+ * Provisional first-launch records remain non-actionable recovery evidence.
+ */
+export function assertOrdinaryOpenShellPhysicalOwner(
+  conversationId: string,
+  artifact: import('./codex-conversation-store.js').ArtifactRuntime,
+  binding: AccountBinding,
+) {
+  if (!configured) throw new Error('Ordinary OpenShell lifecycle authority unavailable');
+  const record = configured.store.get(conversationId);
+  const physical = artifact.runtime;
+  if (
+    !record ||
+    record.phase !== 'retained' ||
+    !physical.sandboxId ||
+    record.physicalSandboxId !== physical.sandboxId ||
+    record.sandboxName !== physical.sandboxName ||
+    record.workspace !== physical.workspace ||
+    record.gateway !== physical.gateway ||
+    record.gatewayEndpoint !== (physical.gatewayEndpoint ?? null) ||
+    record.accountProvider !== artifact.route.provider ||
+    (record.identity &&
+      (record.identity.accountId !== binding.accountId ||
+        record.identity.provider !== binding.provider ||
+        record.identity.profileRevision !== binding.profileRevision ||
+        !sameOpenShellRouteAuthority(record.identity.route, artifact.route)))
+  )
+    throw new Error('Ordinary OpenShell physical ownership changed');
+}

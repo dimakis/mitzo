@@ -1,4 +1,5 @@
 import { assertNativeCodexContextAdmission } from './native-codex-context-admission.js';
+import { OwnedOpenShellCodexChatAdmission } from './owned-openshell-codex-chat-admission.js';
 import { OwnedLocalCodexChatAdmission } from './owned-local-codex-chat-admission.js';
 import type { OrdinaryTurnLifecycle } from './ordinary-turn-lifecycle.js';
 import type { RepositoryChatWorkspace } from './repository-chat-startup.js';
@@ -490,6 +491,8 @@ export function readCodexLifecycleQueue(conversationId: string, binding: Account
 interface Options {
   /** Server-internal exact uncertain receipt and actual frozen client. */
   ownedLocal?: OwnedLocalCodexChatAdmission;
+  /** Exact admitted ordinary OpenShell target; bypasses deployment route inference. */
+  ownedOpenShell?: OwnedOpenShellCodexChatAdmission;
   ordinaryTurnLifecycle?: OrdinaryTurnLifecycle;
   contributorGuidance?: string;
   agentProfile?: AgentLibraryVersion;
@@ -566,21 +569,22 @@ export function managedJiraConnectionEnv(connection: Connection) {
 }
 /** Shared chat adapter. Execution remains gated by the account catalog and unsupported capabilities fail explicitly. */
 export async function openCodexChat(options: Options) {
-  const admittedOptions = options.ownedLocal
-    ? {
-        ...options,
-        binding: structuredClone(options.binding),
-        profile: structuredClone(options.profile),
-        agentProfile: options.agentProfile ? structuredClone(options.agentProfile) : undefined,
-        agentContext: options.agentContext ? structuredClone(options.agentContext) : undefined,
-        repositoryWorkspace: options.repositoryWorkspace
-          ? structuredClone(options.repositoryWorkspace)
-          : undefined,
-        images: options.images ? structuredClone(options.images) : undefined,
-        mcpServers: structuredClone(options.mcpServers),
-        env: { ...options.env },
-      }
-    : options;
+  const admittedOptions =
+    options.ownedLocal || options.ownedOpenShell
+      ? {
+          ...options,
+          binding: structuredClone(options.binding),
+          profile: structuredClone(options.profile),
+          agentProfile: options.agentProfile ? structuredClone(options.agentProfile) : undefined,
+          agentContext: options.agentContext ? structuredClone(options.agentContext) : undefined,
+          repositoryWorkspace: options.repositoryWorkspace
+            ? structuredClone(options.repositoryWorkspace)
+            : undefined,
+          images: options.images ? structuredClone(options.images) : undefined,
+          mcpServers: structuredClone(options.mcpServers),
+          env: { ...options.env },
+        }
+      : options;
   return duringCodexStartup('runtime_admission', () => openCodexChatAdmitted(admittedOptions));
 }
 async function openCodexChatAdmitted(options: Options) {
@@ -591,7 +595,21 @@ async function openCodexChatAdmitted(options: Options) {
     await options.ownedLocal.assertCurrent();
     return openCodexChatBound(options);
   }
-  if (options.eventStore.getSessionRuntimeBinding?.(options.conversationId))
+  if (options.ownedOpenShell !== undefined) {
+    if (
+      options.ownedLocal ||
+      custodianControllerMode ||
+      custodianOwnerMode ||
+      !(options.ownedOpenShell instanceof OwnedOpenShellCodexChatAdmission)
+    )
+      throw Error('Owned OpenShell Codex chat unavailable');
+    options.ownedOpenShell.assertOptions(options);
+    await options.ownedOpenShell.assertCurrent();
+  }
+  if (
+    !options.ownedOpenShell &&
+    options.eventStore.getSessionRuntimeBinding?.(options.conversationId)
+  )
     throw Error('Owned local Codex chat unavailable');
   const savedAgentContext = options.eventStore.getSession(options.conversationId)?.agentContext;
   const selectedRecipe = options.agentProfile?.definition.contextRecipe;
@@ -599,7 +617,8 @@ async function openCodexChatAdmitted(options: Options) {
   if (options.profile.nativeAuth)
     throw new Error('Native personal ChatGPT accounts require the isolated Symposium runtime');
   const service = getConnectionsRuntime()?.service;
-  const configuredRuntime = openShellRuntimeConfig(process.env);
+  const configuredRuntime =
+    options.ownedOpenShell?.configuration() ?? openShellRuntimeConfig(process.env);
   if (
     [options.agentContext, savedAgentContext].some(
       (snapshot) => snapshot?.source === 'packs' && snapshot.sandbox,
@@ -669,6 +688,7 @@ async function openCodexChatBound(
   deferInitialSend = false,
 ) {
   await options.ownedLocal?.assertCurrent();
+  await options.ownedOpenShell?.assertCurrent();
   assertNativeCodexContextAdmission(
     options.agentProfile?.definition.contextRecipe,
     options.agentContext,
@@ -679,9 +699,16 @@ async function openCodexChatBound(
     managedConnections[0] ??
     null;
   if (custodianControllerMode) requireCustodianOrdinaryRuntime(true, options.binding.provider);
-  const configuredRuntime = options.ownedLocal ? undefined : openShellRuntimeConfig(process.env);
+  const configuredRuntime = options.ownedLocal
+    ? undefined
+    : options.ownedOpenShell
+      ? options.ownedOpenShell.configuration()
+      : openShellRuntimeConfig(process.env);
   const connectionService = getConnectionsRuntime()?.service;
-  const openShellName = options.ownedLocal ? undefined : process.env.MITZO_OPENSHELL_SANDBOX_NAME;
+  const openShellName =
+    options.ownedLocal || options.ownedOpenShell
+      ? undefined
+      : process.env.MITZO_OPENSHELL_SANDBOX_NAME;
   if (openShellName && process.env.NODE_ENV === 'production')
     throw new Error('Legacy shared OpenShell sandboxes are disabled in production.');
   const accountProvider = options.profile.sandboxProvider;
@@ -707,6 +734,14 @@ async function openCodexChatBound(
   let runtimeManager = configuredRuntime
     ? new OpenShellRuntimeManager({
         ...configuredRuntime,
+        ...(options.ownedOpenShell
+          ? {
+              beforeSandboxCreate: () => {
+                options.ownedOpenShell!.assertCurrentSync();
+                configuredRuntime.beforeSandboxCreate?.();
+              },
+            }
+          : {}),
         ...(routedRuntime ? { sandboxNameOverride: routedRuntime.runtime.sandboxName } : {}),
         serviceProviders: ordinaryRuntimeServiceProviders(
           configuredRuntime.serviceProviders,
@@ -785,28 +820,41 @@ async function openCodexChatBound(
             options.session.abortController.signal,
           )
         : undefined;
-    managedOpenShell = runtimeManager
-      ? await duringCodexStartup('sandbox_preparation', () =>
-          runtimeManager!.ensure(
-            options.conversationId,
-            options.session.abortController.signal,
-            options.resume && options.repositoryWorkspace && routedRuntime
-              ? {
-                  sandboxName: routedRuntime.runtime.sandboxName,
-                  sandboxId: routedRuntime.runtime.sandboxId,
-                }
-              : undefined,
-            repositorySeed ? { seed: repositorySeed, cleanup: () => {} } : undefined,
-          ),
-        )
-      : undefined;
+    managedOpenShell =
+      options.ownedOpenShell && options.resume
+        ? (() => {
+            if (!routedRuntime?.runtime.sandboxId)
+              throw Error('Owned OpenShell retained runtime unavailable');
+            return { ...routedRuntime.runtime };
+          })()
+        : runtimeManager
+          ? await duringCodexStartup('sandbox_preparation', () =>
+              runtimeManager!.ensure(
+                options.conversationId,
+                options.session.abortController.signal,
+                options.resume && options.repositoryWorkspace && routedRuntime
+                  ? {
+                      sandboxName: routedRuntime.runtime.sandboxName,
+                      sandboxId: routedRuntime.runtime.sandboxId,
+                    }
+                  : undefined,
+                repositorySeed ? { seed: repositorySeed, cleanup: () => {} } : undefined,
+              ),
+            )
+          : undefined;
   } catch (error) {
     startupReservation?.();
     throw error;
   }
   const signal = options.session.abortController.signal;
   try {
-    if (options.resume && runtimeManager && managedOpenShell?.sandboxId && configuredRuntime) {
+    if (
+      !options.ownedOpenShell &&
+      options.resume &&
+      runtimeManager &&
+      managedOpenShell?.sandboxId &&
+      configuredRuntime
+    ) {
       const selected = await prepareRetainedRuntimeMigration({
         conversationId: options.conversationId,
         binding: options.binding,
@@ -879,6 +927,8 @@ async function openCodexChatBound(
       managedOpenShell,
       signal,
     );
+    if (options.ownedOpenShell)
+      await runtimeManager.verifyKnowledgeRuntime(managedOpenShell, signal);
     Object.assign(openShellClient, {
       requiredProviderEnvironment: observation.requiredServiceEnvironment,
     });
@@ -1051,10 +1101,18 @@ async function openCodexChatBound(
   function persistArtifactRuntime() {
     if (!runtimeManager || !managedOpenShell) return;
     if (!managedOpenShell.sandboxId) throw new Error('OpenShell resource identity is unavailable');
-    privateStorage.setArtifactRuntime(options.conversationId, options.binding, {
+    const artifact = {
       runtime: { ...managedOpenShell, sandboxId: managedOpenShell.sandboxId },
-      route: selectedOpenShellAccountRoute(options),
-    });
+      route: selectedOpenShellAccountRoute(
+        options.ownedOpenShell ? { ...options, model: options.binding.model } : options,
+      ),
+    };
+    privateStorage.setArtifactRuntime(options.conversationId, options.binding, artifact);
+    if (options.ownedOpenShell) {
+      const retained = privateStorage.readArtifactRuntime(options.conversationId, options.binding);
+      if (!retained) throw Error('Owned OpenShell physical mapping unavailable');
+      options.ownedOpenShell.adoptPhysicalRuntime(retained);
+    }
   }
   const hookRuntime = connectedOpenShell
     ? undefined
@@ -1281,6 +1339,35 @@ async function openCodexChatBound(
   }
   if (configuredRuntime)
     store().markStartupProviderInitializing(options.conversationId, options.binding);
+  const withSelectedConnections = async <T>(work: () => Promise<T>): Promise<T> => {
+    if (!connectionService) return work();
+    return connectionService.withAccountRuntimes(
+      options.binding.accountId,
+      async (current) => {
+        if (
+          managedConnections.some(
+            (original) =>
+              !current.some(
+                (connection) =>
+                  original.id === connection.id &&
+                  original.gatewayProviderId === connection.gatewayProviderId,
+              ),
+          )
+        )
+          throw new Error('Connection permissions changed. Start a new conversation.');
+        return work();
+      },
+      signal,
+      (candidates) =>
+        candidates.filter((candidate) =>
+          managedConnections.some(
+            (original) =>
+              original.id === candidate.id &&
+              original.gatewayProviderId === candidate.gatewayProviderId,
+          ),
+        ),
+    );
+  };
   const runtime: CodexConversation = new CodexConversation({
     conversationId: options.conversationId,
     cwd: options.session.cwd!,
@@ -1309,6 +1396,9 @@ async function openCodexChatBound(
       : options.prepareAgentContext,
     ...(options.ownedLocal
       ? {
+          canClaimCommand: (commandId: string) => options.ownedLocal!.canClaimCommand(commandId),
+          beforeThreadInitialization: (store: CodexConversationStore) =>
+            options.ownedLocal!.persistCustody(store),
           beforeEnqueue: (input: Parameters<CodexConversation['enqueue']>[0]) =>
             options.ownedLocal!.assertBeforeEnqueue(input),
           verifyBinding: async () => {
@@ -1317,6 +1407,18 @@ async function openCodexChatBound(
           },
           reconnectGuard: async () => {
             throw Error('Owned local Codex chat unavailable');
+          },
+        }
+      : {}),
+    ...(options.ownedOpenShell
+      ? {
+          canClaimCommand: (commandId: string) =>
+            options.ownedOpenShell!.canClaimCommand(commandId),
+          beforeEnqueue: (input: Parameters<CodexConversation['enqueue']>[0]) =>
+            options.ownedOpenShell!.assertBeforeEnqueue(input),
+          beforeThreadInitialization: (store: CodexConversationStore) => {
+            persistArtifactRuntime();
+            options.ownedOpenShell!.persistNativeCustody(store);
           },
         }
       : {}),
@@ -1331,6 +1433,7 @@ async function openCodexChatBound(
       ? {
           prepareSystemPrompt: async (signal: AbortSignal) =>
             sharedOpenShellLifecycleCoordinator.admit(options.conversationId, async () => {
+              await options.ownedOpenShell?.assertCurrent();
               pendingKnowledge = undefined;
               pendingAdditionalContext = undefined;
               pendingAgentContextSha256 = undefined;
@@ -1414,36 +1517,23 @@ async function openCodexChatBound(
               },
             );
           },
-          reconnectGuard: connectionService
-            ? (work: () => Promise<void>) =>
-                connectionService.withAccountRuntimes(
-                  options.binding.accountId,
-                  async (current) => {
-                    if (
-                      managedConnections.some(
-                        (original) =>
-                          !current.some(
-                            (connection) =>
-                              original.id === connection.id &&
-                              original.gatewayProviderId === connection.gatewayProviderId,
-                          ),
-                      )
-                    )
-                      throw new Error('Connection permissions changed. Start a new conversation.');
-                    await work();
-                  },
-                  signal,
-                  (candidates) =>
-                    candidates.filter((candidate) =>
-                      managedConnections.some(
-                        (original) =>
-                          original.id === candidate.id &&
-                          original.gatewayProviderId === candidate.gatewayProviderId,
-                      ),
-                    ),
-                )
-            : undefined,
+          reconnectGuard: options.ownedOpenShell
+            ? async <T>(work: () => Promise<T>): Promise<T> => {
+                await options.ownedOpenShell!.assertCurrent();
+                const result = await withSelectedConnections(work);
+                await options.ownedOpenShell!.assertCurrent();
+                return result;
+              }
+            : connectionService
+              ? withSelectedConnections
+              : undefined,
           beforeRuntimeAdmission: async (closeOwnedTransport: () => Promise<void>) => {
+            if (options.ownedOpenShell)
+              return sharedOpenShellLifecycleCoordinator.admit(options.conversationId, async () => {
+                await options.ownedOpenShell!.assertCurrent();
+                await prepareProviderEnvironment();
+                return false;
+              });
             if (!managedOpenShell?.sandboxId || !configuredRuntime) return false;
             return sharedOpenShellLifecycleCoordinator.admit(options.conversationId, async () => {
               const previousId = managedOpenShell!.sandboxId;
@@ -1485,6 +1575,13 @@ async function openCodexChatBound(
             });
           },
           beforeReconnect: async () => {
+            if (options.ownedOpenShell) {
+              await sharedOpenShellLifecycleCoordinator.admit(options.conversationId, async () => {
+                await options.ownedOpenShell!.assertCurrent();
+                await prepareProviderEnvironment();
+              });
+              return;
+            }
             await sharedOpenShellLifecycleCoordinator.admit(options.conversationId, async () => {
               const retained = options.repositoryWorkspace
                 ? privateStorage.readArtifactRuntime(options.conversationId, options.binding)
@@ -1555,6 +1652,8 @@ async function openCodexChatBound(
     validateModel: (model, reasoningEffort) => {
       if (options.ownedLocal)
         return options.ownedLocal.assertModelSelection(model, reasoningEffort);
+      if (options.ownedOpenShell)
+        return options.ownedOpenShell.assertModelSelection(model, reasoningEffort);
       loadAccountProfiles().validateModel(options.binding, model, reasoningEffort);
     },
     tools: options.ownedLocal
@@ -1579,6 +1678,7 @@ async function openCodexChatBound(
     createClient: (callbacks) => {
       try {
         if (options.ownedLocal) return options.ownedLocal.attach(callbacks);
+        options.ownedOpenShell?.assertCurrentSync();
         const client = connectedOpenShell
           ? CodexAppServerClient.launchOpenShell(openShellClient!, process.env, callbacks)
           : CodexAppServerClient.launch(options.profile.credentialRef!, process.env, callbacks);
@@ -1602,6 +1702,7 @@ async function openCodexChatBound(
     emit: (event) => events.push(event),
     onProviderDispatch: (messageId) => {
       options.ownedLocal?.assertBeforeDispatch(messageId);
+      options.ownedOpenShell?.assertBeforeDispatch(messageId);
       options.ordinaryTurnLifecycle?.beforeDispatch(messageId);
       beginTrackedProviderAttempt(options.session, messageId);
     },
@@ -1839,7 +1940,9 @@ async function openCodexChatBound(
               options.conversationId,
               managedOpenShell!,
               options.binding,
-              selectedOpenShellAccountRoute(options),
+              selectedOpenShellAccountRoute(
+                options.ownedOpenShell ? { ...options, model: options.binding.model } : options,
+              ),
               threadId,
               options.registry.findBySessionId(options.conversationId)?.clientId,
             );
@@ -1903,7 +2006,9 @@ async function openCodexChatBound(
           options.conversationId,
           managedOpenShell,
           options.binding,
-          selectedOpenShellAccountRoute(options),
+          selectedOpenShellAccountRoute(
+            options.ownedOpenShell ? { ...options, model: options.binding.model } : options,
+          ),
           threadId,
           options.registry.findBySessionId(options.conversationId)?.clientId,
         );

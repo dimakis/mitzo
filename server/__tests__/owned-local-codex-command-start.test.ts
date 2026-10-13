@@ -78,6 +78,7 @@ vi.mock('../repository-workspace-runtime.js', () => ({
 vi.mock('../codex-chat-session.js', () => ({
   openCodexChat: vi.fn(),
   getCodexRuntime: () => undefined,
+  getCodexConversationStore: () => ({}),
   publicCodexStartupError: () => 'Owned local Codex chat unavailable',
 }));
 vi.mock('../mcp-config.js', () => ({ loadMcpServers: () => ({}) }));

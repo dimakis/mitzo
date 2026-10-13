@@ -85,7 +85,8 @@ export interface OrdinaryLocalCodexAdmissionEffects {
 type Store = Pick<
   EventStore,
   'admitOrdinaryLocalCommand' | 'claimOrdinaryLocalCommandDispatch' | 'completeOrdinaryLocalCommand'
->;
+> &
+  Partial<Pick<EventStore, 'admitOrdinaryLocalContinuation'>>;
 type Meta = Parameters<Store['admitOrdinaryLocalCommand']>[0];
 
 function canonical(value: unknown): unknown {
@@ -221,6 +222,9 @@ export class OrdinaryLocalCodexAdmissionCoordinator {
         completeOrdinaryLocalCommand: dependencies.store.completeOrdinaryLocalCommand.bind(
           dependencies.store,
         ),
+        admitOrdinaryLocalContinuation: dependencies.store.admitOrdinaryLocalContinuation?.bind(
+          dependencies.store,
+        ),
       },
     };
   }
@@ -229,6 +233,49 @@ export class OrdinaryLocalCodexAdmissionCoordinator {
     meta: Meta,
     input: unknown,
     effects: OrdinaryLocalCodexAdmissionEffects,
+  ): Promise<{ dispatched: boolean }> {
+    return this.admitCommand(meta, input, effects, false);
+  }
+
+  /** Existing-session admission requires the retained owner, never a fresh
+   * first-command bootstrap. Workspace preparation here is an identity recheck.
+   */
+  async admitContinuation(
+    meta: Meta,
+    input: unknown,
+    effects: OrdinaryLocalCodexAdmissionEffects,
+  ): Promise<{ dispatched: boolean }> {
+    if (
+      !this.dependencies.authority ||
+      this.dependencies.bootstrapAuthority ||
+      !this.dependencies.store.admitOrdinaryLocalContinuation
+    )
+      fail('authority_unavailable');
+    return this.admitCommand(meta, input, effects, true);
+  }
+
+  /** Explicit cold resume claims a fresh command before reopening retained
+   * native custody. It never retries an old uncertain or consumed operation.
+   */
+  async admitResume(
+    meta: Meta,
+    input: unknown,
+    effects: OrdinaryLocalCodexAdmissionEffects,
+  ): Promise<{ dispatched: boolean }> {
+    if (
+      this.dependencies.authority ||
+      !this.dependencies.bootstrapAuthority ||
+      !this.dependencies.store.admitOrdinaryLocalContinuation
+    )
+      fail('authority_unavailable');
+    return this.admitCommand(meta, input, effects, true);
+  }
+
+  private async admitCommand(
+    meta: Meta,
+    input: unknown,
+    effects: OrdinaryLocalCodexAdmissionEffects,
+    continuation: boolean,
   ): Promise<{ dispatched: boolean }> {
     const d = this.dependencies;
     if (!d.enabled || (!d.authority && !d.bootstrapAuthority)) fail('unavailable');
@@ -302,16 +349,15 @@ export class OrdinaryLocalCodexAdmissionCoordinator {
       if (claimAttempted) fail('authority_reentry');
       claimAttempted = true;
       try {
-        d.store.admitOrdinaryLocalCommand(
-          structuredClone(admittedMeta),
-          structuredClone(snapshot.binding),
-          {
-            clientMsgId: request.clientMsgId,
-            requestFingerprint: fingerprint,
-            selection: structuredClone(snapshot.selection),
-            payload: structuredClone(request.payload),
-          },
-        );
+        const admit = continuation
+          ? d.store.admitOrdinaryLocalContinuation!
+          : d.store.admitOrdinaryLocalCommand;
+        admit(structuredClone(admittedMeta), structuredClone(snapshot.binding), {
+          clientMsgId: request.clientMsgId,
+          requestFingerprint: fingerprint,
+          selection: structuredClone(snapshot.selection),
+          payload: structuredClone(request.payload),
+        });
       } catch {
         fail('identity_conflict');
       }

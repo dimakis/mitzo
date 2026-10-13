@@ -4,14 +4,19 @@ import type { EventStore } from './event-store.js';
 export function ownedLocalCodexMetadata(
   store: Pick<EventStore, 'getSessionRuntimeBinding'>,
   sessionId: string,
+  conversationAvailable = false,
 ) {
   const runtimeBinding = store.getSessionRuntimeBinding(sessionId);
   if (!runtimeBinding) return {};
   return {
     runtimeBinding,
-    ...(runtimeBinding.execution.location === 'local' &&
+    ...((runtimeBinding.execution.location === 'local' || conversationAvailable) &&
     runtimeBinding.harness.implementation === 'codex'
-      ? { runtimeCommandScope: 'first-command-only' as const }
+      ? {
+          runtimeCommandScope: conversationAvailable
+            ? ('conversation' as const)
+            : ('first-command-only' as const),
+        }
       : {}),
   };
 }

@@ -44,7 +44,9 @@ export type {
   ProviderAttemptTransitionResult,
   ProviderAttemptRecord,
 } from './execution-ledger.js';
+import { OrdinaryOpenShellCommandAdmissionSchema } from './ordinary-openshell-admission.js';
 import { isRegisteredConversation } from './conversation-identity.js';
+import { isDeepStrictEqual } from 'node:util';
 import { SessionOutputReferenceStore } from './session-output-reference-store.js';
 import {
   OutputContributorBindingSchema,
@@ -299,6 +301,11 @@ const SCHEMA = `
     request_fingerprint TEXT NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS auth_revocations (
+    auth_session_id TEXT PRIMARY KEY,
+    expires_at INTEGER NOT NULL
+  );
+
   CREATE TABLE IF NOT EXISTS execution_admissions (
     session_id TEXT NOT NULL,
     client_msg_id TEXT NOT NULL,
@@ -362,6 +369,25 @@ export class EventStore {
   private readonly sessionLifecycle: SessionLifecycleStore;
   private readonly executionLedger: ExecutionLedger<SessionRow>;
   private log: EventStoreLogger;
+  /** Auth uses the existing durable owner so logout survives a process restart.
+   * JWTs and secrets never enter this table; an opaque login ID expires with it.
+   */
+  revokeAuthSession(session: { id: string; expiresAt: number }): void {
+    if (!session.id || session.id.length > 200 || !Number.isSafeInteger(session.expiresAt))
+      throw new Error('Invalid authentication revocation');
+    this.db!.prepare(
+      'INSERT INTO auth_revocations(auth_session_id,expires_at) VALUES (?,?) ON CONFLICT(auth_session_id) DO UPDATE SET expires_at=MAX(expires_at,excluded.expires_at)',
+    ).run(session.id, session.expiresAt);
+  }
+
+  isAuthSessionRevoked(session: { id: string; expiresAt: number }): boolean {
+    return Boolean(
+      this.db!.prepare(
+        'SELECT 1 FROM auth_revocations WHERE auth_session_id=? AND expires_at>?',
+      ).get(session.id, Date.now()),
+    );
+  }
+
   private stmts: {
     append: Database.Statement;
     hasUserMessage: Database.Statement;
@@ -430,7 +456,33 @@ export class EventStore {
       payload: Record<string, unknown>;
     },
   ): { duplicate: boolean; admission: OrdinaryLocalCommandAdmission } {
-    const admission = OrdinaryLocalCommandAdmissionSchema.parse({
+    return this.admitOrdinaryCommand(meta, binding, input, 'local');
+  }
+
+  admitOrdinaryOpenShellCommand(
+    meta: SessionUpsert,
+    binding: unknown,
+    input: Parameters<EventStore['admitOrdinaryLocalCommand']>[2],
+  ) {
+    return this.admitOrdinaryCommand(meta, binding, input, 'openshell');
+  }
+
+  private admitOrdinaryCommand(
+    meta: SessionUpsert,
+    binding: unknown,
+    input: {
+      clientMsgId: string;
+      requestFingerprint: string;
+      selection: OrdinaryLocalCommandSelection;
+      payload: Record<string, unknown>;
+    },
+    location: 'local' | 'openshell',
+  ): { duplicate: boolean; admission: OrdinaryLocalCommandAdmission } {
+    const schema =
+      location === 'local'
+        ? OrdinaryLocalCommandAdmissionSchema
+        : OrdinaryOpenShellCommandAdmissionSchema;
+    const admission = schema.parse({
       version: 1,
       binding,
       workspace: { workspaceId: meta.repositoryWorkspaceId, cwd: meta.cwd },
@@ -447,7 +499,7 @@ export class EventStore {
       this.claimClientCommand(input.clientMsgId, input.requestFingerprint);
       this.createSessionWithRuntimeBinding(meta, admission.binding);
       if (existing) {
-        const previous = this.getOrdinaryLocalCommandAdmission(input.clientMsgId);
+        const previous = this.getOrdinaryCommandAdmission(input.clientMsgId);
         if (
           !previous ||
           existing.sessionId !== meta.sessionId ||
@@ -466,12 +518,137 @@ export class EventStore {
     }).immediate();
   }
 
+  /** A separately authorized future command on an already enrolled conversation.
+   * The original receipt proves enrollment, never live dispatch authority. Model
+   * and thinking belong to this receipt; no session metadata is rewritten here.
+   */
+  admitOrdinaryLocalContinuation(
+    meta: SessionUpsert,
+    binding: unknown,
+    input: Parameters<EventStore['admitOrdinaryLocalCommand']>[2],
+  ) {
+    return this.admitOrdinaryContinuation(meta, binding, input, 'local');
+  }
+
+  admitOrdinaryOpenShellContinuation(
+    meta: SessionUpsert,
+    binding: unknown,
+    input: Parameters<EventStore['admitOrdinaryLocalCommand']>[2],
+  ) {
+    return this.admitOrdinaryContinuation(meta, binding, input, 'openshell');
+  }
+
+  private admitOrdinaryContinuation(
+    meta: SessionUpsert,
+    binding: unknown,
+    input: Parameters<EventStore['admitOrdinaryLocalCommand']>[2],
+    location: 'local' | 'openshell',
+  ): { duplicate: boolean; admission: OrdinaryLocalCommandAdmission } {
+    const schema =
+      location === 'local'
+        ? OrdinaryLocalCommandAdmissionSchema
+        : OrdinaryOpenShellCommandAdmissionSchema;
+    const admission = schema.parse({
+      version: 1,
+      binding,
+      workspace: { workspaceId: meta.repositoryWorkspaceId, cwd: meta.cwd },
+      selection: input.selection,
+      requestFingerprint: input.requestFingerprint,
+      state: 'reserved',
+    });
+    const account = AccountBindingSchema.parse(meta.accountBinding);
+    if (account.model !== admission.selection.model)
+      throw new Error('Ordinary command account model does not match selection');
+    return this.db!.transaction(() => {
+      const session = this.getSession(meta.sessionId);
+      const originRow = this.db!.prepare(
+        'SELECT client_msg_id FROM send_commands WHERE session_id=? AND ordinary_admission IS NOT NULL ORDER BY rowid LIMIT 1',
+      ).get(meta.sessionId) as { client_msg_id: string } | undefined;
+      const origin = originRow && this.getOrdinaryCommandAdmission(originRow.client_msg_id);
+      const accountIdentity = (value: AccountBinding) => ({
+        accountId: value.accountId,
+        provider: value.provider,
+        profileRevision: value.profileRevision,
+      });
+      if (
+        !session ||
+        !origin ||
+        origin.state !== 'consumed' ||
+        originRow!.client_msg_id === input.clientMsgId ||
+        !isDeepStrictEqual(origin.binding, admission.binding) ||
+        !isDeepStrictEqual(origin.workspace, admission.workspace) ||
+        !isDeepStrictEqual(origin.selection.agent, admission.selection.agent) ||
+        !isDeepStrictEqual(origin.selection.context, admission.selection.context) ||
+        !isDeepStrictEqual(origin.selection.permission, admission.selection.permission) ||
+        !session.accountBinding ||
+        !isDeepStrictEqual(accountIdentity(session.accountBinding), accountIdentity(account)) ||
+        !isDeepStrictEqual(session.agentProfile, meta.agentProfile) ||
+        !isDeepStrictEqual(session.agentContext, meta.agentContext) ||
+        (meta.mode !== undefined && meta.mode !== admission.selection.permission.mode) ||
+        (meta.selectedModel !== undefined && meta.selectedModel !== admission.selection.model) ||
+        (meta.reasoningEffort !== undefined &&
+          meta.reasoningEffort !== admission.selection.thinking)
+      )
+        throw new Error('Ordinary continuation binding cannot be replaced or enrolled');
+      const existing = this.getSendCommand(input.clientMsgId);
+      if (existing) {
+        const previous = this.getOrdinaryCommandAdmission(input.clientMsgId);
+        if (
+          !previous ||
+          existing.sessionId !== meta.sessionId ||
+          !isDeepStrictEqual({ ...previous, state: 'reserved' }, admission) ||
+          !isDeepStrictEqual(existing.payload, input.payload)
+        )
+          throw new Error('Ordinary continuation command identity cannot be replaced');
+        this.claimClientCommand(input.clientMsgId, input.requestFingerprint);
+        return { duplicate: true, admission: previous };
+      }
+      // An ambiguous effect remains with its original owner. A new command is
+      // not a recovery mechanism for a possibly running provider operation.
+      if (this.hasUncertainOrdinaryCommand(meta.sessionId))
+        throw new Error('Ordinary continuation has an uncertain command');
+      this.claimClientCommand(input.clientMsgId, input.requestFingerprint);
+      this.insertSendCommand(input.clientMsgId, meta.sessionId, input.payload);
+      this.db!.prepare('UPDATE send_commands SET ordinary_admission=? WHERE client_msg_id=?').run(
+        JSON.stringify(admission),
+        input.clientMsgId,
+      );
+      return { duplicate: false, admission };
+    }).immediate();
+  }
+
   getOrdinaryLocalCommandAdmission(clientMsgId: string): OrdinaryLocalCommandAdmission | undefined {
+    const receipt = this.getOrdinaryCommandAdmission(clientMsgId);
+    return receipt?.binding.execution.location === 'local' ? receipt : undefined;
+  }
+
+  /** Last admitted settings for display and the next draft, never a rewrite of
+   * any active, queued or historical command snapshot.
+   */
+  getLatestOrdinaryCommandAdmission(sessionId: string): OrdinaryLocalCommandAdmission | undefined {
+    this.assertConversationIdentity(sessionId);
+    const row = this.db!.prepare(
+      'SELECT client_msg_id FROM send_commands WHERE session_id=? AND ordinary_admission IS NOT NULL ORDER BY rowid DESC LIMIT 1',
+    ).get(sessionId) as { client_msg_id: string } | undefined;
+    return row ? this.getOrdinaryCommandAdmission(row.client_msg_id) : undefined;
+  }
+
+  getOrdinaryOpenShellCommandAdmission(clientMsgId: string) {
+    const receipt = this.getOrdinaryCommandAdmission(clientMsgId);
+    return receipt?.binding.execution.location === 'openshell' ? receipt : undefined;
+  }
+
+  getOrdinaryCommandAdmission(clientMsgId: string): OrdinaryLocalCommandAdmission | undefined {
     const row = this.db!.prepare(
       'SELECT ordinary_admission, session_id FROM send_commands WHERE client_msg_id=?',
     ).get(clientMsgId) as { ordinary_admission: string | null; session_id: string } | undefined;
     if (!row || row.ordinary_admission === null) return undefined;
-    const admission = OrdinaryLocalCommandAdmissionSchema.parse(JSON.parse(row.ordinary_admission));
+    const raw = JSON.parse(row.ordinary_admission);
+    const schema =
+      raw?.binding?.execution?.location === 'openshell'
+        ? OrdinaryOpenShellCommandAdmissionSchema
+        : OrdinaryLocalCommandAdmissionSchema;
+    const admission = schema.parse(raw);
     const runtime = this.getSessionRuntimeBinding(row.session_id);
     const session = this.getSession(row.session_id);
     if (
@@ -483,10 +660,41 @@ export class EventStore {
     return admission;
   }
 
+  /** Read the existing admission fence without loading payloads or historical turns. */
+  hasUncertainOrdinaryCommand(sessionId: string): boolean {
+    return !!this.db!.prepare(
+      "SELECT 1 FROM send_commands WHERE session_id=? AND json_extract(ordinary_admission,'$.state')='uncertain' LIMIT 1",
+    ).get(sessionId);
+  }
+
   /** Persist uncertainty BEFORE the first external effect. False forbids replay. */
   claimOrdinaryLocalCommandDispatch(clientMsgId: string): boolean {
+    if (!this.getOrdinaryLocalCommandAdmission(clientMsgId))
+      throw new Error('Ordinary local command required');
+    return this.claimOrdinaryCommandDispatch(clientMsgId);
+  }
+
+  claimOrdinaryOpenShellCommandDispatch(clientMsgId: string): boolean {
+    if (!this.getOrdinaryOpenShellCommandAdmission(clientMsgId))
+      throw new Error('Ordinary OpenShell command required');
+    return this.claimOrdinaryCommandDispatch(clientMsgId);
+  }
+
+  completeOrdinaryLocalCommand(clientMsgId: string): void {
+    if (!this.getOrdinaryLocalCommandAdmission(clientMsgId))
+      throw new Error('Ordinary local command required');
+    this.completeOrdinaryCommand(clientMsgId);
+  }
+
+  completeOrdinaryOpenShellCommand(clientMsgId: string): void {
+    if (!this.getOrdinaryOpenShellCommandAdmission(clientMsgId))
+      throw new Error('Ordinary OpenShell command required');
+    this.completeOrdinaryCommand(clientMsgId);
+  }
+
+  private claimOrdinaryCommandDispatch(clientMsgId: string): boolean {
     return this.db!.transaction(() => {
-      const admission = this.getOrdinaryLocalCommandAdmission(clientMsgId);
+      const admission = this.getOrdinaryCommandAdmission(clientMsgId);
       if (!admission) throw new Error('Ordinary command admission required');
       if (admission.state !== 'reserved' || this.getSendCommand(clientMsgId)?.error) return false;
       return (
@@ -497,9 +705,9 @@ export class EventStore {
     }).immediate();
   }
 
-  completeOrdinaryLocalCommand(clientMsgId: string): void {
+  private completeOrdinaryCommand(clientMsgId: string): void {
     this.db!.transaction(() => {
-      const admission = this.getOrdinaryLocalCommandAdmission(clientMsgId);
+      const admission = this.getOrdinaryCommandAdmission(clientMsgId);
       if (!admission || admission.state === 'reserved')
         throw new Error('Ordinary command has not claimed dispatch');
       if (admission.state === 'consumed') return;
@@ -511,7 +719,7 @@ export class EventStore {
   }
 
   completeNativeSendCommand(clientMsgId: string): void {
-    if (this.getOrdinaryLocalCommandAdmission(clientMsgId))
+    if (this.getOrdinaryCommandAdmission(clientMsgId))
       throw new Error('Ordinary runtime command cannot complete as native');
     this.db!.prepare("UPDATE send_commands SET session_id = '' WHERE client_msg_id = ?").run(
       clientMsgId,
@@ -559,7 +767,7 @@ export class EventStore {
       // into a poisoned receipt before the execution gate can re-evaluate it.
       if (
         this.getExecutionAdmission(row.session_id, row.client_msg_id) ||
-        this.getOrdinaryLocalCommandAdmission(row.client_msg_id)
+        this.getOrdinaryCommandAdmission(row.client_msg_id)
       )
         continue;
       const error =

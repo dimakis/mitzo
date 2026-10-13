@@ -25,6 +25,7 @@ const schema = z.object({
   settings: z.object({
     // Additive intent only; old drafts keep their original version and unknown location.
     runtimeSelection: ChatRuntimeSelectionSchema.nullable().optional(),
+    retainRuntimeIntent: z.boolean().optional(),
     selection: z
       .object({
         accountId: z.string().optional(),
@@ -102,7 +103,8 @@ export function saveChatDraft(draft: ChatDraft): boolean {
       !draft.text.trim() &&
       !draft.images.length &&
       !draft.contextBlocks.length &&
-      !draft.settings.repositoryWorkspaceId
+      !draft.settings.repositoryWorkspaceId &&
+      !draft.settings.retainRuntimeIntent
     )
       localStorage.removeItem(PREFIX + draft.id);
     else

@@ -2,6 +2,11 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import express from 'express';
 import { AccountProfiles } from '../account-profiles.js';
 import {
+  ordinaryOpenShellCodexTarget,
+  projectOrdinaryOpenShellCodexCapabilities,
+} from '../ordinary-openshell-codex-route.js';
+import type { OpenShellRuntimeConfig } from '../openshell-runtime.js';
+import {
   OrdinaryLocalCodexCapabilityCatalog,
   OrdinaryLocalCodexTarget,
 } from '../ordinary-local-codex-capabilities.js';
@@ -25,7 +30,12 @@ import {
 
 const fixtures = vi.hoisted(() => ({
   reserve: vi.fn(),
+  continue: vi.fn(),
   start: vi.fn(),
+  startShell: vi.fn(),
+  continueShell: vi.fn(),
+  shellTarget: vi.fn(),
+  shellResumable: false,
   workspace: vi.fn(),
   library: vi.fn(),
   profiles: vi.fn(),
@@ -35,7 +45,17 @@ const fixtures = vi.hoisted(() => ({
 }));
 vi.mock('../chat.js', () => ({
   startOwnedLocalCodexCommand: fixtures.start,
+  sendOwnedLocalCodexCommand: fixtures.continue,
+  canResumeOwnedLocalCodexDriver: () => false,
   BASE_REPO: fixtures.root,
+}));
+vi.mock('../ordinary-openshell-codex-entry-owner.js', () => ({
+  loadOrdinaryOpenShellCodexTarget: fixtures.shellTarget,
+}));
+vi.mock('../ordinary-openshell-codex-entry.js', () => ({
+  startOwnedOpenShellCodexCommand: fixtures.startShell,
+  sendOwnedOpenShellCodexCommand: fixtures.continueShell,
+  canResumeOwnedOpenShellCodexDriver: () => fixtures.shellResumable,
 }));
 vi.mock('../account-profiles.js', async (original) => ({
   ...(await original<object>()),
@@ -125,6 +145,8 @@ const input = () => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  fixtures.shellTarget.mockReturnValue(undefined);
+  fixtures.shellResumable = false;
   vi.stubEnv('MITZO_ORDINARY_LOCAL_CODEX_ENABLED', '1');
   fixtures.controller = fixtures.owner = false;
   auth = { id: `owned-entry-login-${++sequence}`, expiresAt: Date.now() + 600_000 };
@@ -476,4 +498,292 @@ it('refuses a builtin catalog result before reserving the published user-profile
   expect((await send()).status).toBe(409);
   expect(fixtures.reserve).not.toHaveBeenCalled();
   expect(fixtures.start).not.toHaveBeenCalled();
+});
+
+it('admits a follow-up only through the original live authenticated owner without reserving another checkout', async () => {
+  expect((await send()).status).toBe(202);
+  const sessionId = nativeStartupSessionId(`repository:${workspaceId}`);
+  sessions.register('retained-live', {
+    transport: conns.get('entry-stream')!.transport,
+    abortController: new AbortController(),
+    sessionId,
+    mode: 'ask',
+    sessionAllowList: new Set(),
+    ownedLocalAuthSessionId: auth.id,
+  });
+  fixtures.continue.mockImplementation(async (args) => {
+    store.admitOrdinaryLocalContinuation(
+      {
+        sessionId,
+        cwd: '/offline/checkout',
+        repositoryWorkspaceId: workspaceId,
+        accountBinding: binding,
+      },
+      catalog.resolve(args.command.runtime).binding,
+      {
+        clientMsgId: args.command.clientMsgId,
+        requestFingerprint: 'next-command',
+        selection: args.command.selection,
+        payload: args.command.payload,
+      },
+    );
+    store.claimOrdinaryLocalCommandDispatch(args.command.clientMsgId);
+    store.completeOrdinaryLocalCommand(args.command.clientMsgId);
+    return { dispatched: true, sessionId };
+  });
+  fixtures.reserve.mockClear();
+  fixtures.start.mockClear();
+  const response = await invoke('POST', '/continue', {
+    ...input(),
+    sessionId,
+    clientMsgId: 'next-command',
+    payload: { text: 'Follow up' },
+  });
+  expect(response.status).toBe(202);
+  expect(response.body).toMatchObject({
+    ok: true,
+    sessionId,
+    clientMsgId: 'next-command',
+    state: 'consumed',
+  });
+  expect(fixtures.reserve).not.toHaveBeenCalled();
+  expect(fixtures.start).not.toHaveBeenCalled();
+  expect(fixtures.continue).toHaveBeenCalledWith(
+    expect.objectContaining({
+      sessionId,
+      operatorConnectionId: expect.any(String),
+      command: expect.objectContaining({ clientMsgId: 'next-command' }),
+    }),
+  );
+});
+it('refuses cold or foreign follow-up entry until its original custody owner is available', async () => {
+  expect((await send()).status).toBe(202);
+  const sessionId = nativeStartupSessionId(`repository:${workspaceId}`);
+  const response = await invoke('POST', '/continue', {
+    ...input(),
+    sessionId,
+    clientMsgId: 'next-command',
+  });
+  expect(response.status).toBe(409);
+  expect(fixtures.continue).not.toHaveBeenCalled();
+  sessions.register('foreign-live', {
+    transport: conns.get('entry-stream')!.transport,
+    abortController: new AbortController(),
+    sessionId,
+    mode: 'ask',
+    sessionAllowList: new Set(),
+    ownedLocalAuthSessionId: 'foreign',
+  });
+  expect(
+    (await invoke('POST', '/continue', { ...input(), sessionId, clientMsgId: 'next-command' }))
+      .status,
+  ).toBe(403);
+  expect(fixtures.continue).not.toHaveBeenCalled();
+});
+
+it('combines trusted routes for the existing picker while retaining OpenShell as an unavailable default', async () => {
+  fixtures.library.mockReturnValue({ list: () => ({ versions: [] }) });
+  router = createOwnedLocalCodexEntryRouter(
+    streams,
+    { connRegistry: conns, sessionRegistry: sessions, eventStore: store },
+    true,
+  );
+  const response = await invoke('GET', '/capabilities', undefined);
+  expect(response.status).toBe(200);
+  expect(response.body).toMatchObject({
+    defaultLocation: 'openshell',
+    locations: expect.arrayContaining([
+      { location: 'openshell', status: 'unavailable', reason: 'OpenShell is not enabled.' },
+    ]),
+  });
+  const combined = response.body as { routes: Array<{ capabilityRevision: string }> };
+  expect(
+    combined.routes.every(
+      (route) => route.capabilityRevision === catalog.inventory().capabilityRevision,
+    ),
+  ).toBe(true);
+});
+
+function configuredShell() {
+  const config = {
+    cli: '/fixture/openshell',
+    image: 'fixture-image',
+    policy: '/fixture/policy',
+    seed: '/fixture/seed',
+    workspace: 'fixture-workspace',
+    gateway: 'fixture-gateway',
+    gatewayInsecure: false,
+    workdir: '/sandbox/workspaces/task',
+    serviceProviders: [],
+    grantableServiceProviders: [],
+    createDetached: true,
+    sandboxIdLength: 24,
+    webSearch: 'disabled',
+  } satisfies OpenShellRuntimeConfig;
+  const shellProfiles = new AccountProfiles(
+    [
+      {
+        id: 'brokered',
+        label: 'Personal ChatGPT',
+        provider: 'openai-codex',
+        email: 'fixture@example.test',
+        planType: 'plus',
+        sandboxProvider: 'provider',
+        sandboxProviderType: 'openai-codex-oauth',
+        sandboxProviderId: 'provider-id',
+        sandboxGrantId: 'grant-id',
+        models: [{ id: 'fixture', label: 'Offline' }],
+      },
+    ],
+    { codexEnabled: true },
+  );
+  const target = ordinaryOpenShellCodexTarget({
+    targetId: 'shell',
+    runtimeContractRevision: 'contract',
+    config,
+    openaiApi: 'disabled',
+  });
+  const projection = projectOrdinaryOpenShellCodexCapabilities({
+    profiles: shellProfiles,
+    target,
+    deployment: 'ordinary',
+  });
+  vi.stubEnv('MITZO_ORDINARY_OPENSHELL_CODEX_ENABLED', '1');
+  fixtures.shellTarget.mockReturnValue({ target, config });
+  fixtures.profiles.mockReturnValue(shellProfiles);
+  fixtures.library.mockReturnValue({
+    version: () => ({
+      profileId: 'published',
+      revision: 1,
+      contentHash: 'a'.repeat(64),
+      definition: {
+        name: 'Published',
+        role: 'developer',
+        instructions: 'Use this task workspace.',
+        expectedOutput: 'Tested changes',
+        acceptanceCriteria: ['Offline tests pass'],
+        modelPolicyRole: 'worker',
+      },
+    }),
+    list: () => ({ versions: [] }),
+  });
+  router = createOwnedLocalCodexEntryRouter(
+    streams,
+    { connRegistry: conns, sessionRegistry: sessions, eventStore: store },
+    true,
+  );
+  const request = {
+    ...input(),
+    runOn: 'openshell',
+    capabilityRevision: projection.inventory.capabilityRevision,
+    runtime: {
+      account: projection.inventory.accounts[0].account,
+      harness: 'codex',
+      targetId: 'shell',
+      mode: 'agent',
+    },
+    selection: { ...input().selection, permission: { mode: 'agent', revision: 0 } },
+  };
+  const admittedBinding = {
+    version: 2,
+    account: request.runtime.account,
+    harness: { implementation: 'codex' },
+    execution: { location: 'openshell', targetId: 'shell', targetRevision: target.targetRevision },
+  };
+  fixtures.startShell.mockImplementation(async (_transport, _client, args) => {
+    const meta = { ...args.meta, cwd: config.workdir };
+    const admission = {
+      clientMsgId: args.command.clientMsgId,
+      requestFingerprint: 'offline-shell-' + args.command.clientMsgId,
+      selection: args.command.selection,
+      payload: args.command.payload,
+    };
+    if (args.resume) store.admitOrdinaryOpenShellContinuation(meta, admittedBinding, admission);
+    else store.admitOrdinaryOpenShellCommand(meta, admittedBinding, admission);
+    store.claimOrdinaryOpenShellCommandDispatch(admission.clientMsgId);
+    store.completeOrdinaryOpenShellCommand(admission.clientMsgId);
+    return { dispatched: true, sessionId: meta.sessionId };
+  });
+  return { request, config, shellProfiles, admittedBinding };
+}
+it('dispatches the generic OpenShell route with original account billing and no Local checkout effects', async () => {
+  const { request, config, shellProfiles } = configuredShell();
+  expect((await invoke('POST', '/send', request)).status).toBe(202);
+  expect(fixtures.startShell).toHaveBeenCalledWith(
+    expect.anything(),
+    expect.any(String),
+    expect.objectContaining({
+      meta: expect.objectContaining({
+        cwd: config.workdir,
+        accountBinding: shellProfiles.resolve('brokered', 'fixture'),
+      }),
+      resume: false,
+    }),
+  );
+  expect(fixtures.reserve).not.toHaveBeenCalled();
+  expect(fixtures.start).not.toHaveBeenCalled();
+  const capabilities = await invoke('GET', '/capabilities', undefined);
+  expect(capabilities.status).toBe(200);
+  expect(capabilities.body).toMatchObject({
+    defaultLocation: 'openshell',
+    locations: expect.arrayContaining([{ location: 'openshell', status: 'configured' }]),
+    targets: expect.arrayContaining([
+      {
+        targetId: 'shell',
+        targetRevision: expect.any(String),
+        label: 'OpenShell',
+        location: 'openshell',
+        harness: 'codex',
+      },
+    ]),
+  });
+  expect(JSON.stringify(capabilities.body)).not.toContain(config.gateway);
+});
+it('reopens an OpenShell follow-up only with original cold custody and freezes a separate command receipt', async () => {
+  const { request } = configuredShell();
+  expect((await invoke('POST', '/send', request)).status).toBe(202);
+  const sessionId = nativeStartupSessionId(`repository:${workspaceId}`);
+  const next = {
+    ...request,
+    sessionId,
+    clientMsgId: 'shell-next',
+    payload: { text: 'Second publication' },
+  };
+  expect((await invoke('POST', '/continue', next)).status).toBe(409);
+  fixtures.shellResumable = true;
+  expect((await invoke('POST', '/continue', next)).status).toBe(202);
+  expect(fixtures.startShell.mock.calls[1][2]).toMatchObject({
+    resume: true,
+    meta: { sessionId, repositoryWorkspaceId: workspaceId },
+  });
+  expect(store.getOrdinaryOpenShellCommandAdmission('shell-next')).toMatchObject({
+    state: 'consumed',
+  });
+  expect(store.getSessionRuntimeBinding(sessionId)).toMatchObject({
+    execution: { location: 'openshell' },
+  });
+  expect(fixtures.reserve).not.toHaveBeenCalled();
+});
+it('keeps usable Local choices visible when an enabled OpenShell target is unavailable', async () => {
+  vi.stubEnv('MITZO_ORDINARY_OPENSHELL_CODEX_ENABLED', '1');
+  fixtures.library.mockReturnValue({ list: () => ({ versions: [] }) });
+  router = createOwnedLocalCodexEntryRouter(
+    streams,
+    { connRegistry: conns, sessionRegistry: sessions, eventStore: store },
+    true,
+  );
+  const response = await invoke('GET', '/capabilities', undefined);
+  expect(response.status).toBe(200);
+  expect(response.body).toMatchObject({
+    accounts: expect.arrayContaining([{ ...catalog.inventory().accounts[0] }]),
+    locations: expect.arrayContaining([
+      {
+        location: 'openshell',
+        status: 'unavailable',
+        reason: 'The configured OpenShell route is unavailable.',
+      },
+    ]),
+  });
+  expect(fixtures.shellTarget).toHaveBeenCalled();
+  expect(fixtures.startShell).not.toHaveBeenCalled();
 });

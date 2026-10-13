@@ -143,7 +143,7 @@ export async function ownedRuntimeFixture(
   const inspect = async () => ({ repository: 'example/repo', baseBranch: 'main', baseOid });
   const workspace = new RepositoryWorkspaces(join(root, 'repositories'), {
     authorize: async (selected) => {
-      loadAccountProfiles().resume(selected);
+      loadAccountProfiles().resumeRouting(selected);
       return { revision: 1, allowedBaseBranches: ['main'] };
     },
     inspect,

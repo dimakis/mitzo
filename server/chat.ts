@@ -1,3 +1,6 @@
+import { OwnedOpenShellCodexChatAdmission } from './owned-openshell-codex-chat-admission.js';
+import { hasPersistentRevocationAuthority } from './auth.js';
+import type { OrdinaryOpenShellCodexOwnedDispatch } from './ordinary-openshell-codex-owned-runtime.js';
 import { nativeStartupSessionId, reserveRepositoryStartup } from './ordinary-repository-startup.js';
 import { PROFILE_TOOL_INSTRUCTIONS } from './session-profile-tools.js';
 import { assertNativeCodexContextAdmission } from './native-codex-context-admission.js';
@@ -86,6 +89,7 @@ import { verifyCodexAccount, type CodexAccountProfile } from './codex-account.js
 import {
   openCodexChat,
   getCodexRuntime,
+  getCodexConversationStore,
   trackCodexProviderAdmission,
   publicCodexRuntimeError,
   publicCodexStartupError,
@@ -2617,6 +2621,76 @@ This is an independent checkout with its own Git storage, not a linked worktree.
   }
 }
 
+/** Inspect only live ownership; cold sessions require separate native admission. */
+export function hasOwnedLocalCodexDriver(sessionId: string): boolean {
+  return registry.findBySessionId(sessionId)?.session.ordinaryRuntimeOwner?.location === 'local';
+}
+
+/** Capability to request a guarded resume, never a provider readiness claim. */
+export function canResumeOwnedLocalCodexDriver(sessionId: string, authSessionId: string): boolean {
+  try {
+    if (
+      !hasPersistentRevocationAuthority() ||
+      process.env.MITZO_ORDINARY_LOCAL_CODEX_ENABLED !== '1' ||
+      custodianControllerMode ||
+      custodianOwnerMode ||
+      registry.findBySessionId(sessionId)
+    )
+      return false;
+    const meta = eventStore.getSession(sessionId);
+    const binding = eventStore.getSessionRuntimeBinding(sessionId);
+    if (
+      !meta?.accountBinding ||
+      binding?.execution.location !== 'local' ||
+      binding.harness.implementation !== 'codex'
+    )
+      return false;
+    const native = getCodexConversationStore();
+    return (
+      native.readHostCustody(sessionId, meta.accountBinding)?.authSessionId === authSessionId &&
+      Boolean(native.read(sessionId, meta.accountBinding).threadId)
+    );
+  } catch {
+    return false;
+  }
+}
+
+/** Existing live owner only. The middleware-retained operator binding supplies
+ * the authenticated subject; request JSON cannot adopt a cold conversation.
+ */
+export async function sendOwnedLocalCodexCommand(input: {
+  sessionId: string;
+  command: unknown;
+  operatorConnectionId: string;
+}): Promise<{ dispatched: boolean; sessionId: string }> {
+  const unavailable = () => new Error('Owned local Codex chat unavailable');
+  try {
+    if (
+      process.env.MITZO_ORDINARY_LOCAL_CODEX_ENABLED !== '1' ||
+      custodianControllerMode ||
+      custodianOwnerMode
+    )
+      throw unavailable();
+    const captured = captureAgentLibraryAuthorization(input.operatorConnectionId);
+    captured.assertCurrent();
+    const retained = registry.findBySessionId(input.sessionId)?.session.ordinaryRuntimeOwner;
+    if (!retained || retained.location !== 'local' || retained.authSessionId !== captured.auth.id)
+      throw unavailable();
+    const result = await retained.admit(structuredClone(input.command));
+    captured.assertCurrent();
+    if (result.dispatched) {
+      const current = registry.findBySessionId(input.sessionId);
+      const native = current && getCodexRuntime(current.session);
+      if (!native || current!.session.ownedLocalAuthSessionId !== captured.auth.id)
+        throw unavailable();
+      await native.resumeAfterExplicitSend();
+    }
+    return { ...result, sessionId: input.sessionId };
+  } catch {
+    throw unavailable();
+  }
+}
+
 /** Explicit server-only entry for the owned local first-command route. The
  * preexisting repository reservation and authenticated operator are supplied by
  * trusted composition; no request can provide an authority or runtime launcher.
@@ -2632,6 +2706,8 @@ export async function startOwnedLocalCodexCommand(
     /** Actual event stream, distinct from a retained server-only auth binding. */
     ownerConnectionId?: string;
     signal: AbortSignal;
+    /** Server-selected cold continuation, never legacy history adoption. */
+    resume?: boolean;
   },
 ): Promise<{ dispatched: boolean; sessionId: string }> {
   const unavailable = () => new Error('Owned local Codex chat unavailable');
@@ -2648,6 +2724,10 @@ export async function startOwnedLocalCodexCommand(
   const release = () => {
     if (released) return;
     released = true;
+    const sessionId = input.reservation.conversationId;
+    const live = registry.findBySessionId(sessionId)?.session;
+    if (live && driver && live.ordinaryRuntimeOwner?.identity === driver)
+      delete live.ordinaryRuntimeOwner;
     driver?.close();
   };
   try {
@@ -2662,6 +2742,16 @@ export async function startOwnedLocalCodexCommand(
     const reservation = structuredClone(input.reservation);
     const command = structuredClone(input.command);
     const sessionId = reservation.conversationId;
+    const liveOwner = registry.findBySessionId(sessionId)?.session.ordinaryRuntimeOwner;
+    if (liveOwner) {
+      if (
+        liveOwner.location !== 'local' ||
+        liveOwner.authSessionId !== ownerAuthSessionId ||
+        liveOwner.initialCommandId !== commandId
+      )
+        throw unavailable();
+      return { ...(await liveOwner.retryInitial(command)), sessionId };
+    }
     driver = new OrdinaryLocalCodexOwnedRuntime({
       enabled: true,
       eventStore,
@@ -2671,6 +2761,44 @@ export async function startOwnedLocalCodexCommand(
       commandId,
       operatorConnectionId,
       signal,
+      nativeStore: getCodexConversationStore(),
+      dispatchContinuation: async (dispatch) => {
+        if (released || !driver) throw unavailable();
+        const current = registry.findBySessionId(sessionId);
+        const session = current?.session;
+        const native = session && getCodexRuntime(session);
+        if (
+          !current ||
+          !session ||
+          !native ||
+          session.ownedLocalAuthSessionId !== ownerAuthSessionId
+        )
+          throw unavailable();
+        await native.admitExplicitSend(
+          {
+            id: dispatch.commandId,
+            prompt: dispatch.payload.text,
+            intent: dispatch.payload.intent,
+            images: dispatch.payload.images,
+            model: dispatch.expected.selection.model,
+            reasoningEffort: dispatch.expected.selection.thinking,
+          },
+          session.abortController.signal,
+        );
+        storeAndEchoIfNew(
+          sessionId,
+          dispatch.commandId,
+          dispatch.payload.text,
+          current.clientId,
+          session.transport,
+          session.observers,
+          imagePreviews(dispatch.payload.images),
+          undefined,
+          undefined,
+          'user',
+          false,
+        );
+      },
       dispatch: async (dispatch) => {
         if (prepared || released || !driver) throw unavailable();
         prepared = await prepareOwnedLocalCodexChat(transport, clientId, dispatch, {
@@ -2680,13 +2808,25 @@ export async function startOwnedLocalCodexCommand(
         });
       },
     });
-    const result = await driver.admit(command);
+    const result = input.resume ? await driver.admitResume(command) : await driver.admit(command);
     if (!result.dispatched) {
       if (prepared) throw unavailable();
       release();
       return { dispatched: false, sessionId };
     }
     if (!prepared || released) throw unavailable();
+    const liveSession = registry.findBySessionId(sessionId)?.session;
+    if (!liveSession) throw unavailable();
+    const retainedDriver = driver;
+    liveSession.ordinaryRuntimeOwner = {
+      location: 'local',
+      authSessionId: ownerAuthSessionId,
+      identity: retainedDriver,
+      initialCommandId: commandId,
+      admit: (command) => retainedDriver.admitContinuation(command),
+      retryInitial: (command) => retainedDriver.admit(command),
+      close: release,
+    };
     const ownedQuery = prepared;
     // run() is the existing chat task, started only after admit saved consumed.
     // Its normal completion/abort closes the driver through required onEnded.
@@ -2729,10 +2869,12 @@ export async function startOwnedLocalCodexCommand(
  * after its admission coordinator has committed consumed. Legacy startup,
  * account preflight, runtime inference and workspace acquisition are excluded.
  */
-export async function prepareOwnedLocalCodexChat(
+export const prepareOwnedLocalCodexChat = prepareOwnedCodexChat;
+
+export async function prepareOwnedCodexChat(
   transport: SessionTransport,
   clientId: string,
-  input: OrdinaryLocalCodexOwnedDispatch,
+  input: OrdinaryLocalCodexOwnedDispatch | OrdinaryOpenShellCodexOwnedDispatch,
   options: {
     ownerConnectionId?: string;
     ownerAuthSessionId?: string;
@@ -2742,10 +2884,22 @@ export async function prepareOwnedLocalCodexChat(
     onEnded: () => void;
   },
 ): Promise<{ run(): Promise<void>; close(): void }> {
-  const unavailable = () => new Error('Owned local Codex chat unavailable');
+  const unavailable = () =>
+    new Error(
+      input.admission instanceof OwnedOpenShellCodexChatAdmission
+        ? 'Owned OpenShell Codex chat unavailable'
+        : 'Owned local Codex chat unavailable',
+    );
+  const boundAccount = 'lease' in input ? input.lease.binding : input.account;
+  const localAdmission =
+    input.admission instanceof OwnedLocalCodexChatAdmission ? input.admission : undefined;
+  const openShellAdmission =
+    input.admission instanceof OwnedOpenShellCodexChatAdmission ? input.admission : undefined;
+  const resume = 'resume' in input ? input.resume : undefined;
   let releaseOwner: () => void;
   let selected: {
-    expected: OrdinaryLocalCodexOwnedDispatch['expected'];
+    expected:
+      OrdinaryLocalCodexOwnedDispatch['expected'] | OrdinaryOpenShellCodexOwnedDispatch['expected'];
     workspace: OrdinaryLocalCodexOwnedDispatch['workspace'];
     payload: OrdinaryLocalCodexOwnedDispatch['payload'];
     profile: OrdinaryLocalCodexOwnedDispatch['profile'];
@@ -2755,7 +2909,7 @@ export async function prepareOwnedLocalCodexChat(
     if (typeof release !== 'function') throw unavailable();
     releaseOwner = () => release.call(options);
     if (
-      !(input.admission instanceof OwnedLocalCodexChatAdmission) ||
+      (!localAdmission && !openShellAdmission) ||
       custodianControllerMode ||
       custodianOwnerMode ||
       !/^\S{1,200}$/.test(clientId) ||
@@ -2771,13 +2925,15 @@ export async function prepareOwnedLocalCodexChat(
       profile: input.profile,
     });
     const { workspace, expected } = selected;
+    if (openShellAdmission && workspace.directory === undefined)
+      workspace.directory = expected.workspace.cwd;
     if (
       workspace.state !== 'claimed' ||
-      workspace.sandbox !== false ||
+      Boolean(workspace.sandbox) !== Boolean(openShellAdmission) ||
       workspace.conversationId !== input.sessionId ||
       workspace.id !== expected.workspace.workspaceId ||
       workspace.directory !== expected.workspace.cwd ||
-      !isDeepStrictEqual(workspace.binding, input.lease.binding)
+      !isDeepStrictEqual(workspace.binding, boundAccount)
     )
       throw unavailable();
     input.admission.assertPreparedOptions({
@@ -2785,7 +2941,8 @@ export async function prepareOwnedLocalCodexChat(
       prompt: selected.payload.text,
       conversationId: input.sessionId,
       messageId: input.commandId,
-      binding: input.lease.binding,
+      resume,
+      binding: boundAccount,
       profile: selected.profile,
       session: { cwd: expected.workspace.cwd, mode: expected.selection.permission.mode },
       model: expected.selection.model,
@@ -2860,7 +3017,7 @@ export async function prepareOwnedLocalCodexChat(
       model: expected.selection.model,
       branch: workspace.featureBranch,
       agentName: expected.agentProfile?.definition.name,
-      accountBinding: structuredClone(input.lease.binding),
+      accountBinding: structuredClone(boundAccount),
       sessionAllowList: new Set(),
       ownerConnectionId: options.ownerConnectionId,
       ownedLocalAuthSessionId: options.ownerAuthSessionId,
@@ -2902,10 +3059,12 @@ export async function prepareOwnedLocalCodexChat(
     env.MITZO_SESSION_ID = sessionId;
     env.MITZO_AGENT_NAME = expected.agentProfile?.definition.name ?? '';
     queryInstance = await openCodexChat({
-      ownedLocal: admission,
+      ownedLocal: localAdmission,
+      ownedOpenShell: openShellAdmission,
+      resume,
       conversationId: sessionId,
       messageId: commandId,
-      binding: structuredClone(input.lease.binding),
+      binding: structuredClone(boundAccount),
       profile,
       session,
       registry,
@@ -2952,7 +3111,7 @@ export async function prepareOwnedLocalCodexChat(
         if (
           closed ||
           ran ||
-          eventStore.getOrdinaryLocalCommandAdmission(commandId)?.state !== 'consumed'
+          eventStore.getOrdinaryCommandAdmission(commandId)?.state !== 'consumed'
         )
           throw unavailable();
         admission.assertConsumerOwner(eventStore, sessionId, commandId);
@@ -3001,6 +3160,32 @@ export async function prepareOwnedLocalCodexChat(
       }
     },
   };
+}
+
+/** Echo uses the existing transcript owner after guarded native FIFO admission. */
+export function echoOwnedCodexCommand(
+  sessionId: string,
+  commandId: string,
+  payload: {
+    text: string;
+    images?: Array<{ data: string; mediaType: string }>;
+  },
+): void {
+  const current = registry.findBySessionId(sessionId);
+  if (!current) throw Error('Owned Codex conversation unavailable');
+  storeAndEchoIfNew(
+    sessionId,
+    commandId,
+    payload.text,
+    current.clientId,
+    current.session.transport,
+    current.session.observers,
+    imagePreviews(payload.images),
+    undefined,
+    undefined,
+    'user',
+    false,
+  );
 }
 
 /**

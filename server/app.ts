@@ -1,4 +1,5 @@
 import { ownedLocalCodexMetadata } from './ordinary-local-codex-metadata.js';
+import { ordinaryCodexContinuationStatus } from './ordinary-codex-continuation-status.js';
 import { createTelemetryRelay } from './telemetry-relay.js';
 import { traceAuthCheck } from './auth-check-tracing.js';
 import type {
@@ -2693,7 +2694,17 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
     res.status(404).json({ error: 'Session not found' });
     return;
   }
-  const runtimeMetadata = ownedLocalCodexMetadata(eventStore, meta.sessionId);
+  const continuationStatus = ordinaryCodexContinuationStatus(
+    meta.sessionId,
+    res.locals.authSession?.id,
+  );
+  const runtimeMetadata = {
+    ...ownedLocalCodexMetadata(eventStore, meta.sessionId, continuationStatus.available),
+    ...(continuationStatus.reason ? { runtimeCommandReason: continuationStatus.reason } : {}),
+  };
+  const lastAdmittedSelection = eventStore.getLatestOrdinaryCommandAdmission?.(
+    meta.sessionId,
+  )?.selection;
   const totalTokens =
     meta.inputTokens + meta.outputTokens + meta.cacheReadTokens + meta.cacheCreationTokens;
   const symposiumConfigured = Boolean(meta.symposiumConfig);
@@ -2723,6 +2734,16 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
       }
     | undefined;
   if (meta.accountBinding && !symposiumConfigured) {
+    const retainedModel =
+      lastAdmittedSelection?.model ??
+      meta.selectedModel ??
+      codexQueue?.model ??
+      meta.accountBinding.model;
+    const retainedThinking = lastAdmittedSelection
+      ? lastAdmittedSelection.thinking
+      : (meta.reasoningEffort ?? codexQueue?.reasoningEffort ?? null);
+    if (retainedModel)
+      modelSelection = { model: retainedModel, reasoningEffort: retainedThinking, models: [] };
     try {
       const profiles = loadAccountProfiles();
       await profiles.refresh(req.query.refresh === '1');
@@ -2732,13 +2753,9 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
       const defaultModel = profile?.models[0];
       if (profile && defaultModel)
         modelSelection = {
-          model:
-            meta.selectedModel ??
-            (meta.accountBinding.provider === 'openai-codex' ? codexQueue?.model : undefined) ??
-            meta.accountBinding.model ??
-            defaultModel.id,
+          model: retainedModel ?? defaultModel.id,
           models: profile.models,
-          reasoningEffort: meta.reasoningEffort ?? codexQueue?.reasoningEffort ?? null,
+          reasoningEffort: retainedThinking,
         };
     } catch {
       // Keep metadata available when the optional account catalog is temporarily unreadable.
@@ -2752,6 +2769,7 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
     branch: meta.branch,
     wtId: meta.wtId,
     cwd: meta.cwd,
+    repositoryWorkspaceId: meta.repositoryWorkspaceId,
     mode: meta.mode,
     isActive: meta.isActive,
     // Optional catalog refresh may yield while this conversation is deleted.

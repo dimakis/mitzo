@@ -1,4 +1,9 @@
+import {
+  OpenShellCodexCustodySchema,
+  type OpenShellCodexCustody,
+} from './openshell-codex-custody.js';
 import type { RuntimeMigration } from './openshell-runtime-migration.js';
+import { HostCodexCustodySchema, type HostCodexCustody } from './host-codex-custody.js';
 import Database from 'better-sqlite3';
 import { createHash, randomUUID } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
@@ -324,6 +329,10 @@ export class CodexConversationStore {
       const conversationColumns = this.db
         .prepare('PRAGMA table_info(codex_conversations)')
         .all() as Array<{ name: string }>;
+      if (!conversationColumns.some((column) => column.name === 'openshell_custody'))
+        this.db.exec('ALTER TABLE codex_conversations ADD COLUMN openshell_custody TEXT');
+      if (!conversationColumns.some((column) => column.name === 'host_custody'))
+        this.db.exec('ALTER TABLE codex_conversations ADD COLUMN host_custody TEXT');
       if (!conversationColumns.some((column) => column.name === 'artifact_runtime'))
         this.db.exec('ALTER TABLE codex_conversations ADD COLUMN artifact_runtime TEXT');
       if (!conversationColumns.some((column) => column.name === 'owner_kind'))
@@ -410,6 +419,10 @@ export class CodexConversationStore {
   }
   private key(b: AccountBinding) {
     return JSON.stringify([b.accountId, b.provider, b.model, b.profileRevision]);
+  }
+  /** Presence is metadata only; callers still need exact native account/custody. */
+  hasConversation(id: string): boolean {
+    return Boolean(this.db.prepare('SELECT 1 FROM codex_conversations WHERE id=?').get(id));
   }
   read(id: string, b: AccountBinding): Conversation {
     const row = this.db
@@ -569,6 +582,77 @@ export class CodexConversationStore {
   }
 
   /** Private account-bound routing; never infer a sandbox from conversation IDs. */
+  readOpenShellCustody(id: string, binding: AccountBinding): OpenShellCodexCustody | null {
+    this.read(id, binding);
+    const row = this.db
+      .prepare('SELECT owner_kind,openshell_custody FROM codex_conversations WHERE id=?')
+      .get(id) as { owner_kind: string | null; openshell_custody: string | null };
+    if (row.owner_kind !== 'ordinary') throw new Error('OpenShell Codex custody owner unavailable');
+    return row.openshell_custody === null
+      ? null
+      : OpenShellCodexCustodySchema.parse(JSON.parse(row.openshell_custody));
+  }
+  setOpenShellCustody(id: string, binding: AccountBinding, raw: unknown): void {
+    const snapshot = OpenShellCodexCustodySchema.parse(raw);
+    this.db
+      .transaction(() => {
+        const conversation = this.read(id, binding);
+        const previous = this.readOpenShellCustody(id, binding);
+        if (previous) {
+          if (!isDeepStrictEqual(previous, snapshot))
+            throw new Error('OpenShell Codex custody cannot be replaced');
+          return;
+        }
+        if (
+          conversation.threadId ||
+          this.commands(id, binding).length ||
+          this.readHostCustody(id, binding)
+        )
+          throw new Error('Legacy Codex history has no OpenShell custody authority');
+        const changed = this.db
+          .prepare(
+            'UPDATE codex_conversations SET openshell_custody=? WHERE id=? AND openshell_custody IS NULL',
+          )
+          .run(JSON.stringify(snapshot), id).changes;
+        if (changed !== 1) throw new Error('OpenShell Codex custody changed concurrently');
+      })
+      .immediate();
+  }
+  readHostCustody(id: string, binding: AccountBinding): HostCodexCustody | null {
+    this.read(id, binding);
+    const row = this.db
+      .prepare('SELECT owner_kind,host_custody FROM codex_conversations WHERE id=?')
+      .get(id) as { owner_kind: string | null; host_custody: string | null };
+    if (row.owner_kind !== 'ordinary') throw new Error('Host Codex custody owner unavailable');
+    return row.host_custody === null
+      ? null
+      : HostCodexCustodySchema.parse(JSON.parse(row.host_custody));
+  }
+  /** Exact write before native thread effects. Legacy provider history cannot
+   * acquire invented physical or operator custody retroactively.
+   */
+  setHostCustody(id: string, binding: AccountBinding, raw: unknown): void {
+    const snapshot = HostCodexCustodySchema.parse(raw);
+    this.db
+      .transaction(() => {
+        const conversation = this.read(id, binding);
+        const previous = this.readHostCustody(id, binding);
+        if (previous) {
+          if (!isDeepStrictEqual(previous, snapshot))
+            throw new Error('Host Codex custody cannot be replaced');
+          return;
+        }
+        if (conversation.threadId || this.commands(id, binding).length)
+          throw new Error('Legacy Codex history has no host custody authority');
+        const changed = this.db
+          .prepare(
+            'UPDATE codex_conversations SET host_custody=? WHERE id=? AND host_custody IS NULL',
+          )
+          .run(JSON.stringify(snapshot), id).changes;
+        if (changed !== 1) throw new Error('Host Codex custody changed concurrently');
+      })
+      .immediate();
+  }
   readArtifactRuntime(id: string, binding: AccountBinding): ArtifactRuntime | null {
     this.read(id, binding);
     const row = this.db
@@ -1286,6 +1370,40 @@ export class CodexConversationStore {
     }));
   }
   /** Polling must not deserialize historical prompts, images, or tool inputs. */
+  /** Current inference snapshots only; never hydrate completed prompts/images
+   * for a runtime or tool authorization fence.
+   */
+  nextQueuedCommandId(id: string, binding: AccountBinding): string | undefined {
+    this.read(id, binding);
+    const row = this.db
+      .prepare(
+        "SELECT id FROM codex_commands WHERE conversation_id=? AND status='queued' ORDER BY sequence LIMIT 1",
+      )
+      .get(id) as { id: string } | undefined;
+    return row?.id;
+  }
+  pendingModelSelections(
+    id: string,
+    binding: AccountBinding,
+  ): Array<{ model: string; thinking: string | null }> {
+    this.read(id, binding);
+    const rows = this.db
+      .prepare(
+        `SELECT json_extract(input,'$.model') AS model,
+      json_extract(input,'$.reasoningEffort') AS thinking FROM codex_commands
+      WHERE conversation_id=? AND status IN ('queued','running') ORDER BY sequence`,
+      )
+      .all(id);
+    return z
+      .array(
+        z.strictObject({
+          model: z.string().min(1).nullable(),
+          thinking: z.string().min(1).nullable(),
+        }),
+      )
+      .parse(rows)
+      .map(({ model, thinking }) => ({ model: model ?? binding.model, thinking }));
+  }
   queueOverview(id: string, b: AccountBinding) {
     this.read(id, b);
     const limit = 100;
@@ -1904,6 +2022,21 @@ export class CodexConversationStore {
       this.db.prepare('UPDATE codex_conversations SET recovery=1 WHERE id=?').run(id);
       return recovery;
     })();
+  }
+  /** Bounded native status observation without hydrating retained prompts/images. */
+  commandStatus(
+    id: string,
+    binding: AccountBinding,
+    commandId: string,
+  ): CodexCommand['status'] | undefined {
+    this.read(id, binding);
+    const row = this.db
+      .prepare('SELECT status FROM codex_commands WHERE conversation_id=? AND id=?')
+      .get(id, commandId) as { status: string } | undefined;
+    if (!row) return undefined;
+    return z
+      .enum(['queued', 'running', 'completed', 'interrupted', 'failed', 'cancelled'])
+      .parse(row.status);
   }
   claimNext(id: string, b: AccountBinding): CodexCommand | undefined {
     return this.db.transaction(() => {

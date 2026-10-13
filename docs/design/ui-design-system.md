@@ -121,6 +121,38 @@ not replay transitions. Reduce Motion disables animation and press scaling.
 `npm run test:design` also rejects literal timings/easing, broad transitions, and
 direct Web Animations calls outside the shared helper.
 
+## Ordinary conversation runtime selection
+
+The existing shared picker owns Agent, Account, Model, Thinking and Run on across
+mobile and desktop. Reuse its workspace controls and token styles. OpenShell is
+the default; Local Mac is deliberate. Resolve only pristine unselected target
+intent from trusted inventory, and preserve stale/unavailable account, model,
+thinking and target choices with a useful reason. Runs with describes the derived
+software rather than adding another runtime control.
+
+Bound ordinary Codex conversations lock account, exact published user profile and
+execution target. Server-supported conversation scope enables model/thinking edits
+for future commands, normal guarded follow-ups and the native queue. Each queued
+request keeps its original settings snapshot. Unsupported mode/context/web helpers
+remain independently disabled. Metadata loading/failure never enables legacy
+fallback; Retry preserves the conversation and draft.
+
+New session elsewhere creates a separately owned blank draft with copied intent
+and no inherited repository preparation. The explicit retained-intent flag keeps
+that blank draft recoverable without changing ordinary empty-draft behavior. Its
+separate preparation creates a separate checkout. The original conversation,
+provider history, branch and pending work remain under their existing owners.
+Unavailable cold custody is a visible server reason, not a replacement environment.
+
+The existing motion boundaries, drafts and focus remain mounted. Expanded settings
+must scroll at 390 × 844 and with larger text while shell navigation stays reachable.
+Hosted all-intercept fixtures cover Local/OpenShell start, future thinking, guarded
+queue snapshots and new-session intent. Source tests are offline; rendered hosted
+CI evidence and live provider qualification remain separate. The approved source
+archive is Telos artifact `3985777d901aa39cef7765f75b1277d6`, revision 1; its mock
+catalogues illustrate layout and do not establish live route availability. See the
+[completion checklist](session-runtime-continuity-checklist.md).
+
 ## Authentication recovery
 
 The native splash yields to the rendered authentication status without waiting for a network response. A stalled check has a five-second deadline and reaches the existing token-styled unavailable alert and Retry action. Mobile shell navigation remains reachable. Retry starts a fresh check without clearing a valid login or requiring another tab; only an actual authentication denial redirects to Login with the original destination. Offline fixtures cover startup, tab changes, light/dark appearance and retry on mobile WebKit and mobile/desktop Chromium.

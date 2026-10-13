@@ -3,6 +3,15 @@ import { OrdinaryLocalCommandSelectionSchema } from './ordinary-local-admission.
 import { AgentProfileSelectionSchema } from './agent-library.js';
 import { SessionRuntimeBindingV1Schema } from './session-runtime-binding.js';
 const reference = SessionRuntimeBindingV1Schema.shape.account.shape.accountId;
+function validateCommandBounds(
+  request: { runtime: { mode: string }; selection: { permission: { mode: string } } },
+  ctx: z.RefinementCtx,
+) {
+  if (request.runtime.mode !== request.selection.permission.mode)
+    ctx.addIssue({ code: 'custom', message: 'Permission selection mismatch' });
+  if (new TextEncoder().encode(JSON.stringify(request)).length > 1048576)
+    ctx.addIssue({ code: 'custom', message: 'Command exceeds bound' });
+}
 /** Client intent only. The server derives workspace, prompt and owning authority. */
 export const LocalCodexFirstCommandSchema = z
   .strictObject({
@@ -53,13 +62,42 @@ export const LocalCodexFirstCommandSchema = z
         .optional(),
     }),
   })
-  .superRefine((request, ctx) => {
-    if (request.runtime.mode !== request.selection.permission.mode)
-      ctx.addIssue({ code: 'custom', message: 'Permission selection mismatch' });
-    if (new TextEncoder().encode(JSON.stringify(request)).length > 1048576)
-      ctx.addIssue({ code: 'custom', message: 'Command exceeds bound' });
-  });
+  .superRefine(validateCommandBounds);
 export type LocalCodexFirstCommand = z.infer<typeof LocalCodexFirstCommandSchema>;
+/** Future-message intent retains the original prepared repository and binding.
+ * Admission verifies both identities; this cannot enroll or switch a session.
+ */
+export const LocalCodexContinuationCommandSchema = LocalCodexFirstCommandSchema.safeExtend({
+  sessionId: reference,
+});
+export type LocalCodexContinuationCommand = z.infer<typeof LocalCodexContinuationCommandSchema>;
+/** Shared picker intent for the enrolled ordinary Codex adapters. Software and
+ * target compatibility are resolved by server owners before any effects.
+ */
+export const OrdinaryCodexFirstCommandSchema = z
+  .strictObject({
+    ...LocalCodexFirstCommandSchema.shape,
+    runOn: z.enum(['local', 'openshell']),
+    runtime: z.strictObject({
+      ...LocalCodexFirstCommandSchema.shape.runtime.shape,
+      account: z.strictObject({
+        ...LocalCodexFirstCommandSchema.shape.runtime.shape.account.shape,
+        provider: z.enum(['openai-codex', 'openai']),
+      }),
+    }),
+  })
+  .superRefine((request, ctx) => {
+    validateCommandBounds(request, ctx);
+    if (request.runOn === 'local' && request.runtime.account.provider !== 'openai-codex')
+      ctx.addIssue({ code: 'custom', message: 'Unsupported Local account adapter' });
+  });
+export type OrdinaryCodexFirstCommand = z.infer<typeof OrdinaryCodexFirstCommandSchema>;
+export const OrdinaryCodexContinuationCommandSchema = OrdinaryCodexFirstCommandSchema.safeExtend({
+  sessionId: reference,
+});
+export type OrdinaryCodexContinuationCommand = z.infer<
+  typeof OrdinaryCodexContinuationCommandSchema
+>;
 export const LocalCodexFirstCommandReceiptSchema = z.strictObject({
   ok: z.literal(true),
   clientMsgId: reference,
@@ -77,3 +115,9 @@ export const LocalCodexRetainedCommandObservationSchema = z.strictObject({
   sessionId: reference,
   state: z.enum(['reserved', 'uncertain', 'consumed']),
 });
+
+/** Generic runtime entry retains the same receipt semantics and route-specific reasons. */
+export const OrdinaryCodexRetainedCommandObservationSchema =
+  LocalCodexRetainedCommandObservationSchema.extend({
+    error: z.enum(['Local Codex entry unavailable', 'Conversation runtime unavailable']),
+  });

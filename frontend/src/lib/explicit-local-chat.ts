@@ -1,7 +1,8 @@
 import { z } from 'zod';
 import {
   AgentLibraryVersionSchema,
-  LocalCodexFirstCommandSchema,
+  OrdinaryCodexContinuationCommandSchema,
+  OrdinaryCodexFirstCommandSchema,
   SessionRuntimeBindingV1Schema,
 } from '@mitzo/protocol';
 import {
@@ -11,7 +12,7 @@ import {
 } from './chat-runtime-selection';
 const ref = SessionRuntimeBindingV1Schema.shape.account.shape.accountId;
 const account = SessionRuntimeBindingV1Schema.shape.account
-  .extend({ provider: z.literal('openai-codex') })
+  .extend({ provider: z.enum(['openai-codex', 'openai']) })
   .strict();
 const model = z.strictObject({
   id: ref,
@@ -45,11 +46,11 @@ export const ExplicitLocalInventorySchema = z
           targetId: ref,
           targetRevision: ref,
           label: z.string().min(1).max(256),
-          location: z.literal('local'),
+          location: z.enum(['local', 'openshell']),
           harness: z.literal('codex'),
         }),
       )
-      .max(1),
+      .max(64),
     routes: z
       .array(
         z.strictObject({
@@ -57,10 +58,11 @@ export const ExplicitLocalInventorySchema = z
           targetId: ref,
           harness: z.literal('codex'),
           modes: z.array(z.enum(['ask', 'agent', 'auto'])).max(3),
-          skillCeiling: z.literal('unsupported'),
+          skillCeiling: z.literal('unsupported').optional(),
+          capabilityRevision: ref.optional(),
         }),
       )
-      .max(64),
+      .max(128),
     locations: z
       .array(
         z.strictObject({
@@ -92,17 +94,31 @@ export function normalizeLocalInventory(data: ExplicitLocalInventory): ChatRunti
     locations: data.locations.map((l) => ({
       location: l.location,
       available: l.status === 'configured',
-      reason: l.location === 'openshell' ? 'OpenShell is unavailable.' : 'Local is unavailable.',
+      reason: l.reason
+        ? ((
+            {
+              openshell_projection_pending: 'OpenShell execution choices are not available yet.',
+              openshell_admission_pending: 'OpenShell command admission is not available yet.',
+              custodian_requires_openshell: 'This server requires OpenShell execution.',
+              target_unconfigured: 'Local Mac has no configured execution target.',
+              accounts_unavailable: 'No compatible Local Mac account is configured.',
+            } as Record<string, string>
+          )[l.reason] ?? l.reason)
+        : l.location === 'openshell'
+          ? 'OpenShell is unavailable.'
+          : 'Local Mac is unavailable.',
     })),
     routes: data.routes.map((route) => {
       const configured = data.accounts.find(
         (a) => JSON.stringify(a.account) === JSON.stringify(route.account),
       );
+      const target = data.targets.find((target) => target.targetId === route.targetId);
       return {
         accountId: route.account.accountId,
+        accountReference: route.account,
         targetId: route.targetId,
-        location: 'local',
-        available: !!configured && !configured.modelDiscovery.stale,
+        location: target?.location ?? 'local',
+        available: !!target && !!configured && !configured.modelDiscovery.stale,
         reason: 'Refresh the selected account and model before sending.',
         models: configured?.models ?? [],
       };
@@ -122,12 +138,11 @@ export function prepareLocalFirstCommand(
 ) {
   if (
     !inventory ||
-    selection.execution.location !== 'local' ||
     !selection.agentProfile ||
     ('kind' in selection.agentProfile && selection.agentProfile.kind !== undefined) ||
     !evaluateChatRuntimeSelection(selection, normalizeLocalInventory(inventory)).ready
   )
-    return { request: null, reason: 'Review the selected Local execution choices before sending.' };
+    return { request: null, reason: 'Review the selected execution choices before sending.' };
   const configured = inventory.accounts.find(
     (a) => a.account.accountId === selection.account?.accountId,
   );
@@ -137,12 +152,13 @@ export function prepareLocalFirstCommand(
       r.targetId === selection.execution.targetId,
   );
   if (!configured || !route?.modes.includes(input.mode))
-    return { request: null, reason: 'Review the selected Local execution choices before sending.' };
-  const parsed = LocalCodexFirstCommandSchema.safeParse({
-    runOn: 'local',
+    return { request: null, reason: 'Review the selected execution choices before sending.' };
+  const label = selection.execution.location === 'local' ? 'Local' : 'OpenShell';
+  const parsed = OrdinaryCodexFirstCommandSchema.safeParse({
+    runOn: selection.execution.location,
     repositoryWorkspaceId: input.repositoryWorkspaceId,
     clientMsgId: input.clientMsgId,
-    capabilityRevision: selection.capabilityRevision,
+    capabilityRevision: route.capabilityRevision ?? inventory.capabilityRevision,
     runtime: {
       account: configured.account,
       harness: 'codex',
@@ -164,15 +180,31 @@ export function prepareLocalFirstCommand(
   });
   if (parsed.success) return { request: parsed.data, reason: undefined };
   const reason = parsed.error.issues.some((issue) => issue.message === 'Command exceeds bound')
-    ? 'Local commands must fit within 1 MiB. Remove or resize attachments, or shorten the message.'
+    ? `${label} commands must fit within 1 MiB. Remove or resize attachments, or shorten the message.`
     : parsed.error.issues.some((issue) => issue.path[0] === 'payload' && issue.path[1] === 'images')
-      ? 'Remove unsupported or malformed attachments before sending the Local command.'
+      ? `Remove unsupported or malformed attachments before sending the ${label} command.`
       : parsed.error.issues.some((issue) => issue.path[0] === 'payload' && issue.path[1] === 'text')
-        ? 'Shorten the message before sending the Local command.'
-        : 'Review the selected Local execution choices before sending.';
+        ? `Shorten the message before sending the ${label} command.`
+        : 'Review the selected execution choices before sending.';
   return { request: null, reason };
 }
 
 export function buildLocalFirstCommand(...args: Parameters<typeof prepareLocalFirstCommand>) {
   return prepareLocalFirstCommand(...args).request;
+}
+
+export function prepareLocalContinuationCommand(
+  selection: ChatRuntimeSelection,
+  inventory: ExplicitLocalInventory | null,
+  input: Parameters<typeof prepareLocalFirstCommand>[2] & { sessionId: string },
+) {
+  const first = prepareLocalFirstCommand(selection, inventory, input);
+  if (!first.request) return first;
+  const parsed = OrdinaryCodexContinuationCommandSchema.safeParse({
+    ...first.request,
+    sessionId: input.sessionId,
+  });
+  return parsed.success
+    ? { request: parsed.data, reason: undefined }
+    : { request: null, reason: 'Review conversation settings before sending.' };
 }

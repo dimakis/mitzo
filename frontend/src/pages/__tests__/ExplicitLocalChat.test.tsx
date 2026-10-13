@@ -156,6 +156,7 @@ function setup(
   disabled = false,
   bound = false,
   metadataFailed = false,
+  continuation = false,
 ) {
   const fixture = localInventoryFixture();
   const draft = createChatDraft();
@@ -173,7 +174,7 @@ function setup(
   }
   saveChatDraft(draft);
   vi.mocked(apiFetch).mockImplementation(async (url) => {
-    if (url === '/api/chat/local-codex/capabilities')
+    if (url === '/api/chat/runtime/capabilities')
       return disabled
         ? new Response(JSON.stringify({ code: 'entry_disabled' }), { status: 503 })
         : new Response(JSON.stringify(fixture));
@@ -193,7 +194,10 @@ function setup(
                 models: fixture.accounts[0].models,
                 reasoningEffort: 'low',
               },
-              runtimeCommandScope: 'first-command-only',
+              runtimeCommandScope: continuation ? 'conversation' : 'first-command-only',
+              repositoryWorkspaceId: readyId,
+              mode: 'agent',
+              agentProfile: fixture.agentProfiles[0],
               runtimeBinding: {
                 version: 2,
                 account: fixture.accounts[0].account,
@@ -208,7 +212,7 @@ function setup(
   });
   const store = createTestStore();
   const localSend = vi.fn(
-    (_request: import('@mitzo/protocol').LocalCodexFirstCommand, _observers?: unknown) => true,
+    (_request: import('@mitzo/protocol').OrdinaryCodexFirstCommand, _observers?: unknown) => true,
   );
   const legacySend = vi.fn();
   store.setState({
@@ -364,7 +368,7 @@ for (const [name, Screen] of [
           });
         return new Response(JSON.stringify(metadata));
       }
-      if (url === '/api/chat/local-codex/capabilities')
+      if (url === '/api/chat/runtime/capabilities')
         return new Response(JSON.stringify({ code: 'entry_disabled' }), { status: 503 });
       if (String(url).endsWith('/symposium/status'))
         return new Response(JSON.stringify({ sessionId: 'existing', config: null, seats: [] }));
@@ -400,6 +404,30 @@ for (const [name, Screen] of [
         reasoningEffort: 'high',
       }),
     );
+  });
+  it(`${name}: supported continuation freezes selected thinking and never sends through legacy routing`, async () => {
+    const { localSend, legacySend } = setup(Screen, false, false, true, false, true);
+    const workspace = screen.getByRole('button', { name: /^Workspace controls/ });
+    if (workspace.getAttribute('aria-expanded') !== 'true') fireEvent.click(workspace);
+    await screen.findByText('Run on: Local Mac · fixed for this conversation');
+    expect(screen.getByRole('combobox', { name: 'Account' })).toBeDisabled();
+    expect(screen.getByRole('combobox', { name: 'Thinking' })).toBeEnabled();
+    fireEvent.change(screen.getByRole('combobox', { name: 'Thinking' }), {
+      target: { value: 'high' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Use these conversation choices' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Test send' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Test send' }));
+    expect(localSend).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: 'bound-session',
+        repositoryWorkspaceId: readyId,
+        selection: expect.objectContaining({ thinking: 'high' }),
+      }),
+      expect.anything(),
+    );
+    expect(legacySend).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('web-search-connection')).toBeNull();
   });
   it(`${name}: immutable Local metadata disables follow-up, mode and web settings on reload`, async () => {
     const { legacySend } = setup(Screen, false, false, true);

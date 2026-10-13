@@ -210,3 +210,130 @@ it.each(['retained_command', 'unknown_code'])(
     expect(fetch).toHaveBeenCalledTimes(1);
   },
 );
+
+it('freezes continuation settings and refuses an acknowledgement for a different session', async () => {
+  const notify = vi.fn();
+  const fetch = vi.fn().mockResolvedValue(receipt());
+  const storage = disk();
+  const outbox = new SendOutbox({
+    url: '/api/chat/local-codex/send',
+    fetch,
+    notify,
+    storage,
+    localFirstCommand: true,
+  });
+  outbox.start();
+  const continuation = { ...structuredClone(command), sessionId: 'original-session' };
+  expect(outbox.enqueue(continuation, 1)).toBe(true);
+  continuation.selection.thinking = 'high';
+  await vi.waitFor(() =>
+    expect(notify).toHaveBeenCalledWith(expect.objectContaining({ state: 'uncertain' })),
+  );
+  expect(fetch.mock.calls[0][0]).toBe('/api/chat/local-codex/continue');
+  expect(JSON.parse(fetch.mock.calls[0][1].body).selection.thinking).toBe('low');
+  expect(notify).not.toHaveBeenCalledWith(expect.objectContaining({ acknowledged: true }));
+  outbox.stop();
+  const resumedFetch = vi.fn().mockResolvedValue(
+    new Response(
+      JSON.stringify({
+        ok: true,
+        clientMsgId: command.clientMsgId,
+        sessionId: 'original-session',
+        dispatched: true,
+        state: 'consumed',
+      }),
+      { status: 202 },
+    ),
+  );
+  const resumed = new SendOutbox({
+    url: '/api/chat/local-codex/send',
+    fetch: resumedFetch,
+    notify,
+    storage,
+    localFirstCommand: true,
+  });
+  resumed.start();
+  expect(resumedFetch).not.toHaveBeenCalled();
+  expect(resumed.retryLocalCommand()).toBe(true);
+  await vi.waitFor(() =>
+    expect(notify).toHaveBeenCalledWith(
+      expect.objectContaining({ acknowledged: true, sessionId: 'original-session' }),
+    ),
+  );
+  expect(resumedFetch.mock.calls[0][0]).toBe('/api/chat/local-codex/continue');
+  expect(JSON.parse(resumedFetch.mock.calls[0][1].body).selection.thinking).toBe('low');
+});
+
+it('uses runtime OpenShell routes and retains the original session on continuation', async () => {
+  const notify = vi.fn();
+  const fetch = vi.fn().mockResolvedValue(receipt());
+  const outbox = new SendOutbox({
+    url: '/api/chat/local-codex/send',
+    fetch,
+    notify,
+    storage: disk(),
+    localFirstCommand: true,
+  });
+  outbox.start();
+  expect(
+    outbox.enqueue(
+      { ...command, runOn: 'openshell', runtime: { ...command.runtime, targetId: 'sandbox' } },
+      1,
+    ),
+  ).toBe(true);
+  await vi.waitFor(() =>
+    expect(notify).toHaveBeenCalledWith(expect.objectContaining({ acknowledged: true })),
+  );
+  expect(fetch.mock.calls[0][0]).toBe('/api/chat/runtime/send');
+  expect(
+    outbox.enqueue(
+      {
+        ...command,
+        runOn: 'openshell',
+        sessionId: 'session',
+        runtime: { ...command.runtime, targetId: 'sandbox' },
+      },
+      2,
+    ),
+  ).toBe(true);
+  await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+  expect(fetch.mock.calls[1][0]).toBe('/api/chat/runtime/continue');
+});
+
+it('retains a finite generic OpenShell observation without treating it as an acknowledgement', async () => {
+  const notify = vi.fn();
+  const fetch = vi.fn().mockResolvedValue(
+    new Response(
+      JSON.stringify({
+        ok: false,
+        code: 'retained_command',
+        error: 'Conversation runtime unavailable',
+        clientMsgId: command.clientMsgId,
+        sessionId: 'original-sandbox',
+        state: 'uncertain',
+      }),
+      { status: 409 },
+    ),
+  );
+  const outbox = new SendOutbox({
+    url: '/api/chat/local-codex/send',
+    fetch,
+    notify,
+    storage: disk(),
+    localFirstCommand: true,
+  });
+  outbox.start();
+  expect(
+    outbox.enqueue(
+      { ...command, runOn: 'openshell', runtime: { ...command.runtime, targetId: 'sandbox' } },
+      1,
+    ),
+  ).toBe(true);
+  await vi.waitFor(() =>
+    expect(notify).toHaveBeenCalledWith(
+      expect.objectContaining({ state: 'retained', sessionId: 'original-sandbox' }),
+    ),
+  );
+  expect(notify).not.toHaveBeenCalledWith(expect.objectContaining({ acknowledged: true }));
+  expect(fetch).toHaveBeenCalledTimes(1);
+});

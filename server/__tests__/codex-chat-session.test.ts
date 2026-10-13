@@ -3195,3 +3195,238 @@ it('keeps owned native web search disabled despite a live runtime preference and
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+function ownedOpenShellAdapterFixture(resume = false) {
+  const directory = mkdtempSync(join(tmpdir(), 'mitzo-owned-openshell-adapter-'));
+  const previousDirectory = mocks.privateDirectory;
+  mocks.privateDirectory = directory;
+  const policy = join(directory, 'policy.yaml');
+  writeFileSync(policy, 'reviewed: fixture\n');
+  vi.stubEnv('MITZO_OPENSHELL_LIFECYCLE_ENABLED', '1');
+  const config = {
+    cli: '/offline/selected-openshell',
+    image: 'selected-image',
+    policy,
+    seed: '/offline/seed',
+    serviceProviders: [],
+    grantableServiceProviders: [],
+    workspace: 'selected-workspace',
+    gateway: 'selected-gateway',
+    gatewayInsecure: false,
+    createDetached: true,
+    sandboxIdLength: 24,
+    workdir: '/sandbox/workspaces/task',
+    webSearch: 'disabled' as const,
+  };
+  const physical = {
+    sandboxName: 'selected-sandbox',
+    sandboxId: 'selected-resource',
+    cli: config.cli,
+    workspace: config.workspace,
+    gateway: config.gateway,
+    gatewayInsecure: false,
+    workdir: config.workdir,
+    appServerCommand: '/sandbox/run-mitzo-app-server' as const,
+  };
+  const binding = {
+    accountId: 'selected-api',
+    accountLabel: 'Selected',
+    provider: 'openai',
+    profileRevision: 'profile',
+    model: 'original-model',
+  };
+  const lifecycle = lifecycleController.initializeOpenShellLifecycle(config, {
+    registry: { findBySessionId: () => undefined, entries: function* () {} },
+    eventStore: { getSession: () => ({}) },
+    taskStore: { getTree: () => [] },
+    queue: () => ({ queued: 0, running: 0, recovery: false }),
+  })!;
+  if (resume)
+    lifecycleController.registerOpenShellLifecycle(
+      'bound-openshell',
+      physical,
+      binding as Parameters<typeof lifecycleController.registerOpenShellLifecycle>[2],
+      { kind: 'api', provider: 'selected-provider', model: binding.model },
+      'thread',
+    );
+  return {
+    cleanup: () => {
+      lifecycle.store.close();
+      mocks.privateDirectory = previousDirectory;
+      rmSync(directory, { recursive: true, force: true });
+    },
+    config,
+    physical,
+    binding,
+    opts: {
+      ...options(new AbortController()),
+      conversationId: 'bound-openshell',
+      messageId: 'new-command',
+      binding,
+      profile: {
+        accountId: binding.accountId,
+        accountLabel: 'Selected',
+        email: 'offline@invalid',
+        planType: 'api',
+        sandboxProvider: 'selected-provider',
+        model: 'next-model',
+      },
+      session: { ...options(new AbortController()).session, cwd: config.workdir, mode: 'agent' },
+      prompt: 'Next command',
+      systemPrompt: 'Pinned instructions',
+      model: 'next-model',
+    } as unknown as Parameters<typeof openCodexChat>[0],
+  };
+}
+it('consumes frozen owned OpenShell configuration and executes guarded runtime admission without implicit migration', async () => {
+  const { OwnedOpenShellCodexChatAdmission } =
+    await import('../owned-openshell-codex-chat-admission.js');
+  vi.clearAllMocks();
+  const f = ownedOpenShellAdapterFixture();
+  const owner = Object.assign(Object.create(OwnedOpenShellCodexChatAdmission.prototype), {
+    assertOptions: vi.fn(),
+    assertCurrent: vi.fn(async () => {}),
+    assertCurrentSync: vi.fn(),
+    configuration: () => f.config,
+    adoptPhysicalRuntime: vi.fn(),
+    assertBeforeEnqueue: vi.fn(),
+    assertBeforeDispatch: vi.fn(),
+    assertModelSelection: vi.fn(),
+    persistNativeCustody: vi.fn(),
+    canClaimCommand: vi.fn(() => false),
+  });
+  vi.stubEnv('MITZO_OPENSHELL_ENABLED', '0');
+  vi.stubEnv('MITZO_OPENSHELL_SANDBOX_NAME', 'unselected-legacy');
+  mocks.connect.mockResolvedValue({
+    definitions: [],
+    displayName: (name: string) => name,
+    call: vi.fn(),
+    close: mocks.mcpClose,
+  });
+  mocks.initialize.mockResolvedValue(undefined);
+  mocks.send.mockResolvedValue(undefined);
+  mocks.permissionHandler.mockReturnValue(vi.fn());
+  const { CodexConversationStore } = await import('../codex-conversation-store.js');
+  const retained = vi
+    .spyOn(CodexConversationStore.prototype, 'readArtifactRuntime')
+    .mockReturnValue({
+      runtime: f.physical,
+      route: { kind: 'api', provider: 'selected-provider', model: 'original-model' },
+    });
+  const ensure = vi
+    .spyOn(OpenShellRuntimeManager.prototype, 'ensure')
+    .mockResolvedValue(f.physical);
+  const verify = vi
+    .spyOn(OpenShellRuntimeManager.prototype, 'verifyKnowledgeRuntime')
+    .mockResolvedValue({});
+  const compile = vi.spyOn(OpenShellRuntimeManager.prototype, 'compileContext').mockResolvedValue({
+    type: 'boot_context',
+    scope: 'sandbox',
+    sourceCount: 0,
+    tokenCount: 0,
+    tokenBudget: 12000,
+    sources: [],
+    included: [],
+    trimmed: [],
+    fullMarkdown: '',
+  });
+  const query = await openCodexChat({ ...f.opts, ownedOpenShell: owner });
+  try {
+    expect(ensure).toHaveBeenCalledTimes(1);
+    expect(verify).toHaveBeenCalled();
+    const captured = mocks.conversationOptions!;
+    const reconnect = captured.reconnectGuard as <T>(operation: () => Promise<T>) => Promise<T>;
+    const operation = vi.fn(async () => 'exact-operation-result');
+    await expect(reconnect(operation)).resolves.toBe('exact-operation-result');
+    expect(operation).toHaveBeenCalledTimes(1);
+    const beforeRuntime = captured.beforeRuntimeAdmission as (
+      operation: () => Promise<void>,
+    ) => Promise<boolean>;
+    await expect(beforeRuntime(async () => {})).resolves.toBe(false);
+    expect(ensure).toHaveBeenCalledTimes(1);
+    expect(verify.mock.calls.length).toBeGreaterThan(1);
+    expect((captured.canClaimCommand as (id: string) => boolean)('future')).toBe(false);
+  } finally {
+    query.close();
+    retained.mockRestore();
+    ensure.mockRestore();
+    verify.mockRestore();
+    compile.mockRestore();
+    f.cleanup();
+  }
+});
+it('cold owned OpenShell reuses the original physical mapping while a new turn selects another model', async () => {
+  const { OwnedOpenShellCodexChatAdmission } =
+    await import('../owned-openshell-codex-chat-admission.js');
+  const { CodexConversationStore } = await import('../codex-conversation-store.js');
+  vi.clearAllMocks();
+  const f = ownedOpenShellAdapterFixture(true);
+  const owner = Object.assign(Object.create(OwnedOpenShellCodexChatAdmission.prototype), {
+    assertOptions: vi.fn(),
+    assertCurrent: vi.fn(async () => {}),
+    assertCurrentSync: vi.fn(),
+    configuration: () => f.config,
+    adoptPhysicalRuntime: vi.fn(),
+    assertBeforeEnqueue: vi.fn(),
+    assertBeforeDispatch: vi.fn(),
+    assertModelSelection: vi.fn(),
+    persistNativeCustody: vi.fn(),
+    canClaimCommand: vi.fn(() => true),
+  });
+  mocks.connect.mockResolvedValue({
+    definitions: [],
+    displayName: (name: string) => name,
+    call: vi.fn(),
+    close: mocks.mcpClose,
+  });
+  mocks.initialize.mockResolvedValue(undefined);
+  mocks.send.mockResolvedValue(undefined);
+  mocks.permissionHandler.mockReturnValue(vi.fn());
+  const retained = vi
+    .spyOn(CodexConversationStore.prototype, 'readArtifactRuntime')
+    .mockReturnValue({
+      runtime: f.physical,
+      route: { kind: 'api', provider: 'selected-provider', model: 'original-model' },
+    });
+  const ensure = vi
+    .spyOn(OpenShellRuntimeManager.prototype, 'ensure')
+    .mockRejectedValue(Error('No resource creation during cold resume'));
+  const verify = vi
+    .spyOn(OpenShellRuntimeManager.prototype, 'verifyKnowledgeRuntime')
+    .mockResolvedValue({});
+  const compile = vi.spyOn(OpenShellRuntimeManager.prototype, 'compileContext').mockResolvedValue({
+    type: 'boot_context',
+    scope: 'sandbox',
+    sourceCount: 0,
+    tokenCount: 0,
+    tokenBudget: 12000,
+    sources: [],
+    included: [],
+    trimmed: [],
+    fullMarkdown: '',
+  });
+  const query = await openCodexChat({ ...f.opts, resume: true, ownedOpenShell: owner });
+  try {
+    expect(ensure).not.toHaveBeenCalled();
+    expect(mocks.conversationOptions).toMatchObject({
+      storedBinding: f.binding,
+      runtimeCwd: f.config.workdir,
+    });
+    expect(mocks.send).toHaveBeenLastCalledWith(expect.objectContaining({ model: 'next-model' }));
+    expect(mocks.setArtifactRuntime).toHaveBeenLastCalledWith('bound-openshell', f.binding, {
+      runtime: expect.objectContaining(f.physical),
+      route: { kind: 'api', provider: 'selected-provider', model: 'original-model' },
+    });
+    expect(owner.adoptPhysicalRuntime).toHaveBeenLastCalledWith({
+      runtime: f.physical,
+      route: { kind: 'api', provider: 'selected-provider', model: 'original-model' },
+    });
+  } finally {
+    query.close();
+    retained.mockRestore();
+    ensure.mockRestore();
+    verify.mockRestore();
+    compile.mockRestore();
+    f.cleanup();
+  }
+});

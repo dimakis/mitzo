@@ -62,6 +62,8 @@ interface Props {
   draftControl?: RefObject<ChatInputDraftControl | null>;
   sendDisabledReason?: string;
   boundedFirstCommand?: boolean;
+  /** Admit queued commands immediately with frozen settings through the owning runtime. */
+  guardedConversation?: boolean;
   /** Validate the actual edited payload against the selected route before sending. */
   validateSend?: (text: string, images?: ImageAttachment[]) => string | undefined;
   cwd?: string;
@@ -96,6 +98,7 @@ export function ChatInput({
   draftControl,
   sendDisabledReason: suppliedSendDisabledReason,
   boundedFirstCommand = false,
+  guardedConversation = false,
   validateSend,
   cwd,
   voice,
@@ -185,7 +188,7 @@ export function ChatInput({
   const activeContextBlocks = useExternal ? externalContextBlocks : contextBlocks;
   const sendDisabledReason =
     suppliedSendDisabledReason ??
-    (boundedFirstCommand && activeContextBlocks.length
+    ((boundedFirstCommand || guardedConversation) && activeContextBlocks.length
       ? 'Remove attached context before sending the Local command.'
       : undefined) ??
     validateSend?.(
@@ -418,6 +421,7 @@ export function ChatInput({
       !interruptPending.current &&
       !previewOpen &&
       !boundedFirstCommand &&
+      !guardedConversation &&
       !sendDisabledReason &&
       queuedMessages.length > 0
     ) {
@@ -436,13 +440,14 @@ export function ChatInput({
     dequeue,
     previewOpen,
     boundedFirstCommand,
+    guardedConversation,
     sendDisabledReason,
   ]);
 
   // Show/hide slash picker based on input
   // TODO: Verify picker reopens correctly on backspace after space (e.g. "/simplify " → "/simplify")
   useEffect(() => {
-    if (boundedFirstCommand) {
+    if (boundedFirstCommand || guardedConversation) {
       setShowSlashPicker(false);
       return;
     }
@@ -452,7 +457,7 @@ export function ChatInput({
     } else if (!trimmed.startsWith('/')) {
       setShowSlashPicker(false);
     }
-  }, [text, boundedFirstCommand]);
+  }, [text, boundedFirstCommand, guardedConversation]);
 
   function handleSlashSelect(name: string) {
     setText((draft) => `/${name} ${draft.trimStart().startsWith('/') ? '' : draft}`);
@@ -642,6 +647,14 @@ export function ChatInput({
       return;
     const trimmed = text.trim();
     if (!trimmed && images.length === 0) return;
+    if (guardedConversation) {
+      sendOrdinary({
+        text: trimmed || 'What do you see in this image?',
+        images: [...images],
+        contextBlocks: [],
+      });
+      return;
+    }
     const added = enqueue({
       text: trimmed || 'What do you see in this image?',
       images: [...images],
@@ -671,7 +684,7 @@ export function ChatInput({
   }
 
   function fireQueuedAsInterrupt(index: number) {
-    if (boundedFirstCommand || sendDisabledReason || previewOpen) return;
+    if (boundedFirstCommand || guardedConversation || sendDisabledReason || previewOpen) return;
     const q = queuedMessages[index];
     if (!q || sendPending.current || interruptPending.current || sendDisabledReason) return;
     if (!running) {
@@ -849,7 +862,7 @@ export function ChatInput({
           >
             <ComposerTools
               terminalHref={
-                sessionId && !boundedFirstCommand
+                sessionId && !boundedFirstCommand && !guardedConversation
                   ? `/terminal?sessionId=${encodeURIComponent(sessionId)}&returnTo=${encodeURIComponent(`/chat/${sessionId}`)}`
                   : undefined
               }
@@ -859,7 +872,7 @@ export function ChatInput({
                 textareaRef.current?.focus();
               }}
               commandsExpanded={showSlashPicker}
-              commandsDisabled={boundedFirstCommand}
+              commandsDisabled={boundedFirstCommand || guardedConversation}
               onAttach={() => fileInputRef.current?.click()}
               attachmentDisabled={images.length >= MAX_IMAGE_ATTACHMENTS}
               onDismiss={() => textareaRef.current?.focus()}
@@ -881,7 +894,7 @@ export function ChatInput({
             {!useExternal && (
               <SessionTray
                 placement="toolbar"
-                contextRemovalOnly={boundedFirstCommand}
+                contextRemovalOnly={boundedFirstCommand || guardedConversation}
                 messages={messages}
                 current={current}
                 bootContext={bootContext}

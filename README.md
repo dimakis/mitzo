@@ -25,24 +25,51 @@ Ordinary OpenShell Codex chats reserve their account-bound native ledger before 
 
 Accounts with multiple managed connections can provision new sandboxes without exceeding the gateway's 63-character label-value limit. Oversized provider-policy fingerprints use a stable bounded hash; valid historical labels and connection assignments are preserved. New runtimes prefer an assigned managed GitHub connection over the legacy GitHub fallback, avoiding duplicate `GITHUB_TOKEN` credentials. Retained runtimes keep their existing automatic grants; conflicting GitHub attachments require recovery before startup.
 
-## Explicit Local first command
+## Explicit ordinary Codex conversations
 
-The independently gated Local entry reuses Workspace's Agent, Account, Model,
-Thinking and Run on fields. Untouched enrolled drafts start with OpenShell;
-OpenShell remains unavailable until its explicit selection route is enrolled.
-Choose Local deliberately, select an exact published agent revision and supported
-thinking level, and prepare a repository before sending. The current Local route
-uses a configured host ChatGPT sign-in; API billing, brokered subscriptions and
-workspace-scoped accounts require separate routes.
+The existing Agent, Account, Model, Thinking and Run on picker supports gated
+Local Mac and ordinary OpenShell Codex source routes. OpenShell is the new-chat
+default even when unavailable; Local is explicit. The picker derives Runs with
+Codex from the selected route and retains unavailable choices and drafts. Published
+user profiles must be plain guidance without a context recipe. Local uses a
+configured file-backed host ChatGPT account. OpenShell uses its exact existing
+brokered OAuth provider/grant or explicitly enrolled OpenAI API profile. These
+account projections are disjoint: a Local credential profile is not automatically
+enrolled on OpenShell, and changing environment retains that choice with an
+unavailable reason when its original account has no compatible route. Local API,
+Vertex, built-ins, recipes, Local workspace/brokered authentication and native
+sandbox subscription routes are not advertised by this contract.
 
-Configuration inventory describes choices and cached model metadata; actual
-account and native runtime admission happens on send. Changed or unavailable
-choices stay visible and block dispatch. A retained Local draft stays blocked when
-the entry gate is disabled. Failed or uncertain delivery retains the original
-request for explicit recovery through the dedicated endpoint, without rebuilding
-its account, target, profile or command ID. Local conversations support one first
-command; following commands, model/thinking changes, project hooks, extra context,
-web grants and general connection helpers are not enabled by this entry.
+Configuration remains operator-owned and disabled by default. Local requires
+`MITZO_ORDINARY_LOCAL_CODEX_ENABLED=1` and separately reviewed target/native files.
+OpenShell requires `MITZO_ORDINARY_OPENSHELL_CODEX_ENABLED=1`, the existing reviewed
+OpenShell policy/seed configuration and an owner-only canonical
+`MITZO_ORDINARY_OPENSHELL_CODEX_TARGET_FILE` declaring its target, runtime contract
+and explicit OpenAI API policy. Neither setting authorizes deployment or makes a
+configured target live-ready. The combined configuration inventory is
+`GET /api/chat/runtime/capabilities`; strict first and subsequent command endpoints
+are `POST /api/chat/runtime/send` and `/continue`. Original Local endpoints remain
+compatible. Each send requalifies the owning authority before effects.
+
+A conversation keeps its account, published profile, runtime, target and independent
+checkout. Supported model/thinking changes apply to the next unadmitted command;
+running and queued commands keep their original snapshots. Durable receipts freeze
+request identity and require deliberate recovery after uncertain delivery. New
+session elsewhere copies intent into a separate blank draft and requires new
+repository preparation. Unsupported mode/context/web and general connection
+helpers remain blocked while normal supported follow-ups use the owning native
+queue.
+
+Reconnect retains the original driver and authenticated login. Cold resume checks
+persistent login revocation, immutable routing, the original provider history,
+physical runtime/login custody and the existing workspace. Missing or changed
+custody produces an explicit unavailable state and retains saved work. Changed
+file-backed authentication, including token refresh, still refuses the retained
+lease; automatic credential renewal is not qualified. Source implementation and
+offline regressions are separate from live qualification. Staging remains stood
+down and production activation is a separate user action. See the
+[runtime contract](docs/design/session-runtime-selection.md) and
+[completion checklist](docs/design/session-runtime-continuity-checklist.md).
 
 ## Conversation activity
 
@@ -262,11 +289,24 @@ SDK query failures after input acceptance are recorded under the current convers
 
 The [durable child session allocation design](docs/design/session-service-core.md) describes the SessionService foundation for future bounded Task Board workers and Symposium seats. It records a child conversation and its parent/grant link in one transaction before runtime setup, fences cancellation across descendants, and retains uncertain starts or missing results for recovery. This foundation does not yet change the current Task Board or Symposium runtime paths.
 
-The [session runtime selection foundation](docs/design/session-runtime-selection.md) separates account identity, agent implementation and execution location in immutable metadata. Explicit creation stores that contract with a new ordinary repository session; legacy sessions are not enrolled. V2 pins the exact configured target and revision, while V1 remains readable without inference or automatic upgrade. Configuration-only local account/target capabilities perform no authentication. OpenShell remains the unresolved default until its projection is qualified. The dormant authenticated SSE entry exposes `GET /api/chat/local-codex/capabilities` and `POST /api/chat/local-codex/send` only with `MITZO_ORDINARY_LOCAL_CODEX_ENABLED=1`; it requires an explicit Local first-command envelope, a published profile without a context recipe and an already prepared repository source. The server owns its session identity, existing canonical task root and reservation. Login-bound Stop/reconnect preserve the original driver; later sends/settings and cold resume remain unavailable. Receipt and workspace evidence survive failures. This source implementation has no live account/model qualification or deployed picker enrollment.
+The [session runtime selection contract](docs/design/session-runtime-selection.md)
+separates immutable account, agent/runtime, execution target and workspace identity
+from per-command model/thinking intent. Its gated Local and ordinary OpenShell
+Codex routes use the existing EventStore, native queue and lifecycle owners; legacy
+sessions remain unenrolled. Configuration-only inventory does not grant execution
+authority. Each first command, later admission and cold continuation rechecks the
+original binding and custody before effects. Offline continuity evidence does not
+establish live qualification or activate staging/production.
 
 The bounded local coordinator atomically freezes the published profile, context, permission, model/thinking, runtime and workspace in the existing command receipt. It records uncertainty before login copying, native launch or checkout materialization. Exact retries preserve their choices; uncertain effects never replay automatically. Existing-session adoption, later commands and cold resume are refused. The existing repository ledger reserves the destination before copying and retains interrupted materialization for explicit recovery.
 
-A server-only owned local Codex entry now composes the authenticated operator, published profile, physical host/native binary, private file-backed ChatGPT login and reserved independent checkout. The same verified client enters the existing Codex queue and streaming lifecycle, with account/config/source/checkout checks through native and MCP effects. Operator configuration and selected native code are protected from model writes. It requires `MITZO_ORDINARY_LOCAL_CODEX_ENABLED=1` and separately reviewed target/native configuration; no HTTP/WS endpoint or visible runtime picker is enrolled. It excludes workspace-identity accounts, recipes, renewal, project commands and other integration tools for this first slice. Changes to the selected login, including token refresh, invalidate this bounded lease; closing it retains the private home and command/workspace evidence for recovery. Chat drafts preserve explicit selection intent without granting execution authority. Live qualification, continuation and other provider projections remain separate; source publication does not activate staging or production.
+The owned Local composition retains the original operator, published profile,
+physical host/native binary, private file-backed ChatGPT login and independent
+checkout. Durable private-home/executable custody supports checked cold continuation
+under the same native conversation row and persistent revocation owner. Changed
+login files, executable identity or authority refuse continuation while preserving
+command/workspace evidence. Additional authentication renewal and provider routes
+still require separate qualification.
 
 Symposium shutdown fences new admission and dispatch, drains retained seat and login
 cleanup, and awaits the owned gateway child before closing custody stores. A bounded

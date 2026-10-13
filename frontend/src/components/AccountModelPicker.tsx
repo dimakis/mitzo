@@ -75,10 +75,12 @@ function PickerField({
 /** Catalog refreshes and draft confirmation belong to one conversation. */
 export function AccountModelPicker(
   props: Parameters<typeof SessionAccountModelPicker>[0] & {
+    lockAccount?: boolean;
     controlled?: {
       accounts: Account[];
       selection: AccountSelection | null;
       onChange(selection: AccountSelection): void;
+      onAccountChange?(selection: AccountSelection): void;
     };
   },
 ) {
@@ -88,6 +90,7 @@ export function AccountModelPicker(
         {...props.controlled}
         disabled={props.disabled}
         lockAccountModel={props.lockAccountModel}
+        lockAccount={props.lockAccount}
       />
     );
   const sessionKey = `${props.scope === 'symposium' ? 'symposium' : props.scope === 'adviser' ? 'adviser' : (props.sessionId ?? 'new-chat')}:${props.requiredSelection?.accountId ?? ''}:${props.requiredSelection?.model ?? ''}:${JSON.stringify(props.allowedAccountIds?.slice().sort() ?? null)}`;
@@ -742,12 +745,16 @@ function ControlledAccountModelPicker({
   onChange,
   disabled,
   lockAccountModel,
+  lockAccount,
+  onAccountChange,
 }: {
   accounts: Account[];
   selection: AccountSelection | null;
   onChange(selection: AccountSelection): void;
+  onAccountChange?(selection: AccountSelection): void;
   disabled?: boolean;
   lockAccountModel?: boolean;
+  lockAccount?: boolean;
 }) {
   const account = accounts.find((a) => a.id === selection?.accountId);
   const model = account?.models.find((m) => m.id === selection?.model);
@@ -761,7 +768,11 @@ function ControlledAccountModelPicker({
       <select
         aria-label={label}
         className="chat-model-select"
-        disabled={disabled || (label !== 'Thinking' && lockAccountModel)}
+        disabled={
+          disabled ||
+          (label !== 'Thinking' && lockAccountModel) ||
+          (label === 'Account' && lockAccount)
+        }
         value={value}
         onChange={(e) => change(e.target.value)}
       >
@@ -782,9 +793,13 @@ function ControlledAccountModelPicker({
   return (
     <>
       {field('Account', selection?.accountId ?? '', accounts, (id) => {
+        if (!id && selection) {
+          (onAccountChange ?? onChange)({ ...selection, accountId: undefined });
+          return;
+        }
         const chosen = accounts.find((a) => a.id === id);
         if (chosen)
-          onChange({
+          (onAccountChange ?? onChange)({
             accountId: id,
             model: selection?.model ?? chosen.models[0].id,
             reasoningEffort: selection?.reasoningEffort ?? null,

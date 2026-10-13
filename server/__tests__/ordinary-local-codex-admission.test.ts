@@ -680,3 +680,50 @@ describe('owned runtime bootstrap ordering', () => {
     expect(f.effects.dispatch).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('bound Local continuation coordinator', () => {
+  it('authorizes a future snapshot and consumes it without changing earlier receipts', async () => {
+    const store = new EventStore(':memory:');
+    try {
+      const f = fixture(store);
+      await f.coordinator.admit(f.meta, f.request, f.effects);
+      const first = store.getOrdinaryLocalCommandAdmission('command');
+      const next = {
+        ...structuredClone(f.request),
+        clientMsgId: 'next',
+        payload: { text: 'Follow up' },
+      };
+      await expect(f.coordinator.admitContinuation(f.meta, next, f.effects)).resolves.toEqual({
+        dispatched: true,
+      });
+      expect(store.getOrdinaryLocalCommandAdmission('next')?.state).toBe('consumed');
+      expect(store.getOrdinaryLocalCommandAdmission('command')).toEqual(first);
+      f.effects.dispatch.mockClear();
+      await expect(f.coordinator.admitContinuation(f.meta, next, f.effects)).resolves.toEqual({
+        dispatched: false,
+      });
+      expect(f.effects.dispatch).not.toHaveBeenCalled();
+    } finally {
+      store.close();
+    }
+  });
+  it('refuses a continuation without an owner or with revoked authorization before effects', async () => {
+    const store = new EventStore(':memory:');
+    try {
+      const f = fixture(store);
+      await f.coordinator.admit(f.meta, f.request, f.effects);
+      f.effects.dispatch.mockClear();
+      f.effects.prepareWorkspace.mockClear();
+      f.lease.assertCurrent.mockRejectedValueOnce(new Error('revoked'));
+      const next = { ...structuredClone(f.request), clientMsgId: 'next' };
+      await expect(f.coordinator.admitContinuation(f.meta, next, f.effects)).rejects.toThrow(
+        'authority_unavailable',
+      );
+      expect(store.getSendCommand('next')).toBeUndefined();
+      expect(f.effects.dispatch).not.toHaveBeenCalled();
+      expect(f.effects.prepareWorkspace).not.toHaveBeenCalled();
+    } finally {
+      store.close();
+    }
+  });
+});

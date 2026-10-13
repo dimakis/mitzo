@@ -1,4 +1,8 @@
 import { createHash } from 'node:crypto';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { CodexConversationStore } from '../codex-conversation-store.js';
 import { expect, it, vi } from 'vitest';
 import { EventStore } from '../event-store.js';
 import { AccountProfiles } from '../account-profiles.js';
@@ -124,7 +128,7 @@ function fixture() {
     agentProfile,
     repositoryWorkspace: { id: 'workspace', directory: '/offline/workspace', sandbox: false },
   };
-  return { store, input, options, lease };
+  return { store, input, options, lease, runtime, binding, selection, agentProfile };
 }
 it('requires the exact durable uncertain receipt before creating a trusted chat admission', () => {
   const f = fixture();
@@ -215,5 +219,139 @@ it('does not treat a mutated public lease profile as the original login routing 
     expect(() => owner.assertOptions(f.options)).toThrow('Owned local Codex chat unavailable');
   } finally {
     f.store.close();
+  }
+});
+
+it('admits a frozen future selection only through an uncertain child receipt and preserves queued settings', () => {
+  const f = fixture();
+  try {
+    f.store.claimOrdinaryLocalCommandDispatch('command');
+    const owner = OwnedLocalCodexChatAdmission.capture(f.input);
+    owner.assertOptions(f.options);
+    f.store.completeOrdinaryLocalCommand('command');
+    const selected = { ...f.selection, model: 'future-model', thinking: 'low' };
+    const payload = { text: 'Next message', systemPrompt: f.options.systemPrompt };
+    f.store.admitOrdinaryLocalContinuation(
+      {
+        sessionId: 'session',
+        accountBinding: { ...f.binding, model: selected.model },
+        cwd: f.options.session.cwd,
+        repositoryWorkspaceId: 'workspace',
+        selectedModel: selected.model,
+        reasoningEffort: selected.thinking,
+        mode: 'agent',
+        agentProfile: f.agentProfile,
+      },
+      f.runtime,
+      {
+        clientMsgId: 'next',
+        requestFingerprint: 'next-fingerprint',
+        selection: selected,
+        payload,
+      },
+    );
+    const expected = { ...f.input.expected, selection: selected };
+    expect(() => owner.admitContinuation('next', expected)).toThrow();
+    f.store.claimOrdinaryLocalCommandDispatch('next');
+    owner.admitContinuation('next', expected);
+    expect(() =>
+      owner.assertBeforeEnqueue({
+        id: 'next',
+        prompt: 'Changed',
+        model: selected.model,
+        reasoningEffort: selected.thinking,
+      }),
+    ).toThrow();
+    owner.assertBeforeEnqueue({
+      id: 'next',
+      prompt: payload.text,
+      model: selected.model,
+      reasoningEffort: selected.thinking,
+    });
+    expect(owner.canClaimCommand('next')).toBe(false);
+    expect(() => owner.assertBeforeDispatch('next')).toThrow();
+    f.store.completeOrdinaryLocalCommand('next');
+    expect(owner.canClaimCommand('next')).toBe(true);
+    owner.assertModelSelection(selected.model, selected.thinking);
+    owner.assertBeforeDispatch('next');
+    expect(() => owner.assertBeforeDispatch('next')).toThrow();
+    expect(() =>
+      owner.assertBeforeEnqueue({
+        id: 'next',
+        prompt: payload.text,
+        model: selected.model,
+        reasoningEffort: selected.thinking,
+      }),
+    ).toThrow();
+    expect(f.store.getSession('session')?.selectedModel).toBe('fixture-model');
+  } finally {
+    f.store.close();
+  }
+});
+
+it('drops completed command authority without hydrating terminal history or deleting durable receipts', () => {
+  const f = fixture(),
+    root = mkdtempSync(join(tmpdir(), 'mitzo-local-terminal-'));
+  const native = new CodexConversationStore(join(root, 'native.db'));
+  try {
+    native.create('session', f.binding, f.options.session.cwd);
+    f.store.claimOrdinaryLocalCommandDispatch('command');
+    const owner = OwnedLocalCodexChatAdmission.capture({ ...f.input, nativeStore: native });
+    owner.assertOptions(f.options);
+    f.store.completeOrdinaryLocalCommand('command');
+    const selection = { ...f.selection, model: 'future-model' };
+    const payload = {
+      text: 'Completed payload remains in history',
+      systemPrompt: f.options.systemPrompt,
+    };
+    f.store.admitOrdinaryLocalContinuation(
+      {
+        sessionId: 'session',
+        accountBinding: { ...f.binding, model: selection.model },
+        cwd: f.options.session.cwd,
+        repositoryWorkspaceId: 'workspace',
+        mode: 'agent',
+        agentProfile: f.agentProfile,
+        selectedModel: selection.model,
+        reasoningEffort: null,
+      },
+      f.runtime,
+      { clientMsgId: 'terminal', requestFingerprint: 'terminal-fingerprint', selection, payload },
+    );
+    f.store.claimOrdinaryLocalCommandDispatch('terminal');
+    owner.admitContinuation('terminal', { ...f.input.expected, selection });
+    owner.assertBeforeEnqueue({
+      id: 'terminal',
+      prompt: payload.text,
+      model: selection.model,
+      reasoningEffort: null,
+    });
+    native.enqueue('session', f.binding, {
+      id: 'terminal',
+      prompt: payload.text,
+      model: selection.model,
+      reasoningEffort: null,
+    });
+    f.store.completeOrdinaryLocalCommand('terminal');
+    owner.assertModelSelection(selection.model, null);
+    native.claimNext('session', f.binding);
+    owner.assertBeforeDispatch('terminal');
+    native.finish('session', f.binding, 'terminal', 'completed');
+    const history = vi.spyOn(native, 'commands').mockImplementation(() => {
+      throw new Error('Historical payload hydration');
+    });
+    for (let boundary = 0; boundary < 20; boundary++) owner.assertCurrentSync();
+    expect(history).not.toHaveBeenCalled();
+    expect(() => owner.assertModelSelection(selection.model, null)).toThrow();
+    expect(owner.canClaimCommand('terminal')).toBe(false);
+    expect(() => owner.assertBeforeDispatch('terminal')).toThrow();
+    expect(f.store.getOrdinaryLocalCommandAdmission('terminal')?.state).toBe('consumed');
+    expect(f.store.getSendCommand('terminal')?.payload).toEqual(payload);
+    history.mockRestore();
+    expect(native.commands('session', f.binding)[0].prompt).toBe(payload.text);
+  } finally {
+    native.close();
+    f.store.close();
+    rmSync(root, { recursive: true, force: true });
   }
 });

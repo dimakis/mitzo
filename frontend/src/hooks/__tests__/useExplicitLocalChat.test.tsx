@@ -12,7 +12,7 @@ it('keeps OpenShell default blocked after receiving only Local configuration', a
   const { result } = renderHook(() => useExplicitLocalChat('draft', null, null, true));
   await waitFor(() => expect(result.current.inventory).not.toBeNull());
   expect(result.current.intent.execution.location).toBe('openshell');
-  expect(result.current.reason).toBe('OpenShell is unavailable.');
+  expect(result.current.reason).toBe('OpenShell execution choices are not available yet.');
 });
 it('retains saved Local target, profile and stale choices on disabled or failed inventory', async () => {
   vi.mocked(apiFetch).mockResolvedValue(
@@ -169,4 +169,199 @@ it('preserves a builtin launch namespace when switching to Local despite a match
   });
   expect(result.current.reason).toBeDefined();
   expect(result.current.intent.execution.location).toBe('local');
+});
+
+it('hydrates supported continuation and accepts future model settings without rebinding identity', async () => {
+  vi.mocked(apiFetch).mockClear();
+  const data = localInventoryFixture();
+  vi.mocked(apiFetch).mockImplementation(
+    async (url) =>
+      new Response(
+        JSON.stringify(
+          String(url).includes('/meta')
+            ? {
+                runtimeBinding: {
+                  version: 2,
+                  account: data.accounts[0].account,
+                  harness: { implementation: 'codex' },
+                  execution: { location: 'local', targetId: 'mac', targetRevision: 'target-r1' },
+                },
+                runtimeCommandScope: 'conversation',
+                repositoryWorkspaceId: '11111111-1111-4111-8111-111111111111',
+                mode: 'agent',
+                agentProfile: data.agentProfiles[0],
+                modelSelection: { model: 'luna-fixture', reasoningEffort: 'low' },
+              }
+            : data,
+        ),
+      ),
+  );
+  const { result } = renderHook(() =>
+    useExplicitLocalChat('draft', null, 'original-session', true),
+  );
+  await waitFor(() => expect(result.current.continuation).toBe(true));
+  expect(result.current.intent.account).toEqual({
+    accountId: 'personal',
+    model: 'luna-fixture',
+    reasoningEffort: 'low',
+  });
+  expect(result.current.repositoryWorkspaceId).toBe('11111111-1111-4111-8111-111111111111');
+  act(() =>
+    result.current.update({
+      ...result.current.intent,
+      account: { ...result.current.intent.account!, reasoningEffort: 'high' },
+    }),
+  );
+  expect(result.current.intent.account?.reasoningEffort).toBe('high');
+  act(() =>
+    result.current.update({
+      ...result.current.intent,
+      execution: { location: 'openshell', targetId: 'other' },
+    }),
+  );
+  expect(result.current.intent.execution).toEqual({ location: 'local', targetId: 'mac' });
+  expect(apiFetch).toHaveBeenCalledTimes(2);
+});
+
+it('keeps OpenShell as default and resolves its sole trusted target without extra setup', async () => {
+  const { ordinaryRuntimeInventoryFixture } =
+    await import('../../test-utils/ordinary-runtime-inventory-fixture');
+  const inventory = ordinaryRuntimeInventoryFixture();
+  vi.mocked(apiFetch).mockResolvedValue(new Response(JSON.stringify(inventory)));
+  const { result } = renderHook(() => useExplicitLocalChat('new', null, null, true));
+  await waitFor(() => expect(result.current.inventory).not.toBeNull());
+  expect(result.current.intent.execution).toEqual({ location: 'openshell', targetId: 'sandbox' });
+  act(() =>
+    result.current.update({
+      ...result.current.intent,
+      account: { accountId: 'personal', model: 'luna-fixture', reasoningEffort: 'low' },
+      agentProfile: { profileId: 'agent', revision: 1 },
+    }),
+  );
+  expect(result.current.intent.execution).toEqual({ location: 'openshell', targetId: 'sandbox' });
+  expect(result.current.reason).toBeUndefined();
+});
+
+it('retains a saved OpenShell route visibly blocked when runtime enrollment is disabled', async () => {
+  vi.mocked(apiFetch).mockResolvedValue(
+    new Response(JSON.stringify({ code: 'entry_disabled' }), { status: 503 }),
+  );
+  const saved = {
+    ...createChatRuntimeSelection(),
+    execution: { location: 'openshell' as const, targetId: 'original-sandbox' },
+    account: { accountId: 'personal', model: 'luna-fixture' },
+    capabilityRevision: 'original-caps',
+  };
+  const { result } = renderHook(() => useExplicitLocalChat('retained-sandbox', saved, null, true));
+  await waitFor(() => expect(result.current.inventory).toBeNull());
+  expect(result.current.visible).toBe(true);
+  expect(result.current.intent).toEqual(saved);
+  expect(result.current.reason).toBeDefined();
+});
+
+it('retains a bound future selection but blocks after metadata refresh fails and requires review of capability drift', async () => {
+  const data = localInventoryFixture();
+  let failed = false;
+  vi.mocked(apiFetch).mockImplementation(async (url) => {
+    if (!String(url).includes('/meta')) return new Response(JSON.stringify(data));
+    if (failed) return new Response('{}', { status: 503 });
+    return new Response(
+      JSON.stringify({
+        runtimeBinding: {
+          version: 2,
+          account: data.accounts[0].account,
+          harness: { implementation: 'codex' },
+          execution: { location: 'local', targetId: 'mac', targetRevision: 'target-r1' },
+        },
+        runtimeCommandScope: 'conversation',
+        mode: 'agent',
+        agentProfile: data.agentProfiles[0],
+        modelSelection: { model: 'luna-fixture', reasoningEffort: 'low' },
+      }),
+    );
+  });
+  const { result } = renderHook(() => useExplicitLocalChat('draft', null, 'bound-session', true));
+  await waitFor(() => expect(result.current.reason).toBeUndefined());
+  expect(result.current.intent.capabilityRevision).toBe('caps-r1');
+  failed = true;
+  data.capabilityRevision = 'caps-r2';
+  act(() => result.current.refresh());
+  await waitFor(() => expect(result.current.metadataUnavailable).toBe(true));
+  expect(result.current.metadataPending).toBe(true);
+  expect(result.current.reason).toBe('Conversation settings are unavailable. Retry to continue.');
+  expect(result.current.intent.capabilityRevision).toBe('caps-r1');
+  failed = false;
+  act(() => result.current.refresh());
+  await waitFor(() => expect(result.current.metadataPending).toBe(false));
+  expect(result.current.intent.capabilityRevision).toBe('caps-r1');
+  expect(result.current.reason).toBe(
+    'Execution choices changed. Refresh and review before sending.',
+  );
+  act(() => result.current.review());
+  expect(result.current.intent.capabilityRevision).toBe('caps-r2');
+  expect(result.current.reason).toBeUndefined();
+});
+
+it('retains copied account routing identity when the same ID changes billing until explicit Account selection', async () => {
+  const data = localInventoryFixture();
+  const original = { ...data.accounts[0].account };
+  const saved = {
+    ...createChatRuntimeSelection(),
+    account: { accountId: 'personal', model: 'luna-fixture', reasoningEffort: 'low' },
+    accountReference: original,
+    agentProfile: { profileId: 'agent', revision: 1 },
+    execution: { location: 'openshell' as const, targetId: null },
+  };
+  const changed = {
+    ...data,
+    accounts: [
+      {
+        ...data.accounts[0],
+        account: {
+          accountId: 'personal',
+          provider: 'openai' as const,
+          profileRevision: 'api-routing-r2',
+        },
+      },
+    ],
+    targets: [{ ...data.targets[0], location: 'openshell' as const, targetId: 'sandbox' }],
+    routes: [
+      {
+        ...data.routes[0],
+        account: {
+          accountId: 'personal',
+          provider: 'openai' as const,
+          profileRevision: 'api-routing-r2',
+        },
+        targetId: 'sandbox',
+      },
+    ],
+    locations: [{ location: 'openshell' as const, status: 'configured' as const }],
+  };
+  vi.mocked(apiFetch).mockResolvedValue(new Response(JSON.stringify(changed)));
+  const { result } = renderHook(() => useExplicitLocalChat('elsewhere', saved, null, true));
+  await waitFor(() => expect(result.current.intent.execution.targetId).toBe('sandbox'));
+  expect(result.current.intent.accountReference).toEqual(original);
+  expect(result.current.reason).toBe(
+    'The selected account provider changed, which may change authentication or billing. Choose the account again before sending.',
+  );
+  act(() =>
+    result.current.update({
+      ...result.current.intent,
+      account: { ...result.current.intent.account!, reasoningEffort: 'high' },
+    }),
+  );
+  expect(result.current.intent.accountReference).toEqual(original);
+  expect(result.current.reason).toBeDefined();
+  act(() => result.current.review());
+  expect(result.current.intent.accountReference).toEqual(original);
+  expect(result.current.reason).toBeDefined();
+  act(() =>
+    result.current.update(
+      { ...result.current.intent, account: { ...result.current.intent.account! } },
+      true,
+    ),
+  );
+  expect(result.current.intent.accountReference).toEqual(changed.accounts[0].account);
+  expect(result.current.reason).toBeUndefined();
 });

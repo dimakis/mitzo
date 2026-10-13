@@ -2,6 +2,8 @@ import { isDeepStrictEqual } from 'node:util';
 import { z } from 'zod';
 import type { AccountBinding, AgentLibraryVersion, AgentContextSnapshot } from '@mitzo/protocol';
 import type { EventStore } from './event-store.js';
+import type { CodexConversationStore } from './codex-conversation-store.js';
+import { HostCodexCustodySchema, type HostCodexCustody } from './host-codex-custody.js';
 import type { FrozenHostCodexBootstrapLease } from './frozen-host-codex-bootstrap.js';
 import type { OwnedCodexLifecycleBridge } from './owned-codex-lifecycle-bridge.js';
 import type { OrdinaryLocalCodexAdmissionExpectation } from './ordinary-local-codex-admission.js';
@@ -43,6 +45,9 @@ interface Owner {
   expected: Readonly<OrdinaryLocalCodexAdmissionExpectation>;
   lease: FrozenHostCodexBootstrapLease;
   bridge: OwnedCodexLifecycleBridge;
+  authSessionId?: string;
+  custody?: HostCodexCustody;
+  nativeStore?: CodexConversationStore;
 }
 /** A server-internal first-command capability built from the existing durable
  * uncertain receipt and actual bootstrap lease. Request JSON cannot forge a class
@@ -51,6 +56,10 @@ interface Owner {
  * payloads refuse.
  */
 export class OwnedLocalCodexChatAdmission {
+  readonly #continuations = new Map<string, OwnedLocalCodexChatAdmission>();
+  #continuation = false;
+  #resume = false;
+  #closed = false;
   #enqueued = false;
   #dispatched = false;
   #opened = false;
@@ -70,6 +79,65 @@ export class OwnedLocalCodexChatAdmission {
       const admission = new OwnedLocalCodexChatAdmission(owner);
       admission.assertReceipt(true);
       owner.lease.assertCurrentSync();
+      return admission;
+    } catch {
+      throw unavailable();
+    }
+  }
+  static captureResume(
+    owner: Owner & { nativeStore: CodexConversationStore; custody: HostCodexCustody },
+  ): OwnedLocalCodexChatAdmission {
+    try {
+      const custody = HostCodexCustodySchema.parse(owner.custody);
+      const session = owner.eventStore.getSession(owner.sessionId);
+      if (
+        !owner.authSessionId ||
+        custody.authSessionId !== owner.authSessionId ||
+        !session?.accountBinding ||
+        !isDeepStrictEqual(session.accountBinding, owner.lease.binding) ||
+        !isDeepStrictEqual(
+          owner.nativeStore.readHostCustody(owner.sessionId, owner.lease.binding),
+          custody,
+        ) ||
+        !owner.nativeStore.read(owner.sessionId, owner.lease.binding).threadId
+      )
+        throw unavailable();
+      const admission = new OwnedLocalCodexChatAdmission(owner);
+      admission.#resume = true;
+      admission.#continuation = true;
+      admission.assertReceipt(true);
+      owner.lease.assertCurrentSync();
+      for (const queued of owner.nativeStore
+        .commands(owner.sessionId, owner.lease.binding)
+        .filter((command) => command.status === 'queued')) {
+        const receipt = owner.eventStore.getOrdinaryLocalCommandAdmission(queued.id);
+        if (!receipt || receipt.state !== 'consumed') throw unavailable();
+        const child = new OwnedLocalCodexChatAdmission({
+          ...owner,
+          commandId: queued.id,
+          expected: { ...structuredClone(owner.expected), selection: receipt.selection },
+        });
+        child.#continuation = true;
+        child.assertReceipt();
+        if (
+          child.#payload.systemPrompt !== admission.#payload.systemPrompt ||
+          queued.prompt !== child.#payload.text ||
+          (queued.intent ?? queued.prompt) !== (child.#payload.intent ?? child.#payload.text) ||
+          !isDeepStrictEqual(queued.images ?? [], child.#payload.images ?? []) ||
+          queued.model !== child.#expected.selection.model ||
+          (queued.reasoningEffort ?? null) !== child.#expected.selection.thinking ||
+          !isDeepStrictEqual(receipt.selection.agent, owner.expected.selection.agent) ||
+          !isDeepStrictEqual(receipt.selection.context, owner.expected.selection.context) ||
+          !isDeepStrictEqual(receipt.selection.permission, owner.expected.selection.permission)
+        )
+          throw unavailable();
+        owner.lease.assertModelSelectionCurrentSync?.(
+          child.#expected.selection.model,
+          child.#expected.selection.thinking,
+        );
+        child.#enqueued = true;
+        admission.#continuations.set(queued.id, child);
+      }
       return admission;
     } catch {
       throw unavailable();
@@ -96,8 +164,9 @@ export class OwnedLocalCodexChatAdmission {
       !isDeepStrictEqual(session.agentProfile ?? undefined, expected.agentProfile) ||
       !isDeepStrictEqual(session.agentContext ?? undefined, expected.agentContext) ||
       session.mode !== expected.selection.permission.mode ||
-      session.selectedModel !== expected.selection.model ||
-      (session.reasoningEffort ?? null) !== expected.selection.thinking ||
+      (!this.#continuation &&
+        (session.selectedModel !== expected.selection.model ||
+          (session.reasoningEffort ?? null) !== expected.selection.thinking)) ||
       !this.sameAccount(this.#binding)
     )
       throw unavailable();
@@ -108,8 +177,51 @@ export class OwnedLocalCodexChatAdmission {
       binding.accountId === account.accountId &&
       binding.provider === account.provider &&
       binding.profileRevision === account.profileRevision &&
-      binding.model === this.#expected.selection.model
+      (this.#continuation || binding.model === this.#expected.selection.model)
     );
+  }
+  /** Register only an already claimed durable continuation. Native FIFO admission
+   * remains unavailable until the owning coordinator supplies this capability.
+   * A future command may vary inference settings, never runtime or context.
+   */
+  admitContinuation(
+    commandId: string,
+    expectedInput: Readonly<OrdinaryLocalCodexAdmissionExpectation>,
+  ): void {
+    try {
+      this.assertCurrentSync();
+      if (
+        !this.#opened ||
+        (this.#continuation && !this.#resume) ||
+        this.#continuations.has(commandId) ||
+        commandId === this.owner.commandId ||
+        this.owner.eventStore.getOrdinaryLocalCommandAdmission(this.owner.commandId)?.state !==
+          'consumed'
+      )
+        throw unavailable();
+      const expected = structuredClone(expectedInput);
+      const original = this.#expected;
+      if (
+        !isDeepStrictEqual(expected.binding, original.binding) ||
+        !isDeepStrictEqual(expected.workspace, original.workspace) ||
+        !isDeepStrictEqual(expected.agentProfile, original.agentProfile) ||
+        !isDeepStrictEqual(expected.agentContext, original.agentContext) ||
+        !isDeepStrictEqual(expected.selection.agent, original.selection.agent) ||
+        !isDeepStrictEqual(expected.selection.context, original.selection.context) ||
+        !isDeepStrictEqual(expected.selection.permission, original.selection.permission) ||
+        expected.hostId !== original.hostId ||
+        expected.runtimeContractRevision !== original.runtimeContractRevision
+      )
+        throw unavailable();
+      const child = new OwnedLocalCodexChatAdmission({ ...this.owner, commandId, expected });
+      if (child.#payload.systemPrompt !== this.#payload.systemPrompt) throw unavailable();
+      child.#continuation = true;
+      child.#session = this.#session;
+      child.assertReceipt(true);
+      this.#continuations.set(commandId, child);
+    } catch {
+      throw unavailable();
+    }
   }
   assertConsumerOwner(eventStore: EventStore, sessionId: string, commandId: string): void {
     if (
@@ -141,13 +253,13 @@ export class OwnedLocalCodexChatAdmission {
       ];
       if (!isDeepStrictEqual(routing(options.profile), routing(this.#profile))) throw unavailable();
       if (
-        options.resume ||
+        !!options.resume !== this.#resume ||
         options.reattachOnly ||
         options.conversationId !== this.owner.sessionId ||
         options.messageId !== this.owner.commandId ||
         !this.sameAccount(options.binding) ||
         options.profile.accountId !== expected.binding.account.accountId ||
-        options.profile.model !== expected.selection.model ||
+        (!this.#resume && options.profile.model !== expected.selection.model) ||
         options.session.cwd !== expected.workspace.cwd ||
         options.session.mode !== expected.selection.permission.mode ||
         (options.model ?? options.binding.model) !== expected.selection.model ||
@@ -175,6 +287,18 @@ export class OwnedLocalCodexChatAdmission {
   }
   assertCurrentSync(): void {
     try {
+      if (this.#closed) throw unavailable();
+      if (this.owner.nativeStore) {
+        for (const commandId of this.#continuations.keys()) {
+          const status = this.owner.nativeStore.commandStatus(
+            this.owner.sessionId,
+            this.#binding,
+            commandId,
+          );
+          if (status && ['completed', 'interrupted', 'failed', 'cancelled'].includes(status))
+            this.#continuations.delete(commandId);
+        }
+      }
       this.assertReceipt();
       this.owner.lease.assertCurrentSync();
       if (
@@ -204,6 +328,13 @@ export class OwnedLocalCodexChatAdmission {
   }
   assertBeforeEnqueue(input: CodexCommandInput): void {
     this.assertCurrentSync();
+    const continuation = this.#continuations.get(input.id);
+    if (continuation) {
+      this.assertCurrentSync();
+      continuation.assertBeforeEnqueue(input);
+      return;
+    }
+    this.assertCurrentSync();
     this.assertReceipt(true);
     if (
       this.#enqueued ||
@@ -216,24 +347,78 @@ export class OwnedLocalCodexChatAdmission {
       input.allowedTools !== undefined
     )
       throw unavailable();
+    this.owner.lease.assertModelSelectionCurrentSync?.(
+      this.#expected.selection.model,
+      this.#expected.selection.thinking,
+    );
     this.#enqueued = true;
+  }
+  canClaimCommand(commandId: string): boolean {
+    this.assertCurrentSync();
+    if (commandId === this.owner.commandId) return true;
+    const continuation = this.#continuations.get(commandId);
+    if (!continuation) return false;
+    continuation.assertCurrentSync();
+    return this.owner.eventStore.getOrdinaryLocalCommandAdmission(commandId)?.state === 'consumed';
   }
   assertBeforeDispatch(commandId: string): void {
     this.assertCurrentSync();
-    this.assertReceipt(true);
+    const continuation = this.#continuations.get(commandId);
+    if (continuation) {
+      this.assertCurrentSync();
+      continuation.assertBeforeDispatch(commandId);
+      return;
+    }
+    this.assertCurrentSync();
+    this.assertReceipt(!this.#continuation);
+    if (
+      this.#continuation &&
+      !this.#resume &&
+      this.owner.eventStore.getOrdinaryLocalCommandAdmission(commandId)?.state !== 'consumed'
+    )
+      throw unavailable();
     if (!this.#enqueued || this.#dispatched || commandId !== this.owner.commandId)
       throw unavailable();
+    this.owner.lease.assertModelSelectionCurrentSync?.(
+      this.#expected.selection.model,
+      this.#expected.selection.thinking,
+    );
     this.#dispatched = true;
   }
   assertModelSelection(model: string, thinking?: string | null): void {
     this.assertCurrentSync();
+    if (
+      (!this.#continuation || this.#resume) &&
+      [...this.#continuations.values()].some(
+        (continuation) =>
+          continuation.#enqueued &&
+          continuation.#expected.selection.model === model &&
+          continuation.#expected.selection.thinking === (thinking ?? null),
+      )
+    )
+      return;
     if (
       model !== this.#expected.selection.model ||
       (thinking ?? null) !== this.#expected.selection.thinking
     )
       throw unavailable();
   }
+  persistCustody(store: CodexConversationStore): void {
+    this.assertCurrentSync();
+    if (!this.owner.lease.custodySnapshot) return; // Offline compatibility fixtures.
+    if (!this.owner.authSessionId || !this.#expected.bootstrapId) throw unavailable();
+    store.setHostCustody(this.owner.sessionId, this.#binding, {
+      version: 1,
+      authSessionId: this.owner.authSessionId,
+      bootstrapId: this.owner.custody?.bootstrapId ?? this.#expected.bootstrapId,
+      ...this.owner.lease.custodySnapshot(),
+    });
+    this.assertCurrentSync();
+  }
   close(): void {
+    if (this.#closed) return;
+    this.#closed = true;
+    this.#continuations.clear();
     this.owner.lease.close();
   }
 }

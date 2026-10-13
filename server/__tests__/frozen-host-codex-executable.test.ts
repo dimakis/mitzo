@@ -105,3 +105,26 @@ it('refuses scripts whose interpreter or imported package would evade byte ident
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+it('reopens retained native bytes only from exact physical custody and refuses identical-byte replacement', () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'frozen-codex-reopen-')));
+  try {
+    const home = join(root, 'home'),
+      source = join(root, 'codex');
+    mkdirSync(home, { mode: 0o700 });
+    const bytes = Buffer.from([0xcf, 0xfa, 0xed, 0xfe, 1, 2, 3]);
+    writeFileSync(source, bytes, { mode: 0o755 });
+    const frozen = FrozenHostCodexExecutable.capture(source, home);
+    const snapshot = frozen.custodySnapshot();
+    const retained = FrozenHostCodexExecutable.reopen(snapshot);
+    expect(retained.path).toBe(frozen.path);
+    expect(retained.sha256).toBe(frozen.sha256);
+    renameSync(frozen.path, join(home, 'old-runtime'));
+    writeFileSync(frozen.path, bytes, { mode: 0o500 });
+    expect(() => FrozenHostCodexExecutable.reopen(snapshot)).toThrow(
+      'Host Codex runtime unavailable',
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

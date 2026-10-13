@@ -17,6 +17,8 @@ import { readBoundedFile } from './bounded-file-read.js';
 import { codexPrivateDirectory, protectCodexProfileRoots } from './codex-private-path.js';
 import { verifyCodexAccount, type CodexAccountProfile } from './codex-account.js';
 
+import { HostCodexLoginCustodySchema, type HostCodexLoginCustody } from './host-codex-custody.js';
+
 const unavailable = () => new Error('Host Codex login unavailable');
 const Auth = z.object({
   auth_mode: z.literal('chatgpt').optional(),
@@ -179,6 +181,58 @@ export class FrozenHostCodexLogin {
     } catch {
       throw unavailable();
     }
+  }
+  /** Reopen only the original physically retained home. The native store owns
+   * this snapshot; a path or bootstrap ID alone is never adoption authority.
+   */
+  static reopen(
+    profile: CodexAccountProfile,
+    raw: unknown,
+    signal?: AbortSignal,
+  ): FrozenHostCodexLogin {
+    try {
+      signal?.throwIfAborted();
+      const snapshot = HostCodexLoginCustodySchema.parse(raw);
+      if (
+        profile.credentialRef !== snapshot.sourcePath ||
+        profile.nativeAuth ||
+        profile.sandboxProviderType ||
+        profile.sandboxProviderId ||
+        profile.sandboxGrantId
+      )
+        throw unavailable();
+      sameIdentity(directory(snapshot.privateHome), snapshot.homeRoot);
+      sameIdentity(directory(snapshot.sourcePath), snapshot.sourceRoot);
+      const source = readAuth(snapshot.sourcePath).identity;
+      const home = readAuth(snapshot.privateHome).identity;
+      sameIdentity(source, snapshot.sourceAuth);
+      sameIdentity(home, snapshot.homeAuth);
+      if (source.sha256 !== snapshot.sourceAuth.sha256 || home.sha256 !== snapshot.homeAuth.sha256)
+        throw unavailable();
+      const login = new FrozenHostCodexLogin(
+        profile,
+        snapshot.privateHome,
+        snapshot.sourceRoot,
+        snapshot.sourceAuth,
+        signal,
+      );
+      login.assertFilesCurrent();
+      protectCodexProfileRoots([snapshot.privateHome]);
+      return login;
+    } catch {
+      throw unavailable();
+    }
+  }
+  custodySnapshot(): HostCodexLoginCustody {
+    this.assertFilesCurrent();
+    return HostCodexLoginCustodySchema.parse({
+      privateHome: this.privateHome,
+      sourcePath: this.#profile.credentialRef,
+      sourceRoot: this.#sourceRoot,
+      sourceAuth: this.#sourceAuth,
+      homeRoot: this.#homeRoot,
+      homeAuth: this.#homeAuth,
+    });
   }
   private assertFilesCurrent(): void {
     if (this.#closed) throw unavailable();
