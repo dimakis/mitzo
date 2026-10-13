@@ -285,11 +285,13 @@ keyboard focus and 44px controls without a backend or model call.
 
 ## Artefact sharing links
 
-Markdown Telos artefact links reuse `FileShareLink` and the file-action handler
-for busy, cancellation, retry and inline error feedback. They use the normal
-prose link style with an inline `--control-height` target and preserve keyboard
-activation. Local document links use the existing Files viewer and session scope.
-Native sharing presents the platform sheet with a named local file; browser
-sharing retains the original download fallback. The offline artefact fixture
-checks keyboard sharing, exact revision/bytes/filename, no external window,
-mobile/desktop geometry and dark/light Teal/Georgia appearance.
+Markdown Telos artefact links reuse `FileShareLink` and a compact file-options
+surface. Ordinary file links retain their primary in-app opening action and one
+quiet options trigger; previews group Open, Download and Share behind that same
+trigger. Telos links open their available actions directly without a second row
+of icons. Choices appear only on request using `HomeDialog`, its focus/scroll
+ownership, shared control-height targets and motion-presence helper. The action
+state stays with the trigger so closing/reopening cannot duplicate a pending
+operation. On iOS, the system Share sheet also offers Save to Files. The offline
+artefact fixture checks compact closed controls, revealed choices, Escape/focus
+restoration, exact revision and original bytes across mobile/desktop appearances.

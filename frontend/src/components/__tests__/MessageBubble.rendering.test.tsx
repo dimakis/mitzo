@@ -3,6 +3,9 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
+import { beforeEach } from 'vitest';
+import { installDialogStub } from './dialog-stub';
+beforeEach(installDialogStub);
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { useLocation } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
@@ -41,6 +44,8 @@ describe('TextBubble file link rendering', () => {
     const link = screen.getByRole('link', { name: 'Telos artifact' });
     expect(link.getAttribute('target')).toBeNull();
     fireEvent.click(link);
+    expect(screen.getByRole('dialog', { name: 'File options' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Share file' }));
     expect(shareFile).toHaveBeenCalledWith(href);
     cleanup();
   });
@@ -56,6 +61,8 @@ describe('TextBubble file link rendering', () => {
     const link = screen.getByRole('link', { name: href });
     expect(link.getAttribute('target')).toBeNull();
     fireEvent.click(link);
+    expect(screen.getByRole('dialog', { name: 'File options' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Share file' }));
     expect(shareFile).toHaveBeenCalledExactlyOnceWith(href);
     cleanup();
   });

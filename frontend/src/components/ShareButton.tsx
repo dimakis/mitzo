@@ -2,38 +2,27 @@ import { UiIcon } from './UiIcon';
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { shareFile, downloadFile } from '../lib/share-file';
+import { HomeDialog } from './HomeDialog';
+import { useMotionPresence } from '../hooks/useMotionPresence';
 
 interface ShareButtonProps {
   filePath: string;
   sessionId?: string;
   className?: string;
+  onOpen?: () => void;
 }
 
-export function ShareButton(props: ShareButtonProps) {
-  return (
-    <>
-      {!Capacitor.isNativePlatform() && <FileActionButton {...props} action="download" />}
-      <FileActionButton {...props} action="share" />
-    </>
-  );
-}
-
-/** Reuse the same busy/error/cancellation handling for artefact links in Markdown. */
-export function FileShareLink({
-  children,
-  ...props
-}: ShareButtonProps & { children: React.ReactNode }) {
-  return <FileActionButton {...props} action="share" linkLabel={children} />;
-}
-
-function FileActionButton({
+/** One quiet trigger keeps the available file actions out of the reading surface. */
+export function ShareButton({
   filePath,
   sessionId,
   className,
-  action,
+  onOpen,
   linkLabel,
-}: ShareButtonProps & { action: 'share' | 'download'; linkLabel?: React.ReactNode }) {
-  const operation = action === 'download' ? downloadFile : shareFile;
+}: ShareButtonProps & { linkLabel?: React.ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const [action, setAction] = useState<'share' | 'download'>('share');
+  const { ref: motionRef, present } = useMotionPresence(open, 'popover', false);
   const [state, setState] = useState<'idle' | 'busy' | 'done' | 'error'>('idle');
   const busyRef = useRef(false);
   const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -46,6 +35,7 @@ function FileActionButton({
     busyRef.current = false;
     setState('idle');
     setError('');
+    setOpen(false);
     return () => {
       mountedRef.current = false;
       generationRef.current += 1;
@@ -53,12 +43,14 @@ function FileActionButton({
     };
   }, [filePath, sessionId]);
 
-  const handleShare = useCallback(
-    async (e: React.MouseEvent) => {
+  const handleAction = useCallback(
+    async (e: React.MouseEvent, action: 'share' | 'download') => {
       e.preventDefault();
       e.stopPropagation();
       if (busyRef.current) return;
 
+      const operation = action === 'download' ? downloadFile : shareFile;
+      setAction(action);
       const generation = generationRef.current;
       clearTimeout(timerRef.current);
       setError('');
@@ -77,66 +69,129 @@ function FileActionButton({
         if (generation === generationRef.current) busyRef.current = false;
       }
     },
-    [filePath, sessionId, operation, action],
+    [filePath, sessionId],
   );
 
-  const label =
-    state === 'busy'
-      ? action === 'download'
-        ? 'Downloading...'
-        : 'Sharing...'
-      : state === 'done'
-        ? action === 'download'
-          ? 'Downloaded'
-          : 'Shared'
-        : state === 'error'
-          ? 'Failed'
-          : action === 'download'
-            ? 'Download file'
-            : 'Share file';
-
-  const icon =
-    state === 'busy'
-      ? 'loading'
-      : state === 'done'
-        ? 'check'
-        : state === 'error'
-          ? 'error'
-          : action === 'download'
-            ? 'download'
-            : 'share';
+  const trigger = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setOpen(true);
+  };
+  const button = (choice: 'share' | 'download') => {
+    const activeState = choice === action ? state : 'idle';
+    const label =
+      activeState === 'busy'
+        ? choice === 'download'
+          ? 'Downloading...'
+          : 'Sharing...'
+        : activeState === 'done'
+          ? choice === 'download'
+            ? 'Downloaded'
+            : 'Shared'
+          : activeState === 'error'
+            ? 'Failed'
+            : choice === 'download'
+              ? 'Download file'
+              : 'Share file';
+    const icon =
+      activeState === 'busy'
+        ? 'loading'
+        : activeState === 'done'
+          ? 'check'
+          : activeState === 'error'
+            ? 'error'
+            : choice;
+    return (
+      <button
+        type="button"
+        className="home-secondary file-action-choice"
+        aria-label={label}
+        aria-busy={activeState === 'busy'}
+        disabled={state === 'busy'}
+        onClick={(e) => void handleAction(e, choice)}
+      >
+        <UiIcon name={icon} size={16} />
+        {activeState === 'idle' ? (choice === 'download' ? 'Download' : 'Share') : label}
+      </button>
+    );
+  };
 
   return (
     <>
       {linkLabel !== undefined ? (
         <a
           href={filePath}
-          className={['artifact-share-link', className].filter(Boolean).join(' ')}
-          onClick={handleShare}
+          className="artifact-share-link"
+          onClick={trigger}
+          aria-haspopup="dialog"
           aria-busy={state === 'busy'}
-          aria-disabled={state === 'busy'}
-          title={error || label}
+          aria-expanded={open}
+          title="File options"
         >
           {linkLabel}
         </a>
       ) : (
         <button
           type="button"
+          className={`share-btn file-options-trigger ${className ?? ''}`.trim()}
+          aria-label="File options"
+          title={error || 'File options'}
+          aria-haspopup="dialog"
+          aria-expanded={open}
           aria-busy={state === 'busy'}
-          className={`share-btn ${className ?? ''} ${state !== 'idle' ? `share-btn--${state}` : ''}`.trim()}
-          aria-label={label}
-          title={error || label}
-          onClick={handleShare}
-          disabled={state === 'busy'}
+          onClick={trigger}
         >
-          <UiIcon name={icon} size={16} />
+          <UiIcon
+            name={state === 'busy' ? 'loading' : state === 'error' ? 'error' : 'more'}
+            size={16}
+          />
         </button>
       )}
-      {error && (
-        <span className="share-error" role="alert">
-          {error}
-        </span>
+      {present && (
+        <HomeDialog
+          title="File options"
+          className="file-actions-dialog"
+          onClose={() => setOpen(false)}
+        >
+          <div
+            ref={motionRef}
+            className="file-action-choices"
+            inert={!open}
+            aria-hidden={!open || undefined}
+          >
+            {onOpen && (
+              <button
+                type="button"
+                className="home-secondary file-action-choice"
+                disabled={state === 'busy'}
+                onClick={() => {
+                  setOpen(false);
+                  onOpen();
+                }}
+              >
+                <UiIcon name="file" size={16} />
+                Open
+              </button>
+            )}
+            {!Capacitor.isNativePlatform() && button('download')}
+            {button('share')}
+            {Capacitor.isNativePlatform() && <p>Share also offers Save to Files.</p>}
+            {error && (
+              <span className="share-error" role="alert">
+                {error}
+              </span>
+            )}
+          </div>
+        </HomeDialog>
       )}
     </>
   );
+}
+
+/** Stored Telos links expose the same compact options without opening another app. */
+export function FileShareLink({
+  children,
+  ...props
+}: ShareButtonProps & { children: React.ReactNode }) {
+  return <ShareButton {...props} linkLabel={children} />;
 }

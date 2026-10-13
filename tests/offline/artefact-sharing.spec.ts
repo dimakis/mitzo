@@ -102,8 +102,22 @@ for (const appearance of ['dark', 'light'] as const) {
     await expect(link).toBeVisible();
     await expect(link).not.toHaveAttribute('target', '_blank');
     expect((await link.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    await expect(page.getByRole('button', { name: 'Share file' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Download file' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'File options', exact: true })).toHaveCount(2);
     await link.focus();
     await page.keyboard.press('Enter');
+    const options = page.getByRole('dialog', { name: 'File options' });
+    await expect(options).toBeVisible();
+    expect((await options.boundingBox())!.width).toBeLessThanOrEqual(page.viewportSize()!.width);
+    for (const name of ['Download file', 'Share file', 'Close']) {
+      expect(
+        (await options.getByRole('button', { name }).boundingBox())!.height,
+      ).toBeGreaterThanOrEqual(44);
+    }
+    await expect(options.getByRole('button', { name: 'Download file' })).toBeVisible();
+    await page.screenshot({ path: testInfo.outputPath('file-options.png') });
+    await options.getByRole('button', { name: 'Share file' }).click();
     await expect
       .poll(() => page.evaluate(() => (window as unknown as { shared: unknown }).shared))
       .toEqual({
@@ -112,10 +126,27 @@ for (const appearance of ['dark', 'light'] as const) {
         bytes: Array.from(bytes),
       });
     expect(requests).toEqual(['?revision=2']);
+    await options.getByRole('button', { name: 'Close' }).click();
+    await expect(options).not.toBeVisible();
+    await expect(link).toBeFocused();
     const bareLink = page.getByRole('link', { name: `${artifact}?revision=1`, exact: true });
     await expect(bareLink).not.toHaveAttribute('target', '_blank');
     await bareLink.click();
+    await options.getByRole('button', { name: 'Share file' }).click();
     await expect.poll(() => requests).toEqual(['?revision=2', '?revision=1']);
+    await options.getByRole('button', { name: 'Close' }).click();
+    await expect(options).not.toBeVisible();
+    const pdfOptions = page
+      .getByRole('link', { name: 'PDF report', exact: true })
+      .locator('..')
+      .getByRole('button', { name: 'File options', exact: true });
+    await pdfOptions.click();
+    await expect(options.getByRole('button', { name: 'Open', exact: true })).toBeVisible();
+    await expect(options.getByRole('button', { name: 'Download file' })).toBeVisible();
+    await expect(options.getByRole('button', { name: 'Share file' })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(options).not.toBeVisible();
+    await expect(pdfOptions).toBeFocused();
     expect(context.pages()).toHaveLength(1);
     await expect(page).toHaveURL(/\/chat\/sharing$/);
     await expect(page.getByRole('link', { name: 'PDF report', exact: true })).not.toHaveAttribute(

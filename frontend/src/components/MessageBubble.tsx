@@ -218,6 +218,15 @@ export function TextBubble({
                 filePath={filePath}
                 sessionId={artifactSessionId}
                 className="file-path-share"
+                onOpen={() =>
+                  navigationRef.current.navigate(
+                    artifactViewerUrl(
+                      filePath,
+                      navigationRef.current.currentPath,
+                      artifactSessionId,
+                    ),
+                  )
+                }
               />
             </span>
           );

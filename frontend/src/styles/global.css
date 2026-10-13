@@ -2004,10 +2004,45 @@ textarea:focus {
   overflow-wrap: anywhere;
 }
 
+/* File choices only occupy space while explicitly opened. */
+.share-btn.file-options-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--control-height);
+  min-height: var(--control-height);
+  padding: var(--space-1);
+  border-radius: var(--radius-control);
+  opacity: 0.7;
+}
+.file-options-trigger:focus-visible {
+  opacity: 1;
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+.file-actions-dialog {
+  width: min(calc(var(--control-height) * 7), calc(100vw - 2 * var(--page-gutter)));
+}
+.file-action-choices {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+.file-action-choice {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  text-align: start;
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+}
+
 .file-path-group {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
+  gap: 0;
+  max-width: 100%;
 }
 
 .msg-bubble--assistant a.file-path-link {

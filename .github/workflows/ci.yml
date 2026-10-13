@@ -103,7 +103,9 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: artefact-sharing-acceptance-${{ github.run_id }}-${{ github.run_attempt }}
-          path: test-results/offline/**/artefact-sharing.png
+          path: |
+            test-results/offline/**/artefact-sharing.png
+            test-results/offline/**/file-options.png
           retention-days: 7
           if-no-files-found: ignore
 
