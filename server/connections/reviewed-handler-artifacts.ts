@@ -290,7 +290,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '72a3c82b5b20a083f25da06222476feca34bc7419544739c0a65aac73ba17de1',
   '../credential-connections-runtime.ts':
     '89a1cdf4bd50c73a0aecfb966303fb37e0f524da9fb977478602c9c198a51b4d',
-  '../credential-http.ts': '22bc9decc21390d9bd32be9008ad78924f128a9c7f7df3a61a5acecea61d4f19',
+  '../credential-http.ts': 'd99c0d1a71b90c07626b0d07459bdc9af936ae64895079f8471b3253a563ff62',
   '../credential-redaction.ts': '817dda948c419deb064bc4c5298e034e5a0343972b4bf724fb6aaa869cf34403',
   '../credential-sdk-tools.ts': 'de3a110d32b4a831b25c07918b9f35409cbb4ccf75ec0d5dd0667b55e3d55685',
   '../session-credential-tools.ts':

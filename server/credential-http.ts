@@ -79,7 +79,7 @@ const httpsSend: ConnectionSender = (input, signal) =>
         response.on('data', (part: Buffer) => {
           size += part.length;
           if (size > 64 * 1024) {
-            const error = new Error('Connection response is too large');
+            const error = new CredentialVerificationError('unexpected_response');
             reject(error);
             response.destroy(error);
             return;

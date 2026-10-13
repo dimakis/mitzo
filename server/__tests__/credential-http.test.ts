@@ -140,7 +140,7 @@ it('rejects responses larger than 64 KiB and never returns a truncated body', as
   stream.emit('data', Buffer.alloc(64 * 1024));
   stream.emit('data', Buffer.from('x'));
   stream.emit('end');
-  await expect(pending).rejects.toThrow('Connection response is too large');
+  await expect(pending).rejects.toMatchObject({ code: 'unexpected_response' });
   expect(stream.destroy).toHaveBeenCalled();
 });
 it('validates every DNS answer and pins the checked address list without a second lookup', async () => {
