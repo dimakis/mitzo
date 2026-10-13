@@ -1,4 +1,5 @@
 import { assertNativeCodexContextAdmission } from './native-codex-context-admission.js';
+import { OwnedLocalCodexChatAdmission } from './owned-local-codex-chat-admission.js';
 import type { OrdinaryTurnLifecycle } from './ordinary-turn-lifecycle.js';
 import type { RepositoryChatWorkspace } from './repository-chat-startup.js';
 import { getRepositoryWorkspaces } from './repository-workspace-runtime.js';
@@ -493,6 +494,8 @@ export function readCodexLifecycleQueue(conversationId: string, binding: Account
   return store().lifecycleQueue(conversationId, binding);
 }
 interface Options {
+  /** Server-internal exact uncertain receipt and actual frozen client. */
+  ownedLocal?: OwnedLocalCodexChatAdmission;
   ordinaryTurnLifecycle?: OrdinaryTurnLifecycle;
   contributorGuidance?: string;
   agentProfile?: AgentLibraryVersion;
@@ -569,9 +572,33 @@ export function managedJiraConnectionEnv(connection: Connection) {
 }
 /** Shared chat adapter. Execution remains gated by the account catalog and unsupported capabilities fail explicitly. */
 export async function openCodexChat(options: Options) {
-  return duringCodexStartup('runtime_admission', () => openCodexChatAdmitted(options));
+  const admittedOptions = options.ownedLocal
+    ? {
+        ...options,
+        binding: structuredClone(options.binding),
+        profile: structuredClone(options.profile),
+        agentProfile: options.agentProfile ? structuredClone(options.agentProfile) : undefined,
+        agentContext: options.agentContext ? structuredClone(options.agentContext) : undefined,
+        repositoryWorkspace: options.repositoryWorkspace
+          ? structuredClone(options.repositoryWorkspace)
+          : undefined,
+        images: options.images ? structuredClone(options.images) : undefined,
+        mcpServers: structuredClone(options.mcpServers),
+        env: { ...options.env },
+      }
+    : options;
+  return duringCodexStartup('runtime_admission', () => openCodexChatAdmitted(admittedOptions));
 }
 async function openCodexChatAdmitted(options: Options) {
+  if (options.ownedLocal !== undefined) {
+    if (custodianControllerMode || !(options.ownedLocal instanceof OwnedLocalCodexChatAdmission))
+      throw Error('Owned local Codex chat unavailable');
+    options.ownedLocal.assertOptions(options);
+    await options.ownedLocal.assertCurrent();
+    return openCodexChatBound(options);
+  }
+  if (options.eventStore.getSessionRuntimeBinding?.(options.conversationId))
+    throw Error('Owned local Codex chat unavailable');
   const savedAgentContext = options.eventStore.getSession(options.conversationId)?.agentContext;
   const selectedRecipe = options.agentProfile?.definition.contextRecipe;
   assertNativeCodexContextAdmission(selectedRecipe, options.agentContext, savedAgentContext);
@@ -647,6 +674,7 @@ async function openCodexChatBound(
   onDemandConnections: readonly Connection[] = [],
   deferInitialSend = false,
 ) {
+  await options.ownedLocal?.assertCurrent();
   assertNativeCodexContextAdmission(
     options.agentProfile?.definition.contextRecipe,
     options.agentContext,
@@ -657,9 +685,9 @@ async function openCodexChatBound(
     managedConnections[0] ??
     null;
   if (custodianControllerMode) requireCustodianOrdinaryRuntime(true, options.binding.provider);
-  const configuredRuntime = openShellRuntimeConfig(process.env);
+  const configuredRuntime = options.ownedLocal ? undefined : openShellRuntimeConfig(process.env);
   const connectionService = getConnectionsRuntime()?.service;
-  const openShellName = process.env.MITZO_OPENSHELL_SANDBOX_NAME;
+  const openShellName = options.ownedLocal ? undefined : process.env.MITZO_OPENSHELL_SANDBOX_NAME;
   if (openShellName && process.env.NODE_ENV === 'production')
     throw new Error('Legacy shared OpenShell sandboxes are disabled in production.');
   const accountProvider = options.profile.sandboxProvider;
@@ -1111,6 +1139,7 @@ async function openCodexChatBound(
       admittingSandboxContext ? sandboxAgentContextAdmissionFailure(error, signal.aborted) : error,
     );
   }
+  await options.ownedLocal?.assertCurrent();
   const mcp = connectedOpenShell
     ? {
         definitions: [],
@@ -1121,6 +1150,9 @@ async function openCodexChatBound(
         },
       }
     : await connectCodexMcpTools(options.mcpServers, {
+        assertRuntimeCurrent: options.ownedLocal
+          ? () => options.ownedLocal!.assertCurrentSync()
+          : undefined,
         cwd: options.session.cwd!,
         env: options.env,
         signal: options.session.abortController.signal,
@@ -1185,6 +1217,7 @@ async function openCodexChatBound(
   function finish() {
     if (closed) return;
     closed = true;
+    options.ownedLocal?.close();
     githubPublishing.close();
     cancelTrackedProviderAdmissions(options.session);
     if (hooks)
@@ -1256,7 +1289,7 @@ async function openCodexChatBound(
     storedBinding: options.binding,
     store: privateStorage,
     deferToolSurfaceReplacement: !!runtimeManager,
-    enableCapacityRecovery: true,
+    enableCapacityRecovery: !options.ownedLocal,
     webSearchBackend: openShell ? 'openshell' : 'host',
     webSearchDeploymentRevision: openShell
       ? 'openshell-runtime-config-v1'
@@ -1264,7 +1297,26 @@ async function openCodexChatBound(
     getMode: () => options.session.mode,
     systemPrompt: persistentSystemPrompt,
     startupSignal: signal,
-    prepareAgentContext: options.prepareAgentContext,
+    prepareAgentContext: options.ownedLocal
+      ? async (signal) => {
+          await options.ownedLocal!.assertCurrent();
+          await options.prepareAgentContext?.(signal);
+          options.ownedLocal!.assertCurrentSync();
+        }
+      : options.prepareAgentContext,
+    ...(options.ownedLocal
+      ? {
+          beforeEnqueue: (input: Parameters<CodexConversation['enqueue']>[0]) =>
+            options.ownedLocal!.assertBeforeEnqueue(input),
+          verifyBinding: async () => {
+            await options.ownedLocal!.assertCurrent();
+            return options.binding;
+          },
+          reconnectGuard: async () => {
+            throw Error('Owned local Codex chat unavailable');
+          },
+        }
+      : {}),
     agentContextSource: agentContext?.source,
     disableProjectDocuments: agentContext?.source === 'packs',
     beforeComplete: connectedOpenShell
@@ -1498,6 +1550,8 @@ async function openCodexChatBound(
         }
       : {}),
     validateModel: (model, reasoningEffort) => {
+      if (options.ownedLocal)
+        return options.ownedLocal.assertModelSelection(model, reasoningEffort);
       loadAccountProfiles().validateModel(options.binding, model, reasoningEffort);
     },
     tools: connectedOpenShell
@@ -1520,6 +1574,7 @@ async function openCodexChatBound(
     displayToolName: mcp.displayName,
     createClient: (callbacks) => {
       try {
+        if (options.ownedLocal) return options.ownedLocal.attach(callbacks);
         const client = connectedOpenShell
           ? CodexAppServerClient.launchOpenShell(openShellClient!, process.env, callbacks)
           : CodexAppServerClient.launch(options.profile.credentialRef!, process.env, callbacks);
@@ -1542,6 +1597,7 @@ async function openCodexChatBound(
       : {}),
     emit: (event) => events.push(event),
     onProviderDispatch: (messageId) => {
+      options.ownedLocal?.assertBeforeDispatch(messageId);
       options.ordinaryTurnLifecycle?.beforeDispatch(messageId);
       beginTrackedProviderAttempt(options.session, messageId);
     },
@@ -1570,6 +1626,7 @@ async function openCodexChatBound(
       finish();
     },
     requestUserInput: async (params, signal) => {
+      await options.ownedLocal?.assertCurrent();
       const owner = options.registry.findBySessionId(options.conversationId);
       if (!owner) throw new Error('Codex session unavailable');
       return requestCodexUserInput(params, signal, owner.clientId, options.registry);
@@ -1617,6 +1674,7 @@ async function openCodexChatBound(
         }
       : {}),
     executeTool: async (name, input, signal, callContext) => {
+      await options.ownedLocal?.assertCurrent();
       const keychainResult = await connectionTools.execute(name, input, signal);
       if (keychainResult) return keychainResult;
       if (name === REQUEST_GITHUB_PUBLISH) return githubPublishing(input, signal, callContext);
@@ -1775,6 +1833,9 @@ async function openCodexChatBound(
               signal,
             );
           const execute = createNativeToolExecutor(owner.clientId, options.registry, {
+            assertRuntimeCurrent: options.ownedLocal
+              ? () => options.ownedLocal!.assertCurrentSync()
+              : undefined,
             env: options.env,
             forcePrompt,
             onDemandCreate: options.onDemandCreate,
@@ -1886,6 +1947,7 @@ async function openCodexChatBound(
   return {
     [Symbol.asyncIterator]: () => events[Symbol.asyncIterator](),
     setPermissionMode: async (mode: ManagedSession['mode']) => {
+      if (options.ownedLocal) throw Error('Owned local Codex chat unavailable');
       if (openShell && mode === 'ask')
         throw new Error(
           'OpenShell native tools do not yet support Mitzo Ask mode; select Agent or Auto mode.',

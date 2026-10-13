@@ -11,6 +11,22 @@ function fixture() {
   };
   const lease: FrozenHostCodexBootstrapLease = {
     client,
+    profile: {
+      accountId: 'personal',
+      accountLabel: 'Personal',
+      credentialRef: '/private/offline-fixture',
+      email: 'offline@example.invalid',
+      planType: 'plus',
+      model: 'offline',
+    },
+    profile: {
+      accountId: 'personal',
+      accountLabel: 'Personal',
+      model: 'offline',
+      credentialRef: '/private/offline-source',
+      email: 'fixture@example.test',
+      planType: 'plus',
+    },
     binding: {
       accountId: 'personal',
       provider: 'openai-codex',

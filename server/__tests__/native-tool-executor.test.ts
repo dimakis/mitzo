@@ -73,6 +73,54 @@ describe('native tool execution through session permissions', () => {
   const executor = () =>
     createNativeToolExecutor('client', registry, { env: { PATH: '/usr/bin:/bin' } });
 
+  it.each(['Write', 'GitHubRead'] as const)(
+    'rechecks owned runtime revocation after %s approval before host effects',
+    async (name) => {
+      let revoked = false;
+      const execute = createNativeToolExecutor('client', registry, {
+        env: { PATH: '/usr/bin:/bin' },
+        assertRuntimeCurrent: () => {
+          if (revoked) throw new Error('Owned runtime unavailable');
+        },
+      });
+      const beforeReads = vi.mocked(executeTrustedGitHubRead).mock.calls.length;
+      const input =
+        name === 'Write'
+          ? { file_path: 'owned-write', content: 'forbidden', require_approval: true }
+          : { endpoint: '/user' };
+      const pending = execute(call(name, input), abort.signal);
+      await vi.waitFor(() =>
+        expect(sent.some((event) => event.type === 'permission_request')).toBe(true),
+      );
+      revoked = true;
+      resolvePending(
+        sent.find((event) => event.type === 'permission_request')!.permId as string,
+        'once',
+      );
+      expect(await pending).toMatchObject({ is_error: true, content: 'Owned runtime unavailable' });
+      await expect(readFile(join(root, 'worktree/owned-write'))).rejects.toThrow();
+      expect(vi.mocked(executeTrustedGitHubRead).mock.calls).toHaveLength(beforeReads);
+    },
+  );
+  it('rechecks owned runtime revocation at the final Bash spawn boundary', async () => {
+    registry.setMode('client', 'auto');
+    let revoked = false;
+    const execute = createNativeToolExecutor('client', registry, {
+      env: { PATH: '/usr/bin:/bin' },
+      assertRuntimeCurrent: () => {
+        if (revoked) throw new Error('Owned runtime unavailable');
+      },
+    });
+    vi.mocked(executeSandboxedCommand).mockImplementationOnce(async (options) => {
+      revoked = true;
+      options.beforeSpawn!();
+      return { content: 'should never execute', isError: false };
+    });
+    expect(await execute(call('Bash', { command: 'touch forbidden' }), abort.signal)).toMatchObject(
+      { is_error: true, content: 'Owned runtime unavailable' },
+    );
+  });
+
   it('honors an explicit approval request before a normally allowed write', async () => {
     const pending = executor()(
       call('Write', { file_path: 'approved', content: 'yes', require_approval: true }),

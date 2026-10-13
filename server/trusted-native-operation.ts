@@ -32,9 +32,11 @@ function run(
     maxOutputBytes: number;
     env?: Record<string, string>;
     input?: Buffer;
+    assertRuntimeCurrent?: () => void;
   },
 ): Promise<string> {
   return new Promise((resolveRun, reject) => {
+    options.assertRuntimeCurrent?.();
     const child = execFile(
       file,
       [...args],
@@ -302,10 +304,12 @@ export async function executeTrustedGitCommit(
   maxOutputBytes = 64 * 1024,
   approvedIdentities?: ReadonlyMap<string, ApprovedGitFileIdentity>,
   task?: RepositoryTaskCheckout,
+  assertRuntimeCurrent?: () => void,
 ): Promise<string> {
   cwd = await realpath(cwd);
   validateCommitFiles(files);
   const metadata = await linkedMetadata(cwd, task);
+  assertRuntimeCurrent?.();
   const indexLock = metadata.index + '.lock';
   const lock = await open(indexLock, 'wx', 0o600).catch(() => {
     throw new Error('Git index is busy; retry after the other operation finishes');
@@ -370,7 +374,7 @@ export async function executeTrustedGitCommit(
       GIT_OPTIONAL_LOCKS: '0',
       HOME: temporary,
     };
-    const opts = { cwd, signal, timeoutMs, maxOutputBytes, env: isolated };
+    const opts = { cwd, signal, timeoutMs, maxOutputBytes, env: isolated, assertRuntimeCurrent };
     await run('git', ['read-tree', oldCommit], opts);
     const baselineTree = await run('git', ['write-tree'], opts);
     await writeFile(originalIndex, await readFile(metadata.index));
@@ -456,10 +460,13 @@ export async function executeTrustedGitCommit(
       sameIdentity(metadata.common, metadata.identities.common),
       sameIdentity(join(metadata.common, 'objects'), metadata.identities.objects),
     ]);
+    assertRuntimeCurrent?.();
     await promoteQuarantinedObjects(quarantineObjects, join(metadata.common, 'objects'));
     await sameIdentity(join(metadata.common, 'objects'), metadata.identities.objects);
     await validateRefUpdatePaths(metadata.common, metadata.branch);
-    await lock.writeFile(await readFile(index));
+    const promotedIndex = await readFile(index);
+    assertRuntimeCurrent?.();
+    await lock.writeFile(promotedIndex);
     await run(
       'git',
       [
@@ -473,6 +480,7 @@ export async function executeTrustedGitCommit(
         oldCommit,
       ],
       {
+        assertRuntimeCurrent,
         cwd,
         signal,
         timeoutMs,

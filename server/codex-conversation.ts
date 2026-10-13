@@ -91,6 +91,9 @@ export interface CodexStartupConfigObservation {
 }
 
 export interface CodexConversationOptions {
+  /** An enrolled route's existing command owner rejects unadmitted sends before
+   * private queue mutation. No default gate is imposed on legacy conversations. */
+  beforeEnqueue?: (input: CodexCommandInput) => void;
   ownerKind?: 'ordinary' | 'symposium';
   /** Ordinary capacity recovery creates new linked native turns, never prompt replay. */
   enableCapacityRecovery?: boolean;
@@ -950,6 +953,7 @@ export class CodexConversation {
     else if (model !== this.opts.profile.model) throw new Error('Model unavailable');
   }
   enqueue(input: CodexCommandInput) {
+    this.opts.beforeEnqueue?.(input);
     // A transport loss keeps the durable binding. Accept an explicit new user
     // message before reconnecting so it cannot be lost between recovery and send.
     if (this.closed || (!this.ready && !this.paused) || !this.binding)

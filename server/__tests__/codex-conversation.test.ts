@@ -31,6 +31,47 @@ const binding = {
   profileRevision: 'chatgpt:test@example.com:test',
 };
 
+it('runs the owning enqueue fence before direct or serialized command persistence', async () => {
+  const f = await setup();
+  const beforeRequests = f.requests.length;
+  f.conversationOptions.beforeEnqueue = vi.fn(() => {
+    throw new Error('Owned command unavailable');
+  });
+  expect(() => f.c.enqueue({ id: 'unadmitted-direct', prompt: 'Do not queue' })).toThrow(
+    'Owned command unavailable',
+  );
+  await expect(f.c.send({ id: 'unadmitted-send', prompt: 'Do not dispatch' })).rejects.toThrow(
+    'Owned command unavailable',
+  );
+  expect(f.c.queue()).toEqual([]);
+  expect(f.requests).toHaveLength(beforeRequests);
+  expect(f.conversationOptions.beforeEnqueue).toHaveBeenCalledTimes(2);
+});
+
+it('lets the owning enqueue fence admit one frozen first command and reject replay/future commands', async () => {
+  const f = await setup();
+  let admitted = false;
+  f.conversationOptions.beforeEnqueue = (input) => {
+    if (admitted || input.id !== 'first' || input.prompt !== 'Frozen prompt')
+      throw new Error('Owned command unavailable');
+    admitted = true;
+  };
+  await f.c.send({ id: 'first', prompt: 'Frozen prompt' });
+  f.callbacks.onNotification('turn/completed', {
+    threadId: f.getProviderThread(),
+    turn: { id: 'turn-1', status: 'completed' },
+  });
+  const queue = f.c.queue();
+  await expect(f.c.send({ id: 'first', prompt: 'Frozen prompt' })).rejects.toThrow(
+    'Owned command unavailable',
+  );
+  await expect(f.c.send({ id: 'future', prompt: 'New prompt' })).rejects.toThrow(
+    'Owned command unavailable',
+  );
+  expect(f.c.queue()).toEqual(queue);
+  expect(f.requests.filter(({ method }) => method === 'turn/start')).toHaveLength(1);
+});
+
 it('delivers accepted application context only between turns and preserves the provider thread', async () => {
   let knowledge = 'context A';
   const prepare = vi.fn(async () => knowledge);

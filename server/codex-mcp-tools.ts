@@ -16,6 +16,7 @@ interface Connection {
   close(): Promise<void>;
 }
 interface Options {
+  assertRuntimeCurrent?: () => void;
   cwd: string;
   env: Record<string, string>;
   signal: AbortSignal;
@@ -123,6 +124,7 @@ export async function connectCodexMcpTools(
       signal.throwIfAborted();
       if (decision.behavior !== 'allow')
         return { content: decision.message || 'MCP tool permission denied', isError: true };
+      options.assertRuntimeCurrent?.();
       const result = await tool.peer.callTool(
         { name: tool.name, arguments: decision.updatedInput ?? input },
         signal,

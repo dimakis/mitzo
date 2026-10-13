@@ -2,6 +2,43 @@ import { expect, it, vi } from 'vitest';
 import { connectCodexMcpTools } from '../codex-mcp-tools.js';
 import { SessionRegistry, buildPermissionHandler, resolvePending } from '@mitzo/harness';
 
+it('rechecks owning runtime after awaited MCP approval and before native call', async () => {
+  let revoked = false;
+  const call = vi.fn(async () => ({ content: [] }));
+  const tools = await connectCodexMcpTools(
+    { work: { command: 'fixture-mcp' } },
+    {
+      cwd: '/workspace',
+      env: {},
+      signal: new AbortController().signal,
+      assertRuntimeCurrent: () => {
+        if (revoked) throw new Error('Owned runtime unavailable');
+      },
+      connect: async () => ({
+        listTools: async () => ({ tools: [{ name: 'write', inputSchema: { type: 'object' } }] }),
+        callTool: call,
+        close: vi.fn(async () => {}),
+      }),
+    },
+  );
+  try {
+    await expect(
+      tools.execute(
+        tools.definitions[0].name,
+        {},
+        async () => {
+          revoked = true;
+          return { behavior: 'allow' as const, updatedInput: {} };
+        },
+        new AbortController().signal,
+      ),
+    ).rejects.toThrow('Owned runtime unavailable');
+    expect(call).not.toHaveBeenCalled();
+  } finally {
+    await tools.close();
+  }
+});
+
 it('never launches sandbox-only MCP definitions on the host', async () => {
   const connect = vi.fn();
   const tools = await connectCodexMcpTools(
