@@ -16,6 +16,7 @@ import type { EventEmitter } from 'node:events';
 import type { Readable, Writable } from 'node:stream';
 import { isAbsolute, posix } from 'node:path';
 import { codexRuntimeOverrides } from './codex-runtime-policy.js';
+import { FrozenHostCodexExecutable } from './frozen-host-codex-executable.js';
 import { createLogger } from './logger.js';
 
 export const SUPPORTED_CODEX_CLI_VERSION = readFileSync(
@@ -31,8 +32,8 @@ export function assertSupportedCodexCliVersion(output: string): void {
     throw new Error(`Unsupported Codex CLI version; expected ${SUPPORTED_CODEX_CLI_VERSION}`);
 }
 
-function assertHostCodexRuntimeVersion(base: NodeJS.ProcessEnv): void {
-  const result = spawnSync('codex', ['--version'], {
+function assertHostCodexRuntimeVersion(base: NodeJS.ProcessEnv, executable = 'codex'): void {
+  const result = spawnSync(executable, ['--version'], {
     env: base,
     encoding: 'utf8',
     timeout: 5000,
@@ -464,10 +465,38 @@ export class CodexAppServerClient {
     base: NodeJS.ProcessEnv = process.env,
     lifecycle?: CodexLifecycleTransport,
   ) {
-    assertHostCodexRuntimeVersion(base);
+    return this.launchHost(credentialRef, base, lifecycle, false);
+  }
+
+  /** Only the private bootstrap owner supplies this home, after durable effect
+   * admission. File-only custody prevents a shared keychain login from replacing
+   * the frozen account. The original configured profile remains routing identity.
+   */
+  static launchIsolated(
+    privateHome: string,
+    base: NodeJS.ProcessEnv = process.env,
+    lifecycle?: CodexLifecycleTransport,
+    executable?: FrozenHostCodexExecutable,
+  ) {
+    if (!(executable instanceof FrozenHostCodexExecutable))
+      throw new Error('Host Codex runtime unavailable');
+    executable.assertCurrent();
+    return this.launchHost(privateHome, base, lifecycle, true, executable);
+  }
+
+  private static launchHost(
+    credentialRef: string,
+    base: NodeJS.ProcessEnv,
+    lifecycle: CodexLifecycleTransport | undefined,
+    isolated: boolean,
+    executable?: FrozenHostCodexExecutable,
+  ) {
+    const env = codexEnvironment(credentialRef, base);
+    assertHostCodexRuntimeVersion(isolated ? env : base, executable?.path);
+    executable?.assertCurrent();
     return new CodexAppServerClient(
       spawn(
-        'codex',
+        executable?.path ?? 'codex',
         [
           'app-server',
           '--stdio',
@@ -475,6 +504,7 @@ export class CodexAppServerClient {
           'forced_login_method="chatgpt"',
           '-c',
           'model_provider="openai"',
+          ...(isolated ? ['-c', 'cli_auth_credentials_store="file"'] : []),
           ...(lifecycle
             ? Object.entries(codexRuntimeOverrides({})).flatMap(([key, value]) => [
                 '-c',
@@ -482,7 +512,7 @@ export class CodexAppServerClient {
               ])
             : []),
         ],
-        { env: codexEnvironment(credentialRef, base), stdio: ['pipe', 'pipe', 'pipe'] },
+        { env, stdio: ['pipe', 'pipe', 'pipe'] },
       ),
       { lifecycle },
     );
