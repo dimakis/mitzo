@@ -1,0 +1,70 @@
+id: mitzo-google-workspace-spike
+resource_version: 8
+display_name: Mitzo Google Workspace
+description: Delegated Google Workspace reads and bounded Google Slides authoring
+category: data
+inference_capable: false
+credentials:
+  - name: access_token
+    description: Short-lived Google Workspace access token
+    # gws 0.18.1 consumes a pre-obtained access token from this exact variable.
+    env_vars: [GOOGLE_WORKSPACE_CLI_TOKEN]
+    required: true
+    auth_style: bearer
+    header_name: authorization
+    refresh:
+      strategy: oauth2_refresh_token
+      token_url: https://oauth2.googleapis.com/token
+      scopes:
+        - https://www.googleapis.com/auth/drive.readonly
+        - https://www.googleapis.com/auth/documents.readonly
+        - https://www.googleapis.com/auth/calendar.readonly
+        - https://www.googleapis.com/auth/gmail.readonly
+        - https://www.googleapis.com/auth/spreadsheets.readonly
+        - https://www.googleapis.com/auth/presentations
+      refresh_before_seconds: 300
+      max_lifetime_seconds: 3600
+      material:
+        - { name: client_id, description: OAuth client ID, required: true, secret: false }
+        - { name: client_secret, description: OAuth client secret, required: true, secret: true }
+        - { name: refresh_token, description: OAuth refresh token, required: true, secret: true }
+endpoints:
+  - host: www.googleapis.com
+    port: 443
+    protocol: rest
+    access: read-only
+    enforcement: enforce
+    tls: terminate
+  - host: docs.googleapis.com
+    port: 443
+    protocol: rest
+    access: read-only
+    enforcement: enforce
+    tls: terminate
+  - host: gmail.googleapis.com
+    port: 443
+    protocol: rest
+    access: read-only
+    enforcement: enforce
+    tls: terminate
+  - host: sheets.googleapis.com
+    port: 443
+    protocol: rest
+    access: read-only
+    enforcement: enforce
+    tls: terminate
+  - host: slides.googleapis.com
+    port: 443
+    protocol: rest
+    enforcement: enforce
+    tls: terminate
+    rules:
+      - allow: { method: GET, path: /v1/presentations/** }
+      - allow: { method: POST, path: /v1/presentations }
+      - allow: { method: POST, path: '/v1/presentations/*:batchUpdate' }
+binaries:
+  - /usr/bin/gws
+  # The packaged gws launcher executes the CLI through Node.
+  - /usr/bin/node
+  - /usr/bin/curl
+  - /usr/local/bin/curl
