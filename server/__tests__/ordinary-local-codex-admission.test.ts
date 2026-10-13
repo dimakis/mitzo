@@ -12,6 +12,7 @@ import type {
 } from '../ordinary-local-codex-admission.js';
 import { EventStore } from '../event-store.js';
 import { OrdinaryLocalCodexAdmissionCoordinator } from '../ordinary-local-codex-admission.js';
+import { ordinaryLocalCodexBootstrapId } from '../ordinary-local-codex-admission.js';
 
 // Entirely offline authority/store fixtures. No provider or credential access.
 function fixture(realStore?: EventStore, enabled = true, hasAuthority = true) {
@@ -579,6 +580,103 @@ describe('guarded local Codex coordinator', () => {
       f.coordinator.admit(f.meta, f.request, f.effects),
       f.coordinator.admit(f.meta, f.request, f.effects),
     ]);
+    expect(f.effects.dispatch).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('owned runtime bootstrap ordering', () => {
+  function bootstrapped() {
+    const f = fixture();
+    const bootstrap = vi.fn(
+      async (
+        _expected: Readonly<OrdinaryLocalCodexAdmissionExpectation>,
+        claim: () => boolean,
+        operation: (lease: OrdinaryLocalCodexAdmissionLease) => Promise<{ dispatched: boolean }>,
+      ) => {
+        f.trace.push('configuration');
+        if (!claim()) return undefined;
+        f.trace.push('bootstrap');
+        return operation(f.lease);
+      },
+    );
+    const coordinator = new OrdinaryLocalCodexAdmissionCoordinator({
+      ...f.dependencies,
+      authority: undefined,
+      bootstrapAuthority: { withBootstrap: bootstrap },
+    } as never);
+    return { ...f, coordinator, bootstrap };
+  }
+
+  it('persists uncertainty before owned login/runtime bootstrap and qualifies before workspace', async () => {
+    const f = bootstrapped();
+    f.lease.assertCurrent.mockImplementation(async () => {
+      f.trace.push('verify');
+    });
+    await expect(f.coordinator.admit(f.meta, f.request, f.effects)).resolves.toEqual({
+      dispatched: true,
+    });
+    expect(f.trace).toEqual([
+      'configuration',
+      'persist',
+      'claim',
+      'bootstrap',
+      'verify',
+      'verify',
+      'prepare',
+      'verify',
+      'dispatch',
+      'complete',
+    ]);
+    const persisted = f.store.admitOrdinaryLocalCommand.mock.calls[0][2];
+    expect(f.bootstrap.mock.calls[0][0].bootstrapId).toBe(
+      ordinaryLocalCodexBootstrapId(f.meta.sessionId, persisted.requestFingerprint),
+    );
+    expect(f.bootstrap.mock.calls[0][0].bootstrapId).toMatch(/^[a-f0-9]{64}$/);
+    f.trace.length = 0;
+    await f.coordinator.admit(f.meta, f.request, f.effects);
+    expect(f.bootstrap.mock.calls[1][0].bootstrapId).toBe(f.bootstrap.mock.calls[0][0].bootstrapId);
+  });
+
+  it('does not bootstrap again for a consumed or uncertain command', async () => {
+    const f = bootstrapped();
+    await f.coordinator.admit(f.meta, f.request, f.effects);
+    f.trace.length = 0;
+    await expect(f.coordinator.admit(f.meta, f.request, f.effects)).resolves.toEqual({
+      dispatched: false,
+    });
+    expect(f.trace).toEqual(['configuration', 'persist', 'claim']);
+    expect(f.effects.prepareWorkspace).toHaveBeenCalledTimes(1);
+  });
+
+  it('retains uncertainty if runtime qualification fails after bootstrap claim', async () => {
+    const f = bootstrapped();
+    f.lease.assertCurrent.mockRejectedValue(new Error('revoked'));
+    await expect(f.coordinator.admit(f.meta, f.request, f.effects)).rejects.toThrow(
+      'dispatch_uncertain',
+    );
+    expect(f.effects.prepareWorkspace).not.toHaveBeenCalled();
+    expect(f.effects.dispatch).not.toHaveBeenCalled();
+    expect(f.store.completeOrdinaryLocalCommand).not.toHaveBeenCalled();
+    await expect(f.coordinator.admit(f.meta, f.request, f.effects)).resolves.toEqual({
+      dispatched: false,
+    });
+  });
+
+  it('rejects a bootstrap owner invoking effects without claiming or invoking twice', async () => {
+    const f = bootstrapped();
+    f.bootstrap.mockImplementationOnce(async (_expected, _claim, operation) => operation(f.lease));
+    await expect(f.coordinator.admit(f.meta, f.request, f.effects)).rejects.toThrow(
+      'authority_unavailable',
+    );
+    expect(f.effects.prepareWorkspace).not.toHaveBeenCalled();
+    f.bootstrap.mockImplementationOnce(async (_expected, claim, operation) => {
+      claim();
+      await operation(f.lease);
+      return operation(f.lease);
+    });
+    await expect(f.coordinator.admit(f.meta, f.request, f.effects)).rejects.toThrow(
+      'authority_reentry',
+    );
     expect(f.effects.dispatch).toHaveBeenCalledTimes(1);
   });
 });

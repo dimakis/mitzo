@@ -5,9 +5,66 @@ import { useNewChatDraft, useChatDraftSearch } from '../useNewChatDraft';
 import { Router, createPath, useNavigate, type Navigator } from 'react-router-dom';
 import { StrictMode, type ReactNode } from 'react';
 import { createChatDraft, saveChatDraft, getChatDraft } from '../../lib/chat-drafts';
+import { createChatRuntimeSelection } from '../../lib/chat-runtime-selection';
 afterEach(() => {
   cleanup();
   localStorage.clear();
+});
+it('retains omitted runtime intent through settings updates, invalidates changed accounts and honors explicit removal', () => {
+  const draft = { ...createChatDraft(), text: 'Task' };
+  draft.settings.selection = { accountId: 'personal', model: 'luna', reasoningEffort: 'high' };
+  const runtimeSelection = {
+    ...createChatRuntimeSelection(),
+    account: draft.settings.selection,
+    execution: { location: 'local' as const, targetId: 'mac' },
+    capabilityRevision: 'inventory-1',
+  };
+  saveChatDraft({ ...draft, settings: { ...draft.settings, runtimeSelection } });
+  const { result, rerender } = renderHook(() => useNewChatDraft(draft.id, 0, true));
+  act(() => result.current.saveSettings({ ...draft.settings, mode: 'auto' }));
+  rerender();
+  expect(getChatDraft(draft.id)?.settings.runtimeSelection).toEqual(runtimeSelection);
+  act(() =>
+    result.current.saveSettings({
+      ...draft.settings,
+      selection: { accountId: 'work', model: 'other' },
+    }),
+  );
+  expect(getChatDraft(draft.id)?.settings.runtimeSelection).toEqual({
+    ...runtimeSelection,
+    account: { accountId: 'work', model: 'other' },
+    capabilityRevision: null,
+  });
+  act(() => result.current.saveSettings({ ...draft.settings, runtimeSelection: null }));
+  expect(getChatDraft(draft.id)?.settings.runtimeSelection).toBeNull();
+});
+it('invalidates retained runtime review when the existing profile picker changes its URL selection', () => {
+  const draft = { ...createChatDraft(), text: 'Task' };
+  draft.settings.selection = { accountId: 'personal', model: 'luna' };
+  draft.settings.search = 'agentProfile=developer&profileRevision=2';
+  const runtimeSelection = {
+    ...createChatRuntimeSelection(),
+    account: draft.settings.selection,
+    agentProfile: { profileId: 'developer', revision: 2 },
+    execution: { location: 'local' as const, targetId: 'mac' },
+    capabilityRevision: 'inventory-1',
+  };
+  saveChatDraft({ ...draft, settings: { ...draft.settings, runtimeSelection } });
+  const { result } = renderHook(() => useNewChatDraft(draft.id, 0, true));
+  act(() =>
+    result.current.saveSettings({
+      ...draft.settings,
+      search: 'agentProfile=developer&profileRevision=3',
+    }),
+  );
+  expect(getChatDraft(draft.id)?.settings.runtimeSelection).toEqual({
+    ...runtimeSelection,
+    agentProfile: { profileId: 'developer', revision: 3 },
+    capabilityRevision: null,
+  });
+  act(() => result.current.saveSettings({ ...draft.settings, search: '' }));
+  expect(getChatDraft(draft.id)?.settings.runtimeSelection?.agentProfile).toBeNull();
+  expect(getChatDraft(draft.id)?.settings.runtimeSelection?.capabilityRevision).toBeNull();
 });
 it('restores settings without clobbering the saved account during catalog loading', () => {
   const draft = { ...createChatDraft(), text: 'Task' };

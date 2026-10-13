@@ -6,6 +6,7 @@ import { createCodexPathProtection, isPrivateCodexPath } from '../codex-private-
 import {
   configuredWorkspaceRuntimePrivatePaths,
   isWorkspaceRuntimeAuthorityWritePath,
+  registerWorkspaceRuntimeAuthorityPaths,
 } from '../workspace-runtime-private-paths.js';
 
 let root: string;
@@ -65,4 +66,25 @@ it('protects aliases and retains known authority across configuration removal', 
 it('fails closed on unreadable or malformed authority before a first successful snapshot', () => {
   writeFileSync(enrollment, '{malformed');
   expect(createCodexPathProtection(() => [])()(join(root, 'any-write'))).toBe(true);
+});
+it('retains qualified local authority after selectors disappear without hiding public executable bytes', () => {
+  vi.unstubAllEnvs();
+  const native = join(root, 'native-selection.json'),
+    target = join(root, 'target-selection.json'),
+    executable = join(root, 'codex-native');
+  writeFileSync(native, '{}', { mode: 0o600 });
+  writeFileSync(target, '{}', { mode: 0o600 });
+  writeFileSync(executable, 'public executable');
+  const alias = join(root, 'native-alias');
+  symlinkSync(native, alias);
+  registerWorkspaceRuntimeAuthorityPaths([native, target, executable], [native, target]);
+  expect(isPrivateCodexPath(alias)).toBe(true);
+  expect(isPrivateCodexPath(executable)).toBe(false);
+  expect(isWorkspaceRuntimeAuthorityWritePath(executable)).toBe(true);
+  rmSync(native);
+  rmSync(target);
+  for (const path of [native, target, executable])
+    expect(isWorkspaceRuntimeAuthorityWritePath(path)).toBe(true);
+  expect(isPrivateCodexPath(join(root, 'ordinary-task.md'))).toBe(false);
+  expect(isWorkspaceRuntimeAuthorityWritePath(join(root, 'ordinary-task.md'))).toBe(false);
 });

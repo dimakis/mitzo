@@ -118,6 +118,8 @@ async function canonicalPath(path: string): Promise<string> {
 }
 
 export interface NativeToolOptions {
+  /** Optional enrolled-route owner fence, rechecked after approval and at effects. */
+  assertRuntimeCurrent?: () => void;
   /** Explicit child environment. The executor never inherits process.env or API credentials. */
   env: Record<string, string>;
   forcePrompt?: boolean;
@@ -144,6 +146,7 @@ export function createNativeToolExecutor(
     });
     try {
       signal.throwIfAborted();
+      options.assertRuntimeCurrent?.();
       const session = registry.get(clientId);
       if (!session?.cwd) return result('Session workspace is unavailable', true);
       if (
@@ -181,6 +184,7 @@ export function createNativeToolExecutor(
           checkSkillPolicy(registry, clientId, block.name) === 'deny'
         )
           return result('Session permissions changed; retry the tool', true);
+        options.assertRuntimeCurrent?.();
         return result(
           await executeTrustedGitHubRead(
             input.endpoint,
@@ -251,6 +255,7 @@ export function createNativeToolExecutor(
         const task = repositoryTask
           ? await getRepositoryWorkspaces(true).validateHostTask(session.sessionId!, root)
           : undefined;
+        options.assertRuntimeCurrent?.();
         return result(
           await executeTrustedGitCommit(
             root,
@@ -261,6 +266,9 @@ export function createNativeToolExecutor(
             options.maxOutputBytes,
             new Map(input.files.map((file) => [file, approvedIdentities.get(file) ?? null])),
             task,
+            ...(options.assertRuntimeCurrent
+              ? ([options.assertRuntimeCurrent] as const)
+              : ([] as const)),
           ),
         );
       }
@@ -319,6 +327,7 @@ export function createNativeToolExecutor(
           timeoutMs: options.timeoutMs,
           maxOutputBytes: options.maxOutputBytes,
           beforeSpawn: () => {
+            options.assertRuntimeCurrent?.();
             if (
               registry.get(clientId) !== session ||
               effectivePermissionMode(session) === 'ask' ||
@@ -397,6 +406,7 @@ export function createNativeToolExecutor(
         checkSkillPolicy(registry, clientId, block.name) === 'deny'
       )
         return result('Session permissions changed before file execution; retry the tool', true);
+      options.assertRuntimeCurrent?.();
       const operation = await executeNativeFileOperation(
         {
           ...input,

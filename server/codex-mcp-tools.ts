@@ -16,12 +16,15 @@ interface Connection {
   close(): Promise<void>;
 }
 interface Options {
+  assertRuntimeCurrent?: () => void;
   cwd: string;
   env: Record<string, string>;
   signal: AbortSignal;
   connect?: (config: McpServerConfig, options: Options) => Promise<Connection>;
 }
 async function connect(config: McpServerConfig, options: Options): Promise<Connection> {
+  options.signal.throwIfAborted();
+  options.assertRuntimeCurrent?.();
   const client = new Client({ name: 'mitzo-codex', version: '1.0.0' });
   const transport = new StdioClientTransport({
     command: config.command,
@@ -31,7 +34,11 @@ async function connect(config: McpServerConfig, options: Options): Promise<Conne
     stderr: 'pipe',
   });
   try {
+    options.signal.throwIfAborted();
+    options.assertRuntimeCurrent?.();
     await client.connect(transport, { signal: options.signal, timeout: 15000 });
+    options.signal.throwIfAborted();
+    options.assertRuntimeCurrent?.();
     transport.stderr?.on('data', () => {});
   } catch {
     await client.close().catch(() => {});
@@ -79,16 +86,23 @@ export async function connectCodexMcpTools(
     for (const [server, config] of Object.entries(configs)) {
       if (config.execution === 'sandbox') continue;
       options.signal.throwIfAborted();
+      options.assertRuntimeCurrent?.();
       const peer = await (options.connect ?? connect)(config, options);
       peers.push(peer);
       if (closed) {
         await peer.close();
         throw new Error('MCP initialization cancelled');
       }
+      options.signal.throwIfAborted();
+      options.assertRuntimeCurrent?.();
       let cursor: string | undefined;
       const seen = new Set<string>();
       do {
+        options.signal.throwIfAborted();
+        options.assertRuntimeCurrent?.();
         const page = await peer.listTools(cursor);
+        options.signal.throwIfAborted();
+        options.assertRuntimeCurrent?.();
         for (const tool of page.tools) {
           const canonical = `mcp__${server}__${tool.name}`;
           const wire = mcpWireName(canonical);
@@ -106,6 +120,8 @@ export async function connectCodexMcpTools(
         if (cursor) seen.add(cursor);
       } while (cursor);
     }
+    options.signal.throwIfAborted();
+    options.assertRuntimeCurrent?.();
   } catch {
     await close();
     throw new Error('MCP initialization failed. Check configured servers and retry.');
@@ -123,6 +139,7 @@ export async function connectCodexMcpTools(
       signal.throwIfAborted();
       if (decision.behavior !== 'allow')
         return { content: decision.message || 'MCP tool permission denied', isError: true };
+      options.assertRuntimeCurrent?.();
       const result = await tool.peer.callTool(
         { name: tool.name, arguments: decision.updatedInput ?? input },
         signal,
