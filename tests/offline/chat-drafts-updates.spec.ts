@@ -63,6 +63,7 @@ async function offline(page: Page, sessions: unknown[] = []) {
   let configured = true;
   let release: (() => void) | undefined;
   let checkFailed = false;
+  let sessionsFailed = false;
   let connections = 0;
   let authChecks = 0;
   const authTraceparents: string[] = [];
@@ -122,6 +123,8 @@ async function offline(page: Page, sessions: unknown[] = []) {
     if (url.hostname !== 'mitzo-ui.test') return route.abort();
     if (await disabledLocalCapabilities(route, url)) return;
     if (url.pathname.startsWith('/api/')) {
+      if (url.pathname === '/api/sessions' && sessionsFailed)
+        return fulfill({ status: 503, json: { error: 'Offline refresh failed' } });
       if (url.pathname === '/api/auth/check') {
         authChecks++;
         const parent = route.request().headers().traceparent;
@@ -260,6 +263,9 @@ async function offline(page: Page, sessions: unknown[] = []) {
     },
     failCheck: () => {
       checkFailed = true;
+    },
+    failSessions: (failed: boolean) => {
+      sessionsFailed = failed;
     },
     release: () => release,
   };
@@ -492,6 +498,40 @@ test('chats: retained conversations stay usable while auxiliary requests and rev
   finish();
   await expect(page.getByText('Updated calendar title', { exact: true })).toBeVisible();
   expect(fixture.authChecks()).toBe(checksBeforeNavigation);
+  expect(fixture.mutations).toEqual([]);
+  expect(fixture.errors).toEqual([]);
+});
+
+test('chats: a failed refresh retains the loaded list and retry restores it', async ({
+  page,
+  isMobile,
+}, testInfo) => {
+  const fixture = await offline(page, [
+    { id: 'loaded-chat', summary: 'Already loaded conversation', lastModified: Date.now() },
+  ]);
+  await page.setViewportSize({ width: isMobile ? 320 : 1280, height: 900 });
+  for (const theme of ['dark', 'light']) {
+    await seed(page, {
+      'mitzo-theme': theme,
+      'mitzo-accent': 'mint',
+      'mitzo-font': 'georgia',
+    });
+    await page.goto('/sessions');
+    await page.evaluate((theme) => {
+      document.documentElement.setAttribute('data-theme', theme);
+    }, theme);
+    await expect(page.getByText('Already loaded conversation', { exact: true })).toBeVisible();
+    fixture.failSessions(true);
+    await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+    await expect(page.getByRole('alert')).toContainText(
+      'Couldn’t refresh chats. Showing the last loaded list.',
+    );
+    await expect(page.getByText('Already loaded conversation', { exact: true })).toBeVisible();
+    await page.screenshot({ path: testInfo.outputPath(`chat-refresh-${theme}.png`) });
+    fixture.failSessions(false);
+    await page.getByRole('button', { name: 'Try again', exact: true }).click();
+    await expect(page.getByRole('alert')).toHaveCount(0);
+  }
   expect(fixture.mutations).toEqual([]);
   expect(fixture.errors).toEqual([]);
 });

@@ -133,6 +133,60 @@ describe('useSessionList', () => {
     expect(result.current.sessions.map((session) => session.id)).toEqual(['first', 'second']);
   });
 
+  it.each([
+    { sessions: [] },
+    { sessions: [{ id: 'saved', summary: 'Already loaded', lastModified: 1 }] },
+  ])(
+    'reports a refresh failure after a successful load and preserves its list: %j',
+    async ({ sessions }) => {
+      vi.mocked(apiFetch).mockImplementation((url: string) =>
+        Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(url === '/api/sessions' ? sessions : {}),
+        } as Response),
+      );
+      const { result } = renderHook(() => useSessionList());
+      await waitFor(() => expect(result.current.loading).toBe(false));
+
+      vi.mocked(apiFetch).mockRejectedValue(new Error('Offline'));
+      act(() => result.current.retry());
+      await waitFor(() =>
+        expect(result.current.error).toBe('Couldn’t refresh chats. Showing the last loaded list.'),
+      );
+      expect(result.current.sessions).toEqual(sessions);
+
+      vi.mocked(apiFetch).mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve([{ id: 'new', summary: 'Updated', lastModified: 2 }]),
+      } as Response);
+      act(() => result.current.retry());
+      await waitFor(() => expect(result.current.error).toBeNull());
+      expect(result.current.sessions[0].id).toBe('new');
+    },
+  );
+
+  it('reports revalidation of a cached list as a refresh failure on remount', async () => {
+    const sessions = [{ id: 'cached', summary: 'Cached chat', lastModified: 1 }];
+    vi.mocked(apiFetch).mockImplementation((url: string) =>
+      Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve(url === '/api/sessions' ? sessions : {}),
+      } as Response),
+    );
+    const first = renderHook(() => useSessionList());
+    await waitFor(() => expect(first.result.current.loading).toBe(false));
+    first.unmount();
+
+    vi.mocked(apiFetch).mockRejectedValue(new Error('Offline'));
+    const next = renderHook(() => useSessionList());
+    expect(next.result.current.sessions).toEqual(sessions);
+    await waitFor(() =>
+      expect(next.result.current.error).toBe(
+        'Couldn’t refresh chats. Showing the last loaded list.',
+      ),
+    );
+  });
+
   it('dismissSession removes from list and calls DELETE', async () => {
     const sessions = [
       { id: 'a', summary: 'A', lastModified: Date.now() },
