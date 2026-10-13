@@ -100,7 +100,12 @@ export function GoogleWorkspaceControls({
         {status?.slidesEditing
           ? 'Slides creation and editing are enabled.'
           : 'Slides editing needs a provider policy update.'}{' '}
-        Drive, Docs, Sheets and Calendar access is read-only.
+        {status?.documentsEditing === true
+          ? 'Docs creation and editing are enabled.'
+          : status?.documentsEditing === false
+            ? 'Docs access is read-only. Enabling editing requires a reviewed provider policy update.'
+            : 'Docs editing permissions could not be checked.'}{' '}
+        Drive, Sheets and Calendar access is read-only.
       </p>
       <p className="workspace-muted">
         Chats use this connection after you approve Google access. Recovery also updates chats that

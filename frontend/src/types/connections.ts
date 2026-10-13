@@ -5,6 +5,7 @@ export interface GoogleWorkspaceHealth {
   health: 'ready' | 'needs_sign_in' | 'unavailable' | 'not_configured';
   expiresAt: number | null;
   slidesEditing: boolean;
+  documentsEditing?: boolean;
 }
 
 export interface ManagedConnection {
