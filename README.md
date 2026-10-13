@@ -202,6 +202,8 @@ Chat-prepared service connections report token rejection, service/network failur
 
 Ordinary OpenShell chats validate reviewed Jira, GitHub and custom REST connection policies at runtime as well as during setup. Current account assignments, exact provider bindings and explicit on-demand approvals remain required; changed permissions or an altered sandbox policy block admission.
 
+OpenAI API chats read Jira through Mitzo's approved Keychain connection tools; their Bash sandbox has no network or credentials. Reuse a saved Jira connection, or ask the chat to prepare its secure Jira read-only setup card with your public account email and site information. Enter the API token only in that card. Both tenant URLs and scoped-token cloud IDs are supported. Each chat approves access separately; an OpenShell-only Jira enrollment does not supply host API access. See [Jira reads in API chats](docs/operations/api-jira-access.md) for setup and query details.
+
 When OpenAI reports `not_authorized_invalid_project`, chat errors identify the selected account’s project as unavailable or archived. Check that account’s project configuration before starting a new turn; Mitzo keeps the failed turn paused without automatically retrying or switching accounts. Provider response bodies and credentials are not included in the public diagnostic.
 
 Connections are optional and require the reviewed OpenShell gateway setup. Enable `MITZO_CONNECTIONS_ENABLED=1` and configure the provider probe policies from [`infra/openshell/production.env.example`](infra/openshell/production.env.example). The [Connections acceptance guide](docs/connections-live-acceptance.md) lists the gateway requirements and checks to run before enabling providers in production.

@@ -4,6 +4,17 @@ import { connectionGuide } from '../connection-guide.js';
 import { CONNECTION_TOOL_INSTRUCTIONS } from '../session-credential-tools.js';
 
 describe('runtime-owned connection guidance', () => {
+  it('routes API-account Jira reads through approved connections instead of a networkless CLI', () => {
+    const guide = connectionGuide('use', credentialConnectionToolDefinitions);
+    expect(guide.instructions).toContain('ConnectionRequest');
+    expect(guide.instructions).toContain('search/jql');
+    expect(connectionGuide('connect', credentialConnectionToolDefinitions).instructions).toContain(
+      'profile "jira"',
+    );
+    expect(
+      connectionGuide('troubleshoot', credentialConnectionToolDefinitions).instructions,
+    ).toContain('requests');
+  });
   it('keeps the initial hint small and defers workflow detail to the guide', () => {
     expect(CONNECTION_TOOL_INSTRUCTIONS.length).toBeLessThan(500);
     expect(CONNECTION_TOOL_INSTRUCTIONS).toContain('GetConnectionGuide');
