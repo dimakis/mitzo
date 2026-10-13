@@ -47,3 +47,25 @@ it.each([
 ])('rejects caller authority and incompatible first-command shape', (value) => {
   expect(LocalCodexFirstCommandSchema.safeParse(value).success).toBe(false);
 });
+
+it.each([
+  { data: 'cG5n', mediaType: 'image/svg+xml' },
+  { data: 'ab==', mediaType: 'image/png' },
+  { data: 'not-base64!', mediaType: 'image/png' },
+  { data: '', mediaType: 'image/png' },
+])('rejects unsupported or noncanonical image input before admission', (image) => {
+  expect(
+    LocalCodexFirstCommandSchema.safeParse({
+      ...localCommand,
+      payload: { text: 'x', images: [image] },
+    }).success,
+  ).toBe(false);
+});
+it('accepts bounded canonical images without Node Buffer', () => {
+  expect(
+    LocalCodexFirstCommandSchema.safeParse({
+      ...localCommand,
+      payload: { text: 'x', images: [{ data: 'cG5n', mediaType: 'image/png' }] },
+    }).success,
+  ).toBe(true);
+});
