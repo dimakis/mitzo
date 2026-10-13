@@ -120,6 +120,10 @@ for (const appearance of ['dark', 'light'] as const) {
     await telosOptions.press('Enter');
     const options = page.getByRole('dialog', { name: 'File options' });
     await expect(options).toBeVisible();
+    await expect(options.locator('.file-action-choices')).not.toHaveAttribute(
+      'data-motion-active',
+      'true',
+    );
     expect((await options.boundingBox())!.width).toBeLessThanOrEqual(page.viewportSize()!.width);
     for (const name of ['Open', 'Download file', 'Share file', 'Close']) {
       expect(
