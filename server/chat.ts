@@ -1,3 +1,4 @@
+import { PROFILE_TOOL_INSTRUCTIONS } from './session-profile-tools.js';
 import { assertNativeCodexContextAdmission } from './native-codex-context-admission.js';
 import { OwnedLocalCodexChatAdmission } from './owned-local-codex-chat-admission.js';
 import {
@@ -1770,6 +1771,7 @@ async function _startChatInner(
   }
 
   registry.register(clientId, {
+    ...(options.operatorConnectionId ? { ownerConnectionId: options.operatorConnectionId } : {}),
     transport,
     abortController,
     // startChat already checked this exact execution against the existing claim.
@@ -2040,6 +2042,7 @@ This is an independent checkout with its own Git storage, not a linked worktree.
     repositoryChatContext(repositoryWorkspace) +
     'This is Mitzo, a mobile chat interface. The user is on their phone.\n' +
     SESSION_PERMISSION_INSTRUCTIONS +
+    PROFILE_TOOL_INSTRUCTIONS +
     (options.contributorGuidance === undefined ? telosArtifactInstructions(!!agentContext) : '') +
     '- Read operations are fine without asking.\n' +
     '- Keep responses concise — small screen.\n' +

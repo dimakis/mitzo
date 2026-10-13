@@ -265,6 +265,8 @@ it('a verified completed deployment can wait for resources without retaining dis
   s.defer(c.token, 'host-resources');
   expect(s.status().reservation.state).toBe('idle');
 });
+// These history fixtures perform hundreds of FULL synchronous commits on CI disks.
+// Keep their durable writes and 200-record boundary, with a bounded disk allowance.
 it('keeps queued work visible after more than 200 historical receipts', () => {
   const {
     stores: [s],
@@ -275,7 +277,7 @@ it('keeps queued work visible after more than 200 historical receipts', () => {
   }
   s.enqueue(request('current'));
   expect(s.status().requests.some((r) => r.id === 'current')).toBe(true);
-});
+}, 20_000);
 it('looks up an exact old receipt with its accepted and actually tested sources', () => {
   const {
     stores: [s],
@@ -310,7 +312,7 @@ it('looks up an exact old receipt with its accepted and actually tested sources'
       completedAt: 1000,
     },
   });
-});
+}, 20_000);
 it('reads pending and quarantined requests without inventing a result or changing custody', () => {
   const {
     stores: [s],

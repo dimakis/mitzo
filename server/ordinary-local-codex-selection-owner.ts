@@ -47,6 +47,8 @@ export class OrdinaryLocalCodexSelectionOwner {
         reservation = this.#reservation;
       if (this.#snapshot && !isDeepStrictEqual(expected, this.#snapshot)) throw unavailable();
       if (
+        expected.selection.agent.kind !== undefined ||
+        expected.agentProfile?.kind !== undefined ||
         expected.selection.permission.revision !== 0 ||
         permissionRevision(this.owners.events, reservation.conversationId) !== this.#permission ||
         expected.selection.context.source !== 'none' ||

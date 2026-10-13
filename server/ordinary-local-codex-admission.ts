@@ -137,6 +137,7 @@ function reconcileSessionMetadata(meta: Meta, request: OrdinaryLocalCodexCommand
     const parsed = AgentLibraryVersionSchema.safeParse(meta.agentProfile);
     if (
       !parsed.success ||
+      parsed.data.kind !== chosen.agent.kind ||
       parsed.data.profileId !== chosen.agent.profileId ||
       parsed.data.revision !== chosen.agent.revision ||
       parsed.data.contentHash !== contentDigest(parsed.data.definition)

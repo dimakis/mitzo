@@ -2316,6 +2316,40 @@ describe('handleReconnect reconnected summary (P1)', () => {
 // ─── handleSendV2 — routing paths ──────────────────────────────────────────
 
 describe('handleSendV2 routing', () => {
+  it('refuses switching between saved and built-in profiles with the same ID and revision', async () => {
+    vi.mocked(startChat).mockClear();
+    vi.mocked(sendToChat).mockClear();
+    const eventStore = mockEventStore();
+    eventStore.getSession.mockReturnValue({
+      agentProfile: { profileId: 'mitzo-profile-builder', revision: 1 },
+    });
+    const ctx = createContext({
+      eventStore: eventStore as unknown as V2HandlerContext['eventStore'],
+    });
+    const transport = mockTransport();
+    ctx.connRegistry.register('c1', transport);
+    await handleSendV2(
+      'c1',
+      transport,
+      {
+        type: 'send',
+        sessionId: 'sess-1',
+        prompt: 'hello',
+        clientMsgId: 'namespace-switch',
+        agentProfile: { kind: 'builtin', profileId: 'mitzo-profile-builder', revision: 1 },
+      },
+      ctx,
+    );
+    expect(transport.sent).toContainEqual(
+      expect.objectContaining({
+        type: 'error',
+        error: 'Choose a new chat to change its agent profile',
+      }),
+    );
+    expect(startChat).not.toHaveBeenCalled();
+    expect(sendToChat).not.toHaveBeenCalled();
+  });
+
   it('waits for active-driver admission on the active path', async () => {
     (sendToChat as ReturnType<typeof vi.fn>).mockClear();
     let admit!: (accepted: boolean) => void;
