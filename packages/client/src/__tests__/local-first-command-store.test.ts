@@ -95,7 +95,7 @@ function setup() {
       },
     },
   });
-  return { store, fetch };
+  return { store, fetch, readStorage: () => JSON.parse(raw ?? '[]') };
 }
 it('requires authenticated live SSE and then uses only exact dedicated POST with current connection identity', async () => {
   const { store, fetch } = setup();
@@ -166,3 +166,128 @@ it('keeps delayed assignment with its originating draft after New and exposes re
   expect(store.getState().localCommand?.sessionId).toBe('original-session');
   expect(assigned).toHaveBeenCalledWith('original-session');
 });
+
+it.each(['consumed', 'uncertain', 'reserved'])(
+  'retains a strict409 %s observation without assignment, then assigns only the exact202 recovery',
+  async (state) => {
+    const { store, fetch, readStorage } = setup();
+    channel.id = 'live-sse';
+    const assigned = vi.fn();
+    const delivered = vi.fn();
+    fetch.mockImplementation((path) =>
+      Promise.resolve(
+        path === '/local/send'
+          ? new Response(
+              JSON.stringify({
+                ok: false,
+                code: 'retained_command',
+                error: 'Local Codex entry unavailable',
+                clientMsgId: request.clientMsgId,
+                sessionId: 'observed-session',
+                state,
+              }),
+              { status: 409 },
+            )
+          : new Response('[]'),
+      ),
+    );
+    expect(
+      store.getState().sendLocalFirstCommand(request, {
+        draftId: 'original-draft',
+        onSessionAssigned: assigned,
+        onDelivery: delivered,
+      }),
+    ).toBe(true);
+    await vi.waitFor(() => expect(store.getState().localCommand?.state).toBe('retained'));
+    expect(store.getState().localCommand).toEqual({
+      request,
+      state: 'retained',
+      sessionId: 'observed-session',
+      originDraftId: 'original-draft',
+    });
+    expect(assigned).not.toHaveBeenCalled();
+    expect(store.getState().sessions.active).toBeNull();
+    expect(channel.send.mock.calls.some(([body]) => body.type === 'switch_session')).toBe(false);
+    expect(delivered).not.toHaveBeenCalledWith('accepted');
+    expect(readStorage()).toEqual([
+      expect.objectContaining({
+        body: request,
+        localDraftId: 'original-draft',
+        localReceipt: { sessionId: 'observed-session', state },
+      }),
+    ]);
+    // A failed retry retains the observation's IDs but creates no new acknowledgement.
+    fetch.mockRejectedValueOnce(Error('lost recovery response'));
+    expect(store.getState().recoverLocalCommand()).toBe(true);
+    await vi.waitFor(() => expect(store.getState().localCommand?.state).toBe('uncertain'));
+    expect(assigned).not.toHaveBeenCalled();
+    expect(store.getState().sessions.active).toBeNull();
+    expect(readStorage()[0].body).toEqual(request);
+    fetch.mockImplementation((path) =>
+      Promise.resolve(
+        path === '/local/send'
+          ? new Response(
+              JSON.stringify({
+                ok: true,
+                clientMsgId: request.clientMsgId,
+                sessionId: 'owned-session',
+                dispatched: true,
+                state: 'consumed',
+              }),
+              { status: 202 },
+            )
+          : new Response('[]'),
+      ),
+    );
+    expect(store.getState().recoverLocalCommand()).toBe(true);
+    await vi.waitFor(() => expect(assigned).toHaveBeenCalledWith('owned-session'));
+    expect(assigned).toHaveBeenCalledTimes(1);
+    expect(store.getState().sessions.active).toBe('owned-session');
+    expect(store.getState().localCommand?.originDraftId).toBe('original-draft');
+    expect(delivered).toHaveBeenCalledWith('accepted');
+    expect(readStorage()).toEqual([]);
+    expect(
+      fetch.mock.calls
+        .filter(([path]) => path === '/local/send')
+        .map(([, init]) => JSON.parse(init.body)),
+    ).toEqual([request, request, request]);
+  },
+);
+
+it.each(['reserved', 'uncertain'])(
+  'keeps validated202 %s assignment while retaining the exact command for recovery',
+  async (state) => {
+    const { store, fetch, readStorage } = setup();
+    channel.id = 'live-sse';
+    const assigned = vi.fn();
+    const delivered = vi.fn();
+    fetch.mockImplementation((path) =>
+      Promise.resolve(
+        path === '/local/send'
+          ? new Response(
+              JSON.stringify({
+                ok: true,
+                clientMsgId: request.clientMsgId,
+                sessionId: 'owned-session',
+                dispatched: false,
+                state,
+              }),
+              { status: 202 },
+            )
+          : new Response('[]'),
+      ),
+    );
+    expect(
+      store.getState().sendLocalFirstCommand(request, {
+        draftId: 'original-draft',
+        onSessionAssigned: assigned,
+        onDelivery: delivered,
+      }),
+    ).toBe(true);
+    await vi.waitFor(() => expect(assigned).toHaveBeenCalledWith('owned-session'));
+    expect(store.getState().sessions.active).toBe('owned-session');
+    expect(delivered).toHaveBeenCalledWith('uncertain');
+    expect(delivered).not.toHaveBeenCalledWith('accepted');
+    expect(readStorage()[0]).toMatchObject({ body: request, localDraftId: 'original-draft' });
+  },
+);

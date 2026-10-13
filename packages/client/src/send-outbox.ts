@@ -196,10 +196,11 @@ export class SendOutbox {
     }
   }
 
-  private notifyLocal(entry: Entry, state: string) {
+  private notifyLocal(entry: Entry, state: string, acknowledged = false) {
     this.config.notify({
       type: '_local_command_state',
       state,
+      ...(acknowledged ? { acknowledged: true } : {}),
       request: structuredClone(entry.body),
       clientMsgId: entry.body.clientMsgId,
       ...(entry.localDraftId ? { originDraftId: entry.localDraftId } : {}),
@@ -246,7 +247,7 @@ export class SendOutbox {
       if (matching && response.status === 202 && success.success) {
         entry.localReceipt = { sessionId: success.data.sessionId, state: success.data.state };
         if (!this.persist()) throw Error('Local receipt could not be retained');
-        this.notifyLocal(entry, success.data.state);
+        this.notifyLocal(entry, success.data.state, true);
         if (success.data.state === 'consumed') this.entries.shift();
         this.persist();
         if (success.data.state === 'consumed' && this.entries[0])

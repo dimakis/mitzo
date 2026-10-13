@@ -363,7 +363,9 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
                     : 'Local command retained. Review before retrying.',
             });
             if (!request) return;
-            if (sessionId) {
+            // Only a validated202 acknowledges this submitted request; a retained409
+            // session is an observation and must not consume its launch identity.
+            if (sessionId && event.acknowledged === true) {
               const foreground = bindLaunchAssignment(request.clientMsgId, sessionId);
               if (foreground) {
                 parserState.currentSessionId = sessionId;
