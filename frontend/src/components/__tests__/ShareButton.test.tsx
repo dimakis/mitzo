@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, cleanup, act } from '@testing-library/react';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
+import { render, screen, cleanup, act, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 vi.mock('../../lib/share-file', () => ({
@@ -10,6 +10,8 @@ vi.mock('../../lib/share-file', () => ({
 
 import { shareFile, downloadFile } from '../../lib/share-file';
 import { ShareButton } from '../ShareButton';
+import { installDialogStub } from './dialog-stub';
+beforeEach(installDialogStub);
 
 const mockShareFile = vi.mocked(shareFile);
 
@@ -19,18 +21,66 @@ describe('ShareButton', () => {
     vi.restoreAllMocks();
   });
 
-  it('renders with share label by default', () => {
+  it('keeps actions behind one compact control', async () => {
     render(<ShareButton filePath="/workspace/file.md" />);
-    const btn = screen.getByRole('button', { name: 'Share file' });
-    expect(btn).toBeTruthy();
-    expect(btn.querySelector('svg')?.getAttribute('data-icon')).toBe('share');
+    expect(screen.queryByRole('button', { name: 'Share file' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Download file' })).toBeNull();
+    await userEvent.click(screen.getByRole('button', { name: 'File options' }));
+    expect(screen.getByRole('button', { name: 'Share file' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Download file' })).toBeTruthy();
+  });
+
+  it('retains Open and restores focus after dismissal', async () => {
+    const open = vi.fn();
+    render(<ShareButton filePath="report.md" onOpen={open} />);
+    const trigger = screen.getByRole('button', { name: 'File options' });
+    await userEvent.click(trigger);
+    fireEvent(screen.getByRole('dialog'), new Event('cancel', { bubbles: true, cancelable: true }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+    await userEvent.click(trigger);
+    await userEvent.click(screen.getByRole('button', { name: 'Open' }));
+    expect(open).toHaveBeenCalledOnce();
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('keeps a pending action fenced when its options are closed and reopened', async () => {
+    let complete!: (value: boolean) => void;
+    mockShareFile.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          complete = resolve;
+        }),
+    );
+    render(<ShareButton filePath="report.md" />);
+    await userEvent.click(screen.getByRole('button', { name: 'File options' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Share file' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Close' }));
+    await userEvent.click(screen.getByRole('button', { name: 'File options' }));
+    expect((screen.getByRole('button', { name: 'Sharing...' }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+    expect(
+      (screen.getByRole('button', { name: 'Download file' }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+    await act(async () => complete(false));
+    expect(screen.getByRole('button', { name: 'Share file' })).toBeTruthy();
   });
 
   it('offers a separate browser download action', async () => {
     vi.mocked(downloadFile).mockResolvedValue(true);
     render(<ShareButton filePath="report.md" sessionId="session-1" />);
+    fireEvent.click(screen.getByRole('button', { name: 'File options' }));
     await userEvent.click(screen.getByRole('button', { name: 'Download file' }));
     expect(downloadFile).toHaveBeenCalledWith('report.md', 'session-1');
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(
+      screen
+        .getByRole('button', { name: 'File options' })
+        .querySelector('svg')
+        ?.getAttribute('data-icon'),
+    ).toBe('check');
+    fireEvent.click(screen.getByRole('button', { name: 'File options' }));
     expect(screen.getByRole('button', { name: 'Downloaded' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Share file' })).toBeTruthy();
   });
@@ -38,17 +88,17 @@ describe('ShareButton', () => {
   it('shows done state after successful share', async () => {
     mockShareFile.mockResolvedValue(true);
     render(<ShareButton filePath="/workspace/file.md" />);
-
+    fireEvent.click(screen.getByRole('button', { name: 'File options' }));
     const btn = screen.getByRole('button', { name: 'Share file' });
     await act(async () => {
       await userEvent.click(btn);
     });
 
     expect(mockShareFile).toHaveBeenCalledWith('/workspace/file.md');
-    expect(screen.getByRole('button', { name: 'Shared' })).toBeTruthy();
+    expect(screen.queryByRole('dialog')).toBeNull();
     expect(
       screen
-        .getByRole('button', { name: 'Shared' })
+        .getByRole('button', { name: 'File options' })
         .querySelector('svg')
         ?.getAttribute('data-icon'),
     ).toBe('check');
@@ -57,7 +107,7 @@ describe('ShareButton', () => {
   it('shows error state when share fails', async () => {
     mockShareFile.mockRejectedValue(new Error('Network error'));
     render(<ShareButton filePath="/workspace/file.md" />);
-
+    fireEvent.click(screen.getByRole('button', { name: 'File options' }));
     const btn = screen.getByRole('button', { name: 'Share file' });
     await act(async () => {
       await userEvent.click(btn);
@@ -81,7 +131,7 @@ describe('ShareButton', () => {
         }),
     );
     render(<ShareButton filePath="/workspace/file.md" />);
-
+    fireEvent.click(screen.getByRole('button', { name: 'File options' }));
     const btn = screen.getByRole('button', { name: 'Share file' });
     await act(async () => {
       await userEvent.click(btn);
@@ -98,6 +148,7 @@ describe('ShareButton', () => {
   it('keeps cancellation neutral and forwards the originating session', async () => {
     mockShareFile.mockResolvedValue(false);
     render(<ShareButton filePath="report.md" sessionId="historical-session" />);
+    fireEvent.click(screen.getByRole('button', { name: 'File options' }));
     await userEvent.click(screen.getByRole('button', { name: 'Share file' }));
     expect(mockShareFile).toHaveBeenCalledWith('report.md', 'historical-session');
     expect(screen.getByRole('button', { name: 'Share file' })).toBeTruthy();
@@ -111,8 +162,10 @@ describe('ShareButton', () => {
         () => new Promise<boolean>((resolve, reject) => pending.push({ resolve, reject })),
       );
       const { rerender } = render(<ShareButton filePath="old.md" sessionId="old-session" />);
+      fireEvent.click(screen.getByRole('button', { name: 'File options' }));
       await userEvent.click(screen.getByRole('button', { name: 'Share file' }));
       rerender(<ShareButton filePath="new.md" sessionId="new-session" />);
+      fireEvent.click(screen.getByRole('button', { name: 'File options' }));
       await userEvent.click(screen.getByRole('button', { name: 'Share file' }));
       expect(mockShareFile).toHaveBeenLastCalledWith('new.md', 'new-session');
       await act(async () => {
@@ -137,6 +190,7 @@ describe('ShareButton', () => {
         }),
     );
     const { unmount } = render(<ShareButton filePath="old.md" />);
+    fireEvent.click(screen.getByRole('button', { name: 'File options' }));
     await userEvent.click(screen.getByRole('button', { name: 'Share file' }));
     unmount();
     const timeout = vi.spyOn(globalThis, 'setTimeout');
@@ -154,6 +208,7 @@ describe('ShareButton', () => {
       </div>,
     );
 
+    fireEvent.click(screen.getByRole('button', { name: 'File options' }));
     const btn = screen.getByRole('button', { name: 'Share file' });
     await act(async () => {
       await userEvent.click(btn);

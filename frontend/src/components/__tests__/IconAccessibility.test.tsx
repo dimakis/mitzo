@@ -164,7 +164,10 @@ it.each([
   ['HTML preview', <HtmlPreviewCard filePath="preview.html" />],
 ] as const)('exposes collapsed and expanded state for %s', async (_name, component) => {
   render(<MemoryRouter>{component}</MemoryRouter>);
-  const control = screen.getByRole('button', { expanded: false });
+  const control = screen.getByRole('button', {
+    expanded: false,
+    name: _name === 'Markdown preview' ? /notes\.md/ : undefined,
+  });
   fireEvent.click(control);
   expect(await screen.findByRole('button', { expanded: true })).toBe(control);
 });

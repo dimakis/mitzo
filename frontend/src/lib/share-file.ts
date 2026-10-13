@@ -1,37 +1,9 @@
 import { Capacitor } from '@capacitor/core';
 import { apiFetch } from './api-fetch';
-import { artifactApiUrl } from './file-paths';
+import { artifactApiUrl, isTelosArtifactUrl } from './file-paths';
+import { shareNativeFile } from './native-file-share';
 
-/** MIME types for common file extensions. Falls back to application/octet-stream. */
-function mimeFromExt(filename: string): string {
-  const ext = filename.split('.').pop()?.toLowerCase() ?? '';
-  const map: Record<string, string> = {
-    md: 'text/markdown',
-    mdx: 'text/markdown',
-    txt: 'text/plain',
-    json: 'application/json',
-    yaml: 'application/x-yaml',
-    yml: 'application/x-yaml',
-    csv: 'text/csv',
-    html: 'text/html',
-    htm: 'text/html',
-    css: 'text/css',
-    js: 'text/javascript',
-    ts: 'text/typescript',
-    tsx: 'text/typescript',
-    jsx: 'text/javascript',
-    py: 'text/x-python',
-    sh: 'text/x-shellscript',
-    pdf: 'application/pdf',
-    png: 'image/png',
-    jpg: 'image/jpeg',
-    jpeg: 'image/jpeg',
-    gif: 'image/gif',
-    webp: 'image/webp',
-    svg: 'image/svg+xml',
-  };
-  return map[ext] ?? 'application/octet-stream';
-}
+import { mimeFromExt } from './file-metadata';
 
 /** Extract just the filename from an absolute or relative path. */
 function filenameFromPath(filePath: string): string {
@@ -43,26 +15,32 @@ async function fetchFileBlob(
   filePath: string,
   sessionId?: string,
 ): Promise<{ blob: Blob; filename: string }> {
-  const telos = /^\/api\/telos\/artifacts\/[a-f0-9]{32}(?:\?revision=[1-9]\d*)?$/.test(filePath);
+  const telos = isTelosArtifactUrl(filePath);
   const res = await apiFetch(telos ? filePath : artifactApiUrl('download', filePath, sessionId));
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: 'Download failed' }));
     throw new Error(body.error ?? `Download failed (${res.status})`);
   }
   const blob = await res.blob();
-  const encodedName = telos
-    ? res.headers.get('Content-Disposition')?.match(/filename\*=UTF-8''([^;]+)/i)?.[1]
-    : undefined;
-  const filename = encodedName
-    ? filenameFromPath(decodeURIComponent(encodedName))
-    : telos
-      ? 'telos-document'
-      : filenameFromPath(filePath);
+  const disposition = res.headers.get('Content-Disposition') ?? '';
+  const encodedName = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
+  let serverName: string | undefined;
+  if (encodedName) {
+    try {
+      serverName = decodeURIComponent(encodedName.trim());
+    } catch {
+      /* Try the legacy name. */
+    }
+  }
+  serverName ||=
+    disposition.match(/filename="((?:[^"\\]|\\.)*)"/i)?.[1]?.replace(/\\(.)/g, '$1') ??
+    disposition.match(/filename=([^;]+)/i)?.[1]?.trim();
+  const filename = filenameFromPath(serverName || (telos ? 'telos-document' : filePath));
   return { blob, filename };
 }
 
 /** Prefer the extension for known types; servers may serve Markdown as plain text. */
-async function fetchFile(filePath: string, sessionId?: string): Promise<File> {
+export async function fetchFile(filePath: string, sessionId?: string): Promise<File> {
   const { blob, filename } = await fetchFileBlob(filePath, sessionId);
   const extensionMime = mimeFromExt(filename);
   const mime =
@@ -115,6 +93,11 @@ export async function shareFile(filePath: string, sessionId?: string): Promise<b
     if (generation !== operationGeneration) return false;
   }
 
+  if (Capacitor.isNativePlatform()) {
+    retry = undefined;
+    return shareNativeFile(file);
+  }
+
   if (
     typeof navigator.share === 'function' &&
     typeof navigator.canShare === 'function' &&
@@ -142,15 +125,11 @@ export async function shareFile(filePath: string, sessionId?: string): Promise<b
     return true;
   }
 
-  if (Capacitor.isNativePlatform()) {
-    throw new Error('This device cannot share this file type. Open it in a browser to download.');
-  }
   return saveBrowserFile(file);
 }
 
 /** Authenticated Telos bytes use the existing mobile share/browser download flow. */
 export async function shareTelosArtifact(url: string): Promise<boolean> {
-  if (!/^\/api\/telos\/artifacts\/[a-f0-9]{32}(?:\?revision=[1-9]\d*)?$/.test(url))
-    throw new Error('Invalid Telos artifact URL');
+  if (!isTelosArtifactUrl(url)) throw new Error('Invalid Telos artifact URL');
   return shareFile(url);
 }

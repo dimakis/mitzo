@@ -283,6 +283,20 @@ Offline approval fixtures cover 320px mobile WebKit/Chromium and desktop Chromiu
 light/dark themes, Mint/Georgia appearance, larger text, long request details,
 keyboard focus and 44px controls without a backend or model call.
 
+## Artefact sharing links
+
+Markdown Telos artefact links reuse `FileShareLink` and a compact file-options
+surface. Ordinary file links retain their primary in-app opening action and one
+quiet options trigger; previews group Open, Download and Share behind that same
+trigger. Telos filenames open their read-only saved revision inside Files and retain one
+quiet options trigger, following the same pattern as ordinary files. Choices appear only on request using `HomeDialog`, its focus/scroll
+ownership, shared control-height targets and motion-presence helper. The action
+state stays with the trigger so closing/reopening cannot duplicate a pending
+operation. Successful actions dismiss the options and restore focus. A returning composer
+only takes initial focus when no other control owns it. On iOS, the system Share sheet also offers Save to Files. The offline
+artefact fixture checks compact closed controls, revealed choices, Escape/focus
+restoration, exact revision and original bytes across mobile/desktop appearances.
+
 ## Agent profile draft cards
 
 Pending profile proposals appear after the transcript inside the existing ChatArea

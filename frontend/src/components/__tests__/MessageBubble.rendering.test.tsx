@@ -2,7 +2,10 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { MemoryRouter } from 'react-router-dom';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { beforeEach } from 'vitest';
+import { installDialogStub } from './dialog-stub';
+beforeEach(installDialogStub);
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { useLocation } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
@@ -12,6 +15,11 @@ import {
   remarkPlugins,
   rehypePlugins,
 } from '../../lib/markdown-config';
+vi.mock('../../lib/share-file', () => ({
+  shareFile: vi.fn().mockResolvedValue(true),
+  downloadFile: vi.fn(),
+}));
+import { shareFile } from '../../lib/share-file';
 import { MessageBubble, TextBubble } from '../MessageBubble';
 import type { FinishedMessage } from '../../types/chat';
 
@@ -26,6 +34,89 @@ function renderBubble(content: string, streaming = false): string {
 }
 
 describe('TextBubble file link rendering', () => {
+  it('opens a Telos filename in Mitzo with its exact revision and keeps actions separate', () => {
+    function Location() {
+      const location = useLocation();
+      return <output data-testid="opened-location">{location.pathname + location.search}</output>;
+    }
+    const href = '/api/telos/artifacts/' + 'c'.repeat(32) + '?revision=2';
+    render(
+      <MemoryRouter initialEntries={['/chat/original']}>
+        <TextBubble content={`[Telos artifact](${href})`} />
+        <Location />
+      </MemoryRouter>,
+    );
+    expect(screen.queryByRole('button', { name: 'Share file' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'File options' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('link', { name: 'Telos artifact' }));
+    const opened = new URL(
+      screen.getByTestId('opened-location').textContent!,
+      'https://mitzo.test',
+    );
+    expect(opened.pathname).toBe('/files');
+    expect(opened.searchParams.get('path')).toBe(href);
+    expect(opened.searchParams.get('from')).toBe('/chat/original');
+    expect(screen.queryByRole('dialog')).toBeNull();
+    cleanup();
+  });
+
+  it('shares a stored Telos link without opening another app or losing its revision', async () => {
+    const href = '/api/telos/artifacts/' + 'a'.repeat(32) + '?revision=2';
+    render(
+      <MemoryRouter>
+        <TextBubble content={`[Telos artifact](${href})`} />
+      </MemoryRouter>,
+    );
+    const link = screen.getByRole('link', { name: 'Telos artifact' });
+    expect(link.getAttribute('target')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'File options' }));
+    expect(screen.getByRole('dialog', { name: 'File options' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Share file' }));
+    expect(shareFile).toHaveBeenCalledWith(href);
+    cleanup();
+  });
+
+  it('shares the exact revision from a bare Telos URL', () => {
+    vi.mocked(shareFile).mockClear();
+    const href = '/api/telos/artifacts/' + 'b'.repeat(32) + '?revision=2';
+    render(
+      <MemoryRouter>
+        <TextBubble content={`Saved ${href}.`} />
+      </MemoryRouter>,
+    );
+    const link = screen.getByRole('link', { name: href });
+    expect(link.getAttribute('target')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'File options' }));
+    expect(screen.getByRole('dialog', { name: 'File options' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Share file' }));
+    expect(shareFile).toHaveBeenCalledExactlyOnceWith(href);
+    cleanup();
+  });
+
+  it.each([
+    '/workspace/report.pdf',
+    '/workspace/report.docx',
+    '/workspace/report.xml',
+    '/workspace/packet.bin',
+    'file:///workspace/report.xlsx',
+    'sandbox:/mnt/data/report.pptx',
+  ])('keeps generated document link %s inside Mitzo', (href) => {
+    const html = renderBubble(`[report](${href})`);
+    expect(html).toContain('file-path-link');
+    expect(html).not.toContain('target="_blank"');
+  });
+
+  it.each([
+    'file://remote-host/report.pdf',
+    'sandbox:/mnt/data/%E0%A4%A.pdf',
+    'javascript:alert(1)',
+  ])('keeps filtered destination %s readable without opening the app URL', (href) => {
+    const html = renderBubble(`[report](${href})`);
+    expect(html).toContain('report');
+    expect(html).not.toContain('href=""');
+    expect(html).not.toContain('target="_blank"');
+  });
+
   it.each(['report.html', 'outputs/report.html', './outputs/report.html'])(
     'opens relative Markdown artifact %s in the originating session',
     (path) => {
@@ -47,6 +138,10 @@ describe('TextBubble file link rendering', () => {
       cleanup();
     },
   );
+
+  it('keeps fragment links in the current webview', () => {
+    expect(renderBubble('[section](#section)')).not.toContain('target="_blank"');
+  });
 
   it('keeps external and page-relative browser links outside artifact routing', () => {
     const html = renderBubble('[site](https://example.com) [section](#section)');
@@ -272,5 +367,30 @@ it('opens an unchanged restored Markdown message with its originating session', 
   expect(url.searchParams.get('path')).toBe('/workspace/My Report.md');
   expect(url.searchParams.get('sessionId')).toBe('old-session');
   expect(url.searchParams.get('from')).toBe('/chat/old-session');
+  cleanup();
+});
+
+it('keeps a saved Telos document from resolving relative links against a host workspace', () => {
+  const onOpen = vi.fn();
+  render(
+    <ReactMarkdown
+      remarkPlugins={remarkPlugins}
+      rehypePlugins={rehypePlugins}
+      urlTransform={artifactUrlTransform}
+      components={artifactMarkdownComponents(
+        '/api/telos/artifacts/' + 'a'.repeat(32),
+        undefined,
+        '/chat/original',
+        onOpen,
+      )}
+    >
+      {'[local](notes.md) [absolute](/workspace/private.md) [site](https://example.com)'}
+    </ReactMarkdown>,
+  );
+  expect(screen.queryByRole('link', { name: 'local' })).toBeNull();
+  expect(screen.queryByRole('link', { name: 'absolute' })).toBeNull();
+  expect(screen.getByRole('link', { name: 'site' }).getAttribute('href')).toBe(
+    'https://example.com',
+  );
   cleanup();
 });

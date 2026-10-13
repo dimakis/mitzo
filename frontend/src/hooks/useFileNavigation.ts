@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import type { SetURLSearchParams } from 'react-router-dom';
 import { apiFetch } from '../lib/api-fetch';
-import { artifactApiUrl } from '../lib/file-paths';
+import { fetchFile } from '../lib/share-file';
+import { artifactApiUrl, isTelosArtifactUrl } from '../lib/file-paths';
 
 interface DirEntry {
   name: string;
@@ -42,6 +43,8 @@ export interface FileNavState {
   activeRoot: string;
   isViewing: boolean;
   filePath: string;
+  displayName?: string;
+  previewUnavailable?: boolean;
   dirPath: string;
   sessionId: string;
 }
@@ -51,6 +54,9 @@ export function useFileNavigation(
   setSearchParams: SetURLSearchParams,
 ) {
   const filePath = searchParams.get('path') || '';
+  const telos = isTelosArtifactUrl(filePath);
+  const [displayName, setDisplayName] = useState('');
+  const [previewUnavailable, setPreviewUnavailable] = useState(false);
   const dirPath = searchParams.get('dir') || '';
   const rootParam = searchParams.get('root') || '';
   const sessionId = searchParams.get('sessionId') || '';
@@ -83,6 +89,7 @@ export function useFileNavigation(
   );
 
   useEffect(() => {
+    if (telos) return;
     let disposed = false;
     apiFetch('/api/git/info')
       .then((r) => (r.ok ? r.json() : null))
@@ -106,7 +113,7 @@ export function useFileNavigation(
     return () => {
       disposed = true;
     };
-  }, []);
+  }, [telos]);
 
   useEffect(() => {
     let disposed = false;
@@ -118,20 +125,35 @@ export function useFileNavigation(
     if (sessionId) directoryParams.set('sessionId', sessionId);
 
     if (isViewing) {
-      apiFetch(artifactApiUrl('read', filePath, sessionId || undefined))
-        .then(async (r) => {
-          if (!r.ok) {
-            const body = await r.json().catch(() => null);
-            throw new Error(body?.error || 'Failed to load file');
-          }
-          return r.json();
-        })
+      const read = telos
+        ? fetchFile(filePath).then(async (file) => {
+            const text = file.type.startsWith('text/') || /(?:json|xml|yaml)$/.test(file.type);
+            return {
+              path: filePath,
+              name: file.name,
+              ext: file.name.includes('.') ? '.' + file.name.split('.').pop()!.toLowerCase() : '',
+              previewUnavailable: !text,
+              content: text
+                ? await file.text()
+                : 'This file has no in-app preview. Use the file options to share or save it.',
+            };
+          })
+        : apiFetch(artifactApiUrl('read', filePath, sessionId || undefined)).then(async (r) => {
+            if (!r.ok) {
+              const body = await r.json().catch(() => null);
+              throw new Error(body?.error || 'Failed to load file');
+            }
+            return r.json();
+          });
+      read
         .then((data) => {
           if (disposed) return;
           setResolvedFile({
             identity,
             path: typeof data.path === 'string' && data.path ? data.path : filePath,
           });
+          setDisplayName(typeof data.name === 'string' ? data.name : '');
+          setPreviewUnavailable(Boolean(data.previewUnavailable));
           setContent(data.content);
           setExt(data.ext);
         })
@@ -166,7 +188,7 @@ export function useFileNavigation(
     return () => {
       disposed = true;
     };
-  }, [identity, filePath, dirPath, isViewing, activeRoot, sessionId]);
+  }, [identity, filePath, dirPath, isViewing, activeRoot, sessionId, telos]);
 
   function loadWorktrees(): Promise<void> {
     if (worktreesLoaded.current) return Promise.resolve();
@@ -226,6 +248,10 @@ export function useFileNavigation(
   function handleBack(dirty: boolean) {
     if (dirty && !confirm('Discard unsaved changes?')) return;
     if (isViewing) {
+      if (telos) {
+        setSearchParams({});
+        return;
+      }
       const lastSlash = openedPath.lastIndexOf('/');
       const parentDir = lastSlash < 0 ? '' : openedPath.slice(0, lastSlash) || '/';
       const params = navigationParams();
@@ -261,6 +287,8 @@ export function useFileNavigation(
     activeRoot,
     isViewing,
     filePath: openedPath,
+    displayName,
+    previewUnavailable,
     dirPath,
     sessionId,
   };

@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.9';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.84';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.85';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -115,7 +115,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   // Read-only session observation is part of the operator route composition.
   '../session-access.ts': 'e70130c57879d3b22fab78473d90c8d2e787b7a499194c166e7e912fc5cf2767',
   // Request authority and physical review composition share runtime admission.
-  '../app.ts': 'b7d88ceddefb72cfcb97638ad9865f96b3861a6d86ec140b74b36797e2867083',
+  '../app.ts': '61f76d55aed6d48769657ecd9c1c21aa37ae0a837965308bb7d6bbb7c653a461',
   '../auth-check-tracing.ts': '067dc344d8ee76ffe39739a99076f614711ca3d11f96682c842c596a7bbd112e',
   '../telemetry-relay.ts': '302bf6cec2b988ae71a123a5dd04d0f2266a82c3ee51873ec64d8be452c25427',
   '../symposium-artifact-route-composition.ts':

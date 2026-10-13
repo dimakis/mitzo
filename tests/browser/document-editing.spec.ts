@@ -1239,7 +1239,9 @@ test('grouped editor keeps every action reachable with compact desktop and touch
   page.on('dialog', (dialog) => dialog.accept());
   await page.getByRole('button', { name: 'Discard', exact: true }).click();
   await expect(source).toHaveCount(0);
-  for (const name of ['Edit', 'Read', 'Share file', 'Download file']) {
+  await expect(page.getByRole('button', { name: 'Share file', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Download file', exact: true })).toHaveCount(0);
+  for (const name of ['Edit', 'Read', 'File options']) {
     const button = page.getByRole('button', { name, exact: true });
     await expect(button).toBeInViewport();
     await button.click({ trial: true });

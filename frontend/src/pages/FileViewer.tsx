@@ -17,6 +17,7 @@ import { DocumentEditor } from '../components/DocumentEditor';
 import { HtmlPreview } from '../components/HtmlPreview';
 import { findArtifactCapabilityByExtension } from '@mitzo/protocol';
 import './FileViewerControls.css';
+import { isTelosArtifactUrl } from '../lib/file-paths';
 
 export function FileViewer() {
   const [params] = useSearchParams();
@@ -46,8 +47,9 @@ function FileViewerDocument() {
   const isMarkdown = ['.md', '.mdx'].includes(state.ext);
   const artifactCapability = findArtifactCapabilityByExtension(state.ext);
   const isHtml = artifactCapability?.artifact?.renderer === 'html';
-  const isEditable = isMarkdown || artifactCapability?.artifact?.editable === true;
-  const fileName = state.filePath.split('/').pop() || '';
+  const telos = isTelosArtifactUrl(state.filePath);
+  const isEditable = !telos && (isMarkdown || artifactCapability?.artifact?.editable === true);
+  const fileName = state.displayName || (telos ? 'File' : state.filePath.split('/').pop() || '');
   const dirName = state.currentDir.split('/').pop() || 'Files';
   const displayBranch =
     state.gitInfo?.worktrees.find((w) => w.path === state.activeRoot)?.branch ||
@@ -321,7 +323,12 @@ function FileViewerDocument() {
           state.isViewing &&
           !editor.editing &&
           !isMarkdown &&
-          !isHtml && <pre className="viewer-code">{state.content}</pre>}
+          !isHtml &&
+          (state.previewUnavailable ? (
+            <p className="viewer-status">{state.content}</p>
+          ) : (
+            <pre className="viewer-code">{state.content}</pre>
+          ))}
 
         {!state.loading && !state.error && !state.isViewing && (
           <div className="viewer-dir">

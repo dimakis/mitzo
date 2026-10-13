@@ -70,13 +70,12 @@ export function MarkdownPreviewCard({ filePath, sessionId }: Props) {
             <UiIcon name={expanded ? 'down' : 'forward'} size={16} />
           </span>
         </button>
-        <ShareButton filePath={openedPath} sessionId={sessionId} className="share-btn--visible" />
-        <button
-          className="md-preview-card-open"
-          onClick={() => navigate(artifactViewerUrl(openedPath, currentPath, sessionId))}
-        >
-          Open
-        </button>
+        <ShareButton
+          filePath={openedPath}
+          sessionId={sessionId}
+          className="share-btn--visible"
+          onOpen={() => navigate(artifactViewerUrl(openedPath, currentPath, sessionId))}
+        />
       </div>
       {expanded && (
         <div className="md-preview-card-content">
