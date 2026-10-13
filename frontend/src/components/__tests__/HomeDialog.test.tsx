@@ -39,3 +39,15 @@ it('supports a shared full-screen variant while retaining native close, focus an
   expect(document.activeElement).toBe(opener);
   opener.remove();
 });
+
+it('makes a retained closing surface inert and hidden from assistive technology', () => {
+  render(
+    <HomeDialog title="File options" inactive onClose={() => {}}>
+      <button>Share</button>
+    </HomeDialog>,
+  );
+  const dialog = screen.getByRole('dialog', { hidden: true });
+  expect(dialog.hasAttribute('inert')).toBe(true);
+  expect(dialog.getAttribute('aria-hidden')).toBe('true');
+  expect(screen.queryByRole('button', { name: 'Share' })).toBeNull();
+});

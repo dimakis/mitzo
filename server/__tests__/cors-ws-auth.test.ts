@@ -1,7 +1,8 @@
-import { describe, it, expect, vi, beforeAll } from 'vitest';
-import type { Express } from 'express';
+import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
+import type { Server } from 'node:http';
+import { listenOnLoopback, closeTestServer } from './loopback-test-server.js';
 import request from 'supertest';
-import { mkdirSync } from 'fs';
+import { mkdirSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 
@@ -65,33 +66,55 @@ vi.mock('../git-version.js', () => ({
   isUpdateAvailable: vi.fn().mockReturnValue(false),
 }));
 
-let app: Express;
+let server: Server;
 
 beforeAll(async () => {
   mkdirSync(TEST_REPO, { recursive: true });
   const mod = await import('../app.js');
-  app = mod.app;
+  server = await listenOnLoopback(mod.app);
+});
+
+afterAll(async () => {
+  if (server) await closeTestServer(server);
 });
 
 describe('CORS middleware', () => {
   it('adds CORS headers for allowed origin', async () => {
-    const res = await request(app).get('/api/version').set('Origin', 'capacitor://localhost');
+    const res = await request(server).get('/api/version').set('Origin', 'capacitor://localhost');
     expect(res.headers['access-control-allow-origin']).toBe('capacitor://localhost');
     expect(res.headers['access-control-allow-credentials']).toBe('true');
   });
 
+  it('exposes the original download filename to the authenticated iOS webview', async () => {
+    const file = join(TEST_REPO, 'Résumé.docx');
+    writeFileSync(file, Buffer.from([0, 255, 128, 65]));
+    const { login } = await import('../auth.js');
+    const token = await login(process.env.AUTH_PASSPHRASE!);
+    const res = await request(server)
+      .get('/api/files/download')
+      .query({ path: file })
+      .set('Origin', 'capacitor://localhost')
+      .set('Authorization', `Bearer ${token}`);
+    expect(res.status).toBe(200);
+    expect(res.headers['content-disposition']).toContain("filename*=UTF-8''R%C3%A9sum%C3%A9.docx");
+    expect(res.headers['access-control-expose-headers']).toContain('Content-Disposition');
+  });
+
   it('adds CORS headers for second allowed origin', async () => {
-    const res = await request(app).get('/api/version').set('Origin', 'https://custom.example.com');
+    const res = await request(server)
+      .get('/api/version')
+      .set('Origin', 'https://custom.example.com');
     expect(res.headers['access-control-allow-origin']).toBe('https://custom.example.com');
   });
 
   it('does not add CORS headers for disallowed origin', async () => {
-    const res = await request(app).get('/api/version').set('Origin', 'https://evil.example.com');
+    const res = await request(server).get('/api/version').set('Origin', 'https://evil.example.com');
     expect(res.headers['access-control-allow-origin']).toBeUndefined();
+    expect(res.headers['access-control-expose-headers']).toBeUndefined();
   });
 
   it('allows the capability route transport identity header in OPTIONS preflight', async () => {
-    const res = await request(app)
+    const res = await request(server)
       .options('/api/capability-operations')
       .set('Origin', 'capacitor://localhost');
     expect(res.status).toBe(204);
@@ -104,11 +127,12 @@ describe('CORS middleware', () => {
   });
 
   it('returns 204 for OPTIONS from disallowed origin but without CORS headers', async () => {
-    const res = await request(app)
+    const res = await request(server)
       .options('/api/version')
       .set('Origin', 'https://evil.example.com');
     expect(res.status).toBe(204);
     expect(res.headers['access-control-allow-origin']).toBeUndefined();
+    expect(res.headers['access-control-expose-headers']).toBeUndefined();
     expect(res.headers['access-control-max-age']).toBeUndefined();
   });
 });
@@ -132,7 +156,7 @@ describe('WS query-param auth (verifyToken)', () => {
   });
 
   it('login response includes token for WS query-param auth', async () => {
-    const res = await request(app)
+    const res = await request(server)
       .post('/api/auth/login')
       .send({ passphrase: process.env.AUTH_PASSPHRASE });
     expect(res.status).toBe(200);

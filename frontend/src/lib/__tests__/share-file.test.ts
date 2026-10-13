@@ -5,6 +5,9 @@ vi.mock('../api-fetch', () => ({
   apiFetch: vi.fn(),
 }));
 
+vi.mock('../native-file-share', () => ({ shareNativeFile: vi.fn() }));
+
+import { shareNativeFile } from '../native-file-share';
 import { apiFetch } from '../api-fetch';
 import { Capacitor } from '@capacitor/core';
 import { shareFile, downloadFile, shareTelosArtifact } from '../share-file';
@@ -50,6 +53,7 @@ describe('shareFile', () => {
   it('fetches Telos bytes through apiFetch and shares a named file on mobile', async () => {
     vi.spyOn(Capacitor, 'isNativePlatform').mockReturnValue(true);
     const share = vi.fn().mockResolvedValue(undefined);
+    vi.mocked(shareNativeFile).mockResolvedValue(true);
     Object.defineProperty(navigator, 'canShare', { value: () => true, configurable: true });
     Object.defineProperty(navigator, 'share', { value: share, configurable: true });
     mockApiFetch.mockResolvedValue(
@@ -60,11 +64,61 @@ describe('shareFile', () => {
     const url = '/api/telos/artifacts/' + 'a'.repeat(32) + '?revision=1';
     expect(await shareTelosArtifact(url)).toBe(true);
     expect(mockApiFetch).toHaveBeenLastCalledWith(url);
-    expect(share.mock.calls[0][0].files[0]).toMatchObject({
-      name: 'Recovery spec.md',
-      type: 'text/markdown',
-    });
+    expect(share).not.toHaveBeenCalled();
+    expect(shareNativeFile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: 'Recovery spec.md',
+        type: 'text/markdown',
+      }),
+    );
     expect(createObjectURLSpy).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['report.docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
+    ['budget.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'],
+    ['slides.pptx', 'application/vnd.openxmlformats-officedocument.presentationml.presentation'],
+    ['bundle.zip', 'application/zip'],
+  ])('preserves the type and server filename for %s', async (name, type) => {
+    const share = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'canShare', { value: () => true, configurable: true });
+    Object.defineProperty(navigator, 'share', { value: share, configurable: true });
+    mockApiFetch.mockResolvedValue(
+      new Response('bytes', {
+        headers: {
+          'Content-Disposition': `attachment; filename="${name}"`,
+          'Content-Type': 'application/octet-stream',
+        },
+      }),
+    );
+    await shareFile('/workspace/download');
+    expect(share.mock.calls[0][0].files[0]).toMatchObject({ name, type });
+  });
+
+  it('prefers a Unicode server filename over a workspace path alias', async () => {
+    const share = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'canShare', { value: () => true, configurable: true });
+    Object.defineProperty(navigator, 'share', { value: share, configurable: true });
+    mockApiFetch.mockResolvedValue(
+      new Response('bytes', {
+        headers: {
+          'Content-Disposition':
+            "attachment; filename=report.txt; filename*=UTF-8''R%C3%A9sum%C3%A9.pdf",
+        },
+      }),
+    );
+    await shareFile('alias');
+    expect(share.mock.calls[0][0].files[0]).toMatchObject({
+      name: 'Résumé.pdf',
+      type: 'application/pdf',
+    });
+  });
+
+  it('returns cancellation from the native sheet', async () => {
+    vi.spyOn(Capacitor, 'isNativePlatform').mockReturnValue(true);
+    vi.mocked(shareNativeFile).mockResolvedValueOnce(false);
+    mockApiFetch.mockResolvedValue(new Response('bytes'));
+    expect(await shareFile('report.pdf')).toBe(false);
   });
 
   it('downloads file and triggers browser download when canShare is unavailable', async () => {
@@ -242,11 +296,12 @@ describe('shareFile', () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it('reports unsupported native sharing without pretending a blob download saved the file', async () => {
+  it('reports native bridge errors without falling back to web sharing or blob navigation', async () => {
     vi.spyOn(Capacitor, 'isNativePlatform').mockReturnValue(true);
     Object.defineProperty(navigator, 'canShare', { value: () => false, configurable: true });
     mockApiFetch.mockImplementation(async () => new Response('bytes'));
-    await expect(shareFile('unsupported.bin')).rejects.toThrow('cannot share this file type');
+    vi.mocked(shareNativeFile).mockRejectedValueOnce(new Error('Share sheet unavailable'));
+    await expect(shareFile('unsupported.bin')).rejects.toThrow('Share sheet unavailable');
     expect(createObjectURLSpy).not.toHaveBeenCalled();
   });
 
