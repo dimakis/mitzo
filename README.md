@@ -210,6 +210,11 @@ only after acceptance. An explicit `mitzo:transport=ws` localStorage preference
 retains WebSocket for diagnostics. Existing overrides are preserved; remove that
 preference to use SSE. Installed iOS apps need an updated bundle to adopt this default.
 
+SSE background suspension uses an authenticated keepalive POST. A failed suspend
+hint does not add an error to the conversation; foreground probe/reconnect restores
+tracked sessions from their last applied cursor. Prompt delivery, control and
+permission failures retain their existing feedback.
+
 ```
 Phone (Tailscale) ──┬── HTTP: REST API
                     └── SSE: v2 streaming protocol (WS diagnostic override)

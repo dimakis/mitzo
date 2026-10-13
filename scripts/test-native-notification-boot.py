@@ -43,6 +43,45 @@ class ColdBootTests(unittest.TestCase):
         ), self.assertRaises(subprocess.CalledProcessError):
             smoke.wait_for_boot("owned-fixture-device")
 
+    def test_a_five_minute_cold_launch_uses_one_bounded_owned_device_command(self):
+        calls = []
+        def launch(command, **options):
+            calls.append(command)
+            self.assertLessEqual(options['timeout'], 10 * 60)
+            if options['timeout'] < 5 * 60:
+                raise subprocess.TimeoutExpired(command, options['timeout'])
+            return 'com.mitzo.fixture: 123'
+        with patch.object(smoke.subprocess, 'check_output', side_effect=launch):
+            self.assertEqual(smoke.launch_app('owned-device', 'com.mitzo.fixture'), 'com.mitzo.fixture: 123')
+        self.assertEqual(calls, [['xcrun', 'simctl', 'launch', 'owned-device', 'com.mitzo.fixture']])
+
+    def test_cold_launch_failure_is_not_retried_or_treated_as_success(self):
+        failure = subprocess.TimeoutExpired('launch', 600)
+        with patch.object(smoke.subprocess, 'check_output', side_effect=failure) as command:
+            with self.assertRaises(subprocess.TimeoutExpired):
+                smoke.launch_app('owned-device', 'com.mitzo.fixture')
+        command.assert_called_once()
+
+    def test_cold_webkit_configuration_at_ninety_seconds_is_observed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            preferences = Path(directory) / 'preferences.plist'
+            elapsed = [0]
+            def wait(_seconds):
+                elapsed[0] += 30
+                if elapsed[0] == 90:
+                    preferences.write_bytes(plistlib.dumps({'mitzo_notification_server_url': smoke.ORIGIN}))
+            with patch.object(smoke.time, 'monotonic', side_effect=lambda: elapsed[0]), patch.object(smoke.time, 'sleep', side_effect=wait):
+                smoke.wait_for_bridge(preferences)
+            self.assertEqual(elapsed[0], 90)
+
+    def test_wrong_bridge_origin_still_fails_with_a_bounded_wait(self):
+        with tempfile.TemporaryDirectory() as directory:
+            preferences = Path(directory) / 'preferences.plist'
+            preferences.write_bytes(plistlib.dumps({'mitzo_notification_server_url': 'https://wrong.invalid'}))
+            with patch.object(smoke.time, 'monotonic', side_effect=[0, 0, 121]), patch.object(smoke.time, 'sleep'):
+                with self.assertRaisesRegex(RuntimeError, 'did not configure its server origin'):
+                    smoke.wait_for_bridge(preferences)
+
 # These fixtures exercise only a copied offline page and mocked native commands.
 class FailureEvidenceTests(unittest.TestCase):
     def test_preallocation_failure_has_metadata_without_probing_other_devices(self):
@@ -144,7 +183,7 @@ class FailureEvidenceTests(unittest.TestCase):
             root = Path(directory)
             app, container, preferences = self.fixture(root)
             order = []
-            def simctl(*args):
+            def simctl(*args, **options):
                 order.append(args[0])
                 if args[:2] == ('list', 'runtimes'):
                     return json.dumps({'runtimes': [{
@@ -156,7 +195,10 @@ class FailureEvidenceTests(unittest.TestCase):
                     self.assertIn('Calling notification bridge', (copied / 'public/index.html').read_text())
                 if args[0] == 'create': return 'owned-device'
                 if args[0] == 'get_app_container': return str(container)
-                if args[0] == 'launch': return 'com.mitzo.fixture: 123'
+                if args[0] == 'launch':
+                    self.assertGreaterEqual(options['timeout'], 5 * 60)
+                    self.assertLessEqual(options['timeout'], 10 * 60)
+                    return 'com.mitzo.fixture: 123'
                 if args[0] == 'delete': raise RuntimeError('cleanup failed')
                 return ''
             def capture(*args):
@@ -171,7 +213,7 @@ class FailureEvidenceTests(unittest.TestCase):
                 patch.object(smoke, 'wait_for_boot'),
                 patch.object(smoke, 'capture_failure', side_effect=capture),
                 patch.object(smoke.subprocess, 'run', side_effect=cleanup),
-                patch.object(smoke.time, 'monotonic', side_effect=[0, 31]),
+                patch.object(smoke.time, 'monotonic', side_effect=[0, 121]),
             ):
                 with self.assertRaisesRegex(RuntimeError, 'did not configure'):
                     smoke.smoke(app, root / 'evidence')
@@ -185,7 +227,7 @@ class FailureEvidenceTests(unittest.TestCase):
             preferences.write_bytes(plistlib.dumps({
                 'mitzo_notification_server_url': smoke.ORIGIN,
             }))
-            def simctl(*args):
+            def simctl(*args, **options):
                 if args[:2] == ('list', 'runtimes'):
                     return json.dumps({'runtimes': [{
                         'isAvailable': True, 'identifier': 'fixture.iOS-26', 'version': '26.0',
