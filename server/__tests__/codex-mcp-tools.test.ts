@@ -2,6 +2,63 @@ import { expect, it, vi } from 'vitest';
 import { connectCodexMcpTools } from '../codex-mcp-tools.js';
 import { SessionRegistry, buildPermissionHandler, resolvePending } from '@mitzo/harness';
 
+it('refuses stale MCP startup before any peer launch', async () => {
+  const connect = vi.fn();
+  await expect(
+    connectCodexMcpTools(
+      { work: { command: 'fixture' } },
+      {
+        cwd: '/workspace',
+        env: {},
+        signal: new AbortController().signal,
+        connect,
+        assertRuntimeCurrent: () => {
+          throw Error('stale runtime');
+        },
+      },
+    ),
+  ).rejects.toThrow('MCP initialization failed');
+  expect(connect).not.toHaveBeenCalled();
+});
+
+it.each(['connection', 'discovery', 'abort'] as const)(
+  'rechecks owned MCP startup after awaited %s and refuses the next launch/page',
+  async (phase) => {
+    let revoked = false;
+    const abort = new AbortController();
+    const close = vi.fn(async () => {});
+    const listTools = vi.fn(async () => {
+      if (phase === 'discovery') revoked = true;
+      if (phase === 'abort') abort.abort();
+      return {
+        tools: [{ name: 'read', inputSchema: { type: 'object' } }],
+        nextCursor: 'next-page',
+      };
+    });
+    const connect = vi.fn(async () => {
+      if (phase === 'connection') revoked = true;
+      return { listTools, callTool: vi.fn(), close };
+    });
+    await expect(
+      connectCodexMcpTools(
+        { first: { command: 'first' }, second: { command: 'second' } },
+        {
+          cwd: '/workspace',
+          env: {},
+          signal: abort.signal,
+          connect,
+          assertRuntimeCurrent: () => {
+            if (revoked) throw Error('stale runtime');
+          },
+        },
+      ),
+    ).rejects.toThrow('MCP initialization failed');
+    expect(connect).toHaveBeenCalledOnce();
+    expect(listTools).toHaveBeenCalledTimes(phase === 'connection' ? 0 : 1);
+    expect(close).toHaveBeenCalledOnce();
+  },
+);
+
 it('rechecks owning runtime after awaited MCP approval and before native call', async () => {
   let revoked = false;
   const call = vi.fn(async () => ({ content: [] }));

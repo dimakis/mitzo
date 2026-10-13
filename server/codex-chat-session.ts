@@ -1070,7 +1070,7 @@ async function openCodexChatBound(
   const hookRuntime = connectedOpenShell
     ? undefined
     : createNativeHooks(options.session.cwd!, options.conversationId, options.env, {
-        trustProjectHooks: process.env.MITZO_TRUST_PROJECT_HOOKS === '1',
+        trustProjectHooks: !options.ownedLocal && process.env.MITZO_TRUST_PROJECT_HOOKS === '1',
       });
   const hooks = hookRuntime?.hooks;
   const dispose = hookRuntime?.dispose ?? (() => {});
@@ -1126,6 +1126,11 @@ async function openCodexChatBound(
         options.onBootContext?.(context);
         startup = { context: context.fullMarkdown };
       }
+    } else if (options.ownedLocal) {
+      // The first-command receipt already pins its published developer prompt.
+      // Keep the empty hooks adapter for qualified native/MCP tool execution,
+      // without loading project commands or adding SessionStart context.
+      startup = {};
     } else {
       startup = hooks
         ? await hooks.run('SessionStart', { source: options.resume ? 'resume' : 'startup' }, signal)
@@ -1161,6 +1166,9 @@ async function openCodexChatBound(
         startupReservation?.();
         throw error;
       });
+  const ownedToolNames = options.ownedLocal
+    ? new Set([...nativeToolDefinitions, ...mcp.definitions].map((tool) => tool.name))
+    : undefined;
   const connectionTools = sessionCredentialTools(
     options.conversationId,
     options.session,
@@ -1191,9 +1199,11 @@ async function openCodexChatBound(
       request: requestIntegrationAccess,
     },
   );
-  const managedCapabilityConnection = options.binding?.accountId
-    ? (managedConnections.find((connection) => connection.templateId === 'github-readonly') ?? null)
-    : null;
+  const managedCapabilityConnection =
+    !options.ownedLocal && options.binding?.accountId
+      ? (managedConnections.find((connection) => connection.templateId === 'github-readonly') ??
+        null)
+      : null;
   const capabilityTools = capabilityToolsForConversation(
     options.binding?.accountId ?? '',
     managedCapabilityConnection,
@@ -1242,18 +1252,19 @@ async function openCodexChatBound(
         connectionRevision: managedCapabilityConnection.revision,
       });
   }
-  const baseSystemPrompt =
-    options.systemPrompt +
-    CONNECTION_TOOL_INSTRUCTIONS +
-    WEB_ACCESS_INSTRUCTIONS +
-    GITHUB_PUBLISHING_INSTRUCTIONS +
-    `\nWhen the user asks you to build a reusable Symposium agent profile in this conversation, use ${SYMPOSIUM_PROPOSE_PROFILE_TOOL} to submit portable guidance for review. The tool only drafts a proposal; tell the user to edit and save it in Mitzo. Do not include credentials, transcript text, session or machine paths, account bindings, or runtime grants.\n` +
-    (connectedOpenShell
-      ? `\nOpenShell contains the provider loop and its built-in tools. Use those tools directly inside the supplied sandbox workspace. Current Mitzo mode: ${options.session.mode}. In Agent or Auto mode, a user request to edit that workspace is the required approval: execute it without asking again. ${options.contributorGuidance === undefined ? `${telosArtifactInstructions(!!agentContext)} Use ${TELOS_CREATE_OUTCOME_TOOL} for durable Telos capture; never use a sandbox-local todo script for persistent Telos work.` : ''}${integrationTools.length ? ` Mitzo preflights explicit requests for grantable integrations before the turn begins. If you discover that you need a grantable service which the user did not request explicitly, call ${GRANT_INTEGRATION_TOOL} before using it. A CLI being installed does not mean its provider is attached, and a tunnel error from an unattached provider is not evidence of a gateway outage.` : ''}\n`
-      : HOST_TOOL_INSTRUCTIONS) +
-    (managedConnection?.templateId === 'jira-readonly'
-      ? '\nThis sandbox has verified read-only Jira access to https://redhat.atlassian.net. Use the scoped API base in JIRA_URL (not the browser site URL). Use the provider-approved /usr/bin/python3 or curl with JIRA_URL, JIRA_EMAIL, and the gateway-managed JIRA_API_TOKEN placeholder for Basic authorization. Never print credential values. Writes are denied by the gateway policy.\n'
-      : '');
+  const baseSystemPrompt = options.ownedLocal
+    ? options.systemPrompt + HOST_TOOL_INSTRUCTIONS
+    : options.systemPrompt +
+      CONNECTION_TOOL_INSTRUCTIONS +
+      WEB_ACCESS_INSTRUCTIONS +
+      GITHUB_PUBLISHING_INSTRUCTIONS +
+      `\nWhen the user asks you to build a reusable Symposium agent profile in this conversation, use ${SYMPOSIUM_PROPOSE_PROFILE_TOOL} to submit portable guidance for review. The tool only drafts a proposal; tell the user to edit and save it in Mitzo. Do not include credentials, transcript text, session or machine paths, account bindings, or runtime grants.\n` +
+      (connectedOpenShell
+        ? `\nOpenShell contains the provider loop and its built-in tools. Use those tools directly inside the supplied sandbox workspace. Current Mitzo mode: ${options.session.mode}. In Agent or Auto mode, a user request to edit that workspace is the required approval: execute it without asking again. ${options.contributorGuidance === undefined ? `${telosArtifactInstructions(!!agentContext)} Use ${TELOS_CREATE_OUTCOME_TOOL} for durable Telos capture; never use a sandbox-local todo script for persistent Telos work.` : ''}${integrationTools.length ? ` Mitzo preflights explicit requests for grantable integrations before the turn begins. If you discover that you need a grantable service which the user did not request explicitly, call ${GRANT_INTEGRATION_TOOL} before using it. A CLI being installed does not mean its provider is attached, and a tunnel error from an unattached provider is not evidence of a gateway outage.` : ''}\n`
+        : HOST_TOOL_INSTRUCTIONS) +
+      (managedConnection?.templateId === 'jira-readonly'
+        ? '\nThis sandbox has verified read-only Jira access to https://redhat.atlassian.net. Use the scoped API base in JIRA_URL (not the browser site URL). Use the provider-approved /usr/bin/python3 or curl with JIRA_URL, JIRA_EMAIL, and the gateway-managed JIRA_API_TOKEN placeholder for Basic authorization. Never print credential values. Writes are denied by the gateway policy.\n'
+        : '');
   const persistentSystemPrompt =
     baseSystemPrompt + (startup.context ? `\n\n${startup.context}` : '');
   let pendingAdditionalContext: string | undefined;
@@ -1291,9 +1302,11 @@ async function openCodexChatBound(
     deferToolSurfaceReplacement: !!runtimeManager,
     enableCapacityRecovery: !options.ownedLocal,
     webSearchBackend: openShell ? 'openshell' : 'host',
-    webSearchDeploymentRevision: openShell
-      ? 'openshell-runtime-config-v1'
-      : `codex-cli:${SUPPORTED_CODEX_CLI_VERSION}`,
+    webSearchDeploymentRevision: options.ownedLocal
+      ? undefined
+      : openShell
+        ? 'openshell-runtime-config-v1'
+        : `codex-cli:${SUPPORTED_CODEX_CLI_VERSION}`,
     getMode: () => options.session.mode,
     systemPrompt: persistentSystemPrompt,
     startupSignal: signal,
@@ -1540,7 +1553,7 @@ async function openCodexChatBound(
               persistArtifactRuntime();
               await prepareProviderEnvironment();
             });
-            if (managedCapabilityConnection && options.binding?.accountId)
+            if (!options.ownedLocal && managedCapabilityConnection && options.binding?.accountId)
               await capabilityTools.service?.recoverPendingForConversation(
                 options.binding.accountId,
                 options.conversationId,
@@ -1554,23 +1567,25 @@ async function openCodexChatBound(
         return options.ownedLocal.assertModelSelection(model, reasoningEffort);
       loadAccountProfiles().validateModel(options.binding, model, reasoningEffort);
     },
-    tools: connectedOpenShell
-      ? [
-          ...connectionTools.definitions,
-          ...openShellHostTools,
-          ...capabilityTools.definitions,
-          webAccessDefinition,
-          githubPublishingDefinition,
-        ]
-      : [
-          ...connectionTools.definitions,
-          symposiumProposeProfileDefinition,
-          ...nativeToolDefinitions,
-          ...mcp.definitions,
-          ...capabilityTools.definitions,
-          webAccessDefinition,
-          githubPublishingDefinition,
-        ],
+    tools: options.ownedLocal
+      ? [...nativeToolDefinitions, ...mcp.definitions]
+      : connectedOpenShell
+        ? [
+            ...connectionTools.definitions,
+            ...openShellHostTools,
+            ...capabilityTools.definitions,
+            webAccessDefinition,
+            githubPublishingDefinition,
+          ]
+        : [
+            ...connectionTools.definitions,
+            symposiumProposeProfileDefinition,
+            ...nativeToolDefinitions,
+            ...mcp.definitions,
+            ...capabilityTools.definitions,
+            webAccessDefinition,
+            githubPublishingDefinition,
+          ],
     displayToolName: mcp.displayName,
     createClient: (callbacks) => {
       try {
@@ -1674,8 +1689,13 @@ async function openCodexChatBound(
         }
       : {}),
     executeTool: async (name, input, signal, callContext) => {
+      // Refuse an unqualified helper before any owner await, approval or effect.
+      if (ownedToolNames && !ownedToolNames.has(name))
+        throw Error('Tool unavailable for owned local Codex chat');
       await options.ownedLocal?.assertCurrent();
-      const keychainResult = await connectionTools.execute(name, input, signal);
+      const keychainResult = options.ownedLocal
+        ? undefined
+        : await connectionTools.execute(name, input, signal);
       if (keychainResult) return keychainResult;
       if (name === REQUEST_GITHUB_PUBLISH) return githubPublishing(input, signal, callContext);
       if (name === SYMPOSIUM_PROPOSE_PROFILE_TOOL) {
@@ -1900,7 +1920,7 @@ async function openCodexChatBound(
   try {
     signal.throwIfAborted();
     await duringCodexStartup('conversation_initialization', () => runtime.initialize());
-    if (managedCapabilityConnection && options.binding?.accountId) {
+    if (!options.ownedLocal && managedCapabilityConnection && options.binding?.accountId) {
       bindLiveCapabilityConversation(options.conversationId, {
         accountId: options.binding.accountId,
         connectionId: managedCapabilityConnection.id,
@@ -1954,8 +1974,10 @@ async function openCodexChatBound(
         );
       runtime.assertPermissionModeChange(mode);
     },
-    setWebSearchGrant: (expectedRevision: number, grant: 'allowed' | 'denied') =>
-      runtime.setWebSearchGrant(expectedRevision, grant),
+    setWebSearchGrant: (expectedRevision: number, grant: 'allowed' | 'denied') => {
+      if (options.ownedLocal) throw Error('Owned local Codex chat unavailable');
+      return runtime.setWebSearchGrant(expectedRevision, grant);
+    },
     getWebSearchGrant: () => runtime.getWebSearchGrant(),
     interrupt: () => runtime.interrupt(),
     close,

@@ -253,7 +253,7 @@ function options(abortController: AbortController) {
   } as unknown as Parameters<typeof openCodexChat>[0];
 }
 
-function ownedLocalOptions() {
+function ownedLocalOptions(cwd = '/tmp') {
   const eventStore = new EventStore(':memory:');
   const profiles = new AccountProfiles(
     [
@@ -298,14 +298,14 @@ function ownedLocalOptions() {
     hostId: 'host',
     runtimeContractRevision: 'runtime',
     capabilityRevision: 'cap',
-    workspace: { workspaceId: 'owned-workspace', cwd: '/tmp' },
+    workspace: { workspaceId: 'owned-workspace', cwd },
     selection,
   } as OrdinaryLocalCodexAdmissionExpectation;
   eventStore.admitOrdinaryLocalCommand(
     {
       sessionId: 'owned-session',
       accountBinding: binding,
-      cwd: '/tmp',
+      cwd,
       repositoryWorkspaceId: 'owned-workspace',
       selectedModel: 'owned-model',
       reasoningEffort: null,
@@ -358,10 +358,10 @@ function ownedLocalOptions() {
       baseBranch: 'main',
       baseOid: 'a'.repeat(40),
       featureBranch: 'fixture',
-      directory: '/tmp',
+      directory: cwd,
       sandbox: false,
     },
-    session: { ...options(new AbortController()).session, cwd: '/tmp', mode: 'agent' },
+    session: { ...options(new AbortController()).session, cwd, mode: 'agent' },
     ownedLocal,
   } as Parameters<typeof openCodexChat>[0];
   return { eventStore, opts, lease, ownedLocal };
@@ -2963,5 +2963,204 @@ it('keeps the admitted developer input fixed while asynchronous owned verificati
     chat.close();
   } finally {
     f.eventStore.close();
+  }
+});
+
+it('limits owned tools to native and MCP and rejects helpers before owner awaits or approval', async () => {
+  vi.clearAllMocks();
+  mocks.initialize.mockResolvedValue(undefined);
+  mocks.send.mockResolvedValue(undefined);
+  const mcpExecute = vi.fn(async () => ({ content: 'MCP result', isError: false }));
+  const mcpDefinition = {
+    name: 'mitzo_mcp_fixture',
+    description: 'Fixture MCP',
+    input_schema: { type: 'object' },
+  };
+  mocks.connect.mockResolvedValue({
+    definitions: [mcpDefinition],
+    execute: mcpExecute,
+    close: mocks.mcpClose,
+    displayName: (name: string) => name,
+  });
+  const credentialModule = await import('../session-credential-tools.js');
+  const connectionExecute = vi.fn(async () => ({
+    content: 'Unexpected helper effect',
+    isError: false,
+  }));
+  const connectionFactory = vi
+    .spyOn(credentialModule, 'sessionCredentialTools')
+    .mockReturnValue({ definitions: [], execute: connectionExecute });
+  const native = await import('../native-tool-executor.js');
+  const nativeExecute = vi.fn(async () => ({ content: 'Native result', is_error: false }));
+  const nativeFactory = vi
+    .spyOn(native, 'createNativeToolExecutor')
+    .mockReturnValue(nativeExecute as never);
+  const f = ownedLocalOptions();
+  f.opts.registry = {
+    ...f.opts.registry,
+    findBySessionId: () => ({ clientId: 'owned-client', session: f.opts.session }),
+  } as never;
+  let chat: Awaited<ReturnType<typeof openCodexChat>> | undefined;
+  try {
+    chat = await openCodexChat(f.opts);
+    const config = mocks.conversationOptions!;
+    expect((config.tools as Array<{ name: string }>).map((tool) => tool.name).sort()).toEqual(
+      [...native.nativeToolDefinitions.map((tool) => tool.name), mcpDefinition.name].sort(),
+    );
+    const execute = config.executeTool as (
+      name: string,
+      input: Record<string, unknown>,
+      signal: AbortSignal,
+      context: { turnId: string; callId: string },
+    ) => Promise<unknown>;
+    vi.mocked(f.lease.assertCurrent).mockClear();
+    for (const name of [
+      'ListConnections',
+      'PrepareRepositoryChat',
+      'RequestWebAccess',
+      'RequestGithubPublish',
+      'SymposiumProposeProfile',
+      'Capability_fixture',
+      'UnknownAlias',
+    ])
+      await expect(
+        execute(name, {}, new AbortController().signal, { turnId: 'turn', callId: name }),
+      ).rejects.toThrow('Tool unavailable for owned local Codex chat');
+    expect(f.lease.assertCurrent).not.toHaveBeenCalled();
+    expect(connectionExecute).not.toHaveBeenCalled();
+    expect(mocks.permissionHandler).not.toHaveBeenCalled();
+    expect(nativeExecute).not.toHaveBeenCalled();
+    expect(mcpExecute).not.toHaveBeenCalled();
+    await expect(
+      execute('Read', { file_path: 'task.txt' }, new AbortController().signal, {
+        turnId: 'turn',
+        callId: 'native',
+      }),
+    ).resolves.toEqual({ content: 'Native result', isError: false });
+    await expect(
+      execute(mcpDefinition.name, {}, new AbortController().signal, {
+        turnId: 'turn',
+        callId: 'mcp',
+      }),
+    ).resolves.toEqual({ content: 'MCP result', isError: false });
+    expect(connectionExecute).not.toHaveBeenCalled();
+    expect(nativeExecute).toHaveBeenCalledOnce();
+    expect(mcpExecute).toHaveBeenCalledOnce();
+  } finally {
+    chat?.close();
+    f.eventStore.close();
+    nativeFactory.mockRestore();
+    connectionFactory.mockRestore();
+  }
+});
+
+it('ignores trusted project command hooks and SessionStart context for the owned frozen prompt', async () => {
+  vi.clearAllMocks();
+  mocks.initialize.mockResolvedValue(undefined);
+  mocks.send.mockResolvedValue(undefined);
+  mocks.connect.mockResolvedValue({
+    definitions: [],
+    close: mocks.mcpClose,
+    displayName: (name: string) => name,
+  });
+  vi.stubEnv('MITZO_TRUST_PROJECT_HOOKS', '1');
+  const cwd = mkdtempSync(join(tmpdir(), 'mitzo-owned-hooks-')),
+    marker = join(cwd, 'hook-executed');
+  mkdirSync(join(cwd, '.claude'));
+  writeFileSync(
+    join(cwd, '.claude/settings.json'),
+    JSON.stringify({
+      hooks: {
+        SessionStart: [
+          {
+            hooks: [
+              {
+                type: 'command',
+                command: `/usr/bin/touch '${marker}'; printf '{"additionalContext":"UNADMITTED PROJECT CONTEXT"}'`,
+              },
+            ],
+          },
+        ],
+        Stop: [{ hooks: [{ type: 'command', command: `/usr/bin/touch '${marker}'` }] }],
+      },
+    }),
+  );
+  const f = ownedLocalOptions(cwd);
+  let chat: Awaited<ReturnType<typeof openCodexChat>> | undefined;
+  try {
+    chat = await openCodexChat(f.opts);
+    expect(existsSync(marker)).toBe(false);
+    expect(mocks.conversationOptions?.systemPrompt).not.toContain('UNADMITTED PROJECT CONTEXT');
+    expect(mocks.conversationOptions?.systemPrompt).not.toContain('ListConnections');
+    const beforeComplete = mocks.conversationOptions?.beforeComplete as (
+      signal: AbortSignal,
+    ) => Promise<void>;
+    await beforeComplete(new AbortController().signal);
+    expect(existsSync(marker)).toBe(false);
+  } finally {
+    chat?.close();
+    f.eventStore.close();
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+it('keeps owned native web search disabled despite a live runtime preference and refuses grant edits', async () => {
+  vi.clearAllMocks();
+  mocks.initialize.mockResolvedValue(undefined);
+  mocks.send.mockResolvedValue(undefined);
+  mocks.connect.mockResolvedValue({
+    definitions: [],
+    close: mocks.mcpClose,
+    displayName: (name: string) => name,
+  });
+  const f = ownedLocalOptions(),
+    root = mkdtempSync(join(tmpdir(), 'mitzo-owned-web-ceiling-'));
+  const { CodexConversation } = await vi.importActual<typeof import('../codex-conversation.js')>(
+    '../codex-conversation.js',
+  );
+  const { CodexConversationStore } = await vi.importActual<
+    typeof import('../codex-conversation-store.js')
+  >('../codex-conversation-store.js');
+  const store = new CodexConversationStore(join(root, 'private.db'));
+  let chat: Awaited<ReturnType<typeof openCodexChat>> | undefined;
+  let realConversation: InstanceType<typeof CodexConversation> | undefined;
+  try {
+    chat = await openCodexChat(f.opts);
+    const config = mocks.conversationOptions!;
+    expect(config.webSearchDeploymentRevision).toBeUndefined();
+    expect(() => chat!.setWebSearchGrant(0, 'allowed')).toThrow(
+      'Owned local Codex chat unavailable',
+    );
+    expect(mocks.setWebSearchGrant).not.toHaveBeenCalled();
+    const requests: Array<{ method: string; params: Record<string, unknown> }> = [];
+    vi.mocked(f.lease.client.request).mockImplementation(async (method, params) => {
+      requests.push({ method, params });
+      if (method === 'config/read') return { config: { web_search: 'live' } };
+      if (method === 'thread/start')
+        return {
+          thread: { id: 'owned-native-thread' },
+          model: 'owned-model',
+          modelProvider: 'openai',
+        };
+      return {};
+    });
+    realConversation = new CodexConversation({
+      ...config,
+      store,
+      // This second, real owner has its own queue; the captured adapter callback
+      // refers to the mocked conversation used to obtain these route options.
+      onQueueChange: () => {},
+      onClosed: () => {},
+    } as never);
+    await realConversation.initialize();
+    expect(requests.find((request) => request.method === 'thread/start')?.params).toMatchObject({
+      config: { web_search: 'disabled' },
+    });
+  } finally {
+    realConversation?.close();
+    chat?.close();
+    store.close();
+    f.eventStore.close();
+    rmSync(root, { recursive: true, force: true });
   }
 });
