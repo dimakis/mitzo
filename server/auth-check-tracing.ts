@@ -5,15 +5,15 @@ import { tracer } from './tracing.js';
 
 /** Include verification time, without capturing tokens, cookies or query strings. */
 export const traceAuthCheck: RequestHandler = (req, res, next) => {
-  if (req.method !== 'GET' || req.path !== '/api/auth/check') return next();
+  if (!['GET', 'OPTIONS'].includes(req.method) || req.path !== '/api/auth/check') return next();
   const parent = contextFromTraceparent(
     typeof req.headers.traceparent === 'string' ? req.headers.traceparent : undefined,
   );
   const span = tracer.startSpan(
-    'http.auth.check',
+    req.method === 'OPTIONS' ? 'http.auth.preflight' : 'http.auth.check',
     {
       kind: SpanKind.SERVER,
-      attributes: { 'http.request.method': 'GET', 'http.route': '/api/auth/check' },
+      attributes: { 'http.request.method': req.method, 'http.route': '/api/auth/check' },
     },
     parent,
   );

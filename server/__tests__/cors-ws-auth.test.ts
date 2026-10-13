@@ -99,6 +99,8 @@ describe('CORS middleware', () => {
     expect(res.headers['access-control-allow-headers']).toContain('Authorization');
     expect(res.headers['access-control-allow-headers']).toContain('X-Connection-ID');
     expect(res.headers['access-control-allow-methods']).toContain('POST');
+    expect(res.headers['access-control-max-age']).toBe('600');
+    expect(res.headers.vary).toContain('Origin');
   });
 
   it('returns 204 for OPTIONS from disallowed origin but without CORS headers', async () => {
@@ -107,6 +109,7 @@ describe('CORS middleware', () => {
       .set('Origin', 'https://evil.example.com');
     expect(res.status).toBe(204);
     expect(res.headers['access-control-allow-origin']).toBeUndefined();
+    expect(res.headers['access-control-max-age']).toBeUndefined();
   });
 });
 
