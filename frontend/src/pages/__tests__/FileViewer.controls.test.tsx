@@ -195,7 +195,7 @@ it('shows a durable filename and keeps saved revisions read-only', () => {
   try {
     showViewer();
     expect(screen.getByText('Brief.md')).toBeTruthy();
-    expect(screen.queryByRole('button', { name: 'Edit', exact: true })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Edit' })).toBeNull();
     expect(screen.getByRole('button', { name: 'File options' })).toBeTruthy();
   } finally {
     Object.assign(mocks.nav.state, { filePath: original, displayName: undefined });
