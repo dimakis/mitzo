@@ -278,10 +278,18 @@ it.each(['none', 'ambiguous', 'invalid-host'])(
   },
 );
 
-it.each(['owner', 'cancel', 'skill', 'closing', 'user-close', 'suspended'])(
-  'fences every known tool when the source session is %s',
-  async (condition) => {
+it.each(
+  ['active', 'suspended'].flatMap((transport) =>
+    ['owner', 'cancel', 'skill', 'closing', 'user-close'].map((condition) => ({
+      transport,
+      condition,
+    })),
+  ),
+)(
+  'fences every known tool when the $transport source session is $condition',
+  async ({ transport, condition }) => {
     const { registry, session, tools } = fixture('mcp__repository__');
+    if (transport === 'suspended') registry.suspend('client', 0);
     if (condition === 'owner')
       registry.register('client', {
         sessionId: 'session',
@@ -291,7 +299,6 @@ it.each(['owner', 'cancel', 'skill', 'closing', 'user-close', 'suspended'])(
     if (condition === 'skill') session.activeSkillPolicy = new Set(['ListRepositories']);
     if (condition === 'closing') vi.spyOn(registry, 'isClosingOut').mockReturnValue(true);
     if (condition === 'user-close') registry.markUserClose('client');
-    if (condition === 'suspended') vi.spyOn(registry, 'isSuspended').mockReturnValue(true);
     for (const [name, input] of [
       ['ListRepositories', {}],
       ['PrepareRepositoryChat', { repository: 'example/repo', prompt: draft.prompt }],
@@ -303,6 +310,46 @@ it.each(['owner', 'cancel', 'skill', 'closing', 'user-close', 'suspended'])(
     expect(runtime.service).not.toHaveBeenCalled();
   },
 );
+
+it('keeps repository discovery, preparation and recovery available while iOS buffers events', async () => {
+  const { registry, session, tools } = fixture();
+  registry.suspend('client', 0);
+  registry.bufferEvent('client', { type: 'fixture-event' });
+  expect(registry.isSuspended('client')).toBe(true);
+
+  expect((await tools.execute('ListRepositories', {}, signal()))?.isError).toBe(false);
+  const prepared = await tools.execute(
+    'PrepareRepositoryChat',
+    { repository: 'example/repo', prompt: draft.prompt },
+    signal(),
+  );
+  expect(JSON.parse(prepared!.content)).toEqual({ repositoryChat: draft });
+  expect(prepared?.isError).toBe(false);
+  for (const input of [{ preparationId: id }, {}]) {
+    const recovered = await tools.execute('GetRepositoryChatPreparation', input, signal());
+    expect(recovered?.isError).toBe(false);
+    expect(JSON.parse(recovered!.content)).toEqual({ repositoryChat: draft });
+  }
+  expect(session.cwd).toBe('/unchanged-workspace');
+  expect(registry.isSuspended('client')).toBe(true);
+  expect(registry.resume('client')).toEqual([{ type: 'fixture-event' }]);
+});
+
+it('returns the reviewed draft if iOS backgrounds during repository acquisition', async () => {
+  const { registry, tools } = fixture();
+  runtime.prepareChat.mockImplementation(async () => {
+    registry.suspend('client', 0);
+    return draft;
+  });
+  const result = await tools.execute(
+    'PrepareRepositoryChat',
+    { repository: 'example/repo', prompt: draft.prompt },
+    signal(),
+  );
+  expect(result?.isError).toBe(false);
+  expect(JSON.parse(result!.content)).toEqual({ repositoryChat: draft });
+  expect(registry.isSuspended('client')).toBe(true);
+});
 
 it.each(['model', 'binding', 'profile', 'scope', 'skill', 'owner', 'ask', 'disabled', 'cancel'])(
   'suppresses a prepared handoff when %s changes across acquisition',
