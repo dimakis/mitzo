@@ -64,6 +64,11 @@ async function offline(page: Page, sessions: unknown[] = []) {
   let checkFailed = false;
   let connections = 0;
   let authChecks = 0;
+  const authTraceparents: string[] = [];
+  const telemetry: Array<{
+    authorization?: string;
+    spans: Array<{ name: string; traceId: string; status?: { code: number | string } }>;
+  }> = [];
   page.on('pageerror', (error) => errors.push(error.message));
   await page.addInitScript(() => {
     // These draft/update checks do not consume broadcast events. A fulfilled
@@ -115,7 +120,26 @@ async function offline(page: Page, sessions: unknown[] = []) {
       });
     if (url.hostname !== 'mitzo-ui.test') return route.abort();
     if (url.pathname.startsWith('/api/')) {
-      if (url.pathname === '/api/auth/check') authChecks++;
+      if (url.pathname === '/api/auth/check') {
+        authChecks++;
+        const parent = route.request().headers().traceparent;
+        if (parent) authTraceparents.push(parent);
+      }
+      if (url.pathname === '/api/telemetry/v1/traces' && route.request().method() === 'POST') {
+        const body = route.request().postDataJSON() as {
+          resourceSpans?: Array<{
+            scopeSpans?: Array<{ spans?: (typeof telemetry)[number]['spans'] }>;
+          }>;
+        };
+        telemetry.push({
+          authorization: route.request().headers().authorization,
+          spans:
+            body.resourceSpans?.flatMap(
+              (resource) => resource.scopeSpans?.flatMap((scope) => scope.spans ?? []) ?? [],
+            ) ?? [],
+        });
+        return fulfill({ json: {} });
+      }
       if (url.pathname === '/api/version/check' && route.request().method() === 'POST') {
         mutations.push(url.pathname);
         return fulfill({
@@ -224,6 +248,8 @@ async function offline(page: Page, sessions: unknown[] = []) {
     mutations,
     connections: () => connections,
     authChecks: () => authChecks,
+    authTraceparents,
+    telemetry,
     state: (next: typeof state) => {
       state = next;
     },
@@ -242,6 +268,96 @@ async function workspace(page: Page) {
 }
 
 for (const theme of ['light', 'dark']) {
+  for (const recovery of ['automatic', 'foreground']) {
+    test(`authentication recovery: ${recovery} restores a transiently unavailable app (${theme})`, async ({
+      page,
+    }, testInfo) => {
+      const fixture = await offline(page);
+      await seed(page, {
+        mitzo_auth_token: 'offline-valid-token',
+        'mitzo-theme': theme,
+        'mitzo-accent': 'mint',
+        'mitzo-font': 'georgia',
+      });
+      await page.addInitScript((recovery) => {
+        const original = window.fetch.bind(window);
+        let failures = recovery === 'automatic' ? 2 : Infinity;
+        Object.assign(window, {
+          recoverOfflineAuthentication: () => {
+            failures = 0;
+          },
+        });
+        window.fetch = (input, init) => {
+          const url =
+            typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+          if (new URL(url, location.href).pathname === '/api/auth/check' && failures-- > 0)
+            return Promise.reject(new TypeError('Load failed'));
+          return original(input, init);
+        };
+      }, recovery);
+      await page.clock.install();
+      await page.goto('/sessions');
+      await expect(page.getByRole('alert')).toBeVisible();
+      for (const delay of recovery === 'automatic' ? [1_000, 2_000] : [1_000, 2_000, 4_000]) {
+        await page.clock.fastForward(delay);
+        if (recovery === 'foreground' || delay === 1_000)
+          await expect(page.getByRole('alert')).toBeVisible();
+      }
+      if (recovery === 'foreground') {
+        await page.evaluate(() => {
+          (
+            window as unknown as { recoverOfflineAuthentication: () => void }
+          ).recoverOfflineAuthentication();
+          window.dispatchEvent(new Event('mitzo:app-foreground'));
+        });
+      }
+      await expect(page.getByRole('heading', { name: 'Chats', exact: true })).toBeVisible();
+      await expect(page.getByRole('alert')).toHaveCount(0);
+      if (process.env.MITZO_OFFLINE_TRACING === '1') {
+        // An opt-in build exercises the real dynamically loaded browser SDK.
+        await page.clock.runFor(1_100);
+        await expect
+          .poll(
+            () =>
+              fixture.telemetry
+                .flatMap((batch) => batch.spans)
+                .filter((span) => span.name === 'http.auth.check').length,
+          )
+          .toBeGreaterThan(0);
+        expect(
+          fixture.telemetry.every((batch) => batch.authorization === 'Bearer offline-valid-token'),
+        ).toBe(true);
+        await expect
+          .poll(async () => {
+            // Let asynchronous exports finish and advance any rescheduled batch.
+            await page.clock.runFor(1_000);
+            return fixture.authTraceparents.some((parent) =>
+              fixture.telemetry.some((batch) =>
+                batch.spans.some((span) => parent.startsWith(`00-${span.traceId}-`)),
+              ),
+            );
+          })
+          .toBe(true);
+        expect(
+          fixture.telemetry.some((batch) =>
+            batch.spans.some(
+              (span) => span.status?.code === 2 || span.status?.code === 'STATUS_CODE_ERROR',
+            ),
+          ),
+        ).toBe(true);
+      }
+      expect(await page.evaluate(() => localStorage.getItem('mitzo_auth_token'))).toBe(
+        'offline-valid-token',
+      );
+      await page.screenshot({
+        path: testInfo.outputPath(`auth-${recovery}-${theme}.png`),
+        animations: 'disabled',
+      });
+      await layout(page);
+      expect(fixture.mutations).toEqual([]);
+      expect(fixture.errors).toEqual([]);
+    });
+  }
   test(`authentication recovery: stalled startup stays recoverable across tabs (${theme})`, async ({
     page,
     isMobile,

@@ -4,6 +4,7 @@ import { Capacitor } from '@capacitor/core';
 import { App } from '@capacitor/app';
 import { StatusBar, Style } from '@capacitor/status-bar';
 import { themeBackgroundColor } from './theme-color';
+import { APP_FOREGROUND_EVENT } from './app-lifecycle-events';
 
 export function isCapacitor(): boolean {
   return Capacitor.isNativePlatform();
@@ -15,6 +16,7 @@ export function registerCapacitorLifecycle(onResume: () => void, onPause?: () =>
 
   App.addListener('appStateChange', ({ isActive }) => {
     if (isActive) {
+      window.dispatchEvent(new Event(APP_FOREGROUND_EVENT));
       onResume();
     } else {
       onPause?.();

@@ -78,6 +78,21 @@ describe('registerCapacitorLifecycle', () => {
     expect(onResume).toHaveBeenCalledTimes(1);
   });
 
+  it('notifies mounted auth recovery when native foreground resumes', () => {
+    vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
+    const foreground = vi.fn();
+    window.addEventListener('mitzo:app-foreground', foreground);
+    try {
+      registerCapacitorLifecycle(vi.fn());
+      listeners['appStateChange']({ isActive: false });
+      expect(foreground).not.toHaveBeenCalled();
+      listeners['appStateChange']({ isActive: true });
+      expect(foreground).toHaveBeenCalledOnce();
+    } finally {
+      window.removeEventListener('mitzo:app-foreground', foreground);
+    }
+  });
+
   it('does not call onResume when app goes to background', () => {
     vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
     const onResume = vi.fn();
