@@ -1,0 +1,93 @@
+{
+  "baseline": "af2c45eadeb901202a42c5c1255aa5068b253252",
+  "routes": [
+    {
+      "method": "post",
+      "path": "/creation/recovery/app-reauthorize"
+    },
+    {
+      "method": "get",
+      "path": "/configuration-operations/:key"
+    },
+    {
+      "method": "get",
+      "path": "/context-turns"
+    },
+    {
+      "method": "post",
+      "path": "/context-package"
+    },
+    {
+      "method": "get",
+      "path": "/perspectives"
+    },
+    {
+      "method": "post",
+      "path": "/seats/revise"
+    },
+    {
+      "method": "post",
+      "path": "/activate"
+    },
+    {
+      "method": "post",
+      "path": "/draft"
+    },
+    {
+      "method": "post",
+      "path": "/selection"
+    },
+    {
+      "method": "get",
+      "path": "/status"
+    },
+    {
+      "method": "get",
+      "path": "/"
+    },
+    {
+      "method": "put",
+      "path": "/config"
+    },
+    {
+      "method": "post",
+      "path": "/admissions/refresh"
+    },
+    {
+      "method": "post",
+      "path": "/primary/transfer"
+    },
+    {
+      "method": "post",
+      "path": "/creation/recovery/reauthorize"
+    },
+    {
+      "method": "post",
+      "path": "/creation/recover"
+    },
+    {
+      "method": "post",
+      "path": "/membership"
+    },
+    {
+      "method": "post",
+      "path": "/deliveries"
+    },
+    {
+      "method": "post",
+      "path": "/share-excerpt"
+    },
+    {
+      "method": "post",
+      "path": "/deliveries/:deliveryId/interventions"
+    },
+    {
+      "method": "post",
+      "path": "/deliveries/:deliveryId/dispatch"
+    },
+    {
+      "method": "post",
+      "path": "/deliveries/:deliveryId/cancel"
+    }
+  ]
+}
