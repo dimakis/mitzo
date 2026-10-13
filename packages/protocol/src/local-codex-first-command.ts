@@ -28,8 +28,23 @@ export const LocalCodexFirstCommandSchema = z
       text: z.string().min(1).max(1_000_000),
       intent: z.string().max(1_000_000).optional(),
       images: z
-        .array(z.strictObject({ data: z.string().min(1), mediaType: z.string().min(1).max(128) }))
-        .max(16)
+        .array(
+          z.strictObject({
+            data: z
+              .string()
+              .min(1)
+              .max(14_000_000)
+              .refine((data) => {
+                if (data.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(data)) return false;
+                const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+                if (data.endsWith('==')) return (alphabet.indexOf(data.at(-3)!) & 15) === 0;
+                if (data.endsWith('=')) return (alphabet.indexOf(data.at(-2)!) & 3) === 0;
+                return true;
+              }, 'Invalid canonical base64'),
+            mediaType: z.enum(['image/png', 'image/jpeg', 'image/webp', 'image/gif']),
+          }),
+        )
+        .max(10)
         .optional(),
     }),
   })
