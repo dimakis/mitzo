@@ -29,6 +29,23 @@ Use grouped bordered rows and quiet surfaces for lists. Put the most useful titl
 
 ## Drafts and updates
 
+Chat load errors distinguish an initial request from a refresh of a previously loaded
+list. A failed refresh retains its rows beside the existing error and Retry control,
+including in Today's recent sessions. Draft confirmation describes storage on the
+current device, appears only after the current revision is saved, and disappears
+when an empty composer has no retained draft. Failed writes remain explicit alerts.
+These changes reuse existing list/error and composer status styles.
+
+Isolated actual SessionList and ChatInput renders were checked offline in mobile
+WebKit at 320px and desktop Chromium at 1280px, dark/light themes and Mint/Georgia,
+with retry, empty/saved/cleared states and retained composer focus. Captures show
+[mobile refresh](assets/chat-refresh-mobile-dark.png),
+[desktop refresh](assets/chat-refresh-desktop-light.png),
+[mobile draft save](assets/chat-save-mobile-light.png) and
+[desktop draft save](assets/chat-save-desktop-dark.png).
+These focused renders omit the application shell; full-app offline fixtures cover
+the corresponding routes and run in CI when host pressure prevents a broad build.
+
 Chats shows a counted Drafts destination when saved drafts exist, separate from active and recent conversations. The shortcut disappears when the last draft is removed. The dedicated collection uses `WorkspacePageHeading`, `MobileShell`/`DesktopShell`, shared iconography and token-based quiet records. Each record leads with the message, shows the saved account/model/thinking context, and exposes a labelled discard action through `HomeDialog`. Draft text wraps or clamps in the list and remains editable in the ordinary composer. Save failures stay visible. New chat always starts fresh; switching drafts must never copy one draft's content or settings into another.
 
 Empty messages with a repository preparation retain their exact receipt and account/model binding. Discard confirms and releases unused preparations before removing the local draft; unavailable or uncertain cleanup keeps the draft and reports the error. Pending attachment imports remain fenced to their originating composer. Clearing an ordinary draft leaves an editable blank composer whose URL can be reloaded.
