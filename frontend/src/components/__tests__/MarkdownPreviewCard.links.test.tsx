@@ -102,6 +102,8 @@ it('uses the resolved preview identity for sharing, Open and relative links', as
   fireEvent.click(screen.getByRole('button', { name: 'File options' }));
   fireEvent.click(screen.getByRole('button', { name: 'Share file' }));
   await waitFor(() => expect(shareFile).toHaveBeenCalledWith(actual, 'session-1'));
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  fireEvent.click(screen.getByRole('button', { name: 'File options' }));
   fireEvent.click(screen.getByRole('button', { name: /^Open$/ }));
   await waitFor(() =>
     expect(

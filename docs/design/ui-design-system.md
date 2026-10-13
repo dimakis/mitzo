@@ -292,6 +292,6 @@ trigger. Telos links open their available actions directly without a second row
 of icons. Choices appear only on request using `HomeDialog`, its focus/scroll
 ownership, shared control-height targets and motion-presence helper. The action
 state stays with the trigger so closing/reopening cannot duplicate a pending
-operation. On iOS, the system Share sheet also offers Save to Files. The offline
+operation. Successful actions dismiss the options and restore focus. On iOS, the system Share sheet also offers Save to Files. The offline
 artefact fixture checks compact closed controls, revealed choices, Escape/focus
 restoration, exact revision and original bytes across mobile/desktop appearances.

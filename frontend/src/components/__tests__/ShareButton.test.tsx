@@ -73,6 +73,14 @@ describe('ShareButton', () => {
     fireEvent.click(screen.getByRole('button', { name: 'File options' }));
     await userEvent.click(screen.getByRole('button', { name: 'Download file' }));
     expect(downloadFile).toHaveBeenCalledWith('report.md', 'session-1');
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(
+      screen
+        .getByRole('button', { name: 'File options' })
+        .querySelector('svg')
+        ?.getAttribute('data-icon'),
+    ).toBe('check');
+    fireEvent.click(screen.getByRole('button', { name: 'File options' }));
     expect(screen.getByRole('button', { name: 'Downloaded' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Share file' })).toBeTruthy();
   });
@@ -87,10 +95,10 @@ describe('ShareButton', () => {
     });
 
     expect(mockShareFile).toHaveBeenCalledWith('/workspace/file.md');
-    expect(screen.getByRole('button', { name: 'Shared' })).toBeTruthy();
+    expect(screen.queryByRole('dialog')).toBeNull();
     expect(
       screen
-        .getByRole('button', { name: 'Shared' })
+        .getByRole('button', { name: 'File options' })
         .querySelector('svg')
         ?.getAttribute('data-icon'),
     ).toBe('check');

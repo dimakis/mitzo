@@ -60,6 +60,7 @@ export function ShareButton({
         const initiated = await (sessionId ? operation(filePath, sessionId) : operation(filePath));
         if (!mountedRef.current || generation !== generationRef.current) return;
         setState(initiated ? 'done' : 'idle');
+        if (initiated) setOpen(false);
         if (initiated) timerRef.current = setTimeout(() => setState('idle'), 1500);
       } catch (err: unknown) {
         if (!mountedRef.current || generation !== generationRef.current) return;
@@ -142,7 +143,15 @@ export function ShareButton({
           onClick={trigger}
         >
           <UiIcon
-            name={state === 'busy' ? 'loading' : state === 'error' ? 'error' : 'more'}
+            name={
+              state === 'busy'
+                ? 'loading'
+                : state === 'error'
+                  ? 'error'
+                  : state === 'done'
+                    ? 'check'
+                    : 'more'
+            }
             size={16}
           />
         </button>

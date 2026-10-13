@@ -126,7 +126,6 @@ for (const appearance of ['dark', 'light'] as const) {
         bytes: Array.from(bytes),
       });
     expect(requests).toEqual(['?revision=2']);
-    await options.getByRole('button', { name: 'Close' }).click();
     await expect(options).not.toBeVisible();
     await expect(link).toBeFocused();
     const bareLink = page.getByRole('link', { name: `${artifact}?revision=1`, exact: true });
@@ -134,7 +133,6 @@ for (const appearance of ['dark', 'light'] as const) {
     await bareLink.click();
     await options.getByRole('button', { name: 'Share file' }).click();
     await expect.poll(() => requests).toEqual(['?revision=2', '?revision=1']);
-    await options.getByRole('button', { name: 'Close' }).click();
     await expect(options).not.toBeVisible();
     const pdfOptions = page
       .getByRole('link', { name: 'PDF report', exact: true })
