@@ -654,7 +654,13 @@ export class SseConnection implements ChatConnection {
     }
     const request = { es: welcomeEs, connectionId: welcomeConnectionId, dirty: false };
     this.replayRequest = request;
-    for (const sessionId of this.seqBySession.keys()) {
+    // This exact request owns only these sessions, even if navigation changes
+    // the tracked set while its response is in flight.
+    const sessions = Array.from(this.seqBySession.entries()).map(([sessionId, lastSeq]) => ({
+      sessionId,
+      lastSeq,
+    }));
+    for (const { sessionId } of sessions) {
       this.replayingSessions.add(sessionId);
       this.replaySeenSeq.delete(sessionId);
       this.pendingSnapshots.delete(sessionId);
@@ -674,10 +680,7 @@ export class SseConnection implements ChatConnection {
           body: JSON.stringify({
             type: 'reconnect',
             supportsAppliedCursor: true,
-            sessions: Array.from(this.seqBySession.entries()).map(([sessionId, lastSeq]) => ({
-              sessionId,
-              lastSeq,
-            })),
+            sessions,
           }),
         }),
         new Promise<never>((_, reject) => {
@@ -695,7 +698,7 @@ export class SseConnection implements ChatConnection {
       if (res.ok) {
         if (request.dirty) return;
         this._connected = true;
-        this.flushPendingSends();
+        this.flushPendingSends(new Set(sessions.map(({ sessionId }) => sessionId)));
         this.listener?.({ type: '_open' });
       } else {
         console.warn('[SseConnection] reconnect POST returned', res.status);
@@ -882,12 +885,14 @@ export class SseConnection implements ChatConnection {
     }
   }
 
-  private flushPendingSends(): void {
+  private flushPendingSends(reconnectedSessions: ReadonlySet<string> = new Set()): void {
     const toFlush = this.pendingSends.filter(({ endpoint }) => endpoint !== 'switch');
     if (this.switchIntent) {
-      // Reconnect already owns the cursor and its outstanding snapshot offer.
-      // Rehydrate selection without replaying a transcript-opening cursor reset.
-      const selection = { type: 'switch_session', sessionId: this.switchIntent.sessionId };
+      const selection = { ...this.switchIntent };
+      // Preserve a newly opened chat's REST boundary if it was absent from the
+      // replay request. For covered chats, resetting would invalidate its offer.
+      if (typeof selection.sessionId === 'string' && reconnectedSessions.has(selection.sessionId))
+        delete selection.historyCursor;
       this.switchIntent = selection;
       toFlush.unshift({ endpoint: 'switch', body: selection });
     }

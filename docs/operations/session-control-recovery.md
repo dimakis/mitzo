@@ -51,10 +51,14 @@ logout and disconnect clear the old switch intent. Legacy servers are supported
 only for the two exact historical expired-connection response texts, not arbitrary
 404s. Unrelated HTTP failures remain visible without claiming the provider ended.
 
-Automatic selection hydration sends only the session ID, never a saved
-`historyCursor`. Reconnect owns that cursor and its pending snapshot offer;
-resetting it before the delayed transcript ACK would invalidate the offer and
-repeat recovery. A foreground first-prompt assignment updates the recovery
+Automatic selection hydration drops `historyCursor` only for sessions included
+in the exact completed reconnect request. Reconnect owns their cursor and pending
+snapshot offer; resetting it before the delayed transcript ACK would invalidate
+the offer and repeat recovery. Navigation during that request can select a new
+chat outside its captured session set. Its queued switch retains the installed
+REST cursor so durable retry delivers events created between that read and the
+new watch. Tests exercise both actual snapshot ACK preservation and delivery of
+that transcript tail with a deliberately delayed reconnect response. A foreground first-prompt assignment updates the recovery
 selection, replacing the previous blank-chat intent. Correlated assignments
 from an offscreen draft do not change the foreground selection. A confirmed
 HTTP assignment releases the assignment wait even if the streaming `session_id`

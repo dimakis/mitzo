@@ -1028,6 +1028,7 @@ describe('SseConnection', () => {
     conn.send({ type: 'switch_session', sessionId: 'first' });
     conn.clearPendingSends();
     conn.send({ type: 'switch_session', sessionId: 'latest', historyCursor: 12 });
+    conn.trackSeq('latest', 12);
     conn.checkAndReconnect(true);
     fetch.mockClear();
     lastES()._emit('welcome', { connectionId: 'new' });
@@ -1037,6 +1038,40 @@ describe('SseConnection', () => {
     expect(JSON.parse(switches[0][1].body)).toEqual({
       type: 'switch_session',
       sessionId: 'latest',
+    });
+    conn.disconnect();
+  });
+
+  it('keeps the REST cursor when navigation selects a chat outside an in-flight reconnect', async () => {
+    let finishReconnect!: (response: Response) => void;
+    const fetch = vi.fn((url: string, _init?: RequestInit) =>
+      url.endsWith('/reconnect')
+        ? new Promise<Response>((resolve) => {
+            finishReconnect = resolve;
+          })
+        : Promise.resolve({ ok: true } as Response),
+    );
+    const conn = new SseConnection(createConfig({ fetch }));
+    conn.trackSeq('previous', 7);
+    conn.connect();
+    lastES()._emit('welcome', { connectionId: 'new' });
+    expect(JSON.parse(String(fetch.mock.calls[0][1]?.body)).sessions).toEqual([
+      { sessionId: 'previous', lastSeq: 7 },
+    ]);
+    conn.clearSession('previous');
+    conn.clearPendingSends();
+    conn.trackSeq('selected', 0);
+    conn.send({ type: 'switch_session', sessionId: 'selected' });
+    conn.commitTranscriptCursor('selected', 12);
+    conn.send({ type: 'switch_session', sessionId: 'selected', historyCursor: 12 });
+    finishReconnect({ ok: true } as Response);
+    await vi.advanceTimersByTimeAsync(0);
+    const switches = fetch.mock.calls.filter(([url]) => url.endsWith('/switch'));
+    expect(switches).toHaveLength(1);
+    expect(JSON.parse(String(switches[0][1]?.body))).toEqual({
+      type: 'switch_session',
+      sessionId: 'selected',
+      historyCursor: 12,
     });
     conn.disconnect();
   });
