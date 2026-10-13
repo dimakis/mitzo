@@ -214,6 +214,11 @@ a replacement connection. Transport failures preserve streamed content and runni
 state; cancellation and permission failures require operator review rather than
 automatic retries. See [the failure investigation](docs/operations/session-control-recovery.md).
 
+SSE background suspension uses an authenticated keepalive POST. A failed suspend
+hint does not add an error to the conversation; foreground probe/reconnect restores
+tracked sessions from their last applied cursor. Prompt delivery, control and
+permission failures retain their existing feedback.
+
 ```
 Phone (Tailscale) ──┬── HTTP: REST API
                     └── SSE: v2 streaming protocol (WS diagnostic override)

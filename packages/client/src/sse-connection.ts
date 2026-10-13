@@ -315,6 +315,7 @@ export class SseConnection implements ChatConnection {
             signal: abort.signal,
             headers: { 'Content-Type': 'application/json', 'X-Connection-ID': connectionId },
             body: JSON.stringify(body),
+            ...(endpoint === 'suspend' ? { keepalive: true } : {}),
           })
           .then(readResponse),
         new Promise<never>((_, reject) => {
@@ -343,7 +344,9 @@ export class SseConnection implements ChatConnection {
 
   /**
    * Signal the server that this client is about to be backgrounded.
-   * Uses fetch POST first; falls back to sendBeacon.
+   * Uses an authenticated keepalive POST while connected, or sendBeacon
+   * when the stream is disconnected. Suspend is a best-effort lifecycle hint;
+   * foreground reconnect restores sessions even if the hint was not delivered.
    */
   sendSuspend(): void {
     if (this.seqBySession.size === 0) return;
@@ -353,7 +356,7 @@ export class SseConnection implements ChatConnection {
       lastSeq,
     }));
 
-    // Try POST first
+    // Keep authentication headers on native iOS, where beacon cannot add them.
     if (this._connected && this._connectionId) {
       this.doPost('suspend', { type: 'session_suspend', sessions });
       return;
@@ -782,7 +785,7 @@ export class SseConnection implements ChatConnection {
         connectionId,
         async (res) => {
           let rejected: Record<string, unknown> | undefined;
-          if (!res.ok) {
+          if (!res.ok && endpoint !== 'suspend') {
             try {
               rejected = await res.json();
             } catch {
@@ -793,6 +796,8 @@ export class SseConnection implements ChatConnection {
         },
       );
       if (!res.ok) {
+        // Background hints recover on foreground and never become chat errors.
+        if (endpoint === 'suspend') return;
         if (!control && !visible()) return;
         const expired =
           res.status === 404 &&
@@ -860,9 +865,11 @@ export class SseConnection implements ChatConnection {
         transportFailure(`Could not ${endpoint} (${res.status}). Please retry.`);
       }
     } catch {
+      // A late beacon or retry could suspend the resumed foreground owner.
+      if (endpoint === 'suspend') return;
       if (!control && !visible()) return;
       if (current()) this.scheduleReconnect();
-      if (endpoint === 'switch' || endpoint === 'suspend') return;
+      if (endpoint === 'switch') return;
       if (controlFailure(`Could not ${endpoint}. Please retry.`)) return;
       if (endpoint === 'permission' && typeof body.permId === 'string')
         this.listener?.({

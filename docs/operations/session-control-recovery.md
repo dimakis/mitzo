@@ -65,6 +65,11 @@ feedback and require deliberate retry. A lost cancellation response never
 fabricates a correlated receipt. Delayed permission failures from a superseded
 transport cannot replace the newer authoritative permission state.
 
+Integration with accepted PR #911 preserves authenticated keepalive suspension.
+Suspend failures remain quiet, do not consume rejected response bodies, and never
+force a stream replacement; the foreground probe/reconnect owns recovery. Its
+regressions caught conflicting behavior during integration before the combined fix.
+
 The changes leave server detach/suspend/reattach ownership, provider thread
 recovery, durable transcript storage and prompt idempotency intact. Reconnect
 continues using the client's applied cursor. A local transient error no longer
