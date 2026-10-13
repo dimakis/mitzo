@@ -34,11 +34,31 @@ export function WorkspaceControls({
     const panel = ref.current;
     const owner = panel?.parentElement;
     const chat = owner?.closest('.workspace-chat');
-    const boundary =
-      chat?.querySelector<HTMLElement>('.chat-launch-prompt')?.parentElement ??
-      chat?.querySelector<HTMLElement>('.chat-input');
-    if (!open || !panel || !owner || !boundary || typeof ResizeObserver === 'undefined') return;
+    if (!open || !panel || !owner || !chat || typeof ResizeObserver === 'undefined') return;
+    const observed = new Set<Element>();
     const measure = () => {
+      const composer = chat.querySelector<HTMLElement>('.chat-input');
+      const boundary =
+        chat.querySelector<HTMLElement>('.chat-launch-prompt')?.parentElement ??
+        chat.querySelector<HTMLElement>('.repository-chat-picker') ??
+        composer;
+      // Composer growth can move the repository row without resizing that row.
+      const next = new Set<Element>([
+        owner,
+        chat,
+        ...[boundary, composer].filter((node): node is HTMLElement => !!node),
+      ]);
+      for (const node of observed)
+        if (!next.has(node)) {
+          observer.unobserve(node);
+          observed.delete(node);
+        }
+      for (const node of next)
+        if (!observed.has(node)) {
+          observer.observe(node);
+          observed.add(node);
+        }
+      if (!boundary) return;
       if (getComputedStyle(panel).position !== 'absolute') {
         panel.style.removeProperty('--workspace-disclosure-space');
         return;
@@ -52,13 +72,16 @@ export function WorkspaceControls({
       panel.style.setProperty('--workspace-disclosure-space', `${space}px`);
     };
     const observer = new ResizeObserver(measure);
-    observer.observe(owner);
-    observer.observe(boundary);
+    // Account selection and repository preparation can add a new launch surface
+    // without resizing the composer. Keep its actions outside the overlay.
+    const mutations = new MutationObserver(measure);
+    mutations.observe(chat, { childList: true, subtree: true });
     measure();
     window.addEventListener('resize', measure);
     window.visualViewport?.addEventListener('resize', measure);
     return () => {
       observer.disconnect();
+      mutations.disconnect();
       window.removeEventListener('resize', measure);
       window.visualViewport?.removeEventListener('resize', measure);
     };

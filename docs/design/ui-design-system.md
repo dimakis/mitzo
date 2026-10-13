@@ -323,7 +323,10 @@ type, radii, control heights, focus and disclosure motion remain shared. It adds
 page theme. An untouched enrolled draft retains OpenShell; unavailable choices
 retain their labels and reasons. Explicit Local uses a separate strict first-command
 HTTP route while existing event-stream transcript and permission handling stay shared.
-Configuration metadata never establishes runtime readiness.
+Configuration metadata never establishes runtime readiness. The shared settings
+disclosure scrolls within a viewport cap on desktop. Its mobile overlay stops before
+the first repository or launch action and updates when that action appears, retaining
+keyboard focus and the existing disclosure motion.
 
 Mobile and desktop write the same account/profile/target/capability intent into
 saved drafts. Model/thinking and published revisions are never silently replaced

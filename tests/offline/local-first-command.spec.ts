@@ -220,6 +220,20 @@ async function offline(page: Page, gateOff = false, restore = false) {
   });
   return { requests, forbidden, errors };
 }
+async function emitLocalState(page: Page, state: 'running' | 'idle') {
+  await page.evaluate(
+    ({ sessionId, state }) => {
+      const source = (window as unknown as { __localFixtureSource: EventSource })
+        .__localFixtureSource;
+      source.onmessage?.(
+        new MessageEvent('message', {
+          data: JSON.stringify({ type: 'session_state_changed', sessionId, state }),
+        }),
+      );
+    },
+    { sessionId, state },
+  );
+}
 for (const appearance of ['light', 'dark'] as const) {
   test(`Local first command: exact choices, preparation and bound controls (${appearance})`, async ({
     page,
@@ -246,7 +260,18 @@ for (const appearance of ['light', 'dark'] as const) {
       .getByRole('combobox', { name: 'Agent', exact: true })
       .selectOption(JSON.stringify(['saved', 'agent', 1]));
     await page.getByRole('button', { name: 'Use these Local choices' }).click();
-    await page.getByRole('button', { name: 'Add repository' }).click();
+    const repository = page.getByRole('button', { name: 'Add repository' });
+    await expect(page.getByRole('button', { name: /^Workspace controls/ })).toBeInViewport();
+    await expect(repository).toBeInViewport();
+    const panel = page.locator('.workspace-controls > .motion-disclosure');
+    const panelBounds = await panel.boundingBox();
+    const repositoryBounds = await page.locator('.repository-chat-picker').boundingBox();
+    if (testInfo.project.name.startsWith('mobile')) {
+      expect(panelBounds!.y + panelBounds!.height).toBeLessThanOrEqual(repositoryBounds!.y);
+    } else {
+      expect(panelBounds!.height).toBeLessThanOrEqual(page.viewportSize()!.height * 0.45);
+    }
+    await repository.click();
     await page
       .getByRole('combobox', { name: 'GitHub repository' })
       .selectOption('github:owner/repository');
@@ -255,6 +280,7 @@ for (const appearance of ['light', 'dark'] as const) {
     await page.getByRole('textbox', { name: 'Message Mitzo' }).fill('Inspect the repository');
     await page.getByRole('button', { name: 'Use these Local choices' }).scrollIntoViewIfNeeded();
     await expect(page.getByRole('button', { name: 'Use these Local choices' })).toBeInViewport();
+    await expect(page.getByRole('button', { name: /^Workspace controls/ })).toBeInViewport();
     expect(
       await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
     ).toBe(true);
@@ -280,6 +306,13 @@ for (const appearance of ['light', 'dark'] as const) {
     });
     await expect(page).toHaveURL(new RegExp(`/chat/${sessionId}`));
     await expect(page.getByText('Run on: Local · first command only')).toBeVisible();
+    await emitLocalState(page, 'running');
+    await expect(page.getByRole('button', { name: 'Stop generation' })).toBeEnabled();
+    await expect(page.getByRole('button', { name: 'Send message', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Interrupt and send now' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Queue message' })).toHaveCount(0);
+    await emitLocalState(page, 'idle');
+    await expect(page.getByRole('button', { name: 'Stop generation' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Send message', exact: true })).toBeDisabled();
     await page.screenshot({
       path: testInfo.outputPath(`local-bound-${appearance}.png`),
@@ -293,12 +326,23 @@ test('Local first command: restored Local remains visible and blocked with gate 
   page,
 }, testInfo) => {
   const fixture = await offline(page, true, true);
+  if (testInfo.project.name.startsWith('mobile'))
+    await page.setViewportSize({ width: 320, height: 740 });
   await page.goto('/chat?draft=local-restored');
   await expect(page.getByRole('combobox', { name: 'Run on' })).toHaveValue('local:mac');
   await expect(page.getByRole('combobox', { name: 'Agent', exact: true })).toHaveValue(
     JSON.stringify(['saved', 'agent', 1]),
   );
   await expect(page.getByRole('button', { name: 'Send message', exact: true })).toBeDisabled();
+  const restoredPanel = await page
+    .locator('.workspace-controls > .motion-disclosure')
+    .boundingBox();
+  const restoredRepository = await page.locator('.repository-chat-picker').boundingBox();
+  if (testInfo.project.name.startsWith('mobile'))
+    expect(restoredPanel!.y + restoredPanel!.height).toBeLessThanOrEqual(restoredRepository!.y);
+  await page.getByRole('button', { name: 'Refresh execution choices' }).focus();
+  await expect(page.getByRole('button', { name: 'Refresh execution choices' })).toBeFocused();
+  await expect(page.getByRole('button', { name: 'Refresh execution choices' })).toBeInViewport();
   await page.screenshot({
     path: testInfo.outputPath('local-restored-disabled.png'),
     fullPage: true,

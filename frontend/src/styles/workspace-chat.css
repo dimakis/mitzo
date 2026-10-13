@@ -235,6 +235,10 @@
   flex-shrink: 0;
   border-bottom: 1px solid var(--workspace-line);
 }
+.workspace-chat .workspace-controls > .motion-disclosure:not([hidden]) {
+  max-height: 45dvh;
+  overflow-y: auto;
+}
 .workspace-controls-toggle {
   display: flex;
   align-items: center;
