@@ -13,10 +13,11 @@ import {
   artifactViewerUrl,
   relativeArtifactPath,
   remarkLocalMarkdownLinks,
+  isTelosArtifactUrl,
 } from '../lib/file-paths';
 import { formatTime } from '../lib/formatTime';
 import { CopyButton } from './CopyButton';
-import { ShareButton } from './ShareButton';
+import { ShareButton, FileShareLink } from './ShareButton';
 import { ReadAloudButton } from './ReadAloudButton';
 import { markdownComponents } from '../lib/markdown-config';
 import { MarkdownCodeBlock } from './MarkdownCodeBlock';
@@ -180,6 +181,22 @@ export function TextBubble({
         return <p>{children}</p>;
       },
       a: ({ href, children }) => {
+        if (!href) return <span>{children}</span>;
+        const destination = href?.startsWith(FILE_SCHEME) ? decodeFilePathUrl(href) : href;
+        if (destination && isTelosArtifactUrl(destination)) {
+          return (
+            <FileShareLink
+              filePath={destination}
+              onOpen={() =>
+                navigationRef.current.navigate(
+                  artifactViewerUrl(destination, navigationRef.current.currentPath),
+                )
+              }
+            >
+              {children}
+            </FileShareLink>
+          );
+        }
         const filePath = href?.startsWith(FILE_SCHEME)
           ? decodeFilePathUrl(href)
           : href
@@ -212,12 +229,25 @@ export function TextBubble({
                 filePath={filePath}
                 sessionId={artifactSessionId}
                 className="file-path-share"
+                onOpen={() =>
+                  navigationRef.current.navigate(
+                    artifactViewerUrl(
+                      filePath,
+                      navigationRef.current.currentPath,
+                      artifactSessionId,
+                    ),
+                  )
+                }
               />
             </span>
           );
         }
         return (
-          <a href={href} target="_blank" rel="noopener noreferrer">
+          <a
+            href={href}
+            target={/^(?:https?:)?\/\//i.test(href) ? '_blank' : undefined}
+            rel="noopener noreferrer"
+          >
             {children}
           </a>
         );
