@@ -1797,10 +1797,65 @@ describe('SseConnection', () => {
       'https://localhost:3100/api/chat/suspend',
       expect.objectContaining({
         method: 'POST',
+        keepalive: true,
+        headers: { 'Content-Type': 'application/json', 'X-Connection-ID': 'conn-abc' },
         body: expect.stringContaining('sess-1'),
       }),
     );
   });
+
+  it.each(['network', 'http'])(
+    'recovers after a %s suspend failure without a chat error',
+    async (failure) => {
+      const doc = new EventTarget();
+      Object.assign(doc, { visibilityState: 'hidden' });
+      vi.stubGlobal('document', doc);
+      vi.stubGlobal('addEventListener', vi.fn());
+      vi.stubGlobal('removeEventListener', vi.fn());
+      const beacon = vi.fn();
+      vi.stubGlobal('navigator', { sendBeacon: beacon });
+      const fetch = vi.fn((url: string, _init?: RequestInit) => {
+        if (url.endsWith('/suspend'))
+          return failure === 'network'
+            ? Promise.reject(new TypeError('Load failed'))
+            : Promise.resolve({ ok: false, status: 404 } as Response);
+        return Promise.resolve({ ok: true } as Response);
+      });
+      const conn = new SseConnection(createConfig({ fetch, suspendUrl: '/api/sessions/suspend' }));
+      const listener = vi.fn();
+      conn.onMessage(listener);
+      try {
+        conn.connect();
+        const es = lastES();
+        es._emit('welcome', { connectionId: 'conn-abc' });
+        conn.trackSeq('sess-1', 42);
+        listener.mockClear();
+        doc.dispatchEvent(new Event('visibilitychange'));
+        await vi.advanceTimersByTimeAsync(0);
+        expect(listener).not.toHaveBeenCalled();
+        expect(conn.getLastSeq('sess-1')).toBe(42);
+
+        Object.assign(doc, { visibilityState: 'visible' });
+        doc.dispatchEvent(new Event('visibilitychange'));
+        const probe = fetch.mock.calls.find(([url]) => url.endsWith('/probe'));
+        expect(probe).toBeDefined();
+        es._emit('message', { type: '_probe', nonce: JSON.parse(String(probe![1]?.body)).nonce });
+        await vi.advanceTimersByTimeAsync(0);
+        const reconnect = fetch.mock.calls.find(([url]) => url.endsWith('/reconnect'));
+        expect(reconnect).toBeDefined();
+        expect(JSON.parse(String(reconnect![1]?.body))).toMatchObject({
+          sessions: [{ sessionId: 'sess-1', lastSeq: 42 }],
+        });
+        expect(reconnect![1]?.keepalive).toBeUndefined();
+        expect(conn.isConnected()).toBe(true);
+        expect(listener.mock.calls.some(([message]) => message.type === 'error')).toBe(false);
+        expect(beacon).not.toHaveBeenCalled();
+      } finally {
+        conn.disconnect();
+        vi.unstubAllGlobals();
+      }
+    },
+  );
 
   it('sendSuspend is no-op with no tracked sessions', () => {
     const mockFetch = vi.fn().mockResolvedValue({ ok: true });
