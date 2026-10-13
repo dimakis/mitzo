@@ -63,6 +63,9 @@ export function useExplicitLocalChat(
   const [enrollment, setEnrollment] = useState<'loading' | 'off' | 'on' | 'unknown'>('loading');
   const [attempt, setAttempt] = useState(0);
   const [error, setError] = useState('');
+  const [metaFailure, setMetaFailure] = useState<{ sessionId: string; message: string } | null>(
+    null,
+  );
   const [meta, setMeta] = useState<{
     sessionId: string;
     binding: SessionRuntimeBinding | null;
@@ -103,6 +106,7 @@ export function useExplicitLocalChat(
   }, [enabled, sessionId, attempt]);
   useEffect(() => {
     if (!sessionId) return;
+    setMetaFailure(null);
     const controller = new AbortController();
     void Promise.resolve()
       .then(() =>
@@ -127,16 +131,22 @@ export function useExplicitLocalChat(
         });
       })
       .catch(() => {
-        if (!controller.signal.aborted)
-          setError('Conversation settings are unavailable. Refresh to retry.');
+        if (!controller.signal.aborted && scope.current.sessionId === sessionId)
+          setMetaFailure({
+            sessionId,
+            message: 'Conversation settings are unavailable. Retry to continue.',
+          });
       });
     return () => controller.abort();
   }, [sessionId, attempt]);
   const currentMeta = meta?.sessionId === sessionId ? meta : null;
+  const metadataError = metaFailure?.sessionId === sessionId ? metaFailure.message : undefined;
+  const metadataUnavailable = !!sessionId && !currentMeta && !!metadataError;
   const bound = !!sessionId && !!currentMeta?.firstCommand;
   const selectedLocal = intent.execution.location === 'local';
   const visible =
     bound ||
+    metadataUnavailable ||
     (!sessionId && enabled && (enrollment === 'on' || enrollment === 'unknown' || selectedLocal));
   const evaluation = evaluateChatRuntimeSelection(
     intent,
@@ -145,7 +155,7 @@ export function useExplicitLocalChat(
   const reason = bound
     ? 'This Local conversation supports its first command only. Start a new chat for another command.'
     : sessionId && !currentMeta
-      ? 'Loading conversation settings…'
+      ? (metadataError ?? 'Loading conversation settings…')
       : !visible
         ? enabled && !sessionId && enrollment === 'loading'
           ? 'Checking execution choices…'
@@ -171,6 +181,7 @@ export function useExplicitLocalChat(
     binding: currentMeta?.binding,
     reason,
     error,
+    metadataUnavailable,
     refresh: () => setAttempt((value) => value + 1),
     update,
     review: () => update({ ...intent, capabilityRevision: inventory?.capabilityRevision ?? null }),

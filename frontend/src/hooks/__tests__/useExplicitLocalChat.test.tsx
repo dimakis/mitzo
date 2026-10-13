@@ -107,3 +107,32 @@ it('retains explicit empty-composer Local intent across responsive remount and r
   );
   expect(state.intent!.execution.location).toBe('openshell');
 });
+it('keeps unknown session metadata fail-closed with visible retry, then recovers actual bound identity', async () => {
+  let failed = true;
+  vi.mocked(apiFetch).mockImplementation(async (path) => {
+    if (String(path).endsWith('/meta'))
+      return failed
+        ? new Response('{}', { status: 503 })
+        : new Response(
+            JSON.stringify({
+              runtimeCommandScope: 'first-command-only',
+              runtimeBinding: {
+                version: 2,
+                account: localInventoryFixture().accounts[0].account,
+                harness: { implementation: 'codex' },
+                execution: { location: 'local', targetId: 'mac', targetRevision: 'r1' },
+              },
+            }),
+          );
+    return new Response(JSON.stringify(localInventoryFixture()));
+  });
+  const { result } = renderHook(() => useExplicitLocalChat('draft', null, 'known-session', true));
+  await waitFor(() => expect(result.current.metadataUnavailable).toBe(true));
+  expect(result.current.visible).toBe(true);
+  expect(result.current.bound).toBe(false);
+  expect(result.current.reason).toBe('Conversation settings are unavailable. Retry to continue.');
+  failed = false;
+  act(() => result.current.refresh());
+  await waitFor(() => expect(result.current.bound).toBe(true));
+  expect(result.current.binding!.execution.location).toBe('local');
+});

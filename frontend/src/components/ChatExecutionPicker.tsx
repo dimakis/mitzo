@@ -9,6 +9,15 @@ export function ChatExecutionPicker({
   disabled?: boolean;
 }) {
   if (!runtime.visible) return null;
+  if (runtime.metadataUnavailable)
+    return (
+      <div className="chat-agent-profile">
+        <span role="alert">{runtime.reason}</span>
+        <button type="button" onClick={runtime.refresh}>
+          Retry conversation settings
+        </button>
+      </div>
+    );
   if (runtime.bound)
     return (
       <div className="chat-agent-profile">
