@@ -11,6 +11,7 @@ import type {
 } from '../ordinary-local-codex-admission.js';
 import { EventStore } from '../event-store.js';
 import { OrdinaryLocalCodexAdmissionCoordinator } from '../ordinary-local-codex-admission.js';
+import { ordinaryLocalCodexBootstrapId } from '../ordinary-local-codex-admission.js';
 
 // Entirely offline authority/store fixtures. No provider or credential access.
 function fixture(realStore?: EventStore, enabled = true, hasAuthority = true) {
@@ -587,6 +588,14 @@ describe('owned runtime bootstrap ordering', () => {
       'dispatch',
       'complete',
     ]);
+    const persisted = f.store.admitOrdinaryLocalCommand.mock.calls[0][2];
+    expect(f.bootstrap.mock.calls[0][0].bootstrapId).toBe(
+      ordinaryLocalCodexBootstrapId(f.meta.sessionId, persisted.requestFingerprint),
+    );
+    expect(f.bootstrap.mock.calls[0][0].bootstrapId).toMatch(/^[a-f0-9]{64}$/);
+    f.trace.length = 0;
+    await f.coordinator.admit(f.meta, f.request, f.effects);
+    expect(f.bootstrap.mock.calls[1][0].bootstrapId).toBe(f.bootstrap.mock.calls[0][0].bootstrapId);
   });
 
   it('does not bootstrap again for a consumed or uncertain command', async () => {

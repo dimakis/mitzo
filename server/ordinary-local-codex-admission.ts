@@ -41,6 +41,8 @@ export interface OrdinaryLocalCodexAdmissionExpectation {
   selection: z.infer<typeof Selection>;
   agentProfile?: Meta['agentProfile'];
   agentContext?: Meta['agentContext'];
+  /** Derived from the persisted session/fingerprint before bootstrap effects. */
+  bootstrapId?: string;
 }
 /** Injection belongs exclusively to the actual host-login/runtime/agent-context
  * owning authority. It must independently observe exact host, runtime, account,
@@ -102,6 +104,11 @@ function fail(reason: string): never {
 
 const contentDigest = (value: unknown) =>
   createHash('sha256').update(JSON.stringify(value)).digest('hex');
+
+/** Reconstruct retained private bootstrap identity from the existing command
+ * receipt. Knowing an ID confers no custody or permission to resume/clean it. */
+export const ordinaryLocalCodexBootstrapId = (sessionId: string, requestFingerprint: string) =>
+  contentDigest(['ordinary-local-codex-bootstrap-v1', sessionId, requestFingerprint]);
 
 /** Session metadata cannot introduce a second model, mode, agent or recipe tuple. */
 function reconcileSessionMetadata(meta: Meta, request: OrdinaryLocalCodexCommandRequest): void {
@@ -268,6 +275,20 @@ export class OrdinaryLocalCodexAdmissionCoordinator {
       agentProfile: admittedMeta.agentProfile,
       agentContext: admittedMeta.agentContext,
     };
+    const fingerprint = `ordinary-local-codex-v1:${createHash('sha256')
+      .update(
+        JSON.stringify(
+          canonical({
+            request,
+            workspace: expected.workspace,
+            agentProfile: expected.agentProfile,
+            agentContext: expected.agentContext,
+          }),
+        ),
+      )
+      .digest('hex')}`;
+    if (d.bootstrapAuthority)
+      expected.bootstrapId = ordinaryLocalCodexBootstrapId(admittedMeta.sessionId, fingerprint);
     // Clone every boundary so an asynchronous owner cannot rewrite admitted input.
     const snapshot = structuredClone(expected);
     const prepareWorkspace = effects.prepareWorkspace.bind(effects);
@@ -278,18 +299,6 @@ export class OrdinaryLocalCodexAdmissionCoordinator {
     const claim = () => {
       if (claimAttempted) fail('authority_reentry');
       claimAttempted = true;
-      const fingerprint = `ordinary-local-codex-v1:${createHash('sha256')
-        .update(
-          JSON.stringify(
-            canonical({
-              request,
-              workspace: snapshot.workspace,
-              agentProfile: snapshot.agentProfile,
-              agentContext: snapshot.agentContext,
-            }),
-          ),
-        )
-        .digest('hex')}`;
       try {
         d.store.admitOrdinaryLocalCommand(
           structuredClone(admittedMeta),
