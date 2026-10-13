@@ -104,13 +104,24 @@ for (const appearance of ['dark', 'light'] as const) {
     expect((await link.boundingBox())!.height).toBeGreaterThanOrEqual(44);
     await expect(page.getByRole('button', { name: 'Share file' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Download file' })).toHaveCount(0);
-    await expect(page.getByRole('button', { name: 'File options', exact: true })).toHaveCount(2);
+    await expect(page.getByRole('button', { name: 'File options', exact: true })).toHaveCount(4);
     await link.focus();
+    await page.keyboard.press('Enter');
+    await expect(page).toHaveURL(/\/files\?/);
+    await expect(page.getByText('Résumé.docx', { exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Edit', exact: true })).toHaveCount(0);
+    expect(requests).toEqual(['?revision=2']);
+    await page.getByRole('button', { name: 'Back', exact: true }).click();
+    await expect(page).toHaveURL(/\/chat\/sharing$/);
+    const telosOptions = link
+      .locator('..')
+      .getByRole('button', { name: 'File options', exact: true });
+    await telosOptions.focus();
     await page.keyboard.press('Enter');
     const options = page.getByRole('dialog', { name: 'File options' });
     await expect(options).toBeVisible();
     expect((await options.boundingBox())!.width).toBeLessThanOrEqual(page.viewportSize()!.width);
-    for (const name of ['Download file', 'Share file', 'Close']) {
+    for (const name of ['Open', 'Download file', 'Share file', 'Close']) {
       expect(
         (await options.getByRole('button', { name }).boundingBox())!.height,
       ).toBeGreaterThanOrEqual(44);
@@ -125,14 +136,14 @@ for (const appearance of ['dark', 'light'] as const) {
         type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
         bytes: Array.from(bytes),
       });
-    expect(requests).toEqual(['?revision=2']);
+    expect(requests).toEqual(['?revision=2', '?revision=2']);
     await expect(options).not.toBeVisible();
-    await expect(link).toBeFocused();
+    await expect(telosOptions).toBeFocused();
     const bareLink = page.getByRole('link', { name: `${artifact}?revision=1`, exact: true });
     await expect(bareLink).not.toHaveAttribute('target', '_blank');
-    await bareLink.click();
+    await bareLink.locator('..').getByRole('button', { name: 'File options', exact: true }).click();
     await options.getByRole('button', { name: 'Share file' }).click();
-    await expect.poll(() => requests).toEqual(['?revision=2', '?revision=1']);
+    await expect.poll(() => requests).toEqual(['?revision=2', '?revision=2', '?revision=1']);
     await expect(options).not.toBeVisible();
     const pdfOptions = page
       .getByRole('link', { name: 'PDF report', exact: true })

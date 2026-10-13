@@ -184,7 +184,18 @@ export function TextBubble({
         if (!href) return <span>{children}</span>;
         const destination = href?.startsWith(FILE_SCHEME) ? decodeFilePathUrl(href) : href;
         if (destination && isTelosArtifactUrl(destination)) {
-          return <FileShareLink filePath={destination}>{children}</FileShareLink>;
+          return (
+            <FileShareLink
+              filePath={destination}
+              onOpen={() =>
+                navigationRef.current.navigate(
+                  artifactViewerUrl(destination, navigationRef.current.currentPath),
+                )
+              }
+            >
+              {children}
+            </FileShareLink>
+          );
         }
         const filePath = href?.startsWith(FILE_SCHEME)
           ? decodeFilePathUrl(href)

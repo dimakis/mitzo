@@ -40,7 +40,7 @@ async function fetchFileBlob(
 }
 
 /** Prefer the extension for known types; servers may serve Markdown as plain text. */
-async function fetchFile(filePath: string, sessionId?: string): Promise<File> {
+export async function fetchFile(filePath: string, sessionId?: string): Promise<File> {
   const { blob, filename } = await fetchFileBlob(filePath, sessionId);
   const extensionMime = mimeFromExt(filename);
   const mime =

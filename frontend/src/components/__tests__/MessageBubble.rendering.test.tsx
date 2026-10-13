@@ -34,6 +34,32 @@ function renderBubble(content: string, streaming = false): string {
 }
 
 describe('TextBubble file link rendering', () => {
+  it('opens a Telos filename in Mitzo with its exact revision and keeps actions separate', () => {
+    function Location() {
+      const location = useLocation();
+      return <output data-testid="opened-location">{location.pathname + location.search}</output>;
+    }
+    const href = '/api/telos/artifacts/' + 'c'.repeat(32) + '?revision=2';
+    render(
+      <MemoryRouter initialEntries={['/chat/original']}>
+        <TextBubble content={`[Telos artifact](${href})`} />
+        <Location />
+      </MemoryRouter>,
+    );
+    expect(screen.queryByRole('button', { name: 'Share file' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'File options' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('link', { name: 'Telos artifact' }));
+    const opened = new URL(
+      screen.getByTestId('opened-location').textContent!,
+      'https://mitzo.test',
+    );
+    expect(opened.pathname).toBe('/files');
+    expect(opened.searchParams.get('path')).toBe(href);
+    expect(opened.searchParams.get('from')).toBe('/chat/original');
+    expect(screen.queryByRole('dialog')).toBeNull();
+    cleanup();
+  });
+
   it('shares a stored Telos link without opening another app or losing its revision', async () => {
     const href = '/api/telos/artifacts/' + 'a'.repeat(32) + '?revision=2';
     render(
@@ -43,7 +69,7 @@ describe('TextBubble file link rendering', () => {
     );
     const link = screen.getByRole('link', { name: 'Telos artifact' });
     expect(link.getAttribute('target')).toBeNull();
-    fireEvent.click(link);
+    fireEvent.click(screen.getByRole('button', { name: 'File options' }));
     expect(screen.getByRole('dialog', { name: 'File options' })).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Share file' }));
     expect(shareFile).toHaveBeenCalledWith(href);
@@ -60,7 +86,7 @@ describe('TextBubble file link rendering', () => {
     );
     const link = screen.getByRole('link', { name: href });
     expect(link.getAttribute('target')).toBeNull();
-    fireEvent.click(link);
+    fireEvent.click(screen.getByRole('button', { name: 'File options' }));
     expect(screen.getByRole('dialog', { name: 'File options' })).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Share file' }));
     expect(shareFile).toHaveBeenCalledExactlyOnceWith(href);
@@ -341,5 +367,30 @@ it('opens an unchanged restored Markdown message with its originating session', 
   expect(url.searchParams.get('path')).toBe('/workspace/My Report.md');
   expect(url.searchParams.get('sessionId')).toBe('old-session');
   expect(url.searchParams.get('from')).toBe('/chat/old-session');
+  cleanup();
+});
+
+it('keeps a saved Telos document from resolving relative links against a host workspace', () => {
+  const onOpen = vi.fn();
+  render(
+    <ReactMarkdown
+      remarkPlugins={remarkPlugins}
+      rehypePlugins={rehypePlugins}
+      urlTransform={artifactUrlTransform}
+      components={artifactMarkdownComponents(
+        '/api/telos/artifacts/' + 'a'.repeat(32),
+        undefined,
+        '/chat/original',
+        onOpen,
+      )}
+    >
+      {'[local](notes.md) [absolute](/workspace/private.md) [site](https://example.com)'}
+    </ReactMarkdown>,
+  );
+  expect(screen.queryByRole('link', { name: 'local' })).toBeNull();
+  expect(screen.queryByRole('link', { name: 'absolute' })).toBeNull();
+  expect(screen.getByRole('link', { name: 'site' }).getAttribute('href')).toBe(
+    'https://example.com',
+  );
   cleanup();
 });

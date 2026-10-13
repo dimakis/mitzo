@@ -288,8 +288,8 @@ keyboard focus and 44px controls without a backend or model call.
 Markdown Telos artefact links reuse `FileShareLink` and a compact file-options
 surface. Ordinary file links retain their primary in-app opening action and one
 quiet options trigger; previews group Open, Download and Share behind that same
-trigger. Telos links open their available actions directly without a second row
-of icons. Choices appear only on request using `HomeDialog`, its focus/scroll
+trigger. Telos filenames open their read-only saved revision inside Files and retain one
+quiet options trigger, following the same pattern as ordinary files. Choices appear only on request using `HomeDialog`, its focus/scroll
 ownership, shared control-height targets and motion-presence helper. The action
 state stays with the trigger so closing/reopening cannot duplicate a pending
 operation. Successful actions dismiss the options and restore focus. On iOS, the system Share sheet also offers Save to Files. The offline

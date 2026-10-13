@@ -1997,6 +1997,7 @@ textarea:focus {
 }
 
 .artifact-share-link {
+  min-width: 0;
   display: inline-flex;
   align-items: center;
   min-height: var(--control-height);

@@ -13,13 +13,7 @@ interface ShareButtonProps {
 }
 
 /** One quiet trigger keeps the available file actions out of the reading surface. */
-export function ShareButton({
-  filePath,
-  sessionId,
-  className,
-  onOpen,
-  linkLabel,
-}: ShareButtonProps & { linkLabel?: React.ReactNode }) {
+export function ShareButton({ filePath, sessionId, className, onOpen }: ShareButtonProps) {
   const [open, setOpen] = useState(false);
   const [action, setAction] = useState<'share' | 'download'>('share');
   const { ref: motionRef, present } = useMotionPresence(open, 'popover', false);
@@ -119,43 +113,29 @@ export function ShareButton({
 
   return (
     <>
-      {linkLabel !== undefined ? (
-        <a
-          href={filePath}
-          className="artifact-share-link"
-          onClick={trigger}
-          aria-haspopup="dialog"
-          aria-busy={state === 'busy'}
-          aria-expanded={open}
-          title="File options"
-        >
-          {linkLabel}
-        </a>
-      ) : (
-        <button
-          type="button"
-          className={`share-btn file-options-trigger ${className ?? ''}`.trim()}
-          aria-label="File options"
-          title={error || 'File options'}
-          aria-haspopup="dialog"
-          aria-expanded={open}
-          aria-busy={state === 'busy'}
-          onClick={trigger}
-        >
-          <UiIcon
-            name={
-              state === 'busy'
-                ? 'loading'
-                : state === 'error'
-                  ? 'error'
-                  : state === 'done'
-                    ? 'check'
-                    : 'more'
-            }
-            size={16}
-          />
-        </button>
-      )}
+      <button
+        type="button"
+        className={`share-btn file-options-trigger ${className ?? ''}`.trim()}
+        aria-label="File options"
+        title={error || 'File options'}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        aria-busy={state === 'busy'}
+        onClick={trigger}
+      >
+        <UiIcon
+          name={
+            state === 'busy'
+              ? 'loading'
+              : state === 'error'
+                ? 'error'
+                : state === 'done'
+                  ? 'check'
+                  : 'more'
+          }
+          size={16}
+        />
+      </button>
       {present && (
         <HomeDialog
           title="File options"
@@ -198,10 +178,25 @@ export function ShareButton({
   );
 }
 
-/** Stored Telos links expose the same compact options without opening another app. */
+/** Saved filenames open in Mitzo; one adjacent trigger holds every extra action. */
 export function FileShareLink({
   children,
+  onOpen,
   ...props
-}: ShareButtonProps & { children: React.ReactNode }) {
-  return <ShareButton {...props} linkLabel={children} />;
+}: ShareButtonProps & { children: React.ReactNode; onOpen: () => void }) {
+  return (
+    <span className="file-path-group">
+      <a
+        href="#"
+        className="artifact-share-link"
+        onClick={(event) => {
+          event.preventDefault();
+          onOpen();
+        }}
+      >
+        {children}
+      </a>
+      <ShareButton {...props} onOpen={onOpen} />
+    </span>
+  );
 }

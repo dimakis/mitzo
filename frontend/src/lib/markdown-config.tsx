@@ -57,7 +57,11 @@ export function artifactMarkdownComponents(
     a: ({ href, children, title }) => {
       if (!href) return <span>{children}</span>;
       if (href && isTelosArtifactUrl(href)) {
-        return <FileShareLink filePath={href}>{children}</FileShareLink>;
+        return (
+          <FileShareLink filePath={href} onOpen={() => onOpen(artifactViewerUrl(href, from))}>
+            {children}
+          </FileShareLink>
+        );
       }
       const filePath = href?.startsWith(FILE_SCHEME)
         ? decodeFilePathUrl(href)
@@ -72,6 +76,8 @@ export function artifactMarkdownComponents(
           </a>
         );
 
+      // A durable attachment has no filesystem directory or live workspace authority.
+      if (isTelosArtifactUrl(containingFile)) return <span>{children}</span>;
       const viewerUrl = artifactViewerUrl(filePath, from, sessionId);
       return (
         <a

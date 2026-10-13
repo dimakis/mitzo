@@ -185,3 +185,19 @@ describe('FileViewer quiet controls', () => {
     expect(mocks.nav.loadWorktrees).toHaveBeenCalledOnce();
   });
 });
+
+it('shows a durable filename and keeps saved revisions read-only', () => {
+  const original = mocks.nav.state.filePath;
+  Object.assign(mocks.nav.state, {
+    filePath: '/api/telos/artifacts/' + 'a'.repeat(32) + '?revision=2',
+    displayName: 'Brief.md',
+  });
+  try {
+    showViewer();
+    expect(screen.getByText('Brief.md')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Edit', exact: true })).toBeNull();
+    expect(screen.getByRole('button', { name: 'File options' })).toBeTruthy();
+  } finally {
+    Object.assign(mocks.nav.state, { filePath: original, displayName: undefined });
+  }
+});
