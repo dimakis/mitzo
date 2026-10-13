@@ -38,3 +38,15 @@ export const OrdinaryLocalCommandAdmissionSchema = z.strictObject({
 });
 export type OrdinaryLocalCommandSelection = z.infer<typeof OrdinaryLocalCommandSelectionSchema>;
 export type OrdinaryLocalCommandAdmission = z.infer<typeof OrdinaryLocalCommandAdmissionSchema>;
+
+/** Local API adapter reuses the existing ordinary command ledger. */
+export const OrdinaryLocalResponsesCommandAdmissionSchema =
+  OrdinaryLocalCommandAdmissionSchema.extend({
+    binding: SessionRuntimeBindingV2Schema.refine(
+      (b) =>
+        b.account.provider === 'openai' &&
+        b.harness.implementation === 'responses' &&
+        b.execution.location === 'local',
+      'Ordinary Local Responses route required',
+    ),
+  });

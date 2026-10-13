@@ -1,11 +1,11 @@
 import {
-  OrdinaryCodexFirstCommandSchema,
-  OrdinaryCodexContinuationCommandSchema,
+  OrdinaryRuntimeFirstCommandSchema,
+  OrdinaryRuntimeContinuationCommandSchema,
   LocalCodexFirstCommandReceiptSchema,
   OrdinaryCodexRetainedCommandObservationSchema,
 } from '@mitzo/protocol';
-const localCommandSchema = OrdinaryCodexFirstCommandSchema.or(
-  OrdinaryCodexContinuationCommandSchema,
+const localCommandSchema = OrdinaryRuntimeFirstCommandSchema.or(
+  OrdinaryRuntimeContinuationCommandSchema,
 );
 /** Ordered, acknowledged HTTP delivery. SSE state never gates prompt submission. */
 interface Entry {

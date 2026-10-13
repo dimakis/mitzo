@@ -96,6 +96,32 @@ export const OrdinaryCodexContinuationCommandSchema = OrdinaryCodexFirstCommandS
 export type OrdinaryCodexContinuationCommand = z.infer<
   typeof OrdinaryCodexContinuationCommandSchema
 >;
+/** Generic runtime intent preserves strict Codex aliases while adopting Local API Responses. */
+export const LocalResponsesFirstCommandSchema = z
+  .strictObject({
+    ...LocalCodexFirstCommandSchema.shape,
+    runtime: LocalCodexFirstCommandSchema.shape.runtime.extend({
+      account: LocalCodexFirstCommandSchema.shape.runtime.shape.account.extend({
+        provider: z.literal('openai'),
+      }),
+      harness: z.literal('responses'),
+    }),
+  })
+  .superRefine(validateCommandBounds);
+export const LocalResponsesContinuationCommandSchema = LocalResponsesFirstCommandSchema.safeExtend({
+  sessionId: reference,
+});
+export const OrdinaryRuntimeFirstCommandSchema = OrdinaryCodexFirstCommandSchema.or(
+  LocalResponsesFirstCommandSchema,
+);
+export const OrdinaryRuntimeContinuationCommandSchema = OrdinaryCodexContinuationCommandSchema.or(
+  LocalResponsesContinuationCommandSchema,
+);
+export type OrdinaryRuntimeFirstCommand = z.infer<typeof OrdinaryRuntimeFirstCommandSchema>;
+export type OrdinaryRuntimeContinuationCommand = z.infer<
+  typeof OrdinaryRuntimeContinuationCommandSchema
+>;
+
 export const LocalCodexFirstCommandReceiptSchema = z.strictObject({
   ok: z.literal(true),
   clientMsgId: reference,

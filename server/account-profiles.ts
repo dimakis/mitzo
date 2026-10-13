@@ -341,6 +341,32 @@ export class AccountProfiles {
     });
   }
 
+  /** Local API configuration projection; enrollment custody remains the owning gate. */
+  ordinaryLocalResponsesInventory() {
+    return this.profiles.flatMap((profile) => {
+      if (profile.provider !== 'openai' || !this.isEnrolledOpenAIAccount(profile.id)) return [];
+      const discovered = cachedModels(JSON.stringify(profile));
+      return [
+        {
+          account: {
+            accountId: profile.id,
+            provider: 'openai' as const,
+            profileRevision: routingRevision(profile),
+          },
+          label: profile.label,
+          models: structuredClone(
+            supportedModels(profile.provider, discovered?.models ?? profile.models),
+          ),
+          modelDiscovery: {
+            source: discovered?.models ? ('cached' as const) : ('configured' as const),
+            stale: !!discovered?.error,
+            ...(discovered?.updatedAt === undefined ? {} : { updatedAt: discovered.updatedAt }),
+          },
+        },
+      ];
+    });
+  }
+
   /** Existing ordinary broker/API routes projected for one explicit server target.
    * Configuration and cached metadata only; no discovery, credentials or launch.
    * Native Symposium and ambiguous legacy API-plan Codex profiles are excluded.
@@ -935,6 +961,18 @@ export class AccountProfiles {
           ]
         : [],
     );
+  }
+
+  /** Routing custody is independent of a completed historical inference model. */
+  apiRoutingProfile(binding: AccountBinding) {
+    this.resumeRouting(binding);
+    const profile = this.profiles.find((p) => p.id === binding.accountId);
+    if (!profile || profile.provider !== 'openai') throw Error('Not an OpenAI API account');
+    return {
+      credentialRef: profile.credentialRef,
+      sandboxProvider: profile.sandboxProvider,
+      sandboxProviderId: profile.sandboxProviderId,
+    };
   }
 
   apiProfile(binding: AccountBinding) {

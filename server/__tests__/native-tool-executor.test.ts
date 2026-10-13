@@ -106,6 +106,30 @@ describe('native tool execution through session permissions', () => {
       expect(vi.mocked(executeTrustedGitHubRead).mock.calls).toHaveLength(beforeReads);
     },
   );
+  it('reconciles asynchronous source authority after approval before file effects', async () => {
+    let sourceGranted = true;
+    const execute = createNativeToolExecutor('client', registry, {
+      env: { PATH: '/usr/bin:/bin' },
+      assertRuntimeCurrent: () => {},
+      assertRuntimeCurrentAsync: async () => {
+        if (!sourceGranted) throw Error('Source grant revoked');
+      },
+    });
+    const pending = execute(
+      call('Write', { file_path: 'late-source', content: 'forbidden', require_approval: true }),
+      abort.signal,
+    );
+    await vi.waitFor(() =>
+      expect(sent.some((event) => event.type === 'permission_request')).toBe(true),
+    );
+    sourceGranted = false;
+    resolvePending(
+      sent.find((event) => event.type === 'permission_request')!.permId as string,
+      'once',
+    );
+    expect(await pending).toMatchObject({ is_error: true, content: 'Source grant revoked' });
+    await expect(readFile(join(root, 'worktree/late-source'))).rejects.toThrow();
+  });
   it('rechecks owned runtime revocation at the final Bash spawn boundary', async () => {
     registry.setMode('client', 'auto');
     let revoked = false;

@@ -1,7 +1,7 @@
 import {
   V2SendMessage,
-  OrdinaryCodexFirstCommandSchema,
-  OrdinaryCodexContinuationCommandSchema,
+  OrdinaryRuntimeFirstCommandSchema,
+  OrdinaryRuntimeContinuationCommandSchema,
 } from '@mitzo/protocol';
 
 type Disk = Pick<Storage, 'length' | 'key' | 'getItem' | 'setItem' | 'removeItem'>;
@@ -32,7 +32,7 @@ export function createReviewedOutboxStorage(
       throw new Error('Invalid reviewed command envelope');
     if (route === 'local') {
       if (
-        !OrdinaryCodexFirstCommandSchema.or(OrdinaryCodexContinuationCommandSchema).safeParse(
+        !OrdinaryRuntimeFirstCommandSchema.or(OrdinaryRuntimeContinuationCommandSchema).safeParse(
           value.body,
         ).success
       )

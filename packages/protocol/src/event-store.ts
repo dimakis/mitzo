@@ -15,6 +15,7 @@ import {
 export type { ConversationTextEvent, ReconnectState } from './conversation-replay-store.js';
 import {
   OrdinaryLocalCommandAdmissionSchema,
+  OrdinaryLocalResponsesCommandAdmissionSchema,
   type OrdinaryLocalCommandAdmission,
   type OrdinaryLocalCommandSelection,
 } from './ordinary-local-admission.js';
@@ -424,6 +425,13 @@ export class EventStore {
     );
   }
 
+  ordinaryCommandPreview(clientMsgId: string, sessionId: string): string | undefined {
+    const row = this.db!.prepare(
+      "SELECT substr(json_extract(payload, '$.text'),1,160) AS preview FROM send_commands WHERE client_msg_id=? AND session_id=?",
+    ).get(clientMsgId, sessionId) as { preview: string | null } | undefined;
+    return row?.preview ?? undefined;
+  }
+
   hasRecentSendCommandForSession(sessionId: string, since: number): boolean {
     return !!this.db!.prepare(
       `SELECT 1 FROM send_commands
@@ -459,6 +467,35 @@ export class EventStore {
     return this.admitOrdinaryCommand(meta, binding, input, 'local');
   }
 
+  admitOrdinaryLocalResponsesCommand(
+    meta: SessionUpsert,
+    binding: unknown,
+    input: Parameters<EventStore['admitOrdinaryLocalCommand']>[2],
+  ) {
+    return this.admitOrdinaryCommand(meta, binding, input, 'responses');
+  }
+  admitOrdinaryLocalResponsesContinuation(
+    meta: SessionUpsert,
+    binding: unknown,
+    input: Parameters<EventStore['admitOrdinaryLocalCommand']>[2],
+  ) {
+    return this.admitOrdinaryContinuation(meta, binding, input, 'responses');
+  }
+  getOrdinaryLocalResponsesCommandAdmission(clientMsgId: string) {
+    const receipt = this.getOrdinaryCommandAdmission(clientMsgId);
+    return receipt?.binding.harness.implementation === 'responses' ? receipt : undefined;
+  }
+  claimOrdinaryLocalResponsesCommandDispatch(clientMsgId: string): boolean {
+    if (!this.getOrdinaryLocalResponsesCommandAdmission(clientMsgId))
+      throw Error('Ordinary Local Responses command required');
+    return this.claimOrdinaryCommandDispatch(clientMsgId);
+  }
+  completeOrdinaryLocalResponsesCommand(clientMsgId: string): void {
+    if (!this.getOrdinaryLocalResponsesCommandAdmission(clientMsgId))
+      throw Error('Ordinary Local Responses command required');
+    this.completeOrdinaryCommand(clientMsgId);
+  }
+
   admitOrdinaryOpenShellCommand(
     meta: SessionUpsert,
     binding: unknown,
@@ -476,12 +513,14 @@ export class EventStore {
       selection: OrdinaryLocalCommandSelection;
       payload: Record<string, unknown>;
     },
-    location: 'local' | 'openshell',
+    location: 'local' | 'openshell' | 'responses',
   ): { duplicate: boolean; admission: OrdinaryLocalCommandAdmission } {
     const schema =
-      location === 'local'
-        ? OrdinaryLocalCommandAdmissionSchema
-        : OrdinaryOpenShellCommandAdmissionSchema;
+      location === 'responses'
+        ? OrdinaryLocalResponsesCommandAdmissionSchema
+        : location === 'local'
+          ? OrdinaryLocalCommandAdmissionSchema
+          : OrdinaryOpenShellCommandAdmissionSchema;
     const admission = schema.parse({
       version: 1,
       binding,
@@ -542,12 +581,14 @@ export class EventStore {
     meta: SessionUpsert,
     binding: unknown,
     input: Parameters<EventStore['admitOrdinaryLocalCommand']>[2],
-    location: 'local' | 'openshell',
+    location: 'local' | 'openshell' | 'responses',
   ): { duplicate: boolean; admission: OrdinaryLocalCommandAdmission } {
     const schema =
-      location === 'local'
-        ? OrdinaryLocalCommandAdmissionSchema
-        : OrdinaryOpenShellCommandAdmissionSchema;
+      location === 'responses'
+        ? OrdinaryLocalResponsesCommandAdmissionSchema
+        : location === 'local'
+          ? OrdinaryLocalCommandAdmissionSchema
+          : OrdinaryOpenShellCommandAdmissionSchema;
     const admission = schema.parse({
       version: 1,
       binding,
@@ -619,7 +660,10 @@ export class EventStore {
 
   getOrdinaryLocalCommandAdmission(clientMsgId: string): OrdinaryLocalCommandAdmission | undefined {
     const receipt = this.getOrdinaryCommandAdmission(clientMsgId);
-    return receipt?.binding.execution.location === 'local' ? receipt : undefined;
+    return receipt?.binding.execution.location === 'local' &&
+      receipt.binding.harness.implementation === 'codex'
+      ? receipt
+      : undefined;
   }
 
   /** Last admitted settings for display and the next draft, never a rewrite of
@@ -645,9 +689,11 @@ export class EventStore {
     if (!row || row.ordinary_admission === null) return undefined;
     const raw = JSON.parse(row.ordinary_admission);
     const schema =
-      raw?.binding?.execution?.location === 'openshell'
-        ? OrdinaryOpenShellCommandAdmissionSchema
-        : OrdinaryLocalCommandAdmissionSchema;
+      raw?.binding?.harness?.implementation === 'responses'
+        ? OrdinaryLocalResponsesCommandAdmissionSchema
+        : raw?.binding?.execution?.location === 'openshell'
+          ? OrdinaryOpenShellCommandAdmissionSchema
+          : OrdinaryLocalCommandAdmissionSchema;
     const admission = schema.parse(raw);
     const runtime = this.getSessionRuntimeBinding(row.session_id);
     const session = this.getSession(row.session_id);

@@ -41,6 +41,7 @@ export class OrdinaryLocalCodexSelectionOwner {
       commandId: string;
       /** Cold owner independently verified original native custody before construction. */
       continuation?: boolean;
+      responses?: boolean;
     },
   ) {
     this.#reservation = structuredClone(owners.reservation);
@@ -134,9 +135,9 @@ export class OrdinaryLocalCodexSelectionOwner {
       }
       const session = this.owners.events.getSession(reservation.conversationId);
       if (session) {
-        const admission = this.owners.events.getOrdinaryLocalCommandAdmission(
-          this.owners.commandId,
-        );
+        const admission = this.owners.responses
+          ? this.owners.events.getOrdinaryLocalResponsesCommandAdmission(this.owners.commandId)
+          : this.owners.events.getOrdinaryLocalCommandAdmission(this.owners.commandId);
         if (
           (!admission && !this.owners.continuation) ||
           admission?.state === 'reserved' ||
@@ -144,11 +145,12 @@ export class OrdinaryLocalCodexSelectionOwner {
             (!isDeepStrictEqual(admission.binding, expected.binding) ||
               !isDeepStrictEqual(admission.selection, expected.selection) ||
               !isDeepStrictEqual(admission.workspace, expected.workspace) ||
-              expected.bootstrapId !==
-                ordinaryLocalCodexBootstrapId(
-                  reservation.conversationId,
-                  admission.requestFingerprint,
-                ))) ||
+              (!this.owners.responses &&
+                expected.bootstrapId !==
+                  ordinaryLocalCodexBootstrapId(
+                    reservation.conversationId,
+                    admission.requestFingerprint,
+                  )))) ||
           session.mode !== expected.selection.permission.mode ||
           !isDeepStrictEqual(session.accountBinding, reservation.binding) ||
           !isDeepStrictEqual(session.agentProfile, expected.agentProfile) ||

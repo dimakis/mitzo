@@ -15,6 +15,7 @@ interface Dependencies {
     sessionId: string,
     binding: AccountBinding,
     commandId: string,
+    authorization?: AuthSession,
   ): 'cancelled' | 'not_queued' | 'not_found';
   retry(
     sessionId: string,
@@ -171,7 +172,10 @@ export function createCodexQueueRouter(deps: Dependencies) {
       return;
     }
     try {
-      const result = deps.cancel(req.params.id, binding, req.params.commandId);
+      const authorization = res.locals.authSession as AuthSession | undefined;
+      const result = authorization
+        ? deps.cancel(req.params.id, binding, req.params.commandId, authorization)
+        : deps.cancel(req.params.id, binding, req.params.commandId);
       if (result === 'not_found') {
         res.status(404).json({ error: 'Queued message not found' });
         return;

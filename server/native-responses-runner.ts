@@ -14,6 +14,17 @@ import { NativeResponsesStore, type NativeResponsesState } from './native-respon
 import { createLogger } from './logger.js';
 const log = createLogger('native-responses');
 
+export interface ResponsesCommandAuthority {
+  assertPrepare(
+    messageId: string,
+    prompt: ConversationMessage['content'],
+    selection?: { model?: string; reasoningEffort?: string | null },
+  ): void;
+  assertStart(messageId: string): void;
+  assertEffect(messageId: string): Promise<void>;
+  commandTerminal?(messageId: string): void;
+  interruptQueue?(): void;
+}
 interface NativeResponsesOptions extends Omit<
   ModelSessionConfig,
   'model' | 'signal' | 'thinking' | 'reasoningEffort'
@@ -28,6 +39,7 @@ interface NativeResponsesOptions extends Omit<
   prepareAgentContext?: (signal: AbortSignal) => Promise<void>;
   selectedModel?: string;
   reasoningEffort?: string | null;
+  commandAuthority?: ResponsesCommandAuthority;
   executeTool: (block: ToolUseBlock, signal: AbortSignal) => Promise<ToolResultBlock>;
 }
 
@@ -74,7 +86,10 @@ export class NativeResponsesRunner {
   private reasoningEffort?: string | null;
   constructor(private options: NativeResponsesOptions) {
     if (options.binding.provider === 'openai') {
-      if (!options.apiKey?.trim() || options.gemini) throw new Error('OpenAI API key is required');
+      if ((!options.apiKey?.trim() && !options.getApiKey) || options.gemini)
+        throw new Error('OpenAI API key is required');
+      if (options.commandAuthority && (!options.getApiKey || options.apiKey))
+        throw Error('Owned Responses requires exact credential resolver without fallback');
     } else if (options.binding.provider === 'google-vertex') {
       if (
         !options.gemini ||
@@ -93,11 +108,13 @@ export class NativeResponsesRunner {
       throw new Error('Invalid native turn limit');
   }
   interrupt() {
+    this.options.commandAuthority?.interruptQueue?.();
     this.active?.abort();
     for (const messageId of [...this.prepared.keys()]) this.abandon(messageId);
   }
   abandon(messageId: string) {
     this.prepared.delete(messageId);
+    this.options.commandAuthority?.commandTerminal?.(messageId);
   }
   isRunning() {
     return !!this.active || this.prepared.size > 0;
@@ -117,6 +134,7 @@ export class NativeResponsesRunner {
     prompt: ConversationMessage['content'],
     selection?: { model?: string; reasoningEffort?: string | null },
   ) {
+    this.options.commandAuthority?.assertPrepare(messageId, prompt, selection);
     if (this.active || this.prepared.size)
       throw new Error('Native Responses conversation already running');
     const state: NativeResponsesState = structuredClone(
@@ -131,7 +149,11 @@ export class NativeResponsesRunner {
     recoverToolResults(state);
     const content = structuredClone(prompt);
     state.history.push({ role: 'user', content });
-    this.prepared.set(messageId, { prompt: content, state, selection });
+    this.prepared.set(messageId, {
+      prompt: content,
+      state,
+      selection: selection ? structuredClone(selection) : undefined,
+    });
   }
   // Lazy generator: merely constructing it starts no work and holds no lease.
   // At first next(), both guards run synchronously before any await/yield.
@@ -142,6 +164,10 @@ export class NativeResponsesRunner {
     const prepared = messageId ? this.prepared.get(messageId) : undefined;
     if (messageId && (!prepared || !isDeepStrictEqual(prepared.prompt, prompt)))
       throw new Error('Native Responses prepared message identity changed');
+    if (opts.commandAuthority) {
+      if (!messageId || !prepared) throw Error('Owned Responses requires prepared command');
+      opts.commandAuthority.assertStart(messageId);
+    }
     if (messageId) this.prepared.delete(messageId);
     const state = prepared?.state ?? opts.store.begin(opts.conversationId, opts.binding);
     const abort = new AbortController();
@@ -186,6 +212,7 @@ export class NativeResponsesRunner {
         reasoningEffort: selectedReasoningEffort ?? undefined,
         signal: abort.signal,
         beforeDispatch: async () => {
+          if (opts.commandAuthority) await opts.commandAuthority.assertEffect(messageId!);
           await opts.prepareAgentContext?.(abort.signal);
           abort.signal.throwIfAborted();
         },
@@ -194,7 +221,7 @@ export class NativeResponsesRunner {
         ? new GeminiSession(config, { ...opts.gemini, checkpoint })
         : new ResponsesSession(config, {
             accountId: opts.binding.accountId,
-            apiKey: opts.apiKey!,
+            apiKey: opts.apiKey ?? '',
             getApiKey: opts.getApiKey,
             checkpoint,
           });
@@ -204,6 +231,7 @@ export class NativeResponsesRunner {
         signal: abort.signal,
         executeTool: async (block) => {
           try {
+            if (opts.commandAuthority) await opts.commandAuthority.assertEffect(messageId!);
             return await opts.executeTool(block, abort.signal);
           } catch {
             // Redact native failures here; the generic loop catch remains for other callers.
@@ -234,6 +262,7 @@ export class NativeResponsesRunner {
         yield event;
       }
     } catch (err: unknown) {
+      opts.commandAuthority?.interruptQueue?.();
       if (abort.signal.aborted)
         throw new Error('Native Responses turn interrupted', { cause: err });
       throw err;
@@ -254,6 +283,7 @@ export class NativeResponsesRunner {
           });
         }
       }
+      if (messageId) opts.commandAuthority?.commandTerminal?.(messageId);
     }
   }
 }

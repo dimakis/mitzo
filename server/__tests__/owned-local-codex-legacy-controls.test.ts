@@ -27,7 +27,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function fixture(bound = true) {
+function fixture(bound = true, harness: 'codex' | 'responses' | 'claude-sdk' = 'codex') {
   const store = new EventStore(':memory:');
   const registry = new SessionRegistry();
   const sessionId = randomUUID(),
@@ -36,8 +36,17 @@ function fixture(bound = true) {
   const owner = { id: randomUUID(), expiresAt: Date.now() + 60_000 };
   const binding = {
     version: 2,
-    account: { accountId: 'personal', provider: 'openai-codex', profileRevision: 'r1' },
-    harness: { implementation: 'codex' },
+    account: {
+      accountId: 'personal',
+      provider:
+        harness === 'responses'
+          ? 'openai'
+          : harness === 'claude-sdk'
+            ? 'anthropic-vertex'
+            : 'openai-codex',
+      profileRevision: 'r1',
+    },
+    harness: { implementation: harness },
     execution: { location: 'local', targetId: 'host', targetRevision: 't1' },
   } as const;
   if (bound)
@@ -317,3 +326,15 @@ it('only detaches the exact current attachment, including after login teardown',
     }),
   ).toBe(false);
 });
+
+it.each(['responses', 'claude-sdk'] as const)(
+  'does not grandfather missing live owner authentication on a bound Local %s adapter',
+  (harness) => {
+    const f = fixture(true, harness),
+      actor = f.actor(true);
+    delete f.registry.get(f.driverId)!.ownedLocalAuthSessionId;
+    expect(() => f.dispatch(actor, { type: 'subscribe', sessionId: f.sessionId })).toThrow(
+      'another login',
+    );
+  },
+);

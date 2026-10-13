@@ -233,7 +233,9 @@ export function useExplicitLocalChat(
     !!sessionId && (!currentMeta || metadataUnavailable || metadataLoadingForSession === sessionId);
   const bound = !!sessionId && !!currentMeta?.binding;
   const continuation =
-    bound && !currentMeta?.firstCommand && currentMeta?.binding?.harness.implementation === 'codex';
+    bound &&
+    !currentMeta?.firstCommand &&
+    ['codex', 'responses'].includes(currentMeta?.binding?.harness.implementation ?? '');
   const [future, setFuture] = useState<{ sessionId: string; intent: ChatRuntimeSelection } | null>(
     null,
   );
