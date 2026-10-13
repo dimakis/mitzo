@@ -2,10 +2,11 @@
 
 Status: incremental implementation. Versioned EventStore bindings, local account
 projection, V2 configured-target persistence and workspace reservations are
-accepted foundations. The owned local first-command composition and chat consumer
-and a dormant authenticated REST/SSE entry are implemented behind an explicit server
-gate and await live qualification. No visible execution picker is enrolled; this document does not establish staged or
-deployed support for a selectable route.
+accepted foundations. The owned Local first-command runtime, authenticated REST/SSE
+entry and responsive account/profile/execution picker are implemented behind an
+explicit server gate and await live qualification. The gate remains off by default.
+Staging is stood down; this document does not establish deployed support or authorize
+provider enrollment or production activation.
 
 ## Guarded local Codex first-command contract
 
@@ -177,6 +178,14 @@ first-command-only`, so reload/ended views must keep later sends/settings disabl
 No later-turn admission, cold resume, default-runtime switch or general picker is
 implemented by this entry. Offline fixtures provide source evidence only; no live
 host/account/model qualification or activation was performed.
+
+The enabled legacy WebSocket handler checks that same retained login before every
+supported attachment and control message. It uses the assigned authenticated
+connection key, even after a reattach changes the query's client key. Approval
+responses resolve their actual pending-session owner before permission effects,
+including direct answers without reattachment. Legacy owned Send and mode changes
+are refused before native command or skill routing. Socket teardown detaches only
+the exact current transport, so an old socket cannot detach its replacement.
 
 ## Host workspace reservation before checkout creation
 

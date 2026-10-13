@@ -228,6 +228,11 @@ can enter the delivery outbox while the event stream reconnects; drafts clear
 only after acceptance. An explicit `mitzo:transport=ws` localStorage preference
 retains WebSocket for diagnostics. Existing overrides are preserved; remove that
 preference to use SSE. Installed iOS apps need an updated bundle to adopt this default.
+Expired SSE connection IDs trigger bounded stream recovery and rehydrate the latest
+selected chat after replay readiness. Background suspend is never replayed against
+a replacement connection. Transport failures preserve streamed content and running
+state; cancellation and permission failures require operator review rather than
+automatic retries. See [the failure investigation](docs/operations/session-control-recovery.md).
 
 SSE background suspension uses an authenticated keepalive POST. A failed suspend
 hint does not add an error to the conversation; foreground probe/reconnect restores

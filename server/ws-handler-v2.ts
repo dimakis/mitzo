@@ -1,4 +1,5 @@
 import { clearPublicationControllerSessionGrants } from './symposium-publication-approval.js';
+import { ownedLocalControlStatus } from './owned-local-codex-control.js';
 import {
   isTransportConnectionOwnedBy,
   liveTransportAuthSessionId,
@@ -304,17 +305,13 @@ function allowOwnedLocalControl(
   sessionId: string,
   ctx: V2HandlerContext,
 ): boolean {
-  const found = ctx.sessionRegistry.findBySessionId(sessionId, true);
-  const owner = found?.session?.ownedLocalAuthSessionId;
-  const binding = ctx.eventStore.getSessionRuntimeBinding?.(sessionId);
-  const boundLocal =
-    binding?.execution?.location === 'local' && binding.harness.implementation === 'codex';
-  // Cold replay has no execution to take over. It never opens a native client.
-  if (!found || (!owner && !boundLocal)) return true;
   if (
-    owner &&
-    liveTransportAuthSessionId(connectionId) === owner &&
-    ctx.connRegistry.get(connectionId)?.transport.isOpen()
+    ownedLocalControlStatus(
+      connectionId,
+      sessionId,
+      ctx.connRegistry.get(connectionId)?.transport,
+      ctx,
+    ) !== 'denied'
   )
     return true;
   ctx.connRegistry.get(connectionId)?.transport.send({

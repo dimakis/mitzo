@@ -226,6 +226,128 @@ describe('createMitzoStore', () => {
 });
 
 describe('switchSession', () => {
+  it('recovers the assigned new chat on a surviving foreground stream', async () => {
+    vi.useFakeTimers();
+    let visibility = 'visible';
+    const browserListeners = new Map<string, () => void>();
+    vi.stubGlobal('document', {
+      get visibilityState() {
+        return visibility;
+      },
+      addEventListener: (type: string, listener: () => void) =>
+        browserListeners.set(type, listener),
+      removeEventListener: vi.fn(),
+    });
+    vi.stubGlobal('addEventListener', vi.fn());
+    vi.stubGlobal('removeEventListener', vi.fn());
+    let welcome!: (event: MessageEvent) => void;
+    const source = {
+      addEventListener: (type: string, listener: (event: MessageEvent) => void) => {
+        if (type === 'welcome') welcome = listener;
+      },
+      removeEventListener: vi.fn(),
+      close: vi.fn(),
+      onmessage: null as ((event: MessageEvent) => void) | null,
+      onerror: null,
+    };
+    const emit = (message: Record<string, unknown>) =>
+      source.onmessage?.(new MessageEvent('message', { data: JSON.stringify(message) }));
+    const fetch = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url.endsWith('/probe'))
+        emit({ type: '_probe', nonce: JSON.parse(String(init?.body)).nonce });
+      if (url.endsWith('/reconnect'))
+        emit({ type: 'mode_changed', sessionId: 'assigned', mode: 'ask' });
+      if (url.endsWith('/send')) {
+        const body = JSON.parse(String(init?.body));
+        return {
+          ok: true,
+          status: 202,
+          json: async () => ({
+            accepted: true,
+            clientMsgId: body.clientMsgId,
+            sessionId: 'assigned',
+          }),
+        };
+      }
+      return { ok: true };
+    });
+    const store = createMitzoStore({
+      ...makeOptions(),
+      sseConfig: {
+        baseUrl: '',
+        fetch,
+        createEventSource: () => source as unknown as EventSource,
+      },
+    });
+    try {
+      welcome(new MessageEvent('welcome', { data: JSON.stringify({ connectionId: 'surviving' }) }));
+      store.getState().newSession();
+      store.getState().sendMessage('Start this chat');
+      await vi.advanceTimersByTimeAsync(0);
+      expect(store.getState().sessions.active).toBe('assigned');
+      expect(store.getState().modeChangeReady).toBe(false);
+      visibility = 'hidden';
+      browserListeners.get('visibilitychange')?.();
+      await vi.advanceTimersByTimeAsync(0);
+      fetch.mockClear();
+      visibility = 'visible';
+      browserListeners.get('visibilitychange')?.();
+      await vi.advanceTimersByTimeAsync(0);
+      const switches = fetch.mock.calls.filter(([url]) => String(url).endsWith('/switch'));
+      expect(switches).toHaveLength(1);
+      expect(JSON.parse(String(switches[0][1]?.body))).toMatchObject({ sessionId: 'assigned' });
+      expect(store.getState().modeChangeReady).toBe(true);
+    } finally {
+      store.getState().invalidateAuthentication();
+      vi.unstubAllGlobals();
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps a streaming response intact when an HTTP control fails', async () => {
+    const store = createReadyStore();
+    await store.getState().switchSession('selected');
+    lastWs.simulateMessage({ type: 'session_switched', sessionId: 'selected', mode: 'agent' });
+    lastWs.simulateMessage({ type: 'message_start', sessionId: 'selected', messageId: 'answer' });
+    lastWs.simulateMessage({
+      type: 'block_start',
+      sessionId: 'selected',
+      blockId: 'text',
+      blockType: 'text',
+    });
+    lastWs.simulateMessage({
+      type: 'block_delta',
+      sessionId: 'selected',
+      blockId: 'text',
+      delta: 'preserved',
+    });
+    lastWs.simulateMessage({
+      type: 'session_state_changed',
+      sessionId: 'selected',
+      state: 'running',
+    });
+    const messages = store.getState().messages;
+    lastWs.simulateMessage({
+      type: '_control_error',
+      operation: 'switch',
+      sessionId: 'selected',
+      error: 'Route unavailable',
+    });
+    expect(store.getState().messages).toBe(messages);
+    expect(store.getState().messages.running).toBe(true);
+    expect(store.getState().messages.current?.blocks.get('text')?.content).toBe('preserved');
+    expect(store.getState().sendError).toBe('Route unavailable');
+    lastWs.simulateMessage({ type: '_control_error', operation: 'suspend', error: 'Backgrounded' });
+    expect(store.getState().messages).toBe(messages);
+    lastWs.simulateMessage({
+      type: '_control_error',
+      operation: 'switch',
+      sessionId: 'other',
+      error: 'Old view',
+    });
+    expect(store.getState().sendError).toBe('Route unavailable');
+  });
+
   it('commits the transcript cursor and drains a successor buffered during opening', async () => {
     const transport = mockTransport();
     let resolveHistory!: (value: unknown) => void;
