@@ -235,6 +235,10 @@
   flex-shrink: 0;
   border-bottom: 1px solid var(--workspace-line);
 }
+.workspace-chat .workspace-controls > .motion-disclosure:not([hidden]) {
+  max-height: min(var(--workspace-disclosure-space, 45dvh), 45dvh);
+  overflow-y: auto;
+}
 .workspace-controls-toggle {
   display: flex;
   align-items: center;
@@ -1334,6 +1338,15 @@
 }
 
 @media (max-width: 767px) {
+  .workspace-controls-heading .workspace-controls-toggle {
+    grid-template-columns: 20px minmax(0, 1fr) minmax(0, max-content) 20px;
+  }
+  .workspace-controls-heading .conversation-state {
+    min-width: 0;
+    max-width: 8ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
   /* Summaries retain their full accessible name; settings remain in the disclosure. */
   .workspace-controls-heading .workspace-controls-summary > span {
     display: block;

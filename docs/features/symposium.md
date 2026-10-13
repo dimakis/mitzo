@@ -73,6 +73,17 @@ adapter does not compile or authorize recipe context sources and explicitly reje
 recipe-bearing saved profiles. Use Default Mitzo or a compatible saved profile without
 a context recipe. Accepted compiler source does not prove runtime context adoption.
 
+## Artifact route composition ownership
+
+`server/symposium-artifact-route-composition.ts` owns the publication, review and
+source mounts between ordinary GitHub publication and the Director. It uses the
+existing stores and resolves the current host, source capability, review runtime,
+publication registration and repository configuration at request time. `app.ts`
+retains store lifetimes, host/runtime installation and publication approval hooks.
+Reviews retain their own operator middleware and request-action authority;
+publication and source retain their outer operator middleware and existing
+reauthorization/JSON checks. No native or legacy path is retired by this extraction.
+
 ## Reference map
 
 | Question                                                    | Read                                                                                                                                                                   |

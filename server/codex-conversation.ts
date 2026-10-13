@@ -91,6 +91,9 @@ export interface CodexStartupConfigObservation {
 }
 
 export interface CodexConversationOptions {
+  /** An enrolled route's existing command owner rejects unadmitted sends before
+   * private queue mutation. No default gate is imposed on legacy conversations. */
+  beforeEnqueue?: (input: CodexCommandInput) => void;
   ownerKind?: 'ordinary' | 'symposium';
   /** Ordinary capacity recovery creates new linked native turns, never prompt replay. */
   enableCapacityRecovery?: boolean;
@@ -199,6 +202,8 @@ export interface CodexConversationOptions {
   loadConversationHistory?: () => ConversationHistoryEntry[];
   loadSourceSnapshots?: () => SourceSnapshot[];
   onClosed?: () => void;
+  /** An owned first-command transport cannot recover or acquire another lease. */
+  readonly transportClosure?: 'terminal';
   onError?: (error: Error) => void;
   onTransportClosed?: (diagnostic: {
     activeTurn: boolean;
@@ -389,6 +394,16 @@ export class CodexConversation {
   }
   private transportClosed(generation: number, error: Error) {
     if (this.closed || generation !== this.transportGeneration) return;
+    if (this.opts.transportClosure === 'terminal') {
+      try {
+        this.opts.onTransportClosed?.({ activeTurn: !!this.active, reason: 'closed' });
+      } finally {
+        // Use the existing terminal owner: cancel host work, retain ambiguous
+        // provider state, and notify the adapter so its stream and MCPs close.
+        this.close();
+      }
+      return;
+    }
     // Invalidate every in-flight request owned by this transport. Its rejection
     // is recovery fallout, not a second fatal send failure.
     this.transportGeneration += 1;
@@ -950,6 +965,7 @@ export class CodexConversation {
     else if (model !== this.opts.profile.model) throw new Error('Model unavailable');
   }
   enqueue(input: CodexCommandInput) {
+    this.opts.beforeEnqueue?.(input);
     // A transport loss keeps the durable binding. Accept an explicit new user
     // message before reconnecting so it cannot be lost between recovery and send.
     if (this.closed || (!this.ready && !this.paused) || !this.binding)
@@ -2476,7 +2492,10 @@ export class CodexConversation {
     this.paused = true;
     const active = this.active;
     const closeStatus =
-      active?.accepted && this.opts.deferToolSurfaceReplacement ? 'interrupted' : 'failed';
+      active?.accepted &&
+      (this.opts.deferToolSurfaceReplacement || this.opts.transportClosure === 'terminal')
+        ? 'interrupted'
+        : 'failed';
     let failed = false;
     let failure: unknown;
     const attempt = (operation: () => void) => {

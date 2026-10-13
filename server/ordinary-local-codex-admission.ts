@@ -17,7 +17,7 @@ import { assertNativeCodexContextAdmission } from './native-codex-context-admiss
 
 const reference = SessionRuntimeBindingV1Schema.shape.account.shape.accountId;
 const Selection = OrdinaryLocalCommandSelectionSchema;
-const Request = z.strictObject({
+export const OrdinaryLocalCodexCommandRequestSchema = z.strictObject({
   clientMsgId: reference,
   capabilityRevision: reference,
   runtime: z.strictObject({
@@ -31,6 +31,7 @@ const Request = z.strictObject({
     .record(z.string(), z.json())
     .refine((payload) => Buffer.byteLength(JSON.stringify(payload), 'utf8') <= 1048576),
 });
+const Request = OrdinaryLocalCodexCommandRequestSchema;
 export type OrdinaryLocalCodexCommandRequest = z.infer<typeof Request>;
 export interface OrdinaryLocalCodexAdmissionExpectation {
   binding: SessionRuntimeBindingV2;
@@ -41,6 +42,8 @@ export interface OrdinaryLocalCodexAdmissionExpectation {
   selection: z.infer<typeof Selection>;
   agentProfile?: Meta['agentProfile'];
   agentContext?: Meta['agentContext'];
+  /** Derived from the persisted session/fingerprint before bootstrap effects. */
+  bootstrapId?: string;
 }
 /** Injection belongs exclusively to the actual host-login/runtime/agent-context
  * owning authority. It must independently observe exact host, runtime, account,
@@ -57,6 +60,18 @@ export interface OrdinaryLocalCodexAdmissionAuthority {
     expected: Readonly<OrdinaryLocalCodexAdmissionExpectation>,
     operation: (lease: OrdinaryLocalCodexAdmissionLease) => Promise<T>,
   ): Promise<T>;
+}
+/** An owned runtime may need native account/read to qualify. Its bootstrap is
+ * an external effect too: first freeze intent and claim durable uncertainty.
+ * The owner validates server configuration before claim, then retains the same
+ * isolated login/client through qualification and dispatch. A false claim must
+ * return without any bootstrap effects; it never recovers an uncertain launch. */
+export interface OrdinaryLocalCodexBootstrapAuthority {
+  withBootstrap<T>(
+    expected: Readonly<OrdinaryLocalCodexAdmissionExpectation>,
+    claimBeforeBootstrap: () => boolean,
+    operation: (lease: OrdinaryLocalCodexAdmissionLease) => Promise<T>,
+  ): Promise<T | undefined>;
 }
 export interface OrdinaryLocalCodexAdmissionEffects {
   /** Owning workspace authority creates/reuses the already reserved exact workspace. */
@@ -90,6 +105,11 @@ function fail(reason: string): never {
 
 const contentDigest = (value: unknown) =>
   createHash('sha256').update(JSON.stringify(value)).digest('hex');
+
+/** Reconstruct retained private bootstrap identity from the existing command
+ * receipt. Knowing an ID confers no custody or permission to resume/clean it. */
+export const ordinaryLocalCodexBootstrapId = (sessionId: string, requestFingerprint: string) =>
+  contentDigest(['ordinary-local-codex-bootstrap-v1', sessionId, requestFingerprint]);
 
 /** Session metadata cannot introduce a second model, mode, agent or recipe tuple. */
 function reconcileSessionMetadata(meta: Meta, request: OrdinaryLocalCodexCommandRequest): void {
@@ -170,6 +190,7 @@ export class OrdinaryLocalCodexAdmissionCoordinator {
       catalog: Pick<OrdinaryLocalCodexCapabilityCatalog, 'inventory' | 'resolve'>;
       declaration: ReturnType<OrdinaryLocalCodexTarget['admissionDeclaration']>;
       authority?: OrdinaryLocalCodexAdmissionAuthority;
+      bootstrapAuthority?: OrdinaryLocalCodexBootstrapAuthority;
     },
   ) {
     this.dependencies = {
@@ -182,6 +203,13 @@ export class OrdinaryLocalCodexAdmissionCoordinator {
       authority: dependencies.authority
         ? {
             withAdmission: dependencies.authority.withAdmission.bind(dependencies.authority),
+          }
+        : undefined,
+      bootstrapAuthority: dependencies.bootstrapAuthority
+        ? {
+            withBootstrap: dependencies.bootstrapAuthority.withBootstrap.bind(
+              dependencies.bootstrapAuthority,
+            ),
           }
         : undefined,
       store: {
@@ -203,7 +231,8 @@ export class OrdinaryLocalCodexAdmissionCoordinator {
     effects: OrdinaryLocalCodexAdmissionEffects,
   ): Promise<{ dispatched: boolean }> {
     const d = this.dependencies;
-    if (!d.enabled || !d.authority) fail('unavailable');
+    if (!d.enabled || (!d.authority && !d.bootstrapAuthority)) fail('unavailable');
+    if (d.authority && d.bootstrapAuthority) fail('authority_ambiguous');
     const parsed = Request.safeParse(input);
     if (!parsed.success) fail('invalid_request');
     const request = structuredClone(parsed.data);
@@ -248,51 +277,59 @@ export class OrdinaryLocalCodexAdmissionCoordinator {
       agentProfile: admittedMeta.agentProfile,
       agentContext: admittedMeta.agentContext,
     };
+    const fingerprint = `ordinary-local-codex-v1:${createHash('sha256')
+      .update(
+        JSON.stringify(
+          canonical({
+            request,
+            workspace: expected.workspace,
+            agentProfile: expected.agentProfile,
+            agentContext: expected.agentContext,
+          }),
+        ),
+      )
+      .digest('hex')}`;
+    if (d.bootstrapAuthority)
+      expected.bootstrapId = ordinaryLocalCodexBootstrapId(admittedMeta.sessionId, fingerprint);
     // Clone every boundary so an asynchronous owner cannot rewrite admitted input.
     const snapshot = structuredClone(expected);
     const prepareWorkspace = effects.prepareWorkspace.bind(effects);
     const dispatch = effects.dispatch.bind(effects);
     let entered = false;
     let claimed = false;
+    let claimAttempted = false;
+    const claim = () => {
+      if (claimAttempted) fail('authority_reentry');
+      claimAttempted = true;
+      try {
+        d.store.admitOrdinaryLocalCommand(
+          structuredClone(admittedMeta),
+          structuredClone(snapshot.binding),
+          {
+            clientMsgId: request.clientMsgId,
+            requestFingerprint: fingerprint,
+            selection: structuredClone(snapshot.selection),
+            payload: structuredClone(request.payload),
+          },
+        );
+      } catch {
+        fail('identity_conflict');
+      }
+      claimed = d.store.claimOrdinaryLocalCommandDispatch(request.clientMsgId);
+      return claimed;
+    };
     try {
-      const result = await d.authority.withAdmission(structuredClone(snapshot), async (lease) => {
+      const operation = async (lease: OrdinaryLocalCodexAdmissionLease) => {
         if (!lease || typeof lease.assertCurrent !== 'function') fail('authority_unavailable');
+        if (d.bootstrapAuthority && !claimed) fail('authority_unavailable');
         if (entered) fail('authority_reentry');
         entered = true;
         try {
           await lease.assertCurrent();
         } catch {
-          fail('authority_unavailable');
+          fail(claimed ? 'dispatch_uncertain' : 'authority_unavailable');
         }
-        const fingerprint = `ordinary-local-codex-v1:${createHash('sha256')
-          .update(
-            JSON.stringify(
-              canonical({
-                request,
-                workspace: snapshot.workspace,
-                agentProfile: snapshot.agentProfile,
-                agentContext: snapshot.agentContext,
-              }),
-            ),
-          )
-          .digest('hex')}`;
-        try {
-          d.store.admitOrdinaryLocalCommand(
-            structuredClone(admittedMeta),
-            structuredClone(snapshot.binding),
-            {
-              clientMsgId: request.clientMsgId,
-              requestFingerprint: fingerprint,
-              selection: structuredClone(snapshot.selection),
-              payload: structuredClone(request.payload),
-            },
-          );
-        } catch {
-          fail('identity_conflict');
-        }
-        if (!d.store.claimOrdinaryLocalCommandDispatch(request.clientMsgId))
-          return { dispatched: false };
-        claimed = true;
+        if (!d.bootstrapAuthority && !claim()) return { dispatched: false };
         try {
           await lease.assertCurrent();
           await prepareWorkspace(structuredClone(snapshot));
@@ -303,8 +340,14 @@ export class OrdinaryLocalCodexAdmissionCoordinator {
           fail('dispatch_uncertain');
         }
         return { dispatched: true };
-      });
+      };
+      const result = d.bootstrapAuthority
+        ? await d.bootstrapAuthority.withBootstrap(structuredClone(snapshot), claim, operation)
+        : await d.authority!.withAdmission(structuredClone(snapshot), operation);
+      if (d.bootstrapAuthority && claimAttempted && !claimed && !entered && result === undefined)
+        return { dispatched: false };
       if (!entered) fail('authority_unavailable');
+      if (!result) fail(claimed ? 'dispatch_uncertain' : 'authority_unavailable');
       return result;
     } catch (error) {
       if (error instanceof OrdinaryLocalCodexAdmissionError) throw error;

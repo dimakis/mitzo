@@ -9,10 +9,137 @@ import {
   consumeChatDraft,
   migrateLegacyChatDraft,
 } from '../chat-drafts';
+import { createChatRuntimeSelection } from '../chat-runtime-selection';
 
 beforeEach(() => localStorage.clear());
 afterEach(() => vi.restoreAllMocks());
 describe('saved new-chat drafts', () => {
+  it('retains execution intent and exact capability revision without migrating legacy drafts', () => {
+    const legacy = { ...createChatDraft(), text: 'Legacy draft' };
+    saveChatDraft(legacy);
+    expect(getChatDraft(legacy.id)?.settings).not.toHaveProperty('runtimeSelection');
+    const draft = { ...createChatDraft(), text: 'Runtime draft' };
+    const runtimeSelection = {
+      ...createChatRuntimeSelection(),
+      account: { accountId: 'personal', model: 'luna', reasoningEffort: 'high' },
+      agentProfile: { profileId: 'developer', revision: 2 },
+      execution: { location: 'local' as const, targetId: 'mac' },
+      capabilityRevision: 'inventory-1',
+    };
+    saveChatDraft({
+      ...draft,
+      settings: { ...draft.settings, selection: runtimeSelection.account, runtimeSelection },
+    });
+    expect(getChatDraft(draft.id)?.settings).toMatchObject({ runtimeSelection });
+    const restored = getChatDraft(draft.id)!;
+    saveChatDraft({
+      ...restored,
+      settings: {
+        ...restored.settings,
+        runtimeSelection: { ...runtimeSelection, capabilityRevision: 'inventory-2' },
+      },
+    });
+    expect(consumeChatDraft(restored)).toBe(false);
+    expect(getChatDraft(draft.id)?.settings.runtimeSelection?.capabilityRevision).toBe(
+      'inventory-2',
+    );
+  });
+
+  it('retains draft content and chosen target but blocks a mismatched saved account tuple', () => {
+    const draft = { ...createChatDraft(), text: 'Keep my edits' };
+    const runtimeSelection = {
+      ...createChatRuntimeSelection(),
+      account: { accountId: 'old', model: 'luna' },
+      execution: { location: 'local' as const, targetId: 'mac' },
+      capabilityRevision: 'inventory-1',
+    };
+    saveChatDraft({
+      ...draft,
+      settings: {
+        ...draft.settings,
+        selection: { accountId: 'new', model: 'other' },
+        runtimeSelection,
+      },
+    });
+    expect(getChatDraft(draft.id)).toMatchObject({
+      text: 'Keep my edits',
+      settings: {
+        runtimeSelection: {
+          account: { accountId: 'new', model: 'other' },
+          execution: runtimeSelection.execution,
+          capabilityRevision: null,
+        },
+      },
+    });
+  });
+  it('blocks a persisted agent selection that disagrees with the retained launch URL', () => {
+    const draft = { ...createChatDraft(), text: 'Keep my edits' };
+    const runtimeSelection = {
+      ...createChatRuntimeSelection(),
+      account: { accountId: 'personal', model: 'luna' },
+      agentProfile: { profileId: 'developer', revision: 2 },
+      execution: { location: 'local' as const, targetId: 'mac' },
+      capabilityRevision: 'inventory-1',
+    };
+    saveChatDraft({
+      ...draft,
+      settings: {
+        ...draft.settings,
+        selection: runtimeSelection.account,
+        runtimeSelection,
+        search: 'agentProfile=developer&profileRevision=3',
+      },
+    });
+    expect(getChatDraft(draft.id)?.settings.runtimeSelection).toEqual({
+      ...runtimeSelection,
+      agentProfile: { profileId: 'developer', revision: 3 },
+      capabilityRevision: null,
+    });
+  });
+
+  it('retains the builtin namespace on restored Local drafts and invalidates a user-profile review', () => {
+    const draft = { ...createChatDraft(), text: 'Keep the selected profile' };
+    const runtimeSelection = {
+      ...createChatRuntimeSelection(),
+      agentProfile: { profileId: 'agent', revision: 1 },
+      execution: { location: 'local' as const, targetId: 'mac' },
+      capabilityRevision: 'caps-r1',
+    };
+    saveChatDraft({
+      ...draft,
+      settings: {
+        ...draft.settings,
+        runtimeSelection,
+        search: 'agentProfile=agent&profileRevision=1&agentProfileKind=builtin',
+      },
+    });
+    expect(getChatDraft(draft.id)?.settings.runtimeSelection).toEqual({
+      ...runtimeSelection,
+      agentProfile: { kind: 'builtin', profileId: 'agent', revision: 1 },
+      capabilityRevision: null,
+    });
+  });
+
+  it('rejects unbounded execution references and private/unknown runtime fields on restore', () => {
+    const draft = { ...createChatDraft(), text: 'Saved content' };
+    for (const runtimeSelection of [
+      { ...createChatRuntimeSelection(), capabilityRevision: 'x'.repeat(201) },
+      { ...createChatRuntimeSelection(), gatewayUrl: 'https://private.example' },
+      {
+        ...createChatRuntimeSelection(),
+        execution: { location: 'local', targetId: 'mac', targetRevision: 'client-revision' },
+      },
+    ]) {
+      localStorage.setItem(
+        `mitzo-chat-draft:${draft.id}`,
+        JSON.stringify({
+          ...draft,
+          settings: { ...draft.settings, runtimeSelection },
+        }),
+      );
+      expect(getChatDraft(draft.id)).toBeNull();
+    }
+  });
   it('retains a newer legacy message written by an older open tab after migration', () => {
     localStorage.setItem('mitzo-draft-new', 'First legacy message');
     migrateLegacyChatDraft();

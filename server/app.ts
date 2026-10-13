@@ -1,3 +1,4 @@
+import { ownedLocalCodexMetadata } from './ordinary-local-codex-metadata.js';
 import { createTelemetryRelay } from './telemetry-relay.js';
 import { traceAuthCheck } from './auth-check-tracing.js';
 import type {
@@ -83,7 +84,7 @@ import {
 import { createCustodianProxy } from './symposium-custodian-proxy.js';
 import { drainRetainedSymposiumControllers } from './symposium-controller-drain.js';
 import { createSessionMessagesHandler } from './session-messages-route.js';
-import { createSymposiumSourceRouter } from './symposium-source-routes.js';
+import { mountSymposiumArtifactRoutes } from './symposium-artifact-route-composition.js';
 import { getConnectionRegistry } from './chat.js';
 import {
   publicationControllerApproval,
@@ -100,7 +101,6 @@ import {
   publicationSealFenceForRecord,
   type CompletedPublicationHost,
 } from './symposium-publication-artifact.js';
-import { createPublicationRouter } from './symposium-publication-routes.js';
 import { capabilityOperationStore } from './capability-operation-owner.js';
 import {
   ownedEvidenceHandler,
@@ -113,7 +113,6 @@ import type { ConnectionSelection } from './symposium-personal-connections.js';
 import { SymposiumReviewStore } from './symposium-review-workflows.js';
 import { SymposiumAccessRequests } from './symposium-access-tools.js';
 import { createSymposiumAccessRouter } from './symposium-access-router.js';
-import { createSymposiumReviewRouteComposition } from './symposium-review-route-composition.js';
 import { createSymposiumSessionRouter } from './symposium-session-create.js';
 import { createSubscriptionLoginController } from './symposium-subscription-login-route.js';
 import { AccountAliases } from './account-aliases.js';
@@ -1537,16 +1536,16 @@ app.use(
     invoke: (id, input, signal) => requestOperatorGithubPublication(id, registry, input, signal),
   }),
 );
-app.use(
-  '/api/sessions/:id/symposium/publication',
-  operatorAuthMiddleware,
-  createPublicationRouter({
+mountSymposiumArtifactRoutes(app, {
+  events: eventStore,
+  currentHost: () => symposiumProductionHost,
+  repositories: () => getRepoConfig().repos,
+  publication: {
     onConsentInvalidated: (conversationId, connectionId) =>
       clearPublicationControllerSessionGrants(registry, conversationId, connectionId),
     onPublicationCompleted: (sessionId, publication, operation) =>
       symposiumAccessRequests.publicationCompleted(sessionId, publication, operation),
     registration: () => symposiumPublication,
-    hasSession: (id) => eventStore.getSession(id)?.sessionType === 'symposium',
     approval: (req, session, conversationId) =>
       custodianPublicationApproval(req) ??
       publicationControllerApproval(
@@ -1557,27 +1556,13 @@ app.use(
         req.header('x-connection-id'),
         getConnectionRegistry() ?? undefined,
       ),
-  }),
-);
-app.use(
-  '/api/sessions/:id/symposium/reviews',
-  createSymposiumReviewRouteComposition({
+  },
+  reviews: {
     store: symposiumReviewStore,
     actionAuthority: symposiumReviewActionAuthority,
-    currentHost: () => symposiumProductionHost,
     runtime: (sessionId) => symposiumRuntimeForSession(sessionId),
-    hasSession: (sessionId) => eventStore.getSession(sessionId)?.sessionType === 'symposium',
-  }),
-);
-app.use(
-  '/api/sessions/:id/symposium/source',
-  operatorAuthMiddleware,
-  createSymposiumSourceRouter({
-    repositories: () => getRepoConfig().repos,
-    getSession: (id) => eventStore.getSession(id),
-    getHost: () => symposiumProductionHost?.sourceImport,
-  }),
-);
+  },
+});
 app.use(
   '/api/sessions/:id/symposium',
   operatorAuthMiddleware,
@@ -2738,6 +2723,7 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
     res.status(404).json({ error: 'Session not found' });
     return;
   }
+  const runtimeMetadata = ownedLocalCodexMetadata(eventStore, meta.sessionId);
   const totalTokens =
     meta.inputTokens + meta.outputTokens + meta.cacheReadTokens + meta.cacheCreationTokens;
   const symposiumConfigured = Boolean(meta.symposiumConfig);
@@ -2790,6 +2776,7 @@ app.get('/api/sessions/:id/meta', async (req, res) => {
   }
   res.json({
     sessionId: meta.sessionId,
+    ...runtimeMetadata,
     ...(meta.agentProfile ? { agentProfile: meta.agentProfile } : {}),
     sessionType: symposiumConfigured ? 'symposium' : meta.sessionType,
     branch: meta.branch,

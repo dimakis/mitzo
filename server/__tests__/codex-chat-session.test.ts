@@ -22,6 +22,13 @@ const mocks = vi.hoisted(() => ({
   privateDirectory: '/tmp',
   conversationOptions: undefined as Record<string, unknown> | undefined,
   useTls: false,
+  custodianController: false,
+}));
+vi.mock('../symposium-custodian-mode.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../symposium-custodian-mode.js')>()),
+  get custodianControllerMode() {
+    return mocks.custodianController;
+  },
 }));
 vi.mock('../local-server-url.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../local-server-url.js')>()),
@@ -101,8 +108,15 @@ import { setConnectionsRuntime } from '../connections-runtime.js';
 import { getLiveCapabilityConversationBinding } from '../capability-conversation-binding.js';
 import { SymposiumProfileProposalStore } from '../symposium-profile-proposals.js';
 import { SymposiumProfileStore } from '../symposium-profiles.js';
+import { OwnedLocalCodexChatAdmission } from '../owned-local-codex-chat-admission.js';
+import { OwnedCodexLifecycleBridge } from '../owned-codex-lifecycle-bridge.js';
+import { AccountProfiles } from '../account-profiles.js';
+import { EventStore } from '../event-store.js';
+import type { FrozenHostCodexBootstrapLease } from '../frozen-host-codex-bootstrap.js';
+import type { OrdinaryLocalCodexAdmissionExpectation } from '../ordinary-local-codex-admission.js';
 
 beforeEach(() => {
+  mocks.custodianController = false;
   vi.spyOn(OpenShellRuntimeManager.prototype, 'observeContract').mockResolvedValue({
     resourceVersion: 'test-observation',
     policy: {},
@@ -112,6 +126,7 @@ beforeEach(() => {
   });
 });
 afterEach(() => {
+  mocks.custodianController = false;
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
   vi.mocked(OpenShellRuntimeManager.prototype.observeContract).mockRestore();
@@ -236,6 +251,120 @@ function options(abortController: AbortController) {
       getSession: () => undefined,
     },
   } as unknown as Parameters<typeof openCodexChat>[0];
+}
+
+function ownedLocalOptions(cwd = '/tmp') {
+  const eventStore = new EventStore(':memory:');
+  const profiles = new AccountProfiles(
+    [
+      {
+        id: 'owned-personal',
+        label: 'Personal',
+        provider: 'openai-codex',
+        credentialRef: '/offline/owned-login',
+        email: 'fixture@example.test',
+        planType: 'plus',
+        models: [{ id: 'owned-model', label: 'Fixture' }],
+      },
+    ],
+    { codexEnabled: true },
+  );
+  const binding = profiles.resolve('owned-personal', 'owned-model'),
+    profile = profiles.codexProfile(binding);
+  const runtimeBinding = {
+    version: 2 as const,
+    account: {
+      accountId: binding.accountId,
+      provider: binding.provider,
+      profileRevision: binding.profileRevision,
+    },
+    harness: { implementation: 'codex' as const },
+    execution: {
+      location: 'local' as const,
+      targetId: 'owned-mac',
+      targetRevision: 'owned-target',
+    },
+  };
+  const selection = {
+    version: 1 as const,
+    agent: { profileId: 'owned-agent', revision: 1 },
+    context: { source: 'none' as const, revision: null },
+    permission: { mode: 'agent' as const, revision: 0 },
+    model: 'owned-model',
+    thinking: null,
+  };
+  const expected = {
+    binding: runtimeBinding,
+    hostId: 'host',
+    runtimeContractRevision: 'runtime',
+    capabilityRevision: 'cap',
+    workspace: { workspaceId: 'owned-workspace', cwd },
+    selection,
+  } as OrdinaryLocalCodexAdmissionExpectation;
+  eventStore.admitOrdinaryLocalCommand(
+    {
+      sessionId: 'owned-session',
+      accountBinding: binding,
+      cwd,
+      repositoryWorkspaceId: 'owned-workspace',
+      selectedModel: 'owned-model',
+      reasoningEffort: null,
+      mode: 'agent',
+    },
+    runtimeBinding,
+    {
+      clientMsgId: 'owned-command',
+      requestFingerprint: 'owned-fingerprint',
+      selection,
+      payload: { text: 'Frozen prompt', systemPrompt: '', intent: 'Original intent' },
+    },
+  );
+  eventStore.claimOrdinaryLocalCommandDispatch('owned-command');
+  const lease = {
+    client: { initialize: vi.fn(), request: vi.fn(), close: vi.fn() },
+    binding,
+    profile,
+    privateHome: '/private/fixture-home',
+    executableSha256: 'a'.repeat(64),
+    assertCurrent: vi.fn(async () => {}),
+    assertCurrentSync: vi.fn(),
+    close: vi.fn(),
+  } as FrozenHostCodexBootstrapLease;
+  const bridge = new OwnedCodexLifecycleBridge(() => lease);
+  const ownedLocal = OwnedLocalCodexChatAdmission.capture({
+    eventStore,
+    sessionId: 'owned-session',
+    commandId: 'owned-command',
+    expected,
+    lease,
+    bridge,
+  });
+  const opts = {
+    ...options(new AbortController()),
+    eventStore,
+    conversationId: 'owned-session',
+    messageId: 'owned-command',
+    binding,
+    profile,
+    prompt: 'Frozen prompt',
+    intent: 'Original intent',
+    model: 'owned-model',
+    reasoningEffort: null,
+    systemPrompt: '',
+    env: {},
+    repositoryWorkspace: {
+      id: 'owned-workspace',
+      repository: 'fixture/repo',
+      baseBranch: 'main',
+      baseOid: 'a'.repeat(40),
+      featureBranch: 'fixture',
+      directory: cwd,
+      sandbox: false,
+    },
+    session: { ...options(new AbortController()).session, cwd, mode: 'agent' },
+    ownedLocal,
+  } as Parameters<typeof openCodexChat>[0];
+  return { eventStore, opts, lease, ownedLocal };
 }
 it('routes the selected model when provisioning an OpenShell subscription', () => {
   expect(
@@ -2711,3 +2840,336 @@ it.each(['recipe', 'supplied', 'retained'] as const)(
     expect(mocks.mcpClose).toHaveBeenCalled();
   },
 );
+
+it('uses the already verified owned client locally regardless of global OpenShell settings', async () => {
+  vi.clearAllMocks();
+  vi.stubEnv('MITZO_OPENSHELL_ENABLED', '1');
+  vi.stubEnv('MITZO_OPENSHELL_IMAGE', 'invalid-global-runtime');
+  vi.stubEnv('MITZO_OPENSHELL_SANDBOX_NAME', 'legacy-global');
+  mocks.initialize.mockResolvedValue(undefined);
+  mocks.send.mockResolvedValue(undefined);
+  mocks.connect.mockResolvedValue({
+    definitions: [],
+    close: mocks.mcpClose,
+    displayName: (name: string) => name,
+  });
+  const hostLaunch = vi.spyOn(CodexAppServerClient, 'launch'),
+    shellLaunch = vi.spyOn(CodexAppServerClient, 'launchOpenShell');
+  const f = ownedLocalOptions();
+  try {
+    const chat = await openCodexChat(f.opts);
+    expect(hostLaunch).not.toHaveBeenCalled();
+    expect(shellLaunch).not.toHaveBeenCalled();
+    expect(mocks.reserveStartup).not.toHaveBeenCalled();
+    const config = mocks.conversationOptions!;
+    expect(config.enableCapacityRecovery).toBe(false);
+    const callbacks = {
+      onNotification: vi.fn(),
+      onRequest: vi.fn(async () => ({})),
+      onClose: vi.fn(),
+    };
+    expect(
+      (config.createClient as (transportCallbacks: typeof callbacks) => unknown)(callbacks),
+    ).toBe(f.lease.client);
+    await (config.verifyBinding as () => Promise<unknown>)();
+    expect(f.lease.assertCurrent).toHaveBeenCalled();
+    (config.beforeEnqueue as (input: unknown) => void)({
+      id: 'owned-command',
+      prompt: 'Frozen prompt',
+      intent: 'Original intent',
+      model: 'owned-model',
+      reasoningEffort: null,
+    });
+    (config.onProviderDispatch as (id: string) => void)('owned-command');
+    expect(() => (config.onProviderDispatch as (id: string) => void)('owned-command')).toThrow(
+      'Owned local Codex chat unavailable',
+    );
+    await expect(chat.setPermissionMode('auto')).rejects.toThrow(
+      'Owned local Codex chat unavailable',
+    );
+    chat.close();
+    expect(f.lease.close).toHaveBeenCalled();
+  } finally {
+    hostLaunch.mockRestore();
+    shellLaunch.mockRestore();
+    f.eventStore.close();
+  }
+});
+it('refuses owned local injection in a custodian controller even when dedicated OpenShell is configured', async () => {
+  vi.clearAllMocks();
+  mocks.initialize.mockResolvedValue(undefined);
+  mocks.send.mockResolvedValue(undefined);
+  mocks.connect.mockResolvedValue({
+    definitions: [],
+    close: mocks.mcpClose,
+    displayName: (name: string) => name,
+  });
+  mocks.custodianController = true;
+  vi.stubEnv('MITZO_OPENSHELL_ENABLED', '1');
+  vi.stubEnv('MITZO_OPENSHELL_IMAGE', 'fixture-reviewed-runtime');
+  vi.stubEnv('MITZO_OPENSHELL_POLICY', '/fixture/policy.yaml');
+  vi.stubEnv('MITZO_OPENSHELL_SEED', '/fixture/seed');
+  const f = ownedLocalOptions();
+  try {
+    await expect(openCodexChat(f.opts)).rejects.toThrow('Owned local Codex chat unavailable');
+    expect(f.lease.assertCurrent).not.toHaveBeenCalled();
+    expect(mocks.connect).not.toHaveBeenCalled();
+    expect(mocks.initialize).not.toHaveBeenCalled();
+    expect(mocks.send).not.toHaveBeenCalled();
+    expect(mocks.reserveStartup).not.toHaveBeenCalled();
+  } finally {
+    f.eventStore.close();
+  }
+});
+it.each(['prompt', 'systemPrompt'] as const)(
+  'rejects an owned initial %s mismatch before hooks, MCP or provider effects',
+  async (field) => {
+    vi.clearAllMocks();
+    const f = ownedLocalOptions();
+    try {
+      f.opts[field] = 'Changed input';
+      await expect(openCodexChat(f.opts)).rejects.toThrow('Owned local Codex chat unavailable');
+      expect(mocks.connect).not.toHaveBeenCalled();
+      expect(mocks.initialize).not.toHaveBeenCalled();
+      expect(mocks.send).not.toHaveBeenCalled();
+    } finally {
+      f.eventStore.close();
+    }
+  },
+);
+
+it('keeps the admitted developer input fixed while asynchronous owned verification waits', async () => {
+  vi.clearAllMocks();
+  mocks.initialize.mockResolvedValue(undefined);
+  mocks.send.mockResolvedValue(undefined);
+  mocks.connect.mockResolvedValue({
+    definitions: [],
+    close: mocks.mcpClose,
+    displayName: (name: string) => name,
+  });
+  const f = ownedLocalOptions();
+  let release!: () => void;
+  f.lease.assertCurrent = vi
+    .fn()
+    .mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          release = resolve;
+        }),
+    )
+    .mockResolvedValue(undefined);
+  try {
+    const opening = openCodexChat(f.opts);
+    await vi.waitFor(() => expect(release).toBeTypeOf('function'));
+    f.opts.systemPrompt = 'Changed unadmitted developer instructions';
+    release();
+    const chat = await opening;
+    expect(mocks.conversationOptions?.systemPrompt).not.toContain(
+      'Changed unadmitted developer instructions',
+    );
+    chat.close();
+  } finally {
+    f.eventStore.close();
+  }
+});
+
+it('limits owned tools to native and MCP and rejects helpers before owner awaits or approval', async () => {
+  vi.clearAllMocks();
+  mocks.initialize.mockResolvedValue(undefined);
+  mocks.send.mockResolvedValue(undefined);
+  const mcpExecute = vi.fn(async () => ({ content: 'MCP result', isError: false }));
+  const mcpDefinition = {
+    name: 'mitzo_mcp_fixture',
+    description: 'Fixture MCP',
+    input_schema: { type: 'object' },
+  };
+  mocks.connect.mockResolvedValue({
+    definitions: [mcpDefinition],
+    execute: mcpExecute,
+    close: mocks.mcpClose,
+    displayName: (name: string) => name,
+  });
+  const credentialModule = await import('../session-credential-tools.js');
+  const { profileToolDefinitions } = await import('../session-profile-tools.js');
+  const connectionExecute = vi.fn(async () => ({
+    content: 'Unexpected helper effect',
+    isError: false,
+  }));
+  const connectionFactory = vi
+    .spyOn(credentialModule, 'sessionCredentialTools')
+    .mockReturnValue({ definitions: profileToolDefinitions, execute: connectionExecute });
+  const native = await import('../native-tool-executor.js');
+  const nativeExecute = vi.fn(async () => ({ content: 'Native result', is_error: false }));
+  const nativeFactory = vi
+    .spyOn(native, 'createNativeToolExecutor')
+    .mockReturnValue(nativeExecute as never);
+  const f = ownedLocalOptions();
+  f.opts.registry = {
+    ...f.opts.registry,
+    findBySessionId: () => ({ clientId: 'owned-client', session: f.opts.session }),
+  } as never;
+  let chat: Awaited<ReturnType<typeof openCodexChat>> | undefined;
+  try {
+    chat = await openCodexChat(f.opts);
+    const config = mocks.conversationOptions!;
+    expect((config.tools as Array<{ name: string }>).map((tool) => tool.name).sort()).toEqual(
+      [...native.nativeToolDefinitions.map((tool) => tool.name), mcpDefinition.name].sort(),
+    );
+    const execute = config.executeTool as (
+      name: string,
+      input: Record<string, unknown>,
+      signal: AbortSignal,
+      context: { turnId: string; callId: string },
+    ) => Promise<unknown>;
+    vi.mocked(f.lease.assertCurrent).mockClear();
+    for (const name of [
+      'ListConnections',
+      'SymposiumReadProfiles',
+      'PrepareRepositoryChat',
+      'RequestWebAccess',
+      'RequestGithubPublish',
+      'SymposiumProposeProfile',
+      'Capability_fixture',
+      'UnknownAlias',
+    ])
+      await expect(
+        execute(name, {}, new AbortController().signal, { turnId: 'turn', callId: name }),
+      ).rejects.toThrow('Tool unavailable for owned local Codex chat');
+    expect(f.lease.assertCurrent).not.toHaveBeenCalled();
+    expect(connectionExecute).not.toHaveBeenCalled();
+    expect(mocks.permissionHandler).not.toHaveBeenCalled();
+    expect(nativeExecute).not.toHaveBeenCalled();
+    expect(mcpExecute).not.toHaveBeenCalled();
+    await expect(
+      execute('Read', { file_path: 'task.txt' }, new AbortController().signal, {
+        turnId: 'turn',
+        callId: 'native',
+      }),
+    ).resolves.toEqual({ content: 'Native result', isError: false });
+    await expect(
+      execute(mcpDefinition.name, {}, new AbortController().signal, {
+        turnId: 'turn',
+        callId: 'mcp',
+      }),
+    ).resolves.toEqual({ content: 'MCP result', isError: false });
+    expect(connectionExecute).not.toHaveBeenCalled();
+    expect(nativeExecute).toHaveBeenCalledOnce();
+    expect(mcpExecute).toHaveBeenCalledOnce();
+  } finally {
+    chat?.close();
+    f.eventStore.close();
+    nativeFactory.mockRestore();
+    connectionFactory.mockRestore();
+  }
+});
+
+it('ignores trusted project command hooks and SessionStart context for the owned frozen prompt', async () => {
+  vi.clearAllMocks();
+  mocks.initialize.mockResolvedValue(undefined);
+  mocks.send.mockResolvedValue(undefined);
+  mocks.connect.mockResolvedValue({
+    definitions: [],
+    close: mocks.mcpClose,
+    displayName: (name: string) => name,
+  });
+  vi.stubEnv('MITZO_TRUST_PROJECT_HOOKS', '1');
+  const cwd = mkdtempSync(join(tmpdir(), 'mitzo-owned-hooks-')),
+    marker = join(cwd, 'hook-executed');
+  mkdirSync(join(cwd, '.claude'));
+  writeFileSync(
+    join(cwd, '.claude/settings.json'),
+    JSON.stringify({
+      hooks: {
+        SessionStart: [
+          {
+            hooks: [
+              {
+                type: 'command',
+                command: `/usr/bin/touch '${marker}'; printf '{"additionalContext":"UNADMITTED PROJECT CONTEXT"}'`,
+              },
+            ],
+          },
+        ],
+        Stop: [{ hooks: [{ type: 'command', command: `/usr/bin/touch '${marker}'` }] }],
+      },
+    }),
+  );
+  const f = ownedLocalOptions(cwd);
+  let chat: Awaited<ReturnType<typeof openCodexChat>> | undefined;
+  try {
+    chat = await openCodexChat(f.opts);
+    expect(existsSync(marker)).toBe(false);
+    expect(mocks.conversationOptions?.systemPrompt).not.toContain('UNADMITTED PROJECT CONTEXT');
+    expect(mocks.conversationOptions?.systemPrompt).not.toContain('ListConnections');
+    const beforeComplete = mocks.conversationOptions?.beforeComplete as (
+      signal: AbortSignal,
+    ) => Promise<void>;
+    await beforeComplete(new AbortController().signal);
+    expect(existsSync(marker)).toBe(false);
+  } finally {
+    chat?.close();
+    f.eventStore.close();
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+it('keeps owned native web search disabled despite a live runtime preference and refuses grant edits', async () => {
+  vi.clearAllMocks();
+  mocks.initialize.mockResolvedValue(undefined);
+  mocks.send.mockResolvedValue(undefined);
+  mocks.connect.mockResolvedValue({
+    definitions: [],
+    close: mocks.mcpClose,
+    displayName: (name: string) => name,
+  });
+  const f = ownedLocalOptions(),
+    root = mkdtempSync(join(tmpdir(), 'mitzo-owned-web-ceiling-'));
+  const { CodexConversation } = await vi.importActual<typeof import('../codex-conversation.js')>(
+    '../codex-conversation.js',
+  );
+  const { CodexConversationStore } = await vi.importActual<
+    typeof import('../codex-conversation-store.js')
+  >('../codex-conversation-store.js');
+  const store = new CodexConversationStore(join(root, 'private.db'));
+  let chat: Awaited<ReturnType<typeof openCodexChat>> | undefined;
+  let realConversation: InstanceType<typeof CodexConversation> | undefined;
+  try {
+    chat = await openCodexChat(f.opts);
+    const config = mocks.conversationOptions!;
+    expect(config.webSearchDeploymentRevision).toBeUndefined();
+    const setWebSearchGrant = chat.setWebSearchGrant;
+    expect(setWebSearchGrant).toBeTypeOf('function');
+    expect(() => setWebSearchGrant!(0, 'allowed')).toThrow('Owned local Codex chat unavailable');
+    expect(mocks.setWebSearchGrant).not.toHaveBeenCalled();
+    const requests: Array<{ method: string; params: Record<string, unknown> }> = [];
+    vi.mocked(f.lease.client.request).mockImplementation(async (method, params) => {
+      requests.push({ method, params });
+      if (method === 'config/read') return { config: { web_search: 'live' } };
+      if (method === 'thread/start')
+        return {
+          thread: { id: 'owned-native-thread' },
+          model: 'owned-model',
+          modelProvider: 'openai',
+        };
+      return {};
+    });
+    realConversation = new CodexConversation({
+      ...config,
+      store,
+      // This second, real owner has its own queue; the captured adapter callback
+      // refers to the mocked conversation used to obtain these route options.
+      onQueueChange: () => {},
+      onClosed: () => {},
+    } as never);
+    await realConversation.initialize();
+    expect(requests.find((request) => request.method === 'thread/start')?.params).toMatchObject({
+      config: { web_search: 'disabled' },
+    });
+  } finally {
+    realConversation?.close();
+    chat?.close();
+    store.close();
+    f.eventStore.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});

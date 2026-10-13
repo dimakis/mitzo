@@ -1,6 +1,10 @@
 import { useSearchParams } from 'react-router-dom';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createChatDraft, getChatDraft, saveChatDraft, type ChatDraft } from '../lib/chat-drafts';
+import {
+  chatAgentProfileFromSearch,
+  retainChatRuntimeSelection,
+} from '../lib/chat-runtime-selection';
 
 /** A genuine New/reset owns a new identity; route/profile edits retain it. */
 export function useNewChatDraft(requestedId: string | null, generation: number, enabled: boolean) {
@@ -34,10 +38,26 @@ export function useNewChatDraft(requestedId: string | null, generation: number, 
       if (!enabled || owner.missing) return;
       const saved = getChatDraft(owner.draft.id);
       if (!saved) return; // Untyped empty composers are not drafts.
+      const selection = settings.runtimeSelection
+        ? settings.runtimeSelection.account
+        : (settings.selection ?? saved.settings.selection);
+      const previousSearch = new URLSearchParams(saved.settings.search);
+      const nextSearch = new URLSearchParams(settings.search);
+      const profileChanged = ['agentProfile', 'profileRevision', 'agentProfileKind'].some(
+        (key) => previousSearch.get(key) !== nextSearch.get(key),
+      );
+      const runtimeSelection = retainChatRuntimeSelection(
+        settings.runtimeSelection === undefined
+          ? saved.settings.runtimeSelection
+          : settings.runtimeSelection,
+        selection,
+        profileChanged ? chatAgentProfileFromSearch(settings.search) : undefined,
+      );
       const next = {
         ...settings,
-        selection: settings.selection ?? saved.settings.selection,
+        selection,
         summary: settings.summary ?? saved.settings.summary,
+        ...(runtimeSelection !== undefined ? { runtimeSelection } : {}),
       };
       if (JSON.stringify(saved.settings) !== JSON.stringify(next))
         setSettingsError(!saveChatDraft({ ...saved, settings: next }));
