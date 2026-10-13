@@ -2691,6 +2691,10 @@ test('builder launcher distinguishes built-in guidance from a saved profile with
     'Help me create an agent.',
   );
   await page.getByRole('button', { name: /^Workspace controls/ }).click();
+  await expect(page.locator('.workspace-controls > .motion-disclosure')).not.toHaveAttribute(
+    'data-motion-active',
+    'true',
+  );
   const picker = page.getByRole('combobox', { name: 'Agent profile', exact: true });
   await expect(picker).toHaveValue(JSON.stringify(['builtin', 'mitzo-profile-builder', 1]));
   await expect(picker.getByRole('option', { name: /My saved builder/ })).toHaveCount(1);
@@ -2795,6 +2799,10 @@ test('profile draft cards appear in conversation and save without opening Worksp
         state = next;
         await page.goto('https://mitzo-ui.test/chat/ui-drafts');
         await page.getByRole('button', { name: /^Workspace controls/ }).click();
+        await expect(page.locator('.workspace-controls > .motion-disclosure')).not.toHaveAttribute(
+          'data-motion-active',
+          'true',
+        );
         await page.getByRole('button', { name: 'Reusable profile drafts', exact: true }).click();
         if (next === 'empty')
           await expect(panel.getByText('No profile drafts in this chat yet.')).toBeVisible();
