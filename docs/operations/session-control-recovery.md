@@ -106,12 +106,16 @@ incident, not a stale ordinary release. The host resource report independently
 refuses admission for memory pressure and disk headroom: pressure level 2,
 7,007.5 MiB swap and 18.75 GiB free disk (limits: normal pressure, at most
 2,048 MiB swap and at least 20 GiB disk). This later observation could explain
-slow probes, but has not been correlated to the screenshot's precise failures. No lock, registry, process,
+slow probes, but has not been correlated to the screenshot's precise failures. No runtime lock, ownership registry or process,
 provider configuration or retained evidence was changed by this task. Recheck the
 canonical operating state before live acceptance. Do not force a restart,
 delete the uncertainty, create another stage or use production as a test fallback.
 
-After source acceptance and separately reviewed staging recovery, verify on the
+The user subsequently stood staging dispatch down during merge coordination.
+Source acceptance may retain its mandatory readiness bookkeeping, without
+readiness dispatch, service control or deployment.
+
+After source acceptance and separately authorized live acceptance, verify on the
 canonical instance: open a running chat, background/resume, navigate during a
 delayed switch, and confirm latest-chat selection, uninterrupted transcript,
 permissions and mode hydration. If provider-backed acceptance is enrolled, select
