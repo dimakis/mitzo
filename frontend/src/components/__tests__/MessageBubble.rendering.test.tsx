@@ -45,6 +45,21 @@ describe('TextBubble file link rendering', () => {
     cleanup();
   });
 
+  it('shares the exact revision from a bare Telos URL', () => {
+    vi.mocked(shareFile).mockClear();
+    const href = '/api/telos/artifacts/' + 'b'.repeat(32) + '?revision=2';
+    render(
+      <MemoryRouter>
+        <TextBubble content={`Saved ${href}.`} />
+      </MemoryRouter>,
+    );
+    const link = screen.getByRole('link', { name: href });
+    expect(link.getAttribute('target')).toBeNull();
+    fireEvent.click(link);
+    expect(shareFile).toHaveBeenCalledExactlyOnceWith(href);
+    cleanup();
+  });
+
   it.each([
     '/workspace/report.pdf',
     '/workspace/report.docx',

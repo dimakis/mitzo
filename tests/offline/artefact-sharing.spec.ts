@@ -62,7 +62,7 @@ for (const appearance of ['dark', 'light'] as const) {
                 {
                   blockId: 'text',
                   blockType: 'text',
-                  content: `Saved revision 2: [Telos artifact](${artifact}?revision=2). Also [PDF report](/workspace/report.pdf), [binary file](/workspace/packet.bin) and [section](#details). [Filtered file](sandbox:/mnt/data/%E0%A4%A.pdf).`,
+                  content: `Saved revision 2: [Telos artifact](${artifact}?revision=2). Bare revision 1: ${artifact}?revision=1. Also [PDF report](/workspace/report.pdf), [binary file](/workspace/packet.bin) and [section](#details). [Filtered file](sandbox:/mnt/data/%E0%A4%A.pdf).`,
                 },
               ],
             },
@@ -112,6 +112,10 @@ for (const appearance of ['dark', 'light'] as const) {
         bytes: Array.from(bytes),
       });
     expect(requests).toEqual(['?revision=2']);
+    const bareLink = page.getByRole('link', { name: `${artifact}?revision=1`, exact: true });
+    await expect(bareLink).not.toHaveAttribute('target', '_blank');
+    await bareLink.click();
+    await expect.poll(() => requests).toEqual(['?revision=2', '?revision=1']);
     expect(context.pages()).toHaveLength(1);
     await expect(page).toHaveURL(/\/chat\/sharing$/);
     await expect(page.getByRole('link', { name: 'PDF report', exact: true })).not.toHaveAttribute(

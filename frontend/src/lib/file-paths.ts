@@ -218,15 +218,27 @@ export function detectFilePaths(text: string): FilePathMatch[] {
     match.index + match[0].length,
   ]);
   const matches: FilePathMatch[] = [];
+  let telosEnd = 0;
 
   for (const match of text.matchAll(pathPattern)) {
     const raw = match[0];
     const start = match.index;
 
-    if (urlRanges.some(([from, to]) => start >= from && start < to)) continue;
+    if (start < telosEnd || urlRanges.some(([from, to]) => start >= from && start < to)) continue;
 
     // Strip trailing punctuation that's likely sentence-end
-    const cleaned = raw.replace(/[.,;:!?)]+$/, '');
+    let cleaned = raw.replace(/[.,;:!?)]+$/, '');
+
+    // A bare Telos URL names a stored revision, not a workspace path. Consume
+    // the whole suffix so an invalid query can never become a latest-file link.
+    if (isTelosArtifactUrl(cleaned)) {
+      const suffix = text.slice(start + cleaned.length).match(/^[?#][^\s<>"`]+/)?.[0];
+      if (suffix) {
+        telosEnd = start + cleaned.length + suffix.length;
+        cleaned += suffix.replace(/[.,;:!)\]]+$/, '');
+        if (!isTelosArtifactUrl(cleaned)) continue;
+      }
+    }
 
     if (isFilePath(cleaned)) {
       matches.push({ path: cleaned, start, end: start + cleaned.length });
