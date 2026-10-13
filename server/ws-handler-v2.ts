@@ -1285,6 +1285,33 @@ export function handleInterruptV2(
       )
         return;
       const found = ctx.sessionRegistry.findBySessionId(msg.sessionId);
+      if (ctx.eventStore.getSessionRuntimeBinding?.(msg.sessionId)) {
+        // A bound runtime can be interrupted without enrolling replacement input,
+        // taking over transport ownership or cold-starting a provider.
+        if (found) {
+          const interrupted = await interruptChat(found.clientId, '');
+          if (
+            !interrupted ||
+            msg.prompt.trim() ||
+            msg.images?.length ||
+            msg.contextBlocks?.length ||
+            msg.sourceSnapshots?.length ||
+            msg.model !== undefined ||
+            msg.reasoningEffort !== undefined
+          )
+            transport.send({
+              type: 'error',
+              sessionId: msg.sessionId,
+              error: `${interrupted ? 'Execution interrupted. ' : ''}Runtime-bound commands require guarded admission`,
+            });
+        } else
+          transport.send({
+            type: 'error',
+            sessionId: msg.sessionId,
+            error: 'Runtime-bound commands require guarded admission',
+          });
+        return;
+      }
       if (!found) return;
 
       const activeClientId = found.clientId;
@@ -1603,6 +1630,28 @@ export function handleSetModeV2(
   msg: SetModeMsg,
   ctx: V2HandlerContext,
 ): Promise<ModeChangeResult> {
+  if (ctx.eventStore.getSessionRuntimeBinding?.(msg.sessionId)) {
+    const error = 'Runtime-bound settings require guarded admission';
+    try {
+      ctx.connRegistry.get(connectionId)?.transport.send({
+        type: 'error',
+        sessionId: msg.sessionId,
+        error,
+      });
+    } catch (sendError) {
+      log.warn('runtime-bound set_mode refusal delivery failed', {
+        sessionId: msg.sessionId,
+        err: sendError,
+      });
+    }
+    return Promise.resolve({
+      ok: false,
+      applied: false,
+      persisted: false,
+      code: 'provider',
+      error,
+    });
+  }
   const found = ctx.sessionRegistry.findBySessionId(msg.sessionId);
   if (!found) {
     // Historical sessions have no runtime to update. Commit their next-launch

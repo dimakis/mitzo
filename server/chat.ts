@@ -2880,6 +2880,8 @@ export async function sendToChat(
   return withSpanAsync('chat.send', { 'chat.clientId': clientId }, async () => {
     if (signal?.aborted) return false;
     const session = registry.get(clientId);
+    if (session?.sessionId && eventStore.getSessionRuntimeBinding(session.sessionId))
+      throw new Error('Runtime-bound commands require guarded admission');
     if (session?.sessionId)
       assertOrdinaryContributorControlAllowed(eventStore, session.sessionId, 'send');
     if (session?.sessionId && eventStore.getSession(session.sessionId)?.symposiumConfig)
@@ -3158,6 +3160,8 @@ export function preflightChatCommand(
   sourceSnapshots?: SourceSnapshot[],
 ): boolean {
   const session = registry.get(clientId);
+  if (session?.sessionId && eventStore.getSessionRuntimeBinding(session.sessionId))
+    throw new Error('Runtime-bound commands require guarded admission');
   if (!session?.sessionId || !clientMsgId || !getResponsesRuntime(session)) return false;
   const stablePrompt = assemblePrompt(
     prompt,
@@ -3195,6 +3199,27 @@ export async function interruptChat(
     if (session?.sessionId && eventStore.getSession(session.sessionId)?.symposiumConfig)
       throw new Error('Use Symposium directed prompts for this session');
     if (!session?.queryInstance || !session?.inputQueue) return false;
+    if (session.sessionId && eventStore.getSessionRuntimeBinding(session.sessionId)) {
+      // Cancellation remains available while later-turn admission is unenrolled.
+      // Interrupting cannot authorize the accompanying replacement prompt/settings.
+      await session.queryInstance.interrupt();
+      if (
+        prompt.trim() ||
+        images?.length ||
+        contextBlocks?.length ||
+        sourceSnapshots?.length ||
+        model !== undefined ||
+        reasoningEffort !== undefined
+      ) {
+        send(session.transport, {
+          type: 'error',
+          sessionId: session.sessionId,
+          error: 'Execution interrupted. Runtime-bound commands require guarded admission',
+        });
+        return false;
+      }
+      return true;
+    }
     const codex = getCodexRuntime(session);
     const responses = getResponsesRuntime(session);
     if (
