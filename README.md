@@ -715,6 +715,12 @@ preserves warn-only transitions, lifecycle event ordering, caller transactions
 and per-session progress if recovery fails. EventStore retains schema, migration,
 backup and close ownership.
 
+Session metadata, list/search, counters and ordinary runtime-binding persistence
+are isolated in `packages/protocol/src/session-metadata-store.ts`. It borrows the
+same connection and prepared statements; EventStore retains schema, migrations,
+backup and close. Existing public methods, immutable account/workspace/profile
+bindings, search filters and transaction boundaries are preserved.
+
 ### Frontend (`frontend/`) — React 19 + Vite
 
 React 19 + Vite. Ten pages (`Login`, `SessionList`, `ChatView`, `DesktopChatView`, `FileViewer`, `InboxView`, `CalendarView`, `TodoView`, `TodoDetailView`, `TaskBoard`), a `useReducer`-based message state machine (`useChatMessages`), module-level WebSocket pool with 500-message buffer, and components for thinking blocks, tool pills, tool groups, permission banners, and a slash-command picker. Capacitor wraps the frontend for iOS deployment via TestFlight.
