@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.9';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.109';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.110';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -271,7 +271,9 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../repository-task-copy.ts': 'cd15f77cfa45883556d10536296a28f7451d2259a5a3eb2a9aeb807d24c54d6d',
   '../credential-connection-schema.ts':
     '3489ff131cd0bc28de23d85e1ed7cd4749fcb12f062bdc76407bedc0efe28f47',
-  '../credential-setup.ts': '25d86eaef64d7a558c1c733ae215f87e068dca5c40ad82a01c119f5f4f0038d7',
+  '../credential-verification-error.ts':
+    '1adcaa9d47b413796b94f6aeb44bf152e2daa27ec30759d1ffd9ce5e1240ebea',
+  '../credential-setup.ts': '8dfd54d1b4cb4408d52c9ca09f5cc220ba69adf6dc6181bc7de6803fee38f69c',
   '../connection-guide.ts': 'd0fed6560d2c2b4d99c74af278b3490ac66b3cb5b161bdeb686c57e99208c0dc',
   '../credential-setup-continuation.ts':
     '6cb81428bb08fa2cf6b79e762573e34dc87f281cfc5d0be70b5316ce66fdd493',
@@ -285,14 +287,14 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../home-assistant-dashboard.ts':
     '1053d482935af066472aedd48365af2b71cb7cf55e30ee88cc9fcf89b96e1d62',
   '../credential-connections.ts':
-    'bbdc3c9cb04e298c5f26bc705ce06348ce206fd8b72d83738dd6aef98bd0df5f',
+    '3517eff1758ec46d65db209b4c143eafd7402e54711d6474e3302149eb0cf866',
   '../credential-connections-router.ts':
     '6d7b779ff5ba148b6aea43483f4003da0d9ed4908e551a273de5906140c7b96b',
   '../credential-connection-tools.ts':
     'bead199d0a69079a83b7acd7fd9eeb111718e310a07419bcf2e02e92f25826fb',
   '../credential-connections-runtime.ts':
     '89a1cdf4bd50c73a0aecfb966303fb37e0f524da9fb977478602c9c198a51b4d',
-  '../credential-http.ts': 'fb584d92840e2ee34167fd354d7249cfb3144b321f0d3a0a4aad3015231fa22d',
+  '../credential-http.ts': 'd99c0d1a71b90c07626b0d07459bdc9af936ae64895079f8471b3253a563ff62',
   '../credential-redaction.ts': '817dda948c419deb064bc4c5298e034e5a0343972b4bf724fb6aaa869cf34403',
   '../credential-sdk-tools.ts': 'de3a110d32b4a831b25c07918b9f35409cbb4ccf75ec0d5dd0667b55e3d55685',
   '../session-credential-tools.ts':
