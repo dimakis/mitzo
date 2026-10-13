@@ -414,6 +414,23 @@ describe('chat-rest-handler', () => {
     expect(res.status).toBe(404);
   });
 
+  it.each([
+    ['switch', { type: 'switch_session', sessionId: 'selected' }],
+    ['suspend', { type: 'session_suspend', sessions: [{ sessionId: 'selected', lastSeq: 7 }] }],
+  ])(
+    'identifies expired transport on /%s before invoking session handlers',
+    async (endpoint, body) => {
+      const res = await request(testServer)
+        .post(`/api/chat/${endpoint}`)
+        .set('X-Connection-ID', 'removed-connection')
+        .send(body);
+      expect(res.status).toBe(404);
+      expect(res.body).toMatchObject({ code: 'connection_expired' });
+      expect(handleSwitchSession).not.toHaveBeenCalled();
+      expect(handleSessionSuspend).not.toHaveBeenCalled();
+    },
+  );
+
   // ─── POST /api/chat/send ────────────────────────────────────────────────
   it('preserves the source snapshot through HTTP validation, durable acceptance and exact retry', async () => {
     const content = '# Captured briefing\nFinal source detail';

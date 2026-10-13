@@ -226,6 +226,50 @@ describe('createMitzoStore', () => {
 });
 
 describe('switchSession', () => {
+  it('keeps a streaming response intact when an HTTP control fails', async () => {
+    const store = createReadyStore();
+    await store.getState().switchSession('selected');
+    lastWs.simulateMessage({ type: 'session_switched', sessionId: 'selected', mode: 'agent' });
+    lastWs.simulateMessage({ type: 'message_start', sessionId: 'selected', messageId: 'answer' });
+    lastWs.simulateMessage({
+      type: 'block_start',
+      sessionId: 'selected',
+      blockId: 'text',
+      blockType: 'text',
+    });
+    lastWs.simulateMessage({
+      type: 'block_delta',
+      sessionId: 'selected',
+      blockId: 'text',
+      delta: 'preserved',
+    });
+    lastWs.simulateMessage({
+      type: 'session_state_changed',
+      sessionId: 'selected',
+      state: 'running',
+    });
+    const messages = store.getState().messages;
+    lastWs.simulateMessage({
+      type: '_control_error',
+      operation: 'switch',
+      sessionId: 'selected',
+      error: 'Route unavailable',
+    });
+    expect(store.getState().messages).toBe(messages);
+    expect(store.getState().messages.running).toBe(true);
+    expect(store.getState().messages.current?.blocks.get('text')?.content).toBe('preserved');
+    expect(store.getState().sendError).toBe('Route unavailable');
+    lastWs.simulateMessage({ type: '_control_error', operation: 'suspend', error: 'Backgrounded' });
+    expect(store.getState().messages).toBe(messages);
+    lastWs.simulateMessage({
+      type: '_control_error',
+      operation: 'switch',
+      sessionId: 'other',
+      error: 'Old view',
+    });
+    expect(store.getState().sendError).toBe('Route unavailable');
+  });
+
   it('commits the transcript cursor and drains a successor buffered during opening', async () => {
     const transport = mockTransport();
     let resolveHistory!: (value: unknown) => void;

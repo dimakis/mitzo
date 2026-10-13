@@ -943,6 +943,257 @@ describe('SseConnection', () => {
     expect(conn.getLastSeq('sess-1')).toBe(6);
   });
 
+  it.each(['switch_session', 'session_suspend'])(
+    'recovers an expired connection for %s without a terminal chat error',
+    async (type) => {
+      const fetch = vi.fn().mockResolvedValue({ ok: true });
+      const conn = new SseConnection(createConfig({ fetch }));
+      const listener = vi.fn();
+      conn.onMessage(listener);
+      conn.connect();
+      lastES()._emit('welcome', { connectionId: 'old' });
+      conn.trackSeq('selected', 7);
+      fetch.mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+        json: async () => ({
+          code: 'connection_expired',
+          error: 'Connection not registered',
+        }),
+      });
+      conn.send({ type, sessionId: 'selected', sessions: [{ sessionId: 'selected', lastSeq: 7 }] });
+      await vi.advanceTimersByTimeAsync(500);
+      expect(listener).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'error' }));
+      expect(lastES()).not.toBe(MockEventSource.instances[0]);
+      lastES()._emit('welcome', { connectionId: 'new' });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(conn.isConnected()).toBe(true);
+      if (type === 'switch_session') {
+        expect(fetch).toHaveBeenCalledWith(
+          expect.stringContaining('/switch'),
+          expect.objectContaining({
+            headers: expect.objectContaining({ 'X-Connection-ID': 'new' }),
+          }),
+        );
+      } else {
+        expect(fetch.mock.calls.filter(([url]) => url.endsWith('/suspend'))).toHaveLength(1);
+      }
+      conn.disconnect();
+    },
+  );
+
+  it('does not let a delayed old connection response tear down its replacement', async () => {
+    let finish!: (response: unknown) => void;
+    const fetch = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finish = resolve;
+          }),
+      )
+      .mockResolvedValue({ ok: true });
+    const conn = new SseConnection(createConfig({ fetch }));
+    const listener = vi.fn();
+    conn.onMessage(listener);
+    conn.connect();
+    lastES()._emit('welcome', { connectionId: 'old' });
+    conn.send({ type: 'switch_session', sessionId: 'old-chat' });
+    conn.clearPendingSends();
+    conn.checkAndReconnect(true);
+    const replacement = lastES();
+    replacement._emit('welcome', { connectionId: 'new' });
+    listener.mockClear();
+    finish({ ok: false, status: 404, json: async () => ({ code: 'connection_expired' }) });
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(conn.isConnected()).toBe(true);
+    expect(lastES()).toBe(replacement);
+    expect(listener).not.toHaveBeenCalled();
+    conn.disconnect();
+  });
+
+  it('rehydrates only the latest switch intent after reconnect readiness', async () => {
+    const fetch = vi.fn().mockResolvedValue({ ok: true });
+    const conn = new SseConnection(createConfig({ fetch }));
+    conn.connect();
+    lastES()._emit('welcome', { connectionId: 'old' });
+    conn.send({ type: 'switch_session', sessionId: 'first' });
+    conn.clearPendingSends();
+    conn.send({ type: 'switch_session', sessionId: 'latest', historyCursor: 12 });
+    conn.checkAndReconnect(true);
+    fetch.mockClear();
+    lastES()._emit('welcome', { connectionId: 'new' });
+    await vi.advanceTimersByTimeAsync(0);
+    const switches = fetch.mock.calls.filter(([url]) => url.endsWith('/switch'));
+    expect(switches).toHaveLength(1);
+    expect(JSON.parse(switches[0][1].body)).toMatchObject({
+      sessionId: 'latest',
+      historyCursor: 12,
+    });
+    conn.disconnect();
+  });
+
+  it('bounds a stalled switch request and recovers without replaying destructive controls', async () => {
+    const fetch = vi
+      .fn()
+      .mockImplementationOnce(() => new Promise(() => {}))
+      .mockResolvedValue({ ok: true });
+    const conn = new SseConnection(createConfig({ fetch }));
+    const listener = vi.fn();
+    conn.onMessage(listener);
+    conn.connect();
+    lastES()._emit('welcome', { connectionId: 'old' });
+    conn.send({ type: 'switch_session', sessionId: 'selected' });
+    await vi.advanceTimersByTimeAsync(10_500);
+    expect(MockEventSource.instances).toHaveLength(2);
+    expect(listener).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'error' }));
+    lastES()._emit('welcome', { connectionId: 'new' });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(conn.isConnected()).toBe(true);
+    conn.disconnect();
+  });
+
+  it('ignores a permission network failure from a replaced transport', async () => {
+    let fail!: (reason: unknown) => void;
+    const fetch = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise((_, reject) => {
+            fail = reject;
+          }),
+      )
+      .mockResolvedValue({ ok: true });
+    const conn = new SseConnection(createConfig({ fetch }));
+    const listener = vi.fn();
+    conn.onMessage(listener);
+    conn.connect();
+    lastES()._emit('welcome', { connectionId: 'old' });
+    conn.send({
+      type: 'permission_response',
+      sessionId: 'selected',
+      permId: 'p1',
+      decision: 'once',
+    });
+    conn.checkAndReconnect(true);
+    lastES()._emit('welcome', { connectionId: 'new' });
+    listener.mockClear();
+    fail(Error('old network failure'));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(listener).not.toHaveBeenCalled();
+    conn.disconnect();
+  });
+
+  it.each(['stop', 'interrupt', 'close', 'permission'])(
+    'never retries %s automatically after transport expiry',
+    async (endpoint) => {
+      const fetch = vi.fn().mockResolvedValue({ ok: true });
+      const conn = new SseConnection(createConfig({ fetch }));
+      const listener = vi.fn();
+      conn.onMessage(listener);
+      conn.connect();
+      lastES()._emit('welcome', { connectionId: 'old' });
+      fetch.mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+        json: async () => ({ code: 'connection_expired' }),
+      });
+      const type =
+        endpoint === 'close'
+          ? 'session_close'
+          : endpoint === 'permission'
+            ? 'permission_response'
+            : endpoint;
+      conn.send({ type, sessionId: 'selected', permId: 'p1', clientMsgId: 'cancel-id' });
+      await vi.advanceTimersByTimeAsync(500);
+      lastES()._emit('welcome', { connectionId: 'new' });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(fetch.mock.calls.filter(([url]) => url.endsWith('/' + endpoint))).toHaveLength(1);
+      expect(listener).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type:
+            endpoint === 'permission' ? 'permission_response_rejected' : 'session_control_rejected',
+        }),
+      );
+      conn.disconnect();
+    },
+  );
+
+  it.each(['Connection not registered', 'No SSE stream for this connection'])(
+    'recognizes the legacy server expiry response: %s',
+    async (error) => {
+      const fetch = vi
+        .fn()
+        .mockResolvedValue({ ok: false, status: 404, json: async () => ({ error }) });
+      const conn = new SseConnection(createConfig({ fetch }));
+      conn.connect();
+      lastES()._emit('welcome', { connectionId: 'old' });
+      conn.send({ type: 'switch_session', sessionId: 'selected' });
+      await vi.advanceTimersByTimeAsync(500);
+      expect(MockEventSource.instances).toHaveLength(2);
+      conn.disconnect();
+    },
+  );
+
+  it('reports an unrelated 404 without entering a reconnect loop', async () => {
+    const fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 404,
+      json: async () => ({ error: 'Unknown route' }),
+    });
+    const conn = new SseConnection(createConfig({ fetch }));
+    const listener = vi.fn();
+    conn.onMessage(listener);
+    conn.connect();
+    lastES()._emit('welcome', { connectionId: 'old' });
+    conn.send({ type: 'switch_session', sessionId: 'selected' });
+    await vi.advanceTimersByTimeAsync(500);
+    expect(MockEventSource.instances).toHaveLength(1);
+    expect(listener).toHaveBeenCalledWith(
+      expect.objectContaining({ type: '_control_error', sessionId: 'selected' }),
+    );
+    conn.disconnect();
+  });
+
+  it('defers expired background transport recovery until foreground', async () => {
+    const fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 404,
+      json: async () => ({ code: 'connection_expired' }),
+    });
+    const conn = new SseConnection(createConfig({ fetch }));
+    conn.connect();
+    lastES()._emit('welcome', { connectionId: 'old' });
+    vi.stubGlobal('document', { visibilityState: 'hidden' });
+    try {
+      conn.send({ type: 'session_suspend', sessions: [{ sessionId: 'selected', lastSeq: 7 }] });
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(MockEventSource.instances).toHaveLength(1);
+      expect(conn.isConnected()).toBe(false);
+      vi.stubGlobal('document', { visibilityState: 'visible' });
+      conn.checkAndReconnect();
+      expect(MockEventSource.instances).toHaveLength(2);
+    } finally {
+      conn.disconnect();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('does not carry a previous login switch intent into restored authentication', async () => {
+    const fetch = vi.fn().mockResolvedValue({ ok: true });
+    const conn = new SseConnection(createConfig({ fetch }));
+    conn.connect();
+    lastES()._emit('welcome', { connectionId: 'old-login' });
+    conn.send({ type: 'switch_session', sessionId: 'private-chat' });
+    conn.invalidateAuthentication();
+    conn.restoreAuthentication();
+    fetch.mockClear();
+    lastES()._emit('welcome', { connectionId: 'restored-login' });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fetch.mock.calls.filter(([url]) => url.endsWith('/switch'))).toHaveLength(0);
+    conn.disconnect();
+  });
+
   // ─── Message sending (client → server) ─────────────────────────────────
 
   it('sends messages via POST with X-Connection-ID', () => {
@@ -955,6 +1206,7 @@ describe('SseConnection', () => {
 
     expect(mockFetch).toHaveBeenCalledWith('https://localhost:3100/api/chat/watch', {
       method: 'POST',
+      signal: expect.any(AbortSignal),
       headers: {
         'Content-Type': 'application/json',
         'X-Connection-ID': 'conn-abc',
@@ -1066,12 +1318,16 @@ describe('SseConnection', () => {
       lastES()._emit('welcome', { type: 'welcome', protocolVersion: 2, connectionId: 'conn-abc' });
       listener.mockClear();
       conn.send({ type, ...(sessionId !== undefined ? { sessionId } : {}) });
-      await Promise.resolve();
-      await Promise.resolve();
-      const error = listener.mock.calls.find(([msg]) => msg.type === 'error')?.[0];
-      expect(error).toMatchObject({ type: 'error' });
-      if (sessionId) expect(error.sessionId).toBe(sessionId);
-      else expect(error).not.toHaveProperty('sessionId');
+      await vi.advanceTimersByTimeAsync(0);
+      const error = listener.mock.calls.find(([msg]) => msg.type === '_control_error')?.[0];
+      if (networkFailure) {
+        expect(error).toBeUndefined();
+        expect(conn.isConnected()).toBe(false);
+      } else {
+        expect(error).toMatchObject({ type: '_control_error' });
+        if (sessionId) expect(error.sessionId).toBe(sessionId);
+        else expect(error).not.toHaveProperty('sessionId');
+      }
       conn.disconnect();
     }
   });

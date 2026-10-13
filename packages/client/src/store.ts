@@ -1381,6 +1381,17 @@ export function createMitzoStore(options: MitzoStoreOptions): StoreApi<MitzoStor
   };
 
   function wsListener(msg: Record<string, unknown>): boolean {
+    if (msg.type === '_control_error') {
+      // HTTP controls are not provider failures. Keep streamed content and
+      // running state intact, and expose actionable failures through the banner.
+      if ((msg.sessionId ?? null) !== store.getState().sessions.active) return true;
+      if (msg.operation === 'switch') {
+        awaitingModeHydration = undefined;
+        store.setState({ modeChangeReady: true });
+      }
+      if (msg.operation !== 'suspend') store.setState({ sendError: String(msg.error) });
+      return true;
+    }
     if (msg.type === '_auth_lost') {
       pauseReviewedDelivery();
       store.setState((s) => ({
