@@ -1,3 +1,4 @@
+import { createOwnedLocalCodexEntryRouter } from './ordinary-local-codex-entry.js';
 import { operatorAuthMiddleware } from './auth.js';
 import { getPendingRequestsBySession } from './permissions.js';
 import {
@@ -53,7 +54,7 @@ import {
 } from './ws-handler-v2.js';
 import type { SessionSseRegistry } from './session-sse-registry.js';
 import { SseTransport } from './sse-transport.js';
-import { effectivePermissionMode } from '@mitzo/harness';
+import { effectivePermissionMode, getTransportAttachmentIdentity } from '@mitzo/harness';
 import { isTransportConnectionOwnedBy } from './transport-auth-ownership.js';
 import { createLogger } from './logger.js';
 import { ExecutionAdmissionError } from '@mitzo/protocol/event-store';
@@ -191,6 +192,8 @@ export function createChatRestRouter(
     next();
   });
 
+  router.use('/local-codex', createOwnedLocalCodexEntryRouter(sseRegistry, ctx));
+
   router.post('/send', async (req, res) => {
     const msg = validateBody(V2SendMessage, req.body, res);
     if (!msg) return;
@@ -214,7 +217,11 @@ export function createChatRestRouter(
         } = {},
       ) => {
         const delegate = new SseTransport(connectionId, sseRegistry);
+        const connectionTransport = ctx.connRegistry.get(connectionId)?.transport;
         const transport = {
+          attachmentIdentity: connectionTransport
+            ? getTransportAttachmentIdentity(connectionTransport)
+            : undefined,
           // This transport accepts events into durable storage even offline.
           isOpen: () => true,
           send(data: Record<string, unknown>) {
@@ -383,7 +390,10 @@ export function createChatRestRouter(
     const msg = validateBody(V2StopMessage, req.body, res);
     if (!msg) return;
     try {
-      handleStopV2(connectionId, msg, ctx);
+      if (handleStopV2(connectionId, msg, ctx) === false) {
+        res.status(403).json({ ok: false, error: 'Owned local session belongs to another login' });
+        return;
+      }
       res.json({ ok: true });
     } catch (err) {
       log.error('POST /chat/stop failed', { connectionId, error: String(err) });

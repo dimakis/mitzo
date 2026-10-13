@@ -1,3 +1,4 @@
+import { nativeStartupSessionId, reserveRepositoryStartup } from './ordinary-repository-startup.js';
 import { PROFILE_TOOL_INSTRUCTIONS } from './session-profile-tools.js';
 import { assertNativeCodexContextAdmission } from './native-codex-context-admission.js';
 import { OwnedLocalCodexChatAdmission } from './owned-local-codex-chat-admission.js';
@@ -115,6 +116,7 @@ import type {
   ManagedSession,
   CloseoutEpisode,
 } from '@mitzo/harness';
+import { getTransportAttachmentIdentity } from '@mitzo/harness';
 import { execFileSync } from 'child_process';
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync } from 'fs';
 import { join, resolve, dirname, isAbsolute } from 'path';
@@ -217,7 +219,7 @@ export function broadcastDurableSymposiumEvent(
 
 type SessionChangeCallback = (
   clientId: string,
-  event: 'start' | 'end' | 'turn_end' | 'user_message',
+  event: 'start' | 'end' | 'turn_end' | 'user_message' | 'detach',
   sessionId?: string,
 ) => void;
 let _onSessionChange: SessionChangeCallback | null = null;
@@ -1092,14 +1094,7 @@ function makeUserMessage(
   };
 }
 
-/** Stable server-side conversation identity for retrying an initial native WS frame. */
-export function nativeStartupSessionId(clientMsgId: string): string {
-  const hex = createHash('sha256').update(`mitzo-native-startup\0${clientMsgId}`).digest('hex');
-  const variant = ((Number.parseInt(hex[16], 16) & 0x3) | 0x8).toString(16);
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-8${hex.slice(13, 16)}-${variant}${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
-}
-
-const repositoryStartups = new Set<string>();
+export { nativeStartupSessionId } from './ordinary-repository-startup.js';
 
 export async function startChat(
   transport: SessionTransport,
@@ -1173,9 +1168,8 @@ export async function startChat(
     options.onStartupAdmission?.(error);
     throw error;
   }
+  let releaseRepositoryStartup: (() => void) | undefined;
   if (repositoryStartupId) {
-    if (repositoryStartups.has(repositoryStartupId))
-      throw new Error('Repository conversation startup is already in progress');
     if (
       eventStore.getSessionState(repositoryStartupId) ||
       registry.findBySessionId(repositoryStartupId)
@@ -1184,7 +1178,7 @@ export async function startChat(
         'This repository already has a conversation. Resume its original conversation.',
       );
     options = { ...options, initialSessionId: repositoryStartupId };
-    repositoryStartups.add(repositoryStartupId);
+    releaseRepositoryStartup = reserveRepositoryStartup(repositoryStartupId);
   }
   const startupGuard: { admission?: ProviderDispatchAdmission; releaseContext?: () => void } = {};
   let releaseOrdinaryStartup: (() => void) | undefined;
@@ -1224,7 +1218,7 @@ export async function startChat(
       } finally {
         releaseOrdinaryStartup?.();
         startupGuard.releaseContext?.();
-        if (repositoryStartupId) repositoryStartups.delete(repositoryStartupId);
+        releaseRepositoryStartup?.();
       }
     });
 }
@@ -2635,6 +2629,8 @@ export async function startOwnedLocalCodexCommand(
     reservation: Omit<HostRepositoryReservationInput, 'signal'>;
     commandId: string;
     operatorConnectionId: string;
+    /** Actual event stream, distinct from a retained server-only auth binding. */
+    ownerConnectionId?: string;
     signal: AbortSignal;
   },
 ): Promise<{ dispatched: boolean; sessionId: string }> {
@@ -2659,7 +2655,10 @@ export async function startOwnedLocalCodexCommand(
     const operatorConnectionId = input.operatorConnectionId;
     const signal = input.signal;
     signal.throwIfAborted();
-    captureAgentLibraryAuthorization(operatorConnectionId).assertCurrent();
+    const captured = captureAgentLibraryAuthorization(operatorConnectionId);
+    captured.assertCurrent();
+    const ownerConnectionId = input.ownerConnectionId ?? operatorConnectionId;
+    const ownerAuthSessionId = captured.auth.id;
     const reservation = structuredClone(input.reservation);
     const command = structuredClone(input.command);
     const sessionId = reservation.conversationId;
@@ -2675,7 +2674,8 @@ export async function startOwnedLocalCodexCommand(
       dispatch: async (dispatch) => {
         if (prepared || released || !driver) throw unavailable();
         prepared = await prepareOwnedLocalCodexChat(transport, clientId, dispatch, {
-          ownerConnectionId: operatorConnectionId,
+          ownerConnectionId,
+          ownerAuthSessionId,
           onEnded: release,
         });
       },
@@ -2735,6 +2735,7 @@ export async function prepareOwnedLocalCodexChat(
   input: OrdinaryLocalCodexOwnedDispatch,
   options: {
     ownerConnectionId?: string;
+    ownerAuthSessionId?: string;
     onSessionResolved?: (sessionId: string) => void;
     onFirstEventOutcome?: (error?: Error) => void;
     onTerminalOutcome?: (error?: Error) => void;
@@ -2862,6 +2863,7 @@ export async function prepareOwnedLocalCodexChat(
       accountBinding: structuredClone(input.lease.binding),
       sessionAllowList: new Set(),
       ownerConnectionId: options.ownerConnectionId,
+      ownedLocalAuthSessionId: options.ownerAuthSessionId,
     });
     session = registry.get(clientId)!;
     // Existing public stop/interrupt controls expect this lifecycle marker.
@@ -2956,7 +2958,12 @@ export async function prepareOwnedLocalCodexChat(
         admission.assertConsumerOwner(eventStore, sessionId, commandId);
         const current = registry.findBySessionId(sessionId);
         if (!current || current.session !== session) throw unavailable();
-        currentClientId = current.clientId;
+        if (!session.transport.isOpen())
+          detachChatIfCurrentTransport(current.clientId, session.transport);
+        // Detach notifies the existing lifecycle callback; capture its current key afterward.
+        const ready = registry.findBySessionId(sessionId);
+        if (!ready || ready.session !== session) throw unavailable();
+        currentClientId = ready.clientId;
         ownedClientId = currentClientId;
       } catch {
         throw unavailable();
@@ -4156,6 +4163,24 @@ export function detachChat(clientId: string) {
       });
     }
   });
+}
+/** Attachment teardown never changes the retained execution or login owner. */
+export function detachChatIfCurrentTransport(
+  clientId: string,
+  transport: SessionTransport,
+): boolean {
+  const session = registry.get(clientId);
+  if (
+    !session ||
+    getTransportAttachmentIdentity(session.transport) !==
+      getTransportAttachmentIdentity(transport) ||
+    registry.isSuspended(clientId) ||
+    !registry.isAttached(clientId)
+  )
+    return false;
+  detachChat(clientId);
+  _onSessionChange?.(clientId, 'detach', session.sessionId);
+  return true;
 }
 export function reattachChat(clientId: string, transport: SessionTransport): boolean {
   return withSpan('session.reattach', { 'session.clientId': clientId }, () => {

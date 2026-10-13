@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.9';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.93';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.103';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,6 +22,21 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  // Physical attachment identity survives ordinary startup send decorators.
+  '../../packages/harness/src/session-transport.ts':
+    '7aaab4c6a3fb5f362b000e7127a8876fb385928d6786145f974ea8ecd4ce283f',
+  '../../packages/harness/src/index.ts':
+    '2741b93d5b35a7542d87757caf6ea9e359d019e74be0dd506188df1a98dffe33',
+  // Explicit authenticated Local entry, immutable request and shared startup ownership.
+  '../../packages/protocol/src/local-codex-first-command.ts':
+    '3f61aef73d4cb8afddd29e019e3e76b164fb0f84392ce28860db2ff54b07d799',
+  '../ordinary-local-codex-entry.ts':
+    '3efb3cdaf8fbc7a6dccb5bc6c8e7e33f11683137ffdb035ce2c7f445db1b91d0',
+  '../ordinary-local-codex-metadata.ts':
+    'c48dca9525bd9eb926b918a89d5838a6be86ee198dcedcaf63c0e49c06b17e76',
+  '../ordinary-repository-startup.ts':
+    '34b441c08703c9239c0f247aea72fc8a759181780006899056cda7e8f51cf608',
+
   '../session-profile-tools.ts': '762b5fd7e33355aa2f5b6db057c7f203a202cc762ebc9c4533b2e438a7c7e6b1',
   '../symposium-profile-proposals.ts':
     'e4865b6e0b3056f7eb59eddbf49517db2cef499de34bca8a7990fbfc48b49c4f',
@@ -94,15 +109,18 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     '3f65373bc07c77441dbbd367388b82aefed9186eb0d003e54518cbe762131f80',
   '../symposium-sealed-publication-authority.ts':
     'e71d039c70f52a061ecb2bb6779aa4693288965a814d99d75dab0c224f18c8ff',
+  '../permissions.ts': 'f4c54aaa6d5d118ad08b7dcedb2e566ce12d2853c370bbeea89a7b50079a9bec',
+  '../owned-local-codex-control.ts':
+    'c96a60d72a69955c516614d5677d25c6a303c66ef0b47910be03cdb49e5598d8',
   '../transport-auth-ownership.ts':
     '945d7eb8ffc97d53d16dc280698ad4dfacae8cb063cc974c269235058b5f7d14',
   '../url-access-tool.ts': '4eea0e50346fe1e61acb1668ea33499651ad9a7441bf763a83544ac7a50a510b',
   '../web-access-tool.ts': '3b0d11abd05a3f86a2dead25caf92343ca7a7d9e402480633482bbbfa0be655a',
-  '../index.ts': 'e1fc4a9796bcf7d091aed3f5a93dff0e598719c95c8a6fc6edce7b214b450392',
+  '../index.ts': 'fb9363dd5b611fbbc6cb2efbcf7df68af41b12ac3c80d66b7bff134a58a622c6',
   '../symposium-app-exit.ts': '6129588f968e7ae2cca592104fc0975081f112c9cfa8ef475c7b12c3a7af7d1d',
   '../legacy-chat-delivery.ts': '30e041a7b8d1279cefae9198639444fa8e3dd4f76386598ec50ce66741f09f5c',
 
-  '../chat-rest-handler.ts': '257efb6acabd636c6f4345b7b112270bf993e65be8875b084ea1a205271ec86c',
+  '../chat-rest-handler.ts': 'b5e23f0d29c8e3e9ab8f7b6c9eebe10f5b1c100a93b352f6244976c539d6b5df',
   // Contributor live-query capture and exact output ownership share runtime admission.
   '../query-loop.ts': '536109be7d7bbdb74f21b521265c789765d967eb871f802388a9e6ec7236ac04',
   '../account-profiles.ts': '0de19ad8f7541f9632c6c553bf9104a80965af84eb0f93b0e4a13a8d9ffcba76',
@@ -131,17 +149,17 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'c103af10de4adc81cdc474b3e69ef2b3de5e447d4dcf15da4fc1894c422b913b',
   '../../packages/protocol/src/session-output-reference-store.ts':
     '1b54dd00d94e99974b536a68cfc0b5cdc841e2f6453ba7bc58b5c4b98830c7ff',
-  '../chat.ts': 'f10ddab0d3495b1e76856d05cb27b30768ece26d478476d0701efaaf8aa85b72',
+  '../chat.ts': '1ea12ea97a1d192c4b03a1a9736f57c309ffc6da3a5735aae61c78bf7090d9d6',
   // Contributor execution lifetime is independent of viewer detach/expiry.
   '../../packages/harness/src/session-registry.ts':
-    '5ad72e9be9d3289a13511aaa1bb107b527283493e5577e08912ea4fdc4740a81',
+    'e975b5bf611a99fe5dbf692253ec53bd7c5d549cfe773cd0736fe5dd7c18c867',
   '../agent-context-binding.ts': '4917ff83899105b7ac2c537c8db18111eeb97386d1ca0a2d2b576d872e1db360',
   '../symposium-personal-connection-router.ts':
     'f254cadb334bc75dbb19104fdb7ed2b3e46bf2856b81d29300fd4f45db02674e',
   // Read-only session observation is part of the operator route composition.
   '../session-access.ts': 'e70130c57879d3b22fab78473d90c8d2e787b7a499194c166e7e912fc5cf2767',
   // Request authority and physical review composition share runtime admission.
-  '../app.ts': '61f76d55aed6d48769657ecd9c1c21aa37ae0a837965308bb7d6bbb7c653a461',
+  '../app.ts': '17e116d249cbd649e0bcb17ab8ad2b2fb3a2c79b5203fa0c0f31acedfd6ffd40',
   '../auth-check-tracing.ts': '067dc344d8ee76ffe39739a99076f614711ca3d11f96682c842c596a7bbd112e',
   '../telemetry-relay.ts': '302bf6cec2b988ae71a123a5dd04d0f2266a82c3ee51873ec64d8be452c25427',
   '../symposium-artifact-route-composition.ts':
@@ -152,7 +170,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'bd41408c8dfb9fe4a239fca2e35cf8366bc379e63c4a310d3593cf709a1920d3',
   '../symposium-production-review-composition.ts':
     '5d0e4d78e45cc6d9b3c601cc1f5587c469432bb3ec9edc0c70fb34153dedfc5e',
-  '../ws-handler-v2.ts': '63ff33223cc8f4bc02cc2d6211384dde96ad5a0b07e5efbb72a9a228a8ceb045',
+  '../ws-handler-v2.ts': '6478161268a52db947b09c52666724447e937ae85b98423d21cb849ee42d9704',
   '../briefings.ts': '277b26171abc42266a3b621ff7ab10306792764cb55bbc635e41c4ba20e98d49',
   '../home-router.ts': '744708f3503d3ef46114998ce9bb6a68b3068a3c7d57e0c264298cdb69aac982',
   '../notification-store.ts': 'd73b922e8e04b1e6415d1c1388bcf75edb4b65c913d3636b9a63e16583bc035b',
@@ -349,7 +367,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/protocol/src/agent-context-pack.ts':
     '6964f27523d93a64c153f2d3a56650298a2063521abdafffa0c19c3dba839de5',
   '../../packages/protocol/src/index.ts':
-    'da789d3968abf4cd7b825451a8d1f28452ac6d2bca7dbf90ba4d07171fb8ef25',
+    '76c799a69324acdf14d4b6979ee42d4bc62d3f28c795f09a46b8ee8d9c280427',
   '../agent-context-authority.ts':
     '68b721db46cf6ba99de042cdf32be345bfc78c7ae27c2e31ee2b0b52a20ac266',
   '../agent-context-delivery.ts':
