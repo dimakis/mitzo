@@ -84,6 +84,17 @@ Reviews retain their own operator middleware and request-action authority;
 publication and source retain their outer operator middleware and existing
 reauthorization/JSON checks. No native or legacy path is retired by this extraction.
 
+## Director route composition ownership
+
+`server/symposium-director-route-composition.ts` owns the Director mount directly
+after the artifact routes, with the existing outer operator middleware. It adapts
+current account validation, grant operations and event-store perspectives for the
+Director. Host readiness, account catalogs and verified runtimes are resolved at
+request time; the safety orchestrator remains available independently of a verified
+runtime. `app.ts` retains construction, installation and teardown of all borrowed
+stores, grants, registry, hosts and runtimes. Unbound Director selections retain
+their existing validation behavior; host grant construction still requires a binding.
+
 ## Reference map
 
 | Question                                                    | Read                                                                                                                                                                   |

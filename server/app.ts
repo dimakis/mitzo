@@ -116,7 +116,7 @@ import { createSymposiumAccessRouter } from './symposium-access-router.js';
 import { createSymposiumSessionRouter } from './symposium-session-create.js';
 import { createSubscriptionLoginController } from './symposium-subscription-login-route.js';
 import { AccountAliases } from './account-aliases.js';
-import { AccountBindingSchema, SymposiumConfigSchema } from '@mitzo/protocol';
+import { SymposiumConfigSchema } from '@mitzo/protocol';
 import { SymposiumProfileStore } from './symposium-profiles.js';
 import { authorizeSymposiumSeat } from './symposium-seat-authorization.js';
 import { getAgentLibrary } from './agent-library-runtime.js';
@@ -180,9 +180,8 @@ import {
   type VerifySymposiumSubscriptionAuth,
 } from './symposium-subscription-native.js';
 import type { ArtifactLeaseRequest } from './symposium-artifact-lease.js';
-import { createSymposiumDirectorRouter } from './symposium-director-routes.js';
+import { mountSymposiumDirectorRoutes } from './symposium-director-route-composition.js';
 import { SymposiumHostGrants } from './symposium-host-grants.js';
-import { getSymposiumPerspective, getSymposiumQueuedInputs } from './symposium-perspectives.js';
 import express from 'express';
 import { storedEventToClientMessage } from '@mitzo/protocol';
 import cookieParser from 'cookie-parser';
@@ -1563,44 +1562,15 @@ mountSymposiumArtifactRoutes(app, {
     runtime: (sessionId) => symposiumRuntimeForSession(sessionId),
   },
 });
-app.use(
-  '/api/sessions/:id/symposium',
-  operatorAuthMiddleware,
-  createSymposiumDirectorRouter({
-    store: eventStore,
-    artifactReady: (sessionId, seatId, generation) =>
-      symposiumProductionHost?.artifactReady?.(sessionId, seatId, generation) ?? true,
-    getRuntime: (sessionId) => symposiumRuntimeForSession(sessionId),
-    getSafetyOrchestrator: () => symposiumSafetyOrchestrator,
-    profileBindingEnforced: true,
-    hasOrdinaryRuntime: (sessionId) => {
-      const found = registry.findBySessionId(sessionId);
-      return Boolean(found && registry.isActive(found.clientId));
-    },
-    validateSelection: (seat) => {
-      if (seat.accountBinding)
-        symposiumAccountProfiles().validateModel(
-          seat.accountBinding,
-          seat.model,
-          seat.reasoningEffort,
-        );
-    },
-    validateActiveConfig: (sessionId, config) =>
-      symposiumHostGrants.validateActiveConfig(sessionId, config),
-    activateDraft: (input) => symposiumHostGrants.activate(input),
-    reviseSeat: (input) => symposiumHostGrants.reviseSeat(input),
-    getPerspective: (sessionId, perspective, options) =>
-      getSymposiumPerspective(eventStore, sessionId, perspective, options),
-    getQueuedInputs: (sessionId, perspective) =>
-      getSymposiumQueuedInputs(eventStore, sessionId, perspective),
-    resolveSelection: (accountId, model, reasoningEffort) => {
-      const profiles = symposiumAccountProfiles();
-      const binding = profiles.resolve(accountId, model);
-      profiles.validateModel(binding, model, reasoningEffort);
-      return AccountBindingSchema.parse(binding);
-    },
-  }),
-);
+mountSymposiumDirectorRoutes(app, {
+  store: eventStore,
+  currentHost: () => symposiumProductionHost,
+  currentAccounts: symposiumAccountProfiles,
+  runtime: (sessionId) => symposiumRuntimeForSession(sessionId),
+  safetyOrchestrator: symposiumSafetyOrchestrator,
+  grants: symposiumHostGrants,
+  registry,
+});
 
 app.get('/api/openshell/lifecycle/:conversationId/preview', async (req, res) => {
   if (!openShellLifecycleService) {
