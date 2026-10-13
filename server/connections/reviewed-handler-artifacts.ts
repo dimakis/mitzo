@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.9';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.86';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.87';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -66,7 +66,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../frontend/src/types/workspace.ts':
     'c54ac596082365496ebf53ca12ce1602b792acfd09092a216285aa69dd38c162',
   '../../packages/client/src/send-outbox.ts':
-    '3b384588c2fcc36b43fe97bf40f726b09f87220ece6bb73319cfac7bb399a4bf',
+    'ede2e69883aec82650f14a1ca4e52d038602f6ab9da6305a6d874b6a95526645',
 
   // Explicit authenticated Local entry, immutable request and shared startup ownership.
   '../../packages/protocol/src/local-codex-first-command.ts':
@@ -126,7 +126,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
   '../../packages/client/src/sse-connection.ts':
     '148417de5b239c23cbb518ed01746d4f87eea4a6095f897cc2df2bcc87b98857',
   '../../packages/client/src/store.ts':
-    'b5e5a906937f2ffbb50b007a6a47fdaccc435c3649c460c03a6b834c6d48cae9',
+    '8beaa7069cacf83cfcd5b19d850cfaebdce7ba9c9af648ec216330fecaa767a0',
   '../../packages/harness/src/permission-handler.ts':
     '20d09ccadeb668c91008713b45aaffd5762d34c0a6dc1651b3e234732743a7fa',
   '../../packages/harness/src/permissions.ts':

@@ -234,6 +234,10 @@ for (const appearance of ['light', 'dark'] as const) {
       await page.setViewportSize({ width: 320, height: 740 });
     await page.goto('/chat');
     await expect(page.getByRole('combobox', { name: 'Run on' })).toHaveValue('openshell');
+    await page.getByRole('combobox', { name: 'Run on' }).focus();
+    await expect(page.getByRole('combobox', { name: 'Run on' })).toBeFocused();
+    const runOnBounds = await page.getByRole('combobox', { name: 'Run on' }).boundingBox();
+    expect(runOnBounds?.height).toBeGreaterThanOrEqual(44);
     await expect(page.getByRole('button', { name: 'Send message', exact: true })).toBeDisabled();
     await page.getByRole('combobox', { name: 'Run on' }).selectOption('local:mac');
     await page.getByRole('combobox', { name: 'Account', exact: true }).selectOption('personal');
@@ -249,6 +253,11 @@ for (const appearance of ['light', 'dark'] as const) {
     await page.getByRole('button', { name: 'Preview repository' }).click();
     await page.getByRole('button', { name: 'Prepare repository' }).click();
     await page.getByRole('textbox', { name: 'Message Mitzo' }).fill('Inspect the repository');
+    await page.getByRole('button', { name: 'Use these Local choices' }).scrollIntoViewIfNeeded();
+    await expect(page.getByRole('button', { name: 'Use these Local choices' })).toBeInViewport();
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+    ).toBe(true);
     await page.screenshot({
       path: testInfo.outputPath(`local-reviewed-${appearance}.png`),
       fullPage: true,
@@ -292,6 +301,40 @@ test('Local first command: restored Local remains visible and blocked with gate 
   await expect(page.getByRole('button', { name: 'Send message', exact: true })).toBeDisabled();
   await page.screenshot({
     path: testInfo.outputPath('local-restored-disabled.png'),
+    fullPage: true,
+  });
+  expect(fixture.requests).toEqual([]);
+  expect(fixture.forbidden).toEqual([]);
+  expect(fixture.errors).toEqual([]);
+});
+
+test('Local first command: metadata failure stays blocked and Retry restores the bound controls', async ({
+  page,
+}, testInfo) => {
+  const fixture = await offline(page);
+  let recovered = false;
+  await page.route(`**/api/sessions/${sessionId}/meta`, (route) =>
+    recovered
+      ? route.fallback()
+      : route.fulfill({ status: 503, json: { error: 'Metadata unavailable' } }),
+  );
+  if (testInfo.project.name.startsWith('mobile'))
+    await page.setViewportSize({ width: 320, height: 740 });
+  await page.goto(`/chat/${sessionId}`);
+  await expect(
+    page.getByRole('alert').filter({ hasText: 'Conversation settings are unavailable' }),
+  ).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Send message', exact: true })).toBeDisabled();
+  await expect(page.getByRole('combobox', { name: 'Run on' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Retry conversation settings' }).focus();
+  await expect(page.getByRole('button', { name: 'Retry conversation settings' })).toBeFocused();
+  await page.screenshot({ path: testInfo.outputPath('local-metadata-error.png'), fullPage: true });
+  recovered = true;
+  await page.getByRole('button', { name: 'Retry conversation settings' }).press('Enter');
+  await expect(page.getByText('Run on: Local · first command only')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Send message', exact: true })).toBeDisabled();
+  await page.screenshot({
+    path: testInfo.outputPath('local-metadata-recovered.png'),
     fullPage: true,
   });
   expect(fixture.requests).toEqual([]);
