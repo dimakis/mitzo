@@ -1,6 +1,9 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { SymposiumProfileProposalStore } from './symposium-profile-proposals.js';
+import {
+  ProfileProposalInputSchema,
+  SymposiumProfileProposalStore,
+} from './symposium-profile-proposals.js';
 
 const Id = z.string().trim().min(1).max(128);
 const SaveBody = z.strictObject({
@@ -21,6 +24,22 @@ export function createSymposiumProfileProposalRouter(
     if (!res.locals.authSession)
       return res.status(403).json({ error: 'Interactive operator authentication is required' });
     next();
+  });
+  router.post('/', (req, res) => {
+    const parsed = ProfileProposalInputSchema.extend({
+      sessionId: Id,
+      idempotencyKey: Id,
+    }).safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'Invalid profile proposal' });
+    if (!sessionExists(parsed.data.sessionId))
+      return res.status(404).json({ error: 'Session not found' });
+    try {
+      const { sessionId, idempotencyKey, ...input } = parsed.data;
+      res.json(store.propose('user', sessionId, idempotencyKey, input));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Profile proposal failed';
+      res.status(/conflict/i.test(message) ? 409 : 400).json({ error: message });
+    }
   });
   router.get('/', (req, res) => {
     const parsed = Id.safeParse(req.query.sessionId);

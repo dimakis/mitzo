@@ -330,3 +330,5 @@ export {
 
 export { sessionApprovalServer } from './session-approval-scope.js';
 export * from './ordinary-local-admission.js';
+
+export * from './profile-builder.js';

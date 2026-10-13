@@ -685,6 +685,7 @@ export function handleSendV2(
           const pinned = ctx.eventStore.getSession(msg.sessionId)?.agentProfile;
           if (
             !pinned ||
+            pinned.kind !== msg.agentProfile.kind ||
             pinned.profileId !== msg.agentProfile.profileId ||
             pinned.revision !== msg.agentProfile.revision
           )
