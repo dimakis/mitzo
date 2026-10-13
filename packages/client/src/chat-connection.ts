@@ -19,6 +19,8 @@ export interface ChatConnection {
    * and not recovering.
    */
   send(msg: Record<string, unknown>): boolean;
+  /** Update foreground selection for transports that rehydrate it after recovery. */
+  setRecoverySession?(sessionId: string | null): void;
   /** Register the message listener (only one — last write wins). */
   onMessage(listener: ConnectionListener): void;
   /** Whether the transport is connected and ready to send. */
