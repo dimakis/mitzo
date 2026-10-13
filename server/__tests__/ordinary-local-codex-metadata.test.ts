@@ -1,6 +1,14 @@
 import { expect, it } from 'vitest';
 import { EventStore } from '../event-store.js';
 import { ownedLocalCodexMetadata } from '../ordinary-local-codex-metadata.js';
+import { createRoutesRuntimeLedgerFixture } from './fixtures/routes-runtime-ledger.js';
+
+it('projects legacy route metadata through the complete empty runtime ledger fixture', () => {
+  const store = createRoutesRuntimeLedgerFixture();
+  expect(ownedLocalCodexMetadata(store, 'legacy')).toEqual({});
+  expect(store.getSendCommand('missing')).toBeUndefined();
+  expect(store.getOrdinaryLocalCommandAdmission('missing')).toBeUndefined();
+});
 
 it('keeps a retained local conversation visibly first-command-only after ending', () => {
   const store = new EventStore(':memory:');
