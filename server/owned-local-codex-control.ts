@@ -1,5 +1,6 @@
 import type { IncomingWsMessage } from '@mitzo/protocol';
 import type { SessionRegistry, SessionTransport } from '@mitzo/harness';
+import { getTransportAttachmentIdentity } from '@mitzo/harness';
 import type { EventStore } from './event-store.js';
 import { liveTransportAuthSessionId } from './transport-auth-ownership.js';
 import { captureAgentLibraryAuthorization } from './agent-library-transport.js';
@@ -85,5 +86,9 @@ export function legacyChatOwnsAttachment(
   transport: SessionTransport,
   ctx: OwnedLocalControlContext,
 ): boolean {
-  return ctx.sessionRegistry.get(clientId)?.transport === transport;
+  const current = ctx.sessionRegistry.get(clientId)?.transport;
+  return (
+    current !== undefined &&
+    getTransportAttachmentIdentity(current) === getTransportAttachmentIdentity(transport)
+  );
 }

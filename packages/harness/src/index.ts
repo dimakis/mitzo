@@ -1,5 +1,6 @@
 // Transport abstraction
 export type { SessionTransport } from './session-transport.js';
+export { getTransportAttachmentIdentity } from './session-transport.js';
 
 // Session registry
 export { SessionRegistry, effectivePermissionMode } from './session-registry.js';

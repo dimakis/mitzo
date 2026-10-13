@@ -10,7 +10,7 @@ export const reviewedHandlerImplementationRevision = 'v1.0.2';
 export const reviewedGithubPublicationImplementationRevision = 'v1.0.9';
 
 /** Runtime admission changes without changing existing provider policy semantics. */
-export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.99';
+export const reviewedConnectionsRuntimeImplementationRevision = 'v1.0.101';
 
 export function reviewedHandlerSourceFingerprint(source: string) {
   return createHash('sha256').update(source.replace(/\r\n/g, '\n')).digest('hex');
@@ -22,6 +22,11 @@ export function reviewedHandlerSourceFingerprint(source: string) {
  * just fixtures. The build check verifies them on every server build.
  */
 export const reviewedHandlerSourceArtifacts = Object.freeze({
+  // Physical attachment identity survives ordinary startup send decorators.
+  '../../packages/harness/src/session-transport.ts':
+    '7aaab4c6a3fb5f362b000e7127a8876fb385928d6786145f974ea8ecd4ce283f',
+  '../../packages/harness/src/index.ts':
+    '2741b93d5b35a7542d87757caf6ea9e359d019e74be0dd506188df1a98dffe33',
   // Explicit authenticated Local entry, immutable request and shared startup ownership.
   '../../packages/protocol/src/local-codex-first-command.ts':
     '3f61aef73d4cb8afddd29e019e3e76b164fb0f84392ce28860db2ff54b07d799',
@@ -106,7 +111,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'e71d039c70f52a061ecb2bb6779aa4693288965a814d99d75dab0c224f18c8ff',
   '../permissions.ts': 'f4c54aaa6d5d118ad08b7dcedb2e566ce12d2853c370bbeea89a7b50079a9bec',
   '../owned-local-codex-control.ts':
-    '39079baa9c0dbd1939f81b5f58636a2805826924c8b4d64bb7a1c1bd718bc4b5',
+    'c96a60d72a69955c516614d5677d25c6a303c66ef0b47910be03cdb49e5598d8',
   '../transport-auth-ownership.ts':
     '945d7eb8ffc97d53d16dc280698ad4dfacae8cb063cc974c269235058b5f7d14',
   '../url-access-tool.ts': '4eea0e50346fe1e61acb1668ea33499651ad9a7441bf763a83544ac7a50a510b',
@@ -144,7 +149,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'c103af10de4adc81cdc474b3e69ef2b3de5e447d4dcf15da4fc1894c422b913b',
   '../../packages/protocol/src/session-output-reference-store.ts':
     '1b54dd00d94e99974b536a68cfc0b5cdc841e2f6453ba7bc58b5c4b98830c7ff',
-  '../chat.ts': '2c2654aef01168bc89deda5790b51da5376f1a357646146b21c6bb1c62efcfef',
+  '../chat.ts': '1ea12ea97a1d192c4b03a1a9736f57c309ffc6da3a5735aae61c78bf7090d9d6',
   // Contributor execution lifetime is independent of viewer detach/expiry.
   '../../packages/harness/src/session-registry.ts':
     'e975b5bf611a99fe5dbf692253ec53bd7c5d549cfe773cd0736fe5dd7c18c867',
@@ -165,7 +170,7 @@ export const reviewedHandlerSourceArtifacts = Object.freeze({
     'bd41408c8dfb9fe4a239fca2e35cf8366bc379e63c4a310d3593cf709a1920d3',
   '../symposium-production-review-composition.ts':
     '5d0e4d78e45cc6d9b3c601cc1f5587c469432bb3ec9edc0c70fb34153dedfc5e',
-  '../ws-handler-v2.ts': 'cc2b38c8f57b592ddb58cb2446d647479b382070745337d867291028bd3c9f10',
+  '../ws-handler-v2.ts': '8dab1d38b4253d91b7cfde6317939986138cf6fc86a3aa7364c7655ea4cbd7b1',
   '../briefings.ts': '277b26171abc42266a3b621ff7ab10306792764cb55bbc635e41c4ba20e98d49',
   '../home-router.ts': '744708f3503d3ef46114998ce9bb6a68b3068a3c7d57e0c264298cdb69aac982',
   '../notification-store.ts': 'd73b922e8e04b1e6415d1c1388bcf75edb4b65c913d3636b9a63e16583bc035b',

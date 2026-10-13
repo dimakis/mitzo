@@ -116,6 +116,7 @@ import type {
   ManagedSession,
   CloseoutEpisode,
 } from '@mitzo/harness';
+import { getTransportAttachmentIdentity } from '@mitzo/harness';
 import { execFileSync } from 'child_process';
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync } from 'fs';
 import { join, resolve, dirname, isAbsolute } from 'path';
@@ -4171,7 +4172,8 @@ export function detachChatIfCurrentTransport(
   const session = registry.get(clientId);
   if (
     !session ||
-    session.transport !== transport ||
+    getTransportAttachmentIdentity(session.transport) !==
+      getTransportAttachmentIdentity(transport) ||
     registry.isSuspended(clientId) ||
     !registry.isAttached(clientId)
   )

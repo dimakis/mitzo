@@ -191,6 +191,12 @@ before consuming buffered events or issuing completion notifications. The login,
 native query and consumed receipt remain owned; suspension keeps its existing grace
 and buffering policy. Preparation cleanup never replays the admitted command.
 
+Ordinary startup decorates its transport to correlate initial events with the send.
+That wrapper preserves the underlying physical attachment reference. SSE, v2 and
+legacy teardown compare this reference, so new and resumed ordinary conversations
+still detach normally while stale connections cannot detach a replacement. The
+reference carries no account or login authority and adds no ownership store.
+
 ## Host workspace reservation before checkout creation
 
 `RepositoryWorkspaces.reserveHostTask()` starts from an existing pinned, ready
