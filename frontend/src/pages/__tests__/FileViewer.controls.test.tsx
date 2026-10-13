@@ -3,6 +3,8 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/rea
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { FileViewer } from '../FileViewer';
+import { installDialogStub } from '../../components/__tests__/dialog-stub';
+beforeEach(installDialogStub);
 
 const mocks = vi.hoisted(() => ({
   editor: {
@@ -104,8 +106,9 @@ describe('FileViewer quiet controls', () => {
     expect(within(actions).getByRole('button', { name: 'Read' }).className).not.toContain(
       '--primary',
     );
-    expect(within(actions).getByRole('button', { name: 'Share file' })).toBeDefined();
-    expect(within(actions).getByRole('button', { name: 'Download file' })).toBeDefined();
+    expect(within(actions).getByRole('button', { name: 'File options' })).toBeDefined();
+    expect(within(actions).queryByRole('button', { name: 'Share file' })).toBeNull();
+    expect(within(actions).queryByRole('button', { name: 'Download file' })).toBeNull();
     fireEvent.click(edit);
     fireEvent.click(within(actions).getByRole('button', { name: 'Read' }));
     expect(mocks.editor.startEditing).toHaveBeenCalledOnce();
@@ -165,7 +168,7 @@ describe('FileViewer quiet controls', () => {
     expect(screen.getByRole('region', { name: 'Latest saved version' }).textContent).toContain(
       '# Latest',
     );
-    expect(screen.queryByRole('button', { name: 'Share file' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'File options' })).toBeNull();
   });
 
   it('exposes selected workspace state and keeps worktree discovery usable', () => {
@@ -181,4 +184,20 @@ describe('FileViewer quiet controls', () => {
     expect(mocks.nav.handleRootChange).toHaveBeenCalledWith('/repo/feature', false);
     expect(mocks.nav.loadWorktrees).toHaveBeenCalledOnce();
   });
+});
+
+it('shows a durable filename and keeps saved revisions read-only', () => {
+  const original = mocks.nav.state.filePath;
+  Object.assign(mocks.nav.state, {
+    filePath: '/api/telos/artifacts/' + 'a'.repeat(32) + '?revision=2',
+    displayName: 'Brief.md',
+  });
+  try {
+    showViewer();
+    expect(screen.getByText('Brief.md')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Edit' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'File options' })).toBeTruthy();
+  } finally {
+    Object.assign(mocks.nav.state, { filePath: original, displayName: undefined });
+  }
 });
