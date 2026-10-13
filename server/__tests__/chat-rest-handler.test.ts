@@ -157,7 +157,7 @@ describe('chat-rest-handler', () => {
     vi.mocked(handleReconnect).mockImplementation(actual.handleReconnect);
     handlerContext.sessionRegistry = new SessionRegistry();
     eventStore.upsertSession({ sessionId: 'selected', mode: 'ask' });
-    eventStore.setSessionState('selected', 'READY', { reason: 'offline_fixture' });
+    eventStore.setSessionState('selected', 'CREATED', { reason: 'offline_fixture' });
     type Source = {
       onmessage: ((event: MessageEvent) => void) | null;
       welcome?: (event: MessageEvent) => void;
