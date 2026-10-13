@@ -1,3 +1,5 @@
+import { createTelemetryRelay } from './telemetry-relay.js';
+import { traceAuthCheck } from './auth-check-tracing.js';
 import type {
   SymposiumReviewPhysicalHost,
   SymposiumReviewRouteHost,
@@ -415,7 +417,7 @@ if (CORS_ALLOWED_ORIGINS.length > 0) {
       res.setHeader('Access-Control-Allow-Credentials', 'true');
       res.setHeader(
         'Access-Control-Allow-Headers',
-        'Content-Type, Authorization, X-CSRF-Token, X-Connection-ID',
+        'Content-Type, Authorization, X-CSRF-Token, X-Connection-ID, traceparent',
       );
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
     }
@@ -554,6 +556,7 @@ app.use('/api/capability-operations', authMiddleware, (req, res, next) => {
     return res.status(503).json({ error: 'Capability operations are not configured.' });
   return capabilityOperationsRouter(req, res, next);
 });
+app.use(traceAuthCheck);
 // Two 5 MiB UTF-8 documents can each expand sixfold when JSON escapes control bytes.
 app.put('/api/files/write', authMiddleware, express.json({ limit: 60 * 1024 * 1024 + 64 * 1024 }));
 // Authenticate before accepting the expanded JSON envelope; decoded document bytes remain capped at 5 MiB.
@@ -562,6 +565,11 @@ app.post(
   '/api/telos/items/:itemId/artifacts/upload',
   operatorAuthMiddleware,
   express.json({ limit: '8mb' }),
+);
+app.use(
+  '/api/telemetry',
+  authMiddleware,
+  createTelemetryRelay(process.env.OTEL_EXPORTER_OTLP_ENDPOINT),
 );
 app.use(express.json({ limit: '10mb' }));
 

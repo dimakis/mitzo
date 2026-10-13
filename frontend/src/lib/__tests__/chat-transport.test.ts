@@ -6,8 +6,8 @@ describe('shouldUseSseTransport', () => {
     expect(shouldUseSseTransport(false, null)).toBe(true);
   });
 
-  it('defaults native WKWebView to WebSocket', () => {
-    expect(shouldUseSseTransport(true, null)).toBe(false);
+  it('defaults native WKWebView to SSE', () => {
+    expect(shouldUseSseTransport(true, null)).toBe(true);
   });
 
   it('honours explicit diagnostic overrides', () => {

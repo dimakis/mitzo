@@ -46,9 +46,138 @@ afterEach(() => {
   cleanup();
   vi.useRealTimers();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 describe('ProtectedRoute authentication recovery', () => {
+  it('automatically recovers a transient server failure without a Retry click', async () => {
+    fetchMock.mockResolvedValueOnce(new Response('{}', { status: 503 }));
+    mountRoute();
+    await act(async () => {});
+    expect(screen.getByRole('alert')).toBeTruthy();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_000);
+    });
+    expect(screen.getByText('Chats ready')).toBeTruthy();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(localStorage.getItem('mitzo_auth_token')).toBe('valid-token');
+  });
+
+  it('bounds automatic retries and recovers on native foreground after they are exhausted', async () => {
+    fetchMock.mockRejectedValue(new TypeError('Load failed'));
+    mountRoute();
+    await act(async () => {});
+    for (const delay of [1_000, 2_000, 4_000]) {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(delay);
+      });
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeTruthy();
+    fetchMock.mockResolvedValue(new Response('{}', { status: 200 }));
+    await act(async () => {
+      window.dispatchEvent(new Event('mitzo:app-foreground'));
+    });
+    expect(screen.getByText('Chats ready')).toBeTruthy();
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+  });
+
+  it.each(['online', 'visibilitychange'])(
+    'recovers after %s without changing routes',
+    async (event) => {
+      fetchMock.mockRejectedValueOnce(new TypeError('Load failed'));
+      mountRoute();
+      await act(async () => {});
+      await act(async () => {
+        (event === 'visibilitychange' ? document : window).dispatchEvent(new Event(event));
+      });
+      expect(screen.getByText('Chats ready')).toBeTruthy();
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it('coalesces foreground/network notifications and removes retry work on unmount', async () => {
+    fetchMock.mockRejectedValueOnce(new TypeError('Load failed'));
+    const route = mountRoute();
+    await act(async () => {});
+    await act(async () => {
+      window.dispatchEvent(new Event('mitzo:app-foreground'));
+      window.dispatchEvent(new Event('online'));
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(screen.getByText('Chats ready')).toBeTruthy();
+    route.unmount();
+    markAuthLost();
+    localStorage.setItem('mitzo_auth_token', 'valid-token');
+    fetchMock.mockRejectedValue(new TypeError('Load failed'));
+    const failed = mountRoute();
+    await act(async () => {});
+    failed.unmount();
+    await act(async () => {
+      window.dispatchEvent(new Event('mitzo:app-foreground'));
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('waits for the foreground instead of retrying while the app is hidden', async () => {
+    const visibility = vi.spyOn(document, 'visibilityState', 'get');
+    visibility.mockReturnValue('visible');
+    fetchMock.mockRejectedValueOnce(new TypeError('Load failed'));
+    mountRoute();
+    await act(async () => {});
+    visibility.mockReturnValue('hidden');
+    await act(async () => {
+      window.dispatchEvent(new Event('online'));
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+    expect(fetchMock).toHaveBeenCalledOnce();
+    visibility.mockReturnValue('visible');
+    await act(async () => {
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(screen.getByText('Chats ready')).toBeTruthy();
+  });
+
+  it('trusts the native foreground signal while browser visibility is still catching up', async () => {
+    fetchMock.mockRejectedValueOnce(new TypeError('Load failed'));
+    mountRoute();
+    await act(async () => {});
+    vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+    await act(async () => {
+      window.dispatchEvent(new Event('mitzo:app-foreground'));
+    });
+    expect(screen.getByText('Chats ready')).toBeTruthy();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not retry denied authorization or disturb an already verified route on foreground', async () => {
+    fetchMock.mockResolvedValueOnce(new Response('{}', { status: 401 }));
+    const denied = mountRoute();
+    await act(async () => {});
+    await act(async () => {
+      window.dispatchEvent(new Event('mitzo:app-foreground'));
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+    expect(fetchMock).toHaveBeenCalledOnce();
+    denied.unmount();
+    markAuthLost();
+    localStorage.setItem('mitzo_auth_token', 'valid-token');
+    mountRoute();
+    await act(async () => {});
+    await act(async () => {
+      window.dispatchEvent(new Event('mitzo:app-foreground'));
+    });
+    expect(screen.getByText('Chats ready')).toBeTruthy();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it('releases the native splash and lets Retry recover a stalled check without changing tabs', async () => {
     fetchMock.mockReturnValueOnce(new Promise(() => {}));
     mountRoute();

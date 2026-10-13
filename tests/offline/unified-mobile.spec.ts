@@ -1794,7 +1794,7 @@ test('combined conversation empty and failed status remain readable without impl
 async function exerciseBriefingReloadRecovery(
   page: Page,
   hideAssigned = false,
-  nativeMode?: 'unready' | 'lost-ack',
+  nativeMode?: 'unready' | 'lost-ack' | 'sse',
 ) {
   test.setTimeout(60_000);
   // Today must reopen this historical fixture's date, including after reload.
@@ -1808,8 +1808,9 @@ async function exerciseBriefingReloadRecovery(
     sessionStorage.clear();
   });
   if (nativeMode)
-    await page.addInitScript(() => {
-      // Only platform presentation APIs are stubbed; chat uses the actual native-default selector.
+    await page.addInitScript((mode) => {
+      // Retain diagnostic WS coverage; SSE exercises the unmodified native default.
+      if (mode !== 'sse') localStorage.setItem('mitzo:transport', 'ws');
       const names = [
         'App',
         'Keyboard',
@@ -1856,7 +1857,7 @@ async function exerciseBriefingReloadRecovery(
           nativeCallback: () => 'offline-native-listener',
         },
       });
-    });
+    }, nativeMode);
   const sessionId = 'sse-restored-briefing-command';
   const binding = {
     sessionId,
@@ -1879,7 +1880,7 @@ async function exerciseBriefingReloadRecovery(
   const websocketSends: unknown[] = [];
   await page.routeWebSocket('**/*', (socket) => {
     sockets += 1;
-    if (!nativeMode) {
+    if (!nativeMode || nativeMode === 'sse') {
       socket.close();
       return;
     }
@@ -1981,7 +1982,9 @@ async function exerciseBriefingReloadRecovery(
     return route.fallback();
   });
   await page.goto('https://mitzo-ui.test/briefings/2026-10-10?ask=1');
-  expect(await page.evaluate(() => localStorage.getItem('mitzo:transport'))).toBeNull();
+  expect(await page.evaluate(() => localStorage.getItem('mitzo:transport'))).toBe(
+    nativeMode && nativeMode !== 'sse' ? 'ws' : null,
+  );
   if (nativeMode)
     expect(
       await page.evaluate(() =>
@@ -2002,18 +2005,22 @@ async function exerciseBriefingReloadRecovery(
   ]);
   expect(registrations).toHaveLength(0);
   // HTTP delivery does not wait for the receiver's asynchronous socket startup.
-  if (nativeMode) await expect.poll(() => sockets).toBeGreaterThanOrEqual(1);
+  if (nativeMode && nativeMode !== 'sse')
+    await expect.poll(() => sockets).toBeGreaterThanOrEqual(1);
   await page.reload();
   await expect.poll(() => sends.length).toBe(2);
   releaseFirst?.();
   expect(sends[1]).toEqual(sends[0]);
   expect(turns.size).toBe(1);
-  if (nativeMode) {
+  if (nativeMode && nativeMode !== 'sse') {
     await expect.poll(() => sockets).toBeGreaterThanOrEqual(2);
     expect(sockets).toBeGreaterThanOrEqual(2);
     expect(websocketSends).toHaveLength(0);
     expect(chatSseRequests).toBe(0);
-  } else expect(sockets).toBe(0);
+  } else {
+    expect(sockets).toBe(0);
+    await expect.poll(() => chatSseRequests).toBeGreaterThanOrEqual(2);
+  }
   // Stay in the same app process while the restored acknowledgement remains pending.
   await page.getByRole('link', { name: 'Today', exact: true }).click();
   await page.getByRole('link', { name: 'Read briefing', exact: true }).click();
@@ -2098,7 +2105,7 @@ async function exerciseBriefingReloadRecovery(
   await expect(page.getByRole('combobox', { name: 'Model', exact: true })).toBeDisabled();
   expect(sends).toHaveLength(2);
   expect(turns.size).toBe(1);
-  if (nativeMode) {
+  if (nativeMode && nativeMode !== 'sse') {
     expect(websocketSends).toHaveLength(0);
     expect(chatSseRequests).toBe(0);
   }
@@ -2116,8 +2123,14 @@ test('default SSE allows a fresh draft when the recovered local conversation is 
   await exerciseBriefingReloadRecovery(page, true);
 });
 
+test('native-default SSE retains reviewed briefing delivery through cold reload without a duplicate turn', async ({
+  page,
+}) => {
+  await exerciseBriefingReloadRecovery(page, false, 'sse');
+});
+
 for (const nativeMode of ['unready', 'lost-ack'] as const) {
-  test(`native-default WS retains reviewed briefing delivery through cold reload with ${nativeMode} receipt`, async ({
+  test(`explicit native WS override retains reviewed briefing delivery through cold reload with ${nativeMode} receipt`, async ({
     page,
   }) => {
     await exerciseBriefingReloadRecovery(page, false, nativeMode);
