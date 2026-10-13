@@ -17,7 +17,7 @@ import { assertNativeCodexContextAdmission } from './native-codex-context-admiss
 
 const reference = SessionRuntimeBindingV1Schema.shape.account.shape.accountId;
 const Selection = OrdinaryLocalCommandSelectionSchema;
-const Request = z.strictObject({
+export const OrdinaryLocalCodexCommandRequestSchema = z.strictObject({
   clientMsgId: reference,
   capabilityRevision: reference,
   runtime: z.strictObject({
@@ -31,6 +31,7 @@ const Request = z.strictObject({
     .record(z.string(), z.json())
     .refine((payload) => Buffer.byteLength(JSON.stringify(payload), 'utf8') <= 1048576),
 });
+const Request = OrdinaryLocalCodexCommandRequestSchema;
 export type OrdinaryLocalCodexCommandRequest = z.infer<typeof Request>;
 export interface OrdinaryLocalCodexAdmissionExpectation {
   binding: SessionRuntimeBindingV2;

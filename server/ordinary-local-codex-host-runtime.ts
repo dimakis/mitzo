@@ -1,0 +1,114 @@
+import { createHash } from 'node:crypto';
+import { closeSync, constants, fstatSync, openSync, realpathSync } from 'node:fs';
+import { hostname } from 'node:os';
+import { isAbsolute } from 'node:path';
+import { z } from 'zod';
+import { readBoundedFile } from './bounded-file-read.js';
+import { SUPPORTED_CODEX_CLI_VERSION } from './codex-app-server-client.js';
+import { reviewedConnectionsRuntimeImplementationRevision } from './connections/reviewed-handler-artifacts.js';
+import { OrdinaryLocalCodexTarget } from './ordinary-local-codex-capabilities.js';
+import { measureHostCodexExecutable } from './frozen-host-codex-executable.js';
+import type { FrozenHostCodexRuntimeObservation } from './frozen-host-codex-bootstrap.js';
+
+const unavailable = () => new Error('Host Codex runtime observation unavailable');
+const Native = z.strictObject({
+  version: z.literal(1),
+  executablePath: z.string().max(4096).refine(isAbsolute),
+  executableSha256: z.string().regex(/^[a-f0-9]{64}$/),
+});
+export function ordinaryLocalCodexHostContractRevision(executableSha256: string): string {
+  return createHash('sha256')
+    .update(
+      JSON.stringify([
+        'ordinary-local-codex-host-v1',
+        reviewedConnectionsRuntimeImplementationRevision,
+        SUPPORTED_CODEX_CLI_VERSION,
+        executableSha256,
+      ]),
+    )
+    .digest('hex');
+}
+function privateSettings(path: string | undefined): unknown {
+  if (!path || !isAbsolute(path) || realpathSync(path) !== path) throw unavailable();
+  const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  try {
+    const stat = fstatSync(fd);
+    if (
+      !stat.isFile() ||
+      stat.uid !== process.getuid?.() ||
+      stat.nlink !== 1 ||
+      (stat.mode & 0o777) !== 0o600
+    )
+      throw unavailable();
+    return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(readBoundedFile(fd, 65536)));
+  } finally {
+    closeSync(fd);
+  }
+}
+
+/** Read-only host/native observation from explicitly selected private operator
+ * configuration. Host identity comes from the OS; native bytes are measured,
+ * then their retained metadata is fenced. The source revision belongs to this
+ * installed implementation and still requires accepted deployment qualification.
+ * Configuration never establishes account readiness or grants runtime custody.
+ */
+export class OrdinaryLocalCodexHostRuntime {
+  readonly #env: Readonly<NodeJS.ProcessEnv>;
+  readonly #native: z.infer<typeof Native>;
+  readonly #measurement: ReturnType<typeof measureHostCodexExecutable>;
+  readonly #target: OrdinaryLocalCodexTarget;
+  constructor(env: Readonly<NodeJS.ProcessEnv> = process.env) {
+    try {
+      this.#env = { ...env };
+      this.#native = Native.parse(
+        privateSettings(this.#env.MITZO_ORDINARY_LOCAL_CODEX_NATIVE_FILE),
+      );
+      this.#target = new OrdinaryLocalCodexTarget(
+        privateSettings(this.#env.MITZO_ORDINARY_LOCAL_CODEX_TARGET_FILE),
+      );
+      this.#measurement = measureHostCodexExecutable(this.#native.executablePath);
+      this.assertCurrentSync();
+    } catch {
+      throw unavailable();
+    }
+  }
+  target(): OrdinaryLocalCodexTarget {
+    return new OrdinaryLocalCodexTarget(
+      privateSettings(this.#env.MITZO_ORDINARY_LOCAL_CODEX_TARGET_FILE),
+    );
+  }
+  assertCurrentSync(): void {
+    const native = Native.parse(privateSettings(this.#env.MITZO_ORDINARY_LOCAL_CODEX_NATIVE_FILE));
+    const original = this.#target.admissionDeclaration(),
+      current = this.target().admissionDeclaration();
+    if (
+      native.executablePath !== this.#native.executablePath ||
+      native.executableSha256 !== this.#native.executableSha256 ||
+      this.#measurement.sha256 !== native.executableSha256 ||
+      JSON.stringify(original) !== JSON.stringify(current) ||
+      current.hostId !== hostname() ||
+      current.runtimeContractRevision !==
+        ordinaryLocalCodexHostContractRevision(native.executableSha256)
+    )
+      throw unavailable();
+    this.#measurement.assertCurrent();
+  }
+  async observe(): Promise<FrozenHostCodexRuntimeObservation> {
+    try {
+      this.assertCurrentSync();
+      const declaration = this.#target.admissionDeclaration();
+      return {
+        hostId: hostname(),
+        runtimeContractRevision: ordinaryLocalCodexHostContractRevision(
+          this.#native.executableSha256,
+        ),
+        targetId: declaration.targetId,
+        targetRevision: declaration.targetRevision,
+        executablePath: this.#native.executablePath,
+        executableSha256: this.#measurement.sha256,
+      };
+    } catch {
+      throw unavailable();
+    }
+  }
+}

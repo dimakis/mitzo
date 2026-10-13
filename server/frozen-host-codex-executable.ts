@@ -8,23 +8,49 @@ import {
   readSync,
   realpathSync,
   writeSync,
+  type BigIntStats,
 } from 'node:fs';
-import { isAbsolute, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 const unavailable = () => new Error('Host Codex runtime unavailable');
-type Identity = { dev: number; ino: number; sha256: string };
-function inspect(path: string, destination?: number): Identity {
+const fields = ['dev', 'ino', 'size', 'mtimeNs', 'ctimeNs', 'uid', 'mode', 'nlink'] as const;
+type Metadata = Pick<BigIntStats, (typeof fields)[number]>;
+type Identity = Metadata & { sha256: string };
+type DirectoryIdentity = Pick<BigIntStats, 'dev' | 'ino' | 'uid' | 'mode'>;
+function canonical(path: string): void {
   if (!isAbsolute(path) || resolve(path) !== path || realpathSync(path) !== path)
     throw unavailable();
+}
+function directory(path: string): DirectoryIdentity {
+  canonical(path);
+  const stat = lstatSync(path, { bigint: true });
+  if (!stat.isDirectory()) throw unavailable();
+  return { dev: stat.dev, ino: stat.ino, uid: stat.uid, mode: stat.mode };
+}
+function sameDirectory(path: string, expected: DirectoryIdentity): void {
+  const actual = directory(path);
+  for (const key of ['dev', 'ino', 'uid', 'mode'] as const)
+    if (actual[key] !== expected[key]) throw unavailable();
+}
+function metadata(path: string): Metadata {
+  canonical(path);
+  const stat = lstatSync(path, { bigint: true });
+  if (
+    !stat.isFile() ||
+    stat.size > 256n * 1024n * 1024n ||
+    stat.mode & 0o022n ||
+    !(stat.mode & 0o111n)
+  )
+    throw unavailable();
+  return Object.fromEntries(fields.map((key) => [key, stat[key]])) as Metadata;
+}
+function sameMetadata(actual: Metadata, expected: Metadata): void {
+  for (const key of fields) if (actual[key] !== expected[key]) throw unavailable();
+}
+function inspect(path: string, destination?: number): Identity {
+  const before = metadata(path);
   const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
   try {
-    const before = fstatSync(fd);
-    if (
-      !before.isFile() ||
-      before.size > 256 * 1024 * 1024 ||
-      before.mode & 0o022 ||
-      !(before.mode & 0o111)
-    )
-      throw unavailable();
+    sameMetadata(fstatSync(fd, { bigint: true }), before);
     const hash = createHash('sha256'),
       chunk = Buffer.alloc(64 * 1024);
     let length = 0;
@@ -32,7 +58,6 @@ function inspect(path: string, destination?: number): Identity {
       const count = readSync(fd, chunk, 0, chunk.length, length);
       if (!count) break;
       if (!length) {
-        // Native ELF/Mach-O only: script wrappers would execute mutable imports.
         const magic = chunk.subarray(0, 4).toString('hex');
         if (
           ![
@@ -50,34 +75,51 @@ function inspect(path: string, destination?: number): Identity {
           throw unavailable();
       }
       length += count;
-      if (length > before.size) throw unavailable();
+      if (BigInt(length) > before.size) throw unavailable();
       hash.update(chunk.subarray(0, count));
       if (destination !== undefined) {
         let offset = 0;
         while (offset < count) offset += writeSync(destination, chunk, offset, count - offset);
       }
     }
-    const after = fstatSync(fd),
-      leaf = lstatSync(path);
-    if (
-      !length ||
-      length !== before.size ||
-      before.dev !== leaf.dev ||
-      before.ino !== leaf.ino ||
-      !leaf.isFile() ||
-      before.size !== after.size ||
-      before.mtimeMs !== after.mtimeMs ||
-      before.ctimeMs !== after.ctimeMs
-    )
-      throw unavailable();
-    return { dev: before.dev, ino: before.ino, sha256: hash.digest('hex') };
+    if (!length || BigInt(length) !== before.size) throw unavailable();
+    sameMetadata(fstatSync(fd, { bigint: true }), before);
+    sameMetadata(metadata(path), before);
+    return { ...before, sha256: hash.digest('hex') };
   } finally {
     closeSync(fd);
   }
 }
-/** Copies one explicitly selected native executable into the existing private
- * login home after durable bootstrap admission. This pins bytes and argv lookup;
- * it does not attest host OS, dependencies, accepted source or provider readiness.
+/** Bounded read-only native byte measurement for the independent server runtime
+ * observer. No process, copying or credential access. Explicit new adoption must
+ * measure newly accepted bytes; the returned retained metadata fence is cheap.
+ */
+export function measureHostCodexExecutable(source: string): {
+  sha256: string;
+  assertCurrent(): void;
+} {
+  try {
+    const parent = directory(dirname(source)),
+      selected = inspect(source);
+    return {
+      sha256: selected.sha256,
+      assertCurrent: () => {
+        try {
+          sameDirectory(dirname(source), parent);
+          sameMetadata(metadata(source), selected);
+        } catch {
+          throw unavailable();
+        }
+      },
+    };
+  } catch {
+    throw unavailable();
+  }
+}
+/** Pins native bytes in the private owned login home. Streamed/effect boundaries
+ * use inode, nanosecond ctime/mtime, owner, links and permissions. Full hashing is
+ * reserved for capture and explicit launch, never each token. This does not attest
+ * OS/dependencies or defend a privileged same-UID final kernel launch mutation.
  */
 export class FrozenHostCodexExecutable {
   private constructor(
@@ -86,19 +128,15 @@ export class FrozenHostCodexExecutable {
     private readonly source: string,
     private readonly sourceIdentity: Identity,
     private readonly ownedIdentity: Identity,
+    private readonly sourceDirectory: DirectoryIdentity,
+    private readonly ownedDirectory: DirectoryIdentity,
   ) {}
   static capture(source: string, privateHome: string): FrozenHostCodexExecutable {
     let fd: number | undefined;
     try {
-      const home = lstatSync(privateHome);
-      if (
-        !isAbsolute(privateHome) ||
-        realpathSync(privateHome) !== privateHome ||
-        !home.isDirectory() ||
-        home.uid !== process.getuid?.() ||
-        home.mode & 0o077
-      )
-        throw unavailable();
+      const home = directory(privateHome),
+        parent = directory(dirname(source));
+      if (home.uid !== BigInt(process.getuid!()) || home.mode & 0o077n) throw unavailable();
       const path = join(privateHome, 'codex-runtime');
       fd = openSync(
         path,
@@ -109,13 +147,16 @@ export class FrozenHostCodexExecutable {
       closeSync(fd);
       fd = undefined;
       const ownedIdentity = inspect(path);
-      if (sourceIdentity.sha256 !== ownedIdentity.sha256) throw unavailable();
+      if (sourceIdentity.sha256 !== ownedIdentity.sha256 || ownedIdentity.nlink !== 1n)
+        throw unavailable();
       return new FrozenHostCodexExecutable(
         path,
         sourceIdentity.sha256,
         source,
         sourceIdentity,
         ownedIdentity,
+        parent,
+        home,
       );
     } catch {
       throw unavailable();
@@ -125,19 +166,21 @@ export class FrozenHostCodexExecutable {
   }
   assertCurrent(): void {
     try {
-      for (const [path, expected] of [
-        [this.source, this.sourceIdentity],
-        [this.path, this.ownedIdentity],
-      ] as const) {
-        const actual = inspect(path);
-        if (
-          actual.dev !== expected.dev ||
-          actual.ino !== expected.ino ||
-          actual.sha256 !== expected.sha256
-        )
-          throw unavailable();
-      }
-      if ((lstatSync(this.path).mode & 0o777) !== 0o500) throw unavailable();
+      sameDirectory(dirname(this.source), this.sourceDirectory);
+      sameDirectory(dirname(this.path), this.ownedDirectory);
+      sameMetadata(metadata(this.source), this.sourceIdentity);
+      sameMetadata(metadata(this.path), this.ownedIdentity);
+      if ((this.ownedIdentity.mode & 0o777n) !== 0o500n) throw unavailable();
+    } catch {
+      throw unavailable();
+    }
+  }
+  assertLaunchCurrent(): void {
+    try {
+      this.assertCurrent();
+      if (inspect(this.source).sha256 !== this.sha256 || inspect(this.path).sha256 !== this.sha256)
+        throw unavailable();
+      this.assertCurrent();
     } catch {
       throw unavailable();
     }

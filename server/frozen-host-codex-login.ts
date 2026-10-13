@@ -56,7 +56,7 @@ function readAuth(root: string): { bytes: Buffer; identity: AuthIdentity } {
       before.uid !== process.getuid?.()
     )
       throw unavailable();
-    const bytes = readBoundedFile(fd, 1024 * 1024);
+    const bytes = readBoundedFile(fd, Math.min(before.size, 1024 * 1024));
     const after = fstatSync(fd);
     if (
       before.dev !== after.dev ||
@@ -220,7 +220,9 @@ export class FrozenHostCodexLogin {
       const ownedClient = client;
       return {
         client: ownedClient,
-        binding,
+        get binding() {
+          return structuredClone(binding);
+        },
         close,
         assertCurrentSync: () => {
           try {

@@ -480,7 +480,7 @@ export class CodexAppServerClient {
   ) {
     if (!(executable instanceof FrozenHostCodexExecutable))
       throw new Error('Host Codex runtime unavailable');
-    executable.assertCurrent();
+    executable.assertLaunchCurrent();
     return this.launchHost(privateHome, base, lifecycle, true, executable);
   }
 
