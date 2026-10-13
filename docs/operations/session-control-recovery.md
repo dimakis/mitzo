@@ -93,7 +93,8 @@ client/protocol TypeScript compilation and changed-file lint/format checks are
 included. Broad build/test acceptance belongs to CI. No rendered markup, palette,
 tokens or layout changes; feedback reuses `ChatArea`'s existing error banner.
 
-Canonical staging is independently fenced. Its check refuses. Read-only registry
+Canonical staging is independently fenced. At the initial investigation its check
+refused. Read-only registry
 inspection found the owned launch in `retirement_uncertain`, with controller
 generation 1 and source `9e301092e418307f772758e8bcab12db8dff65e5`; the installed
 router delegates check/drain to that original source. This is an ownership
@@ -102,7 +103,8 @@ refuses admission for memory pressure and disk headroom: pressure level 2,
 7,007.5 MiB swap and 18.75 GiB free disk (limits: normal pressure, at most
 2,048 MiB swap and at least 20 GiB disk). This later observation could explain
 slow probes, but has not been correlated to the screenshot's precise failures. No lock, registry, process,
-provider configuration or retained evidence was changed. Do not force a restart,
+provider configuration or retained evidence was changed by this task. Recheck the
+canonical operating state before live acceptance. Do not force a restart,
 delete the uncertainty, create another stage or use production as a test fallback.
 
 After source acceptance and separately reviewed staging recovery, verify on the
