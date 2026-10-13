@@ -110,5 +110,6 @@ test('Download saves the original document when the browser share sheet is block
   expect(file.suggestedFilename()).toBe('document.md');
   expect(await file.failure()).toBeNull();
   expect(await readFile((await file.path())!, 'utf8')).toBe(document);
-  await expect(page.getByRole('button', { name: 'Downloaded', exact: true })).toBeVisible();
+  await expect(page.getByRole('dialog', { name: 'File options' })).not.toBeVisible();
+  await expect(page.getByRole('button', { name: 'File options', exact: true })).toBeVisible();
 });
