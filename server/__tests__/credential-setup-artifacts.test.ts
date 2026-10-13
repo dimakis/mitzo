@@ -5,6 +5,7 @@ it('covers setup contracts, verification, guidance and continuation in the revie
   for (const file of [
     'credential-connection-schema',
     'credential-setup',
+    'credential-verification-error',
     'connection-guide',
     'credential-setup-continuation',
     'credential-setup-application',
