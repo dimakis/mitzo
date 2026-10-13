@@ -24,7 +24,11 @@ import { bindAgentLibraryTransport } from '../../agent-library-transport.js';
 import { nativeStartupSessionId } from '../../ordinary-repository-startup.js';
 export async function ownedRuntimeFixture(
   cleanups: Array<() => void | Promise<void>>,
-  options: { workspaceId?: string; contextRecipe?: boolean; chatRoute?: boolean } = {},
+  options: {
+    workspaceId?: string;
+    contextRecipe?: boolean | 'workspace';
+    chatRoute?: boolean;
+  } = {},
 ) {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'mitzo-owned-driver-')));
   cleanups.push(() => rm(root, { recursive: true, force: true }));
@@ -110,7 +114,19 @@ export async function ownedRuntimeFixture(
       acceptanceCriteria: ['Use evidence'],
       modelPolicyRole: 'agent',
       ...(options.contextRecipe
-        ? { contextRecipe: { version: 1, source: 'contexgin', agentName: 'fixture-agent' } }
+        ? {
+            contextRecipe:
+              options.contextRecipe === 'workspace'
+                ? {
+                    version: 1,
+                    source: 'workspace',
+                    files: ['context.md'],
+                    tokenBudget: 1000,
+                    required: [],
+                    excluded: [],
+                  }
+                : { version: 1, source: 'contexgin', agentName: 'fixture-agent' },
+          }
         : {}),
     },
   });
@@ -137,7 +153,9 @@ export async function ownedRuntimeFixture(
   git(source, 'config', 'user.name', 'Offline');
   git(source, 'config', 'user.email', 'fixture@example.test');
   await writeFile(join(source, 'task.txt'), 'accepted source');
-  git(source, 'add', 'task.txt');
+  await writeFile(join(source, 'AGENTS.md'), '# Instructions\nPreserve task ownership');
+  await writeFile(join(source, 'context.md'), '# Context\nPinned original checkout');
+  git(source, 'add', 'task.txt', 'context.md', 'AGENTS.md');
   git(source, 'commit', '-qm', 'offline base');
   const baseOid = git(source, 'rev-parse', 'HEAD');
   const inspect = async () => ({ repository: 'example/repo', baseBranch: 'main', baseOid });
@@ -248,7 +266,8 @@ export async function ownedRuntimeFixture(
       intent: value.payload.intent,
       model: request.selection.model,
       reasoningEffort: request.selection.thinking,
-      agentProfile,
+      agentProfile: value.expected.agentProfile,
+      agentContext: value.expected.agentContext,
       repositoryWorkspace: value.workspace,
     });
     expect(

@@ -1,3 +1,10 @@
+import { resolveChatAgentProfile } from './agent-library-binding.js';
+import {
+  assertOrdinaryCodexContextIdentity,
+  assertOrdinaryCodexSnapshotCustody,
+} from './ordinary-codex-agent-context.js';
+import type { AgentContextSnapshot } from '@mitzo/protocol';
+import { readOrdinaryCodexAgentProfile } from './ordinary-codex-agent-profile.js';
 import { z } from 'zod';
 import { isDeepStrictEqual } from 'node:util';
 import type { AgentLibraryStore } from './agent-library-store.js';
@@ -139,9 +146,7 @@ export class OrdinaryLocalCodexOwnedRuntime {
       if (custodianControllerMode || custodianOwnerMode) throw unavailable();
       const request = OrdinaryLocalCodexCommandRequestSchema.parse(raw);
       if (request.clientMsgId !== this.owners.commandId) throw unavailable();
-      // This owner qualifies published user profiles only. The shared catalog
-      // supports builtins, but a matching Library ID never changes its namespace.
-      if (request.selection.agent.kind !== undefined) throw unavailable();
+      // Builtins remain code-owned; a matching user Library ID cannot change namespace.
       const rawPayload = RawPayload.parse(request.payload);
       const profiles = loadAccountProfiles();
       const binding = profiles.resolve(request.runtime.account.accountId, request.selection.model);
@@ -203,19 +208,23 @@ export class OrdinaryLocalCodexOwnedRuntime {
         );
         if (!receipt || !['uncertain', 'consumed'].includes(receipt.state)) throw unavailable();
       }
-      const agentProfile = this.owners.library.version(
-        'user',
-        request.selection.agent.profileId,
-        request.selection.agent.revision,
-      );
-      if (
-        !agentProfile ||
-        agentProfile.definition.contextRecipe !== undefined ||
-        request.selection.context.source !== 'none' ||
-        request.selection.context.revision !== null ||
-        request.selection.permission.revision !== 0
-      )
-        throw unavailable();
+      const agentProfile = await resolveChatAgentProfile({
+        requested: request.selection.agent,
+        stored: resume
+          ? this.owners.eventStore.getSession(this.#reservation.conversationId)?.agentProfile
+          : undefined,
+        resume,
+        provider: binding.provider,
+        lookup: async (selected) => readOrdinaryCodexAgentProfile(this.owners.library, selected),
+      });
+      this.assertCurrent();
+      if (!agentProfile || request.selection.permission.revision !== 0) throw unavailable();
+      const retainedContext = resume
+        ? this.owners.eventStore.getSession(this.#reservation.conversationId)?.agentContext
+        : undefined;
+      if (resume && agentProfile.definition.contextRecipe && !retainedContext) throw unavailable();
+      assertOrdinaryCodexContextIdentity(agentProfile, request.selection, retainedContext);
+      if (resume) assertOrdinaryCodexSnapshotCustody(custody!, agentProfile, retainedContext);
       const payload: Payload = {
         ...rawPayload,
         systemPrompt: buildAgentProfilePrompt(agentProfile.definition),
@@ -291,6 +300,7 @@ export class OrdinaryLocalCodexOwnedRuntime {
         bootstrapAuthority: bootstrap,
       });
       let claimedWorkspace: RepositoryWorkspace | undefined;
+      let preparedContext: AgentContextSnapshot | undefined;
       const result = await (
         resume ? coordinator.admitResume.bind(coordinator) : coordinator.admit.bind(coordinator)
       )(
@@ -300,6 +310,9 @@ export class OrdinaryLocalCodexOwnedRuntime {
           cwd: descriptor.directory,
           accountBinding: binding,
           agentProfile,
+          agentContext: resume
+            ? this.owners.eventStore.getSession(this.#reservation.conversationId)?.agentContext
+            : undefined,
           mode: request.selection.permission.mode,
           selectedModel: request.selection.model,
           reasoningEffort: request.selection.thinking,
@@ -336,7 +349,9 @@ export class OrdinaryLocalCodexOwnedRuntime {
             )
               throw unavailable();
           },
-          dispatch: async (expected, clientMsgId) => {
+          dispatch: async (originalExpected, clientMsgId) => {
+            preparedContext = await selection.prepareContext(originalExpected, resume);
+            const expected = { ...originalExpected, agentContext: preparedContext };
             this.assertCurrent();
             const lease = bootstrap!.currentLease();
             if (

@@ -1,6 +1,13 @@
 import { ChatRuntimeDraftContext } from './chat-runtime-draft-context';
 import { useCallback, useContext, useEffect, useRef, useState } from 'react';
-import { SessionRuntimeBindingSchema, type SessionRuntimeBinding } from '@mitzo/protocol';
+import {
+  SessionRuntimeBindingSchema,
+  AgentLibraryVersionSchema,
+  AgentContextSnapshotSchema,
+  type AgentLibraryVersion,
+  type AgentContextSnapshot,
+  type SessionRuntimeBinding,
+} from '@mitzo/protocol';
 import { apiFetch } from '../lib/api-fetch';
 import {
   ExplicitLocalInventorySchema,
@@ -81,6 +88,8 @@ export function useExplicitLocalChat(
     intent: ChatRuntimeSelection | null;
     repositoryWorkspaceId?: string;
     mode?: 'ask' | 'agent' | 'auto';
+    agentProfile?: AgentLibraryVersion;
+    agentContext?: AgentContextSnapshot;
   } | null>(null);
   const scope = useRef({ draftId, sessionId });
   scope.current = { draftId, sessionId };
@@ -193,6 +202,14 @@ export function useExplicitLocalChat(
                   capabilityRevision: null,
                 })
               : null,
+          agentProfile:
+            parsed && body.agentProfile
+              ? AgentLibraryVersionSchema.parse(body.agentProfile)
+              : undefined,
+          agentContext:
+            parsed && body.agentContext
+              ? AgentContextSnapshotSchema.parse(body.agentContext)
+              : undefined,
           repositoryWorkspaceId: body.repositoryWorkspaceId,
           mode: body.mode,
         });
@@ -315,6 +332,8 @@ export function useExplicitLocalChat(
     inventory,
     continuation,
     repositoryWorkspaceId: currentMeta?.repositoryWorkspaceId,
+    agentProfile: currentMeta?.agentProfile,
+    agentContext: currentMeta?.agentContext,
     mode: currentMeta?.mode,
     visible,
     selectedLocal,

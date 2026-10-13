@@ -1166,11 +1166,13 @@ async function openCodexChatBound(
       options.assertAgentContextAuthorization();
       signal.throwIfAborted();
       if (!agentContext?.sandbox) throw Error('Sandbox agent context snapshot is unavailable');
-      options.eventStore.upsertSession({
-        sessionId: options.conversationId,
-        agentProfile: options.agentProfile,
-        agentContext,
-      });
+      if (options.ownedOpenShell) options.ownedOpenShell.adoptAgentContext(agentContext);
+      else
+        options.eventStore.upsertSession({
+          sessionId: options.conversationId,
+          agentProfile: options.agentProfile,
+          agentContext,
+        });
       options.onBootContext?.({ ...agentContext.context, scope: 'sandbox' });
       startup = {};
     } else if (agentContext) {
@@ -1348,7 +1350,11 @@ async function openCodexChatBound(
         ? '\nThis sandbox has verified read-only Jira access to https://redhat.atlassian.net. Use the scoped API base in JIRA_URL (not the browser site URL). Use the provider-approved /usr/bin/python3 or curl with JIRA_URL, JIRA_EMAIL, and the gateway-managed JIRA_API_TOKEN placeholder for Basic authorization. Never print credential values. Writes are denied by the gateway policy.\n'
         : '');
   const persistentSystemPrompt =
-    baseSystemPrompt + (startup.context ? `\n\n${startup.context}` : '');
+    baseSystemPrompt +
+    (startup.context ? `\n\n${startup.context}` : '') +
+    (options.ownedLocal && agentContext
+      ? `\n\n# Agent Library context (saved recipe)\n${agentContext.context.fullMarkdown}\n`
+      : '');
   let pendingAdditionalContext: string | undefined;
   const suppliedContextHash = (additionalContext: string | undefined) =>
     createHash('sha256')

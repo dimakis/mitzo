@@ -1,3 +1,7 @@
+import {
+  assertOrdinaryCodexContextIdentity,
+  assertOrdinaryCodexSnapshotCustody,
+} from './ordinary-codex-agent-context.js';
 import { openShellPhysicalCustodyFingerprint } from './openshell-codex-custody.js';
 import { canonicalJson } from './connections/capabilities/input-validation.js';
 import { createHash } from 'node:crypto';
@@ -149,6 +153,9 @@ export class OrdinaryOpenShellCodexOwnedRuntime {
       (meta.reasoningEffort ?? null) !== expected.selection.thinking
     )
       throw unavailable();
+    assertOrdinaryCodexContextIdentity(meta.agentProfile, expected.selection, meta.agentContext);
+    if (o.resume && meta.agentProfile.definition.contextRecipe && !meta.agentContext)
+      throw unavailable();
     assertNativeCodexContextAdmission(
       meta.agentProfile.definition.contextRecipe,
       meta.agentContext,
@@ -177,7 +184,21 @@ export class OrdinaryOpenShellCodexOwnedRuntime {
       mode: expected.selection.permission.mode,
     });
     const fingerprint = `ordinary-openshell-codex-v1:${createHash('sha256')
-      .update(canonicalJson(JSON.parse(JSON.stringify({ request, expected }))))
+      .update(
+        canonicalJson(
+          JSON.parse(
+            JSON.stringify({
+              request,
+              expected: {
+                ...expected,
+                agentContext: expected.agentProfile?.definition.contextRecipe
+                  ? undefined
+                  : expected.agentContext,
+              },
+            }),
+          ),
+        ),
+      )
       .digest('hex')}`;
     const saved = o.events.getOrdinaryOpenShellCommandAdmission(request.clientMsgId);
     if (saved && saved.state !== 'reserved') {
@@ -211,6 +232,7 @@ export class OrdinaryOpenShellCodexOwnedRuntime {
           .some((command) => command.status === 'running')
       )
         throw unavailable();
+      assertOrdinaryCodexSnapshotCustody(custody, expected.agentProfile, expected.agentContext);
       o.assertRetainedAuthority(retained);
     }
     o.assertCurrentSync(expected);

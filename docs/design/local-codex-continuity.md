@@ -27,6 +27,15 @@ becoming replayable.
 
 ## Cold resume
 
+Builtin and published profiles retain their exact namespace, revision and content
+hash. Supported workspace and ContexGin context recipes compile once after the
+original checkout claim while admission remains uncertain. Provider acceptance
+uses the existing context delivery/adoption receipts. Native custody records
+profile and compiled context digests before thread effects; cold continuation
+verifies that exact snapshot without a source refresh. Legacy recipe history
+without those original digests stays unavailable. Pinned packs remain unsupported
+until a trusted native continuation barrier exists.
+
 Before native thread creation, the existing CodexConversationStore row records
 strict internal physical custody: original signed operator session ID, bootstrap
 identity, private home and source credential directory identities, auth-file inode
