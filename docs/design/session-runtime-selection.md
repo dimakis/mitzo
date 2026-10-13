@@ -1,10 +1,11 @@
 # Session runtime selection
 
-Status: incremental design and source audit. Dormant infrastructure includes
-versioned EventStore bindings, configuration resolution, local Codex account
-projection and V2 configured-target persistence. This document does not establish
-live, staged or deployed support for any selectable route. The first-command
-guard below is an injected, dormant coordinator; no live caller is enrolled.
+Status: incremental implementation. Versioned EventStore bindings, local account
+projection, V2 configured-target persistence and workspace reservations are
+accepted foundations. The owned local first-command composition and chat consumer
+are implemented behind an explicit server gate and await live qualification. No endpoint or
+visible execution picker is enrolled; this document does not establish staged or
+deployed support for a selectable route.
 
 ## Guarded local Codex first-command contract
 
@@ -46,14 +47,78 @@ effects; native-command completion cannot erase a guarded receipt's session ID.
 Canonical workspace/ContexGin recipe pins are passed to their owning authority;
 native Codex packs retain their existing continuation-barrier refusal.
 
-Activation still requires an actual host/runtime/account authority, adoption of
-the workspace reservation contract below, and reviewed integration
-with Codex's existing thread, queue, cancellation and recovery ownership. The
-current CLI-version/account observations and post-launch runtime policy checks
-do not satisfy that pre-effect authority. No endpoint, default verifier, host
-probe, runtime launch or picker behavior is added by this coordinator. OpenShell
-remains the approved default for the eventual picker; local selection must be
-explicit once qualified.
+The coordinator remains independent of transport and provider loops. The owned
+composition below supplies the concrete first-command authorities, while endpoint
+enrollment, continuation and live qualification remain separate. OpenShell remains
+the default for the eventual picker; local selection must be explicit once qualified.
+
+## Owned local first-command composition
+
+[`OrdinaryLocalCodexOwnedRuntime`](../../server/ordinary-local-codex-owned-runtime.ts)
+composes the existing EventStore, published user Agent Library and reserved host
+workspace. It captures the authenticated operator once; browser detach does not
+replace the admitted subject, while expiry and revocation close the native client.
+Raw request payload accepts only `text`, optional `intent` and `images`. The server
+compiles `systemPrompt` from the exact published agent revision and freezes it in
+the existing command receipt. Caller prompts cannot replace the agent's instructions.
+
+The bounded route accepts file-backed ChatGPT login profiles without a workspace
+identity, no context recipe, and the original permission revision. Custodian
+controller/owner modes refuse it before resource effects. It does not enroll API
+billing, sandbox-native ChatGPT, later turns, cold resume, permission edits or
+automatic capacity recovery.
+Its tool surface is limited to the existing native host tools and MCP tools with
+final runtime checks. Project command hooks and connection, web, publishing and
+proposal helpers require separate qualification before this route may advertise
+or execute them.
+
+[`OrdinaryLocalCodexHostRuntime`](../../server/ordinary-local-codex-host-runtime.ts)
+observes the OS hostname and measures the explicitly configured native Codex binary.
+`MITZO_ORDINARY_LOCAL_CODEX_NATIVE_FILE` selects a canonical owner-only `0600` JSON
+file with `{version:1, executablePath, executableSha256}`. The existing
+`MITZO_ORDINARY_LOCAL_CODEX_TARGET_FILE` selects the private target declaration.
+Its runtime contract must equal `ordinaryLocalCodexHostContractRevision(sha256)`,
+which includes the installed reviewed source revision and supported CLI version.
+It also includes the verified source-closure fingerprint, so verified source changes
+require a different contract even when the nominal revision is unchanged. Qualified selector files
+and the native binary join the existing model-tool protection sets; native code
+must have a single physical link.
+These files declare a selection; they confer no account or deployment authority.
+No configuration is generated or enrolled automatically.
+
+After the EventStore claim becomes `uncertain`, the bootstrap creates a private
+`0700` login home and copies only bounded file-backed authentication and the
+measured native binary. The private home name derives from the retained session
+and command fingerprint; an existing home is never adopted or deleted by retry.
+The same native client performs initialization, account, config and model checks
+and attaches to the existing `CodexConversation`. Source/private authentication,
+native identities, operator authorization, published agent, permission state and
+workspace ownership are fenced through dispatch and final host-tool effects.
+Authentication changes, including token refresh, invalidate this bounded lease;
+normal long-lived renewal requires separate implementation.
+
+The trusted chat consumer opens the first turn under the `uncertain` receipt and
+returns a prepared handle. Only after coordinator admission settles as `consumed`
+may the caller run the existing query loop to translate its buffered events.
+The server-internal `startOwnedLocalCodexCommand` entry joins those steps and
+requires `MITZO_ORDINARY_LOCAL_CODEX_ENABLED=1` before opening the lazy existing
+Library/workspace owners. Transport enrollment remains separate. Consumer cleanup
+must release the retained driver's operator authority as well as the native query.
+Cancellation closes transport and query ownership while retaining workspace,
+login-home and command evidence. A successful receipt means first-command dispatch
+returned; model completion and resource retirement are separate observations.
+
+Offline tests exercise real command/library/workspace stores and local Git fixtures,
+with native transport replaced. They do not prove a live account, provider route
+or deployed UI. Activation needs accepted sources, independently reviewed staging
+configuration and a safe canonical staging instance. Live model tests must explicitly
+select a supported Luna model and identify the charged account before the call.
+
+Chat draft intent separately preserves Agent, Account, Model, Thinking and Run on
+choices. OpenShell remains the unresolved default, invalid choices retain a reason,
+and no target is silently substituted. Draft intent and capability revisions are
+selection metadata, never runtime authority. General picker activation still requires
+qualification of both the local and OpenShell routes.
 
 ## Host workspace reservation before checkout creation
 
