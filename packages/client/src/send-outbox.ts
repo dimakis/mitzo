@@ -1,8 +1,15 @@
+import {
+  LocalCodexFirstCommandSchema,
+  LocalCodexFirstCommandReceiptSchema,
+  LocalCodexRetainedCommandObservationSchema,
+} from '@mitzo/protocol';
 /** Ordered, acknowledged HTTP delivery. SSE state never gates prompt submission. */
 interface Entry {
   body: Record<string, unknown>;
   scope: number;
   uncertain?: boolean;
+  localReceipt?: { sessionId: string; state: 'reserved' | 'uncertain' | 'consumed' };
+  localDraftId?: string;
 }
 interface Config {
   url: string;
@@ -12,6 +19,8 @@ interface Config {
   storage?: Pick<Storage, 'getItem' | 'setItem'>;
   timeoutMs?: number;
   requireDurableBriefings?: boolean;
+  /** Strict first-command route: durable intent, manual exact recovery, no legacy fallback. */
+  localFirstCommand?: boolean;
 }
 
 function reviewedBriefing(body: Record<string, unknown>): boolean {
@@ -31,12 +40,44 @@ export class SendOutbox {
   private generation = 0;
   private activeAbort?: AbortController;
   private readonly key: string;
+  private invalidLocalRecovery = false;
 
   constructor(private config: Config) {
     this.key = `mitzo-send-outbox:${config.url}`;
     try {
       const saved: unknown = JSON.parse(config.storage?.getItem(this.key) ?? '[]');
-      if (Array.isArray(saved))
+      if (config.localFirstCommand) {
+        if (!Array.isArray(saved) || saved.length > 100) throw Error('Invalid Local recovery');
+        this.entries = saved.map((entry) => {
+          if (
+            !entry ||
+            !Number.isSafeInteger(entry.scope) ||
+            entry.scope < 0 ||
+            typeof entry.uncertain !== 'boolean' ||
+            Object.keys(entry).some(
+              (key) =>
+                !['body', 'scope', 'uncertain', 'localReceipt', 'localDraftId'].includes(key),
+            )
+          )
+            throw Error('Invalid Local recovery');
+          if (
+            entry.localDraftId !== undefined &&
+            (typeof entry.localDraftId !== 'string' || !/^\S{1,200}$/.test(entry.localDraftId))
+          )
+            throw Error('Invalid Local draft identity');
+          const body = LocalCodexFirstCommandSchema.parse(entry.body);
+          if (
+            entry.localReceipt &&
+            (!['reserved', 'uncertain', 'consumed'].includes(entry.localReceipt.state) ||
+              typeof entry.localReceipt.sessionId !== 'string' ||
+              !entry.localReceipt.sessionId.length ||
+              entry.localReceipt.sessionId.length > 200 ||
+              Object.keys(entry.localReceipt).length !== 2)
+          )
+            throw Error('Invalid Local receipt');
+          return { ...entry, body, uncertain: true };
+        });
+      } else if (Array.isArray(saved))
         this.entries = saved.filter(
           (entry): entry is Entry =>
             entry &&
@@ -46,14 +87,35 @@ export class SendOutbox {
             typeof entry.body.prompt === 'string',
         );
     } catch {
-      /* Storage can be unavailable in private browsing. */
+      this.invalidLocalRecovery = !!config.localFirstCommand;
     }
   }
 
   start(): void {
     this.active = true;
+    if (this.config.localFirstCommand) {
+      if (this.invalidLocalRecovery)
+        this.config.notify({ type: '_local_command_state', state: 'blocked' });
+      else if (this.entries[0]) this.notifyLocal(this.entries[0], 'uncertain');
+      return;
+    }
     void this.pump();
   }
+
+  /** Deliberate recovery resubmits only the frozen request, never a rebuilt draft. */
+  retryLocalCommand(): boolean {
+    if (
+      !this.config.localFirstCommand ||
+      !this.active ||
+      this.invalidLocalRecovery ||
+      !this.entries.length ||
+      this.busyGeneration !== null
+    )
+      return false;
+    void this.pump();
+    return true;
+  }
+
   stop(): void {
     this.active = false;
     if (this.timer) clearTimeout(this.timer);
@@ -61,19 +123,37 @@ export class SendOutbox {
     // Pause new work; the bounded in-flight request may still acknowledge.
   }
 
-  enqueue(body: Record<string, unknown>, scope: number): boolean {
+  enqueue(body: Record<string, unknown>, scope: number, localDraftId?: string): boolean {
+    if (this.config.localFirstCommand) {
+      if (localDraftId !== undefined && !/^\S{1,200}$/.test(localDraftId)) return false;
+      const parsed = LocalCodexFirstCommandSchema.safeParse(body);
+      if (!parsed.success || this.invalidLocalRecovery || this.entries.length || !this.active)
+        return false;
+      body = structuredClone(parsed.data);
+    }
     if (this.entries.length >= 100) return false;
-    this.entries.push({ body: { ...body }, scope });
+    this.entries.push({
+      body: { ...body },
+      scope,
+      ...(this.config.localFirstCommand ? { uncertain: false } : {}),
+      ...(this.config.localFirstCommand && localDraftId ? { localDraftId } : {}),
+    });
     const durable = this.persist();
-    if (this.config.requireDurableBriefings && reviewedBriefing(body) && !durable) {
+    if (
+      (this.config.localFirstCommand ||
+        (this.config.requireDurableBriefings && reviewedBriefing(body))) &&
+      !durable
+    ) {
       this.entries.pop();
       return false;
     }
-    this.config.notify({
-      type: '_send_pending',
-      clientMsgId: body.clientMsgId,
-      sessionId: body.sessionId,
-    });
+    if (this.config.localFirstCommand) this.notifyLocal(this.entries[0], 'pending');
+    else
+      this.config.notify({
+        type: '_send_pending',
+        clientMsgId: body.clientMsgId,
+        sessionId: body.sessionId,
+      });
     void this.pump();
     return true;
   }
@@ -90,13 +170,20 @@ export class SendOutbox {
     this.timer = undefined;
     const rejected = this.entries.splice(0);
     this.entries = rejected.filter((entry, index) => {
-      if (!reviewedBriefing(entry.body) || (!entry.uncertain && !(hadInFlight && index === 0)))
+      if (
+        (!this.config.localFirstCommand && !reviewedBriefing(entry.body)) ||
+        (!entry.uncertain && !(hadInFlight && index === 0))
+      )
         return false;
       entry.uncertain = true;
       return true;
     });
     this.persist();
     for (const [index, entry] of rejected.entries()) {
+      if (this.config.localFirstCommand) {
+        this.notifyLocal(entry, 'uncertain');
+        continue;
+      }
       const deliveryUncertain = entry.uncertain || (hadInFlight && index === 0);
       this.config.notify({
         type: deliveryUncertain ? '_send_uncertain' : '_send_failed',
@@ -106,6 +193,81 @@ export class SendOutbox {
           ? 'Authentication changed while this message was being delivered. The server may have accepted it; check the conversation before sending it again.'
           : error,
       });
+    }
+  }
+
+  private notifyLocal(entry: Entry, state: string, acknowledged = false) {
+    this.config.notify({
+      type: '_local_command_state',
+      state,
+      ...(acknowledged ? { acknowledged: true } : {}),
+      request: structuredClone(entry.body),
+      clientMsgId: entry.body.clientMsgId,
+      ...(entry.localDraftId ? { originDraftId: entry.localDraftId } : {}),
+      ...(entry.localReceipt ? { sessionId: entry.localReceipt.sessionId } : {}),
+    });
+  }
+
+  private async pumpLocal(): Promise<void> {
+    if (
+      !this.active ||
+      this.busyGeneration !== null ||
+      !this.entries.length ||
+      this.invalidLocalRecovery
+    )
+      return;
+    const entry = this.entries[0];
+    const generation = this.generation;
+    const abort = new AbortController();
+    this.busyGeneration = generation;
+    this.activeAbort = abort;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+      entry.uncertain = true;
+      if (!this.persist()) throw Error('Local intent could not be retained');
+      const response = await Promise.race([
+        this.config.fetch(this.config.url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...this.config.headers?.() },
+          body: JSON.stringify(entry.body),
+          signal: abort.signal,
+        }),
+        new Promise<never>((_, reject) => {
+          abort.signal.addEventListener('abort', () => reject(Error('Delivery interrupted')), {
+            once: true,
+          });
+          timeout = setTimeout(() => abort.abort(), this.config.timeoutMs ?? 15000);
+        }),
+      ]);
+      const raw = await response.json();
+      if (generation !== this.generation) return;
+      const success = LocalCodexFirstCommandReceiptSchema.safeParse(raw);
+      const observation = LocalCodexRetainedCommandObservationSchema.safeParse(raw);
+      const matching = raw?.clientMsgId === entry.body.clientMsgId;
+      if (matching && response.status === 202 && success.success) {
+        entry.localReceipt = { sessionId: success.data.sessionId, state: success.data.state };
+        if (!this.persist()) throw Error('Local receipt could not be retained');
+        this.notifyLocal(entry, success.data.state, true);
+        if (success.data.state === 'consumed') this.entries.shift();
+        this.persist();
+        if (success.data.state === 'consumed' && this.entries[0])
+          this.notifyLocal(this.entries[0], 'uncertain');
+      } else if (matching && response.status === 409 && observation.success) {
+        entry.localReceipt = {
+          sessionId: observation.data.sessionId,
+          state: observation.data.state,
+        };
+        if (!this.persist()) throw Error('Local observation could not be retained');
+        this.notifyLocal(entry, 'retained');
+      } else this.notifyLocal(entry, 'uncertain');
+    } catch {
+      if (generation === this.generation) this.notifyLocal(entry, 'uncertain');
+    } finally {
+      if (timeout) clearTimeout(timeout);
+      if (generation === this.generation) {
+        this.busyGeneration = null;
+        this.activeAbort = undefined;
+      }
     }
   }
 
@@ -121,6 +283,7 @@ export class SendOutbox {
   }
 
   private async pump(): Promise<void> {
+    if (this.config.localFirstCommand) return this.pumpLocal();
     if (!this.active || this.busyGeneration !== null || this.timer || !this.entries.length) return;
     const entry = this.entries[0];
     const abort = new AbortController();

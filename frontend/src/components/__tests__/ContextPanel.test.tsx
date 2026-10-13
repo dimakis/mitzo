@@ -78,3 +78,22 @@ describe('ContextPanel', () => {
     });
   });
 });
+it('allows removal of retained context for a Local command while preventing new attachments', () => {
+  const toggle = vi.fn();
+  render(
+    <ContextPanel
+      removalOnly
+      selected={['retained']}
+      onToggle={toggle}
+      loaded
+      blocks={[
+        { name: 'retained', path: '/fixture', sizeBytes: 1 },
+        { name: 'new', path: '/fixture2', sizeBytes: 1 },
+      ]}
+    />,
+  );
+  fireEvent.click(screen.getByRole('button', { name: /new/ }));
+  expect(toggle).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: /retained/ }));
+  expect(toggle).toHaveBeenCalledWith('retained');
+});

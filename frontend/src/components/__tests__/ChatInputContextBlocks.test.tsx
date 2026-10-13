@@ -1,3 +1,4 @@
+import { createChatDraft } from '../../lib/chat-drafts';
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, cleanup, fireEvent, act } from '@testing-library/react';
@@ -310,4 +311,29 @@ it('retains a queued image/context and active composer through rejected Stop unt
   );
   expect(screen.getByLabelText('Message Mitzo')).toHaveProperty('value', 'Next untouched draft');
   expect(screen.getByAltText('Attachment 1')).toBeTruthy();
+});
+it('preserves attached context and draft while Local refuses button and keyboard dispatch', () => {
+  const onSend = vi.fn();
+  render(
+    <ChatInput
+      boundedFirstCommand
+      onSend={onSend}
+      onStop={vi.fn()}
+      running={false}
+      savedChatDraft={{
+        ...createChatDraft(),
+        text: 'Inspect',
+        contextBlocks: ['Original reference'],
+      }}
+    />,
+  );
+  const input = screen.getByRole('textbox');
+  fireEvent.keyDown(input, { key: 'Enter' });
+  fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+  expect(onSend).not.toHaveBeenCalled();
+  expect((input as HTMLTextAreaElement).value).toBe('Inspect');
+  expect(screen.getByText('Original reference')).toBeTruthy();
+  expect(
+    screen.getByText('Remove attached context before sending the Local command.'),
+  ).toBeTruthy();
 });

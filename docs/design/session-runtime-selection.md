@@ -2,10 +2,11 @@
 
 Status: incremental implementation. Versioned EventStore bindings, local account
 projection, V2 configured-target persistence and workspace reservations are
-accepted foundations. The owned local first-command composition and chat consumer
-and a dormant authenticated REST/SSE entry are implemented behind an explicit server
-gate and await live qualification. No visible execution picker is enrolled; this document does not establish staged or
-deployed support for a selectable route.
+accepted foundations. The owned Local first-command runtime, authenticated REST/SSE
+entry and responsive account/profile/execution picker are implemented behind an
+explicit server gate and await live qualification. The gate remains off by default.
+Staging is stood down; this document does not establish deployed support or authorize
+provider enrollment or production activation.
 
 ## Guarded local Codex first-command contract
 

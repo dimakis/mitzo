@@ -15,14 +15,20 @@ import type {
   CriterionCheck,
   ReviewWorkflow as Workflow,
 } from '../types/symposium-review';
-export function SymposiumReviewEntry({ sessionId }: { sessionId: string }) {
+export function SymposiumReviewEntry({
+  sessionId,
+  readOnly = false,
+}: {
+  sessionId: string;
+  readOnly?: boolean;
+}) {
   const [open, setOpen] = useState(false);
   return (
     <div className="symposium-review-entry">
       <button aria-expanded={open} onClick={() => setOpen((value) => !value)}>
         {open ? 'Close review findings' : 'Open review findings'}
       </button>
-      {open && <SymposiumReviewPanel sessionId={sessionId} />}
+      {open && <SymposiumReviewPanel sessionId={sessionId} readOnly={readOnly} />}
     </div>
   );
 }
@@ -30,24 +36,29 @@ export function SymposiumReviewEntry({ sessionId }: { sessionId: string }) {
 export function SymposiumReviewPanel({
   sessionId,
   publicationSuggestion,
+  readOnly = false,
 }: {
   sessionId: string;
   publicationSuggestion?: PublicationSuggestion;
+  readOnly?: boolean;
 }) {
   return (
     <ReviewPanel
       key={sessionId}
       sessionId={sessionId}
       publicationSuggestion={publicationSuggestion}
+      readOnly={readOnly}
     />
   );
 }
 function ReviewPanel({
   sessionId,
   publicationSuggestion,
+  readOnly = false,
 }: {
   sessionId: string;
   publicationSuggestion?: PublicationSuggestion;
+  readOnly?: boolean;
 }) {
   const base = `/api/sessions/${encodeURIComponent(sessionId)}/symposium/reviews`;
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
@@ -57,9 +68,11 @@ function ReviewPanel({
   const [workflowId, setWorkflowId] = useState<string | null>(null);
   const [newReview, setNewReview] = useState(false);
   const [historyVersion, setHistoryVersion] = useState(0);
-  const [available, setAvailable] = useState(false);
+  const [reviewConfigured, setAvailable] = useState(false);
+  const available = reviewConfigured && !readOnly;
   const [stopAvailable, setStopAvailable] = useState(false);
-  const [cleanupAvailable, setCleanupAvailable] = useState(false);
+  const [cleanupConfigured, setCleanupAvailable] = useState(false);
+  const cleanupAvailable = cleanupConfigured && !readOnly;
   const [cleanupResult, setCleanupResult] = useState('');
   const [applicationRun, setApplicationRun] = useState<InitialApplicationRun>({
     available: false,
@@ -125,6 +138,7 @@ function ReviewPanel({
     };
   }, [reload]);
   async function action(path: string, body: unknown) {
+    if (readOnly) return;
     setBusy(true);
     setError('');
     setCleanupResult('');
@@ -337,10 +351,12 @@ function ReviewPanel({
   }
   return (
     <section aria-label="Review findings" className="symposium-review-panel">
-      <SymposiumPublicationSuggestions
-        sessionId={sessionId}
-        initialSuggestion={publicationSuggestion}
-      />
+      {!readOnly && (
+        <SymposiumPublicationSuggestions
+          sessionId={sessionId}
+          initialSuggestion={publicationSuggestion}
+        />
+      )}
       <h3>Review findings</h3>
       {error && <p role="alert">{error}</p>}
       {stopNotice && <p role="status">{stopNotice}</p>}

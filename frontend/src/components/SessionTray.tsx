@@ -23,6 +23,7 @@ interface Props {
   bootContext?: BootContextMeta | null;
   sessionContext?: string | null;
   selectedContextBlocks: string[];
+  contextRemovalOnly?: boolean;
   draftImages: ImageAttachment[];
   onToggleContextBlock: (name: string) => void;
   onAddImages: () => void;
@@ -95,6 +96,7 @@ export function SessionTray({
   selectedContextBlocks,
   draftImages,
   onToggleContextBlock,
+  contextRemovalOnly,
   onAddImages,
   onRemoveImage,
   onPreviewImage,
@@ -392,7 +394,11 @@ export function SessionTray({
                   {(bootContext || sessionContext) && (
                     <SessionBanner bootContext={bootContext} sessionContext={sessionContext} />
                   )}
-                  <ContextPanel selected={selectedContextBlocks} onToggle={onToggleContextBlock} />
+                  <ContextPanel
+                    selected={selectedContextBlocks}
+                    onToggle={onToggleContextBlock}
+                    removalOnly={contextRemovalOnly}
+                  />
                 </div>
               )}
             </section>
