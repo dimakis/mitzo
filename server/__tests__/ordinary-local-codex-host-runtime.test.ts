@@ -1,6 +1,7 @@
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import { createHash } from 'node:crypto';
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import * as boundedRead from '../bounded-file-read.js';
 import { hostname, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -8,7 +9,11 @@ import {
   ordinaryLocalCodexHostContractRevision,
 } from '../ordinary-local-codex-host-runtime.js';
 const roots: string[] = [];
-afterEach(() => roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true })));
+vi.mock('../bounded-file-read.js', { spy: true });
+afterEach(() => {
+  vi.restoreAllMocks();
+  roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true }));
+});
 function fixture() {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'mitzo-host-runtime-')));
   roots.push(root);
@@ -85,4 +90,17 @@ it('never infers an unconfigured host target from the OS or installed executable
   expect(() => new OrdinaryLocalCodexHostRuntime({})).toThrow(
     'Host Codex runtime observation unavailable',
   );
+});
+it('refuses a private settings leaf replaced during its bounded read', async () => {
+  const f = fixture();
+  const runtime = new OrdinaryLocalCodexHostRuntime(f.env);
+  const actual = await vi.importActual<typeof boundedRead>('../bounded-file-read.js');
+  vi.mocked(boundedRead.readBoundedFile).mockImplementationOnce((fd, limit) => {
+    const content = actual.readBoundedFile(fd, limit);
+    const replacement = join(f.root, 'settings', 'replacement.json');
+    writeFileSync(replacement, content, { mode: 0o600 });
+    renameSync(replacement, f.env.MITZO_ORDINARY_LOCAL_CODEX_NATIVE_FILE);
+    return content;
+  });
+  expect(() => runtime.assertCurrentSync()).toThrow('Host Codex runtime observation unavailable');
 });

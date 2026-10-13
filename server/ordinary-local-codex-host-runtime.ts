@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { closeSync, constants, fstatSync, openSync, realpathSync } from 'node:fs';
+import { closeSync, constants, fstatSync, lstatSync, openSync, realpathSync } from 'node:fs';
 import { hostname } from 'node:os';
 import { isAbsolute } from 'node:path';
 import { z } from 'zod';
@@ -29,20 +29,37 @@ export function ordinaryLocalCodexHostContractRevision(executableSha256: string)
     .digest('hex');
 }
 function privateSettings(path: string | undefined): unknown {
-  if (!path || !isAbsolute(path) || realpathSync(path) !== path) throw unavailable();
-  const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  let fd: number | undefined;
   try {
-    const stat = fstatSync(fd);
+    if (!path || !isAbsolute(path) || realpathSync(path) !== path) throw unavailable();
+    fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    const stat = fstatSync(fd, { bigint: true });
     if (
       !stat.isFile() ||
-      stat.uid !== process.getuid?.() ||
-      stat.nlink !== 1 ||
-      (stat.mode & 0o777) !== 0o600
+      stat.uid !== BigInt(process.getuid!()) ||
+      stat.nlink !== 1n ||
+      (stat.mode & 0o777n) !== 0o600n
     )
       throw unavailable();
-    return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(readBoundedFile(fd, 65536)));
+    const bytes = readBoundedFile(fd, 65536);
+    if (realpathSync(path) !== path) throw unavailable();
+    for (const current of [fstatSync(fd, { bigint: true }), lstatSync(path, { bigint: true })])
+      for (const field of [
+        'dev',
+        'ino',
+        'size',
+        'mtimeNs',
+        'ctimeNs',
+        'uid',
+        'mode',
+        'nlink',
+      ] as const)
+        if (current[field] !== stat[field]) throw unavailable();
+    return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+  } catch {
+    throw unavailable();
   } finally {
-    closeSync(fd);
+    if (fd !== undefined) closeSync(fd);
   }
 }
 
